@@ -33,6 +33,18 @@ const detail = {
   token_ledger_recent: [
     { id: 'ledger_1...', delta: -12, reason: 'generation', source: 'comfyui', job_id: 'job_20260627...', admin_action: null, created_at: isoDaysAgo(0.1), metadata: { job_id: 'job_20260627...', mode: 'text_to_image', provider: 'comfyui' } },
     { id: 'ledger_2...', delta: 50, reason: 'admin_adjust', source: 'admin_adjust', job_id: null, admin_action: 'admin_adjust_tokens', created_at: isoDaysAgo(1), metadata: { actor: 'iuid-web', reason: 'support correction' } },
+    { id: 'ledger_3...', delta: 500, reason: 'payment_grant', source: 'payment_grant', job_id: null, admin_action: null, created_at: isoDaysAgo(2), metadata: { reason: 'manual payment' } },
+  ],
+  billing_summary: { invoice_count: 2, paid_count: 1, unpaid_count: 1, total_paid: 1200, total_refunded: 200, last_invoice_at: isoDaysAgo(0.8), last_payment_at: isoDaysAgo(2) },
+  invoices_recent: [
+    { id: 'inv_issued_1', id_short: 'inv_issue…', invoice_code: 'INV-20260627-ABC123', status: 'issued', currency: 'RUB', total_amount: 900, tokens_total: 300, created_at: isoDaysAgo(0.8), issued_at: isoDaysAgo(0.8), paid_at: null },
+    { id: 'inv_paid_1', id_short: 'inv_paid…', invoice_code: 'INV-20260625-DEF456', status: 'partially_refunded', currency: 'RUB', total_amount: 1200, tokens_total: 500, created_at: isoDaysAgo(2), issued_at: isoDaysAgo(2), paid_at: isoDaysAgo(2) },
+  ],
+  payments_recent: [
+    { id: 'pay_manual_1', id_short: 'pay_manua…', invoice_id: 'inv_paid_1', status: 'partially_refunded', amount: 1200, currency: 'RUB', method: 'manual', provider: 'manual', paid_at: isoDaysAgo(2), token_ledger_id: 'ledger_3…' },
+  ],
+  refunds_recent: [
+    { id: 'ref_manual_1', id_short: 'ref_manua…', payment_id: 'pay_manual_1', invoice_id: 'inv_paid_1', status: 'completed', amount: 200, currency: 'RUB', created_at: isoDaysAgo(1), completed_at: isoDaysAgo(1), token_reversal_policy: 'deferred' },
   ],
   security_summary: { failed_login_count: 1, password_reset_count: 1, ban_count: 0, role_change_count: 1, session_revocation_count: 2, suspicious_ip_count: 1 },
 }

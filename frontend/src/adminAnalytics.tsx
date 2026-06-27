@@ -107,18 +107,20 @@ interface UserDetail {
   identities?: AnyRec[]; sessions?: AnyRec[]; devices?: AnyRec[]
   recent_events?: AnyRec[]; recent_security_events?: AnyRec[]; admin_actions?: AnyRec[]
   recent_generations?: AnyRec[]; recent_gallery?: AnyRec[]; token_ledger_recent?: AnyRec[]
+  billing_summary?: AnyRec; invoices_recent?: AnyRec[]; payments_recent?: AnyRec[]; refunds_recent?: AnyRec[]
   security_summary?: AnyRec
   token_summary?: { spent?: number; entries?: number; balance?: number }
 }
 
 // --- Shared trusted-action confirm (compact popover, reason-gated, audited). ---
-type ActKind = 'tokens' | 'role' | 'plan' | 'profile' | 'ban' | 'unban' | 'reset'
-function ActionConfirm({ target, kind, preset, onClose, onDone }: {
-  target: CrmUserRow; kind: ActKind; preset?: string; onClose: () => void; onDone: () => void
+type ActKind = 'tokens' | 'role' | 'plan' | 'profile' | 'ban' | 'unban' | 'reset' | 'invoice' | 'mark_paid' | 'refund' | 'cancel_invoice'
+function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
+  target: CrmUserRow; kind: ActKind; preset?: string; context?: AnyRec; onClose: () => void; onDone: () => void
 }): ReactElement {
   const isAdmin = target.role === 'admin'
   const [reason, setReason] = useState('')
   const [value, setValue] = useState(preset ?? (kind === 'profile' ? String(target.display_name ?? '') : ''))
+  const [tokens, setTokens] = useState(kind === 'invoice' ? '0' : '')
   const [email, setEmail] = useState(typeof target.email === 'string' ? target.email : '')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
@@ -126,14 +128,19 @@ function ActionConfirm({ target, kind, preset, onClose, onDone }: {
   const title: Record<ActKind, string> = {
     tokens: 'Изменить токены', role: isAdmin ? 'Снять админа' : 'Сделать админом', plan: 'Изменить тариф',
     profile: 'Изменить профиль', ban: 'Забанить / отключить', unban: 'Разбанить', reset: 'Сбросить пароль',
+    invoice: 'Выставить счёт', mark_paid: 'Отметить оплату', refund: 'Возврат', cancel_invoice: 'Отменить счёт',
   }
-  const danger = kind === 'ban' || kind === 'reset' || (kind === 'role' && isAdmin)
+  const danger = kind === 'ban' || kind === 'reset' || kind === 'refund' || kind === 'cancel_invoice' || (kind === 'role' && isAdmin)
   const changePreview = kind === 'tokens' ? `${Number(value) > 0 ? '+' : ''}${value || '—'} токенов`
     : kind === 'role' ? `${isAdmin ? 'admin → user' : 'user → admin'}`
     : kind === 'plan' ? `Тариф: ${value || '—'}`
     : kind === 'profile' ? `Имя/email будут обновлены`
     : kind === 'reset' ? 'Новый пароль будет установлен'
     : kind === 'ban' ? 'Доступ будет заблокирован'
+    : kind === 'invoice' ? `Счёт: ${value || '—'} ₽ · ${tokens || 0} токенов`
+    : kind === 'mark_paid' ? `Оплата: ${value || S(context?.total_amount)} ${S(context?.currency || 'RUB')}`
+    : kind === 'refund' ? `Возврат: ${value || S(context?.amount)} ${S(context?.currency || 'RUB')}`
+    : kind === 'cancel_invoice' ? `Счёт ${S(context?.invoice_code)} будет отменён`
     : 'Доступ будет восстановлен'
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -154,6 +161,28 @@ function ActionConfirm({ target, kind, preset, onClose, onDone }: {
     else if (kind === 'ban') res = await adminPost(`${base}/block-v2`, { reason })
     else if (kind === 'unban') res = await adminPost(`${base}/unblock-v2`, { reason })
     else if (kind === 'reset') { if (value.length < 8) { setBusy(false); setMsg('Пароль не короче 8 символов.'); return } res = await adminPost(`${base}/password-reset-v2`, { new_password: value, reason }) }
+    else if (kind === 'invoice') {
+      const amount = Number(value); const tokenAmount = Number(tokens || 0)
+      if (!amount || amount < 0 || tokenAmount < 0) { setBusy(false); setMsg('Укажите корректную сумму и токены.'); return }
+      res = await adminPost(`${base}/invoices-v2`, { currency: 'RUB', reason, status: 'issued', items: [{ title: 'Ручной счёт CRM', quantity: 1, unit_amount: amount, token_amount: tokenAmount }] })
+    }
+    else if (kind === 'mark_paid') {
+      const invoiceId = String(context?.id || '')
+      const amount = Number(value || context?.total_amount || 0)
+      if (!invoiceId || !amount) { setBusy(false); setMsg('Нет счёта для оплаты.'); return }
+      res = await adminPost(`/admin/invoices/${encodeURIComponent(invoiceId)}/mark-paid-v2`, { amount, method: 'manual', reason, idempotency_key: `manual-ui-${invoiceId}-${Date.now()}` })
+    }
+    else if (kind === 'refund') {
+      const paymentId = String(context?.id || '')
+      const amount = Number(value || context?.amount || 0)
+      if (!paymentId || !amount) { setBusy(false); setMsg('Нет платежа для возврата.'); return }
+      res = await adminPost(`/admin/payments/${encodeURIComponent(paymentId)}/refund-v2`, { amount, reason, idempotency_key: `refund-ui-${paymentId}-${Date.now()}` })
+    }
+    else if (kind === 'cancel_invoice') {
+      const invoiceId = String(context?.id || '')
+      if (!invoiceId) { setBusy(false); setMsg('Нет счёта для отмены.'); return }
+      res = await adminPost(`/admin/invoices/${encodeURIComponent(invoiceId)}/cancel-v2`, { reason })
+    }
     setBusy(false)
     if (res.ok) { setMsg('Готово. Записано в audit log.'); onDone(); window.setTimeout(onClose, 650) }
     else setMsg(res.detail || (res.status === 403 ? 'Недостаточно прав или действие запрещено.' : 'Не удалось выполнить действие.'))
@@ -174,6 +203,8 @@ function ActionConfirm({ target, kind, preset, onClose, onDone }: {
             <label>Изменение баланса<input value={value} onChange={(e) => setValue(e.target.value)} placeholder="например 50 или -50" /></label>
           </div>
         )}
+        {kind === 'invoice' && <><label>Сумма счёта, ₽<input value={value} onChange={(e) => setValue(e.target.value)} inputMode="numeric" placeholder="например 1250" /></label><label>Токены к начислению после оплаты<input value={tokens} onChange={(e) => setTokens(e.target.value)} inputMode="numeric" placeholder="например 500" /></label></>}
+        {(kind === 'mark_paid' || kind === 'refund') && <label>Сумма<input value={value} onChange={(e) => setValue(e.target.value)} inputMode="numeric" placeholder={S(context?.total_amount || context?.amount)} /></label>}
         {kind === 'plan' && <label>Тариф<select value={value} onChange={(e) => setValue(e.target.value)}><option value="">Выбрать…</option><option value="free">free</option><option value="mini">mini</option><option value="plus">plus</option><option value="pro">pro</option></select></label>}
         {kind === 'profile' && <><label>Отображаемое имя<input value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" /></label><label>Email<input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" /></label></>}
         {kind === 'reset' && <label>Новый пароль (не сохраняется)<input type="password" value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" /></label>}
@@ -194,7 +225,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const [data, setData] = useState<UserDetail | null>(null)
   const [state, setState] = useState<'loading' | 'ok' | 'notfound' | 'forbidden' | 'error'>('loading')
   const [reloadKey, setReloadKey] = useState(0)
-  const [act, setAct] = useState<{ kind: ActKind; preset?: string } | null>(null)
+  const [act, setAct] = useState<{ kind: ActKind; preset?: string; context?: AnyRec } | null>(null)
   const [tab, setTab] = useState<'logs' | 'payments' | 'prompts' | 'gallery' | 'tech'>('logs')
 
   useEffect(() => {
@@ -238,6 +269,9 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const actionButton = (kind: ActKind, label: string, preset?: string, danger?: boolean) =>
     <button className={danger ? 'secondary danger crm-supported-action' : 'secondary crm-supported-action'} onClick={() => setAct({ kind, preset })}>{label}</button>
   const disabledAction = (label: string) => <button className="secondary deferred-action" disabled title={deferred}>{label}<small>Отложено</small></button>
+  const money = (v: unknown, currency = 'RUB') => `${n0(v).toLocaleString()} ${currency}`
+  const unpaidInvoice = (data?.invoices_recent || []).find((i) => ['draft', 'issued'].includes(String(i.status)))
+  const refundablePayment = (data?.payments_recent || []).find((p) => ['paid', 'partially_refunded'].includes(String(p.status)))
 
   return (
     <div className="crm-card-overlay" onClick={onClose}>
@@ -293,9 +327,14 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <h4>Финансы и токены</h4>
               <dl className="crm-preview-list">
                 {row('Баланс токенов', data?.token_summary?.balance ?? sm.token_balance)}{row('Потрачено токенов', data?.token_summary?.spent ?? sm.tokens_spent)}
-                {row('Операций ledger', data?.token_summary?.entries ?? 0)}{row('Платежи', 'Отложено')}{row('Счета', 'Отложено')}{row('Бонусы', 'Отложено')}
+                {row('Операций ledger', data?.token_summary?.entries ?? 0)}
+                {row('Счетов', data?.billing_summary?.invoice_count ?? 0)}{row('Неоплачено', data?.billing_summary?.unpaid_count ?? 0)}
+                {row('Оплачено', money(data?.billing_summary?.total_paid))}{row('Возвраты', money(data?.billing_summary?.total_refunded))}{row('Бонусы', 'Отложено')}
               </dl>
               <div className="crm-rows">
+                {(data?.invoices_recent || []).slice(0, 4).map((i, n) => <small key={`inv${n}`}><strong>{S(i.invoice_code)}</strong> · {S(i.status)} · {money(i.total_amount, S(i.currency))} · {S(i.tokens_total)} ток. · {shortTime(i.created_at)}</small>)}
+                {(data?.payments_recent || []).slice(0, 3).map((p, n) => <small key={`pay${n}`}>Оплата · <strong>{money(p.amount, S(p.currency))}</strong> · {S(p.status)} · {shortTime(p.paid_at || p.created_at)}</small>)}
+                {(data?.refunds_recent || []).slice(0, 3).map((r, n) => <small key={`ref${n}`}>Возврат · <strong>{money(r.amount, S(r.currency))}</strong> · {S(r.status)} · {shortTime(r.completed_at || r.created_at)}</small>)}
                 {(data?.token_ledger_recent || []).slice(0, 5).map((l, n) => <small key={n}><strong>{Number(l.delta) > 0 ? '+' : ''}{S(l.delta)}</strong> · {S(l.reason)} · {S(l.source)} · {S(l.job_id)} · {shortTime(l.created_at)}</small>)}
               </div>
             </div>
@@ -341,7 +380,11 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 {(data?.admin_actions || []).slice(0, 10).map((e, n) => <small key={`a${n}`}>★ {shortTime(e.created_at)} · {S(e.action)} · {S(e.actor)}</small>)}
               </div>
             </div>}
-            {tab === 'payments' && <div className="crm-acc"><strong>Платежи</strong><p className="crm-card-note">{deferred}</p></div>}
+            {tab === 'payments' && <div className="crm-acc"><strong>Финансы</strong><div className="crm-rows">
+              {(data?.invoices_recent || []).map((i, n) => <small key={`ti${n}`}>Счёт {S(i.invoice_code)} · {S(i.status)} · {money(i.total_amount, S(i.currency))} · {S(i.tokens_total)} ток. · {shortTime(i.created_at)}</small>)}
+              {(data?.payments_recent || []).map((p, n) => <small key={`tp${n}`}>Оплата {shortId(p.id)} · {S(p.provider)} · {money(p.amount, S(p.currency))} · ledger {S(p.token_ledger_id)}</small>)}
+              {(data?.refunds_recent || []).map((r, n) => <small key={`tr${n}`}>Возврат {shortId(r.id)} · {money(r.amount, S(r.currency))} · {S(r.token_reversal_policy)}</small>)}
+            </div>{!data?.invoices_recent?.length && !data?.payments_recent?.length && !data?.refunds_recent?.length && <p className="crm-card-note">Нет реальных счетов/оплат/возвратов.</p>}</div>}
             {tab === 'prompts' && <div className="crm-acc"><strong>Промпты</strong><div className="crm-rows">{(data?.recent_generations || []).slice(0, 12).map((g, n) => <small key={n}>{shortTime(g.created_at)} · {S(g.mode)} · {S(g.status)} · {S(g.prompt)}</small>)}</div>{!data?.recent_generations?.length && <p className="crm-card-note">—</p>}</div>}
             {tab === 'gallery' && <div className="crm-acc"><strong>Галерея</strong><div className="crm-gallery-strip">{(data?.recent_gallery || []).slice(0, 8).map((img, n) => <span key={n}><img src={String(img.thumbnail_url)} alt="" /><small>{S(img.mode)} · {shortTime(img.created_at)}</small></span>)}</div>{!data?.recent_gallery?.length && <p className="crm-card-note">—</p>}</div>}
             {tab === 'tech' && <div className="crm-acc">
@@ -355,14 +398,14 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             <h4>Админ-действия</h4>
             <p className="crm-card-note">Каждое поддержанное действие требует причину и пишется в audit log.</p>
             <div className="crm-action-group"><strong>Токены</strong><div className="crm-quick"><button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'tokens', preset: '50' })}>+50</button><button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'tokens', preset: '-50' })}>-50</button>{actionButton('tokens', 'Другое')}</div></div>
-            <div className="crm-action-group"><strong>Биллинг</strong>{actionButton('plan', 'Изменить тариф')}{disabledAction('Выставить счёт')}{disabledAction('Платежи')}</div>
+            <div className="crm-action-group"><strong>Биллинг</strong>{actionButton('plan', 'Изменить тариф')}<button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'invoice', preset: '0' })}>Выставить счёт</button><button className="secondary crm-supported-action" disabled={!unpaidInvoice} onClick={() => unpaidInvoice && setAct({ kind: 'mark_paid', preset: S(unpaidInvoice.total_amount), context: unpaidInvoice })}>Отметить оплату</button><button className="secondary danger crm-supported-action" disabled={!refundablePayment} onClick={() => refundablePayment && setAct({ kind: 'refund', preset: S(refundablePayment.amount), context: refundablePayment })}>Возврат</button><button className="secondary danger crm-supported-action" disabled={!unpaidInvoice} onClick={() => unpaidInvoice && setAct({ kind: 'cancel_invoice', context: unpaidInvoice })}>Отменить счёт</button></div>
             <div className="crm-action-group"><strong>Маркетинг</strong>{disabledAction('Начислить бонус')}{disabledAction('Применить промокод')}</div>
             <div className="crm-action-group"><strong>Доступ</strong>{actionButton(isBanned ? 'unban' : 'ban', isBanned ? 'Разбанить' : 'Бан/Разбан', undefined, !isBanned)}{actionButton('reset', 'Сбросить пароль', undefined, true)}</div>
             <div className="crm-action-group"><strong>Аккаунт</strong>{actionButton('profile', 'Редактировать профиль')}{actionButton('role', isAdmin ? 'Снять админа' : 'Сделать админом')}{disabledAction('Удаление/анонимизация')}</div>
           </aside>
         </div>
 
-        {act && <ActionConfirm target={merged} kind={act.kind} preset={act.preset} onClose={() => setAct(null)} onDone={() => { setReloadKey((k) => k + 1); onChanged?.() }} />}
+        {act && <ActionConfirm target={merged} kind={act.kind} preset={act.preset} context={act.context} onClose={() => setAct(null)} onDone={() => { setReloadKey((k) => k + 1); onChanged?.() }} />}
       </div>
     </div>
   )

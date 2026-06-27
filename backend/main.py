@@ -316,6 +316,40 @@ class AdminProfileV2Request(BaseModel):
     reason: str = ""
 
 
+class BillingInvoiceItemV2Request(BaseModel):
+    package_code: str | None = None
+    title: str = ""
+    description: str | None = None
+    quantity: int = 1
+    unit_amount: int = 0
+    token_amount: int = 0
+
+
+class BillingCreateInvoiceV2Request(BaseModel):
+    items: list[BillingInvoiceItemV2Request] = Field(default_factory=list)
+    currency: str = "RUB"
+    due_at: str | None = None
+    reason: str = ""
+    status: Literal["draft", "issued"] = "issued"
+
+
+class BillingMarkPaidV2Request(BaseModel):
+    amount: int = 0
+    method: Literal["manual"] = "manual"
+    reason: str = ""
+    idempotency_key: str | None = None
+
+
+class BillingCancelInvoiceV2Request(BaseModel):
+    reason: str = ""
+
+
+class BillingRefundV2Request(BaseModel):
+    amount: int = 0
+    reason: str = ""
+    idempotency_key: str | None = None
+
+
 class ProfileUpdateV2Request(BaseModel):
     # Only these safe profile fields can be patched. role/banned/internal_user_id/
     # users.id are absent here, so they can never be changed via this endpoint.
@@ -728,6 +762,99 @@ def init_db() -> None:
                 meta_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS billing_packages (
+                id TEXT PRIMARY KEY,
+                code TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                description TEXT,
+                price_amount INTEGER NOT NULL DEFAULT 0,
+                currency TEXT NOT NULL DEFAULT 'RUB',
+                token_amount INTEGER NOT NULL DEFAULT 0,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS invoices (
+                id TEXT PRIMARY KEY,
+                invoice_code TEXT NOT NULL UNIQUE,
+                internal_user_id TEXT NOT NULL,
+                user_id TEXT,
+                status TEXT NOT NULL,
+                currency TEXT NOT NULL DEFAULT 'RUB',
+                subtotal_amount INTEGER NOT NULL DEFAULT 0,
+                discount_amount INTEGER NOT NULL DEFAULT 0,
+                total_amount INTEGER NOT NULL DEFAULT 0,
+                tokens_total INTEGER NOT NULL DEFAULT 0,
+                due_at TEXT,
+                issued_at TEXT,
+                paid_at TEXT,
+                cancelled_at TEXT,
+                refunded_at TEXT,
+                created_by_admin_id TEXT,
+                updated_by_admin_id TEXT,
+                reason TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS invoice_items (
+                id TEXT PRIMARY KEY,
+                invoice_id TEXT NOT NULL,
+                package_code TEXT,
+                title TEXT NOT NULL,
+                description TEXT,
+                quantity INTEGER NOT NULL DEFAULT 1,
+                unit_amount INTEGER NOT NULL DEFAULT 0,
+                total_amount INTEGER NOT NULL DEFAULT 0,
+                token_amount INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS payments (
+                id TEXT PRIMARY KEY,
+                invoice_id TEXT NOT NULL,
+                internal_user_id TEXT NOT NULL,
+                user_id TEXT,
+                status TEXT NOT NULL,
+                amount INTEGER NOT NULL DEFAULT 0,
+                currency TEXT NOT NULL DEFAULT 'RUB',
+                method TEXT NOT NULL DEFAULT 'manual',
+                provider TEXT NOT NULL DEFAULT 'manual',
+                provider_payment_id TEXT,
+                paid_at TEXT,
+                created_by_admin_id TEXT,
+                reason TEXT,
+                token_ledger_id TEXT,
+                idempotency_key TEXT UNIQUE,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS refunds (
+                id TEXT PRIMARY KEY,
+                payment_id TEXT NOT NULL,
+                invoice_id TEXT NOT NULL,
+                internal_user_id TEXT NOT NULL,
+                amount INTEGER NOT NULL DEFAULT 0,
+                currency TEXT NOT NULL DEFAULT 'RUB',
+                status TEXT NOT NULL,
+                reason TEXT,
+                created_by_admin_id TEXT,
+                token_reversal_ledger_id TEXT,
+                idempotency_key TEXT UNIQUE,
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_invoices_user_created ON invoices(internal_user_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_invoices_status_created ON invoices(status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_payments_user_created ON payments(internal_user_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
+            CREATE INDEX IF NOT EXISTS idx_refunds_user_created ON refunds(internal_user_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id);
             """
         )
         existing_user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
@@ -5023,6 +5150,169 @@ def _admin_load_target(conn: sqlite3.Connection, internal_user_id: str) -> sqlit
     return row
 
 
+BILLING_INVOICE_STATUSES = {"draft", "issued", "paid", "cancelled", "refunded", "partially_refunded"}
+BILLING_PAYMENT_STATUSES = {"pending", "paid", "failed", "cancelled", "refunded", "partially_refunded"}
+BILLING_REFUND_STATUSES = {"pending", "completed", "failed", "cancelled"}
+
+
+def _billing_currency(value: str | None) -> str:
+    currency = (value or "RUB").strip().upper()[:12]
+    return currency or "RUB"
+
+
+def _billing_reason(value: str | None) -> str:
+    reason = truncate_admin_text(value, 300).strip()
+    if not reason:
+        raise HTTPException(400, "Укажите причину.")
+    return reason
+
+
+def _billing_idempotency(value: str | None, prefix: str) -> str:
+    raw = (value or "").strip()
+    if raw:
+        return raw[:120]
+    return f"{prefix}-{uuid.uuid4().hex}"
+
+
+def _invoice_code(conn: sqlite3.Connection) -> str:
+    day = datetime.now(timezone.utc).strftime("%Y%m%d")
+    for _ in range(20):
+        code = f"INV-{day}-{secrets.token_hex(3).upper()}"
+        if conn.execute("SELECT 1 FROM invoices WHERE invoice_code = ?", (code,)).fetchone() is None:
+            return code
+    return f"INV-{day}-{uuid.uuid4().hex[:10].upper()}"
+
+
+def _billing_invoice_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "id_short": short_public_id(row["id"], 10),
+        "invoice_code": row["invoice_code"],
+        "internal_user_id": row["internal_user_id"],
+        "user_id_short": short_public_id(row["user_id"], 8),
+        "status": row["status"],
+        "currency": row["currency"],
+        "subtotal_amount": int(row["subtotal_amount"] or 0),
+        "discount_amount": int(row["discount_amount"] or 0),
+        "total_amount": int(row["total_amount"] or 0),
+        "tokens_total": int(row["tokens_total"] or 0),
+        "due_at": row["due_at"],
+        "issued_at": row["issued_at"],
+        "paid_at": row["paid_at"],
+        "cancelled_at": row["cancelled_at"],
+        "refunded_at": row["refunded_at"],
+        "reason": truncate_admin_text(row["reason"], 120),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _billing_payment_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "id_short": short_public_id(row["id"], 10),
+        "invoice_id": row["invoice_id"],
+        "invoice_id_short": short_public_id(row["invoice_id"], 10),
+        "internal_user_id": row["internal_user_id"],
+        "user_id_short": short_public_id(row["user_id"], 8),
+        "status": row["status"],
+        "amount": int(row["amount"] or 0),
+        "currency": row["currency"],
+        "method": row["method"],
+        "provider": row["provider"],
+        "provider_payment_id": short_public_id(row["provider_payment_id"], 10),
+        "paid_at": row["paid_at"],
+        "reason": truncate_admin_text(row["reason"], 120),
+        "token_ledger_id": short_public_id(row["token_ledger_id"], 10),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _billing_refund_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "id_short": short_public_id(row["id"], 10),
+        "payment_id": row["payment_id"],
+        "payment_id_short": short_public_id(row["payment_id"], 10),
+        "invoice_id": row["invoice_id"],
+        "invoice_id_short": short_public_id(row["invoice_id"], 10),
+        "internal_user_id": row["internal_user_id"],
+        "amount": int(row["amount"] or 0),
+        "currency": row["currency"],
+        "status": row["status"],
+        "reason": truncate_admin_text(row["reason"], 120),
+        "token_reversal_ledger_id": short_public_id(row["token_reversal_ledger_id"], 10),
+        "created_at": row["created_at"],
+        "completed_at": row["completed_at"],
+        "token_reversal_policy": "deferred",
+    }
+
+
+def _billing_package_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "code": row["code"],
+        "name": row["name"],
+        "description": truncate_admin_text(row["description"], 160),
+        "price_amount": int(row["price_amount"] or 0),
+        "currency": row["currency"],
+        "token_amount": int(row["token_amount"] or 0),
+        "is_active": bool(row["is_active"]),
+        "sort_order": int(row["sort_order"] or 0),
+    }
+
+
+def _billing_projection(conn: sqlite3.Connection, internal_user_id: str) -> dict[str, Any]:
+    summary = conn.execute(
+        """
+        SELECT
+            COUNT(*) AS invoice_count,
+            COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END),0) AS paid_count,
+            COALESCE(SUM(CASE WHEN status IN ('draft','issued') THEN 1 ELSE 0 END),0) AS unpaid_count,
+            MAX(created_at) AS last_invoice_at
+        FROM invoices WHERE internal_user_id = ?
+        """,
+        (internal_user_id,),
+    ).fetchone()
+    totals = conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(CASE WHEN status IN ('paid','refunded','partially_refunded') THEN amount ELSE 0 END),0) AS total_paid,
+            MAX(paid_at) AS last_payment_at
+        FROM payments WHERE internal_user_id = ?
+        """,
+        (internal_user_id,),
+    ).fetchone()
+    refunds_total = conn.execute(
+        "SELECT COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END),0) AS total_refunded FROM refunds WHERE internal_user_id = ?",
+        (internal_user_id,),
+    ).fetchone()["total_refunded"]
+    invoices = conn.execute("SELECT * FROM invoices WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 20", (internal_user_id,)).fetchall()
+    payments = conn.execute("SELECT * FROM payments WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 20", (internal_user_id,)).fetchall()
+    refunds = conn.execute("SELECT * FROM refunds WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 20", (internal_user_id,)).fetchall()
+    return {
+        "billing_summary": {
+            "invoice_count": int(summary["invoice_count"] or 0),
+            "paid_count": int(summary["paid_count"] or 0),
+            "unpaid_count": int(summary["unpaid_count"] or 0),
+            "total_paid": int(totals["total_paid"] or 0),
+            "total_refunded": int(refunds_total or 0),
+            "last_invoice_at": summary["last_invoice_at"],
+            "last_payment_at": totals["last_payment_at"],
+        },
+        "invoices_recent": [_billing_invoice_dict(r) for r in invoices],
+        "payments_recent": [_billing_payment_dict(r) for r in payments],
+        "refunds_recent": [_billing_refund_dict(r) for r in refunds],
+    }
+
+
 @app.post("/api/admin/users/{internal_user_id}/role-v2")
 async def admin_role_v2(internal_user_id: str, req: AdminRoleV2Request, request: Request) -> dict[str, Any]:
     admin = require_trusted_admin(request)
@@ -5125,6 +5415,290 @@ async def admin_profile_v2(internal_user_id: str, req: AdminProfileV2Request, re
         record_audit_log(conn, "admin_update_user_profile", actor_internal_user_id=admin["internal_user_id"],
                          target_internal_user_id=internal_user_id, entity_id=target["id"], before=before, after=after, request=request)
     return {"ok": True, "internal_user_id": internal_user_id, "display_name": after.get("display_name"), "email": after.get("email")}
+
+
+@app.get("/api/admin/users/{internal_user_id}/billing-v2")
+async def admin_user_billing_v2(internal_user_id: str, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    with db() as conn:
+        _admin_load_target(conn, internal_user_id)
+        packages = conn.execute(
+            "SELECT * FROM billing_packages WHERE is_active = 1 ORDER BY sort_order ASC, price_amount ASC, code ASC"
+        ).fetchall()
+        projection = _billing_projection(conn, internal_user_id)
+    return {"ok": True, "packages": [_billing_package_dict(r) for r in packages], **projection}
+
+
+@app.post("/api/admin/users/{internal_user_id}/invoices-v2")
+async def admin_create_invoice_v2(internal_user_id: str, req: BillingCreateInvoiceV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = _billing_reason(req.reason)
+    if not req.items:
+        raise HTTPException(400, "Добавьте хотя бы одну позицию счёта.")
+    currency = _billing_currency(req.currency)
+    now = datetime.now(timezone.utc).isoformat()
+    normalized_items: list[dict[str, Any]] = []
+    subtotal = 0
+    tokens_total = 0
+    for item in req.items:
+        title = truncate_admin_text(item.title, 180).strip()
+        if not title:
+            raise HTTPException(400, "Укажите название позиции.")
+        quantity = int(item.quantity or 0)
+        unit_amount = int(item.unit_amount or 0)
+        token_amount = int(item.token_amount or 0)
+        if quantity <= 0 or unit_amount < 0 or token_amount < 0:
+            raise HTTPException(400, "Некорректная позиция счёта.")
+        total = quantity * unit_amount
+        subtotal += total
+        tokens_total += quantity * token_amount
+        normalized_items.append({
+            "package_code": truncate_admin_text(item.package_code, 80) or None,
+            "title": title,
+            "description": truncate_admin_text(item.description, 240) or None,
+            "quantity": quantity,
+            "unit_amount": unit_amount,
+            "total_amount": total,
+            "token_amount": token_amount,
+        })
+    invoice: dict[str, Any] | None = None
+    legacy_user_id: str | None = None
+    with db() as conn:
+        target = _admin_load_target(conn, internal_user_id)
+        legacy_user_id = target["id"]
+        invoice_id = uuid.uuid4().hex
+        invoice_code = _invoice_code(conn)
+        status = "draft" if req.status == "draft" else "issued"
+        conn.execute(
+            """
+            INSERT INTO invoices
+                (id, invoice_code, internal_user_id, user_id, status, currency, subtotal_amount,
+                 discount_amount, total_amount, tokens_total, due_at, issued_at, created_by_admin_id,
+                 updated_by_admin_id, reason, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                invoice_id, invoice_code, internal_user_id, legacy_user_id, status, currency, subtotal,
+                subtotal, tokens_total, req.due_at, now if status == "issued" else None,
+                admin["internal_user_id"], admin["internal_user_id"], reason, now, now,
+            ),
+        )
+        for item in normalized_items:
+            conn.execute(
+                """
+                INSERT INTO invoice_items
+                    (id, invoice_id, package_code, title, description, quantity, unit_amount, total_amount, token_amount, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (uuid.uuid4().hex, invoice_id, item["package_code"], item["title"], item["description"],
+                 item["quantity"], item["unit_amount"], item["total_amount"], item["token_amount"], now),
+            )
+        row = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+        invoice = _billing_invoice_dict(row)
+        record_audit_log(
+            conn, "billing_invoice_created", actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=internal_user_id, entity_type="invoice", entity_id=invoice_id,
+            after={"invoice_code": invoice_code, "status": status, "total_amount": subtotal, "tokens_total": tokens_total, "reason": reason},
+            request=request,
+        )
+    try:
+        record_event_log(
+            "billing_invoice_created", internal_user_id=internal_user_id, legacy_user_id=legacy_user_id,
+            platform=admin.get("platform", "web"), request=request,
+            properties={"invoice_id": invoice["id"] if invoice else None, "invoice_code": invoice["invoice_code"] if invoice else None,
+                        "total_amount": subtotal, "tokens_total": tokens_total, "status": req.status},
+        )
+    except Exception:
+        pass
+    return {"ok": True, "invoice": invoice}
+
+
+@app.post("/api/admin/invoices/{invoice_id}/mark-paid-v2")
+async def admin_mark_invoice_paid_v2(invoice_id: str, req: BillingMarkPaidV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = _billing_reason(req.reason)
+    amount = int(req.amount or 0)
+    if amount <= 0:
+        raise HTTPException(400, "Сумма оплаты должна быть больше нуля.")
+    idem = _billing_idempotency(req.idempotency_key, f"manual-pay-{invoice_id}")
+    now = datetime.now(timezone.utc).isoformat()
+    payment: dict[str, Any] | None = None
+    invoice_out: dict[str, Any] | None = None
+    new_balance = 0
+    target_iuid: str | None = None
+    legacy_user_id: str | None = None
+    with db() as conn:
+        existing = conn.execute("SELECT * FROM payments WHERE idempotency_key = ?", (idem,)).fetchone()
+        if existing is not None:
+            inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (existing["invoice_id"],)).fetchone()
+            bal = conn.execute("SELECT token_balance FROM users WHERE internal_user_id = ?", (existing["internal_user_id"],)).fetchone()
+            return {"ok": True, "payment": _billing_payment_dict(existing), "invoice": _billing_invoice_dict(inv), "new_token_balance": int(_row_get(bal, "token_balance") or 0), "idempotent": True}
+        inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+        if inv is None:
+            raise HTTPException(404, "Invoice not found.")
+        if inv["status"] in {"cancelled", "refunded", "partially_refunded"}:
+            raise HTTPException(400, "Нельзя оплатить отменённый или возвращённый счёт.")
+        if inv["status"] == "paid":
+            raise HTTPException(400, "Счёт уже оплачен.")
+        if amount != int(inv["total_amount"] or 0):
+            raise HTTPException(400, "Для ручной оплаты сумма должна совпадать с суммой счёта.")
+        target_iuid = inv["internal_user_id"]
+        legacy_user_id = inv["user_id"]
+        target = _admin_load_target(conn, target_iuid)
+        payment_id = uuid.uuid4().hex
+        ledger_id: str | None = None
+        tokens_total = int(inv["tokens_total"] or 0)
+        old_balance = int(target["token_balance"] or 0)
+        new_balance = old_balance
+        if tokens_total > 0:
+            ledger_id = uuid.uuid4().hex
+            new_balance = old_balance + tokens_total
+            conn.execute(
+                "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'payment_grant', ?, ?)",
+                (
+                    ledger_id, legacy_user_id, tokens_total,
+                    json.dumps({"invoice_id": invoice_id, "payment_id": payment_id, "invoice_code": inv["invoice_code"],
+                                "actor_internal_user_id": admin["internal_user_id"], "reason": reason}, ensure_ascii=False),
+                    now,
+                ),
+            )
+            conn.execute("UPDATE users SET token_balance = ? WHERE internal_user_id = ?", (new_balance, target_iuid))
+        conn.execute(
+            """
+            INSERT INTO payments
+                (id, invoice_id, internal_user_id, user_id, status, amount, currency, method, provider,
+                 paid_at, created_by_admin_id, reason, token_ledger_id, idempotency_key, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'paid', ?, ?, 'manual', 'manual', ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (payment_id, invoice_id, target_iuid, legacy_user_id, amount, inv["currency"], now,
+             admin["internal_user_id"], reason, ledger_id, idem, now, now),
+        )
+        conn.execute(
+            "UPDATE invoices SET status = 'paid', paid_at = ?, updated_at = ?, updated_by_admin_id = ? WHERE id = ?",
+            (now, now, admin["internal_user_id"], invoice_id),
+        )
+        payment_row = conn.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
+        inv_row = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+        payment = _billing_payment_dict(payment_row)
+        invoice_out = _billing_invoice_dict(inv_row)
+        record_audit_log(
+            conn, "billing_invoice_mark_paid", actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=target_iuid, entity_type="payment", entity_id=payment_id,
+            before={"invoice_status": inv["status"], "token_balance": old_balance},
+            after={"invoice_status": "paid", "amount": amount, "tokens_granted": tokens_total, "token_balance": new_balance, "reason": reason},
+            request=request,
+        )
+    try:
+        record_event_log(
+            "billing_payment_recorded", internal_user_id=target_iuid, legacy_user_id=legacy_user_id,
+            platform=admin.get("platform", "web"), request=request,
+            properties={"invoice_id": invoice_id, "payment_id": payment["id"] if payment else None, "amount": amount},
+        )
+    except Exception:
+        pass
+    return {"ok": True, "payment": payment, "invoice": invoice_out, "new_token_balance": new_balance}
+
+
+@app.post("/api/admin/invoices/{invoice_id}/cancel-v2")
+async def admin_cancel_invoice_v2(invoice_id: str, req: BillingCancelInvoiceV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = _billing_reason(req.reason)
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+        if inv is None:
+            raise HTTPException(404, "Invoice not found.")
+        if inv["status"] in {"paid", "refunded", "partially_refunded"}:
+            raise HTTPException(400, "Оплаченный счёт отменяется только через возврат.")
+        if inv["status"] == "cancelled":
+            raise HTTPException(400, "Счёт уже отменён.")
+        conn.execute(
+            "UPDATE invoices SET status = 'cancelled', cancelled_at = ?, updated_at = ?, updated_by_admin_id = ?, reason = ? WHERE id = ?",
+            (now, now, admin["internal_user_id"], reason, invoice_id),
+        )
+        row = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+        record_audit_log(
+            conn, "billing_invoice_cancelled", actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=inv["internal_user_id"], entity_type="invoice", entity_id=invoice_id,
+            before={"status": inv["status"]}, after={"status": "cancelled", "reason": reason}, request=request,
+        )
+    return {"ok": True, "invoice": _billing_invoice_dict(row)}
+
+
+@app.post("/api/admin/payments/{payment_id}/refund-v2")
+async def admin_refund_payment_v2(payment_id: str, req: BillingRefundV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = _billing_reason(req.reason)
+    amount = int(req.amount or 0)
+    if amount <= 0:
+        raise HTTPException(400, "Сумма возврата должна быть больше нуля.")
+    idem = _billing_idempotency(req.idempotency_key, f"manual-refund-{payment_id}")
+    now = datetime.now(timezone.utc).isoformat()
+    refund: dict[str, Any] | None = None
+    payment_out: dict[str, Any] | None = None
+    invoice_out: dict[str, Any] | None = None
+    target_iuid: str | None = None
+    legacy_user_id: str | None = None
+    with db() as conn:
+        existing = conn.execute("SELECT * FROM refunds WHERE idempotency_key = ?", (idem,)).fetchone()
+        if existing is not None:
+            pay = conn.execute("SELECT * FROM payments WHERE id = ?", (existing["payment_id"],)).fetchone()
+            inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (existing["invoice_id"],)).fetchone()
+            return {"ok": True, "refund": _billing_refund_dict(existing), "payment": _billing_payment_dict(pay), "invoice": _billing_invoice_dict(inv), "idempotent": True}
+        pay = conn.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
+        if pay is None:
+            raise HTTPException(404, "Payment not found.")
+        if pay["status"] not in {"paid", "partially_refunded"}:
+            raise HTTPException(400, "Возврат возможен только по оплаченной записи.")
+        refunded = int(conn.execute("SELECT COALESCE(SUM(amount),0) AS c FROM refunds WHERE payment_id = ? AND status = 'completed'", (payment_id,)).fetchone()["c"] or 0)
+        remaining = int(pay["amount"] or 0) - refunded
+        if amount > remaining:
+            raise HTTPException(400, "Сумма возврата превышает остаток платежа.")
+        target_iuid = pay["internal_user_id"]
+        legacy_user_id = pay["user_id"]
+        refund_id = uuid.uuid4().hex
+        conn.execute(
+            """
+            INSERT INTO refunds
+                (id, payment_id, invoice_id, internal_user_id, amount, currency, status, reason,
+                 created_by_admin_id, token_reversal_ledger_id, idempotency_key, created_at, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'completed', ?, ?, NULL, ?, ?, ?)
+            """,
+            (refund_id, payment_id, pay["invoice_id"], target_iuid, amount, pay["currency"], reason,
+             admin["internal_user_id"], idem, now, now),
+        )
+        new_refunded = refunded + amount
+        new_payment_status = "refunded" if new_refunded >= int(pay["amount"] or 0) else "partially_refunded"
+        conn.execute("UPDATE payments SET status = ?, updated_at = ? WHERE id = ?", (new_payment_status, now, payment_id))
+        invoice_paid = int(conn.execute("SELECT COALESCE(SUM(amount),0) AS c FROM payments WHERE invoice_id = ? AND status IN ('paid','partially_refunded','refunded')", (pay["invoice_id"],)).fetchone()["c"] or 0)
+        invoice_refunded = int(conn.execute("SELECT COALESCE(SUM(amount),0) AS c FROM refunds WHERE invoice_id = ? AND status = 'completed'", (pay["invoice_id"],)).fetchone()["c"] or 0)
+        new_invoice_status = "refunded" if invoice_refunded >= invoice_paid else "partially_refunded"
+        conn.execute(
+            "UPDATE invoices SET status = ?, refunded_at = ?, updated_at = ?, updated_by_admin_id = ? WHERE id = ?",
+            (new_invoice_status, now, now, admin["internal_user_id"], pay["invoice_id"]),
+        )
+        refund_row = conn.execute("SELECT * FROM refunds WHERE id = ?", (refund_id,)).fetchone()
+        pay_row = conn.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
+        inv_row = conn.execute("SELECT * FROM invoices WHERE id = ?", (pay["invoice_id"],)).fetchone()
+        refund = _billing_refund_dict(refund_row)
+        payment_out = _billing_payment_dict(pay_row)
+        invoice_out = _billing_invoice_dict(inv_row)
+        record_audit_log(
+            conn, "billing_payment_refunded", actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=target_iuid, entity_type="refund", entity_id=refund_id,
+            before={"payment_status": pay["status"], "remaining": remaining},
+            after={"amount": amount, "payment_status": new_payment_status, "invoice_status": new_invoice_status, "reason": reason, "token_reversal_policy": "deferred"},
+            request=request,
+        )
+    try:
+        record_event_log(
+            "billing_refund_recorded", internal_user_id=target_iuid, legacy_user_id=legacy_user_id,
+            platform=admin.get("platform", "web"), request=request,
+            properties={"payment_id": payment_id, "amount": amount, "token_reversal_policy": "deferred"},
+        )
+    except Exception:
+        pass
+    return {"ok": True, "refund": refund, "payment": payment_out, "invoice": invoice_out}
 
 
 # ---------------------------------------------------------------------------
@@ -5330,6 +5904,7 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
             "SELECT COUNT(DISTINCT ip_address) AS c FROM security_events WHERE internal_user_id = ? AND severity IN ('warning','critical') AND ip_address IS NOT NULL",
             (internal_user_id,),
         ).fetchone()["c"]
+        billing = _billing_projection(conn, internal_user_id)
     image_by_job = {r["job_id"]: r for r in image_rows if r["job_id"]}
     spent_by_job: dict[str, int] = {}
     for r in ledger_rows:
@@ -5340,6 +5915,7 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
     return {
         "ok": True,
         "summary": summary,
+        **billing,
         "identities": [{
             "provider": r["provider"], "provider_user_id": r["provider_user_id"],
             "provider_username": r["provider_username"], "provider_email": mask_email(r["provider_email"]),

@@ -90,6 +90,15 @@ ok(admin.includes('crm-chip') && admin.includes('status-active') && admin.includ
 for (const field of ['recent_generations', 'recent_gallery', 'token_ledger_recent', 'security_summary', 'failed_login_count', 'mac_status']) {
   ok(admin.includes(field), `CRM card must render real analytics-v2 field ${field}`)
 }
+for (const field of ['billing_summary', 'invoices_recent', 'payments_recent', 'refunds_recent']) {
+  ok(admin.includes(field), `CRM card must render billing analytics-v2 field ${field}`)
+}
+for (const ep of ['/invoices-v2', '/mark-paid-v2', '/refund-v2', '/cancel-v2']) {
+  ok(admin.includes(ep), `billing action must call ${ep}`)
+}
+ok(admin.includes('Выставить счёт') && admin.includes('Отметить оплату') && admin.includes('Возврат') && admin.includes('Отменить счёт'), 'billing action labels missing')
+ok(admin.includes('Токены к начислению после оплаты') && admin.includes('Сумма счёта'), 'create invoice confirm fields missing')
+ok(admin.includes('manual-ui-') && admin.includes('refund-ui-'), 'manual billing idempotency keys missing')
 ok(admin.includes('crm-gallery-strip') && admin.includes('thumbnail_url'), 'gallery thumbnails must render when safe URLs exist')
 ok(admin.includes('Операций ledger') && admin.includes('Ошибки входа') && admin.includes('Сбросы пароля'), 'token/security real-data labels missing')
 ok(admin.includes('MAC: недоступен') && !/MAC:\s*агент/.test(admin), 'MAC must be unavailable unless explicitly agent-collected')
