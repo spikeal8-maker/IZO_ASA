@@ -367,6 +367,10 @@ class ApplyPromoV2Request(BaseModel):
     idempotency_key: str | None = None
 
 
+class UserApplyPromoV2Request(BaseModel):
+    promo_code: str = ""
+
+
 class ReferralRewardV2Request(BaseModel):
     token_amount: int = 0
     child_internal_user_id: str | None = None
@@ -488,6 +492,7 @@ class AdminSettingsRequest(BaseModel):
 
 
 rate_limits = {"hourly": 10, "daily": 50}
+PROMO_REFERRAL_REWARD_TOKENS = 50
 
 
 @dataclass
@@ -2089,7 +2094,9 @@ def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None,
     if _row_get(row, "role") == "admin":
         return True
     plan = str(_row_get(row, "plan") or "mini")
-    return plan in {"mini", "plus", "pro"} and bool(_row_get(row, "gallery_enabled"))
+    # Product rule: paid plans include the gallery. gallery_enabled is kept as
+    # compatibility data, but stale false values must not hide mini/plus/pro.
+    return plan in {"mini", "plus", "pro"}
 
 
 def create_auth_session(
@@ -6046,8 +6053,9 @@ async def admin_bonus_grant_v2(internal_user_id: str, req: BonusGrantV2Request, 
         target = _admin_load_target(conn, internal_user_id)
         legacy_user_id = target["id"]
         bonus_id = uuid.uuid4().hex
+        ledger_reason = "admin_bonus_compensation" if req.bonus_type == "compensation" else "bonus_grant"
         ledger_id, new_balance = _grant_tokens_with_ledger(
-            conn, target=target, delta=amount, reason=reason, ledger_reason="bonus_grant",
+            conn, target=target, delta=amount, reason=reason, ledger_reason=ledger_reason,
             meta={"bonus_id": bonus_id, "bonus_type": req.bonus_type, "actor_internal_user_id": admin["internal_user_id"]},
         )
         conn.execute(
@@ -6142,12 +6150,12 @@ async def admin_apply_promo_v2(internal_user_id: str, req: ApplyPromoV2Request, 
         if duplicate is not None:
             raise HTTPException(400, "Промокод уже применён к этому пользователю.")
         redemption_id = uuid.uuid4().hex
-        token_bonus = int(promo["tokens"] or 0)
+        token_bonus = PROMO_REFERRAL_REWARD_TOKENS
         ledger_id: str | None = None
         new_balance = int(target["token_balance"] or 0)
         if token_bonus > 0:
             ledger_id, new_balance = _grant_tokens_with_ledger(
-                conn, target=target, delta=token_bonus, reason=reason, ledger_reason="promo_redemption",
+                conn, target=target, delta=token_bonus, reason=reason, ledger_reason="promo_code_redeemed",
                 meta={"promo_redemption_id": redemption_id, "promo_code": promo_code, "actor_internal_user_id": admin["internal_user_id"]},
             )
         conn.execute(
@@ -6177,13 +6185,76 @@ async def admin_apply_promo_v2(internal_user_id: str, req: ApplyPromoV2Request, 
     return {"ok": True, "redemption": redemption, "new_token_balance": new_balance}
 
 
+@app.post("/api/account/apply-promo-v2")
+async def account_apply_promo_v2(req: UserApplyPromoV2Request, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    internal_user_id = trusted["internal_user_id"]
+    promo_code = (req.promo_code or "").strip().upper()[:80]
+    if not promo_code:
+        raise HTTPException(400, "Укажите промокод.")
+    now = datetime.now(timezone.utc).isoformat()
+    reason = "promo_code_redeemed"
+    redemption: dict[str, Any] | None = None
+    new_balance = 0
+    legacy_user_id: str | None = trusted.get("legacy_user_id")
+    with db() as conn:
+        target = conn.execute("SELECT * FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+        if target is None:
+            raise HTTPException(404, "User not found.")
+        legacy_user_id = target["id"]
+        promo = conn.execute("SELECT code, activation_limit, activation_count, enabled FROM promo_codes WHERE code = ?", (promo_code,)).fetchone()
+        if promo is None:
+            raise HTTPException(404, "Промокод не найден.")
+        if not int(promo["enabled"] or 0):
+            raise HTTPException(400, "Промокод отключён.")
+        if int(promo["activation_count"] or 0) >= int(promo["activation_limit"] or 0):
+            raise HTTPException(400, "Лимит активаций промокода исчерпан.")
+        duplicate = conn.execute(
+            "SELECT 1 FROM promo_redemptions WHERE internal_user_id = ? AND promo_code = ? AND status = 'applied'",
+            (internal_user_id, promo_code),
+        ).fetchone()
+        if duplicate is not None:
+            raise HTTPException(400, "Промокод уже применён.")
+        redemption_id = uuid.uuid4().hex
+        token_bonus = PROMO_REFERRAL_REWARD_TOKENS
+        ledger_id, new_balance = _grant_tokens_with_ledger(
+            conn, target=target, delta=token_bonus, reason=reason, ledger_reason=reason,
+            meta={"promo_redemption_id": redemption_id, "promo_code": promo_code},
+        )
+        conn.execute(
+            """
+            INSERT INTO promo_redemptions
+                (id, promo_code_id, promo_code, internal_user_id, user_id, status, token_bonus, reason,
+                 token_ledger_id, created_by_admin_id, idempotency_key, created_at)
+            VALUES (?, ?, ?, ?, ?, 'applied', ?, ?, ?, NULL, ?, ?)
+            """,
+            (redemption_id, promo_code, promo_code, internal_user_id, legacy_user_id, token_bonus, reason, ledger_id,
+             f"user-promo-{internal_user_id}-{promo_code}", now),
+        )
+        conn.execute("UPDATE promo_codes SET activation_count = activation_count + 1, updated_at = ? WHERE code = ?", (now, promo_code))
+        row = conn.execute("SELECT * FROM promo_redemptions WHERE id = ?", (redemption_id,)).fetchone()
+        redemption = _loyalty_promo_dict(row)
+    try:
+        record_event_log("promo_code_redeemed", internal_user_id=internal_user_id, legacy_user_id=legacy_user_id,
+                         platform=trusted.get("platform", "web"), request=request,
+                         properties={"promo_code": promo_code, "token_bonus": PROMO_REFERRAL_REWARD_TOKENS})
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "redemption": redemption,
+        "token_bonus": PROMO_REFERRAL_REWARD_TOKENS,
+        "new_token_balance": new_balance,
+    }
+
+
 @app.post("/api/admin/users/{internal_user_id}/referral-reward-v2")
 async def admin_referral_reward_v2(internal_user_id: str, req: ReferralRewardV2Request, request: Request) -> dict[str, Any]:
     admin = require_trusted_admin(request)
     reason = _billing_reason(req.reason)
-    amount = int(req.token_amount or 0)
+    amount = int(req.token_amount or PROMO_REFERRAL_REWARD_TOKENS)
     if amount <= 0:
-        raise HTTPException(400, "Сумма реферальной корректировки должна быть больше нуля.")
+        amount = PROMO_REFERRAL_REWARD_TOKENS
     idem = _billing_idempotency(req.idempotency_key, f"referral-reward-{internal_user_id}")
     now = datetime.now(timezone.utc).isoformat()
     reward: dict[str, Any] | None = None
@@ -6205,7 +6276,7 @@ async def admin_referral_reward_v2(internal_user_id: str, req: ReferralRewardV2R
             child_iuid = rel["child_internal_user_id"]
         reward_id = uuid.uuid4().hex
         ledger_id, new_balance = _grant_tokens_with_ledger(
-            conn, target=target, delta=amount, reason=reason, ledger_reason="referral_reward",
+            conn, target=target, delta=amount, reason=reason, ledger_reason="referral_friend_signup",
             meta={"referral_reward_id": reward_id, "referral_relation_id": relation_id, "child_internal_user_id": child_iuid,
                   "actor_internal_user_id": admin["internal_user_id"]},
         )

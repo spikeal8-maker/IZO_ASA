@@ -1761,10 +1761,14 @@ function InstructionModal({ mode, paintTool, onClose }: { mode: Mode; paintTool:
 }
 
 function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, backToStudio, provider, setProvider, width, setWidth, height, setHeight, steps, setSteps, setCfg, isAuthedV2 = false, openAuthModal, authMe }: { copy: Copy; bootstrap?: Record<string, unknown>; setBootstrap: Dispatch<SetStateAction<Record<string, unknown> | undefined>>; openAdmin: () => void; backToStudio: () => void; provider: string; setProvider: (value: string) => void; width: number; setWidth: (value: number) => void; height: number; setHeight: (value: number) => void; steps: number; setSteps: (value: number) => void; setCfg: (value: number) => void; isAuthedV2?: boolean; openAuthModal?: () => void; authMe?: MeV2 | null }) {
-  const user = (bootstrap?.user || {}) as { id?: string; role?: string; username?: string; firstName?: string }
+  const user = (bootstrap?.user || {}) as { id?: string; role?: string; username?: string; firstName?: string; email?: string; plan?: string; galleryEnabled?: boolean; tokenBalance?: number }
   const quality = steps <= 4 ? 'fast' : steps <= 8 ? 'standard' : 'max'
   const tokenPrice = (quality === 'fast' ? 1 : quality === 'standard' ? 2 : 4) * (provider === 'openrouter' ? 2 : 1)
   const referralLink = `${window.location.origin}?ref=${user.id || 'guest'}`
+  const plan = String(user.plan || 'mini').toLowerCase()
+  const galleryOpen = user.role === 'admin' || ['mini', 'plus', 'pro'].includes(plan)
+  const planLabel = plan.toUpperCase()
+  const tokenBalance = Number(user.tokenBalance ?? 50)
   const setQuality = (value: string) => {
     if (value === 'fast') { setSteps(4); setCfg(1) }
     if (value === 'standard') { setSteps(8); setCfg(1.5) }
@@ -1772,11 +1776,13 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, backToStudio, 
   }
   const [promoCode, setPromoCode] = useState('')
   const [promoResult, setPromoResult] = useState('')
+  const [promoBusy, setPromoBusy] = useState(false)
+  const [inviteMsg, setInviteMsg] = useState('')
   const [displayName, setDisplayName] = useState(authMe?.profile?.display_name || '')
   const [saveMsg, setSaveMsg] = useState('')
   const [techOpen, setTechOpen] = useState(false)
   const friendPromoCode = `FRIEND-${String(user.id || 'GUEST').replace(/^web_/, '').toUpperCase().slice(0, 12)}`
-  void setBootstrap; void openAdmin // props accepted for call-site compatibility
+  void openAdmin // prop accepted for call-site compatibility
   useEffect(() => { setDisplayName(authMe?.profile?.display_name || '') }, [authMe?.profile?.display_name])
   const displayEmail = authMe?.identities?.find((i) => i.provider_email)?.provider_email
   const displayNameFallback = authMe?.profile?.display_name
@@ -1792,6 +1798,38 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, backToStudio, 
     else setSaveMsg('Ошибка сохранения')
   }
   const onLogout = async () => { await logoutV2(); await refreshAuthStateV2() }
+  const onApplyPromo = async () => {
+    const code = promoCode.trim().toUpperCase()
+    if (!code) { setPromoResult('Введите промокод'); return }
+    setPromoBusy(true); setPromoResult('')
+    try {
+      const r = await fetch(`${API}/account/apply-promo-v2`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ promo_code: code }),
+      })
+      const payload = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        setPromoResult(String(payload.detail || 'Промокод не применён'))
+        return
+      }
+      const bonus = Number(payload.token_bonus || 50)
+      setPromoResult(`Промокод применён: +${bonus} токенов`)
+      setBootstrap((current) => {
+        const currentUser = ((current || {}).user || {}) as Record<string, unknown>
+        return { ...(current || {}), user: { ...currentUser, tokenBalance: Number(payload.new_token_balance ?? tokenBalance + bonus) } }
+      })
+    } catch {
+      setPromoResult('Не удалось проверить промокод')
+    } finally {
+      setPromoBusy(false)
+    }
+  }
+  const copyInvite = async () => {
+    await navigator.clipboard?.writeText(`${referralLink}\nПромокод: ${friendPromoCode}`)
+    setInviteMsg('Скопировано')
+  }
 
   if (!isAuthedV2) {
     return (
@@ -1831,13 +1869,13 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, backToStudio, 
             )}
           </div>
         </article>
-        <article className="token-card"><h3>Токены</h3><strong>50 токенов</strong><p>Цена текущей генерации: {tokenPrice} {tokenPrice === 1 ? 'токен' : 'токена'}.</p><button className="generate small-action">Добавить токены</button></article>
-        <article><h3>Ввести промокод</h3><label>Промокод<input value={promoCode} onChange={(e) => setPromoCode(e.target.value.toUpperCase())} placeholder="Например START50" /></label><button className="secondary" onClick={() => setPromoResult(promoCode.trim() ? 'Промокод будет проверен после подключения платежей.' : 'Введите промокод')}>Применить</button><small>{promoResult}</small></article>
-        <article><h3>Подписка</h3><p>Free: галерея недоступна.</p><p>После покупки тарифа появится личная галерея и расширенные лимиты.</p></article>
+        <article><h3>Тариф</h3><p>Текущий тариф: <strong>{planLabel}</strong></p><p>Галерея: <strong>{galleryOpen ? 'открыта' : 'недоступна'}</strong></p><p>{galleryOpen ? 'Mini включает личную галерею, сохранение изображений и базовые лимиты.' : 'Free: галерея недоступна по текущему правилу продукта.'}</p></article>
+        <article className="token-card"><h3>Токены</h3><strong>{tokenBalance} токенов</strong><p>Цена текущей генерации: {tokenPrice} {tokenPrice === 1 ? 'токен' : 'токена'}.</p><button className="generate small-action">Добавить токены</button></article>
+        <article><h3>Промокод</h3><p>Введите промокод — если код даёт бонус, токены начислятся автоматически.</p><label>Промокод<input value={promoCode} onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoResult('') }} placeholder="Например START50" /></label><button className="secondary" disabled={promoBusy || !promoCode.trim()} onClick={onApplyPromo}>{promoBusy ? 'Проверяем…' : 'Применить'}</button><small>{promoResult}</small></article>
         <article><h3>Качество</h3><div className="segmented"><button className={quality === 'fast' ? 'active' : ''} onClick={() => setQuality('fast')}>Быстро</button><button className={quality === 'standard' ? 'active' : ''} onClick={() => setQuality('standard')}>Стандарт</button><button className={quality === 'max' ? 'active' : ''} onClick={() => setQuality('max')}>Максимум</button></div><p>{quality === 'fast' ? '1 токен: быстрый черновик.' : quality === 'standard' ? '2 токена: баланс скорости и качества.' : '4 токена: больше деталей и аккуратнее результат.'}</p></article>
         <article><h3>Мегаскорость</h3><button className={provider === 'openrouter' ? 'speed-toggle active' : 'speed-toggle'} onClick={() => setProvider(provider === 'openrouter' ? 'comfyui' : 'openrouter')}><Zap size={17} />{provider === 'openrouter' ? 'Включена' : 'Выключена'}</button><p>Ускоряет генерацию, списывает токены в 2 раза быстрее.</p></article>
         <article><h3>Размер по умолчанию</h3><label>Формат<select value={`${width}x${height}`} onChange={(e) => { const [nextWidth, nextHeight] = e.target.value.split('x').map(Number); setWidth(nextWidth); setHeight(nextHeight) }}>{resolutionPresets.map((item) => <option key={item.label} value={`${item.width}x${item.height}`}>{item.label}</option>)}</select></label></article>
-        <article><h3>Заработать токены</h3><p>Пригласите друга по ссылке или дайте ему промокод. Бонус начислится после регистрации друга.</p><label>Промокод для друга<input readOnly value={friendPromoCode} onFocus={(e) => e.currentTarget.select()} /></label><input readOnly value={referralLink} onFocus={(e) => e.currentTarget.select()} /><button className="secondary" onClick={() => navigator.clipboard?.writeText(`${referralLink}\nПромокод: ${friendPromoCode}`)}>Скопировать приглашение</button></article>
+        <article><h3>Пригласить друга</h3><p><strong>+50 токенов за приглашённого друга</strong> после регистрации по ссылке или коду.</p><label>Реферальный код<input readOnly value={friendPromoCode} onFocus={(e) => e.currentTarget.select()} /></label><label>Ссылка приглашения<input readOnly value={referralLink} onFocus={(e) => e.currentTarget.select()} /></label><button className="secondary" onClick={copyInvite}>Скопировать приглашение</button><small>{inviteMsg}</small></article>
       </div>
     </section>
   )
