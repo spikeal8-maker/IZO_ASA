@@ -3648,7 +3648,7 @@ async def health() -> dict[str, Any]:
 
 # Minimal, non-sensitive version marker so operators can tell which backend build
 # is actually live. No secrets, no env values, no DB paths.
-APP_BUILD = os.getenv("APP_BUILD", "20C.2-2026-06-27")
+APP_BUILD = os.getenv("APP_BUILD", "20E.2C-2026-06-28")
 
 
 @app.get("/api/version")
