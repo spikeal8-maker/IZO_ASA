@@ -59,7 +59,7 @@ ok(/setRowAct\(\{ u, kind: 'tokens', preset: '-50'/.test(admin), 'row -50 quick 
 ok(/reason\.trim\(\)/.test(admin), 'actions must require a reason')
 ok(admin.includes('Действие будет записано в audit log'), 'confirm must show audit-log note')
 
-// Phase 20C: trusted admin actions in the drawer.
+// Phase 20C.4: trusted admin actions in the card/action panel.
 ok(admin.includes('Админ-действия'), 'drawer must have an Админ-действия tab')
 for (const ep of ['/role-v2', '/tokens-v2', '/plan-v2', '/profile-v2', '/block-v2', '/unblock-v2', '/password-reset-v2']) {
   ok(admin.includes(ep), `admin action must call ${ep}`)
@@ -74,10 +74,15 @@ ok(admin.includes('audit log'), 'must indicate audit-log writing')
 // reset password input must not be persisted
 ok(!/localStorage[\s\S]{0,40}(new_password|password)/.test(admin), 'admin-entered password must not be stored')
 
-// Columns / labels are clean (spec wording).
-for (const label of ['Пользователь', 'Источник', 'Контакты', 'Активность', 'Генерации', 'Токены', 'Роль', 'Статус', 'Действия']) {
+// Columns / labels are clean (Phase 20C.4 spec wording).
+for (const label of ['Клиент', 'Активность', 'Источник', 'Контакт', 'Сегмент', 'Финансы', 'Генерации', 'Устройство', 'Маркетинг', 'Риск', 'Действия']) {
   ok(admin.includes(label), `column label "${label}" missing`)
 }
+ok(admin.includes('RowActionMenu') && admin.includes('crm-row-menu'), 'grouped row action dropdown missing')
+ok(admin.includes('CrmSettingsScaffold') && admin.includes('Колонки списка') && admin.includes('Уровни админки'), 'CRM settings scaffold missing')
+ok(admin.includes('MAC: недоступен') && !/MAC:\s*агент/.test(admin), 'MAC must be unavailable unless explicitly agent-collected')
+ok(admin.includes('Удаление/анонимизация') && /<button disabled title=\{deferred\}>Удаление\/анонимизация<\/button>/.test(admin), 'delete/anonymize must be present only as disabled/deferred')
+ok(admin.includes('Отложено: backend v2 пока не отдаёт эти данные.'), 'deferred backend data must be clearly labeled')
 // No nonsense labels.
 for (const bad of ['тектон', 'золото', 'исидо', 'туалет', 'каменная фигура', 'регион. идентификатор']) {
   ok(!admin.includes(bad), `unclear label "${bad}" present`)

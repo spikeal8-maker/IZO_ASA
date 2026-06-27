@@ -1,9 +1,9 @@
-// Phase 20A–20C.3: Users CRM — an operator console. Cookie auth only
+// Phase 20A–20C.4: Users CRM — an operator console. Cookie auth only
 // (credentials:include), never the legacy identity header. Dense table with trusted
 // quick actions in every row + a compact two-column user card (actions above the fold).
 // Every risky action requires a reason and is written to audit_logs. No tokens/hashes
 // are ever requested or shown.
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import { APP_BUILD_LABEL } from './diag'
 
@@ -42,6 +42,8 @@ export interface CrmUserRow {
   last_seen_at?: string | null; last_platform?: string | null; last_ip?: string | null
   country?: string | null; city?: string | null; device_count?: number; active_sessions_count?: number
   generations_count?: number; tokens_spent?: number; token_balance?: number; status?: string; role?: string
+  first_seen_at?: string | null; gallery_count?: number; marketing_source?: string | null; risk_level?: string | null
+  last_device?: { browser?: string | null; os?: string | null } | null
   internal_user_id_short?: string
 }
 
@@ -55,6 +57,23 @@ function shortTime(iso?: unknown): string {
 type AnyRec = Record<string, unknown>
 const S = (v: unknown): string => (v === null || v === undefined || v === '' ? '—' : String(v))
 const shortId = (v: unknown, n = 8): string => { const s = v == null ? '' : String(v); return s ? s.slice(0, n) + (s.length > n ? '…' : '') : '—' }
+const n0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+const deferred = 'Отложено: backend v2 пока не отдаёт эти данные.'
+
+function riskLabel(u: CrmUserRow & AnyRec): string {
+  const explicit = String(u.risk_level || '').trim()
+  if (explicit) return explicit
+  if (u.status === 'banned') return 'Высокий'
+  const sec = Array.isArray(u.recent_security_events) ? u.recent_security_events.length : 0
+  if (sec > 2) return 'Средний'
+  return 'Низкий'
+}
+
+function deviceLabel(u: CrmUserRow): string {
+  const browser = u.last_device?.browser
+  const os = u.last_device?.os
+  return browser || os ? `${S(browser)} / ${S(os)} · MAC: недоступен` : 'MAC: недоступен'
+}
 
 // Block 6 — parsed display name fallback (display_name → first+last → username →
 // provider username → public_user_code).
@@ -87,6 +106,14 @@ function ActionConfirm({ target, kind, preset, onClose, onDone }: {
     tokens: 'Изменить токены', role: isAdmin ? 'Снять админа' : 'Сделать админом', plan: 'Изменить тариф',
     profile: 'Изменить профиль', ban: 'Забанить / отключить', unban: 'Разбанить', reset: 'Сбросить пароль',
   }
+  const danger = kind === 'ban' || kind === 'reset' || (kind === 'role' && isAdmin)
+  const changePreview = kind === 'tokens' ? `${Number(value) > 0 ? '+' : ''}${value || '—'} токенов`
+    : kind === 'role' ? `${isAdmin ? 'admin → user' : 'user → admin'}`
+    : kind === 'plan' ? `Тариф: ${value || '—'}`
+    : kind === 'profile' ? `Имя/email будут обновлены`
+    : kind === 'reset' ? 'Новый пароль будет установлен'
+    : kind === 'ban' ? 'Доступ будет заблокирован'
+    : 'Доступ будет восстановлен'
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -113,9 +140,13 @@ function ActionConfirm({ target, kind, preset, onClose, onDone }: {
 
   return (
     <div className="crm-confirm-overlay" onClick={onClose}>
-      <div className="crm-confirm" role="dialog" aria-label="Подтверждение действия" onClick={(e) => e.stopPropagation()}>
+      <div className={danger ? 'crm-confirm danger' : 'crm-confirm'} role="dialog" aria-label="Подтверждение действия" onClick={(e) => e.stopPropagation()}>
         <strong>{title[kind]}</strong>
-        <span className="crm-confirm-target">{parsedName(target as AnyRec)} · {S(target.public_user_code)}</span>
+        <div className="crm-confirm-summary">
+          <span>Пользователь</span><b>{parsedName(target as AnyRec)} · {S(target.public_user_code)}</b>
+          <span>Действие</span><b>{title[kind]}</b>
+          <span>Значение</span><b>{changePreview}</b>
+        </div>
         {kind === 'tokens' && (
           <div className="crm-confirm-field">
             <div className="crm-quick"><button className="secondary" onClick={() => setValue('50')}>+50</button><button className="secondary" onClick={() => setValue('-50')}>-50</button><button className="secondary" onClick={() => setValue('1')}>+1</button><button className="secondary" onClick={() => setValue('-1')}>-1</button></div>
@@ -126,7 +157,7 @@ function ActionConfirm({ target, kind, preset, onClose, onDone }: {
         {kind === 'profile' && <><label>Отображаемое имя<input value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" /></label><label>Email<input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" /></label></>}
         {kind === 'reset' && <label>Новый пароль (не сохраняется)<input type="password" value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" /></label>}
         <label>Причина (обязательно)<input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Причина действия" /></label>
-        <p className="crm-card-note">Действие будет записано в audit log.</p>
+        <p className="crm-audit-note">Действие будет записано в audit log. Оператор, цель, значение и причина сохраняются для аудита.</p>
         <div className="crm-action-buttons">
           <button className="generate small-action" disabled={busy || !reason.trim()} onClick={() => void submit()}>{busy ? '…' : 'Подтвердить'}</button>
           <button className="secondary" onClick={onClose}>Отмена</button>
@@ -143,11 +174,15 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const [state, setState] = useState<'loading' | 'ok' | 'notfound' | 'forbidden' | 'error'>('loading')
   const [reloadKey, setReloadKey] = useState(0)
   const [act, setAct] = useState<{ kind: ActKind; preset?: string } | null>(null)
+  const [tab, setTab] = useState<'logs' | 'payments' | 'prompts' | 'gallery' | 'tech'>('logs')
 
   useEffect(() => {
     let alive = true
     const iuid = u.internal_user_id
-    if (!iuid) { setState('error'); return }
+    if (!iuid) {
+      window.setTimeout(() => { if (alive) setState('error') }, 0)
+      return () => { alive = false }
+    }
     ;(async () => {
       try {
         const r = await fetch(`${API}/admin/users/${encodeURIComponent(iuid)}/analytics-v2`, { credentials: 'include' })
@@ -172,29 +207,35 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const isAdmin = String(sm.role) === 'admin'
   const isBanned = sm.status === 'banned'
   const row = (k: string, v: unknown) => <><dt>{k}</dt><dd>{S(v)}</dd></>
+  const securityCount = (data?.recent_security_events || []).length
   const banner = state === 'loading' ? 'Загрузка…'
     : state === 'notfound' ? 'Пользователь не найден.'
     : state === 'forbidden' ? 'Нет trusted-сессии администратора. Войдите как админ.'
     : state === 'error' ? 'Не удалось загрузить данные.' : ''
 
-  const ActBtn = ({ kind, preset, label, danger }: { kind: ActKind; preset?: string; label: string; danger?: boolean }) =>
+  const actionButton = (kind: ActKind, label: string, preset?: string, danger?: boolean) =>
     <button className={danger ? 'secondary danger' : 'secondary'} onClick={() => setAct({ kind, preset })}>{label}</button>
+  const disabledAction = (label: string) => <button className="secondary" disabled title={deferred}>{label}</button>
 
   return (
     <div className="crm-card-overlay" onClick={onClose}>
       <div className="crm-card" role="dialog" aria-label="Карточка пользователя" onClick={(e) => e.stopPropagation()}>
         <header className="crm-card-header">
           <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
-          <div className="crm-card-id">
-            <h2>{parsedName(sm, ids)}</h2>
-            <span className="crm-preview-code">{S(sm.public_user_code)}</span>
+          <div className="crm-card-id crm-card-id-rich">
+            <span className={isBanned ? 'crm-avatar risk' : 'crm-avatar'}>{parsedName(sm, ids).slice(0, 1).toUpperCase()}</span>
+            <div>
+              <h2>{parsedName(sm, ids)}</h2>
+              <span className="crm-preview-code">{S(sm.public_user_code)}</span>
+            </div>
             <span className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</span>
-            <span className={isBanned ? 'status-banned' : 'status-active'}>{S(sm.status)}{isAdmin ? ' · admin' : ''}</span>
+            <span className={isBanned ? 'status-banned' : 'status-active'}>{S(sm.status)}</span>
+            <span>{S(sm.role)}</span><span>{S(sm.plan)}</span>
           </div>
           <div className="crm-card-kpis">
             <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Списано <b>{S(sm.tokens_spent)}</b></span>
-            <span>Генераций <b>{S(sm.generations_count)}</b></span><span>Тариф <b>{S(sm.plan)}</b></span>
-            <span>Рег. {shortTime(sm.first_seen_at)}</span><span>Вход {shortTime(sm.last_seen_at)}</span>
+            <span>Генераций <b>{S(sm.generations_count)}</b></span><span>Галерея <b>{S(sm.gallery_count ?? 0)}</b></span>
+            <span>Вход {shortTime(sm.last_seen_at)}</span><span>Создан {shortTime(sm.first_seen_at)}</span><span>Риск <b>{riskLabel(sm)}</b></span>
           </div>
         </header>
 
@@ -217,51 +258,74 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 </div>
               ))}{!ids?.length && <p className="crm-card-note">—</p>}
             </div>
+            <div className="crm-panel">
+              <h4>Контент</h4>
+              <dl className="crm-preview-list">
+                {row('Генерации', sm.generations_count)}{row('Промпты', 'Отложено')}{row('Галерея', sm.gallery_count ?? 'Отложено')}{row('Последний контент', deferred)}
+              </dl>
+            </div>
+            <div className="crm-panel">
+              <h4>Финансы</h4>
+              <dl className="crm-preview-list">
+                {row('Баланс токенов', data?.token_summary?.balance ?? sm.token_balance)}{row('Потрачено токенов', data?.token_summary?.spent ?? sm.tokens_spent)}
+                {row('Платежи', 'Отложено')}{row('Счета', 'Отложено')}{row('Бонусы', 'Отложено')}
+              </dl>
+            </div>
             <div className="crm-two">
               <div className="crm-panel">
-                <h4>Сессии</h4>
+                <h4>Устройства и сессии</h4>
                 {(data?.sessions || []).slice(0, 6).map((s, n) => (
                   <div className="crm-subrow" key={n}><small><strong>{S(s.platform)}</strong> · {S(s.ip_address)} {s.revoked_at ? '· отозв.' : '· активна'}</small><small>{S((s.device as AnyRec)?.browser)}/{S((s.device as AnyRec)?.os)} · {shortTime(s.created_at)}</small></div>
                 ))}{!data?.sessions?.length && <p className="crm-card-note">—</p>}
               </div>
               <div className="crm-panel">
-                <h4>Устройства</h4>
+                <h4>MAC: недоступен</h4>
                 {(data?.devices || []).slice(0, 6).map((d, n) => (
-                  <div className="crm-subrow" key={n}><small><strong>{S(d.platform)}</strong> · inst {shortId(d.installation_id)}</small><small>anon {shortId(d.anonymous_id)} · {shortTime(d.last_seen_at)}</small></div>
+                  <div className="crm-subrow" key={n}><small><strong>{S(d.platform)}</strong> · inst {shortId(d.installation_id)}</small><small>{S((d.device as AnyRec)?.browser)}/{S((d.device as AnyRec)?.os)} · anon {shortId(d.anonymous_id)} · {shortTime(d.last_seen_at)}</small></div>
                 ))}{!data?.devices?.length && <p className="crm-card-note">—</p>}
               </div>
             </div>
+            <div className="crm-panel">
+              <h4>Безопасность</h4>
+              <dl className="crm-preview-list">
+                {row('Риск', riskLabel(sm))}{row('Событий безопасности', securityCount)}{row('Последний IP', sm.last_ip)}{row('Активных сессий', sm.active_sessions_count)}
+              </dl>
+              <div className="crm-rows">
+                {(data?.recent_security_events || []).slice(0, 5).map((e, n) => <small key={n}>{shortTime(e.created_at)} · {S(e.severity)} · {S(e.event_type)} · {S(e.ip_address)}</small>)}
+              </div>
+            </div>
 
-            <details className="crm-acc"><summary>Логи ({(data?.recent_events?.length || 0) + (data?.recent_security_events?.length || 0) + (data?.admin_actions?.length || 0)})</summary>
+            <div className="crm-bottom-tabs">
+              <button className={tab === 'logs' ? 'active' : ''} onClick={() => setTab('logs')}>Логи</button>
+              <button className={tab === 'payments' ? 'active' : ''} onClick={() => setTab('payments')}>Платежи</button>
+              <button className={tab === 'prompts' ? 'active' : ''} onClick={() => setTab('prompts')}>Промпты</button>
+              <button className={tab === 'gallery' ? 'active' : ''} onClick={() => setTab('gallery')}>Галерея</button>
+              <button className={tab === 'tech' ? 'active' : ''} onClick={() => setTab('tech')}>Техническое</button>
+            </div>
+            {tab === 'logs' && <div className="crm-acc">
+              <strong>Логи ({(data?.recent_events?.length || 0) + (data?.recent_security_events?.length || 0) + (data?.admin_actions?.length || 0)})</strong>
               <div className="crm-rows">
                 {(data?.recent_events || []).slice(0, 10).map((e, n) => <small key={`e${n}`}>{shortTime(e.created_at)} · {S(e.event_name)} · {S(e.platform)}</small>)}
                 {(data?.recent_security_events || []).slice(0, 10).map((e, n) => <small key={`s${n}`}>⚠ {shortTime(e.created_at)} · {S(e.severity)} · {S(e.event_type)} · {S(e.ip_address)}</small>)}
                 {(data?.admin_actions || []).slice(0, 10).map((e, n) => <small key={`a${n}`}>★ {shortTime(e.created_at)} · {S(e.action)} · {S(e.actor)}</small>)}
               </div>
-            </details>
-            <details className="crm-acc"><summary>Токены и генерации</summary>
-              <dl className="crm-preview-list">
-                {row('Баланс', data?.token_summary?.balance ?? sm.token_balance)}{row('Списано', data?.token_summary?.spent ?? sm.tokens_spent)}{row('Записей в журнале', data?.token_summary?.entries)}{row('Генераций', sm.generations_count)}
-              </dl>
-              <p className="crm-card-note">Детальный журнал и история генераций — Phase 23.</p>
-            </details>
-            <details className="crm-acc"><summary>Технические идентификаторы</summary>
+            </div>}
+            {tab !== 'logs' && tab !== 'tech' && <div className="crm-acc"><strong>{tab === 'payments' ? 'Платежи' : tab === 'prompts' ? 'Промпты' : 'Галерея'}</strong><p className="crm-card-note">{deferred}</p></div>}
+            {tab === 'tech' && <div className="crm-acc">
+              <strong>Технические идентификаторы</strong>
               <p className="legacy-admin-warn">Не показывать пользователю.</p>
               <dl className="crm-preview-list">{row('internal_user_id', u.internal_user_id)}{row('public_user_code', sm.public_user_code)}{row('primary_provider', sm.primary_provider)}</dl>
-            </details>
+            </div>}
           </div>
 
           <aside className="crm-card-actions">
             <h4>Админ-действия</h4>
-            <p className="crm-card-note">Каждое действие требует причину и пишется в audit log.</p>
-            <div className="crm-act-stack">
-              <div className="crm-quick"><button className="secondary" onClick={() => setAct({ kind: 'tokens', preset: '50' })}>+50</button><button className="secondary" onClick={() => setAct({ kind: 'tokens', preset: '-50' })}>-50</button><ActBtn kind="tokens" label="Токены…" /></div>
-              <ActBtn kind={isBanned ? 'unban' : 'ban'} label={isBanned ? 'Разбанить' : 'Забанить / отключить'} danger={!isBanned} />
-              <ActBtn kind="role" label={isAdmin ? 'Снять админа' : 'Сделать админом'} />
-              <ActBtn kind="plan" label="Изменить тариф" />
-              <ActBtn kind="profile" label="Изменить профиль" />
-              <ActBtn kind="reset" label="Сбросить пароль" />
-            </div>
+            <p className="crm-card-note">Каждое поддержанное действие требует причину и пишется в audit log.</p>
+            <div className="crm-action-group"><strong>Токены</strong><div className="crm-quick"><button className="secondary" onClick={() => setAct({ kind: 'tokens', preset: '50' })}>+50</button><button className="secondary" onClick={() => setAct({ kind: 'tokens', preset: '-50' })}>-50</button>{actionButton('tokens', 'Другое')}</div></div>
+            <div className="crm-action-group"><strong>Биллинг</strong>{actionButton('plan', 'Изменить тариф')}{disabledAction('Выставить счёт')}{disabledAction('Платежи')}</div>
+            <div className="crm-action-group"><strong>Маркетинг</strong>{disabledAction('Начислить бонус')}{disabledAction('Применить промокод')}</div>
+            <div className="crm-action-group"><strong>Доступ</strong>{actionButton(isBanned ? 'unban' : 'ban', isBanned ? 'Разбанить' : 'Бан/Разбан', undefined, !isBanned)}{actionButton('reset', 'Сбросить пароль', undefined, true)}</div>
+            <div className="crm-action-group"><strong>Аккаунт</strong>{actionButton('profile', 'Редактировать профиль')}{actionButton('role', isAdmin ? 'Снять админа' : 'Сделать админом')}{disabledAction('Удаление/анонимизация')}</div>
           </aside>
         </div>
 
@@ -290,6 +354,57 @@ function AdminDiagnostics(): ReactElement {
   )
 }
 
+function RowActionMenu({ u, onAct, onCard }: {
+  u: CrmUserRow; onAct: (kind: ActKind, preset?: string) => void; onCard: () => void
+}): ReactElement {
+  const banned = u.status === 'banned'
+  const admin = u.role === 'admin'
+  return (
+    <details className="crm-row-menu">
+      <summary>Действия</summary>
+      <div className="crm-row-menu-pop">
+        <strong>Профиль</strong>
+        <button onClick={onCard}>Карточка клиента</button>
+        <button onClick={() => onAct('profile')}>Редактировать профиль</button>
+        <strong>Управление</strong>
+        <button onClick={() => onAct('plan')}>Изменить тариф</button>
+        <button disabled title={deferred}>Выставить счёт</button>
+        <button disabled title={deferred}>Начислить бонус</button>
+        <button disabled title={deferred}>Применить промокод</button>
+        <strong>Безопасность</strong>
+        <button className={banned ? '' : 'danger'} onClick={() => onAct(banned ? 'unban' : 'ban')}>Бан/Разбан</button>
+        <button className="danger" onClick={() => onAct('reset')}>Сбросить пароль</button>
+        <button onClick={() => onAct('role')}>{admin ? 'Снять админа' : 'Сделать админом'}</button>
+        <strong>Прочее</strong>
+        <button disabled title={deferred}>Удаление/анонимизация</button>
+      </div>
+    </details>
+  )
+}
+
+function CrmSettingsScaffold(): ReactElement {
+  const [compact, setCompact] = useState(true)
+  const [stickyCard, setStickyCard] = useState(true)
+  const [hideSensitive, setHideSensitive] = useState(true)
+  const [auditHints, setAuditHints] = useState(true)
+  return (
+    <section className="crm-settings">
+      <div className="crm-settings-head">
+        <h4>Настройки CRM</h4>
+        <span>Локально, без legacy settings endpoint</span>
+      </div>
+      <div className="crm-settings-grid">
+        <label><span>Колонки списка</span><select defaultValue="operator"><option value="operator">Операторские 11 колонок</option><option value="compact">Компактный набор</option></select></label>
+        <label><span>Карточка клиента</span><select value={stickyCard ? 'sticky' : 'plain'} onChange={(e) => setStickyCard(e.target.value === 'sticky')}><option value="sticky">Sticky действия справа</option><option value="plain">Обычная прокрутка</option></select></label>
+        <label><span>Уровни админки</span><select defaultValue="trusted"><option value="trusted">Trusted v2 actions only</option><option value="view">Только просмотр</option></select></label>
+        <label><span>Адаптивность</span><select value={compact ? 'dense' : 'roomy'} onChange={(e) => setCompact(e.target.value === 'dense')}><option value="dense">Плотная таблица</option><option value="roomy">Больше воздуха</option></select></label>
+        <label><span>Чувствительные данные</span><select value={hideSensitive ? 'masked' : 'visible'} onChange={(e) => setHideSensitive(e.target.value === 'masked')}><option value="masked">Маскировать/не показывать</option><option value="visible">Показывать доступное</option></select></label>
+        <label><span>Логи и аудит</span><select value={auditHints ? 'notice' : 'minimal'} onChange={(e) => setAuditHints(e.target.value === 'notice')}><option value="notice">Показывать audit notice</option><option value="minimal">Минимально</option></select></label>
+      </div>
+    </section>
+  )
+}
+
 export function AdminAnalyticsV2(): ReactElement {
   const [dash, setDash] = useState<Dash['dashboard'] | null>(null)
   const [users, setUsers] = useState<CrmUserRow[]>([])
@@ -300,7 +415,7 @@ export function AdminAnalyticsV2(): ReactElement {
   const [card, setCard] = useState<CrmUserRow | null>(null)
   const [rowAct, setRowAct] = useState<{ u: CrmUserRow; kind: ActKind; preset?: string } | null>(null)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     const d = await adminGet<Dash>('/admin/dashboard-v2')
     const params = new URLSearchParams({ limit: '100' })
@@ -313,8 +428,11 @@ export function AdminAnalyticsV2(): ReactElement {
     if (statusFilter === 'admin') items = items.filter((i) => i.role === 'admin') // server has no admin filter yet
     setUsers(items)
     setLoading(false)
-  }
-  useEffect(() => { void load() }, [])
+  }, [q, source, statusFilter])
+  useEffect(() => {
+    const id = window.setTimeout(() => { void load() }, 0)
+    return () => window.clearTimeout(id)
+  }, [load])
 
   const card_ = (label: string, value: unknown) => <div className="analytics-card" key={label}><strong>{String(value ?? '—')}</strong><span>{label}</span></div>
   const byProvider = (dash?.users_by_provider as Record<string, number>) || {}
@@ -334,32 +452,32 @@ export function AdminAnalyticsV2(): ReactElement {
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}><option value="all">Все статусы</option><option value="active">Активные</option><option value="banned">Забанены</option><option value="admin">Админы</option></select>
         <button className="secondary" onClick={() => void load()}>Найти</button>
       </div>
+      <CrmSettingsScaffold />
       {loading ? <p>Загрузка…</p> : (
         <div className="analytics-table dense">
           <div className="analytics-row analytics-head">
-            <span>Пользователь</span><span>Источ.</span><span>Контакты</span><span>Роль·Тариф</span><span>Баланс</span><span>Ген.</span><span>Активность</span><span>Статус</span><span>Действия</span>
+            <span>Клиент</span><span>Активность</span><span>Источник</span><span>Контакт</span><span>Сегмент</span><span>Финансы</span><span>Генерации</span><span>Устройство</span><span>Маркетинг</span><span>Риск</span><span>Действия</span>
           </div>
           {users.map((u) => {
-            const banned = u.status === 'banned'; const admin = u.role === 'admin'
+            const banned = u.status === 'banned'
+            const sourceList = u.providers?.length ? u.providers : u.primary_provider ? [u.primary_provider] : []
             return (
               <div key={u.public_user_code || u.internal_user_id_short} className="analytics-row crm-row">
-                <span><strong>{u.display_name}</strong><small>{u.public_user_code}</small></span>
-                <span>{(u.providers || []).map((p) => <Badge key={p} p={p} />)}</span>
+                <span><strong>{u.display_name || u.username || u.public_user_code}</strong><small>{u.public_user_code}</small></span>
+                <span><small>{shortTime(u.last_seen_at)}</small><small>{u.active_sessions_count ?? 0} сесс. · {u.last_platform || '—'} · {u.last_ip || '—'}</small></span>
+                <span>{sourceList.map((p) => <Badge key={p} p={p} />)}<small>{u.marketing_source || '—'}</small></span>
                 <span><small>{u.email || '—'}</small><small>{u.username ? `@${u.username}` : ''}{u.phone ? ` · ${u.phone}` : ''}</small></span>
-                <span><small>{u.role}</small><small>{u.plan || '—'}</small></span>
-                <span><small>{u.token_balance ?? 0} / {u.tokens_spent ?? 0}</small></span>
-                <span>{u.generations_count ?? 0}</span>
-                <span><small>{shortTime(u.last_seen_at)}</small><small>{u.last_platform || '—'} · {u.last_ip || '—'}</small></span>
-                <span className={banned ? 'status-banned' : 'status-active'}>{u.status}</span>
+                <span><small>{u.role || 'user'} · {u.status || 'active'}</small><small>{u.plan || 'free'}</small></span>
+                <span><small>Баланс {n0(u.token_balance)}</small><small>Списано {n0(u.tokens_spent)}</small></span>
+                <span><strong>{n0(u.generations_count)}</strong><small>Галерея: отложено</small></span>
+                <span><small>{deviceLabel(u)}</small><small>{u.device_count ?? 0} устр.</small></span>
+                <span><small>Промо: отложено</small><small>Рефералы: отложено</small></span>
+                <span className={banned ? 'status-banned' : 'status-active'}><strong>{riskLabel(u as CrmUserRow & AnyRec)}</strong><small>{banned ? 'banned' : 'ok'}</small></span>
                 <span className="crm-row-actions">
                   <button className="mini" onClick={() => setCard(u)}>Карточка</button>
                   <button className="mini" onClick={() => setRowAct({ u, kind: 'tokens', preset: '50' })}>+50</button>
                   <button className="mini" onClick={() => setRowAct({ u, kind: 'tokens', preset: '-50' })}>-50</button>
-                  <button className={banned ? 'mini' : 'mini danger'} onClick={() => setRowAct({ u, kind: banned ? 'unban' : 'ban' })}>{banned ? 'Разбан' : 'Бан'}</button>
-                  <button className="mini" onClick={() => setRowAct({ u, kind: 'role' })}>{admin ? 'Снять' : 'Админ'}</button>
-                  <button className="mini" onClick={() => setRowAct({ u, kind: 'plan' })}>Тариф</button>
-                  <button className="mini" onClick={() => setRowAct({ u, kind: 'reset' })}>Пароль</button>
-                  <button className="mini" onClick={() => setRowAct({ u, kind: 'profile' })}>Ред.</button>
+                  <RowActionMenu u={u} onCard={() => setCard(u)} onAct={(kind, preset) => setRowAct({ u, kind, preset })} />
                 </span>
               </div>
             )
