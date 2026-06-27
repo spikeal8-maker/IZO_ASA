@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Phase 20E.0A CRM Blueprint Mock</title>
+  <style>
+    :root { color-scheme: dark; --bg:#090b0c; --panel:#101416; --line:#253036; --acid:#dfff22; --muted:#8b98a1; --green:#78e452; --blue:#45a6ff; --red:#ff5e61; --yellow:#ffd84a; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:#edf3f4; font:13px/1.4 system-ui,Segoe UI,sans-serif; }
+    main { padding:24px; display:grid; gap:24px; }
+    h1,h2,h3 { margin:0; letter-spacing:0; }
+    h1 { font-size:26px; color:#fff; }
+    h2 { font-size:18px; color:var(--acid); }
+    h3 { font-size:13px; color:var(--acid); text-transform:uppercase; }
+    .muted { color:var(--muted); }
+    .bar,.panel,.modal,.settings { border:1px solid var(--line); background:linear-gradient(180deg,#12191b,#0d1112); border-radius:8px; }
+    .bar { display:flex; gap:10px; align-items:center; padding:12px; flex-wrap:wrap; }
+    button,.btn { border:1px solid #334148; background:#151b1d; color:#e7eeee; border-radius:6px; min-height:30px; padding:0 10px; font-weight:800; }
+    .primary { background:var(--acid); color:#061; border-color:var(--acid); }
+    .danger { color:#ff9b9b; border-color:#71383a; background:#1b1011; }
+    .chip { display:inline-flex; align-items:center; min-height:18px; padding:0 7px; border-radius:999px; border:1px solid #334148; color:#d7e0e2; background:#121718; font-size:11px; font-weight:800; }
+    .green { color:#a6ff7a; border-color:#356c30; background:#101d0f; }
+    .blue { color:#9bd2ff; border-color:#28547a; background:#0e1820; }
+    .yellow { color:#ffe480; border-color:#705f22; background:#201a0c; }
+    .red { color:#ff9b9b; border-color:#71383a; background:#1b1011; }
+    .kpis { display:grid; grid-template-columns:repeat(8,minmax(100px,1fr)); gap:8px; }
+    .kpis div { padding:10px; border:1px solid var(--line); border-radius:8px; background:#0f1415; }
+    .kpis b { display:block; font-size:20px; color:#fff; }
+    .table { overflow:auto; border:1px solid var(--line); border-radius:8px; }
+    .row { min-width:1600px; display:grid; grid-template-columns:1.2fr 1fr .8fr 1.1fr .9fr 1.1fr .8fr 1fr 1fr .7fr 1.2fr; gap:8px; padding:9px 10px; border-bottom:1px solid #1c262a; align-items:center; }
+    .head { color:#9aa7ad; text-transform:uppercase; font-size:11px; background:#11191c; }
+    .cell { display:grid; gap:3px; min-width:0; }
+    .cell small { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .avatar { width:34px; height:34px; border:2px solid var(--green); border-radius:50%; display:inline-grid; place-items:center; color:#b4ff82; font-weight:900; margin-right:8px; }
+    .client { display:flex; align-items:center; min-width:0; }
+    .actions { display:flex; gap:4px; flex-wrap:wrap; }
+    .modal { width:min(1180px,96vw); height:760px; margin:auto; overflow:hidden; display:grid; grid-template-rows:auto 1fr; }
+    .modal-head { padding:14px 18px; border-bottom:1px solid var(--line); display:grid; gap:8px; }
+    .identity { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .identity h2 { font-size:24px; color:#fff; }
+    .modal-body { display:grid; grid-template-columns:minmax(0,1.7fr) 340px; min-height:0; }
+    .left { padding:14px 18px; overflow:auto; display:grid; gap:12px; align-content:start; }
+    .right { border-left:1px solid var(--line); padding:16px; display:grid; gap:12px; align-content:start; background:#0d1112; }
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .panel { padding:12px; display:grid; gap:8px; }
+    dl { display:grid; grid-template-columns:150px 1fr; gap:5px 12px; margin:0; }
+    dt { color:var(--muted); }
+    dd { margin:0; color:#fff; }
+    .tabs { display:flex; gap:6px; flex-wrap:wrap; }
+    .timeline { display:grid; gap:8px; }
+    .event { display:grid; grid-template-columns:120px 120px 1fr auto; gap:10px; align-items:center; padding:8px; border:1px solid #202b30; border-radius:6px; }
+    .settings { padding:14px; display:grid; gap:14px; }
+    .matrix { display:grid; grid-template-columns:1.4fr repeat(4,1fr); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    .matrix span { padding:9px; border-bottom:1px solid #202b30; border-right:1px solid #202b30; }
+    .confirm { width:min(460px,92vw); border:1px solid #774042; background:#120d0e; border-radius:10px; padding:16px; display:grid; gap:10px; }
+    @media(max-width:900px){ main{padding:12px}.kpis{grid-template-columns:repeat(2,1fr)}.modal{height:100vh;width:100vw}.modal-body{grid-template-columns:1fr}.right{border-left:0;border-top:1px solid var(--line)}.grid2{grid-template-columns:1fr}.event{grid-template-columns:1fr}.settings .grid2{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+<main>
+  <section>
+    <h1>Users CRM — business modules blueprint</h1>
+    <p class="muted">Static mock only. No fake readiness, no DB/API implementation.</p>
+  </section>
+
+  <section class="bar">
+    <button class="primary">Пользователи</button><button>Фильтры</button><button>Сохранённые виды</button><button>Вид и колонки</button><button>Экспорт</button>
+  </section>
+
+  <section class="kpis">
+    <div><b>24 532</b><span class="muted">Всего</span></div><div><b>312</b><span class="muted">Онлайн</span></div><div><b>8 673</b><span class="muted">Платящие</span></div><div><b>152</b><span class="muted">Забанены</span></div>
+    <div><b>41</b><span class="muted">Счета проср.</span></div><div><b>918</b><span class="muted">Promo used</span></div><div><b>274</b><span class="muted">Ошибки входа</span></div><div><b>12</b><span class="muted">High risk</span></div>
+  </section>
+
+  <section class="table">
+    <div class="row head"><span>Клиент</span><span>Активность</span><span>Источник</span><span>Контакт</span><span>Сегмент</span><span>Финансы</span><span>Генерации</span><span>Устройство</span><span>Маркетинг</span><span>Риск</span><span>Действия</span></div>
+    <div class="row">
+      <span class="client"><i class="avatar">AB</i><span class="cell"><b>spikeal_b</b><small>WEB-000011</small><span><i class="chip green">active</i> <i class="chip blue">admin</i> <i class="chip">pro</i></span></span></span>
+      <span class="cell"><b>Онлайн</b><small>Сегодня, 14:22 · 2 сессии</small></span>
+      <span class="cell"><i class="chip blue">Web</i><small>first: google_cpc</small></span>
+      <span class="cell"><small>s***@gmail.com</small><small>@spikeal_b · +*******67</small></span>
+      <span class="cell"><span><i class="chip">admin</i> <i class="chip green">pro</i></span><small>lifecycle: active</small></span>
+      <span class="cell"><b>1 250,50 ₽</b><small>paid 12 430,75 · invoice paid</small></span>
+      <span class="cell"><b>2 354</b><small>gallery 1 432</small></span>
+      <span class="cell"><small>Chrome / Windows</small><small>MAC: недоступен</small></span>
+      <span class="cell"><small>utm: google_cpc</small><small><i class="chip yellow">SPRING20</i> <i class="chip">ref</i></small></span>
+      <span class="cell"><b class="green">18/100</b><small>Низкий</small></span>
+      <span class="actions"><button>Карточка</button><button>+50</button><button>-50</button><button>Действия</button></span>
+    </div>
+  </section>
+
+  <section class="modal">
+    <header class="modal-head">
+      <div class="identity"><i class="avatar">AB</i><h2>spikeal_b</h2><span class="chip">WEB-000011</span><span class="chip green">active</span><span class="chip blue">admin</span><span class="chip">pro</span></div>
+      <div class="bar"><span>Баланс <b>1 250,50 ₽</b></span><span>Потрачено <b>12 430,75 ₽</b></span><span>Генераций <b>2 354</b></span><span>Галерея <b>1 432</b></span><span>Риск <b class="green">18/100</b></span></div>
+    </header>
+    <div class="modal-body">
+      <div class="left">
+        <div class="grid2">
+          <section class="panel"><h3>Финансы</h3><dl><dt>Счета</dt><dd>1 unpaid · 8 paid</dd><dt>Платежи</dt><dd>12 430,75 ₽</dd><dt>Возвраты</dt><dd>0</dd><dt>Ledger</dt><dd>-12 generation · +50 admin</dd></dl></section>
+          <section class="panel"><h3>Промо / Бонусы / Рефералы</h3><dl><dt>Активный промо</dt><dd>SPRING20</dd><dt>Бонусы</dt><dd>320 ₽</dd><dt>Parent</dt><dd>WEB-000004</dd><dt>Children</dt><dd>8</dd></dl></section>
+        </div>
+        <section class="panel"><h3>Маркетинг</h3><dl><dt>First source</dt><dd>google / cpc / SPRING20</dd><dt>Last source</dt><dd>telegram_channel</dd><dt>Referrer</dt><dd>https://example... truncated</dd><dt>Landing</dt><dd>/pricing?utm_campaign=...</dd></dl></section>
+        <section class="panel"><h3>Timeline</h3><div class="tabs"><button class="primary">Все</button><button>Контент</button><button>Финансы</button><button>Маркетинг</button><button>Безопасность</button><button>Админ</button></div><div class="timeline">
+          <div class="event"><span>Сегодня 14:22</span><span class="chip blue">generation</span><span>Generated image from truncated prompt</span><b>-12 ток.</b></div>
+          <div class="event"><span>Сегодня 13:58</span><span class="chip green">payment</span><span>Payment received for invoice INV-1029</span><b>990 ₽</b></div>
+          <div class="event"><span>Вчера 21:04</span><span class="chip yellow">promo</span><span>Promo SPRING20 applied</span><b>+100</b></div>
+        </div></section>
+      </div>
+      <aside class="right">
+        <h3>Действия администратора</h3>
+        <button class="primary">Выставить счёт</button><button>Отметить оплату</button><button class="danger">Возврат</button>
+        <button>Применить промокод</button><button>Начислить бонус</button><button>Реферальная корректировка</button>
+        <button class="danger">Бан / Разбан</button><button class="danger">Удалить / анонимизировать</button>
+      </aside>
+    </div>
+  </section>
+
+  <section class="settings">
+    <h2>CRM Settings / Access</h2>
+    <div class="grid2">
+      <section class="panel"><h3>Колонки и карточка</h3><p class="muted">Visibility, priority, desktop/tablet/mobile, saved views, card sections.</p></section>
+      <section class="panel"><h3>Чувствительные данные</h3><p class="muted">Contacts, prompts, IP, technical IDs, export permissions.</p></section>
+    </div>
+    <div class="matrix">
+      <span>Действие / роль</span><span>Support</span><span>Manager</span><span>Admin</span><span>SuperAdmin</span>
+      <span>View contacts</span><span>✓</span><span>✓</span><span>✓</span><span>✓</span>
+      <span>Issue invoice</span><span>—</span><span>✓</span><span>✓</span><span>✓</span>
+      <span>Refund</span><span>—</span><span>review</span><span>✓</span><span>✓</span>
+      <span>Delete/anonymize</span><span>—</span><span>—</span><span>—</span><span class="red">2x confirm</span>
+    </div>
+  </section>
+
+  <section class="confirm">
+    <h2>Confirm Modal</h2>
+    <dl><dt>Пользователь</dt><dd>spikeal_b · WEB-000011</dd><dt>Действие</dt><dd>Возврат платежа</dd><dt>Сумма</dt><dd>990 ₽</dd></dl>
+    <label>Причина обязательна<br><input style="width:100%;min-height:34px;background:#171b1d;border:1px solid #344047;color:white;border-radius:6px;padding:6px" placeholder="Причина действия"></label>
+    <p class="yellow">Действие будет записано в audit log.</p>
+    <div class="actions"><button class="danger">Подтвердить</button><button>Отмена</button></div>
+  </section>
+</main>
+</body>
+</html>
