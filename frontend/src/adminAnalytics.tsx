@@ -43,6 +43,7 @@ export interface CrmUserRow {
   country?: string | null; city?: string | null; device_count?: number; active_sessions_count?: number
   generations_count?: number; tokens_spent?: number; token_balance?: number; status?: string; role?: string
   first_seen_at?: string | null; gallery_count?: number; marketing_source?: string | null; risk_level?: string | null
+  gallery_access?: boolean; gallery_enabled?: boolean
   last_device?: { browser?: string | null; os?: string | null } | null
   internal_user_id_short?: string
 }
@@ -115,7 +116,7 @@ interface UserDetail {
 }
 
 // --- Shared trusted-action confirm (compact popover, reason-gated, audited). ---
-type ActKind = 'tokens' | 'role' | 'plan' | 'profile' | 'ban' | 'unban' | 'reset' | 'invoice' | 'mark_paid' | 'refund' | 'cancel_invoice' | 'bonus' | 'cancel_bonus' | 'promo' | 'referral_reward'
+type ActKind = 'tokens' | 'role' | 'plan' | 'profile' | 'ban' | 'unban' | 'reset' | 'deactivate' | 'invoice' | 'mark_paid' | 'refund' | 'cancel_invoice' | 'bonus' | 'cancel_bonus' | 'promo' | 'referral_reward'
 function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
   target: CrmUserRow; kind: ActKind; preset?: string; context?: AnyRec; onClose: () => void; onDone: () => void
 }): ReactElement {
@@ -123,22 +124,24 @@ function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
   const [reason, setReason] = useState('')
   const [value, setValue] = useState(preset ?? (kind === 'profile' ? String(target.display_name ?? '') : ''))
   const [tokens, setTokens] = useState(kind === 'invoice' ? '0' : '')
+  const [bonusType, setBonusType] = useState('manual')
   const [email, setEmail] = useState(typeof target.email === 'string' ? target.email : '')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const iuid = target.internal_user_id
   const title: Record<ActKind, string> = {
     tokens: 'Изменить токены', role: isAdmin ? 'Снять админа' : 'Сделать админом', plan: 'Изменить тариф',
-    profile: 'Изменить профиль', ban: 'Забанить / отключить', unban: 'Разбанить', reset: 'Сбросить пароль',
+    profile: 'Изменить профиль', ban: 'Забанить / отключить', unban: 'Разбанить', reset: 'Сбросить пароль', deactivate: 'Деактивировать',
     invoice: 'Выставить счёт', mark_paid: 'Отметить оплату', refund: 'Возврат', cancel_invoice: 'Отменить счёт',
     bonus: 'Начислить бонус', cancel_bonus: 'Отменить бонус', promo: 'Применить промокод', referral_reward: 'Реферальная корректировка',
   }
-  const danger = kind === 'ban' || kind === 'reset' || kind === 'refund' || kind === 'cancel_invoice' || kind === 'cancel_bonus' || (kind === 'role' && isAdmin)
+  const danger = kind === 'ban' || kind === 'deactivate' || kind === 'reset' || kind === 'refund' || kind === 'cancel_invoice' || kind === 'cancel_bonus' || (kind === 'role' && isAdmin)
   const changePreview = kind === 'tokens' ? `${Number(value) > 0 ? '+' : ''}${value || '—'} токенов`
     : kind === 'role' ? `${isAdmin ? 'admin → user' : 'user → admin'}`
     : kind === 'plan' ? `Тариф: ${value || '—'}`
     : kind === 'profile' ? `Имя/email будут обновлены`
     : kind === 'reset' ? 'Новый пароль будет установлен'
+    : kind === 'deactivate' ? 'Пользователь не сможет входить и генерировать'
     : kind === 'ban' ? 'Доступ будет заблокирован'
     : kind === 'invoice' ? `Счёт: ${value || '—'} ₽ · ${tokens || 0} токенов`
     : kind === 'mark_paid' ? `Оплата: ${value || S(context?.total_amount)} ${S(context?.currency || 'RUB')}`
@@ -166,6 +169,7 @@ function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
     else if (kind === 'plan') { if (!value) { setBusy(false); setMsg('Выберите тариф.'); return } res = await adminPost(`${base}/plan-v2`, { plan: value, reason }) }
     else if (kind === 'profile') { const body: Record<string, unknown> = { reason }; if (value.trim()) body.display_name = value.trim(); if (email.trim()) body.email = email.trim(); if (!body.display_name && !body.email) { setBusy(false); setMsg('Нет полей для изменения.'); return } res = await adminPost(`${base}/profile-v2`, body) }
     else if (kind === 'ban') res = await adminPost(`${base}/block-v2`, { reason })
+    else if (kind === 'deactivate') res = await adminPost(`${base}/block-v2`, { reason })
     else if (kind === 'unban') res = await adminPost(`${base}/unblock-v2`, { reason })
     else if (kind === 'reset') { if (value.length < 8) { setBusy(false); setMsg('Пароль не короче 8 символов.'); return } res = await adminPost(`${base}/password-reset-v2`, { new_password: value, reason }) }
     else if (kind === 'invoice') {
@@ -193,7 +197,7 @@ function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
     else if (kind === 'bonus') {
       const tokenAmount = Number(value)
       if (!tokenAmount || tokenAmount <= 0) { setBusy(false); setMsg('Укажите положительный бонус.'); return }
-      res = await adminPost(`${base}/bonus-v2`, { token_amount: tokenAmount, bonus_type: 'manual', reason, idempotency_key: `bonus-ui-${iuid}-${Date.now()}` })
+      res = await adminPost(`${base}/bonus-v2`, { token_amount: tokenAmount, bonus_type: bonusType, reason, idempotency_key: `bonus-ui-${iuid}-${Date.now()}` })
     }
     else if (kind === 'cancel_bonus') {
       const bonusId = String(context?.id || '')
@@ -231,6 +235,7 @@ function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
         )}
         {kind === 'invoice' && <><label>Сумма счёта, ₽<input value={value} onChange={(e) => setValue(e.target.value)} inputMode="numeric" placeholder="например 1250" /></label><label>Токены к начислению после оплаты<input value={tokens} onChange={(e) => setTokens(e.target.value)} inputMode="numeric" placeholder="например 500" /></label></>}
         {(kind === 'mark_paid' || kind === 'refund') && <label>Сумма<input value={value} onChange={(e) => setValue(e.target.value)} inputMode="numeric" placeholder={S(context?.total_amount || context?.amount)} /></label>}
+        {kind === 'bonus' && <label>Тип бонуса<select value={bonusType} onChange={(e) => setBonusType(e.target.value)}><option value="manual">manual</option><option value="compensation">compensation</option><option value="campaign">campaign</option><option value="referral">referral</option></select></label>}
         {(kind === 'bonus' || kind === 'referral_reward') && <label>Токены<input value={value} onChange={(e) => setValue(e.target.value)} inputMode="numeric" placeholder="например 100" /></label>}
         {kind === 'promo' && <label>Промокод<input value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" placeholder="WELCOME" /></label>}
         {kind === 'plan' && <label>Тариф<select value={value} onChange={(e) => setValue(e.target.value)}><option value="">Выбрать…</option><option value="free">free</option><option value="mini">mini</option><option value="plus">plus</option><option value="pro">pro</option></select></label>}
@@ -331,7 +336,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <h4>Профиль и контакты</h4>
               <dl className="crm-preview-list">
                 {row('Имя', parsedName(sm, ids))}{row('Email', sm.email)}{row('Username', sm.username)}{row('Телефон', sm.phone)}
-                {row('Язык', (ids?.[0] as AnyRec)?.language_code)}{row('Гео', `${S(sm.city)} / ${S(sm.country)}`)}{row('Роль', sm.role)}{row('Тариф', sm.plan)}
+                {row('Язык', (ids?.[0] as AnyRec)?.language_code)}{row('Гео', `${S(sm.city)} / ${S(sm.country)}`)}{row('Роль', sm.role)}{row('Тариф', sm.plan || 'mini')}{row('Галерея', sm.gallery_access ? 'доступна' : 'закрыта')}
               </dl>
             </div>
             <div className="crm-panel">
@@ -451,9 +456,9 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             <p className="crm-card-note">Каждое поддержанное действие требует причину и пишется в audit log.</p>
             <div className="crm-action-group"><strong>Токены</strong><div className="crm-quick"><button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'tokens', preset: '50' })}>+50</button><button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'tokens', preset: '-50' })}>-50</button>{actionButton('tokens', 'Другое')}</div></div>
             <div className="crm-action-group"><strong>Биллинг</strong>{actionButton('plan', 'Изменить тариф')}<button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'invoice', preset: '0' })}>Выставить счёт</button><button className="secondary crm-supported-action" disabled={!unpaidInvoice} onClick={() => unpaidInvoice && setAct({ kind: 'mark_paid', preset: S(unpaidInvoice.total_amount), context: unpaidInvoice })}>Отметить оплату</button><button className="secondary danger crm-supported-action" disabled={!refundablePayment} onClick={() => refundablePayment && setAct({ kind: 'refund', preset: S(refundablePayment.amount), context: refundablePayment })}>Возврат</button><button className="secondary danger crm-supported-action" disabled={!unpaidInvoice} onClick={() => unpaidInvoice && setAct({ kind: 'cancel_invoice', context: unpaidInvoice })}>Отменить счёт</button></div>
-            <div className="crm-action-group"><strong>Маркетинг</strong><button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'bonus', preset: '100' })}>Начислить бонус</button><button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'promo' })}>Применить промокод</button><button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'referral_reward', preset: '100' })}>Реферальная корректировка</button><button className="secondary danger crm-supported-action" disabled={!cancellableBonus} onClick={() => cancellableBonus && setAct({ kind: 'cancel_bonus', context: cancellableBonus })}>Отменить бонус</button></div>
+            <div className="crm-action-group"><strong>Маркетинг</strong><button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'bonus', preset: '100' })}>Бонус / компенсация</button><button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'promo' })}>Применить промокод</button><button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'referral_reward', preset: '100' })}>Реферальная корректировка</button><button className="secondary danger crm-supported-action" disabled={!cancellableBonus} onClick={() => cancellableBonus && setAct({ kind: 'cancel_bonus', context: cancellableBonus })}>Отменить бонус</button></div>
             <div className="crm-action-group"><strong>Доступ</strong>{actionButton(isBanned ? 'unban' : 'ban', isBanned ? 'Разбанить' : 'Бан/Разбан', undefined, !isBanned)}{actionButton('reset', 'Сбросить пароль', undefined, true)}</div>
-            <div className="crm-action-group"><strong>Аккаунт</strong>{actionButton('profile', 'Редактировать профиль')}{actionButton('role', isAdmin ? 'Снять админа' : 'Сделать админом')}{disabledAction('Удаление/анонимизация')}</div>
+            <div className="crm-action-group"><strong>Аккаунт</strong>{actionButton('profile', 'Редактировать профиль')}{actionButton('role', isAdmin ? 'Снять админа' : 'Сделать админом')}<button className="secondary danger crm-supported-action" disabled={isAdmin || isBanned} onClick={() => setAct({ kind: 'deactivate' })}>Деактивировать</button>{disabledAction('Анонимизировать')}</div>
           </aside>
         </div>
 
@@ -604,11 +609,11 @@ export function AdminAnalyticsV2(): ReactElement {
             }
             return (
               <div key={u.public_user_code || u.internal_user_id_short} className={`analytics-row crm-row activity-${active}`} role="button" tabIndex={0} aria-label={`Открыть карточку ${u.display_name || u.username || u.public_user_code}`} onClick={openCard} onKeyDown={rowKey}>
-                <span className="crm-client-cell"><span className={`crm-avatar crm-row-avatar activity-${active}`}>{initials(u as CrmUserRow & AnyRec)}</span><span><strong>{u.display_name || u.username || u.public_user_code}</strong><small>{u.public_user_code}</small><span className="crm-chip-row"><em className={`crm-chip status-${u.status || 'active'}`}>{u.status || 'active'}</em><em className="crm-chip">{u.role || 'user'}</em><em className="crm-chip plan">{u.plan || 'free'}</em></span></span></span>
+                <span className="crm-client-cell"><span className={`crm-avatar crm-row-avatar activity-${active}`}>{initials(u as CrmUserRow & AnyRec)}</span><span><strong>{u.display_name || u.username || u.public_user_code}</strong><small>{u.public_user_code}</small><span className="crm-chip-row"><em className={`crm-chip status-${u.status || 'active'}`}>{u.status || 'active'}</em><em className="crm-chip">{u.role || 'user'}</em><em className="crm-chip plan">{u.plan || 'mini'}</em></span></span></span>
                 <span><small><i className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}</small><small>{shortTime(u.last_seen_at)}</small><small>{u.active_sessions_count ?? 0} сесс. · {u.last_platform || '—'} · {u.last_ip || '—'}</small></span>
                 <span>{sourceList.map((p) => <Badge key={p} p={p} />)}<small>{u.marketing_source || '—'}</small></span>
                 <span><small>{u.email || '—'}</small><small>{u.username ? `@${u.username}` : ''}{u.phone ? ` · ${u.phone}` : ''}</small></span>
-                <span><span className="crm-chip-row"><em className="crm-chip">{u.role || 'user'}</em><em className={banned ? 'crm-chip status-banned' : 'crm-chip status-active'}>{u.status || 'active'}</em></span><small>{u.plan || 'free'}</small></span>
+                <span><span className="crm-chip-row"><em className="crm-chip">{u.role || 'user'}</em><em className={banned ? 'crm-chip status-banned' : 'crm-chip status-active'}>{u.status || 'active'}</em></span><small>{u.plan || 'mini'} · галерея {u.gallery_access ? 'да' : 'нет'}</small></span>
                 <span><small>Баланс {n0(u.token_balance)}</small><small>Списано {n0(u.tokens_spent)}</small></span>
                 <span><strong>{n0(u.generations_count)}</strong><small>Галерея: отложено</small></span>
                 <span><small>{deviceLabel(u)}</small><small>{u.device_count ?? 0} устр.</small></span>

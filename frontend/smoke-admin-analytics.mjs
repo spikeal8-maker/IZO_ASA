@@ -103,7 +103,7 @@ for (const ep of ['/bonus-v2', '/apply-promo-v2', '/referral-reward-v2', '/cance
   ok(admin.includes(ep), `loyalty action must call ${ep}`)
 }
 ok(admin.includes('Выставить счёт') && admin.includes('Отметить оплату') && admin.includes('Возврат') && admin.includes('Отменить счёт'), 'billing action labels missing')
-ok(admin.includes('Применить промокод') && admin.includes('Начислить бонус') && admin.includes('Реферальная корректировка') && admin.includes('Отменить бонус'), 'loyalty action labels missing')
+ok(admin.includes('Применить промокод') && admin.includes('Бонус / компенсация') && admin.includes('Реферальная корректировка') && admin.includes('Отменить бонус'), 'loyalty action labels missing')
 ok(admin.includes('Токены к начислению после оплаты') && admin.includes('Сумма счёта'), 'create invoice confirm fields missing')
 ok(admin.includes('Промокод') && admin.includes('Промо, бонусы и рефералы') && admin.includes('Лояльность'), 'loyalty UI labels missing')
 ok(admin.includes('manual-ui-') && admin.includes('refund-ui-'), 'manual billing idempotency keys missing')
@@ -111,7 +111,7 @@ ok(admin.includes('bonus-ui-') && admin.includes('promo-ui-') && admin.includes(
 ok(admin.includes('crm-gallery-strip') && admin.includes('thumbnail_url'), 'gallery thumbnails must render when safe URLs exist')
 ok(admin.includes('Операций ledger') && admin.includes('Ошибки входа') && admin.includes('Сбросы пароля'), 'token/security real-data labels missing')
 ok(admin.includes('MAC: недоступен') && !/MAC:\s*агент/.test(admin), 'MAC must be unavailable unless explicitly agent-collected')
-ok(admin.includes('Удаление/анонимизация') && /<button disabled title=\{deferred\}>Удаление\/анонимизация<\/button>/.test(admin), 'delete/anonymize must be present only as disabled/deferred')
+ok(admin.includes('Деактивировать') && admin.includes('Анонимизировать') && /disabledAction\('Анонимизировать'\)/.test(admin), 'lifecycle actions must expose deactivate and defer anonymize')
 ok(admin.includes('Отложено: backend v2 пока не отдаёт эти данные.'), 'deferred backend data must be clearly labeled')
 // No nonsense labels.
 for (const bad of ['тектон', 'золото', 'исидо', 'туалет', 'каменная фигура', 'регион. идентификатор']) {

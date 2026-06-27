@@ -993,8 +993,10 @@ def init_db() -> None:
         }.items():
             if column not in existing_user_columns:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
+        existing_image_columns = {row["name"] for row in conn.execute("PRAGMA table_info(images)").fetchall()}
+        if "deleted_at" not in existing_image_columns:
+            conn.execute("ALTER TABLE images ADD COLUMN deleted_at TEXT")
         now = datetime.now(timezone.utc).isoformat()
-        conn.execute("UPDATE users SET plan = 'mini', gallery_enabled = 1 WHERE role != 'admin' AND plan = 'free'")
         conn.execute(
             """
             INSERT OR IGNORE INTO users (id, username, first_name, language, role, created_at, last_login_at)
@@ -2076,6 +2078,20 @@ def _user_is_banned(conn: sqlite3.Connection, internal_user_id: str | None, lega
         return False
 
 
+def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None, legacy_user_id: str | None) -> bool:
+    row = None
+    if internal_user_id:
+        row = conn.execute("SELECT role, plan, gallery_enabled FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+    if row is None and legacy_user_id:
+        row = conn.execute("SELECT role, plan, gallery_enabled FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
+    if row is None:
+        return False
+    if _row_get(row, "role") == "admin":
+        return True
+    plan = str(_row_get(row, "plan") or "mini")
+    return plan in {"mini", "plus", "pro"} and bool(_row_get(row, "gallery_enabled"))
+
+
 def create_auth_session(
     internal_user_id: str,
     legacy_user_id: str | None = None,
@@ -2606,6 +2622,7 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
         "createdAt": row["created_at"],
         "comfyuiPromptId": settings.get("comfyuiPromptId"),
         "comfyuiHistory": settings.get("comfyuiHistory"),
+        "deletedAt": _row_get(row, "deleted_at"),
     }
 
 
@@ -2613,7 +2630,7 @@ def load_db_state() -> None:
     jobs.clear()
     images.clear()
     with db() as conn:
-        for row in conn.execute("SELECT * FROM images ORDER BY created_at DESC"):
+        for row in conn.execute("SELECT * FROM images WHERE deleted_at IS NULL ORDER BY created_at DESC"):
             images[row["id"]] = row_to_image(row)
         for row in conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 100"):
             jobs[row["id"]] = {
@@ -3799,6 +3816,9 @@ async def flux_klein_lora_triggers(name: str) -> dict[str, Any]:
 async def gallery(request: Request) -> list[dict[str, Any]]:
     trusted = require_trusted_user(request)
     user_id = trusted["legacy_user_id"]
+    with db() as conn:
+        if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
+            raise HTTPException(403, "Gallery is not available for this plan.")
     if not images and DB_PATH.exists():
         load_db_state()
     return sorted([item for item in images.values() if item.get("userId", "demo_user") == user_id], key=lambda item: item["createdAt"], reverse=True)
@@ -3808,6 +3828,9 @@ async def gallery(request: Request) -> list[dict[str, Any]]:
 async def gallery_detail(image_id: str, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
     user_id = trusted["legacy_user_id"]
+    with db() as conn:
+        if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
+            raise HTTPException(403, "Gallery is not available for this plan.")
     if image_id not in images and DB_PATH.exists():
         load_db_state()
     if image_id not in images or images[image_id].get("userId", "demo_user") != user_id:
@@ -3819,6 +3842,9 @@ async def gallery_detail(image_id: str, request: Request) -> dict[str, Any]:
 async def gallery_favorite(image_id: str, req: FavoriteRequest, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
     user_id = trusted["legacy_user_id"]
+    with db() as conn:
+        if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
+            raise HTTPException(403, "Gallery is not available for this plan.")
     if image_id not in images and DB_PATH.exists():
         load_db_state()
     if image_id not in images or images[image_id].get("userId", "demo_user") != user_id:
@@ -3833,13 +3859,17 @@ async def gallery_favorite(image_id: str, req: FavoriteRequest, request: Request
 async def gallery_delete(image_id: str, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
     user_id = trusted["legacy_user_id"]
+    with db() as conn:
+        if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
+            raise HTTPException(403, "Gallery is not available for this plan.")
     if image_id not in images and DB_PATH.exists():
         load_db_state()
     if image_id not in images or images[image_id].get("userId", "demo_user") != user_id:
         raise HTTPException(404, "Image not found")
     record = images.pop(image_id)
+    now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
-        conn.execute("DELETE FROM images WHERE id = ?", (image_id,))
+        conn.execute("UPDATE images SET deleted_at = ? WHERE id = ? AND user_id = ?", (now, image_id, user_id))
     return {"ok": True, "deleted": image_id, "url": record["url"]}
 
 
@@ -3847,6 +3877,9 @@ async def gallery_delete(image_id: str, request: Request) -> dict[str, Any]:
 async def gallery_use_as(image_id: str, req: UseAsRequest, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
     user_id = trusted["legacy_user_id"]
+    with db() as conn:
+        if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
+            raise HTTPException(403, "Gallery is not available for this plan.")
     if image_id not in images and DB_PATH.exists():
         load_db_state()
     if image_id not in images or images[image_id].get("userId", "demo_user") != user_id:
@@ -6257,6 +6290,9 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "generations_count": int(_row_get(urow, "generation_count") or 0),
         "tokens_spent": int(_row_get(urow, "tokens_used") or 0),
         "token_balance": int(_row_get(urow, "token_balance") or 0),
+        "plan": _row_get(urow, "plan") or "mini",
+        "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
+        "gallery_access": bool(user_gallery_allowed(conn, iuid, legacy)),
         "status": "banned" if _row_get(urow, "banned") else "active",
         "role": _row_get(urow, "role"),
     }
@@ -6667,6 +6703,9 @@ async def max_send_message(req: BotSendMessageRequest) -> dict[str, Any]:
 async def send_gallery_image(image_id: str, req: SendImageRequest, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
     user_id = trusted["legacy_user_id"]
+    with db() as conn:
+        if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
+            raise HTTPException(403, "Gallery is not available for this plan.")
     if image_id not in images and DB_PATH.exists():
         load_db_state()
     if image_id not in images or images[image_id].get("userId", "demo_user") != user_id:

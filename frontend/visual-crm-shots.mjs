@@ -65,6 +65,7 @@ const detail = {
 const dashboard = { dashboard: { total_users: 3, active_today: 2, active_7d: 2, sessions_active: 2, generations_total: 173, tokens_spent_total: 750, users_by_provider: { web_email: 1, telegram: 1, max: 1 }, failed_logins_24h: 0 } }
 const diag = { ok: true, backend_build: '20C.4-2026-06-27', db_file: 'onenode.sqlite3', user_count: 3, auth_mode: 'trusted_cookie_session', admin_role: 'admin', admin_user_code: 'WEB-100001', admin_provider: 'web_email' }
 const bootstrap = { user: { id: 'web_100001', role: 'admin', username: 'operator', firstName: 'Operator', plan: 'pro', galleryEnabled: true }, admin: { users: 3 }, fluxKleinConfig: { ok: false } }
+const me = { ok: true, user: { id: 'web_100001', role: 'admin', username: 'operator', firstName: 'Operator', plan: 'pro', galleryEnabled: true } }
 
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
 async function openAdmin(page) {
@@ -78,6 +79,13 @@ async function openAdmin(page) {
 async function closeCard(page) {
   await page.locator('.crm-card .auth-modal-close').first().click()
   await page.waitForSelector('.crm-card', { state: 'detached', timeout: 5000 })
+}
+async function closeAuthModalIfPresent(page) {
+  const overlay = page.locator('.auth-modal-overlay')
+  if (await overlay.count()) {
+    await overlay.locator('.auth-modal-close').first().click().catch(() => {})
+    await page.waitForSelector('.auth-modal-overlay', { state: 'detached', timeout: 5000 }).catch(() => {})
+  }
 }
 async function assertCardFrom(page, locator, message) {
   await locator.click()
@@ -96,6 +104,7 @@ async function assertConfirmNotCard(page, locator, message) {
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1720, height: 980 } })
 await page.route('**/api/app/bootstrap', (r) => r.fulfill(J(bootstrap)))
+await page.route('**/api/me-v2', (r) => r.fulfill(J(me)))
 await page.route('**/api/admin/dashboard-v2', (r) => r.fulfill(J(dashboard)))
 await page.route('**/api/admin/users-analytics-v2*', (r) => r.fulfill(J({ items: users })))
 await page.route('**/api/admin/users/*/analytics-v2', (r) => r.fulfill(J(detail)))
@@ -103,6 +112,7 @@ await page.route('**/api/admin/diagnostics-v2', (r) => r.fulfill(J(diag)))
 await page.route('**/api/media/*', (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG_1X1 }))
 
 await openAdmin(page)
+await closeAuthModalIfPresent(page)
 await page.screenshot({ path: `${OUT}/crm-table-default.png` })
 
 const table = page.locator('.analytics-table.dense')
@@ -132,6 +142,7 @@ await firstRow.locator('.crm-row-menu summary').click()
 await page.waitForSelector('.crm-row-menu[open] .crm-row-menu-pop', { timeout: 4000 })
 assert(await page.locator('.crm-card').count() === 0, 'dropdown click opened card')
 await page.screenshot({ path: `${OUT}/crm-action-dropdown-open.png` })
+await closeAuthModalIfPresent(page)
 await firstRow.locator('.crm-row-menu-pop button', { hasText: 'Редактировать профиль' }).click()
 await page.waitForSelector('.crm-confirm', { timeout: 6000 })
 assert(await page.locator('.crm-card').count() === 0, 'dropdown item opened card')
