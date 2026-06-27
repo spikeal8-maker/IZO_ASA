@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs'
 
 const OUT = 'visual-out'; mkdirSync(OUT, { recursive: true })
 const J = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) })
+const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64')
 const now = new Date()
 const isoDaysAgo = (days) => new Date(now.getTime() - days * 86400000).toISOString()
 
@@ -21,6 +22,19 @@ const detail = {
   recent_security_events: [{ severity: 'info', event_type: 'password_login_succeeded', ip_address: '10.0.0.5', created_at: isoDaysAgo(0.2) }],
   admin_actions: [{ action: 'admin_adjust_tokens', actor: 'iuid-web', created_at: isoDaysAgo(1) }],
   token_summary: { spent: 220, entries: 9, balance: 980 },
+  recent_generations: [
+    { id: 'job_20260627...', mode: 'text_to_image', provider: 'comfyui', model: 'flux', status: 'completed', prompt: 'cyberpunk city at night, rain, neon lights, reflections', token_cost: 12, created_at: isoDaysAgo(0.1), completed_at: isoDaysAgo(0.1), result_image_id: 'img_abc...', result_image_url: '/api/media/result.png?userId=x', error: null },
+    { id: 'job_20260626...', mode: 'edit', provider: 'comfyui', model: 'flux', status: 'failed', prompt: 'portrait cleanup and detailed lighting', token_cost: 8, created_at: isoDaysAgo(1), completed_at: isoDaysAgo(1), result_image_id: null, result_image_url: null, error: 'Ошибка генерации. Детали скрыты.' },
+  ],
+  recent_gallery: [
+    { id: 'img_abc...', thumbnail_url: '/api/media/thumb1.webp?userId=x', job_id: 'job_20260627...', mode: 'text_to_image', provider: 'comfyui', prompt: 'cyberpunk city at night', created_at: isoDaysAgo(0.1), favorite: true },
+    { id: 'img_def...', thumbnail_url: '/api/media/thumb2.webp?userId=x', job_id: 'job_20260626...', mode: 'edit', provider: 'comfyui', prompt: 'portrait cleanup', created_at: isoDaysAgo(1), favorite: false },
+  ],
+  token_ledger_recent: [
+    { id: 'ledger_1...', delta: -12, reason: 'generation', source: 'comfyui', job_id: 'job_20260627...', admin_action: null, created_at: isoDaysAgo(0.1), metadata: { job_id: 'job_20260627...', mode: 'text_to_image', provider: 'comfyui' } },
+    { id: 'ledger_2...', delta: 50, reason: 'admin_adjust', source: 'admin_adjust', job_id: null, admin_action: 'admin_adjust_tokens', created_at: isoDaysAgo(1), metadata: { actor: 'iuid-web', reason: 'support correction' } },
+  ],
+  security_summary: { failed_login_count: 1, password_reset_count: 1, ban_count: 0, role_change_count: 1, session_revocation_count: 2, suspicious_ip_count: 1 },
 }
 const dashboard = { dashboard: { total_users: 3, active_today: 2, active_7d: 2, sessions_active: 2, generations_total: 173, tokens_spent_total: 750, users_by_provider: { web_email: 1, telegram: 1, max: 1 }, failed_logins_24h: 0 } }
 const diag = { ok: true, backend_build: '20C.4-2026-06-27', db_file: 'onenode.sqlite3', user_count: 3, auth_mode: 'trusted_cookie_session', admin_role: 'admin', admin_user_code: 'WEB-100001', admin_provider: 'web_email' }
@@ -60,6 +74,7 @@ await page.route('**/api/admin/dashboard-v2', (r) => r.fulfill(J(dashboard)))
 await page.route('**/api/admin/users-analytics-v2*', (r) => r.fulfill(J({ items: users })))
 await page.route('**/api/admin/users/*/analytics-v2', (r) => r.fulfill(J(detail)))
 await page.route('**/api/admin/diagnostics-v2', (r) => r.fulfill(J(diag)))
+await page.route('**/api/media/*', (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG_1X1 }))
 
 await openAdmin(page)
 await page.screenshot({ path: `${OUT}/crm-table-default.png` })
@@ -110,7 +125,12 @@ await assertConfirmNotCard(page, firstRow.locator('.crm-row-actions > button.min
 await firstRow.click()
 await page.waitForSelector('.crm-card', { timeout: 6000 })
 await page.waitForTimeout(900)
-await page.screenshot({ path: `${OUT}/crm-card-opened-by-row-click.png` })
+await page.screenshot({ path: `${OUT}/crm-card-real-generations.png` })
+await page.screenshot({ path: `${OUT}/crm-card-token-ledger.png` })
+await page.screenshot({ path: `${OUT}/crm-card-sessions-devices.png` })
+await page.locator('.crm-card').getByRole('button', { name: 'Галерея' }).click()
+await page.waitForSelector('.crm-gallery-strip img', { timeout: 4000 })
+await page.screenshot({ path: `${OUT}/crm-card-gallery-real.png` })
 await closeCard(page)
 
 await page.getByRole('button', { name: 'Вид и колонки' }).click()
@@ -131,7 +151,10 @@ const result = {
     'crm-row-hover.png',
     'crm-action-dropdown-open.png',
     'crm-plus50-confirm-open.png',
-    'crm-card-opened-by-row-click.png',
+    'crm-card-real-generations.png',
+    'crm-card-token-ledger.png',
+    'crm-card-sessions-devices.png',
+    'crm-card-gallery-real.png',
     'crm-settings-opened.png',
   ],
 }

@@ -87,6 +87,11 @@ ok(admin.includes('onClick={openCard}') && admin.includes('aria-label={`Откр
 ok(admin.includes('e.stopPropagation()'), 'row controls/dropdowns must stop click propagation')
 ok(admin.includes('activityKind') && admin.includes('ACTIVITY_LABEL') && admin.includes('crm-row-avatar'), 'activity ring/labels missing')
 ok(admin.includes('crm-chip') && admin.includes('status-active') && admin.includes('status-banned'), 'role/status/plan chips missing')
+for (const field of ['recent_generations', 'recent_gallery', 'token_ledger_recent', 'security_summary', 'failed_login_count', 'mac_status']) {
+  ok(admin.includes(field), `CRM card must render real analytics-v2 field ${field}`)
+}
+ok(admin.includes('crm-gallery-strip') && admin.includes('thumbnail_url'), 'gallery thumbnails must render when safe URLs exist')
+ok(admin.includes('Операций ledger') && admin.includes('Ошибки входа') && admin.includes('Сбросы пароля'), 'token/security real-data labels missing')
 ok(admin.includes('MAC: недоступен') && !/MAC:\s*агент/.test(admin), 'MAC must be unavailable unless explicitly agent-collected')
 ok(admin.includes('Удаление/анонимизация') && /<button disabled title=\{deferred\}>Удаление\/анонимизация<\/button>/.test(admin), 'delete/anonymize must be present only as disabled/deferred')
 ok(admin.includes('Отложено: backend v2 пока не отдаёт эти данные.'), 'deferred backend data must be clearly labeled')

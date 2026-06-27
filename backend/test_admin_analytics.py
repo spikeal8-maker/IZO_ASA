@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import json
 from pathlib import Path
 
 import pytest
@@ -167,6 +168,72 @@ def test_user_detail_analytics_safe(temp_db):
     assert "summary" in b and "identities" in b and "sessions" in b and "devices" in b
     text = r.text
     for forbidden in ("session_token_hash", "refresh_token_hash", "password_hash", "code_hash", "raw_profile_json"):
+        assert forbidden not in text
+
+
+def test_user_detail_analytics_p0_real_data_and_no_secret_leaks(temp_db):
+    tok = make_admin()
+    long_prompt = "cinematic neon city " * 30
+    with TestClient(main.app) as c:
+        register(c, "p0@example.com")
+        with main.db() as conn:
+            u = conn.execute("SELECT id, internal_user_id FROM auth_identities WHERE provider_user_id='p0@example.com'").fetchone()
+            user_id, iuid = u["id"], u["internal_user_id"]
+            user_id = conn.execute("SELECT legacy_user_id FROM auth_identities WHERE internal_user_id=?", (iuid,)).fetchone()["legacy_user_id"]
+            conn.execute(
+                "INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,prompt_translated,result_image_id,error_message,settings_json,created_at,completed_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("job_secret_1234567890", user_id, "text_to_image", "comfyui", "completed", 100, long_prompt, "", "img_safe_1234567890", "C:\\secret\\traceback.txt", json.dumps({"modelProfile": "flux"}, ensure_ascii=False), "2026-06-27T10:00:00+00:00", "2026-06-27T10:01:00+00:00"),
+            )
+            conn.execute(
+                "INSERT INTO images (id,user_id,job_id,url,thumbnail_url,width,height,mode,provider,prompt_original,prompt_translated,settings_json,is_favorite,created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("img_safe_1234567890", user_id, "job_secret_1234567890", "/api/media/img.png?userId=x", "/api/media/thumb.webp?userId=x", 1024, 1024, "text_to_image", "comfyui", long_prompt, "", "{}", 1, "2026-06-27T10:01:00+00:00"),
+            )
+            conn.execute(
+                "INSERT INTO images (id,user_id,job_id,url,thumbnail_url,width,height,mode,provider,prompt_original,prompt_translated,settings_json,is_favorite,created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("img_bad", user_id, "job_bad", "C:/media/img.png", "C:/media/thumb.webp", 1024, 1024, "text_to_image", "comfyui", "bad", "", "{}", 0, "2026-06-27T09:00:00+00:00"),
+            )
+            conn.execute(
+                "INSERT INTO token_ledger (id,user_id,delta,reason,meta_json,created_at) VALUES (?,?,?,?,?,?)",
+                ("ledger_1234567890", user_id, -12, "generation", json.dumps({"jobId": "job_secret_1234567890", "mode": "text_to_image", "provider": "comfyui", "password_hash": "NOPE"}, ensure_ascii=False), "2026-06-27T10:00:00+00:00"),
+            )
+            conn.execute(
+                "INSERT INTO auth_sessions (id,internal_user_id,legacy_user_id,session_token_hash,refresh_token_hash,provider,platform,ip_address,user_agent_hash,created_at,last_seen_at,expires_at,revoked_at,revoke_reason,metadata_json) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("sess1", iuid, user_id, "secret_session_hash", "secret_refresh_hash", "web_email", "web", "1.2.3.4", "ua_hash", "2026-06-27", "2026-06-27", "2099-01-01", "2026-06-27", "logout", json.dumps({"device": {"browser": "Chrome", "os": "Windows", "device_type": "desktop"}, "client": {"app_version": "20D.1"}}, ensure_ascii=False)),
+            )
+            conn.execute(
+                "INSERT INTO device_installations (id,internal_user_id,legacy_user_id,installation_id,anonymous_id,platform,storage_type,first_seen_at,last_seen_at,metadata_json) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                ("dev1", iuid, user_id, "installation-secret-long", "anonymous-secret-long", "web", "local", "2026-06-01", "2026-06-27", json.dumps({"device": {"browser": "Chrome", "os": "Windows", "device_type": "desktop"}, "client": {"app_version": "20D.1"}}, ensure_ascii=False)),
+            )
+            conn.execute("INSERT INTO auth_login_attempts (id,internal_user_id,provider,identifier,success,failure_reason,ip_address,user_agent_hash,platform,created_at) VALUES ('la1',?,'web_email','p0@example.com',0,'bad','1.2.3.4','ua','web','2026-06-27')", (iuid,))
+            conn.execute("INSERT INTO security_events (id,internal_user_id,session_id,severity,event_type,ip_address,user_agent_hash,details_json,created_at) VALUES ('sec1',?,NULL,'warning','admin_password_reset','1.2.3.4','ua','{}','2026-06-27')", (iuid,))
+            conn.execute("INSERT INTO audit_logs (id,actor_internal_user_id,target_internal_user_id,action,entity_type,entity_id,before_json,after_json,ip_address,user_agent_hash,created_at) VALUES ('aud1','admin',?,'admin_change_role','user',?,NULL,?,'1.2.3.4','ua','2026-06-27')", (iuid, user_id, json.dumps({"reason": "test role"}, ensure_ascii=False)))
+            conn.execute("INSERT INTO audit_logs (id,actor_internal_user_id,target_internal_user_id,action,entity_type,entity_id,before_json,after_json,ip_address,user_agent_hash,created_at) VALUES ('aud2','admin',?,'admin_block_user','user',?,NULL,?,'1.2.3.4','ua','2026-06-27')", (iuid, user_id, json.dumps({"reason": "test ban"}, ensure_ascii=False)))
+        r = c.get(f"/api/admin/users/{iuid}/analytics-v2", headers=bearer(tok))
+    assert r.status_code == 200
+    b = r.json()
+    assert b["recent_generations"][0]["id"].endswith("…")
+    assert b["recent_generations"][0]["token_cost"] == 12
+    assert len(b["recent_generations"][0]["prompt"]) < len(long_prompt)
+    assert b["recent_generations"][0]["error"] == "Ошибка генерации. Детали скрыты."
+    assert b["recent_gallery"][0]["thumbnail_url"].startswith("/api/media/")
+    assert all(not g["thumbnail_url"].startswith("C:") for g in b["recent_gallery"])
+    assert b["token_ledger_recent"][0]["delta"] == -12
+    assert b["token_ledger_recent"][0]["job_id"].endswith("…")
+    assert any(s["device"]["browser"] == "Chrome" for s in b["sessions"])
+    assert all(s["device"]["mac_status"] == "MAC: недоступен" for s in b["sessions"])
+    assert b["devices"][0]["installation_id"].endswith("…")
+    assert b["security_summary"]["failed_login_count"] == 1
+    assert b["security_summary"]["password_reset_count"] == 1
+    assert b["security_summary"]["ban_count"] == 1
+    assert b["security_summary"]["role_change_count"] == 1
+    assert b["security_summary"]["session_revocation_count"] == 1
+    text = r.text
+    for forbidden in ("session_token_hash", "refresh_token_hash", "password_hash", "raw_profile_json", "secret_session_hash", "secret_refresh_hash", "initData", "WebAppData"):
         assert forbidden not in text
 
 

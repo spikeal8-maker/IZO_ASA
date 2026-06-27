@@ -106,6 +106,8 @@ interface UserDetail {
   summary?: CrmUserRow & AnyRec
   identities?: AnyRec[]; sessions?: AnyRec[]; devices?: AnyRec[]
   recent_events?: AnyRec[]; recent_security_events?: AnyRec[]; admin_actions?: AnyRec[]
+  recent_generations?: AnyRec[]; recent_gallery?: AnyRec[]; token_ledger_recent?: AnyRec[]
+  security_summary?: AnyRec
   token_summary?: { spent?: number; entries?: number; balance?: number }
 }
 
@@ -281,27 +283,33 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             <div className="crm-panel">
               <h4>Контент</h4>
               <dl className="crm-preview-list">
-                {row('Генерации', sm.generations_count)}{row('Промпты', 'Отложено')}{row('Галерея', sm.gallery_count ?? 'Отложено')}{row('Последний контент', deferred)}
+                {row('Генерации', sm.generations_count)}{row('Промпты', data?.recent_generations?.length ?? 0)}{row('Галерея', data?.recent_gallery?.length ?? sm.gallery_count ?? 0)}{row('Последний контент', shortTime(data?.recent_generations?.[0]?.created_at))}
               </dl>
+              <div className="crm-rows">
+                {(data?.recent_generations || []).slice(0, 5).map((g, n) => <small key={n}><strong>{S(g.status)}</strong> · {S(g.mode)} · {S(g.provider || g.model)} · {S(g.token_cost)} ток. · {S(g.prompt)}</small>)}
+              </div>
             </div>
             <div className="crm-panel">
-              <h4>Финансы</h4>
+              <h4>Финансы и токены</h4>
               <dl className="crm-preview-list">
                 {row('Баланс токенов', data?.token_summary?.balance ?? sm.token_balance)}{row('Потрачено токенов', data?.token_summary?.spent ?? sm.tokens_spent)}
-                {row('Платежи', 'Отложено')}{row('Счета', 'Отложено')}{row('Бонусы', 'Отложено')}
+                {row('Операций ledger', data?.token_summary?.entries ?? 0)}{row('Платежи', 'Отложено')}{row('Счета', 'Отложено')}{row('Бонусы', 'Отложено')}
               </dl>
+              <div className="crm-rows">
+                {(data?.token_ledger_recent || []).slice(0, 5).map((l, n) => <small key={n}><strong>{Number(l.delta) > 0 ? '+' : ''}{S(l.delta)}</strong> · {S(l.reason)} · {S(l.source)} · {S(l.job_id)} · {shortTime(l.created_at)}</small>)}
+              </div>
             </div>
             <div className="crm-two">
               <div className="crm-panel">
                 <h4>Устройства и сессии</h4>
                 {(data?.sessions || []).slice(0, 6).map((s, n) => (
-                  <div className="crm-subrow" key={n}><small><strong>{S(s.platform)}</strong> · {S(s.ip_address)} {s.revoked_at ? '· отозв.' : '· активна'}</small><small>{S((s.device as AnyRec)?.browser)}/{S((s.device as AnyRec)?.os)} · {shortTime(s.created_at)}</small></div>
+                  <div className="crm-subrow" key={n}><small><strong>{S(s.platform)}</strong> · {S(s.ip_address)} {s.revoked_at ? '· отозв.' : '· активна'}</small><small>{S((s.device as AnyRec)?.browser)}/{S((s.device as AnyRec)?.os)} · {S((s.device as AnyRec)?.device_type)} · {S((s.device as AnyRec)?.app_build)} · {S((s.device as AnyRec)?.mac_status)}</small></div>
                 ))}{!data?.sessions?.length && <p className="crm-card-note">—</p>}
               </div>
               <div className="crm-panel">
                 <h4>MAC: недоступен</h4>
                 {(data?.devices || []).slice(0, 6).map((d, n) => (
-                  <div className="crm-subrow" key={n}><small><strong>{S(d.platform)}</strong> · inst {shortId(d.installation_id)}</small><small>{S((d.device as AnyRec)?.browser)}/{S((d.device as AnyRec)?.os)} · anon {shortId(d.anonymous_id)} · {shortTime(d.last_seen_at)}</small></div>
+                  <div className="crm-subrow" key={n}><small><strong>{S(d.platform)}</strong> · inst {S(d.installation_id)}</small><small>{S((d.metadata as AnyRec)?.browser)}/{S((d.metadata as AnyRec)?.os)} · anon {S(d.anonymous_id)} · {S(d.mac_status)} · {shortTime(d.last_seen_at)}</small></div>
                 ))}{!data?.devices?.length && <p className="crm-card-note">—</p>}
               </div>
             </div>
@@ -309,6 +317,9 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <h4>Безопасность</h4>
               <dl className="crm-preview-list">
                 {row('Риск', riskLabel(sm))}{row('Событий безопасности', securityCount)}{row('Последний IP', sm.last_ip)}{row('Активных сессий', sm.active_sessions_count)}
+                {row('Ошибки входа', data?.security_summary?.failed_login_count ?? 0)}{row('Сбросы пароля', data?.security_summary?.password_reset_count ?? 0)}
+                {row('Баны/разбаны', data?.security_summary?.ban_count ?? 0)}{row('Смены роли', data?.security_summary?.role_change_count ?? 0)}
+                {row('Отозвано сессий', data?.security_summary?.session_revocation_count ?? 0)}{row('Подозр. IP', data?.security_summary?.suspicious_ip_count ?? 0)}
               </dl>
               <div className="crm-rows">
                 {(data?.recent_security_events || []).slice(0, 5).map((e, n) => <small key={n}>{shortTime(e.created_at)} · {S(e.severity)} · {S(e.event_type)} · {S(e.ip_address)}</small>)}
@@ -330,7 +341,9 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 {(data?.admin_actions || []).slice(0, 10).map((e, n) => <small key={`a${n}`}>★ {shortTime(e.created_at)} · {S(e.action)} · {S(e.actor)}</small>)}
               </div>
             </div>}
-            {tab !== 'logs' && tab !== 'tech' && <div className="crm-acc"><strong>{tab === 'payments' ? 'Платежи' : tab === 'prompts' ? 'Промпты' : 'Галерея'}</strong><p className="crm-card-note">{deferred}</p></div>}
+            {tab === 'payments' && <div className="crm-acc"><strong>Платежи</strong><p className="crm-card-note">{deferred}</p></div>}
+            {tab === 'prompts' && <div className="crm-acc"><strong>Промпты</strong><div className="crm-rows">{(data?.recent_generations || []).slice(0, 12).map((g, n) => <small key={n}>{shortTime(g.created_at)} · {S(g.mode)} · {S(g.status)} · {S(g.prompt)}</small>)}</div>{!data?.recent_generations?.length && <p className="crm-card-note">—</p>}</div>}
+            {tab === 'gallery' && <div className="crm-acc"><strong>Галерея</strong><div className="crm-gallery-strip">{(data?.recent_gallery || []).slice(0, 8).map((img, n) => <span key={n}><img src={String(img.thumbnail_url)} alt="" /><small>{S(img.mode)} · {shortTime(img.created_at)}</small></span>)}</div>{!data?.recent_gallery?.length && <p className="crm-card-note">—</p>}</div>}
             {tab === 'tech' && <div className="crm-acc">
               <strong>Технические идентификаторы</strong>
               <p className="legacy-admin-warn">Не показывать пользователю.</p>

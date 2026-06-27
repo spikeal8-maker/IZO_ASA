@@ -2237,6 +2237,69 @@ def safe_json_load(text: str | None) -> Any:
         return None
 
 
+def short_public_id(value: Any, n: int = 10) -> str | None:
+    if value is None:
+        return None
+    s = str(value)
+    if not s:
+        return None
+    return s[:n] + ("…" if len(s) > n else "")
+
+
+def truncate_admin_text(value: Any, limit: int = 180) -> str:
+    if value is None:
+        return ""
+    s = " ".join(str(value).replace("\r", " ").replace("\n", " ").split())
+    return s[:limit] + ("…" if len(s) > limit else "")
+
+
+def safe_app_url(value: Any) -> str | None:
+    if not value:
+        return None
+    s = str(value)
+    if s.startswith("/api/media/") or s.startswith("/media/"):
+        return s
+    return None
+
+
+def safe_error_message(value: Any, limit: int = 180) -> str | None:
+    if not value:
+        return None
+    s = truncate_admin_text(value, limit)
+    for marker in (str(ROOT), str(MEDIA), "\\", "sqlite:///", "Traceback"):
+        if marker and marker in s:
+            return "Ошибка генерации. Детали скрыты."
+    return s
+
+
+def safe_ledger_metadata(meta_json: str | None) -> dict[str, Any]:
+    data = safe_json_load(meta_json) or {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for src, dst in (("jobId", "job_id"), ("mode", "mode"), ("provider", "provider"), ("reason", "reason")):
+        if data.get(src):
+            out[dst] = truncate_admin_text(data.get(src), 80)
+    if data.get("actor_internal_user_id"):
+        out["actor"] = short_public_id(data.get("actor_internal_user_id"), 8)
+    return out
+
+
+def safe_device_from_metadata(metadata_json: str | None) -> dict[str, Any]:
+    data = safe_json_load(metadata_json) or {}
+    device = data.get("device") if isinstance(data, dict) else {}
+    device = device if isinstance(device, dict) else {}
+    client = data.get("client") if isinstance(data, dict) else {}
+    client = client if isinstance(client, dict) else {}
+    return {
+        "browser": device.get("browser"),
+        "os": device.get("os"),
+        "device_type": device.get("device_type"),
+        "app_build": client.get("app_version") or data.get("app_version"),
+        "mac_status": "MAC: недоступен",
+    }
+
+
 def admin_user_summary(row: sqlite3.Row | None) -> dict[str, Any]:
     banned = bool(_row_get(row, "banned"))
     return {
@@ -5231,9 +5294,49 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
             "SELECT COALESCE(SUM(CASE WHEN delta<0 THEN -delta ELSE 0 END),0) AS spent, COUNT(*) AS entries "
             "FROM token_ledger WHERE user_id = ?", (urow["id"],),
         ).fetchone()
-        audits = conn.execute(
-            "SELECT action, actor_internal_user_id, created_at FROM audit_logs WHERE target_internal_user_id = ? ORDER BY created_at DESC LIMIT 20", (internal_user_id,),
+        ledger_rows = conn.execute(
+            "SELECT id, delta, reason, meta_json, created_at FROM token_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT 30",
+            (urow["id"],),
         ).fetchall()
+        jobs_rows = conn.execute(
+            "SELECT id, mode, provider, status, prompt_original, result_image_id, error_message, settings_json, created_at, completed_at "
+            "FROM jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT 30",
+            (urow["id"],),
+        ).fetchall()
+        image_rows = conn.execute(
+            "SELECT id, job_id, url, thumbnail_url, mode, provider, prompt_original, is_favorite, created_at "
+            "FROM images WHERE user_id = ? ORDER BY created_at DESC LIMIT 30",
+            (urow["id"],),
+        ).fetchall()
+        audits = conn.execute(
+            "SELECT action, actor_internal_user_id, after_json, created_at FROM audit_logs WHERE target_internal_user_id = ? ORDER BY created_at DESC LIMIT 20", (internal_user_id,),
+        ).fetchall()
+        failed_login_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_login_attempts WHERE internal_user_id = ? AND success = 0", (internal_user_id,),
+        ).fetchone()["c"]
+        password_reset_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM security_events WHERE internal_user_id = ? AND event_type LIKE '%password_reset%'", (internal_user_id,),
+        ).fetchone()["c"]
+        ban_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM audit_logs WHERE target_internal_user_id = ? AND action IN ('admin_block_user','admin_unblock_user')", (internal_user_id,),
+        ).fetchone()["c"]
+        role_change_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM audit_logs WHERE target_internal_user_id = ? AND action = 'admin_change_role'", (internal_user_id,),
+        ).fetchone()["c"]
+        session_revocation_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_sessions WHERE internal_user_id = ? AND revoked_at IS NOT NULL", (internal_user_id,),
+        ).fetchone()["c"]
+        suspicious_ip_count = conn.execute(
+            "SELECT COUNT(DISTINCT ip_address) AS c FROM security_events WHERE internal_user_id = ? AND severity IN ('warning','critical') AND ip_address IS NOT NULL",
+            (internal_user_id,),
+        ).fetchone()["c"]
+    image_by_job = {r["job_id"]: r for r in image_rows if r["job_id"]}
+    spent_by_job: dict[str, int] = {}
+    for r in ledger_rows:
+        meta = safe_ledger_metadata(r["meta_json"])
+        job_id = meta.get("job_id")
+        if job_id and int(r["delta"]) < 0:
+            spent_by_job[str(job_id)] = abs(int(r["delta"]))
     return {
         "ok": True,
         "summary": summary,
@@ -5248,20 +5351,63 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
         } for r in identities],
         "sessions": [{
             "id": r["id"], "provider": r["provider"], "platform": r["platform"], "ip_address": r["ip_address"],
-            "device": (safe_json_load(r["metadata_json"]) or {}).get("device") if r["metadata_json"] else None,
+            "device": safe_device_from_metadata(r["metadata_json"]),
             "created_at": r["created_at"], "last_seen_at": r["last_seen_at"], "expires_at": r["expires_at"],
             "revoked_at": r["revoked_at"], "revoke_reason": r["revoke_reason"],
         } for r in sessions],
         "devices": [{
-            "installation_id": r["installation_id"], "anonymous_id": r["anonymous_id"],
+            "installation_id": short_public_id(r["installation_id"]), "anonymous_id": short_public_id(r["anonymous_id"]),
             "platform": r["platform"], "storage_type": r["storage_type"],
             "first_seen_at": r["first_seen_at"], "last_seen_at": r["last_seen_at"],
-            "metadata": sanitize_device_metadata(r["metadata_json"]),
+            "metadata": {**sanitize_device_metadata(r["metadata_json"]), **safe_device_from_metadata(r["metadata_json"])},
+            "mac_status": "MAC: недоступен",
         } for r in devices],
+        "recent_generations": [{
+            "id": short_public_id(r["id"]),
+            "mode": r["mode"],
+            "provider": r["provider"],
+            "model": (safe_json_load(r["settings_json"]) or {}).get("modelProfile") if isinstance(safe_json_load(r["settings_json"]) or {}, dict) else None,
+            "status": r["status"],
+            "prompt": truncate_admin_text(r["prompt_original"], 180),
+            "token_cost": spent_by_job.get(r["id"]),
+            "created_at": r["created_at"],
+            "completed_at": r["completed_at"],
+            "result_image_id": short_public_id(r["result_image_id"]),
+            "result_image_url": safe_app_url(_row_get(image_by_job.get(r["id"]), "url")),
+            "error": safe_error_message(r["error_message"]),
+        } for r in jobs_rows],
+        "recent_gallery": [{
+            "id": short_public_id(r["id"]),
+            "thumbnail_url": safe_app_url(r["thumbnail_url"]),
+            "job_id": short_public_id(r["job_id"]),
+            "mode": r["mode"],
+            "provider": r["provider"],
+            "prompt": truncate_admin_text(r["prompt_original"], 140),
+            "created_at": r["created_at"],
+            "favorite": bool(r["is_favorite"]),
+        } for r in image_rows if safe_app_url(r["thumbnail_url"])],
+        "token_ledger_recent": [{
+            "id": short_public_id(r["id"]),
+            "delta": int(r["delta"]),
+            "reason": r["reason"],
+            "source": (safe_ledger_metadata(r["meta_json"]).get("provider") or r["reason"]),
+            "job_id": short_public_id(safe_ledger_metadata(r["meta_json"]).get("job_id")),
+            "admin_action": "admin_adjust_tokens" if r["reason"] == "admin_adjust" else None,
+            "created_at": r["created_at"],
+            "metadata": safe_ledger_metadata(r["meta_json"]),
+        } for r in ledger_rows],
         "recent_events": [{"event_name": r["event_name"], "platform": r["platform"], "created_at": r["created_at"]} for r in events],
         "recent_security_events": [{"severity": r["severity"], "event_type": r["event_type"], "ip_address": r["ip_address"], "created_at": r["created_at"]} for r in sec],
         "token_summary": {"spent": int(ledger["spent"]), "entries": int(ledger["entries"]), "balance": int(_row_get(urow, "token_balance") or 0)},
-        "admin_actions": [{"action": r["action"], "actor": (r["actor_internal_user_id"] or "")[:8], "created_at": r["created_at"]} for r in audits],
+        "security_summary": {
+            "failed_login_count": int(failed_login_count),
+            "password_reset_count": int(password_reset_count),
+            "ban_count": int(ban_count),
+            "role_change_count": int(role_change_count),
+            "session_revocation_count": int(session_revocation_count),
+            "suspicious_ip_count": int(suspicious_ip_count),
+        },
+        "admin_actions": [{"action": r["action"], "actor": (r["actor_internal_user_id"] or "")[:8], "reason": truncate_admin_text((safe_json_load(r["after_json"]) or {}).get("reason"), 80), "created_at": r["created_at"]} for r in audits],
     }
 
 
