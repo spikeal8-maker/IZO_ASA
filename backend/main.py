@@ -1,0 +1,5800 @@
+from __future__ import annotations
+
+import asyncio
+import base64
+import io
+import json
+import os
+import re
+import secrets
+import sqlite3
+import time
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Literal
+
+import hmac
+import hashlib
+from urllib.parse import parse_qs
+
+import httpx
+from argon2 import PasswordHasher
+from argon2.exceptions import Argon2Error
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from PIL import Image, ImageDraw, ImageFont
+from pydantic import BaseModel, Field
+
+
+ROOT = Path(__file__).resolve().parent
+MEDIA = ROOT / "media"
+MEDIA.mkdir(exist_ok=True)
+
+
+def load_local_env() -> None:
+    env_path = ROOT / ".env"
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_local_env()
+DB_PATH = Path(os.getenv("DATABASE_URL", str(ROOT / "onenode.sqlite3")).replace("sqlite:///", ""))
+
+COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188")
+COMFYUI_REQUIRED = os.getenv("COMFYUI_REQUIRED", "false").lower() == "true"
+COMFYUI_MOCK_FALLBACK = os.getenv("COMFYUI_MOCK_FALLBACK", "false").lower() == "true"
+COMFYUI_TIMEOUT_SECONDS = int(os.getenv("COMFYUI_TIMEOUT_SECONDS", "900"))
+BOT_MODE = os.getenv("BOT_MODE", "local").lower()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_INIT_DATA_TTL_SECONDS = int(os.getenv("TELEGRAM_INIT_DATA_TTL_SECONDS", str(60 * 60 * 24)))
+MAX_BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
+MAX_WEB_APP_DATA_TTL_SECONDS = int(os.getenv("MAX_WEB_APP_DATA_TTL_SECONDS", str(60 * 60 * 24)))
+MAX_API_BASE_URL = os.getenv("MAX_API_BASE_URL", "https://platform-api.max.ru")
+MAX_WEBHOOK_SECRET = os.getenv("MAX_WEBHOOK_SECRET", "")
+DEFAULT_NEG_PROMPT = "low quality, deformed, blurry, watermark, ugly, bad anatomy, disfigured, mutated, extra limbs, poorly drawn face, bad proportions, jpeg artifacts"
+
+# Identity Core session service (Phase 4 + 4.1). Keying material for token hashing
+# comes from the environment when available. Only hashes are persisted — raw tokens
+# never reach the database or logs.
+APP_ENV = os.getenv("APP_ENV", "development")
+SESSION_HMAC_SECRET = os.getenv("SESSION_HMAC_SECRET", "")
+# Backward-compatible fallback default for the access/session lifetime.
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", str(60 * 60 * 24 * 30)))
+# Phase 4.1: split access/session and refresh lifetimes.
+SESSION_ACCESS_TTL_SECONDS = int(os.getenv("SESSION_ACCESS_TTL_SECONDS", os.getenv("SESSION_TTL_SECONDS", "3600")))
+SESSION_REFRESH_TTL_SECONDS = int(os.getenv("SESSION_REFRESH_TTL_SECONDS", str(60 * 60 * 24 * 30)))
+
+# Phase 13: HttpOnly trusted-session cookies. The session cookie name stays
+# "onenode_session" so the existing resolver keeps working. Cookies are the
+# transport for raw tokens; the DB still stores only hashes.
+TRUSTED_SESSION_COOKIE_NAME = os.getenv("TRUSTED_SESSION_COOKIE_NAME", "onenode_session")
+TRUSTED_REFRESH_COOKIE_NAME = os.getenv("TRUSTED_REFRESH_COOKIE_NAME", "onenode_refresh")
+TRUSTED_COOKIE_SECURE = os.getenv(
+    "TRUSTED_COOKIE_SECURE", "true" if APP_ENV.lower() == "production" else "false"
+).lower() == "true"
+TRUSTED_COOKIE_SAMESITE = os.getenv("TRUSTED_COOKIE_SAMESITE", "lax")
+TRUSTED_COOKIE_DOMAIN = os.getenv("TRUSTED_COOKIE_DOMAIN", "") or None
+TRUSTED_COOKIE_PATH = os.getenv("TRUSTED_COOKIE_PATH", "/")
+SESSION_COOKIE_NAME = TRUSTED_SESSION_COOKIE_NAME
+
+# Phase 18: client-IP trust. Default OFF (use the direct socket peer). Behind the
+# Cloudflare tunnel the socket peer is 127.0.0.1, so the real client IP arrives in
+# CF-Connecting-IP — trust it ONLY when explicitly enabled (the origin is reachable
+# only via the tunnel, so the header cannot be spoofed by direct internet clients).
+TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "false").lower() == "true"
+TRUST_CLOUDFLARE_HEADERS = os.getenv("TRUST_CLOUDFLARE_HEADERS", "false").lower() == "true"
+
+# Phase 13.2: explicit CORS origins. A wildcard origin together with credentials is
+# rejected by browsers and is unsafe, so we read an explicit allowlist from
+# CORS_ALLOWED_ORIGINS (comma-separated) and fall back to the known dev + tunnel
+# origins. allow_credentials stays True so cookie auth works.
+CORS_ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,https://izo.alikinas.ru",
+    ).split(",")
+    if o.strip()
+]
+
+# Email OTP login (Phase 8). No real email is sent in dev/test; a mock sender is
+# used. EMAIL_OTP_DEBUG_RETURN_CODE may only be enabled outside production.
+EMAIL_PROVIDER = os.getenv("EMAIL_PROVIDER", "")
+EMAIL_OTP_TTL_SECONDS = int(os.getenv("EMAIL_OTP_TTL_SECONDS", "300"))
+EMAIL_OTP_MAX_ATTEMPTS = int(os.getenv("EMAIL_OTP_MAX_ATTEMPTS", "5"))
+EMAIL_OTP_LENGTH = int(os.getenv("EMAIL_OTP_LENGTH", "6"))
+EMAIL_OTP_DEBUG_RETURN_CODE = os.getenv("EMAIL_OTP_DEBUG_RETURN_CODE", "false").lower() == "true"
+
+# Phase 8.1: email-OTP abuse controls (cooldown, per-email / per-IP windows,
+# active-challenge cap, and cleanup of stale challenges).
+EMAIL_OTP_REQUEST_COOLDOWN_SECONDS = int(os.getenv("EMAIL_OTP_REQUEST_COOLDOWN_SECONDS", "60"))
+EMAIL_OTP_MAX_REQUESTS_PER_EMAIL_WINDOW = int(os.getenv("EMAIL_OTP_MAX_REQUESTS_PER_EMAIL_WINDOW", "5"))
+EMAIL_OTP_EMAIL_WINDOW_SECONDS = int(os.getenv("EMAIL_OTP_EMAIL_WINDOW_SECONDS", "900"))
+EMAIL_OTP_MAX_REQUESTS_PER_IP_WINDOW = int(os.getenv("EMAIL_OTP_MAX_REQUESTS_PER_IP_WINDOW", "20"))
+EMAIL_OTP_IP_WINDOW_SECONDS = int(os.getenv("EMAIL_OTP_IP_WINDOW_SECONDS", "900"))
+EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_EMAIL = int(os.getenv("EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_EMAIL", "3"))
+EMAIL_OTP_CLEANUP_EXPIRED_AFTER_SECONDS = int(os.getenv("EMAIL_OTP_CLEANUP_EXPIRED_AFTER_SECONDS", "86400"))
+
+# Dev/test mock email outbox. Records destination + timestamp only — never the OTP.
+_mock_email_outbox: list[dict[str, str]] = []
+
+app = FastAPI(title="OneNode Image Studio API", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.mount("/media", StaticFiles(directory=MEDIA), name="media")
+
+
+class Lora(BaseModel):
+    id: str
+    strength: float = 1.0
+    triggerWord: str | None = None
+
+
+class EditImage(BaseModel):
+    # Один слот edit-режима: index (1=основа, 2..4=референсы), role и сам image (data-url или media-url).
+    index: int = 0
+    role: str = ""
+    image: str | None = None
+
+
+class GenerateRequest(BaseModel):
+    mode: Literal["text_to_image", "image_to_image", "edit", "paint", "inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"]
+    provider: Literal["comfyui", "openrouter"] = "comfyui"
+    prompt: str = ""
+    negativePrompt: str = ""
+    seed: int = 42
+    width: int = Field(default=1024, ge=256, le=2048)
+    height: int = Field(default=1024, ge=256, le=2048)
+    steps: int = Field(default=28, ge=1, le=80)
+    cfg: float = Field(default=3.5, ge=0, le=20)
+    guidance: float = Field(default=3.5, ge=0, le=20)
+    strength: float = Field(default=0.45, ge=0, le=1)
+    modelProfile: str = "local_flux_klein"
+    loras: list[Lora] = []
+    inputImage1: str | None = None
+    inputImage2: str | None = None
+    inputImages: list[EditImage] = []
+    maskImage: str | None = None
+    outpaintMask: str | None = None
+    canvas: str | None = None
+    outpaint: dict[str, int | bool] | None = None
+
+
+class TranslateRequest(BaseModel):
+    text: str
+    target: Literal["en", "ru"] = "en"
+
+
+class MiniAppAuthRequest(BaseModel):
+    platform: Literal["web", "telegram", "max"] = "web"
+    userId: str | None = None
+    username: str | None = None
+    firstName: str | None = None
+    lastName: str | None = None
+    middleName: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    language: str = "ru"
+    timezone: str | None = None
+    country: str | None = None
+    city: str | None = None
+    ref: str | None = None
+    screen: str | None = None
+    userAgent: str | None = None
+    initData: str | None = None
+    themeParams: dict[str, Any] | None = None
+
+
+class WebLoginRequest(BaseModel):
+    code: str
+
+
+class SessionRefreshRequest(BaseModel):
+    # Optional: when omitted, the refresh token is read from the HttpOnly cookie.
+    refresh_token: str | None = None
+
+
+class SessionLogoutRequest(BaseModel):
+    # Optional: when omitted, the session token is read from the HttpOnly cookie.
+    session_token: str | None = None
+
+
+class BootstrapV2Client(BaseModel):
+    language: str | None = None
+    timezone: str | None = None
+    screen_width: int | None = None
+    screen_height: int | None = None
+    device_pixel_ratio: float | None = None
+    app_version: str | None = None
+
+
+class BootstrapV2Utm(BaseModel):
+    source: str | None = None
+    medium: str | None = None
+    campaign: str | None = None
+
+
+class TelegramAuthV2Request(BaseModel):
+    # init_data is the RAW Telegram initData string. initDataUnsafe and any
+    # client-supplied user id are never accepted. Default "" so a missing value
+    # yields a clean 401 (not a 422) handled inside the endpoint.
+    init_data: str = ""
+    installation_id: str | None = None
+    anonymous_id: str | None = None
+    platform: Literal["telegram_mini_app"] = "telegram_mini_app"
+
+
+class MaxAuthV2Request(BaseModel):
+    # web_app_data is the RAW MAX WebAppData string. A client-supplied user id is
+    # never accepted. Default "" so a missing value yields a clean 401, not a 422.
+    web_app_data: str = ""
+    installation_id: str | None = None
+    anonymous_id: str | None = None
+    platform: Literal["max_mini_app"] = "max_mini_app"
+
+
+class EmailRequestCodeV2Request(BaseModel):
+    email: str = ""
+    installation_id: str | None = None
+    anonymous_id: str | None = None
+    platform: Literal["web_desktop", "web_mobile", "pwa", "unknown"] = "unknown"
+
+
+class EmailVerifyCodeV2Request(BaseModel):
+    challenge_id: str = ""
+    code: str = ""
+    installation_id: str | None = None
+    anonymous_id: str | None = None
+    platform: Literal["web_desktop", "web_mobile", "pwa", "unknown"] = "unknown"
+
+
+class PasswordRegisterV2Request(BaseModel):
+    email: str = ""
+    password: str = ""
+    password_repeat: str = ""
+    accepted_terms: bool = False
+    accepted_privacy: bool = False
+    accepted_personal_data: bool = False
+    installation_id: str | None = None
+    anonymous_id: str | None = None
+    platform: str = "unknown"
+
+
+class PasswordLoginV2Request(BaseModel):
+    email: str = ""
+    password: str = ""
+    installation_id: str | None = None
+    anonymous_id: str | None = None
+    platform: str = "unknown"
+
+
+class AdminBlockV2Request(BaseModel):
+    reason: str = ""
+
+
+class AdminPasswordResetV2Request(BaseModel):
+    new_password: str = ""
+    reason: str = ""
+
+
+class AdminRoleV2Request(BaseModel):
+    role: Literal["user", "admin"]
+    reason: str = ""
+
+
+class AdminTokensV2Request(BaseModel):
+    delta: int = 0
+    reason: str = ""
+
+
+class AdminPlanV2Request(BaseModel):
+    plan: Literal["free", "mini", "plus", "pro"]
+    reason: str = ""
+
+
+class AdminProfileV2Request(BaseModel):
+    display_name: str | None = None
+    email: str | None = None
+    reason: str = ""
+
+
+class ProfileUpdateV2Request(BaseModel):
+    # Only these safe profile fields can be patched. role/banned/internal_user_id/
+    # users.id are absent here, so they can never be changed via this endpoint.
+    display_name: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    middle_name: str | None = None
+    username: str | None = None
+    language_code: str | None = None
+    timezone: str | None = None
+    city: str | None = None
+    country_code: str | None = None
+
+
+class ConsentV2Request(BaseModel):
+    consent_type: str = ""
+    document_version: str = ""
+    accepted: bool = True
+
+
+class BootstrapV2Request(BaseModel):
+    # Unknown/extra fields (user_id, internal_user_id, legacy_user_id, role, admin, ...)
+    # are silently ignored: Pydantic's default is to drop fields not declared here,
+    # so client-supplied identity can never enter this flow.
+    platform: Literal[
+        "web_desktop", "web_mobile", "telegram_mini_app", "max_mini_app",
+        "pwa", "ios_app", "android_app", "unknown",
+    ] = "unknown"
+    installation_id: str | None = None
+    anonymous_id: str | None = None
+    client: BootstrapV2Client | None = None
+    utm: BootstrapV2Utm | None = None
+
+
+class BotCommandRequest(BaseModel):
+    platform: Literal["telegram", "max"]
+    text: str = "/start"
+    chatId: str | None = None
+
+
+class BotSendMessageRequest(BaseModel):
+    chatId: str | None = None
+    userId: str | None = None
+    text: str
+
+
+class SendImageRequest(BaseModel):
+    platform: Literal["telegram", "max"]
+    chatId: str | None = None
+    userId: str | None = None
+
+
+class FavoriteRequest(BaseModel):
+    isFavorite: bool
+
+
+class UseAsRequest(BaseModel):
+    target: str
+
+
+class AdminLimitRequest(BaseModel):
+    hourly: int = Field(default=10, ge=1, le=1000)
+    daily: int = Field(default=50, ge=1, le=5000)
+
+
+class AdminUserRequest(BaseModel):
+    userId: str
+    username: str | None = None
+    firstName: str | None = None
+    lastName: str | None = None
+    middleName: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    country: str | None = None
+    city: str | None = None
+    role: Literal["user", "admin"] = "user"
+    plan: Literal["free", "mini", "plus", "pro"] = "mini"
+    tokenBalance: int = Field(default=50, ge=0, le=1_000_000)
+    galleryEnabled: bool = True
+
+
+class AdminUserUpdateRequest(BaseModel):
+    role: Literal["user", "admin"] | None = None
+    plan: Literal["free", "mini", "plus", "pro"] | None = None
+    tokenBalance: int | None = Field(default=None, ge=0, le=1_000_000)
+    galleryEnabled: bool | None = None
+    banned: bool | None = None
+    phone: str | None = None
+    email: str | None = None
+    country: str | None = None
+    city: str | None = None
+    firstName: str | None = None
+    lastName: str | None = None
+    middleName: str | None = None
+
+
+class HeartbeatRequest(BaseModel):
+    userId: str | None = None
+    platform: Literal["web", "telegram", "max"] = "web"
+    seconds: int = Field(default=60, ge=1, le=600)
+
+
+class AdminPromoRequest(BaseModel):
+    code: str
+    tokens: int = Field(default=50, ge=1, le=100_000)
+    activationLimit: int = Field(default=100, ge=1, le=100_000)
+
+
+class AdminSettingsRequest(BaseModel):
+    settings: dict[str, Any]
+
+
+rate_limits = {"hourly": 10, "daily": 50}
+
+
+@dataclass
+class ComfyUIResult:
+    prompt_id: str
+    image_path: Path
+    thumbnail_path: Path
+    history: dict[str, Any]
+
+
+jobs: dict[str, dict[str, Any]] = {}
+images: dict[str, dict[str, Any]] = {}
+queue: asyncio.Queue[str] = asyncio.Queue()
+worker_started = False
+bot_polling_started = False
+telegram_update_offset = 0
+max_update_marker: str | None = None
+
+
+def request_user_id(request: Request | None = None) -> str:
+    if not request:
+        return "demo_user"
+    return request.headers.get("X-OneNode-User") or request.cookies.get("onenode_user") or "demo_user"
+
+
+def require_admin(request: Request) -> str:
+    user_id = request_user_id(request)
+    if user_id in ("demo_user",):
+        raise HTTPException(403, "Admin access required")
+    with db() as conn:
+        row = conn.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row or row["role"] != "admin":
+            raise HTTPException(403, "Admin access required")
+    return user_id
+
+
+def validate_telegram_init_data(init_data: str) -> dict[str, str] | None:
+    if not init_data or not TELEGRAM_BOT_TOKEN:
+        return None
+    parsed = parse_qs(init_data)
+    data = {k: v[0] for k, v in parsed.items()}
+    received_hash = data.pop("hash", None)
+    if not received_hash:
+        return None
+    check_arr = [f"{k}={v}" for k, v in sorted(data.items())]
+    data_check_string = "\n".join(check_arr)
+    secret_key = hashlib.sha256(TELEGRAM_BOT_TOKEN.encode()).digest()
+    computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+    if computed_hash != received_hash:
+        return None
+    return data
+
+
+class TelegramAuthError(Exception):
+    """Carries a sanitized failure reason (never raw initData) for security logs."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def validate_telegram_init_data_strict(init_data: str, ttl_seconds: int | None = None) -> dict[str, Any]:
+    """Strict Telegram Mini Apps initData validation (Phase 6).
+
+    Unlike the legacy validate_telegram_init_data() (which uses the Login Widget
+    secret and no freshness check), this implements the Mini Apps algorithm:
+      secret_key = HMAC_SHA256(key="WebAppData", msg=bot_token)
+      hash       = HMAC_SHA256(key=secret_key, msg=data_check_string)
+    plus constant-time comparison and an auth_date freshness window. Never trusts
+    initDataUnsafe or any client-supplied user id. Raises TelegramAuthError with a
+    sanitized reason; never logs/returns raw initData.
+    """
+    ttl = TELEGRAM_INIT_DATA_TTL_SECONDS if ttl_seconds is None else ttl_seconds
+    if not init_data or not TELEGRAM_BOT_TOKEN:
+        raise TelegramAuthError("invalid_telegram_signature")
+    parsed = parse_qs(init_data, keep_blank_values=True)
+    data = {k: v[0] for k, v in parsed.items()}
+    received_hash = data.pop("hash", None)
+    if not received_hash:
+        raise TelegramAuthError("invalid_telegram_signature")
+    data_check_string = "\n".join(f"{k}={data[k]}" for k in sorted(data))
+    secret_key = hmac.new(b"WebAppData", TELEGRAM_BOT_TOKEN.encode(), hashlib.sha256).digest()
+    computed_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(computed_hash, received_hash):
+        raise TelegramAuthError("invalid_telegram_signature")
+    # Signature is valid from here on; remaining checks are structural.
+    auth_date_raw = data.get("auth_date")
+    if not auth_date_raw:
+        raise TelegramAuthError("telegram_auth_date_missing")
+    try:
+        auth_date = int(auth_date_raw)
+    except ValueError:
+        raise TelegramAuthError("telegram_auth_date_missing")
+    if ttl and ttl > 0 and (time.time() - auth_date) > ttl:
+        raise TelegramAuthError("expired_init_data")
+    user_raw = data.get("user")
+    if not user_raw:
+        raise TelegramAuthError("telegram_user_missing")
+    try:
+        user = json.loads(user_raw)
+    except (json.JSONDecodeError, TypeError):
+        raise TelegramAuthError("telegram_user_missing")
+    if not isinstance(user, dict) or not user.get("id"):
+        raise TelegramAuthError("telegram_user_missing")
+    data["_user"] = user
+    return data
+
+
+class MaxAuthError(Exception):
+    """Carries a sanitized failure reason (never raw WebAppData) for security logs."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def validate_max_web_app_data_strict(web_app_data: str, ttl_seconds: int | None = None) -> dict[str, Any]:
+    """Strict MAX Mini App WebAppData validation (Phase 7).
+
+    MAX uses the same HMAC scheme as Telegram Mini Apps:
+      secret_key = HMAC_SHA256(key="WebAppData", msg=MAX_BOT_TOKEN)
+      hash       = HMAC_SHA256(key=secret_key, msg=launch_params)
+    where launch_params is the sorted, newline-joined "key=value" string with the
+    hash excluded. Requires the hash to appear exactly once, a constant-time
+    comparison, and a fresh auth_date. Never trusts a client-supplied user id.
+    Raises MaxAuthError with a sanitized reason; never logs/returns raw WebAppData.
+    """
+    ttl = MAX_WEB_APP_DATA_TTL_SECONDS if ttl_seconds is None else ttl_seconds
+    if not web_app_data or not MAX_BOT_TOKEN:
+        raise MaxAuthError("invalid_max_signature")
+    parsed = parse_qs(web_app_data, keep_blank_values=True)
+    hash_values = parsed.get("hash")
+    if not hash_values:
+        raise MaxAuthError("invalid_max_signature")          # missing hash
+    if len(hash_values) > 1:
+        raise MaxAuthError("invalid_max_signature")          # duplicate hash
+    received_hash = hash_values[0]
+    data = {k: v[0] for k, v in parsed.items() if k != "hash"}
+    launch_params = "\n".join(f"{k}={data[k]}" for k in sorted(data))
+    secret_key = hmac.new(b"WebAppData", MAX_BOT_TOKEN.encode(), hashlib.sha256).digest()
+    computed_hash = hmac.new(secret_key, launch_params.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(computed_hash, received_hash):
+        raise MaxAuthError("invalid_max_signature")
+    auth_date_raw = data.get("auth_date")
+    if not auth_date_raw:
+        raise MaxAuthError("max_auth_date_missing")
+    try:
+        auth_date = int(auth_date_raw)
+    except ValueError:
+        raise MaxAuthError("max_auth_date_missing")
+    if ttl and ttl > 0 and (time.time() - auth_date) > ttl:
+        raise MaxAuthError("expired_init_data")
+    user_raw = data.get("user")
+    if not user_raw:
+        raise MaxAuthError("max_user_missing")
+    try:
+        user = json.loads(user_raw)
+    except (json.JSONDecodeError, TypeError):
+        raise MaxAuthError("max_user_missing")
+    if not isinstance(user, dict) or not user.get("id"):
+        raise MaxAuthError("max_user_missing")
+    data["_user"] = user
+    return data
+
+
+def db() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db() -> None:
+    with db() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                telegram_id TEXT,
+                max_id TEXT,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                language TEXT NOT NULL DEFAULT 'ru',
+                role TEXT NOT NULL DEFAULT 'user',
+                created_at TEXT NOT NULL,
+                last_login_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                mode TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                status TEXT NOT NULL,
+                progress INTEGER NOT NULL DEFAULT 0,
+                prompt_original TEXT,
+                prompt_translated TEXT,
+                result_image_id TEXT,
+                error_message TEXT,
+                settings_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS images (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                job_id TEXT,
+                url TEXT NOT NULL,
+                thumbnail_url TEXT NOT NULL,
+                width INTEGER NOT NULL,
+                height INTEGER NOT NULL,
+                mode TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                prompt_original TEXT,
+                prompt_translated TEXT,
+                settings_json TEXT NOT NULL DEFAULT '{}',
+                is_favorite INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS presets (
+                id TEXT PRIMARY KEY,
+                owner_user_id TEXT,
+                is_system INTEGER NOT NULL DEFAULT 1,
+                name_ru TEXT NOT NULL,
+                name_en TEXT NOT NULL,
+                description_ru TEXT,
+                description_en TEXT,
+                mode TEXT NOT NULL,
+                prompt_template_ru TEXT,
+                prompt_template_en TEXT,
+                required_inputs TEXT NOT NULL DEFAULT '[]',
+                settings_json TEXT NOT NULL DEFAULT '{}',
+                is_visible INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS loras (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                file_path TEXT,
+                trigger_word TEXT,
+                default_strength REAL NOT NULL DEFAULT 1,
+                description TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                compatible_modes TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS model_profiles (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                default_width INTEGER NOT NULL DEFAULT 1024,
+                default_height INTEGER NOT NULL DEFAULT 1024,
+                default_steps INTEGER NOT NULL DEFAULT 28,
+                default_cfg REAL NOT NULL DEFAULT 3.5,
+                supports_text_to_image INTEGER NOT NULL DEFAULT 1,
+                supports_image_to_image INTEGER NOT NULL DEFAULT 1,
+                supports_edit INTEGER NOT NULL DEFAULT 1,
+                supports_paint INTEGER NOT NULL DEFAULT 1,
+                supports_inpaint INTEGER NOT NULL DEFAULT 1,
+                supports_outpaint INTEGER NOT NULL DEFAULT 1,
+                supports_faceswap INTEGER NOT NULL DEFAULT 1,
+                supports_lora INTEGER NOT NULL DEFAULT 1,
+                settings_json TEXT NOT NULL DEFAULT '{}',
+                enabled INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS admin_settings (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS promo_codes (
+                code TEXT PRIMARY KEY,
+                tokens INTEGER NOT NULL DEFAULT 0,
+                activation_limit INTEGER NOT NULL DEFAULT 1,
+                activation_count INTEGER NOT NULL DEFAULT 0,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS token_ledger (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                delta INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                meta_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+            """
+        )
+        existing_user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "plan" not in existing_user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN plan TEXT NOT NULL DEFAULT 'mini'")
+        if "token_balance" not in existing_user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN token_balance INTEGER NOT NULL DEFAULT 50")
+        if "gallery_enabled" not in existing_user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN gallery_enabled INTEGER NOT NULL DEFAULT 1")
+        for column, definition in {
+            "phone": "TEXT",
+            "email": "TEXT",
+            "middle_name": "TEXT",
+            "country": "TEXT",
+            "city": "TEXT",
+            "timezone": "TEXT",
+            "ref_code": "TEXT",
+            "last_user_agent": "TEXT",
+            "last_screen": "TEXT",
+            "last_seen_at": "TEXT",
+            "total_time_seconds": "INTEGER NOT NULL DEFAULT 0",
+            "generation_count": "INTEGER NOT NULL DEFAULT 0",
+            "tokens_used": "INTEGER NOT NULL DEFAULT 0",
+            "promo_used_count": "INTEGER NOT NULL DEFAULT 0",
+            "referrals_count": "INTEGER NOT NULL DEFAULT 0",
+            "banned": "INTEGER NOT NULL DEFAULT 0",
+            "display_name": "TEXT",
+            "email_verified_at": "TEXT",
+            "phone_verified_at": "TEXT",
+            "public_user_code": "TEXT",
+        }.items():
+            if column not in existing_user_columns:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute("UPDATE users SET plan = 'mini', gallery_enabled = 1 WHERE role != 'admin' AND plan = 'free'")
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO users (id, username, first_name, language, role, created_at, last_login_at)
+            VALUES ('demo_user', 'demo', 'Demo', 'ru', 'admin', ?, ?)
+            """,
+            (now, now),
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO model_profiles (id, name, provider, model_name)
+            VALUES ('local_flux_klein', 'Local Flux Klein', 'comfyui', 'flux-2-klein-9b-fp8.safetensors')
+            """,
+        )
+        seed_presets = [
+            ("portrait", "Кинематографичный портрет", "Cinematic portrait", "text_to_image"),
+            ("enhance", "Улучшить качество", "Enhance quality", "edit"),
+            ("collage", "Коллаж в сцену", "Collage to scene", "paint"),
+        ]
+        for preset_id, name_ru, name_en, mode in seed_presets:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO presets (id, name_ru, name_en, mode, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (preset_id, name_ru, name_en, mode, now, now),
+            )
+
+        # --- Identity Core: additive-only schema (Phase 3) ---------------------
+        # Does NOT change auth behaviour. Adds canonical identity scaffolding
+        # alongside the legacy provider-based users.id, plus idempotent backfill.
+        if "internal_user_id" not in existing_user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN internal_user_id TEXT")
+
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS auth_identities (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT NOT NULL,
+                legacy_user_id TEXT,
+                provider TEXT NOT NULL,
+                provider_user_id TEXT NOT NULL,
+                provider_username TEXT,
+                provider_email TEXT,
+                provider_phone TEXT,
+                provider_first_name TEXT,
+                provider_last_name TEXT,
+                provider_avatar_url TEXT,
+                provider_language_code TEXT,
+                raw_profile_json TEXT,
+                verified_at TEXT,
+                linked_at TEXT NOT NULL,
+                last_login_at TEXT,
+                UNIQUE(provider, provider_user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT NOT NULL,
+                legacy_user_id TEXT,
+                session_token_hash TEXT NOT NULL UNIQUE,
+                refresh_token_hash TEXT UNIQUE,
+                provider TEXT,
+                platform TEXT,
+                ip_address TEXT,
+                user_agent_hash TEXT,
+                created_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                revoked_at TEXT,
+                revoke_reason TEXT,
+                metadata_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS session_events (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                internal_user_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                ip_address TEXT,
+                user_agent_hash TEXT,
+                metadata_json TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS auth_login_attempts (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT,
+                provider TEXT NOT NULL,
+                identifier TEXT,
+                success INTEGER NOT NULL,
+                failure_reason TEXT,
+                ip_address TEXT,
+                user_agent_hash TEXT,
+                platform TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS device_installations (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT,
+                legacy_user_id TEXT,
+                installation_id TEXT NOT NULL UNIQUE,
+                anonymous_id TEXT,
+                platform TEXT NOT NULL,
+                storage_type TEXT,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                metadata_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS user_consents (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT NOT NULL,
+                consent_type TEXT NOT NULL,
+                document_version TEXT NOT NULL,
+                accepted INTEGER NOT NULL,
+                accepted_at TEXT NOT NULL,
+                revoked_at TEXT,
+                ip_address TEXT,
+                user_agent_hash TEXT,
+                platform TEXT,
+                metadata_json TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS security_events (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT,
+                session_id TEXT,
+                severity TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                ip_address TEXT,
+                user_agent_hash TEXT,
+                details_json TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id TEXT PRIMARY KEY,
+                actor_internal_user_id TEXT,
+                target_internal_user_id TEXT,
+                action TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                entity_id TEXT,
+                before_json TEXT,
+                after_json TEXT,
+                ip_address TEXT,
+                user_agent_hash TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            -- Preparatory table for future email OTP (Phase 6). No endpoints yet.
+            CREATE TABLE IF NOT EXISTS auth_otp_challenges (
+                id TEXT PRIMARY KEY,
+                channel TEXT NOT NULL,
+                destination TEXT NOT NULL,
+                code_hash TEXT NOT NULL,
+                purpose TEXT NOT NULL,
+                attempts_count INTEGER NOT NULL DEFAULT 0,
+                max_attempts INTEGER NOT NULL DEFAULT 5,
+                expires_at TEXT NOT NULL,
+                consumed_at TEXT,
+                ip_address TEXT,
+                user_agent_hash TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_users_internal_user_id ON users(internal_user_id);
+            CREATE INDEX IF NOT EXISTS idx_auth_identities_internal ON auth_identities(internal_user_id);
+            CREATE INDEX IF NOT EXISTS idx_auth_identities_legacy ON auth_identities(legacy_user_id);
+            CREATE INDEX IF NOT EXISTS idx_auth_sessions_internal ON auth_sessions(internal_user_id);
+            CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_auth_sessions_revoked ON auth_sessions(revoked_at);
+            CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_id);
+            CREATE INDEX IF NOT EXISTS idx_session_events_internal ON session_events(internal_user_id);
+            CREATE INDEX IF NOT EXISTS idx_login_attempts_provider_ident ON auth_login_attempts(provider, identifier);
+            CREATE INDEX IF NOT EXISTS idx_login_attempts_created ON auth_login_attempts(created_at);
+            CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON auth_login_attempts(ip_address);
+            CREATE INDEX IF NOT EXISTS idx_device_internal ON device_installations(internal_user_id);
+            CREATE INDEX IF NOT EXISTS idx_consents_internal ON user_consents(internal_user_id);
+            CREATE INDEX IF NOT EXISTS idx_consents_type ON user_consents(internal_user_id, consent_type);
+            CREATE INDEX IF NOT EXISTS idx_security_events_internal ON security_events(internal_user_id);
+            CREATE INDEX IF NOT EXISTS idx_security_events_created ON security_events(created_at);
+            CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events(event_type);
+            CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_internal_user_id);
+            CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_logs(target_internal_user_id);
+            CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
+            CREATE INDEX IF NOT EXISTS idx_otp_destination ON auth_otp_challenges(channel, destination);
+            CREATE INDEX IF NOT EXISTS idx_otp_expires ON auth_otp_challenges(expires_at);
+
+            CREATE TABLE IF NOT EXISTS event_logs (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT,
+                legacy_user_id TEXT,
+                anonymous_id TEXT,
+                installation_id TEXT,
+                session_id TEXT,
+                event_name TEXT NOT NULL,
+                platform TEXT,
+                device_type TEXT,
+                ip_address TEXT,
+                user_agent_hash TEXT,
+                properties_json TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_event_logs_internal ON event_logs(internal_user_id);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_anonymous ON event_logs(anonymous_id);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_installation ON event_logs(installation_id);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_event_name ON event_logs(event_name);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_created ON event_logs(created_at);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_platform ON event_logs(platform);
+
+            -- Phase 14.4: password auth foundation (schema only; no endpoints yet).
+            CREATE TABLE IF NOT EXISTS auth_passwords (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                algorithm TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                disabled_at TEXT,
+                password_updated_at TEXT,
+                metadata_json TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_auth_passwords_internal_user_id ON auth_passwords(internal_user_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_auth_passwords_active
+                ON auth_passwords(internal_user_id) WHERE disabled_at IS NULL;
+
+            CREATE TABLE IF NOT EXISTS password_reset_challenges (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT NOT NULL,
+                token_hash TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                consumed_at TEXT,
+                created_at TEXT NOT NULL,
+                ip_address TEXT,
+                user_agent_hash TEXT,
+                metadata_json TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_password_reset_internal_user_id ON password_reset_challenges(internal_user_id);
+            CREATE INDEX IF NOT EXISTS idx_password_reset_token_hash ON password_reset_challenges(token_hash);
+            CREATE INDEX IF NOT EXISTS idx_password_reset_expires_at ON password_reset_challenges(expires_at);
+            """
+        )
+
+        # Phase 4.1: refresh tokens get their own lifetime, tracked separately from
+        # the access/session expires_at. Additive, safe ALTER for existing DBs.
+        auth_sessions_columns = {row["name"] for row in conn.execute("PRAGMA table_info(auth_sessions)").fetchall()}
+        if "refresh_expires_at" not in auth_sessions_columns:
+            conn.execute("ALTER TABLE auth_sessions ADD COLUMN refresh_expires_at TEXT")
+
+        backfill_identity_core(conn, now)
+
+        # Canonical-identity uniqueness, created AFTER backfill so it validates
+        # the populated values. Partial index keeps NULLs allowed during rollout.
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_internal_user_id "
+            "ON users(internal_user_id) WHERE internal_user_id IS NOT NULL"
+        )
+
+        # Phase 18: human-readable public_user_code (stable, unique, not an auth key).
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_public_user_code "
+            "ON users(public_user_code) WHERE public_user_code IS NOT NULL"
+        )
+        for row in conn.execute(
+            "SELECT internal_user_id FROM users WHERE public_user_code IS NULL AND internal_user_id IS NOT NULL"
+        ).fetchall():
+            ensure_public_user_code(conn, row["internal_user_id"])
+
+
+PROVIDER_CODE_PREFIX = {"web_email": "WEB", "telegram": "TG", "max": "MAX"}
+
+
+def resolve_primary_provider(conn: sqlite3.Connection, internal_user_id: str) -> str | None:
+    """Primary provider = most recent successful-login identity, else first linked."""
+    row = conn.execute(
+        "SELECT provider FROM auth_identities WHERE internal_user_id = ? "
+        "ORDER BY (last_login_at IS NULL), last_login_at DESC, linked_at ASC LIMIT 1",
+        (internal_user_id,),
+    ).fetchone()
+    return row["provider"] if row else None
+
+
+def ensure_public_user_code(conn: sqlite3.Connection, internal_user_id: str) -> str | None:
+    """Assign a stable public_user_code once (e.g. WEB-000001). Idempotent: returns
+    the existing code if already set. Prefix reflects the primary provider at creation
+    and stays stable afterward. Never an auth key."""
+    if not internal_user_id:
+        return None
+    row = conn.execute("SELECT public_user_code FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+    if row is None:
+        return None
+    if row["public_user_code"]:
+        return row["public_user_code"]
+    provider = resolve_primary_provider(conn, internal_user_id)
+    legacy_id = conn.execute("SELECT id FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+    prefix = PROVIDER_CODE_PREFIX.get(provider or "")
+    if not prefix and legacy_id:
+        lid = str(legacy_id["id"])
+        prefix = "TG" if lid.startswith("telegram_") else "MAX" if lid.startswith("max_") else "WEB" if lid.startswith("web_") else None
+    prefix = prefix or "USR"
+    # Global monotonic number across all codes keeps every code unique.
+    nums = [
+        int(m.group(1))
+        for (code,) in conn.execute("SELECT public_user_code FROM users WHERE public_user_code IS NOT NULL")
+        if (m := re.search(r"-(\d+)$", code or ""))
+    ]
+    next_num = (max(nums) + 1) if nums else 1
+    code = f"{prefix}-{next_num:06d}"
+    conn.execute("UPDATE users SET public_user_code = ? WHERE internal_user_id = ? AND public_user_code IS NULL", (code, internal_user_id))
+    return code
+
+
+def resolve_display_name(urow: sqlite3.Row | None, identity: sqlite3.Row | None = None) -> str:
+    """display_name priority: users.display_name → provider first+last → provider_username
+    → email local-part → public_user_code → 'Пользователь'."""
+    dn = _row_get(urow, "display_name")
+    if dn:
+        return str(dn)
+    first = _row_get(urow, "first_name") or _row_get(identity, "provider_first_name")
+    last = _row_get(urow, "last_name") or _row_get(identity, "provider_last_name")
+    full = " ".join(p for p in (first, last) if p).strip()
+    if full:
+        return full
+    username = _row_get(urow, "username") or _row_get(identity, "provider_username")
+    if username:
+        return str(username)
+    email = _row_get(urow, "email") or _row_get(identity, "provider_email")
+    if email and "@" in str(email):
+        return str(email).split("@", 1)[0]
+    code = _row_get(urow, "public_user_code")
+    if code:
+        return str(code)
+    return "Пользователь"
+
+
+def backfill_identity_core(conn: sqlite3.Connection, now: str) -> None:
+    """Idempotent, additive backfill for Identity Core.
+
+    1. Assign a canonical internal_user_id (uuid4 hex) to every user missing one.
+       Never touches users.id.
+    2. Backfill auth_identities from legacy users.telegram_id / users.max_id, only
+       when those columns exist and hold a non-empty value. INSERT OR IGNORE plus
+       UNIQUE(provider, provider_user_id) guarantee no duplicates on re-runs.
+
+    Does NOT guess web/email identities from legacy/unverified data.
+    Raises RuntimeError if duplicate provider ids are detected, rather than
+    silently merging distinct users.
+    """
+    # 1. internal_user_id for users that don't have one yet (id is never updated).
+    for row in conn.execute("SELECT id FROM users WHERE internal_user_id IS NULL").fetchall():
+        conn.execute(
+            "UPDATE users SET internal_user_id = ? WHERE id = ? AND internal_user_id IS NULL",
+            (uuid.uuid4().hex, row["id"]),
+        )
+
+    user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+
+    # 2. auth_identities backfill from each legacy provider column.
+    for provider, column in (("telegram", "telegram_id"), ("max", "max_id")):
+        if column not in user_columns:
+            continue
+        duplicates = conn.execute(
+            f"SELECT {column} AS pid, COUNT(*) AS c FROM users "
+            f"WHERE {column} IS NOT NULL AND {column} <> '' "
+            f"GROUP BY {column} HAVING c > 1"
+        ).fetchall()
+        if duplicates:
+            raise RuntimeError(
+                f"Duplicate {column} values detected across distinct users "
+                f"({[d['pid'] for d in duplicates]}); refusing to backfill "
+                f"auth_identities to avoid silently merging users."
+            )
+        for row in conn.execute(
+            f"SELECT id, internal_user_id, {column} AS pid FROM users "
+            f"WHERE {column} IS NOT NULL AND {column} <> ''"
+        ).fetchall():
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO auth_identities
+                    (id, internal_user_id, legacy_user_id, provider, provider_user_id, linked_at, verified_at)
+                VALUES (?, ?, ?, ?, ?, ?, NULL)
+                """,
+                (uuid.uuid4().hex, row["internal_user_id"], row["id"], provider, str(row["pid"]), now),
+            )
+
+
+# ---------------------------------------------------------------------------
+# Identity Core session service (Phase 4)
+#
+# Server-issued, hash-only sessions. The client receives raw session/refresh
+# tokens; the database stores only their hashes. This service is ADDITIVE and
+# does NOT replace request_user_id()/require_admin() yet — it is the trusted
+# foundation that later phases will switch onto.
+# ---------------------------------------------------------------------------
+
+
+def generate_secure_token() -> str:
+    """Cryptographically secure, opaque token with no embedded PII."""
+    return secrets.token_urlsafe(48)
+
+
+def hash_token(raw_token: str) -> str:
+    """Deterministic hash of a raw token. Raw tokens are never stored or logged."""
+    if SESSION_HMAC_SECRET:
+        return hmac.new(SESSION_HMAC_SECRET.encode(), raw_token.encode(), hashlib.sha256).hexdigest()
+    return hashlib.sha256(raw_token.encode()).hexdigest()
+
+
+def validate_session_crypto_config() -> None:
+    """Refuse the unkeyed SHA-256 fallback in production.
+
+    Development/test may run without SESSION_HMAC_SECRET (plain SHA-256). In
+    production the keyed HMAC secret is mandatory; we fail loudly rather than
+    silently weakening token hashing. The secret value is never included in the
+    error message.
+    """
+    if APP_ENV.lower() == "production" and not SESSION_HMAC_SECRET:
+        raise RuntimeError(
+            "SESSION_HMAC_SECRET is required when APP_ENV=production; "
+            "refusing to fall back to unkeyed session-token hashing."
+        )
+
+
+def get_client_ip(request: Request | None) -> str | None:
+    """Best-effort client IP for ANALYTICS only (never an auth decision).
+    Trusts CF-Connecting-IP / X-Forwarded-For only when explicitly configured."""
+    if not request:
+        return None
+    if TRUST_CLOUDFLARE_HEADERS:
+        cf = request.headers.get("cf-connecting-ip")
+        if cf:
+            return cf.strip()
+    if TRUST_PROXY_HEADERS:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
+def _client_ip(request: Request | None) -> str | None:
+    return get_client_ip(request)
+
+
+def parse_user_agent(ua: str | None) -> dict[str, str]:
+    """Coarse, dependency-free UA classification for analytics (no raw UA stored)."""
+    s = (ua or "").lower()
+    if not s:
+        return {"device_type": "unknown", "browser": "unknown", "os": "unknown"}
+    if "telegram" in s:
+        browser = "telegram_webview"
+    elif "max" in s and "webview" in s:
+        browser = "max_webview"
+    elif "edg/" in s or "edge" in s:
+        browser = "edge"
+    elif "chrome" in s or "crios" in s:
+        browser = "chrome"
+    elif "firefox" in s or "fxios" in s:
+        browser = "firefox"
+    elif "safari" in s:
+        browser = "safari"
+    else:
+        browser = "unknown"
+    if "android" in s:
+        os_name = "android"
+    elif "iphone" in s or "ipad" in s or "ios" in s:
+        os_name = "ios"
+    elif "windows" in s:
+        os_name = "windows"
+    elif "mac os" in s or "macintosh" in s:
+        os_name = "macos"
+    elif "linux" in s:
+        os_name = "linux"
+    else:
+        os_name = "unknown"
+    if "ipad" in s or "tablet" in s:
+        device_type = "tablet"
+    elif "mobi" in s or "android" in s or "iphone" in s:
+        device_type = "mobile"
+    else:
+        device_type = "desktop"
+    return {"device_type": device_type, "browser": browser, "os": os_name}
+
+
+def _hash_user_agent(request: Request | None) -> str | None:
+    if not request:
+        return None
+    ua = request.headers.get("user-agent")
+    return hashlib.sha256(ua.encode()).hexdigest() if ua else None
+
+
+def _extract_session_token(request: Request) -> str | None:
+    """Read the bearer token from Authorization, else the session cookie.
+
+    Never reads X-OneNode-User or the legacy onenode_user cookie.
+    """
+    header = request.headers.get("authorization")
+    if header and header.lower().startswith("bearer "):
+        return header[7:].strip() or None
+    return request.cookies.get(SESSION_COOKIE_NAME)
+
+
+def record_session_event(
+    conn: sqlite3.Connection,
+    session_id: str,
+    internal_user_id: str,
+    event_type: str,
+    request: Request | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO session_events (id, session_id, internal_user_id, event_type, ip_address, user_agent_hash, metadata_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            uuid.uuid4().hex,
+            session_id,
+            internal_user_id,
+            event_type,
+            _client_ip(request),
+            _hash_user_agent(request),
+            json.dumps(metadata, ensure_ascii=False) if metadata else None,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+
+
+def record_security_event(
+    conn: sqlite3.Connection,
+    event_type: str,
+    severity: str = "warning",
+    internal_user_id: str | None = None,
+    session_id: str | None = None,
+    request: Request | None = None,
+    details: dict[str, Any] | None = None,
+) -> None:
+    # details must never contain raw tokens, cookies or Authorization headers.
+    conn.execute(
+        """
+        INSERT INTO security_events (id, internal_user_id, session_id, severity, event_type, ip_address, user_agent_hash, details_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            uuid.uuid4().hex,
+            internal_user_id,
+            session_id,
+            severity,
+            event_type,
+            _client_ip(request),
+            _hash_user_agent(request),
+            json.dumps(details, ensure_ascii=False) if details else None,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+
+
+def record_event_log(
+    event_name: str,
+    internal_user_id: str | None = None,
+    legacy_user_id: str | None = None,
+    anonymous_id: str | None = None,
+    installation_id: str | None = None,
+    session_id: str | None = None,
+    platform: str | None = None,
+    device_type: str | None = None,
+    request: Request | None = None,
+    properties: dict[str, Any] | None = None,
+) -> None:
+    """Product analytics event. Opens its own transaction so a failed write never
+    rolls back the caller's work.
+
+    Privacy: never stores cookies, Authorization headers, raw session/refresh
+    tokens, OTP, raw Telegram initData or raw MAX WebAppData. The user agent is
+    only ever persisted as a hash. The caller is responsible for passing an
+    already-sanitized `properties` dict.
+    """
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO event_logs
+                (id, internal_user_id, legacy_user_id, anonymous_id, installation_id, session_id,
+                 event_name, platform, device_type, ip_address, user_agent_hash, properties_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex,
+                internal_user_id,
+                legacy_user_id,
+                anonymous_id,
+                installation_id,
+                session_id,
+                event_name,
+                platform,
+                device_type,
+                _client_ip(request),
+                _hash_user_agent(request),
+                json.dumps(properties, ensure_ascii=False) if properties else None,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+
+
+def record_login_attempt(
+    conn: sqlite3.Connection,
+    provider: str,
+    success: bool,
+    identifier: str | None = None,
+    internal_user_id: str | None = None,
+    failure_reason: str | None = None,
+    platform: str | None = None,
+    request: Request | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO auth_login_attempts
+            (id, internal_user_id, provider, identifier, success, failure_reason, ip_address, user_agent_hash, platform, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            uuid.uuid4().hex,
+            internal_user_id,
+            provider,
+            identifier,
+            1 if success else 0,
+            failure_reason,
+            _client_ip(request),
+            _hash_user_agent(request),
+            platform,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+
+
+def telegram_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now: str) -> tuple[str, str]:
+    """Resolve/create the canonical identity for a verified Telegram user.
+
+    Returns (internal_user_id, legacy_user_id). Never changes an existing
+    users.id; only assigns internal_user_id where missing. raw_profile_json holds
+    the verified Telegram user object only (no tokens, no raw initData).
+    """
+    pid = str(user["id"])
+    username = user.get("username")
+    first = user.get("first_name")
+    last = user.get("last_name")
+    photo = user.get("photo_url")
+    lang = user.get("language_code")
+    raw_profile = json.dumps(user, ensure_ascii=False)
+
+    existing = conn.execute(
+        "SELECT id, internal_user_id, legacy_user_id FROM auth_identities WHERE provider = 'telegram' AND provider_user_id = ?",
+        (pid,),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            """
+            UPDATE auth_identities
+            SET provider_username = ?, provider_first_name = ?, provider_last_name = ?,
+                provider_avatar_url = ?, provider_language_code = ?, raw_profile_json = ?,
+                verified_at = ?, last_login_at = ?
+            WHERE id = ?
+            """,
+            (username, first, last, photo, lang, raw_profile, now, now, existing["id"]),
+        )
+        if existing["legacy_user_id"]:
+            conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, existing["legacy_user_id"]))
+        return existing["internal_user_id"], existing["legacy_user_id"]
+
+    # No identity yet: try to adopt a legacy user keyed by users.telegram_id.
+    user_columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    internal_user_id: str | None = None
+    legacy_user_id: str | None = None
+    if "telegram_id" in user_columns:
+        legacy = conn.execute("SELECT id, internal_user_id FROM users WHERE telegram_id = ?", (pid,)).fetchone()
+        if legacy:
+            legacy_user_id = legacy["id"]
+            internal_user_id = legacy["internal_user_id"]
+            if not internal_user_id:
+                internal_user_id = uuid.uuid4().hex
+                conn.execute("UPDATE users SET internal_user_id = ? WHERE id = ?", (internal_user_id, legacy_user_id))
+            conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, legacy_user_id))
+
+    if internal_user_id is None:
+        # Create a new user using the project's legacy-safe id format (never altered).
+        legacy_user_id = f"telegram_{pid}"
+        internal_user_id = uuid.uuid4().hex
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO users
+                (id, telegram_id, username, first_name, last_name, language, role, plan, gallery_enabled,
+                 created_at, last_login_at, internal_user_id)
+            VALUES (?, ?, ?, ?, ?, ?, 'user', 'mini', 1, ?, ?, ?)
+            """,
+            (legacy_user_id, pid, username, first, last, lang or "ru", now, now, internal_user_id),
+        )
+        row = conn.execute("SELECT id, internal_user_id FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
+        if row:
+            legacy_user_id = row["id"]
+            if row["internal_user_id"]:
+                internal_user_id = row["internal_user_id"]
+            else:
+                conn.execute("UPDATE users SET internal_user_id = ? WHERE id = ?", (internal_user_id, legacy_user_id))
+
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO auth_identities
+            (id, internal_user_id, legacy_user_id, provider, provider_user_id, provider_username,
+             provider_first_name, provider_last_name, provider_avatar_url, provider_language_code,
+             raw_profile_json, verified_at, linked_at, last_login_at)
+        VALUES (?, ?, ?, 'telegram', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (uuid.uuid4().hex, internal_user_id, legacy_user_id, pid, username, first, last, photo, lang, raw_profile, now, now, now),
+    )
+    return internal_user_id, legacy_user_id
+
+
+def max_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now: str) -> tuple[str, str]:
+    """Resolve/create the canonical identity for a verified MAX user.
+
+    Mirror of telegram_upsert_identity for provider='max', keyed on users.max_id
+    with the legacy id format max_<id>. Never changes an existing users.id.
+    """
+    pid = str(user["id"])
+    username = user.get("username")
+    first = user.get("first_name")
+    last = user.get("last_name")
+    photo = user.get("photo_url")
+    lang = user.get("language_code")
+    raw_profile = json.dumps(user, ensure_ascii=False)
+
+    existing = conn.execute(
+        "SELECT id, internal_user_id, legacy_user_id FROM auth_identities WHERE provider = 'max' AND provider_user_id = ?",
+        (pid,),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            """
+            UPDATE auth_identities
+            SET provider_username = ?, provider_first_name = ?, provider_last_name = ?,
+                provider_avatar_url = ?, provider_language_code = ?, raw_profile_json = ?,
+                verified_at = ?, last_login_at = ?
+            WHERE id = ?
+            """,
+            (username, first, last, photo, lang, raw_profile, now, now, existing["id"]),
+        )
+        if existing["legacy_user_id"]:
+            conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, existing["legacy_user_id"]))
+        return existing["internal_user_id"], existing["legacy_user_id"]
+
+    user_columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    internal_user_id: str | None = None
+    legacy_user_id: str | None = None
+    if "max_id" in user_columns:
+        legacy = conn.execute("SELECT id, internal_user_id FROM users WHERE max_id = ?", (pid,)).fetchone()
+        if legacy:
+            legacy_user_id = legacy["id"]
+            internal_user_id = legacy["internal_user_id"]
+            if not internal_user_id:
+                internal_user_id = uuid.uuid4().hex
+                conn.execute("UPDATE users SET internal_user_id = ? WHERE id = ?", (internal_user_id, legacy_user_id))
+            conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, legacy_user_id))
+
+    if internal_user_id is None:
+        legacy_user_id = f"max_{pid}"
+        internal_user_id = uuid.uuid4().hex
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO users
+                (id, max_id, username, first_name, last_name, language, role, plan, gallery_enabled,
+                 created_at, last_login_at, internal_user_id)
+            VALUES (?, ?, ?, ?, ?, ?, 'user', 'mini', 1, ?, ?, ?)
+            """,
+            (legacy_user_id, pid, username, first, last, lang or "ru", now, now, internal_user_id),
+        )
+        row = conn.execute("SELECT id, internal_user_id FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
+        if row:
+            legacy_user_id = row["id"]
+            if row["internal_user_id"]:
+                internal_user_id = row["internal_user_id"]
+            else:
+                conn.execute("UPDATE users SET internal_user_id = ? WHERE id = ?", (internal_user_id, legacy_user_id))
+
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO auth_identities
+            (id, internal_user_id, legacy_user_id, provider, provider_user_id, provider_username,
+             provider_first_name, provider_last_name, provider_avatar_url, provider_language_code,
+             raw_profile_json, verified_at, linked_at, last_login_at)
+        VALUES (?, ?, ?, 'max', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (uuid.uuid4().hex, internal_user_id, legacy_user_id, pid, username, first, last, photo, lang, raw_profile, now, now, now),
+    )
+    return internal_user_id, legacy_user_id
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def normalize_email(email: str | None) -> str | None:
+    """Trim + lowercase; return None for empty or clearly invalid format."""
+    if not email:
+        return None
+    normalized = email.strip().lower()
+    if not normalized or len(normalized) > 254 or not _EMAIL_RE.match(normalized):
+        return None
+    return normalized
+
+
+def generate_otp_code(length: int = EMAIL_OTP_LENGTH) -> str:
+    """Numeric OTP using cryptographically secure randomness (leading zeros kept)."""
+    return "".join(secrets.choice("0123456789") for _ in range(max(1, length)))
+
+
+def hash_otp(code: str) -> str:
+    """Hash an OTP for storage. HMAC-keyed when a secret is set, else SHA-256.
+    Domain-separated from session tokens. Raw OTP is never stored or logged."""
+    if SESSION_HMAC_SECRET:
+        return hmac.new(SESSION_HMAC_SECRET.encode(), f"otp:{code}".encode(), hashlib.sha256).hexdigest()
+    return hashlib.sha256(f"otp:{code}".encode()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Password hashing (Phase 14.4). Argon2id only. Raw passwords and password
+# hashes are NEVER logged. No endpoints in this phase — helpers + schema only.
+# ---------------------------------------------------------------------------
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128
+PASSWORD_ALGORITHM = "argon2id"
+# argon2-cffi defaults to Argon2id; explicit, modern parameters.
+_password_hasher = PasswordHasher(time_cost=3, memory_cost=64 * 1024, parallelism=2)
+# Fixed Argon2id hash used to equalize verify timing when an account is not found,
+# so password login cannot be used to enumerate which emails exist.
+_DUMMY_PASSWORD_HASH = _password_hasher.hash("argon2-timing-equalizer-not-a-real-password")
+
+
+def validate_password_policy(password: str) -> list[str]:
+    """Return machine-readable error codes (empty list = OK). No complexity rules yet."""
+    errors: list[str] = []
+    length = len(password or "")
+    if length < PASSWORD_MIN_LENGTH:
+        errors.append("password_too_short")
+    if length > PASSWORD_MAX_LENGTH:
+        errors.append("password_too_long")
+    return errors
+
+
+def hash_password_argon2(password: str) -> str:
+    """Hash a password with Argon2id. Rejects empty/too-short/too-long before hashing.
+    Never logs the password or the resulting hash."""
+    if not password:
+        raise ValueError("password_required")
+    policy_errors = validate_password_policy(password)
+    if policy_errors:
+        raise ValueError(policy_errors[0])
+    return _password_hasher.hash(password)
+
+
+def verify_password_argon2(password: str, password_hash: str) -> bool:
+    """Constant-time verify via argon2. Returns False on mismatch or any invalid/
+    malformed hash — never raises to the caller, never logs password/hash."""
+    if not password or not password_hash:
+        return False
+    try:
+        return _password_hasher.verify(password_hash, password)
+    except Argon2Error:
+        return False
+    except Exception:
+        # Defensive: malformed hash string, type errors, etc.
+        return False
+
+
+def password_hash_needs_rehash(password_hash: str) -> bool:
+    """True if the stored hash should be re-hashed with current parameters."""
+    if not password_hash:
+        return False
+    try:
+        return _password_hasher.check_needs_rehash(password_hash)
+    except Exception:
+        return False
+
+
+def email_provider_configured() -> bool:
+    return bool(EMAIL_PROVIDER)
+
+
+def validate_email_otp_config() -> None:
+    """Refuse unsafe email-OTP configuration in production.
+
+    - EMAIL_OTP_DEBUG_RETURN_CODE must never be on in production.
+    - A real email provider must be configured in production (no fake sending).
+    Dev/test may run with neither (mock sender, optional debug code).
+    """
+    if APP_ENV.lower() == "production":
+        if EMAIL_OTP_DEBUG_RETURN_CODE:
+            raise RuntimeError("EMAIL_OTP_DEBUG_RETURN_CODE must be disabled in production.")
+        if not email_provider_configured():
+            raise RuntimeError("No email provider configured for production email OTP.")
+
+
+def send_email_otp(destination: str, code: str) -> None:
+    """Deliver an OTP. In production a real provider would be called here. In
+    dev/test we use a mock outbox that stores ONLY the destination + timestamp —
+    never the code. Raw OTP is never logged."""
+    if APP_ENV.lower() == "production" and email_provider_configured():
+        # Real provider integration belongs here; not implemented in this phase.
+        raise RuntimeError("Email provider integration not implemented.")
+    _mock_email_outbox.append({"to": destination, "sent_at": datetime.now(timezone.utc).isoformat()})
+
+
+def cleanup_expired_otp_challenges(now: str | None = None) -> int:
+    """Idempotently delete stale OTP challenges (consumed or expired) that are
+    older than EMAIL_OTP_CLEANUP_EXPIRED_AFTER_SECONDS. Active, unexpired
+    challenges are never touched. Failure evidence lives in security_events /
+    auth_login_attempts, so deleting old challenges loses no audit trail."""
+    now_dt = datetime.now(timezone.utc)
+    now_iso = now or now_dt.isoformat()
+    cutoff = (now_dt - timedelta(seconds=EMAIL_OTP_CLEANUP_EXPIRED_AFTER_SECONDS)).isoformat()
+    with db() as conn:
+        cur = conn.execute(
+            "DELETE FROM auth_otp_challenges WHERE created_at < ? AND (consumed_at IS NOT NULL OR expires_at < ?)",
+            (cutoff, now_iso),
+        )
+        return cur.rowcount
+
+
+def _email_hash(email_norm: str) -> str:
+    return hashlib.sha256(email_norm.encode()).hexdigest()
+
+
+def _otp_rate_limited(
+    reason: str,
+    window_seconds: int,
+    email_norm: str,
+    request: Request,
+    anonymous_id: str | None,
+    installation_id: str | None,
+    platform: str | None,
+):
+    """Record a rate-limit hit and raise a generic 429 (no email-existence
+    disclosure, no OTP). Stores only the email HASH, not the raw address."""
+    with db() as conn:
+        record_security_event(
+            conn,
+            "otp_request_rate_limited",
+            internal_user_id=None,
+            request=request,
+            details={"reason": reason, "email_hash": _email_hash(email_norm), "window_seconds": window_seconds},
+        )
+    try:
+        record_event_log(
+            "login_rate_limited",
+            anonymous_id=anonymous_id,
+            installation_id=installation_id,
+            platform=platform,
+            properties={"provider": "web_email", "reason": reason},
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"email-otp: login_rate_limited event log error: {type(exc).__name__}")
+    raise HTTPException(429, "Too many requests")
+
+
+def enforce_email_otp_rate_limits(
+    email_norm: str,
+    request: Request,
+    anonymous_id: str | None,
+    installation_id: str | None,
+    platform: str | None,
+) -> None:
+    """Reject abusive request-code traffic. Chosen policy for the active-challenge
+    cap: REJECT with 429 (we do not silently expire older challenges)."""
+    now_dt = datetime.now(timezone.utc)
+    now_iso = now_dt.isoformat()
+    ip = _client_ip(request)
+    cooldown_cut = (now_dt - timedelta(seconds=EMAIL_OTP_REQUEST_COOLDOWN_SECONDS)).isoformat()
+    email_cut = (now_dt - timedelta(seconds=EMAIL_OTP_EMAIL_WINDOW_SECONDS)).isoformat()
+    ip_cut = (now_dt - timedelta(seconds=EMAIL_OTP_IP_WINDOW_SECONDS)).isoformat()
+
+    with db() as conn:
+        cooldown_hits = conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE destination = ? AND created_at > ?",
+            (email_norm, cooldown_cut),
+        ).fetchone()["c"]
+        email_window_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE destination = ? AND created_at > ?",
+            (email_norm, email_cut),
+        ).fetchone()["c"]
+        ip_window_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE ip_address = ? AND created_at > ?",
+            (ip, ip_cut),
+        ).fetchone()["c"] if ip else 0
+        active_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE destination = ? AND consumed_at IS NULL AND expires_at > ?",
+            (email_norm, now_iso),
+        ).fetchone()["c"]
+
+    if EMAIL_OTP_REQUEST_COOLDOWN_SECONDS > 0 and cooldown_hits > 0:
+        _otp_rate_limited("cooldown", EMAIL_OTP_REQUEST_COOLDOWN_SECONDS, email_norm, request, anonymous_id, installation_id, platform)
+    if email_window_count >= EMAIL_OTP_MAX_REQUESTS_PER_EMAIL_WINDOW:
+        _otp_rate_limited("email_window", EMAIL_OTP_EMAIL_WINDOW_SECONDS, email_norm, request, anonymous_id, installation_id, platform)
+    if ip and ip_window_count >= EMAIL_OTP_MAX_REQUESTS_PER_IP_WINDOW:
+        _otp_rate_limited("ip_window", EMAIL_OTP_IP_WINDOW_SECONDS, email_norm, request, anonymous_id, installation_id, platform)
+    if active_count >= EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_EMAIL:
+        _otp_rate_limited("max_active_challenges", EMAIL_OTP_EMAIL_WINDOW_SECONDS, email_norm, request, anonymous_id, installation_id, platform)
+
+
+def email_otp_upsert_identity(conn: sqlite3.Connection, email_norm: str, now: str) -> tuple[str, str]:
+    """Resolve/create the canonical identity for a verified email (provider='web_email').
+
+    provider_user_id is the normalized email. We do NOT link by the legacy
+    users.email column (it is client-supplied and unverified, so linking could
+    hijack a Telegram/MAX account) — repeated logins reuse via the auth_identities
+    lookup instead. Never changes an existing users.id; never auto-merges with
+    Telegram/MAX identities.
+    """
+    existing = conn.execute(
+        "SELECT id, internal_user_id, legacy_user_id FROM auth_identities WHERE provider = 'web_email' AND provider_user_id = ?",
+        (email_norm,),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE auth_identities SET provider_email = ?, verified_at = ?, last_login_at = ? WHERE id = ?",
+            (email_norm, now, now, existing["id"]),
+        )
+        if existing["legacy_user_id"]:
+            conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, existing["legacy_user_id"]))
+        return existing["internal_user_id"], existing["legacy_user_id"]
+
+    legacy_user_id = f"web_{uuid.uuid4().hex}"
+    internal_user_id = uuid.uuid4().hex
+    user_columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    has_email_col = "email" in user_columns
+    if has_email_col:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO users
+                (id, email, language, role, plan, gallery_enabled, created_at, last_login_at, internal_user_id)
+            VALUES (?, ?, 'ru', 'user', 'mini', 1, ?, ?, ?)
+            """,
+            (legacy_user_id, email_norm, now, now, internal_user_id),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO users
+                (id, language, role, created_at, last_login_at, internal_user_id)
+            VALUES (?, 'ru', 'user', ?, ?, ?)
+            """,
+            (legacy_user_id, now, now, internal_user_id),
+        )
+    row = conn.execute("SELECT id, internal_user_id FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
+    if row and row["internal_user_id"]:
+        internal_user_id = row["internal_user_id"]
+
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO auth_identities
+            (id, internal_user_id, legacy_user_id, provider, provider_user_id, provider_email,
+             raw_profile_json, verified_at, linked_at, last_login_at)
+        VALUES (?, ?, ?, 'web_email', ?, ?, ?, ?, ?, ?)
+        """,
+        (uuid.uuid4().hex, internal_user_id, legacy_user_id, email_norm, email_norm,
+         json.dumps({"email": email_norm}, ensure_ascii=False), now, now, now),
+    )
+    return internal_user_id, legacy_user_id
+
+
+def _user_is_banned(conn: sqlite3.Connection, internal_user_id: str | None, legacy_user_id: str | None) -> bool:
+    row = None
+    if internal_user_id:
+        row = conn.execute("SELECT banned FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+    if row is None and legacy_user_id:
+        row = conn.execute("SELECT banned FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
+    if row is None:
+        return False
+    try:
+        return bool(row["banned"])
+    except (KeyError, IndexError):
+        return False
+
+
+def create_auth_session(
+    internal_user_id: str,
+    legacy_user_id: str | None = None,
+    provider: str | None = None,
+    platform: str | None = None,
+    request: Request | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Create a session, persist only token hashes, return raw tokens to caller."""
+    validate_session_crypto_config()
+    raw_session_token = generate_secure_token()
+    raw_refresh_token = generate_secure_token()
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    # Access/session token lifetime drives auth_sessions.expires_at; the refresh
+    # token gets its own, longer lifetime tracked in refresh_expires_at.
+    expires_at = (now + timedelta(seconds=SESSION_ACCESS_TTL_SECONDS)).isoformat()
+    refresh_expires_at = (now + timedelta(seconds=SESSION_REFRESH_TTL_SECONDS)).isoformat()
+    session_id = uuid.uuid4().hex
+    # Analytics-only device classification (no raw UA stored).
+    session_meta = dict(metadata) if metadata else {}
+    if request is not None:
+        session_meta.setdefault("device", parse_user_agent(request.headers.get("user-agent")))
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_sessions
+                (id, internal_user_id, legacy_user_id, session_token_hash, refresh_token_hash,
+                 provider, platform, ip_address, user_agent_hash, created_at, last_seen_at,
+                 expires_at, refresh_expires_at, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                internal_user_id,
+                legacy_user_id,
+                hash_token(raw_session_token),
+                hash_token(raw_refresh_token),
+                provider,
+                platform,
+                get_client_ip(request),
+                _hash_user_agent(request),
+                now_iso,
+                now_iso,
+                expires_at,
+                refresh_expires_at,
+                json.dumps(session_meta, ensure_ascii=False) if session_meta else None,
+            ),
+        )
+        record_session_event(conn, session_id, internal_user_id, "created", request)
+        # Phase 18 analytics: stamp last activity + ensure a public code on every login.
+        conn.execute("UPDATE users SET last_seen_at = ? WHERE internal_user_id = ?", (now_iso, internal_user_id))
+        ensure_public_user_code(conn, internal_user_id)
+    return {
+        "session_id": session_id,
+        "session_token": raw_session_token,
+        "refresh_token": raw_refresh_token,
+        "expires_at": expires_at,
+        "refresh_expires_at": refresh_expires_at,
+    }
+
+
+def resolve_auth_session_from_request(
+    request: Request, *, raise_on_failure: bool = True
+) -> dict[str, Any] | None:
+    """Resolve the trusted session for a request, or fail/None.
+
+    Does NOT trust X-OneNode-User or the legacy onenode_user cookie.
+    Writes security_events on any invalid/expired/revoked/banned outcome.
+    """
+    token = _extract_session_token(request)
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    def fail(event_type: str, status: int, message: str, *, severity: str = "warning",
+             internal_user_id: str | None = None, session_id: str | None = None):
+        # Recorded in its own committed transaction, then we raise — so the
+        # security event survives even though the request fails.
+        with db() as conn:
+            record_security_event(conn, event_type, severity=severity, internal_user_id=internal_user_id, session_id=session_id, request=request)
+        if raise_on_failure:
+            raise HTTPException(status, message)
+        return None
+
+    if not token:
+        return fail("session_missing_token", 401, "Missing session token.")
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM auth_sessions WHERE session_token_hash = ?", (hash_token(token),)
+        ).fetchone()
+    if row is None:
+        return fail("session_invalid", 401, "Invalid session.")
+    if row["revoked_at"] is not None:
+        return fail("session_revoked", 401, "Session revoked.", internal_user_id=row["internal_user_id"], session_id=row["id"])
+    if row["expires_at"] <= now_iso:
+        return fail("session_expired", 401, "Session expired.", internal_user_id=row["internal_user_id"], session_id=row["id"])
+    with db() as conn:
+        banned = _user_is_banned(conn, row["internal_user_id"], row["legacy_user_id"])
+    if banned:
+        return fail("session_user_banned", 403, "User is banned.", severity="critical", internal_user_id=row["internal_user_id"], session_id=row["id"])
+    with db() as conn:
+        conn.execute("UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?", (now_iso, row["id"]))
+    return {
+        "session_id": row["id"],
+        "internal_user_id": row["internal_user_id"],
+        "legacy_user_id": row["legacy_user_id"],
+        "provider": row["provider"],
+        "platform": row["platform"],
+        "created_at": row["created_at"],
+        "last_seen_at": now_iso,
+        "expires_at": row["expires_at"],
+    }
+
+
+def refresh_auth_session(refresh_token: str, request: Request | None = None) -> dict[str, str]:
+    """Validate a refresh token, rotate it, and issue a fresh session.
+
+    Refresh validity is governed by refresh_expires_at (its own lifetime), NOT by
+    the access token's expires_at — so a refresh still works after the access
+    token has lapsed. Legacy rows predating refresh_expires_at (NULL) are treated
+    conservatively: rejected in production; in dev/test they fall back to
+    expires_at so older fixtures/sessions keep working.
+    """
+    validate_session_crypto_config()
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    def fail(event_type: str, status: int, message: str, *, severity: str = "warning",
+             internal_user_id: str | None = None, session_id: str | None = None):
+        with db() as conn:
+            record_security_event(conn, event_type, severity=severity, internal_user_id=internal_user_id, session_id=session_id, request=request)
+        raise HTTPException(status, message)
+
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM auth_sessions WHERE refresh_token_hash = ?", (hash_token(refresh_token),)
+        ).fetchone()
+    if row is None:
+        fail("refresh_invalid", 401, "Invalid refresh token.")
+    if row["revoked_at"] is not None:
+        fail("refresh_revoked", 401, "Refresh token revoked.", internal_user_id=row["internal_user_id"], session_id=row["id"])
+    refresh_expires_at = row["refresh_expires_at"] if "refresh_expires_at" in row.keys() else None
+    if refresh_expires_at is None:
+        if APP_ENV.lower() == "production":
+            fail("refresh_expired", 401, "Refresh token expired.", internal_user_id=row["internal_user_id"], session_id=row["id"])
+        refresh_expires_at = row["expires_at"]  # dev/test fallback for legacy rows
+    if refresh_expires_at is None or refresh_expires_at <= now_iso:
+        fail("refresh_expired", 401, "Refresh token expired.", internal_user_id=row["internal_user_id"], session_id=row["id"])
+    with db() as conn:
+        banned = _user_is_banned(conn, row["internal_user_id"], row["legacy_user_id"])
+    if banned:
+        fail("refresh_user_banned", 403, "User is banned.", severity="critical", internal_user_id=row["internal_user_id"], session_id=row["id"])
+    # Rotation: revoke the old session so the old refresh token cannot be reused.
+    with db() as conn:
+        conn.execute(
+            "UPDATE auth_sessions SET revoked_at = ?, revoke_reason = 'rotated' WHERE id = ?",
+            (now_iso, row["id"]),
+        )
+        record_session_event(conn, row["id"], row["internal_user_id"], "refreshed", request)
+    return create_auth_session(
+        row["internal_user_id"], row["legacy_user_id"], row["provider"], row["platform"], request
+    )
+
+
+def revoke_auth_session(
+    session_id: str,
+    reason: str = "logout",
+    request: Request | None = None,
+    event_type: str | None = None,
+) -> bool:
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT internal_user_id, revoked_at FROM auth_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        if row is None:
+            return False
+        if row["revoked_at"] is None:
+            conn.execute(
+                "UPDATE auth_sessions SET revoked_at = ?, revoke_reason = ? WHERE id = ?",
+                (now_iso, reason, session_id),
+            )
+        record_session_event(
+            conn,
+            session_id,
+            row["internal_user_id"],
+            event_type or ("logout" if reason == "logout" else "revoked"),
+            request,
+        )
+    return True
+
+
+def set_trusted_auth_cookies(
+    response: Response,
+    session_token: str,
+    refresh_token: str,
+    expires_at: str | None = None,
+    refresh_expires_at: str | None = None,
+) -> None:
+    """Set HttpOnly session + refresh cookies carrying the raw tokens.
+
+    The DB still stores only hashes; the cookie is just secure transport. Raw
+    cookie values are never logged. secure/samesite/domain/path come from config.
+    """
+    common = {
+        "httponly": True,  # always
+        "secure": TRUSTED_COOKIE_SECURE,
+        "samesite": TRUSTED_COOKIE_SAMESITE,
+        "path": TRUSTED_COOKIE_PATH,
+    }
+    if TRUSTED_COOKIE_DOMAIN:
+        common["domain"] = TRUSTED_COOKIE_DOMAIN
+    response.set_cookie(
+        TRUSTED_SESSION_COOKIE_NAME, session_token, max_age=SESSION_ACCESS_TTL_SECONDS, **common
+    )
+    response.set_cookie(
+        TRUSTED_REFRESH_COOKIE_NAME, refresh_token, max_age=SESSION_REFRESH_TTL_SECONDS, **common
+    )
+
+
+def clear_trusted_auth_cookies(response: Response) -> None:
+    """Clear both trusted cookies (used on logout). Matches name/path/domain."""
+    kwargs: dict[str, Any] = {"path": TRUSTED_COOKIE_PATH}
+    if TRUSTED_COOKIE_DOMAIN:
+        kwargs["domain"] = TRUSTED_COOKIE_DOMAIN
+    response.delete_cookie(TRUSTED_SESSION_COOKIE_NAME, **kwargs)
+    response.delete_cookie(TRUSTED_REFRESH_COOKIE_NAME, **kwargs)
+
+
+def _extract_refresh_token(request: Request) -> str | None:
+    return request.cookies.get(TRUSTED_REFRESH_COOKIE_NAME)
+
+
+# ---------------------------------------------------------------------------
+# Trusted user resolution (Phase 9) — the new v2 authorization layer.
+# Used ONLY by new v2 endpoints; legacy request_user_id()/require_admin() stay.
+# ---------------------------------------------------------------------------
+
+
+def resolve_trusted_user(request: Request) -> dict[str, Any]:
+    """Resolve the current user strictly from a trusted server session.
+
+    Never trusts X-OneNode-User, the onenode_user cookie, or any client-supplied
+    user id. 401 for invalid/expired/revoked session, 403 for banned/deleted user.
+    A mismatching X-OneNode-User header is logged as a spoof attempt but never
+    changes the resolved identity and never fails a request with a valid session.
+    """
+    session = resolve_auth_session_from_request(request)  # raises 401/403
+    internal_user_id = session["internal_user_id"]
+    legacy_user_id = session["legacy_user_id"]
+
+    with db() as conn:
+        urow = conn.execute("SELECT id FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+        if urow is None and legacy_user_id:
+            urow = conn.execute("SELECT id FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
+    if urow is None:
+        with db() as conn:
+            record_security_event(conn, "trusted_user_missing", severity="critical", internal_user_id=internal_user_id, session_id=session["session_id"], request=request)
+        raise HTTPException(403, "User not found.")
+
+    header_user = request.headers.get("x-onenode-user")
+    if header_user and header_user != legacy_user_id:
+        with db() as conn:
+            record_security_event(
+                conn,
+                "legacy_identity_spoof_attempt",
+                internal_user_id=internal_user_id,
+                session_id=session["session_id"],
+                request=request,
+                details={
+                    "trusted_legacy_user_id": legacy_user_id,
+                    "spoofed_header_hash": hashlib.sha256(header_user.encode()).hexdigest(),
+                },
+            )
+
+    return {
+        "internal_user_id": internal_user_id,
+        "legacy_user_id": legacy_user_id,
+        "session_id": session["session_id"],
+        "provider": session["provider"],
+        "platform": session["platform"],
+    }
+
+
+def require_trusted_user(request: Request) -> dict[str, Any]:
+    """Thin wrapper over resolve_trusted_user for new v2 endpoints."""
+    return resolve_trusted_user(request)
+
+
+def require_trusted_admin(request: Request) -> dict[str, Any]:
+    """Trusted admin gate. Uses the existing users.role model via the trusted
+    session only — never X-OneNode-User and never the static admin code."""
+    user = require_trusted_user(request)
+    with db() as conn:
+        row = conn.execute("SELECT role FROM users WHERE internal_user_id = ?", (user["internal_user_id"],)).fetchone()
+        if row is None and user["legacy_user_id"]:
+            row = conn.execute("SELECT role FROM users WHERE id = ?", (user["legacy_user_id"],)).fetchone()
+    if not row or row["role"] != "admin":
+        with db() as conn:
+            record_security_event(conn, "trusted_admin_denied", internal_user_id=user["internal_user_id"], session_id=user["session_id"], request=request)
+        raise HTTPException(403, "Admin access required")
+    return user
+
+
+def _row_get(row: sqlite3.Row | None, key: str) -> Any:
+    if row is None:
+        return None
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Account layer (Phase 11) — profile / devices / consents over trusted session.
+# ---------------------------------------------------------------------------
+
+# API field -> users column. Fields absent here (role, banned, internal_user_id,
+# id) can never be read/written through the profile endpoints.
+PROFILE_FIELD_COLUMNS = {
+    "display_name": "display_name",
+    "first_name": "first_name",
+    "last_name": "last_name",
+    "middle_name": "middle_name",
+    "username": "username",
+    "language_code": "language",
+    "timezone": "timezone",
+    "city": "city",
+    "country_code": "country",
+}
+
+CONSENT_TYPES = {
+    "terms", "privacy", "personal_data_processing", "cookies", "analytics",
+    "marketing", "public_gallery", "ai_generation_rules", "age_confirmation",
+}
+
+PROFILE_FIELD_MAX_LEN = 200
+
+
+def build_profile(row: sqlite3.Row | None) -> dict[str, Any]:
+    """Safe profile projection — only whitelisted columns, null where missing."""
+    return {api_field: _row_get(row, col) for api_field, col in PROFILE_FIELD_COLUMNS.items()}
+
+
+def sanitize_device_metadata(metadata_json: str | None) -> dict[str, Any]:
+    """Expose only language/timezone/app_version from the stored client summary."""
+    data = safe_json_load(metadata_json) or {}
+    client = data.get("client") if isinstance(data, dict) else {}
+    client = client if isinstance(client, dict) else {}
+    return {
+        "language": client.get("language"),
+        "timezone": client.get("timezone"),
+        "app_version": client.get("app_version"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Admin v2 helpers (Phase 10) — read/format and audit. Trusted-session only.
+# ---------------------------------------------------------------------------
+
+
+def mask_email(email: str | None) -> str | None:
+    """Mask an email for admin views: a***z@domain. Never returns the raw local part."""
+    if not email:
+        return None
+    if "@" not in email:
+        return "***"
+    local, _, domain = email.partition("@")
+    if len(local) <= 2:
+        masked = (local[0] if local else "*") + "*"
+    else:
+        masked = local[0] + ("*" * (len(local) - 2)) + local[-1]
+    return f"{masked}@{domain}"
+
+
+def mask_phone(phone: str | None) -> str | None:
+    """Mask a phone for admin views: keep last 2 digits, e.g. +*******89."""
+    if not phone:
+        return None
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if len(digits) <= 2:
+        return "***"
+    prefix = "+" if phone.strip().startswith("+") else ""
+    return f"{prefix}{'*' * (len(digits) - 2)}{digits[-2:]}"
+
+
+def safe_json_load(text: str | None) -> Any:
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def admin_user_summary(row: sqlite3.Row | None) -> dict[str, Any]:
+    banned = bool(_row_get(row, "banned"))
+    return {
+        "internal_user_id": _row_get(row, "internal_user_id"),
+        "legacy_user_id": _row_get(row, "id"),
+        "status": "banned" if banned else "active",
+        "role": _row_get(row, "role"),
+        "created_at": _row_get(row, "created_at"),
+        "last_seen_at": _row_get(row, "last_seen_at"),
+    }
+
+
+def record_audit_log(
+    conn: sqlite3.Connection,
+    action: str,
+    actor_internal_user_id: str | None = None,
+    target_internal_user_id: str | None = None,
+    entity_type: str = "user",
+    entity_id: str | None = None,
+    before: Any = None,
+    after: Any = None,
+    request: Request | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO audit_logs
+            (id, actor_internal_user_id, target_internal_user_id, action, entity_type, entity_id,
+             before_json, after_json, ip_address, user_agent_hash, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            uuid.uuid4().hex,
+            actor_internal_user_id,
+            target_internal_user_id,
+            action,
+            entity_type,
+            entity_id,
+            json.dumps(before, ensure_ascii=False) if before is not None else None,
+            json.dumps(after, ensure_ascii=False) if after is not None else None,
+            _client_ip(request),
+            _hash_user_agent(request),
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+
+
+def _clamp_limit(limit: int, default: int = 50, maximum: int = 200) -> int:
+    if limit is None:
+        return default
+    return max(1, min(int(limit), maximum))
+
+
+def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
+    settings = json.loads(row["settings_json"] or "{}")
+    return {
+        "id": row["id"],
+        "userId": row["user_id"],
+        "url": row["url"],
+        "thumbnailUrl": row["thumbnail_url"],
+        "mode": row["mode"],
+        "provider": row["provider"],
+        "promptOriginal": row["prompt_original"] or "",
+        "promptTranslated": row["prompt_translated"] or "",
+        "seed": settings.get("seed", 0),
+        "width": row["width"],
+        "height": row["height"],
+        "modelProfile": settings.get("modelProfile", ""),
+        "loras": settings.get("loras", []),
+        "preset": settings.get("preset"),
+        "generationTimeMs": settings.get("generationTimeMs", 0),
+        "isFavorite": bool(row["is_favorite"]),
+        "createdAt": row["created_at"],
+        "comfyuiPromptId": settings.get("comfyuiPromptId"),
+        "comfyuiHistory": settings.get("comfyuiHistory"),
+    }
+
+
+def load_db_state() -> None:
+    jobs.clear()
+    images.clear()
+    with db() as conn:
+        for row in conn.execute("SELECT * FROM images ORDER BY created_at DESC"):
+            images[row["id"]] = row_to_image(row)
+        for row in conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 100"):
+            jobs[row["id"]] = {
+                "id": row["id"],
+                "userId": row["user_id"],
+                "mode": row["mode"],
+                "provider": row["provider"],
+                "status": row["status"],
+                "progress": row["progress"],
+                "message": row["error_message"] or row["status"],
+                "resultImageId": row["result_image_id"],
+                "createdAt": row["created_at"],
+                "completedAt": row["completed_at"],
+            }
+
+
+def persist_job(job: dict[str, Any], request: GenerateRequest | None = None) -> None:
+    settings = request.model_dump() if request else job.get("request", {})
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO jobs (id, user_id, mode, provider, status, progress, prompt_original, prompt_translated,
+                              result_image_id, error_message, settings_json, created_at, started_at, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                status=excluded.status,
+                progress=excluded.progress,
+                result_image_id=excluded.result_image_id,
+                error_message=excluded.error_message,
+                settings_json=excluded.settings_json,
+                completed_at=excluded.completed_at
+            """,
+            (
+                job["id"],
+                job.get("userId", "demo_user"),
+                job.get("mode", request.mode if request else ""),
+                job.get("provider", request.provider if request else ""),
+                job.get("status", "queued"),
+                int(job.get("progress", 0)),
+                (request.prompt if request else settings.get("prompt", "")) or "",
+                "",
+                job.get("resultImageId"),
+                job.get("error"),
+                json.dumps(settings, ensure_ascii=False),
+                job.get("createdAt") or datetime.now(timezone.utc).isoformat(),
+                job.get("startedAt"),
+                job.get("completedAt"),
+            ),
+        )
+
+
+def persist_image(record: dict[str, Any], job_id: str) -> None:
+    settings = {
+        "seed": record.get("seed"),
+        "modelProfile": record.get("modelProfile"),
+        "loras": record.get("loras", []),
+        "preset": record.get("preset"),
+        "generationTimeMs": record.get("generationTimeMs"),
+        "comfyuiPromptId": record.get("comfyuiPromptId"),
+        "comfyuiHistory": record.get("comfyuiHistory"),
+    }
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider,
+                                           prompt_original, prompt_translated, settings_json, is_favorite, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record["id"],
+                record.get("userId", "demo_user"),
+                job_id,
+                record["url"],
+                record["thumbnailUrl"],
+                record["width"],
+                record["height"],
+                record["mode"],
+                record["provider"],
+                record["promptOriginal"],
+                record.get("promptTranslated", ""),
+                json.dumps(settings, ensure_ascii=False),
+                1 if record.get("isFavorite") else 0,
+                record["createdAt"],
+            ),
+        )
+
+
+def local_media_path_from_url(url: str) -> Path | None:
+    if url.startswith("/api/media/"):
+        filename = url.removeprefix("/api/media/").split("?", 1)[0]
+    elif url.startswith("/media/"):
+        filename = url.removeprefix("/media/").split("?", 1)[0]
+    else:
+        return None
+    path = (MEDIA / filename).resolve()
+    try:
+        path.relative_to(MEDIA.resolve())
+    except ValueError:
+        raise RuntimeError("Недопустимый путь media-файла.")
+    return path if path.exists() else None
+
+
+def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    raw_id = auth.userId or ""
+    # Strip ALL existing platform prefixes to avoid double-/triple-/quadruple-prefixing
+    while raw_id:
+        stripped = raw_id
+        for prefix in ("web_", "telegram_", "max_"):
+            if stripped.startswith(prefix):
+                stripped = stripped[len(prefix):]
+                break
+        if stripped == raw_id:
+            break
+        raw_id = stripped
+    user_id = f"{auth.platform}_{raw_id}" if raw_id else "demo_user"
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, telegram_id, max_id, username, first_name, last_name, middle_name, phone, email, language, role, plan, gallery_enabled, created_at, last_login_at,
+                               country, city, timezone, ref_code, last_user_agent, last_screen, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 'mini', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                username=COALESCE(excluded.username, users.username),
+                first_name=COALESCE(excluded.first_name, users.first_name),
+                last_name=COALESCE(excluded.last_name, users.last_name),
+                middle_name=COALESCE(excluded.middle_name, users.middle_name),
+                phone=COALESCE(excluded.phone, users.phone),
+                email=COALESCE(excluded.email, users.email),
+                language=excluded.language,
+                country=COALESCE(excluded.country, users.country),
+                city=COALESCE(excluded.city, users.city),
+                timezone=COALESCE(excluded.timezone, users.timezone),
+                ref_code=COALESCE(users.ref_code, excluded.ref_code),
+                last_user_agent=COALESCE(excluded.last_user_agent, users.last_user_agent),
+                last_screen=COALESCE(excluded.last_screen, users.last_screen),
+                last_seen_at=excluded.last_seen_at,
+                last_login_at=excluded.last_login_at
+            """,
+            (
+                user_id,
+                auth.userId if auth.platform == "telegram" else None,
+                auth.userId if auth.platform == "max" else None,
+                auth.username,
+                auth.firstName,
+                auth.lastName,
+                auth.middleName,
+                auth.phone,
+                auth.email,
+                auth.language,
+                now,
+                now,
+                auth.country,
+                auth.city,
+                auth.timezone,
+                auth.ref,
+                auth.userAgent,
+                auth.screen,
+                now,
+            ),
+        )
+        row = conn.execute(
+            "SELECT username, first_name, last_name, middle_name, phone, email, language, role, plan, token_balance, gallery_enabled, country, city, timezone, total_time_seconds, generation_count, tokens_used, promo_used_count, referrals_count, banned FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+    return {
+        "id": user_id,
+        "platform": auth.platform,
+        "username": row["username"] if row else auth.username,
+        "firstName": row["first_name"] if row else auth.firstName,
+        "lastName": row["last_name"] if row else auth.lastName,
+        "middleName": row["middle_name"] if row else auth.middleName,
+        "phone": row["phone"] if row else auth.phone,
+        "email": row["email"] if row else auth.email,
+        "language": (row["language"] if row else auth.language) or auth.language,
+        "role": (row["role"] if row else None) or "user",
+        "plan": (row["plan"] if row else None) or "mini",
+        "tokenBalance": int(row["token_balance"] if row else 50),
+        "galleryEnabled": bool(row["gallery_enabled"] if row else True),
+        "country": row["country"] if row else auth.country,
+        "city": row["city"] if row else auth.city,
+        "timezone": row["timezone"] if row else auth.timezone,
+        "totalTimeSeconds": int(row["total_time_seconds"] if row else 0),
+        "generationCount": int(row["generation_count"] if row else 0),
+        "tokensUsed": int(row["tokens_used"] if row else 0),
+        "promoUsedCount": int(row["promo_used_count"] if row else 0),
+        "referralsCount": int(row["referrals_count"] if row else 0),
+        "banned": bool(row["banned"] if row else False),
+    }
+
+
+def estimate_token_cost(req: GenerateRequest) -> int:
+    if req.provider == "openrouter":
+        return max(2, 2 * (1 if req.steps <= 4 else 2 if req.steps <= 5 else 4))
+    if "9b" in (req.modelProfile or "").lower():
+        if req.steps <= 4:
+            return 1
+        if req.steps == 5:
+            return 2
+        if req.steps == 6:
+            return 4
+        return 6
+    if req.steps <= 4:
+        return 1
+    if req.steps == 5:
+        return 2
+    return 3
+
+
+def mini_app_url(platform: str = "web") -> str:
+    base = os.getenv("APP_PUBLIC_URL", "http://127.0.0.1:5173")
+    return f"{base}?platform={platform}"
+
+
+def bot_command_response(platform: Literal["telegram", "max"], command: str) -> dict[str, Any]:
+    app_url = mini_app_url(platform)
+    normalized = command.split()[0].lower() if command else "/start"
+    if normalized in {"/start", "/app"}:
+        text = "Открыть генератор OneNode Image Studio"
+        buttons = [{"text": "Открыть генератор", "url": app_url}]
+    elif normalized == "/help":
+        text = "Выберите режим, загрузите изображение или напишите prompt, затем нажмите «Сгенерировать»."
+        buttons = [{"text": "Открыть генератор", "url": app_url}]
+    elif normalized == "/gallery":
+        latest = list(images.values())[:5]
+        text = "Последние изображения: " + (", ".join(item["id"] for item in latest) if latest else "пока пусто")
+        buttons = [{"text": "Открыть галерею", "url": f"{app_url}#gallery"}]
+    elif normalized == "/settings":
+        text = "Настройки приложения"
+        buttons = [{"text": "Открыть настройки", "url": f"{app_url}#settings"}]
+    else:
+        text = "Команда не распознана. Используйте /app, /help, /gallery или /settings."
+        buttons = [{"text": "Открыть генератор", "url": app_url}]
+    return {"ok": True, "platform": platform, "command": normalized, "text": text, "buttons": buttons}
+
+
+def bot_status_payload() -> dict[str, Any]:
+    backend_public = os.getenv("BACKEND_PUBLIC_URL", "http://127.0.0.1:8000")
+    app_public = os.getenv("APP_PUBLIC_URL", "http://127.0.0.1:5173")
+    return {
+        "mode": BOT_MODE,
+        "domainRequired": BOT_MODE == "webhook",
+        "tokens": {
+            "telegram": bool(TELEGRAM_BOT_TOKEN),
+            "max": bool(MAX_BOT_TOKEN),
+        },
+        "publicUrls": {
+            "backend": backend_public,
+            "app": app_public,
+            "telegramWebhook": f"{backend_public}/api/telegram/webhook",
+            "maxWebhook": f"{backend_public}/api/max/webhook",
+        },
+        "telegram": {
+            "local": True,
+            "pollingReady": bool(TELEGRAM_BOT_TOKEN),
+            "webhookReady": bool(TELEGRAM_BOT_TOKEN and backend_public.startswith("https://")),
+            "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
+        },
+        "max": {
+            "local": True,
+            "pollingReady": bool(MAX_BOT_TOKEN and MAX_API_BASE_URL),
+            "webhookReady": bool(MAX_BOT_TOKEN and MAX_API_BASE_URL and backend_public.startswith("https://")),
+            "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
+        },
+    }
+
+
+async def telegram_api(method: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    if not TELEGRAM_BOT_TOKEN:
+        raise HTTPException(400, "TELEGRAM_BOT_TOKEN is required for real Telegram API calls.")
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}", json=payload or {})
+        response.raise_for_status()
+        data = response.json()
+    if not data.get("ok"):
+        raise HTTPException(502, f"Telegram API error: {data}")
+    return data
+
+
+async def max_api(method: str, path: str, payload: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    if not MAX_BOT_TOKEN:
+        raise HTTPException(400, "MAX_BOT_TOKEN is required for real MAX API calls.")
+    headers = {"Authorization": MAX_BOT_TOKEN, "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.request(method, f"{MAX_API_BASE_URL.rstrip('/')}{path}", headers=headers, json=payload, params=params)
+        response.raise_for_status()
+        return response.json()
+
+
+def telegram_answer_payload(chat_id: Any, answer: dict[str, Any]) -> dict[str, Any]:
+    buttons = []
+    for button in answer.get("buttons", []):
+        url = button.get("url", "")
+        if url.startswith("https://"):
+            buttons.append({"text": button["text"], "web_app": {"url": url}})
+        else:
+            buttons.append({"text": button["text"], "url": url})
+    payload: dict[str, Any] = {"chat_id": chat_id, "text": answer["text"]}
+    if buttons:
+        payload["reply_markup"] = {"inline_keyboard": [buttons]}
+    return payload
+
+
+def max_message_payload(answer: dict[str, Any]) -> dict[str, Any]:
+    buttons = answer.get("buttons", [])
+    text = answer["text"]
+    if buttons:
+        text = f"{text}\n{buttons[0]['text']}: {buttons[0]['url']}"
+    return {"text": text}
+
+
+async def handle_telegram_updates(updates: list[dict[str, Any]], send_replies: bool) -> list[dict[str, Any]]:
+    global telegram_update_offset
+    handled = []
+    for update in updates:
+        update_id = update.get("update_id")
+        if isinstance(update_id, int):
+            telegram_update_offset = max(telegram_update_offset, update_id + 1)
+        message = update.get("message") or {}
+        text = message.get("text") or ""
+        chat = message.get("chat") or {}
+        chat_id = chat.get("id")
+        if text.startswith("/"):
+            answer = bot_command_response("telegram", text)
+            if send_replies and chat_id is not None:
+                await telegram_api("sendMessage", telegram_answer_payload(chat_id, answer))
+            handled.append({"updateId": update_id, "chatId": chat_id, "answer": answer})
+    return handled
+
+
+def extract_max_command(update: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    message = update.get("message") or update.get("message_created", {}).get("message") or {}
+    body = message.get("body") or {}
+    text = message.get("text") or body.get("text") or ""
+    return text, message
+
+
+def max_recipient_params(message: dict[str, Any]) -> dict[str, Any]:
+    chat_id = message.get("chat_id") or (message.get("recipient") or {}).get("chat_id")
+    user_id = message.get("user_id") or message.get("sender", {}).get("user_id") or message.get("sender", {}).get("id")
+    params: dict[str, Any] = {}
+    if chat_id:
+        params["chat_id"] = chat_id
+    elif user_id:
+        params["user_id"] = user_id
+    return params
+
+
+async def handle_max_updates(updates: list[dict[str, Any]], send_replies: bool) -> list[dict[str, Any]]:
+    handled = []
+    for update in updates:
+        text, message = extract_max_command(update)
+        if isinstance(text, str) and text.startswith("/"):
+            answer = bot_command_response("max", text)
+            params = max_recipient_params(message)
+            if send_replies and params:
+                await max_api("POST", "/messages", max_message_payload(answer), params=params)
+            handled.append({"update": update, "recipient": params, "answer": answer})
+    return handled
+
+
+async def bot_polling_worker() -> None:
+    global max_update_marker
+    while BOT_MODE == "polling":
+        try:
+            if TELEGRAM_BOT_TOKEN:
+                data = await telegram_api("getUpdates", {"timeout": 20, "limit": 20, "offset": telegram_update_offset})
+                await handle_telegram_updates(data.get("result", []), send_replies=True)
+            if MAX_BOT_TOKEN and MAX_API_BASE_URL:
+                params: dict[str, Any] = {"limit": 20, "timeout": 20}
+                if max_update_marker:
+                    params["marker"] = max_update_marker
+                data = await max_api("GET", "/updates", params=params)
+                max_update_marker = data.get("marker") or max_update_marker
+                await handle_max_updates(data.get("updates", []), send_replies=True)
+        except Exception as exc:
+            print("bot polling error", repr(exc))
+            await asyncio.sleep(5)
+
+
+def public_url(path: Path, user_id: str = "demo_user") -> str:
+    return f"/api/media/{path.name}?userId={user_id}"
+
+
+def create_thumbnail(image_path: Path) -> Path:
+    thumb_path = image_path.with_name(f"{image_path.stem}_thumb.webp")
+    with Image.open(image_path) as image:
+        image.thumbnail((512, 512))
+        if image.mode not in {"RGB", "RGBA"}:
+            image = image.convert("RGB")
+        image.save(thumb_path, "WEBP", quality=88)
+    return thumb_path
+
+
+async def comfyui_available() -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=4) as client:
+            response = await client.get(f"{COMFYUI_BASE_URL}/object_info")
+            response.raise_for_status()
+            data = response.json()
+            return "FluxKleinOneNode" in data
+    except Exception:
+            return False
+
+
+async def get_comfyui_models() -> dict[str, list[str]]:
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{COMFYUI_BASE_URL}/flux_klein/models")
+        response.raise_for_status()
+        data = response.json()
+    return {
+        "diffusion_models": data.get("diffusion_models", []),
+        "text_encoders": data.get("text_encoders", []),
+        "vaes": data.get("vaes", []),
+        "loras": data.get("loras", []),
+    }
+
+
+async def get_flux_klein_config() -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{COMFYUI_BASE_URL}/flux_klein/config")
+        response.raise_for_status()
+        data = response.json()
+    return {
+        "autofill_prompts": data.get("autofill_prompts", {}),
+        "lora_triggers_custom": data.get("lora_triggers_custom", {}),
+        "t2i_templates": data.get("t2i_templates", []),
+        "discover_prompts": data.get("discover_prompts", {}),
+    }
+
+
+async def get_flux_bgremoval_models() -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{COMFYUI_BASE_URL}/flux_klein/bgremoval_models")
+        response.raise_for_status()
+        return response.json()
+
+
+async def get_flux_lora_triggers(name: str) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(f"{COMFYUI_BASE_URL}/flux_klein/lora_triggers", params={"name": name})
+        response.raise_for_status()
+        return response.json()
+
+
+def choose_model(models: dict[str, list[str]], requested: str) -> tuple[str, str, str]:
+    diffusion = models.get("diffusion_models", [])
+    text_encoders = models.get("text_encoders", [])
+    vaes = models.get("vaes", [])
+
+    model = requested if requested in diffusion else ""
+    if not model:
+        model = next((item for item in diffusion if "klein-9b" in item and "fp8" in item), "")
+    if not model:
+        model = next((item for item in diffusion if "klein" in item), "")
+    if not model and diffusion:
+        model = diffusion[0]
+
+    is_4b = "4b" in model.lower()
+    preferred_te = "qwen_3_4b" if is_4b else "qwen_3_8b"
+    text_encoder = next((item for item in text_encoders if preferred_te in item), "")
+    if not text_encoder:
+        text_encoder = next((item for item in text_encoders if "qwen_3" in item), "")
+    if not text_encoder and text_encoders:
+        text_encoder = text_encoders[0]
+
+    vae = "flux2-vae.safetensors" if "flux2-vae.safetensors" in vaes else (vaes[0] if vaes else "")
+    if not model or not text_encoder or not vae:
+        raise RuntimeError("Модель, text encoder или VAE не найдены в ComfyUI. Откройте настройки модели.")
+    return model, text_encoder, vae
+
+
+async def upload_to_comfyui(path: Path) -> str:
+    async with httpx.AsyncClient(timeout=60) as client:
+        with path.open("rb") as file:
+            files = {"image": (path.name, file, "image/png")}
+            data = {"overwrite": "true", "type": "input"}
+            response = await client.post(f"{COMFYUI_BASE_URL}/upload/image", files=files, data=data)
+        response.raise_for_status()
+        payload = response.json()
+    return payload.get("name") or path.name
+
+
+async def fetch_workflow(mode: str) -> dict[str, Any]:
+    workflow_by_mode = {
+        "text_to_image": "workflow_t2i",
+        "image_to_image": "workflow_i2i",
+        "edit": "workflow_edit",
+        "paint": "workflow_edit",
+        "inpaint": "workflow_inpaint",
+        "outpaint": "workflow_outpaint",
+        "faceswap": "workflow_faceswap",
+        "remove_background": "workflow_remove_bg",
+        "try_on": "workflow_edit",
+        "texture_transfer": "workflow_edit",
+    }
+    endpoint = workflow_by_mode.get(mode, "workflow_t2i")
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.get(f"{COMFYUI_BASE_URL}/flux_klein/{endpoint}")
+        response.raise_for_status()
+        return response.json()
+
+
+def set_input(prompt: dict[str, Any], node_id: str, key: str, value: Any) -> None:
+    if node_id in prompt:
+        prompt[node_id].setdefault("inputs", {})[key] = value
+
+
+def patch_shared_flux_nodes(prompt: dict[str, Any], req: GenerateRequest, model: str, text_encoder: str, vae: str) -> None:
+    set_input(prompt, "FK:165", "unet_name", model)
+    set_input(prompt, "FK:155", "clip_name", text_encoder)
+    set_input(prompt, "FK:153", "vae_name", vae)
+    set_input(prompt, "FK:166", "text", req.prompt)
+    # Edit-режим намеренно не использует negative prompt: ограничения уходят в основной
+    # prompt. Для остальных режимов сохраняем прежний дефолтный negative как fallback.
+    set_input(prompt, "FK:156", "text", "" if req.mode == "edit" else (req.negativePrompt or DEFAULT_NEG_PROMPT))
+    set_input(prompt, "FK:170", "width", req.width)
+    set_input(prompt, "FK:170", "height", req.height)
+    set_input(prompt, "FK:171", "seed", req.seed)
+    set_input(prompt, "FK:171", "steps", req.steps)
+    set_input(prompt, "FK:171", "cfg", req.cfg)
+    set_input(prompt, "FK:171", "denoise", 1 if req.mode == "text_to_image" else req.strength)
+    set_input(prompt, "FK:171", "sampler_name", "er_sde")
+    set_input(prompt, "FK:171", "scheduler", "simple")
+    set_input(prompt, "FK:86", "filename_prefix", "one-node-flux-2-klein/FK")
+
+
+# FLUX.2 Klein multi-reference edit: каждое изображение подаётся как ReferenceLatent в
+# цепочку conditioning. Сэмплер денойзит пустой латент (размер = изображение 1), поэтому
+# denoise обязан быть 1.0 — иначе пустой латент денойзится частично и даёт «мусорное полотно».
+# Слоты 1-2 уже есть в workflow_edit (FK:*), слоты 3-4 создаются здесь по тому же шаблону.
+EDIT_SLOT_NODES = [
+    {"load": "FK:91", "scale": "FK:163", "vae": "FK:132", "pos": "FK:133", "neg": "FK:131"},
+    {"load": "FK:88", "scale": "FK:163b", "vae": "FK:232", "pos": "FK:233", "neg": "FK:231"},
+    {"load": "FKE:301", "scale": "FKE:303", "vae": "FKE:305", "pos": "FKE:307", "neg": "FKE:309"},
+    {"load": "FKE:401", "scale": "FKE:403", "vae": "FKE:405", "pos": "FKE:407", "neg": "FKE:409"},
+]
+
+
+def _ensure_edit_slot_nodes(prompt: dict[str, Any], slot: int) -> None:
+    s = EDIT_SLOT_NODES[slot]
+    n = slot + 1
+    prompt.setdefault(s["load"], {"class_type": "LoadImage", "inputs": {"image": "placeholder.png"}, "_meta": {"title": f"Load Image {n}"}})
+    prompt.setdefault(s["scale"], {"class_type": "ImageScaleToTotalPixels", "inputs": {"image": [s["load"], 0], "upscale_method": "nearest-exact", "megapixels": 1, "resolution_steps": 1}, "_meta": {"title": f"Scale Image {n} to 1MP"}})
+    prompt.setdefault(s["vae"], {"class_type": "VAEEncode", "inputs": {"pixels": [s["scale"], 0], "vae": ["FK:153", 0]}, "_meta": {"title": f"VAE Encode Image {n}"}})
+    prompt.setdefault(s["pos"], {"class_type": "ReferenceLatent", "inputs": {"conditioning": ["FK:166", 0], "latent": [s["vae"], 0]}, "_meta": {"title": f"Reference Latent Positive Img{n}"}})
+    prompt.setdefault(s["neg"], {"class_type": "ReferenceLatent", "inputs": {"conditioning": ["FK:156", 0], "latent": [s["vae"], 0]}, "_meta": {"title": f"Reference Latent Negative Img{n}"}})
+
+
+EDIT_REFERENCE_ROLES = {"face", "clothing", "style", "object", "pose", "background", "color_material", "other"}
+
+
+def validate_edit_request(req: GenerateRequest) -> None:
+    """Серверная валидация edit-запроса (frontend тоже блокирует, но backend не доверяет клиенту)."""
+    images = req.inputImages
+    if not images:
+        # Legacy-путь (inputImage1/2) — основа обязательна.
+        if not req.inputImage1:
+            raise HTTPException(422, "Edit: нужна основа (изображение 1).")
+        return
+    by_index = {}
+    for item in images:
+        if not item.image:
+            continue
+        if not (1 <= (item.index or 0) <= 4):
+            raise HTTPException(422, f"Edit: index должен быть 1–4 (получен {item.index}).")
+        if item.index in by_index:
+            raise HTTPException(422, f"Edit: повторяющийся index {item.index}.")
+        by_index[item.index] = item
+    if 1 not in by_index:
+        raise HTTPException(422, "Edit: нужна основа (index 1, role=base).")
+    for idx, item in by_index.items():
+        if idx == 1:
+            continue
+        role = (item.role or "").strip()
+        if not role:
+            raise HTTPException(422, f"Edit: для референса (index {idx}) не выбрана роль.")
+        if role not in EDIT_REFERENCE_ROLES:
+            raise HTTPException(422, f"Edit: неизвестная роль '{role}' (index {idx}).")
+
+
+def patch_edit_reference_chain(prompt: dict[str, Any], image_files: list[str]) -> None:
+    present = [f for f in image_files if f][:4]
+    if not present:
+        raise RuntimeError("Для редактирования нужно хотя бы одно изображение (основа).")
+    prev_pos, prev_neg = "FK:166", "FK:156"
+    for i, fname in enumerate(present):
+        _ensure_edit_slot_nodes(prompt, i)
+        s = EDIT_SLOT_NODES[i]
+        set_input(prompt, s["load"], "image", fname)
+        # Перепривязываем conditioning этого слота к концу уже построенной цепочки.
+        set_input(prompt, s["pos"], "conditioning", [prev_pos, 0])
+        set_input(prompt, s["neg"], "conditioning", [prev_neg, 0])
+        prev_pos, prev_neg = s["pos"], s["neg"]
+    # Удаляем неиспользуемые слоты (по умолчанию workflow приходит с 2 изображениями).
+    for i in range(len(present), 4):
+        for nid in EDIT_SLOT_NODES[i].values():
+            prompt.pop(nid, None)
+    # Сэмплер читает конец цепочки референсов; пустой латент → denoise=1.
+    set_input(prompt, "FK:171", "positive", [prev_pos, 0])
+    set_input(prompt, "FK:171", "negative", [prev_neg, 0])
+    set_input(prompt, "FK:171", "denoise", 1)
+
+
+def patch_mode_nodes(prompt: dict[str, Any], req: GenerateRequest, uploads: dict[str, str], model: str, text_encoder: str, vae: str) -> None:
+    patch_shared_flux_nodes(prompt, req, model, text_encoder, vae)
+
+    if req.mode == "image_to_image":
+        set_input(prompt, "FKI2I:img", "image", uploads["input1"])
+        set_input(prompt, "FK:171", "denoise", req.strength)
+    elif req.mode == "remove_background":
+        set_input(prompt, "rmbg:load", "bg_removal_name", "birefnet.safetensors")
+        set_input(prompt, "rmbg:img", "image", uploads["input1"])
+        set_input(prompt, "rmbg:save", "filename_prefix", "one-node-flux-2-klein/assets/rmbg")
+    elif req.mode in {"edit", "paint", "try_on", "texture_transfer"}:
+        # 1..4 изображения в порядке слотов; цепочка ReferenceLatent + denoise=1.
+        image_files = [uploads.get(f"input{i}") for i in range(1, 5)]
+        patch_edit_reference_chain(prompt, image_files)
+    elif req.mode == "inpaint":
+        set_input(prompt, "FKI:194", "unet_name", model)
+        set_input(prompt, "FKI:195", "clip_name", text_encoder)
+        set_input(prompt, "FKI:196", "vae_name", vae)
+        set_input(prompt, "FKI:6", "text", req.prompt)
+        set_input(prompt, "FKI:198", "image", uploads["input1"])
+        set_input(prompt, "FKI:199", "image", uploads.get("mask", uploads["input1"]))
+        set_input(prompt, "FKI:209", "preresize_min_width", req.width)
+        set_input(prompt, "FKI:209", "preresize_min_height", req.height)
+        set_input(prompt, "FKI:209", "output_target_width", req.width)
+        set_input(prompt, "FKI:209", "output_target_height", req.height)
+        set_input(prompt, "FKI:163", "seed", req.seed)
+        set_input(prompt, "FKI:163", "steps", req.steps)
+        set_input(prompt, "FKI:163", "cfg", req.cfg)
+        set_input(prompt, "FKI:163", "denoise", req.strength)
+        set_input(prompt, "FKI:203", "filename_prefix", "one-node-flux-2-klein/FK")
+    elif req.mode == "outpaint":
+        set_input(prompt, "FKO:194", "unet_name", model)
+        set_input(prompt, "FKO:195", "clip_name", text_encoder)
+        set_input(prompt, "FKO:196", "vae_name", vae)
+        set_input(prompt, "FKO:6", "text", req.prompt)
+        set_input(prompt, "FKO:198", "image", uploads["input1"])
+        set_input(prompt, "FKO:maskload", "image", uploads.get("mask", uploads["input1"]))
+        set_input(prompt, "FKO:163", "seed", req.seed)
+        set_input(prompt, "FKO:163", "steps", req.steps)
+        set_input(prompt, "FKO:163", "cfg", req.cfg)
+        set_input(prompt, "FKO:163", "denoise", req.strength)
+        set_input(prompt, "FKO:203", "filename_prefix", "one-node-flux-2-klein/FK")
+    elif req.mode == "faceswap":
+        face_lora = req.loras[0] if req.loras else None
+        set_input(prompt, "FKF:225", "unet_name", model)
+        set_input(prompt, "FKF:223", "clip_name", text_encoder)
+        set_input(prompt, "FKF:235", "vae_name", vae)
+        if face_lora:
+            set_input(prompt, "FKF:226", "lora_name", face_lora.id)
+            set_input(prompt, "FKF:226", "strength_model", face_lora.strength)
+        set_input(prompt, "FKF:234", "image", uploads["input1"])
+        set_input(prompt, "FKF:236", "image", uploads["input2"])
+        if req.prompt.strip():
+            set_input(prompt, "FKF:227", "text", req.prompt)
+        set_input(prompt, "FKF:229", "text", "")
+        set_input(prompt, "FKF:228", "seed", req.seed)
+        set_input(prompt, "FKF:228", "steps", req.steps)
+        set_input(prompt, "FKF:228", "cfg", req.cfg)
+        set_input(prompt, "FKF:228", "denoise", 1)
+        set_input(prompt, "FKF:228", "sampler_name", "er_sde")
+        set_input(prompt, "FKF:228", "scheduler", "simple")
+        set_input(prompt, "FKF:239", "model", ["FKF:226", 0])
+        set_input(prompt, "FKF:232", "filename_prefix", "one-node-flux-2-klein/FK")
+
+
+async def submit_workflow(workflow: dict[str, Any], job: dict[str, Any]) -> tuple[str, dict[str, Any], list[dict[str, str]]]:
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{COMFYUI_BASE_URL}/prompt",
+            json={"prompt": workflow, "client_id": f"onenode-backend-{job['id']}", "extra_data": {"enable_previews": True}},
+        )
+        response.raise_for_status()
+        data = response.json()
+    if data.get("error"):
+        raise RuntimeError(f"ComfyUI workflow error: {data['error']}")
+    node_errors = data.get("node_errors") or {}
+    if node_errors:
+        raise RuntimeError(f"ComfyUI node errors: {json.dumps(node_errors, ensure_ascii=False)}")
+    prompt_id = data.get("prompt_id")
+    if not prompt_id:
+        raise RuntimeError("ComfyUI не вернул prompt_id.")
+    history = await wait_for_history(prompt_id, job)
+    return prompt_id, history, extract_images_from_history(history)
+
+
+def extract_images_from_history(history: dict[str, Any]) -> list[dict[str, str]]:
+    found: list[dict[str, str]] = []
+    outputs = history.get("outputs", {})
+    for output in outputs.values():
+        for image in output.get("images", []):
+            if image.get("filename"):
+                found.append(
+                    {
+                        "filename": image["filename"],
+                        "subfolder": image.get("subfolder", ""),
+                        "type": image.get("type", "output"),
+                    }
+                )
+    return found
+
+
+async def wait_for_history(prompt_id: str, job: dict[str, Any]) -> dict[str, Any]:
+    deadline = time.monotonic() + COMFYUI_TIMEOUT_SECONDS
+    async with httpx.AsyncClient(timeout=20) as client:
+        while time.monotonic() < deadline:
+            if job.get("status") == "cancelled":
+                raise RuntimeError("Задача отменена")
+            response = await client.get(f"{COMFYUI_BASE_URL}/history/{prompt_id}")
+            response.raise_for_status()
+            payload = response.json()
+            if prompt_id in payload:
+                return payload[prompt_id]
+            job["progress"] = min(94, int(job.get("progress", 24)) + 2)
+            await asyncio.sleep(2)
+    raise TimeoutError("ComfyUI не вернул результат до истечения таймаута.")
+
+
+async def download_comfyui_image(image: dict[str, str], job_id: str) -> tuple[Path, Path]:
+    params = {"filename": image["filename"], "subfolder": image.get("subfolder", ""), "type": image.get("type", "output")}
+    async with httpx.AsyncClient(timeout=120) as client:
+        response = await client.get(f"{COMFYUI_BASE_URL}/view", params=params)
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", "")
+        extension = "png" if "png" in content_type else "jpg"
+        image_path = MEDIA / f"{job_id}_comfyui.{extension}"
+        image_path.write_bytes(response.content)
+    return image_path, create_thumbnail(image_path)
+
+
+async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> ComfyUIResult | None:
+    if not await comfyui_available():
+        if COMFYUI_REQUIRED:
+            raise RuntimeError("FluxKleinOneNode не найден или ComfyUI недоступен. Проверьте установку custom node.")
+        if not COMFYUI_MOCK_FALLBACK:
+            raise RuntimeError("ComfyUI недоступен. Проверьте, что сервер запущен.")
+        return None
+
+    models = await get_comfyui_models()
+    model, text_encoder, vae = choose_model(models, payload.modelProfile)
+    available_loras = models.get("loras", [])
+    is_4b = "4b" in model.lower()
+    target_lora_tag = "4b" if is_4b else "9b"
+    for lora in payload.loras:
+        if lora.id == "none" or not lora.id:
+            continue
+        if target_lora_tag not in lora.id.lower():
+            fallback = next(
+                (item for item in available_loras
+                 if target_lora_tag in item.lower() and any(kw in item.lower() for kw in ("bfs", "face", "head"))),
+                "",
+            )
+            if not fallback:
+                fallback = next((item for item in available_loras if target_lora_tag in item.lower()), "")
+            if fallback:
+                lora.id = fallback
+    workflow = await fetch_workflow(payload.mode)
+
+    uploads: dict[str, str] = {}
+    input1_path = local_media_path_from_url(payload.inputImage1 or "") or save_data_url(payload.inputImage1, f"{job['id']}_input1")
+    input2_path = local_media_path_from_url(payload.inputImage2 or "") or save_data_url(payload.inputImage2, f"{job['id']}_input2")
+    mask_source = payload.maskImage or payload.outpaintMask
+    mask_path = local_media_path_from_url(mask_source or "") or save_data_url(mask_source, f"{job['id']}_mask")
+    canvas_path = save_canvas_json(payload.canvas, f"{job['id']}_canvas")
+    primary_input = input1_path or canvas_path
+    if payload.mode == "edit":
+        # До 4 изображений. Источник — payload.inputImages (новый формат) или legacy inputImage1/2.
+        edit_sources: list[tuple[str, str]] = []
+        if payload.inputImages:
+            for item in sorted(payload.inputImages, key=lambda x: x.index or 0):
+                if item.image:
+                    edit_sources.append((item.role or "", item.image))
+        else:
+            if payload.inputImage1:
+                edit_sources.append(("base", payload.inputImage1))
+            if payload.inputImage2:
+                edit_sources.append(("", payload.inputImage2))
+        edit_roles: list[str] = []
+        for i, (role, src) in enumerate(edit_sources[:4]):
+            slot_path = local_media_path_from_url(src) or save_data_url(src, f"{job['id']}_edit{i + 1}")
+            if not slot_path:
+                continue
+            uploads[f"input{i + 1}"] = await upload_to_comfyui(slot_path)
+            edit_roles.append(role or ("base" if i == 0 else "?"))
+        if "input1" not in uploads:
+            raise RuntimeError("Для редактирования нужна основа (изображение 1).")
+        print(f"edit-generate job={job['id']} images={sum(1 for k in uploads if k.startswith('input'))} roles={edit_roles}")
+    elif payload.mode in {"image_to_image", "paint", "inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
+        if not primary_input:
+            raise RuntimeError("Для выбранного режима нужно входное изображение.")
+        uploads["input1"] = await upload_to_comfyui(primary_input)
+    if payload.mode in {"faceswap", "try_on", "texture_transfer"}:
+        if not input2_path:
+            raise RuntimeError("Для выбранного режима нужно два изображения.")
+        uploads["input2"] = await upload_to_comfyui(input2_path)
+    if payload.mode in {"inpaint", "outpaint"} and mask_path:
+        uploads["mask"] = await upload_to_comfyui(mask_path)
+
+    patch_mode_nodes(workflow, payload, uploads, model, text_encoder, vae)
+    try:
+        prompt_id, history, output_images = await submit_workflow(workflow, job)
+    except Exception as exc:
+        if payload.mode not in {"inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
+            raise
+        prompt_id = "fallback_after_workflow_error"
+        history = {"error": str(exc)}
+        output_images = []
+    if not output_images and payload.mode in {"inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
+        try:
+            fallback = await fetch_workflow("edit")
+            fallback_req = payload.model_copy(update={"mode": "edit"})
+            patch_mode_nodes(fallback, fallback_req, uploads, model, text_encoder, vae)
+            prompt_id, history, output_images = await submit_workflow(fallback, job)
+        except Exception as exc:
+            history = {"fallback": "edit_workflow_error", "error": str(exc)}
+            output_images = []
+    if not output_images and payload.mode in {"inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
+        try:
+            fallback = await fetch_workflow("text_to_image")
+            fallback_req = payload.model_copy(
+                update={
+                    "mode": "text_to_image",
+                    "prompt": f"{payload.mode.replace('_', ' ')} result: {payload.prompt}",
+                }
+            )
+            patch_mode_nodes(fallback, fallback_req, {}, model, text_encoder, vae)
+            prompt_id, history, output_images = await submit_workflow(fallback, job)
+        except Exception as exc:
+            history = {"fallback": "text_to_image_workflow_error", "error": str(exc)}
+            output_images = []
+    if not output_images and payload.mode in {"inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
+        image_path, thumb_path = mock_image(payload, job["id"])
+        return ComfyUIResult(prompt_id=prompt_id, image_path=image_path, thumbnail_path=thumb_path, history={"fallback": "no_comfyui_output_image", **history})
+    if not output_images:
+        raise RuntimeError("ComfyUI завершил задачу, но не вернул изображения в history.")
+    image_path, thumb_path = await download_comfyui_image(output_images[-1], job["id"])
+    return ComfyUIResult(prompt_id=prompt_id, image_path=image_path, thumbnail_path=thumb_path, history=history)
+
+
+def save_data_url(data_url: str | None, prefix: str) -> Path | None:
+    if not data_url or not data_url.startswith("data:image"):
+        return None
+    header, encoded = data_url.split(",", 1)
+    extension = "png"
+    if "jpeg" in header or "jpg" in header:
+        extension = "jpg"
+    path = MEDIA / f"{prefix}_{uuid.uuid4().hex}.{extension}"
+    path.write_bytes(base64.b64decode(encoded))
+    return path
+
+
+def save_canvas_json(canvas: str | None, prefix: str) -> Path | None:
+    if not canvas:
+        return None
+    if canvas.startswith("data:image"):
+        return save_data_url(canvas, prefix)
+    path = MEDIA / f"{prefix}.png"
+    image = Image.new("RGB", (1024, 1024), "#f8fafc")
+    draw = ImageDraw.Draw(image)
+    draw.text((48, 48), "Paint canvas input", fill="#172033")
+    image.save(path, "PNG")
+    return path
+
+
+def mock_image(req: GenerateRequest, job_id: str) -> tuple[Path, Path]:
+    width = min(max(req.width, 512), 2048)
+    height = min(max(req.height, 512), 2048)
+    image = Image.new("RGB", (width, height), "#f8fafc")
+    draw = ImageDraw.Draw(image)
+    palette = ["#117865", "#2f6fed", "#d97706", "#be123c", "#172033"]
+    for i, color in enumerate(palette):
+        draw.rectangle([i * width / 5, 0, (i + 1) * width / 5, height], fill=color)
+    draw.rounded_rectangle([40, 40, width - 40, height - 40], radius=24, fill=(255, 255, 255, 232), outline="#d9e1ea", width=4)
+    text = f"{req.mode.replace('_', ' ').title()}\n{req.prompt[:180]}\nseed {req.seed}"
+    try:
+        font = ImageFont.truetype("arial.ttf", max(26, width // 34))
+    except Exception:
+        font = ImageFont.load_default()
+    draw.multiline_text((72, 72), text, fill="#172033", font=font, spacing=14)
+    out = MEDIA / f"{job_id}.png"
+    thumb = MEDIA / f"{job_id}_thumb.webp"
+    image.save(out, "PNG")
+    image.thumbnail((512, 512))
+    image.save(thumb, "WEBP", quality=88)
+    return out, thumb
+
+
+async def worker() -> None:
+    while True:
+        job_id = await queue.get()
+        job = jobs[job_id]
+        req = GenerateRequest(**job["request"])
+        started = time.perf_counter()
+        try:
+            if job.get("status") == "cancelled":
+                persist_job(job, req)
+                continue
+            job.update(status="uploading", progress=12, message="Загружаем изображения")
+            persist_job(job, req)
+            save_data_url(req.inputImage1, f"{job_id}_input1")
+            save_data_url(req.inputImage2, f"{job_id}_input2")
+            await asyncio.sleep(0.5)
+            job.update(status="sent_to_comfyui", progress=24, message="Отправляем в ComfyUI")
+            persist_job(job, req)
+            prompt_id = None
+            image_path = None
+            thumb_path = None
+            comfyui_history = None
+            if req.provider == "comfyui":
+                result = await send_to_comfyui(req, job)
+                if result:
+                    prompt_id = result.prompt_id
+                    image_path = result.image_path
+                    thumb_path = result.thumbnail_path
+                    comfyui_history = result.history
+            if not image_path:
+                if req.provider == "comfyui" and not COMFYUI_MOCK_FALLBACK:
+                    raise RuntimeError("ComfyUI не вернул изображение, mock fallback отключён.")
+                await asyncio.sleep(0.8)
+                for progress in (38, 52, 67, 81, 94):
+                    if job["status"] == "cancelled":
+                        break
+                    job.update(status="running", progress=progress, message="Генерация изображения")
+                    persist_job(job, req)
+                    await asyncio.sleep(0.45)
+            if job["status"] == "cancelled":
+                persist_job(job, req)
+                continue
+            if not image_path or not thumb_path:
+                image_path, thumb_path = mock_image(req, job_id)
+            image_id = f"img_{uuid.uuid4().hex[:12]}"
+            created_at = datetime.now(timezone.utc).isoformat()
+            record = {
+                "id": image_id,
+                "userId": job.get("userId", "demo_user"),
+                "url": public_url(image_path, job.get("userId", "demo_user")),
+                "thumbnailUrl": public_url(thumb_path, job.get("userId", "demo_user")),
+                "mode": req.mode,
+                "provider": req.provider,
+                "promptOriginal": req.prompt,
+                "promptTranslated": req.prompt if req.prompt.isascii() else "",
+                "seed": req.seed,
+                "width": req.width,
+                "height": req.height,
+                "modelProfile": req.modelProfile,
+                "loras": [item.id for item in req.loras],
+                "preset": None,
+                "generationTimeMs": int((time.perf_counter() - started) * 1000),
+                "isFavorite": False,
+                "createdAt": created_at,
+                "comfyuiPromptId": prompt_id,
+                "comfyuiHistory": comfyui_history,
+            }
+            images[image_id] = record
+            job.update(status="completed", progress=100, message="Готово", resultImageId=image_id, resultUrl=record["url"], completedAt=created_at)
+            persist_image(record, job_id)
+            persist_job(job, req)
+        except Exception as exc:
+            job.update(status="failed", progress=100, message="Генерация не выполнена.", error=str(exc), completedAt=datetime.now(timezone.utc).isoformat())
+            persist_job(job, req)
+        finally:
+            queue.task_done()
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    global worker_started, bot_polling_started
+    init_db()
+    load_db_state()
+    if not worker_started:
+        asyncio.create_task(worker())
+        worker_started = True
+    if BOT_MODE == "polling" and not bot_polling_started:
+        asyncio.create_task(bot_polling_worker())
+        bot_polling_started = True
+    elif BOT_MODE == "webhook":
+        backend_public = os.getenv("BACKEND_PUBLIC_URL", "http://127.0.0.1:8000")
+        if TELEGRAM_BOT_TOKEN and backend_public.startswith("https://"):
+            try:
+                wh_url = f"{backend_public}/api/telegram/webhook"
+                await telegram_api("setWebhook", {"url": wh_url})
+                print(f"Telegram webhook set to {wh_url}")
+            except Exception as exc:
+                print(f"Failed to set Telegram webhook: {exc}")
+        if MAX_BOT_TOKEN and backend_public.startswith("https://"):
+            try:
+                wh_url = f"{backend_public}/api/max/webhook"
+                await max_api("POST", "/webhooks", {"url": wh_url, "secret": MAX_WEBHOOK_SECRET})
+                print(f"MAX webhook set to {wh_url}")
+            except Exception as exc:
+                print(f"Failed to set MAX webhook: {exc}")
+
+
+@app.get("/api/health")
+async def health() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "comfyuiBaseUrl": COMFYUI_BASE_URL,
+        "fluxKleinOneNode": await comfyui_available(),
+        "database": DB_PATH.exists(),
+        "databasePath": str(DB_PATH),
+        "platforms": {"web": True, "telegram": True, "max": True},
+    }
+
+
+# Minimal, non-sensitive version marker so operators can tell which backend build
+# is actually live. No secrets, no env values, no DB paths.
+APP_BUILD = os.getenv("APP_BUILD", "20C.2-2026-06-27")
+
+
+@app.get("/api/version")
+async def version() -> dict[str, Any]:
+    routes = {r.path for r in app.routes}
+    return {
+        "ok": True,
+        "app": "izo-asa",
+        "build": APP_BUILD,
+        "auth_v2": True,
+        "password_login": "/api/auth/password/login-v2" in routes,
+        "generation_protected": True,  # /api/generate calls require_trusted_user
+    }
+
+
+def ensure_rate_limit(user_id: str) -> None:
+    now = datetime.now(timezone.utc)
+    with db() as conn:
+        rows = conn.execute("SELECT created_at FROM jobs WHERE user_id = ?", (user_id,)).fetchall()
+    hour_count = 0
+    day_count = 0
+    for row in rows:
+        try:
+            created = datetime.fromisoformat(row["created_at"])
+        except Exception:
+            continue
+        delta = now - created
+        if delta.total_seconds() <= 3600:
+            hour_count += 1
+        if delta.total_seconds() <= 86400:
+            day_count += 1
+    if hour_count >= rate_limits["hourly"]:
+        raise HTTPException(429, f"Rate limit exceeded: {rate_limits['hourly']} generations per hour.")
+    if day_count >= rate_limits["daily"]:
+        raise HTTPException(429, f"Rate limit exceeded: {rate_limits['daily']} generations per day.")
+
+
+@app.post("/api/generate")
+async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    internal_user_id = trusted["internal_user_id"]
+    session_id = trusted.get("session_id")
+    token_cost = estimate_token_cost(req)
+    with db() as conn:
+        user_row = conn.execute("SELECT token_balance FROM users WHERE id = ?", (user_id,)).fetchone()
+        if user_row and user_id != "demo_user" and int(user_row["token_balance"]) < token_cost:
+            raise HTTPException(402, "Not enough tokens.")
+    if req.mode == "faceswap":
+        face_lora = next((item for item in req.loras if item.id and item.id != "none"), None)
+        if face_lora is None:
+            raise HTTPException(422, "FaceSwap mode requires a FaceSwap LoRA. Select bfs_head or another face LoRA.")
+    if req.mode == "edit":
+        validate_edit_request(req)
+    ensure_rate_limit(user_id)
+    job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    job = {
+        "id": job_id,
+        "userId": user_id,
+        "mode": req.mode,
+        "provider": req.provider,
+        "status": "queued",
+        "progress": 0,
+        "message": "В очереди",
+        "request": req.model_dump(),
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    jobs[job_id] = job
+    persist_job(job, req)
+    with db() as conn:
+        conn.execute(
+            """
+            UPDATE users
+            SET token_balance = CASE WHEN id = 'demo_user' THEN token_balance ELSE MAX(0, token_balance - ?) END,
+                tokens_used = tokens_used + ?,
+                generation_count = generation_count + 1,
+                last_seen_at = ?
+            WHERE id = ?
+            """,
+            (token_cost, token_cost, datetime.now(timezone.utc).isoformat(), user_id),
+        )
+        conn.execute(
+            "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'generation', ?, ?)",
+            (str(uuid.uuid4()), user_id, -token_cost, json.dumps({"jobId": job_id, "mode": req.mode, "provider": req.provider}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+        )
+    await queue.put(job_id)
+    try:
+        record_event_log(
+            "generation_started",
+            internal_user_id=internal_user_id,
+            legacy_user_id=user_id,
+            session_id=session_id,
+            platform=trusted.get("platform", "web"),
+            properties={"mode": req.mode, "provider": req.provider, "size": f"{req.width}x{req.height}", "token_cost": token_cost},
+        )
+    except Exception:
+        pass
+    return {k: v for k, v in job.items() if k != "request"} | {"queuePosition": queue.qsize(), "tokenCost": token_cost}
+
+
+@app.get("/api/jobs/{job_id}")
+async def get_job(job_id: str, request: Request) -> dict[str, Any]:
+    if job_id not in jobs:
+        raise HTTPException(404, "Job not found")
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    if jobs[job_id].get("userId") != user_id:
+        raise HTTPException(404, "Job not found")
+    return {k: v for k, v in jobs[job_id].items() if k != "request"}
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str, request: Request) -> dict[str, Any]:
+    if job_id not in jobs:
+        raise HTTPException(404, "Job not found")
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    if jobs[job_id].get("userId") != user_id:
+        raise HTTPException(404, "Job not found")
+    jobs[job_id].update(status="cancelled", progress=100, message="Отменено")
+    persist_job(jobs[job_id])
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(f"{COMFYUI_BASE_URL}/interrupt")
+    except Exception:
+        pass
+    return {k: v for k, v in jobs[job_id].items() if k != "request"}
+
+
+@app.get("/api/models")
+async def models() -> dict[str, Any]:
+    try:
+        data = await get_comfyui_models()
+        model, text_encoder, vae = choose_model(data, "")
+        return {"ok": True, "selected": {"model": model, "textEncoder": text_encoder, "vae": vae}, **data}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "diffusion_models": [], "text_encoders": [], "vaes": [], "loras": []}
+
+
+@app.get("/api/flux-klein/config")
+async def flux_klein_config() -> dict[str, Any]:
+    try:
+        return {"ok": True, **await get_flux_klein_config()}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "autofill_prompts": {},
+            "lora_triggers_custom": {},
+            "t2i_templates": [],
+            "discover_prompts": {},
+        }
+
+
+@app.get("/api/flux-klein/bgremoval-models")
+async def flux_klein_bgremoval_models() -> dict[str, Any]:
+    try:
+        return {"ok": True, **await get_flux_bgremoval_models()}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "models": []}
+
+
+@app.get("/api/flux-klein/lora-triggers")
+async def flux_klein_lora_triggers(name: str) -> dict[str, Any]:
+    try:
+        return await get_flux_lora_triggers(name)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "triggers": [], "name": name}
+
+
+@app.get("/api/gallery")
+async def gallery(request: Request) -> list[dict[str, Any]]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    if not images and DB_PATH.exists():
+        load_db_state()
+    return sorted([item for item in images.values() if item.get("userId", "demo_user") == user_id], key=lambda item: item["createdAt"], reverse=True)
+
+
+@app.get("/api/gallery/{image_id}")
+async def gallery_detail(image_id: str, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    if image_id not in images and DB_PATH.exists():
+        load_db_state()
+    if image_id not in images or images[image_id].get("userId", "demo_user") != user_id:
+        raise HTTPException(404, "Image not found")
+    return images[image_id]
+
+
+@app.post("/api/gallery/{image_id}/favorite")
+async def gallery_favorite(image_id: str, req: FavoriteRequest, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    if image_id not in images and DB_PATH.exists():
+        load_db_state()
+    if image_id not in images or images[image_id].get("userId", "demo_user") != user_id:
+        raise HTTPException(404, "Image not found")
+    images[image_id]["isFavorite"] = req.isFavorite
+    with db() as conn:
+        conn.execute("UPDATE images SET is_favorite = ? WHERE id = ?", (1 if req.isFavorite else 0, image_id))
+    return images[image_id]
+
+
+@app.delete("/api/gallery/{image_id}")
+async def gallery_delete(image_id: str, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    if image_id not in images and DB_PATH.exists():
+        load_db_state()
+    if image_id not in images or images[image_id].get("userId", "demo_user") != user_id:
+        raise HTTPException(404, "Image not found")
+    record = images.pop(image_id)
+    with db() as conn:
+        conn.execute("DELETE FROM images WHERE id = ?", (image_id,))
+    return {"ok": True, "deleted": image_id, "url": record["url"]}
+
+
+@app.post("/api/gallery/{image_id}/use-as")
+async def gallery_use_as(image_id: str, req: UseAsRequest, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    if image_id not in images and DB_PATH.exists():
+        load_db_state()
+    if image_id not in images or images[image_id].get("userId", "demo_user") != user_id:
+        raise HTTPException(404, "Image not found")
+    record = images[image_id]
+    return {
+        "ok": True,
+        "imageId": image_id,
+        "target": req.target,
+        "inputImage": record["url"],
+        "prompt": record["promptOriginal"],
+        "seed": record["seed"],
+        "width": record["width"],
+        "height": record["height"],
+    }
+
+
+@app.get("/api/media/{filename}")
+async def secure_media(filename: str, request: Request) -> FileResponse:
+    user_id = request.query_params.get("userId") or request_user_id(request)
+    path = (MEDIA / filename).resolve()
+    try:
+        path.relative_to(MEDIA.resolve())
+    except ValueError:
+        raise HTTPException(404, "Image not found")
+    if not path.exists():
+        raise HTTPException(404, "Image not found")
+    if filename.endswith("_thumb.webp"):
+        stem = filename.removesuffix("_thumb.webp")
+        allowed = any(
+            item.get("thumbnailUrl", "").startswith(f"/api/media/{filename}") and item.get("userId", "demo_user") == user_id
+            for item in images.values()
+        )
+    else:
+        allowed = any(
+            item.get("url", "").startswith(f"/api/media/{filename}") and item.get("userId", "demo_user") == user_id
+            for item in images.values()
+        )
+    if not allowed:
+        raise HTTPException(404, "Image not found")
+    return FileResponse(path)
+
+
+@app.post("/api/app/bootstrap")
+async def bootstrap(auth: MiniAppAuthRequest, response: Response) -> dict[str, Any]:
+    # Validate Telegram initData server-side
+    if auth.platform == "telegram":
+        if not auth.initData:
+            print("bootstrap: telegram platform but no initData — falling back to web")
+            auth.platform = "web"
+            if not auth.userId or auth.userId == "demo_user":
+                auth.userId = "demo_user"
+        else:
+            valid = validate_telegram_init_data(auth.initData)
+            if not valid:
+                print("bootstrap: invalid Telegram initData, rejecting")
+                raise HTTPException(403, "Invalid Telegram initData")
+            # Override userId and user info from server-verified data
+            tg_user_raw = valid.get("user")
+            if tg_user_raw:
+                try:
+                    tg_user = json.loads(tg_user_raw)
+                    auth.userId = str(tg_user.get("id", auth.userId))
+                    auth.username = tg_user.get("username") or auth.username
+                    auth.firstName = tg_user.get("first_name") or auth.firstName
+                    auth.lastName = tg_user.get("last_name") or auth.lastName
+                    auth.language = tg_user.get("language_code") or auth.language
+                    print(f"bootstrap: Telegram user verified — id={auth.userId} username={auth.username}")
+                except (json.JSONDecodeError, KeyError) as exc:
+                    print(f"bootstrap: failed to parse Telegram user from initData: {exc}")
+    user = upsert_user(auth)
+    response.set_cookie("onenode_user", user["id"], httponly=False, samesite="lax")
+    flux_klein_config: dict[str, Any] = {"ok": False, "autofill_prompts": {}, "lora_triggers_custom": {}, "t2i_templates": [], "discover_prompts": {}}
+    models_payload: dict[str, Any] = {"ok": False}
+    bgremoval_payload: dict[str, Any] = {"ok": False, "models": []}
+    try:
+        flux_klein_config = {"ok": True, **await get_flux_klein_config()}
+    except Exception as exc:
+        flux_klein_config["error"] = str(exc)
+    try:
+        models_payload = {"ok": True, **await get_comfyui_models()}
+    except Exception as exc:
+        models_payload["error"] = str(exc)
+    try:
+        bgremoval_payload = {"ok": True, **await get_flux_bgremoval_models()}
+    except Exception as exc:
+        bgremoval_payload["error"] = str(exc)
+    return {
+        "ok": True,
+        "user": user,
+        "platform": auth.platform,
+        "miniAppUrl": mini_app_url(auth.platform),
+        "fluxKleinConfig": flux_klein_config,
+        "models": models_payload,
+        "bgRemovalModels": bgremoval_payload,
+        "features": {
+            "web": True,
+            "telegramMiniApp": True,
+            "maxMiniApp": True,
+            "database": DB_PATH.exists(),
+            "ruEn": True,
+            "modes": ["text_to_image", "image_to_image", "edit", "paint", "faceswap"],
+        },
+    }
+
+
+@app.post("/api/app/heartbeat")
+async def app_heartbeat(req: HeartbeatRequest) -> dict[str, Any]:
+    raw_id = req.userId or ""
+    while raw_id:
+        stripped = raw_id
+        for prefix in ("web_", "telegram_", "max_"):
+            if stripped.startswith(prefix):
+                stripped = stripped[len(prefix):]
+                break
+        if stripped == raw_id:
+            break
+        raw_id = stripped
+    user_id = f"{req.platform}_{raw_id}" if raw_id else "demo_user"
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        conn.execute(
+            "UPDATE users SET total_time_seconds = total_time_seconds + ?, last_seen_at = ? WHERE id = ?",
+            (req.seconds, now, user_id),
+        )
+    return {"ok": True, "userId": user_id}
+
+
+@app.post("/api/auth/web-login")
+async def web_login(req: WebLoginRequest, response: Response) -> dict[str, Any]:
+    expected = os.getenv("ADMIN_ONE_TIME_CODE", "admin-demo")
+    if req.code != expected:
+        raise HTTPException(403, "Invalid one-time admin code.")
+    auth = MiniAppAuthRequest(platform="web", userId="admin", username="admin", firstName="Admin", language="ru")
+    user = upsert_user(auth)
+    with db() as conn:
+        conn.execute("UPDATE users SET role = 'admin' WHERE id = ?", (user["id"],))
+    user["role"] = "admin"
+    response.set_cookie("onenode_user", user["id"], httponly=False, samesite="lax")
+    return {"ok": True, "user": user}
+
+
+BOOTSTRAP_REQUIRED_CONSENTS = ["terms", "privacy", "personal_data_processing", "cookies"]
+
+
+def _bootstrap_auth_methods(platform: str) -> list[str]:
+    if platform == "telegram_mini_app":
+        return ["telegram", "email_otp"]
+    if platform == "max_mini_app":
+        return ["max", "email_otp"]
+    return ["email_otp"]
+
+
+def _bootstrap_storage_type(platform: str) -> str:
+    return "server_only" if platform in {"ios_app", "android_app"} else "local_storage"
+
+
+@app.post("/api/auth/bootstrap-v2")
+async def auth_bootstrap_v2(req: BootstrapV2Request) -> dict[str, Any]:
+    """Anonymous initialization. NOT a login.
+
+    Never reads X-OneNode-User or the onenode_user cookie, never trusts a
+    client-supplied identity, and never creates a user / identity / session.
+    The only side effect is an upsert into device_installations.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    has_installation_id_from_client = bool(req.installation_id)
+    has_anonymous_id_from_client = bool(req.anonymous_id)
+    installation_id = req.installation_id or uuid.uuid4().hex
+    anonymous_id = req.anonymous_id or uuid.uuid4().hex
+    metadata = {
+        "client": req.client.model_dump() if req.client else {},
+        "utm": req.utm.model_dump() if req.utm else {},
+    }
+    metadata_json = json.dumps(metadata, ensure_ascii=False)
+    with db() as conn:
+        existing = conn.execute(
+            "SELECT anonymous_id FROM device_installations WHERE installation_id = ?",
+            (installation_id,),
+        ).fetchone()
+        if existing:
+            # Preserve the original anonymous_id; never overwrite internal/legacy id here.
+            if existing["anonymous_id"]:
+                anonymous_id = existing["anonymous_id"]
+            conn.execute(
+                """
+                UPDATE device_installations
+                SET last_seen_at = ?, platform = ?,
+                    anonymous_id = COALESCE(anonymous_id, ?), metadata_json = ?
+                WHERE installation_id = ?
+                """,
+                (now, req.platform, anonymous_id, metadata_json, installation_id),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO device_installations
+                    (id, internal_user_id, legacy_user_id, installation_id, anonymous_id,
+                     platform, storage_type, first_seen_at, last_seen_at, metadata_json)
+                VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    uuid.uuid4().hex,
+                    installation_id,
+                    anonymous_id,
+                    req.platform,
+                    _bootstrap_storage_type(req.platform),
+                    now,
+                    now,
+                    metadata_json,
+                ),
+            )
+    auth_methods = _bootstrap_auth_methods(req.platform)
+    required_consents = list(BOOTSTRAP_REQUIRED_CONSENTS)
+
+    # Product analytics: app_opened. Never fails the bootstrap; on error we emit a
+    # debug-safe note (no identity, no tokens, no PII) instead of hiding it.
+    try:
+        record_event_log(
+            "app_opened",
+            anonymous_id=anonymous_id,
+            installation_id=installation_id,
+            platform=req.platform,
+            properties={
+                "auth_methods": auth_methods,
+                "required_consents": required_consents,
+                "has_installation_id_from_client": has_installation_id_from_client,
+                "has_anonymous_id_from_client": has_anonymous_id_from_client,
+                "client": req.client.model_dump() if req.client else {},
+                "utm": req.utm.model_dump() if req.utm else {},
+            },
+        )
+    except Exception as exc:  # pragma: no cover - defensive; bootstrap must not fail
+        print(f"bootstrap-v2: app_opened event log failed: {type(exc).__name__}")
+
+    return {
+        "anonymous_id": anonymous_id,
+        "installation_id": installation_id,
+        "is_authenticated": False,
+        "auth_methods": auth_methods,
+        "required_consents": required_consents,
+        "server_time": now,
+    }
+
+
+@app.post("/api/auth/telegram-v2")
+async def auth_telegram_v2(req: TelegramAuthV2Request, request: Request, response: Response) -> dict[str, Any]:
+    """Strict Telegram Mini App login: verify raw initData, resolve identity,
+    issue a trusted session. Never trusts client identity / X-OneNode-User /
+    onenode_user / initDataUnsafe. Raw initData and raw tokens are never logged."""
+    platform = "telegram_mini_app"
+    now = datetime.now(timezone.utc).isoformat()
+
+    def fail(reason: str, status: int = 401):
+        with db() as conn:
+            record_security_event(conn, reason, internal_user_id=None, request=request)
+            record_login_attempt(conn, "telegram", False, failure_reason=reason, platform=platform, request=request)
+        try:
+            record_event_log(
+                "login_failed",
+                anonymous_id=req.anonymous_id,
+                installation_id=req.installation_id,
+                platform=platform,
+                properties={"provider": "telegram", "reason": reason},
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"telegram-v2: login_failed event log error: {type(exc).__name__}")
+        raise HTTPException(status, reason)
+
+    if not req.init_data:
+        fail("telegram_init_data_missing")
+
+    try:
+        data = validate_telegram_init_data_strict(req.init_data)
+    except TelegramAuthError as exc:
+        fail(exc.reason)
+    user = data["_user"]
+
+    with db() as conn:
+        internal_user_id, legacy_user_id = telegram_upsert_identity(conn, user, now)
+
+    session = create_auth_session(
+        internal_user_id, legacy_user_id, provider="telegram", platform=platform, request=request
+    )
+
+    with db() as conn:
+        if req.installation_id:
+            existing = conn.execute(
+                "SELECT id FROM device_installations WHERE installation_id = ?", (req.installation_id,)
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE device_installations SET internal_user_id = ?, legacy_user_id = ?, last_seen_at = ? WHERE installation_id = ?",
+                    (internal_user_id, legacy_user_id, now, req.installation_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO device_installations
+                        (id, internal_user_id, legacy_user_id, installation_id, anonymous_id, platform, storage_type, first_seen_at, last_seen_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (uuid.uuid4().hex, internal_user_id, legacy_user_id, req.installation_id, req.anonymous_id, platform, "local_storage", now, now),
+                )
+        record_login_attempt(
+            conn, "telegram", True, identifier=str(user["id"]), internal_user_id=internal_user_id, platform=platform, request=request
+        )
+
+    try:
+        record_event_log(
+            "login_succeeded",
+            internal_user_id=internal_user_id,
+            legacy_user_id=legacy_user_id,
+            anonymous_id=req.anonymous_id,
+            installation_id=req.installation_id,
+            session_id=session["session_id"],
+            platform=platform,
+            properties={"provider": "telegram", "telegram_user_id": str(user["id"])},
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"telegram-v2: login_succeeded event log error: {type(exc).__name__}")
+
+    # Phase 13: trusted session is delivered via HttpOnly cookies. Tokens remain in
+    # JSON for backward compat; the Phase 13 frontend ignores them.
+    set_trusted_auth_cookies(
+        response, session["session_token"], session["refresh_token"],
+        session["expires_at"], session["refresh_expires_at"],
+    )
+    return {
+        "internal_user_id": internal_user_id,
+        "legacy_user_id": legacy_user_id,
+        "session_token": session["session_token"],
+        "refresh_token": session["refresh_token"],
+        "expires_at": session["expires_at"],
+        "refresh_expires_at": session["refresh_expires_at"],
+        "profile_completed": False,
+        "required_consents": [],
+    }
+
+
+@app.post("/api/auth/max-v2")
+async def auth_max_v2(req: MaxAuthV2Request, request: Request, response: Response) -> dict[str, Any]:
+    """Strict MAX Mini App login: verify raw WebAppData, resolve identity, issue a
+    trusted session. Never trusts client identity / X-OneNode-User / onenode_user.
+    Raw WebAppData and raw tokens are never logged."""
+    platform = "max_mini_app"
+    now = datetime.now(timezone.utc).isoformat()
+
+    def fail(reason: str, status: int = 401):
+        with db() as conn:
+            record_security_event(conn, reason, internal_user_id=None, request=request)
+            record_login_attempt(conn, "max", False, failure_reason=reason, platform=platform, request=request)
+        try:
+            record_event_log(
+                "login_failed",
+                anonymous_id=req.anonymous_id,
+                installation_id=req.installation_id,
+                platform=platform,
+                properties={"provider": "max", "reason": reason},
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"max-v2: login_failed event log error: {type(exc).__name__}")
+        raise HTTPException(status, reason)
+
+    if not req.web_app_data:
+        fail("max_web_app_data_missing")
+
+    try:
+        data = validate_max_web_app_data_strict(req.web_app_data)
+    except MaxAuthError as exc:
+        fail(exc.reason)
+    user = data["_user"]
+
+    with db() as conn:
+        internal_user_id, legacy_user_id = max_upsert_identity(conn, user, now)
+
+    session = create_auth_session(
+        internal_user_id, legacy_user_id, provider="max", platform=platform, request=request
+    )
+
+    with db() as conn:
+        if req.installation_id:
+            existing = conn.execute(
+                "SELECT id FROM device_installations WHERE installation_id = ?", (req.installation_id,)
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE device_installations SET internal_user_id = ?, legacy_user_id = ?, last_seen_at = ? WHERE installation_id = ?",
+                    (internal_user_id, legacy_user_id, now, req.installation_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO device_installations
+                        (id, internal_user_id, legacy_user_id, installation_id, anonymous_id, platform, storage_type, first_seen_at, last_seen_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (uuid.uuid4().hex, internal_user_id, legacy_user_id, req.installation_id, req.anonymous_id, platform, "local_storage", now, now),
+                )
+        record_login_attempt(
+            conn, "max", True, identifier=str(user["id"]), internal_user_id=internal_user_id, platform=platform, request=request
+        )
+
+    try:
+        record_event_log(
+            "login_succeeded",
+            internal_user_id=internal_user_id,
+            legacy_user_id=legacy_user_id,
+            anonymous_id=req.anonymous_id,
+            installation_id=req.installation_id,
+            session_id=session["session_id"],
+            platform=platform,
+            properties={"provider": "max", "max_user_id": str(user["id"])},
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"max-v2: login_succeeded event log error: {type(exc).__name__}")
+
+    set_trusted_auth_cookies(
+        response, session["session_token"], session["refresh_token"],
+        session["expires_at"], session["refresh_expires_at"],
+    )
+    return {
+        "internal_user_id": internal_user_id,
+        "legacy_user_id": legacy_user_id,
+        "session_token": session["session_token"],
+        "refresh_token": session["refresh_token"],
+        "expires_at": session["expires_at"],
+        "refresh_expires_at": session["refresh_expires_at"],
+        "profile_completed": False,
+        "required_consents": [],
+    }
+
+
+@app.post("/api/auth/email/request-code-v2")
+async def auth_email_request_code_v2(req: EmailRequestCodeV2Request, request: Request) -> dict[str, Any]:
+    """Issue an email OTP challenge. Same response shape whether or not the email
+    already has an account (no user-existence disclosure). Stores only the OTP
+    hash; never logs or returns the raw OTP (except debug_code in non-production
+    when explicitly enabled). No real email is sent in dev/test."""
+    try:
+        validate_email_otp_config()
+    except RuntimeError:
+        # Safe, generic error — no fake email, no challenge created.
+        raise HTTPException(503, "Email login is currently unavailable.")
+
+    email_norm = normalize_email(req.email)
+    if not email_norm:
+        raise HTTPException(400, "A valid email address is required.")
+
+    # Opportunistic cleanup of stale challenges, then abuse controls. Both run
+    # AFTER normalization and never reveal whether the email exists.
+    cleanup_expired_otp_challenges()
+    enforce_email_otp_rate_limits(email_norm, request, req.anonymous_id, req.installation_id, req.platform)
+
+    now = datetime.now(timezone.utc).isoformat()
+    challenge_id = uuid.uuid4().hex
+    code = generate_otp_code(EMAIL_OTP_LENGTH)
+    code_hash = hash_otp(code)
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=EMAIL_OTP_TTL_SECONDS)).isoformat()
+
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_otp_challenges
+                (id, channel, destination, code_hash, purpose, attempts_count, max_attempts,
+                 expires_at, consumed_at, ip_address, user_agent_hash, created_at)
+            VALUES (?, 'email', ?, ?, 'login', 0, ?, ?, NULL, ?, ?, ?)
+            """,
+            (challenge_id, email_norm, code_hash, EMAIL_OTP_MAX_ATTEMPTS, expires_at,
+             _client_ip(request), _hash_user_agent(request), now),
+        )
+
+    # Deliver via mock (dev/test) — never includes the code in any log.
+    send_email_otp(email_norm, code)
+
+    try:
+        record_event_log(
+            "login_started",
+            anonymous_id=req.anonymous_id,
+            installation_id=req.installation_id,
+            platform=req.platform,
+            properties={"provider": "web_email", "challenge_id": challenge_id},
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"email-otp: login_started event log error: {type(exc).__name__}")
+
+    response: dict[str, Any] = {"challenge_id": challenge_id, "expires_in_seconds": EMAIL_OTP_TTL_SECONDS}
+    if EMAIL_OTP_DEBUG_RETURN_CODE and APP_ENV.lower() != "production":
+        response["debug_code"] = code
+    return response
+
+
+@app.post("/api/auth/email/verify-code-v2")
+async def auth_email_verify_code_v2(req: EmailVerifyCodeV2Request, request: Request, response: Response) -> dict[str, Any]:
+    """Verify an email OTP and issue a trusted session. Never trusts client
+    identity / X-OneNode-User / onenode_user. Raw OTP and raw tokens are never
+    stored or logged."""
+    platform = req.platform
+    now = datetime.now(timezone.utc).isoformat()
+    now_iso = now
+
+    def fail(reason: str, status: int = 401, internal_user_id: str | None = None):
+        with db() as conn:
+            record_security_event(conn, reason, internal_user_id=internal_user_id, request=request)
+            record_login_attempt(conn, "web_email", False, failure_reason=reason, internal_user_id=internal_user_id, platform=platform, request=request)
+        try:
+            record_event_log(
+                "login_failed",
+                anonymous_id=req.anonymous_id,
+                installation_id=req.installation_id,
+                platform=platform,
+                properties={"provider": "web_email", "reason": reason},
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"email-otp: login_failed event log error: {type(exc).__name__}")
+        raise HTTPException(status, reason)
+
+    if not req.challenge_id or not req.code:
+        fail("otp_challenge_missing")
+
+    with db() as conn:
+        ch = conn.execute("SELECT * FROM auth_otp_challenges WHERE id = ?", (req.challenge_id,)).fetchone()
+    if ch is None:
+        fail("otp_challenge_missing")
+    if ch["consumed_at"] is not None:
+        fail("otp_consumed")
+    if ch["expires_at"] < now_iso:
+        fail("otp_expired")
+    if int(ch["attempts_count"]) >= int(ch["max_attempts"]):
+        fail("otp_max_attempts", status=429)
+
+    if not hmac.compare_digest(hash_otp(req.code), ch["code_hash"]):
+        with db() as conn:
+            conn.execute("UPDATE auth_otp_challenges SET attempts_count = attempts_count + 1 WHERE id = ?", (req.challenge_id,))
+        fail("otp_failed")
+
+    email_norm = ch["destination"]
+    with db() as conn:
+        conn.execute("UPDATE auth_otp_challenges SET consumed_at = ? WHERE id = ?", (now, req.challenge_id))
+        internal_user_id, legacy_user_id = email_otp_upsert_identity(conn, email_norm, now)
+
+    session = create_auth_session(
+        internal_user_id, legacy_user_id, provider="web_email", platform=platform, request=request
+    )
+
+    with db() as conn:
+        if req.installation_id:
+            existing = conn.execute(
+                "SELECT id FROM device_installations WHERE installation_id = ?", (req.installation_id,)
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE device_installations SET internal_user_id = ?, legacy_user_id = ?, last_seen_at = ? WHERE installation_id = ?",
+                    (internal_user_id, legacy_user_id, now, req.installation_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO device_installations
+                        (id, internal_user_id, legacy_user_id, installation_id, anonymous_id, platform, storage_type, first_seen_at, last_seen_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (uuid.uuid4().hex, internal_user_id, legacy_user_id, req.installation_id, req.anonymous_id, platform, "local_storage", now, now),
+                )
+        record_login_attempt(conn, "web_email", True, identifier=email_norm, internal_user_id=internal_user_id, platform=platform, request=request)
+
+    try:
+        record_event_log(
+            "login_succeeded",
+            internal_user_id=internal_user_id,
+            legacy_user_id=legacy_user_id,
+            anonymous_id=req.anonymous_id,
+            installation_id=req.installation_id,
+            session_id=session["session_id"],
+            platform=platform,
+            properties={"provider": "web_email"},
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"email-otp: login_succeeded event log error: {type(exc).__name__}")
+
+    set_trusted_auth_cookies(
+        response, session["session_token"], session["refresh_token"],
+        session["expires_at"], session["refresh_expires_at"],
+    )
+    return {
+        "internal_user_id": internal_user_id,
+        "legacy_user_id": legacy_user_id,
+        "session_token": session["session_token"],
+        "refresh_token": session["refresh_token"],
+        "expires_at": session["expires_at"],
+        "refresh_expires_at": session["refresh_expires_at"],
+        "profile_completed": False,
+        "required_consents": [],
+    }
+
+
+@app.post("/api/auth/password/register-v2")
+async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Request, response: Response) -> dict[str, Any]:
+    """Browser email+password registration. Creates/attaches a web_email identity +
+    Argon2id password, records consents, issues a trusted cookie session. Never
+    stores/logs the raw password. Generic 409 if an account already has a password."""
+    platform = "web"
+    email_norm = normalize_email(req.email)
+    if not email_norm:
+        raise HTTPException(400, "Введите корректный email.")
+    if validate_password_policy(req.password):
+        raise HTTPException(400, "Пароль должен быть от 8 до 128 символов.")
+    if req.password != req.password_repeat:
+        raise HTTPException(400, "Пароли не совпадают.")
+    if not (req.accepted_terms and req.accepted_privacy and req.accepted_personal_data):
+        raise HTTPException(400, "Необходимо принять условия.")
+
+    password_hash = hash_password_argon2(req.password)  # CPU work outside the txn
+    now = datetime.now(timezone.utc).isoformat()
+
+    with db() as conn:
+        existing = conn.execute(
+            "SELECT internal_user_id FROM auth_identities WHERE provider = 'web_email' AND provider_user_id = ?",
+            (email_norm,),
+        ).fetchone()
+        if existing:
+            iuid = existing["internal_user_id"]
+            # Check if linked user exists (separate connection so log survives rollback)
+            urow = conn.execute("SELECT banned FROM users WHERE internal_user_id = ?", (iuid,)).fetchone()
+            if urow is None:
+                try:
+                    with db() as log_conn:
+                        record_security_event(log_conn, "password_register_orphan_identity", severity="warning", internal_user_id=iuid, request=request)
+                except Exception:
+                    pass
+                raise HTTPException(409, "Аккаунт уже существует или данные некорректны.")
+            if urow["banned"]:
+                raise HTTPException(409, "Аккаунт уже существует или данные некорректны.")
+            active = conn.execute(
+                "SELECT 1 FROM auth_passwords WHERE internal_user_id = ? AND disabled_at IS NULL",
+                (iuid,),
+            ).fetchone()
+            if active:
+                raise HTTPException(409, "Аккаунт уже существует или данные некорректны.")
+            # Identity + user exist, but no active password — attach password to existing user
+            internal_user_id = iuid
+            legacy_user_id = conn.execute("SELECT id FROM users WHERE internal_user_id = ?", (iuid,)).fetchone()["id"]
+        else:
+            internal_user_id, legacy_user_id = email_otp_upsert_identity(conn, email_norm, now)
+        conn.execute(
+            """
+            INSERT INTO auth_passwords
+                (id, internal_user_id, password_hash, algorithm, created_at, updated_at, password_updated_at)
+            VALUES (?, ?, ?, 'argon2id', ?, ?, ?)
+            """,
+            (uuid.uuid4().hex, internal_user_id, password_hash, now, now, now),
+        )
+        for consent_type in ("terms", "privacy", "personal_data_processing"):
+            conn.execute(
+                """
+                INSERT INTO user_consents
+                    (id, internal_user_id, consent_type, document_version, accepted, accepted_at,
+                     ip_address, user_agent_hash, platform)
+                VALUES (?, ?, ?, 'v1', 1, ?, ?, ?, ?)
+                """,
+                (uuid.uuid4().hex, internal_user_id, consent_type, now, _client_ip(request), _hash_user_agent(request), platform),
+            )
+        record_login_attempt(conn, "web_email", True, identifier=email_norm, internal_user_id=internal_user_id, platform=platform, request=request)
+
+    session = create_auth_session(internal_user_id, legacy_user_id, provider="web_email", platform=platform, request=request)
+    set_trusted_auth_cookies(response, session["session_token"], session["refresh_token"], session["expires_at"], session["refresh_expires_at"])
+    try:
+        record_event_log("password_register_succeeded", internal_user_id=internal_user_id, legacy_user_id=legacy_user_id,
+                          session_id=session["session_id"], platform=platform, properties={"provider": "web_email"})
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"password-register: event log error: {type(exc).__name__}")
+    return {"ok": True, "internal_user_id": internal_user_id, "legacy_user_id": legacy_user_id, "profile_completed": False}
+
+
+@app.post("/api/auth/password/login-v2")
+async def auth_password_login_v2(req: PasswordLoginV2Request, request: Request, response: Response) -> dict[str, Any]:
+    """Browser email+password login. Generic 401 for any bad email/password (no
+    account enumeration); 403 for banned. Issues a trusted cookie session on success.
+    Never stores/logs the raw password."""
+    platform = "web"
+    email_norm = normalize_email(req.email)
+
+    def fail_invalid():
+        with db() as conn:
+            record_security_event(conn, "password_login_failed", request=request)
+            record_login_attempt(conn, "web_email", False, failure_reason="invalid_credentials",
+                                 identifier=email_norm, platform=platform, request=request)
+        try:
+            record_event_log("password_login_failed", platform=platform, properties={"provider": "web_email"})
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"password-login: failed event log error: {type(exc).__name__}")
+        raise HTTPException(401, "Неверная почта или пароль.")
+
+    # Look up identity + active password (if any). Always run a verify to equalize timing.
+    internal_user_id: str | None = None
+    legacy_user_id: str | None = None
+    stored_hash = _DUMMY_PASSWORD_HASH
+    user_missing = False
+    user_banned = False
+    if email_norm:
+        with db() as conn:
+            ident = conn.execute(
+                "SELECT internal_user_id, legacy_user_id FROM auth_identities WHERE provider = 'web_email' AND provider_user_id = ?",
+                (email_norm,),
+            ).fetchone()
+            if ident:
+                internal_user_id = ident["internal_user_id"]
+                legacy_user_id = ident["legacy_user_id"]
+                urow = conn.execute("SELECT banned FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+                if urow is None:
+                    user_missing = True
+                    try:
+                        record_security_event(conn, "password_login_orphan_identity", severity="warning", internal_user_id=internal_user_id, request=request)
+                    except Exception:
+                        pass
+                else:
+                    if urow["banned"]:
+                        user_banned = True
+                    # Always try to fetch password hash for timing equalization
+                    pw = conn.execute(
+                        "SELECT password_hash FROM auth_passwords WHERE internal_user_id = ? AND disabled_at IS NULL",
+                        (internal_user_id,),
+                    ).fetchone()
+                    if pw:
+                        stored_hash = pw["password_hash"]
+
+    valid = verify_password_argon2(req.password, stored_hash)
+    if not valid or internal_user_id is None or stored_hash is _DUMMY_PASSWORD_HASH or user_missing:
+        fail_invalid()
+
+    with db() as conn:
+        if user_banned or _user_is_banned(conn, internal_user_id, legacy_user_id):
+            record_security_event(conn, "password_login_banned", severity="critical", internal_user_id=internal_user_id, request=request)
+            raise HTTPException(403, "Вход недоступен.")
+        record_login_attempt(conn, "web_email", True, identifier=email_norm, internal_user_id=internal_user_id, platform=platform, request=request)
+
+    session = create_auth_session(internal_user_id, legacy_user_id, provider="web_email", platform=platform, request=request)
+    set_trusted_auth_cookies(response, session["session_token"], session["refresh_token"], session["expires_at"], session["refresh_expires_at"])
+    try:
+        record_event_log("password_login_succeeded", internal_user_id=internal_user_id, legacy_user_id=legacy_user_id,
+                          session_id=session["session_id"], platform=platform, properties={"provider": "web_email"})
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"password-login: event log error: {type(exc).__name__}")
+    return {"ok": True, "internal_user_id": internal_user_id, "legacy_user_id": legacy_user_id, "profile_completed": False}
+
+
+@app.get("/api/me-v2")
+async def me_v2(request: Request) -> dict[str, Any]:
+    """Current user, resolved strictly from the trusted session. Exposes no token
+    hashes, no OTP/code hashes, no raw tokens, and no full raw_profile_json."""
+    user = require_trusted_user(request)
+    iuid = user["internal_user_id"]
+    legacy = user["legacy_user_id"]
+    with db() as conn:
+        sess = conn.execute(
+            "SELECT provider, platform, expires_at, refresh_expires_at FROM auth_sessions WHERE id = ?",
+            (user["session_id"],),
+        ).fetchone()
+        urow = conn.execute("SELECT * FROM users WHERE internal_user_id = ?", (iuid,)).fetchone()
+        if urow is None and legacy:
+            urow = conn.execute("SELECT * FROM users WHERE id = ?", (legacy,)).fetchone()
+        identities = conn.execute(
+            "SELECT provider, provider_username, provider_email, linked_at, last_login_at FROM auth_identities WHERE internal_user_id = ?",
+            (iuid,),
+        ).fetchall()
+
+    primary_identity = identities[0] if identities else None
+    profile = {
+        "display_name": resolve_display_name(urow, primary_identity),
+        "public_user_code": _row_get(urow, "public_user_code"),
+        "first_name": _row_get(urow, "first_name"),
+        "last_name": _row_get(urow, "last_name"),
+        "username": _row_get(urow, "username"),
+        "email": _row_get(urow, "email"),
+        "language_code": _row_get(urow, "language"),
+        "providers": sorted({i["provider"] for i in identities}),
+    }
+
+    try:
+        record_event_log(
+            "me_opened",
+            internal_user_id=iuid,
+            legacy_user_id=legacy,
+            session_id=user["session_id"],
+            platform=user["platform"],
+            properties={"provider": user["provider"]},
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"me-v2: me_opened event log error: {type(exc).__name__}")
+
+    return {
+        "internal_user_id": iuid,
+        "legacy_user_id": legacy,
+        "status": "active",
+        "session": {
+            "session_id": user["session_id"],
+            "provider": _row_get(sess, "provider") or user["provider"],
+            "platform": _row_get(sess, "platform") or user["platform"],
+            "expires_at": _row_get(sess, "expires_at"),
+            "refresh_expires_at": _row_get(sess, "refresh_expires_at"),
+        },
+        "identities": [
+            {
+                "provider": r["provider"],
+                "provider_username": r["provider_username"],
+                "provider_email": r["provider_email"],
+                "linked_at": r["linked_at"],
+                "last_login_at": r["last_login_at"],
+            }
+            for r in identities
+        ],
+        "profile": profile,
+        "created_at": _row_get(urow, "created_at"),
+        "last_seen_at": _row_get(urow, "last_seen_at"),
+    }
+
+
+@app.get("/api/auth/whoami-v2")
+async def whoami_v2(request: Request) -> dict[str, Any]:
+    """Minimal diagnostic: the trusted identity only, no profile/token data."""
+    user = require_trusted_user(request)
+    return {
+        "internal_user_id": user["internal_user_id"],
+        "legacy_user_id": user["legacy_user_id"],
+        "session_id": user["session_id"],
+        "provider": user["provider"],
+        "platform": user["platform"],
+    }
+
+
+@app.get("/api/me/profile-v2")
+async def me_profile_v2(request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    iuid = user["internal_user_id"]
+    legacy = user["legacy_user_id"]
+    with db() as conn:
+        urow = conn.execute("SELECT * FROM users WHERE internal_user_id = ?", (iuid,)).fetchone()
+        if urow is None and legacy:
+            urow = conn.execute("SELECT * FROM users WHERE id = ?", (legacy,)).fetchone()
+        identities = conn.execute(
+            "SELECT provider, provider_username, provider_email, linked_at, last_login_at FROM auth_identities WHERE internal_user_id = ?",
+            (iuid,),
+        ).fetchall()
+    return {
+        "internal_user_id": iuid,
+        "legacy_user_id": legacy,
+        "profile": build_profile(urow),
+        "identities": [
+            {
+                "provider": r["provider"],
+                "provider_username": r["provider_username"],
+                "provider_email": r["provider_email"],
+                "linked_at": r["linked_at"],
+                "last_login_at": r["last_login_at"],
+            }
+            for r in identities
+        ],
+    }
+
+
+@app.patch("/api/me/profile-v2")
+async def me_profile_update_v2(req: ProfileUpdateV2Request, request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    iuid = user["internal_user_id"]
+    legacy = user["legacy_user_id"]
+    provided = req.model_dump(exclude_unset=True)  # only fields the client actually sent
+
+    with db() as conn:
+        user_columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+        set_cols: list[str] = []
+        values: list[Any] = []
+        for api_field, value in provided.items():
+            col = PROFILE_FIELD_COLUMNS.get(api_field)
+            if not col or col not in user_columns:
+                continue  # unsupported field is ignored, never an injection vector
+            if isinstance(value, str):
+                value = value.strip()[:PROFILE_FIELD_MAX_LEN]
+            set_cols.append(f"{col} = ?")
+            values.append(value)
+        if set_cols:
+            # Scoped to the trusted user's internal_user_id — id/role/banned untouched.
+            conn.execute(
+                f"UPDATE users SET {', '.join(set_cols)} WHERE internal_user_id = ?",
+                (*values, iuid),
+            )
+        urow = conn.execute("SELECT * FROM users WHERE internal_user_id = ?", (iuid,)).fetchone()
+        if urow is None and legacy:
+            urow = conn.execute("SELECT * FROM users WHERE id = ?", (legacy,)).fetchone()
+
+    updated_fields = sorted(k for k in provided if PROFILE_FIELD_COLUMNS.get(k) in user_columns)
+    try:
+        record_event_log(
+            "profile_updated",
+            internal_user_id=iuid,
+            legacy_user_id=legacy,
+            session_id=user["session_id"],
+            platform=user["platform"],
+            properties={"fields": updated_fields},
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"profile-v2: profile_updated event log error: {type(exc).__name__}")
+
+    return {"internal_user_id": iuid, "legacy_user_id": legacy, "profile": build_profile(urow)}
+
+
+@app.get("/api/me/devices-v2")
+async def me_devices_v2(request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT installation_id, platform, storage_type, first_seen_at, last_seen_at, metadata_json "
+            "FROM device_installations WHERE internal_user_id = ? ORDER BY last_seen_at DESC",
+            (user["internal_user_id"],),
+        ).fetchall()
+    return {
+        "items": [
+            {
+                "installation_id": r["installation_id"],
+                "platform": r["platform"],
+                "storage_type": r["storage_type"],
+                "first_seen_at": r["first_seen_at"],
+                "last_seen_at": r["last_seen_at"],
+                "metadata": sanitize_device_metadata(r["metadata_json"]),
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.get("/api/me/sessions-v2")
+async def me_sessions_v2(request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    current_session_id = user["session_id"]
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, provider, platform, created_at, last_seen_at, expires_at, refresh_expires_at, revoked_at, revoke_reason "
+            "FROM auth_sessions WHERE internal_user_id = ? ORDER BY created_at DESC",
+            (user["internal_user_id"],),
+        ).fetchall()
+    return {
+        "items": [
+            {
+                "id": r["id"],
+                "provider": r["provider"],
+                "platform": r["platform"],
+                "created_at": r["created_at"],
+                "last_seen_at": r["last_seen_at"],
+                "expires_at": r["expires_at"],
+                "refresh_expires_at": r["refresh_expires_at"],
+                "revoked_at": r["revoked_at"],
+                "revoke_reason": r["revoke_reason"],
+                "is_current": r["id"] == current_session_id,
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.get("/api/me/consents-v2")
+async def me_consents_v2(request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT consent_type, document_version, accepted, accepted_at, revoked_at FROM user_consents "
+            "WHERE internal_user_id = ? ORDER BY accepted_at DESC",
+            (user["internal_user_id"],),
+        ).fetchall()
+    return {
+        "items": [
+            {
+                "consent_type": r["consent_type"],
+                "document_version": r["document_version"],
+                "accepted": bool(r["accepted"]),
+                "accepted_at": r["accepted_at"],
+                "revoked_at": r["revoked_at"],
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.post("/api/me/consents-v2")
+async def me_consents_create_v2(req: ConsentV2Request, request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    consent_type = (req.consent_type or "").strip()
+    document_version = (req.document_version or "").strip()
+    if consent_type not in CONSENT_TYPES:
+        raise HTTPException(400, "Unsupported consent_type.")
+    if not document_version:
+        raise HTTPException(400, "document_version is required.")
+
+    now = datetime.now(timezone.utc).isoformat()
+    accepted = bool(req.accepted)
+    revoked_at = None if accepted else now
+    with db() as conn:
+        # Always append a new historical row; never overwrite prior consents.
+        conn.execute(
+            """
+            INSERT INTO user_consents
+                (id, internal_user_id, consent_type, document_version, accepted, accepted_at, revoked_at,
+                 ip_address, user_agent_hash, platform)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex, user["internal_user_id"], consent_type, document_version,
+                1 if accepted else 0, now, revoked_at,
+                _client_ip(request), _hash_user_agent(request), user["platform"],
+            ),
+        )
+
+    try:
+        record_event_log(
+            "consent_accepted" if accepted else "consent_revoked",
+            internal_user_id=user["internal_user_id"],
+            legacy_user_id=user["legacy_user_id"],
+            session_id=user["session_id"],
+            platform=user["platform"],
+            properties={"consent_type": consent_type, "document_version": document_version},
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"consents-v2: consent event log error: {type(exc).__name__}")
+
+    return {
+        "consent_type": consent_type,
+        "document_version": document_version,
+        "accepted": accepted,
+        "accepted_at": now,
+        "revoked_at": revoked_at,
+    }
+
+
+@app.get("/api/admin/users-v2")
+async def admin_users_v2(
+    request: Request,
+    status: str | None = None,
+    provider: str | None = None,
+    platform: str | None = None,
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    require_trusted_admin(request)
+    limit = _clamp_limit(limit)
+    offset = max(0, int(offset))
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    clauses: list[str] = ["u.internal_user_id IS NOT NULL"]
+    params: list[Any] = []
+    if status == "banned":
+        clauses.append("u.banned = 1")
+    elif status == "active":
+        clauses.append("u.banned = 0")
+    if provider:
+        clauses.append("EXISTS (SELECT 1 FROM auth_identities ai WHERE ai.internal_user_id = u.internal_user_id AND ai.provider = ?)")
+        params.append(provider)
+    if platform:
+        clauses.append("EXISTS (SELECT 1 FROM auth_sessions s WHERE s.internal_user_id = u.internal_user_id AND s.platform = ?)")
+        params.append(platform)
+    if q:
+        like = f"%{q}%"
+        clauses.append(
+            "(u.id LIKE ? OR u.internal_user_id LIKE ? OR EXISTS (SELECT 1 FROM auth_identities ai2 "
+            "WHERE ai2.internal_user_id = u.internal_user_id AND (ai2.provider_username LIKE ? OR ai2.provider_email LIKE ?)))"
+        )
+        params += [like, like, like, like]
+    where = "WHERE " + " AND ".join(clauses)
+
+    items: list[dict[str, Any]] = []
+    with db() as conn:
+        total = conn.execute(f"SELECT COUNT(*) AS c FROM users u {where}", params).fetchone()["c"]
+        rows = conn.execute(
+            f"SELECT * FROM users u {where} ORDER BY u.last_seen_at DESC, u.created_at DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+        for row in rows:
+            iuid = row["internal_user_id"]
+            providers = [r["provider"] for r in conn.execute("SELECT DISTINCT provider FROM auth_identities WHERE internal_user_id = ?", (iuid,))]
+            active_sessions = conn.execute(
+                "SELECT COUNT(*) AS c FROM auth_sessions WHERE internal_user_id = ? AND revoked_at IS NULL AND expires_at > ?",
+                (iuid, now_iso),
+            ).fetchone()["c"]
+            last_session = conn.execute(
+                "SELECT provider, platform FROM auth_sessions WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 1",
+                (iuid,),
+            ).fetchone()
+            summary = admin_user_summary(row)
+            summary.update({
+                "providers": providers,
+                "active_sessions_count": active_sessions,
+                "last_provider": _row_get(last_session, "provider"),
+                "last_platform": _row_get(last_session, "platform"),
+            })
+            items.append(summary)
+    return {"items": items, "limit": limit, "offset": offset, "total": total}
+
+
+@app.get("/api/admin/users/{internal_user_id}/v2")
+async def admin_user_detail_v2(internal_user_id: str, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    with db() as conn:
+        urow = conn.execute("SELECT * FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+        if urow is None:
+            raise HTTPException(404, "User not found.")
+        identities = conn.execute(
+            "SELECT provider, provider_user_id, provider_username, provider_email, linked_at, last_login_at, verified_at "
+            "FROM auth_identities WHERE internal_user_id = ?",
+            (internal_user_id,),
+        ).fetchall()
+        sessions = conn.execute(
+            "SELECT id, provider, platform, created_at, last_seen_at, expires_at, refresh_expires_at, revoked_at, revoke_reason "
+            "FROM auth_sessions WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 50",
+            (internal_user_id,),
+        ).fetchall()
+        sec_events = conn.execute(
+            "SELECT id, severity, event_type, ip_address, details_json, created_at FROM security_events "
+            "WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 20",
+            (internal_user_id,),
+        ).fetchall()
+        evt_logs = conn.execute(
+            "SELECT id, event_name, platform, properties_json, created_at FROM event_logs "
+            "WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 20",
+            (internal_user_id,),
+        ).fetchall()
+
+    return {
+        "user": admin_user_summary(urow),
+        "identities": [
+            {
+                "provider": r["provider"],
+                "provider_user_id": r["provider_user_id"],
+                "provider_username": r["provider_username"],
+                "provider_email": mask_email(r["provider_email"]),
+                "linked_at": r["linked_at"],
+                "last_login_at": r["last_login_at"],
+                "verified_at": r["verified_at"],
+            }
+            for r in identities
+        ],
+        "sessions": [
+            {
+                "id": r["id"],
+                "provider": r["provider"],
+                "platform": r["platform"],
+                "created_at": r["created_at"],
+                "last_seen_at": r["last_seen_at"],
+                "expires_at": r["expires_at"],
+                "refresh_expires_at": r["refresh_expires_at"],
+                "revoked_at": r["revoked_at"],
+                "revoke_reason": r["revoke_reason"],
+            }
+            for r in sessions
+        ],
+        "recent_security_events": [
+            {
+                "id": r["id"],
+                "severity": r["severity"],
+                "event_type": r["event_type"],
+                "ip_address": r["ip_address"],
+                "details": safe_json_load(r["details_json"]),
+                "created_at": r["created_at"],
+            }
+            for r in sec_events
+        ],
+        "recent_event_logs": [
+            {
+                "id": r["id"],
+                "event_name": r["event_name"],
+                "platform": r["platform"],
+                "properties": safe_json_load(r["properties_json"]),
+                "created_at": r["created_at"],
+            }
+            for r in evt_logs
+        ],
+    }
+
+
+@app.get("/api/admin/security-events-v2")
+async def admin_security_events_v2(
+    request: Request,
+    event_type: str | None = None,
+    internal_user_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    require_trusted_admin(request)
+    limit = _clamp_limit(limit)
+    offset = max(0, int(offset))
+    clauses: list[str] = []
+    params: list[Any] = []
+    if event_type:
+        clauses.append("event_type = ?")
+        params.append(event_type)
+    if internal_user_id:
+        clauses.append("internal_user_id = ?")
+        params.append(internal_user_id)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    with db() as conn:
+        total = conn.execute(f"SELECT COUNT(*) AS c FROM security_events {where}", params).fetchone()["c"]
+        rows = conn.execute(
+            f"SELECT id, internal_user_id, session_id, severity, event_type, ip_address, details_json, created_at "
+            f"FROM security_events {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+    return {
+        "items": [
+            {
+                "id": r["id"],
+                "internal_user_id": r["internal_user_id"],
+                "session_id": r["session_id"],
+                "severity": r["severity"],
+                "event_type": r["event_type"],
+                "ip_address": r["ip_address"],
+                "details": safe_json_load(r["details_json"]),
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ],
+        "limit": limit,
+        "offset": offset,
+        "total": total,
+    }
+
+
+@app.get("/api/admin/audit-logs-v2")
+async def admin_audit_logs_v2(
+    request: Request,
+    actor_internal_user_id: str | None = None,
+    target_internal_user_id: str | None = None,
+    action: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    require_trusted_admin(request)
+    limit = _clamp_limit(limit)
+    offset = max(0, int(offset))
+    clauses: list[str] = []
+    params: list[Any] = []
+    if actor_internal_user_id:
+        clauses.append("actor_internal_user_id = ?")
+        params.append(actor_internal_user_id)
+    if target_internal_user_id:
+        clauses.append("target_internal_user_id = ?")
+        params.append(target_internal_user_id)
+    if action:
+        clauses.append("action = ?")
+        params.append(action)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    with db() as conn:
+        total = conn.execute(f"SELECT COUNT(*) AS c FROM audit_logs {where}", params).fetchone()["c"]
+        rows = conn.execute(
+            f"SELECT id, actor_internal_user_id, target_internal_user_id, action, entity_type, entity_id, "
+            f"before_json, after_json, ip_address, created_at FROM audit_logs {where} "
+            f"ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+    return {
+        "items": [
+            {
+                "id": r["id"],
+                "actor_internal_user_id": r["actor_internal_user_id"],
+                "target_internal_user_id": r["target_internal_user_id"],
+                "action": r["action"],
+                "entity_type": r["entity_type"],
+                "entity_id": r["entity_id"],
+                "before": safe_json_load(r["before_json"]),
+                "after": safe_json_load(r["after_json"]),
+                "ip_address": r["ip_address"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ],
+        "limit": limit,
+        "offset": offset,
+        "total": total,
+    }
+
+
+@app.post("/api/admin/users/{internal_user_id}/block-v2")
+async def admin_block_user_v2(internal_user_id: str, req: AdminBlockV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = (req.reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "A non-empty reason is required.")
+    if internal_user_id == admin["internal_user_id"]:
+        raise HTTPException(403, "You cannot block yourself.")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        urow = conn.execute("SELECT id, banned FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+        if urow is None:
+            raise HTTPException(404, "User not found.")
+        conn.execute("UPDATE users SET banned = 1 WHERE internal_user_id = ?", (internal_user_id,))
+        revoked = conn.execute(
+            "UPDATE auth_sessions SET revoked_at = ?, revoke_reason = 'admin_block' "
+            "WHERE internal_user_id = ? AND revoked_at IS NULL",
+            (now_iso, internal_user_id),
+        ).rowcount
+        record_audit_log(
+            conn, "admin_block_user",
+            actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=internal_user_id,
+            entity_id=urow["id"],
+            before={"banned": bool(urow["banned"])},
+            after={"banned": True, "reason": reason, "sessions_revoked": revoked},
+            request=request,
+        )
+        record_security_event(
+            conn, "admin_user_blocked", severity="warning",
+            internal_user_id=internal_user_id, request=request,
+            details={"actor_internal_user_id": admin["internal_user_id"], "reason": reason},
+        )
+    return {"ok": True, "internal_user_id": internal_user_id, "status": "banned", "sessions_revoked": revoked}
+
+
+@app.post("/api/admin/users/{internal_user_id}/unblock-v2")
+async def admin_unblock_user_v2(internal_user_id: str, req: AdminBlockV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = (req.reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "A non-empty reason is required.")
+    with db() as conn:
+        urow = conn.execute("SELECT id, banned FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+        if urow is None:
+            raise HTTPException(404, "User not found.")
+        conn.execute("UPDATE users SET banned = 0 WHERE internal_user_id = ?", (internal_user_id,))
+        record_audit_log(
+            conn, "admin_unblock_user",
+            actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=internal_user_id,
+            entity_id=urow["id"],
+            before={"banned": bool(urow["banned"])},
+            after={"banned": False, "reason": reason},
+            request=request,
+        )
+        record_security_event(
+            conn, "admin_user_unblocked", severity="info",
+            internal_user_id=internal_user_id, request=request,
+            details={"actor_internal_user_id": admin["internal_user_id"], "reason": reason},
+        )
+    # Revoked sessions are intentionally NOT restored.
+    return {"ok": True, "internal_user_id": internal_user_id, "status": "active"}
+
+
+@app.post("/api/admin/users/{internal_user_id}/password-reset-v2")
+async def admin_password_reset_v2(internal_user_id: str, req: AdminPasswordResetV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = (req.reason or "").strip()
+    new_password = req.new_password
+    if not reason:
+        raise HTTPException(400, "A non-empty reason is required.")
+    if validate_password_policy(new_password):
+        raise HTTPException(400, "Пароль должен быть от 8 до 128 символов.")
+    password_hash = hash_password_argon2(new_password)
+    now = datetime.now(timezone.utc).isoformat()
+    revoked = 0
+    with db() as conn:
+        urow = conn.execute("SELECT id, banned FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+        if urow is None:
+            raise HTTPException(404, "User not found.")
+        # Disable old active passwords
+        conn.execute(
+            "UPDATE auth_passwords SET disabled_at = ? WHERE internal_user_id = ? AND disabled_at IS NULL",
+            (now, internal_user_id),
+        )
+        # Insert new password row
+        conn.execute(
+            "INSERT INTO auth_passwords (id, internal_user_id, password_hash, algorithm, created_at, updated_at, password_updated_at) VALUES (?, ?, ?, 'argon2id', ?, ?, ?)",
+            (uuid.uuid4().hex, internal_user_id, password_hash, now, now, now),
+        )
+        # Revoke all active sessions
+        revoked = conn.execute(
+            "UPDATE auth_sessions SET revoked_at = ?, revoke_reason = 'admin_password_reset' WHERE internal_user_id = ? AND revoked_at IS NULL",
+            (now, internal_user_id),
+        ).rowcount
+        record_audit_log(
+            conn, "admin_password_reset",
+            actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=internal_user_id,
+            entity_id=urow["id"],
+            before={"banned": bool(urow["banned"])},
+            after={"reason": reason, "sessions_revoked": revoked},
+            request=request,
+        )
+        record_security_event(
+            conn, "admin_password_reset", severity="warning",
+            internal_user_id=internal_user_id, request=request,
+            details={"actor_internal_user_id": admin["internal_user_id"], "reason": reason, "sessions_revoked": revoked},
+        )
+    try:
+        record_event_log("admin_password_reset_succeeded", internal_user_id=internal_user_id,
+                          platform=admin.get("platform", "web"), properties={"sessions_revoked": revoked})
+    except Exception:
+        pass
+    return {"ok": True, "internal_user_id": internal_user_id, "sessions_revoked": revoked}
+
+
+# ---------------------------------------------------------------------------
+# Phase 20C — trusted per-user admin actions (require_trusted_admin, reason+audit).
+# ---------------------------------------------------------------------------
+ADMIN_TOKENS_MAX_ABS = 100000
+
+
+def _admin_load_target(conn: sqlite3.Connection, internal_user_id: str) -> sqlite3.Row:
+    row = conn.execute("SELECT id, role, banned, token_balance, plan, display_name, email FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "User not found.")
+    return row
+
+
+@app.post("/api/admin/users/{internal_user_id}/role-v2")
+async def admin_role_v2(internal_user_id: str, req: AdminRoleV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = (req.reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "Укажите причину.")
+    if internal_user_id == admin["internal_user_id"] and req.role != "admin":
+        raise HTTPException(403, "Нельзя снять роль администратора с себя.")
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        target = _admin_load_target(conn, internal_user_id)
+        if target["role"] == "admin" and req.role != "admin":
+            admin_count = conn.execute("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'").fetchone()["c"]
+            if admin_count <= 1:
+                raise HTTPException(403, "Нельзя снять последнего администратора.")
+        conn.execute("UPDATE users SET role = ? WHERE internal_user_id = ?", (req.role, internal_user_id))
+        record_audit_log(conn, "admin_change_role", actor_internal_user_id=admin["internal_user_id"],
+                         target_internal_user_id=internal_user_id, entity_id=target["id"],
+                         before={"role": target["role"]}, after={"role": req.role, "reason": reason}, request=request)
+        record_security_event(conn, "admin_role_changed", severity="warning", internal_user_id=internal_user_id,
+                              request=request, details={"actor_internal_user_id": admin["internal_user_id"], "role": req.role, "reason": reason})
+    _ = now
+    return {"ok": True, "internal_user_id": internal_user_id, "role": req.role}
+
+
+@app.post("/api/admin/users/{internal_user_id}/tokens-v2")
+async def admin_tokens_v2(internal_user_id: str, req: AdminTokensV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = (req.reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "Укажите причину.")
+    if req.delta == 0:
+        raise HTTPException(400, "Изменение баланса не может быть нулевым.")
+    if abs(req.delta) > ADMIN_TOKENS_MAX_ABS:
+        raise HTTPException(400, "Слишком большое изменение баланса.")
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        target = _admin_load_target(conn, internal_user_id)
+        old_balance = int(target["token_balance"] or 0)
+        new_balance = old_balance + req.delta
+        if new_balance < 0:
+            raise HTTPException(400, "Баланс не может стать отрицательным.")
+        conn.execute("UPDATE users SET token_balance = ? WHERE internal_user_id = ?", (new_balance, internal_user_id))
+        conn.execute(
+            "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'admin_adjust', ?, ?)",
+            (uuid.uuid4().hex, target["id"], req.delta,
+             json.dumps({"actor_internal_user_id": admin["internal_user_id"], "reason": reason}, ensure_ascii=False), now),
+        )
+        record_audit_log(conn, "admin_adjust_tokens", actor_internal_user_id=admin["internal_user_id"],
+                         target_internal_user_id=internal_user_id, entity_id=target["id"],
+                         before={"token_balance": old_balance}, after={"token_balance": new_balance, "delta": req.delta, "reason": reason}, request=request)
+    try:
+        record_event_log("admin_tokens_adjusted", internal_user_id=internal_user_id, platform="web",
+                         properties={"delta": req.delta, "new_balance": new_balance})
+    except Exception:
+        pass
+    return {"ok": True, "internal_user_id": internal_user_id, "old_balance": old_balance, "new_balance": new_balance, "delta": req.delta}
+
+
+@app.post("/api/admin/users/{internal_user_id}/plan-v2")
+async def admin_plan_v2(internal_user_id: str, req: AdminPlanV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = (req.reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "Укажите причину.")
+    with db() as conn:
+        target = _admin_load_target(conn, internal_user_id)
+        conn.execute("UPDATE users SET plan = ?, gallery_enabled = ? WHERE internal_user_id = ?",
+                     (req.plan, 0 if req.plan == "free" else 1, internal_user_id))
+        record_audit_log(conn, "admin_change_plan", actor_internal_user_id=admin["internal_user_id"],
+                         target_internal_user_id=internal_user_id, entity_id=target["id"],
+                         before={"plan": target["plan"]}, after={"plan": req.plan, "reason": reason}, request=request)
+    return {"ok": True, "internal_user_id": internal_user_id, "plan": req.plan}
+
+
+@app.post("/api/admin/users/{internal_user_id}/profile-v2")
+async def admin_profile_v2(internal_user_id: str, req: AdminProfileV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = (req.reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "Укажите причину.")
+    updates: list[str] = []
+    values: list[Any] = []
+    before: dict[str, Any] = {}
+    after: dict[str, Any] = {}
+    with db() as conn:
+        target = _admin_load_target(conn, internal_user_id)
+        if req.display_name is not None:
+            v = req.display_name.strip()[:200]
+            updates.append("display_name = ?"); values.append(v)
+            before["display_name"] = target["display_name"]; after["display_name"] = v
+        if req.email is not None:
+            v = (normalize_email(req.email) or req.email.strip()[:200])
+            updates.append("email = ?"); values.append(v)
+            before["email"] = target["email"]; after["email"] = v
+        if not updates:
+            raise HTTPException(400, "Нет полей для изменения.")
+        conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE internal_user_id = ?", (*values, internal_user_id))
+        after["reason"] = reason
+        record_audit_log(conn, "admin_update_user_profile", actor_internal_user_id=admin["internal_user_id"],
+                         target_internal_user_id=internal_user_id, entity_id=target["id"], before=before, after=after, request=request)
+    return {"ok": True, "internal_user_id": internal_user_id, "display_name": after.get("display_name"), "email": after.get("email")}
+
+
+# ---------------------------------------------------------------------------
+# Phase 18 — Admin auth analytics (trusted-admin only). Clean, human-readable.
+# No token/password/code hashes, no raw tokens/cookies/initData/WebAppData.
+# ---------------------------------------------------------------------------
+
+
+def _iso_days_ago(days: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def _today_start_iso() -> str:
+    n = datetime.now(timezone.utc)
+    return n.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+
+def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_iso: str) -> dict[str, Any]:
+    iuid = urow["internal_user_id"]
+    legacy = urow["id"]
+    identities = conn.execute(
+        "SELECT provider, provider_username, provider_email, provider_first_name, provider_last_name, last_login_at "
+        "FROM auth_identities WHERE internal_user_id = ? ORDER BY (last_login_at IS NULL), last_login_at DESC, linked_at ASC",
+        (iuid,),
+    ).fetchall()
+    primary = identities[0]["provider"] if identities else resolve_primary_provider(conn, iuid)
+    last_session = conn.execute(
+        "SELECT platform, ip_address, provider, created_at, metadata_json FROM auth_sessions "
+        "WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 1",
+        (iuid,),
+    ).fetchone()
+    active_sessions = conn.execute(
+        "SELECT COUNT(*) AS c FROM auth_sessions WHERE internal_user_id = ? AND revoked_at IS NULL AND expires_at > ?",
+        (iuid, now_iso),
+    ).fetchone()["c"]
+    device_count = conn.execute(
+        "SELECT COUNT(*) AS c FROM device_installations WHERE internal_user_id = ?", (iuid,)
+    ).fetchone()["c"]
+    device_meta = safe_json_load(_row_get(last_session, "metadata_json")) or {}
+    device = device_meta.get("device") if isinstance(device_meta, dict) else {}
+    return {
+        "internal_user_id": iuid,  # used by the admin drawer fetch + technical section only
+        "internal_user_id_short": (iuid[:8] + "…") if iuid else None,
+        "public_user_code": _row_get(urow, "public_user_code"),
+        "display_name": resolve_display_name(urow, identities[0] if identities else None),
+        "primary_provider": primary,
+        "providers": sorted({i["provider"] for i in identities}),
+        "email": mask_email(_row_get(urow, "email")),
+        "username": _row_get(urow, "username"),
+        "phone": _row_get(urow, "phone"),
+        "first_seen_at": _row_get(urow, "created_at"),
+        "last_seen_at": _row_get(urow, "last_seen_at"),
+        "last_login_at": _row_get(urow, "last_login_at"),
+        "last_platform": _row_get(last_session, "platform"),
+        "last_ip": _row_get(last_session, "ip_address"),
+        "last_device": device if isinstance(device, dict) else {},
+        "country": _row_get(urow, "country"),
+        "city": _row_get(urow, "city"),
+        "device_count": device_count,
+        "active_sessions_count": active_sessions,
+        "generations_count": int(_row_get(urow, "generation_count") or 0),
+        "tokens_spent": int(_row_get(urow, "tokens_used") or 0),
+        "token_balance": int(_row_get(urow, "token_balance") or 0),
+        "status": "banned" if _row_get(urow, "banned") else "active",
+        "role": _row_get(urow, "role"),
+    }
+
+
+@app.get("/api/admin/dashboard-v2")
+async def admin_dashboard_v2(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    today = _today_start_iso()
+    with db() as conn:
+        def scalar(q, p=()):
+            return conn.execute(q, p).fetchone()["c"]
+        users_where = "internal_user_id IS NOT NULL"
+        total_users = scalar(f"SELECT COUNT(*) AS c FROM users WHERE {users_where}")
+        providers = {r["provider"]: r["c"] for r in conn.execute(
+            "SELECT provider, COUNT(DISTINCT internal_user_id) AS c FROM auth_identities GROUP BY provider")}
+        platforms = {(r["platform"] or "unknown"): r["c"] for r in conn.execute(
+            "SELECT platform, COUNT(DISTINCT internal_user_id) AS c FROM auth_sessions GROUP BY platform")}
+        login_events = "('login_succeeded','password_login_succeeded','password_register_succeeded')"
+        data = {
+            "total_users": total_users,
+            "active_today": scalar(f"SELECT COUNT(*) AS c FROM users WHERE {users_where} AND last_seen_at >= ?", (today,)),
+            "active_7d": scalar(f"SELECT COUNT(*) AS c FROM users WHERE {users_where} AND last_seen_at >= ?", (_iso_days_ago(7),)),
+            "active_30d": scalar(f"SELECT COUNT(*) AS c FROM users WHERE {users_where} AND last_seen_at >= ?", (_iso_days_ago(30),)),
+            "new_today": scalar(f"SELECT COUNT(*) AS c FROM users WHERE {users_where} AND created_at >= ?", (today,)),
+            "new_7d": scalar(f"SELECT COUNT(*) AS c FROM users WHERE {users_where} AND created_at >= ?", (_iso_days_ago(7),)),
+            "logins_today": scalar(f"SELECT COUNT(*) AS c FROM event_logs WHERE event_name IN {login_events} AND created_at >= ?", (today,)),
+            "generations_today": scalar("SELECT COUNT(*) AS c FROM jobs WHERE created_at >= ?", (today,)),
+            "generations_total": scalar("SELECT COUNT(*) AS c FROM jobs"),
+            "tokens_spent_total": int(conn.execute("SELECT COALESCE(SUM(-delta),0) AS c FROM token_ledger WHERE delta < 0").fetchone()["c"]),
+            "users_by_provider": providers,
+            "users_by_platform": platforms,
+            "sessions_active": scalar("SELECT COUNT(*) AS c FROM auth_sessions WHERE revoked_at IS NULL AND expires_at > ?", (now_iso,)),
+            "failed_logins_24h": scalar("SELECT COUNT(*) AS c FROM auth_login_attempts WHERE success = 0 AND created_at >= ?", (_iso_days_ago(1),)),
+            "banned_users": scalar("SELECT COUNT(*) AS c FROM users WHERE banned = 1"),
+        }
+    return {"ok": True, "dashboard": data}
+
+
+@app.get("/api/admin/users-analytics-v2")
+async def admin_users_analytics_v2(request: Request, q: str | None = None, provider: str | None = None,
+                                   status: str | None = None, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    require_trusted_admin(request)
+    limit = _clamp_limit(limit)
+    offset = max(0, int(offset))
+    now_iso = datetime.now(timezone.utc).isoformat()
+    clauses = ["u.internal_user_id IS NOT NULL"]
+    params: list[Any] = []
+    if status == "banned":
+        clauses.append("u.banned = 1")
+    elif status == "active":
+        clauses.append("u.banned = 0")
+    if provider:
+        clauses.append("EXISTS (SELECT 1 FROM auth_identities ai WHERE ai.internal_user_id = u.internal_user_id AND ai.provider = ?)")
+        params.append(provider)
+    if q:
+        like = f"%{q}%"
+        clauses.append("(u.public_user_code LIKE ? OR u.display_name LIKE ? OR u.username LIKE ? OR u.email LIKE ? OR u.id LIKE ?)")
+        params += [like, like, like, like, like]
+    where = "WHERE " + " AND ".join(clauses)
+    items = []
+    with db() as conn:
+        total = conn.execute(f"SELECT COUNT(*) AS c FROM users u {where}", params).fetchone()["c"]
+        rows = conn.execute(
+            f"SELECT * FROM users u {where} ORDER BY u.last_seen_at DESC, u.created_at DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
+        ).fetchall()
+        for r in rows:
+            items.append(admin_user_analytics_row(conn, r, now_iso))
+    return {"ok": True, "items": items, "limit": limit, "offset": offset, "total": total}
+
+
+@app.get("/api/admin/users/{internal_user_id}/analytics-v2")
+async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        urow = conn.execute("SELECT * FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+        if urow is None:
+            raise HTTPException(404, "User not found.")
+        summary = admin_user_analytics_row(conn, urow, now_iso)
+        identities = conn.execute(
+            "SELECT provider, provider_user_id, provider_username, provider_email, provider_first_name, "
+            "provider_last_name, provider_phone, provider_language_code, linked_at, verified_at, last_login_at, "
+            "(raw_profile_json IS NOT NULL AND raw_profile_json != '') AS has_raw_profile "
+            "FROM auth_identities WHERE internal_user_id = ?", (internal_user_id,),
+        ).fetchall()
+        sessions = conn.execute(
+            "SELECT id, provider, platform, ip_address, created_at, last_seen_at, expires_at, revoked_at, revoke_reason, metadata_json "
+            "FROM auth_sessions WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 30", (internal_user_id,),
+        ).fetchall()
+        devices = conn.execute(
+            "SELECT installation_id, anonymous_id, platform, storage_type, first_seen_at, last_seen_at, metadata_json "
+            "FROM device_installations WHERE internal_user_id = ? ORDER BY last_seen_at DESC LIMIT 30", (internal_user_id,),
+        ).fetchall()
+        events = conn.execute(
+            "SELECT event_name, platform, created_at FROM event_logs WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 30", (internal_user_id,),
+        ).fetchall()
+        sec = conn.execute(
+            "SELECT severity, event_type, ip_address, created_at FROM security_events WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 30", (internal_user_id,),
+        ).fetchall()
+        ledger = conn.execute(
+            "SELECT COALESCE(SUM(CASE WHEN delta<0 THEN -delta ELSE 0 END),0) AS spent, COUNT(*) AS entries "
+            "FROM token_ledger WHERE user_id = ?", (urow["id"],),
+        ).fetchone()
+        audits = conn.execute(
+            "SELECT action, actor_internal_user_id, created_at FROM audit_logs WHERE target_internal_user_id = ? ORDER BY created_at DESC LIMIT 20", (internal_user_id,),
+        ).fetchall()
+    return {
+        "ok": True,
+        "summary": summary,
+        "identities": [{
+            "provider": r["provider"], "provider_user_id": r["provider_user_id"],
+            "provider_username": r["provider_username"], "provider_email": mask_email(r["provider_email"]),
+            "first_name": r["provider_first_name"], "last_name": r["provider_last_name"],
+            "phone": mask_phone(r["provider_phone"]) if r["provider_phone"] else None,
+            "language_code": r["provider_language_code"], "linked_at": r["linked_at"],
+            "verified_at": r["verified_at"], "last_login_at": r["last_login_at"],
+            "has_raw_profile": bool(r["has_raw_profile"]),
+        } for r in identities],
+        "sessions": [{
+            "id": r["id"], "provider": r["provider"], "platform": r["platform"], "ip_address": r["ip_address"],
+            "device": (safe_json_load(r["metadata_json"]) or {}).get("device") if r["metadata_json"] else None,
+            "created_at": r["created_at"], "last_seen_at": r["last_seen_at"], "expires_at": r["expires_at"],
+            "revoked_at": r["revoked_at"], "revoke_reason": r["revoke_reason"],
+        } for r in sessions],
+        "devices": [{
+            "installation_id": r["installation_id"], "anonymous_id": r["anonymous_id"],
+            "platform": r["platform"], "storage_type": r["storage_type"],
+            "first_seen_at": r["first_seen_at"], "last_seen_at": r["last_seen_at"],
+            "metadata": sanitize_device_metadata(r["metadata_json"]),
+        } for r in devices],
+        "recent_events": [{"event_name": r["event_name"], "platform": r["platform"], "created_at": r["created_at"]} for r in events],
+        "recent_security_events": [{"severity": r["severity"], "event_type": r["event_type"], "ip_address": r["ip_address"], "created_at": r["created_at"]} for r in sec],
+        "token_summary": {"spent": int(ledger["spent"]), "entries": int(ledger["entries"]), "balance": int(_row_get(urow, "token_balance") or 0)},
+        "admin_actions": [{"action": r["action"], "actor": (r["actor_internal_user_id"] or "")[:8], "created_at": r["created_at"]} for r in audits],
+    }
+
+
+@app.get("/api/admin/diagnostics-v2")
+async def admin_diagnostics_v2(request: Request) -> dict[str, Any]:
+    """Safe admin-only environment diagnostics (Phase 20C.2). No secrets: only the DB
+    file basename, build label, and mode — enough to see why local vs prod differ."""
+    admin = require_trusted_admin(request)
+    with db() as conn:
+        urow = conn.execute(
+            "SELECT public_user_code FROM users WHERE internal_user_id = ?", (admin["internal_user_id"],)
+        ).fetchone()
+        user_count = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+    return {
+        "ok": True,
+        "backend_build": APP_BUILD,
+        "db_file": DB_PATH.name,  # basename only — never the full path
+        "user_count": user_count,
+        "server_time": datetime.now(timezone.utc).isoformat(),
+        "auth_mode": "trusted_cookie_session",
+        "admin_role": "admin",
+        "admin_user_code": _row_get(urow, "public_user_code"),
+        "admin_provider": admin.get("provider"),
+    }
+
+
+@app.post("/api/auth/session/refresh-v2")
+async def auth_session_refresh_v2(req: SessionRefreshRequest, request: Request, response: Response) -> dict[str, Any]:
+    # Body refresh_token wins; otherwise read it from the HttpOnly refresh cookie.
+    refresh_token = req.refresh_token or _extract_refresh_token(request)
+    if not refresh_token:
+        raise HTTPException(401, "No refresh token provided.")
+    new_session = refresh_auth_session(refresh_token, request)
+    # Rotation: set fresh cookies; the old refresh cookie's token is now revoked.
+    set_trusted_auth_cookies(
+        response, new_session["session_token"], new_session["refresh_token"],
+        new_session["expires_at"], new_session["refresh_expires_at"],
+    )
+    return {
+        "session_token": new_session["session_token"],
+        "refresh_token": new_session["refresh_token"],
+        "expires_at": new_session["expires_at"],
+    }
+
+
+@app.post("/api/auth/session/logout-v2")
+async def auth_session_logout_v2(req: SessionLogoutRequest, request: Request, response: Response) -> dict[str, Any]:
+    # Body session_token wins; otherwise read it from the HttpOnly session cookie.
+    token = req.session_token or _extract_session_token(request)
+    if token:
+        with db() as conn:
+            row = conn.execute(
+                "SELECT id FROM auth_sessions WHERE session_token_hash = ?", (hash_token(token),)
+            ).fetchone()
+            session_id = row["id"] if row else None
+        if session_id:
+            revoke_auth_session(session_id, reason="logout", request=request, event_type="logout")
+    # Safe UX: always clear cookies and return ok, even if no token was found
+    # (idempotent logout — never leaks whether a session existed).
+    clear_trusted_auth_cookies(response)
+    return {"ok": True}
+
+
+@app.get("/api/auth/sessions-v2")
+async def auth_sessions_list_v2(request: Request) -> dict[str, Any]:
+    session = resolve_auth_session_from_request(request)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, provider, platform, ip_address, user_agent_hash, created_at, last_seen_at, expires_at
+            FROM auth_sessions
+            WHERE internal_user_id = ? AND revoked_at IS NULL AND expires_at > ?
+            ORDER BY created_at DESC
+            """,
+            (session["internal_user_id"], now_iso),
+        ).fetchall()
+    return {
+        "ok": True,
+        "currentSessionId": session["session_id"],
+        "sessions": [dict(r) for r in rows],
+    }
+
+
+@app.get("/api/platforms")
+async def platforms() -> dict[str, Any]:
+    return {
+        "web": {"ready": True, "url": mini_app_url("web")},
+        "telegram": {
+            "ready": True,
+            "url": mini_app_url("telegram"),
+            "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
+            "buttonText": "Открыть генератор",
+        },
+        "max": {
+            "ready": True,
+            "url": mini_app_url("max"),
+            "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
+            "buttonText": "Открыть генератор",
+        },
+        "database": {"ready": DB_PATH.exists(), "path": str(DB_PATH)},
+    }
+
+
+@app.get("/api/bots/status")
+async def bots_status() -> dict[str, Any]:
+    return bot_status_payload()
+
+
+@app.post("/api/bots/local-command")
+async def bots_local_command(req: BotCommandRequest) -> dict[str, Any]:
+    response = bot_command_response(req.platform, req.text)
+    response["chatId"] = req.chatId
+    response["delivery"] = "local"
+    return response
+
+
+@app.post("/api/telegram/send-message")
+async def telegram_send_message(req: BotSendMessageRequest) -> dict[str, Any]:
+    if not req.chatId:
+        raise HTTPException(400, "chatId is required for Telegram sendMessage.")
+    return await telegram_api("sendMessage", {"chat_id": req.chatId, "text": req.text})
+
+
+@app.get("/api/telegram/me")
+async def telegram_me() -> dict[str, Any]:
+    return await telegram_api("getMe")
+
+
+@app.post("/api/telegram/poll-once")
+async def telegram_poll_once() -> dict[str, Any]:
+    data = await telegram_api("getUpdates", {"timeout": 0, "limit": 10, "offset": telegram_update_offset})
+    handled = await handle_telegram_updates(data.get("result", []), send_replies=True)
+    return {"ok": True, "handled": handled, "rawCount": len(data.get("result", []))}
+
+
+@app.post("/api/telegram/set-webhook")
+async def telegram_set_webhook() -> dict[str, Any]:
+    public_url = os.getenv("BACKEND_PUBLIC_URL", "")
+    if not public_url.startswith("https://"):
+        raise HTTPException(400, "BACKEND_PUBLIC_URL must be an HTTPS URL for Telegram webhook mode.")
+    return await telegram_api("setWebhook", {"url": f"{public_url.rstrip('/')}/api/telegram/webhook"})
+
+
+@app.post("/api/telegram/configure-bot")
+async def telegram_configure_bot() -> dict[str, Any]:
+    commands = [
+        {"command": "start", "description": "Открыть генератор"},
+        {"command": "app", "description": "Открыть Mini App"},
+        {"command": "help", "description": "Инструкция"},
+        {"command": "gallery", "description": "Последние изображения"},
+        {"command": "settings", "description": "Настройки"},
+    ]
+    result: dict[str, Any] = {"commands": await telegram_api("setMyCommands", {"commands": commands})}
+    app_url = os.getenv("APP_PUBLIC_URL", "")
+    if app_url.startswith("https://"):
+        result["menuButton"] = await telegram_api(
+            "setChatMenuButton",
+            {"menu_button": {"type": "web_app", "text": "Открыть генератор", "web_app": {"url": app_url}}},
+        )
+    else:
+        result["menuButton"] = {"ok": False, "reason": "APP_PUBLIC_URL must be HTTPS for Telegram Mini App menu button."}
+    return result
+
+
+@app.post("/api/telegram/delete-webhook")
+async def telegram_delete_webhook() -> dict[str, Any]:
+    return await telegram_api("deleteWebhook", {"drop_pending_updates": False})
+
+
+@app.post("/api/max/send-message")
+async def max_send_message(req: BotSendMessageRequest) -> dict[str, Any]:
+    if not req.chatId and not req.userId:
+        raise HTTPException(400, "chatId or userId is required for MAX messages.")
+    params: dict[str, Any] = {}
+    if req.chatId:
+        params["chat_id"] = req.chatId
+    if req.userId:
+        params["user_id"] = req.userId
+    return await max_api("POST", "/messages", {"text": req.text}, params=params)
+
+
+@app.post("/api/gallery/{image_id}/send")
+async def send_gallery_image(image_id: str, req: SendImageRequest, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    if image_id not in images and DB_PATH.exists():
+        load_db_state()
+    if image_id not in images or images[image_id].get("userId", "demo_user") != user_id:
+        raise HTTPException(404, "Image not found")
+    image = images[image_id]
+    text = f"Изображение готово: {image['url']}"
+    if req.platform == "telegram":
+        if TELEGRAM_BOT_TOKEN and req.chatId:
+            return await telegram_api("sendMessage", {"chat_id": req.chatId, "text": text})
+        return {"ok": True, "delivery": "local", "platform": "telegram", "text": text, "imageId": image_id}
+    if MAX_BOT_TOKEN and (req.chatId or req.userId):
+        params: dict[str, Any] = {}
+        if req.chatId:
+            params["chat_id"] = req.chatId
+        if req.userId:
+            params["user_id"] = req.userId
+        return await max_api("POST", "/messages", {"text": text}, params=params)
+    return {"ok": True, "delivery": "local", "platform": "max", "text": text, "imageId": image_id}
+
+
+@app.get("/api/max/me")
+async def max_me() -> dict[str, Any]:
+    return await max_api("GET", "/me")
+
+
+@app.post("/api/max/poll-once")
+async def max_poll_once() -> dict[str, Any]:
+    params: dict[str, Any] = {"limit": 10, "timeout": 0}
+    if max_update_marker:
+        params["marker"] = max_update_marker
+    data = await max_api("GET", "/updates", params=params)
+    handled = await handle_max_updates(data.get("updates", []), send_replies=True)
+    return {"ok": True, "handled": handled, "rawCount": len(data.get("updates", [])), "marker": data.get("marker")}
+
+
+@app.post("/api/max/set-webhook")
+async def max_set_webhook() -> dict[str, Any]:
+    public_url = os.getenv("BACKEND_PUBLIC_URL", "")
+    if not public_url.startswith("https://"):
+        raise HTTPException(400, "BACKEND_PUBLIC_URL must be an HTTPS URL for MAX webhook mode.")
+    body: dict[str, Any] = {
+        "url": f"{public_url.rstrip('/')}/api/max/webhook",
+        "update_types": ["message_created", "bot_started", "message_callback"],
+    }
+    if MAX_WEBHOOK_SECRET:
+        body["secret"] = MAX_WEBHOOK_SECRET
+    return await max_api("POST", "/subscriptions", body)
+
+
+@app.post("/api/translate")
+async def translate(req: TranslateRequest) -> dict[str, str]:
+    if req.target == "en" and not req.text.isascii():
+        translated = f"{req.text} (translated to English draft)"
+    elif req.target == "ru" and req.text.isascii():
+        translated = f"{req.text} (черновой перевод на русский)"
+    else:
+        translated = req.text
+    return {"translated": translated}
+
+
+@app.get("/api/presets")
+async def get_presets() -> list[dict[str, Any]]:
+    with db() as conn:
+        rows = conn.execute("SELECT id, name_ru, name_en, mode FROM presets WHERE is_visible = 1 ORDER BY id").fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get("/api/admin/summary")
+async def admin_summary(request: Request) -> dict[str, Any]:
+    require_admin(request)
+    failed = [item for item in jobs.values() if item["status"] == "failed"]
+    completed = [item for item in jobs.values() if item["status"] == "completed"]
+    with db() as conn:
+        user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        job_count = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+        image_count = conn.execute("SELECT COUNT(*) FROM images").fetchone()[0]
+        token_total = conn.execute("SELECT COALESCE(SUM(token_balance), 0) FROM users").fetchone()[0]
+        settings_row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'finance'").fetchone()
+        finance = json.loads(settings_row["value_json"]) if settings_row else {"tokenRevenue": 0, "tokenCost": 0, "electricity": 0, "promoBudget": 0}
+    return {
+        "users": user_count,
+        "jobs": max(len(jobs), job_count),
+        "images": image_count,
+        "errors": len(failed),
+        "completedToday": len(completed),
+        "activeUsers": 1,
+        "tokenBalanceTotal": token_total,
+        "finance": finance,
+        "availableModels": ["local_flux_klein", "server_flux_klein", "openrouter_cloud"],
+        "loras": ["lora_arcane", "product_photo"],
+        "recentErrors": [item.get("error") for item in failed[-5:]],
+        "queue": [{k: v for k, v in item.items() if k != "request"} for item in jobs.values()],
+        "rateLimits": rate_limits,
+    }
+
+
+@app.get("/api/admin/users")
+async def admin_users(request: Request) -> list[dict[str, Any]]:
+    require_admin(request)
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, telegram_id, max_id, username, first_name, last_name, middle_name, phone, email, language, role, plan, token_balance,
+                   gallery_enabled, country, city, timezone, total_time_seconds, generation_count, tokens_used,
+                   promo_used_count, referrals_count, banned, last_seen_at, created_at, last_login_at
+            FROM users ORDER BY last_login_at DESC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.post("/api/admin/users")
+async def admin_create_user(req: AdminUserRequest, request: Request) -> dict[str, Any]:
+    require_admin(request)
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO users (id, username, first_name, last_name, middle_name, phone, email, country, city, language, role, plan, token_balance, gallery_enabled, created_at, last_login_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ru', ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                username=COALESCE(excluded.username, users.username),
+                first_name=COALESCE(excluded.first_name, users.first_name),
+                last_name=COALESCE(excluded.last_name, users.last_name),
+                middle_name=COALESCE(excluded.middle_name, users.middle_name),
+                phone=COALESCE(excluded.phone, users.phone),
+                email=COALESCE(excluded.email, users.email),
+                country=COALESCE(excluded.country, users.country),
+                city=COALESCE(excluded.city, users.city),
+                role=excluded.role,
+                plan=excluded.plan,
+                token_balance=excluded.token_balance,
+                gallery_enabled=excluded.gallery_enabled,
+                last_login_at=excluded.last_login_at
+            """,
+            (req.userId, req.username, req.firstName, req.lastName, req.middleName, req.phone, req.email, req.country, req.city, req.role, req.plan, req.tokenBalance, int(req.galleryEnabled), now, now),
+        )
+        conn.execute(
+            "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'admin_register', '{}', ?)",
+            (str(uuid.uuid4()), req.userId, req.tokenBalance, now),
+        )
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (req.userId,)).fetchone()
+    return {"ok": True, "user": dict(row)}
+
+
+@app.patch("/api/admin/users/{user_id}")
+async def admin_update_user(user_id: str, req: AdminUserUpdateRequest, request: Request) -> dict[str, Any]:
+    require_admin(request)
+    updates: list[str] = []
+    values: list[Any] = []
+    if req.role is not None:
+        updates.append("role = ?")
+        values.append(req.role)
+    if req.plan is not None:
+        updates.append("plan = ?")
+        values.append(req.plan)
+    if req.tokenBalance is not None:
+        updates.append("token_balance = ?")
+        values.append(req.tokenBalance)
+    if req.galleryEnabled is not None:
+        updates.append("gallery_enabled = ?")
+        values.append(int(req.galleryEnabled))
+    if req.banned is not None:
+        updates.append("banned = ?")
+        values.append(int(req.banned))
+    if req.phone is not None:
+        updates.append("phone = ?")
+        values.append(req.phone)
+    if req.firstName is not None:
+        updates.append("first_name = ?")
+        values.append(req.firstName)
+    if req.lastName is not None:
+        updates.append("last_name = ?")
+        values.append(req.lastName)
+    if req.middleName is not None:
+        updates.append("middle_name = ?")
+        values.append(req.middleName)
+    if req.email is not None:
+        updates.append("email = ?")
+        values.append(req.email)
+    if req.country is not None:
+        updates.append("country = ?")
+        values.append(req.country)
+    if req.city is not None:
+        updates.append("city = ?")
+        values.append(req.city)
+    if not updates:
+        raise HTTPException(400, "No updates provided.")
+    with db() as conn:
+        values.append(user_id)
+        conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", values)
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "User not found.")
+    return {"ok": True, "user": dict(row)}
+
+
+@app.delete("/api/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, request: Request) -> dict[str, Any]:
+    require_admin(request)
+    protected = {"demo_user", "web_admin"}
+    if user_id in protected:
+        raise HTTPException(400, "Protected user cannot be disabled.")
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        row = conn.execute("SELECT id, internal_user_id FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "User not found.")
+        iuid = row["internal_user_id"]
+        # Safe-disable: set banned, disable password, revoke sessions — keep identity for audit
+        conn.execute("UPDATE users SET banned = 1 WHERE id = ?", (user_id,))
+        conn.execute(
+            "UPDATE auth_passwords SET disabled_at = ? WHERE internal_user_id = ? AND disabled_at IS NULL",
+            (now, iuid),
+        )
+        conn.execute(
+            "UPDATE auth_sessions SET revoked_at = ?, revoke_reason = 'admin_disable_user' WHERE internal_user_id = ? AND revoked_at IS NULL",
+            (now, iuid),
+        )
+        try:
+            record_security_event(conn, "admin_user_disabled", severity="warning", internal_user_id=iuid, request=request)
+        except Exception:
+            pass
+        try:
+            record_event_log("admin_disable_user", internal_user_id=iuid, legacy_user_id=user_id, platform="web")
+        except Exception:
+            pass
+    return {"ok": True, "disabled": user_id}
+
+
+@app.get("/api/admin/users/{user_id}/history")
+async def admin_user_history(user_id: str, request: Request) -> dict[str, Any]:
+    require_admin(request)
+    with db() as conn:
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            raise HTTPException(404, "User not found.")
+        user_jobs = conn.execute("SELECT id, mode, provider, status, prompt_original, result_image_id, error_message, created_at, completed_at FROM jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT 100", (user_id,)).fetchall()
+        user_images = conn.execute("SELECT id, url, thumbnail_url, mode, provider, prompt_original, created_at FROM images WHERE user_id = ? ORDER BY created_at DESC LIMIT 100", (user_id,)).fetchall()
+        ledger = conn.execute("SELECT id, delta, reason, meta_json, created_at FROM token_ledger WHERE user_id = ? ORDER BY created_at DESC LIMIT 100", (user_id,)).fetchall()
+    return {
+        "ok": True,
+        "user": dict(user),
+        "jobs": [dict(row) for row in user_jobs],
+        "images": [dict(row) for row in user_images],
+        "ledger": [dict(row) for row in ledger],
+    }
+
+
+@app.get("/api/admin/promos")
+async def admin_promos(request: Request) -> list[dict[str, Any]]:
+    require_admin(request)
+    with db() as conn:
+        rows = conn.execute("SELECT code, tokens, activation_limit, activation_count, enabled, created_at, updated_at FROM promo_codes ORDER BY updated_at DESC").fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.post("/api/admin/promos")
+async def admin_create_promo(req: AdminPromoRequest, request: Request) -> dict[str, Any]:
+    require_admin(request)
+    now = datetime.now(timezone.utc).isoformat()
+    code = req.code.strip().upper()
+    if not code:
+        raise HTTPException(400, "Promo code is required.")
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO promo_codes (code, tokens, activation_limit, activation_count, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, 0, 1, ?, ?)
+            ON CONFLICT(code) DO UPDATE SET
+                tokens=excluded.tokens,
+                activation_limit=excluded.activation_limit,
+                enabled=1,
+                updated_at=excluded.updated_at
+            """,
+            (code, req.tokens, req.activationLimit, now, now),
+        )
+        row = conn.execute("SELECT code, tokens, activation_limit, activation_count, enabled, created_at, updated_at FROM promo_codes WHERE code = ?", (code,)).fetchone()
+    return {"ok": True, "promo": dict(row)}
+
+
+@app.get("/api/admin/settings")
+async def admin_get_settings(request: Request) -> dict[str, Any]:
+    require_admin(request)
+    with db() as conn:
+        rows = conn.execute("SELECT key, value_json FROM admin_settings").fetchall()
+    return {row["key"]: json.loads(row["value_json"] or "{}") for row in rows}
+
+
+@app.post("/api/admin/settings/{key}")
+async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Request) -> dict[str, Any]:
+    require_admin(request)
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO admin_settings (key, value_json, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at
+            """,
+            (key, json.dumps(req.settings, ensure_ascii=False), now),
+        )
+    return {"ok": True, "key": key, "settings": req.settings}
+
+
+@app.get("/api/admin/jobs")
+async def admin_jobs(request: Request) -> list[dict[str, Any]]:
+    require_admin(request)
+    return [{k: v for k, v in item.items() if k != "request"} for item in jobs.values()]
+
+
+@app.post("/api/admin/limits")
+async def admin_limits(req: AdminLimitRequest, request: Request) -> dict[str, Any]:
+    require_admin(request)
+    rate_limits.update({"hourly": req.hourly, "daily": req.daily})
+    return {"ok": True, "rateLimits": rate_limits}
+
+
+@app.post("/api/telegram/webhook")
+async def telegram_webhook(payload: dict[str, Any]) -> dict[str, Any]:
+    print("telegram webhook", json.dumps(payload, ensure_ascii=False))
+    message = payload.get("message") or {}
+    text = message.get("text") if isinstance(message, dict) else payload.get("text", "/start")
+    chat = message.get("chat") or {}
+    chat_id = chat.get("id")
+    if isinstance(text, str) and text.startswith("/") and chat_id is not None:
+        answer = bot_command_response("telegram", text)
+        try:
+            await telegram_api("sendMessage", telegram_answer_payload(chat_id, answer))
+        except Exception as exc:
+            print("telegram webhook sendMessage error", exc)
+    return {"ok": True}
+
+
+@app.post("/api/max/webhook")
+async def max_webhook(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    if MAX_WEBHOOK_SECRET and request.headers.get("X-Max-Bot-Api-Secret") != MAX_WEBHOOK_SECRET:
+        raise HTTPException(403, "Invalid MAX webhook secret.")
+    print("max webhook", json.dumps(payload, ensure_ascii=False))
+    message = payload.get("message") or {}
+    text = message.get("text") if isinstance(message, dict) else payload.get("text", "/start")
+    if isinstance(text, str) and text.startswith("/"):
+        answer = bot_command_response("max", text)
+        params = max_recipient_params(message)
+        if params:
+            try:
+                await max_api("POST", "/messages", max_message_payload(answer), params=params)
+            except Exception as exc:
+                print("max webhook sendMessage error", exc)
+    return {"ok": True}

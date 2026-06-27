@@ -1,0 +1,191 @@
+"""Admin/auth analytics tests (Phase 18). Temp SQLite via monkeypatch; no live DB."""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+import main
+
+PW = "S3cret-Password!"
+
+
+@pytest.fixture
+def temp_db(tmp_path, monkeypatch):
+    db_file = tmp_path / "analytics_test.sqlite3"
+    monkeypatch.setattr(main, "DB_PATH", db_file)
+    monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
+    main.init_db()
+    return db_file
+
+
+def count(table, where="", params=()):
+    with main.db() as conn:
+        return conn.execute(f"SELECT COUNT(*) AS c FROM {table} {where}", params).fetchone()["c"]
+
+
+def make_admin():
+    iuid = "iuid-admin"
+    with main.db() as conn:
+        conn.execute("INSERT INTO users (id, internal_user_id, role, language, created_at, last_login_at) "
+                     "VALUES ('telegram_admin', ?, 'admin', 'ru', '2026-01-01', '2026-01-01')", (iuid,))
+    s = main.create_auth_session(iuid, "telegram_admin", provider="telegram", platform="telegram_mini_app")
+    return s["session_token"]
+
+
+def bearer(t):
+    return {"Authorization": f"Bearer {t}"}
+
+
+def register(c, email):
+    return c.post("/api/auth/password/register-v2", json={"email": email, "password": PW, "password_repeat": PW,
+                  "accepted_terms": True, "accepted_privacy": True, "accepted_personal_data": True, "platform": "web_desktop"})
+
+
+# 1, 2, 3
+def test_public_code_assigned_stable_unique_prefixed(temp_db):
+    with TestClient(main.app) as c:
+        register(c, "a@example.com")
+        register(c, "b@example.com")
+    with main.db() as conn:
+        codes = [r["public_user_code"] for r in conn.execute("SELECT public_user_code FROM users WHERE public_user_code IS NOT NULL")]
+    assert all(c and re.match(r"^(WEB|TG|MAX|USR)-\d{6}$", c) for c in codes)
+    assert len(codes) == len(set(codes))  # unique
+    web = [c for c in codes if c.startswith("WEB-")]
+    assert len(web) >= 2  # web/email users get WEB prefix
+    # stable across re-init
+    main.init_db()
+    with main.db() as conn:
+        codes2 = sorted(r["public_user_code"] for r in conn.execute("SELECT public_user_code FROM users WHERE public_user_code IS NOT NULL"))
+    assert sorted(codes) == codes2
+
+
+# 4
+def test_display_name_priority(temp_db):
+    class Row(dict):
+        def __getitem__(self, k):
+            return super().get(k)
+        def keys(self):
+            return super().keys()
+    u = Row(display_name="Custom Name", first_name="F", last_name="L", username="nick", email="x@y.com", public_user_code="WEB-000001")
+    assert main.resolve_display_name(u) == "Custom Name"
+    assert main.resolve_display_name(Row(first_name="Иван", last_name="Петров")) == "Иван Петров"
+    assert main.resolve_display_name(Row(username="cooluser")) == "cooluser"
+    assert main.resolve_display_name(Row(email="local.part@mail.com")) == "local.part"
+    assert main.resolve_display_name(Row(public_user_code="TG-000009")) == "TG-000009"
+    assert main.resolve_display_name(Row()) == "Пользователь"
+
+
+# 5
+def test_password_login_updates_session_platform_lastseen(temp_db):
+    with TestClient(main.app) as c:
+        register(c, "act@example.com")
+    with main.db() as conn:
+        u = conn.execute("SELECT internal_user_id, last_seen_at FROM users WHERE email='act@example.com' OR id IN (SELECT legacy_user_id FROM auth_identities WHERE provider_user_id='act@example.com')").fetchone()
+        iuid = conn.execute("SELECT internal_user_id FROM auth_identities WHERE provider_user_id='act@example.com'").fetchone()["internal_user_id"]
+        sess = conn.execute("SELECT provider, platform FROM auth_sessions WHERE internal_user_id=? ORDER BY created_at DESC LIMIT 1", (iuid,)).fetchone()
+        last_seen = conn.execute("SELECT last_seen_at FROM users WHERE internal_user_id=?", (iuid,)).fetchone()["last_seen_at"]
+    assert sess["provider"] == "web_email" and sess["platform"] == "web"
+    assert last_seen is not None
+
+
+# 8, 9
+def test_get_client_ip_trust(temp_db, monkeypatch):
+    class Req:
+        def __init__(self, headers, host="1.2.3.4"):
+            self.headers = headers
+            self.client = type("C", (), {"host": host})()
+    # default: ignore forwarded headers
+    monkeypatch.setattr(main, "TRUST_PROXY_HEADERS", False)
+    monkeypatch.setattr(main, "TRUST_CLOUDFLARE_HEADERS", False)
+    assert main.get_client_ip(Req({"x-forwarded-for": "9.9.9.9", "cf-connecting-ip": "8.8.8.8"})) == "1.2.3.4"
+    # cloudflare trust on
+    monkeypatch.setattr(main, "TRUST_CLOUDFLARE_HEADERS", True)
+    assert main.get_client_ip(Req({"cf-connecting-ip": "8.8.8.8"})) == "8.8.8.8"
+    # proxy trust on -> first XFF
+    monkeypatch.setattr(main, "TRUST_CLOUDFLARE_HEADERS", False)
+    monkeypatch.setattr(main, "TRUST_PROXY_HEADERS", True)
+    assert main.get_client_ip(Req({"x-forwarded-for": "9.9.9.9, 10.0.0.1"})) == "9.9.9.9"
+
+
+# 10, 11
+def test_dashboard_requires_admin(temp_db):
+    with TestClient(main.app) as c:
+        assert c.get("/api/admin/dashboard-v2").status_code == 401
+    # non-admin
+    with TestClient(main.app) as c:
+        register(c, "nonadmin@example.com")
+        r = c.get("/api/admin/dashboard-v2")
+    assert r.status_code == 403
+
+
+# 12
+def test_dashboard_counts(temp_db):
+    tok = make_admin()
+    with TestClient(main.app) as c:
+        register(c, "u1@example.com")
+        register(c, "u2@example.com")
+        r = c.get("/api/admin/dashboard-v2", headers=bearer(tok))
+    d = r.json()["dashboard"]
+    assert d["total_users"] >= 3
+    assert d["new_today"] >= 2
+    assert d["logins_today"] >= 2  # two register-succeeded logins
+    assert "web_email" in d["users_by_provider"]
+    assert d["sessions_active"] >= 1
+
+
+# 13, 14
+def test_users_analytics_no_hashes_and_clean_ids(temp_db):
+    tok = make_admin()
+    with TestClient(main.app) as c:
+        register(c, "clean@example.com")
+        r = c.get("/api/admin/users-analytics-v2", headers=bearer(tok))
+    text = r.text
+    for forbidden in ("session_token_hash", "refresh_token_hash", "code_hash", "password_hash"):
+        assert forbidden not in text
+    item = next(i for i in r.json()["items"] if i["public_user_code"] and i["public_user_code"].startswith("WEB-"))
+    assert "public_user_code" in item and "display_name" in item and "primary_provider" in item
+    # full internal_user_id is provided for the drawer fetch (not a primary display field);
+    # a short form is also present for the collapsed technical view
+    assert "internal_user_id" in item and item["internal_user_id"]
+    assert item["internal_user_id_short"].endswith("…")
+
+
+# 15
+def test_user_detail_analytics_safe(temp_db):
+    tok = make_admin()
+    with TestClient(main.app) as c:
+        register(c, "detail@example.com")
+        iuid = None
+        with main.db() as conn:
+            iuid = conn.execute("SELECT internal_user_id FROM auth_identities WHERE provider_user_id='detail@example.com'").fetchone()["internal_user_id"]
+        r = c.get(f"/api/admin/users/{iuid}/analytics-v2", headers=bearer(tok))
+    assert r.status_code == 200
+    b = r.json()
+    assert "summary" in b and "identities" in b and "sessions" in b and "devices" in b
+    text = r.text
+    for forbidden in ("session_token_hash", "refresh_token_hash", "password_hash", "code_hash", "raw_profile_json"):
+        assert forbidden not in text
+
+
+# 6, 7: provider profile fields captured (telegram/max upsert already store them)
+def test_provider_profile_fields_captured(temp_db):
+    now = "2026-06-26T00:00:00+00:00"
+    with main.db() as conn:
+        main.telegram_upsert_identity(conn, {"id": 555, "first_name": "Ольга", "last_name": "И", "username": "olga", "language_code": "ru", "photo_url": "http://x/p.jpg"}, now)
+        main.max_upsert_identity(conn, {"id": 777, "first_name": "Max", "username": "maxuser", "language_code": "en"}, now)
+        tg = conn.execute("SELECT * FROM auth_identities WHERE provider='telegram' AND provider_user_id='555'").fetchone()
+        mx = conn.execute("SELECT * FROM auth_identities WHERE provider='max' AND provider_user_id='777'").fetchone()
+    assert tg["provider_username"] == "olga" and tg["provider_first_name"] == "Ольга" and tg["provider_avatar_url"] == "http://x/p.jpg"
+    assert mx["provider_username"] == "maxuser" and mx["provider_language_code"] == "en"
+
+
+# 16-ish: users.id never changed
+def test_users_id_unchanged(temp_db):
+    with main.db() as conn:
+        conn.execute("INSERT INTO users (id, internal_user_id, language, role, created_at, last_login_at) VALUES ('telegram_keep','iuid-keep','ru','user','2026-01-01','2026-01-01')")
+    main.init_db()
+    with main.db() as conn:
+        assert conn.execute("SELECT COUNT(*) AS c FROM users WHERE id='telegram_keep'").fetchone()["c"] == 1
