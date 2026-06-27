@@ -4,7 +4,7 @@
 // Every risky action requires a reason and is written to audit_logs. No tokens/hashes
 // are ever requested or shown.
 import { useCallback, useEffect, useState } from 'react'
-import type { ReactElement } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactElement } from 'react'
 import { APP_BUILD_LABEL } from './diag'
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
@@ -59,6 +59,25 @@ const S = (v: unknown): string => (v === null || v === undefined || v === '' ? '
 const shortId = (v: unknown, n = 8): string => { const s = v == null ? '' : String(v); return s ? s.slice(0, n) + (s.length > n ? '…' : '') : '—' }
 const n0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 const deferred = 'Отложено: backend v2 пока не отдаёт эти данные.'
+type ActivityKind = 'online' | 'today' | 'week' | 'month' | 'cold'
+const ACTIVITY_LABEL: Record<ActivityKind, string> = { online: 'Онлайн', today: 'Был сегодня', week: 'Был на неделе', month: 'Был в месяце', cold: 'Нет генераций / холодный' }
+
+function activityKind(u: CrmUserRow): ActivityKind {
+  if (n0(u.active_sessions_count) > 0) return 'online'
+  const t = u.last_seen_at ? new Date(u.last_seen_at).getTime() : 0
+  const days = t ? (Date.now() - t) / 86400000 : Number.POSITIVE_INFINITY
+  if (n0(u.generations_count) === 0 || days > 30) return 'cold'
+  if (days <= 1) return 'today'
+  if (days <= 7) return 'week'
+  return 'month'
+}
+
+function initials(u: CrmUserRow & AnyRec, ids?: AnyRec[]): string {
+  const name = parsedName(u, ids)
+  const parts = name.split(/[\s._-]+/).filter(Boolean)
+  const raw = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : name.slice(0, 2)
+  return raw.toUpperCase()
+}
 
 function riskLabel(u: CrmUserRow & AnyRec): string {
   const explicit = String(u.risk_level || '').trim()
@@ -204,6 +223,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const sm = (data?.summary || u) as CrmUserRow & AnyRec
   const ids = data?.identities
   const merged = { ...u, ...(data?.summary || {}) } as CrmUserRow
+  const active = activityKind(merged)
   const isAdmin = String(sm.role) === 'admin'
   const isBanned = sm.status === 'banned'
   const row = (k: string, v: unknown) => <><dt>{k}</dt><dd>{S(v)}</dd></>
@@ -214,8 +234,8 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
     : state === 'error' ? 'Не удалось загрузить данные.' : ''
 
   const actionButton = (kind: ActKind, label: string, preset?: string, danger?: boolean) =>
-    <button className={danger ? 'secondary danger' : 'secondary'} onClick={() => setAct({ kind, preset })}>{label}</button>
-  const disabledAction = (label: string) => <button className="secondary" disabled title={deferred}>{label}</button>
+    <button className={danger ? 'secondary danger crm-supported-action' : 'secondary crm-supported-action'} onClick={() => setAct({ kind, preset })}>{label}</button>
+  const disabledAction = (label: string) => <button className="secondary deferred-action" disabled title={deferred}>{label}<small>Отложено</small></button>
 
   return (
     <div className="crm-card-overlay" onClick={onClose}>
@@ -223,14 +243,14 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
         <header className="crm-card-header">
           <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
           <div className="crm-card-id crm-card-id-rich">
-            <span className={isBanned ? 'crm-avatar risk' : 'crm-avatar'}>{parsedName(sm, ids).slice(0, 1).toUpperCase()}</span>
+            <span className={`crm-avatar activity-${active} ${isBanned ? 'risk' : ''}`}>{initials(sm, ids)}</span>
             <div>
               <h2>{parsedName(sm, ids)}</h2>
               <span className="crm-preview-code">{S(sm.public_user_code)}</span>
             </div>
             <span className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</span>
             <span className={isBanned ? 'status-banned' : 'status-active'}>{S(sm.status)}</span>
-            <span>{S(sm.role)}</span><span>{S(sm.plan)}</span>
+            <span>{S(sm.role)}</span><span>{S(sm.plan)}</span><span>{ACTIVITY_LABEL[active]}</span>
           </div>
           <div className="crm-card-kpis">
             <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Списано <b>{S(sm.tokens_spent)}</b></span>
@@ -321,7 +341,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
           <aside className="crm-card-actions">
             <h4>Админ-действия</h4>
             <p className="crm-card-note">Каждое поддержанное действие требует причину и пишется в audit log.</p>
-            <div className="crm-action-group"><strong>Токены</strong><div className="crm-quick"><button className="secondary" onClick={() => setAct({ kind: 'tokens', preset: '50' })}>+50</button><button className="secondary" onClick={() => setAct({ kind: 'tokens', preset: '-50' })}>-50</button>{actionButton('tokens', 'Другое')}</div></div>
+            <div className="crm-action-group"><strong>Токены</strong><div className="crm-quick"><button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'tokens', preset: '50' })}>+50</button><button className="secondary crm-supported-action" onClick={() => setAct({ kind: 'tokens', preset: '-50' })}>-50</button>{actionButton('tokens', 'Другое')}</div></div>
             <div className="crm-action-group"><strong>Биллинг</strong>{actionButton('plan', 'Изменить тариф')}{disabledAction('Выставить счёт')}{disabledAction('Платежи')}</div>
             <div className="crm-action-group"><strong>Маркетинг</strong>{disabledAction('Начислить бонус')}{disabledAction('Применить промокод')}</div>
             <div className="crm-action-group"><strong>Доступ</strong>{actionButton(isBanned ? 'unban' : 'ban', isBanned ? 'Разбанить' : 'Бан/Разбан', undefined, !isBanned)}{actionButton('reset', 'Сбросить пароль', undefined, true)}</div>
@@ -359,22 +379,24 @@ function RowActionMenu({ u, onAct, onCard }: {
 }): ReactElement {
   const banned = u.status === 'banned'
   const admin = u.role === 'admin'
+  const stop = (e: ReactMouseEvent) => e.stopPropagation()
+  const run = (e: ReactMouseEvent, f: () => void) => { e.stopPropagation(); f() }
   return (
-    <details className="crm-row-menu">
-      <summary>Действия</summary>
+    <details className="crm-row-menu" onClick={stop}>
+      <summary onClick={stop}>Действия</summary>
       <div className="crm-row-menu-pop">
         <strong>Профиль</strong>
-        <button onClick={onCard}>Карточка клиента</button>
-        <button onClick={() => onAct('profile')}>Редактировать профиль</button>
+        <button onClick={(e) => run(e, onCard)}>Карточка клиента</button>
+        <button onClick={(e) => run(e, () => onAct('profile'))}>Редактировать профиль</button>
         <strong>Управление</strong>
-        <button onClick={() => onAct('plan')}>Изменить тариф</button>
+        <button onClick={(e) => run(e, () => onAct('plan'))}>Изменить тариф</button>
         <button disabled title={deferred}>Выставить счёт</button>
         <button disabled title={deferred}>Начислить бонус</button>
         <button disabled title={deferred}>Применить промокод</button>
         <strong>Безопасность</strong>
-        <button className={banned ? '' : 'danger'} onClick={() => onAct(banned ? 'unban' : 'ban')}>Бан/Разбан</button>
-        <button className="danger" onClick={() => onAct('reset')}>Сбросить пароль</button>
-        <button onClick={() => onAct('role')}>{admin ? 'Снять админа' : 'Сделать админом'}</button>
+        <button className={banned ? '' : 'danger'} onClick={(e) => run(e, () => onAct(banned ? 'unban' : 'ban'))}>Бан/Разбан</button>
+        <button className="danger" onClick={(e) => run(e, () => onAct('reset'))}>Сбросить пароль</button>
+        <button onClick={(e) => run(e, () => onAct('role'))}>{admin ? 'Снять админа' : 'Сделать админом'}</button>
         <strong>Прочее</strong>
         <button disabled title={deferred}>Удаление/анонимизация</button>
       </div>
@@ -382,7 +404,7 @@ function RowActionMenu({ u, onAct, onCard }: {
   )
 }
 
-function CrmSettingsScaffold(): ReactElement {
+function CrmSettingsScaffold({ onClose }: { onClose: () => void }): ReactElement {
   const [compact, setCompact] = useState(true)
   const [stickyCard, setStickyCard] = useState(true)
   const [hideSensitive, setHideSensitive] = useState(true)
@@ -392,6 +414,7 @@ function CrmSettingsScaffold(): ReactElement {
       <div className="crm-settings-head">
         <h4>Настройки CRM</h4>
         <span>Локально, без legacy settings endpoint</span>
+        <button className="mini" onClick={onClose}>Закрыть</button>
       </div>
       <div className="crm-settings-grid">
         <label><span>Колонки списка</span><select defaultValue="operator"><option value="operator">Операторские 11 колонок</option><option value="compact">Компактный набор</option></select></label>
@@ -414,6 +437,7 @@ export function AdminAnalyticsV2(): ReactElement {
   const [loading, setLoading] = useState(true)
   const [card, setCard] = useState<CrmUserRow | null>(null)
   const [rowAct, setRowAct] = useState<{ u: CrmUserRow; kind: ActKind; preset?: string } | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -452,7 +476,10 @@ export function AdminAnalyticsV2(): ReactElement {
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}><option value="all">Все статусы</option><option value="active">Активные</option><option value="banned">Забанены</option><option value="admin">Админы</option></select>
         <button className="secondary" onClick={() => void load()}>Найти</button>
       </div>
-      <CrmSettingsScaffold />
+      <div className="crm-viewbar">
+        <button className="secondary crm-settings-toggle" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((v) => !v)}>Вид и колонки</button>
+      </div>
+      {settingsOpen && <CrmSettingsScaffold onClose={() => setSettingsOpen(false)} />}
       {loading ? <p>Загрузка…</p> : (
         <div className="analytics-table dense">
           <div className="analytics-row analytics-head">
@@ -461,22 +488,28 @@ export function AdminAnalyticsV2(): ReactElement {
           {users.map((u) => {
             const banned = u.status === 'banned'
             const sourceList = u.providers?.length ? u.providers : u.primary_provider ? [u.primary_provider] : []
+            const active = activityKind(u)
+            const openCard = () => setCard(u)
+            const stop = (e: ReactMouseEvent) => e.stopPropagation()
+            const rowKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCard() }
+            }
             return (
-              <div key={u.public_user_code || u.internal_user_id_short} className="analytics-row crm-row">
-                <span><strong>{u.display_name || u.username || u.public_user_code}</strong><small>{u.public_user_code}</small></span>
-                <span><small>{shortTime(u.last_seen_at)}</small><small>{u.active_sessions_count ?? 0} сесс. · {u.last_platform || '—'} · {u.last_ip || '—'}</small></span>
+              <div key={u.public_user_code || u.internal_user_id_short} className={`analytics-row crm-row activity-${active}`} role="button" tabIndex={0} aria-label={`Открыть карточку ${u.display_name || u.username || u.public_user_code}`} onClick={openCard} onKeyDown={rowKey}>
+                <span className="crm-client-cell"><span className={`crm-avatar crm-row-avatar activity-${active}`}>{initials(u as CrmUserRow & AnyRec)}</span><span><strong>{u.display_name || u.username || u.public_user_code}</strong><small>{u.public_user_code}</small><span className="crm-chip-row"><em className={`crm-chip status-${u.status || 'active'}`}>{u.status || 'active'}</em><em className="crm-chip">{u.role || 'user'}</em><em className="crm-chip plan">{u.plan || 'free'}</em></span></span></span>
+                <span><small><i className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}</small><small>{shortTime(u.last_seen_at)}</small><small>{u.active_sessions_count ?? 0} сесс. · {u.last_platform || '—'} · {u.last_ip || '—'}</small></span>
                 <span>{sourceList.map((p) => <Badge key={p} p={p} />)}<small>{u.marketing_source || '—'}</small></span>
                 <span><small>{u.email || '—'}</small><small>{u.username ? `@${u.username}` : ''}{u.phone ? ` · ${u.phone}` : ''}</small></span>
-                <span><small>{u.role || 'user'} · {u.status || 'active'}</small><small>{u.plan || 'free'}</small></span>
+                <span><span className="crm-chip-row"><em className="crm-chip">{u.role || 'user'}</em><em className={banned ? 'crm-chip status-banned' : 'crm-chip status-active'}>{u.status || 'active'}</em></span><small>{u.plan || 'free'}</small></span>
                 <span><small>Баланс {n0(u.token_balance)}</small><small>Списано {n0(u.tokens_spent)}</small></span>
                 <span><strong>{n0(u.generations_count)}</strong><small>Галерея: отложено</small></span>
                 <span><small>{deviceLabel(u)}</small><small>{u.device_count ?? 0} устр.</small></span>
                 <span><small>Промо: отложено</small><small>Рефералы: отложено</small></span>
                 <span className={banned ? 'status-banned' : 'status-active'}><strong>{riskLabel(u as CrmUserRow & AnyRec)}</strong><small>{banned ? 'banned' : 'ok'}</small></span>
                 <span className="crm-row-actions">
-                  <button className="mini" onClick={() => setCard(u)}>Карточка</button>
-                  <button className="mini" onClick={() => setRowAct({ u, kind: 'tokens', preset: '50' })}>+50</button>
-                  <button className="mini" onClick={() => setRowAct({ u, kind: 'tokens', preset: '-50' })}>-50</button>
+                  <button className="mini" onClick={(e) => { stop(e); setCard(u) }}>Карточка</button>
+                  <button className="mini" onClick={(e) => { stop(e); setRowAct({ u, kind: 'tokens', preset: '50' }) }}>+50</button>
+                  <button className="mini" onClick={(e) => { stop(e); setRowAct({ u, kind: 'tokens', preset: '-50' }) }}>-50</button>
                   <RowActionMenu u={u} onCard={() => setCard(u)} onAct={(kind, preset) => setRowAct({ u, kind, preset })} />
                 </span>
               </div>

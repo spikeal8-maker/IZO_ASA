@@ -80,6 +80,13 @@ for (const label of ['Клиент', 'Активность', 'Источник',
 }
 ok(admin.includes('RowActionMenu') && admin.includes('crm-row-menu'), 'grouped row action dropdown missing')
 ok(admin.includes('CrmSettingsScaffold') && admin.includes('Колонки списка') && admin.includes('Уровни админки'), 'CRM settings scaffold missing')
+ok(admin.includes('settingsOpen') && admin.includes('Вид и колонки') && /settingsOpen && <CrmSettingsScaffold/.test(admin), 'CRM settings must be collapsed behind the Вид и колонки button')
+ok(admin.includes('role="button"') && admin.includes('tabIndex={0}') && admin.includes('onKeyDown={rowKey}'), 'user rows must be keyboard-focusable buttons')
+ok(admin.includes("e.key === 'Enter'") && admin.includes("e.key === ' '"), 'Enter/Space keyboard row open missing')
+ok(admin.includes('onClick={openCard}') && admin.includes('aria-label={`Открыть карточку'), 'whole row click must open the client card')
+ok(admin.includes('e.stopPropagation()'), 'row controls/dropdowns must stop click propagation')
+ok(admin.includes('activityKind') && admin.includes('ACTIVITY_LABEL') && admin.includes('crm-row-avatar'), 'activity ring/labels missing')
+ok(admin.includes('crm-chip') && admin.includes('status-active') && admin.includes('status-banned'), 'role/status/plan chips missing')
 ok(admin.includes('MAC: недоступен') && !/MAC:\s*агент/.test(admin), 'MAC must be unavailable unless explicitly agent-collected')
 ok(admin.includes('Удаление/анонимизация') && /<button disabled title=\{deferred\}>Удаление\/анонимизация<\/button>/.test(admin), 'delete/anonymize must be present only as disabled/deferred')
 ok(admin.includes('Отложено: backend v2 пока не отдаёт эти данные.'), 'deferred backend data must be clearly labeled')
