@@ -350,6 +350,31 @@ class BillingRefundV2Request(BaseModel):
     idempotency_key: str | None = None
 
 
+class BonusGrantV2Request(BaseModel):
+    token_amount: int = 0
+    bonus_type: Literal["manual", "compensation", "campaign", "referral"] = "manual"
+    reason: str = ""
+    idempotency_key: str | None = None
+
+
+class BonusCancelV2Request(BaseModel):
+    reason: str = ""
+
+
+class ApplyPromoV2Request(BaseModel):
+    promo_code: str = ""
+    reason: str = ""
+    idempotency_key: str | None = None
+
+
+class ReferralRewardV2Request(BaseModel):
+    token_amount: int = 0
+    child_internal_user_id: str | None = None
+    referral_relation_id: str | None = None
+    reason: str = ""
+    idempotency_key: str | None = None
+
+
 class ProfileUpdateV2Request(BaseModel):
     # Only these safe profile fields can be patched. role/banned/internal_user_id/
     # users.id are absent here, so they can never be changed via this endpoint.
@@ -849,12 +874,92 @@ def init_db() -> None:
                 completed_at TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS promo_redemptions (
+                id TEXT PRIMARY KEY,
+                promo_code_id TEXT,
+                promo_code TEXT NOT NULL,
+                internal_user_id TEXT NOT NULL,
+                user_id TEXT,
+                status TEXT NOT NULL,
+                discount_amount INTEGER,
+                token_bonus INTEGER,
+                reason TEXT,
+                token_ledger_id TEXT,
+                created_by_admin_id TEXT,
+                idempotency_key TEXT UNIQUE,
+                created_at TEXT NOT NULL,
+                cancelled_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS bonus_grants (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT NOT NULL,
+                user_id TEXT,
+                bonus_type TEXT NOT NULL,
+                token_amount INTEGER NOT NULL DEFAULT 0,
+                money_amount INTEGER,
+                currency TEXT,
+                status TEXT NOT NULL,
+                reason TEXT,
+                token_ledger_id TEXT,
+                cancelled_ledger_id TEXT,
+                created_by_admin_id TEXT,
+                idempotency_key TEXT UNIQUE,
+                created_at TEXT NOT NULL,
+                cancelled_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS referral_links (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT NOT NULL,
+                user_id TEXT,
+                referral_code TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                disabled_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS referral_relations (
+                id TEXT PRIMARY KEY,
+                parent_internal_user_id TEXT NOT NULL,
+                child_internal_user_id TEXT NOT NULL,
+                referral_code TEXT,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                cancelled_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS referral_rewards (
+                id TEXT PRIMARY KEY,
+                referral_relation_id TEXT,
+                parent_internal_user_id TEXT NOT NULL,
+                child_internal_user_id TEXT,
+                reward_type TEXT NOT NULL,
+                token_amount INTEGER,
+                money_amount INTEGER,
+                currency TEXT,
+                status TEXT NOT NULL,
+                reason TEXT,
+                token_ledger_id TEXT,
+                created_by_admin_id TEXT,
+                idempotency_key TEXT UNIQUE,
+                created_at TEXT NOT NULL,
+                granted_at TEXT,
+                cancelled_at TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_invoices_user_created ON invoices(internal_user_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_invoices_status_created ON invoices(status, created_at);
             CREATE INDEX IF NOT EXISTS idx_payments_user_created ON payments(internal_user_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
             CREATE INDEX IF NOT EXISTS idx_refunds_user_created ON refunds(internal_user_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id);
+            CREATE INDEX IF NOT EXISTS idx_promo_redemptions_user_created ON promo_redemptions(internal_user_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_bonus_grants_user_created ON bonus_grants(internal_user_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_referral_links_code ON referral_links(referral_code);
+            CREATE INDEX IF NOT EXISTS idx_referral_relations_parent_created ON referral_relations(parent_internal_user_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_referral_relations_child_created ON referral_relations(child_internal_user_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_referral_rewards_parent_created ON referral_rewards(parent_internal_user_id, created_at);
             """
         )
         existing_user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
@@ -5144,7 +5249,7 @@ ADMIN_TOKENS_MAX_ABS = 100000
 
 
 def _admin_load_target(conn: sqlite3.Connection, internal_user_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT id, role, banned, token_balance, plan, display_name, email FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+    row = conn.execute("SELECT id, internal_user_id, role, banned, token_balance, plan, display_name, email FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
     if row is None:
         raise HTTPException(404, "User not found.")
     return row
@@ -5311,6 +5416,169 @@ def _billing_projection(conn: sqlite3.Connection, internal_user_id: str) -> dict
         "payments_recent": [_billing_payment_dict(r) for r in payments],
         "refunds_recent": [_billing_refund_dict(r) for r in refunds],
     }
+
+
+def _loyalty_promo_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "id_short": short_public_id(row["id"], 10),
+        "promo_code": truncate_admin_text(row["promo_code"], 80),
+        "status": row["status"],
+        "discount_amount": int(row["discount_amount"] or 0),
+        "token_bonus": int(row["token_bonus"] or 0),
+        "reason": truncate_admin_text(row["reason"], 120),
+        "token_ledger_id": short_public_id(row["token_ledger_id"], 10),
+        "created_at": row["created_at"],
+        "cancelled_at": row["cancelled_at"],
+    }
+
+
+def _loyalty_bonus_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "id_short": short_public_id(row["id"], 10),
+        "bonus_type": row["bonus_type"],
+        "token_amount": int(row["token_amount"] or 0),
+        "money_amount": int(row["money_amount"] or 0),
+        "currency": row["currency"],
+        "status": row["status"],
+        "reason": truncate_admin_text(row["reason"], 120),
+        "token_ledger_id": short_public_id(row["token_ledger_id"], 10),
+        "cancelled_ledger_id": short_public_id(row["cancelled_ledger_id"], 10),
+        "created_at": row["created_at"],
+        "cancelled_at": row["cancelled_at"],
+    }
+
+
+def _loyalty_link_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "id_short": short_public_id(row["id"], 10),
+        "referral_code": row["referral_code"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "disabled_at": row["disabled_at"],
+    }
+
+
+def _loyalty_relation_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "id_short": short_public_id(row["id"], 10),
+        "parent_internal_user_id": short_public_id(row["parent_internal_user_id"], 10),
+        "child_internal_user_id": short_public_id(row["child_internal_user_id"], 10),
+        "referral_code": row["referral_code"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "cancelled_at": row["cancelled_at"],
+    }
+
+
+def _loyalty_reward_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "id_short": short_public_id(row["id"], 10),
+        "referral_relation_id": short_public_id(row["referral_relation_id"], 10),
+        "parent_internal_user_id": short_public_id(row["parent_internal_user_id"], 10),
+        "child_internal_user_id": short_public_id(row["child_internal_user_id"], 10),
+        "reward_type": row["reward_type"],
+        "token_amount": int(row["token_amount"] or 0),
+        "money_amount": int(row["money_amount"] or 0),
+        "currency": row["currency"],
+        "status": row["status"],
+        "reason": truncate_admin_text(row["reason"], 120),
+        "token_ledger_id": short_public_id(row["token_ledger_id"], 10),
+        "created_at": row["created_at"],
+        "granted_at": row["granted_at"],
+        "cancelled_at": row["cancelled_at"],
+    }
+
+
+def _ensure_referral_link(conn: sqlite3.Connection, target: sqlite3.Row, now: str) -> sqlite3.Row:
+    row = conn.execute("SELECT * FROM referral_links WHERE internal_user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1", (target["internal_user_id"],)).fetchone()
+    if row is not None:
+        return row
+    base = (target["id"] or target["internal_user_id"] or uuid.uuid4().hex).replace("-", "")[:8].upper()
+    code = f"REF-{base}"
+    n = 1
+    while conn.execute("SELECT 1 FROM referral_links WHERE referral_code = ?", (code,)).fetchone() is not None:
+        n += 1
+        code = f"REF-{base}-{n}"
+    link_id = uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO referral_links (id, internal_user_id, user_id, referral_code, status, created_at) VALUES (?, ?, ?, ?, 'active', ?)",
+        (link_id, target["internal_user_id"], target["id"], code, now),
+    )
+    return conn.execute("SELECT * FROM referral_links WHERE id = ?", (link_id,)).fetchone()
+
+
+def _loyalty_projection(conn: sqlite3.Connection, internal_user_id: str) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    target = _admin_load_target(conn, internal_user_id)
+    link = _ensure_referral_link(conn, target, now)
+    promo_rows = conn.execute("SELECT * FROM promo_redemptions WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 20", (internal_user_id,)).fetchall()
+    bonus_rows = conn.execute("SELECT * FROM bonus_grants WHERE internal_user_id = ? ORDER BY created_at DESC LIMIT 20", (internal_user_id,)).fetchall()
+    relations = conn.execute(
+        "SELECT * FROM referral_relations WHERE parent_internal_user_id = ? OR child_internal_user_id = ? ORDER BY created_at DESC LIMIT 30",
+        (internal_user_id, internal_user_id),
+    ).fetchall()
+    reward_rows = conn.execute("SELECT * FROM referral_rewards WHERE parent_internal_user_id = ? ORDER BY created_at DESC LIMIT 20", (internal_user_id,)).fetchall()
+    summary = conn.execute(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM promo_redemptions WHERE internal_user_id = ? AND status = 'applied') AS promo_count,
+            (SELECT COUNT(*) FROM bonus_grants WHERE internal_user_id = ? AND status = 'granted') AS bonus_count,
+            (SELECT COUNT(*) FROM referral_relations WHERE parent_internal_user_id = ? AND status = 'active') AS children_count,
+            (SELECT COALESCE(SUM(CASE WHEN status = 'granted' THEN COALESCE(token_amount,0) ELSE 0 END),0) FROM referral_rewards WHERE parent_internal_user_id = ?) AS rewards_total
+        """,
+        (internal_user_id, internal_user_id, internal_user_id, internal_user_id),
+    ).fetchone()
+    return {
+        "loyalty_summary": {
+            "promo_redemption_count": int(summary["promo_count"] or 0),
+            "bonus_count": int(summary["bonus_count"] or 0),
+            "referral_children_count": int(summary["children_count"] or 0),
+            "referral_rewards_total": int(summary["rewards_total"] or 0),
+            "active_referral_code": link["referral_code"] if link else None,
+        },
+        "promo_redemptions_recent": [_loyalty_promo_dict(r) for r in promo_rows],
+        "bonus_grants_recent": [_loyalty_bonus_dict(r) for r in bonus_rows],
+        "referral_link": _loyalty_link_dict(link),
+        "referral_relations": [_loyalty_relation_dict(r) for r in relations],
+        "referral_rewards_recent": [_loyalty_reward_dict(r) for r in reward_rows],
+    }
+
+
+def _grant_tokens_with_ledger(
+    conn: sqlite3.Connection,
+    *,
+    target: sqlite3.Row,
+    delta: int,
+    reason: str,
+    ledger_reason: str,
+    meta: dict[str, Any],
+) -> tuple[str, int]:
+    old_balance = int(target["token_balance"] or 0)
+    new_balance = old_balance + int(delta)
+    if new_balance < 0:
+        raise HTTPException(400, "Баланс не может стать отрицательным.")
+    ledger_id = uuid.uuid4().hex
+    conn.execute(
+        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (ledger_id, target["id"], int(delta), ledger_reason, json.dumps({**meta, "reason": reason}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+    )
+    conn.execute("UPDATE users SET token_balance = ? WHERE internal_user_id = ?", (new_balance, target["internal_user_id"]))
+    return ledger_id, new_balance
 
 
 @app.post("/api/admin/users/{internal_user_id}/role-v2")
@@ -5701,6 +5969,233 @@ async def admin_refund_payment_v2(payment_id: str, req: BillingRefundV2Request, 
     return {"ok": True, "refund": refund, "payment": payment_out, "invoice": invoice_out}
 
 
+@app.get("/api/admin/users/{internal_user_id}/promos-v2")
+async def admin_user_promos_v2(internal_user_id: str, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    with db() as conn:
+        _admin_load_target(conn, internal_user_id)
+        projection = _loyalty_projection(conn, internal_user_id)
+    return {"ok": True, **projection}
+
+
+@app.get("/api/admin/users/{internal_user_id}/referrals-v2")
+async def admin_user_referrals_v2(internal_user_id: str, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    with db() as conn:
+        _admin_load_target(conn, internal_user_id)
+        projection = _loyalty_projection(conn, internal_user_id)
+    return {
+        "ok": True,
+        "loyalty_summary": projection["loyalty_summary"],
+        "referral_link": projection["referral_link"],
+        "referral_relations": projection["referral_relations"],
+        "referral_rewards_recent": projection["referral_rewards_recent"],
+    }
+
+
+@app.post("/api/admin/users/{internal_user_id}/bonus-v2")
+async def admin_bonus_grant_v2(internal_user_id: str, req: BonusGrantV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = _billing_reason(req.reason)
+    amount = int(req.token_amount or 0)
+    if amount <= 0:
+        raise HTTPException(400, "Сумма бонуса должна быть больше нуля.")
+    idem = _billing_idempotency(req.idempotency_key, f"bonus-{internal_user_id}")
+    now = datetime.now(timezone.utc).isoformat()
+    bonus: dict[str, Any] | None = None
+    new_balance = 0
+    legacy_user_id: str | None = None
+    with db() as conn:
+        existing = conn.execute("SELECT * FROM bonus_grants WHERE idempotency_key = ?", (idem,)).fetchone()
+        if existing is not None:
+            bal = conn.execute("SELECT token_balance FROM users WHERE internal_user_id = ?", (existing["internal_user_id"],)).fetchone()
+            return {"ok": True, "bonus": _loyalty_bonus_dict(existing), "new_token_balance": int(_row_get(bal, "token_balance") or 0), "idempotent": True}
+        target = _admin_load_target(conn, internal_user_id)
+        legacy_user_id = target["id"]
+        bonus_id = uuid.uuid4().hex
+        ledger_id, new_balance = _grant_tokens_with_ledger(
+            conn, target=target, delta=amount, reason=reason, ledger_reason="bonus_grant",
+            meta={"bonus_id": bonus_id, "bonus_type": req.bonus_type, "actor_internal_user_id": admin["internal_user_id"]},
+        )
+        conn.execute(
+            """
+            INSERT INTO bonus_grants
+                (id, internal_user_id, user_id, bonus_type, token_amount, status, reason, token_ledger_id,
+                 created_by_admin_id, idempotency_key, created_at)
+            VALUES (?, ?, ?, ?, ?, 'granted', ?, ?, ?, ?, ?)
+            """,
+            (bonus_id, internal_user_id, legacy_user_id, req.bonus_type, amount, reason, ledger_id, admin["internal_user_id"], idem, now),
+        )
+        row = conn.execute("SELECT * FROM bonus_grants WHERE id = ?", (bonus_id,)).fetchone()
+        bonus = _loyalty_bonus_dict(row)
+        record_audit_log(
+            conn, "crm_bonus_granted", actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=internal_user_id, entity_type="bonus", entity_id=bonus_id,
+            after={"bonus_type": req.bonus_type, "token_amount": amount, "token_balance": new_balance, "reason": reason},
+            request=request,
+        )
+    try:
+        record_event_log("crm_bonus_granted", internal_user_id=internal_user_id, legacy_user_id=legacy_user_id,
+                         platform=admin.get("platform", "web"), request=request,
+                         properties={"bonus_id": bonus["id"] if bonus else None, "bonus_type": req.bonus_type, "token_amount": amount})
+    except Exception:
+        pass
+    return {"ok": True, "bonus": bonus, "new_token_balance": new_balance}
+
+
+@app.post("/api/admin/users/{internal_user_id}/bonus/{bonus_id}/cancel-v2")
+async def admin_bonus_cancel_v2(internal_user_id: str, bonus_id: str, req: BonusCancelV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = _billing_reason(req.reason)
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        target = _admin_load_target(conn, internal_user_id)
+        bonus = conn.execute("SELECT * FROM bonus_grants WHERE id = ? AND internal_user_id = ?", (bonus_id, internal_user_id)).fetchone()
+        if bonus is None:
+            raise HTTPException(404, "Bonus not found.")
+        if bonus["status"] != "granted":
+            raise HTTPException(400, "Бонус уже отменён или недоступен.")
+        amount = int(bonus["token_amount"] or 0)
+        ledger_id, new_balance = _grant_tokens_with_ledger(
+            conn, target=target, delta=-amount, reason=reason, ledger_reason="bonus_cancel",
+            meta={"bonus_id": bonus_id, "actor_internal_user_id": admin["internal_user_id"]},
+        )
+        conn.execute(
+            "UPDATE bonus_grants SET status = 'cancelled', cancelled_ledger_id = ?, cancelled_at = ? WHERE id = ?",
+            (ledger_id, now, bonus_id),
+        )
+        row = conn.execute("SELECT * FROM bonus_grants WHERE id = ?", (bonus_id,)).fetchone()
+        record_audit_log(
+            conn, "crm_bonus_cancelled", actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=internal_user_id, entity_type="bonus", entity_id=bonus_id,
+            before={"status": bonus["status"], "token_balance": int(target["token_balance"] or 0)},
+            after={"status": "cancelled", "token_amount": -amount, "token_balance": new_balance, "reason": reason},
+            request=request,
+        )
+    return {"ok": True, "bonus": _loyalty_bonus_dict(row), "new_token_balance": new_balance}
+
+
+@app.post("/api/admin/users/{internal_user_id}/apply-promo-v2")
+async def admin_apply_promo_v2(internal_user_id: str, req: ApplyPromoV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = _billing_reason(req.reason)
+    promo_code = (req.promo_code or "").strip().upper()[:80]
+    if not promo_code:
+        raise HTTPException(400, "Укажите промокод.")
+    idem = _billing_idempotency(req.idempotency_key, f"promo-{internal_user_id}-{promo_code}")
+    now = datetime.now(timezone.utc).isoformat()
+    redemption: dict[str, Any] | None = None
+    new_balance = 0
+    legacy_user_id: str | None = None
+    token_bonus = 0
+    with db() as conn:
+        existing = conn.execute("SELECT * FROM promo_redemptions WHERE idempotency_key = ?", (idem,)).fetchone()
+        if existing is not None:
+            bal = conn.execute("SELECT token_balance FROM users WHERE internal_user_id = ?", (existing["internal_user_id"],)).fetchone()
+            return {"ok": True, "redemption": _loyalty_promo_dict(existing), "new_token_balance": int(_row_get(bal, "token_balance") or 0), "idempotent": True}
+        target = _admin_load_target(conn, internal_user_id)
+        legacy_user_id = target["id"]
+        promo = conn.execute("SELECT code, tokens, activation_limit, activation_count, enabled FROM promo_codes WHERE code = ?", (promo_code,)).fetchone()
+        if promo is None:
+            raise HTTPException(404, "Промокод не найден.")
+        if not int(promo["enabled"] or 0):
+            raise HTTPException(400, "Промокод отключён.")
+        if int(promo["activation_count"] or 0) >= int(promo["activation_limit"] or 0):
+            raise HTTPException(400, "Лимит активаций промокода исчерпан.")
+        duplicate = conn.execute(
+            "SELECT 1 FROM promo_redemptions WHERE internal_user_id = ? AND promo_code = ? AND status = 'applied'",
+            (internal_user_id, promo_code),
+        ).fetchone()
+        if duplicate is not None:
+            raise HTTPException(400, "Промокод уже применён к этому пользователю.")
+        redemption_id = uuid.uuid4().hex
+        token_bonus = int(promo["tokens"] or 0)
+        ledger_id: str | None = None
+        new_balance = int(target["token_balance"] or 0)
+        if token_bonus > 0:
+            ledger_id, new_balance = _grant_tokens_with_ledger(
+                conn, target=target, delta=token_bonus, reason=reason, ledger_reason="promo_redemption",
+                meta={"promo_redemption_id": redemption_id, "promo_code": promo_code, "actor_internal_user_id": admin["internal_user_id"]},
+            )
+        conn.execute(
+            """
+            INSERT INTO promo_redemptions
+                (id, promo_code_id, promo_code, internal_user_id, user_id, status, token_bonus, reason,
+                 token_ledger_id, created_by_admin_id, idempotency_key, created_at)
+            VALUES (?, ?, ?, ?, ?, 'applied', ?, ?, ?, ?, ?, ?)
+            """,
+            (redemption_id, promo_code, promo_code, internal_user_id, legacy_user_id, token_bonus, reason, ledger_id, admin["internal_user_id"], idem, now),
+        )
+        conn.execute("UPDATE promo_codes SET activation_count = activation_count + 1, updated_at = ? WHERE code = ?", (now, promo_code))
+        row = conn.execute("SELECT * FROM promo_redemptions WHERE id = ?", (redemption_id,)).fetchone()
+        redemption = _loyalty_promo_dict(row)
+        record_audit_log(
+            conn, "crm_promo_applied", actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=internal_user_id, entity_type="promo_redemption", entity_id=redemption_id,
+            after={"promo_code": promo_code, "token_bonus": token_bonus, "token_balance": new_balance, "reason": reason},
+            request=request,
+        )
+    try:
+        record_event_log("crm_promo_applied", internal_user_id=internal_user_id, legacy_user_id=legacy_user_id,
+                         platform=admin.get("platform", "web"), request=request,
+                         properties={"promo_code": promo_code, "token_bonus": token_bonus})
+    except Exception:
+        pass
+    return {"ok": True, "redemption": redemption, "new_token_balance": new_balance}
+
+
+@app.post("/api/admin/users/{internal_user_id}/referral-reward-v2")
+async def admin_referral_reward_v2(internal_user_id: str, req: ReferralRewardV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = _billing_reason(req.reason)
+    amount = int(req.token_amount or 0)
+    if amount <= 0:
+        raise HTTPException(400, "Сумма реферальной корректировки должна быть больше нуля.")
+    idem = _billing_idempotency(req.idempotency_key, f"referral-reward-{internal_user_id}")
+    now = datetime.now(timezone.utc).isoformat()
+    reward: dict[str, Any] | None = None
+    new_balance = 0
+    legacy_user_id: str | None = None
+    with db() as conn:
+        existing = conn.execute("SELECT * FROM referral_rewards WHERE idempotency_key = ?", (idem,)).fetchone()
+        if existing is not None:
+            bal = conn.execute("SELECT token_balance FROM users WHERE internal_user_id = ?", (existing["parent_internal_user_id"],)).fetchone()
+            return {"ok": True, "reward": _loyalty_reward_dict(existing), "new_token_balance": int(_row_get(bal, "token_balance") or 0), "idempotent": True}
+        target = _admin_load_target(conn, internal_user_id)
+        legacy_user_id = target["id"]
+        relation_id = (req.referral_relation_id or "").strip() or None
+        child_iuid = (req.child_internal_user_id or "").strip() or None
+        if relation_id:
+            rel = conn.execute("SELECT * FROM referral_relations WHERE id = ? AND parent_internal_user_id = ?", (relation_id, internal_user_id)).fetchone()
+            if rel is None:
+                raise HTTPException(404, "Referral relation not found.")
+            child_iuid = rel["child_internal_user_id"]
+        reward_id = uuid.uuid4().hex
+        ledger_id, new_balance = _grant_tokens_with_ledger(
+            conn, target=target, delta=amount, reason=reason, ledger_reason="referral_reward",
+            meta={"referral_reward_id": reward_id, "referral_relation_id": relation_id, "child_internal_user_id": child_iuid,
+                  "actor_internal_user_id": admin["internal_user_id"]},
+        )
+        conn.execute(
+            """
+            INSERT INTO referral_rewards
+                (id, referral_relation_id, parent_internal_user_id, child_internal_user_id, reward_type, token_amount,
+                 status, reason, token_ledger_id, created_by_admin_id, idempotency_key, created_at, granted_at)
+            VALUES (?, ?, ?, ?, 'tokens', ?, 'granted', ?, ?, ?, ?, ?, ?)
+            """,
+            (reward_id, relation_id, internal_user_id, child_iuid, amount, reason, ledger_id, admin["internal_user_id"], idem, now, now),
+        )
+        row = conn.execute("SELECT * FROM referral_rewards WHERE id = ?", (reward_id,)).fetchone()
+        reward = _loyalty_reward_dict(row)
+        record_audit_log(
+            conn, "crm_referral_reward_granted", actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=internal_user_id, entity_type="referral_reward", entity_id=reward_id,
+            after={"token_amount": amount, "token_balance": new_balance, "reason": reason},
+            request=request,
+        )
+    return {"ok": True, "reward": reward, "new_token_balance": new_balance}
+
+
 # ---------------------------------------------------------------------------
 # Phase 18 — Admin auth analytics (trusted-admin only). Clean, human-readable.
 # No token/password/code hashes, no raw tokens/cookies/initData/WebAppData.
@@ -5905,6 +6400,7 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
             (internal_user_id,),
         ).fetchone()["c"]
         billing = _billing_projection(conn, internal_user_id)
+        loyalty = _loyalty_projection(conn, internal_user_id)
     image_by_job = {r["job_id"]: r for r in image_rows if r["job_id"]}
     spent_by_job: dict[str, int] = {}
     for r in ledger_rows:
@@ -5916,6 +6412,7 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
         "ok": True,
         "summary": summary,
         **billing,
+        **loyalty,
         "identities": [{
             "provider": r["provider"], "provider_user_id": r["provider_user_id"],
             "provider_username": r["provider_username"], "provider_email": mask_email(r["provider_email"]),

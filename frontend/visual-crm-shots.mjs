@@ -46,6 +46,20 @@ const detail = {
   refunds_recent: [
     { id: 'ref_manual_1', id_short: 'ref_manua…', payment_id: 'pay_manual_1', invoice_id: 'inv_paid_1', status: 'completed', amount: 200, currency: 'RUB', created_at: isoDaysAgo(1), completed_at: isoDaysAgo(1), token_reversal_policy: 'deferred' },
   ],
+  loyalty_summary: { promo_redemption_count: 1, bonus_count: 1, referral_children_count: 2, referral_rewards_total: 150, active_referral_code: 'REF-WEB100001' },
+  referral_link: { id: 'link_1', id_short: 'link_1', referral_code: 'REF-WEB100001', status: 'active', created_at: isoDaysAgo(20) },
+  promo_redemptions_recent: [
+    { id: 'promo_red_1', id_short: 'promo_red…', promo_code: 'WELCOME', status: 'applied', token_bonus: 25, discount_amount: 0, token_ledger_id: 'ledger_p…', created_at: isoDaysAgo(0.9) },
+  ],
+  bonus_grants_recent: [
+    { id: 'bonus_1', id_short: 'bonus_1', bonus_type: 'manual', status: 'granted', token_amount: 100, token_ledger_id: 'ledger_b…', created_at: isoDaysAgo(0.5) },
+  ],
+  referral_relations: [
+    { id: 'rel_1', id_short: 'rel_1', parent_internal_user_id: 'iuid-web…', child_internal_user_id: 'iuid-tg…', referral_code: 'REF-WEB100001', status: 'active', created_at: isoDaysAgo(10) },
+  ],
+  referral_rewards_recent: [
+    { id: 'rew_1', id_short: 'rew_1', referral_relation_id: 'rel_1', reward_type: 'tokens', status: 'granted', token_amount: 150, token_ledger_id: 'ledger_r…', created_at: isoDaysAgo(3), granted_at: isoDaysAgo(3) },
+  ],
   security_summary: { failed_login_count: 1, password_reset_count: 1, ban_count: 0, role_change_count: 1, session_revocation_count: 2, suspicious_ip_count: 1 },
 }
 const dashboard = { dashboard: { total_users: 3, active_today: 2, active_7d: 2, sessions_active: 2, generations_total: 173, tokens_spent_total: 750, users_by_provider: { web_email: 1, telegram: 1, max: 1 }, failed_logins_24h: 0 } }
@@ -143,6 +157,9 @@ await page.screenshot({ path: `${OUT}/crm-card-sessions-devices.png` })
 await page.locator('.crm-card').getByRole('button', { name: 'Галерея' }).click()
 await page.waitForSelector('.crm-gallery-strip img', { timeout: 4000 })
 await page.screenshot({ path: `${OUT}/crm-card-gallery-real.png` })
+await page.locator('.crm-card').getByRole('button', { name: 'Лояльность' }).click()
+await page.waitForTimeout(300)
+await page.screenshot({ path: `${OUT}/crm-card-loyalty-real.png` })
 await closeCard(page)
 
 await page.getByRole('button', { name: 'Вид и колонки' }).click()
@@ -167,6 +184,7 @@ const result = {
     'crm-card-token-ledger.png',
     'crm-card-sessions-devices.png',
     'crm-card-gallery-real.png',
+    'crm-card-loyalty-real.png',
     'crm-settings-opened.png',
   ],
 }
