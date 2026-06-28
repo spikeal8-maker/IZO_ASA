@@ -13,6 +13,15 @@ set "ROOT=%~dp0"
 set "BACKEND=%ROOT%backend"
 set "FRONTEND=%ROOT%frontend"
 set "PUBURL=https://izo.alikinas.ru"
+set "LIVE_DB=%BACKEND%\onenode.sqlite3"
+set "APP_ENV=production"
+set "APP_BUILD=20E.2E-2026-06-28"
+set "FRONTEND_BUILD_LABEL=20E.2E-2026-06-28"
+set "DATABASE_URL=sqlite:///%LIVE_DB%"
+set "DB_GUARD_ALLOWED_PATHS=%LIVE_DB%"
+set "DB_GUARD_MIN_SIZE_MB=10"
+set "DB_GUARD_MIN_USERS=5"
+set "DB_GUARD_MIN_ACTIVE_ADMINS=1"
 
 title IZO_ASA PUBLIC launcher
 echo.
@@ -24,6 +33,18 @@ echo.
 where python >nul 2>nul || (echo [ERROR] Python not found in PATH. & pause & exit /b 1)
 where node   >nul 2>nul || (echo [ERROR] Node.js not found in PATH. & pause & exit /b 1)
 where npm    >nul 2>nul || (echo [ERROR] npm not found in PATH. & pause & exit /b 1)
+
+echo [0/5] Production DB safety preflight...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$db='%LIVE_DB%';" ^
+  "$root='%ROOT%';" ^
+  "if ($root -match '(?i)(_izo_asa_.*clean|clean_worktree|temp|tmp)') { Write-Host '[ERROR] Refusing public launch from temporary/clean worktree:' $root; exit 10 }" ^
+  "if (!(Test-Path -LiteralPath $db)) { Write-Host '[ERROR] Live DB not found:' $db; exit 11 }" ^
+  "$item=Get-Item -LiteralPath $db;" ^
+  "$size=[math]::Round($item.Length/1MB,2);" ^
+  "Write-Host ('Live DB confirmed: .../' + (Split-Path (Split-Path $db -Parent) -Leaf) + '/' + (Split-Path $db -Leaf) + ' (' + $size + ' MB)');" ^
+  "if ($item.Length -lt 10MB) { Write-Host '[ERROR] Refusing suspiciously small live DB:' $size 'MB'; exit 12 }"
+if errorlevel 1 (echo [ERROR] Production DB preflight failed. Public backend NOT started. & pause & exit /b 1)
 
 echo [1/5] Building frontend (tsc -b + vite build)...
 pushd "%FRONTEND%" >nul
@@ -42,7 +63,7 @@ echo [2/5] Freeing ports 8000 and 5173 (stop old backend/dev/preview)...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 8000,5173 -ErrorAction SilentlyContinue | Where-Object {$_.State -eq 'Listen'} | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }" >nul 2>nul
 
 echo [3/5] Starting backend on 127.0.0.1:8000...
-start "IZO_ASA backend :8000" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%BACKEND%'; python -m uvicorn main:app --host 127.0.0.1 --port 8000"
+start "IZO_ASA backend :8000" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "$env:APP_ENV='%APP_ENV%'; $env:APP_BUILD='%APP_BUILD%'; $env:FRONTEND_BUILD_LABEL='%FRONTEND_BUILD_LABEL%'; $env:DATABASE_URL='%DATABASE_URL%'; $env:DB_GUARD_ALLOWED_PATHS='%DB_GUARD_ALLOWED_PATHS%'; $env:DB_GUARD_MIN_SIZE_MB='%DB_GUARD_MIN_SIZE_MB%'; $env:DB_GUARD_MIN_USERS='%DB_GUARD_MIN_USERS%'; $env:DB_GUARD_MIN_ACTIVE_ADMINS='%DB_GUARD_MIN_ACTIVE_ADMINS%'; Set-Location -LiteralPath '%BACKEND%'; python -m uvicorn main:app --host 127.0.0.1 --port 8000"
 
 echo [4/5] Starting frontend PREVIEW (dist) on 127.0.0.1:5173...
 start "IZO_ASA public frontend :5173" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%FRONTEND%'; npx vite preview --host 127.0.0.1 --port 5173"

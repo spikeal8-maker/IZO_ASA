@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import sqlite3
+import subprocess
 import time
 import uuid
 from dataclasses import dataclass
@@ -51,7 +52,29 @@ def load_local_env() -> None:
 
 
 load_local_env()
-DB_PATH = Path(os.getenv("DATABASE_URL", str(ROOT / "onenode.sqlite3")).replace("sqlite:///", ""))
+
+# Identity Core session service (Phase 4 + 4.1). Keying material for token hashing
+# comes from the environment when available. Only hashes are persisted — raw tokens
+# never reach the database or logs.
+APP_ENV = os.getenv("APP_ENV", "development")
+ENV_NAME = os.getenv("ENV", "")
+MODE_NAME = os.getenv("MODE", "")
+
+
+def is_production_like_env() -> bool:
+    return any((value or "").strip().lower() in {"production", "prod", "live"} for value in (APP_ENV, ENV_NAME, MODE_NAME))
+
+
+def sqlite_path_from_database_url(value: str | None) -> Path:
+    raw = (value or "").strip()
+    if raw.startswith("sqlite:///"):
+        return Path(raw.replace("sqlite:///", "", 1))
+    if raw.startswith("sqlite:"):
+        return Path(raw.replace("sqlite:", "", 1))
+    return Path(raw) if raw else ROOT / "onenode.sqlite3"
+
+
+DB_PATH = sqlite_path_from_database_url(os.getenv("DATABASE_URL"))
 
 COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188")
 COMFYUI_REQUIRED = os.getenv("COMFYUI_REQUIRED", "false").lower() == "true"
@@ -65,11 +88,6 @@ MAX_WEB_APP_DATA_TTL_SECONDS = int(os.getenv("MAX_WEB_APP_DATA_TTL_SECONDS", str
 MAX_API_BASE_URL = os.getenv("MAX_API_BASE_URL", "https://platform-api.max.ru")
 MAX_WEBHOOK_SECRET = os.getenv("MAX_WEBHOOK_SECRET", "")
 DEFAULT_NEG_PROMPT = "low quality, deformed, blurry, watermark, ugly, bad anatomy, disfigured, mutated, extra limbs, poorly drawn face, bad proportions, jpeg artifacts"
-
-# Identity Core session service (Phase 4 + 4.1). Keying material for token hashing
-# comes from the environment when available. Only hashes are persisted — raw tokens
-# never reach the database or logs.
-APP_ENV = os.getenv("APP_ENV", "development")
 SESSION_HMAC_SECRET = os.getenv("SESSION_HMAC_SECRET", "")
 # Backward-compatible fallback default for the access/session lifetime.
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", str(60 * 60 * 24 * 30)))
@@ -656,6 +674,154 @@ def validate_max_web_app_data_strict(web_app_data: str, ttl_seconds: int | None 
         raise MaxAuthError("max_user_missing")
     data["_user"] = user
     return data
+
+
+class DbGuardError(RuntimeError):
+    pass
+
+
+DB_GUARD_MIN_SIZE_MB = float(os.getenv("DB_GUARD_MIN_SIZE_MB", "10"))
+DB_GUARD_MIN_USERS = int(os.getenv("DB_GUARD_MIN_USERS", "5"))
+DB_GUARD_MIN_ACTIVE_ADMINS = int(os.getenv("DB_GUARD_MIN_ACTIVE_ADMINS", "1"))
+DB_GUARD_REQUIRED_TABLES = {"users", "images", "jobs", "token_ledger", "auth_identities", "auth_sessions", "auth_passwords"}
+DB_GUARD_REQUIRED_COLUMNS = {
+    "users": {"id", "internal_user_id", "role", "plan", "banned", "token_balance"},
+    "images": {"id", "user_id", "deleted_at"},
+    "token_ledger": {"id", "user_id", "delta", "reason", "created_at"},
+}
+DB_GUARD_STATUS: dict[str, Any] = {
+    "ok": False,
+    "status": "not_checked",
+    "reason": "not_checked",
+    "migration_status": "unknown",
+}
+STARTED_AT = datetime.now(timezone.utc).isoformat()
+
+
+def safe_backend_commit() -> str | None:
+    env_commit = (os.getenv("GIT_COMMIT") or os.getenv("BACKEND_COMMIT") or "").strip()
+    if env_commit:
+        return env_commit[:40]
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short=12", "HEAD"],
+            cwd=str(ROOT.parent),
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        value = result.stdout.strip()
+        return value[:40] if value else None
+    except Exception:
+        return None
+
+
+def mask_db_path(path: Path | None = None) -> str:
+    p = path or DB_PATH
+    try:
+        resolved = p.resolve()
+        return f".../{resolved.parent.name}/{resolved.name}"
+    except Exception:
+        return f".../{p.name}"
+
+
+def db_size_mb(path: Path | None = None) -> float:
+    p = path or DB_PATH
+    try:
+        return round(p.stat().st_size / 1024 / 1024, 2)
+    except OSError:
+        return 0.0
+
+
+def allowed_db_paths() -> set[Path]:
+    raw = os.getenv("DB_GUARD_ALLOWED_PATHS", "")
+    parts = [p.strip() for p in re.split(r"[;|]", raw) if p.strip()]
+    return {sqlite_path_from_database_url(part).resolve() for part in parts}
+
+
+def safe_db_guard_payload(status: dict[str, Any] | None = None) -> dict[str, Any]:
+    s = dict(status or DB_GUARD_STATUS)
+    return {
+        "ok": bool(s.get("ok")),
+        "status": str(s.get("status") or "unknown"),
+        "reason": truncate_admin_text(s.get("reason") or "", 160),
+        "migration_status": str(s.get("migration_status") or "unknown"),
+    }
+
+
+def db_guard_fail(reason: str, *, migration_status: str = "fail") -> None:
+    DB_GUARD_STATUS.update({"ok": False, "status": "fail", "reason": reason, "migration_status": migration_status})
+    print(f"DB guard failed: {reason}")
+    raise DbGuardError(reason)
+
+
+def db_guard_preflight() -> None:
+    if not is_production_like_env():
+        return
+    if not (os.getenv("DATABASE_URL") or "").strip():
+        db_guard_fail("DATABASE_URL is required in production/live mode.", migration_status="not_started")
+    resolved = DB_PATH.resolve()
+    allowed = allowed_db_paths()
+    if allowed and resolved not in allowed:
+        db_guard_fail(f"DB path is not in production allowlist: {mask_db_path(resolved)}", migration_status="not_started")
+    if not DB_PATH.exists():
+        db_guard_fail(f"DB file does not exist: {mask_db_path(DB_PATH)}", migration_status="not_started")
+    min_bytes = int(DB_GUARD_MIN_SIZE_MB * 1024 * 1024)
+    try:
+        size = DB_PATH.stat().st_size
+    except OSError:
+        size = 0
+    if size < min_bytes:
+        db_guard_fail(f"DB file is suspiciously small: {db_size_mb(DB_PATH)} MB", migration_status="not_started")
+
+
+def collect_db_guard_status() -> dict[str, Any]:
+    status: dict[str, Any] = {
+        "ok": False,
+        "status": "fail",
+        "reason": "",
+        "migration_status": "fail",
+        "db_type": "sqlite",
+        "db_path": mask_db_path(DB_PATH),
+        "db_size_mb": db_size_mb(DB_PATH),
+        "users_count": 0,
+        "active_admin_count": 0,
+    }
+    if not DB_PATH.exists():
+        status["reason"] = f"DB file does not exist: {mask_db_path(DB_PATH)}"
+        return status
+    with db() as conn:
+        tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        missing_tables = sorted(DB_GUARD_REQUIRED_TABLES - tables)
+        if missing_tables:
+            status["reason"] = f"Missing required tables: {', '.join(missing_tables)}"
+            return status
+        for table, required in DB_GUARD_REQUIRED_COLUMNS.items():
+            columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            missing_columns = sorted(required - columns)
+            if missing_columns:
+                status["reason"] = f"Missing required columns: {table}.{', '.join(missing_columns)}"
+                return status
+        users_count = int(conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"] or 0)
+        active_admin_count = int(conn.execute("SELECT COUNT(*) AS c FROM users WHERE role='admin' AND COALESCE(banned,0)=0").fetchone()["c"] or 0)
+        status["users_count"] = users_count
+        status["active_admin_count"] = active_admin_count
+        if is_production_like_env() and users_count < DB_GUARD_MIN_USERS:
+            status["reason"] = f"Users count below production minimum: {users_count}"
+            return status
+        if is_production_like_env() and active_admin_count < DB_GUARD_MIN_ACTIVE_ADMINS:
+            status["reason"] = f"Active admin count below production minimum: {active_admin_count}"
+            return status
+    status.update({"ok": True, "status": "ok", "reason": "ok", "migration_status": "ok"})
+    return status
+
+
+def enforce_db_guard_after_migrations() -> None:
+    status = collect_db_guard_status()
+    DB_GUARD_STATUS.update(status)
+    if is_production_like_env() and not status["ok"]:
+        db_guard_fail(str(status.get("reason") or "DB guard failed after migrations."))
 
 
 def db() -> sqlite3.Connection:
@@ -3608,7 +3774,9 @@ async def worker() -> None:
 @app.on_event("startup")
 async def startup() -> None:
     global worker_started, bot_polling_started
+    db_guard_preflight()
     init_db()
+    enforce_db_guard_after_migrations()
     load_db_state()
     if not worker_started:
         asyncio.create_task(worker())
@@ -3636,19 +3804,32 @@ async def startup() -> None:
 
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
+    guard = collect_db_guard_status()
+    DB_GUARD_STATUS.update(guard)
     return {
         "ok": True,
+        "app": "izo-asa",
+        "version": APP_BUILD,
+        "environment": "production" if is_production_like_env() else "development",
         "comfyuiBaseUrl": COMFYUI_BASE_URL,
         "fluxKleinOneNode": await comfyui_available(),
-        "database": DB_PATH.exists(),
-        "databasePath": str(DB_PATH),
+        "database": {
+            "type": "sqlite",
+            "ready": bool(guard.get("ok")),
+            "path": mask_db_path(DB_PATH),
+            "size_mb": guard.get("db_size_mb", db_size_mb(DB_PATH)),
+            "users_count": guard.get("users_count", 0),
+            "active_admin_count": guard.get("active_admin_count", 0),
+            "migration_status": guard.get("migration_status", "unknown"),
+        },
+        "db_guard": safe_db_guard_payload(guard),
         "platforms": {"web": True, "telegram": True, "max": True},
     }
 
 
 # Minimal, non-sensitive version marker so operators can tell which backend build
-# is actually live. No secrets, no env values, no DB paths.
-APP_BUILD = os.getenv("APP_BUILD", "20E.2C-2026-06-28")
+# is actually live. No secrets, no env values, no raw DB URLs.
+APP_BUILD = os.getenv("APP_BUILD", "20E.2E-2026-06-28")
 
 
 @app.get("/api/version")
@@ -3658,6 +3839,10 @@ async def version() -> dict[str, Any]:
         "ok": True,
         "app": "izo-asa",
         "build": APP_BUILD,
+        "backend_commit": safe_backend_commit(),
+        "frontend_build": os.getenv("FRONTEND_BUILD_LABEL", "unknown"),
+        "started_at": STARTED_AT,
+        "db_guard": safe_db_guard_payload(DB_GUARD_STATUS),
         "auth_v2": True,
         "password_login": "/api/auth/password/login-v2" in routes,
         "generation_protected": True,  # /api/generate calls require_trusted_user
