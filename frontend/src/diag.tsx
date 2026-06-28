@@ -6,7 +6,7 @@ import type { ReactElement } from 'react'
 import { useAuthV2 } from './authV2'
 
 // Bump this string on every frontend deploy so you can confirm which bundle is live.
-export const APP_BUILD_LABEL = '20E.2C-2026-06-28'
+export const APP_BUILD_LABEL = '20E.2E-2026-06-28'
 
 export function isDiagMode(): boolean {
   try {
