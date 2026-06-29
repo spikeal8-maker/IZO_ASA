@@ -311,13 +311,14 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
     <button className={danger ? 'secondary danger crm-supported-action' : 'secondary crm-supported-action'} disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind, preset })}>{adminReady ? label : 'Войдите как админ'}</button>
   const disabledAction = (label: string) => <button className="secondary deferred-action" disabled title={deferred}>{label}<small>Отложено</small></button>
   const money = (v: unknown, currency = 'RUB') => `${n0(v).toLocaleString()} ${currency}`
+  const tokens = (v: unknown) => `${n0(v).toLocaleString()} ток.`
   const unpaidInvoice = (data?.invoices_recent || []).find((i) => ['draft', 'issued'].includes(String(i.status)))
   const refundablePayment = (data?.payments_recent || []).find((p) => ['paid', 'partially_refunded'].includes(String(p.status)))
   const cancellableBonus = (data?.bonus_grants_recent || []).find((b) => String(b.status) === 'granted' && n0(b.token_amount) > 0)
 
   return (
     <div className="crm-card-overlay" onClick={onClose}>
-      <div className="crm-card" role="dialog" aria-label="Карточка пользователя" onClick={(e) => e.stopPropagation()}>
+      <div className="crm-card crm-card-v3" role="dialog" aria-label="Карточка пользователя" onClick={(e) => e.stopPropagation()}>
         <header className="crm-card-header">
           <div className="crm-card-mainline">
             <div className="crm-card-id crm-card-id-rich">
@@ -334,8 +335,8 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                   <span aria-hidden="true">□</span>
                 </button>
                 <div className="crm-card-kpis">
-                  <span>Баланс <b>{money(sm.token_balance)}</b></span>
-                  <span>Потрачено <b>{money(sm.tokens_spent)}</b></span>
+                  <span>Баланс токенов <b>{tokens(sm.token_balance)}</b></span>
+                  <span>Потрачено токенов <b>{tokens(sm.tokens_spent)}</b></span>
                   <span>Генераций <b>{S(sm.generations_count)}</b></span>
                   <span>Изображений в галерее <b>{S(sm.gallery_count ?? 0)}</b></span>
                   <span>Последняя активность <b>{shortTime(sm.last_seen_at)}</b></span>
@@ -364,10 +365,10 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             {banner && <p className={state === 'ok' ? 'crm-card-note' : 'crm-err'}>{banner}</p>}
             <div className="crm-panel">
               <h4>1. Профиль и контакты</h4>
-              <dl className="crm-preview-list">
+              <div className="crm-preview-list">
                 {row('Имя', parsedName(sm, ids))}{row('Email', sm.email)}{row('Username', sm.username)}{row('Телефон', sm.phone)}
                 {row('Язык', (ids?.[0] as AnyRec)?.language_code)}{row('Гео', `${S(sm.city)} / ${S(sm.country)}`)}{row('Роль', sm.role)}{row('Тариф', sm.plan || 'mini')}{row('Галерея', `${S(sm.gallery_used ?? sm.gallery_count ?? 0)}/${S(sm.gallery_slots ?? '—')} · свободно ${S(sm.gallery_free ?? '—')}`)}
-              </dl>
+              </div>
             </div>
             <div className="crm-panel">
               <h4>2. Источники входа</h4>
@@ -380,22 +381,22 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             </div>
             <div className="crm-panel">
               <h4>3. Контент</h4>
-              <dl className="crm-preview-list">
+              <div className="crm-preview-list">
                 {row('Генерации', sm.generations_count)}{row('Промпты', data?.recent_generations?.length ?? 0)}{row('Галерея', data?.recent_gallery?.length ?? sm.gallery_count ?? 0)}{row('Последний контент', shortTime(data?.recent_generations?.[0]?.created_at))}
-              </dl>
+              </div>
               <div className="crm-rows">
                 {(data?.recent_generations || []).slice(0, 5).map((g, n) => <small key={n}><strong>{S(g.status)}</strong> · {S(g.mode)} · {S(g.provider || g.model)} · {S(g.token_cost)} ток. · {S(g.prompt)}</small>)}
               </div>
             </div>
             <div className="crm-panel">
               <h4>4. Финансы</h4>
-              <dl className="crm-preview-list">
-                {row('Баланс токенов', data?.token_summary?.balance ?? sm.token_balance)}{row('Потрачено токенов', data?.token_summary?.spent ?? sm.tokens_spent)}
+              <div className="crm-preview-list">
+                {row('Баланс токенов', tokens(data?.token_summary?.balance ?? sm.token_balance))}{row('Потрачено токенов', tokens(data?.token_summary?.spent ?? sm.tokens_spent))}
                 {row('Операций ledger', data?.token_summary?.entries ?? 0)}
                 {row('Счетов', data?.billing_summary?.invoice_count ?? 0)}{row('Неоплачено', data?.billing_summary?.unpaid_count ?? 0)}
                 {row('Оплачено', money(data?.billing_summary?.total_paid))}{row('Возвраты', money(data?.billing_summary?.total_refunded))}
                 {row('Бонусы', data?.loyalty_summary?.bonus_count ?? 0)}
-              </dl>
+              </div>
               <div className="crm-rows">
                 {(data?.invoices_recent || []).slice(0, 4).map((i, n) => <small key={`inv${n}`}><strong>{S(i.invoice_code)}</strong> · {S(i.status)} · {money(i.total_amount, S(i.currency))} · {S(i.tokens_total)} ток. · {shortTime(i.created_at)}</small>)}
                 {(data?.payments_recent || []).slice(0, 3).map((p, n) => <small key={`pay${n}`}>Оплата · <strong>{money(p.amount, S(p.currency))}</strong> · {S(p.status)} · {shortTime(p.paid_at || p.created_at)}</small>)}
@@ -405,13 +406,13 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             </div>
             <div className="crm-panel">
               <h4>Маркетинг и рефералы</h4>
-              <dl className="crm-preview-list">
+              <div className="crm-preview-list">
                 {row('Промокодов', data?.loyalty_summary?.promo_redemption_count ?? 0)}
                 {row('Бонусов', data?.loyalty_summary?.bonus_count ?? 0)}
                 {row('Реф. детей', data?.loyalty_summary?.referral_children_count ?? 0)}
                 {row('Реф. токенов', data?.loyalty_summary?.referral_rewards_total ?? 0)}
                 {row('Реф. код', data?.loyalty_summary?.active_referral_code ?? data?.referral_link?.referral_code)}
-              </dl>
+              </div>
               <div className="crm-rows">
                 {(data?.promo_redemptions_recent || []).slice(0, 3).map((p, n) => <small key={`promo${n}`}>Промо · <strong>{S(p.promo_code)}</strong> · {S(p.status)} · +{S(p.token_bonus)} ток. · {shortTime(p.created_at)}</small>)}
                 {(data?.bonus_grants_recent || []).slice(0, 3).map((b, n) => <small key={`bonus${n}`}>Бонус · <strong>{S(b.bonus_type)}</strong> · {S(b.status)} · +{S(b.token_amount)} ток. · {shortTime(b.created_at)}</small>)}
@@ -434,12 +435,12 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             </div>
             <div className="crm-panel">
               <h4>6. Безопасность</h4>
-              <dl className="crm-preview-list">
+              <div className="crm-preview-list">
                 {row('Риск', riskLabel(sm))}{row('Событий безопасности', securityCount)}{row('Последний IP', sm.last_ip)}{row('Активных сессий', sm.active_sessions_count)}
                 {row('Ошибки входа', data?.security_summary?.failed_login_count ?? 0)}{row('Сбросы пароля', data?.security_summary?.password_reset_count ?? 0)}
                 {row('Баны/разбаны', data?.security_summary?.ban_count ?? 0)}{row('Смены роли', data?.security_summary?.role_change_count ?? 0)}
                 {row('Отозвано сессий', data?.security_summary?.session_revocation_count ?? 0)}{row('Подозр. IP', data?.security_summary?.suspicious_ip_count ?? 0)}
-              </dl>
+              </div>
               <div className="crm-rows">
                 {(data?.recent_security_events || []).slice(0, 5).map((e, n) => <small key={n}>{shortTime(e.created_at)} · {S(e.severity)} · {S(e.event_type)} · {S(e.ip_address)}</small>)}
               </div>
@@ -477,7 +478,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             {tab === 'tech' && <div className="crm-acc">
               <strong>Технические идентификаторы</strong>
               <p className="legacy-admin-warn">Не показывать пользователю.</p>
-              <dl className="crm-preview-list">{row('internal_user_id', u.internal_user_id)}{row('public_user_code', sm.public_user_code)}{row('primary_provider', sm.primary_provider)}</dl>
+              <div className="crm-preview-list">{row('internal_user_id', u.internal_user_id)}{row('public_user_code', sm.public_user_code)}{row('primary_provider', sm.primary_provider)}</div>
             </div>}
           </div>
 
