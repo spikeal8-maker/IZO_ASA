@@ -381,11 +381,22 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             </div>
             <div className="crm-panel">
               <h4>3. Контент</h4>
-              <div className="crm-preview-list">
-                {row('Генерации', sm.generations_count)}{row('Промпты', data?.recent_generations?.length ?? 0)}{row('Галерея', data?.recent_gallery?.length ?? sm.gallery_count ?? 0)}{row('Последний контент', shortTime(data?.recent_generations?.[0]?.created_at))}
-              </div>
-              <div className="crm-rows">
-                {(data?.recent_generations || []).slice(0, 5).map((g, n) => <small key={n}><strong>{S(g.status)}</strong> · {S(g.mode)} · {S(g.provider || g.model)} · {S(g.token_cost)} ток. · {S(g.prompt)}</small>)}
+              <div className="crm-content-grid">
+                <div className="crm-content-main">
+                  <div className="crm-preview-list">
+                    {row('Генерации', sm.generations_count)}{row('Промпты', data?.recent_generations?.length ?? 0)}{row('Галерея', data?.recent_gallery?.length ?? sm.gallery_count ?? 0)}{row('Последний контент', shortTime(data?.recent_generations?.[0]?.created_at))}
+                  </div>
+                  <div className="crm-rows crm-prompt-rows">
+                    {(data?.recent_generations || []).slice(0, 5).map((g, n) => <small key={n}><strong>{S(g.status)}</strong><span>{S(g.mode)} · {S(g.provider || g.model)} · {S(g.token_cost)} ток.</span><em>{S(g.prompt)}</em></small>)}
+                  </div>
+                </div>
+                <div className="crm-gallery-mini">
+                  <strong>Галерея</strong>
+                  <div>
+                    {(data?.recent_gallery || []).slice(0, 6).map((img, n) => <span key={n}><img src={String(img.thumbnail_url)} alt="" /></span>)}
+                    {!data?.recent_gallery?.length && <p className="crm-card-note">—</p>}
+                  </div>
+                </div>
               </div>
             </div>
             <div className="crm-panel">
@@ -397,7 +408,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 {row('Оплачено', money(data?.billing_summary?.total_paid))}{row('Возвраты', money(data?.billing_summary?.total_refunded))}
                 {row('Бонусы', data?.loyalty_summary?.bonus_count ?? 0)}
               </div>
-              <div className="crm-rows">
+              <div className="crm-rows crm-ledger-rows">
                 {(data?.invoices_recent || []).slice(0, 4).map((i, n) => <small key={`inv${n}`}><strong>{S(i.invoice_code)}</strong> · {S(i.status)} · {money(i.total_amount, S(i.currency))} · {S(i.tokens_total)} ток. · {shortTime(i.created_at)}</small>)}
                 {(data?.payments_recent || []).slice(0, 3).map((p, n) => <small key={`pay${n}`}>Оплата · <strong>{money(p.amount, S(p.currency))}</strong> · {S(p.status)} · {shortTime(p.paid_at || p.created_at)}</small>)}
                 {(data?.refunds_recent || []).slice(0, 3).map((r, n) => <small key={`ref${n}`}>Возврат · <strong>{money(r.amount, S(r.currency))}</strong> · {S(r.status)} · {shortTime(r.completed_at || r.created_at)}</small>)}
@@ -405,7 +416,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               </div>
             </div>
             <div className="crm-panel">
-              <h4>Маркетинг и рефералы</h4>
+              <h4>Промо, бонусы и рефералы</h4>
               <div className="crm-preview-list">
                 {row('Промокодов', data?.loyalty_summary?.promo_redemption_count ?? 0)}
                 {row('Бонусов', data?.loyalty_summary?.bonus_count ?? 0)}
