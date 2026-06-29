@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react'
+import type { ChangeEvent, Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { AuthV2Modal, initAuthV2, updateProfileV2, logoutV2, refreshAuthStateV2, useAuthV2, type MeV2 } from './authV2'
 import { DiagPanel, isDiagMode } from './diag'
 import {
@@ -8,6 +8,7 @@ import {
   type EditReferenceRole, type EditSlot, type EditTemplate,
 } from './editPrompt'
 import { AdminAnalyticsV2 } from './adminAnalytics'
+import AdminModelsV2 from './adminModels'
 import { Stage, Layer, Line, Rect, Text, Circle } from 'react-konva'
 import type { Stage as KonvaStage } from 'konva/lib/Stage'
 import {
@@ -171,39 +172,8 @@ const avatarPresets = Array.from({ length: 10 }, (_, index) => {
   const id = `preset-${index + 1}`
   return { id, url: `/avatars/${id}.svg`, label: `Аватар ${index + 1}` }
 })
-const openRouterImageModels = [
-  { id: 'google/gemini-3.1-flash-image', name: 'Nano Banana 2 Flash Image', use: 'быстрая генерация и редактирование', prompt: '$0.50 / 1M', completion: '$3.00 / 1M', image: 'по токенам ответа', tokenCost: 2 },
-  { id: 'google/gemini-3-pro-image', name: 'Nano Banana Pro Image', use: 'лучшее качество и сложные правки', prompt: '$2.00 / 1M', completion: '$12.00 / 1M', image: '$2.00 / 1M image input', tokenCost: 6 },
-  { id: 'openai/gpt-5-image-mini', name: 'GPT-5 Image Mini', use: 'дешевый запасной маршрут', prompt: '$2.50 / 1M', completion: '$2.00 / 1M', image: 'по токенам ответа', tokenCost: 3 },
-  { id: 'openai/gpt-5-image', name: 'GPT-5 Image', use: 'качественный запасной маршрут', prompt: '$10.00 / 1M', completion: '$10.00 / 1M', image: 'по токенам ответа', tokenCost: 7 },
-]
-const localFluxProfiles = [
-  {
-    id: 'flux2-4b',
-    title: 'Flux 2 Klein 4B',
-    modelFile: 'flux-2-klein-4b-fp8.safetensors',
-    quality: 'Быстро',
-    defaultSteps: 4,
-    tokenRules: [
-      { steps: '4 шага', tokens: 1 },
-      { steps: '5 шагов', tokens: 2 },
-      { steps: '6-8 шагов', tokens: 3 },
-    ],
-  },
-  {
-    id: 'flux2-9b',
-    title: 'Flux 2 Klein 9B',
-    modelFile: 'flux-2-klein-9b-fp8.safetensors',
-    quality: 'Максимум',
-    defaultSteps: 4,
-    tokenRules: [
-      { steps: '4 шага', tokens: 1 },
-      { steps: '5 шагов', tokens: 2 },
-      { steps: '6 шагов', tokens: 4 },
-      { steps: '7-8 шагов', tokens: 6 },
-    ],
-  },
-]
+// Старые статичные каталоги (openRouterImageModels / localFluxProfiles) удалены:
+// их заменил provider-aware экран «Админ → Модели v2» (adminModels.tsx + /api/admin/models-page).
 const sessionParams = new URLSearchParams(window.location.search)
 const SESSION_USER_ID = sessionParams.get('userId') || window.localStorage.getItem('onenode_user') || 'demo_user'
 window.localStorage.setItem('onenode_user', SESSION_USER_ID)
@@ -575,9 +545,8 @@ function App() {
   const [userPresets, setUserPresets] = useState<Preset[]>(() => loadUserPresets())
   const [, setFluxConfig] = useState<FluxConfig>()
   const [modelsPayload, setModelsPayload] = useState<ModelsPayload>()
-  const [bgRemovalModels, setBgRemovalModels] = useState<string[]>([])
+  const [, setBgRemovalModels] = useState<string[]>([])
   const [loraTriggers, setLoraTriggers] = useState<Record<string, string>>({})
-  const loraSelectRef = useRef<HTMLSelectElement>(null)
   // Single-flight guard для Generate: синхронный ref блокирует повторные клики/хоткеи/
   // double-tap до того, как React-state успеет обновиться. isSubmitting — для UI.
   const generateInFlightRef = useRef(false)
@@ -1288,7 +1257,7 @@ function App() {
         {tab === 'gallery' && galleryLocked && <SettingsView copy={copy} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
         {tab === 'presets' && <HelpView lang={lang} applyPreset={applyPreset} copy={copy} backToStudio={() => setTab('studio')} />}
         {tab === 'settings' && <SettingsView copy={copy} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
-        {tab === 'admin' && isAdmin && <AdminView copy={copy} admin={admin} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} modelProfile={modelProfile} setModelProfile={setModelProfile} seed={seed} setSeed={setSeed} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} cfg={cfg} setCfg={setCfg} sampler={sampler} setSampler={setSampler} selectedLora={settingsSelectedLora} setSelectedLora={setSelectedLora} loraOptions={loraOptions} modelsPayload={modelsPayload} bgRemovalModels={bgRemovalModels} loraSelectRef={loraSelectRef} resetDefaults={resetDefaults} />}
+        {tab === 'admin' && isAdmin && <AdminView copy={copy} admin={admin} backToStudio={() => setTab('studio')} provider={provider} modelProfile={modelProfile} selectedLora={settingsSelectedLora} resetDefaults={resetDefaults} />}
         {tab === 'admin' && !isAdmin && <SettingsView copy={copy} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
 
         {instructionOpen && <InstructionModal mode={mode} paintTool={paintTool} onClose={() => setInstructionOpen(false)} />}
@@ -2375,7 +2344,7 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, openGallery, b
   )
 }
 
-function AdminView({ copy, admin, backToStudio, provider, setProvider, modelProfile, setModelProfile, seed, setSeed, width, setWidth, height, setHeight, steps, setSteps, cfg, setCfg, sampler, setSampler, selectedLora, setSelectedLora, loraOptions, modelsPayload, bgRemovalModels, loraSelectRef, resetDefaults }: { copy: Copy; admin?: Record<string, unknown>; backToStudio: () => void; provider: string; setProvider: (value: string) => void; modelProfile: string; setModelProfile: (value: string) => void; seed: number; setSeed: (value: number) => void; width: number; setWidth: (value: number) => void; height: number; setHeight: (value: number) => void; steps: number; setSteps: (value: number) => void; cfg: number; setCfg: (value: number) => void; sampler: string; setSampler: (value: string) => void; selectedLora: string; setSelectedLora: (value: string) => void; loraOptions: LoraOption[]; modelsPayload?: ModelsPayload; bgRemovalModels: string[]; loraSelectRef: RefObject<HTMLSelectElement | null>; resetDefaults: () => void }) {
+function AdminView({ copy, admin, backToStudio, provider, modelProfile, selectedLora, resetDefaults }: { copy: Copy; admin?: Record<string, unknown>; backToStudio: () => void; provider: string; modelProfile: string; selectedLora: string; resetDefaults: () => void }) {
   const [tab, setTab] = useState<'dashboard' | 'models' | 'tokens' | 'users' | 'queue' | 'errors'>('dashboard')
   const [showLegacyUsers, setShowLegacyUsers] = useState(false)
   const [limits, setLimits] = useState({ hourly: 10, daily: 50 })
@@ -2384,24 +2353,11 @@ function AdminView({ copy, admin, backToStudio, provider, setProvider, modelProf
   const [finance, setFinance] = useState({ tokenRevenue: 12450, tokenCost: 2380, electricity: 740, promoBudget: 1500 })
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([])
   const [promoCodes, setPromoCodes] = useState<PromoCode[]>([])
-  const [modelStatus, setModelStatus] = useState<any>(null)
-  const [modelSel, setModelSel] = useState({ editModelProfile: 'flux_klein_9b', poseModelProfile: '' })
   const [userDraft, setUserDraft] = useState({ userId: 'telegram_123456789', username: '', firstName: '', lastName: '', middleName: '', phone: '', email: '', country: '', city: '', role: 'user', plan: 'mini', tokenBalance: 50, galleryEnabled: true })
   const [userFormOpen, setUserFormOpen] = useState(false)
   const [editingUserId, setEditingUserId] = useState<string | null>(null)
   const [userHistory, setUserHistory] = useState<UserHistory | null>(null)
   const [adminMessage, setAdminMessage] = useState('')
-  const diffusionModels = modelsPayload?.diffusion_models?.length ? modelsPayload.diffusion_models : [modelProfile]
-  const textEncoders = modelsPayload?.text_encoders || []
-  const vaes = modelsPayload?.vaes || []
-  const fluxLoras = useMemo(() => {
-    const is4b = /4b/i.test(modelProfile)
-    return loraOptions.filter((item) => {
-      if (item.id === 'none') return false
-      if (!/bfs|flux|head|face/i.test(item.id)) return false
-      return is4b ? /4b/i.test(item.id) : /9b/i.test(item.id)
-    })
-  }, [loraOptions, modelProfile])
   const queue = Array.isArray(admin?.queue) ? admin.queue : []
   const recentErrors = Array.isArray(admin?.recentErrors) ? admin.recentErrors : []
   const health = Number(admin?.errors ?? 0) === 0 ? 'Стабильно' : 'Есть ошибки'
@@ -2411,25 +2367,15 @@ function AdminView({ copy, admin, backToStudio, provider, setProvider, modelProf
     setSaved(JSON.stringify(result.rateLimits))
   }
   const refreshAdminData = useCallback(async () => {
-    const [users, promos, settings, mstatus] = await Promise.all([
+    const [users, promos, settings] = await Promise.all([
       apiFetch('/admin/users').then((r) => r.json()).catch(() => []),
       apiFetch('/admin/promos').then((r) => r.json()).catch(() => []),
       apiFetch('/admin/settings').then((r) => r.json()).catch(() => ({})),
-      apiFetch('/admin/model-status').then((r) => r.json()).catch(() => null),
     ])
     setAdminUsers(users)
     setPromoCodes(promos)
     if (settings.finance) setFinance((current) => ({ ...current, ...settings.finance }))
-    if (settings.models) setModelSel((current) => ({ ...current, ...settings.models }))
-    if (mstatus) setModelStatus(mstatus)
   }, [])
-  async function saveModelSettings(next: { editModelProfile: string; poseModelProfile: string }) {
-    setModelSel(next)
-    const result = await apiFetch('/admin/settings/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: next }) }).then((r) => r.json()).catch(() => null)
-    setAdminMessage(result?.ok ? 'Настройки моделей сохранены' : 'Ошибка сохранения моделей')
-    const mstatus = await apiFetch('/admin/model-status').then((r) => r.json()).catch(() => null)
-    if (mstatus) setModelStatus(mstatus)
-  }
   useEffect(() => { refreshAdminData() }, [refreshAdminData])
   async function saveFinance() {
     const result = await apiFetch('/admin/settings/finance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: finance }) }).then((r) => r.json())
@@ -2528,29 +2474,7 @@ function AdminView({ copy, admin, backToStudio, provider, setProvider, modelProf
       <div className="admin-grid"><div><strong>Себестоимость</strong><span>{finance.tokenCost.toLocaleString('ru-RU')} ₽</span><small>затраты на внешние токены/API</small></div><div><strong>Свет</strong><span>{finance.electricity.toLocaleString('ru-RU')} ₽</span><small>электричество локальной GPU</small></div><div><strong>Акции</strong><span>{finance.promoBudget.toLocaleString('ru-RU')} ₽</span><small>промокоды и рефералы</small></div><div><strong>{copy.errors}</strong><span>{String(admin?.errors ?? 0)}</span><small>ошибок сейчас</small></div></div>
       <div className="admin-two-col"><article><h3>Состояние генератора</h3><p>Провайдер: {provider === 'openrouter' ? 'OpenRouter Cloud' : 'ComfyUI локально'}</p><p>Модель: {modelProfile}</p><p>Очередь: {queue.length}</p><p>LoRA для лица: {selectedLora}</p></article><article><h3>Быстрые действия</h3><button className="secondary" onClick={() => setTab('models')}>Настроить модели</button><button className="secondary" onClick={() => setTab('tokens')}>Тарифы и финансы</button><button className="secondary" onClick={() => setTab('users')}>Админы и пользователи</button></article></div>
     </div>}
-    {tab === 'models' && <div className="admin-section">
-      <h3>Модель редактора (FLUX.2 [klein])</h3>
-      <div className="settings-grid">
-        <label>Default edit model<select value={modelSel.editModelProfile} onChange={(e) => void saveModelSettings({ ...modelSel, editModelProfile: e.target.value })}>{(modelStatus?.profiles || []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-        <label>Pose model/profile<select value={modelSel.poseModelProfile} onChange={(e) => void saveModelSettings({ ...modelSel, poseModelProfile: e.target.value })}><option value="">как edit-модель</option>{(modelStatus?.profiles || []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-        <small>ComfyUI: {modelStatus?.comfyuiAvailable ? 'доступен' : 'недоступен'}</small>
-      </div>
-      <div className="admin-table">{(modelStatus?.profiles || []).map((p: any) => <article key={p.id}>
-        <strong>{p.name}{modelSel.editModelProfile === p.id ? ' · default edit' : ''}</strong>
-        <span>{p.modelName}</span>
-        <small>установлена: {p.installed ? 'да' : 'нет'} · нода: {p.requiredNode}</small>
-        <p>base edit: <b>{p.baseEdit === 'available' ? 'available' : 'missing'}</b> · faceswap: <b>{p.faceswapLora}</b></p>
-        <p>pose workflow: <b>{!p.supportsPose ? 'не поддерживается этой моделью' : p.pose === 'available' ? 'available' : 'missing'}</b></p>
-        {p.missingFiles?.length ? <small>missing files: {p.missingFiles.join(', ')}</small> : null}
-        {p.poseMissing?.length ? <small>pose требует: {p.poseMissing.join(', ')}</small> : null}
-      </article>)}</div>
-      <h3>OpenRouter: облачный маршрут</h3>
-      <div className="admin-table">{openRouterImageModels.map((item) => <article key={item.id}><strong>{item.name}</strong><span>{item.id}</span><small>{item.use}</small><p>Вход: {item.prompt} · Выход: {item.completion} · Image: {item.image}</p><button className={provider === 'openrouter' && modelProfile === item.id ? 'secondary active' : 'secondary'} onClick={() => { setProvider('openrouter'); setModelProfile(item.id) }}>Использовать · {item.tokenCost} токенов</button></article>)}</div>
-      <h3>ComfyUI: локальные Flux 2</h3>
-      <div className="admin-table">{localFluxProfiles.map((profile) => <article key={profile.id}><strong>{profile.title}</strong><span>{profile.modelFile}</span><small>Качество: {profile.quality} · По умолчанию: {profile.defaultSteps} шага</small><div className="token-rules">{profile.tokenRules.map((rule) => <p key={rule.steps}>{rule.steps}: <b>{rule.tokens}</b> ток.</p>)}</div><button className={modelProfile === profile.modelFile ? 'secondary active' : 'secondary'} onClick={() => { setProvider('comfyui'); setModelProfile(profile.modelFile); setSteps(profile.defaultSteps) }}>Выбрать</button></article>)}</div>
-      <h3>Файлы ComfyUI</h3>
-      <div className="settings-grid"><label>{copy.model}<select value={modelProfile} onChange={(e) => setModelProfile(e.target.value)}>{diffusionModels.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label>Text encoder<input value={textEncoders.join(', ') || modelsPayload?.selected?.textEncoder || 'not found'} readOnly /></label><label>VAE<input value={vaes.join(', ') || modelsPayload?.selected?.vae || 'not found'} readOnly /></label><label>Remove Background<input value={bgRemovalModels.join(', ') || 'not found'} readOnly /></label><label>{copy.seed}<input type="number" value={seed} onChange={(e) => setSeed(Number(e.target.value))} /></label><button className="secondary" onClick={() => setSeed(Math.floor(Math.random() * 999999999))}><RotateCcw size={16} />{copy.randomSeed}</button><label>Width<input type="number" value={width} onChange={(e) => setWidth(Number(e.target.value))} /></label><label>Height<input type="number" value={height} onChange={(e) => setHeight(Number(e.target.value))} /></label><label>{copy.steps}<input type="number" value={steps} onChange={(e) => setSteps(Number(e.target.value))} /></label><label>{copy.cfg}<input type="number" step="0.1" value={cfg} onChange={(e) => setCfg(Number(e.target.value))} /></label><label>{copy.sampler}<select value={sampler} onChange={(e) => setSampler(e.target.value)}><option value="er_sde">er_sde</option><option value="euler">euler</option><option value="dpmpp_2m">dpmpp_2m</option></select></label><label>Face LoRA<select ref={loraSelectRef} value={selectedLora} onChange={(e) => setSelectedLora(e.target.value)}>{fluxLoras.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label></div>
-    </div>}
+    {tab === 'models' && <div className="admin-section"><AdminModelsV2 /></div>}
     {tab === 'tokens' && <div className="admin-section"><h3>Токены, тарифы, финансы и акции</h3><div className="admin-two-col"><article><h3>{copy.limits}</h3><label>hourly<input type="number" value={limits.hourly} onChange={(e) => setLimits({ ...limits, hourly: Number(e.target.value) })} /></label><label>daily<input type="number" value={limits.daily} onChange={(e) => setLimits({ ...limits, daily: Number(e.target.value) })} /></label><button className="secondary" onClick={saveLimits}>{copy.save}</button><small>{saved}</small></article><article><h3>Финансы</h3><label>Доход от токенов<input type="number" value={finance.tokenRevenue} onChange={(e) => setFinance({ ...finance, tokenRevenue: Number(e.target.value) })} /></label><label>Себестоимость API<input type="number" value={finance.tokenCost} onChange={(e) => setFinance({ ...finance, tokenCost: Number(e.target.value) })} /></label><label>Свет<input type="number" value={finance.electricity} onChange={(e) => setFinance({ ...finance, electricity: Number(e.target.value) })} /></label><label>Акции<input type="number" value={finance.promoBudget} onChange={(e) => setFinance({ ...finance, promoBudget: Number(e.target.value) })} /></label><button className="secondary" onClick={saveFinance}>Сохранить финансы</button></article><article><h3>Промокод</h3><label>Код<input value={promoDraft.code} onChange={(e) => setPromoDraft({ ...promoDraft, code: e.target.value.toUpperCase() })} /></label><label>Токены<input type="number" value={promoDraft.tokens} onChange={(e) => setPromoDraft({ ...promoDraft, tokens: Number(e.target.value) })} /></label><label>Активации<input type="number" value={promoDraft.activations} onChange={(e) => setPromoDraft({ ...promoDraft, activations: Number(e.target.value) })} /></label><button className="secondary" onClick={createPromo}>Создать промокод</button></article><article><h3>Промокоды в базе</h3>{promoCodes.length ? promoCodes.map((item) => <p key={item.code}><b>{item.code}</b>: {item.tokens} ток. · {item.activation_count}/{item.activation_limit}</p>) : <p>Промокодов пока нет.</p>}</article></div><div className="admin-grid"><div><strong>Free</strong><span>0 ₽</span><small>галерея закрыта, базовые токены</small></div><div><strong>Mini</strong><span>калибровка</span><small>все функции включены для тестов</small></div><div><strong>Plus</strong><span>личная галерея</span><small>больше токенов и история</small></div><div><strong>Pro</strong><span>мегаскорость</span><small>приоритет и расширенные лимиты</small></div></div></div>}
     {tab === 'users' && <div className="admin-section"><AdminAnalyticsV2 /><div className="legacy-admin-toggle"><button className="secondary" onClick={() => setShowLegacyUsers((v) => !v)}>{showLegacyUsers ? 'Скрыть старую таблицу действий' : 'Открыть старую таблицу действий'}</button><small className="legacy-admin-warn">Эти действия устаревают. Используйте карточку пользователя (Карточка → Админ-действия). Показывать только для экстренных случаев.</small></div>{showLegacyUsers && <div className="legacy-admin-table"><div className="admin-section-head"><h3>Старые действия — временно</h3><div className="admin-row-actions"><button className="secondary" onClick={downloadUsersExcel}>Скачать Excel</button><button className="secondary" onClick={() => { setEditingUserId(null); setUserHistory(null); setUserDraft({ userId: 'telegram_123456789', username: '', firstName: '', lastName: '', middleName: '', phone: '', email: '', country: '', city: '', role: 'user', plan: 'mini', tokenBalance: 50, galleryEnabled: true }); setUserFormOpen(true) }}>Добавить пользователя</button></div></div><div className="admin-grid"><div><strong>Всего</strong><span>{adminUsers.length || String(admin?.users ?? 1)}</span><small>зарегистрировано</small></div><div><strong>Админы</strong><span>{adminUsers.filter((item) => item.role === 'admin').length}</span><small>role=admin</small></div><div><strong>Токены</strong><span>{adminUsers.reduce((sum, item) => sum + (item.token_balance || 0), 0)}</span><small>на балансах</small></div><div><strong>Использовано</strong><span>{adminUsers.reduce((sum, item) => sum + (item.tokens_used || 0), 0)}</span><small>списано токенов</small></div><div><strong>Генерации</strong><span>{adminUsers.reduce((sum, item) => sum + (item.generation_count || 0), 0)}</span><small>всего</small></div><div><strong>Время</strong><span>{Math.round(adminUsers.reduce((sum, item) => sum + (item.total_time_seconds || 0), 0) / 60)} м</span><small>в приложении</small></div><div><strong>Промокоды</strong><span>{adminUsers.reduce((sum, item) => sum + (item.promo_used_count || 0), 0)}</span><small>использовано</small></div><div><strong>Рефералы</strong><span>{adminUsers.reduce((sum, item) => sum + (item.referrals_count || 0), 0)}</span><small>по ссылкам/кодам</small></div></div><div className="admin-user-table"><div className="admin-user-head"><span>Ред.</span><span>ID</span><span>ФИО и контакты</span><span>Гео</span><span>Роль</span><span>Баланс</span><span>Активность</span><span>Промо</span><span>Статус</span><span>Действия</span><span>Удалить</span></div>{adminUsers.map((item) => <div className="admin-user-row" key={item.id}><button className="edit-user-button" title="Редактировать" onClick={() => void editUser(item)}>Ред.</button><strong>{item.id}</strong><span>{[item.last_name, item.first_name, item.middle_name].filter(Boolean).join(' ') || item.username || 'без имени'}<br />@{item.username || '-'} · {item.phone || 'тел. -'} · {item.email || 'почта -'}</span><span>{item.country || '-'} / {item.city || '-'}<br />{item.timezone || '-'}</span><span>{item.role}<br />{item.plan}</span><span>{item.token_balance}<br />used {item.tokens_used || 0}</span><span>{item.generation_count || 0} ген.<br />{Math.round((item.total_time_seconds || 0) / 60)} мин.</span><span>{item.promo_used_count || 0} промо<br />{item.referrals_count || 0} реф.</span><button className={item.banned ? 'ban-state banned' : 'ban-state'} onClick={() => updateUser(item.id, { banned: !item.banned })}>{item.banned ? 'Забанен' : 'Активен'}</button><div className="admin-row-actions"><button className="secondary" onClick={() => updateUser(item.id, { role: item.role === 'admin' ? 'user' : 'admin' })}>{item.role === 'admin' ? 'Снять' : 'Админ'}</button><button className="secondary" onClick={() => { const nextPlan = item.plan === 'mini' ? 'plus' : item.plan === 'plus' ? 'pro' : item.plan === 'pro' ? 'free' : 'mini'; updateUser(item.id, { plan: nextPlan, galleryEnabled: nextPlan !== 'free' }) }}>Тариф</button><button className="secondary" onClick={() => updateUser(item.id, { tokenBalance: item.token_balance + 50 })}>+50</button><button className="secondary" onClick={() => updateUser(item.id, { tokenBalance: Math.max(0, item.token_balance - 50) })}>-50</button></div><button className="delete-user-button" title="Удалить" onClick={() => deleteUser(item.id)}><Trash2 size={16} /></button></div>)}</div></div>}</div>}
     {tab === 'queue' && <div className="admin-section"><h3>Очередь генераций</h3><div className="admin-grid"><div><strong>В очереди</strong><span>{queue.length}</span><small>ожидают запуска</small></div><div><strong>Провайдер</strong><span>{provider}</span><small>текущий маршрут</small></div><div><strong>Сегодня</strong><span>{String(admin?.completedToday ?? 0)}</span><small>выполнено</small></div></div><pre>{JSON.stringify(queue, null, 2)}</pre></div>}

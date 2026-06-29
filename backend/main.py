@@ -7632,6 +7632,194 @@ async def admin_model_status(request: Request) -> dict[str, Any]:
     return await compute_model_status()
 
 
+# ── Админ → Модели v2 ───────────────────────────────────────────────────────
+# Provider-aware каталог: local ComfyUI и OpenRouter — разные слои. Реальные данные:
+# наличие локальных файлов/нод (ComfyUI), скан LoRA, готовность pose, наличие ключа
+# OpenRouter. Тарифная матрица, маршруты и цены — admin-конфиг (дефолты пересчитываются,
+# переопределения хранятся в admin_settings и НЕ ломают estimate_token_cost генерации).
+
+# Известные LoRA: назначение / совместимость / целевой workflow.
+KNOWN_LORAS: dict[str, dict[str, Any]] = {
+    "bfs_head_v1_flux-klein_4b": {"purpose": "face / head consistency", "compatible": ["flux_klein_4b"], "routes": ["face", "edit"], "requires": []},
+    "bfs_head_v1_flux-klein_9b": {"purpose": "face / identity", "compatible": ["flux_klein_9b"], "routes": ["face", "edit"], "requires": []},
+    "refcontrol_v2_poses": {"purpose": "pose ref-control", "compatible": ["flux_klein_9b"], "routes": ["edit_pose"], "requires": ["DWPreprocessor"]},
+}
+
+OPENROUTER_CATALOG = [
+    {"id": "openrouter_gpt_image", "provider": "openrouter", "displayName": "GPT Image", "modelId": "openai/gpt-image-1", "capabilities": ["txt2img", "image input", "transparent"], "tokenCost": 7, "minimumPlan": "pro"},
+    {"id": "openrouter_gemini_image", "provider": "openrouter", "displayName": "Gemini Image", "modelId": "google/gemini-image", "capabilities": ["txt2img", "image input"], "tokenCost": 7, "minimumPlan": "pro"},
+    {"id": "openrouter_recraft", "provider": "openrouter", "displayName": "Recraft", "modelId": "recraft/recraft-v3", "capabilities": ["logos", "vector", "style"], "tokenCost": 5, "minimumPlan": "pro"},
+]
+
+ROUTE_DEFS = [
+    {"routeId": "text_to_image", "displayName": "Текст → Изо", "icon": "T"},
+    {"routeId": "image_to_image", "displayName": "Изо → Изо", "icon": "I"},
+    {"routeId": "edit", "displayName": "Редактор", "icon": "E"},
+    {"routeId": "edit_pose", "displayName": "Редактор - поза", "icon": "P"},
+    {"routeId": "face", "displayName": "Лицо → Изо", "icon": "F"},
+]
+
+
+async def scan_loras() -> list[dict[str, Any]]:
+    """Реальный скан LoRA из ComfyUI (или пусто, если недоступен) + сопоставление с
+    известными назначениями. Незнакомые файлы помечаются untested."""
+    try:
+        models = await get_comfyui_models()
+    except Exception:
+        models = {}
+    files = models.get("loras", [])
+    nodes = await comfyui_node_names()
+    out: list[dict[str, Any]] = []
+    for f in files:
+        base = f.lower()
+        meta = None
+        for key, m in KNOWN_LORAS.items():
+            if key.lower() in base:
+                meta = m
+                break
+        if meta:
+            requires_ok = all(n in nodes for n in meta["requires"])
+            status = "active" if (meta["routes"] == ["edit_pose"] and requires_ok) else ("found" if requires_ok else "missing")
+            out.append({
+                "fileName": f, "purpose": meta["purpose"], "compatible": meta["compatible"],
+                "routes": meta["routes"], "requires": meta["requires"], "status": status,
+            })
+        else:
+            # Не относится к klein (например wan/video LoRA) — показываем как untested style/other.
+            if any(k in base for k in ("klein", "flux", "style", "lora")):
+                out.append({"fileName": f, "purpose": "стиль / прочее (проверить)", "compatible": [], "routes": [], "requires": [], "status": "untested"})
+    return out
+
+
+@app.get("/api/admin/loras")
+async def admin_loras(request: Request) -> dict[str, Any]:
+    require_admin(request)
+    return {"loras": await scan_loras()}
+
+
+def _saved_setting(key: str) -> dict[str, Any]:
+    try:
+        with db() as conn:
+            row = conn.execute("SELECT value_json FROM admin_settings WHERE key = ?", (key,)).fetchone()
+        if row:
+            return json.loads(row["value_json"] or "{}")
+    except Exception:
+        pass
+    return {}
+
+
+def default_tariff_matrix() -> list[dict[str, Any]]:
+    # Дефолтные правила доступности/цены (calculated). Переопределяются admin_settings 'tariff_matrix'.
+    def cell(enabled, cost, default, formula):
+        return {"enabled": enabled, "tokenCost": cost, "isDefault": default, "formula": formula}
+    f4 = "txt 1 / img 2 / refs +1"
+    f9 = "txt 3 / img 5 / pose 3"
+    fo = "txt 7 / img 10 / refs +3"
+    return [
+        {"modelProfileId": "flux_klein_4b", "provider": "local", "displayName": "Flux 2 Klein 4B", "modelId": "comfyui:flux_klein_4b",
+         "tariffs": {"free": cell(True, 1, True, f4), "basic": cell(True, 1, True, f4), "pro": cell(True, 1, True, f4), "admin": cell(True, 1, True, f4)}},
+        {"modelProfileId": "flux_klein_9b", "provider": "local", "displayName": "Flux 2 Klein 9B", "modelId": "comfyui:flux_klein_9b",
+         "tariffs": {"free": cell(False, 0, False, "скрыть"), "basic": cell(True, 3, False, f9), "pro": cell(True, 3, True, f9), "admin": cell(True, 3, False, f9)}},
+        {"modelProfileId": "openrouter_gpt_image", "provider": "openrouter", "displayName": "GPT Image", "modelId": "openai/gpt-image-1",
+         "tariffs": {"free": cell(False, 0, False, "Pro only"), "basic": cell(False, 0, False, "Pro only"), "pro": cell(True, 7, False, fo), "admin": cell(True, 7, False, fo)}},
+        {"modelProfileId": "openrouter_gemini_image", "provider": "openrouter", "displayName": "Gemini Image", "modelId": "google/gemini-image",
+         "tariffs": {"free": cell(False, 0, False, "Pro only"), "basic": cell(False, 0, False, "Pro only"), "pro": cell(True, 7, False, "txt 7 / img 11 / refs +3"), "admin": cell(True, 7, False, "txt 7 / img 11 / refs +3")}},
+        {"modelProfileId": "openrouter_recraft", "provider": "openrouter", "displayName": "Recraft", "modelId": "recraft/recraft-v3",
+         "tariffs": {"free": cell(False, 0, False, "скрыть"), "basic": cell(False, 0, False, "скрыть"), "pro": cell(True, 5, False, "logos / style"), "admin": cell(True, 5, False, "logos / style")}},
+    ]
+
+
+def default_routes(model_status: dict[str, Any]) -> list[dict[str, Any]]:
+    sel = get_model_settings()
+    edit_model = sel.get("editModelProfile") or "flux_klein_9b"
+    pose_model = sel.get("poseModelProfile") or "flux_klein_9b"
+    base = {
+        "text_to_image": {"provider": "local", "modelProfileId": "flux_klein_4b"},
+        "image_to_image": {"provider": "local", "modelProfileId": "flux_klein_4b"},
+        "edit": {"provider": "local", "modelProfileId": edit_model},
+        # Pose ВСЕГДА Local ComfyUI → 9B + DWPose (не OpenRouter). 4B не поддерживается.
+        "edit_pose": {"provider": "local", "modelProfileId": "flux_klein_9b", "locked": True, "label": "Flux 2 Klein 9B + DWPose"},
+        "face": {"provider": "local", "modelProfileId": "flux_klein_9b"},
+    }
+    prof_by_id = {p["id"]: p for p in model_status.get("profiles", [])}
+    out = []
+    for r in ROUTE_DEFS:
+        cfg = base[r["routeId"]]
+        prof = prof_by_id.get(cfg["modelProfileId"])
+        if r["routeId"] == "edit_pose":
+            ok = bool(prof and prof.get("pose") == "available")
+            state = "pose ready" if ok else "pose: нет зависимостей"
+            status = "ok" if ok else "warn"
+        else:
+            ok = bool(prof and prof.get("baseEdit") == "available")
+            state = "доступна" if ok else "недоступна"
+            status = "ok" if ok else "bad"
+        out.append({**r, **cfg, "state": state, "status": status})
+    return out
+
+
+@app.get("/api/admin/models-page")
+async def admin_models_page(request: Request) -> dict[str, Any]:
+    require_admin(request)
+    status = await compute_model_status()
+    loras = await scan_loras()
+    routes = _saved_setting("generation_routes").get("routes") or default_routes(status)
+    matrix = _saved_setting("tariff_matrix").get("matrix") or default_tariff_matrix()
+    openrouter_key = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
+
+    # Каталог: local (из profiles) + openrouter.
+    catalog: list[dict[str, Any]] = []
+    for p in status.get("profiles", []):
+        caps = ["txt2img", "i2i", "editor"]
+        if p.get("supportsPose"):
+            caps = ["editor", "pose", "face"]
+        catalog.append({"provider": "local", "displayName": p["name"], "modelId": p["modelName"],
+                        "capabilities": caps, "cost": "локально", "margin": "высокая" if "4b" in p["id"] else "средняя",
+                        "status": "active" if p["baseEdit"] == "available" else "missing"})
+    for o in OPENROUTER_CATALOG:
+        catalog.append({"provider": "openrouter", "displayName": o["displayName"], "modelId": o["modelId"],
+                        "capabilities": o["capabilities"], "cost": "$ API", "margin": "контролировать",
+                        "status": "active" if openrouter_key else "нужен API key"})
+
+    # Сводка экономики (calculated).
+    active_models = sum(1 for m in matrix if any(t.get("enabled") for t in m["tariffs"].values()))
+    routes_assigned = sum(1 for r in routes if r.get("modelProfileId"))
+    expensive = sum(1 for m in matrix if m["provider"] == "openrouter" and m["tariffs"].get("pro", {}).get("enabled"))
+    conflicts = 0
+    if any(l["status"] == "untested" for l in loras):
+        conflicts += 1
+    if not openrouter_key and any(m["provider"] == "openrouter" and any(t.get("enabled") for t in m["tariffs"].values()) for m in matrix):
+        conflicts += 1
+
+    user_choice = _saved_setting("user_choice") or {
+        "simple": [
+            {"key": "fast", "label": "Быстро", "model": "Flux 2 Klein 4B", "cost": 1, "plan": "default"},
+            {"key": "quality", "label": "Качество", "model": "Flux 2 Klein 9B", "cost": 3, "plan": "Basic+"},
+            {"key": "pose", "label": "Поза", "model": "9B + DWPose", "cost": 3, "plan": "Pro"},
+        ],
+        "pro": [
+            {"label": "Flux 2 Klein 4B", "provider": "local", "cost": 1},
+            {"label": "Flux 2 Klein 9B", "provider": "local", "cost": 3},
+            {"label": "OpenRouter - GPT Image", "provider": "openrouter", "cost": 7},
+            {"label": "OpenRouter - Gemini Image", "provider": "openrouter", "cost": 7},
+            {"label": "Recraft", "provider": "openrouter", "cost": 5},
+        ],
+    }
+
+    return {
+        "economy": {"activeModels": active_models, "routesAssigned": f"{routes_assigned}/{len(ROUTE_DEFS)}", "expensiveRoutes": expensive, "priceConflicts": conflicts},
+        "routes": routes,
+        "userChoice": user_choice,
+        "matrix": matrix,
+        "catalog": catalog,
+        "loras": loras,
+        "comfyuiAvailable": status.get("comfyuiAvailable"),
+        "openrouter": {"keyConfigured": openrouter_key},
+        "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"},
+        "profiles": status.get("profiles", []),
+    }
+
+
 @app.get("/api/admin/jobs")
 async def admin_jobs(request: Request) -> list[dict[str, Any]]:
     require_admin(request)
