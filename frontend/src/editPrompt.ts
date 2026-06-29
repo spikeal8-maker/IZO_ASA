@@ -24,138 +24,147 @@ export const EDIT_REFERENCE_ROLE_LABELS: Record<EditReferenceRole, string> = {
   face: 'Лицо',
   clothing: 'Одежда',
   style: 'Стиль',
-  object: 'Объект',
+  object: 'Предмет',
   pose: 'Поза',
   background: 'Фон',
   color_material: 'Цвет/материал',
   other: 'Другое',
 }
 
-export type EditRoleRule = {
-  // Word used in "Image N is used ONLY as a <word> reference."
-  word: string
-  take: string
-  doNotTake: string
-  preserve: string
-  defaultTask: (n: number) => string
-  critical?: boolean
-}
+// ── Modular Prompt Composer ────────────────────────────────────────────────
+// finalPrompt = GLOBAL BASE LOCK + one independent role-block per filled reference
+// (Reference 1 in UI = Image 2 in prompt, etc.) + optional user-note block.
+// Each role-block hard-limits what may be taken from its image and what must be
+// preserved from Image 1, so roles sum without bleeding into each other.
 
-// Central semantics map. Strong take / do-not-take / preserve per role — this is what
-// makes a "Pose" reference actually transfer only the pose (and not clothing/face/etc.).
-export const EDIT_ROLE_PROMPT_RULES: Record<EditReferenceRole, EditRoleRule> = {
-  face: {
-    word: 'face',
-    take: 'facial identity, facial structure, expression if requested and key facial features',
-    doNotTake: 'clothing, body pose, background, lighting, color grading and hairstyle unless explicitly requested',
-    preserve: 'body, clothing, pose, background, lighting and composition from image 1',
-    defaultTask: (n) => `Use the face identity from image ${n} for the main character in image 1.`,
-  },
-  clothing: {
-    word: 'clothing',
-    take: 'garment type, cut, fabric, color, fit and clothing details',
-    doNotTake: 'face, hair, identity, body pose, background, room and camera angle',
-    preserve: 'face, body, pose, background, lighting and composition from image 1',
-    defaultTask: (n) => `Dress the character in image 1 with the clothing from image ${n}.`,
-  },
-  style: {
-    word: 'visual style',
-    take: 'visual style, color grading, lighting mood, rendering style and artistic atmosphere',
-    doNotTake: 'objects, people, face identity, clothing, pose and background layout',
-    preserve: 'the main subject, composition, identity and scene structure from image 1',
-    defaultTask: (n) => `Apply the visual style of image ${n} to image 1 while preserving the content and composition.`,
-  },
-  object: {
-    word: 'object',
-    take: 'the selected object, its shape, material, color and design',
-    doNotTake: 'people, face, pose, full background and unrelated objects',
-    preserve: 'the scene, lighting, perspective and main subject from image 1',
-    defaultTask: (n) => `Add or replace the relevant object in image 1 using the object from image ${n}.`,
-  },
-  pose: {
-    word: 'pose',
-    take: 'body pose, limb placement, hand position, leg position, head tilt, body orientation, standing/sitting posture and overall silhouette',
-    doNotTake: 'clothing, face, hair, identity, age, colors, background, room, lighting style and visual style',
-    preserve: 'identity, face, clothing, background, lighting, camera angle, body proportions and style from image 1',
-    defaultTask: (n) => `Apply only the pose from image ${n} to the character in image 1.`,
-    critical: true,
-  },
-  background: {
-    word: 'background',
-    take: 'environment, location, background layout, atmosphere and time of day if relevant',
-    doNotTake: 'people, clothing, face, pose and the foreground subject',
-    preserve: 'the main character or object from image 1, with realistic integration, scale and perspective',
-    defaultTask: (n) => `Replace or adapt the background of image 1 using the environment from image ${n}.`,
-  },
-  color_material: {
-    word: 'color and material',
-    take: 'color palette, material, texture, surface finish and fabric/metal/wood qualities',
-    doNotTake: 'object shape, face, pose, background and identity',
-    preserve: 'composition, objects, pose, identity and scene from image 1',
-    defaultTask: (n) => `Apply the color and material qualities from image ${n} to the relevant part of image 1.`,
-  },
-  other: {
-    word: 'specific-detail',
-    take: 'only the details explicitly described by the user',
-    doNotTake: 'anything not explicitly requested',
-    preserve: 'as much as possible from image 1',
-    defaultTask: (n) => `Use image ${n} only according to the user's written instruction.`,
-  },
-}
-
-const BASE_INSTRUCTION = 'Image 1 is the base image to edit. Preserve the main subject, identity, composition, camera angle, lighting, background and overall realism unless a reference role explicitly changes one of these elements.'
-
-const CONFLICT_RULES = [
-  'Conflict resolution:',
-  '- Image 1 is always the source of the main composition unless the user explicitly says otherwise.',
-  '- Identity comes from image 1 unless a reference has role face.',
-  '- Clothing comes from image 1 unless a reference has role clothing.',
-  '- Pose comes from image 1 unless a reference has role pose.',
-  '- Background comes from image 1 unless a reference has role background.',
-  '- Style comes from image 1 unless a reference has role style.',
-  "- If several references conflict, obey each reference's assigned role, not its overall appearance.",
+export const GLOBAL_BASE_LOCK = [
+  'Edit Image 1. Image 1 is the primary source image.',
+  '',
+  'Preserve the main subject, identity, face, body proportions, original realism, and the overall scene from Image 1, except for the specific attributes explicitly assigned to reference images below.',
+  '',
+  'Each reference image has a limited role. Use every reference image only for its declared role. Do not copy unrelated identity, face, clothing, pose, background, colors, objects, or style from a reference image unless that exact attribute is assigned to that reference role.',
+  '',
+  'If role instructions conflict, follow this priority:',
+  'Face identity > Pose > Clothing > Object > Background > Style > Color/Material > optional user note.',
+  '',
+  'The final image must look like one coherent edited photo, not a collage, not a blend of different people, and not a split-screen.',
 ].join('\n')
 
-const FINAL_RULES = 'Final rules:\nProduce one coherent edited version of image 1. Do not create a collage. Do not place reference images next to the base image. Use each reference only according to its assigned role. If references conflict, preserve image 1 as the source of identity, composition and scene continuity. Do not add readable text, logos or watermarks unless the user explicitly asks.'
+// Per-role fixed English block. `n` = image index in the prompt (2..4).
+// `custom` = user instruction (only used / required for the OTHER role).
+const ROLE_BLOCKS: Record<EditReferenceRole, (n: number, custom: string) => string> = {
+  face: (n) => `Reference Image ${n} role: FACE.
+
+Use Image ${n} only as a facial identity reference.
+Transfer only the facial identity, facial structure, facial features, expression character, eyes, nose, mouth, jawline, and recognizable face likeness.
+
+Do not transfer clothing, body shape, pose, hands, hair color, hairstyle, background, lighting setup, room, objects, camera angle, or visual style from Image ${n}.
+
+Apply the face naturally to the main subject from Image 1.
+Preserve the body, clothing, pose, background, and scene from Image 1 unless another reference role explicitly changes them.`,
+
+  clothing: (n) => `Reference Image ${n} role: CLOTHING.
+
+Use Image ${n} only as a clothing reference.
+Transfer only the garment type, cut, silhouette, fabric, texture, color, fit, seams, accessories attached to the outfit, and visible clothing details.
+
+Do not transfer the face, identity, hair, skin, body proportions, pose, hands, background, room, lighting, camera angle, or visual style from Image ${n}.
+
+Dress the main subject from Image 1 in this clothing while preserving the subject's identity, face, body proportions, and the current scene.
+The clothing must fit naturally on the body and pose of the final subject.`,
+
+  style: (n) => `Reference Image ${n} role: STYLE.
+
+Use Image ${n} only as a visual style reference.
+Transfer only the aesthetic treatment: color grading, contrast, lighting mood, rendering style, lens feeling, photographic tone, artistic finish, and overall atmosphere.
+
+Do not transfer any person, face, identity, clothing, pose, body shape, object, background layout, room structure, or composition from Image ${n}.
+
+Keep the subject and content from Image 1. Apply only the visual treatment of Image ${n}.`,
+
+  object: (n) => `Reference Image ${n} role: OBJECT.
+
+Use Image ${n} only as a reference for the main visible object.
+Transfer only the selected object's shape, design, material, color, texture, proportions, and important details.
+
+Do not transfer people, faces, bodies, clothing, pose, background, room, lighting style, camera angle, or unrelated objects from Image ${n}.
+
+Place or integrate the object naturally into the scene from Image 1.
+The object must look physically present in the final image, with matching perspective, scale, shadows, and lighting.
+
+If Image ${n} contains a person holding or wearing the object, ignore the person completely and use only the object.`,
+
+  pose: (n) => `Reference Image ${n} role: POSE.
+
+Use Image ${n} only as a pose reference.
+Transfer only the body position, limb angles, hand placement, head tilt, posture, weight distribution, gesture, and overall silhouette.
+
+Do not transfer the face, identity, gender, hair, clothing, skin details, colors, background, room, lighting, camera style, or visual style from Image ${n}.
+
+The final subject must remain the person from Image 1.
+Preserve the face, identity, clothing, body proportions, background, and scene from Image 1 unless another reference role explicitly changes one of those attributes.
+
+Use the pose as structural guidance only, not as an appearance reference.`,
+
+  background: (n) => `Reference Image ${n} role: BACKGROUND.
+
+Use Image ${n} only as a background and environment reference.
+Transfer only the location, room type, architecture, background layout, environmental atmosphere, depth, and lighting mood.
+
+Do not transfer any people, faces, bodies, skin, hair, clothing, creatures, foreground subjects, objects held by people, or identity from Image ${n}.
+
+Keep the main subject from Image 1.
+Place the subject from Image 1 naturally into the environment inspired by Image ${n}, with consistent perspective, shadows, and lighting.`,
+
+  color_material: (n) => `Reference Image ${n} role: COLOR/MATERIAL.
+
+Use Image ${n} only as a color, material, and surface reference.
+Transfer only the color palette, material quality, texture, reflectivity, roughness, finish, surface pattern, and tactile feeling.
+
+Do not transfer object shape, face, identity, body, pose, clothing design, background layout, room, camera angle, or composition from Image ${n}.
+
+Apply the color or material treatment only to the relevant subject, clothing, object, or surface in Image 1.
+Preserve the structure and identity of the original content.`,
+
+  other: (n, custom) => `Reference Image ${n} role: CUSTOM.
+
+Use Image ${n} only according to the user's custom instruction:
+"${custom}"
+
+Do not transfer anything from Image ${n} that is not explicitly requested in the custom instruction.
+
+Preserve all other important attributes from Image 1.`,
+}
+
+// Optional refinement appended to a standard role block when the user added a note
+// in Advanced for that reference. Never widens the role, only narrows the focus.
+function roleBlock(n: number, role: EditReferenceRole, custom: string): string {
+  const block = ROLE_BLOCKS[role](n, custom)
+  if (role !== 'other' && custom) return `${block}\nFocus specifically on this from Image ${n}: ${custom}.`
+  return block
+}
+
+function userNoteBlock(note: string): string {
+  return `Additional user request:\n"${note}"\n\nApply this request only if it does not conflict with the reference roles above.\nDo not use the user note to override identity preservation or role boundaries unless the user explicitly asks for it.`
+}
 
 export type ComposedPrompt = { prompt: string; hasTask: boolean }
 
-// Builds the structured prompt from base + per-reference role rules + assembled task
-// + conflict rules + user note + final rules. Only filled, role-assigned refs are mentioned.
+// GLOBAL BASE LOCK + independent role-block per filled reference + optional user note.
+// Empty refs and refs without a role are skipped entirely.
 export function buildEditComposedPrompt(params: { slots: EditSlot[]; userNote: string }): ComposedPrompt {
   const userNote = (params.userNote || '').trim()
   const refs = params.slots
     .map((slot, i) => ({ slot, n: i + 1 }))
     .filter((x) => x.n >= 2 && x.slot.image && x.slot.role)
 
-  const blocks: string[] = [BASE_INSTRUCTION]
-
+  const blocks: string[] = [GLOBAL_BASE_LOCK]
   for (const { slot, n } of refs) {
-    const rule = EDIT_ROLE_PROMPT_RULES[slot.role as EditReferenceRole]
-    const note = (slot.takeNote || '').trim()
-    const lines = [
-      `Image ${n} is used ONLY as a ${rule.word} reference.`,
-      `Take from image ${n}: ${rule.take}.`,
-    ]
-    if (note) lines.push(`Take specifically from image ${n}: ${note}.`)
-    lines.push(`Do NOT take from image ${n}: ${rule.doNotTake}.`)
-    lines.push(`Preserve from image 1: ${rule.preserve}.`)
-    blocks.push(lines.join('\n'))
+    blocks.push(roleBlock(n, slot.role as EditReferenceRole, (slot.takeNote || '').trim()))
   }
+  if (userNote) blocks.push(userNoteBlock(userNote))
 
-  const taskSentences = refs.map(({ slot, n }) => {
-    const rule = EDIT_ROLE_PROMPT_RULES[slot.role as EditReferenceRole]
-    const note = (slot.takeNote || '').trim()
-    const base = rule.defaultTask(n)
-    return note ? `${base} Use specifically: ${note}.` : base
-  })
-  if (taskSentences.length) blocks.push('Task:\n' + taskSentences.join(' '))
-
-  if (refs.length) blocks.push(CONFLICT_RULES)
-  if (userNote) blocks.push('Additional user instruction:\n' + userNote)
-  blocks.push(FINAL_RULES)
-
-  return { prompt: blocks.join('\n\n'), hasTask: taskSentences.length > 0 || userNote.length > 0 }
+  return { prompt: blocks.join('\n\n'), hasTask: refs.length > 0 || userNote.length > 0 }
 }
 
 export type EditComposerStatus = { blockReason: string | null; finalPrompt: string; composedPrompt: string }
@@ -169,7 +178,7 @@ export function editComposerStatus(params: { slots: EditSlot[]; userNote: string
   for (let i = 1; i < slots.length; i++) {
     const s = slots[i]
     if (s.image && !s.role) return { blockReason: `Выберите роль для референса ${i}.`, finalPrompt: '', composedPrompt: composed.prompt }
-    if (s.image && s.role === 'other' && !s.takeNote.trim()) return { blockReason: `Уточните, что взять из референса ${i}.`, finalPrompt: '', composedPrompt: composed.prompt }
+    if (s.image && s.role === 'other' && !s.takeNote.trim()) return { blockReason: `Уточните, что именно взять из референса ${i}.`, finalPrompt: '', composedPrompt: composed.prompt }
   }
   if (manualMode) {
     if (!manualPrompt.trim()) return { blockReason: 'Введите инструкцию для генерации.', finalPrompt: '', composedPrompt: composed.prompt }
@@ -183,10 +192,9 @@ export type EditTemplate = { id: string; title: string; assign: Array<{ refIndex
 
 // Templates are role configurations + a user note, NOT plain text.
 export const EDIT_TEMPLATES: EditTemplate[] = [
-  { id: 'pose', title: 'Поза из референса', assign: [{ refIndex: 1, role: 'pose' }], userNote: 'Поставь персонажа из изображения 1 в позу из изображения 2.' },
-  { id: 'clothing', title: 'Надеть одежду', assign: [{ refIndex: 1, role: 'clothing' }], userNote: 'Надень одежду из изображения 2 на персонажа из изображения 1.' },
+  { id: 'pose_bg', title: 'Поза + фон', assign: [{ refIndex: 1, role: 'pose' }, { refIndex: 2, role: 'background' }], userNote: 'Поставь персонажа из изображения 1 в позу из изображения 2 и помести его в окружение из изображения 3.' },
+  { id: 'clothing', title: 'Одежда на персонажа', assign: [{ refIndex: 1, role: 'clothing' }], userNote: 'Надень одежду из изображения 2 на персонажа из изображения 1.' },
   { id: 'background', title: 'Фон из референса', assign: [{ refIndex: 1, role: 'background' }], userNote: 'Перемести персонажа из изображения 1 в окружение изображения 2.' },
-  { id: 'face', title: 'Лицо из референса', assign: [{ refIndex: 1, role: 'face' }], userNote: 'Перенеси лицо из изображения 2 на персонажа из изображения 1.' },
-  { id: 'style', title: 'Стиль из референса', assign: [{ refIndex: 1, role: 'style' }], userNote: 'Примени визуальный стиль изображения 2 к изображению 1.' },
+  { id: 'face_style', title: 'Лицо + стиль', assign: [{ refIndex: 1, role: 'face' }, { refIndex: 2, role: 'style' }], userNote: 'Используй лицо из изображения 2 и визуальный стиль из изображения 3.' },
   { id: 'clothing_pose', title: 'Одежда + поза', assign: [{ refIndex: 1, role: 'clothing' }, { refIndex: 2, role: 'pose' }], userNote: 'Используй одежду из изображения 2 и позу из изображения 3.' },
 ]

@@ -23,7 +23,7 @@ from urllib.parse import parse_qs
 import httpx
 from argon2 import PasswordHasher
 from argon2.exceptions import Argon2Error
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -34,6 +34,8 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parent
 MEDIA = ROOT / "media"
 MEDIA.mkdir(exist_ok=True)
+AVATAR_DIR = MEDIA / "avatars"
+AVATAR_DIR.mkdir(exist_ok=True)
 
 
 def load_local_env() -> None:
@@ -331,6 +333,8 @@ class AdminPlanV2Request(BaseModel):
 class AdminProfileV2Request(BaseModel):
     display_name: str | None = None
     email: str | None = None
+    avatar_url: str | None = None
+    avatar_preset: str | None = None
     reason: str = ""
 
 
@@ -409,6 +413,8 @@ class ProfileUpdateV2Request(BaseModel):
     timezone: str | None = None
     city: str | None = None
     country_code: str | None = None
+    avatar_url: str | None = None
+    avatar_preset: str | None = None
 
 
 class ConsentV2Request(BaseModel):
@@ -1161,6 +1167,8 @@ def init_db() -> None:
             "email_verified_at": "TEXT",
             "phone_verified_at": "TEXT",
             "public_user_code": "TEXT",
+            "avatar_url": "TEXT",
+            "avatar_preset": "TEXT",
         }.items():
             if column not in existing_user_columns:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
@@ -2592,6 +2600,8 @@ PROFILE_FIELD_COLUMNS = {
     "timezone": "timezone",
     "city": "city",
     "country_code": "country",
+    "avatar_url": "avatar_url",
+    "avatar_preset": "avatar_preset",
 }
 
 CONSENT_TYPES = {
@@ -2605,6 +2615,24 @@ PROFILE_FIELD_MAX_LEN = 200
 def build_profile(row: sqlite3.Row | None) -> dict[str, Any]:
     """Safe profile projection — only whitelisted columns, null where missing."""
     return {api_field: _row_get(row, col) for api_field, col in PROFILE_FIELD_COLUMNS.items()}
+
+
+AVATAR_PRESET_IDS = {f"preset-{i}" for i in range(1, 11)}
+AVATAR_MAX_BYTES = 2 * 1024 * 1024
+AVATAR_ALLOWED_CONTENT_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+
+
+def validate_avatar_choice(avatar_url: str | None, avatar_preset: str | None) -> tuple[str | None, str | None]:
+    preset = (avatar_preset or "").strip()
+    url = (avatar_url or "").strip()
+    if preset:
+        if preset not in AVATAR_PRESET_IDS:
+            raise HTTPException(400, "Unknown avatar preset.")
+        expected = f"/avatars/{preset}.svg"
+        return expected, preset
+    if url and not url.startswith("/media/avatars/"):
+        raise HTTPException(400, "Avatar URL is not allowed.")
+    return url or None, None
 
 
 def sanitize_device_metadata(metadata_json: str | None) -> dict[str, Any]:
@@ -2730,6 +2758,8 @@ def admin_user_summary(row: sqlite3.Row | None) -> dict[str, Any]:
         "role": _row_get(row, "role"),
         "created_at": _row_get(row, "created_at"),
         "last_seen_at": _row_get(row, "last_seen_at"),
+        "avatar_url": _row_get(row, "avatar_url"),
+        "avatar_preset": _row_get(row, "avatar_preset"),
     }
 
 
@@ -4837,6 +4867,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "SELECT provider, provider_username, provider_email, linked_at, last_login_at FROM auth_identities WHERE internal_user_id = ?",
             (iuid,),
         ).fetchall()
+        gallery_access = bool(user_gallery_allowed(conn, iuid, legacy))
 
     primary_identity = identities[0] if identities else None
     profile = {
@@ -4847,6 +4878,8 @@ async def me_v2(request: Request) -> dict[str, Any]:
         "username": _row_get(urow, "username"),
         "email": _row_get(urow, "email"),
         "language_code": _row_get(urow, "language"),
+        "avatar_url": _row_get(urow, "avatar_url"),
+        "avatar_preset": _row_get(urow, "avatar_preset"),
         "providers": sorted({i["provider"] for i in identities}),
     }
 
@@ -4866,6 +4899,13 @@ async def me_v2(request: Request) -> dict[str, Any]:
         "internal_user_id": iuid,
         "legacy_user_id": legacy,
         "status": "active",
+        "account": {
+            "role": _row_get(urow, "role"),
+            "plan": _row_get(urow, "plan") or "mini",
+            "token_balance": int(_row_get(urow, "token_balance") or 0),
+            "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
+            "gallery_access": gallery_access,
+        },
         "session": {
             "session_id": user["session_id"],
             "provider": _row_get(sess, "provider") or user["provider"],
@@ -4949,8 +4989,17 @@ async def me_profile_update_v2(req: ProfileUpdateV2Request, request: Request) ->
                 continue  # unsupported field is ignored, never an injection vector
             if isinstance(value, str):
                 value = value.strip()[:PROFILE_FIELD_MAX_LEN]
+            if api_field in {"avatar_url", "avatar_preset"}:
+                avatar_url, avatar_preset = validate_avatar_choice(
+                    provided.get("avatar_url"), provided.get("avatar_preset")
+                )
+                value = avatar_url if api_field == "avatar_url" else avatar_preset
             set_cols.append(f"{col} = ?")
             values.append(value)
+        if provided.get("avatar_preset") and "avatar_url" not in provided and "avatar_url" in user_columns:
+            avatar_url, _avatar_preset = validate_avatar_choice(None, provided.get("avatar_preset"))
+            set_cols.append("avatar_url = ?")
+            values.append(avatar_url)
         if set_cols:
             # Scoped to the trusted user's internal_user_id — id/role/banned untouched.
             conn.execute(
@@ -4975,6 +5024,48 @@ async def me_profile_update_v2(req: ProfileUpdateV2Request, request: Request) ->
         print(f"profile-v2: profile_updated event log error: {type(exc).__name__}")
 
     return {"internal_user_id": iuid, "legacy_user_id": legacy, "profile": build_profile(urow)}
+
+
+@app.post("/api/me/avatar-upload-v2")
+async def me_avatar_upload_v2(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    iuid = user["internal_user_id"]
+    legacy = user["legacy_user_id"]
+    content_type = (file.content_type or "").lower()
+    suffix = AVATAR_ALLOWED_CONTENT_TYPES.get(content_type)
+    if not suffix:
+        raise HTTPException(400, "Avatar must be PNG, JPEG or WEBP.")
+    data = await file.read(AVATAR_MAX_BYTES + 1)
+    if len(data) > AVATAR_MAX_BYTES:
+        raise HTTPException(413, "Avatar file is too large.")
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.verify()
+    except Exception:
+        raise HTTPException(400, "Avatar file is not a valid image.")
+
+    filename = f"{iuid}-{uuid.uuid4().hex[:12]}{suffix}"
+    dest = AVATAR_DIR / filename
+    dest.write_bytes(data)
+    avatar_url = f"/media/avatars/{filename}"
+    with db() as conn:
+        conn.execute(
+            "UPDATE users SET avatar_url = ?, avatar_preset = NULL WHERE internal_user_id = ?",
+            (avatar_url, iuid),
+        )
+        urow = conn.execute("SELECT * FROM users WHERE internal_user_id = ?", (iuid,)).fetchone()
+    try:
+        record_event_log(
+            "avatar_uploaded",
+            internal_user_id=iuid,
+            legacy_user_id=legacy,
+            session_id=user["session_id"],
+            platform=user["platform"],
+            properties={"content_type": content_type},
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"avatar-upload-v2: event log error: {type(exc).__name__}")
+    return {"ok": True, "avatar_url": avatar_url, "profile": build_profile(urow)}
 
 
 @app.get("/api/me/devices-v2")
@@ -5901,13 +5992,28 @@ async def admin_profile_v2(internal_user_id: str, req: AdminProfileV2Request, re
             v = (normalize_email(req.email) or req.email.strip()[:200])
             updates.append("email = ?"); values.append(v)
             before["email"] = target["email"]; after["email"] = v
+        if req.avatar_url is not None or req.avatar_preset is not None:
+            avatar_url, avatar_preset = validate_avatar_choice(req.avatar_url, req.avatar_preset)
+            updates.append("avatar_url = ?"); values.append(avatar_url)
+            updates.append("avatar_preset = ?"); values.append(avatar_preset)
+            before["avatar_url"] = _row_get(target, "avatar_url")
+            before["avatar_preset"] = _row_get(target, "avatar_preset")
+            after["avatar_url"] = avatar_url
+            after["avatar_preset"] = avatar_preset
         if not updates:
             raise HTTPException(400, "Нет полей для изменения.")
         conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE internal_user_id = ?", (*values, internal_user_id))
         after["reason"] = reason
         record_audit_log(conn, "admin_update_user_profile", actor_internal_user_id=admin["internal_user_id"],
                          target_internal_user_id=internal_user_id, entity_id=target["id"], before=before, after=after, request=request)
-    return {"ok": True, "internal_user_id": internal_user_id, "display_name": after.get("display_name"), "email": after.get("email")}
+    return {
+        "ok": True,
+        "internal_user_id": internal_user_id,
+        "display_name": after.get("display_name"),
+        "email": after.get("email"),
+        "avatar_url": after.get("avatar_url"),
+        "avatar_preset": after.get("avatar_preset"),
+    }
 
 
 @app.get("/api/admin/users/{internal_user_id}/billing-v2")
@@ -6528,6 +6634,8 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "internal_user_id_short": (iuid[:8] + "…") if iuid else None,
         "public_user_code": _row_get(urow, "public_user_code"),
         "display_name": resolve_display_name(urow, identities[0] if identities else None),
+        "avatar_url": _row_get(urow, "avatar_url"),
+        "avatar_preset": _row_get(urow, "avatar_preset"),
         "primary_provider": primary,
         "providers": sorted({i["provider"] for i in identities}),
         "email": mask_email(_row_get(urow, "email")),
