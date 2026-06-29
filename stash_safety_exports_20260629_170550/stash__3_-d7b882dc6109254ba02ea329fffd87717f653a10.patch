@@ -1,0 +1,119 @@
+diff --git a/frontend/src/adminAnalytics.tsx b/frontend/src/adminAnalytics.tsx
+index e5d2b65..5035cbe 100644
+--- a/frontend/src/adminAnalytics.tsx
++++ b/frontend/src/adminAnalytics.tsx
+@@ -320,38 +320,48 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
+         <header className="crm-card-header">
+           <div className="crm-card-id crm-card-id-rich">
+             <AvatarMark u={sm} ids={ids} className={`crm-avatar activity-${active} ${isBanned ? 'risk' : ''}`} />
+-            <div>
+-              <h2>{parsedName(sm, ids)}</h2>
+-              <span className="crm-preview-code">{S(sm.public_user_code)}</span>
++            <div className="crm-card-mainline">
++              <div className="crm-name-line">
++                <h2>{parsedName(sm, ids)}</h2>
++                <span className={isBanned ? 'status-banned' : 'status-active'}>{S(sm.status)}</span>
++                <span>{S(sm.role)}</span>
++                <span>{S(sm.plan)}</span>
++              </div>
++              <button className="crm-preview-code" type="button" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>{S(sm.public_user_code)}</button>
++              <div className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</div>
++              <div className="crm-card-kpis">
++                <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Потрачено <b>{S(sm.tokens_spent)}</b></span>
++                <span>Генераций <b>{S(sm.generations_count)}</b></span><span>Изображений в галерее <b>{S(sm.gallery_count ?? 0)}</b></span>
++                <span>Последняя активность <b>{shortTime(sm.last_seen_at)}</b></span><span>Создан <b>{shortTime(sm.first_seen_at)}</b></span><span>Риск-скор <b>{riskLabel(sm)}</b></span>
++              </div>
++              <div className="crm-status-row" aria-label="Метки состояния">
++                <span><i className="activity-online" />Онлайн</span>
++                <span><i className="activity-today" />Сегодня</span>
++                <span><i className="activity-week" />Неделя</span>
++                <span><i className="activity-month" />Месяц</span>
++                <span><i className="activity-cold" />Нет генераций / холодный</span>
++              </div>
+             </div>
+-            <span className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</span>
+-            <span className={isBanned ? 'status-banned' : 'status-active'}>{S(sm.status)}</span>
+-            <span>{S(sm.role)}</span><span>{S(sm.plan)}</span><span>{ACTIVITY_LABEL[active]}</span>
+           </div>
+           <div className="crm-card-top-actions">
+-            <button className="secondary" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>Копировать</button>
+-            <button className="secondary" onClick={() => setTab('tech')}>Профиль</button>
++            <button className="secondary icon-only" title="Копировать код" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>□</button>
++            <button className="secondary" onClick={() => setTab('tech')}>Открыть профиль</button>
+             <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
+           </div>
+-          <div className="crm-card-kpis">
+-            <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Списано <b>{S(sm.tokens_spent)}</b></span>
+-            <span>Генераций <b>{S(sm.generations_count)}</b></span><span>Галерея <b>{S(sm.gallery_count ?? 0)}</b></span>
+-            <span>Вход {shortTime(sm.last_seen_at)}</span><span>Создан {shortTime(sm.first_seen_at)}</span><span>Риск <b>{riskLabel(sm)}</b></span>
+-          </div>
+         </header>
+ 
+         <div className="crm-card-cols">
+           <div className="crm-card-left">
+             {banner && <p className={state === 'ok' ? 'crm-card-note' : 'crm-err'}>{banner}</p>}
+             <div className="crm-panel">
+-              <h4>Профиль и контакты</h4>
++              <h4>1. Профиль и контакты</h4>
+               <dl className="crm-preview-list">
+                 {row('Имя', parsedName(sm, ids))}{row('Email', sm.email)}{row('Username', sm.username)}{row('Телефон', sm.phone)}
+                 {row('Язык', (ids?.[0] as AnyRec)?.language_code)}{row('Гео', `${S(sm.city)} / ${S(sm.country)}`)}{row('Роль', sm.role)}{row('Тариф', sm.plan || 'mini')}{row('Галерея', sm.gallery_access ? 'доступна' : 'закрыта')}
+               </dl>
+             </div>
+             <div className="crm-panel">
+-              <h4>Источники входа</h4>
++              <h4>2. Источники входа</h4>
+               {(ids || []).map((i, n) => (
+                 <div className="crm-subrow" key={n}>
+                   <span><Badge p={String(i.provider)} /> @{S(i.provider_username)} · {S(i.provider_email)} · id {shortId(i.provider_user_id, 6)}</span>
+@@ -360,7 +370,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
+               ))}{!ids?.length && <p className="crm-card-note">—</p>}
+             </div>
+             <div className="crm-panel">
+-              <h4>Контент</h4>
++              <h4>3. Контент</h4>
+               <dl className="crm-preview-list">
+                 {row('Генерации', sm.generations_count)}{row('Промпты', data?.recent_generations?.length ?? 0)}{row('Галерея', data?.recent_gallery?.length ?? sm.gallery_count ?? 0)}{row('Последний контент', shortTime(data?.recent_generations?.[0]?.created_at))}
+               </dl>
+@@ -369,7 +379,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
+               </div>
+             </div>
+             <div className="crm-panel">
+-              <h4>Финансы и токены</h4>
++              <h4>4. Финансы</h4>
+               <dl className="crm-preview-list">
+                 {row('Баланс токенов', data?.token_summary?.balance ?? sm.token_balance)}{row('Потрачено токенов', data?.token_summary?.spent ?? sm.tokens_spent)}
+                 {row('Операций ledger', data?.token_summary?.entries ?? 0)}
+@@ -401,20 +411,20 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
+             </div>
+             <div className="crm-two">
+               <div className="crm-panel">
+-                <h4>Устройства и сессии</h4>
++                <h4>5. Устройства и сессии</h4>
+                 {(data?.sessions || []).slice(0, 6).map((s, n) => (
+                   <div className="crm-subrow" key={n}><small><strong>{S(s.platform)}</strong> · {S(s.ip_address)} {s.revoked_at ? '· отозв.' : '· активна'}</small><small>{S((s.device as AnyRec)?.browser)}/{S((s.device as AnyRec)?.os)} · {S((s.device as AnyRec)?.device_type)} · {S((s.device as AnyRec)?.app_build)} · {S((s.device as AnyRec)?.mac_status)}</small></div>
+                 ))}{!data?.sessions?.length && <p className="crm-card-note">—</p>}
+               </div>
+               <div className="crm-panel">
+-                <h4>MAC: недоступен</h4>
++                <h4>Технические устройства</h4>
+                 {(data?.devices || []).slice(0, 6).map((d, n) => (
+                   <div className="crm-subrow" key={n}><small><strong>{S(d.platform)}</strong> · inst {S(d.installation_id)}</small><small>{S((d.metadata as AnyRec)?.browser)}/{S((d.metadata as AnyRec)?.os)} · anon {S(d.anonymous_id)} · {S(d.mac_status)} · {shortTime(d.last_seen_at)}</small></div>
+                 ))}{!data?.devices?.length && <p className="crm-card-note">—</p>}
+               </div>
+             </div>
+             <div className="crm-panel">
+-              <h4>Безопасность</h4>
++              <h4>6. Безопасность</h4>
+               <dl className="crm-preview-list">
+                 {row('Риск', riskLabel(sm))}{row('Событий безопасности', securityCount)}{row('Последний IP', sm.last_ip)}{row('Активных сессий', sm.active_sessions_count)}
+                 {row('Ошибки входа', data?.security_summary?.failed_login_count ?? 0)}{row('Сбросы пароля', data?.security_summary?.password_reset_count ?? 0)}
+@@ -463,7 +473,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
+           </div>
+ 
+           <aside className="crm-card-actions">
+-            <h4>Админ-действия</h4>
++            <h4>Действия администратора</h4>
+             <p className="crm-card-note">{adminReady ? 'Каждое поддержанное действие требует причину и пишется в audit log.' : 'Войдите как админ: мутационные действия заблокированы.'}</p>
+             <div className="crm-action-group"><strong>Токены</strong><div className="crm-quick"><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'tokens', preset: '50' })}>+50</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'tokens', preset: '-50' })}>-50</button>{actionButton('tokens', 'Другое')}</div></div>
+             <div className="crm-action-group"><strong>Биллинг</strong>{actionButton('plan', 'Изменить тариф')}<button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'invoice', preset: '0' })}>Выставить счёт</button><button className="secondary crm-supported-action" disabled={!adminReady || !unpaidInvoice} onClick={() => adminReady && unpaidInvoice && setAct({ kind: 'mark_paid', preset: S(unpaidInvoice.total_amount), context: unpaidInvoice })}>Отметить оплату</button><button className="secondary danger crm-supported-action" disabled={!adminReady || !refundablePayment} onClick={() => adminReady && refundablePayment && setAct({ kind: 'refund', preset: S(refundablePayment.amount), context: refundablePayment })}>Возврат</button><button className="secondary danger crm-supported-action" disabled={!adminReady || !unpaidInvoice} onClick={() => adminReady && unpaidInvoice && setAct({ kind: 'cancel_invoice', context: unpaidInvoice })}>Отменить счёт</button></div>

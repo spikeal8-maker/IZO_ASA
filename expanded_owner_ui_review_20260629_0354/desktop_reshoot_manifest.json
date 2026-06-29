@@ -1,0 +1,87 @@
+{
+  "desktop_reshoot": [
+    {
+      "file": "01-studio-default.png",
+      "label": "Studio default screen"
+    },
+    {
+      "file": "02-draw-tab-default.png",
+      "label": "Draw / Рисовать tab default"
+    },
+    {
+      "file": "02b-draw-sketch-editor.png",
+      "label": "Draw sketch editor state"
+    },
+    {
+      "file": "03-prompt-input-area.png",
+      "label": "Prompt input area with text"
+    },
+    {
+      "file": "06-generation-loading-state.png",
+      "label": "Generation loading state mocked locally"
+    },
+    {
+      "file": "07-generation-result-state.png",
+      "label": "Generation result state mocked locally"
+    },
+    {
+      "file": "04-prompt-editing-state.png",
+      "label": "Prompt editing flow / edit mode"
+    },
+    {
+      "file": "05-prompt-edit-modal-or-template-ui.png",
+      "label": "Prompt modal / edit template UI"
+    },
+    {
+      "file": "08-settings-page.png",
+      "label": "Settings page"
+    },
+    {
+      "file": "09-settings-tariff-token-profile-blocks.png",
+      "label": "Settings tariff/token/profile blocks"
+    },
+    {
+      "file": "10-gallery-page.png",
+      "label": "Gallery normal/empty state"
+    },
+    {
+      "file": "11-gallery-image-card-state.png",
+      "label": "Gallery image/card detail state"
+    },
+    {
+      "file": "12-gallery-delete-confirm-state.png",
+      "label": "Gallery delete/confirm state if present"
+    },
+    {
+      "file": "13-admin-default.png",
+      "label": "Admin default"
+    },
+    {
+      "file": "14-admin-users-crm-table.png",
+      "label": "Admin users / CRM table"
+    },
+    {
+      "file": "15-crm-user-card-page.png",
+      "label": "CRM user card/page"
+    },
+    {
+      "file": "16-admin-tokens-page.png",
+      "label": "Admin tokens page if present"
+    },
+    {
+      "file": "18-unauthenticated-state.png",
+      "label": "Unauthenticated default state"
+    },
+    {
+      "file": "17-auth-login-modal-or-settings-unauth.png",
+      "label": "Unauthenticated settings/auth state"
+    },
+    {
+      "file": "17b-auth-login-modal-after-generate.png",
+      "label": "Auth/login modal after generate attempt"
+    }
+  ],
+  "notes": [
+    "Gallery delete click attempted=False, native dialog dismissed=False"
+  ]
+}
