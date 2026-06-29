@@ -26,7 +26,7 @@ from argon2.exceptions import Argon2Error
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel, Field
 
@@ -82,7 +82,21 @@ COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188")
 COMFYUI_REQUIRED = os.getenv("COMFYUI_REQUIRED", "false").lower() == "true"
 COMFYUI_MOCK_FALLBACK = os.getenv("COMFYUI_MOCK_FALLBACK", "false").lower() == "true"
 COMFYUI_TIMEOUT_SECONDS = int(os.getenv("COMFYUI_TIMEOUT_SECONDS", "900"))
-BOT_MODE = os.getenv("BOT_MODE", "local").lower()
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+BOT_UPDATES_MODE = os.getenv("BOT_UPDATES_MODE", os.getenv("BOT_MODE", "disabled")).strip().lower()
+if BOT_UPDATES_MODE not in {"webhook", "polling", "disabled"}:
+    BOT_UPDATES_MODE = "disabled"
+BOT_MODE = BOT_UPDATES_MODE
+TELEGRAM_POLLING_ENABLED = env_bool("TELEGRAM_POLLING_ENABLED", True)
+MAX_POLLING_ENABLED = env_bool("MAX_POLLING_ENABLED", True)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_INIT_DATA_TTL_SECONDS = int(os.getenv("TELEGRAM_INIT_DATA_TTL_SECONDS", str(60 * 60 * 24)))
 MAX_BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
@@ -109,6 +123,11 @@ TRUSTED_COOKIE_SAMESITE = os.getenv("TRUSTED_COOKIE_SAMESITE", "lax")
 TRUSTED_COOKIE_DOMAIN = os.getenv("TRUSTED_COOKIE_DOMAIN", "") or None
 TRUSTED_COOKIE_PATH = os.getenv("TRUSTED_COOKIE_PATH", "/")
 SESSION_COOKIE_NAME = TRUSTED_SESSION_COOKIE_NAME
+BOT_LOGIN_CHALLENGE_COOKIE_NAME = os.getenv("BOT_LOGIN_CHALLENGE_COOKIE_NAME", "onenode_bot_login")
+BOT_LOGIN_CHALLENGE_TTL_SECONDS = int(os.getenv("BOT_LOGIN_CHALLENGE_TTL_SECONDS", "600"))
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")
+TELEGRAM_BOT_DEEP_LINK_BASE = os.getenv("TELEGRAM_BOT_DEEP_LINK_BASE", "")
+MAX_BOT_DEEP_LINK_BASE = os.getenv("MAX_BOT_DEEP_LINK_BASE", "")
 
 # Phase 18: client-IP trust. Default OFF (use the direct socket peer). Behind the
 # Cloudflare tunnel the socket peer is 127.0.0.1, so the real client IP arrives in
@@ -269,6 +288,10 @@ class MaxAuthV2Request(BaseModel):
     installation_id: str | None = None
     anonymous_id: str | None = None
     platform: Literal["max_mini_app"] = "max_mini_app"
+
+
+class BotLoginStartRequest(BaseModel):
+    provider: Literal["telegram", "max"]
 
 
 class EmailRequestCodeV2Request(BaseModel):
@@ -517,6 +540,13 @@ class AdminSettingsRequest(BaseModel):
 
 rate_limits = {"hourly": 10, "daily": 50}
 PROMO_REFERRAL_REWARD_TOKENS = 50
+PLAN_ORDER = ("free", "mini", "plus", "pro")
+DEFAULT_TARIFFS: dict[str, dict[str, int]] = {
+    "free": {"daily_tokens": 10, "gallery_slots": 1},
+    "mini": {"daily_tokens": 50, "gallery_slots": 10},
+    "plus": {"daily_tokens": 100, "gallery_slots": 50},
+    "pro": {"daily_tokens": 200, "gallery_slots": 100},
+}
 
 
 @dataclass
@@ -532,14 +562,16 @@ images: dict[str, dict[str, Any]] = {}
 queue: asyncio.Queue[str] = asyncio.Queue()
 worker_started = False
 bot_polling_started = False
-telegram_update_offset = 0
-max_update_marker: str | None = None
+bot_polling_tasks: dict[str, asyncio.Task] = {}
 
 
 def request_user_id(request: Request | None = None) -> str:
     if not request:
         return "demo_user"
-    return request.headers.get("X-OneNode-User") or request.cookies.get("onenode_user") or "demo_user"
+    user_id = request.headers.get("X-OneNode-User") or request.cookies.get("onenode_user") or "demo_user"
+    if is_production_like_env() and user_id == "demo_user":
+        raise HTTPException(401, "Authentication required")
+    return user_id
 
 
 def require_admin(request: Request) -> str:
@@ -946,6 +978,31 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS bot_polling_state (
+                provider TEXT PRIMARY KEY,
+                cursor TEXT,
+                updated_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS auth_login_challenges (
+                id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                browser_nonce_hash TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                internal_user_id TEXT,
+                provider_user_id TEXT,
+                provider_username TEXT,
+                approved_at TEXT,
+                consumed_at TEXT,
+                created_at TEXT NOT NULL,
+                created_ip TEXT,
+                user_agent TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_auth_login_challenges_provider_status ON auth_login_challenges(provider, status);
+            CREATE INDEX IF NOT EXISTS idx_auth_login_challenges_expires ON auth_login_challenges(expires_at);
+
             CREATE TABLE IF NOT EXISTS promo_codes (
                 code TEXT PRIMARY KEY,
                 tokens INTEGER NOT NULL DEFAULT 0,
@@ -1169,6 +1226,8 @@ def init_db() -> None:
             "public_user_code": "TEXT",
             "avatar_url": "TEXT",
             "avatar_preset": "TEXT",
+            "daily_tokens_used": "INTEGER NOT NULL DEFAULT 0",
+            "last_daily_reset": "TEXT",
         }.items():
             if column not in existing_user_columns:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
@@ -1625,6 +1684,11 @@ def generate_secure_token() -> str:
     return secrets.token_urlsafe(48)
 
 
+def generate_bot_login_token() -> str:
+    """Short opaque token that fits Telegram callback_data; DB stores only hash."""
+    return secrets.token_urlsafe(18)
+
+
 def hash_token(raw_token: str) -> str:
     """Deterministic hash of a raw token. Raw tokens are never stored or logged."""
     if SESSION_HMAC_SECRET:
@@ -2018,6 +2082,164 @@ def max_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now: str
     return internal_user_id, legacy_user_id
 
 
+def bot_login_deep_link(provider: Literal["telegram", "max"], token: str) -> str:
+    payload = f"login_{token}"
+    if provider == "telegram":
+        base = TELEGRAM_BOT_DEEP_LINK_BASE.strip()
+        if base:
+            sep = "&" if "?" in base else "?"
+            return f"{base}{sep}start={payload}"
+        if TELEGRAM_BOT_USERNAME.strip():
+            return f"https://t.me/{TELEGRAM_BOT_USERNAME.strip().lstrip('@')}?start={payload}"
+    base = MAX_BOT_DEEP_LINK_BASE.strip()
+    if base:
+        sep = "&" if "?" in base else "?"
+        return f"{base}{sep}start={payload}"
+    raise HTTPException(503, "provider_not_configured")
+
+
+def bot_login_available(provider: Literal["telegram", "max"]) -> bool:
+    if provider == "telegram":
+        return bool(TELEGRAM_BOT_TOKEN and (TELEGRAM_BOT_DEEP_LINK_BASE.strip() or TELEGRAM_BOT_USERNAME.strip()))
+    return bool(MAX_BOT_TOKEN and MAX_BOT_DEEP_LINK_BASE.strip())
+
+
+def auth_capabilities_payload() -> dict[str, Any]:
+    password_register_available = bool(email_otp_available() or APP_ENV.lower() != "production")
+    return {
+        "ok": True,
+        "password_login_available": True,
+        "password_register_available": password_register_available,
+        "email_otp_available": email_otp_available(),
+        "bot_login": {
+            "telegram_bot_login_available": bot_login_available("telegram"),
+            "max_bot_login_available": bot_login_available("max"),
+        },
+    }
+
+
+def set_bot_login_cookie(response: Response, provider: str, nonce: str) -> None:
+    common = {
+        "httponly": True,
+        "secure": TRUSTED_COOKIE_SECURE,
+        "samesite": TRUSTED_COOKIE_SAMESITE,
+        "path": TRUSTED_COOKIE_PATH,
+    }
+    if TRUSTED_COOKIE_DOMAIN:
+        common["domain"] = TRUSTED_COOKIE_DOMAIN
+    response.set_cookie(
+        BOT_LOGIN_CHALLENGE_COOKIE_NAME,
+        f"{provider}:{nonce}",
+        max_age=BOT_LOGIN_CHALLENGE_TTL_SECONDS,
+        **common,
+    )
+
+
+def clear_bot_login_cookie(response: Response) -> None:
+    kwargs: dict[str, Any] = {"path": TRUSTED_COOKIE_PATH}
+    if TRUSTED_COOKIE_DOMAIN:
+        kwargs["domain"] = TRUSTED_COOKIE_DOMAIN
+    response.delete_cookie(BOT_LOGIN_CHALLENGE_COOKIE_NAME, **kwargs)
+
+
+def parse_bot_login_cookie(request: Request) -> tuple[str, str] | None:
+    raw = request.cookies.get(BOT_LOGIN_CHALLENGE_COOKIE_NAME) or ""
+    if ":" not in raw:
+        return None
+    provider, nonce = raw.split(":", 1)
+    if provider not in {"telegram", "max"} or not nonce:
+        return None
+    return provider, nonce
+
+
+def bot_login_payload_from_text(text: str | None) -> str | None:
+    if not isinstance(text, str):
+        return None
+    parts = text.strip().split(maxsplit=1)
+    if not parts:
+        return None
+    payload = parts[1].strip() if parts[0].lower() == "/start" and len(parts) > 1 else parts[0].strip()
+    return payload if payload.startswith("login_") else None
+
+
+def bot_login_token_from_payload(payload: str | None) -> str | None:
+    if not payload or not payload.startswith("login_"):
+        return None
+    token = payload.replace("login_", "", 1).strip()
+    return token if token else None
+
+
+def telegram_user_from_update(update: dict[str, Any]) -> dict[str, Any] | None:
+    callback = update.get("callback_query") or {}
+    if isinstance(callback, dict) and isinstance(callback.get("from"), dict):
+        return callback["from"]
+    message = update.get("message") or {}
+    if isinstance(message, dict) and isinstance(message.get("from"), dict):
+        return message["from"]
+    return None
+
+
+def max_user_from_message(message: dict[str, Any]) -> dict[str, Any] | None:
+    sender = message.get("sender") or message.get("user") or {}
+    if isinstance(sender, dict):
+        provider_id = sender.get("user_id") or sender.get("id")
+        if provider_id:
+            user = dict(sender)
+            user["id"] = provider_id
+            return user
+    user_id = message.get("user_id")
+    if user_id:
+        return {"id": user_id}
+    return None
+
+
+def max_login_payload_from_update(update: dict[str, Any], text: str | None) -> str | None:
+    for key in ("payload", "start_payload", "startPayload"):
+        value = update.get(key)
+        if isinstance(value, str) and value.startswith("login_"):
+            return value
+    bot_started = update.get("bot_started") or update.get("botStarted") or {}
+    if isinstance(bot_started, dict):
+        for key in ("payload", "start_payload", "startPayload"):
+            value = bot_started.get(key)
+            if isinstance(value, str) and value.startswith("login_"):
+                return value
+    return bot_login_payload_from_text(text)
+
+
+def approve_bot_login_challenge(
+    provider: Literal["telegram", "max"],
+    token: str,
+    provider_user: dict[str, Any],
+) -> bool:
+    provider_user_id = str(provider_user.get("id") or "")
+    if not provider_user_id:
+        return False
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM auth_login_challenges WHERE provider = ? AND token_hash = ?",
+            (provider, hash_token(token)),
+        ).fetchone()
+        if not row or row["status"] != "pending" or row["expires_at"] <= now:
+            return False
+        if provider == "telegram":
+            internal_user_id, _legacy_user_id = telegram_upsert_identity(conn, provider_user, now)
+        else:
+            internal_user_id, _legacy_user_id = max_upsert_identity(conn, provider_user, now)
+        conn.execute(
+            """
+            UPDATE auth_login_challenges
+            SET status = 'approved', internal_user_id = ?, provider_user_id = ?,
+                provider_username = ?, approved_at = ?
+            WHERE id = ? AND status = 'pending'
+            """,
+            (internal_user_id, provider_user_id, provider_user.get("username"), now, row["id"]),
+        )
+        record_login_attempt(conn, provider, True, identifier=provider_user_id, internal_user_id=internal_user_id, platform=f"{provider}_bot")
+    return True
+
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -2106,6 +2328,16 @@ def password_hash_needs_rehash(password_hash: str) -> bool:
 
 def email_provider_configured() -> bool:
     return bool(EMAIL_PROVIDER)
+
+
+def email_otp_available() -> bool:
+    """True when an email OTP can actually be delivered: a real provider in
+    production, or the dev/test debug path that returns the code in the response.
+    Gates the post-registration email-verification flow and the bootstrap
+    'email_otp' method so we never demand a code we cannot send."""
+    if email_provider_configured():
+        return True
+    return EMAIL_OTP_DEBUG_RETURN_CODE and APP_ENV.lower() != "production"
 
 
 def validate_email_otp_config() -> None:
@@ -2303,6 +2535,71 @@ def _user_is_banned(conn: sqlite3.Connection, internal_user_id: str | None, lega
         return False
 
 
+def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[str, dict[str, int]]:
+    if strict and (not isinstance(raw, dict) or not raw):
+        raise HTTPException(400, "Tariff config must not be empty.")
+    data = raw if isinstance(raw, dict) else {}
+    if strict:
+        unknown = sorted(str(key) for key in data if str(key).lower() not in PLAN_ORDER)
+        if unknown:
+            raise HTTPException(400, f"Unknown tariff plan: {', '.join(unknown)}")
+    result: dict[str, dict[str, int]] = {}
+    for plan in PLAN_ORDER:
+        source = data.get(plan) if isinstance(data.get(plan), dict) else {}
+        daily = source.get("daily_tokens", source.get("dailyTokens", DEFAULT_TARIFFS[plan]["daily_tokens"]))
+        slots = source.get("gallery_slots", source.get("gallerySlots", DEFAULT_TARIFFS[plan]["gallery_slots"]))
+        try:
+            daily_int = int(daily)
+            slots_int = int(slots)
+        except (TypeError, ValueError):
+            if strict:
+                raise HTTPException(400, f"Invalid tariff values for {plan}.")
+            daily_int = DEFAULT_TARIFFS[plan]["daily_tokens"]
+            slots_int = DEFAULT_TARIFFS[plan]["gallery_slots"]
+        if strict and (daily_int < 0 or slots_int < 0):
+            raise HTTPException(400, f"Tariff values for {plan} must be non-negative.")
+        result[plan] = {
+            "daily_tokens": max(0, min(daily_int, 100_000)),
+            "gallery_slots": max(0, min(slots_int, 100_000)),
+        }
+    return result
+
+
+def get_tariff_config(conn: sqlite3.Connection | None = None) -> dict[str, dict[str, int]]:
+    try:
+        if conn is not None:
+            row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()
+            return normalize_tariffs(json.loads(row["value_json"] or "{}") if row else None)
+        with db() as local_conn:
+            row = local_conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()
+            return normalize_tariffs(json.loads(row["value_json"] or "{}") if row else None)
+    except Exception:
+        return normalize_tariffs()
+
+
+def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | None, legacy_user_id: str | None = None) -> dict[str, Any]:
+    plan = str(_row_get(user_row, "plan") or "mini").lower()
+    if plan not in PLAN_ORDER:
+        plan = "mini"
+    tariff = get_tariff_config(conn)[plan]
+    user_id = legacy_user_id or _row_get(user_row, "id")
+    used = 0
+    if user_id:
+        used = int(conn.execute(
+            "SELECT COUNT(*) AS c FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')",
+            (user_id,),
+        ).fetchone()["c"])
+    total = int(tariff["gallery_slots"])
+    return {
+        "plan": plan,
+        "daily_tokens": int(tariff["daily_tokens"]),
+        "gallery_slots": total,
+        "gallery_used": used,
+        "gallery_free": max(0, total - used),
+        "gallery_full": used >= total,
+    }
+
+
 def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None, legacy_user_id: str | None) -> bool:
     row = None
     if internal_user_id:
@@ -2311,12 +2608,7 @@ def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None,
         row = conn.execute("SELECT role, plan, gallery_enabled FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
     if row is None:
         return False
-    if _row_get(row, "role") == "admin":
-        return True
-    plan = str(_row_get(row, "plan") or "mini")
-    # Product rule: paid plans include the gallery. gallery_enabled is kept as
-    # compatibility data, but stale false values must not hide mini/plus/pro.
-    return plan in {"mini", "plus", "pro"}
+    return True
 
 
 def create_auth_session(
@@ -2578,7 +2870,7 @@ def resolve_trusted_user(request: Request) -> dict[str, Any]:
         raise HTTPException(403, "User not found.")
 
     header_user = request.headers.get("x-onenode-user")
-    if header_user and header_user != legacy_user_id:
+    if header_user and header_user != legacy_user_id and header_user != "demo_user":
         with db() as conn:
             record_security_event(
                 conn,
@@ -3045,6 +3337,7 @@ def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
             "SELECT username, first_name, last_name, middle_name, phone, email, language, role, plan, token_balance, gallery_enabled, country, city, timezone, total_time_seconds, generation_count, tokens_used, promo_used_count, referrals_count, banned FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
+        quota = gallery_quota_for_user(conn, row, user_id)
     return {
         "id": user_id,
         "platform": auth.platform,
@@ -3059,6 +3352,12 @@ def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
         "plan": (row["plan"] if row else None) or "mini",
         "tokenBalance": int(row["token_balance"] if row else 50),
         "galleryEnabled": bool(row["gallery_enabled"] if row else True),
+        "galleryAccess": True,
+        "dailyTokens": quota["daily_tokens"],
+        "gallerySlots": quota["gallery_slots"],
+        "galleryUsed": quota["gallery_used"],
+        "galleryFree": quota["gallery_free"],
+        "galleryFull": quota["gallery_full"],
         "country": row["country"] if row else auth.country,
         "city": row["city"] if row else auth.city,
         "timezone": row["timezone"] if row else auth.timezone,
@@ -3097,7 +3396,14 @@ def mini_app_url(platform: str = "web") -> str:
 def bot_command_response(platform: Literal["telegram", "max"], command: str) -> dict[str, Any]:
     app_url = mini_app_url(platform)
     normalized = command.split()[0].lower() if command else "/start"
-    if normalized in {"/start", "/app"}:
+    login_payload = bot_login_payload_from_text(command)
+    if login_payload:
+        text = "Подтвердите вход в OneNode Image Studio. Если это были не вы, просто закройте сообщение."
+        buttons = [{"text": "Подтвердить вход", "callback_data": f"approve:{login_payload}"}]
+    elif normalized == "/start":
+        text = "Добро пожаловать в OneNode Image Studio. Здесь можно открыть генератор, галерею и настройки."
+        buttons = [{"text": "Открыть приложение", "url": app_url}]
+    elif normalized == "/app":
         text = "Открыть генератор OneNode Image Studio"
         buttons = [{"text": "Открыть генератор", "url": app_url}]
     elif normalized == "/help":
@@ -3131,6 +3437,11 @@ def bot_status_payload() -> dict[str, Any]:
             "app": app_public,
             "telegramWebhook": f"{backend_public}/api/telegram/webhook",
             "maxWebhook": f"{backend_public}/api/max/webhook",
+        },
+        "manualWebhookDisable": {
+            "telegram": "POST /api/telegram/delete-webhook, only as an explicit admin/operator action.",
+            "max": "Disable the MAX subscription in the MAX bot console/API before enabling polling.",
+            "autoDisable": False,
         },
         "telegram": {
             "local": True,
@@ -3172,6 +3483,10 @@ async def max_api(method: str, path: str, payload: dict[str, Any] | None = None,
 def telegram_answer_payload(chat_id: Any, answer: dict[str, Any]) -> dict[str, Any]:
     buttons = []
     for button in answer.get("buttons", []):
+        callback_data = button.get("callback_data")
+        if callback_data:
+            buttons.append({"text": button["text"], "callback_data": callback_data})
+            continue
         url = button.get("url", "")
         if url.startswith("https://"):
             buttons.append({"text": button["text"], "web_app": {"url": url}})
@@ -3187,33 +3502,93 @@ def max_message_payload(answer: dict[str, Any]) -> dict[str, Any]:
     buttons = answer.get("buttons", [])
     text = answer["text"]
     if buttons:
-        text = f"{text}\n{buttons[0]['text']}: {buttons[0]['url']}"
+        first = buttons[0]
+        if first.get("url"):
+            text = f"{text}\n{first['text']}: {first['url']}"
+        elif first.get("callback_data"):
+            text = f"{text}\n{first['text']}: /approve {first['callback_data'].replace('approve:', '')}"
     return {"text": text}
 
 
+def get_bot_polling_cursor(provider: Literal["telegram", "max"]) -> str | None:
+    with db() as conn:
+        row = conn.execute("SELECT cursor FROM bot_polling_state WHERE provider = ?", (provider,)).fetchone()
+        return row["cursor"] if row and row["cursor"] else None
+
+
+def set_bot_polling_cursor(provider: Literal["telegram", "max"], cursor: str | int | None) -> None:
+    if cursor is None:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO bot_polling_state (provider, cursor, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(provider) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at
+            """,
+            (provider, str(cursor), now),
+        )
+
+
+def telegram_message_from_update(update: dict[str, Any]) -> tuple[str, dict[str, Any], Any, str | None]:
+    message = update.get("message") or {}
+    callback = update.get("callback_query") or {}
+    callback_id = callback.get("id") if isinstance(callback, dict) else None
+    if callback:
+        message = callback.get("message") or {}
+        text = callback.get("data") or message.get("text") or ""
+    else:
+        text = message.get("text") or ""
+    chat = message.get("chat") or {}
+    return text, message, chat.get("id"), callback_id
+
+
+async def handle_telegram_update(update: dict[str, Any], send_replies: bool) -> dict[str, Any] | None:
+    update_id = update.get("update_id")
+    text, _message, chat_id, callback_id = telegram_message_from_update(update)
+    if isinstance(text, str) and text.startswith("approve:"):
+        token = bot_login_token_from_payload(text.replace("approve:", "", 1))
+        user = telegram_user_from_update(update)
+        approved = bool(token and user and approve_bot_login_challenge("telegram", token, user))
+        if send_replies and callback_id:
+            await telegram_api(
+                "answerCallbackQuery",
+                {"callback_query_id": callback_id, "text": "Вход подтверждён" if approved else "Ссылка устарела"},
+            )
+        if send_replies and chat_id is not None:
+            await telegram_api(
+                "sendMessage",
+                {"chat_id": chat_id, "text": "Готово. Вернитесь в браузер." if approved else "Ссылка входа устарела. Попробуйте снова."},
+            )
+        return {"updateId": update_id, "chatId": chat_id, "botLogin": "approved" if approved else "rejected"}
+    if isinstance(text, str) and text.startswith("/"):
+        answer = bot_command_response("telegram", text)
+        if send_replies and chat_id is not None:
+            await telegram_api("sendMessage", telegram_answer_payload(chat_id, answer))
+        if send_replies and callback_id:
+            try:
+                await telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
+            except Exception as exc:
+                print("telegram callback answer error", type(exc).__name__)
+        return {"updateId": update_id, "chatId": chat_id, "answer": answer}
+    return None
+
+
 async def handle_telegram_updates(updates: list[dict[str, Any]], send_replies: bool) -> list[dict[str, Any]]:
-    global telegram_update_offset
     handled = []
     for update in updates:
-        update_id = update.get("update_id")
-        if isinstance(update_id, int):
-            telegram_update_offset = max(telegram_update_offset, update_id + 1)
-        message = update.get("message") or {}
-        text = message.get("text") or ""
-        chat = message.get("chat") or {}
-        chat_id = chat.get("id")
-        if text.startswith("/"):
-            answer = bot_command_response("telegram", text)
-            if send_replies and chat_id is not None:
-                await telegram_api("sendMessage", telegram_answer_payload(chat_id, answer))
-            handled.append({"updateId": update_id, "chatId": chat_id, "answer": answer})
+        result = await handle_telegram_update(update, send_replies)
+        if result:
+            handled.append(result)
     return handled
 
 
 def extract_max_command(update: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    message = update.get("message") or update.get("message_created", {}).get("message") or {}
+    message = update.get("message") or update.get("message_created", {}).get("message") or update.get("bot_started", {}).get("message") or {}
     body = message.get("body") or {}
-    text = message.get("text") or body.get("text") or ""
+    callback = update.get("callback") or update.get("message_callback") or {}
+    text = callback.get("payload") or callback.get("data") or message.get("text") or body.get("text") or ""
     return text, message
 
 
@@ -3231,37 +3606,165 @@ def max_recipient_params(message: dict[str, Any]) -> dict[str, Any]:
 async def handle_max_updates(updates: list[dict[str, Any]], send_replies: bool) -> list[dict[str, Any]]:
     handled = []
     for update in updates:
-        text, message = extract_max_command(update)
-        if isinstance(text, str) and text.startswith("/"):
-            answer = bot_command_response("max", text)
-            params = max_recipient_params(message)
-            if send_replies and params:
-                await max_api("POST", "/messages", max_message_payload(answer), params=params)
-            handled.append({"update": update, "recipient": params, "answer": answer})
+        result = await handle_max_update(update, send_replies)
+        if result:
+            handled.append(result)
     return handled
 
 
-async def bot_polling_worker() -> None:
-    global max_update_marker
-    while BOT_MODE == "polling":
+async def handle_max_update(update: dict[str, Any], send_replies: bool) -> dict[str, Any] | None:
+    text, message = extract_max_command(update)
+    if isinstance(text, str) and (text.startswith("approve:") or text.startswith("/approve ")):
+        token_source = text.replace("approve:", "", 1) if text.startswith("approve:") else text.split(maxsplit=1)[1]
+        token = bot_login_token_from_payload(token_source)
+        user = max_user_from_message(message)
+        approved = bool(token and user and approve_bot_login_challenge("max", token, user))
+        params = max_recipient_params(message)
+        if send_replies and params:
+            await max_api(
+                "POST",
+                "/messages",
+                {"text": "Готово. Вернитесь в браузер." if approved else "Ссылка входа устарела. Попробуйте снова."},
+                params=params,
+            )
+        return {"update": update, "recipient": params, "botLogin": "approved" if approved else "rejected"}
+    login_payload = max_login_payload_from_update(update, text)
+    if login_payload:
+        answer = bot_command_response("max", login_payload)
+        params = max_recipient_params(message)
+        if send_replies and params:
+            await max_api("POST", "/messages", max_message_payload(answer), params=params)
+        return {"update": update, "recipient": params, "answer": answer}
+    if isinstance(text, str) and text.startswith("/"):
+        answer = bot_command_response("max", text)
+        params = max_recipient_params(message)
+        if send_replies and params:
+            await max_api("POST", "/messages", max_message_payload(answer), params=params)
+        return {"update": update, "recipient": params, "answer": answer}
+    return None
+
+
+def polling_retry_after(exc: Exception, default: float = 5.0) -> float:
+    response = getattr(exc, "response", None)
+    if response is None:
+        return default
+    try:
+        payload = response.json()
+        retry_after = payload.get("parameters", {}).get("retry_after") or payload.get("retry_after")
+        if retry_after:
+            return float(retry_after)
+    except Exception:
+        pass
+    header_value = getattr(response, "headers", {}).get("Retry-After") if getattr(response, "headers", None) else None
+    if header_value:
         try:
-            if TELEGRAM_BOT_TOKEN:
-                data = await telegram_api("getUpdates", {"timeout": 20, "limit": 20, "offset": telegram_update_offset})
-                await handle_telegram_updates(data.get("result", []), send_replies=True)
-            if MAX_BOT_TOKEN and MAX_API_BASE_URL:
-                params: dict[str, Any] = {"limit": 20, "timeout": 20}
-                if max_update_marker:
-                    params["marker"] = max_update_marker
-                data = await max_api("GET", "/updates", params=params)
-                max_update_marker = data.get("marker") or max_update_marker
-                await handle_max_updates(data.get("updates", []), send_replies=True)
+            return float(header_value)
+        except ValueError:
+            return default
+    return default
+
+
+def is_auth_polling_error(exc: Exception) -> bool:
+    response = getattr(exc, "response", None)
+    return bool(response is not None and getattr(response, "status_code", None) in {401, 403})
+
+
+async def telegram_poll_once_from_api(timeout: int = 0, limit: int = 10) -> dict[str, Any]:
+    cursor = get_bot_polling_cursor("telegram")
+    payload: dict[str, Any] = {
+        "timeout": timeout,
+        "limit": limit,
+        "allowed_updates": ["message", "callback_query"],
+    }
+    if cursor:
+        try:
+            payload["offset"] = int(cursor)
+        except ValueError:
+            payload["offset"] = cursor
+    data = await telegram_api("getUpdates", payload)
+    updates = data.get("result", [])
+    handled = await handle_telegram_updates(updates, send_replies=True)
+    max_update_id = max((u.get("update_id") for u in updates if isinstance(u.get("update_id"), int)), default=None)
+    if max_update_id is not None:
+        set_bot_polling_cursor("telegram", max_update_id + 1)
+    return {"ok": True, "handled": handled, "rawCount": len(updates), "cursor": get_bot_polling_cursor("telegram")}
+
+
+async def max_poll_once_from_api(timeout: int = 0, limit: int = 10) -> dict[str, Any]:
+    params: dict[str, Any] = {"limit": limit, "timeout": timeout}
+    marker = get_bot_polling_cursor("max")
+    if marker:
+        params["marker"] = marker
+    data = await max_api("GET", "/updates", params=params)
+    updates = data.get("updates", [])
+    handled = await handle_max_updates(updates, send_replies=True)
+    response_marker = data.get("marker")
+    if response_marker:
+        set_bot_polling_cursor("max", response_marker)
+    return {"ok": True, "handled": handled, "rawCount": len(updates), "marker": get_bot_polling_cursor("max")}
+
+
+async def telegram_polling_worker() -> None:
+    while BOT_UPDATES_MODE == "polling" and TELEGRAM_POLLING_ENABLED and TELEGRAM_BOT_TOKEN:
+        try:
+            await telegram_poll_once_from_api(timeout=25, limit=20)
         except Exception as exc:
-            print("bot polling error", repr(exc))
-            await asyncio.sleep(5)
+            if is_auth_polling_error(exc):
+                with db() as conn:
+                    record_security_event(conn, "telegram_polling_auth_error", severity="critical")
+                print("telegram polling stopped after auth error")
+                break
+            delay = polling_retry_after(exc)
+            print("telegram polling error", type(exc).__name__)
+            await asyncio.sleep(delay)
+
+
+async def max_polling_worker() -> None:
+    while BOT_UPDATES_MODE == "polling" and MAX_POLLING_ENABLED and MAX_BOT_TOKEN and MAX_API_BASE_URL:
+        try:
+            await max_poll_once_from_api(timeout=25, limit=20)
+        except Exception as exc:
+            if is_auth_polling_error(exc):
+                with db() as conn:
+                    record_security_event(conn, "max_polling_auth_error", severity="critical")
+                print("max polling stopped after auth error")
+                break
+            delay = polling_retry_after(exc)
+            print("max polling error", type(exc).__name__)
+            await asyncio.sleep(delay)
+
+
+def start_bot_polling_tasks() -> list[str]:
+    global bot_polling_started
+    started: list[str] = []
+    if BOT_UPDATES_MODE != "polling":
+        return started
+    if TELEGRAM_POLLING_ENABLED and TELEGRAM_BOT_TOKEN and "telegram" not in bot_polling_tasks:
+        bot_polling_tasks["telegram"] = asyncio.create_task(telegram_polling_worker())
+        started.append("telegram")
+    if MAX_POLLING_ENABLED and MAX_BOT_TOKEN and MAX_API_BASE_URL and "max" not in bot_polling_tasks:
+        bot_polling_tasks["max"] = asyncio.create_task(max_polling_worker())
+        started.append("max")
+    bot_polling_started = bool(bot_polling_tasks)
+    return started
 
 
 def public_url(path: Path, user_id: str = "demo_user") -> str:
     return f"/api/media/{path.name}?userId={user_id}"
+
+
+def delete_image_files_from_disk(url: str | None = None, thumbnail_url: str | None = None) -> None:
+    """Remove image files from disk. Safe — never raises."""
+    for u in (url, thumbnail_url):
+        if not u:
+            continue
+        try:
+            fname = u.split("/api/media/")[-1].split("?")[0]
+            fpath = MEDIA / fname
+            if fpath.exists():
+                fpath.unlink()
+        except Exception:
+            pass
 
 
 def create_thumbnail(image_path: Path) -> Path:
@@ -3933,13 +4436,17 @@ async def worker() -> None:
                 continue
             if not image_path or not thumb_path:
                 image_path, thumb_path = mock_image(req, job_id)
+            user_id = job.get("userId", "demo_user")
+            with db() as conn:
+                user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                gallery_quota = gallery_quota_for_user(conn, user_row, user_id)
             image_id = f"img_{uuid.uuid4().hex[:12]}"
             created_at = datetime.now(timezone.utc).isoformat()
             record = {
                 "id": image_id,
-                "userId": job.get("userId", "demo_user"),
-                "url": public_url(image_path, job.get("userId", "demo_user")),
-                "thumbnailUrl": public_url(thumb_path, job.get("userId", "demo_user")),
+                "userId": user_id,
+                "url": public_url(image_path, user_id),
+                "thumbnailUrl": public_url(thumb_path, user_id),
                 "mode": req.mode,
                 "provider": req.provider,
                 "promptOriginal": req.prompt,
@@ -3956,9 +4463,48 @@ async def worker() -> None:
                 "comfyuiPromptId": prompt_id,
                 "comfyuiHistory": comfyui_history,
             }
-            images[image_id] = record
-            job.update(status="completed", progress=100, message="Готово", resultImageId=image_id, resultUrl=record["url"], completedAt=created_at)
-            persist_image(record, job_id)
+            if gallery_quota["gallery_full"]:
+                with db() as conn:
+                    oldest = conn.execute(
+                        "SELECT id, url, thumbnail_url FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY created_at ASC LIMIT 1",
+                        (user_id,),
+                    ).fetchone()
+                    if oldest:
+                        conn.execute("UPDATE images SET deleted_at = ? WHERE id = ?", (created_at, oldest["id"]))
+                        delete_image_files_from_disk(url=oldest["url"], thumbnail_url=oldest["thumbnail_url"])
+                        if oldest["id"] in images:
+                            images.pop(oldest["id"])
+                images[image_id] = record
+                persist_image(record, job_id)
+                with db() as conn:
+                    saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                    gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
+                job.update(
+                    status="completed",
+                    progress=100,
+                    message="Готово",
+                    resultImageId=image_id,
+                    resultUrl=record["url"],
+                    gallerySaveStatus="saved",
+                    galleryQuota=gallery_quota,
+                    completedAt=created_at,
+                )
+            else:
+                images[image_id] = record
+                persist_image(record, job_id)
+                with db() as conn:
+                    saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                    gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
+                job.update(
+                    status="completed",
+                    progress=100,
+                    message="Готово",
+                    resultImageId=image_id,
+                    resultUrl=record["url"],
+                    gallerySaveStatus="saved",
+                    galleryQuota=gallery_quota,
+                    completedAt=created_at,
+                )
             persist_job(job, req)
         except Exception as exc:
             job.update(status="failed", progress=100, message="Генерация не выполнена.", error=str(exc), completedAt=datetime.now(timezone.utc).isoformat())
@@ -3971,16 +4517,16 @@ async def worker() -> None:
 async def startup() -> None:
     global worker_started, bot_polling_started
     db_guard_preflight()
+    validate_session_crypto_config()
     init_db()
     enforce_db_guard_after_migrations()
     load_db_state()
     if not worker_started:
         asyncio.create_task(worker())
         worker_started = True
-    if BOT_MODE == "polling" and not bot_polling_started:
-        asyncio.create_task(bot_polling_worker())
-        bot_polling_started = True
-    elif BOT_MODE == "webhook":
+    if BOT_UPDATES_MODE == "polling":
+        start_bot_polling_tasks()
+    elif BOT_UPDATES_MODE == "webhook":
         backend_public = os.getenv("BACKEND_PUBLIC_URL", "http://127.0.0.1:8000")
         if TELEGRAM_BOT_TOKEN and backend_public.startswith("https://"):
             try:
@@ -4074,10 +4620,31 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     internal_user_id = trusted["internal_user_id"]
     session_id = trusted.get("session_id")
     token_cost = estimate_token_cost(req)
+    used_daily = False
     with db() as conn:
-        user_row = conn.execute("SELECT token_balance FROM users WHERE id = ?", (user_id,)).fetchone()
-        if user_row and user_id != "demo_user" and int(user_row["token_balance"]) < token_cost:
-            raise HTTPException(402, "Not enough tokens.")
+        user_row = conn.execute("SELECT id, token_balance, plan, daily_tokens_used, last_daily_reset FROM users WHERE id = ?", (user_id,)).fetchone()
+        if user_row is None:
+            raise HTTPException(404, "User not found.")
+        if user_id != "demo_user":
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            daily_used = int(user_row["daily_tokens_used"] or 0)
+            last_reset = user_row["last_daily_reset"]
+            if last_reset != today:
+                daily_used = 0
+            tariff = get_tariff_config(conn)[str(user_row["plan"] or "mini").lower()]
+            daily_limit = int(tariff["daily_tokens"])
+            if daily_used + token_cost <= daily_limit:
+                used_daily = True
+                conn.execute(
+                    "UPDATE users SET daily_tokens_used = ?, last_daily_reset = ? WHERE id = ?",
+                    (daily_used + token_cost, today, user_id),
+                )
+            else:
+                if int(user_row["token_balance"] or 0) < token_cost:
+                    raise HTTPException(402, "Not enough tokens.")
+        else:
+            if int(user_row["token_balance"] or 0) < token_cost:
+                raise HTTPException(402, "Not enough tokens.")
     if req.mode == "faceswap":
         face_lora = next((item for item in req.loras if item.id and item.id != "none"), None)
         if face_lora is None:
@@ -4100,6 +4667,7 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     jobs[job_id] = job
     persist_job(job, req)
     with db() as conn:
+        balance_delta = 0 if (used_daily or user_id == "demo_user") else token_cost
         conn.execute(
             """
             UPDATE users
@@ -4109,11 +4677,11 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
                 last_seen_at = ?
             WHERE id = ?
             """,
-            (token_cost, token_cost, datetime.now(timezone.utc).isoformat(), user_id),
+            (balance_delta, token_cost, datetime.now(timezone.utc).isoformat(), user_id),
         )
         conn.execute(
             "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'generation', ?, ?)",
-            (str(uuid.uuid4()), user_id, -token_cost, json.dumps({"jobId": job_id, "mode": req.mode, "provider": req.provider}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+            (str(uuid.uuid4()), user_id, -balance_delta, json.dumps({"jobId": job_id, "mode": req.mode, "provider": req.provider, "used_daily_budget": used_daily}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
         )
     await queue.put(job_id)
     try:
@@ -4127,7 +4695,7 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         )
     except Exception:
         pass
-    return {k: v for k, v in job.items() if k != "request"} | {"queuePosition": queue.qsize(), "tokenCost": token_cost}
+    return {k: v for k, v in job.items() if k != "request"} | {"queuePosition": queue.qsize(), "tokenCost": token_cost, "usedDailyBudget": used_daily}
 
 
 @app.get("/api/jobs/{job_id}")
@@ -4200,6 +4768,11 @@ async def flux_klein_lora_triggers(name: str) -> dict[str, Any]:
         return {"ok": False, "error": str(exc), "triggers": [], "name": name}
 
 
+@app.get("/api/tariffs")
+async def tariffs() -> dict[str, Any]:
+    return {"ok": True, "tariffs": get_tariff_config()}
+
+
 @app.get("/api/gallery")
 async def gallery(request: Request) -> list[dict[str, Any]]:
     trusted = require_trusted_user(request)
@@ -4258,6 +4831,7 @@ async def gallery_delete(image_id: str, request: Request) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ? AND user_id = ?", (now, image_id, user_id))
+    delete_image_files_from_disk(url=record.get("url"), thumbnail_url=record.get("thumbnailUrl"))
     return {"ok": True, "deleted": image_id, "url": record["url"]}
 
 
@@ -4287,7 +4861,11 @@ async def gallery_use_as(image_id: str, req: UseAsRequest, request: Request) -> 
 
 @app.get("/api/media/{filename}")
 async def secure_media(filename: str, request: Request) -> FileResponse:
-    user_id = request.query_params.get("userId") or request_user_id(request)
+    try:
+        trusted = require_trusted_user(request)
+        user_id = trusted["legacy_user_id"]
+    except HTTPException:
+        user_id = request.query_params.get("userId") or "demo_user"
     path = (MEDIA / filename).resolve()
     try:
         path.relative_to(MEDIA.resolve())
@@ -4313,6 +4891,9 @@ async def secure_media(filename: str, request: Request) -> FileResponse:
 
 @app.post("/api/app/bootstrap")
 async def bootstrap(auth: MiniAppAuthRequest, response: Response) -> dict[str, Any]:
+    # In production, never accept an empty or demo_user identity silently.
+    if is_production_like_env() and (not auth.userId or auth.userId == "demo_user"):
+        raise HTTPException(401, "Authentication required")
     # Validate Telegram initData server-side
     if auth.platform == "telegram":
         if not auth.initData:
@@ -4414,11 +4995,16 @@ BOOTSTRAP_REQUIRED_CONSENTS = ["terms", "privacy", "personal_data_processing", "
 
 
 def _bootstrap_auth_methods(platform: str) -> list[str]:
+    methods: list[str] = []
     if platform == "telegram_mini_app":
-        return ["telegram", "email_otp"]
-    if platform == "max_mini_app":
-        return ["max", "email_otp"]
-    return ["email_otp"]
+        methods.append("telegram")
+    elif platform == "max_mini_app":
+        methods.append("max")
+    # Advertise email OTP only when it can actually be delivered (provider configured,
+    # or dev debug). Password login/register is always available and not listed here.
+    if email_otp_available():
+        methods.append("email_otp")
+    return methods
 
 
 def _bootstrap_storage_type(platform: str) -> str:
@@ -4508,9 +5094,104 @@ async def auth_bootstrap_v2(req: BootstrapV2Request) -> dict[str, Any]:
         "installation_id": installation_id,
         "is_authenticated": False,
         "auth_methods": auth_methods,
+        "auth_capabilities": auth_capabilities_payload(),
         "required_consents": required_consents,
         "server_time": now,
     }
+
+
+@app.get("/api/auth/capabilities-v2")
+async def auth_capabilities_v2() -> dict[str, Any]:
+    return auth_capabilities_payload()
+
+
+@app.post("/api/auth/bot-login/start")
+async def auth_bot_login_start(req: BotLoginStartRequest, request: Request, response: Response) -> dict[str, Any]:
+    provider = req.provider
+    if not bot_login_available(provider):
+        raise HTTPException(503, "provider_not_configured")
+    token = generate_bot_login_token()
+    nonce = generate_bot_login_token()
+    now = datetime.now(timezone.utc)
+    expires_at = (now + timedelta(seconds=BOT_LOGIN_CHALLENGE_TTL_SECONDS)).isoformat()
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_login_challenges
+                (id, provider, token_hash, browser_nonce_hash, status, expires_at,
+                 created_at, created_ip, user_agent)
+            VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex,
+                provider,
+                hash_token(token),
+                hash_token(nonce),
+                expires_at,
+                now.isoformat(),
+                _client_ip(request),
+                _hash_user_agent(request),
+            ),
+        )
+    set_bot_login_cookie(response, provider, nonce)
+    return {
+        "ok": True,
+        "provider": provider,
+        "deep_link": bot_login_deep_link(provider, token),
+        "poll_interval_ms": 2000,
+        "expires_at": expires_at,
+    }
+
+
+@app.get("/api/auth/bot-login/status")
+async def auth_bot_login_status(request: Request, response: Response) -> dict[str, Any]:
+    parsed = parse_bot_login_cookie(request)
+    if not parsed:
+        raise HTTPException(401, "bot_login_challenge_missing")
+    provider, nonce = parsed
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM auth_login_challenges WHERE provider = ? AND browser_nonce_hash = ?",
+            (provider, hash_token(nonce)),
+        ).fetchone()
+        if not row:
+            raise HTTPException(401, "bot_login_challenge_missing")
+        if row["status"] == "consumed":
+            clear_bot_login_cookie(response)
+            raise HTTPException(409, "bot_login_challenge_consumed")
+        if row["expires_at"] <= now:
+            conn.execute("UPDATE auth_login_challenges SET status = 'expired' WHERE id = ? AND status = 'pending'", (row["id"],))
+            clear_bot_login_cookie(response)
+            return {"ok": True, "status": "expired"}
+        if row["status"] != "approved":
+            return {"ok": True, "status": row["status"]}
+        internal_user_id = row["internal_user_id"]
+        if not internal_user_id:
+            raise HTTPException(409, "bot_login_identity_missing")
+        user_row = conn.execute("SELECT id FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+        legacy_user_id = user_row["id"] if user_row else None
+        conn.execute(
+            "UPDATE auth_login_challenges SET status = 'consumed', consumed_at = ? WHERE id = ? AND status = 'approved'",
+            (now, row["id"]),
+        )
+
+    session = create_auth_session(
+        internal_user_id,
+        legacy_user_id,
+        provider=provider,
+        platform=f"{provider}_bot",
+        request=request,
+    )
+    set_trusted_auth_cookies(
+        response,
+        session["session_token"],
+        session["refresh_token"],
+        session["expires_at"],
+        session["refresh_expires_at"],
+    )
+    clear_bot_login_cookie(response)
+    return {"ok": True, "status": "authenticated"}
 
 
 @app.post("/api/auth/telegram-v2")
@@ -4808,6 +5489,12 @@ async def auth_email_verify_code_v2(req: EmailVerifyCodeV2Request, request: Requ
     with db() as conn:
         conn.execute("UPDATE auth_otp_challenges SET consumed_at = ? WHERE id = ?", (now, req.challenge_id))
         internal_user_id, legacy_user_id = email_otp_upsert_identity(conn, email_norm, now)
+        # Mark the email as verified (idempotent). The trusted session below is the
+        # real access gate; this records the confirmation timestamp for the account.
+        conn.execute(
+            "UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?) WHERE internal_user_id = ?",
+            (now, internal_user_id),
+        )
 
     session = create_auth_session(
         internal_user_id, legacy_user_id, provider="web_email", platform=platform, request=request
@@ -4867,7 +5554,9 @@ async def auth_email_verify_code_v2(req: EmailVerifyCodeV2Request, request: Requ
 @app.post("/api/auth/password/register-v2")
 async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Request, response: Response) -> dict[str, Any]:
     """Browser email+password registration. Creates/attaches a web_email identity +
-    Argon2id password, records consents, issues a trusted cookie session. Never
+    Argon2id password, and records consents. If email verification is available,
+    no trusted session is issued until verify-code-v2 succeeds; in non-production
+    no-provider/dev flows, a trusted cookie session may still be issued. Never
     stores/logs the raw password. Generic 409 if an account already has a password."""
     platform = "web"
     email_norm = normalize_email(req.email)
@@ -4879,6 +5568,8 @@ async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Req
         raise HTTPException(400, "Пароли не совпадают.")
     if not (req.accepted_terms and req.accepted_privacy and req.accepted_personal_data):
         raise HTTPException(400, "Необходимо принять условия.")
+    if is_production_like_env() and not email_provider_configured():
+        raise HTTPException(503, "email_provider_required")
 
     password_hash = hash_password_argon2(req.password)  # CPU work outside the txn
     now = datetime.now(timezone.utc).isoformat()
@@ -4932,6 +5623,20 @@ async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Req
             )
         record_login_attempt(conn, "web_email", True, identifier=email_norm, internal_user_id=internal_user_id, platform=platform, request=request)
 
+    # Email verification gate. When email OTP is actually deliverable we do NOT issue a
+    # trusted session here — the account+password exist, but login is unlocked only after
+    # the user confirms the email via request-code-v2 / verify-code-v2 (which then creates
+    # the trusted session). Without a usable email channel we keep the legacy behavior
+    # (immediate session) so non-email environments are not locked out.
+    if email_otp_available():
+        try:
+            record_event_log("password_register_pending_verification", internal_user_id=internal_user_id,
+                              legacy_user_id=legacy_user_id, platform=platform, properties={"provider": "web_email"})
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"password-register: event log error: {type(exc).__name__}")
+        return {"ok": True, "requires_email_verification": True, "internal_user_id": internal_user_id,
+                "legacy_user_id": legacy_user_id, "profile_completed": False}
+
     session = create_auth_session(internal_user_id, legacy_user_id, provider="web_email", platform=platform, request=request)
     set_trusted_auth_cookies(response, session["session_token"], session["refresh_token"], session["expires_at"], session["refresh_expires_at"])
     try:
@@ -4939,7 +5644,7 @@ async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Req
                           session_id=session["session_id"], platform=platform, properties={"provider": "web_email"})
     except Exception as exc:  # pragma: no cover - defensive
         print(f"password-register: event log error: {type(exc).__name__}")
-    return {"ok": True, "internal_user_id": internal_user_id, "legacy_user_id": legacy_user_id, "profile_completed": False}
+    return {"ok": True, "requires_email_verification": False, "internal_user_id": internal_user_id, "legacy_user_id": legacy_user_id, "profile_completed": False}
 
 
 @app.post("/api/auth/password/login-v2")
@@ -4967,6 +5672,7 @@ async def auth_password_login_v2(req: PasswordLoginV2Request, request: Request, 
     stored_hash = _DUMMY_PASSWORD_HASH
     user_missing = False
     user_banned = False
+    email_verified_at: str | None = None
     if email_norm:
         with db() as conn:
             ident = conn.execute(
@@ -4976,7 +5682,7 @@ async def auth_password_login_v2(req: PasswordLoginV2Request, request: Request, 
             if ident:
                 internal_user_id = ident["internal_user_id"]
                 legacy_user_id = ident["legacy_user_id"]
-                urow = conn.execute("SELECT banned FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+                urow = conn.execute("SELECT banned, email_verified_at FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
                 if urow is None:
                     user_missing = True
                     try:
@@ -4986,6 +5692,7 @@ async def auth_password_login_v2(req: PasswordLoginV2Request, request: Request, 
                 else:
                     if urow["banned"]:
                         user_banned = True
+                    email_verified_at = urow["email_verified_at"]
                     # Always try to fetch password hash for timing equalization
                     pw = conn.execute(
                         "SELECT password_hash FROM auth_passwords WHERE internal_user_id = ? AND disabled_at IS NULL",
@@ -5002,6 +5709,17 @@ async def auth_password_login_v2(req: PasswordLoginV2Request, request: Request, 
         if user_banned or _user_is_banned(conn, internal_user_id, legacy_user_id):
             record_security_event(conn, "password_login_banned", severity="critical", internal_user_id=internal_user_id, request=request)
             raise HTTPException(403, "Вход недоступен.")
+        if email_otp_available() and not email_verified_at:
+            record_login_attempt(conn, "web_email", False, failure_reason="email_verification_required",
+                                 identifier=email_norm, internal_user_id=internal_user_id, platform=platform, request=request)
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": "email_verification_required",
+                    "requires_email_verification": True,
+                    "email": email_norm,
+                },
+            )
         record_login_attempt(conn, "web_email", True, identifier=email_norm, internal_user_id=internal_user_id, platform=platform, request=request)
 
     session = create_auth_session(internal_user_id, legacy_user_id, provider="web_email", platform=platform, request=request)
@@ -5034,6 +5752,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
             (iuid,),
         ).fetchall()
         gallery_access = bool(user_gallery_allowed(conn, iuid, legacy))
+        gallery_quota = gallery_quota_for_user(conn, urow, legacy)
 
     primary_identity = identities[0] if identities else None
     profile = {
@@ -5069,8 +5788,15 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "role": _row_get(urow, "role"),
             "plan": _row_get(urow, "plan") or "mini",
             "token_balance": int(_row_get(urow, "token_balance") or 0),
+            "daily_tokens_used": int(_row_get(urow, "daily_tokens_used") or 0),
+            "daily_tokens_limit": gallery_quota["daily_tokens"],
             "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
             "gallery_access": gallery_access,
+            "daily_tokens": gallery_quota["daily_tokens"],
+            "gallery_slots": gallery_quota["gallery_slots"],
+            "gallery_used": gallery_quota["gallery_used"],
+            "gallery_free": gallery_quota["gallery_free"],
+            "gallery_full": gallery_quota["gallery_full"],
         },
         "session": {
             "session_id": user["session_id"],
@@ -6130,8 +6856,8 @@ async def admin_plan_v2(internal_user_id: str, req: AdminPlanV2Request, request:
         raise HTTPException(400, "Укажите причину.")
     with db() as conn:
         target = _admin_load_target(conn, internal_user_id)
-        conn.execute("UPDATE users SET plan = ?, gallery_enabled = ? WHERE internal_user_id = ?",
-                     (req.plan, 0 if req.plan == "free" else 1, internal_user_id))
+        conn.execute("UPDATE users SET plan = ?, gallery_enabled = 1 WHERE internal_user_id = ?",
+                     (req.plan, internal_user_id))
         record_audit_log(conn, "admin_change_plan", actor_internal_user_id=admin["internal_user_id"],
                          target_internal_user_id=internal_user_id, entity_id=target["id"],
                          before={"plan": target["plan"]}, after={"plan": req.plan, "reason": reason}, request=request)
@@ -6607,7 +7333,7 @@ async def admin_apply_promo_v2(internal_user_id: str, req: ApplyPromoV2Request, 
         if duplicate is not None:
             raise HTTPException(400, "Промокод уже применён к этому пользователю.")
         redemption_id = uuid.uuid4().hex
-        token_bonus = PROMO_REFERRAL_REWARD_TOKENS
+        token_bonus = max(0, int(promo["tokens"] or PROMO_REFERRAL_REWARD_TOKENS))
         ledger_id: str | None = None
         new_balance = int(target["token_balance"] or 0)
         if token_bonus > 0:
@@ -6659,7 +7385,7 @@ async def account_apply_promo_v2(req: UserApplyPromoV2Request, request: Request)
         if target is None:
             raise HTTPException(404, "User not found.")
         legacy_user_id = target["id"]
-        promo = conn.execute("SELECT code, activation_limit, activation_count, enabled FROM promo_codes WHERE code = ?", (promo_code,)).fetchone()
+        promo = conn.execute("SELECT code, tokens, activation_limit, activation_count, enabled FROM promo_codes WHERE code = ?", (promo_code,)).fetchone()
         if promo is None:
             raise HTTPException(404, "Промокод не найден.")
         if not int(promo["enabled"] or 0):
@@ -6673,7 +7399,7 @@ async def account_apply_promo_v2(req: UserApplyPromoV2Request, request: Request)
         if duplicate is not None:
             raise HTTPException(400, "Промокод уже применён.")
         redemption_id = uuid.uuid4().hex
-        token_bonus = PROMO_REFERRAL_REWARD_TOKENS
+        token_bonus = max(0, int(promo["tokens"] or PROMO_REFERRAL_REWARD_TOKENS))
         ledger_id, new_balance = _grant_tokens_with_ledger(
             conn, target=target, delta=token_bonus, reason=reason, ledger_reason=reason,
             meta={"promo_redemption_id": redemption_id, "promo_code": promo_code},
@@ -6694,13 +7420,13 @@ async def account_apply_promo_v2(req: UserApplyPromoV2Request, request: Request)
     try:
         record_event_log("promo_code_redeemed", internal_user_id=internal_user_id, legacy_user_id=legacy_user_id,
                          platform=trusted.get("platform", "web"), request=request,
-                         properties={"promo_code": promo_code, "token_bonus": PROMO_REFERRAL_REWARD_TOKENS})
+                         properties={"promo_code": promo_code, "token_bonus": token_bonus})
     except Exception:
         pass
     return {
         "ok": True,
         "redemption": redemption,
-        "token_bonus": PROMO_REFERRAL_REWARD_TOKENS,
+        "token_bonus": token_bonus,
         "new_token_balance": new_balance,
     }
 
@@ -6795,6 +7521,7 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
     ).fetchone()["c"]
     device_meta = safe_json_load(_row_get(last_session, "metadata_json")) or {}
     device = device_meta.get("device") if isinstance(device_meta, dict) else {}
+    gallery_quota = gallery_quota_for_user(conn, urow, legacy)
     return {
         "internal_user_id": iuid,  # used by the admin drawer fetch + technical section only
         "internal_user_id_short": (iuid[:8] + "…") if iuid else None,
@@ -6820,9 +7547,16 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "generations_count": int(_row_get(urow, "generation_count") or 0),
         "tokens_spent": int(_row_get(urow, "tokens_used") or 0),
         "token_balance": int(_row_get(urow, "token_balance") or 0),
+        "daily_tokens_used": int(_row_get(urow, "daily_tokens_used") or 0),
+        "daily_tokens_limit": gallery_quota["daily_tokens"],
         "plan": _row_get(urow, "plan") or "mini",
         "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
         "gallery_access": bool(user_gallery_allowed(conn, iuid, legacy)),
+        "daily_tokens": gallery_quota["daily_tokens"],
+        "gallery_slots": gallery_quota["gallery_slots"],
+        "gallery_used": gallery_quota["gallery_used"],
+        "gallery_free": gallery_quota["gallery_free"],
+        "gallery_full": gallery_quota["gallery_full"],
         "status": "banned" if _row_get(urow, "banned") else "active",
         "role": _row_get(urow, "role"),
     }
@@ -6940,7 +7674,7 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
         ).fetchall()
         image_rows = conn.execute(
             "SELECT id, job_id, url, thumbnail_url, mode, provider, prompt_original, is_favorite, created_at "
-            "FROM images WHERE user_id = ? ORDER BY created_at DESC LIMIT 30",
+            "FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY created_at DESC LIMIT 30",
             (urow["id"],),
         ).fetchall()
         audits = conn.execute(
@@ -7178,9 +7912,7 @@ async def telegram_me() -> dict[str, Any]:
 
 @app.post("/api/telegram/poll-once")
 async def telegram_poll_once() -> dict[str, Any]:
-    data = await telegram_api("getUpdates", {"timeout": 0, "limit": 10, "offset": telegram_update_offset})
-    handled = await handle_telegram_updates(data.get("result", []), send_replies=True)
-    return {"ok": True, "handled": handled, "rawCount": len(data.get("result", []))}
+    return await telegram_poll_once_from_api(timeout=0, limit=10)
 
 
 @app.post("/api/telegram/set-webhook")
@@ -7263,12 +7995,7 @@ async def max_me() -> dict[str, Any]:
 
 @app.post("/api/max/poll-once")
 async def max_poll_once() -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": 10, "timeout": 0}
-    if max_update_marker:
-        params["marker"] = max_update_marker
-    data = await max_api("GET", "/updates", params=params)
-    handled = await handle_max_updates(data.get("updates", []), send_replies=True)
-    return {"ok": True, "handled": handled, "rawCount": len(data.get("updates", [])), "marker": data.get("marker")}
+    return await max_poll_once_from_api(timeout=0, limit=10)
 
 
 @app.post("/api/max/set-webhook")
@@ -7305,36 +8032,47 @@ async def get_presets() -> list[dict[str, Any]]:
 
 @app.get("/api/admin/summary")
 async def admin_summary(request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     failed = [item for item in jobs.values() if item["status"] == "failed"]
-    completed = [item for item in jobs.values() if item["status"] == "completed"]
+    completed_today = [item for item in jobs.values() if item["status"] == "completed"]
+    now_iso = datetime.now(timezone.utc).isoformat()
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     with db() as conn:
         user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        job_count = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-        image_count = conn.execute("SELECT COUNT(*) FROM images").fetchone()[0]
+        job_db_count = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+        image_count = conn.execute("SELECT COUNT(*) FROM images WHERE deleted_at IS NULL OR deleted_at = ''").fetchone()[0]
         token_total = conn.execute("SELECT COALESCE(SUM(token_balance), 0) FROM users").fetchone()[0]
+        tokens_spent = conn.execute("SELECT COALESCE(SUM(-delta), 0) FROM token_ledger WHERE delta < 0").fetchone()[0]
+        active_today = conn.execute("SELECT COUNT(*) FROM users WHERE last_seen_at >= ?", (today_start,)).fetchone()[0]
+        generations_today = conn.execute("SELECT COUNT(*) FROM jobs WHERE created_at >= ?", (today_start,)).fetchone()[0]
+        active_sessions = conn.execute("SELECT COUNT(*) FROM auth_sessions WHERE revoked_at IS NULL AND expires_at > ?", (now_iso,)).fetchone()[0]
+        errors_24h = conn.execute("SELECT COUNT(*) FROM auth_login_attempts WHERE success = 0 AND created_at >= ?", (today_start,)).fetchone()[0]
         settings_row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'finance'").fetchone()
         finance = json.loads(settings_row["value_json"]) if settings_row else {"tokenRevenue": 0, "tokenCost": 0, "electricity": 0, "promoBudget": 0}
     return {
         "users": user_count,
-        "jobs": max(len(jobs), job_count),
+        "activeToday": active_today,
+        "jobs": max(len(jobs), job_db_count),
+        "generationsToday": generations_today,
         "images": image_count,
         "errors": len(failed),
-        "completedToday": len(completed),
-        "activeUsers": 1,
+        "errors24h": errors_24h,
+        "completedToday": len(completed_today),
         "tokenBalanceTotal": token_total,
+        "tokensSpentTotal": tokens_spent,
+        "activeSessions": active_sessions,
         "finance": finance,
         "availableModels": ["local_flux_klein", "server_flux_klein", "openrouter_cloud"],
         "loras": ["lora_arcane", "product_photo"],
         "recentErrors": [item.get("error") for item in failed[-5:]],
-        "queue": [{k: v for k, v in item.items() if k != "request"} for item in jobs.values()],
+        "queue": [{k: v for k, v in item.items() if k != "request"} for item in jobs.values() if item.get("status") in ("queued", "running", "uploading", "sent_to_comfyui")],
         "rateLimits": rate_limits,
     }
 
 
 @app.get("/api/admin/users")
 async def admin_users(request: Request) -> list[dict[str, Any]]:
-    require_admin(request)
+    require_trusted_admin(request)
     with db() as conn:
         rows = conn.execute(
             """
@@ -7349,7 +8087,7 @@ async def admin_users(request: Request) -> list[dict[str, Any]]:
 
 @app.post("/api/admin/users")
 async def admin_create_user(req: AdminUserRequest, request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute(
@@ -7383,7 +8121,7 @@ async def admin_create_user(req: AdminUserRequest, request: Request) -> dict[str
 
 @app.patch("/api/admin/users/{user_id}")
 async def admin_update_user(user_id: str, req: AdminUserUpdateRequest, request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     updates: list[str] = []
     values: list[Any] = []
     if req.role is not None:
@@ -7435,7 +8173,7 @@ async def admin_update_user(user_id: str, req: AdminUserUpdateRequest, request: 
 
 @app.delete("/api/admin/users/{user_id}")
 async def admin_delete_user(user_id: str, request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     protected = {"demo_user", "web_admin"}
     if user_id in protected:
         raise HTTPException(400, "Protected user cannot be disabled.")
@@ -7468,7 +8206,7 @@ async def admin_delete_user(user_id: str, request: Request) -> dict[str, Any]:
 
 @app.get("/api/admin/users/{user_id}/history")
 async def admin_user_history(user_id: str, request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     with db() as conn:
         user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         if not user:
@@ -7487,7 +8225,7 @@ async def admin_user_history(user_id: str, request: Request) -> dict[str, Any]:
 
 @app.get("/api/admin/promos")
 async def admin_promos(request: Request) -> list[dict[str, Any]]:
-    require_admin(request)
+    require_trusted_admin(request)
     with db() as conn:
         rows = conn.execute("SELECT code, tokens, activation_limit, activation_count, enabled, created_at, updated_at FROM promo_codes ORDER BY updated_at DESC").fetchall()
     return [dict(row) for row in rows]
@@ -7495,7 +8233,7 @@ async def admin_promos(request: Request) -> list[dict[str, Any]]:
 
 @app.post("/api/admin/promos")
 async def admin_create_promo(req: AdminPromoRequest, request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     now = datetime.now(timezone.utc).isoformat()
     code = req.code.strip().upper()
     if not code:
@@ -7519,15 +8257,21 @@ async def admin_create_promo(req: AdminPromoRequest, request: Request) -> dict[s
 
 @app.get("/api/admin/settings")
 async def admin_get_settings(request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     with db() as conn:
         rows = conn.execute("SELECT key, value_json FROM admin_settings").fetchall()
-    return {row["key"]: json.loads(row["value_json"] or "{}") for row in rows}
+        settings = {row["key"]: json.loads(row["value_json"] or "{}") for row in rows}
+        settings["tariffs"] = get_tariff_config(conn)
+    return settings
 
 
 @app.post("/api/admin/settings/{key}")
 async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Request) -> dict[str, Any]:
-    require_admin(request)
+    if key == "tariffs":
+        settings = normalize_tariffs(req.settings, strict=True)
+    else:
+        settings = req.settings
+    require_trusted_admin(request)
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute(
@@ -7536,9 +8280,9 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
             VALUES (?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at
             """,
-            (key, json.dumps(req.settings, ensure_ascii=False), now),
+            (key, json.dumps(settings, ensure_ascii=False), now),
         )
-    return {"ok": True, "key": key, "settings": req.settings}
+    return {"ok": True, "key": key, "settings": settings}
 
 
 async def compute_model_status() -> dict[str, Any]:
@@ -7628,7 +8372,7 @@ async def compute_model_status() -> dict[str, Any]:
 
 @app.get("/api/admin/model-status")
 async def admin_model_status(request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     return await compute_model_status()
 
 
@@ -7693,7 +8437,7 @@ async def scan_loras() -> list[dict[str, Any]]:
 
 @app.get("/api/admin/loras")
 async def admin_loras(request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     return {"loras": await scan_loras()}
 
 
@@ -7760,7 +8504,7 @@ def default_routes(model_status: dict[str, Any]) -> list[dict[str, Any]]:
 
 @app.get("/api/admin/models-page")
 async def admin_models_page(request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     status = await compute_model_status()
     loras = await scan_loras()
     routes = _saved_setting("generation_routes").get("routes") or default_routes(status)
@@ -7822,30 +8566,23 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
 
 @app.get("/api/admin/jobs")
 async def admin_jobs(request: Request) -> list[dict[str, Any]]:
-    require_admin(request)
+    require_trusted_admin(request)
     return [{k: v for k, v in item.items() if k != "request"} for item in jobs.values()]
 
 
 @app.post("/api/admin/limits")
 async def admin_limits(req: AdminLimitRequest, request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     rate_limits.update({"hourly": req.hourly, "daily": req.daily})
     return {"ok": True, "rateLimits": rate_limits}
 
 
 @app.post("/api/telegram/webhook")
 async def telegram_webhook(payload: dict[str, Any]) -> dict[str, Any]:
-    print("telegram webhook", json.dumps(payload, ensure_ascii=False))
-    message = payload.get("message") or {}
-    text = message.get("text") if isinstance(message, dict) else payload.get("text", "/start")
-    chat = message.get("chat") or {}
-    chat_id = chat.get("id")
-    if isinstance(text, str) and text.startswith("/") and chat_id is not None:
-        answer = bot_command_response("telegram", text)
-        try:
-            await telegram_api("sendMessage", telegram_answer_payload(chat_id, answer))
-        except Exception as exc:
-            print("telegram webhook sendMessage error", exc)
+    try:
+        await handle_telegram_update(payload, send_replies=True)
+    except Exception as exc:
+        print("telegram webhook handler error", type(exc).__name__)
     return {"ok": True}
 
 
@@ -7853,15 +8590,8 @@ async def telegram_webhook(payload: dict[str, Any]) -> dict[str, Any]:
 async def max_webhook(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     if MAX_WEBHOOK_SECRET and request.headers.get("X-Max-Bot-Api-Secret") != MAX_WEBHOOK_SECRET:
         raise HTTPException(403, "Invalid MAX webhook secret.")
-    print("max webhook", json.dumps(payload, ensure_ascii=False))
-    message = payload.get("message") or {}
-    text = message.get("text") if isinstance(message, dict) else payload.get("text", "/start")
-    if isinstance(text, str) and text.startswith("/"):
-        answer = bot_command_response("max", text)
-        params = max_recipient_params(message)
-        if params:
-            try:
-                await max_api("POST", "/messages", max_message_payload(answer), params=params)
-            except Exception as exc:
-                print("max webhook sendMessage error", exc)
+    try:
+        await handle_max_update(payload, send_replies=True)
+    except Exception as exc:
+        print("max webhook handler error", type(exc).__name__)
     return {"ok": True}

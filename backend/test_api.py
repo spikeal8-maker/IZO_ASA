@@ -73,6 +73,8 @@ def isolated_db(tmp_path, monkeypatch):
     main.images.clear()
     main.queue = asyncio.Queue()
     main.worker_started = False
+    main.bot_polling_started = False
+    main.bot_polling_tasks.clear()
 
     iuid = "iuid-api-test"
     legacy = "web_apitest"
@@ -390,8 +392,7 @@ def test_telegram_poll_once_sends_command_reply(monkeypatch) -> None:
 
     monkeypatch.setattr(main, "telegram_api", fake_telegram_api)
 
-    with TestClient(main.app) as client:
-        result = client.post("/api/telegram/poll-once").json()
+    result = asyncio.run(main.telegram_poll_once_from_api(timeout=0, limit=10))
 
     assert result["handled"][0]["chatId"] == 777
     assert calls[0]["method"] == "getUpdates"
@@ -416,8 +417,7 @@ def test_max_poll_once_sends_command_reply(monkeypatch) -> None:
 
     monkeypatch.setattr(main, "max_api", fake_max_api)
 
-    with TestClient(main.app) as client:
-        result = client.post("/api/max/poll-once").json()
+    result = asyncio.run(main.max_poll_once_from_api(timeout=0, limit=10))
 
     assert result["handled"][0]["recipient"] == {"user_id": "u1"}
     assert calls[0]["method"] == "GET"
@@ -425,6 +425,165 @@ def test_max_poll_once_sends_command_reply(monkeypatch) -> None:
     assert calls[1]["path"] == "/messages"
     assert calls[1]["params"] == {"user_id": "u1"}
     assert "Открыть настройки" in calls[1]["payload"]["text"]
+
+
+def test_telegram_polling_persists_offset_and_uses_allowed_updates(monkeypatch) -> None:
+    calls = []
+
+    async def fake_telegram_api(method: str, payload: dict | None = None) -> dict:
+        calls.append({"method": method, "payload": payload})
+        if method == "getUpdates":
+            return {"ok": True, "result": [{"update_id": 15, "message": {"text": "/app", "chat": {"id": 777}}}]}
+        return {"ok": True, "result": {"message_id": 1}}
+
+    monkeypatch.setattr(main, "telegram_api", fake_telegram_api)
+
+    result = asyncio.run(main.telegram_poll_once_from_api(timeout=0, limit=10))
+
+    assert result["cursor"] == "16"
+    assert calls[0]["payload"]["allowed_updates"] == ["message", "callback_query"]
+    assert calls[0]["payload"].get("offset") is None
+    with main.db() as conn:
+        row = conn.execute("SELECT cursor FROM bot_polling_state WHERE provider = 'telegram'").fetchone()
+    assert row["cursor"] == "16"
+
+
+def test_telegram_polling_callback_query_and_saved_offset(monkeypatch) -> None:
+    calls = []
+    main.set_bot_polling_cursor("telegram", 16)
+
+    async def fake_telegram_api(method: str, payload: dict | None = None) -> dict:
+        calls.append({"method": method, "payload": payload})
+        if method == "getUpdates":
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "update_id": 16,
+                        "callback_query": {
+                            "id": "cb1",
+                            "data": "/settings",
+                            "message": {"chat": {"id": 888}},
+                        },
+                    }
+                ],
+            }
+        return {"ok": True, "result": {"message_id": 1}}
+
+    monkeypatch.setattr(main, "telegram_api", fake_telegram_api)
+
+    result = asyncio.run(main.telegram_poll_once_from_api(timeout=0, limit=10))
+
+    assert calls[0]["payload"]["offset"] == 16
+    assert result["cursor"] == "17"
+    assert result["handled"][0]["chatId"] == 888
+    assert calls[1]["method"] == "sendMessage"
+    assert calls[2]["method"] == "answerCallbackQuery"
+
+
+def test_telegram_saved_offset_prevents_repeat(monkeypatch) -> None:
+    calls = []
+    main.set_bot_polling_cursor("telegram", 42)
+
+    async def fake_telegram_api(method: str, payload: dict | None = None) -> dict:
+        calls.append({"method": method, "payload": payload})
+        return {"ok": True, "result": []}
+
+    monkeypatch.setattr(main, "telegram_api", fake_telegram_api)
+
+    result = asyncio.run(main.telegram_poll_once_from_api(timeout=0, limit=10))
+
+    assert calls[0]["payload"]["offset"] == 42
+    assert result["handled"] == []
+    assert result["cursor"] == "42"
+
+
+def test_max_polling_persists_marker(monkeypatch) -> None:
+    calls = []
+
+    async def fake_max_api(method: str, path: str, payload: dict | None = None, params: dict | None = None) -> dict:
+        calls.append({"method": method, "path": path, "payload": payload, "params": params})
+        if method == "GET":
+            return {"updates": [{"message": {"body": {"text": "/app"}, "sender": {"user_id": "u1"}}}], "marker": "m2"}
+        return {"message": {"id": "m1"}}
+
+    monkeypatch.setattr(main, "max_api", fake_max_api)
+
+    result = asyncio.run(main.max_poll_once_from_api(timeout=0, limit=10))
+
+    assert calls[0]["params"] == {"limit": 10, "timeout": 0}
+    assert result["marker"] == "m2"
+    with main.db() as conn:
+        row = conn.execute("SELECT cursor FROM bot_polling_state WHERE provider = 'max'").fetchone()
+    assert row["cursor"] == "m2"
+
+
+def test_max_polling_uses_saved_marker(monkeypatch) -> None:
+    calls = []
+    main.set_bot_polling_cursor("max", "m2")
+
+    async def fake_max_api(method: str, path: str, payload: dict | None = None, params: dict | None = None) -> dict:
+        calls.append({"method": method, "path": path, "payload": payload, "params": params})
+        return {"updates": [], "marker": "m3"}
+
+    monkeypatch.setattr(main, "max_api", fake_max_api)
+
+    result = asyncio.run(main.max_poll_once_from_api(timeout=0, limit=10))
+
+    assert calls[0]["params"]["marker"] == "m2"
+    assert result["marker"] == "m3"
+
+
+def test_bot_polling_start_respects_mode_and_guard(monkeypatch) -> None:
+    created = []
+
+    class FakeTask:
+        pass
+
+    def fake_create_task(coro):
+        coro.close()
+        task = FakeTask()
+        created.append(task)
+        return task
+
+    monkeypatch.setattr(main.asyncio, "create_task", fake_create_task)
+    monkeypatch.setattr(main, "BOT_UPDATES_MODE", "webhook")
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "tg")
+    monkeypatch.setattr(main, "MAX_BOT_TOKEN", "max")
+    assert main.start_bot_polling_tasks() == []
+    assert created == []
+
+    monkeypatch.setattr(main, "BOT_UPDATES_MODE", "polling")
+    started = main.start_bot_polling_tasks()
+    assert started == ["telegram", "max"]
+    assert len(created) == 2
+    assert main.start_bot_polling_tasks() == []
+    assert len(created) == 2
+
+
+def test_bot_webhook_endpoints_still_handle_commands(monkeypatch) -> None:
+    telegram_calls = []
+    max_calls = []
+
+    async def fake_telegram_api(method: str, payload: dict | None = None) -> dict:
+        telegram_calls.append({"method": method, "payload": payload})
+        return {"ok": True, "result": {"message_id": 1}}
+
+    async def fake_max_api(method: str, path: str, payload: dict | None = None, params: dict | None = None) -> dict:
+        max_calls.append({"method": method, "path": path, "payload": payload, "params": params})
+        return {"message": {"id": "m1"}}
+
+    monkeypatch.setattr(main, "telegram_api", fake_telegram_api)
+    monkeypatch.setattr(main, "max_api", fake_max_api)
+
+    client = TestClient(main.app)
+    tg = client.post("/api/telegram/webhook", json={"update_id": 1, "message": {"text": "/app", "chat": {"id": 777}}})
+    mx = client.post("/api/max/webhook", json={"message": {"body": {"text": "/app"}, "sender": {"user_id": "u1"}}})
+
+    assert tg.status_code == 200
+    assert mx.status_code == 200
+    assert telegram_calls[0]["method"] == "sendMessage"
+    assert max_calls[0]["path"] == "/messages"
 
 
 def test_completed_generation_is_persisted_to_sqlite(monkeypatch) -> None:
