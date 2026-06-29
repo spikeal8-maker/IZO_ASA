@@ -517,6 +517,13 @@ class AdminSettingsRequest(BaseModel):
 
 rate_limits = {"hourly": 10, "daily": 50}
 PROMO_REFERRAL_REWARD_TOKENS = 50
+PLAN_ORDER = ("free", "mini", "plus", "pro")
+DEFAULT_TARIFFS: dict[str, dict[str, int]] = {
+    "free": {"daily_tokens": 10, "gallery_slots": 1},
+    "mini": {"daily_tokens": 50, "gallery_slots": 10},
+    "plus": {"daily_tokens": 100, "gallery_slots": 50},
+    "pro": {"daily_tokens": 200, "gallery_slots": 100},
+}
 
 
 @dataclass
@@ -1189,6 +1196,52 @@ def init_db() -> None:
             VALUES ('local_flux_klein', 'Local Flux Klein', 'comfyui', 'flux-2-klein-9b-fp8.safetensors')
             """,
         )
+        # MODEL PROFILE: canonical 4B/9B profiles. We must support both free models and
+        # never hardcode a single one. supports_pose is additive (default 0). The exact
+        # required-file fingerprints live in settings_json so the admin status endpoint can
+        # cross-check them against the live ComfyUI install.
+        existing_profile_columns = {row["name"] for row in conn.execute("PRAGMA table_info(model_profiles)").fetchall()}
+        if "supports_pose" not in existing_profile_columns:
+            conn.execute("ALTER TABLE model_profiles ADD COLUMN supports_pose INTEGER NOT NULL DEFAULT 0")
+        seed_profiles = [
+            (
+                "flux_klein_4b", "FLUX.2 [klein] 4B", "flux-2-klein-4b-fp8.safetensors", 0,
+                {
+                    "variant": "4b",
+                    "unet": "flux-2-klein-4b-fp8.safetensors",
+                    "text_encoder": "qwen_3_4b",
+                    "vae": "flux2-vae.safetensors",
+                    "faceswap_lora": "bfs_head_v1_flux-klein_4b",
+                    "node": "FluxKleinOneNode",
+                    "pose": {"supported": False, "reason": "repo refcontrol pose LoRA is published for 9B only"},
+                },
+            ),
+            (
+                "flux_klein_9b", "FLUX.2 [klein] 9B", "flux-2-klein-9b-fp8.safetensors", 1,
+                {
+                    "variant": "9b",
+                    "unet": "flux-2-klein-9b-fp8.safetensors",
+                    "text_encoder": "qwen_3_8b",
+                    "vae": "flux2-vae.safetensors",
+                    "faceswap_lora": "bfs_head_v1_flux-klein_9b",
+                    "node": "FluxKleinOneNode",
+                    "pose": {
+                        "supported": True,
+                        "lora": "refcontrol_v2_poses.safetensors",
+                        "preprocessor_node": "DWPreprocessor",
+                        "workflow": "pose",
+                    },
+                },
+            ),
+        ]
+        for pid, pname, model_name, supports_pose, settings in seed_profiles:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO model_profiles (id, name, provider, model_name, supports_pose, settings_json)
+                VALUES (?, ?, 'comfyui', ?, ?, ?)
+                """,
+                (pid, pname, model_name, supports_pose, json.dumps(settings, ensure_ascii=False)),
+            )
         seed_presets = [
             ("portrait", "Кинематографичный портрет", "Cinematic portrait", "text_to_image"),
             ("enhance", "Улучшить качество", "Enhance quality", "edit"),
@@ -2265,12 +2318,9 @@ def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None,
         row = conn.execute("SELECT role, plan, gallery_enabled FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
     if row is None:
         return False
-    if _row_get(row, "role") == "admin":
-        return True
-    plan = str(_row_get(row, "plan") or "mini")
-    # Product rule: paid plans include the gallery. gallery_enabled is kept as
-    # compatibility data, but stale false values must not hide mini/plus/pro.
-    return plan in {"mini", "plus", "pro"}
+    # Product rule: gallery is available to every authenticated user. The plan
+    # controls slot quota, not access. gallery_enabled remains compatibility data.
+    return True
 
 
 def create_auth_session(
@@ -2936,6 +2986,78 @@ def local_media_path_from_url(url: str) -> Path | None:
     return path if path.exists() else None
 
 
+def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[str, dict[str, int]]:
+    data = raw if isinstance(raw, dict) else {}
+    if strict:
+        if not isinstance(raw, dict) or not raw:
+            raise HTTPException(400, "Tariff config must not be empty.")
+        unknown = sorted(str(k) for k in raw.keys() if str(k).lower() not in PLAN_ORDER)
+        if unknown:
+            raise HTTPException(400, f"Unknown tariff plan: {', '.join(unknown)}")
+    normalized: dict[str, dict[str, int]] = {}
+    for plan in PLAN_ORDER:
+        source = data.get(plan, {}) if isinstance(data.get(plan, {}), dict) else {}
+        daily = source.get("daily_tokens", source.get("dailyTokens", DEFAULT_TARIFFS[plan]["daily_tokens"]))
+        slots = source.get("gallery_slots", source.get("gallerySlots", DEFAULT_TARIFFS[plan]["gallery_slots"]))
+        try:
+            daily_int = int(daily)
+            slots_int = int(slots)
+        except (TypeError, ValueError):
+            if strict:
+                raise HTTPException(400, f"Invalid tariff values for {plan}.")
+            daily_int = int(DEFAULT_TARIFFS[plan]["daily_tokens"])
+            slots_int = int(DEFAULT_TARIFFS[plan]["gallery_slots"])
+        if strict and (daily_int < 0 or slots_int < 0):
+            raise HTTPException(400, f"Tariff values for {plan} must be non-negative.")
+        normalized[plan] = {
+            "daily_tokens": max(0, min(daily_int, 100_000)),
+            "gallery_slots": max(0, min(slots_int, 100_000)),
+        }
+    return normalized
+
+
+def get_tariff_config(conn: sqlite3.Connection | None = None) -> dict[str, dict[str, int]]:
+    try:
+        if conn is not None:
+            row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()
+            return normalize_tariffs(json.loads(row["value_json"] or "{}") if row else None)
+        with db() as local_conn:
+            row = local_conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()
+            return normalize_tariffs(json.loads(row["value_json"] or "{}") if row else None)
+    except Exception:
+        return normalize_tariffs()
+
+
+def tariff_for_plan(conn: sqlite3.Connection, plan: str | None) -> dict[str, int]:
+    normalized_plan = str(plan or "mini").lower()
+    if normalized_plan not in PLAN_ORDER:
+        normalized_plan = "mini"
+    return get_tariff_config(conn)[normalized_plan]
+
+
+def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | None, legacy_user_id: str | None = None) -> dict[str, Any]:
+    plan = str(_row_get(user_row, "plan") or "mini").lower()
+    if plan not in PLAN_ORDER:
+        plan = "mini"
+    tariff = tariff_for_plan(conn, plan)
+    user_id = legacy_user_id or _row_get(user_row, "id")
+    used = 0
+    if user_id:
+        used = int(conn.execute(
+            "SELECT COUNT(*) AS c FROM images WHERE user_id = ? AND deleted_at IS NULL",
+            (user_id,),
+        ).fetchone()["c"])
+    total = int(tariff["gallery_slots"])
+    return {
+        "plan": plan,
+        "daily_tokens": int(tariff["daily_tokens"]),
+        "gallery_slots": total,
+        "gallery_used": used,
+        "gallery_free": max(0, total - used),
+        "gallery_full": used >= total if total >= 0 else False,
+    }
+
+
 def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     raw_id = auth.userId or ""
@@ -2999,6 +3121,7 @@ def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
             "SELECT username, first_name, last_name, middle_name, phone, email, language, role, plan, token_balance, gallery_enabled, country, city, timezone, total_time_seconds, generation_count, tokens_used, promo_used_count, referrals_count, banned FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
+        quota = gallery_quota_for_user(conn, row, user_id)
     return {
         "id": user_id,
         "platform": auth.platform,
@@ -3013,6 +3136,12 @@ def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
         "plan": (row["plan"] if row else None) or "mini",
         "tokenBalance": int(row["token_balance"] if row else 50),
         "galleryEnabled": bool(row["gallery_enabled"] if row else True),
+        "galleryAccess": True,
+        "dailyTokens": int(quota["daily_tokens"]),
+        "gallerySlots": int(quota["gallery_slots"]),
+        "galleryUsed": int(quota["gallery_used"]),
+        "galleryFree": int(quota["gallery_free"]),
+        "galleryFull": bool(quota["gallery_full"]),
         "country": row["country"] if row else auth.country,
         "city": row["city"] if row else auth.city,
         "timezone": row["timezone"] if row else auth.timezone,
@@ -3239,6 +3368,18 @@ async def comfyui_available() -> bool:
             return False
 
 
+async def comfyui_node_names() -> set[str]:
+    """Registered ComfyUI node class names (e.g. FluxKleinOneNode, DWPreprocessor).
+    Used to verify pose readiness. Returns an empty set if ComfyUI is unreachable."""
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            response = await client.get(f"{COMFYUI_BASE_URL}/object_info")
+            response.raise_for_status()
+            return set(response.json().keys())
+    except Exception:
+        return set()
+
+
 async def get_comfyui_models() -> dict[str, list[str]]:
     async with httpx.AsyncClient(timeout=10) as client:
         response = await client.get(f"{COMFYUI_BASE_URL}/flux_klein/models")
@@ -3279,11 +3420,92 @@ async def get_flux_lora_triggers(name: str) -> dict[str, Any]:
         return response.json()
 
 
+def resolve_profile_model(requested: str) -> str:
+    """Map a model_profiles id (e.g. 'flux_klein_9b' / 'local_flux_klein') to its
+    diffusion model filename. Returns the input unchanged if it is not a known profile id
+    (so passing a raw filename still works)."""
+    if not requested:
+        return ""
+    try:
+        with db() as conn:
+            row = conn.execute("SELECT model_name FROM model_profiles WHERE id = ? AND enabled = 1", (requested,)).fetchone()
+        if row and row["model_name"]:
+            return row["model_name"]
+    except Exception:
+        pass
+    return requested
+
+
+def get_model_settings() -> dict[str, Any]:
+    """Admin-configured model selection. editModelProfile is the default for all modes;
+    poseModelProfile is used for the Pose role and falls back to the edit model."""
+    defaults = {"editModelProfile": "flux_klein_9b", "poseModelProfile": ""}
+    try:
+        with db() as conn:
+            row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'models'").fetchone()
+        if row:
+            defaults.update(json.loads(row["value_json"] or "{}"))
+    except Exception:
+        pass
+    return defaults
+
+
+def effective_edit_profile(requested: str) -> str:
+    """Resolve which profile id to use: an explicit non-generic request wins, otherwise the
+    admin default edit model. Never hardcodes a single model."""
+    if requested and requested not in ("", "local_flux_klein", "default"):
+        return requested
+    return get_model_settings().get("editModelProfile") or "flux_klein_9b"
+
+
+def effective_pose_profile(requested: str) -> str:
+    """Pose routing: poseModelProfile wins; otherwise fall back to the edit model.
+    So edit=4B + pose=9B routes Pose through 9B, exactly as configured in admin."""
+    return get_model_settings().get("poseModelProfile") or effective_edit_profile(requested)
+
+
+def get_profile_row(profile_id: str) -> dict[str, Any] | None:
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id, name, model_name, supports_pose, settings_json FROM model_profiles WHERE id = ? AND enabled = 1",
+            (profile_id,),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["settings"] = json.loads(d.get("settings_json") or "{}")
+    return d
+
+
+# Embedded pose workflow template — bundled in-repo so Pose does NOT depend on the version
+# of the installed one-node-flux-2-klein custom node (the local one ships without it).
+POSE_WORKFLOW_PATH = Path(__file__).resolve().parent / "workflows" / "flux_klein_9b_pose_workflow.json"
+
+
+def build_pose_workflow(models: dict[str, list[str]], profile: dict[str, Any], ref_image_name: str, pose_image_name: str, req: GenerateRequest) -> dict[str, Any]:
+    """RefControl pose graph: identity/clothing/background come from the reference image
+    (Image 1); only the DWPose skeleton is extracted from the pose image."""
+    model, text_encoder, vae = choose_model(models, profile["id"])
+    loras = models.get("loras", [])
+    pose_meta = (profile.get("settings") or {}).get("pose", {}) or {}
+    pose_lora = next((x for x in loras if "refcontrol" in x.lower()), pose_meta.get("lora", ""))
+    graph = json.loads(POSE_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    graph["FKP:unet"]["inputs"]["unet_name"] = model
+    graph["FKP:clip"]["inputs"]["clip_name"] = text_encoder
+    graph["FKP:vae"]["inputs"]["vae_name"] = vae
+    graph["FKP:lora"]["inputs"]["lora_name"] = pose_lora
+    graph["FKP:refimg"]["inputs"]["image"] = ref_image_name
+    graph["FKP:poseimg"]["inputs"]["image"] = pose_image_name
+    graph["FKP:noise"]["inputs"]["noise_seed"] = int(req.seed or 0)
+    return graph
+
+
 def choose_model(models: dict[str, list[str]], requested: str) -> tuple[str, str, str]:
     diffusion = models.get("diffusion_models", [])
     text_encoders = models.get("text_encoders", [])
     vaes = models.get("vaes", [])
 
+    requested = resolve_profile_model(requested)
     model = requested if requested in diffusion else ""
     if not model:
         model = next((item for item in diffusion if "klein-9b" in item and "fp8" in item), "")
@@ -3576,7 +3798,7 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
         return None
 
     models = await get_comfyui_models()
-    model, text_encoder, vae = choose_model(models, payload.modelProfile)
+    model, text_encoder, vae = choose_model(models, effective_edit_profile(payload.modelProfile))
     available_loras = models.get("loras", [])
     is_4b = "4b" in model.lower()
     target_lora_tag = "4b" if is_4b else "9b"
@@ -3594,6 +3816,7 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             if fallback:
                 lora.id = fallback
     workflow = await fetch_workflow(payload.mode)
+    pose_graph: dict[str, Any] | None = None
 
     uploads: dict[str, str] = {}
     input1_path = local_media_path_from_url(payload.inputImage1 or "") or save_data_url(payload.inputImage1, f"{job['id']}_input1")
@@ -3615,15 +3838,38 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             if payload.inputImage2:
                 edit_sources.append(("", payload.inputImage2))
         edit_roles: list[str] = []
+        pose_image_name: str | None = None
         for i, (role, src) in enumerate(edit_sources[:4]):
             slot_path = local_media_path_from_url(src) or save_data_url(src, f"{job['id']}_edit{i + 1}")
             if not slot_path:
                 continue
             uploads[f"input{i + 1}"] = await upload_to_comfyui(slot_path)
             edit_roles.append(role or ("base" if i == 0 else "?"))
+            if role == "pose" and i > 0:
+                pose_image_name = uploads[f"input{i + 1}"]
         if "input1" not in uploads:
             raise RuntimeError("Для редактирования нужна основа (изображение 1).")
         print(f"edit-generate job={job['id']} images={sum(1 for k in uploads if k.startswith('input'))} roles={edit_roles}")
+
+        # role=Pose: separate workflow branch (DWPose skeleton + RefControl LoRA). Identity,
+        # clothing and background come from Image 1; only the pose transfers from the pose ref.
+        if "pose" in edit_roles:
+            other_roles = [r for r in edit_roles if r not in ("base", "pose", "?", "")]
+            if other_roles:
+                raise RuntimeError("Pose пока поддерживается только отдельно — без сочетания с другими ролями (" + ", ".join(other_roles) + ") в одном запросе.")
+            if not pose_image_name:
+                raise RuntimeError("Для роли Поза нужен референс с позой (изображение 2).")
+            pose_profile_id = effective_pose_profile(payload.modelProfile)
+            status = await compute_model_status()
+            prof = next((p for p in status["profiles"] if p["id"] == pose_profile_id), None)
+            if not prof or not prof.get("supportsPose"):
+                raise RuntimeError(f"Pose workflow is not supported for {pose_profile_id}.")
+            if prof.get("pose") != "available":
+                miss = ", ".join(prof.get("poseMissing", [])) or "зависимости"
+                raise RuntimeError(f"Pose workflow is not available for selected pose model profile ({pose_profile_id}): отсутствует {miss}.")
+            profile_row = get_profile_row(pose_profile_id)
+            pose_graph = build_pose_workflow(models, profile_row, uploads["input1"], pose_image_name, payload)
+            print(f"pose-generate job={job['id']} profile={pose_profile_id} ref=input1 pose={pose_image_name}")
     elif payload.mode in {"image_to_image", "paint", "inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
         if not primary_input:
             raise RuntimeError("Для выбранного режима нужно входное изображение.")
@@ -3635,7 +3881,10 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
     if payload.mode in {"inpaint", "outpaint"} and mask_path:
         uploads["mask"] = await upload_to_comfyui(mask_path)
 
-    patch_mode_nodes(workflow, payload, uploads, model, text_encoder, vae)
+    if pose_graph is not None:
+        workflow = pose_graph
+    else:
+        patch_mode_nodes(workflow, payload, uploads, model, text_encoder, vae)
     try:
         prompt_id, history, output_images = await submit_workflow(workflow, job)
     except Exception as exc:
@@ -3767,13 +4016,18 @@ async def worker() -> None:
                 continue
             if not image_path or not thumb_path:
                 image_path, thumb_path = mock_image(req, job_id)
+            user_id = job.get("userId", "demo_user")
+            with db() as conn:
+                user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                gallery_quota = gallery_quota_for_user(conn, user_row, user_id)
+            gallery_can_save = not bool(gallery_quota["gallery_full"])
             image_id = f"img_{uuid.uuid4().hex[:12]}"
             created_at = datetime.now(timezone.utc).isoformat()
             record = {
                 "id": image_id,
-                "userId": job.get("userId", "demo_user"),
-                "url": public_url(image_path, job.get("userId", "demo_user")),
-                "thumbnailUrl": public_url(thumb_path, job.get("userId", "demo_user")),
+                "userId": user_id,
+                "url": public_url(image_path, user_id),
+                "thumbnailUrl": public_url(thumb_path, user_id),
                 "mode": req.mode,
                 "provider": req.provider,
                 "promptOriginal": req.prompt,
@@ -3790,9 +4044,18 @@ async def worker() -> None:
                 "comfyuiPromptId": prompt_id,
                 "comfyuiHistory": comfyui_history,
             }
-            images[image_id] = record
-            job.update(status="completed", progress=100, message="Готово", resultImageId=image_id, resultUrl=record["url"], completedAt=created_at)
-            persist_image(record, job_id)
+            if gallery_can_save:
+                images[image_id] = record
+                persist_image(record, job_id)
+                with db() as conn:
+                    saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                    gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
+                job.update(gallerySaveStatus="saved", galleryQuota=gallery_quota)
+                result_image_id = image_id
+            else:
+                job.update(gallerySaveStatus="quota_full", galleryQuota=gallery_quota)
+                result_image_id = None
+            job.update(status="completed", progress=100, message="Готово", resultImageId=result_image_id, resultUrl=record["url"], completedAt=created_at)
             persist_job(job, req)
         except Exception as exc:
             job.update(status="failed", progress=100, message="Генерация не выполнена.", error=str(exc), completedAt=datetime.now(timezone.utc).isoformat())
@@ -4032,6 +4295,11 @@ async def flux_klein_lora_triggers(name: str) -> dict[str, Any]:
         return await get_flux_lora_triggers(name)
     except Exception as exc:
         return {"ok": False, "error": str(exc), "triggers": [], "name": name}
+
+
+@app.get("/api/tariffs")
+async def tariffs() -> dict[str, Any]:
+    return {"ok": True, "tariffs": get_tariff_config()}
 
 
 @app.get("/api/gallery")
@@ -4868,6 +5136,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
             (iuid,),
         ).fetchall()
         gallery_access = bool(user_gallery_allowed(conn, iuid, legacy))
+        gallery_quota = gallery_quota_for_user(conn, urow, legacy)
 
     primary_identity = identities[0] if identities else None
     profile = {
@@ -4905,6 +5174,11 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "token_balance": int(_row_get(urow, "token_balance") or 0),
             "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
             "gallery_access": gallery_access,
+            "daily_tokens": int(gallery_quota["daily_tokens"]),
+            "gallery_slots": int(gallery_quota["gallery_slots"]),
+            "gallery_used": int(gallery_quota["gallery_used"]),
+            "gallery_free": int(gallery_quota["gallery_free"]),
+            "gallery_full": bool(gallery_quota["gallery_full"]),
         },
         "session": {
             "session_id": user["session_id"],
@@ -5964,8 +6238,8 @@ async def admin_plan_v2(internal_user_id: str, req: AdminPlanV2Request, request:
         raise HTTPException(400, "Укажите причину.")
     with db() as conn:
         target = _admin_load_target(conn, internal_user_id)
-        conn.execute("UPDATE users SET plan = ?, gallery_enabled = ? WHERE internal_user_id = ?",
-                     (req.plan, 0 if req.plan == "free" else 1, internal_user_id))
+        conn.execute("UPDATE users SET plan = ?, gallery_enabled = 1 WHERE internal_user_id = ?",
+                     (req.plan, internal_user_id))
         record_audit_log(conn, "admin_change_plan", actor_internal_user_id=admin["internal_user_id"],
                          target_internal_user_id=internal_user_id, entity_id=target["id"],
                          before={"plan": target["plan"]}, after={"plan": req.plan, "reason": reason}, request=request)
@@ -6629,6 +6903,7 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
     ).fetchone()["c"]
     device_meta = safe_json_load(_row_get(last_session, "metadata_json")) or {}
     device = device_meta.get("device") if isinstance(device_meta, dict) else {}
+    gallery_quota = gallery_quota_for_user(conn, urow, legacy)
     return {
         "internal_user_id": iuid,  # used by the admin drawer fetch + technical section only
         "internal_user_id_short": (iuid[:8] + "…") if iuid else None,
@@ -6657,6 +6932,11 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "plan": _row_get(urow, "plan") or "mini",
         "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
         "gallery_access": bool(user_gallery_allowed(conn, iuid, legacy)),
+        "daily_tokens": int(gallery_quota["daily_tokens"]),
+        "gallery_slots": int(gallery_quota["gallery_slots"]),
+        "gallery_used": int(gallery_quota["gallery_used"]),
+        "gallery_free": int(gallery_quota["gallery_free"]),
+        "gallery_full": bool(gallery_quota["gallery_full"]),
         "status": "banned" if _row_get(urow, "banned") else "active",
         "role": _row_get(urow, "role"),
     }
@@ -7356,13 +7636,19 @@ async def admin_get_settings(request: Request) -> dict[str, Any]:
     require_admin(request)
     with db() as conn:
         rows = conn.execute("SELECT key, value_json FROM admin_settings").fetchall()
-    return {row["key"]: json.loads(row["value_json"] or "{}") for row in rows}
+        settings = {row["key"]: json.loads(row["value_json"] or "{}") for row in rows}
+        settings["tariffs"] = get_tariff_config(conn)
+    return settings
 
 
 @app.post("/api/admin/settings/{key}")
 async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Request) -> dict[str, Any]:
-    require_admin(request)
+    if key == "tariffs":
+        require_trusted_admin(request)
+    else:
+        require_admin(request)
     now = datetime.now(timezone.utc).isoformat()
+    settings = normalize_tariffs(req.settings, strict=True) if key == "tariffs" else req.settings
     with db() as conn:
         conn.execute(
             """
@@ -7370,9 +7656,288 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
             VALUES (?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at
             """,
-            (key, json.dumps(req.settings, ensure_ascii=False), now),
+            (key, json.dumps(settings, ensure_ascii=False), now),
         )
-    return {"ok": True, "key": key, "settings": req.settings}
+    return {"ok": True, "key": key, "settings": settings}
+
+
+async def compute_model_status() -> dict[str, Any]:
+    """Cross-check every enabled model profile against the live ComfyUI install:
+    which model/encoder/vae/lora files are present, whether base edit and pose can run,
+    and exactly which files/nodes are missing. No guessing — all checked against ComfyUI."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, model_name, supports_pose, settings_json FROM model_profiles WHERE enabled = 1 AND provider = 'comfyui'"
+        ).fetchall()
+
+    comfy_up = await comfyui_available()
+    try:
+        models = await get_comfyui_models() if comfy_up else {}
+    except Exception:
+        models = {}
+    nodes = await comfyui_node_names() if comfy_up else set()
+
+    diffusion = models.get("diffusion_models", [])
+    text_encoders = models.get("text_encoders", [])
+    vaes = models.get("vaes", [])
+    loras = models.get("loras", [])
+
+    def has(items: list[str], needle: str) -> bool:
+        n = (needle or "").lower()
+        return bool(n) and any(n in item.lower() for item in items)
+
+    selection = get_model_settings()
+    profiles: list[dict[str, Any]] = []
+    for row in rows:
+        meta = json.loads(row["settings_json"] or "{}")
+        # Only canonical MODEL PROFILEs (those carrying a variant fingerprint) appear in the
+        # admin status; the legacy 'local_flux_klein' alias is kept for back-compat but hidden.
+        if not meta.get("variant"):
+            continue
+        pose_meta = meta.get("pose", {}) or {}
+        unet_ok = (row["model_name"] in diffusion)
+        te_ok = has(text_encoders, meta.get("text_encoder", ""))
+        vae_ok = has(vaes, meta.get("vae", "flux2-vae"))
+        faceswap_ok = has(loras, meta.get("faceswap_lora", ""))
+
+        missing: list[str] = []
+        if not unet_ok:
+            missing.append(row["model_name"])
+        if not te_ok and meta.get("text_encoder"):
+            missing.append(meta["text_encoder"])
+        if not vae_ok:
+            missing.append(meta.get("vae", "flux2-vae.safetensors"))
+
+        base_edit_ok = unet_ok and te_ok and vae_ok
+
+        pose_missing: list[str] = []
+        pose_supported = bool(row["supports_pose"]) and bool(pose_meta.get("supported"))
+        pose_available = False
+        if pose_supported:
+            pose_lora = pose_meta.get("lora", "")
+            pose_node = pose_meta.get("preprocessor_node", "DWPreprocessor")
+            lora_ok = has(loras, pose_lora)
+            node_ok = pose_node in nodes
+            if not lora_ok:
+                pose_missing.append(pose_lora)
+            if not node_ok:
+                pose_missing.append(f"ComfyUI node: {pose_node}")
+            pose_available = base_edit_ok and lora_ok and node_ok
+
+        profiles.append({
+            "id": row["id"],
+            "name": row["name"],
+            "modelName": row["model_name"],
+            "installed": unet_ok,
+            "baseEdit": "available" if base_edit_ok else "missing",
+            "supportsPose": pose_supported,
+            "pose": ("available" if pose_available else "missing"),
+            "requiredNode": meta.get("node", "FluxKleinOneNode"),
+            "faceswapLora": "available" if faceswap_ok else "missing",
+            "missingFiles": missing,
+            "poseMissing": pose_missing,
+        })
+
+    return {
+        "comfyuiAvailable": comfy_up,
+        "editModelProfile": selection.get("editModelProfile"),
+        "poseModelProfile": selection.get("poseModelProfile") or "",
+        "profiles": profiles,
+    }
+
+
+@app.get("/api/admin/model-status")
+async def admin_model_status(request: Request) -> dict[str, Any]:
+    require_admin(request)
+    return await compute_model_status()
+
+
+# ── Админ → Модели v2 ───────────────────────────────────────────────────────
+# Provider-aware каталог: local ComfyUI и OpenRouter — разные слои. Реальные данные:
+# наличие локальных файлов/нод (ComfyUI), скан LoRA, готовность pose, наличие ключа
+# OpenRouter. Тарифная матрица, маршруты и цены — admin-конфиг (дефолты пересчитываются,
+# переопределения хранятся в admin_settings и НЕ ломают estimate_token_cost генерации).
+
+# Известные LoRA: назначение / совместимость / целевой workflow.
+KNOWN_LORAS: dict[str, dict[str, Any]] = {
+    "bfs_head_v1_flux-klein_4b": {"purpose": "face / head consistency", "compatible": ["flux_klein_4b"], "routes": ["face", "edit"], "requires": []},
+    "bfs_head_v1_flux-klein_9b": {"purpose": "face / identity", "compatible": ["flux_klein_9b"], "routes": ["face", "edit"], "requires": []},
+    "refcontrol_v2_poses": {"purpose": "pose ref-control", "compatible": ["flux_klein_9b"], "routes": ["edit_pose"], "requires": ["DWPreprocessor"]},
+}
+
+OPENROUTER_CATALOG = [
+    {"id": "openrouter_gpt_image", "provider": "openrouter", "displayName": "GPT Image", "modelId": "openai/gpt-image-1", "capabilities": ["txt2img", "image input", "transparent"], "tokenCost": 7, "minimumPlan": "pro"},
+    {"id": "openrouter_gemini_image", "provider": "openrouter", "displayName": "Gemini Image", "modelId": "google/gemini-image", "capabilities": ["txt2img", "image input"], "tokenCost": 7, "minimumPlan": "pro"},
+    {"id": "openrouter_recraft", "provider": "openrouter", "displayName": "Recraft", "modelId": "recraft/recraft-v3", "capabilities": ["logos", "vector", "style"], "tokenCost": 5, "minimumPlan": "pro"},
+]
+
+ROUTE_DEFS = [
+    {"routeId": "text_to_image", "displayName": "Текст → Изо", "icon": "T"},
+    {"routeId": "image_to_image", "displayName": "Изо → Изо", "icon": "I"},
+    {"routeId": "edit", "displayName": "Редактор", "icon": "E"},
+    {"routeId": "edit_pose", "displayName": "Редактор - поза", "icon": "P"},
+    {"routeId": "face", "displayName": "Лицо → Изо", "icon": "F"},
+]
+
+
+async def scan_loras() -> list[dict[str, Any]]:
+    """Реальный скан LoRA из ComfyUI (или пусто, если недоступен) + сопоставление с
+    известными назначениями. Незнакомые файлы помечаются untested."""
+    try:
+        models = await get_comfyui_models()
+    except Exception:
+        models = {}
+    files = models.get("loras", [])
+    nodes = await comfyui_node_names()
+    out: list[dict[str, Any]] = []
+    for f in files:
+        base = f.lower()
+        meta = None
+        for key, m in KNOWN_LORAS.items():
+            if key.lower() in base:
+                meta = m
+                break
+        if meta:
+            requires_ok = all(n in nodes for n in meta["requires"])
+            status = "active" if (meta["routes"] == ["edit_pose"] and requires_ok) else ("found" if requires_ok else "missing")
+            out.append({
+                "fileName": f, "purpose": meta["purpose"], "compatible": meta["compatible"],
+                "routes": meta["routes"], "requires": meta["requires"], "status": status,
+            })
+        else:
+            # Не относится к klein (например wan/video LoRA) — показываем как untested style/other.
+            if any(k in base for k in ("klein", "flux", "style", "lora")):
+                out.append({"fileName": f, "purpose": "стиль / прочее (проверить)", "compatible": [], "routes": [], "requires": [], "status": "untested"})
+    return out
+
+
+@app.get("/api/admin/loras")
+async def admin_loras(request: Request) -> dict[str, Any]:
+    require_admin(request)
+    return {"loras": await scan_loras()}
+
+
+def _saved_setting(key: str) -> dict[str, Any]:
+    try:
+        with db() as conn:
+            row = conn.execute("SELECT value_json FROM admin_settings WHERE key = ?", (key,)).fetchone()
+        if row:
+            return json.loads(row["value_json"] or "{}")
+    except Exception:
+        pass
+    return {}
+
+
+def default_tariff_matrix() -> list[dict[str, Any]]:
+    # Дефолтные правила доступности/цены (calculated). Переопределяются admin_settings 'tariff_matrix'.
+    def cell(enabled, cost, default, formula):
+        return {"enabled": enabled, "tokenCost": cost, "isDefault": default, "formula": formula}
+    f4 = "txt 1 / img 2 / refs +1"
+    f9 = "txt 3 / img 5 / pose 3"
+    fo = "txt 7 / img 10 / refs +3"
+    return [
+        {"modelProfileId": "flux_klein_4b", "provider": "local", "displayName": "Flux 2 Klein 4B", "modelId": "comfyui:flux_klein_4b",
+         "tariffs": {"free": cell(True, 1, True, f4), "basic": cell(True, 1, True, f4), "pro": cell(True, 1, True, f4), "admin": cell(True, 1, True, f4)}},
+        {"modelProfileId": "flux_klein_9b", "provider": "local", "displayName": "Flux 2 Klein 9B", "modelId": "comfyui:flux_klein_9b",
+         "tariffs": {"free": cell(False, 0, False, "скрыть"), "basic": cell(True, 3, False, f9), "pro": cell(True, 3, True, f9), "admin": cell(True, 3, False, f9)}},
+        {"modelProfileId": "openrouter_gpt_image", "provider": "openrouter", "displayName": "GPT Image", "modelId": "openai/gpt-image-1",
+         "tariffs": {"free": cell(False, 0, False, "Pro only"), "basic": cell(False, 0, False, "Pro only"), "pro": cell(True, 7, False, fo), "admin": cell(True, 7, False, fo)}},
+        {"modelProfileId": "openrouter_gemini_image", "provider": "openrouter", "displayName": "Gemini Image", "modelId": "google/gemini-image",
+         "tariffs": {"free": cell(False, 0, False, "Pro only"), "basic": cell(False, 0, False, "Pro only"), "pro": cell(True, 7, False, "txt 7 / img 11 / refs +3"), "admin": cell(True, 7, False, "txt 7 / img 11 / refs +3")}},
+        {"modelProfileId": "openrouter_recraft", "provider": "openrouter", "displayName": "Recraft", "modelId": "recraft/recraft-v3",
+         "tariffs": {"free": cell(False, 0, False, "скрыть"), "basic": cell(False, 0, False, "скрыть"), "pro": cell(True, 5, False, "logos / style"), "admin": cell(True, 5, False, "logos / style")}},
+    ]
+
+
+def default_routes(model_status: dict[str, Any]) -> list[dict[str, Any]]:
+    sel = get_model_settings()
+    edit_model = sel.get("editModelProfile") or "flux_klein_9b"
+    pose_model = sel.get("poseModelProfile") or "flux_klein_9b"
+    base = {
+        "text_to_image": {"provider": "local", "modelProfileId": "flux_klein_4b"},
+        "image_to_image": {"provider": "local", "modelProfileId": "flux_klein_4b"},
+        "edit": {"provider": "local", "modelProfileId": edit_model},
+        # Pose ВСЕГДА Local ComfyUI → 9B + DWPose (не OpenRouter). 4B не поддерживается.
+        "edit_pose": {"provider": "local", "modelProfileId": "flux_klein_9b", "locked": True, "label": "Flux 2 Klein 9B + DWPose"},
+        "face": {"provider": "local", "modelProfileId": "flux_klein_9b"},
+    }
+    prof_by_id = {p["id"]: p for p in model_status.get("profiles", [])}
+    out = []
+    for r in ROUTE_DEFS:
+        cfg = base[r["routeId"]]
+        prof = prof_by_id.get(cfg["modelProfileId"])
+        if r["routeId"] == "edit_pose":
+            ok = bool(prof and prof.get("pose") == "available")
+            state = "pose ready" if ok else "pose: нет зависимостей"
+            status = "ok" if ok else "warn"
+        else:
+            ok = bool(prof and prof.get("baseEdit") == "available")
+            state = "доступна" if ok else "недоступна"
+            status = "ok" if ok else "bad"
+        out.append({**r, **cfg, "state": state, "status": status})
+    return out
+
+
+@app.get("/api/admin/models-page")
+async def admin_models_page(request: Request) -> dict[str, Any]:
+    require_admin(request)
+    status = await compute_model_status()
+    loras = await scan_loras()
+    routes = _saved_setting("generation_routes").get("routes") or default_routes(status)
+    matrix = _saved_setting("tariff_matrix").get("matrix") or default_tariff_matrix()
+    openrouter_key = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
+
+    # Каталог: local (из profiles) + openrouter.
+    catalog: list[dict[str, Any]] = []
+    for p in status.get("profiles", []):
+        caps = ["txt2img", "i2i", "editor"]
+        if p.get("supportsPose"):
+            caps = ["editor", "pose", "face"]
+        catalog.append({"provider": "local", "displayName": p["name"], "modelId": p["modelName"],
+                        "capabilities": caps, "cost": "локально", "margin": "высокая" if "4b" in p["id"] else "средняя",
+                        "status": "active" if p["baseEdit"] == "available" else "missing"})
+    for o in OPENROUTER_CATALOG:
+        catalog.append({"provider": "openrouter", "displayName": o["displayName"], "modelId": o["modelId"],
+                        "capabilities": o["capabilities"], "cost": "$ API", "margin": "контролировать",
+                        "status": "active" if openrouter_key else "нужен API key"})
+
+    # Сводка экономики (calculated).
+    active_models = sum(1 for m in matrix if any(t.get("enabled") for t in m["tariffs"].values()))
+    routes_assigned = sum(1 for r in routes if r.get("modelProfileId"))
+    expensive = sum(1 for m in matrix if m["provider"] == "openrouter" and m["tariffs"].get("pro", {}).get("enabled"))
+    conflicts = 0
+    if any(l["status"] == "untested" for l in loras):
+        conflicts += 1
+    if not openrouter_key and any(m["provider"] == "openrouter" and any(t.get("enabled") for t in m["tariffs"].values()) for m in matrix):
+        conflicts += 1
+
+    user_choice = _saved_setting("user_choice") or {
+        "simple": [
+            {"key": "fast", "label": "Быстро", "model": "Flux 2 Klein 4B", "cost": 1, "plan": "default"},
+            {"key": "quality", "label": "Качество", "model": "Flux 2 Klein 9B", "cost": 3, "plan": "Basic+"},
+            {"key": "pose", "label": "Поза", "model": "9B + DWPose", "cost": 3, "plan": "Pro"},
+        ],
+        "pro": [
+            {"label": "Flux 2 Klein 4B", "provider": "local", "cost": 1},
+            {"label": "Flux 2 Klein 9B", "provider": "local", "cost": 3},
+            {"label": "OpenRouter - GPT Image", "provider": "openrouter", "cost": 7},
+            {"label": "OpenRouter - Gemini Image", "provider": "openrouter", "cost": 7},
+            {"label": "Recraft", "provider": "openrouter", "cost": 5},
+        ],
+    }
+
+    return {
+        "economy": {"activeModels": active_models, "routesAssigned": f"{routes_assigned}/{len(ROUTE_DEFS)}", "expensiveRoutes": expensive, "priceConflicts": conflicts},
+        "routes": routes,
+        "userChoice": user_choice,
+        "matrix": matrix,
+        "catalog": catalog,
+        "loras": loras,
+        "comfyuiAvailable": status.get("comfyuiAvailable"),
+        "openrouter": {"keyConfigured": openrouter_key},
+        "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"},
+        "profiles": status.get("profiles", []),
+    }
 
 
 @app.get("/api/admin/jobs")
