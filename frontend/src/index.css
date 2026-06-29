@@ -492,6 +492,41 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
   line-height: 1.35;
 }
 
+.crm-card-header { padding: 16px 18px 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 14px; }
+.crm-card-mainline { min-width: 0; display: grid; gap: 10px; }
+.crm-card-mainline .crm-card-id { display: grid; grid-template-columns: 116px minmax(0, 1fr); align-items: start; gap: 18px; max-width: 1180px; min-width: 0; }
+.crm-card-id .crm-avatar { grid-row: auto; }
+.crm-name-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.crm-name-line h2 { margin: 0; font-size: clamp(28px, 2.15vw, 36px); text-transform: none; overflow-wrap: anywhere; }
+.crm-name-line > span { width: fit-content; min-height: 24px; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 5px; border: 1px solid currentColor; background: color-mix(in srgb, currentColor 12%, transparent); color: #c7ff1f; font-size: 12px; font-weight: 850; text-transform: uppercase; }
+.crm-preview-code { margin-top: 4px; padding: 0; border: 0; background: transparent; color: #9aa9b6; font-weight: 650; cursor: pointer; }
+.crm-card-kpis { grid-column: auto; display: grid; grid-template-columns: repeat(7, minmax(108px, 1fr)); gap: 0; margin-top: 4px; color: #9aa9b6; }
+.crm-card-kpis span { min-height: 52px; padding: 0 16px; border-left: 1px solid rgba(143, 164, 183, .18); display: grid; align-content: center; gap: 4px; font-size: 12px; }
+.crm-card-kpis span:first-child { border-left: 0; padding-left: 0; }
+.crm-card-kpis b { color: #c7ff1f; font-size: 16px; line-height: 1.1; }
+.crm-status-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; color: #9aa9b6; font-size: 13px; }
+.crm-status-row span { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.crm-status-row i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: #7d8790; }
+.crm-status-row i.activity-online { background: #45e465; box-shadow: 0 0 12px rgba(69,228,101,.75); }
+.crm-status-row i.activity-today { background: #4d93ff; box-shadow: 0 0 12px rgba(77,147,255,.65); }
+.crm-status-row i.activity-week { background: #ffd024; box-shadow: 0 0 12px rgba(255,208,36,.55); }
+.crm-status-row i.activity-month { background: #87929c; }
+.crm-status-row i.activity-cold { background: #ff4e53; box-shadow: 0 0 12px rgba(255,78,83,.6); }
+.crm-card-top-actions { grid-column: 2; grid-row: 1; justify-self: end; display: flex; align-items: flex-start; gap: 10px; }
+.crm-card-top-actions .secondary { min-height: 36px; height: 36px; border-radius: 6px; white-space: nowrap; }
+.crm-card-top-actions .icon-only { width: 44px; padding: 0; font-size: 16px; }
+.crm-card-cols { padding: 0 12px 12px; min-height: 0; }
+.crm-card-left { padding: 0; gap: 6px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(169,193,214,.36) transparent; }
+.crm-panel, .crm-acc { display: block; overflow: hidden; }
+.crm-panel h4 { margin: 0; min-height: 34px; display: flex; align-items: center; padding: 8px 12px 6px; color: #eef5fb; font-size: 16px; text-transform: none; letter-spacing: 0; border-bottom: 1px solid rgba(143, 164, 183, .18); }
+.crm-preview-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 0; padding: 0; min-height: 112px; border-top: 1px solid rgba(143, 164, 183, .18); }
+.crm-field { min-width: 0; min-height: 50px; padding: 8px 12px; border-bottom: 1px solid rgba(143, 164, 183, .14); display: grid; align-content: center; gap: 3px; }
+.crm-field span { color: #9aa9b6; font-size: 12px; line-height: 1.2; }
+.crm-field b { color: #eef5fb; font-size: 13px; line-height: 1.25; overflow-wrap: anywhere; }
+.crm-card-left::-webkit-scrollbar, .crm-card-actions::-webkit-scrollbar { width: 8px; height: 8px; }
+.crm-card-left::-webkit-scrollbar-track, .crm-card-actions::-webkit-scrollbar-track { background: transparent; }
+.crm-card-left::-webkit-scrollbar-thumb, .crm-card-actions::-webkit-scrollbar-thumb { background: rgba(169,193,214,.32); border-radius: 999px; }
+
 @media (max-width: 1100px) {
   .crm-card-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .crm-preview-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
