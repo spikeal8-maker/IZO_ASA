@@ -224,6 +224,11 @@ export interface MeV2 {
   profile?: {
     display_name?: string | null; first_name?: string | null; last_name?: string | null
     public_user_code?: string | null; username?: string | null; email?: string | null; providers?: string[]
+    avatar_url?: string | null; avatar_preset?: string | null
+  } | null
+  account?: {
+    role?: string | null; plan?: string | null; token_balance?: number | null
+    gallery_enabled?: boolean | null; gallery_access?: boolean | null
   } | null
   identities?: Array<{ provider?: string; provider_username?: string | null; provider_email?: string | null }>
 }

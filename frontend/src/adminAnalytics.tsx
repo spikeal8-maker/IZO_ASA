@@ -38,6 +38,7 @@ interface Dash { dashboard?: Record<string, number | Record<string, number>> }
 export interface CrmUserRow {
   internal_user_id?: string // for the card fetch + technical section only (never a primary label)
   public_user_code?: string; display_name?: string; primary_provider?: string; providers?: string[]
+  avatar_url?: string | null; avatar_preset?: string | null
   email?: string | null; username?: string | null; phone?: string | null; plan?: string | null
   last_seen_at?: string | null; last_platform?: string | null; last_ip?: string | null
   country?: string | null; city?: string | null; device_count?: number; active_sessions_count?: number
@@ -78,6 +79,11 @@ function initials(u: CrmUserRow & AnyRec, ids?: AnyRec[]): string {
   const parts = name.split(/[\s._-]+/).filter(Boolean)
   const raw = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : name.slice(0, 2)
   return raw.toUpperCase()
+}
+
+function AvatarMark({ u, ids, className }: { u: CrmUserRow & AnyRec; ids?: AnyRec[]; className: string }): ReactElement {
+  const src = typeof u.avatar_url === 'string' && u.avatar_url ? u.avatar_url : ''
+  return <span className={className}>{src ? <img src={src} alt="" /> : initials(u, ids)}</span>
 }
 
 function riskLabel(u: CrmUserRow & AnyRec): string {
@@ -312,9 +318,8 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
     <div className="crm-card-overlay" onClick={onClose}>
       <div className="crm-card" role="dialog" aria-label="Карточка пользователя" onClick={(e) => e.stopPropagation()}>
         <header className="crm-card-header">
-          <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
           <div className="crm-card-id crm-card-id-rich">
-            <span className={`crm-avatar activity-${active} ${isBanned ? 'risk' : ''}`}>{initials(sm, ids)}</span>
+            <AvatarMark u={sm} ids={ids} className={`crm-avatar activity-${active} ${isBanned ? 'risk' : ''}`} />
             <div>
               <h2>{parsedName(sm, ids)}</h2>
               <span className="crm-preview-code">{S(sm.public_user_code)}</span>
@@ -322,6 +327,11 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             <span className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</span>
             <span className={isBanned ? 'status-banned' : 'status-active'}>{S(sm.status)}</span>
             <span>{S(sm.role)}</span><span>{S(sm.plan)}</span><span>{ACTIVITY_LABEL[active]}</span>
+          </div>
+          <div className="crm-card-top-actions">
+            <button className="secondary" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>Копировать</button>
+            <button className="secondary" onClick={() => setTab('tech')}>Профиль</button>
+            <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
           </div>
           <div className="crm-card-kpis">
             <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Списано <b>{S(sm.tokens_spent)}</b></span>
@@ -610,7 +620,7 @@ export function AdminAnalyticsV2(): ReactElement {
             }
             return (
               <div key={u.public_user_code || u.internal_user_id_short} className={`analytics-row crm-row activity-${active}`} role="button" tabIndex={0} aria-label={`Открыть карточку ${u.display_name || u.username || u.public_user_code}`} onClick={openCard} onKeyDown={rowKey}>
-                <span className="crm-client-cell"><span className={`crm-avatar crm-row-avatar activity-${active}`}>{initials(u as CrmUserRow & AnyRec)}</span><span><strong>{u.display_name || u.username || u.public_user_code}</strong><small>{u.public_user_code}</small><span className="crm-chip-row"><em className={`crm-chip status-${u.status || 'active'}`}>{u.status || 'active'}</em><em className="crm-chip">{u.role || 'user'}</em><em className="crm-chip plan">{u.plan || 'mini'}</em></span></span></span>
+                <span className="crm-client-cell"><AvatarMark u={u as CrmUserRow & AnyRec} className={`crm-avatar crm-row-avatar activity-${active}`} /><span><strong>{u.display_name || u.username || u.public_user_code}</strong><small>{u.public_user_code}</small><span className="crm-chip-row"><em className={`crm-chip status-${u.status || 'active'}`}>{u.status || 'active'}</em><em className="crm-chip">{u.role || 'user'}</em><em className="crm-chip plan">{u.plan || 'mini'}</em></span></span></span>
                 <span><small><i className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}</small><small>{shortTime(u.last_seen_at)}</small><small>{u.active_sessions_count ?? 0} сесс. · {u.last_platform || '—'} · {u.last_ip || '—'}</small></span>
                 <span>{sourceList.map((p) => <Badge key={p} p={p} />)}<small>{u.marketing_source || '—'}</small></span>
                 <span><small>{u.email || '—'}</small><small>{u.username ? `@${u.username}` : ''}{u.phone ? ` · ${u.phone}` : ''}</small></span>

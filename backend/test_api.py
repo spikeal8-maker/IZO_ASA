@@ -116,7 +116,12 @@ def test_health_reports_core_fields(monkeypatch) -> None:
     assert payload["ok"] is True
     assert payload["comfyuiBaseUrl"] == main.COMFYUI_BASE_URL
     assert payload["fluxKleinOneNode"] is True
-    assert payload["database"] is True
+    assert payload["database"]["ready"] is True
+    assert payload["db_guard"]["status"] == "ok"
+    assert payload["database"]["users_count"] >= 1
+    assert payload["database"]["active_admin_count"] >= 1
+    assert "sqlite" in payload["database"]["type"]
+    assert "://" not in payload["database"]["path"]
     assert payload["platforms"] == {"web": True, "telegram": True, "max": True}
 
 

@@ -1,6 +1,6 @@
-// Run: node src/editPrompt.test.ts   (Node >= 22.18 / 24 strips TS types natively)
+// Run: node editPrompt.test.ts   (Node >= 22.18 / 24 strips TS types natively)
 import assert from 'node:assert'
-import { buildEditComposedPrompt, editComposerStatus, type EditSlot } from './src/editPrompt.ts'
+import { buildEditComposedPrompt, editComposerStatus, GLOBAL_BASE_LOCK, type EditSlot } from './src/editPrompt.ts'
 
 const base: EditSlot = { image: 'data:base', role: '', takeNote: '' }
 const empty: EditSlot = { image: undefined, role: '', takeNote: '' }
@@ -15,65 +15,99 @@ function test(name: string, fn: () => void) {
   fn(); passed++; console.log('  ok -', name)
 }
 
-// 1. pose role forbids copying clothing/face/background and preserves them from image 1
-test('pose role: do-not-take clothing/face/background; preserve from image 1', () => {
-  const { prompt } = buildEditComposedPrompt({ slots: slots({ image: 'data:p', role: 'pose', takeNote: '' }), userNote: '' })
-  assert.match(prompt, /Image 2 is used ONLY as a pose reference\./)
-  assert.match(prompt, /Do NOT take from image 2:.*clothing.*face.*background/i)
-  assert.match(prompt, /Preserve from image 1:.*clothing.*background/i)
-  assert.match(prompt, /Apply only the pose from image 2/)
+// Every composed prompt starts with the GLOBAL BASE LOCK.
+test('global base lock + priority always present', () => {
+  const { prompt } = buildEditComposedPrompt({ slots: slots({ image: 'd', role: 'pose', takeNote: '' }), userNote: '' })
+  assert.ok(prompt.startsWith('Edit Image 1. Image 1 is the primary source image.'))
+  assert.match(prompt, /Face identity > Pose > Clothing > Object > Background > Style > Color\/Material/)
+  assert.ok(GLOBAL_BASE_LOCK.length > 0)
 })
 
-// 2. clothing role forbids face/pose/background
-test('clothing role: do-not-take face/pose/background', () => {
-  const { prompt } = buildEditComposedPrompt({ slots: slots({ image: 'data:c', role: 'clothing', takeNote: '' }), userNote: '' })
-  assert.match(prompt, /Image 2 is used ONLY as a clothing reference\./)
-  assert.match(prompt, /Do NOT take from image 2:.*face.*body pose.*background/i)
+// Scenario A: POSE must NOT transfer face/gender/hair/clothing/background.
+test('pose: do-not-transfer face/gender/hair/clothing/background; preserve them from Image 1', () => {
+  const { prompt } = buildEditComposedPrompt({ slots: slots({ image: 'p', role: 'pose', takeNote: '' }), userNote: '' })
+  assert.match(prompt, /Reference Image 2 role: POSE\./)
+  assert.match(prompt, /Do not transfer the face, identity, gender, hair, clothing,[^]*from Image 2\./)
+  assert.match(prompt, /The final subject must remain the person from Image 1\./)
+  assert.match(prompt, /Preserve the face, identity, clothing, body proportions, background, and scene from Image 1/)
+  assert.match(prompt, /Use the pose as structural guidance only, not as an appearance reference\./)
 })
 
-// 3. multiple refs generate separate instructions
-test('multiple refs: separate per-image instructions', () => {
-  const { prompt } = buildEditComposedPrompt({ slots: slots({ image: 'd2', role: 'pose', takeNote: '' }, { image: 'd3', role: 'clothing', takeNote: '' }), userNote: '' })
-  assert.match(prompt, /Image 2 is used ONLY as a pose reference/)
-  assert.match(prompt, /Image 3 is used ONLY as a clothing reference/)
-  assert.match(prompt, /Apply only the pose from image 2.*Dress the character in image 1 with the clothing from image 3/s)
+// Scenario B: BACKGROUND must not transfer the person/face/clothing.
+test('background: transfer environment only; not people/face/clothing', () => {
+  const { prompt } = buildEditComposedPrompt({ slots: slots({ image: 'b', role: 'background', takeNote: '' }), userNote: '' })
+  assert.match(prompt, /Reference Image 2 role: BACKGROUND\./)
+  assert.match(prompt, /Do not transfer any people, faces, bodies, skin, hair, clothing,[^]*from Image 2\./)
+  assert.match(prompt, /Keep the main subject from Image 1\./)
 })
 
-// 4. empty userNote still creates a task from roles
-test('empty userNote still produces a task', () => {
-  const res = buildEditComposedPrompt({ slots: slots({ image: 'd', role: 'background', takeNote: '' }), userNote: '' })
-  assert.equal(res.hasTask, true)
-  assert.match(res.prompt, /Task:/)
-  assert.match(res.prompt, /Replace or adapt the background of image 1/)
+// Clothing forbids face/identity/hair/pose/background.
+test('clothing: do-not-transfer face/identity/hair/pose/background', () => {
+  const { prompt } = buildEditComposedPrompt({ slots: slots({ image: 'c', role: 'clothing', takeNote: '' }), userNote: '' })
+  assert.match(prompt, /Reference Image 2 role: CLOTHING\./)
+  assert.match(prompt, /Do not transfer the face, identity, hair, skin, body proportions, pose,[^]*from Image 2\./)
 })
 
-// 5. role=other without takeNote blocks generation
-test('other role without takeNote blocks generation', () => {
-  const st = editComposerStatus({ slots: slots({ image: 'd', role: 'other', takeNote: '' }), userNote: '', manualMode: false, manualPrompt: '' })
-  assert.ok(st.blockReason && /Уточните/.test(st.blockReason))
+// Scenario D: three references → three separate role blocks in order, then user note last.
+test('three references: separate ordered role blocks + user note at the end', () => {
+  const { prompt } = buildEditComposedPrompt({
+    slots: slots(
+      { image: 'p', role: 'pose', takeNote: '' },
+      { image: 'c', role: 'clothing', takeNote: '' },
+      { image: 'b', role: 'background', takeNote: '' },
+    ),
+    userNote: 'make it cinematic',
+  })
+  const iPose = prompt.indexOf('Reference Image 2 role: POSE.')
+  const iCloth = prompt.indexOf('Reference Image 3 role: CLOTHING.')
+  const iBg = prompt.indexOf('Reference Image 4 role: BACKGROUND.')
+  const iNote = prompt.indexOf('Additional user request:')
+  assert.ok(iPose > 0 && iCloth > iPose && iBg > iCloth, 'role blocks must be in slot order 2,3,4')
+  assert.ok(iNote > iBg, 'user note must come last')
+  assert.match(prompt, /"make it cinematic"/)
+})
+
+// Index mapping: Reference 1 (UI) = Image 2, Reference 3 (UI) = Image 4.
+test('UI reference index maps to prompt Image index (slot1->2, slot3->4)', () => {
+  const { prompt } = buildEditComposedPrompt({ slots: slots(empty, empty, { image: 'f', role: 'face', takeNote: '' }), userNote: '' })
+  assert.match(prompt, /Reference Image 4 role: FACE\./)
+  assert.ok(!/Reference Image 2/.test(prompt) && !/Reference Image 3/.test(prompt))
+})
+
+// Scenario C: OTHER without custom instruction blocks generation.
+test('other without custom instruction blocks generation', () => {
+  const st = editComposerStatus({ slots: slots({ image: 'o', role: 'other', takeNote: '' }), userNote: '', manualMode: false, manualPrompt: '' })
+  assert.ok(st.blockReason && /уточните/i.test(st.blockReason))
   assert.equal(st.finalPrompt, '')
 })
 
-// 6. manual mode sends the manual prompt unchanged
+// OTHER with custom instruction embeds it into the CUSTOM block.
+test('other with custom instruction embeds it', () => {
+  const { prompt } = buildEditComposedPrompt({ slots: slots({ image: 'o', role: 'other', takeNote: 'take only the necklace' }), userNote: '' })
+  assert.match(prompt, /Reference Image 2 role: CUSTOM\./)
+  assert.match(prompt, /"take only the necklace"/)
+})
+
+// Standard-role advanced note narrows focus, not the role.
+test('advanced note on a standard role adds a focus line', () => {
+  const { prompt } = buildEditComposedPrompt({ slots: slots({ image: 'p', role: 'pose', takeNote: 'sitting, hands on knees' }), userNote: '' })
+  assert.match(prompt, /Focus specifically on this from Image 2: sitting, hands on knees\./)
+})
+
+// manual mode sends the manual prompt unchanged.
 test('manual mode sends manual prompt unchanged', () => {
   const st = editComposerStatus({ slots: slots(), userNote: 'auto note', manualMode: true, manualPrompt: 'MY MANUAL PROMPT' })
   assert.equal(st.blockReason, null)
   assert.equal(st.finalPrompt, 'MY MANUAL PROMPT')
 })
 
-// extra: takeNote is injected as "Take specifically"
-test('takeNote injected as Take specifically', () => {
-  const { prompt } = buildEditComposedPrompt({ slots: slots({ image: 'd', role: 'pose', takeNote: 'сидячая поза, положение рук' }), userNote: '' })
-  assert.match(prompt, /Take specifically from image 2: сидячая поза, положение рук\./)
-})
-
-// extra: missing base blocks
+// missing base blocks.
 test('missing base blocks', () => {
   const st = editComposerStatus({ slots: [empty, empty, empty, empty], userNote: 'x', manualMode: false, manualPrompt: '' })
   assert.ok(st.blockReason && /основу/.test(st.blockReason))
 })
 
-// extra: ref without role blocks
+// ref without role blocks.
 test('ref without role blocks', () => {
   const st = editComposerStatus({ slots: slots({ image: 'd', role: '', takeNote: '' }), userNote: '', manualMode: false, manualPrompt: '' })
   assert.ok(st.blockReason && /роль/.test(st.blockReason))

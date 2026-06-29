@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react'
+import type { ChangeEvent, Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react'
 import { AuthV2Modal, initAuthV2, updateProfileV2, logoutV2, refreshAuthStateV2, useAuthV2, type MeV2 } from './authV2'
 import { DiagPanel, isDiagMode } from './diag'
 import {
@@ -21,9 +21,11 @@ import {
   Languages,
   Lock,
   Play,
+  Plus,
   RotateCcw,
   Settings,
   Shield,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   Upload,
@@ -165,6 +167,10 @@ const resolutionPresets = [
   { label: '1280 × 720', width: 1280, height: 720 },
   { label: '720 × 1280', width: 720, height: 1280 },
 ]
+const avatarPresets = Array.from({ length: 10 }, (_, index) => {
+  const id = `preset-${index + 1}`
+  return { id, url: `/avatars/${id}.svg`, label: `Аватар ${index + 1}` }
+})
 const openRouterImageModels = [
   { id: 'google/gemini-3.1-flash-image', name: 'Nano Banana 2 Flash Image', use: 'быстрая генерация и редактирование', prompt: '$0.50 / 1M', completion: '$3.00 / 1M', image: 'по токенам ответа', tokenCost: 2 },
   { id: 'google/gemini-3-pro-image', name: 'Nano Banana Pro Image', use: 'лучшее качество и сложные правки', prompt: '$2.00 / 1M', completion: '$12.00 / 1M', image: '$2.00 / 1M image input', tokenCost: 6 },
@@ -555,6 +561,8 @@ function App() {
   const [pendingEditSlot, setPendingEditSlot] = useState<number | null>(null)
   const [editManualMode, setEditManualMode] = useState(false)
   const [editManualPrompt, setEditManualPrompt] = useState('')
+  const [editAdvancedOpen, setEditAdvancedOpen] = useState(false)
+  const [editTemplatesOpen, setEditTemplatesOpen] = useState(false)
   const [job, setJob] = useState<Job>()
   const [gallery, setGallery] = useState<GalleryImage[]>([])
   const [selected, setSelected] = useState<GalleryImage>()
@@ -570,6 +578,10 @@ function App() {
   const [bgRemovalModels, setBgRemovalModels] = useState<string[]>([])
   const [loraTriggers, setLoraTriggers] = useState<Record<string, string>>({})
   const loraSelectRef = useRef<HTMLSelectElement>(null)
+  // Single-flight guard для Generate: синхронный ref блокирует повторные клики/хоткеи/
+  // double-tap до того, как React-state успеет обновиться. isSubmitting — для UI.
+  const generateInFlightRef = useRef(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     document.title = 'ИЗО_АСА'
@@ -618,10 +630,15 @@ function App() {
     }))
   }, [prompt, negativePrompt, mode, seed, width, height, steps, cfg, strength, selectedLora, modelProfile, provider, paintTool, tab, sampler, lang])
 
+  // Trusted auth-v2 state (cookie session). The ONLY source for the generation lock.
+  const { status: authV2Status, me: authMe } = useAuthV2()
+  const isAuthedV2 = authV2Status === 'authed'
+  const [authModalOpen, setAuthModalOpen] = useState(false)
 
   const currentUser = (bootstrap?.user || {}) as { id?: string; role?: string; username?: string; firstName?: string; plan?: string; galleryEnabled?: boolean }
-  const isAdmin = currentUser.role === 'admin'
-  const galleryLocked = !(isAdmin || currentUser.galleryEnabled || ['mini', 'plus', 'pro'].includes(String(currentUser.plan || '')))
+  const adminSummaryReady = Boolean(admin && !('detail' in admin))
+  const isAdmin = currentUser.role === 'admin' || authMe?.account?.role === 'admin' || adminSummaryReady
+  const galleryLocked = !(isAdmin || authMe?.account?.gallery_access || currentUser.galleryEnabled || ['mini', 'plus', 'pro'].includes(String(currentUser.plan || '')))
   const activeMode = modes.find((item) => item.id === mode)!
   const cloudLimited = provider === 'openrouter'
   const actualMode: Mode = mode === 'paint' && paintTool !== 'sketch' ? paintTool : mode
@@ -651,11 +668,6 @@ function App() {
     const images = await apiFetch('/gallery').then((r) => (r.ok ? r.json() : [])).catch(() => [])
     setGallery(Array.isArray(images) ? images : [])
   }, [])
-
-  // Trusted auth-v2 state (cookie session). The ONLY source for the generation lock.
-  const { status: authV2Status, me: authMe } = useAuthV2()
-  const isAuthedV2 = authV2Status === 'authed'
-  const [authModalOpen, setAuthModalOpen] = useState(false)
 
   useEffect(() => {
     // Identity/Auth v2: bootstrap + restore the cookie session at startup.
@@ -769,7 +781,16 @@ function App() {
     }
   }
 
+  const jobIsActive = (status?: string) => !!status && ['queued', 'running', 'uploading', 'sent_to_comfyui'].includes(status)
+
   async function generate() {
+    // СИНХРОННЫЙ guard ДО любого await — гарантирует ровно 1 POST на серию быстрых кликов.
+    if (generateInFlightRef.current) return
+    if (!canGenerate) return
+    if (jobIsActive(job?.status)) return
+    generateInFlightRef.current = true
+    setIsSubmitting(true)
+    try {
     const canvasData = (actualMode === 'paint' || actualMode === 'inpaint' || actualMode === 'outpaint') ? (canvasRef.current?.toDataURL({ pixelRatio: 1 }) || canvasSnapshot) : undefined
     const lora = loraOptions.find((item) => item.id === activeSelectedLora)
     const effectiveSeed = seed || Math.floor(Math.random() * 999999999)
@@ -804,18 +825,40 @@ function App() {
       canvas: actualMode === 'paint' ? canvasData : undefined,
       outpaintMask: actualMode === 'outpaint' ? canvasData : undefined,
       outpaint: actualMode === 'outpaint' ? outpaint : undefined,
+      // Трассировка серии (backend игнорирует неизвестные поля) — для отладки дублей.
+      clientRequestId: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     }
-    const created = await apiFetch('/generate', {
+    const response = await apiFetch('/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }).then((r) => r.json())
+    })
+    if (!response.ok) {
+      // Понятное сообщение по статусу + тексту backend (а не общий «не удалось»).
+      let detail = ''
+      try { detail = (await response.json())?.detail || '' } catch { /* non-JSON */ }
+      if (response.status === 402) setNotice('Закончились токены. Пополните баланс в «Настройках», чтобы продолжить.')
+      else if (response.status === 401 || response.status === 403) { setNotice('Сессия истекла. Войдите снова, чтобы генерировать.'); setAuthModalOpen(true) }
+      else if (response.status === 429) setNotice(detail || 'Слишком много запросов подряд. Подождите немного и попробуйте снова.')
+      else if (response.status === 422 || response.status === 400) setNotice(detail || 'Проверьте входные данные: основа и роли референсов.')
+      else setNotice(detail || `Сервер вернул ошибку (${response.status}). Попробуйте ещё раз.`)
+      return
+    }
+    const created = await response.json()
     setJob(created)
     if (!seed) setSeed(effectiveSeed)
+    setNotice('')
     setTab('studio')
     window.setTimeout(() => {
       if (window.innerWidth <= 980) document.querySelector('.preview-panel')?.scrollIntoView({ block: 'center' })
     }, 0)
+    } catch {
+      // Сюда попадаем при сетевой ошибке (сервер недоступен), а не при ответе с кодом.
+      setNotice('Проблема соединения с сервером. Проверьте, что сервис запущен, и попробуйте снова.')
+    } finally {
+      generateInFlightRef.current = false
+      setIsSubmitting(false)
+    }
   }
 
   useEffect(() => {
@@ -845,14 +888,15 @@ function App() {
         event.preventDefault()
         document.querySelector('.preview-panel')?.scrollIntoView({ block: 'center' })
       }
-      if (event.code === 'Space' && canGenerate && !['running', 'queued'].includes(job?.status || '')) {
+      if (event.code === 'Space' && canGenerate && !isSubmitting && !generateInFlightRef.current && !jobIsActive(job?.status)) {
         event.preventDefault()
-        document.querySelector<HTMLButtonElement>('.generate')?.click()
+        if (event.repeat) return
+        void generate()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [canGenerate, job?.status, tab])
+  }, [canGenerate, isSubmitting, job?.status, tab])
 
   function randomPrompt() {
     const pool = visiblePresets.length ? visiblePresets : allPresets
@@ -879,6 +923,9 @@ function App() {
     setDiscoverOpen(false)
     if (nextMode === 'faceswap' && selectedLora === 'none' && faceLora) setSelectedLora(faceLora.id)
     if (nextMode === 'paint') setPaintTool('sketch')
+    // Edit: «Дополнительное пожелание» необязательное — оставляем пустым, чтобы был виден
+    // placeholder, а задачу собирает Prompt Composer из ролей.
+    if (nextMode === 'edit') { setPrompt(''); return }
     const defaultPreset = allPresets.find((item) => item.mode === (nextMode === 'paint' ? 'paint' : nextMode))
     if (defaultPreset) setPrompt(defaultPreset.prompt)
   }
@@ -995,6 +1042,7 @@ function App() {
     }))
     setPrompt(tpl.userNote)
     setEditManualMode(false)
+    setEditTemplatesOpen(false)
   }
 
   async function useImageAs(image: GalleryImage, target: Mode, slot = 1) {
@@ -1066,27 +1114,14 @@ function App() {
   const previewAspectHeight = height
   const mobileEditSlots = (
     <div className="mobile-preview-inputs edit-mobile">
-      <div className="edit-slots-mobile">
-        {editSlots.map((slot, i) => (
-          <div className={`edit-mslot ${i === 0 ? 'base' : 'ref'}`} key={i}>
-            <button className="mobile-thumb" onClick={() => upload((url) => setEditSlotImage(i, url))}>{slot.image ? <img src={slot.image} /> : <><ImageIcon size={18} /><span>{i === 0 ? 'Основа' : `Реф ${i}`}</span></>}</button>
-            {slot.image && <button className="slot-clear" aria-label="Удалить" onClick={() => clearEditSlot(i)}>×</button>}
-          </div>
-        ))}
-      </div>
-      <div className="edit-mobile-actions">
-        <button onClick={() => upload((url) => setEditSlotImage(0, url))}>Файл основы</button>
-        <button onClick={() => { setPendingEditSlot(0); openGallery() }}>Галерея</button>
-        <button className="take-this-button" disabled={!canUsePreviewAsInput && gallery.length === 0} onClick={() => job?.resultUrl ? setEditSlotImage(0, job.resultUrl) : applyLastImage(1)}><span>Взять это</span><span>↓</span></button>
-      </div>
-      {editSlots.some((slot, i) => i >= 1 && slot.image) && <div className="edit-roles-mobile">
-        {editSlots.map((slot, i) => (i >= 1 && slot.image ? (
-          <div className="edit-role-row" key={i}>
-            <label className={`edit-role-control ${!slot.role ? 'needs-role' : ''}`}><span>Роль референса {i}</span><select value={slot.role} onChange={(e) => setEditSlotRole(i, e.target.value as EditReferenceRole | '')}><option value="">Не выбрано</option>{EDIT_REFERENCE_ROLES.map((role) => <option key={role} value={role}>{EDIT_REFERENCE_ROLE_LABELS[role]}</option>)}</select></label>
-            {slot.role && <input className={`edit-take-note ${slot.role === 'other' && !slot.takeNote.trim() ? 'needs-role' : ''}`} value={slot.takeNote} placeholder="Что взять из референса?" onChange={(e) => setEditSlotTakeNote(i, e.target.value)} />}
-          </div>
-        ) : null))}
-      </div>}
+      <EditCards
+        editSlots={editSlots}
+        onUpload={(i) => upload((url) => setEditSlotImage(i, url))}
+        onPickGallery={(i) => { setPendingEditSlot(i); openGallery() }}
+        onClear={clearEditSlot}
+        onRole={setEditSlotRole}
+        onTakeNote={setEditSlotTakeNote}
+      />
     </div>
   )
   const mobilePreviewInputs = mode === 'text_to_image' ? null : mode === 'edit' ? mobileEditSlots : (
@@ -1156,11 +1191,10 @@ function App() {
           <div className="studio-grid">
             <section className="control-panel">
               {mode === 'edit' ? (
-                <EditImageInputs
+                <EditCards
                   editSlots={editSlots}
                   onUpload={(i) => upload((url) => setEditSlotImage(i, url))}
                   onPickGallery={(i) => { setPendingEditSlot(i); openGallery() }}
-                  onUseLast={(i) => applyLastImage(i + 1)}
                   onClear={clearEditSlot}
                   onRole={setEditSlotRole}
                   onTakeNote={setEditSlotTakeNote}
@@ -1213,7 +1247,7 @@ function App() {
               {mode === 'faceswap' && <div className="face-controls"><label className="strength-control">{copy.faceStrength}<input type="range" min="0.2" max="1" step="0.01" value={strength} onChange={(e) => setStrength(Number(e.target.value))} /><span>{Math.round(strength * 100)}%</span></label></div>}
               <button className="secondary instruction-button" onClick={() => setInstructionOpen(true)}>Инструкция</button>
               {isAuthedV2
-                ? <button className="generate" disabled={!canGenerate || job?.status === 'running' || job?.status === 'queued'} onClick={generate}><Play size={18} />{copy.generate}</button>
+                ? <button className="generate" disabled={!canGenerate || isSubmitting || jobIsActive(job?.status)} onClick={generate}>{(isSubmitting || jobIsActive(job?.status)) ? <span className="gen-spinner" /> : <Play size={18} />}{isSubmitting ? 'Отправляем…' : jobIsActive(job?.status) ? 'Генерация…' : copy.generate}</button>
                 : <button className="generate generate-locked" title="Войдите, чтобы генерировать" onClick={() => setAuthModalOpen(true)}><Lock size={16} /><span className="lock-cta-full">Войдите, чтобы генерировать</span><span className="lock-cta-short">Войти</span></button>}
               {isAuthedV2 && editBlockReason && <div className="notice edit-block-reason">{editBlockReason}</div>}
               {notice && <div className="notice">{notice}</div>}
@@ -1224,45 +1258,54 @@ function App() {
               {job && ['queued', 'running', 'uploading', 'sent_to_comfyui'].includes(job.status) ? <JobCard job={job} copy={copy} cancelJob={cancelJob} sendImage={sendImage} mode={mode} beforeImage={mode === 'edit' ? editBaseImage : inputOne} loadingBackdrop={(mode === 'edit' ? editBaseImage : undefined) || gallery[0]?.url} /> : job?.status === 'completed' && job.resultUrl ? <JobCard job={job} copy={copy} cancelJob={cancelJob} sendImage={sendImage} mode={mode} beforeImage={mode === 'edit' ? editBaseImage : inputOne} /> : previewSource && mode !== 'text_to_image' ? <div className="result-frame mobile-source-preview"><img src={previewSource} />{mode === 'edit' && !job && <span className="preview-caption">Предпросмотр основы</span>}</div> : <div className="preview-empty">{mode !== 'text_to_image' ? <><span className="preview-empty-hint">{mode === 'edit' ? 'Добавьте основу для редактирования' : 'Добавьте изображение'}</span><button className="preview-add-button" onClick={() => upload((url) => mode === 'edit' ? setEditSlotImage(0, url) : setInputOne(url))}><Upload size={22} />{mode === 'edit' ? 'Выбрать изображение' : 'Добавить изображение'}</button></> : <><ImageIcon size={64} /><span>{copy.generatedPlaceholder}</span></>}</div>}
             </section>
             <section className="prompt-dock">
-              <PromptBlock
-                copy={copy}
-                prompt={prompt}
-                setPrompt={setPrompt}
-                negativePrompt={negativePrompt}
-                setNegativePrompt={setNegativePrompt}
-                translatePrompt={translatePrompt}
-                onDiscover={() => setDiscoverOpen(!discoverOpen)}
-                randomPrompt={randomPrompt}
-                hideNegative={mode === 'edit'}
-                label={mode === 'edit' ? 'Дополнительное пожелание' : undefined}
-                placeholder={mode === 'edit' ? 'Например: сделай изображение более кинематографичным (необязательно)' : undefined}
-                hideTemplates={mode === 'edit'}
-              />
-              {mode === 'edit' && (
-                <EditComposer
-                  composedPrompt={editComposer.composedPrompt}
-                  manualMode={editManualMode}
-                  manualPrompt={editManualPrompt}
-                  onEnterManual={() => { setEditManualPrompt(editComposer.composedPrompt); setEditManualMode(true) }}
-                  onBackToAuto={() => setEditManualMode(false)}
-                  setManualPrompt={setEditManualPrompt}
-                  templates={EDIT_TEMPLATES}
-                  applyTemplate={applyEditTemplate}
+              {mode === 'edit' ? (
+                <EditPromptDock
+                  prompt={prompt}
+                  setPrompt={setPrompt}
+                  onTemplates={() => setEditTemplatesOpen(true)}
+                  onAdvanced={() => setEditAdvancedOpen(true)}
                 />
+              ) : (
+                <>
+                  <PromptBlock
+                    copy={copy}
+                    prompt={prompt}
+                    setPrompt={setPrompt}
+                    negativePrompt={negativePrompt}
+                    setNegativePrompt={setNegativePrompt}
+                    translatePrompt={translatePrompt}
+                    onDiscover={() => setDiscoverOpen(!discoverOpen)}
+                    randomPrompt={randomPrompt}
+                  />
+                  {discoverOpen && <DiscoverPanel lang={lang} mode={mode} presets={visiblePresets} applyPreset={applyPreset} addUserPreset={addUserPreset} currentPrompt={prompt} />}
+                </>
               )}
-              {discoverOpen && mode !== 'edit' && <DiscoverPanel lang={lang} mode={mode} presets={visiblePresets} applyPreset={applyPreset} addUserPreset={addUserPreset} currentPrompt={prompt} />}
             </section>
           </div>
         )}
 
         {tab === 'gallery' && !galleryLocked && <GalleryView copy={copy} images={gallery} selected={selected} setSelected={setSelected} handleUseImageAs={useImageAs} refreshGallery={fetchGallery} clearSelected={() => setSelected(undefined)} backToStudio={() => setTab('studio')} view={galleryView} setView={setGalleryView} sendImage={sendImage} pickSlot={pendingEditSlot} onPickForSlot={assignGalleryToEditSlot} cancelPick={() => { setPendingEditSlot(null); setTab('studio') }} />}
-        {tab === 'gallery' && galleryLocked && <SettingsView copy={copy} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'gallery' && galleryLocked && <SettingsView copy={copy} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
         {tab === 'presets' && <HelpView lang={lang} applyPreset={applyPreset} copy={copy} backToStudio={() => setTab('studio')} />}
-        {tab === 'settings' && <SettingsView copy={copy} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'settings' && <SettingsView copy={copy} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
         {tab === 'admin' && isAdmin && <AdminView copy={copy} admin={admin} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} modelProfile={modelProfile} setModelProfile={setModelProfile} seed={seed} setSeed={setSeed} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} cfg={cfg} setCfg={setCfg} sampler={sampler} setSampler={setSampler} selectedLora={settingsSelectedLora} setSelectedLora={setSelectedLora} loraOptions={loraOptions} modelsPayload={modelsPayload} bgRemovalModels={bgRemovalModels} loraSelectRef={loraSelectRef} resetDefaults={resetDefaults} />}
-        {tab === 'admin' && !isAdmin && <SettingsView copy={copy} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'admin' && !isAdmin && <SettingsView copy={copy} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
 
         {instructionOpen && <InstructionModal mode={mode} paintTool={paintTool} onClose={() => setInstructionOpen(false)} />}
+        {editTemplatesOpen && <EditTemplatesModal templates={EDIT_TEMPLATES} applyTemplate={applyEditTemplate} onClose={() => setEditTemplatesOpen(false)} />}
+        {editAdvancedOpen && (
+          <EditAdvancedModal
+            editSlots={editSlots}
+            onTakeNote={setEditSlotTakeNote}
+            composedPrompt={editComposer.composedPrompt}
+            manualMode={editManualMode}
+            manualPrompt={editManualPrompt}
+            onEnterManual={() => { setEditManualPrompt(editComposer.composedPrompt); setEditManualMode(true) }}
+            onBackToAuto={() => setEditManualMode(false)}
+            setManualPrompt={setEditManualPrompt}
+            onClose={() => setEditAdvancedOpen(false)}
+          />
+        )}
         {paintEditor && (
           <PaintEditorModal
             editor={paintEditor}
@@ -1390,41 +1433,74 @@ function ModeWorkspace(props: ModeWorkspaceProps) {
   return <div className="empty-state"><Sparkles size={34} /><span>{copy.before}</span></div>
 }
 
-// Desktop multi-reference editor: 4 ячейки (основа + 3 референса) в сетке 2x2 с ролями.
-function EditImageInputs({ editSlots, onUpload, onPickGallery, onUseLast, onClear, onRole, onTakeNote }: {
+// Одна карточка изображения. Пустая → «+ фото» с мини-меню (Загрузить / Галерея).
+// Основа → кнопка «Выбрать». Референс → select роли под карточкой.
+function EditCard({ index, slot, onUpload, onPickGallery, onClear, onRole, onTakeNote }: {
+  index: number
+  slot: EditSlot
+  onUpload: (index: number) => void
+  onPickGallery: (index: number) => void
+  onClear: (index: number) => void
+  onRole: (index: number, role: EditReferenceRole | '') => void
+  onTakeNote: (index: number, value: string) => void
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const isBase = index === 0
+  const needsRole = !isBase && Boolean(slot.image) && !slot.role
+  const pick = (fn: () => void) => { fn(); setMenuOpen(false) }
+  return (
+    <div className={`edit-card ${isBase ? 'base' : 'ref'} ${needsRole ? 'needs-role' : ''}`}>
+      <div className="edit-card-head"><span>{isBase ? 'Основа' : `Референс ${index}`}</span>{isBase && <small>обязательно</small>}</div>
+      <div className="edit-card-box">
+        {slot.image
+          ? <><img src={slot.image} alt="" /><button className="card-clear" aria-label="Удалить" onClick={() => onClear(index)}><X size={15} /></button></>
+          : <button className="card-add" onClick={() => setMenuOpen((v) => !v)}><Plus size={26} /><span>+ фото</span></button>}
+        {menuOpen && (
+          <div className="card-menu" onMouseLeave={() => setMenuOpen(false)}>
+            <button onClick={() => pick(() => onUpload(index))}><Upload size={14} />Загрузить</button>
+            <button onClick={() => pick(() => onPickGallery(index))}><GalleryHorizontalEnd size={14} />Галерея</button>
+          </div>
+        )}
+      </div>
+      <div className="edit-card-foot">
+        {isBase ? (
+          <button className="card-choose" onClick={() => setMenuOpen((v) => !v)}>Выбрать</button>
+        ) : slot.image ? (
+          <select className={`card-role ${needsRole ? 'needs-role' : ''}`} value={slot.role} onChange={(e) => onRole(index, e.target.value as EditReferenceRole | '')}>
+            <option value="">Выберите роль…</option>
+            {EDIT_REFERENCE_ROLES.map((role) => <option key={role} value={role}>{EDIT_REFERENCE_ROLE_LABELS[role]}</option>)}
+          </select>
+        ) : (
+          <div className="card-role-hint">роль после фото</div>
+        )}
+      </div>
+      {!isBase && slot.image && slot.role === 'other' && (
+        <input
+          className={`card-custom-note ${!slot.takeNote.trim() ? 'needs-role' : ''}`}
+          value={slot.takeNote}
+          placeholder="Что взять из референса?"
+          onChange={(e) => onTakeNote(index, e.target.value)}
+        />
+      )}
+      {!isBase && slot.image && slot.role === 'object' && (
+        <div className="card-advisory">Лучше используйте референс, где нужный предмет виден отдельно. Если предметов несколько, обрежьте изображение до нужного предмета.</div>
+      )}
+    </div>
+  )
+}
+
+// Сетка 4 карточек (основа + 3 референса). Используется и на desktop, и на mobile.
+function EditCards({ editSlots, onUpload, onPickGallery, onClear, onRole, onTakeNote }: {
   editSlots: EditSlot[]
   onUpload: (index: number) => void
   onPickGallery: (index: number) => void
-  onUseLast: (index: number) => void
   onClear: (index: number) => void
   onRole: (index: number, role: EditReferenceRole | '') => void
   onTakeNote: (index: number, value: string) => void
 }) {
   return <div className="edit-grid">
     {editSlots.map((slot, i) => (
-      <div className={`edit-cell ${i === 0 ? 'base' : 'ref'} ${i >= 1 && slot.image && !slot.role ? 'needs-role' : ''}`} key={i}>
-        <span className="edit-slot-label">{i === 0 ? 'Основа' : `Референс ${i}`}{i === 0 ? <small>обязательно</small> : <small>опц.</small>}</span>
-        <div className="edit-box">
-          {slot.image
-            ? <img src={slot.image} alt="" />
-            : <button className="edit-box-add" onClick={() => onUpload(i)}><Upload size={18} /><span>Загрузить</span></button>}
-          {slot.image && <button className="floating-clear" aria-label="Удалить" onClick={() => onClear(i)}><X size={14} /></button>}
-        </div>
-        <div className="edit-cell-actions">
-          <button onClick={() => onUpload(i)} title="Загрузить файл"><Upload size={13} /></button>
-          <button onClick={() => onPickGallery(i)} title="Выбрать из галереи"><GalleryHorizontalEnd size={13} /></button>
-          <button onClick={() => onUseLast(i)} title="Взять последнее изображение">↧</button>
-        </div>
-        {i >= 1 && slot.image && (
-          <select className={`edit-role-select ${!slot.role ? 'needs-role' : ''}`} value={slot.role} onChange={(e) => onRole(i, e.target.value as EditReferenceRole | '')}>
-            <option value="">Роль референса…</option>
-            {EDIT_REFERENCE_ROLES.map((role) => <option key={role} value={role}>{EDIT_REFERENCE_ROLE_LABELS[role]}</option>)}
-          </select>
-        )}
-        {i >= 1 && slot.image && slot.role && (
-          <input className={`edit-take-note ${slot.role === 'other' && !slot.takeNote.trim() ? 'needs-role' : ''}`} value={slot.takeNote} placeholder="Что взять: позу сидя, белую рубашку, фон…" onChange={(e) => onTakeNote(i, e.target.value)} />
-        )}
-      </div>
+      <EditCard key={i} index={i} slot={slot} onUpload={onUpload} onPickGallery={onPickGallery} onClear={onClear} onRole={onRole} onTakeNote={onTakeNote} />
     ))}
   </div>
 }
@@ -1677,43 +1753,129 @@ function PromptBlock({ copy, prompt, setPrompt, negativePrompt, setNegativePromp
   )
 }
 
-// Edit Prompt Composer UI: шаблоны (роли+userNote), предпросмотр собранной инструкции и
-// переключатель ручного режима. В auto prompt пересобирается; в manual — редактируется и
-// отправляется как есть.
-function EditComposer({ composedPrompt, manualMode, manualPrompt, onEnterManual, onBackToAuto, setManualPrompt, templates, applyTemplate }: {
+// Нижний док edit: только «Дополнительное пожелание» + две кнопки (Шаблоны / Расширенные).
+function EditPromptDock({ prompt, setPrompt, onTemplates, onAdvanced }: {
+  prompt: string
+  setPrompt: (value: string) => void
+  onTemplates: () => void
+  onAdvanced: () => void
+}) {
+  const promptRef = useRef<HTMLTextAreaElement | null>(null)
+  useEffect(() => {
+    const field = promptRef.current
+    if (!field) return
+    field.style.height = 'auto'
+    field.style.height = `${field.scrollHeight}px`
+  }, [prompt])
+  return (
+    <div className="prompt-block edit-dock">
+      <div className="prompt-head">
+        <span className="prompt-label-text">Дополнительное пожелание</span>
+        <button type="button" className="discover-button" onClick={onTemplates}><Sparkles size={15} />Шаблоны</button>
+        <button type="button" className="expand-button" onClick={onAdvanced}><SlidersHorizontal size={15} />Расширенные</button>
+      </div>
+      <textarea ref={promptRef} aria-label="Дополнительное пожелание" placeholder="Например: сделать свет мягче, добавить кинематографичность (необязательно)" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+    </div>
+  )
+}
+
+// Модалка шаблонов: настраивает роли + userNote (не просто текст).
+function EditTemplatesModal({ templates, applyTemplate, onClose }: {
+  templates: EditTemplate[]
+  applyTemplate: (tpl: EditTemplate) => void
+  onClose: () => void
+}) {
+  const roleNames = (tpl: EditTemplate) => tpl.assign.map((a) => `реф ${a.refIndex} — ${EDIT_REFERENCE_ROLE_LABELS[a.role]}`).join(', ')
+  return <div className="modal-backdrop" onClick={onClose}><section className="instruction-modal edit-templates-modal" onClick={(e) => e.stopPropagation()}>
+    <button className="floating-clear" onClick={onClose}><X size={16} /></button>
+    <h2>Шаблоны</h2>
+    <p className="modal-sub">Шаблон сам расставит роли референсам. Загрузите изображения в нужные слоты.</p>
+    <div className="templates-list">
+      {templates.map((tpl) => (
+        <button key={tpl.id} className="template-card" onClick={() => applyTemplate(tpl)}>
+          <strong>{tpl.title}</strong>
+          <small>{roleNames(tpl)}</small>
+        </button>
+      ))}
+    </div>
+  </section></div>
+}
+
+// Модалка «Расширенные»: уточнения «что взять», собранная инструкция, ручной режим.
+function EditAdvancedModal({ editSlots, onTakeNote, composedPrompt, manualMode, manualPrompt, onEnterManual, onBackToAuto, setManualPrompt, onClose }: {
+  editSlots: EditSlot[]
+  onTakeNote: (index: number, value: string) => void
   composedPrompt: string
   manualMode: boolean
   manualPrompt: string
   onEnterManual: () => void
   onBackToAuto: () => void
   setManualPrompt: (value: string) => void
-  templates: EditTemplate[]
-  applyTemplate: (tpl: EditTemplate) => void
+  onClose: () => void
 }) {
-  return <div className="edit-composer">
-    <div className="edit-templates-row">
-      <span className="edit-templates-label">Шаблоны:</span>
-      {templates.map((tpl) => <button key={tpl.id} type="button" onClick={() => applyTemplate(tpl)}>{tpl.title}</button>)}
-    </div>
+  const refsWithRole = editSlots.map((slot, i) => ({ slot, i })).filter((x) => x.i >= 1 && x.slot.image && x.slot.role)
+  return <div className="modal-backdrop" onClick={onClose}><section className="instruction-modal edit-advanced-modal" onClick={(e) => e.stopPropagation()}>
+    <button className="floating-clear" onClick={onClose}><X size={16} /></button>
+    <h2>Расширенные</h2>
+    {refsWithRole.length > 0 && <div className="advanced-takenotes">
+      {refsWithRole.map(({ slot, i }) => (
+        <label key={i} className={`edit-take-note-row ${slot.role === 'other' && !slot.takeNote.trim() ? 'needs-role' : ''}`}>
+          <span>Референс {i} ({EDIT_REFERENCE_ROLE_LABELS[slot.role as EditReferenceRole]}) — что взять</span>
+          <input value={slot.takeNote} placeholder="напр.: позу сидя, белую рубашку, фон комнаты" onChange={(e) => onTakeNote(i, e.target.value)} />
+        </label>
+      ))}
+    </div>}
     <div className="composer-head">
-      <span>Собранная инструкция{manualMode ? ' · ручной режим' : ' · авто'}</span>
+      <span>Инструкция для модели{manualMode ? ' · ручной режим' : ' · авто'}</span>
       <button type="button" className="composer-toggle" onClick={() => manualMode ? onBackToAuto() : onEnterManual()}>{manualMode ? 'Вернуться к авто' : 'Редактировать вручную'}</button>
     </div>
     {manualMode
       ? <textarea className="composer-manual" value={manualPrompt} onChange={(e) => setManualPrompt(e.target.value)} placeholder="Финальная инструкция для генерации" />
       : <pre className="composer-preview">{composedPrompt}</pre>}
-  </div>
+  </section></div>
 }
 
 function JobCard({ job, copy, cancelJob, sendImage, mode, beforeImage, loadingBackdrop }: { job: Job; copy: Copy; cancelJob: () => void; sendImage: (platform: 'telegram' | 'max', imageId?: string) => void; mode: Mode; beforeImage?: string; loadingBackdrop?: string }) {
   const [compare, setCompare] = useState(50)
   const canCompare = mode !== 'text_to_image' && job.status === 'completed' && job.resultUrl && beforeImage
-  return <div className={`job-card ${job.status}`}>{job.status !== 'completed' && <div className="loading-backdrop">{loadingBackdrop ? <img src={loadingBackdrop} /> : <ImageIcon size={64} />}</div>}{job.status !== 'completed' && <div className="loading-pulse" />}<div className="job-head"><strong>{job.status === 'completed' ? copy.ready : copy.running}</strong><span>{job.status === 'completed' ? `${compare} %` : `${job.progress}%`}</span></div>{job.status !== 'completed' && <div className="progress"><i style={{ width: `${job.progress}%` }} /></div>}{job.status !== 'completed' && job.error && <p>{job.error}</p>}{canCompare && <div className="compare-frame"><img className="compare-before" src={beforeImage} /><div className="compare-after" style={{ clipPath: `inset(0 0 0 ${compare}%)` }}><img src={job.resultUrl} /></div><i className="compare-line" style={{ left: `${compare}%` }}><span>↔</span></i><input aria-label="До после" type="range" min="0" max="100" value={compare} onChange={(e) => setCompare(Number(e.target.value))} /></div>}{job.status === 'completed' && job.resultUrl && !canCompare && <div className="result-frame"><img src={job.resultUrl} /></div>}{job.status === 'completed' && job.resultUrl && <div className="result-actions"><a className="secondary" href={job.resultUrl} download><Download size={16} />{copy.download}</a><button className="secondary" onClick={() => sendImage('telegram', job.resultImageId)}>{copy.sendTg}</button></div>}{['queued', 'running', 'uploading', 'sent_to_comfyui'].includes(job.status) && <button className="secondary danger" onClick={cancelJob}>{copy.cancel}</button>}</div>
+  const isLoading = job.status !== 'completed'
+  const statusLabel = job.status === 'queued' ? 'В очереди' : job.status === 'uploading' ? 'Загружаем изображения' : job.status === 'sent_to_comfyui' ? 'Отправлено в обработку' : copy.running
+  if (isLoading) {
+    return <div className={`job-card ${job.status} loading`}>
+      <div className="loading-backdrop">{loadingBackdrop ? <img src={loadingBackdrop} /> : <ImageIcon size={64} />}</div>
+      <div className="loading-overlay">
+        <div className="loading-ring"><span className="loading-pct">{job.progress}%</span></div>
+        <div className="loading-status">{statusLabel}…</div>
+        <div className="progress"><i style={{ width: `${Math.max(6, job.progress)}%` }} /></div>
+        {job.error && <p className="loading-error">{job.error}</p>}
+        {['queued', 'running', 'uploading', 'sent_to_comfyui'].includes(job.status) && <button className="secondary danger" onClick={cancelJob}>{copy.cancel}</button>}
+      </div>
+    </div>
+  }
+  const actions = job.resultUrl ? <div className="result-actions"><a className="secondary" href={job.resultUrl} download><Download size={16} />{copy.download}</a><button className="secondary" onClick={() => sendImage('telegram', job.resultImageId)}>{copy.sendTg}</button></div> : null
+  return <div className={`job-card ${job.status}`}>{canCompare ? <div className="compare-frame"><img className="compare-before" src={beforeImage} /><div className="compare-after" style={{ clipPath: `inset(0 0 0 ${compare}%)` }}><img src={job.resultUrl} /></div><i className="compare-line" style={{ left: `${compare}%` }}><span>↔</span></i><input aria-label="До после" type="range" min="0" max="100" value={compare} onChange={(e) => setCompare(Number(e.target.value))} />{actions}</div> : job.resultUrl ? <div className="result-frame"><img src={job.resultUrl} />{actions}</div> : null}</div>
 }
 
 function GalleryView({ copy, images, selected, setSelected, handleUseImageAs, refreshGallery, clearSelected, backToStudio, view, setView, sendImage, pickSlot = null, onPickForSlot, cancelPick }: { copy: Copy; images: GalleryImage[]; selected?: GalleryImage; setSelected: (image: GalleryImage) => void; handleUseImageAs: (image: GalleryImage, target: Mode, slot?: number) => void; refreshGallery: () => Promise<void>; clearSelected: () => void; backToStudio: () => void; view: 'grid' | 'list'; setView: (view: 'grid' | 'list') => void; sendImage: (platform: 'telegram' | 'max', imageId?: string) => void; pickSlot?: number | null; onPickForSlot?: (image: GalleryImage) => void; cancelPick?: () => void }) {
   const picking = pickSlot !== null
+  const [galleryMsg, setGalleryMsg] = useState('')
+  const useOptions: Array<{ label: string; target: Mode; slot?: number }> = [
+    { label: copy.useAsImageToImage, target: 'image_to_image' },
+    { label: copy.useAsEditOne, target: 'edit', slot: 1 },
+    { label: copy.useAsEditTwo, target: 'edit', slot: 2 },
+    { label: copy.useAsPaint, target: 'paint' },
+    { label: copy.useAsInpaint, target: 'inpaint' },
+    { label: copy.useAsOutpaint, target: 'outpaint' },
+    { label: copy.useAsFaceTarget, target: 'faceswap', slot: 1 },
+    { label: copy.useAsFaceSource, target: 'faceswap', slot: 2 },
+    { label: copy.useAsRemoveBackground, target: 'remove_background' },
+    { label: copy.useAsTryOn, target: 'try_on', slot: 1 },
+    { label: `${copy.referenceImage} · примерка`, target: 'try_on', slot: 2 },
+    { label: copy.useAsTextureTransfer, target: 'texture_transfer', slot: 1 },
+    { label: `${copy.referenceImage} · текстура`, target: 'texture_transfer', slot: 2 },
+  ]
   async function toggleFavorite(image: GalleryImage) {
+    setGalleryMsg('')
     const updated = await apiFetch(`/gallery/${image.id}/favorite`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1723,11 +1885,112 @@ function GalleryView({ copy, images, selected, setSelected, handleUseImageAs, re
     await refreshGallery()
   }
   async function deleteImage(image: GalleryImage) {
+    if (!window.confirm('Удалить изображение из галереи?')) return
     await apiFetch(`/gallery/${image.id}`, { method: 'DELETE' })
     clearSelected()
     await refreshGallery()
   }
-  return <section>{picking && <div className="gallery-pick-banner"><span>Выберите изображение для слота {pickSlot === 0 ? 'Основа' : `Референс ${pickSlot}`}</span><button className="secondary" onClick={() => cancelPick?.()}>Отмена</button></div>}<div className="view-actions"><button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button><button className={view === 'grid' ? 'secondary active' : 'secondary'} onClick={() => setView('grid')}>{copy.grid}</button><button className={view === 'list' ? 'secondary active' : 'secondary'} onClick={() => setView('list')}>{copy.list}</button></div><div className="gallery-view"><div className={view === 'grid' ? 'gallery-grid' : 'gallery-list'}>{images.length === 0 && <div className="gallery-empty">Галерея пока пуста</div>}{images.map((image) => <button className="image-card" key={image.id} onClick={() => picking ? onPickForSlot?.(image) : setSelected(image)}><img src={image.thumbnailUrl} /><span>{image.mode.replaceAll('_', ' ')}</span><small>{new Date(image.createdAt).toLocaleString()}</small><small>{image.promptOriginal.slice(0, 80)}</small><Heart className={image.isFavorite ? 'fav' : ''} size={16} /></button>)}</div>{selected && <aside className="detail"><strong>{copy.preview}</strong><img src={selected.url} /><h2>{selected.promptOriginal}</h2><p>{selected.width}×{selected.height} · {selected.provider} · seed {selected.seed}</p><dl><dt>{copy.original}</dt><dd>{selected.promptOriginal}</dd><dt>{copy.translated}</dt><dd>{selected.promptTranslated || '—'}</dd><dt>Mode</dt><dd>{selected.mode}</dd><dt>Model profile</dt><dd>{selected.modelProfile || '—'}</dd><dt>LoRA</dt><dd>{selected.loras?.join(', ') || '—'}</dd><dt>Preset</dt><dd>{selected.preset || '—'}</dd><dt>Created at</dt><dd>{new Date(selected.createdAt).toLocaleString()}</dd><dt>{copy.generationTime}</dt><dd>{selected.generationTimeMs} ms</dd><dt>ComfyUI prompt</dt><dd>{selected.comfyuiPromptId || '—'}</dd></dl><div className="use-grid"><button onClick={() => handleUseImageAs(selected, 'image_to_image')}>{copy.useAs} {copy.useAsImageToImage}</button><button onClick={() => handleUseImageAs(selected, 'edit', 1)}>{copy.useAs} {copy.useAsEditOne}</button><button onClick={() => handleUseImageAs(selected, 'edit', 2)}>{copy.useAs} {copy.useAsEditTwo}</button><button onClick={() => handleUseImageAs(selected, 'paint')}>{copy.useAs} {copy.useAsPaint}</button><button onClick={() => handleUseImageAs(selected, 'inpaint')}>{copy.useAs} {copy.useAsInpaint}</button><button onClick={() => handleUseImageAs(selected, 'outpaint')}>{copy.useAs} {copy.useAsOutpaint}</button><button onClick={() => handleUseImageAs(selected, 'faceswap', 1)}>{copy.useAs} {copy.useAsFaceTarget}</button><button onClick={() => handleUseImageAs(selected, 'faceswap', 2)}>{copy.useAs} {copy.useAsFaceSource}</button><button onClick={() => handleUseImageAs(selected, 'remove_background')}>{copy.useAs} {copy.useAsRemoveBackground}</button><button onClick={() => handleUseImageAs(selected, 'try_on', 1)}>{copy.useAs} {copy.useAsTryOn}</button><button onClick={() => handleUseImageAs(selected, 'try_on', 2)}>{copy.useAs} {copy.referenceImage}</button><button onClick={() => handleUseImageAs(selected, 'texture_transfer', 1)}>{copy.useAs} {copy.useAsTextureTransfer}</button><button onClick={() => handleUseImageAs(selected, 'texture_transfer', 2)}>{copy.useAs} {copy.referenceImage}</button></div><button className="secondary" onClick={() => toggleFavorite(selected)}><Heart size={16} />{copy.favorite}</button><button className="secondary" onClick={() => sendImage('telegram', selected.id)}>{copy.sendTg}</button><button className="secondary" onClick={() => sendImage('max', selected.id)}>{copy.sendMax}</button><button className="secondary danger" onClick={() => deleteImage(selected)}><Trash2 size={16} />{copy.delete}</button><a className="secondary" href={selected.url} download><Download size={16} />{copy.download}</a></aside>}</div></section>
+  const onUseSelected = (value: string) => {
+    if (!selected || !value) return
+    const option = useOptions[Number(value)]
+    if (!option) return
+    handleUseImageAs(selected, option.target, option.slot)
+  }
+  const shareSelected = async (image: GalleryImage) => {
+    setGalleryMsg('')
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Изображение из галереи', text: image.promptOriginal.slice(0, 180), url: image.url })
+        return
+      } catch {
+        return
+      }
+    }
+    await navigator.clipboard?.writeText(image.url)
+    setGalleryMsg('Ссылка скопирована')
+  }
+  void sendImage
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && selected) clearSelected()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, clearSelected])
+  return (
+    <section className="gallery-page">
+      {picking && <div className="gallery-pick-banner"><span>Выберите изображение для слота {pickSlot === 0 ? 'Основа' : `Референс ${pickSlot}`}</span><button className="secondary" onClick={() => cancelPick?.()}>Отмена</button></div>}
+      <div className="view-actions gallery-toolbar">
+        <button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button>
+        <button className={view === 'grid' ? 'secondary active' : 'secondary'} onClick={() => setView('grid')}>{copy.grid}</button>
+        <button className={view === 'list' ? 'secondary active' : 'secondary'} onClick={() => setView('list')}>{copy.list}</button>
+      </div>
+      <div className="gallery-view">
+        <div className={view === 'grid' ? 'gallery-grid' : 'gallery-list'}>
+          {images.length === 0 && <div className="gallery-empty">Галерея пока пуста</div>}
+          {images.map((image) => (
+            <article className="image-card" key={image.id}>
+              <button className="gallery-thumb" type="button" onClick={() => picking ? onPickForSlot?.(image) : setSelected(image)}>
+                <img src={image.thumbnailUrl || image.url} alt="" loading="lazy" />
+              </button>
+              <div className="gallery-card-body">
+                <span>{image.mode.replaceAll('_', ' ')}</span>
+                <small>{new Date(image.createdAt).toLocaleString()}</small>
+                <p>{image.promptOriginal}</p>
+              </div>
+              <div className="gallery-card-actions">
+                <button type="button" title={copy.favorite} onClick={() => void toggleFavorite(image)}><Heart className={image.isFavorite ? 'fav' : ''} size={16} /></button>
+                <a title={copy.download} href={image.url} download onClick={(e) => e.stopPropagation()}><Download size={16} /></a>
+                <button type="button" title={copy.delete} onClick={() => void deleteImage(image)}><Trash2 size={16} /></button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+      {selected && (
+        <div className="gallery-modal-backdrop" onClick={clearSelected}>
+          <section className="gallery-modal" role="dialog" aria-label="Предпросмотр изображения" onClick={(e) => e.stopPropagation()}>
+            <button className="floating-clear" aria-label="Закрыть" onClick={clearSelected}><X size={16} /></button>
+            <div className="gallery-modal-media"><img src={selected.url || selected.thumbnailUrl} alt="" onError={(event) => { if (selected.thumbnailUrl && event.currentTarget.src !== selected.thumbnailUrl) event.currentTarget.src = selected.thumbnailUrl }} /></div>
+            <div className="gallery-modal-panel">
+              <header>
+                <strong>{copy.preview}</strong>
+                <span>{selected.mode.replaceAll('_', ' ')} · {new Date(selected.createdAt).toLocaleString()}</span>
+              </header>
+              <p className="gallery-meta">{selected.width}×{selected.height} · {selected.provider} · seed {selected.seed}</p>
+              <details className="gallery-prompt-box">
+                <summary>Prompt</summary>
+                <p>{selected.promptOriginal}</p>
+                {selected.promptTranslated && <p className="translated">{selected.promptTranslated}</p>}
+              </details>
+              <div className="gallery-use-select">
+                <label>Использовать изображение<select value="" onChange={(e) => onUseSelected(e.target.value)}><option value="">Выбрать действие…</option>{useOptions.map((option, index) => <option value={index} key={`${option.target}-${option.slot || 0}`}>{option.label}</option>)}</select></label>
+              </div>
+              <details className="gallery-tech">
+                <summary>Техническая информация</summary>
+                <dl>
+                  <dt>Model profile</dt><dd>{selected.modelProfile || '—'}</dd>
+                  <dt>LoRA</dt><dd>{selected.loras?.join(', ') || '—'}</dd>
+                  <dt>Preset</dt><dd>{selected.preset || '—'}</dd>
+                  <dt>{copy.generationTime}</dt><dd>{selected.generationTimeMs} ms</dd>
+                  <dt>ComfyUI prompt</dt><dd>{selected.comfyuiPromptId || '—'}</dd>
+                </dl>
+              </details>
+              <div className="gallery-modal-actions">
+                <button className="secondary" onClick={() => void toggleFavorite(selected)}><Heart className={selected.isFavorite ? 'fav' : ''} size={16} />{copy.favorite}</button>
+                <a className="secondary" href={selected.url} download><Download size={16} />{copy.download}</a>
+                <button className="secondary" onClick={() => void shareSelected(selected)}>Скопировать ссылку</button>
+                <button className="secondary" disabled title="Отправка в Telegram требует привязанный чат">Telegram</button>
+                <button className="secondary" disabled title="MAX отправка требует привязанный чат">MAX</button>
+                <button className="secondary danger" onClick={() => void deleteImage(selected)}><Trash2 size={16} />{copy.delete}</button>
+              </div>
+              {galleryMsg && <p className="gallery-msg">{galleryMsg}</p>}
+            </div>
+          </section>
+        </div>
+      )}
+    </section>
+  )
 }
 
 function DiscoverPanel({ lang, presets: panelPresets, applyPreset, addUserPreset, currentPrompt }: { lang: Lang; mode: Mode; presets: Preset[]; applyPreset: (preset: Preset) => void; addUserPreset: (name: string, presetPrompt: string) => void; currentPrompt: string }) {
@@ -1749,7 +2012,7 @@ function InstructionModal({ mode, paintTool, onClose }: { mode: Mode; paintTool:
   const text: Record<string, { title: string; steps: string[] }> = {
     text_to_image: { title: 'Инструкция: Текст → Изо', steps: ['Нажмите «Пресеты» или «Случайный prompt», чтобы быстро заполнить запрос.', 'Выберите размер изображения слева.', 'При необходимости откройте «Настройки» и измените seed, steps, CFG, sampler или LoRA.', 'Нажмите «Сгенерировать» и дождитесь результата справа.'] },
     image_to_image: { title: 'Инструкция: Изо → Изо', steps: ['Загрузите исходное изображение в левую область.', 'Настройте «Силу изменения»: 0.10 меняет мало, 0.75 ближе к исходнику One Node, 0.80 меняет сильно.', 'Введите prompt с описанием того, как нужно изменить изображение.', 'Нажмите «Сгенерировать».'] },
-    edit: { title: 'Инструкция: Редактировать', steps: ['Загрузите «Основу» (Изображение 1) — то, что редактируем. Это обязательный слот.', 'Добавьте до трёх референсов (Изображения 2–4) и для каждого выберите роль: лицо, одежда, стиль, объект, поза, фон, цвет/материал или другое.', 'Все референсы используются по ролям — модель не делает коллаж, а берёт нужное из каждого изображения.', 'В prompt напишите коротко, что изменить (без шаблонных фраз в кавычках). Финальный запрос соберётся автоматически с описанием роли каждого изображения.', 'Размер результата — «Как у основы». Negative prompt в edit не используется. Нажмите «Сгенерировать».'] },
+    edit: { title: 'Инструкция: Редактор', steps: ['Загрузите «Основу» — это изображение, которое нужно изменить. Этот слот обязателен.', 'Добавьте до трёх референсов. Для каждого загруженного референса выберите роль: лицо, одежда, стиль, объект, поза, фон, цвет/материал или другое.', 'Роль определяет, что именно система возьмёт из референса. Например: «Одежда» берёт одежду, «Поза» берёт положение тела, «Фон» берёт окружение.', 'Писать большой prompt не нужно. Система сама собирает инструкцию по выбранным изображениям и ролям.', 'В поле «Дополнительное пожелание» можно коротко уточнить результат, например: «сделай свет мягче» или «сделай изображение более кинематографичным». Это поле необязательное.', 'Если нужна тонкая настройка, откройте «Расширенные». Там можно уточнить, что взять из каждого референса, посмотреть собранную инструкцию или отредактировать её вручную.', 'Нажмите «Сгенерировать». Пока задача отправляется или выполняется, повторные нажатия блокируются.', 'Жёлтая вертикальная линия в предпросмотре — это сравнение «до/после». Это не ошибка.'] },
     paint: { title: `Инструкция: ${paintTool === 'sketch' ? 'Эскиз' : paintTool === 'inpaint' ? 'Маска' : 'Расширение'}`, steps: paintTool === 'sketch' ? ['Выберите «Эскиз», рисуйте на чистом холсте кистью/ластиком.', 'Prompt должен объяснять, во что превратить рисунок.', 'Сгенерируйте сцену по вашему рисунку.'] : paintTool === 'inpaint' ? ['Выберите «Маска». Это понятный режим замены области изображения.', 'Загрузите изображение и закрасьте область, которую нужно изменить.', 'В prompt опишите, что должно появиться в закрашенной зоне.', 'Сгенерируйте результат.'] : ['Выберите «Расширение».', 'Загрузите изображение и задайте, сколько пикселей добавить слева/справа/сверху/снизу.', 'Prompt должен описывать, чем заполнить новые области.', 'Сгенерируйте расширенную композицию.'] },
     faceswap: { title: 'Инструкция: Лицо → Изо', steps: ['Загрузите Target: изображение, куда нужно перенести лицо.', 'Загрузите Source: изображение, откуда берется лицо.', 'В «Настройки» выберите Faceswap LoRA, если он доступен локально.', 'Prompt по умолчанию описывает замену головы с сохранением света и стиля.'] },
     remove_background: { title: 'Инструкция: Удалить фон', steps: ['Загрузите изображение с объектом.', 'Оставьте стандартный prompt или уточните, что нужно изолировать.', 'Нажмите «Сгенерировать».'] },
@@ -1760,15 +2023,25 @@ function InstructionModal({ mode, paintTool, onClose }: { mode: Mode; paintTool:
   return <div className="modal-backdrop"><section className="instruction-modal"><button className="floating-clear" onClick={onClose}><X size={16} /></button><h2>{current.title}</h2>{current.steps.map((step, index) => <p key={step}><strong>{index + 1}.</strong> {step}</p>)}</section></div>
 }
 
-function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, backToStudio, provider, setProvider, width, setWidth, height, setHeight, steps, setSteps, setCfg, isAuthedV2 = false, openAuthModal, authMe }: { copy: Copy; bootstrap?: Record<string, unknown>; setBootstrap: Dispatch<SetStateAction<Record<string, unknown> | undefined>>; openAdmin: () => void; backToStudio: () => void; provider: string; setProvider: (value: string) => void; width: number; setWidth: (value: number) => void; height: number; setHeight: (value: number) => void; steps: number; setSteps: (value: number) => void; setCfg: (value: number) => void; isAuthedV2?: boolean; openAuthModal?: () => void; authMe?: MeV2 | null }) {
+function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, openGallery, backToStudio, provider, setProvider, width, setWidth, height, setHeight, steps, setSteps, setCfg, isAuthedV2 = false, openAuthModal, authMe }: { copy: Copy; bootstrap?: Record<string, unknown>; setBootstrap: Dispatch<SetStateAction<Record<string, unknown> | undefined>>; openAdmin: () => void; openGallery?: () => void; backToStudio: () => void; provider: string; setProvider: (value: string) => void; width: number; setWidth: (value: number) => void; height: number; setHeight: (value: number) => void; steps: number; setSteps: (value: number) => void; setCfg: (value: number) => void; isAuthedV2?: boolean; openAuthModal?: () => void; authMe?: MeV2 | null }) {
   const user = (bootstrap?.user || {}) as { id?: string; role?: string; username?: string; firstName?: string; email?: string; plan?: string; galleryEnabled?: boolean; tokenBalance?: number }
+  const account = authMe?.account
   const quality = steps <= 4 ? 'fast' : steps <= 8 ? 'standard' : 'max'
   const tokenPrice = (quality === 'fast' ? 1 : quality === 'standard' ? 2 : 4) * (provider === 'openrouter' ? 2 : 1)
-  const referralLink = `${window.location.origin}?ref=${user.id || 'guest'}`
-  const plan = String(user.plan || 'mini').toLowerCase()
-  const galleryOpen = user.role === 'admin' || ['mini', 'plus', 'pro'].includes(plan)
+  const referralLink = `${window.location.origin}?ref=${authMe?.profile?.public_user_code || user.id || 'guest'}`
+  const plan = String(account?.plan || user.plan || 'mini').toLowerCase()
+  const galleryOpen = Boolean(account?.gallery_access ?? (account?.role === 'admin' || user.role === 'admin' || ['mini', 'plus', 'pro'].includes(plan)))
   const planLabel = plan.toUpperCase()
-  const tokenBalance = Number(user.tokenBalance ?? 50)
+  const tokenBalance = Number(account?.token_balance ?? user.tokenBalance ?? 0)
+  const planDaily: Record<string, number> = { free: 10, mini: 50, plus: 100, pro: 200 }
+  const dailyTokens = planDaily[plan] ?? 50
+  const publicCode = String(authMe?.profile?.public_user_code || user.id || '').replace(/^web_/, '').toUpperCase()
+  const planCards = [
+    { id: 'free', title: 'Free', note: 'Базовый доступ', daily: 10, features: ['Базовые модели', 'Стандартная скорость', 'Промокоды доступны'], disabled: ['Галерея закрыта'] },
+    { id: 'mini', title: 'Mini', note: 'Оптимальный старт', daily: 50, features: ['Стандартные модели', 'Галерея открыта', 'Реферальные бонусы'], disabled: [] },
+    { id: 'plus', title: 'Plus', note: 'Больше возможностей', daily: 100, features: ['HD-модели', 'Ускоренная генерация', 'Расширенная галерея'], disabled: [] },
+    { id: 'pro', title: 'Pro', note: 'Максимум мощности', daily: 200, features: ['Продвинутые модели', 'Приоритетная очередь', 'Полный доступ к галерее'], disabled: [] },
+  ]
   const setQuality = (value: string) => {
     if (value === 'fast') { setSteps(4); setCfg(1) }
     if (value === 'standard') { setSteps(8); setCfg(1.5) }
@@ -1781,14 +2054,27 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, backToStudio, 
   const [displayName, setDisplayName] = useState(authMe?.profile?.display_name || '')
   const [saveMsg, setSaveMsg] = useState('')
   const [techOpen, setTechOpen] = useState(false)
-  const friendPromoCode = `FRIEND-${String(user.id || 'GUEST').replace(/^web_/, '').toUpperCase().slice(0, 12)}`
+  const [viewedPlan, setViewedPlan] = useState(plan)
+  const [avatarUrl, setAvatarUrl] = useState(authMe?.profile?.avatar_url || avatarPresets[0].url)
+  const [avatarPreset, setAvatarPreset] = useState(authMe?.profile?.avatar_preset || '')
+  const [avatarMsg, setAvatarMsg] = useState('')
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'tariffs' | 'earn' | 'models'>('profile')
+  const friendPromoCode = `FRIEND-${String(authMe?.profile?.public_user_code || user.id || 'GUEST').replace(/^web_/, '').toUpperCase().slice(0, 12)}`
   void openAdmin // prop accepted for call-site compatibility
   useEffect(() => { setDisplayName(authMe?.profile?.display_name || '') }, [authMe?.profile?.display_name])
+  useEffect(() => { setViewedPlan(plan) }, [plan])
+  useEffect(() => {
+    setAvatarUrl(authMe?.profile?.avatar_url || avatarPresets[0].url)
+    setAvatarPreset(authMe?.profile?.avatar_preset || '')
+    setAvatarMsg('')
+  }, [authMe?.profile?.avatar_url, authMe?.profile?.avatar_preset])
   const displayEmail = authMe?.identities?.find((i) => i.provider_email)?.provider_email
   const displayNameFallback = authMe?.profile?.display_name
     || [authMe?.profile?.first_name, authMe?.profile?.last_name].filter(Boolean).join(' ')
     || displayEmail?.split('@')[0]
     || 'Пользователь'
+  const userInitials = displayNameFallback.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'AI'
   const onSaveProfile = async () => {
     const trimmed = displayName.trim()
     if (!trimmed) { setSaveMsg('Введите имя'); return }
@@ -1796,6 +2082,42 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, backToStudio, 
     const result = await updateProfileV2({ display_name: trimmed })
     if (result) { await refreshAuthStateV2(); setSaveMsg('Сохранено') }
     else setSaveMsg('Ошибка сохранения')
+  }
+  const selectAvatarPreset = async (presetId: string) => {
+    const preset = avatarPresets.find((item) => item.id === presetId)
+    if (!preset) return
+    setAvatarBusy(true); setAvatarMsg('')
+    const result = await updateProfileV2({ avatar_preset: presetId })
+    if (result) {
+      setAvatarPreset(presetId)
+      setAvatarUrl(preset.url)
+      await refreshAuthStateV2()
+      setAvatarMsg('Аватар сохранён')
+    } else setAvatarMsg('Не удалось сохранить аватар')
+    setAvatarBusy(false)
+  }
+  const uploadAvatar = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) { setAvatarMsg('Нужен PNG, JPG или WEBP'); return }
+    if (file.size > 2 * 1024 * 1024) { setAvatarMsg('Файл больше 2 МБ'); return }
+    setAvatarBusy(true); setAvatarMsg('')
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const r = await fetch(`${API}/me/avatar-upload-v2`, { method: 'POST', credentials: 'include', body: form })
+      const payload = await r.json().catch(() => ({}))
+      if (!r.ok || !payload.avatar_url) { setAvatarMsg(String(payload.detail || 'Не удалось загрузить аватар')); return }
+      setAvatarUrl(String(payload.avatar_url))
+      setAvatarPreset('')
+      await refreshAuthStateV2()
+      setAvatarMsg('Аватар загружен')
+    } catch {
+      setAvatarMsg('Ошибка загрузки аватара')
+    } finally {
+      setAvatarBusy(false)
+    }
   }
   const onLogout = async () => { await logoutV2(); await refreshAuthStateV2() }
   const onApplyPromo = async () => {
@@ -1833,50 +2155,222 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, backToStudio, 
 
   if (!isAuthedV2) {
     return (
-      <section className="settings-page user-settings">
-        <div className="view-actions in-panel"><button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button></div>
-        <h2>{copy.settings}</h2>
-        <div className="user-settings-grid">
-          <article className="auth-cta-card">
-            <h3>Аккаунт</h3><p>Войдите, чтобы управлять аккаунтом</p>
-            <button className="secondary" onClick={() => openAuthModal?.()}><Lock size={16} />Войти</button>
-          </article>
-        </div>
+      <section className="settings-page user-settings usr-page">
+        <div className="usr-head"><button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button></div>
+        <header className="usr-title">
+          <h2>Настройки аккаунта</h2>
+          <p>Войдите, чтобы увидеть профиль, тарифы, токены и параметры генерации.</p>
+        </header>
+        <article className="usr-card usr-auth-card">
+          <h3>Аккаунт</h3>
+          <p>После входа здесь появятся ваш баланс, тариф, промокоды и реферальная ссылка.</p>
+          <button className="usr-primary" onClick={() => openAuthModal?.()}><Lock size={16} />Войти</button>
+        </article>
       </section>
     )
   }
   return (
-    <section className="settings-page user-settings">
-      <div className="view-actions in-panel"><button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button></div>
-      <h2>{copy.settings}</h2>
-      <div className="user-settings-grid">
-        <article className="account-card">
-          <h3>Аккаунт</h3>
-          <p className="account-name">{displayNameFallback}</p>
-          <p className="account-status">Статус: вход выполнен</p>
-          <label>Имя<input type="text" value={displayName} onChange={(e) => { setDisplayName(e.target.value); setSaveMsg('') }} placeholder="Ваше имя" maxLength={80} /></label>
-          <button className="secondary" onClick={onSaveProfile} disabled={!displayName.trim()}>Сохранить</button>
-          {saveMsg && <small className={saveMsg === 'Сохранено' ? 'save-ok' : 'save-err'}>{saveMsg}</small>}
-          <label>Email<input type="email" value={displayEmail || ''} placeholder="Email не указан" readOnly disabled /></label>
-          <button className="secondary" onClick={onLogout}><Lock size={14} />Выйти</button>
-          <div className="tech-info">
-            <button className="secondary tech-toggle" onClick={() => setTechOpen(!techOpen)}>{techOpen ? '\u25BE' : '\u25B8'} Техническая информация</button>
-            {techOpen && (
-              <div className="tech-body">
-                <small>ID: {authMe?.internal_user_id?.slice(0, 8) || '\u2014'}\u2026</small>
-                {authMe?.identities?.map((id, i) => (<small key={i}>{id.provider}: {id.provider_username || id.provider_email || '\u2014'}</small>))}
-              </div>
-            )}
-          </div>
-        </article>
-        <article><h3>Тариф</h3><p>Текущий тариф: <strong>{planLabel}</strong></p><p>Галерея: <strong>{galleryOpen ? 'открыта' : 'недоступна'}</strong></p><p>{galleryOpen ? 'Mini включает личную галерею, сохранение изображений и базовые лимиты.' : 'Free: галерея недоступна по текущему правилу продукта.'}</p></article>
-        <article className="token-card"><h3>Токены</h3><strong>{tokenBalance} токенов</strong><p>Цена текущей генерации: {tokenPrice} {tokenPrice === 1 ? 'токен' : 'токена'}.</p><button className="generate small-action">Добавить токены</button></article>
-        <article><h3>Промокод</h3><p>Введите промокод — если код даёт бонус, токены начислятся автоматически.</p><label>Промокод<input value={promoCode} onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoResult('') }} placeholder="Например START50" /></label><button className="secondary" disabled={promoBusy || !promoCode.trim()} onClick={onApplyPromo}>{promoBusy ? 'Проверяем…' : 'Применить'}</button><small>{promoResult}</small></article>
-        <article><h3>Качество</h3><div className="segmented"><button className={quality === 'fast' ? 'active' : ''} onClick={() => setQuality('fast')}>Быстро</button><button className={quality === 'standard' ? 'active' : ''} onClick={() => setQuality('standard')}>Стандарт</button><button className={quality === 'max' ? 'active' : ''} onClick={() => setQuality('max')}>Максимум</button></div><p>{quality === 'fast' ? '1 токен: быстрый черновик.' : quality === 'standard' ? '2 токена: баланс скорости и качества.' : '4 токена: больше деталей и аккуратнее результат.'}</p></article>
-        <article><h3>Мегаскорость</h3><button className={provider === 'openrouter' ? 'speed-toggle active' : 'speed-toggle'} onClick={() => setProvider(provider === 'openrouter' ? 'comfyui' : 'openrouter')}><Zap size={17} />{provider === 'openrouter' ? 'Включена' : 'Выключена'}</button><p>Ускоряет генерацию, списывает токены в 2 раза быстрее.</p></article>
-        <article><h3>Размер по умолчанию</h3><label>Формат<select value={`${width}x${height}`} onChange={(e) => { const [nextWidth, nextHeight] = e.target.value.split('x').map(Number); setWidth(nextWidth); setHeight(nextHeight) }}>{resolutionPresets.map((item) => <option key={item.label} value={`${item.width}x${item.height}`}>{item.label}</option>)}</select></label></article>
-        <article><h3>Пригласить друга</h3><p><strong>+50 токенов за приглашённого друга</strong> после регистрации по ссылке или коду.</p><label>Реферальный код<input readOnly value={friendPromoCode} onFocus={(e) => e.currentTarget.select()} /></label><label>Ссылка приглашения<input readOnly value={referralLink} onFocus={(e) => e.currentTarget.select()} /></label><button className="secondary" onClick={copyInvite}>Скопировать приглашение</button><small>{inviteMsg}</small></article>
+    <section className="settings-page user-settings usr-page">
+      <div className="usr-head">
+        <button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button>
+        <span className="usr-status"><i />Сессия активна</span>
       </div>
+
+      <header className="usr-title">
+        <h2>Настройки аккаунта</h2>
+        <p>Профиль, тарифы, токены, промокоды и параметры генерации.</p>
+      </header>
+
+      <nav className="usr-tabs" aria-label="Разделы настроек">
+        <button type="button" className={settingsTab === 'profile' ? 'active' : ''} onClick={() => setSettingsTab('profile')}>Профиль</button>
+        <button type="button" className={settingsTab === 'tariffs' ? 'active' : ''} onClick={() => setSettingsTab('tariffs')}>Тарифы</button>
+        <button type="button" className={settingsTab === 'earn' ? 'active' : ''} onClick={() => setSettingsTab('earn')}>Заработать токены</button>
+        <button type="button" className={settingsTab === 'models' ? 'active' : ''} onClick={() => setSettingsTab('models')}>Модели</button>
+      </nav>
+
+      {settingsTab === 'profile' && <>
+      <section className="usr-card usr-hero">
+        <div className="usr-avatar-block">
+          <div className="usr-avatar" aria-label="Аватар пользователя">
+            {avatarUrl ? <img src={avatarUrl} alt="" /> : <span>{userInitials}</span>}
+          </div>
+          <label className={avatarBusy ? 'usr-avatar-upload disabled' : 'usr-avatar-upload'}>
+            <Upload size={16} />
+            <span>{avatarBusy ? 'Сохраняем...' : 'Загрузить файл'}</span>
+            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={uploadAvatar} disabled={avatarBusy} />
+          </label>
+          {avatarMsg && <small className={avatarMsg.includes('сохран') || avatarMsg.includes('загруж') ? 'save-ok' : 'save-err'}>{avatarMsg}</small>}
+        </div>
+        <div className="usr-hero-main">
+          <div className="usr-identity">
+            <h3>{displayNameFallback}</h3>
+            <span className="usr-chip current">{planLabel}</span>
+            <span className={galleryOpen ? 'usr-chip green' : 'usr-chip'}>{galleryOpen ? 'Галерея открыта' : 'Галерея закрыта'}</span>
+          </div>
+          <div className="usr-code"><span>Публичный код: {publicCode || 'GUEST'}</span></div>
+          <div className="usr-metrics">
+            <div><span>Токенов в сутки</span><strong>{dailyTokens} / {dailyTokens}</strong><small>по текущему тарифу</small></div>
+            <div><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>доступно сейчас</small></div>
+            <div><span>Галерея</span><strong>{galleryOpen ? 'Открыта' : 'Закрыта'}</strong><small>доступ зависит от тарифа</small></div>
+            <div><span>Промо и друзья</span><strong>+50</strong><small>за промокод или друга</small></div>
+          </div>
+          <div className="usr-avatar-picker" aria-label="Выбор аватара">
+            {avatarPresets.map((preset) => (
+              <button type="button" className={avatarPreset === preset.id ? 'active' : ''} onClick={() => void selectAvatarPreset(preset.id)} disabled={avatarBusy} key={preset.id} title={preset.label}>
+                <img src={preset.url} alt="" />
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="usr-card usr-profile">
+        <label>Имя<input type="text" value={displayName} onChange={(e) => { setDisplayName(e.target.value); setSaveMsg('') }} placeholder="Ваше имя" maxLength={80} /></label>
+        <label>Email<input type="email" value={displayEmail || ''} placeholder="Email не указан" readOnly disabled /></label>
+        <div className="usr-profile-actions">
+          <button className="usr-primary" onClick={onSaveProfile} disabled={!displayName.trim()}>Сохранить профиль</button>
+          <button className="usr-ghost" onClick={onLogout}><Lock size={14} />Выйти</button>
+          {saveMsg && <small className={saveMsg === 'Сохранено' ? 'save-ok' : 'save-err'}>{saveMsg}</small>}
+        </div>
+        <div className="tech-info">
+          <button className="tech-toggle" onClick={() => setTechOpen(!techOpen)}>{techOpen ? '\u25BE' : '\u25B8'} Техническая информация</button>
+          {techOpen && (
+            <div className="tech-body">
+              <small>ID: {authMe?.internal_user_id?.slice(0, 8) || '\u2014'}\u2026</small>
+              {authMe?.identities?.map((id, i) => (<small key={i}>{id.provider}: {id.provider_username || id.provider_email || '\u2014'}</small>))}
+            </div>
+          )}
+        </div>
+      </section>
+      <section className="usr-profile-dashboard">
+        <article className="usr-card usr-stat-card"><span>Сегодня доступно</span><strong>{dailyTokens}</strong><small>токенов</small></article>
+        <article className="usr-card usr-stat-card"><span>Баланс</span><strong>{tokenBalance}</strong><small>токенов</small></article>
+        <article className="usr-card usr-stat-card"><span>Галерея</span><strong>{galleryOpen ? 'Открыта' : 'Закрыта'}</strong><small>{galleryOpen ? 'без ограничений' : 'по тарифу'}</small></article>
+        <article className="usr-card usr-stat-card"><span>Промокод друга</span><strong>{friendPromoCode}</strong><small>+50 токенов</small></article>
+      </section>
+      </>}
+
+      {settingsTab === 'tariffs' && <>
+      <section className="usr-section">
+        <div className="usr-tariff-summary usr-card">
+          <div><span>Текущий тариф</span><strong>{planLabel}</strong></div>
+          <div><span>Токены в сутки</span><strong>{dailyTokens}</strong></div>
+          <div><span>Галерея</span><strong>{galleryOpen ? 'открыта' : 'закрыта'}</strong></div>
+          <button type="button" className="usr-primary" disabled>Управление тарифом скоро</button>
+        </div>
+        <div className="usr-section-head"><h3>Тарифы</h3><span>Текущий тариф: {planLabel}</span></div>
+        <div className="usr-plan-tabs" aria-label="Тарифы">
+          {planCards.map((item) => <button type="button" className={item.id === viewedPlan ? 'active' : ''} onClick={() => setViewedPlan(item.id)} key={item.id}>{item.title}</button>)}
+        </div>
+        <div className="usr-plans">
+          {planCards.map((item) => (
+            <article className={`${item.id === viewedPlan ? 'usr-card usr-plan active' : 'usr-card usr-plan'} ${item.id === plan ? 'current' : ''}`} key={item.id}>
+              {item.id === plan && <span className="usr-chip current">Текущий</span>}
+              <h4>{item.title}</h4>
+              <p>{item.note}</p>
+              <strong>{item.daily}</strong>
+              <span>токенов в сутки</span>
+              <ul>
+                {item.features.map((feature) => <li key={feature}>{feature}</li>)}
+                {item.disabled.map((feature) => <li className="no" key={feature}>{feature}</li>)}
+              </ul>
+              <button type="button" disabled>{item.id === plan ? 'Текущий тариф' : 'Смена тарифа скоро'}</button>
+            </article>
+          ))}
+        </div>
+      </section>
+      <section className="usr-card usr-compare">
+        <div>Функции</div><div>FREE</div><div>MINI</div><div>PLUS</div><div>PRO</div>
+        <span>Токены в сутки</span><b>10</b><b>50</b><b>100</b><b>200</b>
+        <span>Галерея</span><b>Закрыта</b><b>Открыта</b><b>Расширенная</b><b>Расширенная</b>
+        <span>Модели</span><b>Базовые</b><b>Стандартные</b><b>HD</b><b>Продвинутые</b>
+        <span>Очередь</span><b>Обычная</b><b>Обычная</b><b>Ускоренная</b><b>Приоритетная</b>
+      </section>
+      </>}
+
+      {settingsTab === 'earn' && <>
+      <section className="usr-section">
+        <div className="usr-earn-hero usr-card">
+          <h3>Получайте токены</h3>
+          <div><span>Текущий баланс</span><strong>{tokenBalance}</strong><small>токенов</small></div>
+          <div><span>Ожидает начисления</span><strong>+50</strong><small>за друга или промокод</small></div>
+        </div>
+        <div className="usr-earn">
+          <article className="usr-card usr-earn-card">
+            <h4>Промокод</h4>
+            <p>Введите промокод и получите награду, если код активен.</p>
+            <div className="usr-inline">
+              <input value={promoCode} onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoResult('') }} placeholder="Например START50" aria-label="Промокод" />
+              <button type="button" disabled={promoBusy || !promoCode.trim()} onClick={onApplyPromo}>{promoBusy ? 'Проверяем...' : 'Применить'}</button>
+            </div>
+            <div className={promoResult ? 'usr-reward result' : 'usr-reward'}>{promoResult || '+50 токенов за успешный промокод'}</div>
+          </article>
+
+          <article className="usr-card usr-earn-card">
+            <h4>Пригласи друга</h4>
+            <p>Отправьте другу ссылку. Бонус начислится после регистрации.</p>
+            <label>Реферальный код<input readOnly value={friendPromoCode} onFocus={(e) => e.currentTarget.select()} /></label>
+            <div className="usr-inline">
+              <input readOnly value={referralLink} onFocus={(e) => e.currentTarget.select()} aria-label="Реферальная ссылка" />
+              <button type="button" onClick={copyInvite}>Копировать</button>
+            </div>
+            <div className="usr-reward">{inviteMsg || '+50 токенов за каждого друга'}</div>
+          </article>
+
+          <article className="usr-card usr-earn-card">
+            <h4>Баланс</h4>
+            <p>Токены списываются при генерации. Стоимость зависит от качества и мегаскорости.</p>
+            <strong className="usr-token-balance">{tokenBalance} токенов</strong>
+            <button type="button" className="usr-primary" disabled>Пополнение скоро</button>
+          </article>
+        </div>
+      </section>
+      <section className="usr-card usr-bonus-history">
+        <h4>История бонусов</h4>
+        <div><span>Сегодня</span><b>Промокод или приглашение</b><strong>+50</strong><em>Начисляется после успешной активации</em></div>
+        <div><span>Сейчас</span><b>Реферальный код</b><strong>{friendPromoCode}</strong><em>Скопируйте и отправьте другу</em></div>
+      </section>
+      </>}
+
+      {settingsTab === 'models' && <>
+      <section className="usr-section">
+        <div className="usr-model-summary">
+          <article className="usr-card usr-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article>
+          <article className="usr-card usr-stat-card"><span>Дневной лимит</span><strong>{dailyTokens} / {dailyTokens}</strong><small>использовано сегодня</small></article>
+          <article className="usr-card usr-stat-card"><span>Модель по умолчанию</span><strong>{quality === 'fast' ? 'Быстрая' : quality === 'standard' ? 'Стандарт' : 'Максимум'}</strong><small>рекомендуется</small></article>
+          <article className="usr-card usr-stat-card"><span>Стоимость</span><strong>{tokenPrice}</strong><small>{tokenPrice === 1 ? 'токен' : 'токена'}</small></article>
+        </div>
+        <div className="usr-section-head"><h3>Модели и стоимость</h3><span>Стоимость будет показана перед генерацией</span></div>
+        <div className="usr-models">
+          <button type="button" className={quality === 'fast' ? 'usr-card usr-model active' : 'usr-card usr-model'} onClick={() => setQuality('fast')}><Sparkles size={26} /><b>Быстрая</b><span>1 токен</span></button>
+          <button type="button" className={quality === 'standard' ? 'usr-card usr-model active' : 'usr-card usr-model'} onClick={() => setQuality('standard')}><WandSparkles size={26} /><b>Стандарт</b><span>2 токена</span></button>
+          <button type="button" className={quality === 'max' ? 'usr-card usr-model active' : 'usr-card usr-model'} onClick={() => setQuality('max')}><SlidersHorizontal size={26} /><b>Максимум</b><span>4 токена</span></button>
+          <button type="button" className={provider === 'openrouter' ? 'usr-card usr-model active' : 'usr-card usr-model'} onClick={() => setProvider(provider === 'openrouter' ? 'comfyui' : 'openrouter')}><Zap size={26} /><b>Мегаскорость</b><span>{provider === 'openrouter' ? 'Включена' : 'Выключена'}</span></button>
+        </div>
+        <div className="usr-estimate"><span>Выбрано: <strong>{quality === 'fast' ? 'Быстрая' : quality === 'standard' ? 'Стандарт' : 'Максимум'}</strong></span><span>Примерная стоимость: <strong>{tokenPrice} {tokenPrice === 1 ? 'токен' : 'токена'}</strong></span></div>
+      </section>
+
+      <section className="usr-section">
+        <h3>Параметры генерации</h3>
+        <div className="usr-generation">
+          <article className="usr-card usr-small-card">
+            <h4>Размер по умолчанию</h4>
+            <p>Формат можно менять перед каждой генерацией.</p>
+            <div className="usr-size-options">
+              {resolutionPresets.map((item) => {
+                const selectedSize = width === item.width && height === item.height
+                return <button type="button" className={selectedSize ? 'active' : ''} key={item.label} onClick={() => { setWidth(item.width); setHeight(item.height) }}>{item.label}</button>
+              })}
+            </div>
+          </article>
+          <article className="usr-card usr-small-card">
+            <h4>Доступ к галерее</h4>
+            <p>Ваш текущий доступ: <strong>{galleryOpen ? 'открыт' : 'закрыт'}</strong>. Загружайте, просматривайте и сохраняйте работы.</p>
+            <button type="button" className="usr-ghost" disabled={!galleryOpen || !openGallery} onClick={() => openGallery?.()}>{galleryOpen ? 'Перейти в галерею' : 'Галерея закрыта'}</button>
+          </article>
+        </div>
+      </section>
+      </>}
     </section>
   )
 }
