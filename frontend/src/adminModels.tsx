@@ -128,12 +128,21 @@ export default function AdminModelsV2() {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string>('')
   const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
 
   const load = useCallback(async () => {
-    const d: PageData = await amvFetch('/admin/models-page').then((r) => r.json()).catch(() => null)
-    if (d) {
-      setData(d); setMatrix(d.matrix); setRoutes(d.routes)
+    const d = await amvFetch('/admin/models-page').then((r) => (r.ok ? r.json() : null)).catch(() => null) as PageData | null
+    // Принимаем ответ только полной формы. Иначе — сообщение об ошибке, а не падение:
+    // живой backend мог не содержать /api/admin/models-page или вернуть 403/500 с JSON-телом.
+    const ok = !!d && Array.isArray(d.matrix) && Array.isArray(d.routes) && !!d.economy
+      && !!d.userChoice && Array.isArray(d.userChoice.simple) && Array.isArray(d.userChoice.pro)
+      && Array.isArray(d.catalog) && Array.isArray(d.loras) && !!d.comfyFiles && !!d.openrouter
+    if (ok && d) {
+      setErr(''); setData(d); setMatrix(d.matrix); setRoutes(d.routes)
       setSelected((cur) => cur || d.matrix[1]?.modelProfileId || d.matrix[0]?.modelProfileId || '')
+    } else {
+      setData(null)
+      setErr('Не удалось загрузить страницу моделей. Нужен доступ администратора и обновлённый backend (/api/admin/models-page).')
     }
   }, [])
   useEffect(() => { void load() }, [load])
@@ -164,7 +173,7 @@ export default function AdminModelsV2() {
   const profiles = data?.profiles || []
   const localOptions = profiles.map((p) => ({ id: p.id, name: p.name }))
 
-  if (!data) return <div className="amv2"><style>{CSS}</style><p style={{ color: 'var(--muted)', padding: 12 }}>Загрузка страницы моделей…</p></div>
+  if (!data) return <div className="amv2"><style>{CSS}</style><div style={{ padding: 12, display: 'grid', gap: 10 }}><p style={{ color: err ? 'var(--red)' : 'var(--muted)' }}>{err || 'Загрузка страницы моделей…'}</p>{err && <button className="ghost" style={{ width: 'max-content' }} onClick={() => void load()}>Повторить</button>}</div></div>
 
   return <div className="amv2">
     <style>{CSS}</style>
