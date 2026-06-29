@@ -1189,6 +1189,52 @@ def init_db() -> None:
             VALUES ('local_flux_klein', 'Local Flux Klein', 'comfyui', 'flux-2-klein-9b-fp8.safetensors')
             """,
         )
+        # MODEL PROFILE: canonical 4B/9B profiles. We must support both free models and
+        # never hardcode a single one. supports_pose is additive (default 0). The exact
+        # required-file fingerprints live in settings_json so the admin status endpoint can
+        # cross-check them against the live ComfyUI install.
+        existing_profile_columns = {row["name"] for row in conn.execute("PRAGMA table_info(model_profiles)").fetchall()}
+        if "supports_pose" not in existing_profile_columns:
+            conn.execute("ALTER TABLE model_profiles ADD COLUMN supports_pose INTEGER NOT NULL DEFAULT 0")
+        seed_profiles = [
+            (
+                "flux_klein_4b", "FLUX.2 [klein] 4B", "flux-2-klein-4b-fp8.safetensors", 0,
+                {
+                    "variant": "4b",
+                    "unet": "flux-2-klein-4b-fp8.safetensors",
+                    "text_encoder": "qwen_3_4b",
+                    "vae": "flux2-vae.safetensors",
+                    "faceswap_lora": "bfs_head_v1_flux-klein_4b",
+                    "node": "FluxKleinOneNode",
+                    "pose": {"supported": False, "reason": "repo refcontrol pose LoRA is published for 9B only"},
+                },
+            ),
+            (
+                "flux_klein_9b", "FLUX.2 [klein] 9B", "flux-2-klein-9b-fp8.safetensors", 1,
+                {
+                    "variant": "9b",
+                    "unet": "flux-2-klein-9b-fp8.safetensors",
+                    "text_encoder": "qwen_3_8b",
+                    "vae": "flux2-vae.safetensors",
+                    "faceswap_lora": "bfs_head_v1_flux-klein_9b",
+                    "node": "FluxKleinOneNode",
+                    "pose": {
+                        "supported": True,
+                        "lora": "refcontrol_v2_poses.safetensors",
+                        "preprocessor_node": "DWPreprocessor",
+                        "workflow": "pose",
+                    },
+                },
+            ),
+        ]
+        for pid, pname, model_name, supports_pose, settings in seed_profiles:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO model_profiles (id, name, provider, model_name, supports_pose, settings_json)
+                VALUES (?, ?, 'comfyui', ?, ?, ?)
+                """,
+                (pid, pname, model_name, supports_pose, json.dumps(settings, ensure_ascii=False)),
+            )
         seed_presets = [
             ("portrait", "Кинематографичный портрет", "Cinematic portrait", "text_to_image"),
             ("enhance", "Улучшить качество", "Enhance quality", "edit"),
@@ -3239,6 +3285,18 @@ async def comfyui_available() -> bool:
             return False
 
 
+async def comfyui_node_names() -> set[str]:
+    """Registered ComfyUI node class names (e.g. FluxKleinOneNode, DWPreprocessor).
+    Used to verify pose readiness. Returns an empty set if ComfyUI is unreachable."""
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            response = await client.get(f"{COMFYUI_BASE_URL}/object_info")
+            response.raise_for_status()
+            return set(response.json().keys())
+    except Exception:
+        return set()
+
+
 async def get_comfyui_models() -> dict[str, list[str]]:
     async with httpx.AsyncClient(timeout=10) as client:
         response = await client.get(f"{COMFYUI_BASE_URL}/flux_klein/models")
@@ -3279,11 +3337,92 @@ async def get_flux_lora_triggers(name: str) -> dict[str, Any]:
         return response.json()
 
 
+def resolve_profile_model(requested: str) -> str:
+    """Map a model_profiles id (e.g. 'flux_klein_9b' / 'local_flux_klein') to its
+    diffusion model filename. Returns the input unchanged if it is not a known profile id
+    (so passing a raw filename still works)."""
+    if not requested:
+        return ""
+    try:
+        with db() as conn:
+            row = conn.execute("SELECT model_name FROM model_profiles WHERE id = ? AND enabled = 1", (requested,)).fetchone()
+        if row and row["model_name"]:
+            return row["model_name"]
+    except Exception:
+        pass
+    return requested
+
+
+def get_model_settings() -> dict[str, Any]:
+    """Admin-configured model selection. editModelProfile is the default for all modes;
+    poseModelProfile is used for the Pose role and falls back to the edit model."""
+    defaults = {"editModelProfile": "flux_klein_9b", "poseModelProfile": ""}
+    try:
+        with db() as conn:
+            row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'models'").fetchone()
+        if row:
+            defaults.update(json.loads(row["value_json"] or "{}"))
+    except Exception:
+        pass
+    return defaults
+
+
+def effective_edit_profile(requested: str) -> str:
+    """Resolve which profile id to use: an explicit non-generic request wins, otherwise the
+    admin default edit model. Never hardcodes a single model."""
+    if requested and requested not in ("", "local_flux_klein", "default"):
+        return requested
+    return get_model_settings().get("editModelProfile") or "flux_klein_9b"
+
+
+def effective_pose_profile(requested: str) -> str:
+    """Pose routing: poseModelProfile wins; otherwise fall back to the edit model.
+    So edit=4B + pose=9B routes Pose through 9B, exactly as configured in admin."""
+    return get_model_settings().get("poseModelProfile") or effective_edit_profile(requested)
+
+
+def get_profile_row(profile_id: str) -> dict[str, Any] | None:
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id, name, model_name, supports_pose, settings_json FROM model_profiles WHERE id = ? AND enabled = 1",
+            (profile_id,),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["settings"] = json.loads(d.get("settings_json") or "{}")
+    return d
+
+
+# Embedded pose workflow template — bundled in-repo so Pose does NOT depend on the version
+# of the installed one-node-flux-2-klein custom node (the local one ships without it).
+POSE_WORKFLOW_PATH = Path(__file__).resolve().parent / "workflows" / "flux_klein_9b_pose_workflow.json"
+
+
+def build_pose_workflow(models: dict[str, list[str]], profile: dict[str, Any], ref_image_name: str, pose_image_name: str, req: GenerateRequest) -> dict[str, Any]:
+    """RefControl pose graph: identity/clothing/background come from the reference image
+    (Image 1); only the DWPose skeleton is extracted from the pose image."""
+    model, text_encoder, vae = choose_model(models, profile["id"])
+    loras = models.get("loras", [])
+    pose_meta = (profile.get("settings") or {}).get("pose", {}) or {}
+    pose_lora = next((x for x in loras if "refcontrol" in x.lower()), pose_meta.get("lora", ""))
+    graph = json.loads(POSE_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    graph["FKP:unet"]["inputs"]["unet_name"] = model
+    graph["FKP:clip"]["inputs"]["clip_name"] = text_encoder
+    graph["FKP:vae"]["inputs"]["vae_name"] = vae
+    graph["FKP:lora"]["inputs"]["lora_name"] = pose_lora
+    graph["FKP:refimg"]["inputs"]["image"] = ref_image_name
+    graph["FKP:poseimg"]["inputs"]["image"] = pose_image_name
+    graph["FKP:noise"]["inputs"]["noise_seed"] = int(req.seed or 0)
+    return graph
+
+
 def choose_model(models: dict[str, list[str]], requested: str) -> tuple[str, str, str]:
     diffusion = models.get("diffusion_models", [])
     text_encoders = models.get("text_encoders", [])
     vaes = models.get("vaes", [])
 
+    requested = resolve_profile_model(requested)
     model = requested if requested in diffusion else ""
     if not model:
         model = next((item for item in diffusion if "klein-9b" in item and "fp8" in item), "")
@@ -3576,7 +3715,7 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
         return None
 
     models = await get_comfyui_models()
-    model, text_encoder, vae = choose_model(models, payload.modelProfile)
+    model, text_encoder, vae = choose_model(models, effective_edit_profile(payload.modelProfile))
     available_loras = models.get("loras", [])
     is_4b = "4b" in model.lower()
     target_lora_tag = "4b" if is_4b else "9b"
@@ -3594,6 +3733,7 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             if fallback:
                 lora.id = fallback
     workflow = await fetch_workflow(payload.mode)
+    pose_graph: dict[str, Any] | None = None
 
     uploads: dict[str, str] = {}
     input1_path = local_media_path_from_url(payload.inputImage1 or "") or save_data_url(payload.inputImage1, f"{job['id']}_input1")
@@ -3615,15 +3755,38 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             if payload.inputImage2:
                 edit_sources.append(("", payload.inputImage2))
         edit_roles: list[str] = []
+        pose_image_name: str | None = None
         for i, (role, src) in enumerate(edit_sources[:4]):
             slot_path = local_media_path_from_url(src) or save_data_url(src, f"{job['id']}_edit{i + 1}")
             if not slot_path:
                 continue
             uploads[f"input{i + 1}"] = await upload_to_comfyui(slot_path)
             edit_roles.append(role or ("base" if i == 0 else "?"))
+            if role == "pose" and i > 0:
+                pose_image_name = uploads[f"input{i + 1}"]
         if "input1" not in uploads:
             raise RuntimeError("Для редактирования нужна основа (изображение 1).")
         print(f"edit-generate job={job['id']} images={sum(1 for k in uploads if k.startswith('input'))} roles={edit_roles}")
+
+        # role=Pose: separate workflow branch (DWPose skeleton + RefControl LoRA). Identity,
+        # clothing and background come from Image 1; only the pose transfers from the pose ref.
+        if "pose" in edit_roles:
+            other_roles = [r for r in edit_roles if r not in ("base", "pose", "?", "")]
+            if other_roles:
+                raise RuntimeError("Pose пока поддерживается только отдельно — без сочетания с другими ролями (" + ", ".join(other_roles) + ") в одном запросе.")
+            if not pose_image_name:
+                raise RuntimeError("Для роли Поза нужен референс с позой (изображение 2).")
+            pose_profile_id = effective_pose_profile(payload.modelProfile)
+            status = await compute_model_status()
+            prof = next((p for p in status["profiles"] if p["id"] == pose_profile_id), None)
+            if not prof or not prof.get("supportsPose"):
+                raise RuntimeError(f"Pose workflow is not supported for {pose_profile_id}.")
+            if prof.get("pose") != "available":
+                miss = ", ".join(prof.get("poseMissing", [])) or "зависимости"
+                raise RuntimeError(f"Pose workflow is not available for selected pose model profile ({pose_profile_id}): отсутствует {miss}.")
+            profile_row = get_profile_row(pose_profile_id)
+            pose_graph = build_pose_workflow(models, profile_row, uploads["input1"], pose_image_name, payload)
+            print(f"pose-generate job={job['id']} profile={pose_profile_id} ref=input1 pose={pose_image_name}")
     elif payload.mode in {"image_to_image", "paint", "inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
         if not primary_input:
             raise RuntimeError("Для выбранного режима нужно входное изображение.")
@@ -3635,7 +3798,10 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
     if payload.mode in {"inpaint", "outpaint"} and mask_path:
         uploads["mask"] = await upload_to_comfyui(mask_path)
 
-    patch_mode_nodes(workflow, payload, uploads, model, text_encoder, vae)
+    if pose_graph is not None:
+        workflow = pose_graph
+    else:
+        patch_mode_nodes(workflow, payload, uploads, model, text_encoder, vae)
     try:
         prompt_id, history, output_images = await submit_workflow(workflow, job)
     except Exception as exc:
@@ -7373,6 +7539,97 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
             (key, json.dumps(req.settings, ensure_ascii=False), now),
         )
     return {"ok": True, "key": key, "settings": req.settings}
+
+
+async def compute_model_status() -> dict[str, Any]:
+    """Cross-check every enabled model profile against the live ComfyUI install:
+    which model/encoder/vae/lora files are present, whether base edit and pose can run,
+    and exactly which files/nodes are missing. No guessing — all checked against ComfyUI."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, model_name, supports_pose, settings_json FROM model_profiles WHERE enabled = 1 AND provider = 'comfyui'"
+        ).fetchall()
+
+    comfy_up = await comfyui_available()
+    try:
+        models = await get_comfyui_models() if comfy_up else {}
+    except Exception:
+        models = {}
+    nodes = await comfyui_node_names() if comfy_up else set()
+
+    diffusion = models.get("diffusion_models", [])
+    text_encoders = models.get("text_encoders", [])
+    vaes = models.get("vaes", [])
+    loras = models.get("loras", [])
+
+    def has(items: list[str], needle: str) -> bool:
+        n = (needle or "").lower()
+        return bool(n) and any(n in item.lower() for item in items)
+
+    selection = get_model_settings()
+    profiles: list[dict[str, Any]] = []
+    for row in rows:
+        meta = json.loads(row["settings_json"] or "{}")
+        # Only canonical MODEL PROFILEs (those carrying a variant fingerprint) appear in the
+        # admin status; the legacy 'local_flux_klein' alias is kept for back-compat but hidden.
+        if not meta.get("variant"):
+            continue
+        pose_meta = meta.get("pose", {}) or {}
+        unet_ok = (row["model_name"] in diffusion)
+        te_ok = has(text_encoders, meta.get("text_encoder", ""))
+        vae_ok = has(vaes, meta.get("vae", "flux2-vae"))
+        faceswap_ok = has(loras, meta.get("faceswap_lora", ""))
+
+        missing: list[str] = []
+        if not unet_ok:
+            missing.append(row["model_name"])
+        if not te_ok and meta.get("text_encoder"):
+            missing.append(meta["text_encoder"])
+        if not vae_ok:
+            missing.append(meta.get("vae", "flux2-vae.safetensors"))
+
+        base_edit_ok = unet_ok and te_ok and vae_ok
+
+        pose_missing: list[str] = []
+        pose_supported = bool(row["supports_pose"]) and bool(pose_meta.get("supported"))
+        pose_available = False
+        if pose_supported:
+            pose_lora = pose_meta.get("lora", "")
+            pose_node = pose_meta.get("preprocessor_node", "DWPreprocessor")
+            lora_ok = has(loras, pose_lora)
+            node_ok = pose_node in nodes
+            if not lora_ok:
+                pose_missing.append(pose_lora)
+            if not node_ok:
+                pose_missing.append(f"ComfyUI node: {pose_node}")
+            pose_available = base_edit_ok and lora_ok and node_ok
+
+        profiles.append({
+            "id": row["id"],
+            "name": row["name"],
+            "modelName": row["model_name"],
+            "installed": unet_ok,
+            "baseEdit": "available" if base_edit_ok else "missing",
+            "supportsPose": pose_supported,
+            "pose": ("available" if pose_available else "missing"),
+            "requiredNode": meta.get("node", "FluxKleinOneNode"),
+            "faceswapLora": "available" if faceswap_ok else "missing",
+            "missingFiles": missing,
+            "poseMissing": pose_missing,
+        })
+
+    return {
+        "comfyuiAvailable": comfy_up,
+        "editModelProfile": selection.get("editModelProfile"),
+        "poseModelProfile": selection.get("poseModelProfile") or "",
+        "profiles": profiles,
+    }
+
+
+@app.get("/api/admin/model-status")
+async def admin_model_status(request: Request) -> dict[str, Any]:
+    require_admin(request)
+    return await compute_model_status()
 
 
 @app.get("/api/admin/jobs")

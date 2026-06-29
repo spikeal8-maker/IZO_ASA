@@ -2384,6 +2384,8 @@ function AdminView({ copy, admin, backToStudio, provider, setProvider, modelProf
   const [finance, setFinance] = useState({ tokenRevenue: 12450, tokenCost: 2380, electricity: 740, promoBudget: 1500 })
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([])
   const [promoCodes, setPromoCodes] = useState<PromoCode[]>([])
+  const [modelStatus, setModelStatus] = useState<any>(null)
+  const [modelSel, setModelSel] = useState({ editModelProfile: 'flux_klein_9b', poseModelProfile: '' })
   const [userDraft, setUserDraft] = useState({ userId: 'telegram_123456789', username: '', firstName: '', lastName: '', middleName: '', phone: '', email: '', country: '', city: '', role: 'user', plan: 'mini', tokenBalance: 50, galleryEnabled: true })
   const [userFormOpen, setUserFormOpen] = useState(false)
   const [editingUserId, setEditingUserId] = useState<string | null>(null)
@@ -2409,15 +2411,25 @@ function AdminView({ copy, admin, backToStudio, provider, setProvider, modelProf
     setSaved(JSON.stringify(result.rateLimits))
   }
   const refreshAdminData = useCallback(async () => {
-    const [users, promos, settings] = await Promise.all([
+    const [users, promos, settings, mstatus] = await Promise.all([
       apiFetch('/admin/users').then((r) => r.json()).catch(() => []),
       apiFetch('/admin/promos').then((r) => r.json()).catch(() => []),
       apiFetch('/admin/settings').then((r) => r.json()).catch(() => ({})),
+      apiFetch('/admin/model-status').then((r) => r.json()).catch(() => null),
     ])
     setAdminUsers(users)
     setPromoCodes(promos)
     if (settings.finance) setFinance((current) => ({ ...current, ...settings.finance }))
+    if (settings.models) setModelSel((current) => ({ ...current, ...settings.models }))
+    if (mstatus) setModelStatus(mstatus)
   }, [])
+  async function saveModelSettings(next: { editModelProfile: string; poseModelProfile: string }) {
+    setModelSel(next)
+    const result = await apiFetch('/admin/settings/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: next }) }).then((r) => r.json()).catch(() => null)
+    setAdminMessage(result?.ok ? 'Настройки моделей сохранены' : 'Ошибка сохранения моделей')
+    const mstatus = await apiFetch('/admin/model-status').then((r) => r.json()).catch(() => null)
+    if (mstatus) setModelStatus(mstatus)
+  }
   useEffect(() => { refreshAdminData() }, [refreshAdminData])
   async function saveFinance() {
     const result = await apiFetch('/admin/settings/finance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: finance }) }).then((r) => r.json())
@@ -2517,6 +2529,21 @@ function AdminView({ copy, admin, backToStudio, provider, setProvider, modelProf
       <div className="admin-two-col"><article><h3>Состояние генератора</h3><p>Провайдер: {provider === 'openrouter' ? 'OpenRouter Cloud' : 'ComfyUI локально'}</p><p>Модель: {modelProfile}</p><p>Очередь: {queue.length}</p><p>LoRA для лица: {selectedLora}</p></article><article><h3>Быстрые действия</h3><button className="secondary" onClick={() => setTab('models')}>Настроить модели</button><button className="secondary" onClick={() => setTab('tokens')}>Тарифы и финансы</button><button className="secondary" onClick={() => setTab('users')}>Админы и пользователи</button></article></div>
     </div>}
     {tab === 'models' && <div className="admin-section">
+      <h3>Модель редактора (FLUX.2 [klein])</h3>
+      <div className="settings-grid">
+        <label>Default edit model<select value={modelSel.editModelProfile} onChange={(e) => void saveModelSettings({ ...modelSel, editModelProfile: e.target.value })}>{(modelStatus?.profiles || []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+        <label>Pose model/profile<select value={modelSel.poseModelProfile} onChange={(e) => void saveModelSettings({ ...modelSel, poseModelProfile: e.target.value })}><option value="">как edit-модель</option>{(modelStatus?.profiles || []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+        <small>ComfyUI: {modelStatus?.comfyuiAvailable ? 'доступен' : 'недоступен'}</small>
+      </div>
+      <div className="admin-table">{(modelStatus?.profiles || []).map((p: any) => <article key={p.id}>
+        <strong>{p.name}{modelSel.editModelProfile === p.id ? ' · default edit' : ''}</strong>
+        <span>{p.modelName}</span>
+        <small>установлена: {p.installed ? 'да' : 'нет'} · нода: {p.requiredNode}</small>
+        <p>base edit: <b>{p.baseEdit === 'available' ? 'available' : 'missing'}</b> · faceswap: <b>{p.faceswapLora}</b></p>
+        <p>pose workflow: <b>{!p.supportsPose ? 'не поддерживается этой моделью' : p.pose === 'available' ? 'available' : 'missing'}</b></p>
+        {p.missingFiles?.length ? <small>missing files: {p.missingFiles.join(', ')}</small> : null}
+        {p.poseMissing?.length ? <small>pose требует: {p.poseMissing.join(', ')}</small> : null}
+      </article>)}</div>
       <h3>OpenRouter: облачный маршрут</h3>
       <div className="admin-table">{openRouterImageModels.map((item) => <article key={item.id}><strong>{item.name}</strong><span>{item.id}</span><small>{item.use}</small><p>Вход: {item.prompt} · Выход: {item.completion} · Image: {item.image}</p><button className={provider === 'openrouter' && modelProfile === item.id ? 'secondary active' : 'secondary'} onClick={() => { setProvider('openrouter'); setModelProfile(item.id) }}>Использовать · {item.tokenCost} токенов</button></article>)}</div>
       <h3>ComfyUI: локальные Flux 2</h3>
