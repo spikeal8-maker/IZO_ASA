@@ -95,15 +95,37 @@ def test_apply_promo_duplicate_blocked_and_safe(temp_db):
         idem = c.post("/api/admin/users/iuid-target/apply-promo-v2", json={"promo_code": "WELCOME", "reason": "manual apply", "idempotency_key": "promo-1"}, headers=bearer(token))
         duplicate = c.post("/api/admin/users/iuid-target/apply-promo-v2", json={"promo_code": "WELCOME", "reason": "manual apply", "idempotency_key": "promo-2"}, headers=bearer(token))
         detail = c.get("/api/admin/users/iuid-target/analytics-v2", headers=bearer(token))
-    assert first.status_code == 200 and first.json()["new_token_balance"] == 35
+    assert first.status_code == 200 and first.json()["new_token_balance"] == 60
     assert idem.status_code == 200 and idem.json()["idempotent"] is True
     assert duplicate.status_code == 400
     b = detail.json()
     assert b["loyalty_summary"]["promo_redemption_count"] == 1
     assert b["promo_redemptions_recent"][0]["promo_code"] == "WELCOME"
+    assert b["promo_redemptions_recent"][0]["token_bonus"] == 50
     text = detail.text
     for forbidden in ("password_hash", "session_token_hash", "refresh_token_hash", "code_hash", "initData", "WebAppData"):
         assert forbidden not in text
+
+
+def test_user_apply_promo_grants_50_once_and_writes_clear_ledger(temp_db):
+    make_user("iuid-user", "web_user", balance=10)
+    user_token = main.create_auth_session("iuid-user", "web_user", provider="web_email", platform="web")["session_token"]
+    with main.db() as conn:
+        conn.execute("INSERT INTO promo_codes (code, tokens, activation_limit, activation_count, enabled, created_at, updated_at) VALUES ('FRIEND50', 5, 10, 0, 1, '2026-01-01', '2026-01-01')")
+    with TestClient(main.app) as c:
+        first = c.post("/api/account/apply-promo-v2", json={"promo_code": "friend50"}, headers=bearer(user_token))
+        duplicate = c.post("/api/account/apply-promo-v2", json={"promo_code": "FRIEND50"}, headers=bearer(user_token))
+    assert first.status_code == 200, first.text
+    assert first.json()["token_bonus"] == 50
+    assert first.json()["new_token_balance"] == 60
+    assert duplicate.status_code == 400
+    with main.db() as conn:
+        ledger = conn.execute("SELECT delta, reason FROM token_ledger WHERE user_id='web_user'").fetchone()
+        redemption = conn.execute("SELECT token_bonus, reason FROM promo_redemptions WHERE internal_user_id='iuid-user'").fetchone()
+    assert ledger["delta"] == 50
+    assert ledger["reason"] == "promo_code_redeemed"
+    assert redemption["token_bonus"] == 50
+    assert redemption["reason"] == "promo_code_redeemed"
 
 
 def test_referral_reward_writes_reward_and_ledger(temp_db):
@@ -114,17 +136,17 @@ def test_referral_reward_writes_reward_and_ledger(temp_db):
         conn.execute(
             "INSERT INTO referral_relations (id, parent_internal_user_id, child_internal_user_id, referral_code, status, created_at) VALUES ('rel1','iuid-parent','iuid-child','REF-PARENT','active','2026-01-01')"
         )
-    body = {"token_amount": 40, "referral_relation_id": "rel1", "reason": "manual correction", "idempotency_key": "reward-1"}
+    body = {"token_amount": 0, "referral_relation_id": "rel1", "reason": "friend signup", "idempotency_key": "reward-1"}
     with TestClient(main.app) as c:
         first = c.post("/api/admin/users/iuid-parent/referral-reward-v2", json=body, headers=bearer(token))
         again = c.post("/api/admin/users/iuid-parent/referral-reward-v2", json=body, headers=bearer(token))
         refs = c.get("/api/admin/users/iuid-parent/referrals-v2", headers=bearer(token))
     assert first.status_code == 200, first.text
-    assert first.json()["new_token_balance"] == 45
+    assert first.json()["new_token_balance"] == 55
     assert again.status_code == 200 and again.json()["idempotent"] is True
     assert refs.json()["loyalty_summary"]["referral_children_count"] == 1
-    assert refs.json()["referral_rewards_recent"][0]["token_amount"] == 40
+    assert refs.json()["referral_rewards_recent"][0]["token_amount"] == 50
     with main.db() as conn:
         assert conn.execute("SELECT COUNT(*) AS c FROM referral_rewards").fetchone()["c"] == 1
-        assert conn.execute("SELECT COUNT(*) AS c FROM token_ledger WHERE reason='referral_reward'").fetchone()["c"] == 1
+        assert conn.execute("SELECT COUNT(*) AS c FROM token_ledger WHERE reason='referral_friend_signup'").fetchone()["c"] == 1
         assert conn.execute("SELECT COUNT(*) AS c FROM audit_logs WHERE action='crm_referral_reward_granted'").fetchone()["c"] == 1

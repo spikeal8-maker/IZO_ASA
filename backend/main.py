@@ -22,7 +22,7 @@ from urllib.parse import parse_qs
 import httpx
 from argon2 import PasswordHasher
 from argon2.exceptions import Argon2Error
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -33,6 +33,8 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parent
 MEDIA = ROOT / "media"
 MEDIA.mkdir(exist_ok=True)
+AVATAR_DIR = MEDIA / "avatars"
+AVATAR_DIR.mkdir(exist_ok=True)
 
 
 def load_local_env() -> None:
@@ -313,6 +315,8 @@ class AdminPlanV2Request(BaseModel):
 class AdminProfileV2Request(BaseModel):
     display_name: str | None = None
     email: str | None = None
+    avatar_url: str | None = None
+    avatar_preset: str | None = None
     reason: str = ""
 
 
@@ -367,6 +371,10 @@ class ApplyPromoV2Request(BaseModel):
     idempotency_key: str | None = None
 
 
+class UserApplyPromoV2Request(BaseModel):
+    promo_code: str = ""
+
+
 class ReferralRewardV2Request(BaseModel):
     token_amount: int = 0
     child_internal_user_id: str | None = None
@@ -387,6 +395,8 @@ class ProfileUpdateV2Request(BaseModel):
     timezone: str | None = None
     city: str | None = None
     country_code: str | None = None
+    avatar_url: str | None = None
+    avatar_preset: str | None = None
 
 
 class ConsentV2Request(BaseModel):
@@ -488,6 +498,7 @@ class AdminSettingsRequest(BaseModel):
 
 
 rate_limits = {"hourly": 10, "daily": 50}
+PROMO_REFERRAL_REWARD_TOKENS = 50
 
 
 @dataclass
@@ -990,6 +1001,8 @@ def init_db() -> None:
             "email_verified_at": "TEXT",
             "phone_verified_at": "TEXT",
             "public_user_code": "TEXT",
+            "avatar_url": "TEXT",
+            "avatar_preset": "TEXT",
         }.items():
             if column not in existing_user_columns:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
@@ -2089,7 +2102,9 @@ def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None,
     if _row_get(row, "role") == "admin":
         return True
     plan = str(_row_get(row, "plan") or "mini")
-    return plan in {"mini", "plus", "pro"} and bool(_row_get(row, "gallery_enabled"))
+    # Product rule: paid plans include the gallery. gallery_enabled is kept as
+    # compatibility data, but stale false values must not hide mini/plus/pro.
+    return plan in {"mini", "plus", "pro"}
 
 
 def create_auth_session(
@@ -2419,6 +2434,8 @@ PROFILE_FIELD_COLUMNS = {
     "timezone": "timezone",
     "city": "city",
     "country_code": "country",
+    "avatar_url": "avatar_url",
+    "avatar_preset": "avatar_preset",
 }
 
 CONSENT_TYPES = {
@@ -2432,6 +2449,24 @@ PROFILE_FIELD_MAX_LEN = 200
 def build_profile(row: sqlite3.Row | None) -> dict[str, Any]:
     """Safe profile projection — only whitelisted columns, null where missing."""
     return {api_field: _row_get(row, col) for api_field, col in PROFILE_FIELD_COLUMNS.items()}
+
+
+AVATAR_PRESET_IDS = {f"preset-{i}" for i in range(1, 11)}
+AVATAR_MAX_BYTES = 2 * 1024 * 1024
+AVATAR_ALLOWED_CONTENT_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+
+
+def validate_avatar_choice(avatar_url: str | None, avatar_preset: str | None) -> tuple[str | None, str | None]:
+    preset = (avatar_preset or "").strip()
+    url = (avatar_url or "").strip()
+    if preset:
+        if preset not in AVATAR_PRESET_IDS:
+            raise HTTPException(400, "Unknown avatar preset.")
+        expected = f"/avatars/{preset}.svg"
+        return expected, preset
+    if url and not url.startswith("/media/avatars/"):
+        raise HTTPException(400, "Avatar URL is not allowed.")
+    return url or None, None
 
 
 def sanitize_device_metadata(metadata_json: str | None) -> dict[str, Any]:
@@ -2557,6 +2592,8 @@ def admin_user_summary(row: sqlite3.Row | None) -> dict[str, Any]:
         "role": _row_get(row, "role"),
         "created_at": _row_get(row, "created_at"),
         "last_seen_at": _row_get(row, "last_seen_at"),
+        "avatar_url": _row_get(row, "avatar_url"),
+        "avatar_preset": _row_get(row, "avatar_preset"),
     }
 
 
@@ -4645,6 +4682,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "SELECT provider, provider_username, provider_email, linked_at, last_login_at FROM auth_identities WHERE internal_user_id = ?",
             (iuid,),
         ).fetchall()
+        gallery_access = bool(user_gallery_allowed(conn, iuid, legacy))
 
     primary_identity = identities[0] if identities else None
     profile = {
@@ -4655,6 +4693,8 @@ async def me_v2(request: Request) -> dict[str, Any]:
         "username": _row_get(urow, "username"),
         "email": _row_get(urow, "email"),
         "language_code": _row_get(urow, "language"),
+        "avatar_url": _row_get(urow, "avatar_url"),
+        "avatar_preset": _row_get(urow, "avatar_preset"),
         "providers": sorted({i["provider"] for i in identities}),
     }
 
@@ -4674,6 +4714,13 @@ async def me_v2(request: Request) -> dict[str, Any]:
         "internal_user_id": iuid,
         "legacy_user_id": legacy,
         "status": "active",
+        "account": {
+            "role": _row_get(urow, "role"),
+            "plan": _row_get(urow, "plan") or "mini",
+            "token_balance": int(_row_get(urow, "token_balance") or 0),
+            "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
+            "gallery_access": gallery_access,
+        },
         "session": {
             "session_id": user["session_id"],
             "provider": _row_get(sess, "provider") or user["provider"],
@@ -4757,8 +4804,17 @@ async def me_profile_update_v2(req: ProfileUpdateV2Request, request: Request) ->
                 continue  # unsupported field is ignored, never an injection vector
             if isinstance(value, str):
                 value = value.strip()[:PROFILE_FIELD_MAX_LEN]
+            if api_field in {"avatar_url", "avatar_preset"}:
+                avatar_url, avatar_preset = validate_avatar_choice(
+                    provided.get("avatar_url"), provided.get("avatar_preset")
+                )
+                value = avatar_url if api_field == "avatar_url" else avatar_preset
             set_cols.append(f"{col} = ?")
             values.append(value)
+        if provided.get("avatar_preset") and "avatar_url" not in provided and "avatar_url" in user_columns:
+            avatar_url, _avatar_preset = validate_avatar_choice(None, provided.get("avatar_preset"))
+            set_cols.append("avatar_url = ?")
+            values.append(avatar_url)
         if set_cols:
             # Scoped to the trusted user's internal_user_id — id/role/banned untouched.
             conn.execute(
@@ -4783,6 +4839,48 @@ async def me_profile_update_v2(req: ProfileUpdateV2Request, request: Request) ->
         print(f"profile-v2: profile_updated event log error: {type(exc).__name__}")
 
     return {"internal_user_id": iuid, "legacy_user_id": legacy, "profile": build_profile(urow)}
+
+
+@app.post("/api/me/avatar-upload-v2")
+async def me_avatar_upload_v2(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    iuid = user["internal_user_id"]
+    legacy = user["legacy_user_id"]
+    content_type = (file.content_type or "").lower()
+    suffix = AVATAR_ALLOWED_CONTENT_TYPES.get(content_type)
+    if not suffix:
+        raise HTTPException(400, "Avatar must be PNG, JPEG or WEBP.")
+    data = await file.read(AVATAR_MAX_BYTES + 1)
+    if len(data) > AVATAR_MAX_BYTES:
+        raise HTTPException(413, "Avatar file is too large.")
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.verify()
+    except Exception:
+        raise HTTPException(400, "Avatar file is not a valid image.")
+
+    filename = f"{iuid}-{uuid.uuid4().hex[:12]}{suffix}"
+    dest = AVATAR_DIR / filename
+    dest.write_bytes(data)
+    avatar_url = f"/media/avatars/{filename}"
+    with db() as conn:
+        conn.execute(
+            "UPDATE users SET avatar_url = ?, avatar_preset = NULL WHERE internal_user_id = ?",
+            (avatar_url, iuid),
+        )
+        urow = conn.execute("SELECT * FROM users WHERE internal_user_id = ?", (iuid,)).fetchone()
+    try:
+        record_event_log(
+            "avatar_uploaded",
+            internal_user_id=iuid,
+            legacy_user_id=legacy,
+            session_id=user["session_id"],
+            platform=user["platform"],
+            properties={"content_type": content_type},
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"avatar-upload-v2: event log error: {type(exc).__name__}")
+    return {"ok": True, "avatar_url": avatar_url, "profile": build_profile(urow)}
 
 
 @app.get("/api/me/devices-v2")
@@ -5709,13 +5807,28 @@ async def admin_profile_v2(internal_user_id: str, req: AdminProfileV2Request, re
             v = (normalize_email(req.email) or req.email.strip()[:200])
             updates.append("email = ?"); values.append(v)
             before["email"] = target["email"]; after["email"] = v
+        if req.avatar_url is not None or req.avatar_preset is not None:
+            avatar_url, avatar_preset = validate_avatar_choice(req.avatar_url, req.avatar_preset)
+            updates.append("avatar_url = ?"); values.append(avatar_url)
+            updates.append("avatar_preset = ?"); values.append(avatar_preset)
+            before["avatar_url"] = _row_get(target, "avatar_url")
+            before["avatar_preset"] = _row_get(target, "avatar_preset")
+            after["avatar_url"] = avatar_url
+            after["avatar_preset"] = avatar_preset
         if not updates:
             raise HTTPException(400, "Нет полей для изменения.")
         conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE internal_user_id = ?", (*values, internal_user_id))
         after["reason"] = reason
         record_audit_log(conn, "admin_update_user_profile", actor_internal_user_id=admin["internal_user_id"],
                          target_internal_user_id=internal_user_id, entity_id=target["id"], before=before, after=after, request=request)
-    return {"ok": True, "internal_user_id": internal_user_id, "display_name": after.get("display_name"), "email": after.get("email")}
+    return {
+        "ok": True,
+        "internal_user_id": internal_user_id,
+        "display_name": after.get("display_name"),
+        "email": after.get("email"),
+        "avatar_url": after.get("avatar_url"),
+        "avatar_preset": after.get("avatar_preset"),
+    }
 
 
 @app.get("/api/admin/users/{internal_user_id}/billing-v2")
@@ -6046,8 +6159,9 @@ async def admin_bonus_grant_v2(internal_user_id: str, req: BonusGrantV2Request, 
         target = _admin_load_target(conn, internal_user_id)
         legacy_user_id = target["id"]
         bonus_id = uuid.uuid4().hex
+        ledger_reason = "admin_bonus_compensation" if req.bonus_type == "compensation" else "bonus_grant"
         ledger_id, new_balance = _grant_tokens_with_ledger(
-            conn, target=target, delta=amount, reason=reason, ledger_reason="bonus_grant",
+            conn, target=target, delta=amount, reason=reason, ledger_reason=ledger_reason,
             meta={"bonus_id": bonus_id, "bonus_type": req.bonus_type, "actor_internal_user_id": admin["internal_user_id"]},
         )
         conn.execute(
@@ -6142,12 +6256,12 @@ async def admin_apply_promo_v2(internal_user_id: str, req: ApplyPromoV2Request, 
         if duplicate is not None:
             raise HTTPException(400, "Промокод уже применён к этому пользователю.")
         redemption_id = uuid.uuid4().hex
-        token_bonus = int(promo["tokens"] or 0)
+        token_bonus = PROMO_REFERRAL_REWARD_TOKENS
         ledger_id: str | None = None
         new_balance = int(target["token_balance"] or 0)
         if token_bonus > 0:
             ledger_id, new_balance = _grant_tokens_with_ledger(
-                conn, target=target, delta=token_bonus, reason=reason, ledger_reason="promo_redemption",
+                conn, target=target, delta=token_bonus, reason=reason, ledger_reason="promo_code_redeemed",
                 meta={"promo_redemption_id": redemption_id, "promo_code": promo_code, "actor_internal_user_id": admin["internal_user_id"]},
             )
         conn.execute(
@@ -6177,13 +6291,76 @@ async def admin_apply_promo_v2(internal_user_id: str, req: ApplyPromoV2Request, 
     return {"ok": True, "redemption": redemption, "new_token_balance": new_balance}
 
 
+@app.post("/api/account/apply-promo-v2")
+async def account_apply_promo_v2(req: UserApplyPromoV2Request, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    internal_user_id = trusted["internal_user_id"]
+    promo_code = (req.promo_code or "").strip().upper()[:80]
+    if not promo_code:
+        raise HTTPException(400, "Укажите промокод.")
+    now = datetime.now(timezone.utc).isoformat()
+    reason = "promo_code_redeemed"
+    redemption: dict[str, Any] | None = None
+    new_balance = 0
+    legacy_user_id: str | None = trusted.get("legacy_user_id")
+    with db() as conn:
+        target = conn.execute("SELECT * FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+        if target is None:
+            raise HTTPException(404, "User not found.")
+        legacy_user_id = target["id"]
+        promo = conn.execute("SELECT code, activation_limit, activation_count, enabled FROM promo_codes WHERE code = ?", (promo_code,)).fetchone()
+        if promo is None:
+            raise HTTPException(404, "Промокод не найден.")
+        if not int(promo["enabled"] or 0):
+            raise HTTPException(400, "Промокод отключён.")
+        if int(promo["activation_count"] or 0) >= int(promo["activation_limit"] or 0):
+            raise HTTPException(400, "Лимит активаций промокода исчерпан.")
+        duplicate = conn.execute(
+            "SELECT 1 FROM promo_redemptions WHERE internal_user_id = ? AND promo_code = ? AND status = 'applied'",
+            (internal_user_id, promo_code),
+        ).fetchone()
+        if duplicate is not None:
+            raise HTTPException(400, "Промокод уже применён.")
+        redemption_id = uuid.uuid4().hex
+        token_bonus = PROMO_REFERRAL_REWARD_TOKENS
+        ledger_id, new_balance = _grant_tokens_with_ledger(
+            conn, target=target, delta=token_bonus, reason=reason, ledger_reason=reason,
+            meta={"promo_redemption_id": redemption_id, "promo_code": promo_code},
+        )
+        conn.execute(
+            """
+            INSERT INTO promo_redemptions
+                (id, promo_code_id, promo_code, internal_user_id, user_id, status, token_bonus, reason,
+                 token_ledger_id, created_by_admin_id, idempotency_key, created_at)
+            VALUES (?, ?, ?, ?, ?, 'applied', ?, ?, ?, NULL, ?, ?)
+            """,
+            (redemption_id, promo_code, promo_code, internal_user_id, legacy_user_id, token_bonus, reason, ledger_id,
+             f"user-promo-{internal_user_id}-{promo_code}", now),
+        )
+        conn.execute("UPDATE promo_codes SET activation_count = activation_count + 1, updated_at = ? WHERE code = ?", (now, promo_code))
+        row = conn.execute("SELECT * FROM promo_redemptions WHERE id = ?", (redemption_id,)).fetchone()
+        redemption = _loyalty_promo_dict(row)
+    try:
+        record_event_log("promo_code_redeemed", internal_user_id=internal_user_id, legacy_user_id=legacy_user_id,
+                         platform=trusted.get("platform", "web"), request=request,
+                         properties={"promo_code": promo_code, "token_bonus": PROMO_REFERRAL_REWARD_TOKENS})
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "redemption": redemption,
+        "token_bonus": PROMO_REFERRAL_REWARD_TOKENS,
+        "new_token_balance": new_balance,
+    }
+
+
 @app.post("/api/admin/users/{internal_user_id}/referral-reward-v2")
 async def admin_referral_reward_v2(internal_user_id: str, req: ReferralRewardV2Request, request: Request) -> dict[str, Any]:
     admin = require_trusted_admin(request)
     reason = _billing_reason(req.reason)
-    amount = int(req.token_amount or 0)
+    amount = int(req.token_amount or PROMO_REFERRAL_REWARD_TOKENS)
     if amount <= 0:
-        raise HTTPException(400, "Сумма реферальной корректировки должна быть больше нуля.")
+        amount = PROMO_REFERRAL_REWARD_TOKENS
     idem = _billing_idempotency(req.idempotency_key, f"referral-reward-{internal_user_id}")
     now = datetime.now(timezone.utc).isoformat()
     reward: dict[str, Any] | None = None
@@ -6205,7 +6382,7 @@ async def admin_referral_reward_v2(internal_user_id: str, req: ReferralRewardV2R
             child_iuid = rel["child_internal_user_id"]
         reward_id = uuid.uuid4().hex
         ledger_id, new_balance = _grant_tokens_with_ledger(
-            conn, target=target, delta=amount, reason=reason, ledger_reason="referral_reward",
+            conn, target=target, delta=amount, reason=reason, ledger_reason="referral_friend_signup",
             meta={"referral_reward_id": reward_id, "referral_relation_id": relation_id, "child_internal_user_id": child_iuid,
                   "actor_internal_user_id": admin["internal_user_id"]},
         )
@@ -6272,6 +6449,8 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "internal_user_id_short": (iuid[:8] + "…") if iuid else None,
         "public_user_code": _row_get(urow, "public_user_code"),
         "display_name": resolve_display_name(urow, identities[0] if identities else None),
+        "avatar_url": _row_get(urow, "avatar_url"),
+        "avatar_preset": _row_get(urow, "avatar_preset"),
         "primary_provider": primary,
         "providers": sorted({i["provider"] for i in identities}),
         "email": mask_email(_row_get(urow, "email")),

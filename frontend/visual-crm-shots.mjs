@@ -9,7 +9,7 @@ const now = new Date()
 const isoDaysAgo = (days) => new Date(now.getTime() - days * 86400000).toISOString()
 
 const users = [
-  { internal_user_id: 'iuid-web-1', public_user_code: 'WEB-100001', display_name: 'Operator One', providers: ['web_email'], primary_provider: 'web_email', email: 'a***z@mail.ru', username: 'oper1', phone: '+*******21', plan: 'pro', role: 'admin', status: 'active', token_balance: 980, tokens_spent: 220, generations_count: 142, gallery_count: 48, last_seen_at: isoDaysAgo(0.2), first_seen_at: '2026-01-04T10:00:00Z', last_platform: 'web', last_ip: '10.0.0.5', marketing_source: 'utm: admin_panel', last_device: { browser: 'Chrome', os: 'Windows' }, active_sessions_count: 2, device_count: 2, internal_user_id_short: 'iuid-web...' },
+  { internal_user_id: 'iuid-web-1', public_user_code: 'WEB-100001', display_name: 'Operator One', providers: ['web_email'], primary_provider: 'web_email', email: 'a***z@mail.ru', username: 'oper1', phone: '+*******21', plan: 'mini', role: 'user', status: 'active', token_balance: 980, tokens_spent: 220, generations_count: 142, gallery_count: 48, gallery_access: true, last_seen_at: isoDaysAgo(0.2), first_seen_at: '2026-01-04T10:00:00Z', last_platform: 'web', last_ip: '10.0.0.5', marketing_source: 'utm: admin_panel', last_device: { browser: 'Chrome', os: 'Windows' }, active_sessions_count: 2, device_count: 2, internal_user_id_short: 'iuid-web...' },
   { internal_user_id: 'iuid-tg-2', public_user_code: 'TG-100002', display_name: 'Анна Клиент', providers: ['telegram'], primary_provider: 'telegram', email: null, username: 'anna_k', phone: null, plan: 'mini', role: 'user', status: 'active', token_balance: 50, tokens_spent: 130, generations_count: 31, gallery_count: 12, last_seen_at: isoDaysAgo(0.6), first_seen_at: '2026-05-01T08:10:00Z', last_platform: 'telegram', last_ip: '95.1.2.3', last_device: { browser: 'Telegram', os: 'Android' }, active_sessions_count: 0, device_count: 1, internal_user_id_short: 'iuid-tg-...' },
   { internal_user_id: 'iuid-max-3', public_user_code: 'MAX-100003', display_name: 'Banned User', providers: ['max'], primary_provider: 'max', email: 'b***n@x.io', username: null, phone: null, plan: 'free', role: 'user', status: 'banned', token_balance: 0, tokens_spent: 400, generations_count: 0, gallery_count: 0, last_seen_at: isoDaysAgo(45), first_seen_at: '2026-04-11T11:00:00Z', last_platform: 'max', last_ip: '88.9.9.9', last_device: { browser: 'MAX', os: 'Windows' }, active_sessions_count: 0, device_count: 1, internal_user_id_short: 'iuid-max...' },
 ]
@@ -49,7 +49,7 @@ const detail = {
   loyalty_summary: { promo_redemption_count: 1, bonus_count: 1, referral_children_count: 2, referral_rewards_total: 150, active_referral_code: 'REF-WEB100001' },
   referral_link: { id: 'link_1', id_short: 'link_1', referral_code: 'REF-WEB100001', status: 'active', created_at: isoDaysAgo(20) },
   promo_redemptions_recent: [
-    { id: 'promo_red_1', id_short: 'promo_red…', promo_code: 'WELCOME', status: 'applied', token_bonus: 25, discount_amount: 0, token_ledger_id: 'ledger_p…', created_at: isoDaysAgo(0.9) },
+    { id: 'promo_red_1', id_short: 'promo_red…', promo_code: 'WELCOME', status: 'applied', token_bonus: 50, discount_amount: 0, token_ledger_id: 'ledger_p…', created_at: isoDaysAgo(0.9) },
   ],
   bonus_grants_recent: [
     { id: 'bonus_1', id_short: 'bonus_1', bonus_type: 'manual', status: 'granted', token_amount: 100, token_ledger_id: 'ledger_b…', created_at: isoDaysAgo(0.5) },
@@ -58,14 +58,14 @@ const detail = {
     { id: 'rel_1', id_short: 'rel_1', parent_internal_user_id: 'iuid-web…', child_internal_user_id: 'iuid-tg…', referral_code: 'REF-WEB100001', status: 'active', created_at: isoDaysAgo(10) },
   ],
   referral_rewards_recent: [
-    { id: 'rew_1', id_short: 'rew_1', referral_relation_id: 'rel_1', reward_type: 'tokens', status: 'granted', token_amount: 150, token_ledger_id: 'ledger_r…', created_at: isoDaysAgo(3), granted_at: isoDaysAgo(3) },
+    { id: 'rew_1', id_short: 'rew_1', referral_relation_id: 'rel_1', reward_type: 'tokens', status: 'granted', token_amount: 50, token_ledger_id: 'ledger_r…', created_at: isoDaysAgo(3), granted_at: isoDaysAgo(3) },
   ],
   security_summary: { failed_login_count: 1, password_reset_count: 1, ban_count: 0, role_change_count: 1, session_revocation_count: 2, suspicious_ip_count: 1 },
 }
 const dashboard = { dashboard: { total_users: 3, active_today: 2, active_7d: 2, sessions_active: 2, generations_total: 173, tokens_spent_total: 750, users_by_provider: { web_email: 1, telegram: 1, max: 1 }, failed_logins_24h: 0 } }
 const diag = { ok: true, backend_build: '20C.4-2026-06-27', db_file: 'onenode.sqlite3', user_count: 3, auth_mode: 'trusted_cookie_session', admin_role: 'admin', admin_user_code: 'WEB-100001', admin_provider: 'web_email' }
-const bootstrap = { user: { id: 'web_100001', role: 'admin', username: 'operator', firstName: 'Operator', plan: 'pro', galleryEnabled: true }, admin: { users: 3 }, fluxKleinConfig: { ok: false } }
-const me = { ok: true, user: { id: 'web_100001', role: 'admin', username: 'operator', firstName: 'Operator', plan: 'pro', galleryEnabled: true } }
+const bootstrap = { user: { id: 'web_100001', role: 'admin', username: 'operator', firstName: 'Operator', plan: 'mini', galleryEnabled: true, tokenBalance: 980 }, admin: { users: 3 }, fluxKleinConfig: { ok: false } }
+const me = { ok: true, user: { id: 'web_100001', role: 'admin', username: 'operator', firstName: 'Operator', plan: 'mini', galleryEnabled: true } }
 
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
 async function openAdmin(page) {
@@ -159,6 +159,7 @@ await page.getByRole('button', { name: 'Отмена' }).first().click()
 await page.waitForSelector('.crm-confirm', { state: 'detached', timeout: 5000 })
 await assertConfirmNotCard(page, firstRow.locator('.crm-row-actions > button.mini').nth(2), '-50 opened card instead of confirm')
 
+await closeAuthModalIfPresent(page)
 await firstRow.click()
 await page.waitForSelector('.crm-card', { timeout: 6000 })
 await page.waitForTimeout(900)
