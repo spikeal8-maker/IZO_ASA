@@ -517,6 +517,13 @@ class AdminSettingsRequest(BaseModel):
 
 rate_limits = {"hourly": 10, "daily": 50}
 PROMO_REFERRAL_REWARD_TOKENS = 50
+PLAN_ORDER = ("free", "mini", "plus", "pro")
+DEFAULT_TARIFFS: dict[str, dict[str, int]] = {
+    "free": {"daily_tokens": 10, "gallery_slots": 1},
+    "mini": {"daily_tokens": 50, "gallery_slots": 10},
+    "plus": {"daily_tokens": 100, "gallery_slots": 50},
+    "pro": {"daily_tokens": 200, "gallery_slots": 100},
+}
 
 
 @dataclass
@@ -2257,6 +2264,71 @@ def _user_is_banned(conn: sqlite3.Connection, internal_user_id: str | None, lega
         return False
 
 
+def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[str, dict[str, int]]:
+    if strict and (not isinstance(raw, dict) or not raw):
+        raise HTTPException(400, "Tariff config must not be empty.")
+    data = raw if isinstance(raw, dict) else {}
+    if strict:
+        unknown = sorted(str(key) for key in data if str(key).lower() not in PLAN_ORDER)
+        if unknown:
+            raise HTTPException(400, f"Unknown tariff plan: {', '.join(unknown)}")
+    result: dict[str, dict[str, int]] = {}
+    for plan in PLAN_ORDER:
+        source = data.get(plan) if isinstance(data.get(plan), dict) else {}
+        daily = source.get("daily_tokens", source.get("dailyTokens", DEFAULT_TARIFFS[plan]["daily_tokens"]))
+        slots = source.get("gallery_slots", source.get("gallerySlots", DEFAULT_TARIFFS[plan]["gallery_slots"]))
+        try:
+            daily_int = int(daily)
+            slots_int = int(slots)
+        except (TypeError, ValueError):
+            if strict:
+                raise HTTPException(400, f"Invalid tariff values for {plan}.")
+            daily_int = DEFAULT_TARIFFS[plan]["daily_tokens"]
+            slots_int = DEFAULT_TARIFFS[plan]["gallery_slots"]
+        if strict and (daily_int < 0 or slots_int < 0):
+            raise HTTPException(400, f"Tariff values for {plan} must be non-negative.")
+        result[plan] = {
+            "daily_tokens": max(0, min(daily_int, 100_000)),
+            "gallery_slots": max(0, min(slots_int, 100_000)),
+        }
+    return result
+
+
+def get_tariff_config(conn: sqlite3.Connection | None = None) -> dict[str, dict[str, int]]:
+    try:
+        if conn is not None:
+            row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()
+            return normalize_tariffs(json.loads(row["value_json"] or "{}") if row else None)
+        with db() as local_conn:
+            row = local_conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()
+            return normalize_tariffs(json.loads(row["value_json"] or "{}") if row else None)
+    except Exception:
+        return normalize_tariffs()
+
+
+def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | None, legacy_user_id: str | None = None) -> dict[str, Any]:
+    plan = str(_row_get(user_row, "plan") or "mini").lower()
+    if plan not in PLAN_ORDER:
+        plan = "mini"
+    tariff = get_tariff_config(conn)[plan]
+    user_id = legacy_user_id or _row_get(user_row, "id")
+    used = 0
+    if user_id:
+        used = int(conn.execute(
+            "SELECT COUNT(*) AS c FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')",
+            (user_id,),
+        ).fetchone()["c"])
+    total = int(tariff["gallery_slots"])
+    return {
+        "plan": plan,
+        "daily_tokens": int(tariff["daily_tokens"]),
+        "gallery_slots": total,
+        "gallery_used": used,
+        "gallery_free": max(0, total - used),
+        "gallery_full": used >= total,
+    }
+
+
 def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None, legacy_user_id: str | None) -> bool:
     row = None
     if internal_user_id:
@@ -2265,12 +2337,7 @@ def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None,
         row = conn.execute("SELECT role, plan, gallery_enabled FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
     if row is None:
         return False
-    if _row_get(row, "role") == "admin":
-        return True
-    plan = str(_row_get(row, "plan") or "mini")
-    # Product rule: paid plans include the gallery. gallery_enabled is kept as
-    # compatibility data, but stale false values must not hide mini/plus/pro.
-    return plan in {"mini", "plus", "pro"}
+    return True
 
 
 def create_auth_session(
@@ -2999,6 +3066,7 @@ def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
             "SELECT username, first_name, last_name, middle_name, phone, email, language, role, plan, token_balance, gallery_enabled, country, city, timezone, total_time_seconds, generation_count, tokens_used, promo_used_count, referrals_count, banned FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
+        quota = gallery_quota_for_user(conn, row, user_id)
     return {
         "id": user_id,
         "platform": auth.platform,
@@ -3013,6 +3081,12 @@ def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
         "plan": (row["plan"] if row else None) or "mini",
         "tokenBalance": int(row["token_balance"] if row else 50),
         "galleryEnabled": bool(row["gallery_enabled"] if row else True),
+        "galleryAccess": True,
+        "dailyTokens": quota["daily_tokens"],
+        "gallerySlots": quota["gallery_slots"],
+        "galleryUsed": quota["gallery_used"],
+        "galleryFree": quota["gallery_free"],
+        "galleryFull": quota["gallery_full"],
         "country": row["country"] if row else auth.country,
         "city": row["city"] if row else auth.city,
         "timezone": row["timezone"] if row else auth.timezone,
@@ -3767,13 +3841,17 @@ async def worker() -> None:
                 continue
             if not image_path or not thumb_path:
                 image_path, thumb_path = mock_image(req, job_id)
+            user_id = job.get("userId", "demo_user")
+            with db() as conn:
+                user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                gallery_quota = gallery_quota_for_user(conn, user_row, user_id)
             image_id = f"img_{uuid.uuid4().hex[:12]}"
             created_at = datetime.now(timezone.utc).isoformat()
             record = {
                 "id": image_id,
-                "userId": job.get("userId", "demo_user"),
-                "url": public_url(image_path, job.get("userId", "demo_user")),
-                "thumbnailUrl": public_url(thumb_path, job.get("userId", "demo_user")),
+                "userId": user_id,
+                "url": public_url(image_path, user_id),
+                "thumbnailUrl": public_url(thumb_path, user_id),
                 "mode": req.mode,
                 "provider": req.provider,
                 "promptOriginal": req.prompt,
@@ -3790,9 +3868,33 @@ async def worker() -> None:
                 "comfyuiPromptId": prompt_id,
                 "comfyuiHistory": comfyui_history,
             }
-            images[image_id] = record
-            job.update(status="completed", progress=100, message="Готово", resultImageId=image_id, resultUrl=record["url"], completedAt=created_at)
-            persist_image(record, job_id)
+            if gallery_quota["gallery_full"]:
+                job.update(
+                    status="completed",
+                    progress=100,
+                    message="Готово, но галерея заполнена",
+                    resultImageId=None,
+                    resultUrl=record["url"],
+                    gallerySaveStatus="quota_full",
+                    galleryQuota=gallery_quota,
+                    completedAt=created_at,
+                )
+            else:
+                images[image_id] = record
+                persist_image(record, job_id)
+                with db() as conn:
+                    saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                    gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
+                job.update(
+                    status="completed",
+                    progress=100,
+                    message="Готово",
+                    resultImageId=image_id,
+                    resultUrl=record["url"],
+                    gallerySaveStatus="saved",
+                    galleryQuota=gallery_quota,
+                    completedAt=created_at,
+                )
             persist_job(job, req)
         except Exception as exc:
             job.update(status="failed", progress=100, message="Генерация не выполнена.", error=str(exc), completedAt=datetime.now(timezone.utc).isoformat())
@@ -4032,6 +4134,11 @@ async def flux_klein_lora_triggers(name: str) -> dict[str, Any]:
         return await get_flux_lora_triggers(name)
     except Exception as exc:
         return {"ok": False, "error": str(exc), "triggers": [], "name": name}
+
+
+@app.get("/api/tariffs")
+async def tariffs() -> dict[str, Any]:
+    return {"ok": True, "tariffs": get_tariff_config()}
 
 
 @app.get("/api/gallery")
@@ -4868,6 +4975,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
             (iuid,),
         ).fetchall()
         gallery_access = bool(user_gallery_allowed(conn, iuid, legacy))
+        gallery_quota = gallery_quota_for_user(conn, urow, legacy)
 
     primary_identity = identities[0] if identities else None
     profile = {
@@ -4905,6 +5013,11 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "token_balance": int(_row_get(urow, "token_balance") or 0),
             "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
             "gallery_access": gallery_access,
+            "daily_tokens": gallery_quota["daily_tokens"],
+            "gallery_slots": gallery_quota["gallery_slots"],
+            "gallery_used": gallery_quota["gallery_used"],
+            "gallery_free": gallery_quota["gallery_free"],
+            "gallery_full": gallery_quota["gallery_full"],
         },
         "session": {
             "session_id": user["session_id"],
@@ -5964,8 +6077,8 @@ async def admin_plan_v2(internal_user_id: str, req: AdminPlanV2Request, request:
         raise HTTPException(400, "Укажите причину.")
     with db() as conn:
         target = _admin_load_target(conn, internal_user_id)
-        conn.execute("UPDATE users SET plan = ?, gallery_enabled = ? WHERE internal_user_id = ?",
-                     (req.plan, 0 if req.plan == "free" else 1, internal_user_id))
+        conn.execute("UPDATE users SET plan = ?, gallery_enabled = 1 WHERE internal_user_id = ?",
+                     (req.plan, internal_user_id))
         record_audit_log(conn, "admin_change_plan", actor_internal_user_id=admin["internal_user_id"],
                          target_internal_user_id=internal_user_id, entity_id=target["id"],
                          before={"plan": target["plan"]}, after={"plan": req.plan, "reason": reason}, request=request)
@@ -6629,6 +6742,7 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
     ).fetchone()["c"]
     device_meta = safe_json_load(_row_get(last_session, "metadata_json")) or {}
     device = device_meta.get("device") if isinstance(device_meta, dict) else {}
+    gallery_quota = gallery_quota_for_user(conn, urow, legacy)
     return {
         "internal_user_id": iuid,  # used by the admin drawer fetch + technical section only
         "internal_user_id_short": (iuid[:8] + "…") if iuid else None,
@@ -6657,6 +6771,11 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "plan": _row_get(urow, "plan") or "mini",
         "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
         "gallery_access": bool(user_gallery_allowed(conn, iuid, legacy)),
+        "daily_tokens": gallery_quota["daily_tokens"],
+        "gallery_slots": gallery_quota["gallery_slots"],
+        "gallery_used": gallery_quota["gallery_used"],
+        "gallery_free": gallery_quota["gallery_free"],
+        "gallery_full": gallery_quota["gallery_full"],
         "status": "banned" if _row_get(urow, "banned") else "active",
         "role": _row_get(urow, "role"),
     }
@@ -6774,7 +6893,7 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
         ).fetchall()
         image_rows = conn.execute(
             "SELECT id, job_id, url, thumbnail_url, mode, provider, prompt_original, is_favorite, created_at "
-            "FROM images WHERE user_id = ? ORDER BY created_at DESC LIMIT 30",
+            "FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY created_at DESC LIMIT 30",
             (urow["id"],),
         ).fetchall()
         audits = conn.execute(
@@ -7356,12 +7475,19 @@ async def admin_get_settings(request: Request) -> dict[str, Any]:
     require_admin(request)
     with db() as conn:
         rows = conn.execute("SELECT key, value_json FROM admin_settings").fetchall()
-    return {row["key"]: json.loads(row["value_json"] or "{}") for row in rows}
+        settings = {row["key"]: json.loads(row["value_json"] or "{}") for row in rows}
+        settings["tariffs"] = get_tariff_config(conn)
+    return settings
 
 
 @app.post("/api/admin/settings/{key}")
 async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Request) -> dict[str, Any]:
-    require_admin(request)
+    if key == "tariffs":
+        require_trusted_admin(request)
+        settings = normalize_tariffs(req.settings, strict=True)
+    else:
+        require_admin(request)
+        settings = req.settings
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute(
@@ -7370,9 +7496,9 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
             VALUES (?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at
             """,
-            (key, json.dumps(req.settings, ensure_ascii=False), now),
+            (key, json.dumps(settings, ensure_ascii=False), now),
         )
-    return {"ok": True, "key": key, "settings": req.settings}
+    return {"ok": True, "key": key, "settings": settings}
 
 
 @app.get("/api/admin/jobs")
