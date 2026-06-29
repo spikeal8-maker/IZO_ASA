@@ -401,9 +401,11 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 }
 .crm-panel,
 .crm-acc {
+  display: block;
   border-color: rgba(143, 164, 183, .18);
   border-radius: 8px;
   background: linear-gradient(180deg, rgba(18, 30, 38, .72), rgba(10, 18, 24, .78));
+  overflow: hidden;
 }
 .crm-panel h4 {
   color: #eef5fb;
@@ -412,15 +414,42 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
   letter-spacing: 0;
 }
 .crm-preview-list {
+  display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0;
+  margin: 0;
+  padding: 0;
+  min-height: 112px;
   border-top: 1px solid rgba(143, 164, 183, .18);
+}
+.crm-field {
+  min-width: 0;
+  min-height: 50px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(143, 164, 183, .14);
+  display: grid;
+  align-content: center;
+  gap: 3px;
+}
+.crm-field span {
+  color: #9aa9b6;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.crm-field b {
+  color: #eef5fb;
+  font-size: 13px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 .crm-preview-list dt,
 .crm-preview-list dd {
   min-width: 0;
-  padding: 7px 10px;
+  min-height: 34px;
+  padding: 8px 12px;
   border-bottom: 1px solid rgba(143, 164, 183, .14);
+  display: block;
+  line-height: 1.25;
 }
 .crm-preview-list dt {
   color: #9aa9b6;

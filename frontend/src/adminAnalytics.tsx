@@ -45,6 +45,7 @@ export interface CrmUserRow {
   generations_count?: number; tokens_spent?: number; token_balance?: number; status?: string; role?: string
   first_seen_at?: string | null; gallery_count?: number; marketing_source?: string | null; risk_level?: string | null
   gallery_access?: boolean; gallery_enabled?: boolean
+  daily_tokens?: number; gallery_slots?: number; gallery_used?: number; gallery_free?: number; gallery_full?: boolean
   last_device?: { browser?: string | null; os?: string | null } | null
   internal_user_id_short?: string
 }
@@ -318,25 +319,43 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
     <div className="crm-card-overlay" onClick={onClose}>
       <div className="crm-card" role="dialog" aria-label="Карточка пользователя" onClick={(e) => e.stopPropagation()}>
         <header className="crm-card-header">
-          <div className="crm-card-id crm-card-id-rich">
-            <AvatarMark u={sm} ids={ids} className={`crm-avatar activity-${active} ${isBanned ? 'risk' : ''}`} />
-            <div>
-              <h2>{parsedName(sm, ids)}</h2>
-              <span className="crm-preview-code">{S(sm.public_user_code)}</span>
+          <div className="crm-card-mainline">
+            <div className="crm-card-id crm-card-id-rich">
+              <AvatarMark u={sm} ids={ids} className={`crm-avatar activity-${active} ${isBanned ? 'risk' : ''}`} />
+              <div>
+                <div className="crm-name-line">
+                  <h2>{parsedName(sm, ids)}</h2>
+                  <span className={isBanned ? 'status-banned' : 'status-active'}>{isBanned ? 'ЗАБАНЕН' : 'АКТИВЕН'}</span>
+                  <span>{String(sm.role).toUpperCase()}</span>
+                  <span>{String(sm.plan || 'mini').toUpperCase()}</span>
+                </div>
+                <button className="crm-preview-code" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>
+                  {S(sm.public_user_code)}
+                  <span aria-hidden="true">□</span>
+                </button>
+                <div className="crm-card-kpis">
+                  <span>Баланс <b>{money(sm.token_balance)}</b></span>
+                  <span>Потрачено <b>{money(sm.tokens_spent)}</b></span>
+                  <span>Генераций <b>{S(sm.generations_count)}</b></span>
+                  <span>Изображений в галерее <b>{S(sm.gallery_count ?? 0)}</b></span>
+                  <span>Последняя активность <b>{shortTime(sm.last_seen_at)}</b></span>
+                  <span>Создан <b>{shortTime(sm.first_seen_at)}</b></span>
+                  <span>Риск-скор <b>{riskLabel(sm)}</b></span>
+                </div>
+                <div className="crm-status-row">
+                  <span><i className={`activity-${active}`} />{ACTIVITY_LABEL[active]}</span>
+                  <span><i className="activity-today" />Сегодня</span>
+                  <span><i className="activity-week" />Неделя</span>
+                  <span><i className="activity-month" />Месяц</span>
+                  <span><i className="activity-cold" />Нет генераций / холодный</span>
+                </div>
+              </div>
             </div>
-            <span className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</span>
-            <span className={isBanned ? 'status-banned' : 'status-active'}>{S(sm.status)}</span>
-            <span>{S(sm.role)}</span><span>{S(sm.plan)}</span><span>{ACTIVITY_LABEL[active]}</span>
           </div>
           <div className="crm-card-top-actions">
-            <button className="secondary" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>Копировать</button>
-            <button className="secondary" onClick={() => setTab('tech')}>Профиль</button>
+            <button className="secondary icon-only" title="Копировать код" aria-label="Копировать код" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>□</button>
+            <button className="secondary" onClick={() => setTab('tech')}>Открыть профиль</button>
             <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
-          </div>
-          <div className="crm-card-kpis">
-            <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Списано <b>{S(sm.tokens_spent)}</b></span>
-            <span>Генераций <b>{S(sm.generations_count)}</b></span><span>Галерея <b>{S(sm.gallery_count ?? 0)}</b></span>
-            <span>Вход {shortTime(sm.last_seen_at)}</span><span>Создан {shortTime(sm.first_seen_at)}</span><span>Риск <b>{riskLabel(sm)}</b></span>
           </div>
         </header>
 
@@ -347,7 +366,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <h4>Профиль и контакты</h4>
               <dl className="crm-preview-list">
                 {row('Имя', parsedName(sm, ids))}{row('Email', sm.email)}{row('Username', sm.username)}{row('Телефон', sm.phone)}
-                {row('Язык', (ids?.[0] as AnyRec)?.language_code)}{row('Гео', `${S(sm.city)} / ${S(sm.country)}`)}{row('Роль', sm.role)}{row('Тариф', sm.plan || 'mini')}{row('Галерея', sm.gallery_access ? 'доступна' : 'закрыта')}
+                {row('Язык', (ids?.[0] as AnyRec)?.language_code)}{row('Гео', `${S(sm.city)} / ${S(sm.country)}`)}{row('Роль', sm.role)}{row('Тариф', sm.plan || 'mini')}{row('Галерея', `${S(sm.gallery_used ?? sm.gallery_count ?? 0)}/${S(sm.gallery_slots ?? '—')} · свободно ${S(sm.gallery_free ?? '—')}`)}
               </dl>
             </div>
             <div className="crm-panel">
@@ -407,7 +426,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 ))}{!data?.sessions?.length && <p className="crm-card-note">—</p>}
               </div>
               <div className="crm-panel">
-                <h4>MAC: недоступен</h4>
+                <h4>Технические устройства</h4>
                 {(data?.devices || []).slice(0, 6).map((d, n) => (
                   <div className="crm-subrow" key={n}><small><strong>{S(d.platform)}</strong> · inst {S(d.installation_id)}</small><small>{S((d.metadata as AnyRec)?.browser)}/{S((d.metadata as AnyRec)?.os)} · anon {S(d.anonymous_id)} · {S(d.mac_status)} · {shortTime(d.last_seen_at)}</small></div>
                 ))}{!data?.devices?.length && <p className="crm-card-note">—</p>}
@@ -624,7 +643,7 @@ export function AdminAnalyticsV2(): ReactElement {
                 <span><small><i className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}</small><small>{shortTime(u.last_seen_at)}</small><small>{u.active_sessions_count ?? 0} сесс. · {u.last_platform || '—'} · {u.last_ip || '—'}</small></span>
                 <span>{sourceList.map((p) => <Badge key={p} p={p} />)}<small>{u.marketing_source || '—'}</small></span>
                 <span><small>{u.email || '—'}</small><small>{u.username ? `@${u.username}` : ''}{u.phone ? ` · ${u.phone}` : ''}</small></span>
-                <span><span className="crm-chip-row"><em className="crm-chip">{u.role || 'user'}</em><em className={banned ? 'crm-chip status-banned' : 'crm-chip status-active'}>{u.status || 'active'}</em></span><small>{u.plan || 'mini'} · галерея {u.gallery_access ? 'да' : 'нет'}</small></span>
+                <span><span className="crm-chip-row"><em className="crm-chip">{u.role || 'user'}</em><em className={banned ? 'crm-chip status-banned' : 'crm-chip status-active'}>{u.status || 'active'}</em></span><small>{u.plan || 'mini'} · галерея {S(u.gallery_used ?? u.gallery_count ?? 0)}/{S(u.gallery_slots ?? '—')}</small></span>
                 <span><small>Баланс {n0(u.token_balance)}</small><small>Списано {n0(u.tokens_spent)}</small></span>
                 <span><strong>{n0(u.generations_count)}</strong><small>Галерея: отложено</small></span>
                 <span><small>{deviceLabel(u)}</small><small>{u.device_count ?? 0} устр.</small></span>
