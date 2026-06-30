@@ -165,12 +165,14 @@ export interface AuthCapabilitiesV2 {
   email_otp_available: boolean
   telegram_bot_login_available: boolean
   max_bot_login_available: boolean
+  capabilities_loaded?: boolean
+  capabilities_status?: number
 }
 
 export async function getAuthCapabilitiesV2(): Promise<AuthCapabilitiesV2> {
   try {
     const res = await authFetch('/auth/capabilities-v2')
-    if (!res.ok) throw new Error('capabilities_failed')
+    if (!res.ok) throw Object.assign(new Error('capabilities_failed'), { status: res.status })
     const data = (await res.json()) as Partial<AuthCapabilitiesV2> & { bot_login?: Partial<AuthCapabilitiesV2> }
     return {
       password_login_available: data.password_login_available !== false,
@@ -178,14 +180,18 @@ export async function getAuthCapabilitiesV2(): Promise<AuthCapabilitiesV2> {
       email_otp_available: !!data.email_otp_available,
       telegram_bot_login_available: !!data.bot_login?.telegram_bot_login_available,
       max_bot_login_available: !!data.bot_login?.max_bot_login_available,
+      capabilities_loaded: true,
+      capabilities_status: res.status,
     }
-  } catch {
+  } catch (error) {
     return {
       password_login_available: true,
       password_register_available: true,
       email_otp_available: false,
       telegram_bot_login_available: false,
       max_bot_login_available: false,
+      capabilities_loaded: false,
+      capabilities_status: typeof (error as { status?: unknown })?.status === 'number' ? (error as { status: number }).status : undefined,
     }
   }
 }
@@ -213,10 +219,10 @@ export async function startBotLoginV2(provider: 'telegram' | 'max'): Promise<{ o
   }
 }
 
-export async function pollBotLoginStatusV2(): Promise<{ status: 'pending' | 'approved' | 'expired' | 'authenticated' | 'error' }> {
+export async function pollBotLoginStatusV2(): Promise<{ status: 'pending' | 'approved' | 'expired' | 'authenticated' | 'conflict' | 'error' }> {
   const res = await authFetch('/auth/bot-login/status')
   if (!res.ok) return { status: 'error' }
-  return (await res.json()) as { status: 'pending' | 'approved' | 'expired' | 'authenticated' }
+  return (await res.json()) as { status: 'pending' | 'approved' | 'expired' | 'authenticated' | 'conflict' }
 }
 
 export async function requestEmailCodeV2(email: string): Promise<{ challenge_id: string; debug_code?: string } | null> {
@@ -298,21 +304,119 @@ export async function verifyEmailCodeV2(challengeId: string, code: string): Prom
   return res.ok // cookies set by backend; JSON tokens ignored
 }
 
+export async function startBotLinkV2(provider: 'telegram' | 'max'): Promise<{ ok: true; deep_link: string; poll_interval_ms: number } | { ok: false; reason: string }> {
+  try {
+    const res = await authFetch('/auth/link/bot/start', {
+      method: 'POST',
+      body: JSON.stringify({ provider }),
+    })
+    if (!res.ok) {
+      let reason = res.status === 503 ? 'provider_not_configured' : 'bot_link_failed'
+      try {
+        const data = (await res.json()) as { detail?: string }
+        if (data.detail) reason = data.detail
+      } catch {
+        /* keep safe reason */
+      }
+      return { ok: false, reason }
+    }
+    const data = (await res.json()) as { deep_link: string; poll_interval_ms: number }
+    return { ok: true, deep_link: data.deep_link, poll_interval_ms: data.poll_interval_ms }
+  } catch {
+    return { ok: false, reason: 'network_error' }
+  }
+}
+
+export async function requestEmailLinkCodeV2(email: string): Promise<{ challenge_id: string; debug_code?: string } | { error: string } | null> {
+  const res = await authFetch('/auth/link/email/request-code-v2', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { detail?: string }
+    return { error: data.detail || 'email_link_failed' }
+  }
+  return (await res.json()) as { challenge_id: string; debug_code?: string }
+}
+
+export async function verifyEmailLinkCodeV2(challengeId: string, code: string): Promise<{ ok: true; reward_tokens?: number } | { ok: false; error: string }> {
+  const res = await authFetch('/auth/link/email/verify-code-v2', {
+    method: 'POST',
+    body: JSON.stringify({ challenge_id: challengeId, code }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { detail?: string }
+    return { ok: false, error: data.detail || 'email_link_failed' }
+  }
+  const data = await res.json().catch(() => ({})) as { reward_tokens?: number }
+  return { ok: true, reward_tokens: data.reward_tokens }
+}
+
 export interface MeV2 {
   internal_user_id?: string
   legacy_user_id?: string
   profile?: {
     display_name?: string | null; first_name?: string | null; last_name?: string | null
-    public_user_code?: string | null; username?: string | null; email?: string | null; providers?: string[]
+    public_user_code?: string | null; username?: string | null; email?: string | null; email_verified_at?: string | null; providers?: string[]
     avatar_url?: string | null; avatar_preset?: string | null
   } | null
   account?: {
     role?: string | null; plan?: string | null; token_balance?: number | null
     gallery_enabled?: boolean | null; gallery_access?: boolean | null
-    daily_tokens?: number | null; gallery_slots?: number | null; gallery_used?: number | null
+    daily_tokens?: number | null; daily_tokens_used?: number | null
+    daily_tokens_limit?: number | null; daily_tokens_remaining?: number | null
+    gallery_slots?: number | null; gallery_used?: number | null
     gallery_free?: number | null; gallery_full?: boolean | null
   } | null
-  identities?: Array<{ provider?: string; provider_username?: string | null; provider_email?: string | null }>
+  identities?: Array<{ provider?: string; provider_user_id?: string | null; provider_username?: string | null; provider_email?: string | null; provider_first_name?: string | null; provider_last_name?: string | null; provider_avatar_url?: string | null; verified_at?: string | null }>
+}
+
+export interface SessionInfoV2 {
+  id: string
+  provider?: string | null
+  platform?: string | null
+  ip_address?: string | null
+  device?: string | null
+  created_at?: string | null
+  last_seen_at?: string | null
+  expires_at?: string | null
+  revoked_at?: string | null
+  active?: boolean
+  current?: boolean
+}
+
+export async function listSessionsV2(): Promise<{ sessions: SessionInfoV2[]; current_session_id?: string } | null> {
+  const res = await authFetch('/auth/sessions')
+  if (!res.ok) return null
+  return (await res.json()) as { sessions: SessionInfoV2[]; current_session_id?: string }
+}
+
+export async function revokeSessionV2(sessionId: string): Promise<boolean> {
+  const res = await authFetch(`/auth/sessions/${encodeURIComponent(sessionId)}/revoke`, { method: 'POST' })
+  return res.ok
+}
+
+export async function revokeOtherSessionsV2(): Promise<number> {
+  const res = await authFetch('/auth/sessions/revoke-others', { method: 'POST' })
+  if (!res.ok) return 0
+  const data = await res.json().catch(() => ({})) as { revoked_count?: number }
+  return data.revoked_count || 0
+}
+
+export interface ActivityV2 {
+  account_created_at?: string | null
+  last_seen_at?: string | null
+  active_sessions?: number
+  total_sessions?: number
+  total_logins?: number
+  logins_by_provider?: Record<string, { count: number; last_at?: string | null }>
+  login_methods?: Array<{ provider?: string; last_login_at?: string | null; linked_at?: string | null; verified?: boolean }>
+}
+
+export async function getActivityV2(): Promise<ActivityV2 | null> {
+  const res = await authFetch('/account/activity-v2')
+  if (!res.ok) return null
+  return (await res.json()) as ActivityV2
 }
 
 // Restore/validate the session purely via cookies. On a 401 (expired access
@@ -513,6 +617,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     email_otp_available: false,
     telegram_bot_login_available: false,
     max_bot_login_available: false,
+    capabilities_loaded: undefined,
   })
 
   useEffect(() => {
@@ -697,6 +802,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
             )}
           </div>
         )}
+        {authCaps.capabilities_loaded === false && <p className="auth-v2-error">Сервер авторизации недоступен. Обновите страницу или обратитесь к администратору.</p>}
         {error && <p className="auth-v2-error">{error}</p>}
         {phase === 'bot' ? (
           <>
@@ -739,7 +845,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
             )}
             {showMaxBotLogin && (
               <button className="secondary" onClick={() => onBotLogin('max')} disabled={busy}>
-                Войти через MAX-бота
+                Войти через MAX
               </button>
             )}
             {tgAvail && <button className="secondary" onClick={onTelegram}>Войти через Telegram</button>}

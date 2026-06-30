@@ -11,16 +11,30 @@ from fastapi.testclient import TestClient
 import main
 
 
+def _reset_max_deep_link_cache() -> None:
+    main._MAX_BOT_DEEP_LINK_CACHE.update({
+        "attempted": False,
+        "base": None,
+        "source": "unresolved",
+        "resolved": False,
+        "api_status": None,
+        "fields": [],
+    })
+
+
 @pytest.fixture
 def temp_db(tmp_path: Path, monkeypatch):
     db_file = tmp_path / "bot_login.sqlite3"
+    _reset_max_deep_link_cache()
     monkeypatch.setattr(main, "DB_PATH", db_file)
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
     monkeypatch.setattr(main, "APP_ENV", "development")
     monkeypatch.setattr(main, "TELEGRAM_BOT_USERNAME", "OneNodeTestBot")
+    monkeypatch.setattr(main, "MAX_BOT_TOKEN", "test-max-token")
     monkeypatch.setattr(main, "MAX_BOT_DEEP_LINK_BASE", "https://max.ru/onenode-test")
     main.init_db()
-    return db_file
+    yield db_file
+    _reset_max_deep_link_cache()
 
 
 def _login_token(deep_link: str) -> str:
@@ -78,10 +92,118 @@ def test_bot_login_capabilities_false_without_deep_link_config(temp_db, monkeypa
     monkeypatch.setattr(main, "TELEGRAM_BOT_USERNAME", "")
     monkeypatch.setattr(main, "TELEGRAM_BOT_DEEP_LINK_BASE", "")
     monkeypatch.setattr(main, "MAX_BOT_DEEP_LINK_BASE", "")
+    monkeypatch.setattr(main, "MAX_BOT_TOKEN", "")
+    _reset_max_deep_link_cache()
     client = TestClient(main.app)
     payload = client.get("/api/auth/capabilities-v2").json()
     assert payload["bot_login"]["telegram_bot_login_available"] is False
     assert payload["bot_login"]["max_bot_login_available"] is False
+
+
+def test_max_capability_true_when_explicit_deep_link_base_exists(temp_db):
+    client = TestClient(main.app)
+    payload = client.get("/api/auth/capabilities-v2").json()
+    assert payload["bot_login"]["max_bot_login_available"] is True
+
+
+class _FakeMaxResponse:
+    def __init__(self, status_code: int, payload: dict):
+        self.status_code = status_code
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class _FakeMaxClient:
+    calls: list[dict] = []
+    response = _FakeMaxResponse(200, {"username": "real_max_bot"})
+
+    def __init__(self, timeout: int = 10):
+        self.timeout = timeout
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def get(self, url: str, headers: dict | None = None):
+        self.calls.append({"url": url, "headers": dict(headers or {})})
+        return self.response
+
+
+def test_max_capability_resolves_deep_link_base_from_api_me(temp_db, monkeypatch, capsys):
+    monkeypatch.setattr(main, "MAX_BOT_DEEP_LINK_BASE", "")
+    monkeypatch.setattr(main, "MAX_BOT_TOKEN", "secret-max-token")
+    monkeypatch.setattr(main.httpx, "Client", _FakeMaxClient)
+    _FakeMaxClient.calls = []
+    _FakeMaxClient.response = _FakeMaxResponse(200, {"username": "real_max_bot"})
+    _reset_max_deep_link_cache()
+
+    payload = TestClient(main.app).get("/api/auth/capabilities-v2").json()
+
+    assert payload["bot_login"]["max_bot_login_available"] is True
+    assert main._MAX_BOT_DEEP_LINK_CACHE["source"] == "api"
+    assert main._MAX_BOT_DEEP_LINK_CACHE["base"] == "https://max.ru/real_max_bot"
+    assert _FakeMaxClient.calls[0]["url"].endswith("/me")
+    assert "secret-max-token" not in capsys.readouterr().out
+
+
+def test_max_capability_false_when_api_me_has_no_nickname(temp_db, monkeypatch, capsys):
+    monkeypatch.setattr(main, "MAX_BOT_DEEP_LINK_BASE", "")
+    monkeypatch.setattr(main, "MAX_BOT_TOKEN", "secret-max-token")
+    monkeypatch.setattr(main.httpx, "Client", _FakeMaxClient)
+    _FakeMaxClient.calls = []
+    _FakeMaxClient.response = _FakeMaxResponse(200, {"id": "bot-1", "name": "No public nickname"})
+    _reset_max_deep_link_cache()
+
+    payload = TestClient(main.app).get("/api/auth/capabilities-v2").json()
+
+    assert payload["bot_login"]["max_bot_login_available"] is False
+    assert main._MAX_BOT_DEEP_LINK_CACHE["source"] == "failed"
+    output = capsys.readouterr().out
+    assert "secret-max-token" not in output
+    assert "fields=" in output
+
+
+def test_max_bot_login_start_resolves_api_deep_link_without_token_leak(temp_db, monkeypatch, capsys):
+    monkeypatch.setattr(main, "MAX_BOT_DEEP_LINK_BASE", "")
+    monkeypatch.setattr(main, "MAX_BOT_TOKEN", "secret-max-token")
+    monkeypatch.setattr(main.httpx, "Client", _FakeMaxClient)
+    _FakeMaxClient.calls = []
+    _FakeMaxClient.response = _FakeMaxResponse(200, {"bot": {"username": "real_max_bot"}})
+    _reset_max_deep_link_cache()
+
+    response = TestClient(main.app).post("/api/auth/bot-login/start", json={"provider": "max"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["deep_link"].startswith("https://max.ru/real_max_bot?start=login_")
+    assert "secret-max-token" not in response.text
+    assert "secret-max-token" not in capsys.readouterr().out
+
+
+def test_max_deep_link_rejects_payload_over_limit(temp_db):
+    token = "x" * 128
+    with pytest.raises(Exception) as exc:
+        main.bot_login_deep_link("max", token)
+    assert getattr(exc.value, "detail", "") == "config_error"
+
+
+def test_bots_status_reports_safe_max_delivery_fields(temp_db):
+    payload = TestClient(main.app).get("/api/bots/status").json()
+    max_status = payload["max"]
+    assert max_status["apiBaseUrl"].startswith("https://")
+    assert max_status["mode"] in {"webhook", "polling", "disabled"}
+    assert "webhookConfigured" in max_status
+    assert "subscriptionStatus" in max_status
+    assert "updateTypes" in max_status
+    assert "test-max-token" not in str(payload)
 
 
 def test_bot_login_status_without_cookie_does_not_create_session(temp_db):
@@ -142,9 +264,14 @@ def test_max_bot_started_login_then_approve_then_status_creates_session(temp_db,
         "bot_started": {"payload": f"login_{token}", "message": {"sender": {"user_id": "mx-1", "username": "mx_user"}}},
     }, send_replies=True))
     assert shown["answer"]["buttons"][0]["callback_data"] == f"approve:login_{token}"
+    assert shown["recipient"] == {"user_id": "mx-1"}
 
     approved = asyncio.run(main.handle_max_update({
-        "message": {"body": {"text": f"/approve login_{token}"}, "sender": {"user_id": "mx-1", "username": "mx_user"}},
+        "message_callback": {
+            "payload": f"approve:login_{token}",
+            "user": {"user_id": "mx-1", "username": "mx_user"},
+            "message": {"recipient": {"user_id": "mx-1"}},
+        },
     }, send_replies=True))
     assert approved["botLogin"] == "approved"
 
@@ -152,6 +279,24 @@ def test_max_bot_started_login_then_approve_then_status_creates_session(temp_db,
     assert status.status_code == 200
     assert status.json()["status"] == "authenticated"
     assert main.TRUSTED_SESSION_COOKIE_NAME in client.cookies
+
+
+def test_max_message_payload_uses_inline_callback_button(temp_db):
+    payload = main.max_message_payload({
+        "text": "Подтвердите вход",
+        "buttons": [{"text": "Подтвердить вход", "callback_data": "approve:login_test"}],
+    })
+    assert payload == {
+        "text": "Подтвердите вход",
+        "attachments": [
+            {
+                "type": "inline_keyboard",
+                "payload": {
+                    "buttons": [[{"type": "callback", "text": "Подтвердить вход", "payload": "approve:login_test"}]]
+                },
+            }
+        ],
+    }
 
 
 def test_expired_challenge_cannot_authenticate(temp_db):

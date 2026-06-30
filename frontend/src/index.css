@@ -858,6 +858,15 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .usr-inline { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .usr-reward { border: 1px solid rgba(236,255,47,.28); color: var(--acid); background: rgba(236,255,47,.08); border-radius: 9px; padding: 14px; font-weight: 950; }
 .usr-reward.result { color: #d8d8d8; }
+.usr-login-methods { display: grid; gap: 14px; }
+.usr-login-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.usr-login-grid article { border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.035); border-radius: 10px; padding: 12px; min-height: 112px; display: grid; gap: 8px; align-content: start; }
+.usr-login-grid strong { color: #f4f4f4; }
+.usr-login-grid p { margin: 0; color: #a9adb8; font-size: .92rem; }
+.usr-link-email { display: grid; gap: 8px; }
+.usr-link-email input { min-width: 0; }
+@media (max-width: 900px) { .usr-login-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .usr-login-grid { grid-template-columns: 1fr; } }
 .usr-token-balance { color: var(--acid); font-size: 28px; line-height: 1; }
 .usr-models { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .usr-model { min-height: 150px; padding: 18px; color: #f2f5ee; text-align: left; display: grid; gap: 10px; align-content: space-between; border-color: #2c332e; }

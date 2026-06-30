@@ -173,7 +173,12 @@ def test_gallery_quota_free_slot_and_soft_delete(temp_db):
     main.load_db_state()
     with TestClient(main.app) as c:
         deleted = c.delete("/api/gallery/img-free-1", headers=bearer(token))
+        me = c.get("/api/me-v2", headers=bearer(token))
     assert deleted.status_code == 200
+    assert me.status_code == 200
+    assert me.json()["account"]["gallery_used"] == 0
+    assert me.json()["account"]["gallery_free"] == 1
+    assert me.json()["account"]["gallery_full"] is False
     with main.db() as conn:
         row = conn.execute("SELECT * FROM users WHERE id='web_free_quota'").fetchone()
         quota = main.gallery_quota_for_user(conn, row, "web_free_quota")
@@ -181,7 +186,7 @@ def test_gallery_quota_free_slot_and_soft_delete(temp_db):
     assert quota["gallery_free"] == 1
 
 
-def test_generation_completes_but_skips_gallery_when_slots_full(temp_db):
+def test_generation_replaces_oldest_gallery_slot_when_full(temp_db):
     make_user("iuid-free-gen", "web_free_gen", plan="free", gallery_enabled=0, balance=100)
     token = main.create_auth_session("iuid-free-gen", "web_free_gen", provider="web_email", platform="web")["session_token"]
     payload = {
@@ -195,6 +200,7 @@ def test_generation_completes_but_skips_gallery_when_slots_full(temp_db):
         "loras": [],
     }
     with TestClient(main.app) as c:
+        c.cookies.set("onenode_session", token)
         first = c.post("/api/generate", json=payload, headers=bearer(token))
         assert first.status_code == 200, first.text
         first_final = wait_for_terminal_job(c, first.json()["id"])
@@ -205,12 +211,15 @@ def test_generation_completes_but_skips_gallery_when_slots_full(temp_db):
     assert first_final["gallerySaveStatus"] == "saved"
     assert first_final["resultImageId"]
     assert second_final["status"] == "completed"
-    assert second_final["gallerySaveStatus"] == "quota_full"
+    assert second_final["gallerySaveStatus"] == "saved"
     assert second_final["resultUrl"]
-    assert second_final.get("resultImageId") is None
+    assert second_final["resultImageId"]
     with main.db() as conn:
-        count = conn.execute("SELECT COUNT(*) AS c FROM images WHERE user_id='web_free_gen' AND deleted_at IS NULL").fetchone()["c"]
-    assert count == 1
+        active = conn.execute("SELECT id FROM images WHERE user_id='web_free_gen' AND deleted_at IS NULL ORDER BY created_at").fetchall()
+        deleted = conn.execute("SELECT id FROM images WHERE user_id='web_free_gen' AND deleted_at IS NOT NULL").fetchall()
+    assert len(active) == 1
+    assert [row["id"] for row in active] == [second_final["resultImageId"]]
+    assert [row["id"] for row in deleted] == [first_final["resultImageId"]]
 
 
 def test_deactivate_blocks_login_and_audits(temp_db):

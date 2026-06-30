@@ -1,6 +1,19 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, Dispatch, MutableRefObject, SetStateAction } from 'react'
-import { AuthV2Modal, initAuthV2, updateProfileV2, logoutV2, refreshAuthStateV2, useAuthV2, type MeV2 } from './authV2'
+import {
+  AuthV2Modal,
+  initAuthV2,
+  updateProfileV2,
+  logoutV2,
+  getAuthCapabilitiesV2,
+  pollBotLoginStatusV2,
+  refreshAuthStateV2,
+  requestEmailLinkCodeV2,
+  startBotLinkV2,
+  useAuthV2,
+  verifyEmailLinkCodeV2,
+  type MeV2,
+} from './authV2'
 import { DiagPanel, isDiagMode } from './diag'
 import {
   EDIT_SLOT_COUNT, DEFAULT_EDIT_STRENGTH, EDIT_REFERENCE_ROLES, EDIT_REFERENCE_ROLE_LABELS,
@@ -755,7 +768,10 @@ function App() {
     const timer = window.setInterval(async () => {
       const next = await apiFetch(`/jobs/${job.id}`).then((r) => r.json())
       setJob(next)
-      if (next.status === 'completed') fetchGallery()
+      if (next.status === 'completed') {
+        fetchGallery()
+        void refreshAuthStateV2()
+      }
     }, 900)
     return () => window.clearInterval(timer)
   }, [fetchGallery, job])
@@ -870,6 +886,7 @@ function App() {
     }
     const created = await response.json()
     setJob(created)
+    void refreshAuthStateV2()
     if (!seed) setSeed(effectiveSeed)
     setNotice('')
     setTab('studio')
@@ -1915,6 +1932,7 @@ function GalleryView({ copy, images, quota, selected, setSelected, handleUseImag
     await apiFetch(`/gallery/${image.id}`, { method: 'DELETE' })
     clearSelected()
     await refreshGallery()
+    await refreshAuthStateV2()
   }
   const onUseSelected = (value: string) => {
     if (!selected || !value) return
@@ -1946,7 +1964,7 @@ function GalleryView({ copy, images, quota, selected, setSelected, handleUseImag
   return (
     <section className="gallery-page">
       {picking && <div className="gallery-pick-banner"><span>Выберите изображение для слота {pickSlot === 0 ? 'Основа' : `Референс ${pickSlot}`}</span><button className="secondary" onClick={() => cancelPick?.()}>Отмена</button></div>}
-      {quota && <div className="gallery-pick-banner gallery-quota-banner"><span>Галерея: занято {quota.gallery_used} из {quota.gallery_slots} · свободно {quota.gallery_free} · тариф {quota.plan.toUpperCase()}</span>{quota.gallery_full && <small>Новые генерации завершатся, но не сохранятся в галерею, пока не освободится слот.</small>}</div>}
+      {quota && <div className="gallery-pick-banner gallery-quota-banner"><span>Галерея: занято {quota.gallery_used} из {quota.gallery_slots} · свободно {quota.gallery_free} · тариф {quota.plan.toUpperCase()}</span></div>}
       <div className="view-actions gallery-toolbar">
         <button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button>
         <button className={view === 'grid' ? 'secondary active' : 'secondary'} onClick={() => setView('grid')}>{copy.grid}</button>
@@ -2060,7 +2078,9 @@ function SettingsView({ copy, tariffs, bootstrap, setBootstrap, openAdmin, openG
   const planLabel = plan.toUpperCase()
   const tokenBalance = Number(account?.token_balance ?? user.tokenBalance ?? 0)
   const currentTariff = tariffs[plan] || DEFAULT_TARIFFS[plan]
-  const dailyTokens = Number(account?.daily_tokens ?? user.dailyTokens ?? currentTariff.daily_tokens)
+  const dailyLimit = Number(account?.daily_tokens_limit ?? account?.daily_tokens ?? user.dailyTokens ?? currentTariff.daily_tokens)
+  const dailyUsed = Math.max(0, Number(account?.daily_tokens_used ?? 0))
+  const dailyRemaining = Math.max(0, Number(account?.daily_tokens_remaining ?? dailyLimit - dailyUsed))
   const gallerySlots = Number(account?.gallery_slots ?? user.gallerySlots ?? currentTariff.gallery_slots)
   const galleryUsed = Number(account?.gallery_used ?? user.galleryUsed ?? 0)
   const galleryFree = Math.max(0, Number(account?.gallery_free ?? user.galleryFree ?? gallerySlots - galleryUsed))
@@ -2089,6 +2109,12 @@ function SettingsView({ copy, tariffs, bootstrap, setBootstrap, openAdmin, openG
   const [avatarMsg, setAvatarMsg] = useState('')
   const [avatarBusy, setAvatarBusy] = useState(false)
   const [settingsTab, setSettingsTab] = useState<'profile' | 'tariffs' | 'earn' | 'models'>('profile')
+  const [authCaps, setAuthCaps] = useState({ telegram_bot_login_available: false, max_bot_login_available: false })
+  const [linkEmail, setLinkEmail] = useState('')
+  const [linkEmailChallenge, setLinkEmailChallenge] = useState('')
+  const [linkEmailCode, setLinkEmailCode] = useState('')
+  const [linkMsg, setLinkMsg] = useState('')
+  const [linkBusy, setLinkBusy] = useState(false)
   const friendPromoCode = `FRIEND-${String(authMe?.profile?.public_user_code || user.id || 'GUEST').replace(/^web_/, '').toUpperCase().slice(0, 12)}`
   void openAdmin // prop accepted for call-site compatibility
   useEffect(() => { setDisplayName(authMe?.profile?.display_name || '') }, [authMe?.profile?.display_name])
@@ -2098,7 +2124,18 @@ function SettingsView({ copy, tariffs, bootstrap, setBootstrap, openAdmin, openG
     setAvatarPreset(authMe?.profile?.avatar_preset || '')
     setAvatarMsg('')
   }, [authMe?.profile?.avatar_url, authMe?.profile?.avatar_preset])
+  useEffect(() => {
+    let active = true
+    getAuthCapabilitiesV2().then((caps) => {
+      if (active) setAuthCaps({ telegram_bot_login_available: caps.telegram_bot_login_available, max_bot_login_available: caps.max_bot_login_available })
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [])
   const displayEmail = authMe?.identities?.find((i) => i.provider_email)?.provider_email
+  const telegramIdentity = authMe?.identities?.find((i) => i.provider === 'telegram')
+  const maxIdentity = authMe?.identities?.find((i) => i.provider === 'max')
+  const emailIdentity = authMe?.identities?.find((i) => i.provider === 'web_email')
+  const emailStatus = emailIdentity ? (emailIdentity.verified_at || authMe?.profile?.email_verified_at ? 'Подтвержден' : 'Ожидает подтверждения') : 'Не указан'
   const displayNameFallback = authMe?.profile?.display_name
     || [authMe?.profile?.first_name, authMe?.profile?.last_name].filter(Boolean).join(' ')
     || displayEmail?.split('@')[0]
@@ -2181,6 +2218,57 @@ function SettingsView({ copy, tariffs, bootstrap, setBootstrap, openAdmin, openG
     await navigator.clipboard?.writeText(`${referralLink}\nПромокод: ${friendPromoCode}`)
     setInviteMsg('Скопировано')
   }
+  const onRequestLinkEmail = async () => {
+    const email = linkEmail.trim()
+    if (!email) { setLinkMsg('Введите email'); return }
+    setLinkBusy(true); setLinkMsg('')
+    const result = await requestEmailLinkCodeV2(email)
+    if (!result) setLinkMsg('Не удалось отправить код')
+    else if ('error' in result) setLinkMsg(result.error === 'email_already_linked' ? 'Этот email уже привязан к другому аккаунту' : 'Email-подтверждение сейчас недоступно')
+    else { setLinkEmailChallenge(result.challenge_id); setLinkMsg('Код отправлен на email') }
+    setLinkBusy(false)
+  }
+  const onVerifyLinkEmail = async () => {
+    if (!linkEmailChallenge || !linkEmailCode.trim()) return
+    setLinkBusy(true); setLinkMsg('')
+    const result = await verifyEmailLinkCodeV2(linkEmailChallenge, linkEmailCode.trim())
+    if (!result.ok) setLinkMsg(result.error === 'email_already_linked' ? 'Этот email уже привязан к другому аккаунту' : 'Неверный или просроченный код')
+    else {
+      setLinkEmailChallenge(''); setLinkEmailCode(''); setLinkEmail('')
+      await refreshAuthStateV2()
+      setLinkMsg(result.reward_tokens ? `Email подключен: +${result.reward_tokens} токенов` : 'Email уже подключен')
+    }
+    setLinkBusy(false)
+  }
+  const onLinkBot = async (providerName: 'telegram' | 'max') => {
+    setLinkBusy(true); setLinkMsg('')
+    const started = await startBotLinkV2(providerName)
+    if (!started.ok) {
+      setLinkMsg(providerName === 'telegram' ? 'Telegram-подключение сейчас недоступно' : 'MAX-подключение сейчас недоступно')
+      setLinkBusy(false)
+      return
+    }
+    window.open(started.deep_link, '_blank', 'noopener,noreferrer')
+    setLinkMsg(`Подтвердите подключение в ${providerName === 'telegram' ? 'Telegram' : 'MAX'}-боте`)
+    const deadline = Date.now() + 10 * 60 * 1000
+    const timer = window.setInterval(async () => {
+      const status = await pollBotLoginStatusV2()
+      if (status.status === 'authenticated') {
+        window.clearInterval(timer)
+        await refreshAuthStateV2()
+        setLinkBusy(false)
+        setLinkMsg(`${providerName === 'telegram' ? 'Telegram' : 'MAX'} подключен: +10 токенов, если бонус ещё не выдавался`)
+      } else if (status.status === 'conflict') {
+        window.clearInterval(timer)
+        setLinkBusy(false)
+        setLinkMsg('Этот способ входа уже привязан к другому аккаунту')
+      } else if (status.status === 'expired' || status.status === 'error' || Date.now() > deadline) {
+        window.clearInterval(timer)
+        setLinkBusy(false)
+        setLinkMsg('Подключение не завершено. Попробуйте снова')
+      }
+    }, started.poll_interval_ms || 2000)
+  }
 
   if (!isAuthedV2) {
     return (
@@ -2238,7 +2326,7 @@ function SettingsView({ copy, tariffs, bootstrap, setBootstrap, openAdmin, openG
           </div>
           <div className="usr-code"><span>Публичный код: {publicCode || 'GUEST'}</span></div>
           <div className="usr-metrics">
-            <div><span>Токенов в сутки</span><strong>{dailyTokens} / {dailyTokens}</strong><small>по текущему тарифу</small></div>
+            <div><span>Токенов сегодня</span><strong>{dailyUsed} / {dailyLimit}</strong><small>осталось {dailyRemaining}</small></div>
             <div><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>доступно сейчас</small></div>
             <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
             <div><span>Промо и друзья</span><strong>+50</strong><small>за промокод или друга</small></div>
@@ -2271,8 +2359,39 @@ function SettingsView({ copy, tariffs, bootstrap, setBootstrap, openAdmin, openG
           )}
         </div>
       </section>
+      <section className="usr-card usr-login-methods">
+        <div className="usr-section-head"><h3>Способы входа</h3><span>+10 токенов за новое подтвержденное подключение</span></div>
+        <div className="usr-login-grid">
+          <article>
+            <strong>Telegram</strong>
+            <p>{telegramIdentity ? `Подключен: ${telegramIdentity.provider_username ? `@${telegramIdentity.provider_username}` : `ID ${telegramIdentity.provider_user_id || '—'}`}` : 'Не подключен'}</p>
+            {!telegramIdentity && authCaps.telegram_bot_login_available && <button className="secondary" onClick={() => void onLinkBot('telegram')} disabled={linkBusy}>Подключить Telegram</button>}
+          </article>
+          <article>
+            <strong>Email</strong>
+            <p>{emailIdentity?.provider_email ? `${emailStatus}: ${emailIdentity.provider_email}` : emailStatus}</p>
+            {!emailIdentity && <div className="usr-link-email">
+              <input type="email" value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)} placeholder="email@example.com" disabled={linkBusy || Boolean(linkEmailChallenge)} />
+              {!linkEmailChallenge ? <button className="secondary" onClick={() => void onRequestLinkEmail()} disabled={linkBusy || !linkEmail.trim()}>Получить код</button> : <>
+                <input value={linkEmailCode} onChange={(e) => setLinkEmailCode(e.target.value)} placeholder="Код из письма" disabled={linkBusy} />
+                <button className="secondary" onClick={() => void onVerifyLinkEmail()} disabled={linkBusy || !linkEmailCode.trim()}>Подтвердить</button>
+              </>}
+            </div>}
+          </article>
+          <article>
+            <strong>MAX</strong>
+            <p>{maxIdentity ? `Подключен: ${maxIdentity.provider_username || `ID ${maxIdentity.provider_user_id || '—'}`}` : 'Не подключен'}</p>
+            {!maxIdentity && authCaps.max_bot_login_available && <button className="secondary" onClick={() => void onLinkBot('max')} disabled={linkBusy}>Подключить MAX</button>}
+          </article>
+          <article>
+            <strong>Телефон</strong>
+            <p>Будет доступно позже</p>
+          </article>
+        </div>
+        {linkMsg && <small className={linkMsg.includes('подключ') || linkMsg.includes('отправлен') ? 'save-ok' : 'save-err'}>{linkMsg}</small>}
+      </section>
       <section className="usr-profile-dashboard">
-        <article className="usr-card usr-stat-card"><span>Сегодня доступно</span><strong>{dailyTokens}</strong><small>токенов</small></article>
+        <article className="usr-card usr-stat-card"><span>Сегодня осталось</span><strong>{dailyRemaining}</strong><small>из {dailyLimit} токенов</small></article>
         <article className="usr-card usr-stat-card"><span>Баланс</span><strong>{tokenBalance}</strong><small>токенов</small></article>
         <article className="usr-card usr-stat-card"><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></article>
         <article className="usr-card usr-stat-card"><span>Промокод друга</span><strong>{friendPromoCode}</strong><small>+50 токенов</small></article>
@@ -2283,7 +2402,7 @@ function SettingsView({ copy, tariffs, bootstrap, setBootstrap, openAdmin, openG
       <section className="usr-section">
         <div className="usr-tariff-summary usr-card">
           <div><span>Текущий тариф</span><strong>{planLabel}</strong></div>
-          <div><span>Токены в сутки</span><strong>{dailyTokens}</strong></div>
+          <div><span>Токены сегодня</span><strong>{dailyUsed} / {dailyLimit}</strong></div>
           <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
           <button type="button" className="usr-primary" disabled>Управление тарифом скоро</button>
         </div>
@@ -2365,7 +2484,7 @@ function SettingsView({ copy, tariffs, bootstrap, setBootstrap, openAdmin, openG
       <section className="usr-section">
         <div className="usr-model-summary">
           <article className="usr-card usr-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article>
-          <article className="usr-card usr-stat-card"><span>Дневной лимит</span><strong>{dailyTokens} / {dailyTokens}</strong><small>использовано сегодня</small></article>
+          <article className="usr-card usr-stat-card"><span>Дневной лимит</span><strong>{dailyUsed} / {dailyLimit}</strong><small>осталось {dailyRemaining}</small></article>
           <article className="usr-card usr-stat-card"><span>Модель по умолчанию</span><strong>{quality === 'fast' ? 'Быстрая' : quality === 'standard' ? 'Стандарт' : 'Максимум'}</strong><small>рекомендуется</small></article>
           <article className="usr-card usr-stat-card"><span>Стоимость</span><strong>{tokenPrice}</strong><small>{tokenPrice === 1 ? 'токен' : 'токена'}</small></article>
         </div>
@@ -2407,7 +2526,7 @@ function SettingsView({ copy, tariffs, bootstrap, setBootstrap, openAdmin, openG
 function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, modelProfile, selectedLora, resetDefaults }: { copy: Copy; admin?: Record<string, unknown>; tariffs: TariffConfig; setTariffs: Dispatch<SetStateAction<TariffConfig>>; backToStudio: () => void; provider: string; modelProfile: string; selectedLora: string; resetDefaults: () => void }) {
   const [tab, setTab] = useState<'dashboard' | 'models' | 'tokens' | 'users' | 'queue' | 'errors'>('dashboard')
   const [showLegacyUsers, setShowLegacyUsers] = useState(false)
-  const [limits, setLimits] = useState({ hourly: 10, daily: 50 })
+  const [limits, setLimits] = useState({ hourly: 0, daily: 0 })
   const [saved, setSaved] = useState('')
   const [promoDraft, setPromoDraft] = useState({ code: 'START50', tokens: 50, activations: 100 })
   const [finance, setFinance] = useState({ tokenRevenue: 0, tokenCost: 0, electricity: 0, promoBudget: 0 })

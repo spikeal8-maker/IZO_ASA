@@ -83,7 +83,8 @@ function initials(u: CrmUserRow & AnyRec, ids?: AnyRec[]): string {
 }
 
 function AvatarMark({ u, ids, className }: { u: CrmUserRow & AnyRec; ids?: AnyRec[]; className: string }): ReactElement {
-  const src = typeof u.avatar_url === 'string' && u.avatar_url ? u.avatar_url : ''
+  const providerAvatar = ids?.map((i) => i.avatar_url).find((a): a is string => typeof a === 'string' && a.length > 0)
+  const src = (typeof u.avatar_url === 'string' && u.avatar_url) ? u.avatar_url : (providerAvatar || '')
   return <span className={className}>{src ? <img src={src} alt="" /> : initials(u, ids)}</span>
 }
 
@@ -359,12 +360,15 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             </div>
             <div className="crm-panel">
               <h4>Источники входа</h4>
-              {(ids || []).map((i, n) => (
+              {(ids || []).map((i, n) => {
+                const nm = [i.first_name, i.last_name].filter(Boolean).join(' ')
+                return (
                 <div className="crm-subrow" key={n}>
-                  <span><Badge p={String(i.provider)} /> @{S(i.provider_username)} · {S(i.provider_email)} · id {shortId(i.provider_user_id, 6)}</span>
-                  <small>вход {shortTime(i.last_login_at)} · {i.verified_at ? 'verified' : 'не подтв.'} · raw-профиль: {i.has_raw_profile ? 'да' : 'нет'}</small>
+                  <span><Badge p={String(i.provider)} /> {nm ? `${nm} · ` : ''}@{S(i.provider_username)} · {S(i.provider_email)} · id {shortId(i.provider_user_id, 6)}</span>
+                  <small>вход {shortTime(i.last_login_at)} · {S(i.language_code)} · {i.verified_at ? 'verified' : 'не подтв.'} · аватар: {i.avatar_url ? 'есть' : 'нет'} · raw-профиль: {i.has_raw_profile ? 'да' : 'нет'}</small>
                 </div>
-              ))}{!ids?.length && <p className="crm-card-note">—</p>}
+                )
+              })}{!ids?.length && <p className="crm-card-note">—</p>}
             </div>
             <div className="crm-panel">
               <h4>Контент</h4>

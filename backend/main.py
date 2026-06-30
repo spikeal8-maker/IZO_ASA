@@ -18,7 +18,7 @@ from typing import Any, Literal
 
 import hmac
 import hashlib
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote
 
 import httpx
 from argon2 import PasswordHasher
@@ -101,8 +101,36 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_INIT_DATA_TTL_SECONDS = int(os.getenv("TELEGRAM_INIT_DATA_TTL_SECONDS", str(60 * 60 * 24)))
 MAX_BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
 MAX_WEB_APP_DATA_TTL_SECONDS = int(os.getenv("MAX_WEB_APP_DATA_TTL_SECONDS", str(60 * 60 * 24)))
-MAX_API_BASE_URL = os.getenv("MAX_API_BASE_URL", "https://platform-api.max.ru")
+MAX_UPDATES_MODE = os.getenv("MAX_UPDATES_MODE", BOT_UPDATES_MODE).strip().lower()
+if MAX_UPDATES_MODE not in {"webhook", "polling", "disabled"}:
+    MAX_UPDATES_MODE = BOT_UPDATES_MODE
+MAX_API_BASE_URL = os.getenv("MAX_API_BASE_URL", "https://platform-api2.max.ru")
+MAX_WEBHOOK_URL = os.getenv("MAX_WEBHOOK_URL", "")
 MAX_WEBHOOK_SECRET = os.getenv("MAX_WEBHOOK_SECRET", "")
+_MAX_BOT_DEEP_LINK_CACHE: dict[str, Any] = {
+    "attempted": False,
+    "base": None,
+    "source": "unresolved",
+    "resolved": False,
+    "api_status": None,
+    "fields": [],
+}
+MAX_POLLING_DIAG: dict[str, Any] = {
+    "lastPollAt": None,
+    "lastPollStatus": None,
+    "lastPollError": None,
+    "lastPollMarker": None,
+    "lastPollNextMarker": None,
+    "lastRawCount": None,
+    "lastBotStartedAt": None,
+    "lastCallbackAt": None,
+    "lastWebhookAt": None,
+    "lastWebhookError": None,
+    "subscriptionStatus": None,
+    "webhookConfigured": False,
+    "webhookUrlSet": False,
+    "updateTypes": [],
+}
 DEFAULT_NEG_PROMPT = "low quality, deformed, blurry, watermark, ugly, bad anatomy, disfigured, mutated, extra limbs, poorly drawn face, bad proportions, jpeg artifacts"
 SESSION_HMAC_SECRET = os.getenv("SESSION_HMAC_SECRET", "")
 # Backward-compatible fallback default for the access/session lifetime.
@@ -309,6 +337,15 @@ class EmailVerifyCodeV2Request(BaseModel):
     platform: Literal["web_desktop", "web_mobile", "pwa", "unknown"] = "unknown"
 
 
+class LinkEmailRequestCodeV2Request(BaseModel):
+    email: str = ""
+
+
+class LinkEmailVerifyCodeV2Request(BaseModel):
+    challenge_id: str = ""
+    code: str = ""
+
+
 class PasswordRegisterV2Request(BaseModel):
     email: str = ""
     password: str = ""
@@ -487,8 +524,8 @@ class UseAsRequest(BaseModel):
 
 
 class AdminLimitRequest(BaseModel):
-    hourly: int = Field(default=10, ge=1, le=1000)
-    daily: int = Field(default=50, ge=1, le=5000)
+    hourly: int = Field(default=0, ge=0, le=1000)
+    daily: int = Field(default=0, ge=0, le=5000)
 
 
 class AdminUserRequest(BaseModel):
@@ -538,7 +575,7 @@ class AdminSettingsRequest(BaseModel):
     settings: dict[str, Any]
 
 
-rate_limits = {"hourly": 10, "daily": 50}
+rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro")
 DEFAULT_TARIFFS: dict[str, dict[str, int]] = {
@@ -1921,6 +1958,24 @@ def record_login_attempt(
     )
 
 
+def _fill_user_profile_if_empty(conn: sqlite3.Connection, legacy_user_id: str | None, user: dict[str, Any]) -> None:
+    """Populate users.first_name/last_name/username from a verified provider
+    profile, but only for columns that are currently empty — never overwrite a
+    value the user has already set or customised."""
+    if not legacy_user_id:
+        return
+    conn.execute(
+        """
+        UPDATE users SET
+            first_name = COALESCE(NULLIF(first_name, ''), ?),
+            last_name  = COALESCE(NULLIF(last_name, ''), ?),
+            username   = COALESCE(NULLIF(username, ''), ?)
+        WHERE id = ?
+        """,
+        (user.get("first_name"), user.get("last_name"), user.get("username"), legacy_user_id),
+    )
+
+
 def telegram_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now: str) -> tuple[str, str]:
     """Resolve/create the canonical identity for a verified Telegram user.
 
@@ -1953,6 +2008,7 @@ def telegram_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now
         )
         if existing["legacy_user_id"]:
             conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, existing["legacy_user_id"]))
+            _fill_user_profile_if_empty(conn, existing["legacy_user_id"], user)
         return existing["internal_user_id"], existing["legacy_user_id"]
 
     # No identity yet: try to adopt a legacy user keyed by users.telegram_id.
@@ -2000,6 +2056,7 @@ def telegram_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now
         """,
         (uuid.uuid4().hex, internal_user_id, legacy_user_id, pid, username, first, last, photo, lang, raw_profile, now, now, now),
     )
+    _fill_user_profile_if_empty(conn, legacy_user_id, user)
     return internal_user_id, legacy_user_id
 
 
@@ -2034,6 +2091,7 @@ def max_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now: str
         )
         if existing["legacy_user_id"]:
             conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, existing["legacy_user_id"]))
+            _fill_user_profile_if_empty(conn, existing["legacy_user_id"], user)
         return existing["internal_user_id"], existing["legacy_user_id"]
 
     user_columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
@@ -2079,11 +2137,15 @@ def max_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now: str
         """,
         (uuid.uuid4().hex, internal_user_id, legacy_user_id, pid, username, first, last, photo, lang, raw_profile, now, now, now),
     )
+    _fill_user_profile_if_empty(conn, legacy_user_id, user)
     return internal_user_id, legacy_user_id
 
 
 def bot_login_deep_link(provider: Literal["telegram", "max"], token: str) -> str:
     payload = f"login_{token}"
+    if provider == "max" and len(payload) > 128:
+        print(f"MAX deep link payload too long length={len(payload)}")
+        raise HTTPException(500, "config_error")
     if provider == "telegram":
         base = TELEGRAM_BOT_DEEP_LINK_BASE.strip()
         if base:
@@ -2091,17 +2153,160 @@ def bot_login_deep_link(provider: Literal["telegram", "max"], token: str) -> str
             return f"{base}{sep}start={payload}"
         if TELEGRAM_BOT_USERNAME.strip():
             return f"https://t.me/{TELEGRAM_BOT_USERNAME.strip().lstrip('@')}?start={payload}"
-    base = MAX_BOT_DEEP_LINK_BASE.strip()
+    base = resolve_max_bot_deep_link_base()
     if base:
         sep = "&" if "?" in base else "?"
         return f"{base}{sep}start={payload}"
     raise HTTPException(503, "provider_not_configured")
 
 
+def _flatten_field_names(value: Any, prefix: str = "") -> list[str]:
+    if isinstance(value, dict):
+        names: list[str] = []
+        for key, child in value.items():
+            name = f"{prefix}.{key}" if prefix else str(key)
+            names.append(name)
+            names.extend(_flatten_field_names(child, name))
+        return names
+    if isinstance(value, list):
+        names = []
+        for child in value[:3]:
+            names.extend(_flatten_field_names(child, f"{prefix}[]"))
+        return names
+    return []
+
+
+def _pick_nested_string(value: Any, names: tuple[str, ...]) -> str | None:
+    if isinstance(value, dict):
+        for name in names:
+            candidate = value.get(name)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        for child in value.values():
+            nested = _pick_nested_string(child, names)
+            if nested:
+                return nested
+    elif isinstance(value, list):
+        for child in value:
+            nested = _pick_nested_string(child, names)
+            if nested:
+                return nested
+    return None
+
+
+def mask_short(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    if len(text) <= 12:
+        return text
+    return f"{text[:4]}...{text[-4:]}"
+
+
+def max_update_type(update: dict[str, Any]) -> str:
+    for key in ("bot_started", "botStarted", "message_callback", "callback", "message_created", "message"):
+        if isinstance(update.get(key), dict):
+            return key
+    value = update.get("update_type") or update.get("type")
+    return str(value or "unknown")
+
+
+def sanitized_payload_prefix(payload: str | None) -> str | None:
+    if not isinstance(payload, str) or not payload:
+        return None
+    if payload.startswith("login_"):
+        return "login_"
+    if payload.startswith("approve:login_") or payload.startswith("approve:"):
+        return "approve_"
+    return payload[:16]
+
+
+def _max_base_from_me_payload(payload: dict[str, Any]) -> str | None:
+    link = _pick_nested_string(payload, ("link", "url", "deep_link", "deeplink", "bot_link"))
+    if link and re.match(r"^https://(?:www\.)?max\.ru/[^\s]+$", link):
+        return link
+    nickname = _pick_nested_string(payload, ("username", "nickname", "nick", "login"))
+    if not nickname:
+        return None
+    nickname = nickname.strip().lstrip("@").strip("/")
+    if not re.match(r"^[A-Za-z0-9_.-]{2,64}$", nickname):
+        return None
+    return f"https://max.ru/{quote(nickname, safe='._-')}"
+
+
+def resolve_max_bot_deep_link_base() -> str | None:
+    explicit = MAX_BOT_DEEP_LINK_BASE.strip()
+    if explicit:
+        _MAX_BOT_DEEP_LINK_CACHE.update({
+            "attempted": True,
+            "base": explicit,
+            "source": "env",
+            "resolved": True,
+            "api_status": None,
+            "fields": [],
+        })
+        return explicit
+    if not MAX_BOT_TOKEN:
+        _MAX_BOT_DEEP_LINK_CACHE.update({
+            "attempted": True,
+            "base": None,
+            "source": "failed",
+            "resolved": False,
+            "api_status": None,
+            "fields": [],
+        })
+        return None
+    if _MAX_BOT_DEEP_LINK_CACHE.get("attempted"):
+        return _MAX_BOT_DEEP_LINK_CACHE.get("base")
+    status: int | None = None
+    fields: list[str] = []
+    try:
+        headers = {"Authorization": MAX_BOT_TOKEN, "Content-Type": "application/json"}
+        with httpx.Client(timeout=10) as client:
+            response = client.get(f"{MAX_API_BASE_URL.rstrip('/')}/me", headers=headers)
+            status = response.status_code
+            response.raise_for_status()
+            payload = response.json()
+        fields = sorted(set(_flatten_field_names(payload)))[:80]
+        base = _max_base_from_me_payload(payload if isinstance(payload, dict) else {})
+        if base:
+            _MAX_BOT_DEEP_LINK_CACHE.update({
+                "attempted": True,
+                "base": base,
+                "source": "api",
+                "resolved": True,
+                "api_status": status,
+                "fields": fields,
+            })
+            print(f"MAX deep link base source=api; MAX bot nickname resolved=true; MAX API /me status={status}")
+            return base
+    except Exception as exc:
+        print(f"MAX deep link base source=failed; MAX bot nickname resolved=false; MAX API /me status={status}; error={type(exc).__name__}")
+        _MAX_BOT_DEEP_LINK_CACHE.update({
+            "attempted": True,
+            "base": None,
+            "source": "failed",
+            "resolved": False,
+            "api_status": status,
+            "fields": fields,
+        })
+        return None
+    print(f"MAX deep link base source=failed; MAX bot nickname resolved=false; MAX API /me status={status}; fields={fields}")
+    _MAX_BOT_DEEP_LINK_CACHE.update({
+        "attempted": True,
+        "base": None,
+        "source": "failed",
+        "resolved": False,
+        "api_status": status,
+        "fields": fields,
+    })
+    return None
+
+
 def bot_login_available(provider: Literal["telegram", "max"]) -> bool:
     if provider == "telegram":
         return bool(TELEGRAM_BOT_TOKEN and (TELEGRAM_BOT_DEEP_LINK_BASE.strip() or TELEGRAM_BOT_USERNAME.strip()))
-    return bool(MAX_BOT_TOKEN and MAX_BOT_DEEP_LINK_BASE.strip())
+    return bool(MAX_BOT_TOKEN and resolve_max_bot_deep_link_base())
 
 
 def auth_capabilities_payload() -> dict[str, Any]:
@@ -2192,6 +2397,58 @@ def max_user_from_message(message: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _enrich_max_user_profile(user: dict[str, Any], update: dict[str, Any] | None) -> dict[str, Any]:
+    """Map MAX-specific field names onto the canonical keys the identity upsert
+    already reads (`photo_url`, `language_code`). MAX exposes the avatar as
+    `avatar_url`/`full_avatar_url` on the user object and the locale as a
+    top-level `user_locale` on the update. No-op when values are already present."""
+    if not user.get("photo_url"):
+        avatar = user.get("full_avatar_url") or user.get("avatar_url")
+        if isinstance(avatar, str) and avatar.startswith("https://"):
+            user["photo_url"] = avatar
+    if not user.get("language_code") and isinstance(update, dict):
+        locale = update.get("user_locale")
+        if isinstance(locale, str) and locale.strip():
+            user["language_code"] = locale.strip()
+    return user
+
+
+def max_user_from_update(update: dict[str, Any], message: dict[str, Any]) -> dict[str, Any] | None:
+    user = max_user_from_message(message)
+    if not user:
+        for container_key in ("callback", "message_callback", "bot_started", "botStarted"):
+            container = update.get(container_key)
+            if not isinstance(container, dict):
+                continue
+            for user_key in ("user", "sender", "from"):
+                candidate = container.get(user_key)
+                if isinstance(candidate, dict):
+                    provider_id = candidate.get("user_id") or candidate.get("id")
+                    if provider_id:
+                        user = dict(candidate)
+                        user["id"] = provider_id
+                        break
+            if user is None:
+                provider_id = container.get("user_id") or container.get("sender_id")
+                if provider_id:
+                    user = {"id": provider_id}
+            if user is not None:
+                break
+    if not user:
+        # Real MAX bot_started shape: user object and user_id live at the top level.
+        top_user = update.get("user")
+        if isinstance(top_user, dict):
+            provider_id = top_user.get("user_id") or top_user.get("id")
+            if provider_id:
+                user = dict(top_user)
+                user["id"] = provider_id
+        if not user and update.get("user_id"):
+            user = {"id": update.get("user_id")}
+    if not user:
+        return None
+    return _enrich_max_user_profile(user, update)
+
+
 def max_login_payload_from_update(update: dict[str, Any], text: str | None) -> str | None:
     for key in ("payload", "start_payload", "startPayload"):
         value = update.get(key)
@@ -2222,10 +2479,26 @@ def approve_bot_login_challenge(
         ).fetchone()
         if not row or row["status"] != "pending" or row["expires_at"] <= now:
             return False
-        if provider == "telegram":
+        target_internal_user_id = _row_get(row, "internal_user_id")
+        if target_internal_user_id:
+            linked = link_verified_provider_identity(conn, target_internal_user_id, provider, provider_user, now)
+            if linked is None:
+                conn.execute(
+                    "UPDATE auth_login_challenges SET status = 'conflict', approved_at = ? WHERE id = ? AND status = 'pending'",
+                    (now, row["id"]),
+                )
+                record_login_attempt(conn, provider, False, identifier=provider_user_id, internal_user_id=target_internal_user_id, failure_reason="identity_conflict", platform=f"{provider}_link")
+                return False
+            internal_user_id = target_internal_user_id
+            if linked:
+                grant_auth_link_reward(conn, internal_user_id, provider, now)
+            platform = f"{provider}_link"
+        elif provider == "telegram":
             internal_user_id, _legacy_user_id = telegram_upsert_identity(conn, provider_user, now)
+            platform = f"{provider}_bot"
         else:
             internal_user_id, _legacy_user_id = max_upsert_identity(conn, provider_user, now)
+            platform = f"{provider}_bot"
         conn.execute(
             """
             UPDATE auth_login_challenges
@@ -2235,7 +2508,96 @@ def approve_bot_login_challenge(
             """,
             (internal_user_id, provider_user_id, provider_user.get("username"), now, row["id"]),
         )
-        record_login_attempt(conn, provider, True, identifier=provider_user_id, internal_user_id=internal_user_id, platform=f"{provider}_bot")
+        record_login_attempt(conn, provider, True, identifier=provider_user_id, internal_user_id=internal_user_id, platform=platform)
+    return True
+
+
+def link_verified_provider_identity(
+    conn: sqlite3.Connection,
+    internal_user_id: str,
+    provider: Literal["telegram", "max"],
+    provider_user: dict[str, Any],
+    now: str,
+) -> bool | None:
+    """Attach a verified bot identity to the current account.
+
+    Returns True when a new identity was linked, False when already linked to the
+    same account, and None when the identity belongs to a different account.
+    """
+    provider_user_id = str(provider_user.get("id") or "")
+    if not provider_user_id:
+        return None
+    existing = conn.execute(
+        "SELECT internal_user_id FROM auth_identities WHERE provider = ? AND provider_user_id = ?",
+        (provider, provider_user_id),
+    ).fetchone()
+    if existing and existing["internal_user_id"] != internal_user_id:
+        return None
+    username = provider_user.get("username")
+    first = provider_user.get("first_name")
+    last = provider_user.get("last_name")
+    photo = provider_user.get("photo_url")
+    lang = provider_user.get("language_code")
+    raw_profile = json.dumps(provider_user, ensure_ascii=False)
+    legacy_row = conn.execute("SELECT id FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+    legacy_user_id = _row_get(legacy_row, "id")
+    if existing:
+        conn.execute(
+            """
+            UPDATE auth_identities
+            SET provider_username = ?, provider_first_name = ?, provider_last_name = ?,
+                provider_avatar_url = ?, provider_language_code = ?, raw_profile_json = ?,
+                verified_at = COALESCE(verified_at, ?), last_login_at = ?
+            WHERE provider = ? AND provider_user_id = ?
+            """,
+            (username, first, last, photo, lang, raw_profile, now, now, provider, provider_user_id),
+        )
+        return False
+    conn.execute(
+        """
+        INSERT INTO auth_identities
+            (id, internal_user_id, legacy_user_id, provider, provider_user_id, provider_username,
+             provider_first_name, provider_last_name, provider_avatar_url, provider_language_code,
+             raw_profile_json, verified_at, linked_at, last_login_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (uuid.uuid4().hex, internal_user_id, legacy_user_id, provider, provider_user_id, username, first, last, photo, lang, raw_profile, now, now, now),
+    )
+    user_columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if provider == "telegram" and "telegram_id" in user_columns:
+        conn.execute("UPDATE users SET telegram_id = COALESCE(telegram_id, ?) WHERE internal_user_id = ?", (provider_user_id, internal_user_id))
+    if provider == "max" and "max_id" in user_columns:
+        conn.execute("UPDATE users SET max_id = COALESCE(max_id, ?) WHERE internal_user_id = ?", (provider_user_id, internal_user_id))
+    _fill_user_profile_if_empty(conn, legacy_user_id, provider_user)
+    return True
+
+
+def grant_auth_link_reward(conn: sqlite3.Connection, internal_user_id: str, provider: str, now: str) -> bool:
+    reward_type = f"auth_link_{provider}"
+    idem = f"{reward_type}:{internal_user_id}"
+    existing = conn.execute("SELECT id FROM bonus_grants WHERE idempotency_key = ?", (idem,)).fetchone()
+    if existing:
+        return False
+    target = conn.execute("SELECT * FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+    if not target:
+        return False
+    ledger_id, _new_balance = _grant_tokens_with_ledger(
+        conn,
+        target=target,
+        delta=10,
+        reason=f"Подключение {provider.upper()}",
+        ledger_reason="auth_link_reward",
+        meta={"provider": provider, "reward_type": reward_type},
+    )
+    conn.execute(
+        """
+        INSERT INTO bonus_grants
+            (id, internal_user_id, user_id, bonus_type, token_amount, status, reason,
+             token_ledger_id, created_by_admin_id, idempotency_key, created_at)
+        VALUES (?, ?, ?, ?, 10, 'granted', ?, ?, NULL, ?, ?)
+        """,
+        (uuid.uuid4().hex, internal_user_id, target["id"], reward_type, f"Подключение {provider.upper()}", ledger_id, idem, now),
+    )
     return True
 
 
@@ -2479,6 +2841,7 @@ def email_otp_upsert_identity(conn: sqlite3.Connection, email_norm: str, now: st
         )
         if existing["legacy_user_id"]:
             conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, existing["legacy_user_id"]))
+            _fill_user_profile_if_empty(conn, existing["legacy_user_id"], user)
         return existing["internal_user_id"], existing["legacy_user_id"]
 
     legacy_user_id = f"web_{uuid.uuid4().hex}"
@@ -3187,10 +3550,10 @@ def load_db_state() -> None:
             }
 
 
-def persist_job(job: dict[str, Any], request: GenerateRequest | None = None) -> None:
+def persist_job(job: dict[str, Any], request: GenerateRequest | None = None, conn: sqlite3.Connection | None = None) -> None:
     settings = request.model_dump() if request else job.get("request", {})
-    with db() as conn:
-        conn.execute(
+    def write(target_conn: sqlite3.Connection) -> None:
+        target_conn.execute(
             """
             INSERT INTO jobs (id, user_id, mode, provider, status, progress, prompt_original, prompt_translated,
                               result_image_id, error_message, settings_json, created_at, started_at, completed_at)
@@ -3220,6 +3583,11 @@ def persist_job(job: dict[str, Any], request: GenerateRequest | None = None) -> 
                 job.get("completedAt"),
             ),
         )
+    if conn is not None:
+        write(conn)
+        return
+    with db() as own_conn:
+        write(own_conn)
 
 
 def persist_image(record: dict[str, Any], job_id: str) -> None:
@@ -3387,6 +3755,159 @@ def estimate_token_cost(req: GenerateRequest) -> int:
     return 3
 
 
+def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost: int, job_id: str, req: GenerateRequest) -> dict[str, Any]:
+    """Reserve tokens for a generation after request validation has passed.
+
+    Daily tariff tokens are a daily included budget, not a balance top-up. The
+    ledger records both paths: `daily_generation` for included daily budget
+    consumption, and `generation` for paid balance spend.
+    """
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    today = now.strftime("%Y-%m-%d")
+    user_row = conn.execute(
+        "SELECT id, token_balance, plan, daily_tokens_used, last_daily_reset FROM users WHERE id = ?",
+        (user_id,),
+    ).fetchone()
+    if user_row is None:
+        raise HTTPException(404, "User not found.")
+
+    old_balance = int(user_row["token_balance"] or 0)
+    daily_limit = 0
+    daily_used_before = 0
+    daily_used_after = 0
+    used_daily = False
+    balance_delta = 0
+    ledger_reason = "generation"
+
+    if user_id != "demo_user":
+        daily_used_before = int(user_row["daily_tokens_used"] or 0)
+        if user_row["last_daily_reset"] != today:
+            daily_used_before = 0
+        tariff = get_tariff_config(conn)[str(user_row["plan"] or "mini").lower()]
+        daily_limit = int(tariff["daily_tokens"])
+        if daily_used_before + token_cost <= daily_limit:
+            used_daily = True
+            daily_used_after = daily_used_before + token_cost
+            ledger_reason = "daily_generation"
+        else:
+            daily_used_after = daily_used_before
+            if old_balance < token_cost:
+                raise HTTPException(402, "Not enough tokens.")
+            balance_delta = token_cost
+    else:
+        if old_balance < token_cost:
+            raise HTTPException(402, "Not enough tokens.")
+
+    new_balance = old_balance - balance_delta if user_id != "demo_user" else old_balance
+    conn.execute(
+        """
+        UPDATE users
+        SET token_balance = ?,
+            daily_tokens_used = ?,
+            last_daily_reset = ?,
+            tokens_used = tokens_used + ?,
+            generation_count = generation_count + 1,
+            last_seen_at = ?
+        WHERE id = ?
+        """,
+        (new_balance, daily_used_after, today, token_cost, now_iso, user_id),
+    )
+    conn.execute(
+        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            str(uuid.uuid4()),
+            user_id,
+            -balance_delta,
+            ledger_reason,
+            json.dumps(
+                {
+                    "jobId": job_id,
+                    "mode": req.mode,
+                    "provider": req.provider,
+                    "token_cost": token_cost,
+                    "used_daily_budget": used_daily,
+                    "daily_tokens_used_before": daily_used_before,
+                    "daily_tokens_used_after": daily_used_after,
+                    "daily_tokens_limit": daily_limit,
+                    "balance_delta": -balance_delta,
+                },
+                ensure_ascii=False,
+            ),
+            now_iso,
+        ),
+    )
+    return {
+        "used_daily": used_daily,
+        "old_balance": old_balance,
+        "new_balance": new_balance,
+        "balance_delta": -balance_delta,
+        "daily_tokens_used": daily_used_after,
+        "daily_tokens_limit": daily_limit,
+        "daily_tokens_remaining": max(0, daily_limit - daily_used_after),
+    }
+
+
+def refund_generation_tokens(conn: sqlite3.Connection, job_id: str, *, reason: str) -> bool:
+    """Idempotently reverse a generation charge for failed/cancelled jobs."""
+    existing_refund = conn.execute(
+        "SELECT 1 FROM token_ledger WHERE reason IN ('generation_refund', 'daily_generation_refund') AND meta_json LIKE ?",
+        (f'%"jobId": "{job_id}"%',),
+    ).fetchone()
+    if existing_refund is not None:
+        return False
+    charge = conn.execute(
+        """
+        SELECT * FROM token_ledger
+        WHERE reason IN ('generation', 'daily_generation') AND meta_json LIKE ?
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (f'%"jobId": "{job_id}"%',),
+    ).fetchone()
+    if charge is None:
+        return False
+    meta = safe_json_load(charge["meta_json"]) or {}
+    user_id = charge["user_id"]
+    token_cost = int(meta.get("token_cost") or abs(int(charge["delta"] or 0)) or 0)
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    today = now.strftime("%Y-%m-%d")
+    if charge["reason"] == "daily_generation":
+        user_row = conn.execute("SELECT daily_tokens_used, last_daily_reset FROM users WHERE id = ?", (user_id,)).fetchone()
+        if user_row is not None and user_row["last_daily_reset"] == today and token_cost > 0:
+            new_daily = max(0, int(user_row["daily_tokens_used"] or 0) - token_cost)
+            conn.execute("UPDATE users SET daily_tokens_used = ? WHERE id = ?", (new_daily, user_id))
+        refund_delta = 0
+        refund_reason = "daily_generation_refund"
+    else:
+        refund_delta = abs(int(charge["delta"] or 0))
+        refund_reason = "generation_refund"
+        if refund_delta > 0:
+            conn.execute("UPDATE users SET token_balance = token_balance + ? WHERE id = ?", (refund_delta, user_id))
+    if token_cost > 0:
+        conn.execute(
+            """
+            UPDATE users
+            SET tokens_used = MAX(0, tokens_used - ?),
+                generation_count = MAX(0, generation_count - 1)
+            WHERE id = ?
+            """,
+            (token_cost, user_id),
+        )
+    conn.execute(
+        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            str(uuid.uuid4()),
+            user_id,
+            refund_delta,
+            refund_reason,
+            json.dumps({"jobId": job_id, "reason": reason, "refunded_ledger_id": charge["id"], "token_cost": token_cost}, ensure_ascii=False),
+            now_iso,
+        ),
+    )
+    return True
+
+
 def mini_app_url(platform: str = "web") -> str:
     base = os.getenv("APP_PUBLIC_URL", "http://127.0.0.1:5173")
     return f"{base}?platform={platform}"
@@ -3397,13 +3918,13 @@ def bot_command_response(platform: Literal["telegram", "max"], command: str) -> 
     normalized = command.split()[0].lower() if command else "/start"
     login_payload = bot_login_payload_from_text(command)
     if login_payload:
-        text = "Подтвердите вход в OneNode Image Studio. Если это были не вы, просто закройте сообщение."
+        text = "Подтвердите вход в ИЗО АСА — ИИ генератор. Если это были не вы, просто закройте сообщение."
         buttons = [{"text": "Подтвердить вход", "callback_data": f"approve:{login_payload}"}]
     elif normalized == "/start":
-        text = "Добро пожаловать в OneNode Image Studio. Здесь можно открыть генератор, галерею и настройки."
+        text = "Добро пожаловать в ИЗО АСА — ИИ генератор. Здесь можно открыть генератор, галерею и настройки."
         buttons = [{"text": "Открыть приложение", "url": app_url}]
     elif normalized == "/app":
-        text = "Открыть генератор OneNode Image Studio"
+        text = "Открыть генератор ИЗО АСА — ИИ генератор"
         buttons = [{"text": "Открыть генератор", "url": app_url}]
     elif normalized == "/help":
         text = "Выберите режим, загрузите изображение или напишите prompt, затем нажмите «Сгенерировать»."
@@ -3424,6 +3945,7 @@ def bot_command_response(platform: Literal["telegram", "max"], command: str) -> 
 def bot_status_payload() -> dict[str, Any]:
     backend_public = os.getenv("BACKEND_PUBLIC_URL", "http://127.0.0.1:8000")
     app_public = os.getenv("APP_PUBLIC_URL", "http://127.0.0.1:5173")
+    max_deep_link_base = resolve_max_bot_deep_link_base() if MAX_BOT_TOKEN else None
     return {
         "mode": BOT_MODE,
         "domainRequired": BOT_MODE == "webhook",
@@ -3450,8 +3972,19 @@ def bot_status_payload() -> dict[str, Any]:
         },
         "max": {
             "local": True,
+            "mode": MAX_UPDATES_MODE,
+            "apiBaseUrl": MAX_API_BASE_URL,
             "pollingReady": bool(MAX_BOT_TOKEN and MAX_API_BASE_URL),
             "webhookReady": bool(MAX_BOT_TOKEN and MAX_API_BASE_URL and backend_public.startswith("https://")),
+            "botNicknameResolved": bool(max_deep_link_base),
+            "deepLinkBaseSource": _MAX_BOT_DEEP_LINK_CACHE.get("source"),
+            "apiMeStatus": _MAX_BOT_DEEP_LINK_CACHE.get("api_status"),
+            "updatesStatus": MAX_POLLING_DIAG.get("lastPollStatus"),
+            "lastUpdatesError": MAX_POLLING_DIAG.get("lastPollError"),
+            "webhookConfigured": MAX_POLLING_DIAG.get("webhookConfigured"),
+            "webhookUrlSet": MAX_POLLING_DIAG.get("webhookUrlSet"),
+            "subscriptionStatus": MAX_POLLING_DIAG.get("subscriptionStatus"),
+            "updateTypes": MAX_POLLING_DIAG.get("updateTypes"),
             "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
         },
     }
@@ -3479,6 +4012,174 @@ async def max_api(method: str, path: str, payload: dict[str, Any] | None = None,
         return response.json()
 
 
+_AVATAR_FORMAT_SUFFIX = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp"}
+_AVATAR_BG_TASKS: set = set()
+
+
+def schedule_avatar_cache(provider: Literal["telegram", "max"], provider_user_id: str) -> None:
+    """Fire-and-forget avatar caching so a login/verify request never blocks on
+    provider network I/O. No-op when there is no running event loop."""
+    pid = str(provider_user_id or "")
+    if not pid:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    task = loop.create_task(ensure_user_avatar_cached(provider, pid))
+    _AVATAR_BG_TASKS.add(task)
+    task.add_done_callback(_AVATAR_BG_TASKS.discard)
+
+
+async def _download_avatar_bytes(url: str) -> bytes | None:
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            data = response.content
+    except Exception as exc:  # pragma: no cover - network/defensive
+        print(f"avatar download failed: {type(exc).__name__}")
+        return None
+    if not data or len(data) > AVATAR_MAX_BYTES:
+        return None
+    return data
+
+
+def _avatar_suffix_from_bytes(data: bytes) -> str | None:
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.verify()
+    except Exception:
+        return None
+    return _AVATAR_FORMAT_SUFFIX.get((img.format or "").upper())
+
+
+async def _telegram_avatar_source(provider_user_id: str) -> str | None:
+    """Resolve a downloadable avatar URL for a Telegram user via the Bot API.
+    Bot-login user objects carry no photo_url, so we fetch the largest profile
+    photo and turn its file_id into a file URL."""
+    if not TELEGRAM_BOT_TOKEN:
+        return None
+    try:
+        photos = await telegram_api("getUserProfilePhotos", {"user_id": int(provider_user_id), "limit": 1})
+        groups = (photos.get("result") or {}).get("photos") or []
+        if not groups or not groups[0]:
+            return None
+        file_id = groups[0][-1].get("file_id")  # largest size
+        if not file_id:
+            return None
+        info = await telegram_api("getFile", {"file_id": file_id})
+        file_path = (info.get("result") or {}).get("file_path")
+        if not file_path:
+            return None
+        return f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+    except Exception as exc:  # pragma: no cover - network/defensive
+        print(f"telegram avatar source failed: {type(exc).__name__}")
+        return None
+
+
+async def ensure_user_avatar_cached(provider: Literal["telegram", "max"], provider_user_id: str) -> str | None:
+    """Download the provider avatar, cache it under /media/avatars, and set
+    users.avatar_url when the user has no avatar yet. Idempotent: once the user
+    has any avatar (cached, uploaded or preset) this is a no-op, so it never
+    overwrites a user-customised avatar and never re-downloads on every login."""
+    provider_user_id = str(provider_user_id or "")
+    if not provider_user_id:
+        return None
+    with db() as conn:
+        identity = conn.execute(
+            "SELECT id, internal_user_id, provider_avatar_url FROM auth_identities WHERE provider = ? AND provider_user_id = ?",
+            (provider, provider_user_id),
+        ).fetchone()
+        if identity is None:
+            return None
+        iuid = identity["internal_user_id"]
+        urow = conn.execute("SELECT avatar_url, avatar_preset FROM users WHERE internal_user_id = ?", (iuid,)).fetchone()
+    # Respect any existing avatar (uploaded file, chosen preset or already cached).
+    if _row_get(urow, "avatar_preset") or _row_get(urow, "avatar_url"):
+        return _row_get(urow, "avatar_url")
+
+    source = _row_get(identity, "provider_avatar_url")
+    if not source and provider == "telegram":
+        source = await _telegram_avatar_source(provider_user_id)
+        if source:
+            with db() as conn:
+                conn.execute(
+                    "UPDATE auth_identities SET provider_avatar_url = COALESCE(provider_avatar_url, ?) WHERE id = ?",
+                    (source, identity["id"]),
+                )
+    if not source:
+        return None
+    data = await _download_avatar_bytes(source)
+    if not data:
+        return None
+    suffix = _avatar_suffix_from_bytes(data)
+    if not suffix:
+        return None
+    filename = f"{iuid}-{provider}-{uuid.uuid4().hex[:12]}{suffix}"
+    try:
+        (AVATAR_DIR / filename).write_bytes(data)
+    except Exception as exc:  # pragma: no cover - filesystem/defensive
+        print(f"avatar cache write failed: {type(exc).__name__}")
+        return None
+    avatar_url = f"/media/avatars/{filename}"
+    with db() as conn:
+        # Only claim the slot if it is still empty (avoid racing a user upload).
+        conn.execute(
+            "UPDATE users SET avatar_url = ? WHERE internal_user_id = ? AND (avatar_url IS NULL OR avatar_url = '') AND (avatar_preset IS NULL OR avatar_preset = '')",
+            (avatar_url, iuid),
+        )
+    return avatar_url
+
+
+def max_webhook_url() -> str:
+    if MAX_WEBHOOK_URL.strip():
+        return MAX_WEBHOOK_URL.strip()
+    backend_public = os.getenv("BACKEND_PUBLIC_URL", "")
+    if backend_public.startswith("https://"):
+        return f"{backend_public.rstrip('/')}/api/max/webhook"
+    return ""
+
+
+async def configure_max_webhook_subscription() -> dict[str, Any]:
+    wh_url = max_webhook_url()
+    if not wh_url.startswith("https://"):
+        MAX_POLLING_DIAG.update({
+            "webhookConfigured": False,
+            "webhookUrlSet": False,
+            "subscriptionStatus": "missing_https_url",
+            "updateTypes": ["bot_started", "message_callback", "message_created"],
+        })
+        raise HTTPException(400, "MAX_WEBHOOK_URL or BACKEND_PUBLIC_URL must be an HTTPS URL.")
+    body: dict[str, Any] = {
+        "url": wh_url,
+        "update_types": ["bot_started", "message_callback", "message_created"],
+    }
+    if MAX_WEBHOOK_SECRET:
+        body["secret"] = MAX_WEBHOOK_SECRET
+    try:
+        result = await max_api("POST", "/subscriptions", body)
+        MAX_POLLING_DIAG.update({
+            "webhookConfigured": True,
+            "webhookUrlSet": True,
+            "subscriptionStatus": "ok",
+            "updateTypes": body["update_types"],
+        })
+        print("MAX webhook subscription status=ok updateTypes=bot_started,message_callback,message_created")
+        return result
+    except Exception as exc:
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+        MAX_POLLING_DIAG.update({
+            "webhookConfigured": False,
+            "webhookUrlSet": True,
+            "subscriptionStatus": f"error:{status or type(exc).__name__}",
+            "updateTypes": body["update_types"],
+        })
+        print(f"MAX webhook subscription status=error apiStatus={status or 'unknown'} error={type(exc).__name__}")
+        raise
+
+
 def telegram_answer_payload(chat_id: Any, answer: dict[str, Any]) -> dict[str, Any]:
     buttons = []
     for button in answer.get("buttons", []):
@@ -3499,14 +4200,22 @@ def telegram_answer_payload(chat_id: Any, answer: dict[str, Any]) -> dict[str, A
 
 def max_message_payload(answer: dict[str, Any]) -> dict[str, Any]:
     buttons = answer.get("buttons", [])
-    text = answer["text"]
+    payload: dict[str, Any] = {"text": answer["text"]}
     if buttons:
-        first = buttons[0]
-        if first.get("url"):
-            text = f"{text}\n{first['text']}: {first['url']}"
-        elif first.get("callback_data"):
-            text = f"{text}\n{first['text']}: /approve {first['callback_data'].replace('approve:', '')}"
-    return {"text": text}
+        row = []
+        for button in buttons:
+            if button.get("callback_data"):
+                row.append({"type": "callback", "text": button["text"], "payload": button["callback_data"]})
+            elif button.get("url"):
+                row.append({"type": "link", "text": button["text"], "url": button["url"]})
+        if row:
+            payload["attachments"] = [
+                {
+                    "type": "inline_keyboard",
+                    "payload": {"buttons": [row]},
+                }
+            ]
+    return payload
 
 
 def get_bot_polling_cursor(provider: Literal["telegram", "max"]) -> str | None:
@@ -3530,6 +4239,13 @@ def set_bot_polling_cursor(provider: Literal["telegram", "max"], cursor: str | i
         )
 
 
+def pending_max_login_challenges_count() -> int:
+    with db() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_login_challenges WHERE provider = 'max' AND status = 'pending'"
+        ).fetchone()["c"]
+
+
 def telegram_message_from_update(update: dict[str, Any]) -> tuple[str, dict[str, Any], Any, str | None]:
     message = update.get("message") or {}
     callback = update.get("callback_query") or {}
@@ -3550,6 +4266,8 @@ async def handle_telegram_update(update: dict[str, Any], send_replies: bool) -> 
         token = bot_login_token_from_payload(text.replace("approve:", "", 1))
         user = telegram_user_from_update(update)
         approved = bool(token and user and approve_bot_login_challenge("telegram", token, user))
+        if approved and user:
+            schedule_avatar_cache("telegram", str(user.get("id") or ""))
         if send_replies and callback_id:
             await telegram_api(
                 "answerCallbackQuery",
@@ -3584,16 +4302,29 @@ async def handle_telegram_updates(updates: list[dict[str, Any]], send_replies: b
 
 
 def extract_max_command(update: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    message = update.get("message") or update.get("message_created", {}).get("message") or update.get("bot_started", {}).get("message") or {}
-    body = message.get("body") or {}
     callback = update.get("callback") or update.get("message_callback") or {}
+    message = (
+        update.get("message")
+        or update.get("message_created", {}).get("message")
+        or update.get("bot_started", {}).get("message")
+        or callback.get("message")
+        or {}
+    )
+    body = message.get("body") or {}
     text = callback.get("payload") or callback.get("data") or message.get("text") or body.get("text") or ""
     return text, message
 
 
-def max_recipient_params(message: dict[str, Any]) -> dict[str, Any]:
-    chat_id = message.get("chat_id") or (message.get("recipient") or {}).get("chat_id")
-    user_id = message.get("user_id") or message.get("sender", {}).get("user_id") or message.get("sender", {}).get("id")
+def max_recipient_params(message: dict[str, Any], update: dict[str, Any] | None = None) -> dict[str, Any]:
+    recipient = message.get("recipient") or {}
+    chat_id = message.get("chat_id") or recipient.get("chat_id")
+    user_id = message.get("user_id") or recipient.get("user_id") or message.get("sender", {}).get("user_id") or message.get("sender", {}).get("id")
+    # Real MAX bot_started shape carries no message object; recipient lives at the
+    # top level (chat_id + user_id). Fall back to it only when message has none.
+    if not chat_id and not user_id and isinstance(update, dict):
+        chat_id = update.get("chat_id")
+        top_user = update.get("user") if isinstance(update.get("user"), dict) else {}
+        user_id = update.get("user_id") or top_user.get("user_id") or top_user.get("id")
     params: dict[str, Any] = {}
     if chat_id:
         params["chat_id"] = chat_id
@@ -3613,12 +4344,22 @@ async def handle_max_updates(updates: list[dict[str, Any]], send_replies: bool) 
 
 async def handle_max_update(update: dict[str, Any], send_replies: bool) -> dict[str, Any] | None:
     text, message = extract_max_command(update)
+    update_type = max_update_type(update)
+    user_present = bool(max_user_from_update(update, message))
+    payload_prefix = sanitized_payload_prefix(text if isinstance(text, str) else None)
+    if update_type in {"bot_started", "botStarted"} or payload_prefix in {"login_", "approve_"}:
+        print(f"MAX_UPDATE type={update_type} hasPayload={bool(payload_prefix)} payloadPrefix={payload_prefix or 'none'} userIdPresent={user_present}")
     if isinstance(text, str) and (text.startswith("approve:") or text.startswith("/approve ")):
+        MAX_POLLING_DIAG["lastCallbackAt"] = datetime.now(timezone.utc).isoformat()
+        print(f"MAX approve callback received payloadPrefix={payload_prefix or 'none'} userIdPresent={user_present}")
         token_source = text.replace("approve:", "", 1) if text.startswith("approve:") else text.split(maxsplit=1)[1]
         token = bot_login_token_from_payload(token_source)
-        user = max_user_from_message(message)
+        user = max_user_from_update(update, message)
         approved = bool(token and user and approve_bot_login_challenge("max", token, user))
-        params = max_recipient_params(message)
+        print(f"MAX challenge status={'approved' if approved else 'rejected'}")
+        if approved and user:
+            schedule_avatar_cache("max", str(user.get("id") or ""))
+        params = max_recipient_params(message, update)
         if send_replies and params:
             await max_api(
                 "POST",
@@ -3629,14 +4370,17 @@ async def handle_max_update(update: dict[str, Any], send_replies: bool) -> dict[
         return {"update": update, "recipient": params, "botLogin": "approved" if approved else "rejected"}
     login_payload = max_login_payload_from_update(update, text)
     if login_payload:
+        MAX_POLLING_DIAG["lastBotStartedAt"] = datetime.now(timezone.utc).isoformat()
+        print(f"MAX payload login_ received userIdPresent={user_present}")
         answer = bot_command_response("max", login_payload)
-        params = max_recipient_params(message)
+        params = max_recipient_params(message, update)
         if send_replies and params:
             await max_api("POST", "/messages", max_message_payload(answer), params=params)
+            print("MAX confirmation button sent")
         return {"update": update, "recipient": params, "answer": answer}
     if isinstance(text, str) and text.startswith("/"):
         answer = bot_command_response("max", text)
-        params = max_recipient_params(message)
+        params = max_recipient_params(message, update)
         if send_replies and params:
             await max_api("POST", "/messages", max_message_payload(answer), params=params)
         return {"update": update, "recipient": params, "answer": answer}
@@ -3690,17 +4434,42 @@ async def telegram_poll_once_from_api(timeout: int = 0, limit: int = 10) -> dict
 
 
 async def max_poll_once_from_api(timeout: int = 0, limit: int = 10) -> dict[str, Any]:
+    now_iso = datetime.now(timezone.utc).isoformat()
     params: dict[str, Any] = {"limit": limit, "timeout": timeout}
     marker = get_bot_polling_cursor("max")
     if marker:
         params["marker"] = marker
-    data = await max_api("GET", "/updates", params=params)
-    updates = data.get("updates", [])
-    handled = await handle_max_updates(updates, send_replies=True)
-    response_marker = data.get("marker")
-    if response_marker:
-        set_bot_polling_cursor("max", response_marker)
-    return {"ok": True, "handled": handled, "rawCount": len(updates), "marker": get_bot_polling_cursor("max")}
+    MAX_POLLING_DIAG.update({
+        "lastPollAt": now_iso,
+        "lastPollMarker": marker,
+        "lastPollError": None,
+    })
+    print(f"MAX_POLL_REQUEST marker={mask_short(marker) or 'null'} limit={limit} timeout={timeout}")
+    try:
+        data = await max_api("GET", "/updates", params=params)
+        updates = data.get("updates", [])
+        handled = await handle_max_updates(updates, send_replies=True)
+        response_marker = data.get("marker")
+        if response_marker:
+            set_bot_polling_cursor("max", response_marker)
+        MAX_POLLING_DIAG.update({
+            "lastPollStatus": 200,
+            "lastPollError": None,
+            "lastPollNextMarker": response_marker,
+            "lastRawCount": len(updates),
+        })
+        print(f"MAX_POLL_RESPONSE status=200 rawCount={len(updates)} nextMarker={mask_short(response_marker) or 'null'}")
+        return {"ok": True, "handled": handled, "rawCount": len(updates), "marker": get_bot_polling_cursor("max")}
+    except Exception as exc:
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+        MAX_POLLING_DIAG.update({
+            "lastPollStatus": status,
+            "lastPollError": type(exc).__name__,
+            "lastRawCount": None,
+        })
+        print(f"MAX_POLL_RESPONSE status={status or 'error'} rawCount=0 nextMarker=null error={type(exc).__name__}")
+        raise
 
 
 async def telegram_polling_worker() -> None:
@@ -3719,7 +4488,7 @@ async def telegram_polling_worker() -> None:
 
 
 async def max_polling_worker() -> None:
-    while BOT_UPDATES_MODE == "polling" and MAX_POLLING_ENABLED and MAX_BOT_TOKEN and MAX_API_BASE_URL:
+    while MAX_UPDATES_MODE == "polling" and MAX_POLLING_ENABLED and MAX_BOT_TOKEN and MAX_API_BASE_URL:
         try:
             await max_poll_once_from_api(timeout=25, limit=20)
         except Exception as exc:
@@ -3736,12 +4505,10 @@ async def max_polling_worker() -> None:
 def start_bot_polling_tasks() -> list[str]:
     global bot_polling_started
     started: list[str] = []
-    if BOT_UPDATES_MODE != "polling":
-        return started
-    if TELEGRAM_POLLING_ENABLED and TELEGRAM_BOT_TOKEN and "telegram" not in bot_polling_tasks:
+    if BOT_UPDATES_MODE == "polling" and TELEGRAM_POLLING_ENABLED and TELEGRAM_BOT_TOKEN and "telegram" not in bot_polling_tasks:
         bot_polling_tasks["telegram"] = asyncio.create_task(telegram_polling_worker())
         started.append("telegram")
-    if MAX_POLLING_ENABLED and MAX_BOT_TOKEN and MAX_API_BASE_URL and "max" not in bot_polling_tasks:
+    if MAX_UPDATES_MODE == "polling" and MAX_POLLING_ENABLED and MAX_BOT_TOKEN and MAX_API_BASE_URL and "max" not in bot_polling_tasks:
         bot_polling_tasks["max"] = asyncio.create_task(max_polling_worker())
         started.append("max")
     bot_polling_started = bool(bot_polling_tasks)
@@ -4400,6 +5167,8 @@ async def worker() -> None:
         started = time.perf_counter()
         try:
             if job.get("status") == "cancelled":
+                with db() as conn:
+                    refund_generation_tokens(conn, job_id, reason="cancelled_before_start")
                 persist_job(job, req)
                 continue
             job.update(status="uploading", progress=12, message="Загружаем изображения")
@@ -4431,6 +5200,8 @@ async def worker() -> None:
                     persist_job(job, req)
                     await asyncio.sleep(0.45)
             if job["status"] == "cancelled":
+                with db() as conn:
+                    refund_generation_tokens(conn, job_id, reason="cancelled_during_generation")
                 persist_job(job, req)
                 continue
             if not image_path or not thumb_path:
@@ -4506,6 +5277,8 @@ async def worker() -> None:
                 )
             persist_job(job, req)
         except Exception as exc:
+            with db() as conn:
+                refund_generation_tokens(conn, job_id, reason="generation_failed")
             job.update(status="failed", progress=100, message="Генерация не выполнена.", error=str(exc), completedAt=datetime.now(timezone.utc).isoformat())
             persist_job(job, req)
         finally:
@@ -4523,9 +5296,8 @@ async def startup() -> None:
     if not worker_started:
         asyncio.create_task(worker())
         worker_started = True
-    if BOT_UPDATES_MODE == "polling":
-        start_bot_polling_tasks()
-    elif BOT_UPDATES_MODE == "webhook":
+    start_bot_polling_tasks()
+    if BOT_UPDATES_MODE == "webhook":
         backend_public = os.getenv("BACKEND_PUBLIC_URL", "http://127.0.0.1:8000")
         if TELEGRAM_BOT_TOKEN and backend_public.startswith("https://"):
             try:
@@ -4534,13 +5306,11 @@ async def startup() -> None:
                 print(f"Telegram webhook set to {wh_url}")
             except Exception as exc:
                 print(f"Failed to set Telegram webhook: {exc}")
-        if MAX_BOT_TOKEN and backend_public.startswith("https://"):
-            try:
-                wh_url = f"{backend_public}/api/max/webhook"
-                await max_api("POST", "/webhooks", {"url": wh_url, "secret": MAX_WEBHOOK_SECRET})
-                print(f"MAX webhook set to {wh_url}")
-            except Exception as exc:
-                print(f"Failed to set MAX webhook: {exc}")
+    if MAX_UPDATES_MODE == "webhook" and MAX_BOT_TOKEN:
+        try:
+            await configure_max_webhook_subscription()
+        except Exception as exc:
+            print(f"Failed to set MAX webhook subscription: {type(exc).__name__}")
 
 
 @app.get("/api/health")
@@ -4591,6 +5361,10 @@ async def version() -> dict[str, Any]:
 
 
 def ensure_rate_limit(user_id: str) -> None:
+    hourly_limit = int(rate_limits.get("hourly") or 0)
+    daily_limit = int(rate_limits.get("daily") or 0)
+    if hourly_limit <= 0 and daily_limit <= 0:
+        return
     now = datetime.now(timezone.utc)
     with db() as conn:
         rows = conn.execute("SELECT created_at FROM jobs WHERE user_id = ?", (user_id,)).fetchall()
@@ -4606,10 +5380,10 @@ def ensure_rate_limit(user_id: str) -> None:
             hour_count += 1
         if delta.total_seconds() <= 86400:
             day_count += 1
-    if hour_count >= rate_limits["hourly"]:
-        raise HTTPException(429, f"Rate limit exceeded: {rate_limits['hourly']} generations per hour.")
-    if day_count >= rate_limits["daily"]:
-        raise HTTPException(429, f"Rate limit exceeded: {rate_limits['daily']} generations per day.")
+    if hourly_limit > 0 and hour_count >= hourly_limit:
+        raise HTTPException(429, f"Rate limit exceeded: {hourly_limit} generations per hour.")
+    if daily_limit > 0 and day_count >= daily_limit:
+        raise HTTPException(429, f"Rate limit exceeded: {daily_limit} generations per day.")
 
 
 @app.post("/api/generate")
@@ -4619,38 +5393,9 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     internal_user_id = trusted["internal_user_id"]
     session_id = trusted.get("session_id")
     token_cost = estimate_token_cost(req)
-    used_daily = False
     with db() as conn:
-        try:
-            user_row = conn.execute("SELECT id, token_balance, plan, daily_tokens_used, last_daily_reset FROM users WHERE id = ?", (user_id,)).fetchone()
-        except sqlite3.OperationalError:
-            user_row = conn.execute("SELECT id, token_balance, plan FROM users WHERE id = ?", (user_id,)).fetchone()
-        if user_row is None:
+        if conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is None:
             raise HTTPException(404, "User not found.")
-        if user_id != "demo_user":
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            try:
-                daily_used = int(user_row["daily_tokens_used"] or 0)
-                last_reset = user_row["last_daily_reset"]
-                tariff = get_tariff_config(conn)[str(user_row["plan"] or "mini").lower()]
-                daily_limit = int(tariff["daily_tokens"])
-                if last_reset != today:
-                    daily_used = 0
-                if daily_used + token_cost <= daily_limit:
-                    used_daily = True
-                    conn.execute(
-                        "UPDATE users SET daily_tokens_used = ?, last_daily_reset = ? WHERE id = ?",
-                        (daily_used + token_cost, today, user_id),
-                    )
-                else:
-                    if int(user_row["token_balance"] or 0) < token_cost:
-                        raise HTTPException(402, "Not enough tokens.")
-            except (KeyError, IndexError, sqlite3.OperationalError):
-                if int(user_row["token_balance"] or 0) < token_cost:
-                    raise HTTPException(402, "Not enough tokens.")
-        else:
-            if int(user_row["token_balance"] or 0) < token_cost:
-                raise HTTPException(402, "Not enough tokens.")
     if req.mode == "faceswap":
         face_lora = next((item for item in req.loras if item.id and item.id != "none"), None)
         if face_lora is None:
@@ -4670,25 +5415,10 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         "request": req.model_dump(),
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
-    jobs[job_id] = job
-    persist_job(job, req)
     with db() as conn:
-        balance_delta = 0 if (used_daily or user_id == "demo_user") else token_cost
-        conn.execute(
-            """
-            UPDATE users
-            SET token_balance = CASE WHEN id = 'demo_user' THEN token_balance ELSE MAX(0, token_balance - ?) END,
-                tokens_used = tokens_used + ?,
-                generation_count = generation_count + 1,
-                last_seen_at = ?
-            WHERE id = ?
-            """,
-            (balance_delta, token_cost, datetime.now(timezone.utc).isoformat(), user_id),
-        )
-        conn.execute(
-            "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'generation', ?, ?)",
-            (str(uuid.uuid4()), user_id, -balance_delta, json.dumps({"jobId": job_id, "mode": req.mode, "provider": req.provider, "used_daily_budget": used_daily}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
-        )
+        token_charge = charge_generation_tokens(conn, user_id, token_cost, job_id, req)
+        persist_job(job, req, conn=conn)
+    jobs[job_id] = job
     await queue.put(job_id)
     try:
         record_event_log(
@@ -4701,7 +5431,15 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         )
     except Exception:
         pass
-    return {k: v for k, v in job.items() if k != "request"} | {"queuePosition": queue.qsize(), "tokenCost": token_cost, "usedDailyBudget": used_daily}
+    return {k: v for k, v in job.items() if k != "request"} | {
+        "queuePosition": queue.qsize(),
+        "tokenCost": token_cost,
+        "usedDailyBudget": token_charge["used_daily"],
+        "tokenBalance": token_charge["new_balance"],
+        "dailyTokensUsed": token_charge["daily_tokens_used"],
+        "dailyTokensLimit": token_charge["daily_tokens_limit"],
+        "dailyTokensRemaining": token_charge["daily_tokens_remaining"],
+    }
 
 
 @app.get("/api/jobs/{job_id}")
@@ -4723,6 +5461,10 @@ async def cancel_job(job_id: str, request: Request) -> dict[str, Any]:
     user_id = trusted["legacy_user_id"]
     if jobs[job_id].get("userId") != user_id:
         raise HTTPException(404, "Job not found")
+    if jobs[job_id].get("status") in {"completed", "failed", "cancelled"}:
+        return {k: v for k, v in jobs[job_id].items() if k != "request"}
+    with db() as conn:
+        refund_generation_tokens(conn, job_id, reason="user_cancelled")
     jobs[job_id].update(status="cancelled", progress=100, message="Отменено")
     persist_job(jobs[job_id])
     try:
@@ -4984,17 +5726,41 @@ async def app_heartbeat(req: HeartbeatRequest) -> dict[str, Any]:
 
 
 @app.post("/api/auth/web-login")
-async def web_login(req: WebLoginRequest, response: Response) -> dict[str, Any]:
-    expected = os.getenv("ADMIN_ONE_TIME_CODE", "admin-demo")
-    if req.code != expected:
+async def web_login(req: WebLoginRequest, request: Request, response: Response) -> dict[str, Any]:
+    expected = (os.getenv("ADMIN_ONE_TIME_CODE") or "").strip()
+    if not expected or expected == "admin-demo":
+        raise HTTPException(503, "Admin bootstrap code is not configured.")
+    if not hmac.compare_digest(req.code.strip(), expected):
         raise HTTPException(403, "Invalid one-time admin code.")
     auth = MiniAppAuthRequest(platform="web", userId="admin", username="admin", firstName="Admin", language="ru")
     user = upsert_user(auth)
     with db() as conn:
-        conn.execute("UPDATE users SET role = 'admin' WHERE id = ?", (user["id"],))
+        row = conn.execute("SELECT internal_user_id FROM users WHERE id = ?", (user["id"],)).fetchone()
+        internal_user_id = _row_get(row, "internal_user_id") or uuid.uuid4().hex
+        conn.execute(
+            "UPDATE users SET role = 'admin', internal_user_id = COALESCE(internal_user_id, ?) WHERE id = ?",
+            (internal_user_id, user["id"]),
+        )
+        ensure_public_user_code(conn, internal_user_id)
     user["role"] = "admin"
-    response.set_cookie("onenode_user", user["id"], httponly=False, samesite="lax")
-    return {"ok": True, "user": user}
+    user["internal_user_id"] = internal_user_id
+    session = create_auth_session(
+        internal_user_id,
+        user["id"],
+        provider="web_admin",
+        platform="web",
+        request=request,
+        metadata={"auth_flow": "web_login_bootstrap"},
+    )
+    set_trusted_auth_cookies(
+        response,
+        session["session_token"],
+        session["refresh_token"],
+        session["expires_at"],
+        session["refresh_expires_at"],
+    )
+    response.delete_cookie("onenode_user", path="/")
+    return {"ok": True, "user": user, "session": {"expires_at": session["expires_at"]}}
 
 
 BOOTSTRAP_REQUIRED_CONSENTS = ["terms", "privacy", "personal_data_processing", "cookies"]
@@ -5140,6 +5906,49 @@ async def auth_bot_login_start(req: BotLoginStartRequest, request: Request, resp
             ),
         )
     set_bot_login_cookie(response, provider, nonce)
+    deep_link = bot_login_deep_link(provider, token)
+    if provider == "max":
+        print(f"deep_link created provider=max payloadLength={len(f'login_{token}')}")
+    return {
+        "ok": True,
+        "provider": provider,
+        "deep_link": deep_link,
+        "poll_interval_ms": 2000,
+        "expires_at": expires_at,
+    }
+
+
+@app.post("/api/auth/link/bot/start")
+async def auth_bot_link_start(req: BotLoginStartRequest, request: Request, response: Response) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    provider = req.provider
+    if not bot_login_available(provider):
+        raise HTTPException(503, "provider_not_configured")
+    token = generate_bot_login_token()
+    nonce = generate_bot_login_token()
+    now = datetime.now(timezone.utc)
+    expires_at = (now + timedelta(seconds=BOT_LOGIN_CHALLENGE_TTL_SECONDS)).isoformat()
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_login_challenges
+                (id, provider, token_hash, browser_nonce_hash, status, expires_at,
+                 internal_user_id, created_at, created_ip, user_agent)
+            VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex,
+                provider,
+                hash_token(token),
+                hash_token(nonce),
+                expires_at,
+                user["internal_user_id"],
+                now.isoformat(),
+                _client_ip(request),
+                _hash_user_agent(request),
+            ),
+        )
+    set_bot_login_cookie(response, provider, nonce)
     return {
         "ok": True,
         "provider": provider,
@@ -5155,6 +5964,7 @@ async def auth_bot_login_status(request: Request, response: Response) -> dict[st
     if not parsed:
         raise HTTPException(401, "bot_login_challenge_missing")
     provider, nonce = parsed
+    print(f"GET /api/auth/bot-login/status provider={provider}")
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         row = conn.execute(
@@ -5164,14 +5974,18 @@ async def auth_bot_login_status(request: Request, response: Response) -> dict[st
         if not row:
             raise HTTPException(401, "bot_login_challenge_missing")
         if row["status"] == "consumed":
+            print(f"challenge status consumed provider={provider}")
             clear_bot_login_cookie(response)
             raise HTTPException(409, "bot_login_challenge_consumed")
         if row["expires_at"] <= now:
             conn.execute("UPDATE auth_login_challenges SET status = 'expired' WHERE id = ? AND status = 'pending'", (row["id"],))
+            print(f"challenge status expired provider={provider}")
             clear_bot_login_cookie(response)
             return {"ok": True, "status": "expired"}
         if row["status"] != "approved":
+            print(f"challenge status {row['status']} provider={provider}")
             return {"ok": True, "status": row["status"]}
+        print(f"challenge status approved provider={provider}")
         internal_user_id = row["internal_user_id"]
         if not internal_user_id:
             raise HTTPException(409, "bot_login_identity_missing")
@@ -5181,6 +5995,7 @@ async def auth_bot_login_status(request: Request, response: Response) -> dict[st
             "UPDATE auth_login_challenges SET status = 'consumed', consumed_at = ? WHERE id = ? AND status = 'approved'",
             (now, row["id"]),
         )
+        print(f"challenge status consumed provider={provider}")
 
     session = create_auth_session(
         internal_user_id,
@@ -5196,6 +6011,7 @@ async def auth_bot_login_status(request: Request, response: Response) -> dict[st
         session["expires_at"],
         session["refresh_expires_at"],
     )
+    print(f"session created provider={provider}")
     clear_bot_login_cookie(response)
     return {"ok": True, "status": "authenticated"}
 
@@ -5235,6 +6051,8 @@ async def auth_telegram_v2(req: TelegramAuthV2Request, request: Request, respons
 
     with db() as conn:
         internal_user_id, legacy_user_id = telegram_upsert_identity(conn, user, now)
+
+    schedule_avatar_cache("telegram", str(user.get("id") or ""))
 
     session = create_auth_session(
         internal_user_id, legacy_user_id, provider="telegram", platform=platform, request=request
@@ -5557,6 +6375,100 @@ async def auth_email_verify_code_v2(req: EmailVerifyCodeV2Request, request: Requ
     }
 
 
+@app.post("/api/auth/link/email/request-code-v2")
+async def auth_link_email_request_code_v2(req: LinkEmailRequestCodeV2Request, request: Request) -> dict[str, Any]:
+    """Start verified email linking for the current trusted account."""
+    require_trusted_user(request)
+    try:
+        validate_email_otp_config()
+    except RuntimeError:
+        raise HTTPException(503, "Email verification is currently unavailable.")
+    email_norm = normalize_email(req.email)
+    if not email_norm:
+        raise HTTPException(400, "A valid email address is required.")
+    with db() as conn:
+        existing = conn.execute(
+            "SELECT internal_user_id FROM auth_identities WHERE provider = 'web_email' AND provider_user_id = ?",
+            (email_norm,),
+        ).fetchone()
+        if existing:
+            current = require_trusted_user(request)["internal_user_id"]
+            if existing["internal_user_id"] != current:
+                raise HTTPException(409, "email_already_linked")
+    cleanup_expired_otp_challenges()
+    enforce_email_otp_rate_limits(email_norm, request, None, None, "web_desktop")
+    now = datetime.now(timezone.utc).isoformat()
+    challenge_id = uuid.uuid4().hex
+    code = generate_otp_code(EMAIL_OTP_LENGTH)
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=EMAIL_OTP_TTL_SECONDS)).isoformat()
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO auth_otp_challenges
+                (id, channel, destination, code_hash, purpose, attempts_count, max_attempts,
+                 expires_at, consumed_at, ip_address, user_agent_hash, created_at)
+            VALUES (?, 'email', ?, ?, 'link_email', 0, ?, ?, NULL, ?, ?, ?)
+            """,
+            (challenge_id, email_norm, hash_otp(code), EMAIL_OTP_MAX_ATTEMPTS, expires_at, _client_ip(request), _hash_user_agent(request), now),
+        )
+    send_email_otp(email_norm, code)
+    response: dict[str, Any] = {"ok": True, "challenge_id": challenge_id, "expires_in_seconds": EMAIL_OTP_TTL_SECONDS}
+    if EMAIL_OTP_DEBUG_RETURN_CODE and APP_ENV.lower() != "production":
+        response["debug_code"] = code
+    return response
+
+
+@app.post("/api/auth/link/email/verify-code-v2")
+async def auth_link_email_verify_code_v2(req: LinkEmailVerifyCodeV2Request, request: Request) -> dict[str, Any]:
+    """Verify an email OTP and attach web_email identity to the current account."""
+    user = require_trusted_user(request)
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        ch = conn.execute("SELECT * FROM auth_otp_challenges WHERE id = ?", (req.challenge_id,)).fetchone()
+        if ch is None or ch["purpose"] != "link_email":
+            raise HTTPException(401, "otp_challenge_missing")
+        if ch["consumed_at"] is not None:
+            raise HTTPException(401, "otp_consumed")
+        if ch["expires_at"] < now:
+            raise HTTPException(401, "otp_expired")
+        if int(ch["attempts_count"]) >= int(ch["max_attempts"]):
+            raise HTTPException(429, "otp_max_attempts")
+        if not hmac.compare_digest(hash_otp(req.code), ch["code_hash"]):
+            conn.execute("UPDATE auth_otp_challenges SET attempts_count = attempts_count + 1 WHERE id = ?", (req.challenge_id,))
+            raise HTTPException(401, "otp_failed")
+        email_norm = ch["destination"]
+        existing = conn.execute(
+            "SELECT internal_user_id FROM auth_identities WHERE provider = 'web_email' AND provider_user_id = ?",
+            (email_norm,),
+        ).fetchone()
+        if existing and existing["internal_user_id"] != user["internal_user_id"]:
+            raise HTTPException(409, "email_already_linked")
+        legacy_row = conn.execute("SELECT id FROM users WHERE internal_user_id = ?", (user["internal_user_id"],)).fetchone()
+        legacy_user_id = _row_get(legacy_row, "id")
+        if existing:
+            conn.execute(
+                "UPDATE auth_identities SET provider_email = ?, verified_at = COALESCE(verified_at, ?), last_login_at = ? WHERE provider = 'web_email' AND provider_user_id = ?",
+                (email_norm, now, now, email_norm),
+            )
+            linked_new = False
+        else:
+            conn.execute(
+                """
+                INSERT INTO auth_identities
+                    (id, internal_user_id, legacy_user_id, provider, provider_user_id,
+                     provider_email, verified_at, linked_at, last_login_at)
+                VALUES (?, ?, ?, 'web_email', ?, ?, ?, ?, ?)
+                """,
+                (uuid.uuid4().hex, user["internal_user_id"], legacy_user_id, email_norm, email_norm, now, now, now),
+            )
+            linked_new = True
+        conn.execute("UPDATE users SET email = COALESCE(email, ?), email_verified_at = COALESCE(email_verified_at, ?) WHERE internal_user_id = ?", (email_norm, now, user["internal_user_id"]))
+        conn.execute("UPDATE auth_otp_challenges SET consumed_at = ? WHERE id = ?", (now, req.challenge_id))
+        if linked_new:
+            grant_auth_link_reward(conn, user["internal_user_id"], "email", now)
+    return {"ok": True, "email": email_norm, "reward_tokens": 10 if linked_new else 0}
+
+
 @app.post("/api/auth/password/register-v2")
 async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Request, response: Response) -> dict[str, Any]:
     """Browser email+password registration. Creates/attaches a web_email identity +
@@ -5753,13 +6665,23 @@ async def me_v2(request: Request) -> dict[str, Any]:
         if urow is None and legacy:
             urow = conn.execute("SELECT * FROM users WHERE id = ?", (legacy,)).fetchone()
         identities = conn.execute(
-            "SELECT provider, provider_username, provider_email, linked_at, last_login_at FROM auth_identities WHERE internal_user_id = ?",
+            "SELECT provider, provider_user_id, provider_username, provider_email, provider_first_name, provider_last_name, provider_avatar_url, verified_at, linked_at, last_login_at FROM auth_identities WHERE internal_user_id = ?",
             (iuid,),
         ).fetchall()
         gallery_access = bool(user_gallery_allowed(conn, iuid, legacy))
         gallery_quota = gallery_quota_for_user(conn, urow, legacy)
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        daily_tokens_used = int(_row_get(urow, "daily_tokens_used") or 0)
+        if _row_get(urow, "last_daily_reset") != today:
+            daily_tokens_used = 0
+        daily_tokens_limit = int(gallery_quota["daily_tokens"])
+        daily_tokens_remaining = max(0, daily_tokens_limit - daily_tokens_used)
 
     primary_identity = identities[0] if identities else None
+    # Fall back to a provider avatar URL when the user has no local avatar yet.
+    avatar_url = _row_get(urow, "avatar_url")
+    if not avatar_url:
+        avatar_url = next((_row_get(i, "provider_avatar_url") for i in identities if _row_get(i, "provider_avatar_url")), None)
     profile = {
         "display_name": resolve_display_name(urow, primary_identity),
         "public_user_code": _row_get(urow, "public_user_code"),
@@ -5767,8 +6689,9 @@ async def me_v2(request: Request) -> dict[str, Any]:
         "last_name": _row_get(urow, "last_name"),
         "username": _row_get(urow, "username"),
         "email": _row_get(urow, "email"),
+        "email_verified_at": _row_get(urow, "email_verified_at"),
         "language_code": _row_get(urow, "language"),
-        "avatar_url": _row_get(urow, "avatar_url"),
+        "avatar_url": avatar_url,
         "avatar_preset": _row_get(urow, "avatar_preset"),
         "providers": sorted({i["provider"] for i in identities}),
     }
@@ -5793,11 +6716,12 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "role": _row_get(urow, "role"),
             "plan": _row_get(urow, "plan") or "mini",
             "token_balance": int(_row_get(urow, "token_balance") or 0),
-            "daily_tokens_used": int(_row_get(urow, "daily_tokens_used") or 0),
-            "daily_tokens_limit": gallery_quota["daily_tokens"],
+            "daily_tokens_used": daily_tokens_used,
+            "daily_tokens_limit": daily_tokens_limit,
+            "daily_tokens_remaining": daily_tokens_remaining,
             "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
             "gallery_access": gallery_access,
-            "daily_tokens": gallery_quota["daily_tokens"],
+            "daily_tokens": daily_tokens_limit,
             "gallery_slots": gallery_quota["gallery_slots"],
             "gallery_used": gallery_quota["gallery_used"],
             "gallery_free": gallery_quota["gallery_free"],
@@ -5813,8 +6737,13 @@ async def me_v2(request: Request) -> dict[str, Any]:
         "identities": [
             {
                 "provider": r["provider"],
+                "provider_user_id": short_public_id(r["provider_user_id"], 10),
                 "provider_username": r["provider_username"],
                 "provider_email": r["provider_email"],
+                "provider_first_name": _row_get(r, "provider_first_name"),
+                "provider_last_name": _row_get(r, "provider_last_name"),
+                "provider_avatar_url": _row_get(r, "provider_avatar_url"),
+                "verified_at": r["verified_at"],
                 "linked_at": r["linked_at"],
                 "last_login_at": r["last_login_at"],
             }
@@ -5823,6 +6752,131 @@ async def me_v2(request: Request) -> dict[str, Any]:
         "profile": profile,
         "created_at": _row_get(urow, "created_at"),
         "last_seen_at": _row_get(urow, "last_seen_at"),
+    }
+
+
+def _session_device_label(meta: dict[str, Any]) -> str | None:
+    device = meta.get("device") if isinstance(meta, dict) else None
+    if not isinstance(device, dict):
+        return None
+    parts = [device.get("browser"), device.get("os")]
+    label = " · ".join(p for p in parts if p and p != "unknown")
+    return label or device.get("device_type") or None
+
+
+@app.get("/api/auth/sessions")
+async def auth_sessions_list(request: Request) -> dict[str, Any]:
+    """List the current user's own sessions (devices/IP/login method). Exposes
+    no token hashes — only the server session record id used for revocation."""
+    user = require_trusted_user(request)
+    iuid = user["internal_user_id"]
+    current_sid = user["session_id"]
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, provider, platform, ip_address, metadata_json, created_at,
+                   last_seen_at, expires_at, revoked_at, revoke_reason
+            FROM auth_sessions WHERE internal_user_id = ?
+            ORDER BY (revoked_at IS NOT NULL), last_seen_at DESC, created_at DESC
+            """,
+            (iuid,),
+        ).fetchall()
+    sessions: list[dict[str, Any]] = []
+    for r in rows:
+        try:
+            meta = json.loads(r["metadata_json"]) if _row_get(r, "metadata_json") else {}
+        except Exception:
+            meta = {}
+        revoked = _row_get(r, "revoked_at")
+        expires = _row_get(r, "expires_at")
+        active = bool(not revoked and (not expires or expires > now_iso))
+        sessions.append({
+            "id": r["id"],
+            "provider": r["provider"],
+            "platform": r["platform"],
+            "ip_address": _row_get(r, "ip_address"),
+            "device": _session_device_label(meta),
+            "created_at": r["created_at"],
+            "last_seen_at": _row_get(r, "last_seen_at"),
+            "expires_at": expires,
+            "revoked_at": revoked,
+            "active": active,
+            "current": r["id"] == current_sid,
+        })
+    return {"ok": True, "sessions": sessions, "current_session_id": current_sid}
+
+
+@app.post("/api/auth/sessions/{session_id}/revoke")
+async def auth_session_revoke(session_id: str, request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    with db() as conn:
+        row = conn.execute("SELECT internal_user_id FROM auth_sessions WHERE id = ?", (session_id,)).fetchone()
+    if row is None or row["internal_user_id"] != user["internal_user_id"]:
+        raise HTTPException(404, "session_not_found")
+    revoke_auth_session(session_id, reason="user_revoked", request=request, event_type="revoked")
+    return {"ok": True, "revoked_session_id": session_id, "was_current": session_id == user["session_id"]}
+
+
+@app.post("/api/auth/sessions/revoke-others")
+async def auth_sessions_revoke_others(request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    iuid = user["internal_user_id"]
+    current_sid = user["session_id"]
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id FROM auth_sessions WHERE internal_user_id = ? AND id != ? AND revoked_at IS NULL",
+            (iuid, current_sid),
+        ).fetchall()
+    revoked = 0
+    for r in rows:
+        if revoke_auth_session(r["id"], reason="user_revoked_all", request=request, event_type="revoked"):
+            revoked += 1
+    return {"ok": True, "revoked_count": revoked}
+
+
+@app.get("/api/account/activity-v2")
+async def account_activity_v2(request: Request) -> dict[str, Any]:
+    """Per-user activity summary for the account screen: login methods, logins by
+    provider, active sessions and account age. Built from existing tables only."""
+    user = require_trusted_user(request)
+    iuid = user["internal_user_id"]
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        urow = conn.execute("SELECT created_at, last_seen_at FROM users WHERE internal_user_id = ?", (iuid,)).fetchone()
+        identities = conn.execute(
+            "SELECT provider, last_login_at, linked_at, verified_at FROM auth_identities WHERE internal_user_id = ? ORDER BY last_login_at DESC",
+            (iuid,),
+        ).fetchall()
+        active_sessions = conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_sessions WHERE internal_user_id = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)",
+            (iuid, now_iso),
+        ).fetchone()["c"]
+        total_sessions = conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_sessions WHERE internal_user_id = ?", (iuid,)
+        ).fetchone()["c"]
+        login_rows = conn.execute(
+            "SELECT provider, COUNT(*) AS c, MAX(created_at) AS last_at FROM auth_sessions WHERE internal_user_id = ? GROUP BY provider",
+            (iuid,),
+        ).fetchall()
+    logins_by_provider = {r["provider"]: {"count": int(r["c"]), "last_at": r["last_at"]} for r in login_rows}
+    return {
+        "ok": True,
+        "account_created_at": _row_get(urow, "created_at"),
+        "last_seen_at": _row_get(urow, "last_seen_at"),
+        "active_sessions": int(active_sessions or 0),
+        "total_sessions": int(total_sessions or 0),
+        "total_logins": sum(v["count"] for v in logins_by_provider.values()),
+        "logins_by_provider": logins_by_provider,
+        "login_methods": [
+            {
+                "provider": i["provider"],
+                "last_login_at": i["last_login_at"],
+                "linked_at": i["linked_at"],
+                "verified": bool(i["verified_at"]),
+            }
+            for i in identities
+        ],
     }
 
 
@@ -7646,7 +8700,7 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
         summary = admin_user_analytics_row(conn, urow, now_iso)
         identities = conn.execute(
             "SELECT provider, provider_user_id, provider_username, provider_email, provider_first_name, "
-            "provider_last_name, provider_phone, provider_language_code, linked_at, verified_at, last_login_at, "
+            "provider_last_name, provider_phone, provider_language_code, provider_avatar_url, linked_at, verified_at, last_login_at, "
             "(raw_profile_json IS NOT NULL AND raw_profile_json != '') AS has_raw_profile "
             "FROM auth_identities WHERE internal_user_id = ?", (internal_user_id,),
         ).fetchall()
@@ -7723,7 +8777,8 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
             "provider_username": r["provider_username"], "provider_email": mask_email(r["provider_email"]),
             "first_name": r["provider_first_name"], "last_name": r["provider_last_name"],
             "phone": mask_phone(r["provider_phone"]) if r["provider_phone"] else None,
-            "language_code": r["provider_language_code"], "linked_at": r["linked_at"],
+            "language_code": r["provider_language_code"], "avatar_url": r["provider_avatar_url"],
+            "linked_at": r["linked_at"],
             "verified_at": r["verified_at"], "last_login_at": r["last_login_at"],
             "has_raw_profile": bool(r["has_raw_profile"]),
         } for r in identities],
@@ -7895,6 +8950,32 @@ async def bots_status() -> dict[str, Any]:
     return bot_status_payload()
 
 
+@app.get("/api/admin/max/status")
+async def admin_max_status(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    return {
+        "ok": True,
+        "tokenSet": bool(MAX_BOT_TOKEN),
+        "botNicknameResolved": bool(resolve_max_bot_deep_link_base()),
+        "deepLinkBaseSource": _MAX_BOT_DEEP_LINK_CACHE.get("source"),
+        "apiBaseUrl": MAX_API_BASE_URL,
+        "mode": MAX_UPDATES_MODE,
+        "pollingReady": bool(MAX_BOT_TOKEN and MAX_API_BASE_URL),
+        "webhookConfigured": bool(MAX_POLLING_DIAG.get("webhookConfigured")),
+        "webhookUrlSet": bool(MAX_POLLING_DIAG.get("webhookUrlSet")),
+        "subscriptionStatus": MAX_POLLING_DIAG.get("subscriptionStatus"),
+        "updateTypes": MAX_POLLING_DIAG.get("updateTypes"),
+        "lastPollAt": MAX_POLLING_DIAG.get("lastPollAt"),
+        "lastPollStatus": MAX_POLLING_DIAG.get("lastPollStatus"),
+        "lastPollError": MAX_POLLING_DIAG.get("lastPollError"),
+        "lastRawCount": MAX_POLLING_DIAG.get("lastRawCount"),
+        "lastBotStartedAt": MAX_POLLING_DIAG.get("lastBotStartedAt"),
+        "lastCallbackAt": MAX_POLLING_DIAG.get("lastCallbackAt"),
+        "lastWebhookAt": MAX_POLLING_DIAG.get("lastWebhookAt"),
+        "pendingLoginChallengesCount": pending_max_login_challenges_count(),
+    }
+
+
 @app.post("/api/bots/local-command")
 async def bots_local_command(req: BotCommandRequest) -> dict[str, Any]:
     response = bot_command_response(req.platform, req.text)
@@ -8000,21 +9081,14 @@ async def max_me() -> dict[str, Any]:
 
 @app.post("/api/max/poll-once")
 async def max_poll_once() -> dict[str, Any]:
+    if pending_max_login_challenges_count() > 0:
+        raise HTTPException(409, "active_max_login_challenge")
     return await max_poll_once_from_api(timeout=0, limit=10)
 
 
 @app.post("/api/max/set-webhook")
 async def max_set_webhook() -> dict[str, Any]:
-    public_url = os.getenv("BACKEND_PUBLIC_URL", "")
-    if not public_url.startswith("https://"):
-        raise HTTPException(400, "BACKEND_PUBLIC_URL must be an HTTPS URL for MAX webhook mode.")
-    body: dict[str, Any] = {
-        "url": f"{public_url.rstrip('/')}/api/max/webhook",
-        "update_types": ["message_created", "bot_started", "message_callback"],
-    }
-    if MAX_WEBHOOK_SECRET:
-        body["secret"] = MAX_WEBHOOK_SECRET
-    return await max_api("POST", "/subscriptions", body)
+    return await configure_max_webhook_subscription()
 
 
 @app.post("/api/translate")
@@ -8593,10 +9667,18 @@ async def telegram_webhook(payload: dict[str, Any]) -> dict[str, Any]:
 
 @app.post("/api/max/webhook")
 async def max_webhook(payload: dict[str, Any], request: Request) -> dict[str, Any]:
-    if MAX_WEBHOOK_SECRET and request.headers.get("X-Max-Bot-Api-Secret") != MAX_WEBHOOK_SECRET:
-        raise HTTPException(403, "Invalid MAX webhook secret.")
+    print(f"MAX_WEBHOOK_RECEIVED before secret check type={max_update_type(payload)}")
+    if MAX_WEBHOOK_SECRET:
+        secret_ok = request.headers.get("X-Max-Bot-Api-Secret") == MAX_WEBHOOK_SECRET
+        print(f"MAX_WEBHOOK_SECRET_OK {str(secret_ok).lower()}")
+        if not secret_ok:
+            raise HTTPException(403, "Invalid MAX webhook secret.")
+    MAX_POLLING_DIAG["lastWebhookAt"] = datetime.now(timezone.utc).isoformat()
+    MAX_POLLING_DIAG["lastWebhookError"] = None
+    print(f"MAX webhook update received type={max_update_type(payload)}")
     try:
         await handle_max_update(payload, send_replies=True)
     except Exception as exc:
+        MAX_POLLING_DIAG["lastWebhookError"] = type(exc).__name__
         print("max webhook handler error", type(exc).__name__)
     return {"ok": True}
