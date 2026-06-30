@@ -174,7 +174,7 @@ export async function getAuthCapabilitiesV2(): Promise<AuthCapabilitiesV2> {
     const data = (await res.json()) as Partial<AuthCapabilitiesV2> & { bot_login?: Partial<AuthCapabilitiesV2> }
     return {
       password_login_available: data.password_login_available !== false,
-      password_register_available: !!data.password_register_available,
+      password_register_available: data.password_register_available !== false,
       email_otp_available: !!data.email_otp_available,
       telegram_bot_login_available: !!data.bot_login?.telegram_bot_login_available,
       max_bot_login_available: !!data.bot_login?.max_bot_login_available,
@@ -182,7 +182,7 @@ export async function getAuthCapabilitiesV2(): Promise<AuthCapabilitiesV2> {
   } catch {
     return {
       password_login_available: true,
-      password_register_available: false,
+      password_register_available: true,
       email_otp_available: false,
       telegram_bot_login_available: false,
       max_bot_login_available: false,
@@ -509,7 +509,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   const [botPollMs, setBotPollMs] = useState(2000)
   const [authCaps, setAuthCaps] = useState<AuthCapabilitiesV2>({
     password_login_available: true,
-    password_register_available: false,
+    password_register_available: true,
     email_otp_available: false,
     telegram_bot_login_available: false,
     max_bot_login_available: false,
@@ -543,7 +543,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   }, [open])
 
   useEffect(() => {
-    if (tab === 'register' && !authCaps.password_register_available) {
+    if (tab === 'register' && authCaps.password_register_available === false) {
       setTab('login')
     }
   }, [tab, authCaps.password_register_available])
@@ -692,7 +692,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
         {phase === 'form' && (
           <div className="auth-modal-tabs">
             <button className={`auth-modal-tab ${tab === 'login' ? 'active' : ''}`} onClick={() => { setTab('login'); setError('') }}>Вход</button>
-            {authCaps.password_register_available && (
+            {authCaps.password_register_available !== false && (
               <button className={`auth-modal-tab ${tab === 'register' ? 'active' : ''}`} onClick={() => { setTab('register'); setError('') }}>Регистрация</button>
             )}
           </div>
