@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 function amvFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers)
-  headers.set('X-OneNode-User', window.localStorage.getItem('onenode_user') || 'demo_user')
   return fetch(`${API}${path}`, { ...init, headers, credentials: 'include' })
 }
 

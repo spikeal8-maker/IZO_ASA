@@ -2105,11 +2105,10 @@ def bot_login_available(provider: Literal["telegram", "max"]) -> bool:
 
 
 def auth_capabilities_payload() -> dict[str, Any]:
-    password_register_available = bool(email_otp_available() or APP_ENV.lower() != "production")
     return {
         "ok": True,
         "password_login_available": True,
-        "password_register_available": password_register_available,
+        "password_register_available": True,
         "email_otp_available": email_otp_available(),
         "bot_login": {
             "telegram_bot_login_available": bot_login_available("telegram"),
@@ -4622,24 +4621,31 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     token_cost = estimate_token_cost(req)
     used_daily = False
     with db() as conn:
-        user_row = conn.execute("SELECT id, token_balance, plan, daily_tokens_used, last_daily_reset FROM users WHERE id = ?", (user_id,)).fetchone()
+        try:
+            user_row = conn.execute("SELECT id, token_balance, plan, daily_tokens_used, last_daily_reset FROM users WHERE id = ?", (user_id,)).fetchone()
+        except sqlite3.OperationalError:
+            user_row = conn.execute("SELECT id, token_balance, plan FROM users WHERE id = ?", (user_id,)).fetchone()
         if user_row is None:
             raise HTTPException(404, "User not found.")
         if user_id != "demo_user":
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            daily_used = int(user_row["daily_tokens_used"] or 0)
-            last_reset = user_row["last_daily_reset"]
-            if last_reset != today:
-                daily_used = 0
-            tariff = get_tariff_config(conn)[str(user_row["plan"] or "mini").lower()]
-            daily_limit = int(tariff["daily_tokens"])
-            if daily_used + token_cost <= daily_limit:
-                used_daily = True
-                conn.execute(
-                    "UPDATE users SET daily_tokens_used = ?, last_daily_reset = ? WHERE id = ?",
-                    (daily_used + token_cost, today, user_id),
-                )
-            else:
+            try:
+                daily_used = int(user_row["daily_tokens_used"] or 0)
+                last_reset = user_row["last_daily_reset"]
+                tariff = get_tariff_config(conn)[str(user_row["plan"] or "mini").lower()]
+                daily_limit = int(tariff["daily_tokens"])
+                if last_reset != today:
+                    daily_used = 0
+                if daily_used + token_cost <= daily_limit:
+                    used_daily = True
+                    conn.execute(
+                        "UPDATE users SET daily_tokens_used = ?, last_daily_reset = ? WHERE id = ?",
+                        (daily_used + token_cost, today, user_id),
+                    )
+                else:
+                    if int(user_row["token_balance"] or 0) < token_cost:
+                        raise HTTPException(402, "Not enough tokens.")
+            except (KeyError, IndexError, sqlite3.OperationalError):
                 if int(user_row["token_balance"] or 0) < token_cost:
                     raise HTTPException(402, "Not enough tokens.")
         else:
@@ -5555,9 +5561,10 @@ async def auth_email_verify_code_v2(req: EmailVerifyCodeV2Request, request: Requ
 async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Request, response: Response) -> dict[str, Any]:
     """Browser email+password registration. Creates/attaches a web_email identity +
     Argon2id password, and records consents. If email verification is available,
-    no trusted session is issued until verify-code-v2 succeeds; in non-production
-    no-provider/dev flows, a trusted cookie session may still be issued. Never
-    stores/logs the raw password. Generic 409 if an account already has a password."""
+    no trusted session is issued until verify-code-v2 succeeds. If email
+    verification is unavailable, registration falls back to issuing a trusted
+    cookie session after password+consent validation. Never stores/logs the raw
+    password. Generic 409 if an account already has a password."""
     platform = "web"
     email_norm = normalize_email(req.email)
     if not email_norm:
@@ -5568,8 +5575,6 @@ async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Req
         raise HTTPException(400, "Пароли не совпадают.")
     if not (req.accepted_terms and req.accepted_privacy and req.accepted_personal_data):
         raise HTTPException(400, "Необходимо принять условия.")
-    if is_production_like_env() and not email_provider_configured():
-        raise HTTPException(503, "email_provider_required")
 
     password_hash = hash_password_argon2(req.password)  # CPU work outside the txn
     now = datetime.now(timezone.utc).isoformat()

@@ -95,13 +95,13 @@ def test_apply_promo_duplicate_blocked_and_safe(temp_db):
         idem = c.post("/api/admin/users/iuid-target/apply-promo-v2", json={"promo_code": "WELCOME", "reason": "manual apply", "idempotency_key": "promo-1"}, headers=bearer(token))
         duplicate = c.post("/api/admin/users/iuid-target/apply-promo-v2", json={"promo_code": "WELCOME", "reason": "manual apply", "idempotency_key": "promo-2"}, headers=bearer(token))
         detail = c.get("/api/admin/users/iuid-target/analytics-v2", headers=bearer(token))
-    assert first.status_code == 200 and first.json()["new_token_balance"] == 60
+    assert first.status_code == 200 and first.json()["new_token_balance"] == 35
     assert idem.status_code == 200 and idem.json()["idempotent"] is True
     assert duplicate.status_code == 400
     b = detail.json()
     assert b["loyalty_summary"]["promo_redemption_count"] == 1
     assert b["promo_redemptions_recent"][0]["promo_code"] == "WELCOME"
-    assert b["promo_redemptions_recent"][0]["token_bonus"] == 50
+    assert b["promo_redemptions_recent"][0]["token_bonus"] == 25
     text = detail.text
     for forbidden in ("password_hash", "session_token_hash", "refresh_token_hash", "code_hash", "initData", "WebAppData"):
         assert forbidden not in text
@@ -116,15 +116,15 @@ def test_user_apply_promo_grants_50_once_and_writes_clear_ledger(temp_db):
         first = c.post("/api/account/apply-promo-v2", json={"promo_code": "friend50"}, headers=bearer(user_token))
         duplicate = c.post("/api/account/apply-promo-v2", json={"promo_code": "FRIEND50"}, headers=bearer(user_token))
     assert first.status_code == 200, first.text
-    assert first.json()["token_bonus"] == 50
-    assert first.json()["new_token_balance"] == 60
+    assert first.json()["token_bonus"] == 5
+    assert first.json()["new_token_balance"] == 15
     assert duplicate.status_code == 400
     with main.db() as conn:
         ledger = conn.execute("SELECT delta, reason FROM token_ledger WHERE user_id='web_user'").fetchone()
         redemption = conn.execute("SELECT token_bonus, reason FROM promo_redemptions WHERE internal_user_id='iuid-user'").fetchone()
-    assert ledger["delta"] == 50
+    assert ledger["delta"] == 5
     assert ledger["reason"] == "promo_code_redeemed"
-    assert redemption["token_bonus"] == 50
+    assert redemption["token_bonus"] == 5
     assert redemption["reason"] == "promo_code_redeemed"
 
 

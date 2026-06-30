@@ -253,14 +253,25 @@ def test_no_provider_dev_password_register_login_still_works(temp_db):
     assert logged_in.status_code == 200
 
 
-def test_production_without_email_provider_register_disabled(temp_db, monkeypatch):
+def test_production_without_email_provider_password_register_creates_session(temp_db, monkeypatch):
     monkeypatch.setattr(main, "APP_ENV", "production")
     monkeypatch.setattr(main, "EMAIL_PROVIDER", "")
     monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", False)
     c = TestClient(main.app)
     r = register(c, "prod-no-provider@example.com")
     me = c.get("/api/me-v2")
-    assert r.status_code == 503
-    assert r.json()["detail"] == "email_provider_required"
-    assert "onenode_session=" not in set_cookies(r)
-    assert me.status_code == 401
+    assert r.status_code == 200
+    assert r.json()["requires_email_verification"] is False
+    assert "onenode_session=" in set_cookies(r)
+    assert me.status_code == 200
+
+
+def test_capabilities_keep_password_registration_available_without_email_provider(temp_db, monkeypatch):
+    monkeypatch.setattr(main, "APP_ENV", "production")
+    monkeypatch.setattr(main, "EMAIL_PROVIDER", "")
+    monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", False)
+    c = TestClient(main.app)
+    r = c.get("/api/auth/capabilities-v2")
+    assert r.status_code == 200
+    assert r.json()["password_register_available"] is True
+    assert r.json()["email_otp_available"] is False
