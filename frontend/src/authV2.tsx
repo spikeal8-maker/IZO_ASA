@@ -239,7 +239,7 @@ export async function requestEmailCodeV2(email: string): Promise<{ challenge_id:
   return (await res.json()) as { challenge_id: string; debug_code?: string }
 }
 
-export interface PasswordResult { ok: boolean; status: number }
+export interface PasswordResult { ok: boolean; status: number; requiresEmailVerification?: boolean; email?: string }
 
 // Browser email+password. Cookies are set by the backend; no tokens kept in JS.
 export async function passwordLoginV2(email: string, password: string): Promise<PasswordResult> {
@@ -247,7 +247,18 @@ export async function passwordLoginV2(email: string, password: string): Promise<
     method: 'POST',
     body: JSON.stringify({ email, password, platform: detectPlatform() }),
   })
-  return { ok: res.ok, status: res.status }
+  let requiresEmailVerification = false
+  let normalizedEmail: string | undefined
+  if (!res.ok) {
+    try {
+      const data = (await res.json()) as { requires_email_verification?: boolean; email?: string }
+      requiresEmailVerification = !!data.requires_email_verification
+      normalizedEmail = data.email
+    } catch {
+      /* no structured error body */
+    }
+  }
+  return { ok: res.ok, status: res.status, requiresEmailVerification, email: normalizedEmail }
 }
 
 export async function passwordRegisterV2(
@@ -267,7 +278,16 @@ export async function passwordRegisterV2(
       platform: detectPlatform(),
     }),
   })
-  return { ok: res.ok, status: res.status }
+  let requiresEmailVerification = false
+  if (res.ok) {
+    try {
+      const data = (await res.json()) as { requires_email_verification?: boolean }
+      requiresEmailVerification = !!data.requires_email_verification
+    } catch {
+      /* body optional — treat as no verification required */
+    }
+  }
+  return { ok: res.ok, status: res.status, requiresEmailVerification }
 }
 
 export async function verifyEmailCodeV2(challengeId: string, code: string): Promise<boolean> {
@@ -284,21 +304,119 @@ export async function verifyEmailCodeV2(challengeId: string, code: string): Prom
   return res.ok // cookies set by backend; JSON tokens ignored
 }
 
+export async function startBotLinkV2(provider: 'telegram' | 'max'): Promise<{ ok: true; deep_link: string; poll_interval_ms: number } | { ok: false; reason: string }> {
+  try {
+    const res = await authFetch('/auth/link/bot/start', {
+      method: 'POST',
+      body: JSON.stringify({ provider }),
+    })
+    if (!res.ok) {
+      let reason = res.status === 503 ? 'provider_not_configured' : 'bot_link_failed'
+      try {
+        const data = (await res.json()) as { detail?: string }
+        if (data.detail) reason = data.detail
+      } catch {
+        /* keep safe reason */
+      }
+      return { ok: false, reason }
+    }
+    const data = (await res.json()) as { deep_link: string; poll_interval_ms: number }
+    return { ok: true, deep_link: data.deep_link, poll_interval_ms: data.poll_interval_ms }
+  } catch {
+    return { ok: false, reason: 'network_error' }
+  }
+}
+
+export async function requestEmailLinkCodeV2(email: string): Promise<{ challenge_id: string; debug_code?: string } | { error: string } | null> {
+  const res = await authFetch('/auth/link/email/request-code-v2', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { detail?: string }
+    return { error: data.detail || 'email_link_failed' }
+  }
+  return (await res.json()) as { challenge_id: string; debug_code?: string }
+}
+
+export async function verifyEmailLinkCodeV2(challengeId: string, code: string): Promise<{ ok: true; reward_tokens?: number } | { ok: false; error: string }> {
+  const res = await authFetch('/auth/link/email/verify-code-v2', {
+    method: 'POST',
+    body: JSON.stringify({ challenge_id: challengeId, code }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { detail?: string }
+    return { ok: false, error: data.detail || 'email_link_failed' }
+  }
+  const data = await res.json().catch(() => ({})) as { reward_tokens?: number }
+  return { ok: true, reward_tokens: data.reward_tokens }
+}
+
 export interface MeV2 {
   internal_user_id?: string
   legacy_user_id?: string
   profile?: {
     display_name?: string | null; first_name?: string | null; last_name?: string | null
-    public_user_code?: string | null; username?: string | null; email?: string | null; providers?: string[]
+    public_user_code?: string | null; username?: string | null; email?: string | null; email_verified_at?: string | null; providers?: string[]
     avatar_url?: string | null; avatar_preset?: string | null
   } | null
   account?: {
     role?: string | null; plan?: string | null; token_balance?: number | null
     gallery_enabled?: boolean | null; gallery_access?: boolean | null
-    gallery_slots?: number | null; gallery_used?: number | null; gallery_free?: number | null; gallery_full?: boolean | null
-    daily_tokens?: number | null; daily_tokens_used?: number | null; daily_tokens_limit?: number | null; daily_tokens_remaining?: number | null
+    daily_tokens?: number | null; daily_tokens_used?: number | null
+    daily_tokens_limit?: number | null; daily_tokens_remaining?: number | null
+    gallery_slots?: number | null; gallery_used?: number | null
+    gallery_free?: number | null; gallery_full?: boolean | null
   } | null
-  identities?: Array<{ provider?: string; provider_username?: string | null; provider_email?: string | null }>
+  identities?: Array<{ provider?: string; provider_user_id?: string | null; provider_username?: string | null; provider_email?: string | null; provider_first_name?: string | null; provider_last_name?: string | null; provider_avatar_url?: string | null; verified_at?: string | null }>
+}
+
+export interface SessionInfoV2 {
+  id: string
+  provider?: string | null
+  platform?: string | null
+  ip_address?: string | null
+  device?: string | null
+  created_at?: string | null
+  last_seen_at?: string | null
+  expires_at?: string | null
+  revoked_at?: string | null
+  active?: boolean
+  current?: boolean
+}
+
+export async function listSessionsV2(): Promise<{ sessions: SessionInfoV2[]; current_session_id?: string } | null> {
+  const res = await authFetch('/auth/sessions')
+  if (!res.ok) return null
+  return (await res.json()) as { sessions: SessionInfoV2[]; current_session_id?: string }
+}
+
+export async function revokeSessionV2(sessionId: string): Promise<boolean> {
+  const res = await authFetch(`/auth/sessions/${encodeURIComponent(sessionId)}/revoke`, { method: 'POST' })
+  return res.ok
+}
+
+export async function revokeOtherSessionsV2(): Promise<number> {
+  const res = await authFetch('/auth/sessions/revoke-others', { method: 'POST' })
+  if (!res.ok) return 0
+  const data = await res.json().catch(() => ({})) as { revoked_count?: number }
+  return data.revoked_count || 0
+}
+
+export interface ActivityV2 {
+  account_created_at?: string | null
+  last_seen_at?: string | null
+  active_sessions?: number
+  total_sessions?: number
+  total_logins?: number
+  logins_by_provider?: Record<string, { count: number; last_at?: string | null }>
+  login_methods?: Array<{ provider?: string; last_login_at?: string | null; linked_at?: string | null; verified?: boolean }>
+}
+
+export async function getActivityV2(): Promise<ActivityV2 | null> {
+  const res = await authFetch('/account/activity-v2')
+  if (!res.ok) return null
+  return (await res.json()) as ActivityV2
 }
 
 // Restore/validate the session purely via cookies. On a 401 (expired access
@@ -484,7 +602,12 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   const [passwordRepeat, setPasswordRepeat] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [phase, setPhase] = useState<'form' | 'bot'>('form')
+  // Post-registration email verification (OTP) and browser-to-bot login challenge.
+  const [phase, setPhase] = useState<'form' | 'verify' | 'bot'>('form')
+  const [challengeId, setChallengeId] = useState('')
+  const [code, setCode] = useState('')
+  const [debugCode, setDebugCode] = useState<string | undefined>(undefined)
+  const [resendIn, setResendIn] = useState(0)
   const [botProvider, setBotProvider] = useState<'telegram' | 'max' | ''>('')
   const [botDeepLink, setBotDeepLink] = useState('')
   const [botPollMs, setBotPollMs] = useState(2000)
@@ -497,20 +620,11 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     capabilities_loaded: undefined,
   })
 
-  const handleClose = () => {
-    setPhase('form')
-    setBotProvider('')
-    setBotDeepLink('')
-    setBotPollMs(2000)
-    setError('')
-    onClose()
-  }
-
   useEffect(() => {
     if (!open) return
     notifyTelegramReady() // ready()/expand() inside a Telegram WebView; no-op elsewhere
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleClose()
+      if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)
     // Lock background scroll while the modal is open.
@@ -520,7 +634,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prevOverflow
     }
-  }, [open])
+  }, [open, onClose])
 
   useEffect(() => {
     if (!open) return
@@ -532,6 +646,19 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
       cancelled = true
     }
   }, [open])
+
+  useEffect(() => {
+    if (tab === 'register' && authCaps.password_register_available === false) {
+      setTab('login')
+    }
+  }, [tab, authCaps.password_register_available])
+
+  // Resend cooldown countdown (matches backend EMAIL_OTP_REQUEST_COOLDOWN_SECONDS = 60s).
+  useEffect(() => {
+    if (resendIn <= 0) return
+    const t = setTimeout(() => setResendIn((s) => s - 1), 1000)
+    return () => clearTimeout(t)
+  }, [resendIn])
 
   useEffect(() => {
     if (!open || phase !== 'bot') return
@@ -564,12 +691,31 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   const showMaxBotLogin = !isMiniApp && authCaps.max_bot_login_available
   const hasProviderActions = showTelegramBotLogin || showMaxBotLogin || tgAvail || maxAvail
 
+  const beginEmailVerification = async (targetEmail: string) => {
+    const normalized = targetEmail.trim()
+    const codeRes = await requestEmailCodeV2(normalized)
+    setChallengeId(codeRes?.challenge_id || '')
+    setDebugCode(codeRes?.debug_code)
+    setResendIn(60)
+    setPhase('verify')
+    if (!codeRes) setError('Код не отправлен — нажмите «Отправить код ещё раз».')
+  }
+
   const onLogin = async () => {
     setError(''); setBusy(true)
     const result = await passwordLoginV2(email.trim(), password)
     setBusy(false)
+    if (result.requiresEmailVerification) {
+      await beginEmailVerification(result.email || email)
+      return
+    }
     if (!result.ok) { setError('Неверная почта или пароль'); return }
     await refreshAuthStateV2()
+    onClose()
+  }
+  const handleClose = () => {
+    setPhase('form'); setCode(''); setChallengeId(''); setDebugCode(undefined); setResendIn(0); setError('')
+    setBotProvider(''); setBotDeepLink(''); setBotPollMs(2000)
     onClose()
   }
   const onRegister = async () => {
@@ -585,17 +731,39 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
       if (result.status === 400 || result.status === 422) { setError('Проверьте email, пароль и условия регистрации.'); return }
       setError('Не удалось создать аккаунт. Попробуйте позже.'); return
     }
+    if (result.requiresEmailVerification) {
+      // Account+password created, but NO trusted session yet — confirm email first.
+      await beginEmailVerification(email)
+      return
+    }
     await refreshAuthStateV2()
-    onClose()
+    handleClose()
+  }
+  const onVerifyEmail = async () => {
+    setError(''); setBusy(true)
+    const ok = await verifyEmailCodeV2(challengeId, code.trim())
+    setBusy(false)
+    if (!ok) { setError('Неверный или просроченный код.'); return }
+    await refreshAuthStateV2() // trusted session set by backend on verify
+    handleClose()
+  }
+  const onResendCode = async () => {
+    if (resendIn > 0) return
+    setError('')
+    const codeRes = await requestEmailCodeV2(email.trim())
+    if (!codeRes) { setError('Не удалось отправить код. Попробуйте позже.'); return }
+    setChallengeId(codeRes.challenge_id)
+    setDebugCode(codeRes.debug_code)
+    setResendIn(60)
   }
   const onTelegram = async () => {
     setError('')
-    if (await loginTelegramV2()) { await refreshAuthStateV2(); handleClose() }
+    if (await loginTelegramV2()) { await refreshAuthStateV2(); onClose() }
     else setError('Telegram доступен в мини-приложении')
   }
   const onMax = async () => {
     setError('')
-    if (await loginMaxV2()) { await refreshAuthStateV2(); handleClose() }
+    if (await loginMaxV2()) { await refreshAuthStateV2(); onClose() }
     else setError('MAX доступен в мини-приложении')
   }
   const onBotLogin = async (provider: 'telegram' | 'max') => {
@@ -629,7 +797,9 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
         {phase === 'form' && (
           <div className="auth-modal-tabs">
             <button className={`auth-modal-tab ${tab === 'login' ? 'active' : ''}`} onClick={() => { setTab('login'); setError('') }}>Вход</button>
-            {authCaps.password_register_available !== false && <button className={`auth-modal-tab ${tab === 'register' ? 'active' : ''}`} onClick={() => { setTab('register'); setError('') }}>Регистрация</button>}
+            {authCaps.password_register_available !== false && (
+              <button className={`auth-modal-tab ${tab === 'register' ? 'active' : ''}`} onClick={() => { setTab('register'); setError('') }}>Регистрация</button>
+            )}
           </div>
         )}
         {authCaps.capabilities_loaded === false && <p className="auth-v2-error">Сервер авторизации недоступен. Обновите страницу или обратитесь к администратору.</p>}
@@ -639,6 +809,15 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
             <p className="auth-modal-sub">Подтвердите вход в {botProvider === 'telegram' ? 'Telegram' : 'MAX'}-боте. После подтверждения это окно закроется автоматически.</p>
             <a className="generate small-action" href={botDeepLink} target="_blank" rel="noreferrer">Открыть бота</a>
             <button className="secondary" onClick={() => { setPhase('form'); setError('') }}>Попробовать снова</button>
+          </>
+        ) : phase === 'verify' ? (
+          <>
+            <p className="auth-modal-sub">Мы отправили код на <b>{email.trim()}</b>. Введите его, чтобы подтвердить email.</p>
+            <label>Код из письма<input inputMode="numeric" value={code} placeholder="------" onChange={(e) => setCode(e.target.value)} /></label>
+            {debugCode && <small className="auth-v2-debug">debug code: {debugCode}</small>}
+            <button className="generate small-action" onClick={onVerifyEmail} disabled={!code.trim() || busy}>Подтвердить email</button>
+            <button className="secondary" onClick={onResendCode} disabled={resendIn > 0}>{resendIn > 0 ? `Отправить код ещё раз (${resendIn}с)` : 'Отправить код ещё раз'}</button>
+            <button className="auth-modal-back" onClick={() => { setPhase('form'); setError('') }}>← Назад</button>
           </>
         ) : tab === 'login' ? (
           <>
@@ -657,10 +836,18 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
             <button className="generate small-action" onClick={onRegister} disabled={!email.trim() || !password || !passwordRepeat || busy}>Создать аккаунт и принять условия</button>
           </>
         )}
-        {phase === 'form' && hasProviderActions && (
+        {hasProviderActions && (
           <div className="auth-modal-providers">
-            {showTelegramBotLogin && <button className="secondary" onClick={() => onBotLogin('telegram')} disabled={busy}>Войти через Telegram-бота</button>}
-            {showMaxBotLogin && <button className="secondary" onClick={() => onBotLogin('max')} disabled={busy}>Войти через MAX</button>}
+            {showTelegramBotLogin && (
+              <button className="secondary" onClick={() => onBotLogin('telegram')} disabled={busy}>
+                Войти через Telegram-бота
+              </button>
+            )}
+            {showMaxBotLogin && (
+              <button className="secondary" onClick={() => onBotLogin('max')} disabled={busy}>
+                Войти через MAX
+              </button>
+            )}
             {tgAvail && <button className="secondary" onClick={onTelegram}>Войти через Telegram</button>}
             {maxAvail && <button className="secondary" onClick={onMax}>Войти через MAX</button>}
           </div>

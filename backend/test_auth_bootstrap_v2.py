@@ -156,7 +156,9 @@ def test_response_contains_required_consents(temp_db):
 
 
 # 13
-def test_response_contains_auth_methods(temp_db):
+def test_response_contains_auth_methods(temp_db, monkeypatch):
+    # email_otp is advertised only when actually deliverable; configure a provider.
+    monkeypatch.setattr(main, "EMAIL_PROVIDER", "smtp")
     with TestClient(main.app) as client:
         tg = post(client, {"platform": "telegram_mini_app"}).json()
         mx = post(client, {"platform": "max_mini_app"}).json()

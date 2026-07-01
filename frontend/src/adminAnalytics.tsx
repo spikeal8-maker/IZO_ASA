@@ -45,6 +45,7 @@ export interface CrmUserRow {
   generations_count?: number; tokens_spent?: number; token_balance?: number; status?: string; role?: string
   first_seen_at?: string | null; gallery_count?: number; marketing_source?: string | null; risk_level?: string | null
   gallery_access?: boolean; gallery_enabled?: boolean
+  daily_tokens?: number; gallery_slots?: number; gallery_used?: number; gallery_free?: number; gallery_full?: boolean
   last_device?: { browser?: string | null; os?: string | null } | null
   internal_user_id_short?: string
 }
@@ -82,7 +83,8 @@ function initials(u: CrmUserRow & AnyRec, ids?: AnyRec[]): string {
 }
 
 function AvatarMark({ u, ids, className }: { u: CrmUserRow & AnyRec; ids?: AnyRec[]; className: string }): ReactElement {
-  const src = typeof u.avatar_url === 'string' && u.avatar_url ? u.avatar_url : ''
+  const providerAvatar = ids?.map((i) => i.avatar_url).find((a): a is string => typeof a === 'string' && a.length > 0)
+  const src = (typeof u.avatar_url === 'string' && u.avatar_url) ? u.avatar_url : (providerAvatar || '')
   return <span className={className}>{src ? <img src={src} alt="" /> : initials(u, ids)}</span>
 }
 
@@ -99,6 +101,12 @@ function deviceLabel(u: CrmUserRow): string {
   const browser = u.last_device?.browser
   const os = u.last_device?.os
   return browser || os ? `${S(browser)} / ${S(os)} · MAC: недоступен` : 'MAC: недоступен'
+}
+
+function quotaLabel(u: CrmUserRow & AnyRec): string {
+  const used = Number(u.gallery_used ?? u.gallery_count ?? 0)
+  const total = Number(u.gallery_slots ?? 0)
+  return `${used}/${total}`
 }
 
 // Block 6 — parsed display name fallback (display_name → first+last → username →
@@ -335,7 +343,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
           </div>
           <div className="crm-card-kpis">
             <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Списано <b>{S(sm.tokens_spent)}</b></span>
-            <span>Генераций <b>{S(sm.generations_count)}</b></span><span>Галерея <b>{S(sm.gallery_count ?? 0)}</b></span>
+            <span>Генераций <b>{S(sm.generations_count)}</b></span><span>Галерея <b>{quotaLabel(sm)}</b></span>
             <span>Вход {shortTime(sm.last_seen_at)}</span><span>Создан {shortTime(sm.first_seen_at)}</span><span>Риск <b>{riskLabel(sm)}</b></span>
           </div>
         </header>
@@ -347,22 +355,25 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <h4>Профиль и контакты</h4>
               <dl className="crm-preview-list">
                 {row('Имя', parsedName(sm, ids))}{row('Email', sm.email)}{row('Username', sm.username)}{row('Телефон', sm.phone)}
-                {row('Язык', (ids?.[0] as AnyRec)?.language_code)}{row('Гео', `${S(sm.city)} / ${S(sm.country)}`)}{row('Роль', sm.role)}{row('Тариф', sm.plan || 'mini')}{row('Галерея', sm.gallery_access ? 'доступна' : 'закрыта')}
+                {row('Язык', (ids?.[0] as AnyRec)?.language_code)}{row('Гео', `${S(sm.city)} / ${S(sm.country)}`)}{row('Роль', sm.role)}{row('Тариф', sm.plan || 'mini')}{row('Галерея', quotaLabel(sm))}
               </dl>
             </div>
             <div className="crm-panel">
               <h4>Источники входа</h4>
-              {(ids || []).map((i, n) => (
+              {(ids || []).map((i, n) => {
+                const nm = [i.first_name, i.last_name].filter(Boolean).join(' ')
+                return (
                 <div className="crm-subrow" key={n}>
-                  <span><Badge p={String(i.provider)} /> @{S(i.provider_username)} · {S(i.provider_email)} · id {shortId(i.provider_user_id, 6)}</span>
-                  <small>вход {shortTime(i.last_login_at)} · {i.verified_at ? 'verified' : 'не подтв.'} · raw-профиль: {i.has_raw_profile ? 'да' : 'нет'}</small>
+                  <span><Badge p={String(i.provider)} /> {nm ? `${nm} · ` : ''}@{S(i.provider_username)} · {S(i.provider_email)} · id {shortId(i.provider_user_id, 6)}</span>
+                  <small>вход {shortTime(i.last_login_at)} · {S(i.language_code)} · {i.verified_at ? 'verified' : 'не подтв.'} · аватар: {i.avatar_url ? 'есть' : 'нет'} · raw-профиль: {i.has_raw_profile ? 'да' : 'нет'}</small>
                 </div>
-              ))}{!ids?.length && <p className="crm-card-note">—</p>}
+                )
+              })}{!ids?.length && <p className="crm-card-note">—</p>}
             </div>
             <div className="crm-panel">
               <h4>Контент</h4>
               <dl className="crm-preview-list">
-                {row('Генерации', sm.generations_count)}{row('Промпты', data?.recent_generations?.length ?? 0)}{row('Галерея', data?.recent_gallery?.length ?? sm.gallery_count ?? 0)}{row('Последний контент', shortTime(data?.recent_generations?.[0]?.created_at))}
+                {row('Генерации', sm.generations_count)}{row('Промпты', data?.recent_generations?.length ?? 0)}{row('Галерея', quotaLabel(sm))}{row('Последний контент', shortTime(data?.recent_generations?.[0]?.created_at))}
               </dl>
               <div className="crm-rows">
                 {(data?.recent_generations || []).slice(0, 5).map((g, n) => <small key={n}><strong>{S(g.status)}</strong> · {S(g.mode)} · {S(g.provider || g.model)} · {S(g.token_cost)} ток. · {S(g.prompt)}</small>)}
@@ -624,7 +635,7 @@ export function AdminAnalyticsV2(): ReactElement {
                 <span><small><i className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}</small><small>{shortTime(u.last_seen_at)}</small><small>{u.active_sessions_count ?? 0} сесс. · {u.last_platform || '—'} · {u.last_ip || '—'}</small></span>
                 <span>{sourceList.map((p) => <Badge key={p} p={p} />)}<small>{u.marketing_source || '—'}</small></span>
                 <span><small>{u.email || '—'}</small><small>{u.username ? `@${u.username}` : ''}{u.phone ? ` · ${u.phone}` : ''}</small></span>
-                <span><span className="crm-chip-row"><em className="crm-chip">{u.role || 'user'}</em><em className={banned ? 'crm-chip status-banned' : 'crm-chip status-active'}>{u.status || 'active'}</em></span><small>{u.plan || 'mini'} · галерея {u.gallery_access ? 'да' : 'нет'}</small></span>
+                <span><span className="crm-chip-row"><em className="crm-chip">{u.role || 'user'}</em><em className={banned ? 'crm-chip status-banned' : 'crm-chip status-active'}>{u.status || 'active'}</em></span><small>{u.plan || 'mini'} · галерея {quotaLabel(u as CrmUserRow & AnyRec)}</small></span>
                 <span><small>Баланс {n0(u.token_balance)}</small><small>Списано {n0(u.tokens_spent)}</small></span>
                 <span><strong>{n0(u.generations_count)}</strong><small>Галерея: отложено</small></span>
                 <span><small>{deviceLabel(u)}</small><small>{u.device_count ?? 0} устр.</small></span>

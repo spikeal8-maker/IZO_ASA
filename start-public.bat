@@ -22,6 +22,17 @@ set "DB_GUARD_ALLOWED_PATHS=%LIVE_DB%"
 set "DB_GUARD_MIN_SIZE_MB=10"
 set "DB_GUARD_MIN_USERS=5"
 set "DB_GUARD_MIN_ACTIVE_ADMINS=1"
+set "LOG_DIR=%ROOT%logs"
+REM platform-api.max.ru passes Python/certifi TLS verification; platform-api2 does not.
+if "%MAX_API_BASE_URL%"=="" set "MAX_API_BASE_URL=https://platform-api.max.ru"
+REM Telegram keeps its own mode via BOT_UPDATES_MODE (polling). Do NOT change Telegram.
+if "%BOT_UPDATES_MODE%"=="" set "BOT_UPDATES_MODE=polling"
+REM MAX is pinned to webhook in production (independent of BOT_UPDATES_MODE).
+if "%MAX_UPDATES_MODE%"=="" set "MAX_UPDATES_MODE=webhook"
+
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
+for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "LAUNCH_TS=%%I"
+set "BACKEND_LOG=%LOG_DIR%\live_backend_%LAUNCH_TS%.log"
 
 title IZO_ASA PUBLIC launcher
 echo.
@@ -63,7 +74,8 @@ echo [2/5] Freeing ports 8000 and 5173 (stop old backend/dev/preview)...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 8000,5173 -ErrorAction SilentlyContinue | Where-Object {$_.State -eq 'Listen'} | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }" >nul 2>nul
 
 echo [3/5] Starting backend on 127.0.0.1:8000...
-start "IZO_ASA backend :8000" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "$env:APP_ENV='%APP_ENV%'; $env:APP_BUILD='%APP_BUILD%'; $env:FRONTEND_BUILD_LABEL='%FRONTEND_BUILD_LABEL%'; $env:DATABASE_URL='%DATABASE_URL%'; $env:DB_GUARD_ALLOWED_PATHS='%DB_GUARD_ALLOWED_PATHS%'; $env:DB_GUARD_MIN_SIZE_MB='%DB_GUARD_MIN_SIZE_MB%'; $env:DB_GUARD_MIN_USERS='%DB_GUARD_MIN_USERS%'; $env:DB_GUARD_MIN_ACTIVE_ADMINS='%DB_GUARD_MIN_ACTIVE_ADMINS%'; Set-Location -LiteralPath '%BACKEND%'; python -m uvicorn main:app --host 127.0.0.1 --port 8000"
+echo Backend log: %BACKEND_LOG%
+start "IZO_ASA backend :8000" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "$env:APP_ENV='%APP_ENV%'; $env:APP_BUILD='%APP_BUILD%'; $env:FRONTEND_BUILD_LABEL='%FRONTEND_BUILD_LABEL%'; $env:DATABASE_URL='%DATABASE_URL%'; $env:DB_GUARD_ALLOWED_PATHS='%DB_GUARD_ALLOWED_PATHS%'; $env:DB_GUARD_MIN_SIZE_MB='%DB_GUARD_MIN_SIZE_MB%'; $env:DB_GUARD_MIN_USERS='%DB_GUARD_MIN_USERS%'; $env:DB_GUARD_MIN_ACTIVE_ADMINS='%DB_GUARD_MIN_ACTIVE_ADMINS%'; $env:MAX_UPDATES_MODE='%MAX_UPDATES_MODE%'; Set-Location -LiteralPath '%BACKEND%'; python -m uvicorn main:app --host 127.0.0.1 --port 8000 *>> '%BACKEND_LOG%'"
 
 echo [4/5] Starting frontend PREVIEW (dist) on 127.0.0.1:5173...
 start "IZO_ASA public frontend :5173" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%FRONTEND%'; npx vite preview --host 127.0.0.1 --port 5173"
@@ -76,6 +88,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$fe=(Get-NetTCPConnection -LocalPort 5173 -State Listen -EA SilentlyContinue).OwningProcess | Select-Object -Unique;" ^
   "Write-Host ('backend PID  : ' + $be);" ^
   "Write-Host ('frontend PID : ' + $fe);" ^
+  "Write-Host ('MAX_BOT_TOKEN set          : ' + [bool]$env:MAX_BOT_TOKEN);" ^
+  "Write-Host ('MAX_BOT_DEEP_LINK_BASE set : ' + [bool]$env:MAX_BOT_DEEP_LINK_BASE);" ^
+  "Write-Host ('MAX_API_BASE_URL           : ' + $env:MAX_API_BASE_URL);" ^
+  "Write-Host ('BOT_UPDATES_MODE           : ' + $env:BOT_UPDATES_MODE);" ^
+  "Write-Host ('MAX_UPDATES_MODE           : ' + $env:MAX_UPDATES_MODE);" ^
+  "if (!$be) { Write-Host 'BACKEND DOWN: port 8000 is not listening'; exit 20 }" ^
+  "try { $h=Invoke-WebRequest 'http://127.0.0.1:8000/api/health' -UseBasicParsing -TimeoutSec 8; Write-Host ('backend /api/health : ' + $h.StatusCode) } catch { Write-Host 'BACKEND DOWN: /api/health failed'; exit 21 }" ^
+  "try { $c=Invoke-WebRequest 'http://127.0.0.1:8000/api/auth/capabilities-v2' -UseBasicParsing -TimeoutSec 8; Write-Host ('backend /api/auth/capabilities-v2 : ' + $c.StatusCode) } catch { Write-Host 'BACKEND DOWN: /api/auth/capabilities-v2 failed'; exit 22 }" ^
   "try { $html=(Invoke-WebRequest 'http://127.0.0.1:5173/' -UseBasicParsing -TimeoutSec 8).Content;" ^
   "  Write-Host ('vite-dev-client present : ' + ($html -match '/@vite/client'));" ^
   "  Write-Host ('raw /src/main present   : ' + ($html -match '/src/main.tsx'));" ^
@@ -85,6 +105,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "Write-Host ('generate no-session : ' + (St 'POST' 'http://127.0.0.1:5173/api/generate' '{""mode"":""text_to_image""}'));" ^
   "Write-Host ('gallery no-session  : ' + (St 'GET'  'http://127.0.0.1:5173/api/gallery' $null));" ^
   "Write-Host ('me-v2 no-session    : ' + (St 'GET'  'http://127.0.0.1:5173/api/me-v2'  $null))"
+if errorlevel 1 (
+  echo.
+  echo BACKEND DOWN
+  echo Backend log: %BACKEND_LOG%
+  echo Public launch is NOT healthy.
+  pause
+  exit /b 1
+)
 
 echo.
 echo ==========================================

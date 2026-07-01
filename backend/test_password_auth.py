@@ -18,9 +18,14 @@ PW = "S3cret-Password!"
 def temp_db(tmp_path: Path, monkeypatch):
     db_file = tmp_path / "password_auth_test.sqlite3"
     monkeypatch.setattr(main, "DB_PATH", db_file)
+    monkeypatch.setattr(main, "APP_ENV", "development")
+    monkeypatch.setattr(main, "EMAIL_PROVIDER", "")
+    monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", False)
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
+    main._mock_email_outbox.clear()
     main.init_db()
-    return db_file
+    yield db_file
+    main._mock_email_outbox.clear()
 
 
 def count(table, where="", params=()):
@@ -41,6 +46,14 @@ def register(client, email, password=PW, repeat=None):
 
 def login(client, email, password=PW):
     return client.post("/api/auth/password/login-v2", json={"email": email, "password": password, "platform": "web_desktop"})
+
+
+def request_code(client, email):
+    return client.post("/api/auth/email/request-code-v2", json={"email": email, "platform": "web_desktop"})
+
+
+def verify_code(client, challenge_id, code):
+    return client.post("/api/auth/email/verify-code-v2", json={"challenge_id": challenge_id, "code": code, "platform": "web_desktop"})
 
 
 # 1, 2, 3, 4
@@ -163,3 +176,102 @@ def test_users_id_unchanged(temp_db):
     # legacy id still present and unchanged; new user added with web_ id (not a UUID replacement of existing)
     assert "telegram_legacy" in after
     assert all(i in after for i in before)
+
+
+def test_register_with_email_provider_login_before_verify_is_blocked(temp_db, monkeypatch):
+    monkeypatch.setattr(main, "EMAIL_PROVIDER", "smtp")
+    monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", True)
+    with TestClient(main.app) as c:
+        r = register(c, "pending@example.com")
+        assert r.status_code == 200
+        assert r.json()["requires_email_verification"] is True
+        assert "onenode_session=" not in set_cookies(r)
+        blocked = login(c, "pending@example.com")
+        assert blocked.status_code == 403
+        assert blocked.json() == {
+            "detail": "email_verification_required",
+            "requires_email_verification": True,
+            "email": "pending@example.com",
+        }
+        assert "onenode_session=" not in set_cookies(blocked)
+        me = c.get("/api/me-v2")
+    assert me.status_code == 401
+
+
+def test_register_verify_code_then_me_v2_is_authenticated(temp_db, monkeypatch):
+    monkeypatch.setattr(main, "EMAIL_PROVIDER", "smtp")
+    monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", True)
+    with TestClient(main.app) as c:
+        r = register(c, "verify@example.com")
+        assert r.status_code == 200
+        challenge = request_code(c, "verify@example.com")
+        assert challenge.status_code == 200
+        verified = verify_code(c, challenge.json()["challenge_id"], challenge.json()["debug_code"])
+        assert verified.status_code == 200
+        me = c.get("/api/me-v2")
+    assert me.status_code == 200
+    assert me.json()["profile"]["email"] == "verify@example.com"
+
+
+def test_register_verify_code_then_password_login_works(temp_db, monkeypatch):
+    monkeypatch.setattr(main, "EMAIL_PROVIDER", "smtp")
+    monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", True)
+    with TestClient(main.app) as c:
+        register(c, "verified-login@example.com")
+        challenge = request_code(c, "verified-login@example.com")
+        verify_code(c, challenge.json()["challenge_id"], challenge.json()["debug_code"])
+    with TestClient(main.app) as c2:
+        logged_in = login(c2, "verified-login@example.com")
+        me = c2.get("/api/me-v2")
+    assert logged_in.status_code == 200
+    assert "onenode_session=" in set_cookies(logged_in)
+    assert me.status_code == 200
+
+
+def test_password_login_existing_verified_user_works_with_provider(temp_db, monkeypatch):
+    with TestClient(main.app) as c:
+        r = register(c, "old-verified@example.com")
+    iuid = r.json()["internal_user_id"]
+    with main.db() as conn:
+        conn.execute("UPDATE users SET email_verified_at='2026-01-01T00:00:00+00:00' WHERE internal_user_id=?", (iuid,))
+    monkeypatch.setattr(main, "EMAIL_PROVIDER", "smtp")
+    with TestClient(main.app) as c2:
+        logged_in = login(c2, "old-verified@example.com")
+    assert logged_in.status_code == 200
+    assert "onenode_session=" in set_cookies(logged_in)
+
+
+def test_no_provider_dev_password_register_login_still_works(temp_db):
+    with TestClient(main.app) as c:
+        r = register(c, "dev-no-provider@example.com")
+        me_after_register = c.get("/api/me-v2")
+    assert r.status_code == 200
+    assert r.json()["requires_email_verification"] is False
+    assert me_after_register.status_code == 200
+    with TestClient(main.app) as c2:
+        logged_in = login(c2, "dev-no-provider@example.com")
+    assert logged_in.status_code == 200
+
+
+def test_production_without_email_provider_password_register_creates_session(temp_db, monkeypatch):
+    monkeypatch.setattr(main, "APP_ENV", "production")
+    monkeypatch.setattr(main, "EMAIL_PROVIDER", "")
+    monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", False)
+    c = TestClient(main.app)
+    r = register(c, "prod-no-provider@example.com")
+    me = c.get("/api/me-v2")
+    assert r.status_code == 200
+    assert r.json()["requires_email_verification"] is False
+    assert "onenode_session=" in set_cookies(r)
+    assert me.status_code == 200
+
+
+def test_capabilities_keep_password_registration_available_without_email_provider(temp_db, monkeypatch):
+    monkeypatch.setattr(main, "APP_ENV", "production")
+    monkeypatch.setattr(main, "EMAIL_PROVIDER", "")
+    monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", False)
+    c = TestClient(main.app)
+    r = c.get("/api/auth/capabilities-v2")
+    assert r.status_code == 200
+    assert r.json()["password_register_available"] is True
+    assert r.json()["email_otp_available"] is False

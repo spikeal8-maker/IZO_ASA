@@ -55,6 +55,17 @@ def bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
+def set_cookie_headers(resp):
+    return resp.headers.get_list("set-cookie") if hasattr(resp.headers, "get_list") else resp.headers.get("set-cookie", "").split(", ")
+
+
+def find_cookie(resp, name):
+    for sc in set_cookie_headers(resp):
+        if sc.startswith(name + "="):
+            return sc
+    return None
+
+
 def count(table, where="", params=()):
     with main.db() as conn:
         return conn.execute(f"SELECT COUNT(*) AS c FROM {table} {where}", params).fetchone()["c"]
@@ -74,6 +85,29 @@ def test_admin_v2_without_session_401(temp_db):
         for path in ADMIN_GET:
             assert client.get(path).status_code == 401
         assert client.post("/api/admin/users/iuid-x/block-v2", json={"reason": "x"}).status_code == 401
+
+
+def test_web_login_requires_explicit_admin_code(temp_db, monkeypatch):
+    monkeypatch.delenv("ADMIN_ONE_TIME_CODE", raising=False)
+    with TestClient(main.app) as client:
+        r = client.post("/api/auth/web-login", json={"code": "admin-demo"})
+    assert r.status_code == 503
+    assert find_cookie(r, "onenode_session") is None
+    assert find_cookie(r, "onenode_refresh") is None
+
+
+def test_web_login_issues_trusted_admin_session(temp_db, monkeypatch):
+    monkeypatch.setenv("ADMIN_ONE_TIME_CODE", "one-time-admin-code")
+    monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
+    with TestClient(main.app) as client:
+        r = client.post("/api/auth/web-login", json={"code": "one-time-admin-code"})
+        assert r.status_code == 200
+        assert find_cookie(r, "onenode_session")
+        assert find_cookie(r, "onenode_refresh")
+        assert "httponly" in find_cookie(r, "onenode_session").lower()
+        assert not client.cookies.get("onenode_user")
+        admin = client.get("/api/admin/users-v2")
+    assert admin.status_code == 200
 
 
 # 2
