@@ -464,8 +464,8 @@ class UseAsRequest(BaseModel):
 
 
 class AdminLimitRequest(BaseModel):
-    hourly: int = Field(default=10, ge=1, le=1000)
-    daily: int = Field(default=50, ge=1, le=5000)
+    hourly: int = Field(default=0, ge=0, le=1000)
+    daily: int = Field(default=0, ge=0, le=5000)
 
 
 class AdminUserRequest(BaseModel):
@@ -515,8 +515,15 @@ class AdminSettingsRequest(BaseModel):
     settings: dict[str, Any]
 
 
-rate_limits = {"hourly": 10, "daily": 50}
+rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
+PLAN_ORDER = ("free", "mini", "plus", "pro")
+DEFAULT_TARIFFS: dict[str, dict[str, int]] = {
+    "free": {"daily_tokens": 10, "gallery_slots": 1},
+    "mini": {"daily_tokens": 50, "gallery_slots": 10},
+    "plus": {"daily_tokens": 100, "gallery_slots": 50},
+    "pro": {"daily_tokens": 200, "gallery_slots": 100},
+}
 
 
 @dataclass
@@ -1169,6 +1176,8 @@ def init_db() -> None:
             "public_user_code": "TEXT",
             "avatar_url": "TEXT",
             "avatar_preset": "TEXT",
+            "daily_tokens_used": "INTEGER NOT NULL DEFAULT 0",
+            "last_daily_reset": "TEXT",
         }.items():
             if column not in existing_user_columns:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
@@ -2257,6 +2266,71 @@ def _user_is_banned(conn: sqlite3.Connection, internal_user_id: str | None, lega
         return False
 
 
+def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[str, dict[str, int]]:
+    if strict and (not isinstance(raw, dict) or not raw):
+        raise HTTPException(400, "Tariff config must not be empty.")
+    data = raw if isinstance(raw, dict) else {}
+    if strict:
+        unknown = sorted(str(key) for key in data if str(key).lower() not in PLAN_ORDER)
+        if unknown:
+            raise HTTPException(400, f"Unknown tariff plan: {', '.join(unknown)}")
+    result: dict[str, dict[str, int]] = {}
+    for plan in PLAN_ORDER:
+        source = data.get(plan) if isinstance(data.get(plan), dict) else {}
+        daily = source.get("daily_tokens", source.get("dailyTokens", DEFAULT_TARIFFS[plan]["daily_tokens"]))
+        slots = source.get("gallery_slots", source.get("gallerySlots", DEFAULT_TARIFFS[plan]["gallery_slots"]))
+        try:
+            daily_int = int(daily)
+            slots_int = int(slots)
+        except (TypeError, ValueError):
+            if strict:
+                raise HTTPException(400, f"Invalid tariff values for {plan}.")
+            daily_int = DEFAULT_TARIFFS[plan]["daily_tokens"]
+            slots_int = DEFAULT_TARIFFS[plan]["gallery_slots"]
+        if strict and (daily_int < 0 or slots_int < 0):
+            raise HTTPException(400, f"Tariff values for {plan} must be non-negative.")
+        result[plan] = {
+            "daily_tokens": max(0, min(daily_int, 100_000)),
+            "gallery_slots": max(0, min(slots_int, 100_000)),
+        }
+    return result
+
+
+def get_tariff_config(conn: sqlite3.Connection | None = None) -> dict[str, dict[str, int]]:
+    try:
+        if conn is not None:
+            row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()
+            return normalize_tariffs(json.loads(row["value_json"] or "{}") if row else None)
+        with db() as local_conn:
+            row = local_conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()
+            return normalize_tariffs(json.loads(row["value_json"] or "{}") if row else None)
+    except Exception:
+        return normalize_tariffs()
+
+
+def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | None, legacy_user_id: str | None = None) -> dict[str, Any]:
+    plan = str(_row_get(user_row, "plan") or "mini").lower()
+    if plan not in PLAN_ORDER:
+        plan = "mini"
+    tariff = get_tariff_config(conn)[plan]
+    user_id = legacy_user_id or _row_get(user_row, "id")
+    used = 0
+    if user_id:
+        used = int(conn.execute(
+            "SELECT COUNT(*) AS c FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')",
+            (user_id,),
+        ).fetchone()["c"])
+    total = int(tariff["gallery_slots"])
+    return {
+        "plan": plan,
+        "daily_tokens": int(tariff["daily_tokens"]),
+        "gallery_slots": total,
+        "gallery_used": used,
+        "gallery_free": max(0, total - used),
+        "gallery_full": used >= total,
+    }
+
+
 def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None, legacy_user_id: str | None) -> bool:
     row = None
     if internal_user_id:
@@ -2265,12 +2339,7 @@ def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None,
         row = conn.execute("SELECT role, plan, gallery_enabled FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
     if row is None:
         return False
-    if _row_get(row, "role") == "admin":
-        return True
-    plan = str(_row_get(row, "plan") or "mini")
-    # Product rule: paid plans include the gallery. gallery_enabled is kept as
-    # compatibility data, but stale false values must not hide mini/plus/pro.
-    return plan in {"mini", "plus", "pro"}
+    return True
 
 
 def create_auth_session(
@@ -2850,10 +2919,10 @@ def load_db_state() -> None:
             }
 
 
-def persist_job(job: dict[str, Any], request: GenerateRequest | None = None) -> None:
+def persist_job(job: dict[str, Any], request: GenerateRequest | None = None, conn: sqlite3.Connection | None = None) -> None:
     settings = request.model_dump() if request else job.get("request", {})
-    with db() as conn:
-        conn.execute(
+    def write(target_conn: sqlite3.Connection) -> None:
+        target_conn.execute(
             """
             INSERT INTO jobs (id, user_id, mode, provider, status, progress, prompt_original, prompt_translated,
                               result_image_id, error_message, settings_json, created_at, started_at, completed_at)
@@ -2883,6 +2952,11 @@ def persist_job(job: dict[str, Any], request: GenerateRequest | None = None) -> 
                 job.get("completedAt"),
             ),
         )
+    if conn is not None:
+        write(conn)
+        return
+    with db() as own_conn:
+        write(own_conn)
 
 
 def persist_image(record: dict[str, Any], job_id: str) -> None:
@@ -3047,6 +3121,163 @@ def mini_app_url(platform: str = "web") -> str:
     base = os.getenv("APP_PUBLIC_URL", "http://127.0.0.1:5173")
     return f"{base}?platform={platform}"
 
+
+def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost: int, job_id: str, req: GenerateRequest) -> dict[str, Any]:
+    """Reserve tokens for a generation after request validation has passed.
+
+    Daily tariff tokens are a daily included budget, not a balance top-up. The
+    ledger records both paths: `daily_generation` for included daily budget
+    consumption, and `generation` for paid balance spend.
+    """
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    today = now.strftime("%Y-%m-%d")
+    user_row = conn.execute(
+        "SELECT id, token_balance, plan, daily_tokens_used, last_daily_reset FROM users WHERE id = ?",
+        (user_id,),
+    ).fetchone()
+    if user_row is None:
+        raise HTTPException(404, "User not found.")
+
+    old_balance = int(user_row["token_balance"] or 0)
+    daily_limit = 0
+    daily_used_before = 0
+    daily_used_after = 0
+    used_daily = False
+    balance_delta = 0
+    ledger_reason = "generation"
+
+    if user_id != "demo_user":
+        daily_used_before = int(user_row["daily_tokens_used"] or 0)
+        if user_row["last_daily_reset"] != today:
+            daily_used_before = 0
+        tariff = get_tariff_config(conn)[str(user_row["plan"] or "mini").lower()]
+        daily_limit = int(tariff["daily_tokens"])
+        if daily_used_before + token_cost <= daily_limit:
+            used_daily = True
+            daily_used_after = daily_used_before + token_cost
+            ledger_reason = "daily_generation"
+        else:
+            daily_used_after = daily_used_before
+            if old_balance < token_cost:
+                raise HTTPException(402, "Not enough tokens.")
+            balance_delta = token_cost
+    else:
+        if old_balance < token_cost:
+            raise HTTPException(402, "Not enough tokens.")
+
+    new_balance = old_balance - balance_delta if user_id != "demo_user" else old_balance
+    conn.execute(
+        """
+        UPDATE users
+        SET token_balance = ?,
+            daily_tokens_used = ?,
+            last_daily_reset = ?,
+            tokens_used = tokens_used + ?,
+            generation_count = generation_count + 1,
+            last_seen_at = ?
+        WHERE id = ?
+        """,
+        (new_balance, daily_used_after, today, token_cost, now_iso, user_id),
+    )
+    conn.execute(
+        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            str(uuid.uuid4()),
+            user_id,
+            -balance_delta,
+            ledger_reason,
+            json.dumps(
+                {
+                    "jobId": job_id,
+                    "mode": req.mode,
+                    "provider": req.provider,
+                    "token_cost": token_cost,
+                    "used_daily_budget": used_daily,
+                    "daily_tokens_used_before": daily_used_before,
+                    "daily_tokens_used_after": daily_used_after,
+                    "daily_tokens_limit": daily_limit,
+                    "balance_delta": -balance_delta,
+                },
+                ensure_ascii=False,
+            ),
+            now_iso,
+        ),
+    )
+    return {
+        "used_daily": used_daily,
+        "old_balance": old_balance,
+        "new_balance": new_balance,
+        "balance_delta": -balance_delta,
+        "daily_tokens_used": daily_used_after,
+        "daily_tokens_limit": daily_limit,
+        "daily_tokens_remaining": max(0, daily_limit - daily_used_after),
+    }
+
+
+def refund_generation_tokens(conn: sqlite3.Connection, job_id: str, *, reason: str) -> bool:
+    """Idempotently reverse a generation charge for failed/cancelled jobs."""
+    existing_refund = conn.execute(
+        "SELECT 1 FROM token_ledger WHERE reason IN ('generation_refund', 'daily_generation_refund') AND meta_json LIKE ?",
+        (f'%"jobId": "{job_id}"%',),
+    ).fetchone()
+    if existing_refund is not None:
+        return False
+    charge = conn.execute(
+        """
+        SELECT * FROM token_ledger
+        WHERE reason IN ('generation', 'daily_generation') AND meta_json LIKE ?
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (f'%"jobId": "{job_id}"%',),
+    ).fetchone()
+    if charge is None:
+        return False
+    meta = safe_json_load(charge["meta_json"]) or {}
+    user_id = charge["user_id"]
+    token_cost = int(meta.get("token_cost") or abs(int(charge["delta"] or 0)) or 0)
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    today = now.strftime("%Y-%m-%d")
+    if charge["reason"] == "daily_generation":
+        user_row = conn.execute("SELECT daily_tokens_used, last_daily_reset FROM users WHERE id = ?", (user_id,)).fetchone()
+        if user_row is not None and user_row["last_daily_reset"] == today and token_cost > 0:
+            new_daily = max(0, int(user_row["daily_tokens_used"] or 0) - token_cost)
+            conn.execute("UPDATE users SET daily_tokens_used = ? WHERE id = ?", (new_daily, user_id))
+        refund_delta = 0
+        refund_reason = "daily_generation_refund"
+    else:
+        refund_delta = abs(int(charge["delta"] or 0))
+        refund_reason = "generation_refund"
+        if refund_delta > 0:
+            conn.execute("UPDATE users SET token_balance = token_balance + ? WHERE id = ?", (refund_delta, user_id))
+    if token_cost > 0:
+        conn.execute(
+            """
+            UPDATE users
+            SET tokens_used = MAX(0, tokens_used - ?),
+                generation_count = MAX(0, generation_count - 1)
+            WHERE id = ?
+            """,
+            (token_cost, user_id),
+        )
+    conn.execute(
+        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            str(uuid.uuid4()),
+            user_id,
+            refund_delta,
+            refund_reason,
+            json.dumps({"jobId": job_id, "reason": reason, "refunded_ledger_id": charge["id"], "token_cost": token_cost}, ensure_ascii=False),
+            now_iso,
+        ),
+    )
+    return True
+
+
+def mini_app_url(platform: str = "web") -> str:
+    base = os.getenv("APP_PUBLIC_URL", "http://127.0.0.1:5173")
+    return f"{base}?platform={platform}"
 
 def bot_command_response(platform: Literal["telegram", "max"], command: str) -> dict[str, Any]:
     app_url = mini_app_url(platform)
@@ -3216,6 +3447,20 @@ async def bot_polling_worker() -> None:
 
 def public_url(path: Path, user_id: str = "demo_user") -> str:
     return f"/api/media/{path.name}?userId={user_id}"
+
+
+def delete_image_files_from_disk(url: str | None = None, thumbnail_url: str | None = None) -> None:
+    """Remove generated media files from disk. Best-effort and never raises."""
+    for u in (url, thumbnail_url):
+        if not u:
+            continue
+        try:
+            fname = u.split("/api/media/")[-1].split("?")[0]
+            fpath = MEDIA / fname
+            if fpath.exists():
+                fpath.unlink()
+        except Exception:
+            pass
 
 
 def create_thumbnail(image_path: Path) -> Path:
@@ -3732,6 +3977,8 @@ async def worker() -> None:
         started = time.perf_counter()
         try:
             if job.get("status") == "cancelled":
+                with db() as conn:
+                    refund_generation_tokens(conn, job_id, reason="cancelled_before_start")
                 persist_job(job, req)
                 continue
             job.update(status="uploading", progress=12, message="Загружаем изображения")
@@ -3763,17 +4010,23 @@ async def worker() -> None:
                     persist_job(job, req)
                     await asyncio.sleep(0.45)
             if job["status"] == "cancelled":
+                with db() as conn:
+                    refund_generation_tokens(conn, job_id, reason="cancelled_during_generation")
                 persist_job(job, req)
                 continue
             if not image_path or not thumb_path:
                 image_path, thumb_path = mock_image(req, job_id)
+            user_id = job.get("userId", "demo_user")
+            with db() as conn:
+                user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                gallery_quota = gallery_quota_for_user(conn, user_row, user_id)
             image_id = f"img_{uuid.uuid4().hex[:12]}"
             created_at = datetime.now(timezone.utc).isoformat()
             record = {
                 "id": image_id,
-                "userId": job.get("userId", "demo_user"),
-                "url": public_url(image_path, job.get("userId", "demo_user")),
-                "thumbnailUrl": public_url(thumb_path, job.get("userId", "demo_user")),
+                "userId": user_id,
+                "url": public_url(image_path, user_id),
+                "thumbnailUrl": public_url(thumb_path, user_id),
                 "mode": req.mode,
                 "provider": req.provider,
                 "promptOriginal": req.prompt,
@@ -3790,11 +4043,52 @@ async def worker() -> None:
                 "comfyuiPromptId": prompt_id,
                 "comfyuiHistory": comfyui_history,
             }
-            images[image_id] = record
-            job.update(status="completed", progress=100, message="Готово", resultImageId=image_id, resultUrl=record["url"], completedAt=created_at)
-            persist_image(record, job_id)
+            if gallery_quota["gallery_full"]:
+                with db() as conn:
+                    oldest = conn.execute(
+                        "SELECT id, url, thumbnail_url FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY created_at ASC LIMIT 1",
+                        (user_id,),
+                    ).fetchone()
+                    if oldest:
+                        conn.execute("UPDATE images SET deleted_at = ? WHERE id = ?", (created_at, oldest["id"]))
+                        delete_image_files_from_disk(url=oldest["url"], thumbnail_url=oldest["thumbnail_url"])
+                        if oldest["id"] in images:
+                            images.pop(oldest["id"])
+                images[image_id] = record
+                persist_image(record, job_id)
+                with db() as conn:
+                    saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                    gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
+                job.update(
+                    status="completed",
+                    progress=100,
+                    message="Готово",
+                    resultImageId=image_id,
+                    resultUrl=record["url"],
+                    gallerySaveStatus="saved",
+                    galleryQuota=gallery_quota,
+                    completedAt=created_at,
+                )
+            else:
+                images[image_id] = record
+                persist_image(record, job_id)
+                with db() as conn:
+                    saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                    gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
+                job.update(
+                    status="completed",
+                    progress=100,
+                    message="Готово",
+                    resultImageId=image_id,
+                    resultUrl=record["url"],
+                    gallerySaveStatus="saved",
+                    galleryQuota=gallery_quota,
+                    completedAt=created_at,
+                )
             persist_job(job, req)
         except Exception as exc:
+            with db() as conn:
+                refund_generation_tokens(conn, job_id, reason="generation_failed")
             job.update(status="failed", progress=100, message="Генерация не выполнена.", error=str(exc), completedAt=datetime.now(timezone.utc).isoformat())
             persist_job(job, req)
         finally:
@@ -3880,6 +4174,10 @@ async def version() -> dict[str, Any]:
 
 
 def ensure_rate_limit(user_id: str) -> None:
+    hourly_limit = int(rate_limits.get("hourly") or 0)
+    daily_limit = int(rate_limits.get("daily") or 0)
+    if hourly_limit <= 0 and daily_limit <= 0:
+        return
     now = datetime.now(timezone.utc)
     with db() as conn:
         rows = conn.execute("SELECT created_at FROM jobs WHERE user_id = ?", (user_id,)).fetchall()
@@ -3895,10 +4193,10 @@ def ensure_rate_limit(user_id: str) -> None:
             hour_count += 1
         if delta.total_seconds() <= 86400:
             day_count += 1
-    if hour_count >= rate_limits["hourly"]:
-        raise HTTPException(429, f"Rate limit exceeded: {rate_limits['hourly']} generations per hour.")
-    if day_count >= rate_limits["daily"]:
-        raise HTTPException(429, f"Rate limit exceeded: {rate_limits['daily']} generations per day.")
+    if hourly_limit > 0 and hour_count >= hourly_limit:
+        raise HTTPException(429, f"Rate limit exceeded: {hourly_limit} generations per hour.")
+    if daily_limit > 0 and day_count >= daily_limit:
+        raise HTTPException(429, f"Rate limit exceeded: {daily_limit} generations per day.")
 
 
 @app.post("/api/generate")
@@ -3909,9 +4207,8 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     session_id = trusted.get("session_id")
     token_cost = estimate_token_cost(req)
     with db() as conn:
-        user_row = conn.execute("SELECT token_balance FROM users WHERE id = ?", (user_id,)).fetchone()
-        if user_row and user_id != "demo_user" and int(user_row["token_balance"]) < token_cost:
-            raise HTTPException(402, "Not enough tokens.")
+        if conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is None:
+            raise HTTPException(404, "User not found.")
     if req.mode == "faceswap":
         face_lora = next((item for item in req.loras if item.id and item.id != "none"), None)
         if face_lora is None:
@@ -3931,24 +4228,10 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         "request": req.model_dump(),
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
-    jobs[job_id] = job
-    persist_job(job, req)
     with db() as conn:
-        conn.execute(
-            """
-            UPDATE users
-            SET token_balance = CASE WHEN id = 'demo_user' THEN token_balance ELSE MAX(0, token_balance - ?) END,
-                tokens_used = tokens_used + ?,
-                generation_count = generation_count + 1,
-                last_seen_at = ?
-            WHERE id = ?
-            """,
-            (token_cost, token_cost, datetime.now(timezone.utc).isoformat(), user_id),
-        )
-        conn.execute(
-            "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'generation', ?, ?)",
-            (str(uuid.uuid4()), user_id, -token_cost, json.dumps({"jobId": job_id, "mode": req.mode, "provider": req.provider}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
-        )
+        token_charge = charge_generation_tokens(conn, user_id, token_cost, job_id, req)
+        persist_job(job, req, conn=conn)
+    jobs[job_id] = job
     await queue.put(job_id)
     try:
         record_event_log(
@@ -3961,7 +4244,15 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         )
     except Exception:
         pass
-    return {k: v for k, v in job.items() if k != "request"} | {"queuePosition": queue.qsize(), "tokenCost": token_cost}
+    return {k: v for k, v in job.items() if k != "request"} | {
+        "queuePosition": queue.qsize(),
+        "tokenCost": token_cost,
+        "usedDailyBudget": token_charge["used_daily"],
+        "tokenBalance": token_charge["new_balance"],
+        "dailyTokensUsed": token_charge["daily_tokens_used"],
+        "dailyTokensLimit": token_charge["daily_tokens_limit"],
+        "dailyTokensRemaining": token_charge["daily_tokens_remaining"],
+    }
 
 
 @app.get("/api/jobs/{job_id}")
@@ -3983,6 +4274,10 @@ async def cancel_job(job_id: str, request: Request) -> dict[str, Any]:
     user_id = trusted["legacy_user_id"]
     if jobs[job_id].get("userId") != user_id:
         raise HTTPException(404, "Job not found")
+    if jobs[job_id].get("status") in {"completed", "failed", "cancelled"}:
+        return {k: v for k, v in jobs[job_id].items() if k != "request"}
+    with db() as conn:
+        refund_generation_tokens(conn, job_id, reason="user_cancelled")
     jobs[job_id].update(status="cancelled", progress=100, message="Отменено")
     persist_job(jobs[job_id])
     try:
@@ -4060,6 +4355,11 @@ async def gallery_detail(image_id: str, request: Request) -> dict[str, Any]:
     return images[image_id]
 
 
+@app.get("/api/tariffs")
+async def public_tariffs() -> dict[str, Any]:
+    return {"tariffs": get_tariff_config()}
+
+
 @app.post("/api/gallery/{image_id}/favorite")
 async def gallery_favorite(image_id: str, req: FavoriteRequest, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
@@ -4092,6 +4392,7 @@ async def gallery_delete(image_id: str, request: Request) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ? AND user_id = ?", (now, image_id, user_id))
+    delete_image_files_from_disk(url=record.get("url"), thumbnail_url=record.get("thumbnailUrl"))
     return {"ok": True, "deleted": image_id, "url": record["url"]}
 
 
@@ -4868,6 +5169,13 @@ async def me_v2(request: Request) -> dict[str, Any]:
             (iuid,),
         ).fetchall()
         gallery_access = bool(user_gallery_allowed(conn, iuid, legacy))
+        gallery_quota = gallery_quota_for_user(conn, urow, legacy)
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        daily_tokens_used = int(_row_get(urow, "daily_tokens_used") or 0)
+        if _row_get(urow, "last_daily_reset") != today:
+            daily_tokens_used = 0
+        daily_tokens_limit = int(gallery_quota["daily_tokens"])
+        daily_tokens_remaining = max(0, daily_tokens_limit - daily_tokens_used)
 
     primary_identity = identities[0] if identities else None
     profile = {
@@ -4905,6 +5213,14 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "token_balance": int(_row_get(urow, "token_balance") or 0),
             "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
             "gallery_access": gallery_access,
+            "gallery_slots": int(gallery_quota["gallery_slots"]),
+            "gallery_used": int(gallery_quota["gallery_used"]),
+            "gallery_free": int(gallery_quota["gallery_free"]),
+            "gallery_full": bool(gallery_quota["gallery_full"]),
+            "daily_tokens_used": daily_tokens_used,
+            "daily_tokens_limit": daily_tokens_limit,
+            "daily_tokens_remaining": daily_tokens_remaining,
+            "daily_tokens": daily_tokens_limit,
         },
         "session": {
             "session_id": user["session_id"],
@@ -7353,15 +7669,18 @@ async def admin_create_promo(req: AdminPromoRequest, request: Request) -> dict[s
 
 @app.get("/api/admin/settings")
 async def admin_get_settings(request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     with db() as conn:
         rows = conn.execute("SELECT key, value_json FROM admin_settings").fetchall()
-    return {row["key"]: json.loads(row["value_json"] or "{}") for row in rows}
+    result = {row["key"]: json.loads(row["value_json"] or "{}") for row in rows}
+    result.setdefault("tariffs", get_tariff_config())
+    return result
 
 
 @app.post("/api/admin/settings/{key}")
 async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
+    settings = normalize_tariffs(req.settings, strict=True) if key == "tariffs" else req.settings
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute(
@@ -7370,9 +7689,9 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
             VALUES (?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at
             """,
-            (key, json.dumps(req.settings, ensure_ascii=False), now),
+            (key, json.dumps(settings, ensure_ascii=False), now),
         )
-    return {"ok": True, "key": key, "settings": req.settings}
+    return {"ok": True, "key": key, "settings": settings}
 
 
 @app.get("/api/admin/jobs")

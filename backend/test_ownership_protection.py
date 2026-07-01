@@ -119,8 +119,9 @@ def test_get_other_job_404(temp_db, two_users):
 # --- 5. Cancel own job → success (200) ---
 def test_cancel_own_job_200(temp_db, two_users):
     sa = sess_a(two_users)
-    ja = main.jobs.get("job-a-001", {})
-    ja["status"] = "queued"  # make it cancellable
+    with main.db() as conn:
+        conn.execute("UPDATE jobs SET status='queued', progress=0 WHERE id='job-a-001'")
+    main.load_db_state()
     with TestClient(main.app) as c:
         r = c.post("/api/jobs/job-a-001/cancel", cookies={"onenode_session": sa["session_token"]})
     assert r.status_code == 200
