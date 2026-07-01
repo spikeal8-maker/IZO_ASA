@@ -613,6 +613,7 @@ function App() {
   const canvasRef = useRef<KonvaStage>(null)
   const copy = t[lang]
   const SESSION_KEY = 'izo_asa_session'
+  const [profileLanguageLoaded, setProfileLanguageLoaded] = useState(false)
 
   useEffect(() => {
     try {
@@ -649,6 +650,25 @@ function App() {
   const { status: authV2Status, me: authMe } = useAuthV2()
   const isAuthedV2 = authV2Status === 'authed'
   const [authModalOpen, setAuthModalOpen] = useState(false)
+
+  useEffect(() => {
+    const profileLang = authMe?.profile?.language_code
+    if (!profileLanguageLoaded && (profileLang === 'ru' || profileLang === 'en')) {
+      setLang(profileLang)
+      setProfileLanguageLoaded(true)
+    }
+  }, [authMe?.profile?.language_code, profileLanguageLoaded])
+
+  const changeLanguage = useCallback((value: Lang) => {
+    setLang(value)
+    setProfileLanguageLoaded(true)
+    if (authV2Status === 'authed') {
+      void updateProfileV2({
+        language_code: value,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+      }).then((updated) => { if (updated) void refreshAuthStateV2() })
+    }
+  }, [authV2Status])
 
   useEffect(() => { if (tab === 'settings') { void refreshAuthStateV2() } }, [tab])
 
@@ -1318,11 +1338,11 @@ function App() {
         )}
 
         {tab === 'gallery' && !galleryLocked && <GalleryView copy={copy} images={gallery} quota={galleryQuota} selected={selected} setSelected={setSelected} handleUseImageAs={useImageAs} refreshGallery={fetchGallery} clearSelected={() => setSelected(undefined)} backToStudio={() => setTab('studio')} view={galleryView} setView={setGalleryView} sendImage={sendImage} pickSlot={pendingEditSlot} onPickForSlot={assignGalleryToEditSlot} cancelPick={() => { setPendingEditSlot(null); setTab('studio') }} />}
-        {tab === 'gallery' && galleryLocked && <SettingsView copy={copy} lang={lang} setLang={setLang} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'gallery' && galleryLocked && <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
         {tab === 'presets' && <HelpView lang={lang} applyPreset={applyPreset} copy={copy} backToStudio={() => setTab('studio')} />}
-        {tab === 'settings' && <SettingsView copy={copy} lang={lang} setLang={setLang} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'settings' && <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
         {tab === 'admin' && isAdmin && <AdminView copy={copy} admin={admin} tariffs={tariffs} setTariffs={setTariffs} backToStudio={() => setTab('studio')} provider={provider} modelProfile={modelProfile} selectedLora={settingsSelectedLora} resetDefaults={resetDefaults} />}
-        {tab === 'admin' && !isAdmin && <SettingsView copy={copy} lang={lang} setLang={setLang} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'admin' && !isAdmin && <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
 
         {instructionOpen && <InstructionModal mode={mode} paintTool={paintTool} onClose={() => setInstructionOpen(false)} />}
         {editTemplatesOpen && <EditTemplatesModal templates={EDIT_TEMPLATES} applyTemplate={applyEditTemplate} onClose={() => setEditTemplatesOpen(false)} />}
@@ -2061,7 +2081,7 @@ function InstructionModal({ mode, paintTool, onClose }: { mode: Mode; paintTool:
   return <div className="modal-backdrop"><section className="instruction-modal"><button className="floating-clear" onClick={onClose}><X size={16} /></button><h2>{current.title}</h2>{current.steps.map((step, index) => <p key={step}><strong>{index + 1}.</strong> {step}</p>)}</section></div>
 }
 
-function SettingsView({ copy, lang, setLang, tariffs, bootstrap, setBootstrap, openAdmin, openGallery, backToStudio, provider, setProvider, width, setWidth, height, setHeight, steps, setSteps, setCfg, isAuthedV2 = false, openAuthModal, authMe }: { copy: Copy; lang: Lang; setLang: (value: Lang) => void; tariffs: TariffConfig; bootstrap?: Record<string, unknown>; setBootstrap: Dispatch<SetStateAction<Record<string, unknown> | undefined>>; openAdmin: () => void; openGallery?: () => void; backToStudio: () => void; provider: string; setProvider: (value: string) => void; width: number; setWidth: (value: number) => void; height: number; setHeight: (value: number) => void; steps: number; setSteps: (value: number) => void; setCfg: (value: number) => void; isAuthedV2?: boolean; openAuthModal?: () => void; authMe?: MeV2 | null }) {
+function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBootstrap, openAdmin, openGallery, backToStudio, provider, setProvider, width, setWidth, height, setHeight, steps, setSteps, setCfg, isAuthedV2 = false, openAuthModal, authMe }: { copy: Copy; lang: Lang; onLanguageChange: (value: Lang) => void; tariffs: TariffConfig; bootstrap?: Record<string, unknown>; setBootstrap: Dispatch<SetStateAction<Record<string, unknown> | undefined>>; openAdmin: () => void; openGallery?: () => void; backToStudio: () => void; provider: string; setProvider: (value: string) => void; width: number; setWidth: (value: number) => void; height: number; setHeight: (value: number) => void; steps: number; setSteps: (value: number) => void; setCfg: (value: number) => void; isAuthedV2?: boolean; openAuthModal?: () => void; authMe?: MeV2 | null }) {
   const user = (bootstrap?.user || {}) as { id?: string; role?: string; username?: string; firstName?: string; email?: string; plan?: string; galleryEnabled?: boolean; tokenBalance?: number; dailyTokens?: number; gallerySlots?: number; galleryUsed?: number; galleryFree?: number; galleryFull?: boolean }
   const account = authMe?.account
   const quality = steps <= 4 ? 'fast' : steps <= 8 ? 'standard' : 'max'
@@ -2278,7 +2298,7 @@ function SettingsView({ copy, lang, setLang, tariffs, bootstrap, setBootstrap, o
         </article>
         <article className="usr-card usr-profile">
           <label>{copy.language}
-            <select value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
+            <select value={lang} onChange={(e) => onLanguageChange(e.target.value as Lang)}>
               <option value="ru">Русский</option>
               <option value="en">English</option>
             </select>
@@ -2346,7 +2366,7 @@ function SettingsView({ copy, lang, setLang, tariffs, bootstrap, setBootstrap, o
         <label>Имя<input type="text" value={displayName} onChange={(e) => { setDisplayName(e.target.value); setSaveMsg('') }} placeholder="Ваше имя" maxLength={80} /></label>
         <label>Email<input type="email" value={displayEmail || ''} placeholder="Email не указан" readOnly disabled /></label>
         <label>{copy.language}
-          <select value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
+          <select value={lang} onChange={(e) => onLanguageChange(e.target.value as Lang)}>
             <option value="ru">Русский</option>
             <option value="en">English</option>
           </select>

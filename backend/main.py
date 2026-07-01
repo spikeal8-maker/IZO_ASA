@@ -1768,6 +1768,20 @@ def _client_ip(request: Request | None) -> str | None:
     return get_client_ip(request)
 
 
+def _safe_country_code(value: str | None) -> str | None:
+    code = (value or "").strip().upper()
+    if code == "XX":
+        return None
+    return code if re.fullmatch(r"[A-Z]{2}", code) else None
+
+
+def request_country_code(request: Request | None) -> str | None:
+    """Best-effort country code for profile analytics from trusted CF headers only."""
+    if not request or not TRUST_CLOUDFLARE_HEADERS:
+        return None
+    return _safe_country_code(request.headers.get("cf-ipcountry"))
+
+
 def parse_user_agent(ua: str | None) -> dict[str, str]:
     """Coarse, dependency-free UA classification for analytics (no raw UA stored)."""
     s = (ua or "").lower()
@@ -3665,7 +3679,7 @@ def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
                 middle_name=COALESCE(excluded.middle_name, users.middle_name),
                 phone=COALESCE(excluded.phone, users.phone),
                 email=COALESCE(excluded.email, users.email),
-                language=excluded.language,
+                language=COALESCE(users.language, excluded.language),
                 country=COALESCE(excluded.country, users.country),
                 city=COALESCE(excluded.city, users.city),
                 timezone=COALESCE(excluded.timezone, users.timezone),
@@ -5635,7 +5649,7 @@ async def secure_media(filename: str, request: Request) -> FileResponse:
 
 
 @app.post("/api/app/bootstrap")
-async def bootstrap(auth: MiniAppAuthRequest, response: Response) -> dict[str, Any]:
+async def bootstrap(auth: MiniAppAuthRequest, response: Response, request: Request) -> dict[str, Any]:
     # In production, never accept an empty or demo_user identity silently.
     if is_production_like_env() and (not auth.userId or auth.userId == "demo_user"):
         raise HTTPException(401, "Authentication required")
@@ -5664,6 +5678,7 @@ async def bootstrap(auth: MiniAppAuthRequest, response: Response) -> dict[str, A
                     print(f"bootstrap: Telegram user verified — id={auth.userId} username={auth.username}")
                 except (json.JSONDecodeError, KeyError) as exc:
                     print(f"bootstrap: failed to parse Telegram user from initData: {exc}")
+    auth.country = auth.country or request_country_code(request)
     user = upsert_user(auth)
     response.set_cookie("onenode_user", user["id"], httponly=False, samesite="lax")
     flux_klein_config: dict[str, Any] = {"ok": False, "autofill_prompts": {}, "lora_triggers_custom": {}, "t2i_templates": [], "discover_prompts": {}}
@@ -6688,6 +6703,9 @@ async def me_v2(request: Request) -> dict[str, Any]:
         "email": _row_get(urow, "email"),
         "email_verified_at": _row_get(urow, "email_verified_at"),
         "language_code": _row_get(urow, "language"),
+        "timezone": _row_get(urow, "timezone"),
+        "city": _row_get(urow, "city"),
+        "country_code": _row_get(urow, "country"),
         "avatar_url": avatar_url,
         "avatar_preset": _row_get(urow, "avatar_preset"),
         "providers": sorted({i["provider"] for i in identities}),
@@ -8598,6 +8616,8 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "last_device": device if isinstance(device, dict) else {},
         "country": _row_get(urow, "country"),
         "city": _row_get(urow, "city"),
+        "language_code": _row_get(urow, "language"),
+        "timezone": _row_get(urow, "timezone"),
         "device_count": device_count,
         "active_sessions_count": active_sessions,
         "generations_count": int(_row_get(urow, "generation_count") or 0),

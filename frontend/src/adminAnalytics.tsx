@@ -41,7 +41,8 @@ export interface CrmUserRow {
   avatar_url?: string | null; avatar_preset?: string | null
   email?: string | null; username?: string | null; phone?: string | null; plan?: string | null
   last_seen_at?: string | null; last_platform?: string | null; last_ip?: string | null
-  country?: string | null; city?: string | null; device_count?: number; active_sessions_count?: number
+  country?: string | null; city?: string | null; language_code?: string | null; timezone?: string | null
+  device_count?: number; active_sessions_count?: number
   generations_count?: number; tokens_spent?: number; token_balance?: number; status?: string; role?: string
   first_seen_at?: string | null; gallery_count?: number; marketing_source?: string | null; risk_level?: string | null
   gallery_access?: boolean; gallery_enabled?: boolean
@@ -355,7 +356,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <h4>Профиль и контакты</h4>
               <dl className="crm-preview-list">
                 {row('Имя', parsedName(sm, ids))}{row('Email', sm.email)}{row('Username', sm.username)}{row('Телефон', sm.phone)}
-                {row('Язык', (ids?.[0] as AnyRec)?.language_code)}{row('Гео', `${S(sm.city)} / ${S(sm.country)}`)}{row('Роль', sm.role)}{row('Тариф', sm.plan || 'mini')}{row('Галерея', quotaLabel(sm))}
+                {row('Язык', sm.language_code || (ids?.[0] as AnyRec)?.language_code)}{row('Гео', `${S(sm.city)} / ${S(sm.country)}${sm.timezone ? ` · ${S(sm.timezone)}` : ''}`)}{row('Роль', sm.role)}{row('Тариф', sm.plan || 'mini')}{row('Галерея', quotaLabel(sm))}
               </dl>
             </div>
             <div className="crm-panel">
