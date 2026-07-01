@@ -78,6 +78,9 @@ def test_me_v2_with_valid_session(temp_db):
     assert b["session"]["session_id"] == s["session_id"]
     # Phase 18: display_name priority is first+last name before username.
     assert b["profile"]["display_name"] == "Ann"
+    assert b["account"]["daily_tokens_limit"] == b["account"]["daily_tokens"]
+    assert b["account"]["daily_tokens_used"] == 0
+    assert b["account"]["daily_tokens_remaining"] == b["account"]["daily_tokens_limit"]
 
 
 # 3

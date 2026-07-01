@@ -5,6 +5,7 @@ Temporary SQLite DB via monkeypatching main.DB_PATH; working DB never touched.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,8 @@ def temp_db(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "test")
     # Disable the worker so it doesn't interfere with queue state
     monkeypatch.setattr(main, "worker_started", True)
+    main.jobs.clear()
+    main.images.clear()
     main.init_db()
     return db_file
 
@@ -209,3 +212,136 @@ def test_users_id_unchanged_after_generation(temp_db, authed_user):
         after = sorted(r["id"] for r in conn.execute("SELECT id FROM users"))
     assert "telegram_legacy" in after
     assert all(i in after for i in before)
+
+
+def test_generation_uses_daily_budget_without_balance_spend(temp_db, authed_user):
+    sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    with TestClient(main.app) as c:
+        r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 512, "height": 512, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["usedDailyBudget"] is True
+    assert body["tokenBalance"] == 100
+    assert body["dailyTokensUsed"] == 1
+    with main.db() as conn:
+        user = conn.execute("SELECT token_balance, daily_tokens_used, last_daily_reset, tokens_used FROM users WHERE id=?", (authed_user["legacy_user_id"],)).fetchone()
+        ledger = conn.execute("SELECT delta, reason, meta_json FROM token_ledger WHERE user_id=? ORDER BY created_at DESC LIMIT 1", (authed_user["legacy_user_id"],)).fetchone()
+    assert user["token_balance"] == 100
+    assert user["daily_tokens_used"] == 1
+    assert user["last_daily_reset"] == today
+    assert user["tokens_used"] == 1
+    assert ledger["delta"] == 0
+    assert ledger["reason"] == "daily_generation"
+    assert '"token_cost": 1' in ledger["meta_json"]
+
+
+def test_generation_spends_balance_after_daily_budget_exhausted(temp_db, authed_user):
+    sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    with main.db() as conn:
+        conn.execute("UPDATE users SET token_balance=5, plan='free', daily_tokens_used=10, last_daily_reset=? WHERE id=?", (today, authed_user["legacy_user_id"]))
+    with TestClient(main.app) as c:
+        r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 512, "height": 512, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
+    assert r.status_code == 200
+    assert r.json()["usedDailyBudget"] is False
+    assert r.json()["tokenBalance"] == 4
+    with main.db() as conn:
+        user = conn.execute("SELECT token_balance, daily_tokens_used, tokens_used FROM users WHERE id=?", (authed_user["legacy_user_id"],)).fetchone()
+        ledger = conn.execute("SELECT delta, reason FROM token_ledger WHERE user_id=? ORDER BY created_at DESC LIMIT 1", (authed_user["legacy_user_id"],)).fetchone()
+    assert user["token_balance"] == 4
+    assert user["daily_tokens_used"] == 10
+    assert user["tokens_used"] == 1
+    assert ledger["delta"] == -1
+    assert ledger["reason"] == "generation"
+
+
+def test_default_hourly_job_counter_does_not_block_generation(temp_db, authed_user):
+    sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
+    now = datetime.now(timezone.utc).isoformat()
+    with main.db() as conn:
+        conn.execute("UPDATE users SET token_balance=100, plan='pro' WHERE id=?", (authed_user["legacy_user_id"],))
+        for i in range(10):
+            conn.execute(
+                """
+                INSERT INTO jobs (id, user_id, mode, provider, status, progress, prompt_original, settings_json, created_at)
+                VALUES (?, ?, 'text_to_image', 'mock', 'completed', 100, 'old prompt', '{}', ?)
+                """,
+                (f"existing_job_{i}", authed_user["legacy_user_id"], now),
+            )
+    with TestClient(main.app) as c:
+        r = c.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "prompt": "a cat", "width": 512, "height": 512, "steps": 1},
+            cookies={"onenode_session": sess["session_token"]},
+        )
+    assert r.status_code == 200
+
+
+def test_invalid_faceswap_does_not_spend_daily_budget(temp_db, authed_user):
+    sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
+    before_jobs = count("jobs")
+    before_ledger = count("token_ledger")
+    with TestClient(main.app) as c:
+        r = c.post("/api/generate", json={"mode": "faceswap", "prompt": "a cat", "width": 512, "height": 512, "steps": 1, "loras": []}, cookies={"onenode_session": sess["session_token"]})
+    assert r.status_code == 422
+    assert count("jobs") == before_jobs
+    assert count("token_ledger") == before_ledger
+    with main.db() as conn:
+        user = conn.execute("SELECT token_balance, daily_tokens_used, tokens_used FROM users WHERE id=?", (authed_user["legacy_user_id"],)).fetchone()
+    assert user["token_balance"] == 100
+    assert user["daily_tokens_used"] == 0
+    assert user["tokens_used"] == 0
+
+
+def test_insufficient_balance_after_daily_budget_creates_no_job_or_ledger(temp_db, authed_user):
+    sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    with main.db() as conn:
+        conn.execute("UPDATE users SET token_balance=0, plan='free', daily_tokens_used=10, last_daily_reset=? WHERE id=?", (today, authed_user["legacy_user_id"]))
+    before_jobs = count("jobs")
+    before_ledger = count("token_ledger")
+    with TestClient(main.app) as c:
+        r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 512, "height": 512, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
+    assert r.status_code == 402
+    assert count("jobs") == before_jobs
+    assert count("token_ledger") == before_ledger
+
+
+def test_generation_refund_restores_balance_spend(temp_db, authed_user):
+    sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    with main.db() as conn:
+        conn.execute("UPDATE users SET token_balance=5, plan='free', daily_tokens_used=10, last_daily_reset=? WHERE id=?", (today, authed_user["legacy_user_id"]))
+    with TestClient(main.app) as c:
+        r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 512, "height": 512, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
+    assert r.status_code == 200
+    job_id = r.json()["id"]
+    with main.db() as conn:
+        assert main.refund_generation_tokens(conn, job_id, reason="test_failure") is True
+        assert main.refund_generation_tokens(conn, job_id, reason="test_failure_again") is False
+        user = conn.execute("SELECT token_balance, daily_tokens_used, tokens_used, generation_count FROM users WHERE id=?", (authed_user["legacy_user_id"],)).fetchone()
+        refunds = conn.execute("SELECT COUNT(*) AS c FROM token_ledger WHERE user_id=? AND reason='generation_refund'", (authed_user["legacy_user_id"],)).fetchone()["c"]
+    assert user["token_balance"] == 5
+    assert user["daily_tokens_used"] == 10
+    assert user["tokens_used"] == 0
+    assert user["generation_count"] == 0
+    assert refunds == 1
+
+
+def test_daily_generation_refund_restores_daily_budget(temp_db, authed_user):
+    sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
+    with TestClient(main.app) as c:
+        r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 512, "height": 512, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
+    assert r.status_code == 200
+    job_id = r.json()["id"]
+    with main.db() as conn:
+        assert main.refund_generation_tokens(conn, job_id, reason="test_cancel") is True
+        user = conn.execute("SELECT token_balance, daily_tokens_used, tokens_used, generation_count FROM users WHERE id=?", (authed_user["legacy_user_id"],)).fetchone()
+        refund = conn.execute("SELECT delta, reason FROM token_ledger WHERE user_id=? AND reason='daily_generation_refund'", (authed_user["legacy_user_id"],)).fetchone()
+    assert user["token_balance"] == 100
+    assert user["daily_tokens_used"] == 0
+    assert user["tokens_used"] == 0
+    assert user["generation_count"] == 0
+    assert refund["delta"] == 0
+    assert refund["reason"] == "daily_generation_refund"

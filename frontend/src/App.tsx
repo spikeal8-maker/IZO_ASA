@@ -74,6 +74,14 @@ type GalleryImage = {
   comfyuiPromptId?: string
 }
 
+type GalleryQuota = {
+  plan: string
+  gallery_slots: number
+  gallery_used: number
+  gallery_free: number
+  gallery_full: boolean
+}
+
 type AdminUser = {
   id: string
   telegram_id?: string
@@ -635,10 +643,17 @@ function App() {
   const isAuthedV2 = authV2Status === 'authed'
   const [authModalOpen, setAuthModalOpen] = useState(false)
 
-  const currentUser = (bootstrap?.user || {}) as { id?: string; role?: string; username?: string; firstName?: string; plan?: string; galleryEnabled?: boolean }
+  const currentUser = (bootstrap?.user || {}) as { id?: string; role?: string; username?: string; firstName?: string; plan?: string; galleryEnabled?: boolean; gallerySlots?: number; galleryUsed?: number; galleryFree?: number; galleryFull?: boolean }
   const adminSummaryReady = Boolean(admin && !('detail' in admin))
   const isAdmin = currentUser.role === 'admin' || authMe?.account?.role === 'admin' || adminSummaryReady
-  const galleryLocked = !(isAdmin || authMe?.account?.gallery_access || currentUser.galleryEnabled || ['mini', 'plus', 'pro'].includes(String(currentUser.plan || '')))
+  const galleryLocked = !(isAdmin || isAuthedV2 || authMe?.account?.gallery_access || currentUser.galleryEnabled || ['mini', 'plus', 'pro'].includes(String(currentUser.plan || '')))
+  const galleryQuota: GalleryQuota | undefined = authMe?.account ? {
+    plan: String(authMe.account.plan || currentUser.plan || 'mini'),
+    gallery_slots: Number(authMe.account.gallery_slots ?? currentUser.gallerySlots ?? 0),
+    gallery_used: Number(authMe.account.gallery_used ?? currentUser.galleryUsed ?? gallery.length),
+    gallery_free: Number(authMe.account.gallery_free ?? currentUser.galleryFree ?? 0),
+    gallery_full: Boolean(authMe.account.gallery_full ?? currentUser.galleryFull ?? false),
+  } : undefined
   const activeMode = modes.find((item) => item.id === mode)!
   const cloudLimited = provider === 'openrouter'
   const actualMode: Mode = mode === 'paint' && paintTool !== 'sketch' ? paintTool : mode
@@ -731,7 +746,10 @@ function App() {
     const timer = window.setInterval(async () => {
       const next = await apiFetch(`/jobs/${job.id}`).then((r) => r.json())
       setJob(next)
-      if (next.status === 'completed') fetchGallery()
+      if (next.status === 'completed') {
+        fetchGallery()
+        void refreshAuthStateV2()
+      }
     }, 900)
     return () => window.clearInterval(timer)
   }, [fetchGallery, job])
@@ -1284,7 +1302,7 @@ function App() {
           </div>
         )}
 
-        {tab === 'gallery' && !galleryLocked && <GalleryView copy={copy} images={gallery} selected={selected} setSelected={setSelected} handleUseImageAs={useImageAs} refreshGallery={fetchGallery} clearSelected={() => setSelected(undefined)} backToStudio={() => setTab('studio')} view={galleryView} setView={setGalleryView} sendImage={sendImage} pickSlot={pendingEditSlot} onPickForSlot={assignGalleryToEditSlot} cancelPick={() => { setPendingEditSlot(null); setTab('studio') }} />}
+        {tab === 'gallery' && !galleryLocked && <GalleryView copy={copy} images={gallery} quota={galleryQuota} selected={selected} setSelected={setSelected} handleUseImageAs={useImageAs} refreshGallery={fetchGallery} clearSelected={() => setSelected(undefined)} backToStudio={() => setTab('studio')} view={galleryView} setView={setGalleryView} sendImage={sendImage} pickSlot={pendingEditSlot} onPickForSlot={assignGalleryToEditSlot} cancelPick={() => { setPendingEditSlot(null); setTab('studio') }} />}
         {tab === 'gallery' && galleryLocked && <SettingsView copy={copy} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
         {tab === 'presets' && <HelpView lang={lang} applyPreset={applyPreset} copy={copy} backToStudio={() => setTab('studio')} />}
         {tab === 'settings' && <SettingsView copy={copy} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
@@ -1856,7 +1874,7 @@ function JobCard({ job, copy, cancelJob, sendImage, mode, beforeImage, loadingBa
   return <div className={`job-card ${job.status}`}>{canCompare ? <div className="compare-frame"><img className="compare-before" src={beforeImage} /><div className="compare-after" style={{ clipPath: `inset(0 0 0 ${compare}%)` }}><img src={job.resultUrl} /></div><i className="compare-line" style={{ left: `${compare}%` }}><span>↔</span></i><input aria-label="До после" type="range" min="0" max="100" value={compare} onChange={(e) => setCompare(Number(e.target.value))} />{actions}</div> : job.resultUrl ? <div className="result-frame"><img src={job.resultUrl} />{actions}</div> : null}</div>
 }
 
-function GalleryView({ copy, images, selected, setSelected, handleUseImageAs, refreshGallery, clearSelected, backToStudio, view, setView, sendImage, pickSlot = null, onPickForSlot, cancelPick }: { copy: Copy; images: GalleryImage[]; selected?: GalleryImage; setSelected: (image: GalleryImage) => void; handleUseImageAs: (image: GalleryImage, target: Mode, slot?: number) => void; refreshGallery: () => Promise<void>; clearSelected: () => void; backToStudio: () => void; view: 'grid' | 'list'; setView: (view: 'grid' | 'list') => void; sendImage: (platform: 'telegram' | 'max', imageId?: string) => void; pickSlot?: number | null; onPickForSlot?: (image: GalleryImage) => void; cancelPick?: () => void }) {
+function GalleryView({ copy, images, quota, selected, setSelected, handleUseImageAs, refreshGallery, clearSelected, backToStudio, view, setView, sendImage, pickSlot = null, onPickForSlot, cancelPick }: { copy: Copy; images: GalleryImage[]; quota?: GalleryQuota; selected?: GalleryImage; setSelected: (image: GalleryImage) => void; handleUseImageAs: (image: GalleryImage, target: Mode, slot?: number) => void; refreshGallery: () => Promise<void>; clearSelected: () => void; backToStudio: () => void; view: 'grid' | 'list'; setView: (view: 'grid' | 'list') => void; sendImage: (platform: 'telegram' | 'max', imageId?: string) => void; pickSlot?: number | null; onPickForSlot?: (image: GalleryImage) => void; cancelPick?: () => void }) {
   const picking = pickSlot !== null
   const [galleryMsg, setGalleryMsg] = useState('')
   const useOptions: Array<{ label: string; target: Mode; slot?: number }> = [
@@ -1889,6 +1907,7 @@ function GalleryView({ copy, images, selected, setSelected, handleUseImageAs, re
     await apiFetch(`/gallery/${image.id}`, { method: 'DELETE' })
     clearSelected()
     await refreshGallery()
+    await refreshAuthStateV2()
   }
   const onUseSelected = (value: string) => {
     if (!selected || !value) return
@@ -1920,6 +1939,7 @@ function GalleryView({ copy, images, selected, setSelected, handleUseImageAs, re
   return (
     <section className="gallery-page">
       {picking && <div className="gallery-pick-banner"><span>Выберите изображение для слота {pickSlot === 0 ? 'Основа' : `Референс ${pickSlot}`}</span><button className="secondary" onClick={() => cancelPick?.()}>Отмена</button></div>}
+      {quota && <div className="gallery-pick-banner gallery-quota-banner"><span>Галерея: занято {quota.gallery_used} из {quota.gallery_slots} · свободно {quota.gallery_free} · тариф {quota.plan.toUpperCase()}</span></div>}
       <div className="view-actions gallery-toolbar">
         <button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button>
         <button className={view === 'grid' ? 'secondary active' : 'secondary'} onClick={() => setView('grid')}>{copy.grid}</button>
@@ -2024,20 +2044,25 @@ function InstructionModal({ mode, paintTool, onClose }: { mode: Mode; paintTool:
 }
 
 function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, openGallery, backToStudio, provider, setProvider, width, setWidth, height, setHeight, steps, setSteps, setCfg, isAuthedV2 = false, openAuthModal, authMe }: { copy: Copy; bootstrap?: Record<string, unknown>; setBootstrap: Dispatch<SetStateAction<Record<string, unknown> | undefined>>; openAdmin: () => void; openGallery?: () => void; backToStudio: () => void; provider: string; setProvider: (value: string) => void; width: number; setWidth: (value: number) => void; height: number; setHeight: (value: number) => void; steps: number; setSteps: (value: number) => void; setCfg: (value: number) => void; isAuthedV2?: boolean; openAuthModal?: () => void; authMe?: MeV2 | null }) {
-  const user = (bootstrap?.user || {}) as { id?: string; role?: string; username?: string; firstName?: string; email?: string; plan?: string; galleryEnabled?: boolean; tokenBalance?: number }
+  const user = (bootstrap?.user || {}) as { id?: string; role?: string; username?: string; firstName?: string; email?: string; plan?: string; galleryEnabled?: boolean; tokenBalance?: number; gallerySlots?: number; galleryUsed?: number; galleryFree?: number; galleryFull?: boolean; dailyTokens?: number }
   const account = authMe?.account
   const quality = steps <= 4 ? 'fast' : steps <= 8 ? 'standard' : 'max'
   const tokenPrice = (quality === 'fast' ? 1 : quality === 'standard' ? 2 : 4) * (provider === 'openrouter' ? 2 : 1)
   const referralLink = `${window.location.origin}?ref=${authMe?.profile?.public_user_code || user.id || 'guest'}`
   const plan = String(account?.plan || user.plan || 'mini').toLowerCase()
-  const galleryOpen = Boolean(account?.gallery_access ?? (account?.role === 'admin' || user.role === 'admin' || ['mini', 'plus', 'pro'].includes(plan)))
+  const galleryOpen = Boolean(account?.gallery_access ?? isAuthedV2 ?? (account?.role === 'admin' || user.role === 'admin' || ['mini', 'plus', 'pro'].includes(plan)))
   const planLabel = plan.toUpperCase()
   const tokenBalance = Number(account?.token_balance ?? user.tokenBalance ?? 0)
   const planDaily: Record<string, number> = { free: 10, mini: 50, plus: 100, pro: 200 }
-  const dailyTokens = planDaily[plan] ?? 50
+  const dailyLimit = Number(account?.daily_tokens_limit ?? account?.daily_tokens ?? user.dailyTokens ?? planDaily[plan] ?? 50)
+  const dailyUsed = Math.max(0, Number(account?.daily_tokens_used ?? 0))
+  const dailyRemaining = Math.max(0, Number(account?.daily_tokens_remaining ?? dailyLimit - dailyUsed))
+  const gallerySlots = Number(account?.gallery_slots ?? user.gallerySlots ?? 0)
+  const galleryUsed = Number(account?.gallery_used ?? user.galleryUsed ?? 0)
+  const galleryFree = Math.max(0, Number(account?.gallery_free ?? user.galleryFree ?? gallerySlots - galleryUsed))
   const publicCode = String(authMe?.profile?.public_user_code || user.id || '').replace(/^web_/, '').toUpperCase()
   const planCards = [
-    { id: 'free', title: 'Free', note: 'Базовый доступ', daily: 10, features: ['Базовые модели', 'Стандартная скорость', 'Промокоды доступны'], disabled: ['Галерея закрыта'] },
+    { id: 'free', title: 'Free', note: 'Базовый доступ', daily: 10, features: ['Базовые модели', '1 слот галереи', 'Промокоды доступны'], disabled: [] },
     { id: 'mini', title: 'Mini', note: 'Оптимальный старт', daily: 50, features: ['Стандартные модели', 'Галерея открыта', 'Реферальные бонусы'], disabled: [] },
     { id: 'plus', title: 'Plus', note: 'Больше возможностей', daily: 100, features: ['HD-модели', 'Ускоренная генерация', 'Расширенная галерея'], disabled: [] },
     { id: 'pro', title: 'Pro', note: 'Максимум мощности', daily: 200, features: ['Продвинутые модели', 'Приоритетная очередь', 'Полный доступ к галерее'], disabled: [] },
@@ -2209,9 +2234,9 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, openGallery, b
           </div>
           <div className="usr-code"><span>Публичный код: {publicCode || 'GUEST'}</span></div>
           <div className="usr-metrics">
-            <div><span>Токенов в сутки</span><strong>{dailyTokens} / {dailyTokens}</strong><small>по текущему тарифу</small></div>
+            <div><span>Токенов сегодня</span><strong>{dailyUsed} / {dailyLimit}</strong><small>осталось {dailyRemaining}</small></div>
             <div><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>доступно сейчас</small></div>
-            <div><span>Галерея</span><strong>{galleryOpen ? 'Открыта' : 'Закрыта'}</strong><small>доступ зависит от тарифа</small></div>
+            <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
             <div><span>Промо и друзья</span><strong>+50</strong><small>за промокод или друга</small></div>
           </div>
           <div className="usr-avatar-picker" aria-label="Выбор аватара">
@@ -2243,9 +2268,9 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, openGallery, b
         </div>
       </section>
       <section className="usr-profile-dashboard">
-        <article className="usr-card usr-stat-card"><span>Сегодня доступно</span><strong>{dailyTokens}</strong><small>токенов</small></article>
+        <article className="usr-card usr-stat-card"><span>Сегодня осталось</span><strong>{dailyRemaining}</strong><small>из {dailyLimit} токенов</small></article>
         <article className="usr-card usr-stat-card"><span>Баланс</span><strong>{tokenBalance}</strong><small>токенов</small></article>
-        <article className="usr-card usr-stat-card"><span>Галерея</span><strong>{galleryOpen ? 'Открыта' : 'Закрыта'}</strong><small>{galleryOpen ? 'без ограничений' : 'по тарифу'}</small></article>
+        <article className="usr-card usr-stat-card"><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></article>
         <article className="usr-card usr-stat-card"><span>Промокод друга</span><strong>{friendPromoCode}</strong><small>+50 токенов</small></article>
       </section>
       </>}
@@ -2254,8 +2279,8 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, openGallery, b
       <section className="usr-section">
         <div className="usr-tariff-summary usr-card">
           <div><span>Текущий тариф</span><strong>{planLabel}</strong></div>
-          <div><span>Токены в сутки</span><strong>{dailyTokens}</strong></div>
-          <div><span>Галерея</span><strong>{galleryOpen ? 'открыта' : 'закрыта'}</strong></div>
+          <div><span>Токены сегодня</span><strong>{dailyUsed} / {dailyLimit}</strong></div>
+          <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
           <button type="button" className="usr-primary" disabled>Управление тарифом скоро</button>
         </div>
         <div className="usr-section-head"><h3>Тарифы</h3><span>Текущий тариф: {planLabel}</span></div>
@@ -2282,7 +2307,7 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, openGallery, b
       <section className="usr-card usr-compare">
         <div>Функции</div><div>FREE</div><div>MINI</div><div>PLUS</div><div>PRO</div>
         <span>Токены в сутки</span><b>10</b><b>50</b><b>100</b><b>200</b>
-        <span>Галерея</span><b>Закрыта</b><b>Открыта</b><b>Расширенная</b><b>Расширенная</b>
+        <span>Галерея</span><b>1 слот</b><b>10 слотов</b><b>50 слотов</b><b>100 слотов</b>
         <span>Модели</span><b>Базовые</b><b>Стандартные</b><b>HD</b><b>Продвинутые</b>
         <span>Очередь</span><b>Обычная</b><b>Обычная</b><b>Ускоренная</b><b>Приоритетная</b>
       </section>
@@ -2336,7 +2361,7 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, openGallery, b
       <section className="usr-section">
         <div className="usr-model-summary">
           <article className="usr-card usr-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article>
-          <article className="usr-card usr-stat-card"><span>Дневной лимит</span><strong>{dailyTokens} / {dailyTokens}</strong><small>использовано сегодня</small></article>
+          <article className="usr-card usr-stat-card"><span>Дневной лимит</span><strong>{dailyUsed} / {dailyLimit}</strong><small>осталось {dailyRemaining}</small></article>
           <article className="usr-card usr-stat-card"><span>Модель по умолчанию</span><strong>{quality === 'fast' ? 'Быстрая' : quality === 'standard' ? 'Стандарт' : 'Максимум'}</strong><small>рекомендуется</small></article>
           <article className="usr-card usr-stat-card"><span>Стоимость</span><strong>{tokenPrice}</strong><small>{tokenPrice === 1 ? 'токен' : 'токена'}</small></article>
         </div>
@@ -2366,7 +2391,7 @@ function SettingsView({ copy, bootstrap, setBootstrap, openAdmin, openGallery, b
           <article className="usr-card usr-small-card">
             <h4>Доступ к галерее</h4>
             <p>Ваш текущий доступ: <strong>{galleryOpen ? 'открыт' : 'закрыт'}</strong>. Загружайте, просматривайте и сохраняйте работы.</p>
-            <button type="button" className="usr-ghost" disabled={!galleryOpen || !openGallery} onClick={() => openGallery?.()}>{galleryOpen ? 'Перейти в галерею' : 'Галерея закрыта'}</button>
+            <button type="button" className="usr-ghost" disabled={!openGallery} onClick={() => openGallery?.()}>Перейти в галерею</button>
           </article>
         </div>
       </section>
@@ -2524,7 +2549,7 @@ function AdminView({ copy, admin, backToStudio, provider, setProvider, modelProf
       <h3>Файлы ComfyUI</h3>
       <div className="settings-grid"><label>{copy.model}<select value={modelProfile} onChange={(e) => setModelProfile(e.target.value)}>{diffusionModels.map((item) => <option key={item} value={item}>{item}</option>)}</select></label><label>Text encoder<input value={textEncoders.join(', ') || modelsPayload?.selected?.textEncoder || 'not found'} readOnly /></label><label>VAE<input value={vaes.join(', ') || modelsPayload?.selected?.vae || 'not found'} readOnly /></label><label>Remove Background<input value={bgRemovalModels.join(', ') || 'not found'} readOnly /></label><label>{copy.seed}<input type="number" value={seed} onChange={(e) => setSeed(Number(e.target.value))} /></label><button className="secondary" onClick={() => setSeed(Math.floor(Math.random() * 999999999))}><RotateCcw size={16} />{copy.randomSeed}</button><label>Width<input type="number" value={width} onChange={(e) => setWidth(Number(e.target.value))} /></label><label>Height<input type="number" value={height} onChange={(e) => setHeight(Number(e.target.value))} /></label><label>{copy.steps}<input type="number" value={steps} onChange={(e) => setSteps(Number(e.target.value))} /></label><label>{copy.cfg}<input type="number" step="0.1" value={cfg} onChange={(e) => setCfg(Number(e.target.value))} /></label><label>{copy.sampler}<select value={sampler} onChange={(e) => setSampler(e.target.value)}><option value="er_sde">er_sde</option><option value="euler">euler</option><option value="dpmpp_2m">dpmpp_2m</option></select></label><label>Face LoRA<select ref={loraSelectRef} value={selectedLora} onChange={(e) => setSelectedLora(e.target.value)}>{fluxLoras.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label></div>
     </div>}
-    {tab === 'tokens' && <div className="admin-section"><h3>Токены, тарифы, финансы и акции</h3><div className="admin-two-col"><article><h3>{copy.limits}</h3><label>hourly<input type="number" value={limits.hourly} onChange={(e) => setLimits({ ...limits, hourly: Number(e.target.value) })} /></label><label>daily<input type="number" value={limits.daily} onChange={(e) => setLimits({ ...limits, daily: Number(e.target.value) })} /></label><button className="secondary" onClick={saveLimits}>{copy.save}</button><small>{saved}</small></article><article><h3>Финансы</h3><label>Доход от токенов<input type="number" value={finance.tokenRevenue} onChange={(e) => setFinance({ ...finance, tokenRevenue: Number(e.target.value) })} /></label><label>Себестоимость API<input type="number" value={finance.tokenCost} onChange={(e) => setFinance({ ...finance, tokenCost: Number(e.target.value) })} /></label><label>Свет<input type="number" value={finance.electricity} onChange={(e) => setFinance({ ...finance, electricity: Number(e.target.value) })} /></label><label>Акции<input type="number" value={finance.promoBudget} onChange={(e) => setFinance({ ...finance, promoBudget: Number(e.target.value) })} /></label><button className="secondary" onClick={saveFinance}>Сохранить финансы</button></article><article><h3>Промокод</h3><label>Код<input value={promoDraft.code} onChange={(e) => setPromoDraft({ ...promoDraft, code: e.target.value.toUpperCase() })} /></label><label>Токены<input type="number" value={promoDraft.tokens} onChange={(e) => setPromoDraft({ ...promoDraft, tokens: Number(e.target.value) })} /></label><label>Активации<input type="number" value={promoDraft.activations} onChange={(e) => setPromoDraft({ ...promoDraft, activations: Number(e.target.value) })} /></label><button className="secondary" onClick={createPromo}>Создать промокод</button></article><article><h3>Промокоды в базе</h3>{promoCodes.length ? promoCodes.map((item) => <p key={item.code}><b>{item.code}</b>: {item.tokens} ток. · {item.activation_count}/{item.activation_limit}</p>) : <p>Промокодов пока нет.</p>}</article></div><div className="admin-grid"><div><strong>Free</strong><span>0 ₽</span><small>галерея закрыта, базовые токены</small></div><div><strong>Mini</strong><span>калибровка</span><small>все функции включены для тестов</small></div><div><strong>Plus</strong><span>личная галерея</span><small>больше токенов и история</small></div><div><strong>Pro</strong><span>мегаскорость</span><small>приоритет и расширенные лимиты</small></div></div></div>}
+    {tab === 'tokens' && <div className="admin-section"><h3>Токены, тарифы, финансы и акции</h3><div className="admin-two-col"><article><h3>{copy.limits}</h3><label>hourly<input type="number" value={limits.hourly} onChange={(e) => setLimits({ ...limits, hourly: Number(e.target.value) })} /></label><label>daily<input type="number" value={limits.daily} onChange={(e) => setLimits({ ...limits, daily: Number(e.target.value) })} /></label><button className="secondary" onClick={saveLimits}>{copy.save}</button><small>{saved}</small></article><article><h3>Финансы</h3><label>Доход от токенов<input type="number" value={finance.tokenRevenue} onChange={(e) => setFinance({ ...finance, tokenRevenue: Number(e.target.value) })} /></label><label>Себестоимость API<input type="number" value={finance.tokenCost} onChange={(e) => setFinance({ ...finance, tokenCost: Number(e.target.value) })} /></label><label>Свет<input type="number" value={finance.electricity} onChange={(e) => setFinance({ ...finance, electricity: Number(e.target.value) })} /></label><label>Акции<input type="number" value={finance.promoBudget} onChange={(e) => setFinance({ ...finance, promoBudget: Number(e.target.value) })} /></label><button className="secondary" onClick={saveFinance}>Сохранить финансы</button></article><article><h3>Промокод</h3><label>Код<input value={promoDraft.code} onChange={(e) => setPromoDraft({ ...promoDraft, code: e.target.value.toUpperCase() })} /></label><label>Токены<input type="number" value={promoDraft.tokens} onChange={(e) => setPromoDraft({ ...promoDraft, tokens: Number(e.target.value) })} /></label><label>Активации<input type="number" value={promoDraft.activations} onChange={(e) => setPromoDraft({ ...promoDraft, activations: Number(e.target.value) })} /></label><button className="secondary" onClick={createPromo}>Создать промокод</button></article><article><h3>Промокоды в базе</h3>{promoCodes.length ? promoCodes.map((item) => <p key={item.code}><b>{item.code}</b>: {item.tokens} ток. · {item.activation_count}/{item.activation_limit}</p>) : <p>Промокодов пока нет.</p>}</article></div><div className="admin-grid"><div><strong>Free</strong><span>10 ток./день</span><small>1 слот галереи</small></div><div><strong>Mini</strong><span>50 ток./день</span><small>10 слотов галереи</small></div><div><strong>Plus</strong><span>100 ток./день</span><small>50 слотов галереи</small></div><div><strong>Pro</strong><span>200 ток./день</span><small>100 слотов галереи</small></div></div></div>}
     {tab === 'users' && <div className="admin-section"><AdminAnalyticsV2 /><div className="legacy-admin-toggle"><button className="secondary" onClick={() => setShowLegacyUsers((v) => !v)}>{showLegacyUsers ? 'Скрыть старую таблицу действий' : 'Открыть старую таблицу действий'}</button><small className="legacy-admin-warn">Эти действия устаревают. Используйте карточку пользователя (Карточка → Админ-действия). Показывать только для экстренных случаев.</small></div>{showLegacyUsers && <div className="legacy-admin-table"><div className="admin-section-head"><h3>Старые действия — временно</h3><div className="admin-row-actions"><button className="secondary" onClick={downloadUsersExcel}>Скачать Excel</button><button className="secondary" onClick={() => { setEditingUserId(null); setUserHistory(null); setUserDraft({ userId: 'telegram_123456789', username: '', firstName: '', lastName: '', middleName: '', phone: '', email: '', country: '', city: '', role: 'user', plan: 'mini', tokenBalance: 50, galleryEnabled: true }); setUserFormOpen(true) }}>Добавить пользователя</button></div></div><div className="admin-grid"><div><strong>Всего</strong><span>{adminUsers.length || String(admin?.users ?? 1)}</span><small>зарегистрировано</small></div><div><strong>Админы</strong><span>{adminUsers.filter((item) => item.role === 'admin').length}</span><small>role=admin</small></div><div><strong>Токены</strong><span>{adminUsers.reduce((sum, item) => sum + (item.token_balance || 0), 0)}</span><small>на балансах</small></div><div><strong>Использовано</strong><span>{adminUsers.reduce((sum, item) => sum + (item.tokens_used || 0), 0)}</span><small>списано токенов</small></div><div><strong>Генерации</strong><span>{adminUsers.reduce((sum, item) => sum + (item.generation_count || 0), 0)}</span><small>всего</small></div><div><strong>Время</strong><span>{Math.round(adminUsers.reduce((sum, item) => sum + (item.total_time_seconds || 0), 0) / 60)} м</span><small>в приложении</small></div><div><strong>Промокоды</strong><span>{adminUsers.reduce((sum, item) => sum + (item.promo_used_count || 0), 0)}</span><small>использовано</small></div><div><strong>Рефералы</strong><span>{adminUsers.reduce((sum, item) => sum + (item.referrals_count || 0), 0)}</span><small>по ссылкам/кодам</small></div></div><div className="admin-user-table"><div className="admin-user-head"><span>Ред.</span><span>ID</span><span>ФИО и контакты</span><span>Гео</span><span>Роль</span><span>Баланс</span><span>Активность</span><span>Промо</span><span>Статус</span><span>Действия</span><span>Удалить</span></div>{adminUsers.map((item) => <div className="admin-user-row" key={item.id}><button className="edit-user-button" title="Редактировать" onClick={() => void editUser(item)}>Ред.</button><strong>{item.id}</strong><span>{[item.last_name, item.first_name, item.middle_name].filter(Boolean).join(' ') || item.username || 'без имени'}<br />@{item.username || '-'} · {item.phone || 'тел. -'} · {item.email || 'почта -'}</span><span>{item.country || '-'} / {item.city || '-'}<br />{item.timezone || '-'}</span><span>{item.role}<br />{item.plan}</span><span>{item.token_balance}<br />used {item.tokens_used || 0}</span><span>{item.generation_count || 0} ген.<br />{Math.round((item.total_time_seconds || 0) / 60)} мин.</span><span>{item.promo_used_count || 0} промо<br />{item.referrals_count || 0} реф.</span><button className={item.banned ? 'ban-state banned' : 'ban-state'} onClick={() => updateUser(item.id, { banned: !item.banned })}>{item.banned ? 'Забанен' : 'Активен'}</button><div className="admin-row-actions"><button className="secondary" onClick={() => updateUser(item.id, { role: item.role === 'admin' ? 'user' : 'admin' })}>{item.role === 'admin' ? 'Снять' : 'Админ'}</button><button className="secondary" onClick={() => { const nextPlan = item.plan === 'mini' ? 'plus' : item.plan === 'plus' ? 'pro' : item.plan === 'pro' ? 'free' : 'mini'; updateUser(item.id, { plan: nextPlan, galleryEnabled: nextPlan !== 'free' }) }}>Тариф</button><button className="secondary" onClick={() => updateUser(item.id, { tokenBalance: item.token_balance + 50 })}>+50</button><button className="secondary" onClick={() => updateUser(item.id, { tokenBalance: Math.max(0, item.token_balance - 50) })}>-50</button></div><button className="delete-user-button" title="Удалить" onClick={() => deleteUser(item.id)}><Trash2 size={16} /></button></div>)}</div></div>}</div>}
     {tab === 'queue' && <div className="admin-section"><h3>Очередь генераций</h3><div className="admin-grid"><div><strong>В очереди</strong><span>{queue.length}</span><small>ожидают запуска</small></div><div><strong>Провайдер</strong><span>{provider}</span><small>текущий маршрут</small></div><div><strong>Сегодня</strong><span>{String(admin?.completedToday ?? 0)}</span><small>выполнено</small></div></div><pre>{JSON.stringify(queue, null, 2)}</pre></div>}
     {tab === 'errors' && <div className="admin-section"><h3>Ошибки и диагностика</h3><div className="admin-grid"><div><strong>Ошибки</strong><span>{String(admin?.errors ?? 0)}</span><small>в сводке</small></div><div><strong>ComfyUI</strong><span>{provider === 'comfyui' ? 'активен' : 'резерв'}</span><small>локальный маршрут</small></div><div><strong>OpenRouter</strong><span>{provider === 'openrouter' ? 'активен' : 'резерв'}</span><small>облачный маршрут</small></div></div><pre>{recentErrors.length ? recentErrors.join('\n') : 'Ошибок нет'}</pre><details><summary>Сырой admin summary</summary><pre>{JSON.stringify(admin, null, 2)}</pre></details></div>}
