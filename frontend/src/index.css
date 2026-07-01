@@ -17,6 +17,17 @@ html { background: var(--bg); height: 100%; overflow: hidden; }
 body { margin: 0; min-width: 0; height: 100%; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; border: 0; }
+@media (hover: hover) and (pointer: fine) {
+  button:not(:disabled), a {
+    transition: background-color .16s ease, border-color .16s ease, color .16s ease, opacity .16s ease, box-shadow .16s ease, transform .16s ease;
+  }
+  button:not(:disabled):hover {
+    transform: translateY(-1px);
+  }
+  button:not(:disabled):active {
+    transform: translateY(0);
+  }
+}
 .app-shell { height: 100vh; background: radial-gradient(circle at 20% 0%, #101010 0, var(--bg) 34%); position: relative; overflow: hidden; }
 .workspace { height: 100vh; padding: 20px 30px; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; }
 .admin-route-shell .workspace { padding: 20px; }
@@ -39,7 +50,7 @@ button { cursor: pointer; border: 0; }
 .studio-grid { height: 100%; display: grid; grid-template-columns: minmax(360px, 480px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: 16px 22px; padding-top: 68px; padding-bottom: 0; min-height: 0; }
 .control-panel { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; min-height: 0; padding: 0 6px 0 2px; position: relative; z-index: 1; overflow: hidden auto; }
 .preview-panel { grid-column: 2; grid-row: 1; border: 2px solid #292929; border-radius: 18px; background: #020202; min-width: 0; min-height: 0; width: 100%; height: 100%; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); place-items: stretch; position: relative; }
-.prompt-dock { grid-column: 1 / -1; grid-row: 2; position: relative; z-index: 0; min-height: 128px; }
+.prompt-dock { grid-column: 1 / -1; grid-row: 2; position: relative; z-index: 12; min-height: 128px; }
 .prompt-dock textarea { max-height: 180px; overflow: auto; }
 .control-stack { display: flex; flex-direction: column; gap: 12px; padding-top: 18px; }
 label { display: grid; gap: 10px; color: #5f5f5f; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; font-size: 18px; }
@@ -57,14 +68,18 @@ textarea::placeholder { color: #787878; }
 .prompt-label-text { display: inline-flex; align-items: center; min-height: 34px; color: #6a6a6a; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; font-size: 18px; white-space: nowrap; }
 .prompt-block > label, .prompt-block .secondary { display: none; }
 .discover-button { position: static; height: 34px; padding: 0 16px; border-radius: 10px; border: 2px solid #303030; display: inline-flex; align-items: center; color: #777; letter-spacing: 0; text-transform: none; font-size: 18px; background: #111; font-weight: 900; }
-.discover-button:hover { color: var(--acid); border-color: rgba(236,255,47,.35); }
-.discover-panel { position: absolute; left: 0; right: auto; bottom: calc(100% + 10px); width: min(980px, calc(100vw - 60px)); max-height: min(560px, 62vh); overflow: auto; background: #101010; border: 2px solid #303030; border-radius: 14px; padding: 14px; z-index: 260; display: grid; grid-template-columns: 292px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 12px; box-shadow: 0 24px 60px rgba(0,0,0,.55); }
-.discover-head { grid-column: 1 / -1; min-height: 34px; display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid #252525; padding-bottom: 10px; }
+.discover-button:hover { color: #050505; border-color: rgba(236,255,47,.8); background: var(--acid); box-shadow: 0 6px 18px rgba(236,255,47,.16); }
+.expand-button:hover { color: rgba(245,245,245,.96); border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.08); }
+.discover-panel { position: fixed; left: 20px; bottom: 206px; width: min(980px, calc(100vw - 40px)); max-height: min(560px, calc(100dvh - 250px)); overflow: auto; background: #101010; border: 2px solid #303030; border-radius: 14px; padding: 14px; z-index: 900; display: grid; grid-template-columns: 292px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 12px; box-shadow: 0 24px 60px rgba(0,0,0,.72); }
+.discover-head { grid-column: 1 / -1; min-height: 34px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #252525; padding-bottom: 10px; }
 .discover-head strong { color: var(--acid); font-size: 18px; }
-.discover-head span { color: #777; font-size: 14px; }
+.discover-head span { color: #777; font-size: 14px; flex: 1; }
+.discover-close { width: 34px; height: 34px; min-height: 34px; border-radius: 10px; background: rgba(255,255,255,.04); border: 1px solid #303030; color: #aaa; display: inline-grid; place-items: center; padding: 0; }
+.discover-close:hover { color: #ff8f8f; border-color: rgba(255,143,143,.45); background: rgba(70,12,12,.32); }
 .discover-groups { min-width: 0; display: grid; gap: 14px; align-content: start; }
 .discover-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 .discover-panel button { min-height: 88px; border-radius: 10px; background: #181818; border: 1px solid #303030; color: #d8d8d8; text-align: left; padding: 12px; display: grid; grid-template-columns: 20px 1fr; gap: 4px 8px; align-content: start; }
+.discover-panel button:hover { border-color: rgba(236,255,47,.45); background: #1d1d12; color: #f0f0f0; }
 .discover-panel small { grid-column: 2; color: #777; line-height: 1.35; max-height: 58px; overflow: hidden; }
 .discover-category { display: grid; gap: 8px; align-content: start; }
 .discover-category h3 { margin: 0; color: var(--acid); font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
@@ -76,6 +91,7 @@ textarea::placeholder { color: #787878; }
 .lora-button, .expand-button { height: 36px; border-radius: 10px; padding: 0 16px; border: 2px solid rgba(236,255,47,.35); background: #141408; color: var(--acid); font-weight: 900; font-size: 18px; display: inline-flex; align-items: center; gap: 8px; }
 .expand-button { color: #666; border-color: #2d2d2d; background: #111; }
 .generate { width: 100%; min-height: 64px; border-radius: 14px; background: var(--acid); color: #020202; font-size: 24px; font-weight: 950; display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-top: 0; position: relative; z-index: 0; }
+.generate:not(:disabled):hover { box-shadow: 0 10px 34px rgba(236,255,47,.22); filter: brightness(1.03); }
 .gen-spinner { width: 20px; height: 20px; border-radius: 999px; border: 3px solid rgba(2,2,2,.25); border-top-color: #020202; animation: loadingSpin .7s linear infinite; display: inline-block; }
 .hidden-file-input { display: none; }
 .preview-add-button { min-height: 56px; border-radius: 14px; padding: 0 24px; background: #141414; border: 2px solid rgba(236,255,47,.4); color: var(--acid); display: inline-flex; align-items: center; gap: 10px; font-weight: 900; font-size: 18px; }
@@ -1020,7 +1036,9 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
 .instruction-modal h2 { margin-top: 0; color: var(--acid); }
 .instruction-button { color: #cfcfcf; }
 .app-shell::after { content: none; }
-.workspace::after { content: "реализовал Аликин А. С."; position: fixed; right: 34px; bottom: 14px; color: #555; font-size: 16px; }
+.workspace::after { content: none; }
+.creator-credit { display: block; justify-self: end; margin-top: 4px; color: #555; font-size: 14px; line-height: 1.25; text-decoration: none; }
+.creator-credit:hover { color: var(--acid); text-decoration: underline; }
 @media (max-width: 1280px) {
   .rail { right: 460px; }
   .studio-grid { grid-template-columns: minmax(320px, 520px) minmax(420px, 1fr); }
@@ -1055,12 +1073,12 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .topbar { display: none; }
   .top-actions { display: none; }
   .rail { display: block; }
-  .studio-grid { height: auto; display: flex; flex-direction: column; padding-top: 10px; gap: 4px; }
+  .studio-grid { height: auto; display: flex; flex-direction: column; padding-top: 10px; gap: 8px; }
   .mobile-preview-inputs { order: 1; }
   .preview-panel { order: 2; width: 100%; height: auto; }
   .preview-panel.empty-preview { aspect-ratio: 16 / 9 !important; }
   .preview-panel.has-preview { aspect-ratio: auto; }
-  .prompt-dock { order: 3; width: 100%; min-height: 0; }
+  .prompt-dock { order: 3; width: 100%; min-height: 0; margin-top: 8px; }
   .control-panel { order: 4; width: 100%; min-height: 0; display: flex; flex-direction: column-reverse; gap: 10px; }
   .preview-panel { min-height: 0; overflow: hidden; border: 2px solid #292929; border-radius: 16px; background: #020202; display: grid; place-items: stretch; }
   .mobile-preview-inputs { position: static; z-index: 6; display: grid; gap: 6px; pointer-events: auto; padding: 0 2px 2px; }
@@ -1128,11 +1146,13 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .preview-panel .job-card.completed .result-actions { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; flex-wrap: nowrap; gap: 8px; padding: 0; }
   .preview-panel .job-card.completed .result-actions .secondary { min-height: 22px; height: 22px; padding: 0 9px; border-radius: 8px; border-color: rgba(255,255,255,.22); background: rgba(10,10,10,.58); color: rgba(235,235,235,.86); font-size: 12px; line-height: 1; backdrop-filter: blur(6px); }
   .preview-panel .job-card.completed .result-actions svg { width: 12px; height: 12px; }
-  .prompt-dock { display: block; z-index: 5; margin-top: -6px; }
+  .prompt-dock { display: block; z-index: 20; }
   .prompt-block { position: relative; gap: 0; }
-  .prompt-head { position: absolute; top: 8px; left: 10px; right: 10px; z-index: 2; min-height: 0; display: flex; align-items: center; justify-content: flex-end; gap: 6px; pointer-events: none; }
+  .prompt-head { position: absolute; top: 8px; left: 10px; right: 10px; z-index: 2; min-height: 0; display: flex; align-items: center; justify-content: center; gap: 8px; pointer-events: none; }
   .prompt-label-text { display: none; }
-  .discover-button, .expand-button { height: 22px; min-height: 22px; padding: 0 9px; border-radius: 8px; border-color: rgba(255,255,255,.14); background: rgba(10,10,10,.32); color: rgba(235,235,235,.72); font-size: 12px; line-height: 1; backdrop-filter: blur(6px); pointer-events: auto; }
+  .discover-button, .expand-button { height: 22px; min-height: 22px; padding: 0 10px; border-radius: 8px; border-color: rgba(255,255,255,.12); background: rgba(10,10,10,.22); color: rgba(235,235,235,.66); font-size: 12px; line-height: 1; backdrop-filter: blur(6px); pointer-events: auto; }
+  .discover-button { color: rgba(236,255,47,.76); border-color: rgba(236,255,47,.22); }
+  .discover-button:hover { color: #050505; background: var(--acid); border-color: var(--acid); }
   textarea { height: auto; min-height: 102px; max-height: none; padding: 36px 10px 8px; line-height: 1.35; overflow: hidden; }
   textarea::placeholder { color: rgba(180,180,180,.42); }
   .image-inputs, .canvas-layout, .paint-compact { grid-template-columns: 1fr; gap: 18px; }
@@ -1140,6 +1160,7 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .mode { width: 100%; min-height: 32px; max-width: none; justify-content: center; font-size: 13px; padding: 0 6px; }
   .mobile-modes { display: none; }
   .app-shell::after, .workspace::after { display: none; }
+  .creator-credit { justify-self: center; text-align: center; margin-top: 8px; font-size: 11px; color: rgba(160,160,160,.54); }
   .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; height: 68px; padding-bottom: env(safe-area-inset-bottom); background: #0b0b0b; border-top: 1px solid #282828; display: grid; grid-template-columns: repeat(5, 1fr); z-index: 100; }
   .bottom-nav button { background: transparent; color: #777; display: grid; place-items: center; align-content: center; gap: 3px; font-size: 12px; }
   .bottom-nav button.active { color: var(--acid); font-weight: 900; }
@@ -1190,7 +1211,7 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .gallery-modal { width: 100%; max-height: 94dvh; grid-template-columns: 1fr; gap: 12px; border-radius: 18px 18px 0 0; border-width: 2px 0 0; overflow: auto; }
   .gallery-modal-media img { max-height: 48dvh; }
   .gallery-modal-panel { overflow: visible; padding-right: 0; }
-  .discover-panel { width: calc(100vw - 28px); max-height: 66vh; grid-template-columns: 260px minmax(0, 1fr); z-index: 260; }
+  .discover-panel { left: 14px; right: 14px; bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 12px); width: auto; max-height: calc(100dvh - var(--bottom-nav-height) - 34px); grid-template-columns: 260px minmax(0, 1fr); z-index: 900; }
   .discover-cards { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
 }
 @keyframes loadingSpin {
@@ -1235,10 +1256,11 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .prompt-head { gap: 6px; }
   .prompt-label-text { min-height: 22px; font-size: 12px; letter-spacing: 1px; }
   .discover-button, .expand-button { height: 22px; min-height: 22px; font-size: 12px; padding: 0 9px; }
-  .discover-panel { position: fixed; left: 10px; right: 10px; bottom: 82px; width: auto; max-height: calc(100vh - 106px); padding: 10px; grid-template-columns: 1fr; grid-template-rows: auto auto auto; gap: 10px; z-index: 260; }
-  .discover-head { display: grid; gap: 2px; }
+  .discover-panel { position: fixed; left: 10px; right: 10px; bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 10px); width: auto; max-height: calc(100dvh - var(--bottom-nav-height) - 28px); padding: 10px; grid-template-columns: 1fr; grid-template-rows: auto auto auto; gap: 10px; z-index: 900; }
+  .discover-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; }
   .discover-head strong { font-size: 16px; }
-  .discover-head span { font-size: 12px; }
+  .discover-head span { font-size: 12px; grid-column: 1; }
+  .discover-close { grid-column: 2; grid-row: 1 / span 2; width: 38px; height: 38px; min-height: 38px; }
   .preset-create textarea { min-height: 86px; }
   .discover-cards { grid-template-columns: 1fr; }
   .discover-panel button { min-height: 78px; }

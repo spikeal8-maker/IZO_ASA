@@ -5,7 +5,7 @@
 // are ever requested or shown.
 import { useCallback, useEffect, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactElement } from 'react'
-import { APP_BUILD_LABEL } from './diag'
+import { APP_BUILD_LABEL } from './diagMeta'
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 const MODE = (import.meta as ImportMeta & { env?: { MODE?: string } }).env?.MODE || 'unknown'

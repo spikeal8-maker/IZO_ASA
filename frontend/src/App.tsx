@@ -14,7 +14,8 @@ import {
   verifyEmailLinkCodeV2,
   type MeV2,
 } from './authV2'
-import { DiagPanel, isDiagMode } from './diag'
+import { DiagPanel } from './diag'
+import { isDiagMode } from './diagMeta'
 import {
   EDIT_SLOT_COUNT, DEFAULT_EDIT_STRENGTH, EDIT_REFERENCE_ROLES, EDIT_REFERENCE_ROLE_LABELS,
   EDIT_TEMPLATES, editComposerStatus,
@@ -478,6 +479,24 @@ const workflowPresets: Preset[] = [
   { id: 'face-02', ru: 'Лицо в новом образе', en: 'Face in new style', mode: 'faceswap', category: 'Лицо → Изо', prompt: 'Используй изображение 1 как лицо-референс. Используй изображение 2 как образ, стиль или сцену. Создай портрет: «опишите образ: фэнтези, киберпанк, luxury, космос, древний храм, кинематографичный персонаж». Сохрани узнаваемые черты лица, естественный возраст, выражение и пропорции. Все декоративные элементы должны быть абстрактными и нечитаемыми.' },
 ]
 
+type PromptKey = Mode | `paint:${PaintTool}`
+
+function promptKeyFor(mode: Mode, paintTool: PaintTool): PromptKey {
+  return mode === 'paint' ? `paint:${paintTool}` : mode
+}
+
+function randomPromptFromPresets(presets: Preset[], fallback = '') {
+  if (!presets.length) return fallback
+  return presets[Math.floor(Math.random() * presets.length)]?.prompt || fallback
+}
+
+function presetsForPromptKey(presets: Preset[], key: PromptKey) {
+  if (key === 'paint:sketch') return presets.filter((item) => item.mode === 'paint')
+  if (key === 'paint:inpaint') return presets.filter((item) => item.mode === 'inpaint')
+  if (key === 'paint:outpaint') return presets.filter((item) => item.mode === 'outpaint')
+  return presets.filter((item) => item.mode === key)
+}
+
 const fallbackLoraOptions: LoraOption[] = [
   { id: 'none', label: 'None', triggerWord: '', strength: 0 },
   { id: 'lora_arcane', label: 'arcane style · 0.8', triggerWord: 'arcane style', strength: 0.8 },
@@ -523,7 +542,9 @@ function App() {
   const [tab, setTab] = useState<Tab>('studio')
   const [pathName, setPathName] = useState(() => window.location.pathname)
   const [provider, setProvider] = useState('comfyui')
-  const [prompt, setPrompt] = useState(workflowPresets.find((item) => item.mode === 'text_to_image')?.prompt || '')
+  const [promptByMode, setPromptByMode] = useState<Record<string, string>>(() => ({
+    text_to_image: randomPromptFromPresets(workflowPresets.filter((item) => item.mode === 'text_to_image'), workflowPresets.find((item) => item.mode === 'text_to_image')?.prompt || ''),
+  }))
   const [negativePrompt, setNegativePrompt] = useState(DEFAULT_NEG_PROMPT)
   const [seed, setSeed] = useState(0)
   const [width, setWidth] = useState(1024)
@@ -561,6 +582,7 @@ function App() {
   // Single-flight guard для Generate: синхронный ref блокирует повторные клики/хоткеи/
   // double-tap до того, как React-state успеет обновиться. isSubmitting — для UI.
   const generateInFlightRef = useRef(false)
+  const generateRef = useRef<(() => Promise<void>) | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
@@ -578,38 +600,46 @@ function App() {
   const canvasRef = useRef<KonvaStage>(null)
   const copy = t[lang]
   const SESSION_KEY = 'izo_asa_session'
+  const sessionRestoredRef = useRef(false)
   const [profileLanguageLoaded, setProfileLanguageLoaded] = useState(false)
 
   useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem(SESSION_KEY)
-      if (!saved) return
-      const s = JSON.parse(saved)
-      if (s.prompt !== undefined) setPrompt(s.prompt)
-      if (s.negativePrompt !== undefined) setNegativePrompt(s.negativePrompt)
-      if (s.mode) setMode(s.mode)
-      if (s.seed !== undefined) setSeed(s.seed)
-      if (s.width) setWidth(s.width)
-      if (s.height) setHeight(s.height)
-      if (s.steps) setSteps(s.steps)
-      if (s.cfg !== undefined) setCfg(s.cfg)
-      if (s.strength !== undefined) setStrength(s.strength)
-      if (s.selectedLora !== undefined) setSelectedLora(s.selectedLora)
-      if (s.modelProfile) setModelProfile(s.modelProfile)
-      if (s.provider) setProvider(s.provider)
-      if (s.paintTool) setPaintTool(s.paintTool)
-      if (['studio', 'gallery', 'presets', 'settings'].includes(s.tab)) setTab(s.tab)
-      if (s.sampler) setSampler(s.sampler)
-      if (s.lang) setLang(s.lang)
-    } catch { /* ignore */ }
+    const saved = sessionStorage.getItem(SESSION_KEY)
+    queueMicrotask(() => {
+      try {
+        if (!saved) return
+        const s = JSON.parse(saved)
+        if (s.promptByMode && typeof s.promptByMode === 'object') setPromptByMode(s.promptByMode)
+        else if (s.prompt !== undefined) setPromptByMode((current) => ({ ...current, text_to_image: s.prompt }))
+        if (s.negativePrompt !== undefined) setNegativePrompt(s.negativePrompt)
+        if (s.mode) setMode(s.mode)
+        if (s.seed !== undefined) setSeed(s.seed)
+        if (s.width) setWidth(s.width)
+        if (s.height) setHeight(s.height)
+        if (s.steps) setSteps(s.steps)
+        if (s.cfg !== undefined) setCfg(s.cfg)
+        if (s.strength !== undefined) setStrength(s.strength)
+        if (s.selectedLora !== undefined) setSelectedLora(s.selectedLora)
+        if (s.modelProfile) setModelProfile(s.modelProfile)
+        if (s.provider) setProvider(s.provider)
+        if (s.paintTool) setPaintTool(s.paintTool)
+        if (['studio', 'gallery', 'presets', 'settings'].includes(s.tab)) setTab(s.tab)
+        if (s.sampler) setSampler(s.sampler)
+        if (s.lang) setLang(s.lang)
+      } catch { /* ignore */ }
+      finally {
+        sessionRestoredRef.current = true
+      }
+    })
   }, [])
 
   useEffect(() => {
+    if (!sessionRestoredRef.current) return
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      prompt, negativePrompt, mode, seed, width, height, steps, cfg, strength,
+      promptByMode, negativePrompt, mode, seed, width, height, steps, cfg, strength,
       selectedLora, modelProfile, provider, paintTool, tab, sampler, lang,
     }))
-  }, [prompt, negativePrompt, mode, seed, width, height, steps, cfg, strength, selectedLora, modelProfile, provider, paintTool, tab, sampler, lang])
+  }, [promptByMode, negativePrompt, mode, seed, width, height, steps, cfg, strength, selectedLora, modelProfile, provider, paintTool, tab, sampler, lang])
 
   // Trusted auth-v2 state (cookie session). The ONLY source for the generation lock.
   const { status: authV2Status, me: authMe } = useAuthV2()
@@ -637,8 +667,10 @@ function App() {
   useEffect(() => {
     const profileLang = authMe?.profile?.language_code
     if (!profileLanguageLoaded && (profileLang === 'ru' || profileLang === 'en')) {
-      setLang(profileLang)
-      setProfileLanguageLoaded(true)
+      queueMicrotask(() => {
+        setLang(profileLang)
+        setProfileLanguageLoaded(true)
+      })
     }
   }, [authMe?.profile?.language_code, profileLanguageLoaded])
 
@@ -674,7 +706,15 @@ function App() {
   const activeMode = modes.find((item) => item.id === mode)!
   const cloudLimited = provider === 'openrouter'
   const actualMode: Mode = mode === 'paint' && paintTool !== 'sketch' ? paintTool : mode
-  const allPresets = [...workflowPresets, ...userPresets]
+  const allPresets = useMemo(() => [...workflowPresets, ...userPresets], [userPresets])
+  const promptKey = promptKeyFor(mode, paintTool)
+  const prompt = promptByMode[promptKey] ?? ''
+  const setPrompt = useCallback((value: string) => {
+    setPromptByMode((current) => ({ ...current, [promptKey]: value }))
+  }, [promptKey])
+  const setPromptForKey = useCallback((key: PromptKey, value: string) => {
+    setPromptByMode((current) => ({ ...current, [key]: value }))
+  }, [])
   const loraOptions = useMemo<LoraOption[]>(() => {
     const found = (modelsPayload?.loras || []).filter((item) => item && item !== 'none')
     if (!found.length) return fallbackLoraOptions
@@ -693,6 +733,20 @@ function App() {
     }
     return item.mode === mode
   })
+
+  useEffect(() => {
+    if (promptByMode[promptKey] !== undefined) return
+    const fallbackPresets = presetsForPromptKey(allPresets, promptKey)
+    queueMicrotask(() => {
+      setPromptByMode((current) => {
+        if (current[promptKey] !== undefined) return current
+        return {
+          ...current,
+          [promptKey]: promptKey === 'edit' ? '' : randomPromptFromPresets(fallbackPresets, ''),
+        }
+      })
+    })
+  }, [allPresets, promptByMode, promptKey])
 
   const fetchGallery = useCallback(async () => {
     // /api/gallery returns 401 (JSON {detail}) when unauthenticated; only ever
@@ -903,6 +957,9 @@ function App() {
       setIsSubmitting(false)
     }
   }
+  useEffect(() => {
+    generateRef.current = generate
+  })
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -934,7 +991,7 @@ function App() {
       if (event.code === 'Space' && canGenerate && !isSubmitting && !generateInFlightRef.current && !jobIsActive(job?.status)) {
         event.preventDefault()
         if (event.repeat) return
-        void generate()
+        void generateRef.current?.()
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -948,6 +1005,8 @@ function App() {
   }
 
   function applyPreset(preset: Preset) {
+    const nextMode = (preset.mode === 'inpaint' || preset.mode === 'outpaint') ? 'paint' : preset.mode as Mode
+    const nextPaintTool = preset.mode === 'inpaint' || preset.mode === 'outpaint' ? preset.mode : preset.mode === 'paint' ? 'sketch' : paintTool
     if (preset.mode === 'inpaint' || preset.mode === 'outpaint') {
       setMode('paint')
       setPaintTool(preset.mode)
@@ -955,7 +1014,7 @@ function App() {
       setMode(preset.mode as Mode)
       if (preset.mode === 'paint') setPaintTool('sketch')
     }
-    setPrompt(preset.prompt)
+    setPromptForKey(promptKeyFor(nextMode, nextPaintTool), preset.prompt)
     setDiscoverOpen(false)
     setTab('studio')
   }
@@ -966,11 +1025,12 @@ function App() {
     setDiscoverOpen(false)
     if (nextMode === 'faceswap' && selectedLora === 'none' && faceLora) setSelectedLora(faceLora.id)
     if (nextMode === 'paint') setPaintTool('sketch')
-    // Edit: «Дополнительное пожелание» необязательное — оставляем пустым, чтобы был виден
-    // placeholder, а задачу собирает Prompt Composer из ролей.
-    if (nextMode === 'edit') { setPrompt(''); return }
-    const defaultPreset = allPresets.find((item) => item.mode === (nextMode === 'paint' ? 'paint' : nextMode))
-    if (defaultPreset) setPrompt(defaultPreset.prompt)
+    const nextKey = promptKeyFor(nextMode, nextMode === 'paint' ? 'sketch' : paintTool)
+    setPromptByMode((current) => {
+      if (current[nextKey] !== undefined) return current
+      const fallbackPresets = presetsForPromptKey(allPresets, nextKey)
+      return { ...current, [nextKey]: nextKey === 'edit' ? '' : randomPromptFromPresets(fallbackPresets, '') }
+    })
   }
 
   function addUserPreset(name: string, presetPrompt: string) {
@@ -1106,7 +1166,7 @@ function App() {
     } else {
       if (slot === 1) setInputOne(image.url)
       if (slot === 2) setInputTwo(image.url)
-      setPrompt(image.promptOriginal)
+      setPromptForKey(promptKeyFor(normalizedTarget, target === 'inpaint' || target === 'outpaint' ? target : paintTool), image.promptOriginal)
     }
   }
 
@@ -1171,7 +1231,7 @@ function App() {
       <div className="mobile-input-row primary">
         <button className="mobile-thumb" onClick={() => upload(setInputOne)}>{inputOne ? <img src={inputOne} /> : <><ImageIcon size={22} /><span>Добавить</span></>}</button>
         <div className="mobile-input-actions">
-          {mode === 'paint' && <div className="mobile-paint-actions"><button onClick={() => { setPaintTool('sketch'); setPrompt(workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || ''); setPaintEditor('sketch') }}><strong>Эскиз</strong><span>Рисование на чистом холсте</span></button><button onClick={() => { setPaintTool('inpaint'); setPrompt(workflowPresets.find((item) => item.id === 'mask-01')?.prompt || ''); setPaintEditor('mask') }}><strong>Маска / расширение</strong><span>Закрасить область или расширить изображение</span></button></div>}
+          {mode === 'paint' && <div className="mobile-paint-actions"><button onClick={() => { setPaintTool('sketch'); setPromptForKey('paint:sketch', workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || ''); setPaintEditor('sketch') }}><strong>Эскиз</strong><span>Рисование на чистом холсте</span></button><button onClick={() => { setPaintTool('inpaint'); setPromptForKey('paint:inpaint', workflowPresets.find((item) => item.id === 'mask-01')?.prompt || ''); setPaintEditor('mask') }}><strong>Маска / расширение</strong><span>Закрасить область или расширить изображение</span></button></div>}
           <button onClick={() => upload(setInputOne)}>Файл</button>
           <button onClick={openGallery}>Галерея</button>
           <button className="take-this-button" disabled={!canUsePreviewAsInput && gallery.length === 0} onClick={() => job?.resultUrl ? setInputOne(job.resultUrl) : applyLastImage(1)}><span>Взять это</span><span>↓</span></button>
@@ -1292,6 +1352,7 @@ function App() {
                 drawingRef={drawingRef}
                 canvasRef={canvasRef}
                 setPrompt={setPrompt}
+                setPromptForKey={setPromptForKey}
                 setPaintEditor={setPaintEditor}
               />
               )}
@@ -1341,9 +1402,10 @@ function App() {
                     onDiscover={() => setDiscoverOpen(!discoverOpen)}
                     randomPrompt={randomPrompt}
                   />
-                  {discoverOpen && <DiscoverPanel lang={lang} mode={mode} presets={visiblePresets} applyPreset={applyPreset} addUserPreset={addUserPreset} currentPrompt={prompt} />}
+                  {discoverOpen && <DiscoverPanel lang={lang} mode={mode} presets={visiblePresets} applyPreset={applyPreset} addUserPreset={addUserPreset} currentPrompt={prompt} onClose={() => setDiscoverOpen(false)} />}
                 </>
               )}
+              <a className="creator-credit" href="https://vk.com/spikeal.site" target="_blank" rel="noreferrer">ИЗО АСА — ИИ генератор реализовал Аликин АС.</a>
             </section>
           </div>
         )}
@@ -1395,6 +1457,7 @@ function App() {
             drawingRef={drawingRef}
             canvasRef={canvasRef}
             setPrompt={setPrompt}
+            setPromptForKey={setPromptForKey}
             setCanvasSnapshot={setCanvasSnapshot}
           />
         )}
@@ -1450,22 +1513,23 @@ type ModeWorkspaceProps = {
   drawingRef: MutableRefObject<boolean>
   canvasRef: MutableRefObject<KonvaStage | null>
   setPrompt: (value: string) => void
+  setPromptForKey: (key: PromptKey, value: string) => void
   setPaintEditor: (value: PaintEditor) => void
 }
 
 function ModeWorkspace(props: ModeWorkspaceProps) {
-  const { mode, paintTool, setPaintTool, copy, inputOne, inputTwo, setInputOne, setInputTwo, upload, applyLastImage, setPrompt, setPaintEditor } = props
+  const { mode, paintTool, setPaintTool, copy, inputOne, inputTwo, setInputOne, setInputTwo, upload, applyLastImage, setPromptForKey, setPaintEditor } = props
   if (mode === 'paint') {
     const sketchPrompt = workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || ''
     const maskPrompt = workflowPresets.find((item) => item.id === 'mask-01')?.prompt || ''
     function openSketch() {
       setPaintTool('sketch')
-      setPrompt(sketchPrompt)
+      setPromptForKey('paint:sketch', sketchPrompt)
       setPaintEditor('sketch')
     }
     function openMask() {
       setPaintTool('inpaint')
-      setPrompt(maskPrompt)
+      setPromptForKey('paint:inpaint', maskPrompt)
       setPaintEditor('mask')
     }
     return <div className="paint-compact"><ImageBox title="ИЗО" image={inputOne} onUpload={() => upload(setInputOne)} onClear={() => setInputOne(undefined)} onUseLast={() => applyLastImage(1)} copy={copy} /><div className="paint-choice-stack"><button className={paintTool === 'sketch' ? 'paint-choice active' : 'paint-choice'} onClick={openSketch}><strong>Эскиз</strong><span>Рисование на чистом холсте</span></button><button className={paintTool !== 'sketch' ? 'paint-choice active' : 'paint-choice'} onClick={openMask}><strong>Маска / Расширение</strong><span>Закрасить область или расширить изображение</span></button></div></div>
@@ -1656,9 +1720,10 @@ function PaintEditorModal(props: {
   drawingRef: MutableRefObject<boolean>
   canvasRef: MutableRefObject<KonvaStage | null>
   setPrompt: (value: string) => void
+  setPromptForKey: (key: PromptKey, value: string) => void
   setCanvasSnapshot: (value?: string) => void
 }) {
-  const { editor, paintTool, setPaintTool, onClose, copy, inputOne, setInputOne, upload, paintLines, setPaintLines, maskLines, setMaskLines, tool, setTool, brushSize, setBrushSize, paintColor, setPaintColor, layerOpacity, setLayerOpacity, outpaint, setOutpaint, drawingRef, canvasRef, setPrompt, setCanvasSnapshot } = props
+  const { editor, paintTool, setPaintTool, onClose, copy, inputOne, setInputOne, upload, paintLines, setPaintLines, maskLines, setMaskLines, tool, setTool, brushSize, setBrushSize, paintColor, setPaintColor, layerOpacity, setLayerOpacity, outpaint, setOutpaint, drawingRef, canvasRef, setPromptForKey, setCanvasSnapshot } = props
   const isSketch = editor === 'sketch'
   const isOutpaint = paintTool === 'outpaint'
   const activeLines = isSketch ? paintLines : maskLines
@@ -1745,13 +1810,13 @@ function PaintEditorModal(props: {
       setCanvasSnapshot(dataUrl)
       if (dataUrl) setInputOne(dataUrl)
       setPaintTool('sketch')
-      setPrompt(workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || '')
+      setPromptForKey('paint:sketch', workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || '')
     } else if (paintTool === 'outpaint') {
       setCanvasSnapshot(await createImageMask(inputOne, activeLines, stageSize))
-      setPrompt(workflowPresets.find((item) => item.id === 'outpaint-01')?.prompt || '')
+      setPromptForKey('paint:outpaint', workflowPresets.find((item) => item.id === 'outpaint-01')?.prompt || '')
     } else {
       setCanvasSnapshot(await createImageMask(inputOne, activeLines, stageSize))
-      setPrompt(workflowPresets.find((item) => item.id === 'mask-01')?.prompt || '')
+      setPromptForKey('paint:inpaint', workflowPresets.find((item) => item.id === 'mask-01')?.prompt || '')
     }
     onClose()
   }
@@ -1782,7 +1847,7 @@ function PaintEditorModal(props: {
     })
   }
   return <div className="paint-editor-backdrop"><section className={isSketch ? 'paint-editor sketch-editor' : 'paint-editor mask-editor'}>
-    {isSketch ? <div className="paint-editor-top"><div className="canvas-size-bar"><strong>ХОЛСТ</strong><input type="number" value={canvasDraft.width} onChange={(e) => setCanvasDraft({ ...canvasDraft, width: Number(e.target.value) })} /><span>⇆</span><input type="number" value={canvasDraft.height} onChange={(e) => setCanvasDraft({ ...canvasDraft, height: Number(e.target.value) })} /><button onClick={applyCanvasTarget}>Применить</button><button className="editor-close" onClick={onClose} aria-label="Закрыть"><X size={18} /></button></div><div className="editor-zoom"><button>-</button><button>Вписать</button><button>+</button></div><button className="secondary" onClick={() => setActiveLines((lines) => lines.slice(0, -1))}><RotateCcw size={16} />Назад</button><button className="secondary" onClick={() => setActiveLines([])}>Очистить</button><button className="save-sketch" onClick={applyEditor}>Сохранить</button></div> : <div className="paint-editor-top mask-top"><button className={paintTool === 'inpaint' ? 'active' : ''} onClick={() => { setPaintTool('inpaint'); setPrompt(workflowPresets.find((item) => item.id === 'mask-01')?.prompt || '') }}>Закрасить область</button><button className={paintTool === 'outpaint' ? 'active' : ''} onClick={() => { setPaintTool('outpaint'); setPrompt(workflowPresets.find((item) => item.id === 'outpaint-01')?.prompt || '') }}>Расширить изображение</button><button onClick={() => upload(setInputOne)}>Загрузить</button><button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>● Кисть</button><button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>○ Ластик</button><label>Размер<input type="range" min="2" max="60" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} /></label><output>{brushSize}</output><label>Жест.<input type="range" min="0" max="100" value="100" readOnly /></label><output>100</output><button onClick={() => setActiveLines((lines) => lines.slice(0, -1))}>↩ Назад</button><button onClick={() => setActiveLines([])}>× Сбросить маску</button><button className="save-sketch" onClick={applyEditor}>Применить</button><button className="secondary" onClick={onClose}>Отмена</button></div>}
+    {isSketch ? <div className="paint-editor-top"><div className="canvas-size-bar"><strong>ХОЛСТ</strong><input type="number" value={canvasDraft.width} onChange={(e) => setCanvasDraft({ ...canvasDraft, width: Number(e.target.value) })} /><span>⇆</span><input type="number" value={canvasDraft.height} onChange={(e) => setCanvasDraft({ ...canvasDraft, height: Number(e.target.value) })} /><button onClick={applyCanvasTarget}>Применить</button><button className="editor-close" onClick={onClose} aria-label="Закрыть"><X size={18} /></button></div><div className="editor-zoom"><button>-</button><button>Вписать</button><button>+</button></div><button className="secondary" onClick={() => setActiveLines((lines) => lines.slice(0, -1))}><RotateCcw size={16} />Назад</button><button className="secondary" onClick={() => setActiveLines([])}>Очистить</button><button className="save-sketch" onClick={applyEditor}>Сохранить</button></div> : <div className="paint-editor-top mask-top"><button className={paintTool === 'inpaint' ? 'active' : ''} onClick={() => { setPaintTool('inpaint'); setPromptForKey('paint:inpaint', workflowPresets.find((item) => item.id === 'mask-01')?.prompt || '') }}>Закрасить область</button><button className={paintTool === 'outpaint' ? 'active' : ''} onClick={() => { setPaintTool('outpaint'); setPromptForKey('paint:outpaint', workflowPresets.find((item) => item.id === 'outpaint-01')?.prompt || '') }}>Расширить изображение</button><button onClick={() => upload(setInputOne)}>Загрузить</button><button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>● Кисть</button><button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>○ Ластик</button><label>Размер<input type="range" min="2" max="60" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} /></label><output>{brushSize}</output><label>Жест.<input type="range" min="0" max="100" value="100" readOnly /></label><output>100</output><button onClick={() => setActiveLines((lines) => lines.slice(0, -1))}>↩ Назад</button><button onClick={() => setActiveLines([])}>× Сбросить маску</button><button className="save-sketch" onClick={applyEditor}>Применить</button><button className="secondary" onClick={onClose}>Отмена</button></div>}
     {isSketch ? <div className="sketch-body"><aside className="sketch-tools"><strong>РИСОВАНИЕ</strong><div className="tool-pair"><button className={tool === 'brush' && drawMode === 'free' ? 'active' : ''} onClick={() => { setTool('brush'); setDrawMode('free') }}><Brush size={16} />КИСТЬ</button><button className={tool === 'eraser' ? 'active' : ''} onClick={() => { setTool('eraser'); setDrawMode('free') }}><Eraser size={16} />ЛАСТИК</button></div><strong>КИСТЬ</strong><label>РАЗМЕР<input type="range" min="2" max="48" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} /></label><label>ЖЕСТКОСТЬ<input type="range" min="0" max="100" value="100" readOnly /></label><strong>ЦВЕТ</strong><input type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /><strong>ФИГУРЫ</strong><div className="shape-grid"><button className={drawMode === 'circle' ? 'active' : ''} onClick={() => { setTool('brush'); setDrawMode('circle') }}>○ КРУГ</button><button className={drawMode === 'rect' ? 'active' : ''} onClick={() => { setTool('brush'); setDrawMode('rect') }}>□ ПРЯМ.</button><button className={!fillShape ? 'active' : ''} onClick={() => setFillShape(false)}>Контур</button><button className={fillShape ? 'active' : ''} onClick={() => setFillShape(true)}>Заливка</button></div><button className={drawMode === 'move' ? 'transform-button active' : 'transform-button'} onClick={moveLastItem}>✣ ПЕРЕМЕСТИТЬ</button></aside><div ref={stageWrapRef} className="editor-stage-wrap"><Stage ref={canvasRef} width={stageSize.width} height={stageSize.height} className="konva-stage editor-stage" onMouseDown={(e) => startLine(e.target.getStage() || null)} onMouseMove={(e) => extendLine(e.target.getStage() || null)} onMouseUp={stopLine} onMouseLeave={stopLine} onTouchStart={(e) => { e.evt.preventDefault(); startLine(e.target.getStage() || null) }} onTouchMove={(e) => { e.evt.preventDefault(); extendLine(e.target.getStage() || null) }} onTouchEnd={stopLine}><Layer opacity={layerOpacity}><Rect x={0} y={0} width={stageSize.width} height={stageSize.height} fill="#fff" />{activeLines.length === 0 && <Text text="Рисуйте на холсте" x={Math.max(18, stageSize.width / 2 - 92)} y={Math.max(80, stageSize.height / 2 - 12)} fill="#777" fontSize={Math.min(20, Math.max(14, stageSize.width / 24))} fontStyle="bold" />}{activeLines.map(renderPaintItem)}</Layer></Stage></div><aside className="editor-layers"><strong>СЛОИ</strong><button>＋</button><label>{copy.opacity}<input type="range" min="0.2" max="1" step="0.05" value={layerOpacity} onChange={(e) => setLayerOpacity(Number(e.target.value))} /></label></aside></div> : <div className="mask-body">{inputOne ? <div className="mask-upload mask-image-layer"><div className="mask-image-bg" style={{ backgroundImage: `url(${inputOne})` }} /></div> : <button className="mask-upload" onClick={() => upload(setInputOne)}><span>↥</span><strong>Перетащите изображение или нажмите для загрузки</strong></button>}{isOutpaint && <div className="outpaint-inline"><strong>{copy.finalSize}: {stageSize.width + outpaint.left + outpaint.right} × {stageSize.height + outpaint.top + outpaint.bottom}</strong><label>Слева<input value={outpaint.left} onChange={(e) => updateOutpaint('left', Number(e.target.value))} /></label><label>Справа<input value={outpaint.right} onChange={(e) => updateOutpaint('right', Number(e.target.value))} /></label><label>Сверху<input value={outpaint.top} onChange={(e) => updateOutpaint('top', Number(e.target.value))} /></label><label>Снизу<input value={outpaint.bottom} onChange={(e) => updateOutpaint('bottom', Number(e.target.value))} /></label></div>}<div ref={stageWrapRef} className="mask-stage-wrap"><Stage ref={canvasRef} width={stageSize.width} height={stageSize.height} className="konva-stage mask-stage" onMouseDown={(e) => startLine(e.target.getStage() || null)} onMouseMove={(e) => extendLine(e.target.getStage() || null)} onMouseUp={stopLine} onMouseLeave={stopLine} onTouchStart={(e) => { e.evt.preventDefault(); startLine(e.target.getStage() || null) }} onTouchMove={(e) => { e.evt.preventDefault(); extendLine(e.target.getStage() || null) }} onTouchEnd={stopLine}><Layer><Rect x={0} y={0} width={stageSize.width} height={stageSize.height} fill="rgba(0,0,0,0)" />{activeLines.map(renderPaintItem)}</Layer></Stage></div></div>}
   </section></div>
 }
@@ -2060,7 +2125,7 @@ function GalleryView({ copy, images, quota, selected, setSelected, handleUseImag
   )
 }
 
-function DiscoverPanel({ lang, presets: panelPresets, applyPreset, addUserPreset, currentPrompt }: { lang: Lang; mode: Mode; presets: Preset[]; applyPreset: (preset: Preset) => void; addUserPreset: (name: string, presetPrompt: string) => void; currentPrompt: string }) {
+function DiscoverPanel({ lang, presets: panelPresets, applyPreset, addUserPreset, currentPrompt, onClose }: { lang: Lang; mode: Mode; presets: Preset[]; applyPreset: (preset: Preset) => void; addUserPreset: (name: string, presetPrompt: string) => void; currentPrompt: string; onClose: () => void }) {
   const [name, setName] = useState('')
   const [presetPrompt, setPresetPrompt] = useState(currentPrompt)
   const groups = panelPresets.reduce<Record<string, Preset[]>>((acc, preset) => {
@@ -2068,7 +2133,7 @@ function DiscoverPanel({ lang, presets: panelPresets, applyPreset, addUserPreset
     acc[key] = [...(acc[key] || []), preset]
     return acc
   }, {})
-  return <div className="discover-panel"><div className="discover-head"><strong>Шаблоны</strong><span>Выберите готовый запрос или сохраните свой</span></div><div className="preset-create"><strong>Добавить свой шаблон</strong><input placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} /><textarea placeholder="Текст запроса" value={presetPrompt} onChange={(e) => setPresetPrompt(e.target.value)} /><button onClick={() => { if (name.trim() && presetPrompt.trim()) { addUserPreset(name.trim(), presetPrompt.trim()); setName(''); setPresetPrompt('') } }}>Сохранить</button></div><div className="discover-groups">{Object.entries(groups).map(([category, items]) => <section className="discover-category" key={category}><h3>{categoryTitle(category, lang)}</h3><div className="discover-cards">{items.map((preset) => <button key={preset.id} onClick={() => applyPreset(preset)}><Sparkles size={16} /><span>{preset[lang]}{preset.dual ? ' · 2 IMG' : ''}</span><small>{preset.prompt.slice(0, 120)}</small></button>)}</div></section>)}</div></div>
+  return <div className="discover-panel"><div className="discover-head"><strong>Шаблоны</strong><span>Выберите готовый запрос или сохраните свой</span><button type="button" className="discover-close" onClick={onClose} aria-label="Закрыть шаблоны"><X size={18} /></button></div><div className="preset-create"><strong>Добавить свой шаблон</strong><input placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} /><textarea placeholder="Текст запроса" value={presetPrompt} onChange={(e) => setPresetPrompt(e.target.value)} /><button onClick={() => { if (name.trim() && presetPrompt.trim()) { addUserPreset(name.trim(), presetPrompt.trim()); setName(''); setPresetPrompt('') } }}>Сохранить</button></div><div className="discover-groups">{Object.entries(groups).map(([category, items]) => <section className="discover-category" key={category}><h3>{categoryTitle(category, lang)}</h3><div className="discover-cards">{items.map((preset) => <button key={preset.id} onClick={() => applyPreset(preset)}><Sparkles size={16} /><span>{preset[lang]}{preset.dual ? ' · 2 IMG' : ''}</span><small>{preset.prompt.slice(0, 120)}</small></button>)}</div></section>)}</div></div>
 }
 
 function HelpView({ lang, applyPreset, copy, backToStudio }: { lang: Lang; applyPreset: (preset: Preset) => void; copy: Copy; backToStudio: () => void }) {
@@ -2139,12 +2204,14 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
   const [linkBusy, setLinkBusy] = useState(false)
   const friendPromoCode = `FRIEND-${String(authMe?.profile?.public_user_code || user.id || 'GUEST').replace(/^web_/, '').toUpperCase().slice(0, 12)}`
   void openAdmin // prop accepted for call-site compatibility
-  useEffect(() => { setDisplayName(authMe?.profile?.display_name || '') }, [authMe?.profile?.display_name])
-  useEffect(() => { setViewedPlan(plan) }, [plan])
+  useEffect(() => { queueMicrotask(() => setDisplayName(authMe?.profile?.display_name || '')) }, [authMe?.profile?.display_name])
+  useEffect(() => { queueMicrotask(() => setViewedPlan(plan)) }, [plan])
   useEffect(() => {
-    setAvatarUrl(authMe?.profile?.avatar_url || avatarPresets[0].url)
-    setAvatarPreset(authMe?.profile?.avatar_preset || '')
-    setAvatarMsg('')
+    queueMicrotask(() => {
+      setAvatarUrl(authMe?.profile?.avatar_url || avatarPresets[0].url)
+      setAvatarPreset(authMe?.profile?.avatar_preset || '')
+      setAvatarMsg('')
+    })
   }, [authMe?.profile?.avatar_url, authMe?.profile?.avatar_preset])
   useEffect(() => {
     let active = true
@@ -2632,7 +2699,7 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, m
   const generationErrors = Number(admin?.errors ?? 0)
   const health = generationErrors === 0 ? 'Стабильно' : `Ошибки генерации: ${generationErrors}`
   const adminFinance = (admin?.finance || {}) as Record<string, number>
-  useEffect(() => { setTariffConfig(tariffs) }, [tariffs])
+  useEffect(() => { queueMicrotask(() => setTariffConfig(tariffs)) }, [tariffs])
   async function saveLimits() {
     const result = await apiFetch('/admin/limits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(limits) }).then((r) => r.json())
     setSaved(JSON.stringify(result.rateLimits))
@@ -2650,7 +2717,7 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, m
       setTariffs(normalized)
     }
   }, [setTariffs])
-  useEffect(() => { if (tab === 'tokens') void refreshTokenAdminData() }, [tab, refreshTokenAdminData])
+  useEffect(() => { if (tab === 'tokens') queueMicrotask(() => { void refreshTokenAdminData() }) }, [tab, refreshTokenAdminData])
   useEffect(() => {
     if (tab !== 'logs') return
     void apiFetch('/admin/logs-v2').then((r) => (r.ok ? r.json() : null)).then(setLogsData).catch(() => setLogsData(null))

@@ -1,4 +1,5 @@
 // Identity/Auth v2 frontend layer (Phase 13: HttpOnly cookie sessions).
+/* eslint-disable react-refresh/only-export-components -- This module intentionally exports cookie-auth helpers and the auth UI; splitting it is a separate refactor. */
 //
 // Trust model:
 // - The trusted session lives in HttpOnly cookies set by the backend on login.
@@ -13,7 +14,7 @@
 // Reload persistence: because the session is a cookie, a page reload keeps the
 // user logged in — startup re-validates via GET /api/me-v2 (and an Option-A
 // cookie refresh on 401).
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import { Lock, X } from 'lucide-react'
@@ -620,6 +621,11 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     max_bot_login_available: false,
     capabilities_loaded: undefined,
   })
+  const handleClose = useCallback(() => {
+    setPhase('form'); setCode(''); setChallengeId(''); setDebugCode(undefined); setResendIn(0); setError('')
+    setBotProvider(''); setBotDeepLink(''); setBotPollMs(2000)
+    onClose()
+  }, [onClose])
 
   useEffect(() => {
     if (!open) return
@@ -650,7 +656,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
 
   useEffect(() => {
     if (tab === 'register' && authCaps.password_register_available === false) {
-      setTab('login')
+      queueMicrotask(() => setTab('login'))
     }
   }, [tab, authCaps.password_register_available])
 
@@ -682,7 +688,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
       stopped = true
       window.clearInterval(timer)
     }
-  }, [open, phase, botPollMs])
+  }, [open, phase, botPollMs, handleClose])
 
   if (!open) return null
   const tgAvail = telegramAvailable()
@@ -712,11 +718,6 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     }
     if (!result.ok) { setError('Неверная почта или пароль'); return }
     await refreshAuthStateV2()
-    onClose()
-  }
-  const handleClose = () => {
-    setPhase('form'); setCode(''); setChallengeId(''); setDebugCode(undefined); setResendIn(0); setError('')
-    setBotProvider(''); setBotDeepLink(''); setBotPollMs(2000)
     onClose()
   }
   const onRegister = async () => {

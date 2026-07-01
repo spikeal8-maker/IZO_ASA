@@ -16,17 +16,20 @@ type Cell = { enabled: boolean; tokenCost: number; isDefault: boolean; formula: 
 type MatrixRow = { modelProfileId: string; provider: string; displayName: string; modelId: string; tariffs: Record<Tariff, Cell> }
 type Route = { routeId: string; displayName: string; icon: string; provider: string; modelProfileId: string; state: string; status: string; locked?: boolean; label?: string }
 type Lora = { fileName: string; purpose: string; compatible: string[]; routes: string[]; requires: string[]; status: string }
+type UserChoiceItem = { key?: string; label: string; model?: string; cost?: number | string; plan?: string; provider?: string }
+type CatalogItem = { provider: string; displayName: string; modelId: string; capabilities: string[]; cost: string; margin: string; status: string }
+type ProfileOption = { id: string; name: string; supportsPose?: boolean }
 type PageData = {
   economy: { activeModels: number; routesAssigned: string; expensiveRoutes: number; priceConflicts: number }
   routes: Route[]
-  userChoice: { simple: any[]; pro: any[] }
+  userChoice: { simple: UserChoiceItem[]; pro: UserChoiceItem[] }
   matrix: MatrixRow[]
-  catalog: any[]
+  catalog: CatalogItem[]
   loras: Lora[]
   comfyuiAvailable: boolean
   openrouter: { keyConfigured: boolean }
-  comfyFiles: Record<string, any>
-  profiles: any[]
+  comfyFiles: Record<string, unknown>
+  profiles: ProfileOption[]
 }
 
 const CSS = `
@@ -144,9 +147,9 @@ export default function AdminModelsV2() {
       setErr('Не удалось загрузить страницу моделей. Нужен доступ администратора и обновлённый backend (/api/admin/models-page).')
     }
   }, [])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
 
-  async function saveSetting(key: string, payload: any, label: string) {
+  async function saveSetting(key: string, payload: unknown, label: string) {
     const r = await amvFetch(`/admin/settings/${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: payload }) }).then((x) => x.json()).catch(() => null)
     setMsg(r?.ok ? `${label} сохранено` : `Ошибка сохранения: ${label}`)
   }
@@ -206,9 +209,9 @@ export default function AdminModelsV2() {
         <div className="card-head"><div><h2 className="card-title">Пользовательский выбор</h2><p className="card-note">Как модели выглядят у пользователя: просто или Pro.</p></div></div>
         <div className="user-preview">
           <div className="user-mode-title"><span>Упрощённый</span><span>видят все</span></div>
-          {data.userChoice.simple.map((c: any) => <div className="choice-card" key={c.key || c.label}><span className="choice-icon">{(c.label || '?')[0]}</span><div><strong>{c.label}</strong><span>{c.model} — {c.cost} ток.</span></div>{c.plan === 'default' ? <span className="default-mark">default</span> : <span className="mini">{c.plan}</span>}</div>)}
+          {data.userChoice.simple.map((c) => <div className="choice-card" key={c.key || c.label}><span className="choice-icon">{(c.label || '?')[0]}</span><div><strong>{c.label}</strong><span>{c.model} — {c.cost} ток.</span></div>{c.plan === 'default' ? <span className="default-mark">default</span> : <span className="mini">{c.plan}</span>}</div>)}
           <div className="user-mode-title" style={{ marginTop: 4 }}><span>Pro выбор</span><span>точные модели</span></div>
-          {data.userChoice.pro.map((c: any) => <div className="choice-card" key={c.label}><span className="choice-icon">{c.provider === 'openrouter' ? 'OR' : 'LC'}</span><div><strong>{c.label}</strong><span>{c.provider} — {c.cost} ток.</span></div><span className="mini">{c.provider === 'openrouter' ? 'Pro' : ''}</span></div>)}
+          {data.userChoice.pro.map((c) => <div className="choice-card" key={c.label}><span className="choice-icon">{c.provider === 'openrouter' ? 'OR' : 'LC'}</span><div><strong>{c.label}</strong><span>{c.provider} — {c.cost} ток.</span></div><span className="mini">{c.provider === 'openrouter' ? 'Pro' : ''}</span></div>)}
         </div>
       </article>
     </section>
@@ -253,7 +256,7 @@ export default function AdminModelsV2() {
           <div className="card-head"><div><h2 className="card-title">Глобальный каталог моделей</h2><p className="card-note">Справочник: provider, capabilities, себестоимость, статус.</p></div></div>
           <div className="matrix-wrap"><table>
             <thead><tr><th>Провайдер</th><th>Модель</th><th>Возможности</th><th>Себестоимость</th><th>Маржа</th><th>Статус</th><th>Действия</th></tr></thead>
-            <tbody>{data.catalog.map((c: any, i: number) => <tr key={i}>
+            <tbody>{data.catalog.map((c, i) => <tr key={i}>
               <td><span className={`provider ${c.provider === 'local' ? 'local' : 'openrouter'}`}>{c.provider === 'local' ? 'Local ComfyUI' : 'OpenRouter'}</span></td>
               <td><strong>{c.displayName}</strong><br /><span className="model-id">{c.modelId}</span></td>
               <td>{c.capabilities.map((x: string) => <span className="mini" key={x} style={{ marginRight: 4 }}>{x}</span>)}</td>

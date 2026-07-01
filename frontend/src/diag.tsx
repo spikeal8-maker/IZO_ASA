@@ -4,18 +4,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import { useAuthV2 } from './authV2'
-
-// Bump this string on every frontend deploy so you can confirm which bundle is live.
-export const APP_BUILD_LABEL = '20E.2E-2026-06-28'
-
-export function isDiagMode(): boolean {
-  try {
-    const params = new URLSearchParams(window.location.search)
-    return params.get('diag') === '1' || window.location.hash.includes('diag')
-  } catch {
-    return false
-  }
-}
+import { APP_BUILD_LABEL } from './diagMeta'
 
 type TgWin = Window & {
   Telegram?: { WebApp?: { initData?: string; ready?: unknown; expand?: unknown } }
