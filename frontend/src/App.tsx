@@ -653,8 +653,7 @@ function App() {
   useEffect(() => { if (tab === 'settings') { void refreshAuthStateV2() } }, [tab])
 
   const currentUser = (bootstrap?.user || {}) as { id?: string; role?: string; username?: string; firstName?: string; plan?: string; galleryEnabled?: boolean; dailyTokens?: number; gallerySlots?: number; galleryUsed?: number; galleryFree?: number; galleryFull?: boolean }
-  const adminSummaryReady = Boolean(admin && !('detail' in admin))
-  const isAdmin = currentUser.role === 'admin' || authMe?.account?.role === 'admin' || adminSummaryReady
+  const isAdmin = currentUser.role === 'admin' || authMe?.account?.role === 'admin'
   const galleryLocked = false
   const currentPlanKey = (tariffKeys.includes(String(authMe?.account?.plan || currentUser.plan || 'mini').toLowerCase() as TariffKey)
     ? String(authMe?.account?.plan || currentUser.plan || 'mini').toLowerCase()
@@ -1199,11 +1198,8 @@ function App() {
               {lang === 'ru' ? item.shortRu : item.shortEn}
             </button>
           ))}
-          <button className="mobile-lang-toggle" onClick={() => setLang(lang === 'ru' ? 'en' : 'ru')} title={copy.language}>
-            {lang.toUpperCase()}
-          </button>
         </div>
-        <button className="admin-link" onClick={() => setTab('admin')}>{copy.admin}</button>
+        {isAdmin && <button className="admin-link" onClick={() => setTab('admin')}>{copy.admin}</button>}
       </aside>
 
       <main className="workspace">
@@ -1213,9 +1209,6 @@ function App() {
             <p>{copy.hint}</p>
           </div>
           <div className="top-actions">
-            <button className="icon-button" onClick={() => setLang(lang === 'ru' ? 'en' : 'ru')} title={copy.language}>
-              <Languages size={18} /> {lang.toUpperCase()}
-            </button>
             <button className="icon-button lockable" onClick={openGallery} title={copy.gallery}><GalleryHorizontalEnd size={18} />{copy.gallery}</button>
             <button className="icon-button" onClick={() => setTab('presets')} title={copy.help}><Sparkles size={18} />{copy.help}</button>
             <button className="icon-button" onClick={() => setTab('settings')} title={copy.settings}><Settings size={18} />{copy.settings}</button>
@@ -1294,7 +1287,7 @@ function App() {
               </div>
             </section>
             {mobilePreviewInputs}
-            <section className="preview-panel" style={{ aspectRatio: `${previewAspectWidth} / ${previewAspectHeight}` }}>
+            <section className={`preview-panel ${!job && !previewSource ? 'empty-preview' : 'has-preview'}`} style={{ aspectRatio: `${previewAspectWidth} / ${previewAspectHeight}` }}>
               {job && ['queued', 'running', 'uploading', 'sent_to_comfyui'].includes(job.status) ? <JobCard job={job} copy={copy} cancelJob={cancelJob} sendImage={sendImage} mode={mode} beforeImage={mode === 'edit' ? editBaseImage : inputOne} loadingBackdrop={(mode === 'edit' ? editBaseImage : undefined) || gallery[0]?.url} /> : job?.status === 'completed' && job.resultUrl ? <JobCard job={job} copy={copy} cancelJob={cancelJob} sendImage={sendImage} mode={mode} beforeImage={mode === 'edit' ? editBaseImage : inputOne} /> : previewSource && mode !== 'text_to_image' ? <div className="result-frame mobile-source-preview"><img src={previewSource} />{mode === 'edit' && !job && <span className="preview-caption">Предпросмотр основы</span>}</div> : <div className="preview-empty">{mode !== 'text_to_image' ? <><span className="preview-empty-hint">{mode === 'edit' ? 'Добавьте основу для редактирования' : 'Добавьте изображение'}</span><button className="preview-add-button" onClick={() => upload((url) => mode === 'edit' ? setEditSlotImage(0, url) : setInputOne(url))}><Upload size={22} />{mode === 'edit' ? 'Выбрать изображение' : 'Добавить изображение'}</button></> : <><ImageIcon size={64} /><span>{copy.generatedPlaceholder}</span></>}</div>}
             </section>
             <section className="prompt-dock">
@@ -1325,11 +1318,11 @@ function App() {
         )}
 
         {tab === 'gallery' && !galleryLocked && <GalleryView copy={copy} images={gallery} quota={galleryQuota} selected={selected} setSelected={setSelected} handleUseImageAs={useImageAs} refreshGallery={fetchGallery} clearSelected={() => setSelected(undefined)} backToStudio={() => setTab('studio')} view={galleryView} setView={setGalleryView} sendImage={sendImage} pickSlot={pendingEditSlot} onPickForSlot={assignGalleryToEditSlot} cancelPick={() => { setPendingEditSlot(null); setTab('studio') }} />}
-        {tab === 'gallery' && galleryLocked && <SettingsView copy={copy} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'gallery' && galleryLocked && <SettingsView copy={copy} lang={lang} setLang={setLang} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
         {tab === 'presets' && <HelpView lang={lang} applyPreset={applyPreset} copy={copy} backToStudio={() => setTab('studio')} />}
-        {tab === 'settings' && <SettingsView copy={copy} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'settings' && <SettingsView copy={copy} lang={lang} setLang={setLang} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
         {tab === 'admin' && isAdmin && <AdminView copy={copy} admin={admin} tariffs={tariffs} setTariffs={setTariffs} backToStudio={() => setTab('studio')} provider={provider} modelProfile={modelProfile} selectedLora={settingsSelectedLora} resetDefaults={resetDefaults} />}
-        {tab === 'admin' && !isAdmin && <SettingsView copy={copy} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'admin' && !isAdmin && <SettingsView copy={copy} lang={lang} setLang={setLang} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
 
         {instructionOpen && <InstructionModal mode={mode} paintTool={paintTool} onClose={() => setInstructionOpen(false)} />}
         {editTemplatesOpen && <EditTemplatesModal templates={EDIT_TEMPLATES} applyTemplate={applyEditTemplate} onClose={() => setEditTemplatesOpen(false)} />}
@@ -2068,7 +2061,7 @@ function InstructionModal({ mode, paintTool, onClose }: { mode: Mode; paintTool:
   return <div className="modal-backdrop"><section className="instruction-modal"><button className="floating-clear" onClick={onClose}><X size={16} /></button><h2>{current.title}</h2>{current.steps.map((step, index) => <p key={step}><strong>{index + 1}.</strong> {step}</p>)}</section></div>
 }
 
-function SettingsView({ copy, tariffs, bootstrap, setBootstrap, openAdmin, openGallery, backToStudio, provider, setProvider, width, setWidth, height, setHeight, steps, setSteps, setCfg, isAuthedV2 = false, openAuthModal, authMe }: { copy: Copy; tariffs: TariffConfig; bootstrap?: Record<string, unknown>; setBootstrap: Dispatch<SetStateAction<Record<string, unknown> | undefined>>; openAdmin: () => void; openGallery?: () => void; backToStudio: () => void; provider: string; setProvider: (value: string) => void; width: number; setWidth: (value: number) => void; height: number; setHeight: (value: number) => void; steps: number; setSteps: (value: number) => void; setCfg: (value: number) => void; isAuthedV2?: boolean; openAuthModal?: () => void; authMe?: MeV2 | null }) {
+function SettingsView({ copy, lang, setLang, tariffs, bootstrap, setBootstrap, openAdmin, openGallery, backToStudio, provider, setProvider, width, setWidth, height, setHeight, steps, setSteps, setCfg, isAuthedV2 = false, openAuthModal, authMe }: { copy: Copy; lang: Lang; setLang: (value: Lang) => void; tariffs: TariffConfig; bootstrap?: Record<string, unknown>; setBootstrap: Dispatch<SetStateAction<Record<string, unknown> | undefined>>; openAdmin: () => void; openGallery?: () => void; backToStudio: () => void; provider: string; setProvider: (value: string) => void; width: number; setWidth: (value: number) => void; height: number; setHeight: (value: number) => void; steps: number; setSteps: (value: number) => void; setCfg: (value: number) => void; isAuthedV2?: boolean; openAuthModal?: () => void; authMe?: MeV2 | null }) {
   const user = (bootstrap?.user || {}) as { id?: string; role?: string; username?: string; firstName?: string; email?: string; plan?: string; galleryEnabled?: boolean; tokenBalance?: number; dailyTokens?: number; gallerySlots?: number; galleryUsed?: number; galleryFree?: number; galleryFull?: boolean }
   const account = authMe?.account
   const quality = steps <= 4 ? 'fast' : steps <= 8 ? 'standard' : 'max'
@@ -2283,6 +2276,14 @@ function SettingsView({ copy, tariffs, bootstrap, setBootstrap, openAdmin, openG
           <p>После входа здесь появятся ваш баланс, тариф, промокоды и реферальная ссылка.</p>
           <button className="usr-primary" onClick={() => openAuthModal?.()}><Lock size={16} />Войти</button>
         </article>
+        <article className="usr-card usr-profile">
+          <label>{copy.language}
+            <select value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+        </article>
       </section>
     )
   }
@@ -2344,6 +2345,12 @@ function SettingsView({ copy, tariffs, bootstrap, setBootstrap, openAdmin, openG
       <section className="usr-card usr-profile">
         <label>Имя<input type="text" value={displayName} onChange={(e) => { setDisplayName(e.target.value); setSaveMsg('') }} placeholder="Ваше имя" maxLength={80} /></label>
         <label>Email<input type="email" value={displayEmail || ''} placeholder="Email не указан" readOnly disabled /></label>
+        <label>{copy.language}
+          <select value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
+            <option value="ru">Русский</option>
+            <option value="en">English</option>
+          </select>
+        </label>
         <div className="usr-profile-actions">
           <button className="usr-primary" onClick={onSaveProfile} disabled={!displayName.trim()}>Сохранить профиль</button>
           <button className="usr-ghost" onClick={onLogout}><Lock size={14} />Выйти</button>
