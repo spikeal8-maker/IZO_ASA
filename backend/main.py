@@ -8673,6 +8673,74 @@ async def admin_dashboard_v2(request: Request) -> dict[str, Any]:
     return {"ok": True, "dashboard": data}
 
 
+@app.get("/api/admin/logs-v2")
+async def admin_logs_v2(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    failed_jobs = [
+        {
+            "id": item.get("id"),
+            "mode": item.get("mode"),
+            "provider": item.get("provider"),
+            "status": item.get("status"),
+            "error": truncate_admin_text(item.get("error"), 240),
+            "created_at": item.get("createdAt") or item.get("created_at"),
+        }
+        for item in jobs.values()
+        if item.get("status") == "failed"
+    ][-30:]
+    active_jobs = [
+        {k: v for k, v in item.items() if k in ("id", "mode", "provider", "status", "progress", "message", "createdAt")}
+        for item in jobs.values()
+        if item.get("status") in ("queued", "running", "uploading", "sent_to_comfyui")
+    ]
+    try:
+        comfy_ok = await comfyui_available()
+    except Exception:
+        comfy_ok = False
+    try:
+        model_status = await compute_model_status()
+    except Exception as exc:
+        model_status = {"comfyuiAvailable": comfy_ok, "profiles": [], "error": type(exc).__name__}
+    with db() as conn:
+        events = conn.execute(
+            "SELECT event_name, platform, ip_address, created_at FROM event_logs ORDER BY created_at DESC LIMIT 40"
+        ).fetchall()
+        security = conn.execute(
+            "SELECT severity, event_type, ip_address, created_at FROM security_events ORDER BY created_at DESC LIMIT 40"
+        ).fetchall()
+        audit = conn.execute(
+            "SELECT action, entity_type, target_internal_user_id, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 30"
+        ).fetchall()
+        today = _today_start_iso()
+        failed_logins_24h = conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_login_attempts WHERE success = 0 AND created_at >= ?", (today,)
+        ).fetchone()["c"]
+        generation_errors_db = conn.execute(
+            "SELECT COUNT(*) AS c FROM jobs WHERE status = 'failed'"
+        ).fetchone()["c"]
+    return {
+        "ok": True,
+        "summary": {
+            "generation_errors_memory": len(failed_jobs),
+            "generation_errors_db": generation_errors_db,
+            "failed_logins_24h": failed_logins_24h,
+            "active_jobs": len(active_jobs),
+            "comfyui_available": bool(model_status.get("comfyuiAvailable", comfy_ok)),
+            "model_profiles": len(model_status.get("profiles") or []),
+        },
+        "comfyui": {
+            "available": bool(model_status.get("comfyuiAvailable", comfy_ok)),
+            "profiles": model_status.get("profiles", []),
+            "error": model_status.get("error"),
+        },
+        "active_jobs": active_jobs,
+        "generation_errors": failed_jobs,
+        "event_logs": [{"event_name": r["event_name"], "platform": r["platform"], "ip_address": r["ip_address"], "created_at": r["created_at"]} for r in events],
+        "security_events": [{"severity": r["severity"], "event_type": r["event_type"], "ip_address": r["ip_address"], "created_at": r["created_at"]} for r in security],
+        "audit_logs": [{"action": r["action"], "entity_type": r["entity_type"], "target": (r["target_internal_user_id"] or "")[:8], "created_at": r["created_at"]} for r in audit],
+    }
+
+
 @app.get("/api/admin/users-analytics-v2")
 async def admin_users_analytics_v2(request: Request, q: str | None = None, provider: str | None = None,
                                    status: str | None = None, limit: int = 50, offset: int = 0) -> dict[str, Any]:
@@ -9378,6 +9446,9 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
             """,
             (key, json.dumps(settings, ensure_ascii=False), now),
         )
+    if key in {"generation_routes", "tariff_matrix", "user_choice", "tariffs"}:
+        _admin_models_page_cache["ts"] = 0.0
+        _admin_models_page_cache["data"] = None
     return {"ok": True, "key": key, "settings": settings}
 
 
@@ -9499,6 +9570,9 @@ ROUTE_DEFS = [
     {"routeId": "face", "displayName": "Лицо → Изо", "icon": "F"},
 ]
 
+ADMIN_MODELS_PAGE_CACHE_TTL_SECONDS = 20
+_admin_models_page_cache: dict[str, Any] = {"ts": 0.0, "data": None}
+
 
 async def scan_loras() -> list[dict[str, Any]]:
     """Реальный скан LoRA из ComfyUI (или пусто, если недоступен) + сопоставление с
@@ -9601,6 +9675,10 @@ def default_routes(model_status: dict[str, Any]) -> list[dict[str, Any]]:
 @app.get("/api/admin/models-page")
 async def admin_models_page(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
+    now_mono = time.monotonic()
+    cached = _admin_models_page_cache.get("data")
+    if cached and now_mono - float(_admin_models_page_cache.get("ts") or 0) < ADMIN_MODELS_PAGE_CACHE_TTL_SECONDS:
+        return {**cached, "cache": {"hit": True, "ttl_seconds": ADMIN_MODELS_PAGE_CACHE_TTL_SECONDS}}
     status = await compute_model_status()
     loras = await scan_loras()
     routes = _saved_setting("generation_routes").get("routes") or default_routes(status)
@@ -9646,7 +9724,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
         ],
     }
 
-    return {
+    payload = {
         "economy": {"activeModels": active_models, "routesAssigned": f"{routes_assigned}/{len(ROUTE_DEFS)}", "expensiveRoutes": expensive, "priceConflicts": conflicts},
         "routes": routes,
         "userChoice": user_choice,
@@ -9658,6 +9736,9 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
         "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"},
         "profiles": status.get("profiles", []),
     }
+    _admin_models_page_cache["ts"] = now_mono
+    _admin_models_page_cache["data"] = payload
+    return {**payload, "cache": {"hit": False, "ttl_seconds": ADMIN_MODELS_PAGE_CACHE_TTL_SECONDS}}
 
 
 @app.get("/api/admin/jobs")

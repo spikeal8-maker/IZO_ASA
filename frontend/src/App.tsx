@@ -120,35 +120,6 @@ type GalleryImage = {
   comfyuiPromptId?: string
 }
 
-type AdminUser = {
-  id: string
-  telegram_id?: string
-  max_id?: string
-  username?: string
-  first_name?: string
-  last_name?: string
-  middle_name?: string
-  phone?: string
-  email?: string
-  language?: string
-  role: 'user' | 'admin'
-  plan: 'free' | 'mini' | 'plus' | 'pro'
-  token_balance: number
-  gallery_enabled: number
-  country?: string
-  city?: string
-  timezone?: string
-  total_time_seconds: number
-  generation_count: number
-  tokens_used: number
-  promo_used_count: number
-  referrals_count: number
-  banned: number
-  last_seen_at?: string
-  created_at?: string
-  last_login_at?: string
-}
-
 type PromoCode = {
   code: string
   tokens: number
@@ -157,13 +128,6 @@ type PromoCode = {
   enabled: number
   created_at?: string
   updated_at?: string
-}
-
-type UserHistory = {
-  user?: AdminUser
-  jobs: Array<Record<string, unknown>>
-  images: Array<Record<string, unknown>>
-  ledger: Array<Record<string, unknown>>
 }
 
 type PaintLine = {
@@ -2595,37 +2559,89 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
   )
 }
 
+function AdminLogsView({ data, provider, admin }: { data: Record<string, unknown> | null; provider: string; admin?: Record<string, unknown> }) {
+  const summary = (data?.summary || {}) as Record<string, unknown>
+  const comfy = (data?.comfyui || {}) as Record<string, unknown>
+  const profiles = Array.isArray(comfy.profiles) ? comfy.profiles as Record<string, unknown>[] : []
+  const activeJobs = Array.isArray(data?.active_jobs) ? data.active_jobs as Record<string, unknown>[] : []
+  const generationErrors = Array.isArray(data?.generation_errors) ? data.generation_errors as Record<string, unknown>[] : []
+  const eventLogs = Array.isArray(data?.event_logs) ? data.event_logs as Record<string, unknown>[] : []
+  const securityEvents = Array.isArray(data?.security_events) ? data.security_events as Record<string, unknown>[] : []
+  const auditLogs = Array.isArray(data?.audit_logs) ? data.audit_logs as Record<string, unknown>[] : []
+  const line = (left: unknown, right?: unknown, extra?: unknown) => <p><b>{String(left || '—')}</b>{right ? ` · ${String(right)}` : ''}{extra ? <small>{String(extra)}</small> : null}</p>
+  return (
+    <div className="admin-section">
+      <h3>Логи и состояние систем</h3>
+      <div className="admin-grid">
+        <div><strong>ComfyUI</strong><span>{comfy.available ? 'online' : 'offline'}</span><small>локальный генератор</small></div>
+        <div><strong>Активные задачи</strong><span>{String(summary.active_jobs ?? activeJobs.length)}</span><small>queue/running/uploading</small></div>
+        <div><strong>Ошибки генерации</strong><span>{String(summary.generation_errors_memory ?? admin?.errors ?? 0)}</span><small>runtime failed jobs</small></div>
+        <div><strong>Ошибки входа 24ч</strong><span>{String(summary.failed_logins_24h ?? admin?.errors24h ?? 0)}</span><small>password/auth attempts</small></div>
+      </div>
+      <div className="admin-two-col">
+        <article>
+          <h3>ComfyUI / модели</h3>
+          <p>Маршрут сейчас: {provider === 'openrouter' ? 'OpenRouter Cloud' : 'ComfyUI локально'}</p>
+          {profiles.length ? profiles.map((p) => {
+            const missing = Array.isArray(p.missingFiles) ? p.missingFiles.map(String) : []
+            return line(p.name || p.id, `${p.baseEdit || '—'} · pose ${p.pose || '—'}`, missing.length ? `missing: ${missing.join(', ')}` : undefined)
+          }) : <p>Профили не загружены.</p>}
+          {Boolean(comfy.error) && <p><b>Ошибка проверки</b> · {String(comfy.error)}</p>}
+        </article>
+        <article>
+          <h3>Активные задачи</h3>
+          {activeJobs.length ? activeJobs.map((j) => line(j.id, `${j.status || '—'} · ${j.mode || '—'} · ${j.provider || '—'}`, j.message)) : <p>Очередь пуста.</p>}
+        </article>
+      </div>
+      <div className="admin-two-col">
+        <article>
+          <h3>Ошибки генерации</h3>
+          {generationErrors.length ? generationErrors.map((e) => line(e.id, `${e.mode || '—'} · ${e.provider || '—'}`, e.error)) : <p>Ошибок генерации в runtime нет.</p>}
+        </article>
+        <article>
+          <h3>Security events</h3>
+          {securityEvents.length ? securityEvents.slice(0, 14).map((e) => line(e.event_type, `${e.severity || '—'} · ${e.created_at || '—'}`, e.ip_address)) : <p>Security events нет.</p>}
+        </article>
+      </div>
+      <div className="admin-two-col">
+        <article>
+          <h3>Product / auth logs</h3>
+          {eventLogs.length ? eventLogs.slice(0, 14).map((e) => line(e.event_name, `${e.platform || '—'} · ${e.created_at || '—'}`, e.ip_address)) : <p>Event logs нет.</p>}
+        </article>
+        <article>
+          <h3>Audit logs</h3>
+          {auditLogs.length ? auditLogs.slice(0, 14).map((e) => line(e.action, `${e.entity_type || '—'} · ${e.created_at || '—'}`, e.target ? `target ${e.target}` : undefined)) : <p>Audit logs нет.</p>}
+        </article>
+      </div>
+      <details><summary>Сырой admin summary</summary><pre>{JSON.stringify(admin, null, 2)}</pre></details>
+    </div>
+  )
+}
+
 function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, modelProfile, selectedLora, resetDefaults }: { copy: Copy; admin?: Record<string, unknown>; tariffs: TariffConfig; setTariffs: Dispatch<SetStateAction<TariffConfig>>; backToStudio: () => void; provider: string; modelProfile: string; selectedLora: string; resetDefaults: () => void }) {
-  const [tab, setTab] = useState<'dashboard' | 'models' | 'tokens' | 'users' | 'queue' | 'errors'>('dashboard')
-  const [showLegacyUsers, setShowLegacyUsers] = useState(false)
+  const [tab, setTab] = useState<'dashboard' | 'models' | 'tokens' | 'users' | 'queue' | 'logs'>('dashboard')
   const [limits, setLimits] = useState({ hourly: 0, daily: 0 })
   const [saved, setSaved] = useState('')
   const [promoDraft, setPromoDraft] = useState({ code: 'START50', tokens: 50, activations: 100 })
   const [finance, setFinance] = useState({ tokenRevenue: 0, tokenCost: 0, electricity: 0, promoBudget: 0 })
   const [tariffConfig, setTariffConfig] = useState<TariffConfig>(tariffs)
-  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([])
   const [promoCodes, setPromoCodes] = useState<PromoCode[]>([])
-  const [userDraft, setUserDraft] = useState({ userId: 'telegram_123456789', username: '', firstName: '', lastName: '', middleName: '', phone: '', email: '', country: '', city: '', role: 'user', plan: 'mini', tokenBalance: 50, galleryEnabled: true })
-  const [userFormOpen, setUserFormOpen] = useState(false)
-  const [editingUserId, setEditingUserId] = useState<string | null>(null)
-  const [userHistory, setUserHistory] = useState<UserHistory | null>(null)
+  const [logsData, setLogsData] = useState<Record<string, unknown> | null>(null)
   const [adminMessage, setAdminMessage] = useState('')
   const queue = Array.isArray(admin?.queue) ? admin.queue : []
-  const recentErrors = Array.isArray(admin?.recentErrors) ? admin.recentErrors : []
-  const health = Number(admin?.errors ?? 0) === 0 ? 'Стабильно' : 'Есть ошибки'
+  const generationErrors = Number(admin?.errors ?? 0)
+  const health = generationErrors === 0 ? 'Стабильно' : `Ошибки генерации: ${generationErrors}`
   const adminFinance = (admin?.finance || {}) as Record<string, number>
   useEffect(() => { setTariffConfig(tariffs) }, [tariffs])
   async function saveLimits() {
     const result = await apiFetch('/admin/limits', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(limits) }).then((r) => r.json())
     setSaved(JSON.stringify(result.rateLimits))
   }
-  const refreshAdminData = useCallback(async () => {
-    const [users, promos, settings] = await Promise.all([
-      apiFetch('/admin/users').then((r) => r.json()).catch(() => []),
+  const refreshTokenAdminData = useCallback(async () => {
+    const [promos, settings] = await Promise.all([
       apiFetch('/admin/promos').then((r) => r.json()).catch(() => []),
       apiFetch('/admin/settings').then((r) => r.json()).catch(() => ({})),
     ])
-    setAdminUsers(users)
     setPromoCodes(promos)
     if (settings.finance) setFinance((current) => ({ ...current, ...settings.finance }))
     if (settings.tariffs) {
@@ -2634,7 +2650,11 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, m
       setTariffs(normalized)
     }
   }, [setTariffs])
-  useEffect(() => { refreshAdminData() }, [refreshAdminData])
+  useEffect(() => { if (tab === 'tokens') void refreshTokenAdminData() }, [tab, refreshTokenAdminData])
+  useEffect(() => {
+    if (tab !== 'logs') return
+    void apiFetch('/admin/logs-v2').then((r) => (r.ok ? r.json() : null)).then(setLogsData).catch(() => setLogsData(null))
+  }, [tab])
   async function saveFinance() {
     const result = await apiFetch('/admin/settings/finance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: finance }) }).then((r) => r.json())
     setAdminMessage(result.ok ? 'Финансы сохранены' : 'Ошибка сохранения')
@@ -2650,94 +2670,15 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, m
       setAdminMessage(String(result.detail || 'Ошибка сохранения тарифов'))
     }
   }
-  async function registerUser() {
-    const payload = { ...userDraft, tokenBalance: Number(userDraft.tokenBalance) }
-    const result = editingUserId
-      ? await apiFetch(`/admin/users/${encodeURIComponent(editingUserId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then((r) => r.json())
-      : await apiFetch('/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then((r) => r.json())
-    setAdminMessage(result.ok ? `Пользователь ${result.user.id} сохранен` : 'Ошибка регистрации')
-    if (result.ok) { setUserFormOpen(false); setEditingUserId(null); setUserHistory(null) }
-    await refreshAdminData()
-  }
-  async function updateUser(userId: string, patch: Partial<{ role: string; plan: string; tokenBalance: number; galleryEnabled: boolean; banned: boolean; phone: string; email: string; country: string; city: string }>) {
-    const result = await apiFetch(`/admin/users/${encodeURIComponent(userId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }).then((r) => r.json())
-    setAdminMessage(result.ok ? `Пользователь ${result.user.id} обновлен` : 'Ошибка обновления')
-    await refreshAdminData()
-  }
-  async function editUser(item: AdminUser) {
-    setEditingUserId(item.id)
-    setUserHistory(null)
-    setUserDraft({
-      userId: item.id,
-      username: item.username || '',
-      firstName: item.first_name || '',
-      lastName: item.last_name || '',
-      middleName: item.middle_name || '',
-      phone: item.phone || '',
-      email: item.email || '',
-      country: item.country || '',
-      city: item.city || '',
-      role: item.role,
-      plan: item.plan,
-      tokenBalance: item.token_balance,
-      galleryEnabled: Boolean(item.gallery_enabled),
-    })
-    setUserFormOpen(true)
-    const history = await apiFetch(`/admin/users/${encodeURIComponent(item.id)}/history`).then((r) => r.json()).catch(() => null)
-    if (history?.ok) setUserHistory(history)
-  }
-  function closeUserEditor() {
-    setUserFormOpen(false)
-    setEditingUserId(null)
-    setUserHistory(null)
-  }
-  async function deleteUser(userId: string) {
-    if (!window.confirm(`Удалить пользователя ${userId}?`)) return
-    const result = await apiFetch(`/admin/users/${encodeURIComponent(userId)}`, { method: 'DELETE' }).then((r) => r.json())
-    setAdminMessage(result.ok ? `Пользователь ${userId} удален` : 'Ошибка удаления')
-    await refreshAdminData()
-  }
-  function downloadUsersExcel() {
-    const columns = ['ID', 'Фамилия', 'Имя', 'Отчество', 'Username', 'Телефон', 'Почта', 'Страна', 'Город', 'Роль', 'Тариф', 'Токены', 'Использовано токенов', 'Генерации', 'Минуты в приложении', 'Промокоды', 'Рефералы', 'Бан', 'Последний вход']
-    const rows = adminUsers.map((item) => [
-      item.id,
-      item.last_name || '',
-      item.first_name || '',
-      item.middle_name || '',
-      item.username || '',
-      item.phone || '',
-      item.email || '',
-      item.country || '',
-      item.city || '',
-      item.role,
-      item.plan,
-      item.token_balance,
-      item.tokens_used || 0,
-      item.generation_count || 0,
-      Math.round((item.total_time_seconds || 0) / 60),
-      item.promo_used_count || 0,
-      item.referrals_count || 0,
-      item.banned ? 'да' : 'нет',
-      item.last_login_at || '',
-    ])
-    const csv = [columns, ...rows].map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(';')).join('\n')
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `users-${new Date().toISOString().slice(0, 10)}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
-  }
   async function createPromo() {
     const result = await apiFetch('/admin/promos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: promoDraft.code, tokens: Number(promoDraft.tokens), activationLimit: Number(promoDraft.activations) }) }).then((r) => r.json())
     setAdminMessage(result.ok ? `Промокод ${result.promo.code} сохранен` : 'Ошибка промокода')
-    await refreshAdminData()
+    await refreshTokenAdminData()
   }
   return <section className="admin-page">
     <div className="view-actions in-panel"><button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button><button className="secondary" onClick={resetDefaults}>По умолчанию</button></div>
     <div className="admin-head"><div><h2>{copy.admin}</h2><p>Управление генерациями, токенами, моделями, тарифами и доступами.</p>{adminMessage && <small>{adminMessage}</small>}</div><strong>{health}</strong></div>
-    <div className="admin-tabbar">{[['dashboard', 'Дашборд'], ['models', 'Модели'], ['tokens', 'Токены'], ['users', 'Пользователи'], ['queue', 'Очередь'], ['errors', 'Ошибки']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id as typeof tab)}>{label}</button>)}</div>
+    <div className="admin-tabbar">{[['dashboard', 'Дашборд'], ['models', 'Модели'], ['tokens', 'Токены'], ['users', 'Пользователи'], ['queue', 'Очередь'], ['logs', 'Логи']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id as typeof tab)}>{label}</button>)}</div>
     {tab === 'dashboard' && <div className="admin-section">
       <div className="admin-grid"><div><strong>{copy.users}</strong><span>{String(admin?.users ?? 1)}</span><small>аккаунтов всего</small></div><div><strong>Активных сегодня</strong><span>{String(admin?.activeToday ?? 0)}</span><small>за последние 24ч</small></div><div><strong>Генераций сегодня</strong><span>{String(admin?.generationsToday ?? 0)}</span><small>задач создано</small></div><div><strong>Токенов списано</strong><span>{Number(admin?.tokensSpentTotal ?? 0).toLocaleString('ru-RU')}</span><small>всего</small></div></div>
       <div className="admin-grid"><div><strong>Активных сессий</strong><span>{String(admin?.activeSessions ?? 0)}</span><small>прямо сейчас</small></div><div><strong>Ошибок входа (24ч)</strong><span>{String(admin?.errors24h ?? 0)}</span><small>неудачных попыток</small></div><div><strong>Изображений</strong><span>{String(admin?.images ?? 0)}</span><small>в галереях</small></div><div><strong>{copy.errors}</strong><span>{String(admin?.errors ?? 0)}</span><small>ошибок генерации</small></div></div>
@@ -2747,10 +2688,10 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, m
     {tab === 'models' && <div className="admin-section"><AdminModelsV2 /></div>}
     {tab === 'tokens' && <div className="admin-section"><h3>Токены, тарифы, финансы и акции</h3><div className="admin-two-col"><article><h3>{copy.limits}</h3><label>hourly<input type="number" value={limits.hourly} onChange={(e) => setLimits({ ...limits, hourly: Number(e.target.value) })} /></label><label>daily<input type="number" value={limits.daily} onChange={(e) => setLimits({ ...limits, daily: Number(e.target.value) })} /></label><button className="secondary" onClick={saveLimits}>{copy.save}</button><small>{saved}</small></article><article><h3>Финансы</h3><label>Доход от токенов<input type="number" value={finance.tokenRevenue} onChange={(e) => setFinance({ ...finance, tokenRevenue: Number(e.target.value) })} /></label><label>Себестоимость API<input type="number" value={finance.tokenCost} onChange={(e) => setFinance({ ...finance, tokenCost: Number(e.target.value) })} /></label><label>Свет<input type="number" value={finance.electricity} onChange={(e) => setFinance({ ...finance, electricity: Number(e.target.value) })} /></label><label>Акции<input type="number" value={finance.promoBudget} onChange={(e) => setFinance({ ...finance, promoBudget: Number(e.target.value) })} /></label><button className="secondary" onClick={saveFinance}>Сохранить финансы</button></article><article><h3>Промокод</h3><label>Код<input value={promoDraft.code} onChange={(e) => setPromoDraft({ ...promoDraft, code: e.target.value.toUpperCase() })} /></label><label>Токены<input type="number" value={promoDraft.tokens} onChange={(e) => setPromoDraft({ ...promoDraft, tokens: Number(e.target.value) })} /></label><label>Активации<input type="number" value={promoDraft.activations} onChange={(e) => setPromoDraft({ ...promoDraft, activations: Number(e.target.value) })} /></label><button className="secondary" onClick={createPromo}>Создать промокод</button></article><article><h3>Промокоды в базе</h3>{promoCodes.length ? promoCodes.map((item) => <p key={item.code}><b>{item.code}</b>: {item.tokens} ток. · {item.activation_count}/{item.activation_limit}</p>) : <p>Промокодов пока нет.</p>}</article></div><div className="admin-grid"><div><strong>Free</strong><span>{tariffConfig.free.daily_tokens} ток.</span><small>{tariffConfig.free.gallery_slots} слот(ов) галереи</small></div><div><strong>Mini</strong><span>{tariffConfig.mini.daily_tokens} ток.</span><small>{tariffConfig.mini.gallery_slots} слот(ов) галереи</small></div><div><strong>Plus</strong><span>{tariffConfig.plus.daily_tokens} ток.</span><small>{tariffConfig.plus.gallery_slots} слот(ов) галереи</small></div><div><strong>Pro</strong><span>{tariffConfig.pro.daily_tokens} ток.</span><small>{tariffConfig.pro.gallery_slots} слот(ов) галереи</small></div></div></div>}
     {tab === 'tokens' && <div className="admin-section"><h3>Настройки тарифов</h3><p>Единый источник для Settings, Gallery и CRM: токены в сутки и слоты галереи.</p><div className="admin-grid">{tariffKeys.map((planKey) => <div key={planKey}><strong>{planKey.toUpperCase()}</strong><label>Токенов/день<input type="number" min="0" value={tariffConfig[planKey].daily_tokens} onChange={(e) => setTariffConfig((current) => ({ ...current, [planKey]: { ...current[planKey], daily_tokens: Number(e.target.value) } }))} /></label><label>Слоты галереи<input type="number" min="0" value={tariffConfig[planKey].gallery_slots} onChange={(e) => setTariffConfig((current) => ({ ...current, [planKey]: { ...current[planKey], gallery_slots: Number(e.target.value) } }))} /></label><small>{tariffConfig[planKey].daily_tokens} ток./день · {tariffConfig[planKey].gallery_slots} слот(ов)</small></div>)}</div><button className="secondary" onClick={() => void saveTariffs()}>Сохранить тарифы</button></div>}
-    {tab === 'users' && <div className="admin-section"><AdminAnalyticsV2 /><div className="legacy-admin-toggle"><button className="secondary" onClick={() => setShowLegacyUsers((v) => !v)}>{showLegacyUsers ? 'Скрыть старую таблицу действий' : 'Открыть старую таблицу действий'}</button><small className="legacy-admin-warn">Эти действия устаревают. Используйте карточку пользователя (Карточка → Админ-действия). Показывать только для экстренных случаев.</small></div>{showLegacyUsers && <div className="legacy-admin-table"><div className="admin-section-head"><h3>Старые действия — временно</h3><div className="admin-row-actions"><button className="secondary" onClick={downloadUsersExcel}>Скачать Excel</button><button className="secondary" onClick={() => { setEditingUserId(null); setUserHistory(null); setUserDraft({ userId: 'telegram_123456789', username: '', firstName: '', lastName: '', middleName: '', phone: '', email: '', country: '', city: '', role: 'user', plan: 'mini', tokenBalance: 50, galleryEnabled: true }); setUserFormOpen(true) }}>Добавить пользователя</button></div></div><div className="admin-grid"><div><strong>Всего</strong><span>{adminUsers.length || String(admin?.users ?? 1)}</span><small>зарегистрировано</small></div><div><strong>Админы</strong><span>{adminUsers.filter((item) => item.role === 'admin').length}</span><small>role=admin</small></div><div><strong>Токены</strong><span>{adminUsers.reduce((sum, item) => sum + (item.token_balance || 0), 0)}</span><small>на балансах</small></div><div><strong>Использовано</strong><span>{adminUsers.reduce((sum, item) => sum + (item.tokens_used || 0), 0)}</span><small>списано токенов</small></div><div><strong>Генерации</strong><span>{adminUsers.reduce((sum, item) => sum + (item.generation_count || 0), 0)}</span><small>всего</small></div><div><strong>Время</strong><span>{Math.round(adminUsers.reduce((sum, item) => sum + (item.total_time_seconds || 0), 0) / 60)} м</span><small>в приложении</small></div><div><strong>Промокоды</strong><span>{adminUsers.reduce((sum, item) => sum + (item.promo_used_count || 0), 0)}</span><small>использовано</small></div><div><strong>Рефералы</strong><span>{adminUsers.reduce((sum, item) => sum + (item.referrals_count || 0), 0)}</span><small>по ссылкам/кодам</small></div></div><div className="admin-user-table"><div className="admin-user-head"><span>Ред.</span><span>ID</span><span>ФИО и контакты</span><span>Гео</span><span>Роль</span><span>Баланс</span><span>Активность</span><span>Промо</span><span>Статус</span><span>Действия</span><span>Удалить</span></div>{adminUsers.map((item) => <div className="admin-user-row" key={item.id}><button className="edit-user-button" title="Редактировать" onClick={() => void editUser(item)}>Ред.</button><strong>{item.id}</strong><span>{[item.last_name, item.first_name, item.middle_name].filter(Boolean).join(' ') || item.username || 'без имени'}<br />@{item.username || '-'} · {item.phone || 'тел. -'} · {item.email || 'почта -'}</span><span>{item.country || '-'} / {item.city || '-'}<br />{item.timezone || '-'}</span><span>{item.role}<br />{item.plan}</span><span>{item.token_balance}<br />used {item.tokens_used || 0}</span><span>{item.generation_count || 0} ген.<br />{Math.round((item.total_time_seconds || 0) / 60)} мин.</span><span>{item.promo_used_count || 0} промо<br />{item.referrals_count || 0} реф.</span><button className={item.banned ? 'ban-state banned' : 'ban-state'} onClick={() => updateUser(item.id, { banned: !item.banned })}>{item.banned ? 'Забанен' : 'Активен'}</button><div className="admin-row-actions"><button className="secondary" onClick={() => updateUser(item.id, { role: item.role === 'admin' ? 'user' : 'admin' })}>{item.role === 'admin' ? 'Снять' : 'Админ'}</button><button className="secondary" onClick={() => { const nextPlan = item.plan === 'mini' ? 'plus' : item.plan === 'plus' ? 'pro' : item.plan === 'pro' ? 'free' : 'mini'; updateUser(item.id, { plan: nextPlan, galleryEnabled: nextPlan !== 'free' }) }}>Тариф</button><button className="secondary" onClick={() => updateUser(item.id, { tokenBalance: item.token_balance + 50 })}>+50</button><button className="secondary" onClick={() => updateUser(item.id, { tokenBalance: Math.max(0, item.token_balance - 50) })}>-50</button></div><button className="delete-user-button" title="Удалить" onClick={() => deleteUser(item.id)}><Trash2 size={16} /></button></div>)}</div></div>}</div>}
+    {tab === 'users' && <div className="admin-section"><AdminAnalyticsV2 /></div>}
     {tab === 'queue' && <div className="admin-section"><h3>Очередь генераций</h3><div className="admin-grid"><div><strong>В очереди</strong><span>{queue.length}</span><small>ожидают запуска</small></div><div><strong>Провайдер</strong><span>{provider}</span><small>текущий маршрут</small></div><div><strong>Сегодня</strong><span>{String(admin?.completedToday ?? 0)}</span><small>выполнено</small></div></div><pre>{JSON.stringify(queue, null, 2)}</pre></div>}
-    {tab === 'errors' && <div className="admin-section"><h3>Ошибки и диагностика</h3><div className="admin-grid"><div><strong>Ошибки</strong><span>{String(admin?.errors ?? 0)}</span><small>в сводке</small></div><div><strong>ComfyUI</strong><span>{provider === 'comfyui' ? 'активен' : 'резерв'}</span><small>локальный маршрут</small></div><div><strong>OpenRouter</strong><span>{provider === 'openrouter' ? 'активен' : 'резерв'}</span><small>облачный маршрут</small></div></div><pre>{recentErrors.length ? recentErrors.join('\n') : 'Ошибок нет'}</pre><details><summary>Сырой admin summary</summary><pre>{JSON.stringify(admin, null, 2)}</pre></details></div>}
-    {userFormOpen && <div className="modal-backdrop"><section className="user-edit-modal"><button className="floating-clear" onClick={closeUserEditor}><X size={16} /></button><h2>{editingUserId ? 'Редактировать пользователя' : 'Добавить пользователя'}</h2><div className="user-edit-grid"><label>User ID<input value={userDraft.userId} disabled={Boolean(editingUserId)} onChange={(e) => setUserDraft({ ...userDraft, userId: e.target.value })} /></label><label>Фамилия<input value={userDraft.lastName} onChange={(e) => setUserDraft({ ...userDraft, lastName: e.target.value })} /></label><label>Имя<input value={userDraft.firstName} onChange={(e) => setUserDraft({ ...userDraft, firstName: e.target.value })} /></label><label>Отчество<input value={userDraft.middleName} onChange={(e) => setUserDraft({ ...userDraft, middleName: e.target.value })} /></label><label>Username<input value={userDraft.username} onChange={(e) => setUserDraft({ ...userDraft, username: e.target.value })} /></label><label>Телефон<input value={userDraft.phone} onChange={(e) => setUserDraft({ ...userDraft, phone: e.target.value })} /></label><label>Почта<input value={userDraft.email} onChange={(e) => setUserDraft({ ...userDraft, email: e.target.value })} /></label><label>Страна<input value={userDraft.country} onChange={(e) => setUserDraft({ ...userDraft, country: e.target.value })} /></label><label>Город<input value={userDraft.city} onChange={(e) => setUserDraft({ ...userDraft, city: e.target.value })} /></label><label>Роль<select value={userDraft.role} onChange={(e) => setUserDraft({ ...userDraft, role: e.target.value })}><option value="user">user</option><option value="admin">admin</option></select></label><label>Тариф<select value={userDraft.plan} onChange={(e) => setUserDraft({ ...userDraft, plan: e.target.value, galleryEnabled: e.target.value !== 'free' })}><option value="free">free</option><option value="mini">mini</option><option value="plus">plus</option><option value="pro">pro</option></select></label><label>Баланс токенов<input type="number" value={userDraft.tokenBalance} onChange={(e) => setUserDraft({ ...userDraft, tokenBalance: Number(e.target.value) })} /></label><label className="checkbox-row"><input type="checkbox" checked={userDraft.galleryEnabled} onChange={(e) => setUserDraft({ ...userDraft, galleryEnabled: e.target.checked })} />Галерея доступна</label></div>{editingUserId && <div className="user-history-panel"><div className="admin-grid"><div><strong>Генерации</strong><span>{userHistory?.jobs?.length ?? '...'}</span><small>последние задачи</small></div><div><strong>Галерея</strong><span>{userHistory?.images?.length ?? '...'}</span><small>личные изображения</small></div><div><strong>Токены</strong><span>{userHistory?.ledger?.reduce((sum, item) => sum + Number(item.delta || 0), 0) ?? '...'}</span><small>движение по счету</small></div></div><div className="user-history-lists"><article><h3>История генераций</h3>{userHistory?.jobs?.length ? userHistory.jobs.slice(0, 8).map((job) => <p key={String(job.id)}><b>{String(job.status)}</b> · {String(job.mode)} · {String(job.created_at || '')}<br /><span>{String(job.prompt_original || '').slice(0, 140)}</span></p>) : <p>Истории генераций пока нет.</p>}</article><article><h3>Галерея клиента</h3>{userHistory?.images?.length ? userHistory.images.slice(0, 8).map((image) => <p key={String(image.id)}><b>{String(image.mode)}</b> · {String(image.created_at || '')}<br /><span>{String(image.prompt_original || '').slice(0, 140)}</span></p>) : <p>Изображений пока нет.</p>}</article><article><h3>Списание токенов</h3>{userHistory?.ledger?.length ? userHistory.ledger.slice(0, 8).map((entry) => <p key={String(entry.id)}><b>{Number(entry.delta || 0) > 0 ? '+' : ''}{String(entry.delta)}</b> · {String(entry.reason)}<br /><span>{String(entry.created_at || '')}</span></p>) : <p>Движений по токенам пока нет.</p>}</article></div></div>}<div className="user-edit-actions"><button className="secondary" onClick={closeUserEditor}>Отмена</button><button className="generate small-action" onClick={registerUser}>Сохранить</button></div></section></div>}
+    {tab === 'logs' && <AdminLogsView data={logsData} provider={provider} admin={admin} />}
+
   </section>
 }
 
