@@ -49,7 +49,7 @@ import {
 import './index.css'
 
 type Mode = 'text_to_image' | 'image_to_image' | 'edit' | 'paint' | 'inpaint' | 'outpaint' | 'faceswap' | 'remove_background' | 'try_on' | 'texture_transfer'
-type Tab = 'studio' | 'gallery' | 'presets' | 'settings' | 'admin'
+type Tab = 'studio' | 'gallery' | 'presets' | 'settings'
 type PaintTool = 'sketch' | 'inpaint' | 'outpaint'
 type PaintEditor = null | 'sketch' | 'mask'
 type Lang = 'ru' | 'en'
@@ -557,6 +557,7 @@ function App() {
   const [paintTool, setPaintTool] = useState<PaintTool>('sketch')
   const [paintEditor, setPaintEditor] = useState<PaintEditor>(null)
   const [tab, setTab] = useState<Tab>('studio')
+  const [pathName, setPathName] = useState(() => window.location.pathname)
   const [provider, setProvider] = useState('comfyui')
   const [prompt, setPrompt] = useState(workflowPresets.find((item) => item.mode === 'text_to_image')?.prompt || '')
   const [negativePrompt, setNegativePrompt] = useState(DEFAULT_NEG_PROMPT)
@@ -633,7 +634,7 @@ function App() {
       if (s.modelProfile) setModelProfile(s.modelProfile)
       if (s.provider) setProvider(s.provider)
       if (s.paintTool) setPaintTool(s.paintTool)
-      if (s.tab) setTab(s.tab)
+      if (['studio', 'gallery', 'presets', 'settings'].includes(s.tab)) setTab(s.tab)
       if (s.sampler) setSampler(s.sampler)
       if (s.lang) setLang(s.lang)
     } catch { /* ignore */ }
@@ -650,6 +651,24 @@ function App() {
   const { status: authV2Status, me: authMe } = useAuthV2()
   const isAuthedV2 = authV2Status === 'authed'
   const [authModalOpen, setAuthModalOpen] = useState(false)
+  const adminRoute = pathName === '/admin' || pathName.startsWith('/admin/')
+
+  useEffect(() => {
+    const onPopState = () => setPathName(window.location.pathname)
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  const navigateApp = useCallback((nextTab: Tab = 'studio') => {
+    if (window.location.pathname !== '/') window.history.pushState(null, '', '/')
+    setPathName(window.location.pathname)
+    setTab(nextTab)
+  }, [])
+
+  const openAdminPage = useCallback(() => {
+    if (window.location.pathname !== '/admin') window.history.pushState(null, '', '/admin')
+    setPathName(window.location.pathname)
+  }, [])
 
   useEffect(() => {
     const profileLang = authMe?.profile?.language_code
@@ -1154,7 +1173,6 @@ function App() {
     { id: 'gallery', label: copy.gallery, icon: GalleryHorizontalEnd },
     { id: 'presets', label: copy.help, icon: Sparkles },
     { id: 'settings', label: copy.settings, icon: Settings },
-    ...(isAdmin ? [{ id: 'admin' as Tab, label: copy.admin, icon: Shield }] : []),
   ] as Array<{ id: Tab; label: string; icon: typeof WandSparkles }>
   const openGallery = () => {
     if (galleryLocked) {
@@ -1206,6 +1224,35 @@ function App() {
     </div>
   )
 
+  if (adminRoute) {
+    return (
+      <div className="app-shell admin-route-shell">
+        {isDiagMode() && <DiagPanel />}
+        <AuthV2Modal open={authModalOpen} onClose={() => setAuthModalOpen(false)} />
+        <main className="workspace admin-workspace">
+          {authV2Status === 'loading' ? (
+            <section className="admin-page admin-access-page">
+              <div className="view-actions in-panel"><button className="secondary" onClick={() => navigateApp('studio')}><WandSparkles size={16} />{copy.backToStudio}</button></div>
+              <div className="admin-head"><div><h2>{copy.admin}</h2><p>Проверяем trusted admin-сессию.</p></div><strong>loading</strong></div>
+            </section>
+          ) : isAdmin ? (
+            <AdminView copy={copy} admin={admin} tariffs={tariffs} setTariffs={setTariffs} backToStudio={() => navigateApp('studio')} provider={provider} modelProfile={modelProfile} selectedLora={settingsSelectedLora} resetDefaults={resetDefaults} />
+          ) : (
+            <section className="admin-page admin-access-page">
+              <div className="view-actions in-panel"><button className="secondary" onClick={() => navigateApp('studio')}><WandSparkles size={16} />{copy.backToStudio}</button></div>
+              <div className="admin-head"><div><h2>{copy.admin}</h2><p>Админка вынесена на отдельную страницу и доступна только для trusted admin-сессии.</p></div><strong>403</strong></div>
+              <div className="admin-note">
+                <strong>Доступ закрыт</strong>
+                <p>Войдите под аккаунтом администратора. Кнопки в интерфейсе скрываются для обычных пользователей, а все admin API дополнительно проверяются на backend.</p>
+                <button className="generate small-action" onClick={() => setAuthModalOpen(true)}><Lock size={16} />Войти</button>
+              </div>
+            </section>
+          )}
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="app-shell">
       {isDiagMode() && <DiagPanel />}
@@ -1219,7 +1266,7 @@ function App() {
             </button>
           ))}
         </div>
-        {isAdmin && <button className="admin-link" onClick={() => setTab('admin')}>{copy.admin}</button>}
+        {isAdmin && <button className="admin-link" onClick={openAdminPage}>{copy.admin}</button>}
       </aside>
 
       <main className="workspace">
@@ -1232,7 +1279,7 @@ function App() {
             <button className="icon-button lockable" onClick={openGallery} title={copy.gallery}><GalleryHorizontalEnd size={18} />{copy.gallery}</button>
             <button className="icon-button" onClick={() => setTab('presets')} title={copy.help}><Sparkles size={18} />{copy.help}</button>
             <button className="icon-button" onClick={() => setTab('settings')} title={copy.settings}><Settings size={18} />{copy.settings}</button>
-            {isAdmin && <button className="icon-button" onClick={() => setTab('admin')} title={copy.admin}><Shield size={18} />{copy.admin}</button>}
+            {isAdmin && <button className="icon-button" onClick={openAdminPage} title={copy.admin}><Shield size={18} />{copy.admin}</button>}
           </div>
         </header>
 
@@ -1338,11 +1385,9 @@ function App() {
         )}
 
         {tab === 'gallery' && !galleryLocked && <GalleryView copy={copy} images={gallery} quota={galleryQuota} selected={selected} setSelected={setSelected} handleUseImageAs={useImageAs} refreshGallery={fetchGallery} clearSelected={() => setSelected(undefined)} backToStudio={() => setTab('studio')} view={galleryView} setView={setGalleryView} sendImage={sendImage} pickSlot={pendingEditSlot} onPickForSlot={assignGalleryToEditSlot} cancelPick={() => { setPendingEditSlot(null); setTab('studio') }} />}
-        {tab === 'gallery' && galleryLocked && <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'gallery' && galleryLocked && <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={openAdminPage} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
         {tab === 'presets' && <HelpView lang={lang} applyPreset={applyPreset} copy={copy} backToStudio={() => setTab('studio')} />}
-        {tab === 'settings' && <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
-        {tab === 'admin' && isAdmin && <AdminView copy={copy} admin={admin} tariffs={tariffs} setTariffs={setTariffs} backToStudio={() => setTab('studio')} provider={provider} modelProfile={modelProfile} selectedLora={settingsSelectedLora} resetDefaults={resetDefaults} />}
-        {tab === 'admin' && !isAdmin && <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={() => setTab('admin')} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'settings' && <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={openAdminPage} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
 
         {instructionOpen && <InstructionModal mode={mode} paintTool={paintTool} onClose={() => setInstructionOpen(false)} />}
         {editTemplatesOpen && <EditTemplatesModal templates={EDIT_TEMPLATES} applyTemplate={applyEditTemplate} onClose={() => setEditTemplatesOpen(false)} />}
