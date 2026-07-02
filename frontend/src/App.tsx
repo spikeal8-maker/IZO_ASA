@@ -133,6 +133,8 @@ type PromoCode = {
 
 type TimelinePoint = { date: string; value: number }
 type AdminTimeline = Record<string, TimelinePoint[]>
+type DashboardRange = 1 | 6 | 12 | 24 | 7 | 30 | 90
+const HOURLY_DASHBOARD_RANGES = new Set<DashboardRange>([1, 6, 12, 24])
 
 type PaintLine = {
   tool: 'brush' | 'eraser'
@@ -2880,7 +2882,7 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
   const [promoCodes, setPromoCodes] = useState<PromoCode[]>([])
   const [logsData, setLogsData] = useState<Record<string, unknown> | null>(null)
   const [adminMessage, setAdminMessage] = useState('')
-  const [dashboardRange, setDashboardRange] = useState<1 | 6 | 12 | 24 | 7 | 30 | 90>(30)
+  const [dashboardRange, setDashboardRange] = useState<DashboardRange>(30)
   const queue = Array.isArray(admin?.queue) ? admin.queue : []
   const generationErrors = Number(admin?.errors ?? 0)
   const health = generationErrors === 0 ? 'Стабильно' : `Ошибки генерации: ${generationErrors}`
@@ -2930,7 +2932,7 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
   }
   const kpi = (title: string, value: unknown, note: string) => <div><strong>{title}</strong><span>{String(value ?? '—')}</span><small>{note}</small></div>
   const timeline = (admin?.timeline || {}) as AdminTimeline
-  const isHourlyDashboardRange = dashboardRange <= 24
+  const isHourlyDashboardRange = HOURLY_DASHBOARD_RANGES.has(dashboardRange)
   const sliceSeries = (key: string): TimelinePoint[] => {
     const sourceKey = isHourlyDashboardRange ? `${key}_hourly` : key
     return (Array.isArray(timeline[sourceKey]) ? timeline[sourceKey] : []).slice(-dashboardRange)
@@ -3039,14 +3041,14 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
           [7, '7 дней'],
           [30, '30 дней'],
           [90, '90 дней'],
-        ].map(([range, label]) => <button key={range} className={dashboardRange === range ? 'active' : ''} onClick={() => setDashboardRange(range as 1 | 6 | 12 | 24 | 7 | 30 | 90)}>{label}</button>)}
+        ].map(([range, label]) => <button key={range} className={dashboardRange === range ? 'active' : ''} onClick={() => setDashboardRange(range as DashboardRange)}>{label}</button>)}
       </div>
       <div className="admin-chart-grid">
         {lineChart('Активность пользователей', 'active_users', 'last_seen по дням')}
         {lineChart('Новые пользователи', 'registrations', 'созданные аккаунты', '#72ff69')}
         {lineChart('Успешные входы', 'logins', 'login/register события', '#64b5ff')}
         {lineChart('Ошибки входа', 'login_errors', 'неудачные auth попытки', '#ffd45c')}
-        {lineChart('Генерации', 'generations', 'созданные jobs', '#dfff22')}
+        {lineChart('Генерации', 'generations', 'старты генераций', '#dfff22')}
         {lineChart('Ошибки генерации', 'generation_errors', 'failed jobs', '#ff6b6b')}
       </div>
       {Boolean(admin?.finance) && <div className="admin-grid admin-grid-compact">

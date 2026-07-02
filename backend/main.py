@@ -9367,9 +9367,10 @@ async def get_presets() -> list[dict[str, Any]]:
 async def admin_summary(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
     failed = [item for item in jobs.values() if item["status"] == "failed"]
-    completed_today = [item for item in jobs.values() if item["status"] == "completed"]
     now_iso = datetime.now(timezone.utc).isoformat()
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    now_dt = datetime.now(timezone.utc)
+    today_start = now_dt.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    last_24h = (now_dt - timedelta(hours=24)).isoformat()
     with db() as conn:
         user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         job_db_count = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
@@ -9382,7 +9383,9 @@ async def admin_summary(request: Request) -> dict[str, Any]:
             (today_start,),
         ).fetchone()[0]
         active_sessions = conn.execute("SELECT COUNT(*) FROM auth_sessions WHERE revoked_at IS NULL AND expires_at > ?", (now_iso,)).fetchone()[0]
-        errors_24h = conn.execute("SELECT COUNT(*) FROM auth_login_attempts WHERE success = 0 AND created_at >= ?", (today_start,)).fetchone()[0]
+        generation_errors_count = conn.execute("SELECT COUNT(*) FROM jobs WHERE status = 'failed'").fetchone()[0]
+        completed_today_count = conn.execute("SELECT COUNT(*) FROM jobs WHERE status = 'completed' AND created_at >= ?", (today_start,)).fetchone()[0]
+        errors_24h = conn.execute("SELECT COUNT(*) FROM auth_login_attempts WHERE success = 0 AND created_at >= ?", (last_24h,)).fetchone()[0]
         settings_row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'finance'").fetchone()
         finance = json.loads(settings_row["value_json"]) if settings_row else {"tokenRevenue": 0, "tokenCost": 0, "electricity": 0, "promoBudget": 0}
         timeline = {
@@ -9406,9 +9409,9 @@ async def admin_summary(request: Request) -> dict[str, Any]:
         "jobs": max(len(jobs), job_db_count),
         "generationsToday": generations_today,
         "images": image_count,
-        "errors": len(failed),
+        "errors": generation_errors_count,
         "errors24h": errors_24h,
-        "completedToday": len(completed_today),
+        "completedToday": completed_today_count,
         "tokenBalanceTotal": token_total,
         "tokensSpentTotal": tokens_spent,
         "activeSessions": active_sessions,
