@@ -23,6 +23,7 @@ import {
 } from './editPrompt'
 import { AdminAnalyticsV2 } from './adminAnalytics'
 import AdminModelsV2 from './adminModels'
+import NewStudio from './newUi'
 import { Stage, Layer, Line, Rect, Text, Circle } from 'react-konva'
 import type { Stage as KonvaStage } from 'konva/lib/Stage'
 import {
@@ -795,6 +796,8 @@ function App() {
   const isAuthedV2 = authV2Status === 'authed'
   const [authModalOpen, setAuthModalOpen] = useState(false)
   const adminRoute = pathName === '/admin' || pathName.startsWith('/admin/')
+  // UI 2.0: experimental /new route (docs/new-ui-v2-plan.md). Minimal hook only.
+  const newUiRoute = pathName === '/new' || pathName.startsWith('/new/')
 
   useEffect(() => {
     const onPopState = () => setPathName(window.location.pathname)
@@ -1375,6 +1378,10 @@ function App() {
       </div>}
     </div>
   )
+
+  if (newUiRoute) {
+    return <NewStudio />
+  }
 
   if (adminRoute) {
     return (
