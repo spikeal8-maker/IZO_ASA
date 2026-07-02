@@ -360,7 +360,7 @@ export interface MeV2 {
     display_name?: string | null; first_name?: string | null; last_name?: string | null
     public_user_code?: string | null; username?: string | null; email?: string | null; email_verified_at?: string | null; providers?: string[]
     language_code?: string | null; timezone?: string | null; city?: string | null; country_code?: string | null
-    avatar_url?: string | null; avatar_preset?: string | null
+    avatar_url?: string | null; avatar_preset?: string | null; gender?: 'female' | 'male' | null; age?: number | null
   } | null
   account?: {
     role?: string | null; plan?: string | null; token_balance?: number | null

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, Dispatch, MutableRefObject, SetStateAction } from 'react'
+import type { ChangeEvent, Dispatch, MutableRefObject, ReactNode, SetStateAction } from 'react'
 import {
   AuthV2Modal,
   initAuthV2,
@@ -17,7 +17,7 @@ import {
 import { DiagPanel } from './diag'
 import { isDiagMode } from './diagMeta'
 import {
-  EDIT_SLOT_COUNT, DEFAULT_EDIT_STRENGTH, EDIT_REFERENCE_ROLES, EDIT_REFERENCE_ROLE_LABELS,
+  EDIT_SLOT_COUNT, DEFAULT_EDIT_STRENGTH, EDIT_DISABLED_REFERENCE_ROLES, EDIT_SELECTABLE_REFERENCE_ROLES, EDIT_REFERENCE_ROLE_LABELS,
   EDIT_TEMPLATES, editComposerStatus,
   type EditReferenceRole, type EditSlot, type EditTemplate,
 } from './editPrompt'
@@ -149,6 +149,11 @@ type Preset = {
   prompt: string
   category?: string
   dual?: boolean
+  preview?: {
+    female: string
+    male: string
+    alt: string
+  }
 }
 type FluxConfig = {
   autofill_prompts?: Record<string, string>
@@ -432,6 +437,8 @@ const t = {
 }
 
 const workflowPresets: Preset[] = [
+  ...presetsFromRows(textToImageTemplateRows(), 'text_to_image', 'Текст → Изо · идеи', 't2i-template'),
+  ...presetsFromRows(imageToImageTransformRows(), 'image_to_image', 'Изо → Изо · преобразование', 'i2i-transform', true),
   { id: 't2i-01', ru: 'Кот на крыше под огромной луной', en: 'Cat under giant moon', mode: 'text_to_image', category: 'Текст → Изо', prompt: 'Пушистый кот сидит на краю старой крыши ночью и смотрит на огромную светящуюся луну над тихим городом. Мягкий сине-серебристый лунный свет, лёгкий ветер двигает шерсть, внизу тёплые огни окон, спокойная мечтательная атмосфера, реалистичные детали, малая глубина резкости, эмоциональный кинематографичный кадр. Все видимые поверхности содержат только абстрактные узоры и световые формы.' },
   { id: 't2i-02', ru: 'Биолюминесцентное море', en: 'Bioluminescent ocean', mode: 'text_to_image', category: 'Текст → Изо', prompt: 'Ночной берег океана с биолюминесцентными волнами, которые светятся голубым светом на тёмном песке. Одинокий человек стоит у воды и смотрит на горизонт. В небе яркие звёзды, вдалеке скалы и мягкий туман. Широкий кинематографичный кадр, реалистичная вода, красивые отражения, магическая спокойная атмосфера. Все видимые детали полностью визуальные, только абстрактные формы и узоры.' },
   { id: 't2i-03', ru: 'Космический корабль над древним городом', en: 'Spaceship over ancient city', mode: 'text_to_image', category: 'Текст → Изо', prompt: 'Гигантский футуристический космический корабль медленно зависает над древним пустынным городом с каменными храмами, факелами и золотой пылью в воздухе. Сцена соединяет древнюю цивилизацию и технологии будущего: светящиеся двигатели, резные башни, парящие дроны, драматичный закат. Эпичная кинематографичная композиция, реалистичный масштаб, дорогой sci-fi fantasy стиль. Все символы и панели выглядят как абстрактные декоративные узоры.' },
@@ -490,11 +497,24 @@ function randomPromptFromPresets(presets: Preset[], fallback = '') {
   return presets[Math.floor(Math.random() * presets.length)]?.prompt || fallback
 }
 
+function presetPreviewPair(preset: Preset) {
+  if (!preset.preview) return null
+  return preset.preview
+}
+
 function presetsForPromptKey(presets: Preset[], key: PromptKey) {
   if (key === 'paint:sketch') return presets.filter((item) => item.mode === 'paint')
   if (key === 'paint:inpaint') return presets.filter((item) => item.mode === 'inpaint')
   if (key === 'paint:outpaint') return presets.filter((item) => item.mode === 'outpaint')
   return presets.filter((item) => item.mode === key)
+}
+
+function initialPromptByMode(presets: Preset[]): Record<string, string> {
+  const keys: PromptKey[] = ['text_to_image', 'image_to_image', 'faceswap', 'paint:sketch', 'paint:inpaint', 'paint:outpaint', 'edit']
+  return keys.reduce<Record<string, string>>((acc, key) => {
+    acc[key] = key === 'edit' ? '' : randomPromptFromPresets(presetsForPromptKey(presets, key), '')
+    return acc
+  }, {})
 }
 
 const fallbackLoraOptions: LoraOption[] = [
@@ -530,8 +550,134 @@ function categoryTitle(category: string, lang: Lang) {
   return titles[category]?.[lang] || category
 }
 
+function presetsFromRows(rows: string, mode: Mode, category: string, idPrefix: string, transformSourceImage = false): Preset[] {
+  return rows.trim().split(/\r?\n/).map((line) => {
+    const parts = line.split('\t')
+    const number = parts.shift() || '0'
+    const name = parts.shift() || `Шаблон ${number}`
+    const rawPrompt = parts.join('\t').trim()
+    const prompt = transformSourceImage
+      ? `Преобразуй исходное изображение в выбранное визуальное направление. Сохрани главный объект, силуэт, читаемую композицию и важные детали исходника. Не добавляй читаемый текст, логотипы и водяные знаки. ${rawPrompt}`
+      : rawPrompt
+    const id = `${idPrefix}-${number.padStart(2, '0')}`
+    return {
+      id,
+      ru: name.trim(),
+      en: name.trim(),
+      mode,
+      category,
+      prompt,
+      preview: transformSourceImage ? presetPreview(id, name.trim()) : undefined,
+    }
+  })
+}
+
+function presetPreview(id: string, name: string) {
+  return {
+    female: `/preset-previews/i2i/female/${id}.webp`,
+    male: `/preset-previews/i2i/male/${id}.webp`,
+    alt: `Превью стиля: ${name}`,
+  }
+}
+
+function imageToImageTransformRows() {
+  return `
+1	Чистый коммерческий фотореализм	Реалистичная коммерческая фотография, естественные материалы, чистая композиция, мягкий дневной свет, реалистичная кожа и фактуры, камера на уровне глаз, объектив 50 мм, f/2.8, умеренная глубина резкости, аккуратный премиальный вид.
+2	Лакшери премиум	Дорогая премиальная эстетика: мрамор, тёмное дерево, латунь, кожа, бархат, стекло, мягкие золотистые отражения, дорогой интерьер или окружение высокого класса, журнальная luxury-фотография, объектив 50 мм, f/2.2.
+3	Fashion editorial	Глянцевая журнальная съёмка, выразительная поза, чистый фон, дорогой свет, стильная одежда и материалы, editorial composition, мягкие тени, камера 85 мм, f/2.0, ощущение обложки журнала.
+4	Космическая станция	Реалистичная космическая среда: большой иллюминатор, вид на планету, звёзды, панели управления, герметичный модуль, холодный бело-синий свет, ощущение настоящей орбитальной станции, объектив 35 мм, f/4.
+5	Невесомость	Сцена в состоянии невесомости: волосы, ткань и мелкие предметы мягко парят, жидкость собирается в округлые капли, тела удерживаются ремнями или поручнями, нет ощущения обычного веса, за окном космос или большая планета, объектив 35 мм, f/4.
+6	Открытое будущее	Светлое будущее не в коробке: большие окна, вид на город будущего, воздух, панорама, гладкая архитектура, прозрачные интерфейсы, мягкие световые линии, чистые материалы, ощущение просторного технологичного мира, объектив 35 мм, f/3.5.
+7	Белая high-tech лаборатория	Стерильная технологичная среда, белые панели, стекло, мягкая холодная подсветка, голографические экраны, аккуратная научная эстетика, чистый фотореализм, большие световые поверхности, объектив 50 мм, f/2.8.
+8	Киберпанк неон	Тёмный футуристический мир, сине-розовый неон, дождь, мокрые отражения, городские огни, голограммы, высокая контрастность, технологичная ночная атмосфера, cinematic cyberpunk, объектив 35 мм, f/2.0.
+9	Стимпанк	Викторианско-индустриальная эстетика: медь, латунь, шестерёнки, трубы, механические приборы, тёплый янтарный свет, дерево, металл, пар, детальная мастерская или механический мир, объектив 50 мм, f/2.8.
+10	Дизельпанк	Грубая индустриальная эстетика первой половины XX века: сталь, заклёпки, тяжёлые механизмы, дым, военная техника, тёпло-серые цвета, суровый ретро-футуризм, драматичный свет, объектив 35 мм, f/4.
+11	Ретрофутуризм 60-х	Будущее глазами 1960-х: округлые формы, пастельные панели, винтажные приборы, старые экраны, пластик, хром, мягкая студийная подсветка, рекламная эстетика старого будущего, объектив 50 мм, f/2.8.
+12	Соларпанк	Светлая экологичная эстетика: растения, солнечный свет, дерево, стекло, зелёные технологии, солнечные панели, чистый воздух, оптимистичный мир будущего, тёплая натуральная палитра, объектив 35 мм, f/3.5.
+13	Биопанк	Органическая научная среда: корни, живые ткани, зелёно-бирюзовое свечение, колбы, влажные поверхности, биологические структуры, странная лаборатория, сочетание природы и технологии, объектив 50 мм, f/2.8.
+14	Постапокалипсис	Разрушенный мир после катастрофы: трещины, пыль, ржавчина, сломанные конструкции, грязь, холодный свет, следы выживания, реалистичная разруха, но исходная сцена остаётся читаемой, объектив 35 мм, f/4.
+15	Грязный реализм	Жёсткая бытовая фактура: старые стены, потёртый металл, пятна, царапины, пыль, неидеальные поверхности, натуральный грубый свет, документальная реалистичность, объектив 50 мм, f/2.8.
+16	Средневековая старина	Камень, дерево, свечи, пергамент, грубые ткани, старинные предметы, тёплый огонь, атмосфера средневекового кабинета, замка или мастерской, реалистичная историческая реконструкция, объектив 50 мм, f/2.8.
+17	Античный мир	Светлая древняя эстетика: известковые стены, колонны, керамика, лен, камень, мягкое солнце, тёплая песочная палитра, реалистичный древний интерьер или городская среда, объектив 35 мм, f/4.
+18	Тёмное фэнтези	Мрачный магический мир, камень, дым, свечи, холодные тени, загадочные символы, тяжёлая атмосфера, драматичный свет, ощущение древней силы, cinematic dark fantasy, объектив 50 мм, f/2.8.
+19	Светлое фэнтези	Волшебный мир с мягким золотистым светом, парящими частицами, невозможным пейзажем, красивой архитектурой, сияющими деталями, сказочная реалистичность, ясная композиция, объектив 35 мм, f/3.5.
+20	Другой мир / портал	Окружение выглядит как реальность, переходящая в невозможный мир: световые разломы, парящие предметы, необычная гравитация, странный пейзаж за границей сцены, мягкое магическое свечение, объектив 35 мм, f/3.5.
+21	Подводный мир	Сцена погружена в подводную эстетику: голубой свет, мягкие лучи через воду, пузырьки, плавающие ткани и мелкие предметы, приглушённые цвета, ощущение глубины и плавности, объектив 35 мм, f/4.
+22	Арктика / ледяной мир	Холодная бело-голубая палитра, лёд, снег, иней, прозрачные замёрзшие поверхности, холодный воздух, мягкие отражения, чистая суровая атмосфера, объектив 35 мм, f/4.
+23	Пустынный мир	Песок, тёплый жёлто-оранжевый свет, пыль в воздухе, сухие материалы, выжженная атмосфера, длинные тени, ощущение жары и простора, объектив 35 мм, f/5.6.
+24	Аниме реализм	Качественная аниме-иллюстрация, выразительное лицо с прорисованными глазами, носом, ртом и эмоцией, чистые контуры, мягкая cel-shading тень, аккуратные волосы, естественная композиция, не чиби, не карикатура.
+25	Манга / тушь	Чёрно-белая манга-эстетика, чёткая тушевая линия, скринтоны, аккуратная штриховка, выразительные лица, ясные силуэты, сильный контраст, композиция как кадр из качественной манги.
+26	Цветной графический роман	Премиальный comic book / graphic novel style, чёткие контуры, выразительная штриховка, насыщенные цвета, драматичный свет, читаемые лица, детальные материалы, ощущение дорогой комиксной обложки.
+27	3D мульт высокого качества	Стильный 3D cartoon render, мягкие округлые формы, приятные лица, выразительные глаза, аккуратные материалы, мягкий студийный свет, чистая персонажная пластика, виртуальная камера 50 мм.
+28	Low-poly 3D	Низкополигональный 3D-стиль, фасеточные формы, упрощённые материалы, геометрические силуэты, мягкие тени, читаемые лица и объекты, стильная game-art эстетика, виртуальная камера 50 мм.
+29	Пластилин stop-motion	Всё выглядит как физическая лепка из пластилина: матовая глина, следы пальцев, неровные края, миниатюрный масштаб, мягкий студийный свет, stop-motion эстетика, macro 60 мм, f/5.6.
+30	Бумажная диорама	Всё собрано из бумаги и картона: видимые слои, вырезанные края, бумажная фактура, мягкие тени от слоёв, shadowbox-композиция, ручная аппликация, macro 60 мм, f/5.6.
+31	Пиксель-арт	Чёткий 16-bit pixel art, крупная пиксельная сетка, ограниченная палитра, читаемые силуэты, аккуратные пиксельные тени, без плавных фотореалистичных текстур, стиль качественной игровой сцены.
+32	Вектор с лицом	Чистая векторная иллюстрация, плоские формы, ограниченная палитра, аккуратные контуры, лицо обязательно прорисовано простыми элементами: глаза, брови, нос, рот, выражение, современная editorial vector эстетика.
+33	Изометрия	Изометрический визуал, камера сверху под углом, аккуратная геометрия, читаемая сцена как миниатюрная модель, чистые формы, мягкие тени, все объекты расположены ясно, стиль интерфейсной 3D-иллюстрации.
+34	Технический чертёж	Сцена превращена в аккуратную техническую схему: тонкие линии, синие или белые чертёжные контуры, размеры, конструктивные детали, полупрозрачные слои, blueprint aesthetic, но главный объект остаётся узнаваемым.
+35	Музейный архив	Старинная архивная эстетика: выцветшая бумага, аккуратная экспозиция, подписи как музейные таблички без читаемого текста, мягкий рассеянный свет, ощущение редкого исторического объекта, объектив 50 мм, f/4.
+36	Продуктовый каталог	Чистая каталожная подача: ровный свет, нейтральный фон, главный объект идеально читается, материалы выглядят дорого и аккуратно, минимум лишних деталей, commercial product photography, объектив 70 мм, f/5.6.
+`
+}
+
+function textToImageTemplateRows() {
+  return `
+1	Миниатюрный город в разбитой чашке	На деревянном столе стоит треснувшая фарфоровая чашка, внутри чашки вырос крошечный ночной город с мостами, окнами, улицами и маленьким поездом по краю блюдца. Из трещины чашки вытекает тонкая светящаяся река. Макрофотография, реалистичный фарфор, уютный тёплый свет, много мелких красивых деталей, но главный объект хорошо читается, без текста, без логотипов, без водяных знаков.
+2	Биолаборатория в корнях	Странная живая лаборатория, выросшая внутри огромных древесных корней. Стеклянные сосуды, органические экраны, светящаяся зелёная жидкость и мягкие биолюминесцентные жилы встроены в корни. Учёный изучает живое механическое семя на столе, влажный воздух, кинематографичная биопанк-атмосфера, детальные фактуры, без текста, без логотипов, без водяных знаков.
+3	Чемодан с целым миром	Открытый винтажный чемодан на деревянном столе, а внутри него находится целый миниатюрный мир: горы, извилистая река, маленькие дома, мост, облака и тёплый закатный свет. Комната вокруг мягко размыта, миниатюрный ландшафт очень детальный и резкий. Магический реализм, макрофотография, реалистичные ручные материалы, объектив 60 мм, без текста, без логотипов, без водяных знаков.
+4	Поезд в книжной полке	Крупный план старой книжной полки вечером, между книгами проходит крошечная железная дорога, по ней едет маленький светящийся поезд. Из тоннеля между книгами выходит пар, на корешках книг мягкие отражения, рядом чашка чая и очки. Макрофотография, уютная атмосфера, реалистичные материалы, сказочная детальность, без читаемого текста, без логотипов, без водяных знаков.
+5	Тайная станция под ковром	Обычная гостиная, край ковра приподнят, а под ним видна миниатюрная подземная станция с рельсами, лампами, трубами и маленькими рабочими механизмами. Человек стоит на коленях и светит фонариком под ковёр, удивлённо рассматривая скрытый мир. Фотореализм, макро-детали, тёплый домашний свет, без текста, без логотипов, без водяных знаков.
+6	Последний магазин дождя	Уютная маленькая лавка вечером, на полках стоят стеклянные банки с разными видами дождя: летний дождь, гроза, снег с дождём, тёплый грибной дождь. Продавец открывает одну банку, и над прилавком появляется маленькая туча с каплями. Дерево, стекло, тёплые лампы, магический реализм, без читаемого текста, без логотипов, без водяных знаков.
+7	Портной шьёт крылья	Старая мастерская портного, на манекене висят большие полупрозрачные крылья из ткани, нитей и света. Портной аккуратно прошивает край крыла на швейной машине, вокруг катушки, ножницы, выкройки и тёплая пыль в воздухе. Фотореализм, ремесленная магия, красивый свет, без текста, без логотипов, без водяных знаков.
+8	Космическая станция	Инженер проверяет панель управления внутри реалистичного модуля орбитальной станции, рядом инструменты закреплены на стене, через большой иллюминатор видна огромная планета и звёзды. Холодный бело-синий свет, герметичный модуль, ощущение настоящей станции, объектив 35 мм, f/4, чистый фотореализм, без текста, без логотипов, без водяных знаков.
+9	Киберпанк неон	Курьер будущего останавливается у автомата доставки на мокрой ночной улице мегаполиса, рядом футуристический мотоцикл, дождь, сине-розовый неон, отражения на асфальте, голограммы, высокая контрастность. Cinematic cyberpunk, объектив 35 мм, f/2.0, технологичная ночная атмосфера, без текста, без логотипов, без водяных знаков.
+10	Стимпанк	Мастер запускает огромный латунный механический телескоп в викторианской мастерской, вокруг шестерёнки, трубы, манометры, медь, дерево, пар и тёплый янтарный свет. Викторианско-индустриальная эстетика, детальная механическая среда, объектив 50 мм, f/2.8, без текста, без логотипов, без водяных знаков.
+11	Ретрофутуризм 60-х	Семья рассматривает домашнего робота-помощника в яркой гостиной будущего глазами 1960-х: округлые формы, пастельные панели, хром, пластик, винтажные приборы и мягкая студийная подсветка. Рекламная эстетика старого будущего, объектив 50 мм, f/2.8, без текста, без логотипов, без водяных знаков.
+12	Грязный реализм	Механик в старой мастерской ремонтирует потёртый мотоцикл у грязного окна, вокруг старые стены, пятна масла, царапины, пыль, грубый натуральный свет и неидеальные поверхности. Документальная реалистичность, объектив 50 мм, f/2.8, без текста, без логотипов, без водяных знаков.
+13	Средневековая старина	Картограф в средневековом кабинете чертит карту морского пути при свете свечей, на столе пергамент, компас, грубые ткани, дерево, камень, старинные инструменты и тёплый огонь. Реалистичная историческая реконструкция. Все руки неместе, пальци реалистичны, объектив 50 мм, f/2.8, без читаемого текста, без логотипов, без водяных знаков.
+14	Тёмное фэнтези	Маг-кузнец создаёт чёрный артефакт на каменном алтаре в подземной мастерской, вокруг дым, свечи, холодные тени, древние символы, тяжёлая атмосфера и драматичный свет. Cinematic dark fantasy, объектив 50 мм, f/2.8, без текста, без логотипов, без водяных знаков.
+15	Светлое фэнтези	Путешественница идёт по мраморному мосту между сияющими башнями над облаками, вокруг мягкий золотистый свет, парящие частицы, невозможный пейзаж и красивая архитектура. Сказочная реалистичность, ясная композиция, объектив 35 мм, f/3.5, без текста, без логотипов, без водяных знаков.
+16	Цветной графический роман	Детектив будущего открывает дверь в подпольную лабораторию, в руке фонарь, на лице напряжение, за дверью синий свет и силуэты механизмов. Премиальный comic book / graphic novel style, чёткие контуры, выразительная штриховка, насыщенные цвета, драматичный свет, читаемые лица, ощущение дорогой комиксной обложки, без текста.
+17	3D мульт высокого качества	Маленький инженер-изобретатель запускает смешного домашнего робота на рабочем столе, вокруг аккуратные инструменты, лампа, детали и мягкий студийный свет. Стильный 3D cartoon render, мягкие округлые формы, приятные лица, выразительные глаза, аккуратные материалы, виртуальная камера 50 мм, без текста, без логотипов.
+18	Low-poly 3D	Низкополигональный путешественник стоит на краю геометрического каньона перед маленьким футуристическим лагерем, рядом транспорт и костёр. Low-poly 3D-стиль, фасеточные формы, упрощённые материалы, геометрические силуэты, мягкие тени, читаемые объекты, стильная game-art эстетика, виртуальная камера 50 мм, без текста.
+19	Пластилин stop-motion	Пластилиновый повар готовит огромный светящийся пирог в маленькой кухне, рядом смешные миниатюрные кастрюли, стол, мука и тёплая лампа. Всё выглядит как физическая лепка из пластилина: матовая глина, следы пальцев, неровные края, миниатюрный масштаб, мягкий студийный свет, stop-motion эстетика, macro 60 мм, f/5.6, без текста.
+20	Бумажная диорама	Бумажный город на склоне горы, маленький поезд пересекает мост, облака и деревья сделаны из вырезанной бумаги, дома стоят слоями внутри shadowbox-композиции. Видимые слои, вырезанные края, бумажная фактура, мягкие тени от слоёв, ручная аппликация, macro 60 мм, f/5.6, без текста.
+21	Пиксель-арт	Ночной вокзал в стиле 16-bit pixel art: маленький герой стоит на платформе с чемоданом, поезд с тёплыми окнами подъезжает под дождём, отражения в лужах. Чёткая пиксельная сетка, ограниченная палитра, читаемые силуэты, аккуратные пиксельные тени, без плавных фотореалистичных текстур, без текста.
+22	Вектор с лицом	Современная векторная иллюстрация: дизайнер сидит за столом у большого окна, рядом растения, планшет, чашка кофе и аккуратная лампа, лицо хорошо читается с глазами, бровями, носом, ртом и спокойным выражением. Плоские формы, ограниченная палитра, аккуратные контуры, editorial vector эстетика, без текста.
+23	Изометрия	Изометрическая сцена миниатюрного научного хаба: лаборатория, зона отдыха, серверная, маленькие персонажи работают с устройствами, все объекты ясно расположены. Камера сверху под углом, аккуратная геометрия, чистые формы, мягкие тени, стиль интерфейсной 3D-иллюстрации, без текста, без логотипов.
+`
+}
+
 function fitGenerationDimension(value: number) {
   return Math.max(512, Math.min(1536, Math.round(value / 16) * 16))
+}
+
+const uploadImageMaxSide = 1536
+
+async function resizeUploadImage(file: File): Promise<string> {
+  const sourceUrl = URL.createObjectURL(file)
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = reject
+      img.src = sourceUrl
+    })
+    const maxSide = Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height)
+    const scale = Math.min(1, uploadImageMaxSide / Math.max(1, maxSide))
+    const width = Math.max(16, Math.round(((image.naturalWidth || image.width) * scale) / 16) * 16)
+    const height = Math.max(16, Math.round(((image.naturalHeight || image.height) * scale) / 16) * 16)
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('canvas_unavailable')
+    ctx.drawImage(image, 0, 0, width, height)
+    return canvas.toDataURL('image/jpeg', 0.9)
+  } finally {
+    URL.revokeObjectURL(sourceUrl)
+  }
 }
 
 function App() {
@@ -542,9 +688,7 @@ function App() {
   const [tab, setTab] = useState<Tab>('studio')
   const [pathName, setPathName] = useState(() => window.location.pathname)
   const [provider, setProvider] = useState('comfyui')
-  const [promptByMode, setPromptByMode] = useState<Record<string, string>>(() => ({
-    text_to_image: randomPromptFromPresets(workflowPresets.filter((item) => item.mode === 'text_to_image'), workflowPresets.find((item) => item.mode === 'text_to_image')?.prompt || ''),
-  }))
+  const [promptByMode, setPromptByMode] = useState<Record<string, string>>(() => initialPromptByMode(workflowPresets))
   const [negativePrompt, setNegativePrompt] = useState(DEFAULT_NEG_PROMPT)
   const [seed, setSeed] = useState(0)
   const [width, setWidth] = useState(1024)
@@ -736,17 +880,13 @@ function App() {
 
   useEffect(() => {
     if (promptByMode[promptKey] !== undefined) return
-    const fallbackPresets = presetsForPromptKey(allPresets, promptKey)
     queueMicrotask(() => {
       setPromptByMode((current) => {
         if (current[promptKey] !== undefined) return current
-        return {
-          ...current,
-          [promptKey]: promptKey === 'edit' ? '' : randomPromptFromPresets(fallbackPresets, ''),
-        }
+        return { ...current, [promptKey]: '' }
       })
     })
-  }, [allPresets, promptByMode, promptKey])
+  }, [promptByMode, promptKey])
 
   const fetchGallery = useCallback(async () => {
     // /api/gallery returns 401 (JSON {detail}) when unauthenticated; only ever
@@ -1028,8 +1168,7 @@ function App() {
     const nextKey = promptKeyFor(nextMode, nextMode === 'paint' ? 'sketch' : paintTool)
     setPromptByMode((current) => {
       if (current[nextKey] !== undefined) return current
-      const fallbackPresets = presetsForPromptKey(allPresets, nextKey)
-      return { ...current, [nextKey]: nextKey === 'edit' ? '' : randomPromptFromPresets(fallbackPresets, '') }
+      return { ...current, [nextKey]: '' }
     })
   }
 
@@ -1048,20 +1187,6 @@ function App() {
     } catch {
       // Saving locally is optional; the preset still appears for the current session.
     }
-  }
-
-  function resetDefaults() {
-    setProvider('comfyui')
-    setModelProfile('local_flux_klein')
-    setSampler('er_sde')
-    setSeed(0)
-    setWidth(1024)
-    setHeight(1024)
-    setSteps(4)
-    setCfg(1)
-    setStrength(0.75)
-    setSelectedLora('none')
-    setNegativePrompt(DEFAULT_NEG_PROMPT)
   }
 
   async function cancelJob() {
@@ -1092,27 +1217,18 @@ function App() {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = 'image/png,image/jpeg,image/webp,image/heic'
-    input.onchange = () => {
+    input.onchange = async () => {
       const file = input.files?.[0]
       if (!file) return
       if (file.size > 25 * 1024 * 1024) {
         setNotice(copy.fileTooLarge)
         return
       }
-      const reader = new FileReader()
-      reader.onload = () => {
-        const dataUrl = String(reader.result)
-        const image = new Image()
-        image.onload = () => {
-          if (image.width > 4096 || image.height > 4096) {
-            setNotice(copy.resolutionTooLarge)
-            return
-          }
-          setter(dataUrl)
-        }
-        image.src = dataUrl
+      try {
+        setter(await resizeUploadImage(file))
+      } catch {
+        setNotice(copy.fileTooLarge)
       }
-      reader.readAsDataURL(file)
     }
     input.click()
   }
@@ -1122,6 +1238,10 @@ function App() {
     setEditSlots((current) => current.map((slot, i) => (i === index ? { ...slot, image: url } : slot)))
   }
   function setEditSlotRole(index: number, role: EditReferenceRole | '') {
+    if (role === 'pose') {
+      setNotice('Смена позы временно отключена: режим нестабилен и может надолго занять видеокарту.')
+      return
+    }
     setEditSlots((current) => current.map((slot, i) => (i === index ? { ...slot, role } : slot)))
   }
   function setEditSlotTakeNote(index: number, takeNote: string) {
@@ -1134,6 +1254,10 @@ function App() {
   // Применить шаблон: назначает роли референсам + ставит userNote. Не перетирает уже
   // выбранные роли без подтверждения. Возвращает в auto-режим, чтобы prompt пересобрался.
   function applyEditTemplate(tpl: EditTemplate) {
+    if (tpl.assign.some(({ role }) => role === 'pose')) {
+      setNotice('Шаблон со сменой позы временно недоступен.')
+      return
+    }
     const conflict = tpl.assign.some(({ refIndex, role }) => {
       const s = editSlots[refIndex]
       return s && s.role && s.role !== role
@@ -1260,7 +1384,7 @@ function App() {
               <div className="admin-head"><div><h2>{copy.admin}</h2><p>Проверяем trusted admin-сессию.</p></div><strong>loading</strong></div>
             </section>
           ) : isAdmin ? (
-            <AdminView copy={copy} admin={admin} tariffs={tariffs} setTariffs={setTariffs} backToStudio={() => navigateApp('studio')} provider={provider} modelProfile={modelProfile} selectedLora={settingsSelectedLora} resetDefaults={resetDefaults} />
+            <AdminView copy={copy} admin={admin} tariffs={tariffs} setTariffs={setTariffs} backToStudio={() => navigateApp('studio')} provider={provider} modelProfile={modelProfile} selectedLora={settingsSelectedLora} />
           ) : (
             <section className="admin-page admin-access-page">
               <div className="view-actions in-panel"><button className="secondary" onClick={() => navigateApp('studio')}><WandSparkles size={16} />{copy.backToStudio}</button></div>
@@ -1594,7 +1718,8 @@ function EditCard({ index, slot, onUpload, onPickGallery, onClear, onRole, onTak
         ) : slot.image ? (
           <select className={`card-role ${needsRole ? 'needs-role' : ''}`} value={slot.role} onChange={(e) => onRole(index, e.target.value as EditReferenceRole | '')}>
             <option value="">Выберите роль…</option>
-            {EDIT_REFERENCE_ROLES.map((role) => <option key={role} value={role}>{EDIT_REFERENCE_ROLE_LABELS[role]}</option>)}
+            {EDIT_SELECTABLE_REFERENCE_ROLES.map((role) => <option key={role} value={role}>{EDIT_REFERENCE_ROLE_LABELS[role]}</option>)}
+            {EDIT_DISABLED_REFERENCE_ROLES.map((role) => <option key={role} value={role} disabled>🔒 {EDIT_REFERENCE_ROLE_LABELS[role]} · скоро</option>)}
           </select>
         ) : (
           <div className="card-role-hint">роль после фото</div>
@@ -1610,6 +1735,9 @@ function EditCard({ index, slot, onUpload, onPickGallery, onClear, onRole, onTak
       )}
       {!isBase && slot.image && slot.role === 'object' && (
         <div className="card-advisory">Лучше используйте референс, где нужный предмет виден отдельно. Если предметов несколько, обрежьте изображение до нужного предмета.</div>
+      )}
+      {!isBase && slot.image && slot.role === 'pose' && (
+        <div className="card-advisory disabled"><Lock size={12} />Смена позы временно закрыта. Выберите другую роль.</div>
       )}
     </div>
   )
@@ -1913,15 +2041,17 @@ function EditTemplatesModal({ templates, applyTemplate, onClose }: {
   onClose: () => void
 }) {
   const roleNames = (tpl: EditTemplate) => tpl.assign.map((a) => `реф ${a.refIndex} — ${EDIT_REFERENCE_ROLE_LABELS[a.role]}`).join(', ')
+  const isDisabled = (tpl: EditTemplate) => tpl.assign.some((a) => EDIT_DISABLED_REFERENCE_ROLES.includes(a.role))
   return <div className="modal-backdrop" onClick={onClose}><section className="instruction-modal edit-templates-modal" onClick={(e) => e.stopPropagation()}>
     <button className="floating-clear" onClick={onClose}><X size={16} /></button>
     <h2>Шаблоны</h2>
     <p className="modal-sub">Шаблон сам расставит роли референсам. Загрузите изображения в нужные слоты.</p>
     <div className="templates-list">
       {templates.map((tpl) => (
-        <button key={tpl.id} className="template-card" onClick={() => applyTemplate(tpl)}>
+        <button key={tpl.id} className={`template-card ${isDisabled(tpl) ? 'disabled' : ''}`} disabled={isDisabled(tpl)} onClick={() => applyTemplate(tpl)}>
           <strong>{tpl.title}</strong>
           <small>{roleNames(tpl)}</small>
+          {isDisabled(tpl) && <em>Режим временно закрыт</em>}
         </button>
       ))}
     </div>
@@ -2133,7 +2263,10 @@ function DiscoverPanel({ lang, presets: panelPresets, applyPreset, addUserPreset
     acc[key] = [...(acc[key] || []), preset]
     return acc
   }, {})
-  return <div className="discover-panel"><div className="discover-head"><strong>Шаблоны</strong><span>Выберите готовый запрос или сохраните свой</span><button type="button" className="discover-close" onClick={onClose} aria-label="Закрыть шаблоны"><X size={18} /></button></div><div className="preset-create"><strong>Добавить свой шаблон</strong><input placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} /><textarea placeholder="Текст запроса" value={presetPrompt} onChange={(e) => setPresetPrompt(e.target.value)} /><button onClick={() => { if (name.trim() && presetPrompt.trim()) { addUserPreset(name.trim(), presetPrompt.trim()); setName(''); setPresetPrompt('') } }}>Сохранить</button></div><div className="discover-groups">{Object.entries(groups).map(([category, items]) => <section className="discover-category" key={category}><h3>{categoryTitle(category, lang)}</h3><div className="discover-cards">{items.map((preset) => <button key={preset.id} onClick={() => applyPreset(preset)}><Sparkles size={16} /><span>{preset[lang]}{preset.dual ? ' · 2 IMG' : ''}</span><small>{preset.prompt.slice(0, 120)}</small></button>)}</div></section>)}</div></div>
+  return <div className="discover-panel"><div className="discover-head"><strong>Шаблоны</strong><span>Выберите готовый запрос или сохраните свой</span><button type="button" className="discover-close" onClick={onClose} aria-label="Закрыть шаблоны"><X size={18} /></button></div><div className="preset-create"><strong>Добавить свой шаблон</strong><input placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} /><textarea placeholder="Текст запроса" value={presetPrompt} onChange={(e) => setPresetPrompt(e.target.value)} /><button onClick={() => { if (name.trim() && presetPrompt.trim()) { addUserPreset(name.trim(), presetPrompt.trim()); setName(''); setPresetPrompt('') } }}>Сохранить</button></div><div className="discover-groups">{Object.entries(groups).map(([category, items]) => <section className="discover-category" key={category}><h3>{categoryTitle(category, lang)}</h3><div className="discover-cards">{items.map((preset) => {
+    const preview = presetPreviewPair(preset)
+    return <button key={preset.id} className={preview ? 'has-preview has-preview-pair' : ''} onClick={() => applyPreset(preset)}>{preview ? <span className="preset-preview-pair"><img className="preset-preview" src={preview.female} alt={`${preview.alt}: женская сцена`} loading="lazy" /><img className="preset-preview" src={preview.male} alt={`${preview.alt}: мужская сцена`} loading="lazy" /></span> : <Sparkles size={16} />}<span>{preset[lang]}{preset.dual ? ' · 2 IMG' : ''}</span><small>{preset.prompt.slice(0, 120)}</small></button>
+  })}</div></section>)}</div></div>
 }
 
 function HelpView({ lang, applyPreset, copy, backToStudio }: { lang: Lang; applyPreset: (preset: Preset) => void; copy: Copy; backToStudio: () => void }) {
@@ -2144,7 +2277,7 @@ function InstructionModal({ mode, paintTool, onClose }: { mode: Mode; paintTool:
   const text: Record<string, { title: string; steps: string[] }> = {
     text_to_image: { title: 'Инструкция: Текст → Изо', steps: ['Нажмите «Пресеты» или «Случайный prompt», чтобы быстро заполнить запрос.', 'Выберите размер изображения слева.', 'При необходимости откройте «Настройки» и измените seed, steps, CFG, sampler или LoRA.', 'Нажмите «Сгенерировать» и дождитесь результата справа.'] },
     image_to_image: { title: 'Инструкция: Изо → Изо', steps: ['Загрузите исходное изображение в левую область.', 'Настройте «Силу изменения»: 0.10 меняет мало, 0.75 ближе к исходнику One Node, 0.80 меняет сильно.', 'Введите prompt с описанием того, как нужно изменить изображение.', 'Нажмите «Сгенерировать».'] },
-    edit: { title: 'Инструкция: Редактор', steps: ['Загрузите «Основу» — это изображение, которое нужно изменить. Этот слот обязателен.', 'Добавьте до трёх референсов. Для каждого загруженного референса выберите роль: лицо, одежда, стиль, объект, поза, фон, цвет/материал или другое.', 'Роль определяет, что именно система возьмёт из референса. Например: «Одежда» берёт одежду, «Поза» берёт положение тела, «Фон» берёт окружение.', 'Писать большой prompt не нужно. Система сама собирает инструкцию по выбранным изображениям и ролям.', 'В поле «Дополнительное пожелание» можно коротко уточнить результат, например: «сделай свет мягче» или «сделай изображение более кинематографичным». Это поле необязательное.', 'Если нужна тонкая настройка, откройте «Расширенные». Там можно уточнить, что взять из каждого референса, посмотреть собранную инструкцию или отредактировать её вручную.', 'Нажмите «Сгенерировать». Пока задача отправляется или выполняется, повторные нажатия блокируются.', 'Жёлтая вертикальная линия в предпросмотре — это сравнение «до/после». Это не ошибка.'] },
+    edit: { title: 'Инструкция: Редактор', steps: ['Загрузите «Основу» — это главное изображение, которое нужно сохранить и изменить. Без основы редактор не запускается.', 'Добавьте до трёх референсов. Каждый референс должен иметь одну роль: «Лицо», «Одежда», «Стиль / цвет», «Предмет», «Фон» или «Другое».', '«Лицо» переносит только узнаваемые черты лица. «Одежда» переносит фасон, ткань, цвет и посадку одежды. «Предмет» добавляет конкретный объект; лучше использовать референс, где предмет виден отдельно.', '«Стиль / цвет» объединяет старые роли «Стиль» и «Цвет/материал»: берет свет, атмосферу, цветовую палитру, фактуру и визуальную обработку, но не переносит людей, композицию и лишние объекты.', '«Фон» берет окружение, помещение, архитектуру, глубину и настроение сцены. Главный объект из основы должен остаться главным.', '«Другое» используйте только если нужно явно описать, что взять из референса. После выбора этой роли появится обязательное поле уточнения.', '«Поза» сейчас заблокирована серым замком. Этот workflow нестабилен, сильно грузит видеокарту и временно недоступен до отдельной стабилизации.', 'В поле «Дополнительное пожелание» пишите короткую правку результата: например, «сделай свет мягче», «добавь кинематографичность», «сохрани реализм». Это поле не заменяет роли референсов.', 'Кнопка «Шаблоны» расставляет роли автоматически. Кнопка «Расширенные» показывает собранную инструкцию и позволяет уточнить каждый референс или перейти в ручной prompt.', 'Нажмите «Сгенерировать». Во время обработки повторные нажатия блокируются. Для edit-результата жёлтая вертикальная линия в предпросмотре — это сравнение до/после.'] },
     paint: { title: `Инструкция: ${paintTool === 'sketch' ? 'Эскиз' : paintTool === 'inpaint' ? 'Маска' : 'Расширение'}`, steps: paintTool === 'sketch' ? ['Выберите «Эскиз», рисуйте на чистом холсте кистью/ластиком.', 'Prompt должен объяснять, во что превратить рисунок.', 'Сгенерируйте сцену по вашему рисунку.'] : paintTool === 'inpaint' ? ['Выберите «Маска». Это понятный режим замены области изображения.', 'Загрузите изображение и закрасьте область, которую нужно изменить.', 'В prompt опишите, что должно появиться в закрашенной зоне.', 'Сгенерируйте результат.'] : ['Выберите «Расширение».', 'Загрузите изображение и задайте, сколько пикселей добавить слева/справа/сверху/снизу.', 'Prompt должен описывать, чем заполнить новые области.', 'Сгенерируйте расширенную композицию.'] },
     faceswap: { title: 'Инструкция: Лицо → Изо', steps: ['Загрузите Target: изображение, куда нужно перенести лицо.', 'Загрузите Source: изображение, откуда берется лицо.', 'В «Настройки» выберите Faceswap LoRA, если он доступен локально.', 'Prompt по умолчанию описывает замену головы с сохранением света и стиля.'] },
     remove_background: { title: 'Инструкция: Удалить фон', steps: ['Загрузите изображение с объектом.', 'Оставьте стандартный prompt или уточните, что нужно изолировать.', 'Нажмите «Сгенерировать».'] },
@@ -2188,6 +2321,8 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
   const [promoBusy, setPromoBusy] = useState(false)
   const [inviteMsg, setInviteMsg] = useState('')
   const [displayName, setDisplayName] = useState(authMe?.profile?.display_name || '')
+  const [profileGender, setProfileGender] = useState<'female' | 'male'>(authMe?.profile?.gender === 'male' ? 'male' : 'female')
+  const [profileAge, setProfileAge] = useState(authMe?.profile?.age ? String(authMe.profile.age) : '')
   const [saveMsg, setSaveMsg] = useState('')
   const [techOpen, setTechOpen] = useState(false)
   const [viewedPlan, setViewedPlan] = useState(plan)
@@ -2205,6 +2340,8 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
   const friendPromoCode = `FRIEND-${String(authMe?.profile?.public_user_code || user.id || 'GUEST').replace(/^web_/, '').toUpperCase().slice(0, 12)}`
   void openAdmin // prop accepted for call-site compatibility
   useEffect(() => { queueMicrotask(() => setDisplayName(authMe?.profile?.display_name || '')) }, [authMe?.profile?.display_name])
+  useEffect(() => { queueMicrotask(() => setProfileGender(authMe?.profile?.gender === 'male' ? 'male' : 'female')) }, [authMe?.profile?.gender])
+  useEffect(() => { queueMicrotask(() => setProfileAge(authMe?.profile?.age ? String(authMe.profile.age) : '')) }, [authMe?.profile?.age])
   useEffect(() => { queueMicrotask(() => setViewedPlan(plan)) }, [plan])
   useEffect(() => {
     queueMicrotask(() => {
@@ -2233,8 +2370,10 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
   const onSaveProfile = async () => {
     const trimmed = displayName.trim()
     if (!trimmed) { setSaveMsg('Введите имя'); return }
+    const age = profileAge.trim()
+    if (age && (Number(age) < 13 || Number(age) > 120)) { setSaveMsg('Возраст должен быть от 13 до 120'); return }
     setSaveMsg('')
-    const result = await updateProfileV2({ display_name: trimmed })
+    const result = await updateProfileV2({ display_name: trimmed, gender: profileGender, age })
     if (result) { await refreshAuthStateV2(); setSaveMsg('Сохранено') }
     else setSaveMsg('Ошибка сохранения')
   }
@@ -2447,6 +2586,13 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
             <option value="en">English</option>
           </select>
         </label>
+        <label>Превью шаблонов
+          <select value={profileGender} onChange={(e) => { setProfileGender(e.target.value === 'male' ? 'male' : 'female'); setSaveMsg('') }}>
+            <option value="female">Женский набор</option>
+            <option value="male">Мужской набор</option>
+          </select>
+        </label>
+        <label>Возраст<input type="number" min="13" max="120" value={profileAge} onChange={(e) => { setProfileAge(e.target.value); setSaveMsg('') }} placeholder="Например, 28" /></label>
         <div className="usr-profile-actions">
           <button className="usr-primary" onClick={onSaveProfile} disabled={!displayName.trim()}>Сохранить профиль</button>
           <button className="usr-ghost" onClick={onLogout}><Lock size={14} />Выйти</button>
@@ -2627,65 +2773,102 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
 }
 
 function AdminLogsView({ data, provider, admin }: { data: Record<string, unknown> | null; provider: string; admin?: Record<string, unknown> }) {
+  const [logTab, setLogTab] = useState<'overview' | 'backend' | 'models' | 'tasks' | 'auth' | 'audit' | 'config'>('overview')
   const summary = (data?.summary || {}) as Record<string, unknown>
   const comfy = (data?.comfyui || {}) as Record<string, unknown>
+  const backend = (data?.backend || {}) as Record<string, unknown>
   const profiles = Array.isArray(comfy.profiles) ? comfy.profiles as Record<string, unknown>[] : []
   const activeJobs = Array.isArray(data?.active_jobs) ? data.active_jobs as Record<string, unknown>[] : []
   const generationErrors = Array.isArray(data?.generation_errors) ? data.generation_errors as Record<string, unknown>[] : []
   const eventLogs = Array.isArray(data?.event_logs) ? data.event_logs as Record<string, unknown>[] : []
   const securityEvents = Array.isArray(data?.security_events) ? data.security_events as Record<string, unknown>[] : []
   const auditLogs = Array.isArray(data?.audit_logs) ? data.audit_logs as Record<string, unknown>[] : []
-  const line = (left: unknown, right?: unknown, extra?: unknown) => <p><b>{String(left || '—')}</b>{right ? ` · ${String(right)}` : ''}{extra ? <small>{String(extra)}</small> : null}</p>
+  const formatTime = (value: unknown) => {
+    if (!value) return '—'
+    const date = new Date(String(value))
+    if (Number.isNaN(date.getTime())) return String(value)
+    return date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  }
+  const severityClass = (value: unknown) => {
+    const normalized = String(value || '').toLowerCase()
+    if (['error', 'critical', 'fatal', 'failed'].some((item) => normalized.includes(item))) return 'danger'
+    if (['warning', 'warn', 'spoof', 'failed_login'].some((item) => normalized.includes(item))) return 'warning'
+    if (['approved', 'success', 'online', 'ok'].some((item) => normalized.includes(item))) return 'success'
+    return 'info'
+  }
+  const logItem = (item: {
+    key: string
+    time?: unknown
+    source?: unknown
+    title: unknown
+    meta?: unknown
+    extra?: unknown
+    level?: unknown
+  }) => (
+    <div className={`admin-log-item ${severityClass(item.level || item.title || item.meta)}`} key={item.key}>
+      <time>{formatTime(item.time)}</time>
+      <em>{String(item.source || 'system')}</em>
+      <div>
+        <strong>{String(item.title || '—')}</strong>
+        {item.meta ? <span>{String(item.meta)}</span> : null}
+        {item.extra ? <small>{String(item.extra)}</small> : null}
+      </div>
+    </div>
+  )
+  const modelRows = profiles.map((p) => {
+    const missing = Array.isArray(p.missingFiles) ? p.missingFiles.map(String) : []
+    return logItem({ key: String(p.id || p.name), source: 'model', title: p.name || p.id, meta: `${p.baseEdit || '—'} · pose ${p.pose || '—'}`, extra: missing.length ? `missing: ${missing.join(', ')}` : undefined, level: missing.length ? 'warning' : 'ok' })
+  })
+  const taskRows = activeJobs.map((j, index) => logItem({ key: `${String(j.id || 'job')}-${index}`, time: j.createdAt, source: 'queue', title: j.id, meta: `${j.status || '—'} · ${j.mode || '—'} · ${j.provider || '—'}`, extra: j.message, level: j.status }))
+  const generationRows = generationErrors.map((e, index) => logItem({ key: `${String(e.id || 'error')}-${index}`, time: e.completed_at || e.created_at, source: 'generation', title: e.id, meta: `${e.mode || '—'} · ${e.provider || '—'}`, extra: e.error, level: 'error' }))
+  const securityRows = securityEvents.slice(0, 30).map((e, index) => logItem({ key: `${String(e.event_type || 'security')}-${index}`, time: e.created_at, source: 'security', title: e.event_type, meta: e.severity, extra: e.ip_address, level: e.severity || e.event_type }))
+  const eventRows = eventLogs.slice(0, 30).map((e, index) => logItem({ key: `${String(e.event_name || 'event')}-${index}`, time: e.created_at, source: e.platform || 'auth', title: e.event_name, meta: e.platform, extra: e.ip_address, level: e.event_name }))
+  const auditRows = auditLogs.slice(0, 30).map((e, index) => logItem({ key: `${String(e.action || 'audit')}-${index}`, time: e.created_at, source: 'audit', title: e.action, meta: e.entity_type, extra: e.target ? `target ${e.target}` : undefined, level: e.action }))
+  const showRows = (rows: ReactNode[], empty: string) => <div className="admin-log-table">{rows.length ? rows : <p className="admin-empty-line">{empty}</p>}</div>
   return (
     <div className="admin-section">
-      <h3>Логи и состояние систем</h3>
-      <div className="admin-grid">
+      <div className="admin-section-head compact">
+        <h3>Контроль систем</h3>
+        <small>{String(summary.active_jobs ?? activeJobs.length)} задач · {String(summary.generation_errors_db ?? admin?.errors ?? 0)} ошибок генерации · {String(summary.failed_logins_24h ?? admin?.errors24h ?? 0)} ошибок входа</small>
+      </div>
+      <div className="admin-healthline">
+        <span className={comfy.available ? 'ok' : 'danger'}>ComfyUI: {comfy.available ? 'online' : 'offline'}</span>
+        <span>Backend: {String(backend.build || 'unknown')}</span>
+        <span>Старт: {formatTime(backend.started_at)}</span>
+        <span>Обновлено: {formatTime(data?.generated_at)}</span>
+      </div>
+      <div className="admin-grid admin-grid-compact">
         <div><strong>ComfyUI</strong><span>{comfy.available ? 'online' : 'offline'}</span><small>локальный генератор</small></div>
         <div><strong>Активные задачи</strong><span>{String(summary.active_jobs ?? activeJobs.length)}</span><small>queue/running/uploading</small></div>
-        <div><strong>Ошибки генерации</strong><span>{String(summary.generation_errors_memory ?? admin?.errors ?? 0)}</span><small>runtime failed jobs</small></div>
+        <div><strong>Ошибки генерации</strong><span>{String(summary.generation_errors_db ?? admin?.errors ?? 0)}</span><small>failed jobs в базе</small></div>
         <div><strong>Ошибки входа 24ч</strong><span>{String(summary.failed_logins_24h ?? admin?.errors24h ?? 0)}</span><small>password/auth attempts</small></div>
       </div>
-      <div className="admin-two-col">
-        <article>
-          <h3>ComfyUI / модели</h3>
-          <p>Маршрут сейчас: {provider === 'openrouter' ? 'OpenRouter Cloud' : 'ComfyUI локально'}</p>
-          {profiles.length ? profiles.map((p) => {
-            const missing = Array.isArray(p.missingFiles) ? p.missingFiles.map(String) : []
-            return line(p.name || p.id, `${p.baseEdit || '—'} · pose ${p.pose || '—'}`, missing.length ? `missing: ${missing.join(', ')}` : undefined)
-          }) : <p>Профили не загружены.</p>}
-          {Boolean(comfy.error) && <p><b>Ошибка проверки</b> · {String(comfy.error)}</p>}
-        </article>
-        <article>
-          <h3>Активные задачи</h3>
-          {activeJobs.length ? activeJobs.map((j) => line(j.id, `${j.status || '—'} · ${j.mode || '—'} · ${j.provider || '—'}`, j.message)) : <p>Очередь пуста.</p>}
-        </article>
+      <div className="admin-log-tabs">
+        {[
+          ['overview', 'Все'],
+          ['backend', 'Backend'],
+          ['models', 'Модели'],
+          ['tasks', 'Задачи'],
+          ['auth', 'Входы'],
+          ['audit', 'Аудит'],
+          ['config', 'Config'],
+        ].map(([id, label]) => <button key={id} className={logTab === id ? 'active' : ''} onClick={() => setLogTab(id as typeof logTab)}>{label}</button>)}
       </div>
-      <div className="admin-two-col">
-        <article>
-          <h3>Ошибки генерации</h3>
-          {generationErrors.length ? generationErrors.map((e) => line(e.id, `${e.mode || '—'} · ${e.provider || '—'}`, e.error)) : <p>Ошибок генерации в runtime нет.</p>}
-        </article>
-        <article>
-          <h3>Security events</h3>
-          {securityEvents.length ? securityEvents.slice(0, 14).map((e) => line(e.event_type, `${e.severity || '—'} · ${e.created_at || '—'}`, e.ip_address)) : <p>Security events нет.</p>}
-        </article>
-      </div>
-      <div className="admin-two-col">
-        <article>
-          <h3>Product / auth logs</h3>
-          {eventLogs.length ? eventLogs.slice(0, 14).map((e) => line(e.event_name, `${e.platform || '—'} · ${e.created_at || '—'}`, e.ip_address)) : <p>Event logs нет.</p>}
-        </article>
-        <article>
-          <h3>Audit logs</h3>
-          {auditLogs.length ? auditLogs.slice(0, 14).map((e) => line(e.action, `${e.entity_type || '—'} · ${e.created_at || '—'}`, e.target ? `target ${e.target}` : undefined)) : <p>Audit logs нет.</p>}
-        </article>
-      </div>
-      <details><summary>Сырой admin summary</summary><pre>{JSON.stringify(admin, null, 2)}</pre></details>
+      {logTab === 'overview' && showRows([...generationRows.slice(0, 8), ...securityRows.slice(0, 8), ...eventRows.slice(0, 8)], 'Событий пока нет.')}
+      {logTab === 'backend' && showRows([
+        logItem({ key: 'backend-build', source: 'backend', title: 'build', meta: backend.build || 'unknown', extra: `started ${formatTime(backend.started_at)}`, level: 'ok' }),
+        logItem({ key: 'backend-route', source: 'backend', title: 'route', meta: provider === 'openrouter' ? 'OpenRouter Cloud' : 'ComfyUI локально', extra: `updated ${formatTime(data?.generated_at)}`, level: comfy.available ? 'ok' : 'warning' }),
+      ], 'Backend-данные не загружены.')}
+      {logTab === 'models' && showRows(modelRows, 'Профили моделей не загружены.')}
+      {logTab === 'tasks' && showRows([...taskRows, ...generationRows], 'Очередь пуста, ошибок генерации нет.')}
+      {logTab === 'auth' && showRows([...securityRows, ...eventRows], 'Событий входа нет.')}
+      {logTab === 'audit' && showRows(auditRows, 'Audit logs нет.')}
+      {logTab === 'config' && <details open className="admin-config-details"><summary>Сводка конфигурации</summary><pre>{JSON.stringify({ backend, summary, admin }, null, 2)}</pre></details>}
     </div>
   )
 }
 
-function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, modelProfile, selectedLora, resetDefaults }: { copy: Copy; admin?: Record<string, unknown>; tariffs: TariffConfig; setTariffs: Dispatch<SetStateAction<TariffConfig>>; backToStudio: () => void; provider: string; modelProfile: string; selectedLora: string; resetDefaults: () => void }) {
+function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, modelProfile, selectedLora }: { copy: Copy; admin?: Record<string, unknown>; tariffs: TariffConfig; setTariffs: Dispatch<SetStateAction<TariffConfig>>; backToStudio: () => void; provider: string; modelProfile: string; selectedLora: string }) {
   const [tab, setTab] = useState<'dashboard' | 'models' | 'tokens' | 'users' | 'queue' | 'logs'>('dashboard')
   const [limits, setLimits] = useState({ hourly: 0, daily: 0 })
   const [saved, setSaved] = useState('')
@@ -2743,8 +2926,18 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, m
     await refreshTokenAdminData()
   }
   return <section className="admin-page">
-    <div className="view-actions in-panel"><button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button><button className="secondary" onClick={resetDefaults}>По умолчанию</button></div>
-    <div className="admin-head"><div><h2>{copy.admin}</h2><p>Управление генерациями, токенами, моделями, тарифами и доступами.</p>{adminMessage && <small>{adminMessage}</small>}</div><strong>{health}</strong></div>
+    <div className="admin-topline">
+      <button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button>
+      <span className={generationErrors === 0 ? 'admin-live-ok' : 'admin-live-warn'}>{health}</span>
+      {adminMessage && <small>{adminMessage}</small>}
+    </div>
+    <div className="admin-kpi-strip">
+      <span><b>{String(admin?.users ?? '—')}</b> пользователей</span>
+      <span><b>{String(admin?.activeToday ?? '—')}</b> сегодня</span>
+      <span><b>{String(admin?.generationsToday ?? '—')}</b> генераций</span>
+      <span><b>{String(admin?.errors24h ?? '—')}</b> ошибок входа 24ч</span>
+      <span><b>{String(admin?.errors ?? '—')}</b> ошибок генерации</span>
+    </div>
     <div className="admin-tabbar">{[['dashboard', 'Дашборд'], ['models', 'Модели'], ['tokens', 'Токены'], ['users', 'Пользователи'], ['queue', 'Очередь'], ['logs', 'Логи']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id as typeof tab)}>{label}</button>)}</div>
     {tab === 'dashboard' && <div className="admin-section">
       <div className="admin-grid"><div><strong>{copy.users}</strong><span>{String(admin?.users ?? 1)}</span><small>аккаунтов всего</small></div><div><strong>Активных сегодня</strong><span>{String(admin?.activeToday ?? 0)}</span><small>за последние 24ч</small></div><div><strong>Генераций сегодня</strong><span>{String(admin?.generationsToday ?? 0)}</span><small>задач создано</small></div><div><strong>Токенов списано</strong><span>{Number(admin?.tokensSpentTotal ?? 0).toLocaleString('ru-RU')}</span><small>всего</small></div></div>

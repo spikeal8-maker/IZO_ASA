@@ -75,13 +75,39 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -Lo
 
 echo [3/5] Starting backend on 127.0.0.1:8000...
 echo Backend log: %BACKEND_LOG%
-start "IZO_ASA backend :8000" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "$env:APP_ENV='%APP_ENV%'; $env:APP_BUILD='%APP_BUILD%'; $env:FRONTEND_BUILD_LABEL='%FRONTEND_BUILD_LABEL%'; $env:DATABASE_URL='%DATABASE_URL%'; $env:DB_GUARD_ALLOWED_PATHS='%DB_GUARD_ALLOWED_PATHS%'; $env:DB_GUARD_MIN_SIZE_MB='%DB_GUARD_MIN_SIZE_MB%'; $env:DB_GUARD_MIN_USERS='%DB_GUARD_MIN_USERS%'; $env:DB_GUARD_MIN_ACTIVE_ADMINS='%DB_GUARD_MIN_ACTIVE_ADMINS%'; $env:MAX_UPDATES_MODE='%MAX_UPDATES_MODE%'; Set-Location -LiteralPath '%BACKEND%'; python -m uvicorn main:app --host 127.0.0.1 --port 8000 *>> '%BACKEND_LOG%'"
+start "IZO_ASA backend :8000" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "$env:APP_ENV='%APP_ENV%'; $env:APP_BUILD='%APP_BUILD%'; $env:FRONTEND_BUILD_LABEL='%FRONTEND_BUILD_LABEL%'; $env:DATABASE_URL='%DATABASE_URL%'; $env:DB_GUARD_ALLOWED_PATHS='%DB_GUARD_ALLOWED_PATHS%'; $env:DB_GUARD_MIN_SIZE_MB='%DB_GUARD_MIN_SIZE_MB%'; $env:DB_GUARD_MIN_USERS='%DB_GUARD_MIN_USERS%'; $env:DB_GUARD_MIN_ACTIVE_ADMINS='%DB_GUARD_MIN_ACTIVE_ADMINS%'; $env:MAX_API_BASE_URL='%MAX_API_BASE_URL%'; $env:BOT_UPDATES_MODE='%BOT_UPDATES_MODE%'; $env:MAX_UPDATES_MODE='%MAX_UPDATES_MODE%'; Set-Location -LiteralPath '%BACKEND%'; python -m uvicorn main:app --host 127.0.0.1 --port 8000 *>> '%BACKEND_LOG%'"
+
+echo Waiting for backend health before starting frontend...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ok=$false;" ^
+  "for($i=0;$i -lt 40;$i++) { try { $r=Invoke-WebRequest 'http://127.0.0.1:8000/api/health' -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch { Start-Sleep -Seconds 1 } }" ^
+  "if (!$ok) { Write-Host 'BACKEND DOWN: /api/health did not become ready'; exit 30 }" ^
+  "Write-Host 'backend ready: /api/health 200'"
+if errorlevel 1 (
+  echo.
+  echo BACKEND DOWN
+  echo Backend log: %BACKEND_LOG%
+  echo Public launch is NOT healthy.
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
 
 echo [4/5] Starting frontend PREVIEW (dist) on 127.0.0.1:5173...
 start "IZO_ASA public frontend :5173" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%FRONTEND%'; npx vite preview --host 127.0.0.1 --port 5173"
 
-echo [5/5] Waiting for services, then probing...
-timeout /t 6 /nobreak >nul
+echo [5/5] Waiting for frontend, then probing...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ok=$false;" ^
+  "for($i=0;$i -lt 30;$i++) { try { $r=Invoke-WebRequest 'http://127.0.0.1:5173/' -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch { Start-Sleep -Seconds 1 } }" ^
+  "if (!$ok) { Write-Host 'FRONTEND DOWN: / did not become ready'; exit 31 }" ^
+  "Write-Host 'frontend ready: / 200'"
+if errorlevel 1 (
+  echo.
+  echo FRONTEND DOWN
+  echo Public launch is NOT healthy.
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$be=(Get-NetTCPConnection -LocalPort 8000 -State Listen -EA SilentlyContinue).OwningProcess | Select-Object -Unique;" ^
@@ -110,7 +136,7 @@ if errorlevel 1 (
   echo BACKEND DOWN
   echo Backend log: %BACKEND_LOG%
   echo Public launch is NOT healthy.
-  pause
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1
 )
 
@@ -124,4 +150,4 @@ echo   NOTE: frontend code changes require re-running start-public.bat.
 echo   Cloudflared tunnel is NOT managed here (must point to :5173).
 echo ==========================================
 echo.
-pause
+if /I not "%IZO_NO_PAUSE%"=="1" pause

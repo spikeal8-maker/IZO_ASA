@@ -148,6 +148,38 @@ def test_save_canvas_json_creates_raster_input() -> None:
         assert image.size == (1024, 1024)
 
 
+def test_prepare_comfyui_input_image_downscales_large_landscape(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "MEDIA", tmp_path)
+    source = tmp_path / "large_landscape.png"
+    Image.new("RGB", (4000, 2000), "#2f6fed").save(source, "PNG")
+
+    req = main.GenerateRequest(mode="image_to_image", width=1536, height=1024)
+    prepared = main.prepare_comfyui_input_image(source, "job_large_landscape", req)
+
+    assert prepared is not None
+    with Image.open(prepared) as image:
+        assert image.size == (1536, 768)
+        assert image.size[0] % 16 == 0
+        assert image.size[1] % 16 == 0
+        assert max(image.size) <= main.COMFYUI_INPUT_MAX_SIDE
+
+
+def test_prepare_comfyui_input_image_downscales_large_portrait(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "MEDIA", tmp_path)
+    source = tmp_path / "large_portrait.png"
+    Image.new("RGB", (2000, 4000), "#117865").save(source, "PNG")
+
+    req = main.GenerateRequest(mode="edit", width=1024, height=1536)
+    prepared = main.prepare_comfyui_input_image(source, "job_large_portrait", req)
+
+    assert prepared is not None
+    with Image.open(prepared) as image:
+        assert image.size == (768, 1536)
+        assert image.size[0] % 16 == 0
+        assert image.size[1] % 16 == 0
+        assert max(image.size) <= main.COMFYUI_INPUT_MAX_SIDE
+
+
 def test_patch_upload_modes_wire_expected_input_nodes() -> None:
     uploads = {"input1": "source.png", "input2": "face.png"}
 

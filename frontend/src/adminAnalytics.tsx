@@ -42,6 +42,7 @@ export interface CrmUserRow {
   email?: string | null; username?: string | null; phone?: string | null; plan?: string | null
   last_seen_at?: string | null; last_platform?: string | null; last_ip?: string | null
   country?: string | null; city?: string | null; language_code?: string | null; timezone?: string | null
+  gender?: string | null; age?: number | null
   device_count?: number; active_sessions_count?: number
   generations_count?: number; tokens_spent?: number; token_balance?: number; status?: string; role?: string
   first_seen_at?: string | null; gallery_count?: number; marketing_source?: string | null; risk_level?: string | null
@@ -108,6 +109,12 @@ function quotaLabel(u: CrmUserRow & AnyRec): string {
   const used = Number(u.gallery_used ?? u.gallery_count ?? 0)
   const total = Number(u.gallery_slots ?? 0)
   return `${used}/${total}`
+}
+
+function genderAgeLabel(u: CrmUserRow & AnyRec): string {
+  const gender = u.gender === 'male' ? 'муж.' : u.gender === 'female' ? 'жен.' : 'пол —'
+  const age = u.age ? `${u.age} лет` : 'возраст —'
+  return `${gender} · ${age}`
 }
 
 // Block 6 — parsed display name fallback (display_name → first+last → username →
@@ -356,7 +363,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <h4>Профиль и контакты</h4>
               <dl className="crm-preview-list">
                 {row('Имя', parsedName(sm, ids))}{row('Email', sm.email)}{row('Username', sm.username)}{row('Телефон', sm.phone)}
-                {row('Язык', sm.language_code || (ids?.[0] as AnyRec)?.language_code)}{row('Гео', `${S(sm.city)} / ${S(sm.country)}${sm.timezone ? ` · ${S(sm.timezone)}` : ''}`)}{row('Роль', sm.role)}{row('Тариф', sm.plan || 'mini')}{row('Галерея', quotaLabel(sm))}
+                {row('Пол / возраст', genderAgeLabel(sm))}{row('Язык', sm.language_code || (ids?.[0] as AnyRec)?.language_code)}{row('Гео', `${S(sm.city)} / ${S(sm.country)}${sm.timezone ? ` · ${S(sm.timezone)}` : ''}`)}{row('Роль', sm.role)}{row('Тариф', sm.plan || 'mini')}{row('Галерея', quotaLabel(sm))}
               </dl>
             </div>
             <div className="crm-panel">
@@ -534,7 +541,7 @@ function RowActionMenu({ u, onAct, onCard }: {
         <button className="danger" onClick={(e) => run(e, () => onAct('reset'))}>Сбросить пароль</button>
         <button onClick={(e) => run(e, () => onAct('role'))}>{admin ? 'Снять админа' : 'Сделать админом'}</button>
         <strong>Прочее</strong>
-        <button disabled title={deferred}>Удаление/анонимизация</button>
+        <button className="danger" onClick={(e) => run(e, () => onAct('deactivate'))}>Отключить пользователя</button>
       </div>
     </details>
   )
@@ -635,7 +642,7 @@ export function AdminAnalyticsV2(): ReactElement {
                 <span className="crm-client-cell"><AvatarMark u={u as CrmUserRow & AnyRec} className={`crm-avatar crm-row-avatar activity-${active}`} /><span><strong>{u.display_name || u.username || u.public_user_code}</strong><small>{u.public_user_code}</small><span className="crm-chip-row"><em className={`crm-chip status-${u.status || 'active'}`}>{u.status || 'active'}</em><em className="crm-chip">{u.role || 'user'}</em><em className="crm-chip plan">{u.plan || 'mini'}</em></span></span></span>
                 <span><small><i className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}</small><small>{shortTime(u.last_seen_at)}</small><small>{u.active_sessions_count ?? 0} сесс. · {u.last_platform || '—'} · {u.last_ip || '—'}</small></span>
                 <span>{sourceList.map((p) => <Badge key={p} p={p} />)}<small>{u.marketing_source || '—'}</small></span>
-                <span><small>{u.email || '—'}</small><small>{u.username ? `@${u.username}` : ''}{u.phone ? ` · ${u.phone}` : ''}</small></span>
+                <span><small>{u.email || '—'}</small><small>{genderAgeLabel(u as CrmUserRow & AnyRec)}</small><small>{u.username ? `@${u.username}` : ''}{u.phone ? ` · ${u.phone}` : ''}</small></span>
                 <span><span className="crm-chip-row"><em className="crm-chip">{u.role || 'user'}</em><em className={banned ? 'crm-chip status-banned' : 'crm-chip status-active'}>{u.status || 'active'}</em></span><small>{u.plan || 'mini'} · галерея {quotaLabel(u as CrmUserRow & AnyRec)}</small></span>
                 <span><small>Баланс {n0(u.token_balance)}</small><small>Списано {n0(u.tokens_spent)}</small></span>
                 <span><strong>{n0(u.generations_count)}</strong><small>Галерея: отложено</small></span>
@@ -644,8 +651,6 @@ export function AdminAnalyticsV2(): ReactElement {
                 <span className={banned ? 'status-banned' : 'status-active'}><strong>{riskLabel(u as CrmUserRow & AnyRec)}</strong><small>{banned ? 'banned' : 'ok'}</small></span>
                 <span className="crm-row-actions">
                   <button className="mini" onClick={(e) => { stop(e); setCard(u) }}>Карточка</button>
-                  <button className="mini" onClick={(e) => { stop(e); setRowAct({ u, kind: 'tokens', preset: '50' }) }}>+50</button>
-                  <button className="mini" onClick={(e) => { stop(e); setRowAct({ u, kind: 'tokens', preset: '-50' }) }}>-50</button>
                   <RowActionMenu u={u} onCard={() => setCard(u)} onAct={(kind, preset) => setRowAct({ u, kind, preset })} />
                 </span>
               </div>

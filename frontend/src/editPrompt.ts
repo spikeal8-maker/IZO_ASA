@@ -19,11 +19,13 @@ export type EditReferenceRole =
 export type EditSlot = { image?: string; role: EditReferenceRole | ''; takeNote: string }
 
 export const EDIT_REFERENCE_ROLES: EditReferenceRole[] = ['face', 'clothing', 'style', 'object', 'pose', 'background', 'color_material', 'other']
+export const EDIT_SELECTABLE_REFERENCE_ROLES: EditReferenceRole[] = ['face', 'clothing', 'style', 'object', 'background', 'other']
+export const EDIT_DISABLED_REFERENCE_ROLES: EditReferenceRole[] = ['pose']
 
 export const EDIT_REFERENCE_ROLE_LABELS: Record<EditReferenceRole, string> = {
   face: 'Лицо',
   clothing: 'Одежда',
-  style: 'Стиль',
+  style: 'Стиль / цвет',
   object: 'Предмет',
   pose: 'Поза',
   background: 'Фон',
@@ -178,6 +180,7 @@ export function editComposerStatus(params: { slots: EditSlot[]; userNote: string
   for (let i = 1; i < slots.length; i++) {
     const s = slots[i]
     if (s.image && !s.role) return { blockReason: `Выберите роль для референса ${i}.`, finalPrompt: '', composedPrompt: composed.prompt }
+    if (s.image && s.role === 'pose') return { blockReason: 'Смена позы временно отключена: workflow нестабилен и может долго занимать видеокарту.', finalPrompt: '', composedPrompt: composed.prompt }
     if (s.image && s.role === 'other' && !s.takeNote.trim()) return { blockReason: `Уточните, что именно взять из референса ${i}.`, finalPrompt: '', composedPrompt: composed.prompt }
   }
   if (manualMode) {
@@ -192,9 +195,9 @@ export type EditTemplate = { id: string; title: string; assign: Array<{ refIndex
 
 // Templates are role configurations + a user note, NOT plain text.
 export const EDIT_TEMPLATES: EditTemplate[] = [
-  { id: 'pose_bg', title: 'Поза + фон', assign: [{ refIndex: 1, role: 'pose' }, { refIndex: 2, role: 'background' }], userNote: 'Поставь персонажа из изображения 1 в позу из изображения 2 и помести его в окружение из изображения 3.' },
   { id: 'clothing', title: 'Одежда на персонажа', assign: [{ refIndex: 1, role: 'clothing' }], userNote: 'Надень одежду из изображения 2 на персонажа из изображения 1.' },
   { id: 'background', title: 'Фон из референса', assign: [{ refIndex: 1, role: 'background' }], userNote: 'Перемести персонажа из изображения 1 в окружение изображения 2.' },
   { id: 'face_style', title: 'Лицо + стиль', assign: [{ refIndex: 1, role: 'face' }, { refIndex: 2, role: 'style' }], userNote: 'Используй лицо из изображения 2 и визуальный стиль из изображения 3.' },
-  { id: 'clothing_pose', title: 'Одежда + поза', assign: [{ refIndex: 1, role: 'clothing' }, { refIndex: 2, role: 'pose' }], userNote: 'Используй одежду из изображения 2 и позу из изображения 3.' },
+  { id: 'style_color', title: 'Стиль и цвет', assign: [{ refIndex: 1, role: 'style' }], userNote: 'Возьми визуальный стиль, цветовую палитру, свет и материал из изображения 2, не перенося композицию и объекты.' },
+  { id: 'object_style', title: 'Предмет + стиль', assign: [{ refIndex: 1, role: 'object' }, { refIndex: 2, role: 'style' }], userNote: 'Добавь предмет из изображения 2 и выдержи общий стиль/цвет из изображения 3.' },
 ]

@@ -25,7 +25,10 @@ def make_session(iuid, legacy, provider="web_email", platform="web_desktop"):
 @pytest.fixture
 def temp_db(tmp_path: Path, monkeypatch):
     db_file = tmp_path / "ownership_test.sqlite3"
+    media_dir = tmp_path / "media"
+    media_dir.mkdir()
     monkeypatch.setattr(main, "DB_PATH", db_file)
+    monkeypatch.setattr(main, "MEDIA", media_dir)
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
     monkeypatch.setattr(main, "COMFYUI_BASE_URL", "http://127.0.0.1:9999")
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "test")
@@ -63,12 +66,14 @@ def two_users(temp_db):
         )
         conn.execute(
             "INSERT INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider, settings_json, is_favorite, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ("img-a-001", "web_a", "job-a-001", "/images/a.png", "/images/a_thumb.png", 512, 512, "text_to_image", "comfyui", '{"seed":42}', 0, "2026-01-01T01:00:00+00:00"),
+            ("img-a-001", "web_a", "job-a-001", "/api/media/a.png?userId=web_a", "/api/media/a_thumb.webp?userId=web_a", 512, 512, "text_to_image", "comfyui", '{"seed":42}', 0, "2026-01-01T01:00:00+00:00"),
         )
         conn.execute(
             "INSERT INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider, settings_json, is_favorite, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             ("img-b-001", "web_b", "job-a-001", "/images/b.png", "/images/b_thumb.png", 512, 512, "text_to_image", "comfyui", '{"seed":99}', 0, "2026-01-01T02:00:00+00:00"),
         )
+    (main.MEDIA / "a.png").write_bytes(b"fake-png")
+    (main.MEDIA / "a_thumb.webp").write_bytes(b"fake-webp")
     # Populate in-memory stores (will be rebuilt by load_db_state on TestClient startup, but set here for tests that run before client is created)
     main.load_db_state()
     return {
@@ -150,7 +155,29 @@ def test_gallery_spoofed_header_401(temp_db, two_users):
     assert r.status_code == 401
 
 
-# --- 9. Gallery list returns only own images ---
+# --- 9. Media URL query userId is not authentication ---
+def test_media_query_user_id_without_session_401(temp_db, two_users):
+    with TestClient(main.app) as c:
+        r = c.get("/api/media/a.png?userId=web_a")
+    assert r.status_code == 401
+
+
+def test_media_query_user_id_with_other_session_404(temp_db, two_users):
+    sb = sess_b(two_users)
+    with TestClient(main.app) as c:
+        r = c.get("/api/media/a.png?userId=web_a", cookies={"onenode_session": sb["session_token"]})
+    assert r.status_code == 404
+
+
+def test_media_own_session_200(temp_db, two_users):
+    sa = sess_a(two_users)
+    with TestClient(main.app) as c:
+        r = c.get("/api/media/a.png?userId=web_a", cookies={"onenode_session": sa["session_token"]})
+    assert r.status_code == 200
+    assert r.content == b"fake-png"
+
+
+# --- 10. Gallery list returns only own images ---
 def test_gallery_own_images_only(temp_db, two_users):
     sa = sess_a(two_users)
     with TestClient(main.app) as c:

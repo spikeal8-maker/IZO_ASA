@@ -85,6 +85,19 @@ def test_development_allows_local_fallback(monkeypatch, tmp_path):
     main.db_guard_preflight()
 
 
+def test_db_connection_enables_busy_timeout_foreign_keys_and_wal(monkeypatch, tmp_path):
+    db_file = tmp_path / "pragma.sqlite3"
+    monkeypatch.setattr(main, "DB_PATH", db_file)
+    main.init_db()
+    with main.db() as conn:
+        busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+        foreign_keys = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+        journal_mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+    assert busy_timeout == 10000
+    assert foreign_keys == 1
+    assert journal_mode in {"wal", "memory"}
+
+
 def test_health_masks_database_info_and_reports_guard(monkeypatch, tmp_path):
     db_file = tmp_path / "health.sqlite3"
     make_real_like_db(db_file)

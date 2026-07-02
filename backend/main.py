@@ -27,7 +27,7 @@ from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, Field
 
 
@@ -36,6 +36,8 @@ MEDIA = ROOT / "media"
 MEDIA.mkdir(exist_ok=True)
 AVATAR_DIR = MEDIA / "avatars"
 AVATAR_DIR.mkdir(exist_ok=True)
+COMFYUI_INPUT_MAX_SIDE = max(512, min(2048, int(os.getenv("COMFYUI_INPUT_MAX_SIDE", "1536"))))
+COMFYUI_INPUT_MIN_SIDE = 256
 
 
 def load_local_env() -> None:
@@ -395,6 +397,8 @@ class AdminProfileV2Request(BaseModel):
     email: str | None = None
     avatar_url: str | None = None
     avatar_preset: str | None = None
+    gender: Literal["female", "male"] | None = None
+    age: int | None = None
     reason: str = ""
 
 
@@ -900,8 +904,16 @@ def enforce_db_guard_after_migrations() -> None:
 
 
 def db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 10000")
+    conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.DatabaseError:
+        # Some test/temp DBs may not support WAL; busy_timeout still protects
+        # the common concurrent writer case without weakening correctness.
+        pass
     return conn
 
 
@@ -1263,6 +1275,8 @@ def init_db() -> None:
             "public_user_code": "TEXT",
             "avatar_url": "TEXT",
             "avatar_preset": "TEXT",
+            "gender": "TEXT",
+            "age": "INTEGER",
             "daily_tokens_used": "INTEGER NOT NULL DEFAULT 0",
             "last_daily_reset": "TEXT",
         }.items():
@@ -3313,6 +3327,8 @@ PROFILE_FIELD_COLUMNS = {
     "country_code": "country",
     "avatar_url": "avatar_url",
     "avatar_preset": "avatar_preset",
+    "gender": "gender",
+    "age": "age",
 }
 
 CONSENT_TYPES = {
@@ -4736,6 +4752,47 @@ async def upload_to_comfyui(path: Path) -> str:
     return payload.get("name") or path.name
 
 
+def _fit_comfyui_input_size(source_size: tuple[int, int], target_box: tuple[int, int] | None = None) -> tuple[int, int]:
+    source_w, source_h = source_size
+    if source_w <= 0 or source_h <= 0:
+        return (1024, 1024)
+    box_w = target_box[0] if target_box else COMFYUI_INPUT_MAX_SIDE
+    box_h = target_box[1] if target_box else COMFYUI_INPUT_MAX_SIDE
+    box_w = max(COMFYUI_INPUT_MIN_SIDE, min(COMFYUI_INPUT_MAX_SIDE, int(box_w or COMFYUI_INPUT_MAX_SIDE)))
+    box_h = max(COMFYUI_INPUT_MIN_SIDE, min(COMFYUI_INPUT_MAX_SIDE, int(box_h or COMFYUI_INPUT_MAX_SIDE)))
+    scale = min(1.0, box_w / source_w, box_h / source_h, COMFYUI_INPUT_MAX_SIDE / max(source_w, source_h))
+    width = max(16, int(round((source_w * scale) / 16) * 16))
+    height = max(16, int(round((source_h * scale) / 16) * 16))
+    if max(width, height) > COMFYUI_INPUT_MAX_SIDE:
+        scale = COMFYUI_INPUT_MAX_SIDE / max(width, height)
+        width = max(16, int(round((width * scale) / 16) * 16))
+        height = max(16, int(round((height * scale) / 16) * 16))
+    return width, height
+
+
+def prepare_comfyui_input_image(image_path: Path | None, prefix: str, req: GenerateRequest) -> Path | None:
+    """Return an input image safe for ComfyUI VRAM: same aspect, bounded size."""
+    if not image_path or not image_path.exists():
+        return image_path
+    try:
+        with Image.open(image_path) as opened:
+            image = ImageOps.exif_transpose(opened)
+            target_size = _fit_comfyui_input_size(image.size, (req.width, req.height))
+            if image.size == target_size:
+                return image_path
+            resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
+            resized = image.resize(target_size, resample)
+            if resized.mode not in ("RGB", "RGBA"):
+                resized = resized.convert("RGBA" if "A" in resized.getbands() else "RGB")
+            out = MEDIA / f"{prefix}_{uuid.uuid4().hex}_comfy.png"
+            resized.save(out, "PNG", optimize=True)
+            print(f"comfyui input resized {image_path.name}: {image.size[0]}x{image.size[1]} -> {target_size[0]}x{target_size[1]}")
+            return out
+    except Exception as exc:
+        print(f"comfyui input resize skipped {image_path.name}: {type(exc).__name__}")
+        return image_path
+
+
 async def fetch_workflow(mode: str) -> dict[str, Any]:
     workflow_by_mode = {
         "text_to_image": "workflow_t2i",
@@ -5040,6 +5097,7 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             slot_path = local_media_path_from_url(src) or save_data_url(src, f"{job['id']}_edit{i + 1}")
             if not slot_path:
                 continue
+            slot_path = prepare_comfyui_input_image(slot_path, f"{job['id']}_edit{i + 1}", payload)
             uploads[f"input{i + 1}"] = await upload_to_comfyui(slot_path)
             edit_roles.append(role or ("base" if i == 0 else "?"))
             if role == "pose" and i > 0:
@@ -5070,12 +5128,15 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
     elif payload.mode in {"image_to_image", "paint", "inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
         if not primary_input:
             raise RuntimeError("Для выбранного режима нужно входное изображение.")
+        primary_input = prepare_comfyui_input_image(primary_input, f"{job['id']}_input1", payload)
         uploads["input1"] = await upload_to_comfyui(primary_input)
     if payload.mode in {"faceswap", "try_on", "texture_transfer"}:
         if not input2_path:
             raise RuntimeError("Для выбранного режима нужно два изображения.")
+        input2_path = prepare_comfyui_input_image(input2_path, f"{job['id']}_input2", payload)
         uploads["input2"] = await upload_to_comfyui(input2_path)
     if payload.mode in {"inpaint", "outpaint"} and mask_path:
+        mask_path = prepare_comfyui_input_image(mask_path, f"{job['id']}_mask", payload)
         uploads["mask"] = await upload_to_comfyui(mask_path)
 
     if pose_graph is not None:
@@ -5620,11 +5681,8 @@ async def gallery_use_as(image_id: str, req: UseAsRequest, request: Request) -> 
 
 @app.get("/api/media/{filename}")
 async def secure_media(filename: str, request: Request) -> FileResponse:
-    try:
-        trusted = require_trusted_user(request)
-        user_id = trusted["legacy_user_id"]
-    except HTTPException:
-        user_id = request.query_params.get("userId") or "demo_user"
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
     path = (MEDIA / filename).resolve()
     try:
         path.relative_to(MEDIA.resolve())
@@ -6708,6 +6766,8 @@ async def me_v2(request: Request) -> dict[str, Any]:
         "country_code": _row_get(urow, "country"),
         "avatar_url": avatar_url,
         "avatar_preset": _row_get(urow, "avatar_preset"),
+        "gender": _row_get(urow, "gender"),
+        "age": _row_get(urow, "age"),
         "providers": sorted({i["provider"] for i in identities}),
     }
 
@@ -6955,6 +7015,13 @@ async def me_profile_update_v2(req: ProfileUpdateV2Request, request: Request) ->
                 continue  # unsupported field is ignored, never an injection vector
             if isinstance(value, str):
                 value = value.strip()[:PROFILE_FIELD_MAX_LEN]
+            if api_field == "age" and value is not None:
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    raise HTTPException(400, "Возраст должен быть числом.")
+                if value < 13 or value > 120:
+                    raise HTTPException(400, "Возраст должен быть от 13 до 120.")
             if api_field in {"avatar_url", "avatar_preset"}:
                 avatar_url, avatar_preset = validate_avatar_choice(
                     provided.get("avatar_url"), provided.get("avatar_preset")
@@ -8603,6 +8670,8 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "display_name": resolve_display_name(urow, identities[0] if identities else None),
         "avatar_url": _row_get(urow, "avatar_url"),
         "avatar_preset": _row_get(urow, "avatar_preset"),
+        "gender": _row_get(urow, "gender"),
+        "age": _row_get(urow, "age"),
         "primary_provider": primary,
         "providers": sorted({i["provider"] for i in identities}),
         "email": mask_email(_row_get(urow, "email")),
@@ -8711,15 +8780,43 @@ async def admin_logs_v2(request: Request) -> dict[str, Any]:
         audit = conn.execute(
             "SELECT action, entity_type, target_internal_user_id, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 30"
         ).fetchall()
-        today = _today_start_iso()
         failed_logins_24h = conn.execute(
-            "SELECT COUNT(*) AS c FROM auth_login_attempts WHERE success = 0 AND created_at >= ?", (today,)
+            "SELECT COUNT(*) AS c FROM auth_login_attempts WHERE success = 0 AND created_at >= ?", (_iso_days_ago(1),)
         ).fetchone()["c"]
         generation_errors_db = conn.execute(
             "SELECT COUNT(*) AS c FROM jobs WHERE status = 'failed'"
         ).fetchone()["c"]
+        db_failed_jobs = conn.execute(
+            """
+            SELECT id, mode, provider, status, error_message, created_at, started_at, completed_at
+            FROM jobs
+            WHERE status = 'failed'
+            ORDER BY COALESCE(completed_at, started_at, created_at) DESC
+            LIMIT 30
+            """
+        ).fetchall()
+    generated_at = datetime.now(timezone.utc).isoformat()
+    db_failed_payload = [
+        {
+            "id": r["id"],
+            "mode": r["mode"],
+            "provider": r["provider"],
+            "status": r["status"],
+            "error": truncate_admin_text(r["error_message"], 240),
+            "created_at": r["created_at"],
+            "started_at": r["started_at"],
+            "completed_at": r["completed_at"],
+        }
+        for r in db_failed_jobs
+    ]
     return {
         "ok": True,
+        "generated_at": generated_at,
+        "backend": {
+            "build": APP_BUILD,
+            "started_at": STARTED_AT,
+            "db_guard": safe_db_guard_payload(DB_GUARD_STATUS),
+        },
         "summary": {
             "generation_errors_memory": len(failed_jobs),
             "generation_errors_db": generation_errors_db,
@@ -8734,7 +8831,7 @@ async def admin_logs_v2(request: Request) -> dict[str, Any]:
             "error": model_status.get("error"),
         },
         "active_jobs": active_jobs,
-        "generation_errors": failed_jobs,
+        "generation_errors": db_failed_payload or failed_jobs,
         "event_logs": [{"event_name": r["event_name"], "platform": r["platform"], "ip_address": r["ip_address"], "created_at": r["created_at"]} for r in events],
         "security_events": [{"severity": r["severity"], "event_type": r["event_type"], "ip_address": r["ip_address"], "created_at": r["created_at"]} for r in security],
         "audit_logs": [{"action": r["action"], "entity_type": r["entity_type"], "target": (r["target_internal_user_id"] or "")[:8], "created_at": r["created_at"]} for r in audit],
