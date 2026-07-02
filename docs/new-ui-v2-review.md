@@ -122,6 +122,46 @@ Verdict: PARTIAL, BLOCKERS REMAIN → основные блокеры сняты
   неперепроверенным auth-без-сессии и перенос доп. docs ждёт подтверждения владельца
 ```
 
+## 2026-07-03 — Scope cleanup: extra docs removed, no-session auth verified
+
+```text
+Дата/время: 2026-07-03 ~02:30 (local)
+Ветка: feature/new-ui-v2-clean
+Коммит или WIP: этот коммит (второй на clean-ветке)
+Файлы изменены:
+  - удалены из ветки: docs/documentation-map.md, collaboration-rules.md,
+    auth-current-state.md, current-architecture.md, release-checklist.md,
+    bot-work-instructions.md (вне scope /new; упоминания в старых записях этого
+    лога — история, не навигация)
+  - README.md — карта документации сокращена до разрешённого списка
+    (public-launch, identity-core-plan, identity-core-risks,
+    admin-panel-product-spec, new-ui-v2-plan, new-ui-v2-review); битых ссылок нет
+  - docs/new-ui-v2-review.md — эта запись
+Что сделано:
+  - Проверка auth БЕЗ сессии на /new (Playwright, чистый context без cookies):
+    GET /api/me-v2 → 401; клик «Сгенерировать» открыл auth-модалку;
+    запросов POST /api/generate отправлено 0 (job не создаётся)
+  - npm run lint → exit 0; npx tsc -b → OK; npx vite build → exit 0
+  - / открывается (старый UI), /new открывается (после удаления docs код не менялся)
+Что НЕ сделано:
+  - i2i-генерация end-to-end сегодня не запускалась (t2i end-to-end — прошла ранее
+    сегодня, см. предыдущую запись)
+  - скриншоты после этого коммита не переснимались (код /new не менялся;
+    свежие скриншоты 1440x900 и 375x812 — из предыдущей записи этой же сессии)
+Какие тесты запущены: lint, tsc -b, vite build, Playwright no-session check,
+  rg legacy-auth (пусто в newUi.tsx)
+Результат тестов: все зелёные (см. выше)
+Скриншоты: desktop 1440x900 и mobile 375x812 — свежие от 2026-07-03 (пред. запись);
+  после удаления markdown-доков не переснимались
+Найденные риски:
+  - удалённые 6 доков существуют только в ветке feature/new-ui-v2 (архив) и в
+    backup-патчах; если они нужны проекту — вернуть отдельной doc-веткой
+  - чужой WIP (backend/main.py, test_comfyui_adapter.py, index.css) по-прежнему
+    незакоммичен в working tree
+Следующий шаг: продолжать UI-работу на feature/new-ui-v2-clean по плану
+Verdict: DOCS READY, UI WORK CAN CONTINUE
+```
+
 ## Entry Template
 
 ```text
