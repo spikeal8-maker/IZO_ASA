@@ -45,6 +45,7 @@ export interface CrmUserRow {
   gender?: string | null; age?: number | null
   device_count?: number; active_sessions_count?: number
   generations_count?: number; tokens_spent?: number; token_balance?: number; status?: string; role?: string
+  daily_tokens_used?: number; daily_tokens_limit?: number
   first_seen_at?: string | null; gallery_count?: number; marketing_source?: string | null; risk_level?: string | null
   gallery_access?: boolean; gallery_enabled?: boolean
   daily_tokens?: number; gallery_slots?: number; gallery_used?: number; gallery_free?: number; gallery_full?: boolean
@@ -110,6 +111,10 @@ function quotaLabel(u: CrmUserRow & AnyRec): string {
   const used = Number(u.gallery_used ?? u.gallery_count ?? 0)
   const total = Number(u.gallery_slots ?? 0)
   return `${used}/${total}`
+}
+
+function tokenLine(u: CrmUserRow): string {
+  return `${n0(u.generations_count)} / ${n0(u.daily_tokens_used)} / ${n0(u.token_balance)} / ${n0(u.daily_tokens_limit)}`
 }
 
 function genderAgeLabel(u: CrmUserRow & AnyRec): string {
@@ -629,10 +634,9 @@ export function AdminAnalyticsV2(): ReactElement {
       {loading ? <p>Загрузка…</p> : (
         <div className="analytics-table dense">
           <div className="analytics-row analytics-head">
-            <span>Клиент</span><span>Активность</span><span>Источник</span><span>Контакт</span><span>Сегмент</span><span>Финансы</span><span>Генерации</span><span>Устройство</span><span>Маркетинг</span><span>Риск</span><span>Действия</span>
+            <span>Клиент</span><span>Активность</span><span>Источник</span><span>Контакт</span><span>Тариф / галерея</span><span>Генерации / токены</span><span>Устройство</span><span>Действия</span>
           </div>
           {users.map((u) => {
-            const banned = u.status === 'banned'
             const sourceList = u.providers?.length ? u.providers : u.primary_provider ? [u.primary_provider] : []
             const active = activityKind(u)
             const openCard = () => setCard(u)
@@ -642,16 +646,13 @@ export function AdminAnalyticsV2(): ReactElement {
             }
             return (
               <div key={u.public_user_code || u.internal_user_id_short} className={`analytics-row crm-row activity-${active}`} role="button" tabIndex={0} aria-label={`Открыть карточку ${u.display_name || u.username || u.public_user_code}`} onClick={openCard} onKeyDown={rowKey}>
-                <span className="crm-client-cell"><AvatarMark u={u as CrmUserRow & AnyRec} className={`crm-avatar crm-row-avatar activity-${active}`} /><span><strong>{u.display_name || u.username || u.public_user_code}</strong><small>{u.public_user_code}</small><span className="crm-chip-row"><em className={`crm-chip status-${u.status || 'active'}`}>{u.status || 'active'}</em><em className="crm-chip">{u.role || 'user'}</em><em className="crm-chip plan">{u.plan || 'mini'}</em></span></span></span>
-                <span><small><i className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}</small><small>{shortTime(u.last_seen_at)}</small><small>{u.active_sessions_count ?? 0} сесс. · {u.last_platform || '—'} · {u.last_ip || '—'}</small></span>
-                <span>{sourceList.map((p) => <Badge key={p} p={p} />)}<small>{u.marketing_source || '—'}</small></span>
+                <span className="crm-client-cell"><AvatarMark u={u as CrmUserRow & AnyRec} className={`crm-avatar crm-row-avatar activity-${active}`} /><span><span className="crm-client-line"><strong>{u.display_name || u.username || u.public_user_code}</strong><em className="crm-chip">{u.role === 'admin' ? 'admin' : 'user'}</em></span><span className="crm-client-line"><small>{u.public_user_code}</small><em className="crm-chip plan">{u.plan || 'mini'}</em></span></span></span>
+                <span><small><i className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}</small><small>{shortTime(u.last_seen_at)}</small><small>{u.active_sessions_count ?? 0} сесс. · {u.last_platform || '—'}</small></span>
+                <span>{sourceList.map((p) => <Badge key={p} p={p} />)}<small>{u.last_ip || 'IP —'}</small></span>
                 <span><small>{u.email || '—'}</small><small>{genderAgeLabel(u as CrmUserRow & AnyRec)}</small><small>{u.username ? `@${u.username}` : ''}{u.phone ? ` · ${u.phone}` : ''}</small></span>
-                <span><span className="crm-chip-row"><em className="crm-chip">{u.role || 'user'}</em><em className={banned ? 'crm-chip status-banned' : 'crm-chip status-active'}>{u.status || 'active'}</em></span><small>{u.plan || 'mini'} · галерея {quotaLabel(u as CrmUserRow & AnyRec)}</small></span>
-                <span><small>Баланс {n0(u.token_balance)}</small><small>Списано {n0(u.tokens_spent)}</small></span>
-                <span><strong>{n0(u.generations_count)}</strong><small>Галерея: отложено</small></span>
+                <span><small>{u.plan || 'mini'} · галерея открыта</small><strong>{quotaLabel(u as CrmUserRow & AnyRec)}</strong><small>свободно {n0(u.gallery_free)}</small></span>
+                <span><strong>{tokenLine(u)}</strong><small>всего / сегодня / баланс / день</small><small>списано {n0(u.tokens_spent)}</small></span>
                 <span><small>{deviceLabel(u)}</small><small>{u.device_count ?? 0} устр.</small></span>
-                <span><small>Промо: отложено</small><small>Рефералы: отложено</small></span>
-                <span className={banned ? 'status-banned' : 'status-active'}><strong>{riskLabel(u as CrmUserRow & AnyRec)}</strong><small>{banned ? 'banned' : 'ok'}</small></span>
                 <span className="crm-row-actions">
                   <button className="mini" onClick={(e) => { stop(e); setCard(u) }}>Карточка</button>
                   <RowActionMenu u={u} onCard={() => setCard(u)} onAct={(kind, preset) => setRowAct({ u, kind, preset })} />

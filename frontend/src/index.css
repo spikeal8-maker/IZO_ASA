@@ -245,13 +245,16 @@ textarea::placeholder { color: #787878; }
 .analytics-cards.compact .analytics-card { padding: 6px 8px; }
 .analytics-cards.compact .analytics-card strong { font-size: 16px; }
 .analytics-table.dense { overflow-x: auto; }
-.analytics-table.dense .analytics-row { grid-template-columns: minmax(150px, 1.2fr) minmax(170px, 1.2fr) minmax(110px, .8fr) minmax(190px, 1.25fr) minmax(120px, .85fr) minmax(120px, .85fr) minmax(95px, .65fr) minmax(135px, .9fr) minmax(130px, .85fr) minmax(90px, .65fr) minmax(210px, 1.2fr); min-width: 1540px; padding: 5px 8px; gap: 6px; }
+.analytics-table.dense .analytics-row { grid-template-columns: minmax(190px, 1.25fr) minmax(160px, 1fr) minmax(115px, .75fr) minmax(190px, 1.15fr) minmax(130px, .8fr) minmax(160px, .95fr) minmax(145px, .85fr) minmax(145px, .85fr); min-width: 1240px; padding: 5px 8px; gap: 6px; }
 .analytics-table.dense .crm-row { cursor: pointer; transition: background .14s ease, box-shadow .14s ease, border-color .14s ease; outline: none; }
 .analytics-table.dense .crm-row:hover { background: #151a14; box-shadow: inset 3px 0 0 rgba(236,255,47,.65); }
 .analytics-table.dense .crm-row:focus-visible { background: #161b18; box-shadow: inset 0 0 0 2px rgba(236,255,47,.72); }
 .analytics-row > span.crm-row-actions { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; align-content: center; }
 .crm-client-cell { display: flex !important; grid-template-columns: none !important; align-items: center; gap: 9px; min-width: 0; }
 .crm-client-cell > span:last-child { display: grid; gap: 1px; min-width: 0; }
+.crm-client-line { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.crm-client-line strong, .crm-client-line small { min-width: 0; }
+.crm-client-line .crm-chip { flex: 0 0 auto; }
 .crm-row-avatar { width: 34px; height: 34px; flex-basis: 34px; font-size: 12px; }
 .crm-chip-row { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; min-width: 0; }
 .crm-chip { display: inline-flex; align-items: center; max-width: 96px; min-height: 17px; padding: 0 6px; border-radius: 999px; border: 1px solid #2c2c2c; color: #bfc4c2; background: #151515; font-style: normal; font-size: 10px; font-weight: 850; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -963,6 +966,13 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-grid.admin-grid-compact span { font-size: 19px; }
 .admin-grid span { color: #f0f0f0; font-size: 24px; font-weight: 900; overflow-wrap: anywhere; }
 .admin-grid small { color: #777; line-height: 1.35; }
+.admin-dashboard-v2 { gap: 12px; }
+.admin-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.admin-chart { background: #131313; border: 1px solid #2d2d2d; border-radius: 12px; padding: 12px; display: grid; gap: 9px; min-height: 158px; }
+.admin-chart h3 { margin: 0; color: var(--acid); font-size: 14px; }
+.admin-chart-row { display: grid; grid-template-columns: 110px minmax(70px, 1fr) 64px; gap: 8px; align-items: center; color: #a8a8a8; font-size: 12px; }
+.admin-chart-row i { display: block; height: 9px; border-radius: 999px; background: linear-gradient(90deg, var(--acid), #71ff65); box-shadow: 0 0 10px rgba(236,255,47,.16); }
+.admin-chart-row b { color: #f0f0f0; text-align: right; font-variant-numeric: tabular-nums; }
 .admin-two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .admin-two-col article, .admin-note { background: #161616; border: 1px solid #303030; border-radius: 12px; padding: 14px; display: grid; gap: 10px; align-content: start; }
 .admin-two-col p, .admin-note { color: #aaa; line-height: 1.45; }
@@ -1236,7 +1246,7 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .admin-head { display: grid; }
   .admin-head > strong { justify-self: start; }
   .admin-tabbar { margin-right: -12px; padding-right: 12px; }
-  .admin-grid, .admin-two-col, .settings-grid, .admin-kpi-strip { grid-template-columns: 1fr; }
+  .admin-grid, .admin-two-col, .settings-grid, .admin-kpi-strip, .admin-chart-grid { grid-template-columns: 1fr; }
   .admin-grid span { font-size: 21px; }
   .admin-user-table { overflow-x: visible; }
   .admin-user-head { display: none; }

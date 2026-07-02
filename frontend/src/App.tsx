@@ -869,7 +869,6 @@ function App() {
     return candidates.find((item) => /bfs|face|head/i.test(item.id)) || candidates[0]
   }, [loraOptions])
   const activeSelectedLora = actualMode === 'faceswap' && selectedLora === 'none' && faceLora ? faceLora.id : selectedLora
-  const settingsSelectedLora = selectedLora === 'none' && faceLora ? faceLora.id : selectedLora
   const visiblePresets = allPresets.filter((item) => {
     if (mode === 'paint') {
       const toolMode: Mode = paintTool === 'sketch' ? 'paint' : paintTool
@@ -1384,7 +1383,7 @@ function App() {
               <div className="admin-head"><div><h2>{copy.admin}</h2><p>Проверяем trusted admin-сессию.</p></div><strong>loading</strong></div>
             </section>
           ) : isAdmin ? (
-            <AdminView copy={copy} admin={admin} tariffs={tariffs} setTariffs={setTariffs} backToStudio={() => navigateApp('studio')} provider={provider} modelProfile={modelProfile} selectedLora={settingsSelectedLora} />
+            <AdminView copy={copy} admin={admin} tariffs={tariffs} setTariffs={setTariffs} backToStudio={() => navigateApp('studio')} provider={provider} />
           ) : (
             <section className="admin-page admin-access-page">
               <div className="view-actions in-panel"><button className="secondary" onClick={() => navigateApp('studio')}><WandSparkles size={16} />{copy.backToStudio}</button></div>
@@ -2868,7 +2867,7 @@ function AdminLogsView({ data, provider, admin }: { data: Record<string, unknown
   )
 }
 
-function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, modelProfile, selectedLora }: { copy: Copy; admin?: Record<string, unknown>; tariffs: TariffConfig; setTariffs: Dispatch<SetStateAction<TariffConfig>>; backToStudio: () => void; provider: string; modelProfile: string; selectedLora: string }) {
+function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }: { copy: Copy; admin?: Record<string, unknown>; tariffs: TariffConfig; setTariffs: Dispatch<SetStateAction<TariffConfig>>; backToStudio: () => void; provider: string }) {
   const [tab, setTab] = useState<'dashboard' | 'models' | 'tokens' | 'users' | 'queue' | 'logs'>('dashboard')
   const [limits, setLimits] = useState({ hourly: 0, daily: 0 })
   const [saved, setSaved] = useState('')
@@ -2925,6 +2924,16 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, m
     setAdminMessage(result.ok ? `Промокод ${result.promo.code} сохранен` : 'Ошибка промокода')
     await refreshTokenAdminData()
   }
+  const kpi = (title: string, value: unknown, note: string) => <div><strong>{title}</strong><span>{String(value ?? '—')}</span><small>{note}</small></div>
+  const chart = (title: string, rows: Array<[string, number]>) => {
+    const max = Math.max(1, ...rows.map(([, value]) => Number(value) || 0))
+    return (
+      <article className="admin-chart">
+        <h3>{title}</h3>
+        {rows.map(([label, value]) => <div className="admin-chart-row" key={label}><span>{label}</span><i style={{ width: `${Math.max(4, (Number(value) || 0) / max * 100)}%` }} /><b>{Number(value || 0).toLocaleString('ru-RU')}</b></div>)}
+      </article>
+    )
+  }
   return <section className="admin-page">
     <div className="admin-topline">
       <button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button>
@@ -2939,11 +2948,27 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider, m
       <span><b>{String(admin?.errors ?? '—')}</b> ошибок генерации</span>
     </div>
     <div className="admin-tabbar">{[['dashboard', 'Дашборд'], ['models', 'Модели'], ['tokens', 'Токены'], ['users', 'Пользователи'], ['queue', 'Очередь'], ['logs', 'Логи']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id as typeof tab)}>{label}</button>)}</div>
-    {tab === 'dashboard' && <div className="admin-section">
-      <div className="admin-grid"><div><strong>{copy.users}</strong><span>{String(admin?.users ?? 1)}</span><small>аккаунтов всего</small></div><div><strong>Активных сегодня</strong><span>{String(admin?.activeToday ?? 0)}</span><small>за последние 24ч</small></div><div><strong>Генераций сегодня</strong><span>{String(admin?.generationsToday ?? 0)}</span><small>задач создано</small></div><div><strong>Токенов списано</strong><span>{Number(admin?.tokensSpentTotal ?? 0).toLocaleString('ru-RU')}</span><small>всего</small></div></div>
-      <div className="admin-grid"><div><strong>Активных сессий</strong><span>{String(admin?.activeSessions ?? 0)}</span><small>прямо сейчас</small></div><div><strong>Ошибок входа (24ч)</strong><span>{String(admin?.errors24h ?? 0)}</span><small>неудачных попыток</small></div><div><strong>Изображений</strong><span>{String(admin?.images ?? 0)}</span><small>в галереях</small></div><div><strong>{copy.errors}</strong><span>{String(admin?.errors ?? 0)}</span><small>ошибок генерации</small></div></div>
-      {Boolean(admin?.finance) && <div className="admin-grid"><div><strong>Доход</strong><span>{Number(adminFinance.tokenRevenue ?? 0).toLocaleString('ru-RU')} ₽</span><small>оценка</small></div><div><strong>Себестоимость</strong><span>{Number(adminFinance.tokenCost ?? 0).toLocaleString('ru-RU')} ₽</span><small>оценка</small></div><div><strong>Свет</strong><span>{Number(adminFinance.electricity ?? 0).toLocaleString('ru-RU')} ₽</span><small>оценка</small></div><div><strong>Акции</strong><span>{Number(adminFinance.promoBudget ?? 0).toLocaleString('ru-RU')} ₽</span><small>оценка</small></div></div>}
-      <div className="admin-two-col"><article><h3>Состояние генератора</h3><p>Провайдер: {provider === 'openrouter' ? 'OpenRouter Cloud' : 'ComfyUI локально'}</p><p>Модель: {modelProfile}</p><p>В очереди: {String(Array.isArray(admin?.queue) ? admin.queue.length : 0)}</p><p>LoRA для лица: {selectedLora}</p></article><article><h3>Быстрые действия</h3><button className="secondary" onClick={() => setTab('models')}>Настроить модели</button><button className="secondary" onClick={() => setTab('tokens')}>Тарифы и финансы</button><button className="secondary" onClick={() => setTab('users')}>Админы и пользователи</button></article></div>
+    {tab === 'dashboard' && <div className="admin-section admin-dashboard-v2">
+      <div className="admin-grid admin-grid-compact">
+        {kpi(copy.users, admin?.users, 'аккаунтов в базе')}
+        {kpi('Сегодня', admin?.activeToday, 'активных пользователей')}
+        {kpi('Генерации', admin?.generationsToday, 'создано сегодня')}
+        {kpi('Сессии', admin?.activeSessions, 'активны сейчас')}
+        {kpi('Ошибки входа', admin?.errors24h, 'за 24 часа')}
+        {kpi('Ошибки генерации', admin?.errors, 'failed jobs')}
+      </div>
+      <div className="admin-chart-grid">
+        {chart('Активность пользователей', [['Сегодня', Number(admin?.activeToday ?? 0)], ['Всего', Number(admin?.users ?? 0)], ['Сессии', Number(admin?.activeSessions ?? 0)]])}
+        {chart('Генерации и токены', [['Сегодня', Number(admin?.generationsToday ?? 0)], ['Всего задач', Number(admin?.jobs ?? 0)], ['Токены списано', Number(admin?.tokensSpentTotal ?? 0)]])}
+        {chart('Входы и безопасность', [['Ошибки входа 24ч', Number(admin?.errors24h ?? 0)], ['Ошибки генерации', Number(admin?.errors ?? 0)], ['Очередь', Number(queue.length)]])}
+        {chart('Контент', [['Изображения', Number(admin?.images ?? 0)], ['Баланс токенов', Number(admin?.tokenBalanceTotal ?? 0)], ['Сегодня выполнено', Number(admin?.completedToday ?? 0)]])}
+      </div>
+      {Boolean(admin?.finance) && <div className="admin-grid admin-grid-compact">
+        {kpi('Доход', `${Number(adminFinance.tokenRevenue ?? 0).toLocaleString('ru-RU')} ₽`, 'оценка')}
+        {kpi('Себестоимость', `${Number(adminFinance.tokenCost ?? 0).toLocaleString('ru-RU')} ₽`, 'оценка')}
+        {kpi('Свет', `${Number(adminFinance.electricity ?? 0).toLocaleString('ru-RU')} ₽`, 'оценка')}
+        {kpi('Акции', `${Number(adminFinance.promoBudget ?? 0).toLocaleString('ru-RU')} ₽`, 'оценка')}
+      </div>}
     </div>}
     {tab === 'models' && <div className="admin-section"><AdminModelsV2 /></div>}
     {tab === 'tokens' && <div className="admin-section"><h3>Токены, тарифы, финансы и акции</h3><div className="admin-two-col"><article><h3>{copy.limits}</h3><label>hourly<input type="number" value={limits.hourly} onChange={(e) => setLimits({ ...limits, hourly: Number(e.target.value) })} /></label><label>daily<input type="number" value={limits.daily} onChange={(e) => setLimits({ ...limits, daily: Number(e.target.value) })} /></label><button className="secondary" onClick={saveLimits}>{copy.save}</button><small>{saved}</small></article><article><h3>Финансы</h3><label>Доход от токенов<input type="number" value={finance.tokenRevenue} onChange={(e) => setFinance({ ...finance, tokenRevenue: Number(e.target.value) })} /></label><label>Себестоимость API<input type="number" value={finance.tokenCost} onChange={(e) => setFinance({ ...finance, tokenCost: Number(e.target.value) })} /></label><label>Свет<input type="number" value={finance.electricity} onChange={(e) => setFinance({ ...finance, electricity: Number(e.target.value) })} /></label><label>Акции<input type="number" value={finance.promoBudget} onChange={(e) => setFinance({ ...finance, promoBudget: Number(e.target.value) })} /></label><button className="secondary" onClick={saveFinance}>Сохранить финансы</button></article><article><h3>Промокод</h3><label>Код<input value={promoDraft.code} onChange={(e) => setPromoDraft({ ...promoDraft, code: e.target.value.toUpperCase() })} /></label><label>Токены<input type="number" value={promoDraft.tokens} onChange={(e) => setPromoDraft({ ...promoDraft, tokens: Number(e.target.value) })} /></label><label>Активации<input type="number" value={promoDraft.activations} onChange={(e) => setPromoDraft({ ...promoDraft, activations: Number(e.target.value) })} /></label><button className="secondary" onClick={createPromo}>Создать промокод</button></article><article><h3>Промокоды в базе</h3>{promoCodes.length ? promoCodes.map((item) => <p key={item.code}><b>{item.code}</b>: {item.tokens} ток. · {item.activation_count}/{item.activation_limit}</p>) : <p>Промокодов пока нет.</p>}</article></div><div className="admin-grid"><div><strong>Free</strong><span>{tariffConfig.free.daily_tokens} ток.</span><small>{tariffConfig.free.gallery_slots} слот(ов) галереи</small></div><div><strong>Mini</strong><span>{tariffConfig.mini.daily_tokens} ток.</span><small>{tariffConfig.mini.gallery_slots} слот(ов) галереи</small></div><div><strong>Plus</strong><span>{tariffConfig.plus.daily_tokens} ток.</span><small>{tariffConfig.plus.gallery_slots} слот(ов) галереи</small></div><div><strong>Pro</strong><span>{tariffConfig.pro.daily_tokens} ток.</span><small>{tariffConfig.pro.gallery_slots} слот(ов) галереи</small></div></div></div>}
