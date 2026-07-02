@@ -140,6 +140,9 @@ export default function NewStudio(): ReactElement {
   const [sourceImage, setSourceImage] = useState<string>()
   const [compare, setCompare] = useState(50)
 
+  // Вкладка «Рисунок»: выбор режима (UX-структура; сам холст — отдельная фаза).
+  const [paintMode, setPaintMode] = useState<'sketch' | 'mask' | 'expand'>('sketch')
+
   const [job, setJob] = useState<N2Job>()
   const [jobMode, setJobMode] = useState<'text' | 'i2i'>('text')
   const [resultUrl, setResultUrl] = useState<string>()
@@ -738,6 +741,76 @@ export default function NewStudio(): ReactElement {
     </section>
   )
 
+  // «Рисунок»: структура режимов Эскиз/Маска/Расширение. Холст и генерация для
+  // этих режимов — placeholder (честно подписан), функционал живёт в текущей версии.
+  const paintSize = SIZE_TABLE[resolutionTier]?.[formatId] || SIZE_TABLE.standard.square
+  const paintModes: Array<{ id: 'sketch' | 'mask' | 'expand'; icon: string; title: string; hint: string; meta?: string }> = [
+    {
+      id: 'sketch',
+      icon: '✎',
+      title: 'Эскиз',
+      hint: 'Нарисуйте набросок — он станет основой изображения',
+      meta: `${paintSize.width}×${paintSize.height}`,
+    },
+    {
+      id: 'mask',
+      icon: '◧',
+      title: 'Маска',
+      hint: 'Изменить выделенную область изображения',
+    },
+    {
+      id: 'expand',
+      icon: '⇱',
+      title: 'Расширение',
+      hint: 'Дорисовать края изображения под выбранный формат',
+    },
+  ]
+
+  const paintView = (
+    <section className="n2-panel n2-paint" aria-label="Рисунок">
+      <div className="n2-paint-head">
+        <h2>Рисунок</h2>
+        <span className="n2-paint-badge">Placeholder — холст в разработке</span>
+      </div>
+      <div className="n2-paint-modes" role="radiogroup" aria-label="Режим рисования">
+        {paintModes.map((mode) => (
+          <button
+            key={mode.id}
+            className={`n2-paint-mode${paintMode === mode.id ? ' active' : ''}`}
+            type="button"
+            role="radio"
+            aria-checked={paintMode === mode.id}
+            onClick={() => setPaintMode(mode.id)}
+          >
+            <span className="n2-paint-mode-icon" aria-hidden="true">{mode.icon}</span>
+            <span className="n2-paint-mode-body">
+              <strong>
+                {mode.title}
+                {mode.meta && <em className="n2-paint-mode-meta">{mode.meta}</em>}
+              </strong>
+              <span>{mode.hint}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+      <div className="n2-paint-stage">
+        <div className="n2-placeholder-card">
+          <span className="icon">▧</span>
+          <h2>
+            {paintMode === 'sketch' ? 'Холст эскиза' : paintMode === 'mask' ? 'Холст маски' : 'Холст расширения'}
+          </h2>
+          <p>
+            Этот режим — placeholder: холст и генерация появятся здесь следующим этапом.
+            Сейчас функционал полностью работает в текущей версии.
+          </p>
+          <button className="n2-ghost" type="button" onClick={() => (window.location.href = '/')}>
+            Открыть в текущей версии
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+
   const placeholder = (title: string, text: string) => (
     <section className="n2-panel n2-placeholder">
       <div className="n2-placeholder-card">
@@ -973,11 +1046,7 @@ export default function NewStudio(): ReactElement {
                   'Редактор',
                   'Редактор с основой и референсами переезжает в новый интерфейс следующим этапом. Функционал уже работает в текущей версии.',
                 )}
-              {tab === 'paint' &&
-                placeholder(
-                  'Рисунок',
-                  'Холст для рисования и масок появится здесь в новом дизайне. Пока функционал доступен в текущей версии.',
-                )}
+              {tab === 'paint' && paintView}
               {tab === 'face' &&
                 placeholder(
                   'Лицо',

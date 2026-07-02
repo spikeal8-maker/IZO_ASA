@@ -1248,6 +1248,126 @@
   font-weight: 850;
 }
 
+/* ---------- вкладка «Рисунок» (структура режимов; холст — placeholder) ---------- */
+
+.n2-paint {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.n2-paint-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 14px 0;
+}
+
+.n2-paint-head h2 {
+  font-size: 19px;
+  letter-spacing: -0.02em;
+}
+
+.n2-paint-badge {
+  padding: 5px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  color: var(--n2-dim);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.n2-paint-modes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 14px 0;
+}
+
+.n2-paint-mode {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 72px;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid var(--n2-line-strong);
+  border-radius: 12px;
+  background: rgba(18, 21, 18, 0.78);
+  color: var(--n2-text);
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.n2-paint-mode:hover {
+  border-color: rgba(234, 255, 16, 0.45);
+}
+
+.n2-paint-mode.active {
+  border-color: rgba(234, 255, 16, 0.82);
+  background:
+    linear-gradient(180deg, rgba(234, 255, 16, 0.10), rgba(234, 255, 16, 0.03)),
+    rgba(18, 21, 18, 0.78);
+  box-shadow: 0 0 0 1px rgba(234, 255, 16, 0.22), inset 0 1px 0 rgba(234, 255, 16, 0.10);
+}
+
+.n2-paint-mode-icon {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--n2-line-strong);
+  border-radius: 9px;
+  color: var(--n2-lime);
+  background: rgba(0, 0, 0, 0.28);
+  font-size: 17px;
+}
+
+.n2-paint-mode-body {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.n2-paint-mode-body strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.n2-paint-mode-meta {
+  padding: 1px 7px;
+  border: 1px solid rgba(234, 255, 16, 0.4);
+  border-radius: 999px;
+  color: var(--n2-lime);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.n2-paint-mode-body > span {
+  color: var(--n2-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 800;
+}
+
+.n2-paint-stage {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+}
+
+.n2-paint-stage .n2-placeholder-card {
+  max-width: 460px;
+}
+
 /* ---------- placeholder tabs ---------- */
 
 .n2-placeholder {
@@ -1702,6 +1822,37 @@
 
   .n2-tip {
     display: none;
+  }
+
+  /* «Рисунок» на мобиле: компактные строки-карточки, страница скроллится. */
+  .n2-paint {
+    display: block;
+    overflow: visible;
+  }
+
+  .n2-paint-modes {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .n2-paint-mode {
+    min-height: 56px;
+    padding: 9px 10px;
+    align-items: center;
+  }
+
+  .n2-paint-mode-icon {
+    width: 30px;
+    height: 30px;
+    font-size: 15px;
+  }
+
+  .n2-paint-mode-body strong {
+    font-size: 13px;
+  }
+
+  .n2-paint-mode-body > span {
+    font-size: 11px;
   }
 
   .n2-gallery {
