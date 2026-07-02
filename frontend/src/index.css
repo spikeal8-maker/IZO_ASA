@@ -972,13 +972,22 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-dashboard-toolbar button { min-height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #303030; background: #151515; color: #b8b8b8; font-size: 12px; font-weight: 900; }
 .admin-dashboard-toolbar button.active { background: var(--acid); border-color: var(--acid); color: #050505; }
 .admin-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.admin-line-chart { background: #131313; border: 1px solid #2d2d2d; border-radius: 12px; padding: 12px; display: grid; gap: 9px; min-height: 190px; }
+.admin-line-chart { background: #131313; border: 1px solid #2d2d2d; border-radius: 12px; padding: 12px; display: grid; gap: 8px; min-height: 238px; }
 .admin-line-chart header, .admin-line-chart footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .admin-line-chart h3 { margin: 0; color: var(--acid); font-size: 14px; }
 .admin-line-chart header span { color: #f0f0f0; font-size: 22px; font-weight: 950; font-variant-numeric: tabular-nums; }
-.admin-line-chart svg { width: 100%; height: 118px; overflow: visible; background: linear-gradient(180deg, rgba(255,255,255,.035), transparent); border-radius: 8px; }
-.admin-line-chart path { stroke: rgba(255,255,255,.13); stroke-width: 1; fill: none; }
+.admin-line-meta, .admin-line-recent { display: flex; gap: 6px; flex-wrap: wrap; }
+.admin-line-meta b { border: 1px solid #282828; background: #101010; border-radius: 999px; padding: 4px 7px; color: #bdbdbd; font-size: 11px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.admin-line-chart svg { width: 100%; height: 146px; overflow: visible; background: linear-gradient(180deg, rgba(255,255,255,.035), transparent); border-radius: 8px; }
+.admin-line-chart .grid { stroke: rgba(255,255,255,.12); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.admin-line-chart .axis { fill: #898989; font-size: 10px; font-weight: 800; }
+.admin-line-chart .axis.value { text-anchor: start; }
+.admin-line-chart .axis.date { text-anchor: middle; }
 .admin-line-chart polyline { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 7px rgba(223,255,34,.25)); }
+.admin-line-chart circle { stroke: #111; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.admin-line-recent span { display: inline-grid; grid-template-columns: auto auto; gap: 5px; align-items: center; border: 1px solid #252525; background: #0f0f0f; border-radius: 7px; padding: 4px 6px; }
+.admin-line-recent small { color: #828282; font-size: 10px; }
+.admin-line-recent b { color: #e8e8e8; font-size: 12px; font-variant-numeric: tabular-nums; }
 .admin-line-chart footer small { color: #898989; }
 .admin-line-chart footer b { color: #cfcfcf; font-size: 12px; font-variant-numeric: tabular-nums; }
 .admin-two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }

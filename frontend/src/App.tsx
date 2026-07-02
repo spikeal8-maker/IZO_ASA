@@ -2931,26 +2931,65 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
   const kpi = (title: string, value: unknown, note: string) => <div><strong>{title}</strong><span>{String(value ?? '—')}</span><small>{note}</small></div>
   const timeline = (admin?.timeline || {}) as AdminTimeline
   const sliceSeries = (key: string): TimelinePoint[] => (Array.isArray(timeline[key]) ? timeline[key] : []).slice(-dashboardRange)
+  const shortDate = (date: string) => {
+    const parsed = new Date(`${date}T00:00:00`)
+    return Number.isNaN(parsed.getTime()) ? date.slice(5) : parsed.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
+  }
   const lineChart = (title: string, key: string, note: string, color = '#dfff22') => {
     const rows = sliceSeries(key)
     const max = Math.max(1, ...rows.map((p) => Number(p.value) || 0))
-    const width = 320
-    const height = 110
+    const width = 360
+    const height = 128
+    const padLeft = 34
+    const padRight = 8
+    const padTop = 10
+    const padBottom = 25
+    const plotWidth = width - padLeft - padRight
+    const plotHeight = height - padTop - padBottom
     const points = rows.map((p, index) => {
-      const x = rows.length <= 1 ? 0 : (index / (rows.length - 1)) * width
-      const y = height - ((Number(p.value) || 0) / max) * height
+      const x = padLeft + (rows.length <= 1 ? 0 : (index / (rows.length - 1)) * plotWidth)
+      const y = padTop + plotHeight - ((Number(p.value) || 0) / max) * plotHeight
       return `${x.toFixed(1)},${y.toFixed(1)}`
     }).join(' ')
     const total = rows.reduce((sum, p) => sum + (Number(p.value) || 0), 0)
     const last = rows.at(-1)?.value ?? 0
+    const average = rows.length ? Math.round(total / rows.length) : 0
+    const peak = rows.reduce((best, point) => (Number(point.value) > Number(best.value) ? point : best), rows[0] || { date: '', value: 0 })
+    const tickStep = dashboardRange === 7 ? 1 : dashboardRange === 30 ? 7 : 15
+    const dateTicks = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % tickStep === 0)
+    const valueTicks = [max, Math.round(max / 2), 0]
+    const visibleDots = rows.filter((_, index) => rows.length <= 10 || index === rows.length - 1 || Number(rows[index]?.value || 0) > 0)
+    const recent = rows.slice(-Math.min(5, rows.length))
     return (
       <article className="admin-line-chart">
         <header><h3>{title}</h3><span>{last.toLocaleString('ru-RU')}</span></header>
-        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-label={title}>
-          <path d={`M 0 ${height} H ${width}`} />
+        <div className="admin-line-meta">
+          <b>сумма {total.toLocaleString('ru-RU')}</b>
+          <b>пик {Number(peak.value || 0).toLocaleString('ru-RU')} · {shortDate(peak.date)}</b>
+          <b>среднее {average.toLocaleString('ru-RU')}</b>
+        </div>
+        <svg viewBox={`0 0 ${width} ${height}`} aria-label={title}>
+          {valueTicks.map((value) => {
+            const y = padTop + plotHeight - (value / max) * plotHeight
+            return <g key={`y-${value}-${y}`}><line className="grid" x1={padLeft} x2={width - padRight} y1={y} y2={y} /><text className="axis value" x={0} y={y + 4}>{value.toLocaleString('ru-RU')}</text></g>
+          })}
+          {dateTicks.map((point, index) => {
+            const rowIndex = rows.indexOf(point)
+            const x = padLeft + (rows.length <= 1 ? 0 : (rowIndex / (rows.length - 1)) * plotWidth)
+            return <text className="axis date" key={`${point.date}-${index}`} x={x} y={height - 5}>{shortDate(point.date)}</text>
+          })}
           <polyline points={points} style={{ stroke: color }} />
+          {visibleDots.map((point, index) => {
+            const rowIndex = rows.indexOf(point)
+            const x = padLeft + (rows.length <= 1 ? 0 : (rowIndex / (rows.length - 1)) * plotWidth)
+            const y = padTop + plotHeight - ((Number(point.value) || 0) / max) * plotHeight
+            return <g key={`${point.date}-${index}`}><circle cx={x} cy={y} r="3.2" style={{ fill: color }}><title>{shortDate(point.date)}: {Number(point.value || 0).toLocaleString('ru-RU')}</title></circle></g>
+          })}
         </svg>
-        <footer><small>{note}</small><b>сумма: {total.toLocaleString('ru-RU')}</b></footer>
+        <div className="admin-line-recent">
+          {recent.map((point) => <span key={`${title}-${point.date}`}><small>{shortDate(point.date)}</small><b>{Number(point.value || 0).toLocaleString('ru-RU')}</b></span>)}
+        </div>
+        <footer><small>{note}</small><b>{dashboardRange} дней</b></footer>
       </article>
     )
   }
