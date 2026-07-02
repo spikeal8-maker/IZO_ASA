@@ -65,6 +65,7 @@ const shortId = (v: unknown, n = 8): string => { const s = v == null ? '' : Stri
 const n0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 const deferred = 'Отложено: backend v2 пока не отдаёт эти данные.'
 type ActivityKind = 'online' | 'today' | 'week' | 'month' | 'cold'
+type UserSort = 'recent' | 'created_desc' | 'created_asc' | 'generations_desc' | 'tokens_desc' | 'balance_desc' | 'balance_asc' | 'code_asc' | 'plan_asc'
 const ACTIVITY_LABEL: Record<ActivityKind, string> = { online: 'Онлайн', today: 'Был сегодня', week: 'Был на неделе', month: 'Был в месяце', cold: 'Нет генераций / холодный' }
 
 function activityKind(u: CrmUserRow): ActivityKind {
@@ -577,6 +578,7 @@ export function AdminAnalyticsV2(): ReactElement {
   const [q, setQ] = useState('')
   const [source, setSource] = useState<'all' | 'web_email' | 'telegram' | 'max'>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'banned' | 'admin'>('all')
+  const [sort, setSort] = useState<UserSort>('recent')
   const [loading, setLoading] = useState(true)
   const [card, setCard] = useState<CrmUserRow | null>(null)
   const [rowAct, setRowAct] = useState<{ u: CrmUserRow; kind: ActKind; preset?: string } | null>(null)
@@ -585,7 +587,7 @@ export function AdminAnalyticsV2(): ReactElement {
   const load = useCallback(async () => {
     setLoading(true)
     const d = await adminGet<Dash>('/admin/dashboard-v2')
-    const params = new URLSearchParams({ limit: '100' })
+    const params = new URLSearchParams({ limit: '100', sort })
     if (q.trim()) params.set('q', q.trim())
     if (source !== 'all') params.set('provider', source)
     if (statusFilter === 'active' || statusFilter === 'banned') params.set('status', statusFilter)
@@ -595,7 +597,7 @@ export function AdminAnalyticsV2(): ReactElement {
     if (statusFilter === 'admin') items = items.filter((i) => i.role === 'admin') // server has no admin filter yet
     setUsers(items)
     setLoading(false)
-  }, [q, source, statusFilter])
+  }, [q, source, statusFilter, sort])
   useEffect(() => {
     const id = window.setTimeout(() => { void load() }, 0)
     return () => window.clearTimeout(id)
@@ -617,6 +619,7 @@ export function AdminAnalyticsV2(): ReactElement {
         <input placeholder="Код, имя, email, username" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void load() }} />
         <select value={source} onChange={(e) => setSource(e.target.value as typeof source)}><option value="all">Все источники</option><option value="web_email">Web</option><option value="telegram">Telegram</option><option value="max">MAX</option></select>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}><option value="all">Все статусы</option><option value="active">Активные</option><option value="banned">Забанены</option><option value="admin">Админы</option></select>
+        <select value={sort} onChange={(e) => setSort(e.target.value as UserSort)} aria-label="Сортировка пользователей"><option value="recent">Сначала активные</option><option value="created_desc">Новые регистрации</option><option value="created_asc">Старые регистрации</option><option value="generations_desc">Больше генераций</option><option value="tokens_desc">Больше списаний</option><option value="balance_desc">Больше баланс</option><option value="balance_asc">Меньше баланс</option><option value="code_asc">Код пользователя</option><option value="plan_asc">Тариф</option></select>
         <button className="secondary" onClick={() => void load()}>Найти</button>
       </div>
       <div className="crm-viewbar">

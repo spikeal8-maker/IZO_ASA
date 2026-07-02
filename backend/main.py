@@ -8838,9 +8838,23 @@ async def admin_logs_v2(request: Request) -> dict[str, Any]:
     }
 
 
+ADMIN_USERS_SORT_SQL = {
+    "recent": "COALESCE(u.last_seen_at, u.last_login_at, u.created_at) DESC, u.created_at DESC",
+    "created_desc": "u.created_at DESC",
+    "created_asc": "u.created_at ASC",
+    "generations_desc": "COALESCE(u.generation_count, 0) DESC, COALESCE(u.last_seen_at, u.created_at) DESC",
+    "tokens_desc": "COALESCE(u.tokens_used, 0) DESC, COALESCE(u.last_seen_at, u.created_at) DESC",
+    "balance_desc": "COALESCE(u.token_balance, 0) DESC, COALESCE(u.last_seen_at, u.created_at) DESC",
+    "balance_asc": "COALESCE(u.token_balance, 0) ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
+    "code_asc": "u.public_user_code ASC, u.created_at ASC",
+    "plan_asc": "u.plan ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
+}
+
+
 @app.get("/api/admin/users-analytics-v2")
 async def admin_users_analytics_v2(request: Request, q: str | None = None, provider: str | None = None,
-                                   status: str | None = None, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+                                   status: str | None = None, sort: str = "recent",
+                                   limit: int = 50, offset: int = 0) -> dict[str, Any]:
     require_trusted_admin(request)
     limit = _clamp_limit(limit)
     offset = max(0, int(offset))
@@ -8859,16 +8873,17 @@ async def admin_users_analytics_v2(request: Request, q: str | None = None, provi
         clauses.append("(u.public_user_code LIKE ? OR u.display_name LIKE ? OR u.username LIKE ? OR u.email LIKE ? OR u.id LIKE ?)")
         params += [like, like, like, like, like]
     where = "WHERE " + " AND ".join(clauses)
+    order_by = ADMIN_USERS_SORT_SQL.get(sort, ADMIN_USERS_SORT_SQL["recent"])
     items = []
     with db() as conn:
         total = conn.execute(f"SELECT COUNT(*) AS c FROM users u {where}", params).fetchone()["c"]
         rows = conn.execute(
-            f"SELECT * FROM users u {where} ORDER BY u.last_seen_at DESC, u.created_at DESC LIMIT ? OFFSET ?",
+            f"SELECT * FROM users u {where} ORDER BY {order_by} LIMIT ? OFFSET ?",
             (*params, limit, offset),
         ).fetchall()
         for r in rows:
             items.append(admin_user_analytics_row(conn, r, now_iso))
-    return {"ok": True, "items": items, "limit": limit, "offset": offset, "total": total}
+    return {"ok": True, "items": items, "limit": limit, "offset": offset, "total": total, "sort": sort if sort in ADMIN_USERS_SORT_SQL else "recent"}
 
 
 @app.get("/api/admin/users/{internal_user_id}/analytics-v2")
