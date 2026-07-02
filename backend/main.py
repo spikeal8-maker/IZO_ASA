@@ -8670,7 +8670,7 @@ def _daily_counts(conn: sqlite3.Connection, table: str, column: str, days: int, 
 def _empty_hourly_series(hours: int) -> dict[str, int]:
     current = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
     return {
-        (current - timedelta(hours=offset)).isoformat(timespec="hours"): 0
+        (current - timedelta(hours=offset)).strftime("%Y-%m-%dT%H"): 0
         for offset in range(hours - 1, -1, -1)
     }
 
@@ -8690,7 +8690,7 @@ def _hourly_counts(conn: sqlite3.Connection, table: str, column: str, hours: int
         (start, *params),
     ).fetchall()
     for row in rows:
-        key = f"{row['hour']}:00"
+        key = row["hour"]
         if key in series:
             series[key] = int(row["c"] or 0)
     return [{"date": hour, "value": value} for hour, value in series.items()]

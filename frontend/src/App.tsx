@@ -2938,11 +2938,13 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
     return (Array.isArray(timeline[sourceKey]) ? timeline[sourceKey] : []).slice(-dashboardRange)
   }
   const shortDate = (date: string) => {
-    const parsed = new Date(`${date}T00:00:00`)
     if (date.includes('T')) {
+      const hour = date.slice(11, 13)
+      if (/^\d{2}$/.test(hour)) return `${hour}:00`
       const parsedHour = new Date(date)
       return Number.isNaN(parsedHour.getTime()) ? date.slice(11, 16) : parsedHour.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
     }
+    const parsed = new Date(`${date}T00:00:00`)
     return Number.isNaN(parsed.getTime()) ? date.slice(5) : parsed.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
   }
   const lineChart = (title: string, key: string, note: string, color = '#dfff22') => {
