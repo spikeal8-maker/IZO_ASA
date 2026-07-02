@@ -131,6 +131,9 @@ type PromoCode = {
   updated_at?: string
 }
 
+type TimelinePoint = { date: string; value: number }
+type AdminTimeline = Record<string, TimelinePoint[]>
+
 type PaintLine = {
   tool: 'brush' | 'eraser'
   points: number[]
@@ -2877,6 +2880,7 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
   const [promoCodes, setPromoCodes] = useState<PromoCode[]>([])
   const [logsData, setLogsData] = useState<Record<string, unknown> | null>(null)
   const [adminMessage, setAdminMessage] = useState('')
+  const [dashboardRange, setDashboardRange] = useState<7 | 30 | 90>(30)
   const queue = Array.isArray(admin?.queue) ? admin.queue : []
   const generationErrors = Number(admin?.errors ?? 0)
   const health = generationErrors === 0 ? 'Стабильно' : `Ошибки генерации: ${generationErrors}`
@@ -2925,12 +2929,28 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
     await refreshTokenAdminData()
   }
   const kpi = (title: string, value: unknown, note: string) => <div><strong>{title}</strong><span>{String(value ?? '—')}</span><small>{note}</small></div>
-  const chart = (title: string, rows: Array<[string, number]>) => {
-    const max = Math.max(1, ...rows.map(([, value]) => Number(value) || 0))
+  const timeline = (admin?.timeline || {}) as AdminTimeline
+  const sliceSeries = (key: string): TimelinePoint[] => (Array.isArray(timeline[key]) ? timeline[key] : []).slice(-dashboardRange)
+  const lineChart = (title: string, key: string, note: string, color = '#dfff22') => {
+    const rows = sliceSeries(key)
+    const max = Math.max(1, ...rows.map((p) => Number(p.value) || 0))
+    const width = 320
+    const height = 110
+    const points = rows.map((p, index) => {
+      const x = rows.length <= 1 ? 0 : (index / (rows.length - 1)) * width
+      const y = height - ((Number(p.value) || 0) / max) * height
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    }).join(' ')
+    const total = rows.reduce((sum, p) => sum + (Number(p.value) || 0), 0)
+    const last = rows.at(-1)?.value ?? 0
     return (
-      <article className="admin-chart">
-        <h3>{title}</h3>
-        {rows.map(([label, value]) => <div className="admin-chart-row" key={label}><span>{label}</span><i style={{ width: `${Math.max(4, (Number(value) || 0) / max * 100)}%` }} /><b>{Number(value || 0).toLocaleString('ru-RU')}</b></div>)}
+      <article className="admin-line-chart">
+        <header><h3>{title}</h3><span>{last.toLocaleString('ru-RU')}</span></header>
+        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-label={title}>
+          <path d={`M 0 ${height} H ${width}`} />
+          <polyline points={points} style={{ stroke: color }} />
+        </svg>
+        <footer><small>{note}</small><b>сумма: {total.toLocaleString('ru-RU')}</b></footer>
       </article>
     )
   }
@@ -2957,11 +2977,17 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
         {kpi('Ошибки входа', admin?.errors24h, 'за 24 часа')}
         {kpi('Ошибки генерации', admin?.errors, 'failed jobs')}
       </div>
+      <div className="admin-dashboard-toolbar">
+        <strong>Графики по времени</strong>
+        {[7, 30, 90].map((days) => <button key={days} className={dashboardRange === days ? 'active' : ''} onClick={() => setDashboardRange(days as 7 | 30 | 90)}>{days} дней</button>)}
+      </div>
       <div className="admin-chart-grid">
-        {chart('Активность пользователей', [['Сегодня', Number(admin?.activeToday ?? 0)], ['Всего', Number(admin?.users ?? 0)], ['Сессии', Number(admin?.activeSessions ?? 0)]])}
-        {chart('Генерации и токены', [['Сегодня', Number(admin?.generationsToday ?? 0)], ['Всего задач', Number(admin?.jobs ?? 0)], ['Токены списано', Number(admin?.tokensSpentTotal ?? 0)]])}
-        {chart('Входы и безопасность', [['Ошибки входа 24ч', Number(admin?.errors24h ?? 0)], ['Ошибки генерации', Number(admin?.errors ?? 0)], ['Очередь', Number(queue.length)]])}
-        {chart('Контент', [['Изображения', Number(admin?.images ?? 0)], ['Баланс токенов', Number(admin?.tokenBalanceTotal ?? 0)], ['Сегодня выполнено', Number(admin?.completedToday ?? 0)]])}
+        {lineChart('Активность пользователей', 'active_users', 'last_seen по дням')}
+        {lineChart('Регистрации', 'registrations', 'новые аккаунты', '#72ff69')}
+        {lineChart('Успешные входы', 'logins', 'login/register события', '#64b5ff')}
+        {lineChart('Ошибки входа', 'login_errors', 'неудачные auth попытки', '#ffd45c')}
+        {lineChart('Генерации', 'generations', 'созданные jobs', '#dfff22')}
+        {lineChart('Ошибки генерации', 'generation_errors', 'failed jobs', '#ff6b6b')}
       </div>
       {Boolean(admin?.finance) && <div className="admin-grid admin-grid-compact">
         {kpi('Доход', `${Number(adminFinance.tokenRevenue ?? 0).toLocaleString('ru-RU')} ₽`, 'оценка')}

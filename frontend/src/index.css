@@ -967,12 +967,20 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-grid span { color: #f0f0f0; font-size: 24px; font-weight: 900; overflow-wrap: anywhere; }
 .admin-grid small { color: #777; line-height: 1.35; }
 .admin-dashboard-v2 { gap: 12px; }
+.admin-dashboard-toolbar { display: flex; align-items: center; gap: 8px; border: 1px solid #2c2c2c; background: #111; border-radius: 12px; padding: 8px 10px; }
+.admin-dashboard-toolbar strong { color: var(--acid); margin-right: auto; }
+.admin-dashboard-toolbar button { min-height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid #303030; background: #151515; color: #b8b8b8; font-size: 12px; font-weight: 900; }
+.admin-dashboard-toolbar button.active { background: var(--acid); border-color: var(--acid); color: #050505; }
 .admin-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.admin-chart { background: #131313; border: 1px solid #2d2d2d; border-radius: 12px; padding: 12px; display: grid; gap: 9px; min-height: 158px; }
-.admin-chart h3 { margin: 0; color: var(--acid); font-size: 14px; }
-.admin-chart-row { display: grid; grid-template-columns: 110px minmax(70px, 1fr) 64px; gap: 8px; align-items: center; color: #a8a8a8; font-size: 12px; }
-.admin-chart-row i { display: block; height: 9px; border-radius: 999px; background: linear-gradient(90deg, var(--acid), #71ff65); box-shadow: 0 0 10px rgba(236,255,47,.16); }
-.admin-chart-row b { color: #f0f0f0; text-align: right; font-variant-numeric: tabular-nums; }
+.admin-line-chart { background: #131313; border: 1px solid #2d2d2d; border-radius: 12px; padding: 12px; display: grid; gap: 9px; min-height: 190px; }
+.admin-line-chart header, .admin-line-chart footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.admin-line-chart h3 { margin: 0; color: var(--acid); font-size: 14px; }
+.admin-line-chart header span { color: #f0f0f0; font-size: 22px; font-weight: 950; font-variant-numeric: tabular-nums; }
+.admin-line-chart svg { width: 100%; height: 118px; overflow: visible; background: linear-gradient(180deg, rgba(255,255,255,.035), transparent); border-radius: 8px; }
+.admin-line-chart path { stroke: rgba(255,255,255,.13); stroke-width: 1; fill: none; }
+.admin-line-chart polyline { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 7px rgba(223,255,34,.25)); }
+.admin-line-chart footer small { color: #898989; }
+.admin-line-chart footer b { color: #cfcfcf; font-size: 12px; font-variant-numeric: tabular-nums; }
 .admin-two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .admin-two-col article, .admin-note { background: #161616; border: 1px solid #303030; border-radius: 12px; padding: 14px; display: grid; gap: 10px; align-content: start; }
 .admin-two-col p, .admin-note { color: #aaa; line-height: 1.45; }

@@ -8639,6 +8639,34 @@ def _today_start_iso() -> str:
     return n.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
 
+def _empty_daily_series(days: int) -> dict[str, int]:
+    today = datetime.now(timezone.utc).date()
+    return {
+        (today - timedelta(days=offset)).isoformat(): 0
+        for offset in range(days - 1, -1, -1)
+    }
+
+
+def _daily_counts(conn: sqlite3.Connection, table: str, column: str, days: int, where: str = "", params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+    series = _empty_daily_series(days)
+    start = next(iter(series))
+    where_sql = f" AND {where}" if where else ""
+    rows = conn.execute(
+        f"""
+        SELECT substr({column}, 1, 10) AS day, COUNT(*) AS c
+        FROM {table}
+        WHERE {column} >= ?{where_sql}
+        GROUP BY substr({column}, 1, 10)
+        ORDER BY day
+        """,
+        (start, *params),
+    ).fetchall()
+    for row in rows:
+        if row["day"] in series:
+            series[row["day"]] = int(row["c"] or 0)
+    return [{"date": day, "value": value} for day, value in series.items()]
+
+
 def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_iso: str) -> dict[str, Any]:
     iuid = urow["internal_user_id"]
     legacy = urow["id"]
@@ -9325,6 +9353,15 @@ async def admin_summary(request: Request) -> dict[str, Any]:
         errors_24h = conn.execute("SELECT COUNT(*) FROM auth_login_attempts WHERE success = 0 AND created_at >= ?", (today_start,)).fetchone()[0]
         settings_row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'finance'").fetchone()
         finance = json.loads(settings_row["value_json"]) if settings_row else {"tokenRevenue": 0, "tokenCost": 0, "electricity": 0, "promoBudget": 0}
+        timeline = {
+            "days": 90,
+            "active_users": _daily_counts(conn, "users", "last_seen_at", 90, "internal_user_id IS NOT NULL"),
+            "registrations": _daily_counts(conn, "users", "created_at", 90, "internal_user_id IS NOT NULL"),
+            "logins": _daily_counts(conn, "event_logs", "created_at", 90, "event_name IN ('login_succeeded','password_login_succeeded','password_register_succeeded')"),
+            "login_errors": _daily_counts(conn, "auth_login_attempts", "created_at", 90, "success = 0"),
+            "generations": _daily_counts(conn, "jobs", "created_at", 90),
+            "generation_errors": _daily_counts(conn, "jobs", "created_at", 90, "status = 'failed'"),
+        }
     return {
         "users": user_count,
         "activeToday": active_today,
@@ -9343,6 +9380,7 @@ async def admin_summary(request: Request) -> dict[str, Any]:
         "recentErrors": [item.get("error") for item in failed[-5:]],
         "queue": [{k: v for k, v in item.items() if k != "request"} for item in jobs.values() if item.get("status") in ("queued", "running", "uploading", "sent_to_comfyui")],
         "rateLimits": rate_limits,
+        "timeline": timeline,
     }
 
 
