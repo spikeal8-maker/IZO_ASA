@@ -2938,12 +2938,12 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
   const lineChart = (title: string, key: string, note: string, color = '#dfff22') => {
     const rows = sliceSeries(key)
     const max = Math.max(1, ...rows.map((p) => Number(p.value) || 0))
-    const width = 900
-    const height = 240
-    const padLeft = 54
-    const padRight = 20
-    const padTop = 22
-    const padBottom = 42
+    const width = 460
+    const height = 176
+    const padLeft = 40
+    const padRight = 14
+    const padTop = 18
+    const padBottom = 30
     const plotWidth = width - padLeft - padRight
     const plotHeight = height - padTop - padBottom
     const points = rows.map((p, index) => {
@@ -2955,15 +2955,15 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
     const last = rows.at(-1)?.value ?? 0
     const average = rows.length ? Math.round(total / rows.length) : 0
     const peak = rows.reduce((best, point) => (Number(point.value) > Number(best.value) ? point : best), rows[0] || { date: '', value: 0 })
-    const tickStep = dashboardRange === 7 ? 1 : dashboardRange === 30 ? 7 : 15
+    const tickStep = dashboardRange === 7 ? 2 : dashboardRange === 30 ? 10 : 30
     const dateTicks = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % tickStep === 0)
     const valueTicks = Array.from(new Set([max, Math.round(max * 0.75), Math.round(max * 0.5), Math.round(max * 0.25), 0])).sort((a, b) => b - a)
     const verticalTicks = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % tickStep === 0)
-    const valueLabels = rows.filter((point, index) => Number(point.value || 0) > 0 && (dashboardRange === 7 || index === rows.length - 1 || Number(point.value) === Number(peak.value)))
+    const valueLabels = rows.filter((point, index) => Number(point.value || 0) > 0 && (index === rows.length - 1 || Number(point.value) === Number(peak.value)))
     return (
       <article className="admin-line-chart">
         <header><h3>{title}</h3><span>{last.toLocaleString('ru-RU')}</span></header>
-        <p className="admin-line-meta">Сумма {total.toLocaleString('ru-RU')} · пик {Number(peak.value || 0).toLocaleString('ru-RU')} {shortDate(peak.date)} · среднее {average.toLocaleString('ru-RU')} · {note}</p>
+        <p className="admin-line-meta">Сумма {total.toLocaleString('ru-RU')} · пик {Number(peak.value || 0).toLocaleString('ru-RU')} {shortDate(peak.date)} · среднее {average.toLocaleString('ru-RU')}</p>
         <svg viewBox={`0 0 ${width} ${height}`} aria-label={title}>
           {valueTicks.map((value) => {
             const y = padTop + plotHeight - (value / max) * plotHeight
@@ -2994,7 +2994,7 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
             return <text className="axis point-value" key={`label-${point.date}-${index}`} x={x} y={labelY}>{Number(point.value || 0).toLocaleString('ru-RU')}</text>
           })}
         </svg>
-        <footer><small>{rows[0]?.date ? `${shortDate(rows[0].date)} - ${shortDate(rows.at(-1)?.date || rows[0].date)}` : 'нет данных'}</small><b>{dashboardRange} дней</b></footer>
+        <footer><small>{note}</small><b>{rows[0]?.date ? `${shortDate(rows[0].date)} - ${shortDate(rows.at(-1)?.date || rows[0].date)}` : `${dashboardRange} дней`}</b></footer>
       </article>
     )
   }
@@ -3027,7 +3027,7 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
       </div>
       <div className="admin-chart-grid">
         {lineChart('Активность пользователей', 'active_users', 'last_seen по дням')}
-        {lineChart('Регистрации', 'registrations', 'новые аккаунты', '#72ff69')}
+        {lineChart('Новые пользователи', 'registrations', 'созданные аккаунты', '#72ff69')}
         {lineChart('Успешные входы', 'logins', 'login/register события', '#64b5ff')}
         {lineChart('Ошибки входа', 'login_errors', 'неудачные auth попытки', '#ffd45c')}
         {lineChart('Генерации', 'generations', 'созданные jobs', '#dfff22')}
