@@ -40,6 +40,20 @@
 - Check `/api/health` reports `fluxKleinOneNode: true` when ComfyUI custom node is installed.
 - Check `/api/models` returns the installed Flux Klein model, text encoder, VAE and LoRA lists.
 
+## UI 2.0 `/new` Smoke Checks
+
+The experimental `/new` page must be checked separately from the current `/` UI.
+
+- `/` still opens and the existing user flow is unchanged.
+- `/new` opens without crashing on desktop 1440x900 and mobile 375x812.
+- No `X-OneNode-User`, `onenode_user` or `demo_user` auth path exists in `frontend/src/newUi.tsx`.
+- Without a session, clicking generate opens the auth modal and does not create a job.
+- With a valid session, text-to-image starts a job, polls `/api/jobs/{id}`, and renders the result image.
+- Image-to-image can use an uploaded image and an image selected from gallery.
+- Gallery opens, shows real user images, and does not leak images without auth.
+- Mobile scroll works in every `/new` tab; sticky generate controls do not cover required inputs.
+- Build checks pass: `npx tsc -b` and `npx vite build`.
+
 ## Current Automated Commands
 
 ```powershell

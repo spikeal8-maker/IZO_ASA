@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, Dispatch, MutableRefObject, ReactNode, SetStateAction } from 'react'
+import type { ChangeEvent, Dispatch, MutableRefObject, PointerEvent as ReactPointerEvent, ReactNode, SetStateAction, WheelEvent as ReactWheelEvent } from 'react'
 import {
   AuthV2Modal,
   initAuthV2,
@@ -23,6 +23,8 @@ import {
 } from './editPrompt'
 import { AdminAnalyticsV2 } from './adminAnalytics'
 import AdminModelsV2 from './adminModels'
+import NewStudio from './newUi'
+import { imageToImageTransformRows, presetPreview, textToImageTemplateRows } from './stylePresets'
 import { Stage, Layer, Line, Rect, Text, Circle } from 'react-konva'
 import type { Stage as KonvaStage } from 'konva/lib/Stage'
 import {
@@ -184,7 +186,9 @@ const EMPTY_EDIT_SLOTS: EditSlot[] = Array.from({ length: EDIT_SLOT_COUNT }, () 
 const resolutionPresets = [
   { label: '1024 × 1024', width: 1024, height: 1024 },
   { label: '1920 × 1088', width: 1920, height: 1088 },
+  { label: '1536 × 1024', width: 1536, height: 1024 },
   { label: '1088 × 1920', width: 1088, height: 1920 },
+  { label: '1024 × 1536', width: 1024, height: 1536 },
   { label: '1280 × 720', width: 1280, height: 720 },
   { label: '720 × 1280', width: 720, height: 1280 },
 ]
@@ -577,82 +581,8 @@ function presetsFromRows(rows: string, mode: Mode, category: string, idPrefix: s
   })
 }
 
-function presetPreview(id: string, name: string) {
-  return {
-    female: `/preset-previews/i2i/female/${id}.webp`,
-    male: `/preset-previews/i2i/male/${id}.webp`,
-    alt: `Превью стиля: ${name}`,
-  }
-}
 
-function imageToImageTransformRows() {
-  return `
-1	Чистый коммерческий фотореализм	Реалистичная коммерческая фотография, естественные материалы, чистая композиция, мягкий дневной свет, реалистичная кожа и фактуры, камера на уровне глаз, объектив 50 мм, f/2.8, умеренная глубина резкости, аккуратный премиальный вид.
-2	Лакшери премиум	Дорогая премиальная эстетика: мрамор, тёмное дерево, латунь, кожа, бархат, стекло, мягкие золотистые отражения, дорогой интерьер или окружение высокого класса, журнальная luxury-фотография, объектив 50 мм, f/2.2.
-3	Fashion editorial	Глянцевая журнальная съёмка, выразительная поза, чистый фон, дорогой свет, стильная одежда и материалы, editorial composition, мягкие тени, камера 85 мм, f/2.0, ощущение обложки журнала.
-4	Космическая станция	Реалистичная космическая среда: большой иллюминатор, вид на планету, звёзды, панели управления, герметичный модуль, холодный бело-синий свет, ощущение настоящей орбитальной станции, объектив 35 мм, f/4.
-5	Невесомость	Сцена в состоянии невесомости: волосы, ткань и мелкие предметы мягко парят, жидкость собирается в округлые капли, тела удерживаются ремнями или поручнями, нет ощущения обычного веса, за окном космос или большая планета, объектив 35 мм, f/4.
-6	Открытое будущее	Светлое будущее не в коробке: большие окна, вид на город будущего, воздух, панорама, гладкая архитектура, прозрачные интерфейсы, мягкие световые линии, чистые материалы, ощущение просторного технологичного мира, объектив 35 мм, f/3.5.
-7	Белая high-tech лаборатория	Стерильная технологичная среда, белые панели, стекло, мягкая холодная подсветка, голографические экраны, аккуратная научная эстетика, чистый фотореализм, большие световые поверхности, объектив 50 мм, f/2.8.
-8	Киберпанк неон	Тёмный футуристический мир, сине-розовый неон, дождь, мокрые отражения, городские огни, голограммы, высокая контрастность, технологичная ночная атмосфера, cinematic cyberpunk, объектив 35 мм, f/2.0.
-9	Стимпанк	Викторианско-индустриальная эстетика: медь, латунь, шестерёнки, трубы, механические приборы, тёплый янтарный свет, дерево, металл, пар, детальная мастерская или механический мир, объектив 50 мм, f/2.8.
-10	Дизельпанк	Грубая индустриальная эстетика первой половины XX века: сталь, заклёпки, тяжёлые механизмы, дым, военная техника, тёпло-серые цвета, суровый ретро-футуризм, драматичный свет, объектив 35 мм, f/4.
-11	Ретрофутуризм 60-х	Будущее глазами 1960-х: округлые формы, пастельные панели, винтажные приборы, старые экраны, пластик, хром, мягкая студийная подсветка, рекламная эстетика старого будущего, объектив 50 мм, f/2.8.
-12	Соларпанк	Светлая экологичная эстетика: растения, солнечный свет, дерево, стекло, зелёные технологии, солнечные панели, чистый воздух, оптимистичный мир будущего, тёплая натуральная палитра, объектив 35 мм, f/3.5.
-13	Биопанк	Органическая научная среда: корни, живые ткани, зелёно-бирюзовое свечение, колбы, влажные поверхности, биологические структуры, странная лаборатория, сочетание природы и технологии, объектив 50 мм, f/2.8.
-14	Постапокалипсис	Разрушенный мир после катастрофы: трещины, пыль, ржавчина, сломанные конструкции, грязь, холодный свет, следы выживания, реалистичная разруха, но исходная сцена остаётся читаемой, объектив 35 мм, f/4.
-15	Грязный реализм	Жёсткая бытовая фактура: старые стены, потёртый металл, пятна, царапины, пыль, неидеальные поверхности, натуральный грубый свет, документальная реалистичность, объектив 50 мм, f/2.8.
-16	Средневековая старина	Камень, дерево, свечи, пергамент, грубые ткани, старинные предметы, тёплый огонь, атмосфера средневекового кабинета, замка или мастерской, реалистичная историческая реконструкция, объектив 50 мм, f/2.8.
-17	Античный мир	Светлая древняя эстетика: известковые стены, колонны, керамика, лен, камень, мягкое солнце, тёплая песочная палитра, реалистичный древний интерьер или городская среда, объектив 35 мм, f/4.
-18	Тёмное фэнтези	Мрачный магический мир, камень, дым, свечи, холодные тени, загадочные символы, тяжёлая атмосфера, драматичный свет, ощущение древней силы, cinematic dark fantasy, объектив 50 мм, f/2.8.
-19	Светлое фэнтези	Волшебный мир с мягким золотистым светом, парящими частицами, невозможным пейзажем, красивой архитектурой, сияющими деталями, сказочная реалистичность, ясная композиция, объектив 35 мм, f/3.5.
-20	Другой мир / портал	Окружение выглядит как реальность, переходящая в невозможный мир: световые разломы, парящие предметы, необычная гравитация, странный пейзаж за границей сцены, мягкое магическое свечение, объектив 35 мм, f/3.5.
-21	Подводный мир	Сцена погружена в подводную эстетику: голубой свет, мягкие лучи через воду, пузырьки, плавающие ткани и мелкие предметы, приглушённые цвета, ощущение глубины и плавности, объектив 35 мм, f/4.
-22	Арктика / ледяной мир	Холодная бело-голубая палитра, лёд, снег, иней, прозрачные замёрзшие поверхности, холодный воздух, мягкие отражения, чистая суровая атмосфера, объектив 35 мм, f/4.
-23	Пустынный мир	Песок, тёплый жёлто-оранжевый свет, пыль в воздухе, сухие материалы, выжженная атмосфера, длинные тени, ощущение жары и простора, объектив 35 мм, f/5.6.
-24	Аниме реализм	Качественная аниме-иллюстрация, выразительное лицо с прорисованными глазами, носом, ртом и эмоцией, чистые контуры, мягкая cel-shading тень, аккуратные волосы, естественная композиция, не чиби, не карикатура.
-25	Манга / тушь	Чёрно-белая манга-эстетика, чёткая тушевая линия, скринтоны, аккуратная штриховка, выразительные лица, ясные силуэты, сильный контраст, композиция как кадр из качественной манги.
-26	Цветной графический роман	Премиальный comic book / graphic novel style, чёткие контуры, выразительная штриховка, насыщенные цвета, драматичный свет, читаемые лица, детальные материалы, ощущение дорогой комиксной обложки.
-27	3D мульт высокого качества	Стильный 3D cartoon render, мягкие округлые формы, приятные лица, выразительные глаза, аккуратные материалы, мягкий студийный свет, чистая персонажная пластика, виртуальная камера 50 мм.
-28	Low-poly 3D	Низкополигональный 3D-стиль, фасеточные формы, упрощённые материалы, геометрические силуэты, мягкие тени, читаемые лица и объекты, стильная game-art эстетика, виртуальная камера 50 мм.
-29	Пластилин stop-motion	Всё выглядит как физическая лепка из пластилина: матовая глина, следы пальцев, неровные края, миниатюрный масштаб, мягкий студийный свет, stop-motion эстетика, macro 60 мм, f/5.6.
-30	Бумажная диорама	Всё собрано из бумаги и картона: видимые слои, вырезанные края, бумажная фактура, мягкие тени от слоёв, shadowbox-композиция, ручная аппликация, macro 60 мм, f/5.6.
-31	Пиксель-арт	Чёткий 16-bit pixel art, крупная пиксельная сетка, ограниченная палитра, читаемые силуэты, аккуратные пиксельные тени, без плавных фотореалистичных текстур, стиль качественной игровой сцены.
-32	Вектор с лицом	Чистая векторная иллюстрация, плоские формы, ограниченная палитра, аккуратные контуры, лицо обязательно прорисовано простыми элементами: глаза, брови, нос, рот, выражение, современная editorial vector эстетика.
-33	Изометрия	Изометрический визуал, камера сверху под углом, аккуратная геометрия, читаемая сцена как миниатюрная модель, чистые формы, мягкие тени, все объекты расположены ясно, стиль интерфейсной 3D-иллюстрации.
-34	Технический чертёж	Сцена превращена в аккуратную техническую схему: тонкие линии, синие или белые чертёжные контуры, размеры, конструктивные детали, полупрозрачные слои, blueprint aesthetic, но главный объект остаётся узнаваемым.
-35	Музейный архив	Старинная архивная эстетика: выцветшая бумага, аккуратная экспозиция, подписи как музейные таблички без читаемого текста, мягкий рассеянный свет, ощущение редкого исторического объекта, объектив 50 мм, f/4.
-36	Продуктовый каталог	Чистая каталожная подача: ровный свет, нейтральный фон, главный объект идеально читается, материалы выглядят дорого и аккуратно, минимум лишних деталей, commercial product photography, объектив 70 мм, f/5.6.
-`
-}
 
-function textToImageTemplateRows() {
-  return `
-1	Миниатюрный город в разбитой чашке	На деревянном столе стоит треснувшая фарфоровая чашка, внутри чашки вырос крошечный ночной город с мостами, окнами, улицами и маленьким поездом по краю блюдца. Из трещины чашки вытекает тонкая светящаяся река. Макрофотография, реалистичный фарфор, уютный тёплый свет, много мелких красивых деталей, но главный объект хорошо читается, без текста, без логотипов, без водяных знаков.
-2	Биолаборатория в корнях	Странная живая лаборатория, выросшая внутри огромных древесных корней. Стеклянные сосуды, органические экраны, светящаяся зелёная жидкость и мягкие биолюминесцентные жилы встроены в корни. Учёный изучает живое механическое семя на столе, влажный воздух, кинематографичная биопанк-атмосфера, детальные фактуры, без текста, без логотипов, без водяных знаков.
-3	Чемодан с целым миром	Открытый винтажный чемодан на деревянном столе, а внутри него находится целый миниатюрный мир: горы, извилистая река, маленькие дома, мост, облака и тёплый закатный свет. Комната вокруг мягко размыта, миниатюрный ландшафт очень детальный и резкий. Магический реализм, макрофотография, реалистичные ручные материалы, объектив 60 мм, без текста, без логотипов, без водяных знаков.
-4	Поезд в книжной полке	Крупный план старой книжной полки вечером, между книгами проходит крошечная железная дорога, по ней едет маленький светящийся поезд. Из тоннеля между книгами выходит пар, на корешках книг мягкие отражения, рядом чашка чая и очки. Макрофотография, уютная атмосфера, реалистичные материалы, сказочная детальность, без читаемого текста, без логотипов, без водяных знаков.
-5	Тайная станция под ковром	Обычная гостиная, край ковра приподнят, а под ним видна миниатюрная подземная станция с рельсами, лампами, трубами и маленькими рабочими механизмами. Человек стоит на коленях и светит фонариком под ковёр, удивлённо рассматривая скрытый мир. Фотореализм, макро-детали, тёплый домашний свет, без текста, без логотипов, без водяных знаков.
-6	Последний магазин дождя	Уютная маленькая лавка вечером, на полках стоят стеклянные банки с разными видами дождя: летний дождь, гроза, снег с дождём, тёплый грибной дождь. Продавец открывает одну банку, и над прилавком появляется маленькая туча с каплями. Дерево, стекло, тёплые лампы, магический реализм, без читаемого текста, без логотипов, без водяных знаков.
-7	Портной шьёт крылья	Старая мастерская портного, на манекене висят большие полупрозрачные крылья из ткани, нитей и света. Портной аккуратно прошивает край крыла на швейной машине, вокруг катушки, ножницы, выкройки и тёплая пыль в воздухе. Фотореализм, ремесленная магия, красивый свет, без текста, без логотипов, без водяных знаков.
-8	Космическая станция	Инженер проверяет панель управления внутри реалистичного модуля орбитальной станции, рядом инструменты закреплены на стене, через большой иллюминатор видна огромная планета и звёзды. Холодный бело-синий свет, герметичный модуль, ощущение настоящей станции, объектив 35 мм, f/4, чистый фотореализм, без текста, без логотипов, без водяных знаков.
-9	Киберпанк неон	Курьер будущего останавливается у автомата доставки на мокрой ночной улице мегаполиса, рядом футуристический мотоцикл, дождь, сине-розовый неон, отражения на асфальте, голограммы, высокая контрастность. Cinematic cyberpunk, объектив 35 мм, f/2.0, технологичная ночная атмосфера, без текста, без логотипов, без водяных знаков.
-10	Стимпанк	Мастер запускает огромный латунный механический телескоп в викторианской мастерской, вокруг шестерёнки, трубы, манометры, медь, дерево, пар и тёплый янтарный свет. Викторианско-индустриальная эстетика, детальная механическая среда, объектив 50 мм, f/2.8, без текста, без логотипов, без водяных знаков.
-11	Ретрофутуризм 60-х	Семья рассматривает домашнего робота-помощника в яркой гостиной будущего глазами 1960-х: округлые формы, пастельные панели, хром, пластик, винтажные приборы и мягкая студийная подсветка. Рекламная эстетика старого будущего, объектив 50 мм, f/2.8, без текста, без логотипов, без водяных знаков.
-12	Грязный реализм	Механик в старой мастерской ремонтирует потёртый мотоцикл у грязного окна, вокруг старые стены, пятна масла, царапины, пыль, грубый натуральный свет и неидеальные поверхности. Документальная реалистичность, объектив 50 мм, f/2.8, без текста, без логотипов, без водяных знаков.
-13	Средневековая старина	Картограф в средневековом кабинете чертит карту морского пути при свете свечей, на столе пергамент, компас, грубые ткани, дерево, камень, старинные инструменты и тёплый огонь. Реалистичная историческая реконструкция. Все руки неместе, пальци реалистичны, объектив 50 мм, f/2.8, без читаемого текста, без логотипов, без водяных знаков.
-14	Тёмное фэнтези	Маг-кузнец создаёт чёрный артефакт на каменном алтаре в подземной мастерской, вокруг дым, свечи, холодные тени, древние символы, тяжёлая атмосфера и драматичный свет. Cinematic dark fantasy, объектив 50 мм, f/2.8, без текста, без логотипов, без водяных знаков.
-15	Светлое фэнтези	Путешественница идёт по мраморному мосту между сияющими башнями над облаками, вокруг мягкий золотистый свет, парящие частицы, невозможный пейзаж и красивая архитектура. Сказочная реалистичность, ясная композиция, объектив 35 мм, f/3.5, без текста, без логотипов, без водяных знаков.
-16	Цветной графический роман	Детектив будущего открывает дверь в подпольную лабораторию, в руке фонарь, на лице напряжение, за дверью синий свет и силуэты механизмов. Премиальный comic book / graphic novel style, чёткие контуры, выразительная штриховка, насыщенные цвета, драматичный свет, читаемые лица, ощущение дорогой комиксной обложки, без текста.
-17	3D мульт высокого качества	Маленький инженер-изобретатель запускает смешного домашнего робота на рабочем столе, вокруг аккуратные инструменты, лампа, детали и мягкий студийный свет. Стильный 3D cartoon render, мягкие округлые формы, приятные лица, выразительные глаза, аккуратные материалы, виртуальная камера 50 мм, без текста, без логотипов.
-18	Low-poly 3D	Низкополигональный путешественник стоит на краю геометрического каньона перед маленьким футуристическим лагерем, рядом транспорт и костёр. Low-poly 3D-стиль, фасеточные формы, упрощённые материалы, геометрические силуэты, мягкие тени, читаемые объекты, стильная game-art эстетика, виртуальная камера 50 мм, без текста.
-19	Пластилин stop-motion	Пластилиновый повар готовит огромный светящийся пирог в маленькой кухне, рядом смешные миниатюрные кастрюли, стол, мука и тёплая лампа. Всё выглядит как физическая лепка из пластилина: матовая глина, следы пальцев, неровные края, миниатюрный масштаб, мягкий студийный свет, stop-motion эстетика, macro 60 мм, f/5.6, без текста.
-20	Бумажная диорама	Бумажный город на склоне горы, маленький поезд пересекает мост, облака и деревья сделаны из вырезанной бумаги, дома стоят слоями внутри shadowbox-композиции. Видимые слои, вырезанные края, бумажная фактура, мягкие тени от слоёв, ручная аппликация, macro 60 мм, f/5.6, без текста.
-21	Пиксель-арт	Ночной вокзал в стиле 16-bit pixel art: маленький герой стоит на платформе с чемоданом, поезд с тёплыми окнами подъезжает под дождём, отражения в лужах. Чёткая пиксельная сетка, ограниченная палитра, читаемые силуэты, аккуратные пиксельные тени, без плавных фотореалистичных текстур, без текста.
-22	Вектор с лицом	Современная векторная иллюстрация: дизайнер сидит за столом у большого окна, рядом растения, планшет, чашка кофе и аккуратная лампа, лицо хорошо читается с глазами, бровями, носом, ртом и спокойным выражением. Плоские формы, ограниченная палитра, аккуратные контуры, editorial vector эстетика, без текста.
-23	Изометрия	Изометрическая сцена миниатюрного научного хаба: лаборатория, зона отдыха, серверная, маленькие персонажи работают с устройствами, все объекты ясно расположены. Камера сверху под углом, аккуратная геометрия, чистые формы, мягкие тени, стиль интерфейсной 3D-иллюстрации, без текста, без логотипов.
-`
-}
 
 function fitGenerationDimension(value: number) {
   return Math.max(512, Math.min(1536, Math.round(value / 16) * 16))
@@ -795,6 +725,8 @@ function App() {
   const isAuthedV2 = authV2Status === 'authed'
   const [authModalOpen, setAuthModalOpen] = useState(false)
   const adminRoute = pathName === '/admin' || pathName.startsWith('/admin/')
+  // UI 2.0: новая страница /new (отдельный layout, тот же функционал через общие API).
+  const newUiRoute = pathName === '/new' || pathName.startsWith('/new/')
 
   useEffect(() => {
     const onPopState = () => setPathName(window.location.pathname)
@@ -995,15 +927,18 @@ function App() {
   const canGenerate = useMemo(() => {
     if (cloudLimited && ['inpaint', 'outpaint', 'faceswap', 'remove_background', 'try_on', 'texture_transfer'].includes(actualMode)) return false
     if (actualMode === 'edit') return editBlockReason === null
-    if (actualMode !== 'text_to_image' && actualMode !== 'paint' && !inputOne) return false
+    if (actualMode === 'paint') return !!inputOne && paintLines.length > 0 && prompt.trim().length > 0
+    if (actualMode === 'inpaint') return !!inputOne && maskLines.length > 0 && prompt.trim().length > 0
+    if (actualMode === 'outpaint') return !!inputOne && prompt.trim().length > 0
+    if (actualMode !== 'text_to_image' && !inputOne) return false
     if (['faceswap', 'try_on', 'texture_transfer'].includes(actualMode) && !inputTwo) return false
     if (actualMode === 'faceswap' && activeSelectedLora === 'none') return false
     return prompt.trim().length > 0 || actualMode === 'faceswap'
-  }, [actualMode, activeSelectedLora, cloudLimited, editBlockReason, inputOne, inputTwo, prompt])
+  }, [actualMode, activeSelectedLora, cloudLimited, editBlockReason, inputOne, inputTwo, maskLines.length, paintLines.length, prompt])
 
   async function imageRequestSize() {
     const baseImage = actualMode === 'edit' ? editSlots[0].image : inputOne
-    if (!baseImage || actualMode === 'text_to_image' || sizeSource === 'custom') return { width, height }
+    if (!baseImage || actualMode === 'text_to_image' || actualMode === 'paint' || actualMode === 'outpaint' || sizeSource === 'custom') return { width, height }
     const sourceImage = baseImage
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image()
@@ -1031,7 +966,9 @@ function App() {
     generateInFlightRef.current = true
     setIsSubmitting(true)
     try {
-    const canvasData = (actualMode === 'paint' || actualMode === 'inpaint' || actualMode === 'outpaint') ? (canvasRef.current?.toDataURL({ pixelRatio: 1 }) || canvasSnapshot) : undefined
+    const canvasData = actualMode === 'outpaint'
+      ? canvasSnapshot
+      : (actualMode === 'paint' || actualMode === 'inpaint') ? (canvasRef.current?.toDataURL({ pixelRatio: 1 }) || canvasSnapshot) : undefined
     const lora = loraOptions.find((item) => item.id === activeSelectedLora)
     const effectiveSeed = seed || Math.floor(Math.random() * 999999999)
     const requestSize = await imageRequestSize()
@@ -1359,7 +1296,7 @@ function App() {
       <div className="mobile-input-row primary">
         <button className="mobile-thumb" onClick={() => upload(setInputOne)}>{inputOne ? <img src={inputOne} /> : <><ImageIcon size={22} /><span>Добавить</span></>}</button>
         <div className="mobile-input-actions">
-          {mode === 'paint' && <div className="mobile-paint-actions"><button onClick={() => { setPaintTool('sketch'); setPromptForKey('paint:sketch', workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || ''); setPaintEditor('sketch') }}><strong>Эскиз</strong><span>Рисование на чистом холсте</span></button><button onClick={() => { setPaintTool('inpaint'); setPromptForKey('paint:inpaint', workflowPresets.find((item) => item.id === 'mask-01')?.prompt || ''); setPaintEditor('mask') }}><strong>Маска / расширение</strong><span>Закрасить область или расширить изображение</span></button></div>}
+          {mode === 'paint' && <div className="mobile-paint-actions"><button onClick={() => { setPaintTool('sketch'); setPromptForKey('paint:sketch', workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || ''); setPaintEditor('sketch') }}><strong>Эскиз</strong><span>Нарисовать объект</span></button><button onClick={() => { setPaintTool('inpaint'); setPromptForKey('paint:inpaint', workflowPresets.find((item) => item.id === 'mask-01')?.prompt || ''); setPaintEditor('mask') }}><strong>Маска</strong><span>Изменить область</span></button><button onClick={() => { setPaintTool('outpaint'); setPromptForKey('paint:outpaint', workflowPresets.find((item) => item.id === 'outpaint-01')?.prompt || ''); setPaintEditor('mask') }}><strong>Расширение</strong><span>Дорисовать края</span></button></div>}
           <button onClick={() => upload(setInputOne)}>Файл</button>
           <button onClick={openGallery}>Галерея</button>
           <button className="take-this-button" disabled={!canUsePreviewAsInput && gallery.length === 0} onClick={() => job?.resultUrl ? setInputOne(job.resultUrl) : applyLastImage(1)}><span>Взять это</span><span>↓</span></button>
@@ -1375,6 +1312,10 @@ function App() {
       </div>}
     </div>
   )
+
+  if (newUiRoute) {
+    return <NewStudio />
+  }
 
   if (adminRoute) {
     return (
@@ -1482,6 +1423,8 @@ function App() {
                 setPrompt={setPrompt}
                 setPromptForKey={setPromptForKey}
                 setPaintEditor={setPaintEditor}
+                width={width}
+                height={height}
               />
               )}
               <div className="control-stack">
@@ -1587,6 +1530,9 @@ function App() {
             setPrompt={setPrompt}
             setPromptForKey={setPromptForKey}
             setCanvasSnapshot={setCanvasSnapshot}
+            targetWidth={width}
+            targetHeight={height}
+            setTargetSize={(nextWidth, nextHeight) => { setWidth(nextWidth); setHeight(nextHeight) }}
           />
         )}
 
@@ -1643,13 +1589,16 @@ type ModeWorkspaceProps = {
   setPrompt: (value: string) => void
   setPromptForKey: (key: PromptKey, value: string) => void
   setPaintEditor: (value: PaintEditor) => void
+  width: number
+  height: number
 }
 
 function ModeWorkspace(props: ModeWorkspaceProps) {
-  const { mode, paintTool, setPaintTool, copy, inputOne, inputTwo, setInputOne, setInputTwo, upload, applyLastImage, setPromptForKey, setPaintEditor } = props
+  const { mode, paintTool, setPaintTool, copy, inputOne, inputTwo, setInputOne, setInputTwo, upload, applyLastImage, setPromptForKey, setPaintEditor, width, height } = props
   if (mode === 'paint') {
     const sketchPrompt = workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || ''
     const maskPrompt = workflowPresets.find((item) => item.id === 'mask-01')?.prompt || ''
+    const outpaintPrompt = workflowPresets.find((item) => item.id === 'outpaint-01')?.prompt || ''
     function openSketch() {
       setPaintTool('sketch')
       setPromptForKey('paint:sketch', sketchPrompt)
@@ -1660,7 +1609,12 @@ function ModeWorkspace(props: ModeWorkspaceProps) {
       setPromptForKey('paint:inpaint', maskPrompt)
       setPaintEditor('mask')
     }
-    return <div className="paint-compact"><ImageBox title="ИЗО" image={inputOne} onUpload={() => upload(setInputOne)} onClear={() => setInputOne(undefined)} onUseLast={() => applyLastImage(1)} copy={copy} /><div className="paint-choice-stack"><button className={paintTool === 'sketch' ? 'paint-choice active' : 'paint-choice'} onClick={openSketch}><strong>Эскиз</strong><span>Рисование на чистом холсте</span></button><button className={paintTool !== 'sketch' ? 'paint-choice active' : 'paint-choice'} onClick={openMask}><strong>Маска / Расширение</strong><span>Закрасить область или расширить изображение</span></button></div></div>
+    function openOutpaint() {
+      setPaintTool('outpaint')
+      setPromptForKey('paint:outpaint', outpaintPrompt)
+      setPaintEditor('mask')
+    }
+    return <div className="paint-compact"><ImageBox title="ИЗО" image={inputOne} onUpload={() => upload(setInputOne)} onClear={() => setInputOne(undefined)} onUseLast={() => applyLastImage(1)} copy={copy} /><div className="paint-choice-stack"><button className={paintTool === 'sketch' ? 'paint-choice active' : 'paint-choice'} onClick={openSketch}><strong>Эскиз</strong><span>Нарисовать объект на холсте {width} × {height}</span></button><button className={paintTool === 'inpaint' ? 'paint-choice active' : 'paint-choice'} onClick={openMask}><strong>Маска</strong><span>Закрасить область внутри изображения</span></button><button className={paintTool === 'outpaint' ? 'paint-choice active' : 'paint-choice'} onClick={openOutpaint}><strong>Расширение</strong><span>Добавить пространство вокруг изображения</span></button></div></div>
   }
 
   if (mode === 'faceswap') {
@@ -1826,6 +1780,32 @@ async function createImageMask(inputImage: string | undefined, lines: PaintLine[
   return canvas.toDataURL('image/png')
 }
 
+async function createOutpaintMask(inputImage: string | undefined, padding: { left: number; right: number; top: number; bottom: number }) {
+  if (!inputImage) return undefined
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = inputImage
+  })
+  const sourceWidth = image.naturalWidth || image.width
+  const sourceHeight = image.naturalHeight || image.height
+  const left = Math.max(0, Math.round(padding.left || 0))
+  const right = Math.max(0, Math.round(padding.right || 0))
+  const top = Math.max(0, Math.round(padding.top || 0))
+  const bottom = Math.max(0, Math.round(padding.bottom || 0))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, sourceWidth + left + right)
+  canvas.height = Math.max(1, sourceHeight + top + bottom)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return undefined
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.fillStyle = '#000'
+  ctx.fillRect(left, top, sourceWidth, sourceHeight)
+  return canvas.toDataURL('image/png')
+}
+
 function PaintEditorModal(props: {
   editor: Exclude<PaintEditor, null>
   paintTool: PaintTool
@@ -1854,8 +1834,11 @@ function PaintEditorModal(props: {
   setPrompt: (value: string) => void
   setPromptForKey: (key: PromptKey, value: string) => void
   setCanvasSnapshot: (value?: string) => void
+  targetWidth: number
+  targetHeight: number
+  setTargetSize: (width: number, height: number) => void
 }) {
-  const { editor, paintTool, setPaintTool, onClose, copy, inputOne, setInputOne, upload, paintLines, setPaintLines, maskLines, setMaskLines, tool, setTool, brushSize, setBrushSize, paintColor, setPaintColor, layerOpacity, setLayerOpacity, outpaint, setOutpaint, drawingRef, canvasRef, setPromptForKey, setCanvasSnapshot } = props
+  const { editor, paintTool, setPaintTool, onClose, copy, inputOne, setInputOne, upload, paintLines, setPaintLines, maskLines, setMaskLines, tool, setTool, brushSize, setBrushSize, paintColor, setPaintColor, layerOpacity, setLayerOpacity, outpaint, setOutpaint, drawingRef, canvasRef, setPromptForKey, setCanvasSnapshot, targetWidth, targetHeight, setTargetSize } = props
   const isSketch = editor === 'sketch'
   const isOutpaint = paintTool === 'outpaint'
   const activeLines = isSketch ? paintLines : maskLines
@@ -1863,12 +1846,121 @@ function PaintEditorModal(props: {
   const strokeColor = isSketch ? paintColor : '#dfff22'
   const stageWrapRef = useRef<HTMLDivElement | null>(null)
   const [stageSize, setStageSize] = useState({ width: isSketch ? 1024 : 1220, height: 620 })
-  const [canvasTarget, setCanvasTarget] = useState({ width: 1024, height: 1024 })
-  const [canvasDraft, setCanvasDraft] = useState({ width: 1024, height: 1024 })
+  const [sourceSize, setSourceSize] = useState<{ width: number; height: number } | null>(null)
+  const [outpaintScale, setOutpaintScale] = useState(100)
+  const [outpaintPan, setOutpaintPan] = useState({ x: 50, y: 50 })
+  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
+  const [canvasTarget, setCanvasTarget] = useState({
+    width: isSketch ? targetWidth : 1024,
+    height: isSketch ? targetHeight : 1024,
+  })
+  const [canvasDraft, setCanvasDraft] = useState({
+    width: isSketch ? targetWidth : 1024,
+    height: isSketch ? targetHeight : 1024,
+  })
   const [drawMode, setDrawMode] = useState<'free' | 'circle' | 'rect' | 'move'>('free')
   const [fillShape, setFillShape] = useState(true)
   const moveStartRef = useRef<{ x: number; y: number } | null>(null)
-  const updateOutpaint = (key: keyof typeof outpaint, value: number | boolean) => setOutpaint({ ...outpaint, [key]: value })
+  const outpaintTarget = useMemo(() => {
+    const sourceWidth = Math.max(1, sourceSize?.width || targetWidth)
+    const sourceHeight = Math.max(1, sourceSize?.height || targetHeight)
+    const targetAspect = Math.max(0.1, targetWidth / Math.max(1, targetHeight))
+    const sourceAspect = sourceWidth / sourceHeight
+    const scale = Math.max(0.35, Math.min(1, outpaintScale / 100))
+    if (sourceAspect > targetAspect) {
+      const baseHeight = Math.max(sourceHeight, Math.ceil(sourceWidth / targetAspect))
+      const finalHeight = Math.ceil(baseHeight / scale)
+      const finalWidth = Math.ceil(finalHeight * targetAspect)
+      return { extraX: Math.max(0, finalWidth - sourceWidth), extraY: Math.max(0, finalHeight - sourceHeight), sourceWidth, sourceHeight }
+    }
+    const baseWidth = Math.max(sourceWidth, Math.ceil(sourceHeight * targetAspect))
+    const finalWidth = Math.ceil(baseWidth / scale)
+    const finalHeight = Math.ceil(finalWidth / targetAspect)
+    return { extraX: Math.max(0, finalWidth - sourceWidth), extraY: Math.max(0, finalHeight - sourceHeight), sourceWidth, sourceHeight }
+  }, [outpaintScale, sourceSize, targetHeight, targetWidth])
+  const outpaintFinalWidth = outpaintTarget.sourceWidth + outpaint.left + outpaint.right
+  const outpaintFinalHeight = outpaintTarget.sourceHeight + outpaint.top + outpaint.bottom
+  const outpaintHorizontalValue = outpaintTarget.extraX > 0 ? Math.round((outpaint.left / Math.max(1, outpaintTarget.extraX)) * 100) : 50
+  const outpaintVerticalValue = outpaintTarget.extraY > 0 ? Math.round((outpaint.top / Math.max(1, outpaintTarget.extraY)) * 100) : 50
+  const applyOutpaintPan = useCallback((x: number, y: number, target = outpaintTarget) => {
+    const next = {
+      x: Math.max(0, Math.min(100, Math.round(x))),
+      y: Math.max(0, Math.min(100, Math.round(y))),
+    }
+    const left = Math.round(target.extraX * next.x / 100)
+    const top = Math.round(target.extraY * next.y / 100)
+    setOutpaintPan(next)
+    setOutpaint({
+      left,
+      right: target.extraX - left,
+      top,
+      bottom: target.extraY - top,
+      scaleDown: true,
+    })
+  }, [outpaintTarget, setOutpaint])
+  const updateOutpaintAxis = (axis: 'x' | 'y', value: number) => {
+    const clamped = Math.max(0, Math.min(100, value))
+    if (axis === 'x') {
+      applyOutpaintPan(clamped, outpaintPan.y)
+      return
+    }
+    applyOutpaintPan(outpaintPan.x, clamped)
+  }
+  const updateOutpaintScale = (value: number) => {
+    const nextScale = Math.max(35, Math.min(100, Math.round(value || 100)))
+    setOutpaintScale(nextScale)
+  }
+  const rebalanceOutpaint = useCallback((target = outpaintTarget, pan = outpaintPan) => {
+    applyOutpaintPan(pan.x, pan.y, target)
+  }, [applyOutpaintPan, outpaintPan, outpaintTarget])
+  const nudgeOutpaint = (side: 'left' | 'right' | 'top' | 'bottom') => {
+    const step = 8
+    if (side === 'left') updateOutpaintAxis('x', outpaintHorizontalValue + step)
+    if (side === 'right') updateOutpaintAxis('x', outpaintHorizontalValue - step)
+    if (side === 'top') updateOutpaintAxis('y', outpaintVerticalValue + step)
+    if (side === 'bottom') updateOutpaintAxis('y', outpaintVerticalValue - step)
+  }
+  const startOutpaintDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isOutpaint || !inputOne) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = { x: event.clientX, y: event.clientY, panX: outpaintPan.x, panY: outpaintPan.y }
+  }
+  const moveOutpaintDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    const dx = ((event.clientX - drag.x) / Math.max(1, rect.width)) * 140
+    const dy = ((event.clientY - drag.y) / Math.max(1, rect.height)) * 140
+    applyOutpaintPan(drag.panX + dx, drag.panY + dy)
+  }
+  const stopOutpaintDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    dragRef.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+  const wheelOutpaintScale = (event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    updateOutpaintScale(outpaintScale + (event.deltaY > 0 ? -5 : 5))
+  }
+  useEffect(() => {
+    if (!inputOne || isSketch) {
+      queueMicrotask(() => setSourceSize(null))
+      return
+    }
+    let cancelled = false
+    const img = new Image()
+    img.onload = () => {
+      if (!cancelled) setSourceSize({ width: img.naturalWidth || targetWidth, height: img.naturalHeight || targetHeight })
+    }
+    img.onerror = () => {
+      if (!cancelled) setSourceSize(null)
+    }
+    img.src = inputOne
+    return () => { cancelled = true }
+  }, [inputOne, isSketch, targetHeight, targetWidth])
+  useEffect(() => {
+    if (!isOutpaint || !sourceSize) return
+    queueMicrotask(() => rebalanceOutpaint())
+  }, [isOutpaint, outpaintScale, outpaintPan.x, outpaintPan.y, rebalanceOutpaint, sourceSize])
   useEffect(() => {
     const node = stageWrapRef.current
     if (!node) return
@@ -1938,13 +2030,14 @@ function PaintEditorModal(props: {
   const stopLine = () => { drawingRef.current = false; moveStartRef.current = null }
   const applyEditor = async () => {
     if (isSketch) {
-      const dataUrl = canvasRef.current?.toDataURL({ pixelRatio: 1 })
+      const exportRatio = stageSize.width > 0 ? Math.max(1, canvasTarget.width / stageSize.width) : 1
+      const dataUrl = canvasRef.current?.toDataURL({ pixelRatio: exportRatio })
       setCanvasSnapshot(dataUrl)
       if (dataUrl) setInputOne(dataUrl)
       setPaintTool('sketch')
       setPromptForKey('paint:sketch', workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || '')
     } else if (paintTool === 'outpaint') {
-      setCanvasSnapshot(await createImageMask(inputOne, activeLines, stageSize))
+      setCanvasSnapshot(await createOutpaintMask(inputOne, outpaint))
       setPromptForKey('paint:outpaint', workflowPresets.find((item) => item.id === 'outpaint-01')?.prompt || '')
     } else {
       setCanvasSnapshot(await createImageMask(inputOne, activeLines, stageSize))
@@ -1978,9 +2071,36 @@ function PaintEditorModal(props: {
       return lines.slice(0, -1).concat({ ...last, points: shifted })
     })
   }
+  const sketchTop = <div className="paint-editor-top">
+    <div className="canvas-size-bar"><strong>ХОЛСТ</strong><input type="number" value={canvasDraft.width} onChange={(e) => setCanvasDraft({ ...canvasDraft, width: Number(e.target.value) })} /><span>⇆</span><input type="number" value={canvasDraft.height} onChange={(e) => setCanvasDraft({ ...canvasDraft, height: Number(e.target.value) })} /><button onClick={applyCanvasTarget}>Применить</button><button className="editor-close" onClick={onClose} aria-label="Закрыть"><X size={18} /></button></div>
+    <div className="editor-zoom"><button>-</button><button>Вписать</button><button>+</button></div>
+    <button className="secondary" onClick={() => setActiveLines((lines) => lines.slice(0, -1))}><RotateCcw size={16} />Назад</button>
+    <button className="secondary" onClick={() => setActiveLines([])}>Очистить</button>
+    <button className="save-sketch" onClick={applyEditor}>Сохранить</button>
+  </div>
+  const maskTop = <div className="paint-editor-top mask-top">
+    <button className="active">Закрасить область</button>
+    <button onClick={() => upload(setInputOne)}>Загрузить</button>
+    <button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>● Кисть</button>
+    <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>○ Ластик</button>
+    <label>Размер<input type="range" min="2" max="60" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} /></label>
+    <output>{brushSize}</output>
+    <button onClick={() => setActiveLines((lines) => lines.slice(0, -1))}>↩ Назад</button>
+    <button onClick={() => setActiveLines([])}>× Сбросить маску</button>
+    <button className="save-sketch" onClick={applyEditor}>Применить</button>
+    <button className="editor-close" onClick={onClose} aria-label="Закрыть"><X size={18} /></button>
+  </div>
+  const outpaintTop = <div className="paint-editor-top outpaint-top">
+    <strong>Расширение изображения</strong>
+    <label className="outpaint-size-select"><span>Формат</span><select value={`${targetWidth}x${targetHeight}`} onChange={(e) => { const [nextWidth, nextHeight] = e.target.value.split('x').map(Number); setTargetSize(nextWidth, nextHeight) }}>{resolutionPresets.map((item) => <option key={item.label} value={`${item.width}x${item.height}`}>{item.label}</option>)}</select></label>
+    <button onClick={() => upload(setInputOne)}>Загрузить другое</button>
+    <span className="outpaint-info" title="Расширение дорисует пустые края вокруг исходника. Итоговый кадр будет приведён к выбранному формату, а исходное изображение останется внутри рамки.">?</span>
+    <button className="save-sketch" onClick={applyEditor}>Применить</button>
+    <button className="editor-close" onClick={onClose} aria-label="Закрыть"><X size={18} /></button>
+  </div>
   return <div className="paint-editor-backdrop"><section className={isSketch ? 'paint-editor sketch-editor' : 'paint-editor mask-editor'}>
-    {isSketch ? <div className="paint-editor-top"><div className="canvas-size-bar"><strong>ХОЛСТ</strong><input type="number" value={canvasDraft.width} onChange={(e) => setCanvasDraft({ ...canvasDraft, width: Number(e.target.value) })} /><span>⇆</span><input type="number" value={canvasDraft.height} onChange={(e) => setCanvasDraft({ ...canvasDraft, height: Number(e.target.value) })} /><button onClick={applyCanvasTarget}>Применить</button><button className="editor-close" onClick={onClose} aria-label="Закрыть"><X size={18} /></button></div><div className="editor-zoom"><button>-</button><button>Вписать</button><button>+</button></div><button className="secondary" onClick={() => setActiveLines((lines) => lines.slice(0, -1))}><RotateCcw size={16} />Назад</button><button className="secondary" onClick={() => setActiveLines([])}>Очистить</button><button className="save-sketch" onClick={applyEditor}>Сохранить</button></div> : <div className="paint-editor-top mask-top"><button className={paintTool === 'inpaint' ? 'active' : ''} onClick={() => { setPaintTool('inpaint'); setPromptForKey('paint:inpaint', workflowPresets.find((item) => item.id === 'mask-01')?.prompt || '') }}>Закрасить область</button><button className={paintTool === 'outpaint' ? 'active' : ''} onClick={() => { setPaintTool('outpaint'); setPromptForKey('paint:outpaint', workflowPresets.find((item) => item.id === 'outpaint-01')?.prompt || '') }}>Расширить изображение</button><button onClick={() => upload(setInputOne)}>Загрузить</button><button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>● Кисть</button><button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>○ Ластик</button><label>Размер<input type="range" min="2" max="60" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} /></label><output>{brushSize}</output><label>Жест.<input type="range" min="0" max="100" value="100" readOnly /></label><output>100</output><button onClick={() => setActiveLines((lines) => lines.slice(0, -1))}>↩ Назад</button><button onClick={() => setActiveLines([])}>× Сбросить маску</button><button className="save-sketch" onClick={applyEditor}>Применить</button><button className="secondary" onClick={onClose}>Отмена</button></div>}
-    {isSketch ? <div className="sketch-body"><aside className="sketch-tools"><strong>РИСОВАНИЕ</strong><div className="tool-pair"><button className={tool === 'brush' && drawMode === 'free' ? 'active' : ''} onClick={() => { setTool('brush'); setDrawMode('free') }}><Brush size={16} />КИСТЬ</button><button className={tool === 'eraser' ? 'active' : ''} onClick={() => { setTool('eraser'); setDrawMode('free') }}><Eraser size={16} />ЛАСТИК</button></div><strong>КИСТЬ</strong><label>РАЗМЕР<input type="range" min="2" max="48" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} /></label><label>ЖЕСТКОСТЬ<input type="range" min="0" max="100" value="100" readOnly /></label><strong>ЦВЕТ</strong><input type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /><strong>ФИГУРЫ</strong><div className="shape-grid"><button className={drawMode === 'circle' ? 'active' : ''} onClick={() => { setTool('brush'); setDrawMode('circle') }}>○ КРУГ</button><button className={drawMode === 'rect' ? 'active' : ''} onClick={() => { setTool('brush'); setDrawMode('rect') }}>□ ПРЯМ.</button><button className={!fillShape ? 'active' : ''} onClick={() => setFillShape(false)}>Контур</button><button className={fillShape ? 'active' : ''} onClick={() => setFillShape(true)}>Заливка</button></div><button className={drawMode === 'move' ? 'transform-button active' : 'transform-button'} onClick={moveLastItem}>✣ ПЕРЕМЕСТИТЬ</button></aside><div ref={stageWrapRef} className="editor-stage-wrap"><Stage ref={canvasRef} width={stageSize.width} height={stageSize.height} className="konva-stage editor-stage" onMouseDown={(e) => startLine(e.target.getStage() || null)} onMouseMove={(e) => extendLine(e.target.getStage() || null)} onMouseUp={stopLine} onMouseLeave={stopLine} onTouchStart={(e) => { e.evt.preventDefault(); startLine(e.target.getStage() || null) }} onTouchMove={(e) => { e.evt.preventDefault(); extendLine(e.target.getStage() || null) }} onTouchEnd={stopLine}><Layer opacity={layerOpacity}><Rect x={0} y={0} width={stageSize.width} height={stageSize.height} fill="#fff" />{activeLines.length === 0 && <Text text="Рисуйте на холсте" x={Math.max(18, stageSize.width / 2 - 92)} y={Math.max(80, stageSize.height / 2 - 12)} fill="#777" fontSize={Math.min(20, Math.max(14, stageSize.width / 24))} fontStyle="bold" />}{activeLines.map(renderPaintItem)}</Layer></Stage></div><aside className="editor-layers"><strong>СЛОИ</strong><button>＋</button><label>{copy.opacity}<input type="range" min="0.2" max="1" step="0.05" value={layerOpacity} onChange={(e) => setLayerOpacity(Number(e.target.value))} /></label></aside></div> : <div className="mask-body">{inputOne ? <div className="mask-upload mask-image-layer"><div className="mask-image-bg" style={{ backgroundImage: `url(${inputOne})` }} /></div> : <button className="mask-upload" onClick={() => upload(setInputOne)}><span>↥</span><strong>Перетащите изображение или нажмите для загрузки</strong></button>}{isOutpaint && <div className="outpaint-inline"><strong>{copy.finalSize}: {stageSize.width + outpaint.left + outpaint.right} × {stageSize.height + outpaint.top + outpaint.bottom}</strong><label>Слева<input value={outpaint.left} onChange={(e) => updateOutpaint('left', Number(e.target.value))} /></label><label>Справа<input value={outpaint.right} onChange={(e) => updateOutpaint('right', Number(e.target.value))} /></label><label>Сверху<input value={outpaint.top} onChange={(e) => updateOutpaint('top', Number(e.target.value))} /></label><label>Снизу<input value={outpaint.bottom} onChange={(e) => updateOutpaint('bottom', Number(e.target.value))} /></label></div>}<div ref={stageWrapRef} className="mask-stage-wrap"><Stage ref={canvasRef} width={stageSize.width} height={stageSize.height} className="konva-stage mask-stage" onMouseDown={(e) => startLine(e.target.getStage() || null)} onMouseMove={(e) => extendLine(e.target.getStage() || null)} onMouseUp={stopLine} onMouseLeave={stopLine} onTouchStart={(e) => { e.evt.preventDefault(); startLine(e.target.getStage() || null) }} onTouchMove={(e) => { e.evt.preventDefault(); extendLine(e.target.getStage() || null) }} onTouchEnd={stopLine}><Layer><Rect x={0} y={0} width={stageSize.width} height={stageSize.height} fill="rgba(0,0,0,0)" />{activeLines.map(renderPaintItem)}</Layer></Stage></div></div>}
+    {isSketch ? sketchTop : isOutpaint ? outpaintTop : maskTop}
+    {isSketch ? <div className="sketch-body"><aside className="sketch-tools"><strong>РИСОВАНИЕ</strong><div className="tool-pair"><button className={tool === 'brush' && drawMode === 'free' ? 'active' : ''} onClick={() => { setTool('brush'); setDrawMode('free') }}><Brush size={16} />КИСТЬ</button><button className={tool === 'eraser' ? 'active' : ''} onClick={() => { setTool('eraser'); setDrawMode('free') }}><Eraser size={16} />ЛАСТИК</button></div><strong>КИСТЬ</strong><label>РАЗМЕР<input type="range" min="2" max="48" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} /></label><label>ЖЕСТКОСТЬ<input type="range" min="0" max="100" value="100" readOnly /></label><strong>ЦВЕТ</strong><input type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /><strong>ФИГУРЫ</strong><div className="shape-grid"><button className={drawMode === 'circle' ? 'active' : ''} onClick={() => { setTool('brush'); setDrawMode('circle') }}>○ КРУГ</button><button className={drawMode === 'rect' ? 'active' : ''} onClick={() => { setTool('brush'); setDrawMode('rect') }}>□ ПРЯМ.</button><button className={!fillShape ? 'active' : ''} onClick={() => setFillShape(false)}>Контур</button><button className={fillShape ? 'active' : ''} onClick={() => setFillShape(true)}>Заливка</button></div><button className={drawMode === 'move' ? 'transform-button active' : 'transform-button'} onClick={moveLastItem}>✣ ПЕРЕМЕСТИТЬ</button></aside><div ref={stageWrapRef} className="editor-stage-wrap"><Stage ref={canvasRef} width={stageSize.width} height={stageSize.height} className="konva-stage editor-stage" onMouseDown={(e) => startLine(e.target.getStage() || null)} onMouseMove={(e) => extendLine(e.target.getStage() || null)} onMouseUp={stopLine} onMouseLeave={stopLine} onTouchStart={(e) => { e.evt.preventDefault(); startLine(e.target.getStage() || null) }} onTouchMove={(e) => { e.evt.preventDefault(); extendLine(e.target.getStage() || null) }} onTouchEnd={stopLine}><Layer opacity={layerOpacity}><Rect x={0} y={0} width={stageSize.width} height={stageSize.height} fill="#fff" />{activeLines.length === 0 && <Text text="Рисуйте на холсте" x={Math.max(18, stageSize.width / 2 - 92)} y={Math.max(80, stageSize.height / 2 - 12)} fill="#777" fontSize={Math.min(20, Math.max(14, stageSize.width / 24))} fontStyle="bold" />}{activeLines.map(renderPaintItem)}</Layer></Stage></div><aside className="editor-layers"><strong>СЛОИ</strong><button>＋</button><label>{copy.opacity}<input type="range" min="0.2" max="1" step="0.05" value={layerOpacity} onChange={(e) => setLayerOpacity(Number(e.target.value))} /></label></aside></div> : <div className={isOutpaint ? 'mask-body outpaint-body' : 'mask-body'}>{inputOne ? isOutpaint ? <div className="outpaint-workbench"><div className="outpaint-frame" onPointerDown={startOutpaintDrag} onPointerMove={moveOutpaintDrag} onPointerUp={stopOutpaintDrag} onPointerCancel={stopOutpaintDrag} onWheel={wheelOutpaintScale} style={{ aspectRatio: `${targetWidth} / ${targetHeight}` }}><div className="outpaint-image" style={{ backgroundImage: `url(${inputOne})`, left: `${(outpaint.left / Math.max(1, outpaintFinalWidth)) * 100}%`, top: `${(outpaint.top / Math.max(1, outpaintFinalHeight)) * 100}%`, width: `${(outpaintTarget.sourceWidth / Math.max(1, outpaintFinalWidth)) * 100}%`, height: `${(outpaintTarget.sourceHeight / Math.max(1, outpaintFinalHeight)) * 100}%` }} /><button className="outpaint-handle left" onClick={() => nudgeOutpaint('left')} aria-label="Больше места слева" /><button className="outpaint-handle right" onClick={() => nudgeOutpaint('right')} aria-label="Больше места справа" /><button className="outpaint-handle top" onClick={() => nudgeOutpaint('top')} aria-label="Больше места сверху" /><button className="outpaint-handle bottom" onClick={() => nudgeOutpaint('bottom')} aria-label="Больше места снизу" /></div><div className="outpaint-controls"><strong>Итоговый кадр: {targetWidth} × {targetHeight}</strong><span>Колесо мыши меняет масштаб. Исходник можно перетащить внутри рамки.</span><label>Масштаб исходника<input type="range" min="35" max="100" value={outpaintScale} onChange={(e) => updateOutpaintScale(Number(e.target.value))} /></label><label>Сдвиг влево / вправо<input type="range" min="0" max="100" value={outpaintHorizontalValue} disabled={outpaintTarget.extraX === 0} onChange={(e) => updateOutpaintAxis('x', Number(e.target.value))} /></label><label>Сдвиг вверх / вниз<input type="range" min="0" max="100" value={outpaintVerticalValue} disabled={outpaintTarget.extraY === 0} onChange={(e) => updateOutpaintAxis('y', Number(e.target.value))} /></label><small>Масштаб {outpaintScale}% · поля: слева {outpaint.left}, справа {outpaint.right}, сверху {outpaint.top}, снизу {outpaint.bottom}</small></div><div ref={stageWrapRef} className="outpaint-hidden-stage"><Stage ref={canvasRef} width={stageSize.width} height={stageSize.height} className="konva-stage mask-stage"><Layer><Rect x={0} y={0} width={stageSize.width} height={stageSize.height} fill="rgba(0,0,0,0)" /></Layer></Stage></div></div> : <div className="mask-upload mask-image-layer"><div className="mask-image-bg" style={{ backgroundImage: `url(${inputOne})` }} /></div> : <button className="mask-upload" onClick={() => upload(setInputOne)}><span>↥</span><strong>Перетащите изображение или нажмите для загрузки</strong></button>}{!isOutpaint && <div ref={stageWrapRef} className="mask-stage-wrap"><Stage ref={canvasRef} width={stageSize.width} height={stageSize.height} className="konva-stage mask-stage" onMouseDown={(e) => startLine(e.target.getStage() || null)} onMouseMove={(e) => extendLine(e.target.getStage() || null)} onMouseUp={stopLine} onMouseLeave={stopLine} onTouchStart={(e) => { e.evt.preventDefault(); startLine(e.target.getStage() || null) }} onTouchMove={(e) => { e.evt.preventDefault(); extendLine(e.target.getStage() || null) }} onTouchEnd={stopLine}><Layer><Rect x={0} y={0} width={stageSize.width} height={stageSize.height} fill="rgba(0,0,0,0)" />{activeLines.map(renderPaintItem)}</Layer></Stage></div>}</div>}
   </section></div>
 }
 

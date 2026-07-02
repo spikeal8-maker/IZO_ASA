@@ -2,6 +2,24 @@
 
 Prototype web / Telegram Mini App / MAX Mini App interface for `FluxKleinOneNode`.
 
+## Documentation map
+
+Start here when you or another agent joins the project:
+
+- `docs/documentation-map.md` — the canonical documentation index and reading order.
+- `docs/current-architecture.md` — current backend/frontend/runtime architecture.
+- `docs/auth-current-state.md` — current registration, login, sessions, Telegram, MAX and email state.
+- `docs/release-checklist.md` — required checks before commit, push or deploy.
+- `docs/collaboration-rules.md` — rules for parallel agents, branch ownership and handoffs.
+- `docs/new-ui-v2-plan.md` — working contract for the experimental `/new` UI.
+- `docs/public-launch.md` — public/live launch flow with `start-public.bat`.
+- `docs/phase20E2E-production-db-safety.md` — production SQLite DB guard and incident rules.
+- `docs/identity-core-plan.md` and `docs/identity-core-risks.md` — identity/auth security plan and risks.
+- `docs/admin-panel-product-spec.md` — product direction for the admin panel.
+
+The `docs/phase*.md` files are historical phase reports. They are useful evidence, but
+the current working rules should be read from the files listed above first.
+
 ## Run
 
 ```powershell
