@@ -2880,7 +2880,7 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
   const [promoCodes, setPromoCodes] = useState<PromoCode[]>([])
   const [logsData, setLogsData] = useState<Record<string, unknown> | null>(null)
   const [adminMessage, setAdminMessage] = useState('')
-  const [dashboardRange, setDashboardRange] = useState<7 | 30 | 90>(30)
+  const [dashboardRange, setDashboardRange] = useState<1 | 6 | 12 | 24 | 7 | 30 | 90>(30)
   const queue = Array.isArray(admin?.queue) ? admin.queue : []
   const generationErrors = Number(admin?.errors ?? 0)
   const health = generationErrors === 0 ? 'Стабильно' : `Ошибки генерации: ${generationErrors}`
@@ -2930,9 +2930,17 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
   }
   const kpi = (title: string, value: unknown, note: string) => <div><strong>{title}</strong><span>{String(value ?? '—')}</span><small>{note}</small></div>
   const timeline = (admin?.timeline || {}) as AdminTimeline
-  const sliceSeries = (key: string): TimelinePoint[] => (Array.isArray(timeline[key]) ? timeline[key] : []).slice(-dashboardRange)
+  const isHourlyDashboardRange = dashboardRange <= 24
+  const sliceSeries = (key: string): TimelinePoint[] => {
+    const sourceKey = isHourlyDashboardRange ? `${key}_hourly` : key
+    return (Array.isArray(timeline[sourceKey]) ? timeline[sourceKey] : []).slice(-dashboardRange)
+  }
   const shortDate = (date: string) => {
     const parsed = new Date(`${date}T00:00:00`)
+    if (date.includes('T')) {
+      const parsedHour = new Date(date)
+      return Number.isNaN(parsedHour.getTime()) ? date.slice(11, 16) : parsedHour.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+    }
     return Number.isNaN(parsed.getTime()) ? date.slice(5) : parsed.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
   }
   const lineChart = (title: string, key: string, note: string, color = '#dfff22') => {
@@ -2955,7 +2963,7 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
     const last = rows.at(-1)?.value ?? 0
     const average = rows.length ? Math.round(total / rows.length) : 0
     const peak = rows.reduce((best, point) => (Number(point.value) > Number(best.value) ? point : best), rows[0] || { date: '', value: 0 })
-    const tickStep = dashboardRange === 7 ? 2 : dashboardRange === 30 ? 10 : 30
+    const tickStep = dashboardRange <= 6 ? 1 : dashboardRange === 12 ? 3 : dashboardRange === 24 ? 6 : dashboardRange === 7 ? 2 : dashboardRange === 30 ? 10 : 30
     const dateTicks = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % tickStep === 0)
     const valueTicks = Array.from(new Set([max, Math.round(max * 0.75), Math.round(max * 0.5), Math.round(max * 0.25), 0])).sort((a, b) => b - a)
     const verticalTicks = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % tickStep === 0)
@@ -2994,7 +3002,7 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
             return <text className="axis point-value" key={`label-${point.date}-${index}`} x={x} y={labelY}>{Number(point.value || 0).toLocaleString('ru-RU')}</text>
           })}
         </svg>
-        <footer><small>{note}</small><b>{rows[0]?.date ? `${shortDate(rows[0].date)} - ${shortDate(rows.at(-1)?.date || rows[0].date)}` : `${dashboardRange} дней`}</b></footer>
+        <footer><small>{note}</small><b>{rows[0]?.date ? `${shortDate(rows[0].date)} - ${shortDate(rows.at(-1)?.date || rows[0].date)}` : `${dashboardRange} ${isHourlyDashboardRange ? 'ч' : 'дней'}`}</b></footer>
       </article>
     )
   }
@@ -3023,7 +3031,15 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
       </div>
       <div className="admin-dashboard-toolbar">
         <strong>Графики по времени</strong>
-        {[7, 30, 90].map((days) => <button key={days} className={dashboardRange === days ? 'active' : ''} onClick={() => setDashboardRange(days as 7 | 30 | 90)}>{days} дней</button>)}
+        {[
+          [1, '1 час'],
+          [6, '6 часов'],
+          [12, '12 часов'],
+          [24, 'сутки'],
+          [7, '7 дней'],
+          [30, '30 дней'],
+          [90, '90 дней'],
+        ].map(([range, label]) => <button key={range} className={dashboardRange === range ? 'active' : ''} onClick={() => setDashboardRange(range as 1 | 6 | 12 | 24 | 7 | 30 | 90)}>{label}</button>)}
       </div>
       <div className="admin-chart-grid">
         {lineChart('Активность пользователей', 'active_users', 'last_seen по дням')}
