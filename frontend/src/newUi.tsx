@@ -407,9 +407,20 @@ export default function NewStudio(): ReactElement {
     </div>
   )
 
+  // Единый каркас вкладки: заголовок + короткое описание над рабочей областью.
+  const viewHead = (title: string, description: string) => (
+    <div className="n2-view-head">
+      <h2>{title}</h2>
+      <p>{description}</p>
+    </div>
+  )
+
   const controls = (mode: 'text' | 'i2i') => (
     <section className="n2-panel n2-controls" aria-label="Панель генерации">
       <div className="n2-controls-scroll">
+        {mode === 'i2i'
+          ? viewHead('Изо → Изо', 'Загрузите фото и преобразуйте его в выбранный стиль.')
+          : viewHead('Текст → Изо', 'Опишите идею словами — получите изображение.')}
         {mode === 'i2i' && (
           <div className="n2-block n2-source-card">
             <div className="n2-label-row">
@@ -608,8 +619,21 @@ export default function NewStudio(): ReactElement {
     </section>
   )
 
+  // Статус предпросмотра — единое состояние empty/loading/error/result.
+  const resultStatus = jobActive
+    ? { label: 'Генерация…', tone: 'busy' }
+    : job?.status === 'failed'
+      ? { label: 'Ошибка', tone: 'error' }
+      : resultUrl
+        ? { label: 'Готово', tone: 'done' }
+        : { label: 'Пусто', tone: 'idle' }
+
   const resultPanel = (
     <section className="n2-panel n2-result" aria-label="Предпросмотр результата">
+      <div className="n2-result-head">
+        <h3>Предпросмотр</h3>
+        <span className={`n2-status-chip ${resultStatus.tone}`}>{resultStatus.label}</span>
+      </div>
       <div className="n2-canvas">
         {jobActive ? (
           progressCard
@@ -811,15 +835,26 @@ export default function NewStudio(): ReactElement {
     </section>
   )
 
-  const placeholder = (title: string, text: string) => (
-    <section className="n2-panel n2-placeholder">
-      <div className="n2-placeholder-card">
-        <span className="icon">▧</span>
-        <h2>{title}</h2>
-        <p>{text}</p>
-        <button className="n2-ghost" type="button" onClick={() => (window.location.href = '/')}>
-          Открыть в текущей версии
-        </button>
+  // Единый каркас будущих вкладок (Редактор/Лицо): заголовок + honest badge +
+  // placeholder-карточка. Тот же стандарт, что у «Рисунка».
+  const futureView = (title: string, description: string, cardTitle: string, cardText: string) => (
+    <section className="n2-panel n2-paint" aria-label={title}>
+      <div className="n2-paint-head">
+        <div className="n2-view-head bare">
+          <h2>{title}</h2>
+          <p>{description}</p>
+        </div>
+        <span className="n2-paint-badge">Placeholder — в разработке</span>
+      </div>
+      <div className="n2-paint-stage">
+        <div className="n2-placeholder-card">
+          <span className="icon">▧</span>
+          <h2>{cardTitle}</h2>
+          <p>{cardText}</p>
+          <button className="n2-ghost" type="button" onClick={() => (window.location.href = '/')}>
+            Открыть в текущей версии
+          </button>
+        </div>
       </div>
     </section>
   )
@@ -1042,14 +1077,18 @@ export default function NewStudio(): ReactElement {
                 </>
               )}
               {tab === 'edit' &&
-                placeholder(
+                futureView(
                   'Редактор',
+                  'Основа + референсы с ролями: лицо, одежда, стиль, фон.',
+                  'Рабочая область редактора',
                   'Редактор с основой и референсами переезжает в новый интерфейс следующим этапом. Функционал уже работает в текущей версии.',
                 )}
               {tab === 'paint' && paintView}
               {tab === 'face' &&
-                placeholder(
+                futureView(
                   'Лицо',
+                  'Перенос лица с одного изображения на другое.',
+                  'Рабочая область замены лица',
                   'Замена лица (FaceSwap) появится здесь в новом дизайне. Пока функционал доступен в текущей версии.',
                 )}
             </>
