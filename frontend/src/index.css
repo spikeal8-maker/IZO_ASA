@@ -1001,8 +1001,6 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .src-max { background: #4c328955; color: #c4b4f0; border: 1px solid #4c328999; }
 .status-active { color: #7ad17a; }
 .status-banned { color: #ff6b6b; }
-.auth-v2-code { color: var(--acid); font-weight: 900; }
-.auth-v2-providers { display: flex; gap: 4px; }
 /* Auth modal Вход/Регистрация tabs — dark theme, active highlighted. */
 .auth-modal-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 8px; }
 .auth-modal-tab { min-height: 44px; border-radius: 10px; background: #141414; color: #8a8a8a; border: 2px solid #2a2a2a; font-weight: 900; font-size: 16px; }
