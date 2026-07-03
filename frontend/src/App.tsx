@@ -198,13 +198,8 @@ const avatarPresets = Array.from({ length: 10 }, (_, index) => {
 })
 // Старые статичные каталоги (openRouterImageModels / localFluxProfiles) удалены:
 // их заменил provider-aware экран «Админ → Модели v2» (adminModels.tsx + /api/admin/models-page).
-const sessionParams = new URLSearchParams(window.location.search)
-const SESSION_USER_ID = sessionParams.get('userId') || window.localStorage.getItem('onenode_user') || 'demo_user'
-window.localStorage.setItem('onenode_user', SESSION_USER_ID)
-
 async function apiFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers)
-  headers.set('X-OneNode-User', window.localStorage.getItem('onenode_user') || SESSION_USER_ID)
   const request = () => fetch(`${API}${path}`, { ...init, headers, credentials: 'include' })
   let response = await request()
   if (response.status === 401 && !path.includes('/auth/session/refresh-v2') && !path.includes('/auth/session/logout-v2')) {
@@ -853,7 +848,7 @@ function App() {
   useEffect(() => { if (tab === 'settings') { void refreshAuthStateV2() } }, [tab])
 
   const currentUser = (bootstrap?.user || {}) as { id?: string; role?: string; username?: string; firstName?: string; plan?: string; galleryEnabled?: boolean; dailyTokens?: number; gallerySlots?: number; galleryUsed?: number; galleryFree?: number; galleryFull?: boolean }
-  const isAdmin = currentUser.role === 'admin' || authMe?.account?.role === 'admin'
+  const isAdmin = authV2Status === 'authed' && authMe?.account?.role === 'admin'
   const galleryLocked = false
   const currentPlanKey = (tariffKeys.includes(String(authMe?.account?.plan || currentUser.plan || 'mini').toLowerCase() as TariffKey)
     ? String(authMe?.account?.plan || currentUser.plan || 'mini').toLowerCase()
@@ -937,15 +932,13 @@ function App() {
   useEffect(() => {
     // Identity/Auth v2: bootstrap + restore the cookie session at startup.
     void initAuthV2()
-    apiFetch('/admin/summary').then((r) => r.json()).then(setAdmin).catch(() => undefined)
     const tg = (window as Window & { Telegram?: { WebApp?: { ready?: () => void; expand?: () => void; initData?: string; initDataUnsafe?: { user?: { id?: number; username?: string; first_name?: string; last_name?: string; language_code?: string } } } } }).Telegram?.WebApp
     tg?.ready?.()
     tg?.expand?.()
     const params = new URLSearchParams(window.location.search)
     const platform = tg?.initData ? 'telegram' : 'web'
     const tgUser = tg?.initDataUnsafe?.user
-    const effectiveUserId = platform === 'telegram' && tgUser?.id ? String(tgUser.id) : SESSION_USER_ID
-    window.localStorage.setItem('onenode_user', effectiveUserId)
+    const effectiveUserId = platform === 'telegram' && tgUser?.id ? String(tgUser.id) : ''
     const screenInfo = `${window.screen.width}x${window.screen.height}@${window.devicePixelRatio || 1}`
     apiFetch('/app/bootstrap', {
       method: 'POST',
@@ -965,7 +958,6 @@ function App() {
       }),
     }).then((r) => r.json()).then((data) => {
       setBootstrap(data)
-      if (data?.user?.id) window.localStorage.setItem('onenode_user', data.user.id)
       apiFetch('/gallery').then((r) => (r.ok ? r.json() : [])).then((data) => setGallery(Array.isArray(data) ? data : [])).catch(() => undefined)
       if (data?.fluxKleinConfig?.ok !== false) setFluxConfig(data.fluxKleinConfig)
       if (data?.models?.ok !== false) setModelsPayload(data.models)
@@ -978,18 +970,22 @@ function App() {
     apiFetch('/flux-klein/bgremoval-models').then((r) => r.json()).then((data) => {
       setBgRemovalModels((current) => current.length ? current : Array.isArray(data?.models) ? data.models : [])
     }).catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    if (authV2Status !== 'authed' || !authMe?.legacy_user_id) return undefined
+    const heartbeatUserId = authMe.legacy_user_id
+    const rawId = heartbeatUserId.replace(/^(web_|telegram_|max_)/, '')
+    const heartbeatPlatform = heartbeatUserId.startsWith('telegram_') ? 'telegram' : heartbeatUserId.startsWith('max_') ? 'max' : 'web'
     const heartbeat = window.setInterval(() => {
-      const currentUserId = window.localStorage.getItem('onenode_user') || effectiveUserId
-      const rawId = (currentUserId || '').replace(/^(web_|telegram_|max_)/, '')
-      const currentPlatform = rawId === currentUserId ? platform : (currentUserId.startsWith('telegram_') ? 'telegram' : currentUserId.startsWith('max_') ? 'max' : 'web')
       apiFetch('/app/heartbeat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform: currentPlatform, userId: rawId, seconds: 60 }),
+        body: JSON.stringify({ platform: heartbeatPlatform, userId: rawId, seconds: 60 }),
       }).catch(() => undefined)
     }, 60000)
     return () => window.clearInterval(heartbeat)
-  }, [])
+  }, [authV2Status, authMe?.legacy_user_id])
 
   useEffect(() => {
     if (!job || ['completed', 'failed', 'cancelled'].includes(job.status)) return
