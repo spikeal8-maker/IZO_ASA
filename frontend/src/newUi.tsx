@@ -60,8 +60,9 @@ const QUALITY: Array<{ id: string; label: string; steps: number }> = [
   { id: 'max', label: 'Максимум', steps: 10 },
 ]
 
-// Реальные разрешения из текущего интерфейса (resolutionPresets в App.tsx):
-// 1024×1024, 1280×720 / 720×1280, 1920×1088 / 1088×1920.
+// Заготовленные разрешения системы. Источник данных — resolutionPresets
+// основного интерфейса (App.tsx) + средний размер 1536 (максимум генерации,
+// см. fitGenerationDimension). Перенесены данные, не вёрстка.
 type FormatId = 'square' | 'vertical' | 'horizontal'
 
 const FORMATS: Array<{ id: FormatId; label: string; icon: string }> = [
@@ -70,29 +71,32 @@ const FORMATS: Array<{ id: FormatId; label: string; icon: string }> = [
   { id: 'horizontal', label: 'Горизонтально 16:9', icon: 'horizontal' },
 ]
 
-const SIZE_TABLE: Record<string, Record<FormatId, { width: number; height: number }>> = {
-  standard: {
-    square: { width: 1024, height: 1024 },
-    vertical: { width: 720, height: 1280 },
-    horizontal: { width: 1280, height: 720 },
-  },
-  medium: {
-    square: { width: 1024, height: 1024 },
-    vertical: { width: 1024, height: 1536 },
-    horizontal: { width: 1536, height: 1024 },
-  },
-  high: {
-    square: { width: 1024, height: 1024 },
-    vertical: { width: 1088, height: 1920 },
-    horizontal: { width: 1920, height: 1088 },
-  },
+interface ResolutionPreset {
+  id: string
+  name: string
+  width: number
+  height: number
+  kind: FormatId
 }
 
-const RESOLUTION_TIERS: Array<{ id: string; label: string }> = [
-  { id: 'standard', label: 'Стандарт' },
-  { id: 'medium', label: 'Среднее' },
-  { id: 'high', label: 'Высокое' },
+const RESOLUTION_PRESETS: ResolutionPreset[] = [
+  { id: 'sq-1024', name: 'Квадратное', width: 1024, height: 1024, kind: 'square' },
+  { id: 'h-1280', name: 'Горизонтальное HD', width: 1280, height: 720, kind: 'horizontal' },
+  { id: 'v-720', name: 'Вертикальное HD', width: 720, height: 1280, kind: 'vertical' },
+  { id: 'h-1536', name: 'Горизонтальное среднее', width: 1536, height: 1024, kind: 'horizontal' },
+  { id: 'v-1024', name: 'Вертикальное среднее', width: 1024, height: 1536, kind: 'vertical' },
+  { id: 'h-1920', name: 'Горизонтальное Full HD', width: 1920, height: 1088, kind: 'horizontal' },
+  { id: 'v-1088', name: 'Вертикальное Full HD', width: 1088, height: 1920, kind: 'vertical' },
 ]
+
+const FORMAT_KIND_MARK: Record<FormatId, string> = { square: '◼', vertical: '▯', horizontal: '▭' }
+
+// Дефолтный пресет для каждой формат-кнопки.
+const DEFAULT_PRESET_BY_KIND: Record<FormatId, string> = {
+  square: 'sq-1024',
+  vertical: 'v-720',
+  horizontal: 'h-1280',
+}
 
 const JOB_ACTIVE = ['queued', 'running', 'uploading', 'sent_to_comfyui']
 
@@ -130,8 +134,8 @@ export default function NewStudio(): ReactElement {
   const [prompts, setPrompts] = useState<Record<'text' | 'i2i', string>>({ text: '', i2i: '' })
   const [styleId, setStyleId] = useState<string>('')
   const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
-  const [formatId, setFormatId] = useState<FormatId>('square')
-  const [resolutionTier, setResolutionTier] = useState('standard')
+  // Разрешение = конкретный системный пресет; формат-кнопки переключают тип.
+  const [resolutionId, setResolutionId] = useState('sq-1024')
   const [quality, setQuality] = useState('fast')
   const [proMode, setProMode] = useState(false)
   const [seed, setSeed] = useState(0)
@@ -146,6 +150,8 @@ export default function NewStudio(): ReactElement {
   const [job, setJob] = useState<N2Job>()
   const [jobMode, setJobMode] = useState<'text' | 'i2i'>('text')
   const [resultUrl, setResultUrl] = useState<string>()
+  // URL результата не загрузился (битая ссылка/удалённый файл) — error-state.
+  const [resultError, setResultError] = useState(false)
   const [resultSource, setResultSource] = useState<string>()
   const [notice, setNotice] = useState('')
   const [gallery, setGallery] = useState<N2GalleryImage[]>([])
@@ -187,7 +193,10 @@ export default function NewStudio(): ReactElement {
         const next: N2Job = await apiFetch(`/jobs/${job.id}`).then((r) => r.json())
         setJob(next)
         if (next.status === 'completed') {
-          if (next.resultUrl) setResultUrl(next.resultUrl)
+          if (next.resultUrl) {
+            setResultError(false)
+            setResultUrl(next.resultUrl)
+          }
           fetchGallery()
           void refreshAuthStateV2()
         } else if (next.status === 'failed') {
@@ -258,7 +267,7 @@ export default function NewStudio(): ReactElement {
     setNotice('')
     try {
       const style = I2I_STYLES.find((s) => s.id === styleId)
-      const size = SIZE_TABLE[resolutionTier]?.[formatId] || SIZE_TABLE.standard.square
+      const size = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
       const steps = QUALITY.find((q) => q.id === quality)?.steps || 4
       const effectiveSeed = seed || randomSeed()
       const userText = (mode === 'i2i' ? prompts.i2i : prompts.text).trim()
@@ -335,6 +344,14 @@ export default function NewStudio(): ReactElement {
   const jobProgress = Math.max(0, Math.min(100, Math.round(job?.progress || 0)))
   const history = gallery.slice(0, 6)
   const loadingBackdrop = resultSource || gallery[0]?.url
+  const selectedResolution = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
+  const selectedStyle = styleId ? I2I_STYLES.find((s) => s.id === styleId) || null : null
+
+  const showResult = useCallback((url: string | undefined, source?: string) => {
+    setResultError(false)
+    setResultUrl(url)
+    setResultSource(source)
+  }, [])
 
   const progressCard = (
     <div className="n2-progress">
@@ -357,8 +374,13 @@ export default function NewStudio(): ReactElement {
     <div className="n2-mobile-preview" aria-label="Предпросмотр результата">
       {jobActive ? (
         progressCard
-      ) : resultUrl ? (
-        <img className="n2-mobile-preview-img" src={resultUrl} alt="Результат генерации" />
+      ) : resultUrl && !resultError ? (
+        <img
+          className="n2-mobile-preview-img"
+          src={resultUrl}
+          alt="Результат генерации"
+          onError={() => setResultError(true)}
+        />
       ) : (
         <div className="n2-mobile-preview-empty">
           <span className="n2-mobile-preview-icon">▧</span>
@@ -368,13 +390,76 @@ export default function NewStudio(): ReactElement {
     </div>
   )
 
+  // Drag-scroll ленты стилей мышью (touch остаётся нативным). Клик после
+  // перетаскивания подавляется, чтобы случайно не выбрать стиль.
+  const styleScrollRef = useRef<HTMLDivElement | null>(null)
+  const styleDragRef = useRef({ active: false, moved: false, startX: 0, startScroll: 0 })
+
+  const onStyleScrollPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return
+    const el = styleScrollRef.current
+    if (!el) return
+    styleDragRef.current = { active: true, moved: false, startX: e.clientX, startScroll: el.scrollLeft }
+    el.classList.add('dragging')
+    el.setPointerCapture(e.pointerId)
+  }
+
+  const onStyleScrollPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = styleDragRef.current
+    const el = styleScrollRef.current
+    if (!drag.active || !el) return
+    const delta = e.clientX - drag.startX
+    if (Math.abs(delta) > 5) drag.moved = true
+    el.scrollLeft = drag.startScroll - delta
+  }
+
+  const onStyleScrollPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    const el = styleScrollRef.current
+    if (!styleDragRef.current.active || !el) return
+    styleDragRef.current.active = false
+    el.classList.remove('dragging')
+    if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
+  }
+
+  const onStyleScrollClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!styleDragRef.current.moved) return
+    styleDragRef.current.moved = false
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  // Вертикальное колесо/трекпад скроллит ленту горизонтально. Нативный
+  // listener c passive:false — React-обработчик wheel не даёт preventDefault.
+  useEffect(() => {
+    const el = styleScrollRef.current
+    if (!el) return
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+        event.preventDefault()
+        el.scrollLeft += event.deltaY
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [tab])
+
   const stylesStrip = (
     <div className="n2-block">
       <div className="n2-label-row">
         <strong>Стиль</strong>
         <span>{I2I_STYLES.length} стилей</span>
       </div>
-      <div className="n2-style-scroll" aria-label="Выбор стиля" onMouseLeave={() => setHoverStyle(null)}>
+      <div
+        ref={styleScrollRef}
+        className="n2-style-scroll"
+        aria-label="Выбор стиля"
+        onMouseLeave={() => setHoverStyle(null)}
+        onPointerDown={onStyleScrollPointerDown}
+        onPointerMove={onStyleScrollPointerMove}
+        onPointerUp={onStyleScrollPointerEnd}
+        onPointerCancel={onStyleScrollPointerEnd}
+        onClickCapture={onStyleScrollClickCapture}
+      >
         <button
           className={`n2-style-card${styleId === '' ? ' active' : ''}`}
           type="button"
@@ -398,12 +483,6 @@ export default function NewStudio(): ReactElement {
           </button>
         ))}
       </div>
-      {hoverStyle && (
-        <div className="n2-style-hover" aria-hidden="true">
-          <img src={hoverStyle.preview[previewGender]} alt="" />
-          <span>{hoverStyle.name}</span>
-        </div>
-      )}
     </div>
   )
 
@@ -497,7 +576,20 @@ export default function NewStudio(): ReactElement {
         <div className="n2-block n2-prompt-block">
           <div className="n2-label-row">
             <strong>{mode === 'i2i' ? 'Что изменить?' : 'Что хотите увидеть?'}</strong>
-            <span>Главный шаг</span>
+            {/* i2i: стиль применяется как transform-prompt под капотом — показываем
+                его пользователю явным чипом (крестик снимает стиль). */}
+            {mode === 'i2i' && selectedStyle ? (
+              <button
+                className="n2-style-chip"
+                type="button"
+                title={`Стиль применяется к генерации: ${selectedStyle.stylePrompt.slice(0, 120)}…`}
+                onClick={() => applyStyle(null)}
+              >
+                Стиль: {selectedStyle.name} <span aria-hidden="true">×</span>
+              </button>
+            ) : (
+              <span>Главный шаг</span>
+            )}
           </div>
           <div className="n2-prompt-card">
             <textarea
@@ -533,27 +625,32 @@ export default function NewStudio(): ReactElement {
           <div className="n2-format-row" aria-label="Формат и разрешение">
             <label className="n2-resolution-cell">
               <span>Разрешение</span>
-              <select
-                value={resolutionTier}
-                aria-label="Разрешение изображения"
-                onChange={(e) => setResolutionTier(e.target.value)}
-              >
-                {RESOLUTION_TIERS.map((tier) => {
-                  const size = SIZE_TABLE[tier.id][formatId]
-                  return (
-                    <option key={tier.id} value={tier.id}>
-                      {tier.label} · {size.width}×{size.height}
+              {/* Закрытый вид показывает только W×H; полный список — в option. */}
+              <span className="n2-resolution-display">
+                <span className="n2-resolution-value">
+                  {selectedResolution.width}×{selectedResolution.height}
+                </span>
+                <select
+                  value={resolutionId}
+                  aria-label="Разрешение изображения"
+                  onChange={(e) => setResolutionId(e.target.value)}
+                >
+                  {RESOLUTION_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {FORMAT_KIND_MARK[preset.kind]} {preset.name} · {preset.width}×{preset.height}
                     </option>
-                  )
-                })}
-              </select>
+                  ))}
+                </select>
+              </span>
             </label>
             {FORMATS.map((format) => (
               <button
                 key={format.id}
-                className={`n2-format-button${formatId === format.id ? ' active' : ''}`}
+                className={`n2-format-button${selectedResolution.kind === format.id ? ' active' : ''}`}
                 type="button"
-                onClick={() => setFormatId(format.id)}
+                onClick={() => {
+                  if (selectedResolution.kind !== format.id) setResolutionId(DEFAULT_PRESET_BY_KIND[format.id])
+                }}
               >
                 <span className={`n2-format-icon ${format.icon}`} />
                 {format.label}
@@ -619,14 +716,17 @@ export default function NewStudio(): ReactElement {
     </section>
   )
 
-  // Статус предпросмотра — единое состояние empty/loading/error/result.
-  const resultStatus = jobActive
-    ? { label: 'Генерация…', tone: 'busy' }
-    : job?.status === 'failed'
-      ? { label: 'Ошибка', tone: 'error' }
-      : resultUrl
-        ? { label: 'Готово', tone: 'done' }
-        : { label: 'Пусто', tone: 'idle' }
+  // Статус предпросмотра — единое состояние empty/loading/error/result
+  // (+ временный режим «Предпросмотр стиля» при наведении на карточку стиля).
+  const resultStatus = hoverStyle
+    ? { label: 'Предпросмотр стиля', tone: 'busy' }
+    : jobActive
+      ? { label: 'Генерация…', tone: 'busy' }
+      : resultError || job?.status === 'failed'
+        ? { label: 'Ошибка', tone: 'error' }
+        : resultUrl
+          ? { label: 'Готово', tone: 'done' }
+          : { label: 'Пусто', tone: 'idle' }
 
   const resultPanel = (
     <section className="n2-panel n2-result" aria-label="Предпросмотр результата">
@@ -635,8 +735,24 @@ export default function NewStudio(): ReactElement {
         <span className={`n2-status-chip ${resultStatus.tone}`}>{resultStatus.label}</span>
       </div>
       <div className="n2-canvas">
-        {jobActive ? (
+        {hoverStyle ? (
+          <div className="n2-style-preview" aria-label={`Предпросмотр стиля: ${hoverStyle.name}`}>
+            <img src={hoverStyle.preview[previewGender]} alt={hoverStyle.preview.alt} />
+            <div className="n2-style-preview-caption">
+              <strong>{hoverStyle.name}</strong>
+              <span>Нажмите на карточку, чтобы применить стиль</span>
+            </div>
+          </div>
+        ) : jobActive ? (
           progressCard
+        ) : resultError ? (
+          <div className="n2-empty">
+            <div className="n2-empty-icon error">!</div>
+            <div>
+              <h2>Изображение недоступно</h2>
+              <p>Файл результата не загрузился — возможно, он был удалён. Попробуйте сгенерировать заново.</p>
+            </div>
+          </div>
         ) : resultUrl && jobMode === 'i2i' && resultSource ? (
           <div className="n2-compare" style={{ ['--compare' as string]: `${compare}%` }} aria-label="Сравнение до и после">
             <div className="n2-compare-layer">
@@ -659,7 +775,12 @@ export default function NewStudio(): ReactElement {
             />
           </div>
         ) : resultUrl ? (
-          <img className="n2-result-image" src={resultUrl} alt="Результат генерации" />
+          <img
+            className="n2-result-image"
+            src={resultUrl}
+            alt="Результат генерации"
+            onError={() => setResultError(true)}
+          />
         ) : (
           <div className="n2-empty">
             <div className="n2-empty-icon">▧</div>
@@ -681,10 +802,7 @@ export default function NewStudio(): ReactElement {
                 className={`n2-thumb${resultUrl === item.url ? ' active' : ''}`}
                 type="button"
                 title={item.promptOriginal}
-                onClick={() => {
-                  setResultUrl(item.url)
-                  setResultSource(undefined)
-                }}
+                onClick={() => showResult(item.url)}
               >
                 <img src={item.thumbnailUrl || item.url} alt={item.promptOriginal.slice(0, 60)} loading="lazy" />
               </button>
@@ -767,7 +885,7 @@ export default function NewStudio(): ReactElement {
 
   // «Рисунок»: структура режимов Эскиз/Маска/Расширение. Холст и генерация для
   // этих режимов — placeholder (честно подписан), функционал живёт в текущей версии.
-  const paintSize = SIZE_TABLE[resolutionTier]?.[formatId] || SIZE_TABLE.standard.square
+  const paintSize = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
   const paintModes: Array<{ id: 'sketch' | 'mask' | 'expand'; icon: string; title: string; hint: string; meta?: string }> = [
     {
       id: 'sketch',
