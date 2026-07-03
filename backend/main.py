@@ -3654,7 +3654,9 @@ def load_db_state() -> None:
     jobs.clear()
     images.clear()
     with db() as conn:
-        recover_gallery_index_from_media(conn)
+        restored_gallery_rows = recover_gallery_index_from_media(conn)
+        if restored_gallery_rows:
+            conn.commit()
         for row in conn.execute("SELECT * FROM images WHERE deleted_at IS NULL ORDER BY created_at DESC"):
             images[row["id"]] = row_to_image(row)
         for row in conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 100"):
