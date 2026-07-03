@@ -378,6 +378,11 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                   <button type="button" className="crm-copy-mini" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)} title="Скопировать код">□</button>
                 </div>
                 <div className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</div>
+                <div className="crm-card-kpis">
+                  <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Списано <b>{S(sm.tokens_spent)}</b></span>
+                  <span>Генераций <b>{S(sm.generations_count)}</b></span><span>Галерея <b>{quotaLabel(sm)}</b></span>
+                  <span>Последняя активность <b>{shortTime(sm.last_seen_at)}</b></span><span>Создан <b>{shortTime(sm.first_seen_at)}</b></span><span>Риск <b>{riskLabel(sm)}</b></span>
+                </div>
                 <div className="crm-activity-legend">
                   <span className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}
                   <span className="crm-dot activity-online" />Онлайн
@@ -392,11 +397,6 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <button className="secondary" onClick={() => setTab('tech')}>Открыть профиль</button>
               <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
             </div>
-          </div>
-          <div className="crm-card-kpis">
-            <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Списано <b>{S(sm.tokens_spent)}</b></span>
-            <span>Генераций <b>{S(sm.generations_count)}</b></span><span>Галерея <b>{quotaLabel(sm)}</b></span>
-            <span>Вход {shortTime(sm.last_seen_at)}</span><span>Создан {shortTime(sm.first_seen_at)}</span><span>Риск <b>{riskLabel(sm)}</b></span>
           </div>
         </header>
 

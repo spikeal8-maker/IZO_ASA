@@ -325,13 +325,12 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 }
 .crm-card-header {
   position: relative;
-  padding: 16px 18px 14px;
+  padding: 16px 18px;
   border-bottom: 1px solid rgba(143, 164, 183, .18);
   background:
     radial-gradient(circle at 12% 0%, rgba(80, 150, 255, .12), transparent 26%),
     linear-gradient(180deg, rgba(16, 27, 36, .96), rgba(8, 17, 24, .84));
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  display: block;
 }
 .crm-card-top-actions {
   display: flex;
@@ -545,7 +544,7 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  gap: 16px;
+  gap: 18px;
 }
 .crm-card-hero .crm-card-id {
   display: flex;
@@ -556,7 +555,7 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .crm-card-person {
   min-width: 0;
   display: grid;
-  gap: 6px;
+  gap: 7px;
 }
 .crm-card-titleline {
   display: flex;
@@ -620,9 +619,6 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
   margin-left: 8px;
 }
 .crm-activity-legend .crm-dot:first-child { margin-left: 0; }
-.crm-card-hero + .crm-card-kpis {
-  margin-top: 12px;
-}
 .crm-card-id.crm-card-id-rich {
   grid-template-columns: none;
 }
@@ -630,11 +626,31 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .crm-card-id.crm-card-id-rich > span:not(.crm-avatar):not(.crm-preview-badges):not(.crm-preview-code) {
   grid-column: auto;
 }
+.crm-card-person .crm-card-kpis {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(92px, auto));
+  gap: 0;
+  margin: 4px 0 2px;
+  color: #9aa9b6;
+  max-width: 1120px;
+}
 .crm-card-kpis span {
-  min-height: 44px;
+  min-height: 42px;
+  padding: 0 16px;
+  border-left: 1px solid rgba(143, 164, 183, .2);
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.crm-card-kpis span:first-child {
+  border-left: 0;
+  padding-left: 0;
 }
 .crm-card-kpis b {
-  font-size: 17px;
+  color: #c7ff1f;
+  font-size: 18px;
+  line-height: 1.05;
 }
 .crm-card-left {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -901,6 +917,7 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 
 @media (max-width: 1100px) {
   .crm-card-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .crm-card-person .crm-card-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .crm-preview-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .crm-content-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .crm-content-grid { grid-template-columns: 1fr; }
@@ -947,6 +964,7 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
   }
   .crm-card-id h2 { font-size: 24px; }
   .crm-card-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crm-card-person .crm-card-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .crm-card-kpis span { min-height: 48px; padding: 8px 10px; }
   .crm-panel-titleline { align-items: flex-start; }
   .crm-gallery-preview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
