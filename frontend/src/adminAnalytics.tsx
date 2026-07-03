@@ -340,20 +340,35 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
     <div className="crm-card-overlay" onClick={onClose}>
       <div className="crm-card" role="dialog" aria-label="Карточка пользователя" onClick={(e) => e.stopPropagation()}>
         <header className="crm-card-header">
-          <div className="crm-card-id crm-card-id-rich">
-            <AvatarMark u={sm} ids={ids} className={`crm-avatar activity-${active} ${isBanned ? 'risk' : ''}`} />
-            <div>
-              <h2>{parsedName(sm, ids)}</h2>
-              <span className="crm-preview-code">{S(sm.public_user_code)}</span>
+          <div className="crm-card-hero">
+            <div className="crm-card-id crm-card-id-rich">
+              <AvatarMark u={sm} ids={ids} className={`crm-avatar activity-${active} ${isBanned ? 'risk' : ''}`} />
+              <div className="crm-card-person">
+                <div className="crm-card-titleline">
+                  <h2>{parsedName(sm, ids)}</h2>
+                  <span className={isBanned ? 'status-banned' : 'status-active'}>{S(sm.status)}</span>
+                  <span className="crm-role-chip">{S(sm.role)}</span>
+                  <span className="crm-plan-chip">{S(sm.plan)}</span>
+                </div>
+                <div className="crm-card-code-row">
+                  <span className="crm-preview-code">{S(sm.public_user_code)}</span>
+                  <button type="button" className="crm-copy-mini" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)} title="Скопировать код">□</button>
+                </div>
+                <div className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</div>
+                <div className="crm-activity-legend">
+                  <span className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}
+                  <span className="crm-dot activity-online" />Онлайн
+                  <span className="crm-dot activity-today" />Сегодня
+                  <span className="crm-dot activity-week" />Неделя
+                  <span className="crm-dot activity-cold" />Нет генераций
+                </div>
+              </div>
             </div>
-            <span className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</span>
-            <span className={isBanned ? 'status-banned' : 'status-active'}>{S(sm.status)}</span>
-            <span>{S(sm.role)}</span><span>{S(sm.plan)}</span><span>{ACTIVITY_LABEL[active]}</span>
-          </div>
-          <div className="crm-card-top-actions">
-            <button className="secondary" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>Копировать</button>
-            <button className="secondary" onClick={() => setTab('tech')}>Профиль</button>
-            <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
+            <div className="crm-card-top-actions">
+              <button className="secondary" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>Копировать</button>
+              <button className="secondary" onClick={() => setTab('tech')}>Профиль</button>
+              <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
+            </div>
           </div>
           <div className="crm-card-kpis">
             <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Списано <b>{S(sm.tokens_spent)}</b></span>
