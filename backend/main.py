@@ -409,6 +409,11 @@ class AdminDeleteImageV2Request(BaseModel):
     reason: str = ""
 
 
+class AdminMailTestV2Request(BaseModel):
+    email: str = ""
+    template: Literal["verify_email", "support_reply", "system_notice"] = "verify_email"
+
+
 class BillingInvoiceItemV2Request(BaseModel):
     package_code: str | None = None
     title: str = ""
@@ -9456,6 +9461,105 @@ async def admin_delete_user_gallery_image_v2(
     images.pop(image_id, None)
     delete_image_files_from_disk(url=row["url"], thumbnail_url=row["thumbnail_url"])
     return {"ok": True, "deleted": short_public_id(image_id), "deleted_at": now}
+
+
+@app.get("/api/admin/mail/status-v2")
+async def admin_mail_status_v2(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    now = datetime.now(timezone.utc)
+    day_cutoff = (now - timedelta(hours=24)).isoformat()
+    with db() as conn:
+        otp_total = conn.execute("SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE channel = 'email'").fetchone()["c"]
+        otp_24h = conn.execute("SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE channel = 'email' AND created_at >= ?", (day_cutoff,)).fetchone()["c"]
+        otp_active = conn.execute("SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE channel = 'email' AND consumed_at IS NULL AND expires_at > ?", (now.isoformat(),)).fetchone()["c"]
+        otp_consumed_24h = conn.execute("SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE channel = 'email' AND consumed_at IS NOT NULL AND consumed_at >= ?", (day_cutoff,)).fetchone()["c"]
+        challenges = conn.execute(
+            """
+            SELECT id, destination, purpose, attempts_count, max_attempts, expires_at, consumed_at, created_at
+            FROM auth_otp_challenges
+            WHERE channel = 'email'
+            ORDER BY created_at DESC
+            LIMIT 20
+            """
+        ).fetchall()
+        attempts = conn.execute(
+            """
+            SELECT success, failure_reason, identifier, platform, created_at
+            FROM auth_login_attempts
+            WHERE provider = 'web_email'
+            ORDER BY created_at DESC
+            LIMIT 20
+            """
+        ).fetchall()
+    provider = EMAIL_PROVIDER.strip()
+    production = APP_ENV.lower() == "production"
+    # Current code has the secure OTP contract, but no production provider adapter yet.
+    delivery_implemented = not (production and bool(provider))
+    service_ready = email_otp_available() and delivery_implemented
+    return {
+        "ok": True,
+        "generated_at": now.isoformat(),
+        "service_ready": service_ready,
+        "status": "ready" if service_ready else ("provider_adapter_missing" if provider else "provider_not_configured"),
+        "provider": provider or None,
+        "environment": APP_ENV,
+        "otp_available": email_otp_available(),
+        "delivery_implemented": delivery_implemented,
+        "debug_return_code": EMAIL_OTP_DEBUG_RETURN_CODE and not production,
+        "config": {
+            "EMAIL_PROVIDER": bool(provider),
+            "EMAIL_FROM": bool(os.getenv("EMAIL_FROM") or os.getenv("SMTP_FROM")),
+            "SMTP_HOST": bool(os.getenv("SMTP_HOST")),
+            "SMTP_PORT": bool(os.getenv("SMTP_PORT")),
+            "SUPPORT_EMAIL": bool(os.getenv("SUPPORT_EMAIL")),
+        },
+        "summary": {
+            "otp_total": int(otp_total or 0),
+            "otp_24h": int(otp_24h or 0),
+            "otp_active": int(otp_active or 0),
+            "otp_consumed_24h": int(otp_consumed_24h or 0),
+            "mock_outbox": len(_mock_email_outbox),
+        },
+        "templates": [
+            {"id": "verify_email", "title": "Подтверждение email", "subject": "Код подтверждения ИЗО АСА", "status": "готов шаблон OTP"},
+            {"id": "support_reply", "title": "Ответ поддержки", "subject": "Ответ поддержки ИЗО АСА", "status": "черновик"},
+            {"id": "system_notice", "title": "Системное уведомление", "subject": "Уведомление ИЗО АСА", "status": "черновик"},
+        ],
+        "recent_challenges": [{
+            "id": short_public_id(r["id"], 10),
+            "email": mask_email(r["destination"]),
+            "purpose": r["purpose"],
+            "attempts": int(r["attempts_count"] or 0),
+            "max_attempts": int(r["max_attempts"] or 0),
+            "expires_at": r["expires_at"],
+            "consumed_at": r["consumed_at"],
+            "created_at": r["created_at"],
+        } for r in challenges],
+        "recent_attempts": [{
+            "success": bool(r["success"]),
+            "reason": r["failure_reason"],
+            "email": mask_email(r["identifier"]),
+            "platform": r["platform"],
+            "created_at": r["created_at"],
+        } for r in attempts],
+        "mock_outbox": [{"to": mask_email(r.get("to")), "sent_at": r.get("sent_at")} for r in _mock_email_outbox[-20:]],
+    }
+
+
+@app.post("/api/admin/mail/test-v2")
+async def admin_mail_test_v2(req: AdminMailTestV2Request, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    email_norm = normalize_email(req.email)
+    if not email_norm:
+        raise HTTPException(400, "Введите корректный email.")
+    if not email_otp_available():
+        raise HTTPException(503, "email_provider_not_configured")
+    code = generate_otp_code(EMAIL_OTP_LENGTH)
+    try:
+        send_email_otp(email_norm, code)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return {"ok": True, "email": mask_email(email_norm), "template": req.template, "sent_at": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/api/admin/diagnostics-v2")

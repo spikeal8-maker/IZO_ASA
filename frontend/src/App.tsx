@@ -3062,8 +3062,97 @@ function AdminLogsView({ data, provider, admin }: { data: Record<string, unknown
   )
 }
 
+type AdminMailStatus = {
+  ok?: boolean
+  generated_at?: string
+  service_ready?: boolean
+  status?: string
+  provider?: string | null
+  environment?: string
+  otp_available?: boolean
+  delivery_implemented?: boolean
+  debug_return_code?: boolean
+  config?: Record<string, boolean>
+  summary?: Record<string, number>
+  templates?: Array<Record<string, unknown>>
+  recent_challenges?: Array<Record<string, unknown>>
+  recent_attempts?: Array<Record<string, unknown>>
+  mock_outbox?: Array<Record<string, unknown>>
+}
+
+function AdminMailView() {
+  const [data, setData] = useState<AdminMailStatus | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [testEmail, setTestEmail] = useState('')
+  const [msg, setMsg] = useState('')
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const result = await apiFetch('/admin/mail/status-v2').then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      setData(result)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+  useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
+  const sendTest = async () => {
+    setMsg('')
+    const res = await apiFetch('/admin/mail/test-v2', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: testEmail, template: 'verify_email' }),
+    }).then(async (r) => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) })).catch(() => ({ ok: false, status: 0, body: {} }))
+    setMsg(res.ok ? `Тест отправлен на ${String(res.body.email || '')}` : `Не отправлено: ${String(res.body.detail || res.status || 'network_error')}`)
+    await load()
+  }
+  const summary = data?.summary || {}
+  const config = data?.config || {}
+  const statusText = data?.service_ready ? 'Готово к отправке' : data?.status === 'provider_adapter_missing' ? 'Нужен адаптер провайдера' : 'Провайдер не настроен'
+  const row = (item: Record<string, unknown>, index: number) => <tr key={index}>{Object.entries(item).slice(0, 6).map(([k, v]) => <td key={k}><small>{k}</small><span>{String(v ?? '—')}</span></td>)}</tr>
+  return <div className="admin-section admin-mail-page">
+    <div className="admin-section-headline">
+      <div>
+        <h3>Почта</h3>
+        <p>Доменная почта, подтверждение email, поддержка и журнал отправок.</p>
+      </div>
+      <button className="secondary" onClick={() => void load()} disabled={loading}>{loading ? 'Обновляю…' : 'Обновить'}</button>
+    </div>
+    <div className="admin-grid admin-grid-compact">
+      <div><strong>Сервис</strong><span>{statusText}</span><small>{data?.provider || 'EMAIL_PROVIDER не задан'}</small></div>
+      <div><strong>OTP</strong><span>{String(summary.otp_24h ?? 0)}</span><small>кодов за 24 часа</small></div>
+      <div><strong>Активные</strong><span>{String(summary.otp_active ?? 0)}</span><small>ожидают подтверждения</small></div>
+      <div><strong>Подтверждено</strong><span>{String(summary.otp_consumed_24h ?? 0)}</span><small>за 24 часа</small></div>
+    </div>
+    <div className="admin-mail-grid">
+      <article className="admin-mail-card">
+        <h4>Конфигурация</h4>
+        <div className="admin-mail-flags">
+          {['EMAIL_PROVIDER', 'EMAIL_FROM', 'SMTP_HOST', 'SMTP_PORT', 'SUPPORT_EMAIL'].map((key) => <span key={key} className={config[key] ? 'ok' : 'warn'}>{key}: {config[key] ? 'yes' : 'no'}</span>)}
+          <span className={data?.delivery_implemented ? 'ok' : 'warn'}>delivery adapter: {data?.delivery_implemented ? 'yes' : 'no'}</span>
+          <span className={data?.debug_return_code ? 'warn' : 'ok'}>debug code: {data?.debug_return_code ? 'on' : 'off'}</span>
+        </div>
+        <p>Для доменной отправки нужно настроить реальный провайдер и `EMAIL_FROM` на вашем домене. Секреты в админку не выводятся.</p>
+      </article>
+      <article className="admin-mail-card">
+        <h4>Тест письма</h4>
+        <label>Email<input type="email" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} placeholder="test@example.com" /></label>
+        <button className="secondary" onClick={() => void sendTest()} disabled={!testEmail.trim()}>Отправить тест OTP</button>
+        {msg && <p className={msg.startsWith('Тест') ? 'crm-action-ok' : 'crm-err'}>{msg}</p>}
+      </article>
+      <article className="admin-mail-card">
+        <h4>Шаблоны</h4>
+        {(data?.templates || []).map((tpl) => <div className="admin-mail-template" key={String(tpl.id)}><strong>{String(tpl.title)}</strong><span>{String(tpl.subject)}</span><small>{String(tpl.status)}</small></div>)}
+      </article>
+    </div>
+    <div className="admin-mail-tables">
+      <article><h4>Последние коды</h4><table><tbody>{(data?.recent_challenges || []).map(row)}</tbody></table>{!data?.recent_challenges?.length && <p>Событий нет.</p>}</article>
+      <article><h4>Попытки email-входа</h4><table><tbody>{(data?.recent_attempts || []).map(row)}</tbody></table>{!data?.recent_attempts?.length && <p>Попыток нет.</p>}</article>
+    </div>
+  </div>
+}
+
 function AdminView({ copy, admin, setAdmin, tariffs, setTariffs, backToStudio, provider }: { copy: Copy; admin?: Record<string, unknown>; setAdmin: Dispatch<SetStateAction<Record<string, unknown> | undefined>>; tariffs: TariffConfig; setTariffs: Dispatch<SetStateAction<TariffConfig>>; backToStudio: () => void; provider: string }) {
-  const [tab, setTab] = useState<'dashboard' | 'models' | 'tokens' | 'users' | 'queue' | 'logs'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'mail' | 'models' | 'tokens' | 'users' | 'queue' | 'logs'>('dashboard')
   const [limits, setLimits] = useState({ hourly: 0, daily: 0 })
   const [saved, setSaved] = useState('')
   const [promoDraft, setPromoDraft] = useState({ code: 'START50', tokens: 50, activations: 100 })
@@ -3072,7 +3161,7 @@ function AdminView({ copy, admin, setAdmin, tariffs, setTariffs, backToStudio, p
   const [promoCodes, setPromoCodes] = useState<PromoCode[]>([])
   const [logsData, setLogsData] = useState<Record<string, unknown> | null>(null)
   const [adminMessage, setAdminMessage] = useState('')
-  const [dashboardRange, setDashboardRange] = useState<DashboardRange>(30)
+  const [dashboardRange, setDashboardRange] = useState<DashboardRange>(24)
   const queue = Array.isArray(admin?.queue) ? admin.queue : []
   const generationErrors = Number(admin?.errors ?? 0)
   const health = generationErrors === 0 ? 'Стабильно' : `Ошибки генерации: ${generationErrors}`
@@ -3177,8 +3266,7 @@ function AdminView({ copy, admin, setAdmin, tariffs, setTariffs, backToStudio, p
     const valueLabels = rows.filter((point, index) => Number(point.value || 0) > 0 && (index === rows.length - 1 || Number(point.value) === Number(peak.value)))
     return (
       <article className="admin-line-chart">
-        <header><h3>{title}</h3><span>{last.toLocaleString('ru-RU')}</span></header>
-        <p className="admin-line-meta">Сумма {total.toLocaleString('ru-RU')} · пик {Number(peak.value || 0).toLocaleString('ru-RU')} {shortDate(peak.date)} · среднее {average.toLocaleString('ru-RU')}</p>
+        <header><h3>{title}</h3><p className="admin-line-meta">Сумма {total.toLocaleString('ru-RU')} · пик {Number(peak.value || 0).toLocaleString('ru-RU')} {shortDate(peak.date)} · среднее {average.toLocaleString('ru-RU')} · сейчас {Number(last || 0).toLocaleString('ru-RU')}</p></header>
         <svg viewBox={`0 0 ${width} ${height}`} aria-label={title}>
           {valueTicks.map((value) => {
             const y = padTop + plotHeight - (value / max) * plotHeight
@@ -3226,7 +3314,7 @@ function AdminView({ copy, admin, setAdmin, tariffs, setTariffs, backToStudio, p
       <span><b>{String(admin?.errors24h ?? '—')}</b> ошибок входа 24ч</span>
       <span><b>{String(admin?.errors ?? '—')}</b> ошибок генерации</span>
     </div>
-    <div className="admin-tabbar">{[['dashboard', 'Дашборд'], ['models', 'Модели'], ['tokens', 'Токены'], ['users', 'Пользователи'], ['queue', 'Очередь'], ['logs', 'Логи']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id as typeof tab)}>{label}</button>)}</div>
+    <div className="admin-tabbar">{[['dashboard', 'Дашборд'], ['mail', 'Почта'], ['models', 'Модели'], ['tokens', 'Токены'], ['users', 'Пользователи'], ['queue', 'Очередь'], ['logs', 'Логи']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id as typeof tab)}>{label}</button>)}</div>
     {tab === 'dashboard' && <div className="admin-section admin-dashboard-v2">
       <div className="admin-grid admin-grid-compact">
         {kpi(copy.users, admin?.users, 'аккаунтов в базе')}
@@ -3263,6 +3351,7 @@ function AdminView({ copy, admin, setAdmin, tariffs, setTariffs, backToStudio, p
         {kpi('Акции', `${Number(adminFinance.promoBudget ?? 0).toLocaleString('ru-RU')} ₽`, 'оценка')}
       </div>}
     </div>}
+    {tab === 'mail' && <AdminMailView />}
     {tab === 'models' && <div className="admin-section"><AdminModelsV2 /></div>}
     {tab === 'tokens' && <div className="admin-section"><h3>Токены, тарифы, финансы и акции</h3><div className="admin-two-col"><article><h3>{copy.limits}</h3><label>hourly<input type="number" value={limits.hourly} onChange={(e) => setLimits({ ...limits, hourly: Number(e.target.value) })} /></label><label>daily<input type="number" value={limits.daily} onChange={(e) => setLimits({ ...limits, daily: Number(e.target.value) })} /></label><button className="secondary" onClick={saveLimits}>{copy.save}</button><small>{saved}</small></article><article><h3>Финансы</h3><label>Доход от токенов<input type="number" value={finance.tokenRevenue} onChange={(e) => setFinance({ ...finance, tokenRevenue: Number(e.target.value) })} /></label><label>Себестоимость API<input type="number" value={finance.tokenCost} onChange={(e) => setFinance({ ...finance, tokenCost: Number(e.target.value) })} /></label><label>Свет<input type="number" value={finance.electricity} onChange={(e) => setFinance({ ...finance, electricity: Number(e.target.value) })} /></label><label>Акции<input type="number" value={finance.promoBudget} onChange={(e) => setFinance({ ...finance, promoBudget: Number(e.target.value) })} /></label><button className="secondary" onClick={saveFinance}>Сохранить финансы</button></article><article><h3>Промокод</h3><label>Код<input value={promoDraft.code} onChange={(e) => setPromoDraft({ ...promoDraft, code: e.target.value.toUpperCase() })} /></label><label>Токены<input type="number" value={promoDraft.tokens} onChange={(e) => setPromoDraft({ ...promoDraft, tokens: Number(e.target.value) })} /></label><label>Активации<input type="number" value={promoDraft.activations} onChange={(e) => setPromoDraft({ ...promoDraft, activations: Number(e.target.value) })} /></label><button className="secondary" onClick={createPromo}>Создать промокод</button></article><article><h3>Промокоды в базе</h3>{promoCodes.length ? promoCodes.map((item) => <p key={item.code}><b>{item.code}</b>: {item.tokens} ток. · {item.activation_count}/{item.activation_limit}</p>) : <p>Промокодов пока нет.</p>}</article></div><div className="admin-grid"><div><strong>Free</strong><span>{tariffConfig.free.daily_tokens} ток.</span><small>{tariffConfig.free.gallery_slots} слот(ов) галереи</small></div><div><strong>Mini</strong><span>{tariffConfig.mini.daily_tokens} ток.</span><small>{tariffConfig.mini.gallery_slots} слот(ов) галереи</small></div><div><strong>Plus</strong><span>{tariffConfig.plus.daily_tokens} ток.</span><small>{tariffConfig.plus.gallery_slots} слот(ов) галереи</small></div><div><strong>Pro</strong><span>{tariffConfig.pro.daily_tokens} ток.</span><small>{tariffConfig.pro.gallery_slots} слот(ов) галереи</small></div></div></div>}
     {tab === 'tokens' && <div className="admin-section"><h3>Настройки тарифов</h3><p>Единый источник для Settings, Gallery и CRM: токены в сутки и слоты галереи.</p><div className="admin-grid">{tariffKeys.map((planKey) => <div key={planKey}><strong>{planKey.toUpperCase()}</strong><label>Токенов/день<input type="number" min="0" value={tariffConfig[planKey].daily_tokens} onChange={(e) => setTariffConfig((current) => ({ ...current, [planKey]: { ...current[planKey], daily_tokens: Number(e.target.value) } }))} /></label><label>Слоты галереи<input type="number" min="0" value={tariffConfig[planKey].gallery_slots} onChange={(e) => setTariffConfig((current) => ({ ...current, [planKey]: { ...current[planKey], gallery_slots: Number(e.target.value) } }))} /></label><small>{tariffConfig[planKey].daily_tokens} ток./день · {tariffConfig[planKey].gallery_slots} слот(ов)</small></div>)}</div><button className="secondary" onClick={() => void saveTariffs()}>Сохранить тарифы</button></div>}
