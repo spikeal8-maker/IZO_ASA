@@ -140,9 +140,9 @@ const FEED_I18N: Record<FeedLang, Record<string, string>> = {
     showFull: 'Показать полностью',
     collapse: 'Свернуть',
     emptyTitle: 'Лента пока пустая',
-    emptyText: 'Опубликуйте первую работу из Галереи.',
-    notAuthTitle: 'Войдите, чтобы публиковать работы и сохранять идеи',
-    notAuthText: 'Вход через Telegram или MAX.',
+    emptyText: 'Публикации появятся здесь сразу после первого поста из Галереи.',
+    notAuthTitle: 'Публикация доступна после входа',
+    notAuthText: 'Смотреть ленту можно без аккаунта.',
     login: 'Войти',
     createImage: 'Создать изображение',
     errorTitle: 'Не удалось загрузить ленту',
@@ -173,9 +173,9 @@ const FEED_I18N: Record<FeedLang, Record<string, string>> = {
     showFull: 'Show full',
     collapse: 'Collapse',
     emptyTitle: 'The feed is empty for now',
-    emptyText: 'Publish your first work from the Gallery.',
-    notAuthTitle: 'Sign in to publish works and save ideas',
-    notAuthText: 'Sign in with Telegram or MAX.',
+    emptyText: 'Posts will appear here after the first Gallery publication.',
+    notAuthTitle: 'Sign in to publish',
+    notAuthText: 'You can browse the feed without an account.',
     login: 'Sign in',
     createImage: 'Create image',
     errorTitle: 'Failed to load the feed',
@@ -1348,6 +1348,11 @@ export default function NewStudio(): ReactElement {
               </button>
             ))}
           </nav>
+          {authStatus !== 'authed' && !feedPlaceholderTab && (
+            <button className="nf-login-pill" type="button" onClick={() => setAuthOpen(true)}>
+              {feedLang === 'ru' ? 'Войти для публикации' : 'Sign in to publish'}
+            </button>
+          )}
         </div>
         <div className="nf-grid-scroll">
           {feedPlaceholderTab ? (
@@ -1386,29 +1391,31 @@ export default function NewStudio(): ReactElement {
                 </button>
               </div>
             </div>
-          ) : authStatus !== 'authed' ? (
-            <div className="nf-empty">
-              <span className="icon">⏻</span>
-              <h3>{ft.notAuthTitle}</h3>
-              <p>{ft.notAuthText}</p>
-              <div className="nf-empty-actions">
-                <button className="nf-remix" type="button" onClick={() => setAuthOpen(true)}>
-                  {ft.login}
-                </button>
-              </div>
-            </div>
           ) : feedItems.length === 0 ? (
             <div className="nf-empty">
               <span className="icon">▧</span>
               <h3>{ft.emptyTitle}</h3>
               <p>{ft.emptyText}</p>
               <div className="nf-empty-actions">
-                <button className="nf-remix" type="button" onClick={openRealGallery}>
-                  {ft.openGallery}
-                </button>
-                <button className="nf-secondary" type="button" onClick={() => setTab('text')}>
-                  {ft.createImage}
-                </button>
+                {authStatus === 'authed' ? (
+                  <>
+                    <button className="nf-remix" type="button" onClick={openRealGallery}>
+                      {ft.openGallery}
+                    </button>
+                    <button className="nf-secondary" type="button" onClick={() => setTab('text')}>
+                      {ft.createImage}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button className="nf-remix" type="button" onClick={() => setTab('text')}>
+                      {ft.createImage}
+                    </button>
+                    <button className="nf-secondary" type="button" onClick={() => setAuthOpen(true)}>
+                      {ft.login}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ) : (
@@ -1458,10 +1465,20 @@ export default function NewStudio(): ReactElement {
   const galleryView = (
     <section className="n2-panel n2-gallery" aria-label="Галерея">
       <div className="n2-gallery-head">
-        <h2>Галерея</h2>
-        <button className="n2-ghost" type="button" onClick={() => setView('tabs')}>
-          ← Назад
-        </button>
+        <div>
+          <h2>Галерея</h2>
+          <p>{authStatus === 'authed' ? 'Ваши генерации: открыть, скачать или опубликовать в ленту.' : 'Лента открыта всем, личная галерея доступна после входа.'}</p>
+        </div>
+        <div className="n2-gallery-head-actions">
+          {authStatus !== 'authed' && (
+            <button className="n2-ghost purple" type="button" onClick={() => setAuthOpen(true)}>
+              Войти
+            </button>
+          )}
+          <button className="n2-ghost" type="button" onClick={() => setView('tabs')}>
+            ← Назад
+          </button>
+        </div>
       </div>
       {gallery.length === 0 ? (
         <div className="n2-placeholder-card">
@@ -1477,9 +1494,24 @@ export default function NewStudio(): ReactElement {
       ) : (
         <div className="n2-gallery-grid">
           {gallery.map((item) => (
-            <button key={item.id} className="n2-gallery-card" type="button" title={item.promptOriginal} onClick={() => setGalleryItem(item)}>
-              <img src={item.thumbnailUrl || item.url} alt={item.promptOriginal.slice(0, 60)} loading="lazy" />
-            </button>
+            <article key={item.id} className="n2-gallery-card">
+              <button className="n2-gallery-thumb" type="button" title={item.promptOriginal} onClick={() => setGalleryItem(item)}>
+                <img src={apiUrl(item.thumbnailUrl || item.url)} alt={item.promptOriginal.slice(0, 60)} loading="lazy" />
+              </button>
+              <div className="n2-gallery-card-body">
+                <strong>{item.mode || 'image'}</strong>
+                <small>{feedTimeAgo(item.createdAt, feedLang)}</small>
+                <p>{item.promptOriginal || '—'}</p>
+                <div className="n2-gallery-card-actions">
+                  <button className="n2-gallery-mini" type="button" onClick={() => setGalleryItem(item)}>
+                    Открыть
+                  </button>
+                  <button className="n2-gallery-mini publish" type="button" onClick={() => openPublish(item)}>
+                    ✦ В ленту
+                  </button>
+                </div>
+              </div>
+            </article>
           ))}
         </div>
       )}
@@ -1698,17 +1730,17 @@ export default function NewStudio(): ReactElement {
             <button className="n2-overlay-close" type="button" aria-label="Закрыть" onClick={() => setGalleryItem(undefined)}>
               ×
             </button>
-            <img src={galleryItem.url} alt={galleryItem.promptOriginal.slice(0, 80)} />
+            <img src={apiUrl(galleryItem.url)} alt={galleryItem.promptOriginal.slice(0, 80)} />
             <p className="n2-overlay-prompt">{galleryItem.promptOriginal}</p>
             <div className="n2-overlay-actions">
-              <a className="n2-ghost" href={galleryItem.url} download target="_blank" rel="noreferrer">
+              <a className="n2-ghost" href={apiUrl(galleryItem.url)} download target="_blank" rel="noreferrer">
                 ⬇ Скачать
               </a>
               <button
                 className="n2-ghost"
                 type="button"
                 onClick={() => {
-                  setSourceImage(galleryItem.url)
+                  setSourceImage(apiUrl(galleryItem.url))
                   setGalleryItem(undefined)
                   setView('tabs')
                   setTab('i2i')
@@ -1731,7 +1763,7 @@ export default function NewStudio(): ReactElement {
               ×
             </button>
             <h2>{ft.publish}</h2>
-            <img className="nf-publish-preview" src={publishFor.thumbnailUrl || publishFor.url} alt="" />
+            <img className="nf-publish-preview" src={apiUrl(publishFor.thumbnailUrl || publishFor.url)} alt="" />
             <label className="nf-publish-field">
               <span>{feedLang === 'ru' ? 'Название' : 'Title'}</span>
               <input

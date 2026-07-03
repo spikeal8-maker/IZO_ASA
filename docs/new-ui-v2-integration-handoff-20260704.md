@@ -4,7 +4,8 @@ Current safe integration branch:
 
 - `hotfix/live-auth-gallery-faceswap-20260703`
 - integrated feed/new-ui commits from `feature/new-ui-v2-clean`
-- latest integrated commit at the time of this note: `89f4da2`
+- latest integrated commit: use the current HEAD of this safe integration branch
+  (do not deploy the old `feature/new-ui-v2-clean` worktree directly).
 
 What was integrated:
 
@@ -22,6 +23,15 @@ Auth rules that must not be reverted:
 - Admin UI visibility must come only from trusted auth state:
   `authV2Status === 'authed' && authMe?.account?.role === 'admin'`.
 - Feed publishing/reactions must use trusted cookie session through backend.
+- Feed reading must remain public. A guest may open `/feed`, `/new`, and
+  `/new/feed` and see publications/empty-state without a blocking login panel.
+  Login is required only for publishing, reactions, saves, recreate actions, and
+  the personal gallery.
+- `/new` gallery is personal and may ask guests to sign in, but its cards must
+  keep the publication flow: gallery item -> `openPublish` -> `POST
+  /api/feed/publications`.
+- When merging work from another branch, keep the current `AuthV2Modal` and
+  do not bring back old auth or guest-gated feed UI.
 
 Before any future `/new` merge/deploy, run:
 
