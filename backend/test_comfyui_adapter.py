@@ -5,15 +5,17 @@ from io import BytesIO
 
 from fastapi.testclient import TestClient
 from PIL import Image
+import pytest
 
 import main
 
 
-def setup_function() -> None:
+@pytest.fixture(autouse=True)
+def isolated_comfyui_test_state(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "DB_PATH", tmp_path / "comfyui_adapter_test.sqlite3")
+    monkeypatch.setattr(main, "MEDIA", tmp_path / "media")
+    main.MEDIA.mkdir(parents=True, exist_ok=True)
     main.init_db()
-    with main.db() as conn:
-        conn.execute("DELETE FROM jobs")
-        conn.execute("DELETE FROM images")
     main.jobs.clear()
     main.images.clear()
     main.queue = asyncio.Queue()

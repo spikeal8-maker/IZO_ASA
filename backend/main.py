@@ -5847,9 +5847,14 @@ async def gallery(request: Request) -> list[dict[str, Any]]:
     with db() as conn:
         if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
             raise HTTPException(403, "Gallery is not available for this plan.")
-    if not images and DB_PATH.exists():
-        load_db_state()
-    return sorted([item for item in images.values() if item.get("userId", "demo_user") == user_id], key=lambda item: item["createdAt"], reverse=True)
+        rows = conn.execute(
+            "SELECT * FROM images WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
+    restored = [row_to_image(row) for row in rows]
+    for item in restored:
+        images[item["id"]] = item
+    return restored
 
 
 @app.get("/api/gallery/{image_id}")

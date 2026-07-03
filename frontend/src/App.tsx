@@ -923,6 +923,15 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (authV2Status !== 'authed') return undefined
+    let cancelled = false
+    window.setTimeout(() => {
+      if (!cancelled) void fetchGallery()
+    }, 0)
+    return () => { cancelled = true }
+  }, [authV2Status, authMe?.internal_user_id, fetchGallery])
+
+  useEffect(() => {
     apiFetch('/tariffs')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setTariffs(normalizeTariffs(data?.tariffs)))
