@@ -1427,7 +1427,7 @@ function App() {
               <div className="admin-head"><div><h2>{copy.admin}</h2><p>Проверяем trusted admin-сессию.</p></div><strong>loading</strong></div>
             </section>
           ) : isAdmin ? (
-            <AdminView copy={copy} admin={admin} tariffs={tariffs} setTariffs={setTariffs} backToStudio={() => navigateApp('studio')} provider={provider} />
+            <AdminView copy={copy} admin={admin} setAdmin={setAdmin} tariffs={tariffs} setTariffs={setTariffs} backToStudio={() => navigateApp('studio')} provider={provider} />
           ) : (
             <section className="admin-page admin-access-page">
               <div className="view-actions in-panel"><button className="secondary" onClick={() => navigateApp('studio')}><WandSparkles size={16} />{copy.backToStudio}</button></div>
@@ -3062,7 +3062,7 @@ function AdminLogsView({ data, provider, admin }: { data: Record<string, unknown
   )
 }
 
-function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }: { copy: Copy; admin?: Record<string, unknown>; tariffs: TariffConfig; setTariffs: Dispatch<SetStateAction<TariffConfig>>; backToStudio: () => void; provider: string }) {
+function AdminView({ copy, admin, setAdmin, tariffs, setTariffs, backToStudio, provider }: { copy: Copy; admin?: Record<string, unknown>; setAdmin: Dispatch<SetStateAction<Record<string, unknown> | undefined>>; tariffs: TariffConfig; setTariffs: Dispatch<SetStateAction<TariffConfig>>; backToStudio: () => void; provider: string }) {
   const [tab, setTab] = useState<'dashboard' | 'models' | 'tokens' | 'users' | 'queue' | 'logs'>('dashboard')
   const [limits, setLimits] = useState({ hourly: 0, daily: 0 })
   const [saved, setSaved] = useState('')
@@ -3097,6 +3097,20 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
   }, [setTariffs])
   useEffect(() => { if (tab === 'tokens') queueMicrotask(() => { void refreshTokenAdminData() }) }, [tab, refreshTokenAdminData])
   useEffect(() => {
+    if (tab !== 'dashboard') return undefined
+    let cancelled = false
+    const refreshDashboard = async () => {
+      const data = await apiFetch('/admin/summary').then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      if (!cancelled && data) setAdmin(data)
+    }
+    void refreshDashboard()
+    const timer = window.setInterval(() => { void refreshDashboard() }, 30000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [tab, dashboardRange, setAdmin])
+  useEffect(() => {
     if (tab !== 'logs') return
     void apiFetch('/admin/logs-v2').then((r) => (r.ok ? r.json() : null)).then(setLogsData).catch(() => setLogsData(null))
   }, [tab])
@@ -3129,8 +3143,6 @@ function AdminView({ copy, admin, tariffs, setTariffs, backToStudio, provider }:
   }
   const shortDate = (date: string) => {
     if (date.includes('T')) {
-      const hour = date.slice(11, 13)
-      if (/^\d{2}$/.test(hour)) return `${hour}:00`
       const parsedHour = new Date(date)
       return Number.isNaN(parsedHour.getTime()) ? date.slice(11, 16) : parsedHour.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
     }

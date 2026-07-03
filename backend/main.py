@@ -8922,14 +8922,14 @@ def _daily_counts(conn: sqlite3.Connection, table: str, column: str, days: int, 
 def _empty_hourly_series(hours: int) -> dict[str, int]:
     current = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
     return {
-        (current - timedelta(hours=offset)).strftime("%Y-%m-%dT%H"): 0
+        (current - timedelta(hours=offset)).isoformat(): 0
         for offset in range(hours - 1, -1, -1)
     }
 
 
 def _hourly_counts(conn: sqlite3.Connection, table: str, column: str, hours: int, where: str = "", params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
     series = _empty_hourly_series(hours)
-    start = next(iter(series))
+    start = (datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) - timedelta(hours=hours - 1)).isoformat()
     where_sql = f" AND {where}" if where else ""
     rows = conn.execute(
         f"""
@@ -8942,7 +8942,7 @@ def _hourly_counts(conn: sqlite3.Connection, table: str, column: str, hours: int
         (start, *params),
     ).fetchall()
     for row in rows:
-        key = row["hour"]
+        key = f"{row['hour']}:00:00+00:00"
         if key in series:
             series[key] = int(row["c"] or 0)
     return [{"date": hour, "value": value} for hour, value in series.items()]
@@ -9630,10 +9630,7 @@ async def admin_summary(request: Request) -> dict[str, Any]:
         token_total = conn.execute("SELECT COALESCE(SUM(token_balance), 0) FROM users").fetchone()[0]
         tokens_spent = conn.execute("SELECT COALESCE(SUM(-delta), 0) FROM token_ledger WHERE delta < 0").fetchone()[0]
         active_today = conn.execute("SELECT COUNT(*) FROM users WHERE last_seen_at >= ?", (today_start,)).fetchone()[0]
-        generations_today = conn.execute(
-            "SELECT COUNT(*) FROM event_logs WHERE event_name = 'generation_started' AND created_at >= ?",
-            (today_start,),
-        ).fetchone()[0]
+        generations_today = conn.execute("SELECT COUNT(*) FROM jobs WHERE created_at >= ?", (today_start,)).fetchone()[0]
         active_sessions = conn.execute("SELECT COUNT(*) FROM auth_sessions WHERE revoked_at IS NULL AND expires_at > ?", (now_iso,)).fetchone()[0]
         generation_errors_count = conn.execute("SELECT COUNT(*) FROM jobs WHERE status = 'failed'").fetchone()[0]
         completed_today_count = conn.execute("SELECT COUNT(*) FROM jobs WHERE status = 'completed' AND created_at >= ?", (today_start,)).fetchone()[0]
@@ -9646,13 +9643,13 @@ async def admin_summary(request: Request) -> dict[str, Any]:
             "registrations": _daily_counts(conn, "users", "created_at", 90, "internal_user_id IS NOT NULL"),
             "logins": _daily_counts(conn, "event_logs", "created_at", 90, "event_name IN ('login_succeeded','password_login_succeeded','password_register_succeeded')"),
             "login_errors": _daily_counts(conn, "auth_login_attempts", "created_at", 90, "success = 0"),
-            "generations": _daily_counts(conn, "event_logs", "created_at", 90, "event_name = 'generation_started'"),
+            "generations": _daily_counts(conn, "jobs", "created_at", 90),
             "generation_errors": _daily_counts(conn, "jobs", "created_at", 90, "status = 'failed'"),
             "active_users_hourly": _hourly_counts(conn, "users", "last_seen_at", 24, "internal_user_id IS NOT NULL"),
             "registrations_hourly": _hourly_counts(conn, "users", "created_at", 24, "internal_user_id IS NOT NULL"),
             "logins_hourly": _hourly_counts(conn, "event_logs", "created_at", 24, "event_name IN ('login_succeeded','password_login_succeeded','password_register_succeeded')"),
             "login_errors_hourly": _hourly_counts(conn, "auth_login_attempts", "created_at", 24, "success = 0"),
-            "generations_hourly": _hourly_counts(conn, "event_logs", "created_at", 24, "event_name = 'generation_started'"),
+            "generations_hourly": _hourly_counts(conn, "jobs", "created_at", 24),
             "generation_errors_hourly": _hourly_counts(conn, "jobs", "created_at", 24, "status = 'failed'"),
         }
     return {
