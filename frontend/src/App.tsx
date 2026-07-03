@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import type { ChangeEvent, Dispatch, MutableRefObject, ReactNode, PointerEvent as ReactPointerEvent, SetStateAction, WheelEvent as ReactWheelEvent } from 'react'
 import {
   AuthV2Modal,
+  ensureSessionRefreshedV2,
   initAuthV2,
   updateProfileV2,
   logoutV2,
@@ -207,13 +208,8 @@ async function apiFetch(path: string, init: RequestInit = {}) {
   const request = () => fetch(`${API}${path}`, { ...init, headers, credentials: 'include' })
   let response = await request()
   if (response.status === 401 && !path.includes('/auth/session/refresh-v2') && !path.includes('/auth/session/logout-v2')) {
-    const refreshed = await fetch(`${API}/auth/session/refresh-v2`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({}),
-    }).catch(() => null)
-    if (refreshed?.ok) {
+    const refreshed = await ensureSessionRefreshedV2()
+    if (refreshed) {
       await refreshAuthStateV2().catch(() => null)
       response = await request()
     }
