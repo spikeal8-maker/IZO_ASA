@@ -1572,6 +1572,36 @@ def init_db() -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS ux_auth_passwords_active
                 ON auth_passwords(internal_user_id) WHERE disabled_at IS NULL;
 
+            -- Live Feed MVP: публикации из личной галереи + реакции (like/save).
+            -- Additive-only. Публикация ссылается на существующую строку images;
+            -- prompt_visibility: open | partial | hidden. status: published | hidden.
+            CREATE TABLE IF NOT EXISTS feed_publications (
+                id TEXT PRIMARY KEY,
+                image_id TEXT NOT NULL UNIQUE,
+                internal_user_id TEXT NOT NULL,
+                legacy_user_id TEXT,
+                title TEXT NOT NULL,
+                description TEXT,
+                prompt_visibility TEXT NOT NULL DEFAULT 'open',
+                allow_recreate INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'published',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_feed_publications_status_created
+                ON feed_publications(status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_feed_publications_user
+                ON feed_publications(internal_user_id);
+
+            CREATE TABLE IF NOT EXISTS feed_reactions (
+                publication_id TEXT NOT NULL,
+                internal_user_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (publication_id, internal_user_id, kind)
+            );
+            CREATE INDEX IF NOT EXISTS idx_feed_reactions_publication
+                ON feed_reactions(publication_id, kind);
+
             CREATE TABLE IF NOT EXISTS password_reset_challenges (
                 id TEXT PRIMARY KEY,
                 internal_user_id TEXT NOT NULL,
@@ -10462,3 +10492,300 @@ async def max_webhook(payload: dict[str, Any], request: Request) -> dict[str, An
         MAX_POLLING_DIAG["lastWebhookError"] = type(exc).__name__
         print("max webhook handler error", type(exc).__name__)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Live Feed MVP. Публикации из личной галереи + публичная лента + реакции.
+# Auth: чтение ленты публичное (viewerState только при trusted session);
+# публикация и реакции — только trusted cookie session (require_trusted_user).
+# Легаси-заголовки/куки здесь не читаются никогда.
+# ---------------------------------------------------------------------------
+
+FEED_PROMPT_VISIBILITIES = {"open", "partial", "hidden"}
+FEED_PARTIAL_PROMPT_CHARS = 140
+
+
+def _feed_media_name(url: str | None) -> str | None:
+    """Имя файла из внутреннего /api/media-URL записи images."""
+    if not url:
+        return None
+    s = str(url)
+    if s.startswith("/api/media/"):
+        return s.removeprefix("/api/media/").split("?", 1)[0]
+    if s.startswith("/media/"):
+        return s.removeprefix("/media/").split("?", 1)[0]
+    return None
+
+
+def _feed_author_name(conn: sqlite3.Connection, internal_user_id: str, legacy_user_id: str | None) -> str:
+    row = conn.execute(
+        "SELECT display_name, username, first_name FROM users WHERE internal_user_id = ?",
+        (internal_user_id,),
+    ).fetchone()
+    if row is None and legacy_user_id:
+        row = conn.execute(
+            "SELECT display_name, username, first_name FROM users WHERE id = ?",
+            (legacy_user_id,),
+        ).fetchone()
+    if row is None:
+        return "Автор"
+    return _row_get(row, "display_name") or _row_get(row, "username") or _row_get(row, "first_name") or "Автор"
+
+
+def _feed_aspect_ratio(width: int, height: int) -> str:
+    if not width or not height:
+        return "1:1"
+    from math import gcd
+
+    g = gcd(int(width), int(height)) or 1
+    return f"{int(width) // g}:{int(height) // g}"
+
+
+def _feed_item_payload(
+    conn: sqlite3.Connection,
+    pub: sqlite3.Row,
+    viewer_internal_user_id: str | None,
+) -> dict[str, Any]:
+    image = conn.execute(
+        "SELECT id, url, thumbnail_url, width, height, prompt_original, settings_json, provider, mode "
+        "FROM images WHERE id = ?",
+        (pub["image_id"],),
+    ).fetchone()
+    settings: dict[str, Any] = {}
+    if image is not None:
+        try:
+            settings = json.loads(image["settings_json"] or "{}")
+        except (TypeError, ValueError):
+            settings = {}
+    visibility = pub["prompt_visibility"]
+    raw_prompt = (_row_get(image, "prompt_original") or "").strip()
+    if visibility == "open":
+        prompt: str | None = raw_prompt or None
+    elif visibility == "partial":
+        prompt = (raw_prompt[:FEED_PARTIAL_PROMPT_CHARS] + "…") if len(raw_prompt) > FEED_PARTIAL_PROMPT_CHARS else (raw_prompt or None)
+    else:
+        prompt = None
+    counts = {
+        r["kind"]: r["c"]
+        for r in conn.execute(
+            "SELECT kind, COUNT(*) AS c FROM feed_reactions WHERE publication_id = ? GROUP BY kind",
+            (pub["id"],),
+        ).fetchall()
+    }
+    viewer_kinds: set[str] = set()
+    if viewer_internal_user_id:
+        viewer_kinds = {
+            r["kind"]
+            for r in conn.execute(
+                "SELECT kind FROM feed_reactions WHERE publication_id = ? AND internal_user_id = ?",
+                (pub["id"], viewer_internal_user_id),
+            ).fetchall()
+        }
+    width = int(_row_get(image, "width") or 0)
+    height = int(_row_get(image, "height") or 0)
+    return {
+        "id": pub["id"],
+        "image_url": f"/api/feed/media/{pub['id']}",
+        "thumbnail_url": f"/api/feed/media/{pub['id']}?thumb=1",
+        "user_id": pub["internal_user_id"],
+        "author_name": _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"]),
+        "title": pub["title"],
+        "description": pub["description"],
+        "prompt": prompt,
+        "prompt_visibility": visibility,
+        "allow_recreate": bool(pub["allow_recreate"]),
+        "style": settings.get("styleName") or None,
+        "model": settings.get("modelProfile") or _row_get(image, "provider") or None,
+        "mode": _row_get(image, "mode"),
+        "aspect_ratio": _feed_aspect_ratio(width, height),
+        "resolution": f"{width}×{height}" if width and height else None,
+        "seed": settings.get("seed"),
+        "created_at": pub["created_at"],
+        "remix_count": counts.get("recreate", 0),
+        "save_count": counts.get("save", 0),
+        "like_count": counts.get("like", 0),
+        "is_liked_by_me": "like" in viewer_kinds,
+        "is_saved_by_me": "save" in viewer_kinds,
+        "is_mine": viewer_internal_user_id == pub["internal_user_id"],
+    }
+
+
+def _feed_optional_viewer(request: Request) -> str | None:
+    """internal_user_id, если есть валидная trusted-сессия; иначе None.
+    Ошибок наружу не поднимает — чтение ленты доступно без входа."""
+    try:
+        return require_trusted_user(request)["internal_user_id"]
+    except HTTPException:
+        return None
+
+
+@app.get("/api/feed")
+async def feed_list(request: Request, type: str = "new", limit: int = 30) -> dict[str, Any]:
+    feed_type = type if type in {"new", "top"} else "new"
+    limit = max(1, min(int(limit or 30), 60))
+    viewer = _feed_optional_viewer(request)
+    with db() as conn:
+        if feed_type == "top":
+            rows = conn.execute(
+                """
+                SELECT p.* FROM feed_publications p
+                LEFT JOIN feed_reactions r ON r.publication_id = p.id
+                WHERE p.status = 'published'
+                GROUP BY p.id
+                ORDER BY COUNT(r.publication_id) DESC, p.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM feed_publications WHERE status = 'published' ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        items = [_feed_item_payload(conn, pub, viewer) for pub in rows]
+    return {"ok": True, "type": feed_type, "items": items}
+
+
+@app.post("/api/feed/publications")
+async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    image_id = str(payload.get("imageId") or "").strip()
+    title = str(payload.get("title") or "").strip()
+    description = str(payload.get("description") or "").strip() or None
+    visibility = str(payload.get("promptVisibility") or "open").strip()
+    allow_recreate = bool(payload.get("allowRecreate", True))
+    if not image_id:
+        raise HTTPException(400, "imageId required")
+    if not title:
+        raise HTTPException(400, "title required")
+    if len(title) > 120:
+        raise HTTPException(400, "title too long")
+    if visibility not in FEED_PROMPT_VISIBILITIES:
+        raise HTTPException(400, "invalid promptVisibility")
+    with db() as conn:
+        image = conn.execute("SELECT id, user_id FROM images WHERE id = ?", (image_id,)).fetchone()
+    # Не раскрываем существование чужих изображений: и «нет», и «не твоё» → 404.
+    # security_event пишем отдельным соединением ДО raise — with-блок с raise
+    # внутри откатил бы запись (паттерн require_trusted_admin).
+    if image is None or image["user_id"] != user["legacy_user_id"]:
+        with db() as conn:
+            record_security_event(
+                conn,
+                "feed_publish_denied",
+                internal_user_id=user["internal_user_id"],
+                session_id=user.get("session_id"),
+                request=request,
+            )
+        raise HTTPException(404, "Image not found")
+    with db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM feed_publications WHERE image_id = ?", (image_id,)
+        ).fetchone()
+        now = datetime.now(timezone.utc).isoformat()
+        if existing:
+            conn.execute(
+                "UPDATE feed_publications SET title = ?, description = ?, prompt_visibility = ?, "
+                "allow_recreate = ?, status = 'published' WHERE id = ?",
+                (title, description, visibility, int(allow_recreate), existing["id"]),
+            )
+            pub_id = existing["id"]
+        else:
+            pub_id = uuid.uuid4().hex
+            conn.execute(
+                "INSERT INTO feed_publications (id, image_id, internal_user_id, legacy_user_id, title, "
+                "description, prompt_visibility, allow_recreate, status, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', ?)",
+                (
+                    pub_id,
+                    image_id,
+                    user["internal_user_id"],
+                    user["legacy_user_id"],
+                    title,
+                    description,
+                    visibility,
+                    int(allow_recreate),
+                    now,
+                ),
+            )
+        pub = conn.execute("SELECT * FROM feed_publications WHERE id = ?", (pub_id,)).fetchone()
+        item = _feed_item_payload(conn, pub, user["internal_user_id"])
+    return {"ok": True, "publication": item}
+
+
+def _feed_reaction_toggle(request: Request, publication_id: str, kind: str, enable: bool) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    with db() as conn:
+        pub = conn.execute(
+            "SELECT * FROM feed_publications WHERE id = ? AND status = 'published'",
+            (publication_id,),
+        ).fetchone()
+        if pub is None:
+            raise HTTPException(404, "Publication not found")
+        if enable:
+            conn.execute(
+                "INSERT OR IGNORE INTO feed_reactions (publication_id, internal_user_id, kind, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (publication_id, user["internal_user_id"], kind, datetime.now(timezone.utc).isoformat()),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM feed_reactions WHERE publication_id = ? AND internal_user_id = ? AND kind = ?",
+                (publication_id, user["internal_user_id"], kind),
+            )
+        item = _feed_item_payload(conn, pub, user["internal_user_id"])
+    return {"ok": True, "publication": item}
+
+
+@app.post("/api/feed/publications/{publication_id}/like")
+async def feed_like(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "like", True)
+
+
+@app.delete("/api/feed/publications/{publication_id}/like")
+async def feed_unlike(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "like", False)
+
+
+@app.post("/api/feed/publications/{publication_id}/save")
+async def feed_save(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "save", True)
+
+
+@app.delete("/api/feed/publications/{publication_id}/save")
+async def feed_unsave(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "save", False)
+
+
+@app.post("/api/feed/publications/{publication_id}/recreate")
+async def feed_recreate_mark(publication_id: str, request: Request) -> dict[str, Any]:
+    """Счётчик «Повторить» (remix_count). Только отметка события — генерация
+    идёт обычным /api/generate."""
+    return _feed_reaction_toggle(request, publication_id, "recreate", True)
+
+
+@app.get("/api/feed/media/{publication_id}")
+async def feed_media(publication_id: str, request: Request, thumb: int = 0) -> FileResponse:
+    """Файл ОПУБЛИКОВАННОЙ работы. Доступен любому (публичная лента) — но только
+    через публикацию: приватный /api/media остаётся закрытым как был."""
+    with db() as conn:
+        pub = conn.execute(
+            "SELECT p.image_id FROM feed_publications p WHERE p.id = ? AND p.status = 'published'",
+            (publication_id,),
+        ).fetchone()
+        if pub is None:
+            raise HTTPException(404, "Publication not found")
+        image = conn.execute(
+            "SELECT url, thumbnail_url FROM images WHERE id = ?",
+            (pub["image_id"],),
+        ).fetchone()
+    name = _feed_media_name(_row_get(image, "thumbnail_url") if thumb else _row_get(image, "url"))
+    if not name:
+        raise HTTPException(404, "Image file not found")
+    path = (MEDIA / name).resolve()
+    try:
+        path.relative_to(MEDIA.resolve())
+    except ValueError:
+        raise HTTPException(404, "Image file not found")
+    if not path.exists():
+        raise HTTPException(404, "Image file not found")
+    return FileResponse(path)

@@ -234,6 +234,7 @@ const t = {
     backToStudio: 'К генерации',
     advanced: 'Расширенные настройки',
     gallery: 'Галерея',
+    feed: 'Лента',
     presets: 'Пресеты',
     settings: 'Настройки',
     admin: 'Админ',
@@ -347,6 +348,7 @@ const t = {
     backToStudio: 'Back to Studio',
     advanced: 'Advanced controls',
     gallery: 'Gallery',
+    feed: 'Feed',
     presets: 'Presets',
     settings: 'Settings',
     admin: 'Admin',
@@ -806,6 +808,8 @@ function App() {
   const adminRoute = pathName === '/admin' || pathName.startsWith('/admin/')
   // UI 2.0: experimental /new route (docs/new-ui-v2-plan.md). Minimal hook only.
   const newUiRoute = pathName === '/new' || pathName.startsWith('/new/')
+  // Live Feed: короткий маршрут /feed открывает Ленту нового UI.
+  const feedRoute = pathName === '/feed' || pathName.startsWith('/feed/')
 
   useEffect(() => {
     const onPopState = () => setPathName(window.location.pathname)
@@ -1407,7 +1411,7 @@ function App() {
     </div>
   )
 
-  if (newUiRoute) {
+  if (newUiRoute || feedRoute) {
     return <NewStudio />
   }
 
@@ -1464,6 +1468,11 @@ function App() {
           </div>
           <div className="top-actions">
             <button className="icon-button lockable" onClick={openGallery} title={copy.gallery}><GalleryHorizontalEnd size={18} />{copy.gallery}</button>
+            <button
+              className="icon-button feed-link"
+              onClick={() => { window.location.href = '/feed' }}
+              title={copy.feed}
+            ><Sparkles size={18} />{copy.feed}</button>
             <button className="icon-button" onClick={() => setTab('presets')} title={copy.help}><Sparkles size={18} />{copy.help}</button>
             <button className="icon-button" onClick={() => setTab('settings')} title={copy.settings}><Settings size={18} />{copy.settings}</button>
             {isAdmin && <button className="icon-button" onClick={openAdminPage} title={copy.admin}><Shield size={18} />{copy.admin}</button>}

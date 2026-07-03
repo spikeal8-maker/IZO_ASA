@@ -16,6 +16,13 @@ import type { StylePreset } from './stylePresets'
 import './newUi.css'
 
 const API = import.meta.env.VITE_API_BASE_URL || '/api'
+// Origin API-сервера для относительных media-URL из ответов backend
+// (в проде API='/api' → origin пуст и URL остаются относительными).
+const API_ORIGIN = API.endsWith('/api') ? API.slice(0, -'/api'.length) : ''
+
+function apiUrl(path: string): string {
+  return path.startsWith('/') ? `${API_ORIGIN}${path}` : path
+}
 
 // Auth: только trusted cookie session (credentials: include). Никаких legacy
 // заголовков, кук или клиентских идентификаторов — см. docs/new-ui-v2-plan.md.
@@ -99,69 +106,127 @@ const DEFAULT_PRESET_BY_KIND: Record<FormatId, string> = {
 }
 
 // ============================================================================
-// Лента (MVP, mock-данные). Референсы: izo_feed_visual_spec.md, Лента.html.
-// Backend ленты не существует — все данные и действия локальные (mock).
-// Изображения — существующие ассеты стилей проекта (/preset-previews).
+// Live Feed. Данные — реальный backend: GET /api/feed, публикации из галереи
+// (POST /api/feed/publications), реакции like/save/recreate. Референсы:
+// izo_feed_visual_spec.md, лента_izo_feed_documentation.md, Лента.html.
+// Челленджи/Подписки — честные placeholder-вкладки (backend будущей фазы).
 // ============================================================================
-type FeedTabId = 'all' | 'new' | 'remix' | 'challenge' | 'follow'
+type FeedTabId = 'all' | 'new' | 'top' | 'challenge' | 'follow'
 
-const FEED_TABS: Array<{ id: FeedTabId; label: string }> = [
-  { id: 'all', label: 'Для вас' },
-  { id: 'new', label: 'Новое' },
-  { id: 'remix', label: 'Remix' },
-  { id: 'challenge', label: 'Челленджи' },
-  { id: 'follow', label: 'Подписки' },
-]
+type FeedLang = 'ru' | 'en'
 
-interface FeedPost {
+// RU/EN тексты ленты. Главная кнопка по ТЗ: «Повторить» / "Recreate"
+// (не Remix); в detail — «Сделать похожее» / "Make similar".
+const FEED_I18N: Record<FeedLang, Record<string, string>> = {
+  ru: {
+    feed: 'Лента',
+    forYou: 'Для вас',
+    fresh: 'Новое',
+    top: 'Популярное',
+    challenges: 'Челленджи',
+    follows: 'Подписки',
+    recreate: 'Повторить',
+    makeSimilar: 'Сделать похожее',
+    save: 'Сохранить',
+    saved: 'Сохранено',
+    useStyle: 'Взять стиль',
+    publish: 'Опубликовать в ленту',
+    like: 'Нравится',
+    follow: 'Подписаться',
+    followed: 'Вы подписаны',
+    promptOpen: 'Промпт (открыт)',
+    promptPartial: 'Промпт частично',
+    promptHidden: 'Промпт скрыт автором',
+    showFull: 'Показать полностью',
+    collapse: 'Свернуть',
+    emptyTitle: 'В ленте пока нет работ',
+    emptyText: 'Опубликуйте своё изображение из галереи — станьте первым.',
+    errorTitle: 'Не удалось загрузить ленту',
+    retry: 'Повторить попытку',
+    generate: 'Сгенерировать',
+    openGallery: 'Открыть галерею',
+    soonTitle: 'Скоро',
+  },
+  en: {
+    feed: 'Feed',
+    forYou: 'For you',
+    fresh: 'New',
+    top: 'Top',
+    challenges: 'Challenges',
+    follows: 'Following',
+    recreate: 'Recreate',
+    makeSimilar: 'Make similar',
+    save: 'Save',
+    saved: 'Saved',
+    useStyle: 'Use style',
+    publish: 'Publish to feed',
+    like: 'Like',
+    follow: 'Follow',
+    followed: 'Following',
+    promptOpen: 'Prompt (open)',
+    promptPartial: 'Prompt partially open',
+    promptHidden: 'Prompt hidden by author',
+    showFull: 'Show full',
+    collapse: 'Collapse',
+    emptyTitle: 'No works in the feed yet',
+    emptyText: 'Publish an image from your gallery — be the first.',
+    errorTitle: 'Failed to load the feed',
+    retry: 'Retry',
+    generate: 'Generate',
+    openGallery: 'Open gallery',
+    soonTitle: 'Soon',
+  },
+}
+
+// Модель публикации = ответ GET /api/feed (snake_case backend-контракта).
+interface FeedPublication {
   id: string
+  image_url: string
+  thumbnail_url: string
+  user_id: string
+  author_name: string
   title: string
-  author: string
-  time: string
-  tag: string
-  tabs: FeedTabId[]
-  remixCount: number
-  saves: number
-  views: string
-  promptVisibility: 'open' | 'partial' | 'hidden'
-  prompt: string
-  /** id стиля из I2I_STYLES — «Использовать стиль» реально применяет его. */
-  styleId: string
-  params: { model: string; style: string; ratio: string; steps: number; cfg: number; seed: number }
-  image: string
-  shape: 'tall' | 'wide' | 'square'
+  description: string | null
+  prompt: string | null
+  prompt_visibility: 'open' | 'partial' | 'hidden'
+  allow_recreate: boolean
+  style: string | null
+  model: string | null
+  mode: string | null
+  aspect_ratio: string
+  resolution: string | null
+  seed: number | null
+  created_at: string
+  remix_count: number
+  save_count: number
+  like_count: number
+  is_liked_by_me: boolean
+  is_saved_by_me: boolean
+  is_mine: boolean
 }
 
-function feedImg(n: number, gender: 'female' | 'male'): string {
-  return `/preset-previews/i2i/${gender}/i2i-transform-${String(n).padStart(2, '0')}.webp`
+function feedTimeAgo(iso: string, lang: FeedLang): string {
+  const then = Date.parse(iso)
+  if (Number.isNaN(then)) return ''
+  const minutes = Math.max(1, Math.round((Date.now() - then) / 60000))
+  if (minutes < 60) return lang === 'ru' ? `${minutes} мин назад` : `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return lang === 'ru' ? `${hours} ч назад` : `${hours}h ago`
+  const days = Math.round(hours / 24)
+  return lang === 'ru' ? `${days} дн назад` : `${days}d ago`
 }
 
-function buildFeedPosts(gender: 'female' | 'male'): FeedPost[] {
-  const base: Array<Omit<FeedPost, 'image'> & { img: number }> = [
-    { id: 'p-cyber', title: 'Киберпанк Москва, дождь, неон', author: 'city_mood', time: '2 ч назад', tag: 'Тренд', tabs: ['all', 'remix', 'challenge'], remixCount: 128, saves: 3400, views: '24.1K', promptVisibility: 'open', prompt: 'Киберпанк Москва в дождь, неоновые вывески, мокрый асфальт с отражениями, люди с зонтиками, атмосфера нуар, кинематографичный свет.', styleId: 'i2i-transform-08', params: { model: 'ИЗО ACA v2.4', style: 'Киберпанк неон', ratio: '16:9', steps: 30, cfg: 6.5, seed: 812341 }, img: 8, shape: 'wide' },
-    { id: 'p-android', title: 'Андроид модель AX-9', author: 'neurocraft', time: '4 ч назад', tag: 'Открытый промпт', tabs: ['all', 'new', 'remix'], remixCount: 86, saves: 2100, views: '15.2K', promptVisibility: 'open', prompt: 'Белый андроид в стерильной лаборатории, мягкий холодный свет, детальная инженерия, крупный портрет.', styleId: 'i2i-transform-07', params: { model: 'ИЗО ACA v2.4', style: 'High-tech лаборатория', ratio: '1:1', steps: 30, cfg: 7, seed: 274401 }, img: 7, shape: 'tall' },
-    { id: 'p-eco', title: 'Эко-город будущего (проект 7Б)', author: 'art_school_7b', time: '6 ч назад', tag: 'Челлендж', tabs: ['all', 'challenge'], remixCount: 42, saves: 1200, views: '8.9K', promptVisibility: 'partial', prompt: 'Светлый эко-город: зелень, солнечные панели, чистый воздух, оптимистичное будущее.', styleId: 'i2i-transform-12', params: { model: 'ИЗО ACA v2.4', style: 'Соларпанк', ratio: '16:9', steps: 28, cfg: 6, seed: 550122 }, img: 12, shape: 'square' },
-    { id: 'p-paladin', title: 'Падший паладин', author: 'dragon_walker', time: '8 ч назад', tag: 'Тренд', tabs: ['all', 'remix'], remixCount: 93, saves: 2800, views: '19.4K', promptVisibility: 'partial', prompt: 'Тёмный рыцарь на заснеженном перевале, драматичное небо, эпическое фэнтези.', styleId: 'i2i-transform-18', params: { model: 'ИЗО ACA v2.4', style: 'Тёмное фэнтези', ratio: '9:16', steps: 32, cfg: 7.5, seed: 918273 }, img: 18, shape: 'tall' },
-    { id: 'p-islands', title: 'РПГ локация: Небесные острова', author: 'pixel_heroe', time: '1 ч назад', tag: 'Челлендж', tabs: ['all', 'new', 'challenge'], remixCount: 39, saves: 987, views: '5.1K', promptVisibility: 'open', prompt: 'Парящие острова с водопадами, древние башни, мягкий солнечный свет, игровая локация.', styleId: 'i2i-transform-19', params: { model: 'ИЗО ACA v2.4', style: 'Светлое фэнтези', ratio: '16:9', steps: 28, cfg: 6.5, seed: 130987 }, img: 19, shape: 'wide' },
-    { id: 'p-ussr', title: 'Плакат: Мы — первые!', author: 'poster_lab', time: '3 ч назад', tag: 'Открытый промпт', tabs: ['all', 'new', 'remix'], remixCount: 73, saves: 1700, views: '11.3K', promptVisibility: 'open', prompt: 'Космонавт в стиле советского плаката, смелая типографика форм, ретро-футуризм 60-х.', styleId: 'i2i-transform-11', params: { model: 'ИЗО ACA v2.4', style: 'Ретрофутуризм 60-х', ratio: '9:16', steps: 26, cfg: 6, seed: 660014 }, img: 11, shape: 'tall' },
-    { id: 'p-spring', title: 'Девушка-весна', author: 'mariya_ai', time: '5 ч назад', tag: 'Тренд', tabs: ['all', 'follow'], remixCount: 147, saves: 3900, views: '27.6K', promptVisibility: 'hidden', prompt: '', styleId: 'i2i-transform-03', params: { model: 'ИЗО ACA v2.4', style: 'Fashion editorial', ratio: '1:1', steps: 30, cfg: 7, seed: 43210 }, img: 3, shape: 'square' },
-    { id: 'p-noir', title: 'Фотостудия: парфюм Noir Éclat', author: 'product_viz', time: '7 ч назад', tag: 'Открытый промпт', tabs: ['all', 'remix', 'follow'], remixCount: 64, saves: 2200, views: '13.8K', promptVisibility: 'open', prompt: 'Флакон парфюма на тёмном камне, драматичный свет, премиальная продуктовая съёмка.', styleId: 'i2i-transform-02', params: { model: 'ИЗО ACA v2.4', style: 'Лакшери премиум', ratio: '1:1', steps: 30, cfg: 7, seed: 998877 }, img: 2, shape: 'square' },
-    { id: 'p-worlds', title: 'Замок в облаках', author: 'fantasy_worlds', time: '6 ч назад', tag: 'Remix-цепочка', tabs: ['all', 'remix'], remixCount: 112, saves: 2600, views: '17.9K', promptVisibility: 'partial', prompt: 'Величественный замок над морем облаков, рассвет, эпическая перспектива.', styleId: 'i2i-transform-20', params: { model: 'ИЗО ACA v2.4', style: 'Другой мир', ratio: '16:9', steps: 30, cfg: 6.5, seed: 775533 }, img: 20, shape: 'wide' },
-    { id: 'p-vintage', title: 'Утро старого города', author: 'vintage_vibes', time: '4 ч назад', tag: 'Новое', tabs: ['all', 'new'], remixCount: 12, saves: 340, views: '2.2K', promptVisibility: 'open', prompt: 'Узкая улица старого города на рассвете, мягкий туман, тёплый свет фонарей.', styleId: 'i2i-transform-16', params: { model: 'ИЗО ACA v2.4', style: 'Средневековая старина', ratio: '9:16', steps: 26, cfg: 6, seed: 220044 }, img: 16, shape: 'tall' },
-  ]
-  return base.map(({ img, ...rest }) => ({ ...rest, image: feedImg(img, gender) }))
+function feedCount(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n)
 }
 
-const FEED_CHALLENGE = {
-  title: 'Москва 2120',
-  text: 'Покажи, какой будет Москва через 100 лет.',
-  prize: '10 000 IZO',
-  timer: [
-    { v: '05', l: 'дней' },
-    { v: '14', l: 'часов' },
-    { v: '32', l: 'минут' },
-    { v: '47', l: 'секунд' },
-  ],
+// Форма карточки по соотношению сторон публикации.
+function feedShape(ratio: string): 'tall' | 'wide' | 'square' {
+  const parts = ratio.split(':').map(Number)
+  const w = parts[0]
+  const h = parts[1]
+  if (!w || !h || w === h) return 'square'
+  return w > h ? 'wide' : 'tall'
 }
 
 const JOB_ACTIVE = ['queued', 'running', 'uploading', 'sent_to_comfyui']
@@ -191,9 +256,11 @@ export default function NewStudio(): ReactElement {
   const [tab, setTabState] = useState<N2Tab>('feed')
   const [view, setView] = useState<N2View>('tabs')
 
+  // Канонический маршрут Ленты — /feed (короткий, из старого интерфейса);
+  // /new/feed остаётся рабочим синонимом.
   const setTab = useCallback((next: N2Tab) => {
     setTabState(next)
-    const target = next === 'feed' ? '/new/feed' : '/new'
+    const target = next === 'feed' ? '/feed' : '/new'
     if (window.location.pathname !== target) window.history.pushState(null, '', target)
   }, [])
   const { status: authStatus, me } = useAuthV2()
@@ -221,99 +288,190 @@ export default function NewStudio(): ReactElement {
   // Вкладка «Рисунок»: выбор режима (UX-структура; сам холст — отдельная фаза).
   const [paintMode, setPaintMode] = useState<'sketch' | 'mask' | 'expand'>('sketch')
 
-  // ---------- Лента (mock-state) ----------
-  const feedPosts = useMemo(() => buildFeedPosts(previewGender), [previewGender])
+  // ---------- Live Feed state ----------
+  // Язык ленты из профиля (RU по умолчанию — как весь /new).
+  const feedLang: FeedLang = me?.profile?.language_code === 'en' ? 'en' : 'ru'
+  const ft = FEED_I18N[feedLang]
+
+  const feedTabs: Array<{ id: FeedTabId; label: string }> = [
+    { id: 'all', label: ft.forYou },
+    { id: 'new', label: ft.fresh },
+    { id: 'top', label: ft.top },
+    { id: 'challenge', label: ft.challenges },
+    { id: 'follow', label: ft.follows },
+  ]
+
   const [feedTab, setFeedTab] = useState<FeedTabId>('all')
-  const [feedSelectedId, setFeedSelectedId] = useState<string>(feedPosts[0]?.id || '')
-  const [feedSaved, setFeedSaved] = useState<Set<string>>(() => new Set())
-  const [feedFollowed, setFeedFollowed] = useState<Set<string>>(() => new Set())
-  const [feedDetailOpen, setFeedDetailOpen] = useState(false) // mobile overlay
+  const [feedItems, setFeedItems] = useState<FeedPublication[]>([])
   const [feedLoading, setFeedLoading] = useState(true)
+  const [feedError, setFeedError] = useState(false)
+  const [feedSelectedId, setFeedSelectedId] = useState<string>('')
+  const [feedDetailOpen, setFeedDetailOpen] = useState(false) // mobile overlay
   const [feedPromptExpanded, setFeedPromptExpanded] = useState(false)
+  const [feedReload, setFeedReload] = useState(0)
   const [toastText, setToastText] = useState('')
   const toastTimerRef = useRef<number>(0)
+
+  // Публикация из галереи: модалка поверх просмотра изображения.
+  const [publishFor, setPublishFor] = useState<N2GalleryImage | null>(null)
+  const [publishTitle, setPublishTitle] = useState('')
+  const [publishVisibility, setPublishVisibility] = useState<'open' | 'partial' | 'hidden'>('open')
+  const [publishAllowRecreate, setPublishAllowRecreate] = useState(true)
+  const [publishBusy, setPublishBusy] = useState(false)
 
   const showToast = useCallback((text: string) => {
     setToastText(text)
     window.clearTimeout(toastTimerRef.current)
-    toastTimerRef.current = window.setTimeout(() => setToastText(''), 1900)
+    toastTimerRef.current = window.setTimeout(() => setToastText(''), 2100)
   }, [])
 
-  // Skeleton при первом открытии Ленты и при смене её вкладки (имитация загрузки).
-  // queueMicrotask — проектный паттерн против react-hooks/set-state-in-effect.
+  // Живая загрузка ленты. Вкладки: Для вас → top (персонализации пока нет),
+  // Новое → new, Популярное → top. Челленджи/Подписки — placeholder, не грузим.
   useEffect(() => {
     if (tab !== 'feed') return
-    queueMicrotask(() => setFeedLoading(true))
-    const t = window.setTimeout(() => setFeedLoading(false), 550)
-    return () => window.clearTimeout(t)
-  }, [tab, feedTab])
+    if (feedTab === 'challenge' || feedTab === 'follow') return
+    let cancelled = false
+    // queueMicrotask — проектный паттерн против react-hooks/set-state-in-effect.
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setFeedLoading(true)
+        setFeedError(false)
+      }
+    })
+    const apiType = feedTab === 'new' ? 'new' : 'top'
+    apiFetch(`/feed?type=${apiType}&limit=40`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data) => {
+        if (cancelled) return
+        const items: FeedPublication[] = Array.isArray(data?.items) ? data.items : []
+        setFeedItems(items)
+        setFeedSelectedId((cur) => (items.some((i) => i.id === cur) ? cur : items[0]?.id || ''))
+        setFeedLoading(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setFeedError(true)
+        setFeedLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [tab, feedTab, feedReload])
 
-  const feedVisible = useMemo(
-    () => (feedTab === 'all' ? feedPosts : feedPosts.filter((p) => p.tabs.includes(feedTab))),
-    [feedPosts, feedTab],
-  )
-  const feedSelected = feedPosts.find((p) => p.id === feedSelectedId) || feedVisible[0] || feedPosts[0]
+  const feedSelected = feedItems.find((p) => p.id === feedSelectedId) || feedItems[0]
 
-  const toggleFeedSave = (id: string) => {
+  const patchFeedItem = useCallback((updated: FeedPublication) => {
+    setFeedItems((cur) => cur.map((item) => (item.id === updated.id ? updated : item)))
+  }, [])
+
+  // Реальные реакции like/save: POST/DELETE, ответ содержит свежую публикацию.
+  const toggleFeedReaction = (post: FeedPublication, kind: 'like' | 'save') => {
     if (authStatus !== 'authed') {
       setAuthOpen(true)
       return
     }
-    setFeedSaved((cur) => {
-      const next = new Set(cur)
-      const added = !next.has(id)
-      if (added) next.add(id)
-      else next.delete(id)
-      showToast(added ? 'Сохранено в коллекцию (mock)' : 'Убрано из коллекции (mock)')
-      return next
-    })
+    const active = kind === 'like' ? post.is_liked_by_me : post.is_saved_by_me
+    apiFetch(`/feed/publications/${post.id}/${kind}`, { method: active ? 'DELETE' : 'POST' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((data) => {
+        if (data?.publication) patchFeedItem(data.publication)
+      })
+      .catch(() => showToast(feedLang === 'ru' ? 'Не удалось сохранить реакцию' : 'Reaction failed'))
   }
 
-  const toggleFeedFollow = (author: string) => {
+  // «Повторить»/«Сделать похожее»: prompt/format в генератор + счётчик recreate.
+  const startFeedRecreate = (post: FeedPublication) => {
     if (authStatus !== 'authed') {
       setAuthOpen(true)
       return
     }
-    setFeedFollowed((cur) => {
-      const next = new Set(cur)
-      const added = !next.has(author)
-      if (added) next.add(author)
-      else next.delete(author)
-      showToast(added ? `Вы подписались на @${author} (mock)` : `Подписка на @${author} снята (mock)`)
-      return next
-    })
-  }
-
-  // Remix: без API — префилл промпта в «Текст → Изо» (если промпт не скрыт).
-  const startFeedRemix = (post: FeedPost) => {
-    if (authStatus !== 'authed') {
-      setAuthOpen(true)
+    if (!post.allow_recreate) {
+      showToast(feedLang === 'ru' ? 'Автор запретил повторение этой работы' : 'Author disabled recreate')
       return
     }
+    // Счётчик — fire-and-forget; сама генерация идёт обычным /api/generate.
+    void apiFetch(`/feed/publications/${post.id}/recreate`, { method: 'POST' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.publication) patchFeedItem(data.publication)
+      })
+      .catch(() => undefined)
     appliedStyleRef.current = null
     setStyleId('')
-    if (post.promptVisibility !== 'hidden' && post.prompt) {
-      setPrompts((cur) => ({ ...cur, text: post.prompt }))
-      showToast('Remix подготовлен — промпт подставлен в генератор')
+    // Формат из соотношения работы.
+    const shape = feedShape(post.aspect_ratio)
+    setResolutionId(DEFAULT_PRESET_BY_KIND[shape === 'square' ? 'square' : shape === 'wide' ? 'horizontal' : 'vertical'])
+    if (post.prompt) {
+      setPrompts((cur) => ({ ...cur, text: post.prompt || '' }))
+      showToast(feedLang === 'ru' ? 'Промпт подставлен — генерируйте свою версию' : 'Prompt prefilled — generate your version')
     } else {
       setPrompts((cur) => ({ ...cur, text: '' }))
-      showToast('Промпт скрыт автором — Remix открыл генератор (mock)')
+      showToast(
+        feedLang === 'ru'
+          ? 'Промпт скрыт автором — опишите идею своими словами'
+          : 'Prompt is hidden — describe the idea in your own words',
+      )
     }
     setFeedDetailOpen(false)
     setTab('text')
   }
 
-  // «Использовать стиль»: стиль поста — реальный стиль из stylePresets.
-  const applyFeedStyle = (post: FeedPost) => {
-    const style = I2I_STYLES.find((s) => s.id === post.styleId)
+  // «Взять стиль»: style публикации мапится на реальный стиль stylePresets по
+  // имени; у старых генераций поле пустое — кнопка тогда не показывается.
+  const applyFeedStyle = (post: FeedPublication) => {
+    const style = post.style ? I2I_STYLES.find((s) => s.name === post.style || s.id === post.style) : undefined
     if (!style) {
-      showToast('Стиль недоступен (mock)')
+      showToast(feedLang === 'ru' ? 'У этой работы стиль не размечен' : 'This work has no tagged style')
       return
     }
     setFeedDetailOpen(false)
     setTab('text')
     applyStyleTo('text', style)
-    showToast(`Стиль «${style.name}» применён в генераторе`)
+    showToast(feedLang === 'ru' ? `Стиль «${style.name}» применён` : `Style "${style.name}" applied`)
+  }
+
+  // Публикация выбранного изображения галереи.
+  const openPublish = (item: N2GalleryImage) => {
+    if (authStatus !== 'authed') {
+      setAuthOpen(true)
+      return
+    }
+    setPublishTitle(item.promptOriginal.slice(0, 60) || (feedLang === 'ru' ? 'Моя работа' : 'My work'))
+    setPublishVisibility('open')
+    setPublishAllowRecreate(true)
+    setPublishFor(item)
+  }
+
+  const submitPublish = () => {
+    if (!publishFor || publishBusy) return
+    const title = publishTitle.trim()
+    if (!title) {
+      showToast(feedLang === 'ru' ? 'Укажите название' : 'Title is required')
+      return
+    }
+    setPublishBusy(true)
+    apiFetch('/feed/publications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageId: publishFor.id,
+        title,
+        promptVisibility: publishVisibility,
+        allowRecreate: publishAllowRecreate,
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then(() => {
+        setPublishFor(null)
+        setGalleryItem(undefined)
+        setFeedReload((n) => n + 1)
+        setView('tabs')
+        setTab('feed')
+        setFeedTab('new')
+        showToast(feedLang === 'ru' ? 'Опубликовано в ленту' : 'Published to feed')
+      })
+      .catch(() => showToast(feedLang === 'ru' ? 'Не удалось опубликовать' : 'Publish failed'))
+      .finally(() => setPublishBusy(false))
   }
 
   const [job, setJob] = useState<N2Job>()
@@ -992,11 +1150,11 @@ export default function NewStudio(): ReactElement {
     </section>
   )
 
-  // ---------- Лента: карточка публикации ----------
-  const feedCard = (post: FeedPost) => (
+  // ---------- Live Feed: карточка публикации ----------
+  const feedCard = (post: FeedPublication) => (
     <article
       key={post.id}
-      className={`nf-card ${post.shape}${feedSelected?.id === post.id ? ' selected' : ''}`}
+      className={`nf-card ${feedShape(post.aspect_ratio)}${feedSelected?.id === post.id ? ' selected' : ''}`}
       onClick={() => {
         setFeedSelectedId(post.id)
         setFeedPromptExpanded(false)
@@ -1004,21 +1162,24 @@ export default function NewStudio(): ReactElement {
       }}
     >
       <div className="nf-card-image">
-        <img src={post.image} alt={post.title} loading="lazy" />
-        <span className="nf-tag">{post.tag}</span>
+        <img src={apiUrl(post.image_url)} alt={post.title} loading="lazy" />
+        {post.prompt_visibility === 'open' && (
+          <span className="nf-tag">{feedLang === 'ru' ? 'Открытый промпт' : 'Open prompt'}</span>
+        )}
+        {post.is_mine && <span className="nf-tag mine">{feedLang === 'ru' ? 'Ваша работа' : 'Yours'}</span>}
       </div>
       <div className="nf-card-body">
         <div className="nf-author">
-          <span className="nf-avatar" aria-hidden="true">{post.author[0].toUpperCase()}</span>
+          <span className="nf-avatar" aria-hidden="true">{(post.author_name[0] || 'A').toUpperCase()}</span>
           <span className="nf-author-text">
-            <strong>{post.author}</strong>
-            <span>{post.time}</span>
+            <strong>{post.author_name}</strong>
+            <span>{feedTimeAgo(post.created_at, feedLang)}</span>
           </span>
         </div>
         <h3>{post.title}</h3>
         <div className="nf-stats">
-          <span>⟳ {post.remixCount} remix</span>
-          <span>▣ {post.saves >= 1000 ? `${(post.saves / 1000).toFixed(1)}K` : post.saves} сохр.</span>
+          <span>⟳ {feedCount(post.remix_count)}</span>
+          <span>▣ {feedCount(post.save_count)}</span>
         </div>
         <div className="nf-card-actions">
           <button
@@ -1026,153 +1187,151 @@ export default function NewStudio(): ReactElement {
             type="button"
             onClick={(e) => {
               e.stopPropagation()
-              startFeedRemix(post)
+              startFeedRecreate(post)
             }}
           >
-            ⟳ Remix
+            ⟳ {ft.recreate}
           </button>
           <button
-            className={`nf-save${feedSaved.has(post.id) ? ' active' : ''}`}
+            className={`nf-save${post.is_liked_by_me ? ' active' : ''}`}
             type="button"
-            aria-label="Сохранить"
+            aria-label={ft.like}
+            title={ft.like}
             onClick={(e) => {
               e.stopPropagation()
-              toggleFeedSave(post.id)
+              toggleFeedReaction(post, 'like')
             }}
           >
-            {feedSaved.has(post.id) ? '♥' : '♡'}
+            {post.is_liked_by_me ? '♥' : '♡'}{post.like_count > 0 ? ` ${feedCount(post.like_count)}` : ''}
           </button>
           <button
-            className="nf-menu"
+            className={`nf-save${post.is_saved_by_me ? ' active' : ''}`}
             type="button"
-            aria-label="Меню"
+            aria-label={ft.save}
+            title={ft.save}
             onClick={(e) => {
               e.stopPropagation()
-              showToast('Скрыть · Пожаловаться · Ссылка — скоро (mock)')
+              toggleFeedReaction(post, 'save')
             }}
           >
-            ⋯
+            {post.is_saved_by_me ? '▣' : '▢'}
           </button>
         </div>
       </div>
     </article>
   )
 
-  // ---------- Лента: панель подробностей ----------
+  // ---------- Live Feed: панель подробностей ----------
   const feedDetail = feedSelected && (
     <div className="nf-detail-scroll">
       <div className="nf-detail-image">
-        <img src={feedSelected.image} alt={feedSelected.title} />
-        <span className="nf-ai-label">Сгенерировано ИИ</span>
+        <img src={apiUrl(feedSelected.image_url)} alt={feedSelected.title} />
+        <span className="nf-ai-label">{feedLang === 'ru' ? 'Сгенерировано ИИ' : 'AI-generated'}</span>
       </div>
       <div className="nf-detail-author">
         <div className="nf-author">
-          <span className="nf-avatar big" aria-hidden="true">{feedSelected.author[0].toUpperCase()}</span>
+          <span className="nf-avatar big" aria-hidden="true">{(feedSelected.author_name[0] || 'A').toUpperCase()}</span>
           <span className="nf-author-text">
-            <strong>{feedSelected.author}</strong>
-            <span>{feedSelected.time}</span>
+            <strong>{feedSelected.author_name}</strong>
+            <span>{feedTimeAgo(feedSelected.created_at, feedLang)}</span>
           </span>
         </div>
+        {/* Подписки — backend будущей фазы: honest placeholder-кнопка. */}
         <button
-          className={`nf-follow${feedFollowed.has(feedSelected.author) ? ' active' : ''}`}
+          className="nf-follow"
           type="button"
-          onClick={() => toggleFeedFollow(feedSelected.author)}
+          onClick={() => showToast(feedLang === 'ru' ? 'Подписки скоро появятся' : 'Follows are coming soon')}
         >
-          {feedFollowed.has(feedSelected.author) ? '✓ Вы подписаны' : 'Подписаться'}
+          {ft.follow}
         </button>
       </div>
       <h2 className="nf-detail-title">{feedSelected.title}</h2>
       <div className="nf-stats">
-        <span>⟳ {feedSelected.remixCount} remix</span>
-        <span>▣ {feedSelected.saves >= 1000 ? `${(feedSelected.saves / 1000).toFixed(1)}K` : feedSelected.saves} сохр.</span>
-        <span>◉ {feedSelected.views} просмотров</span>
+        <span>⟳ {feedCount(feedSelected.remix_count)} {ft.recreate.toLowerCase()}</span>
+        <span>♥ {feedCount(feedSelected.like_count)}</span>
+        <span>▣ {feedCount(feedSelected.save_count)}</span>
       </div>
       <div className="nf-prompt">
         <strong>
-          {feedSelected.promptVisibility === 'open'
-            ? 'Промпт (открыт)'
-            : feedSelected.promptVisibility === 'partial'
-              ? 'Промпт частично'
-              : 'Промпт скрыт автором'}
+          {feedSelected.prompt_visibility === 'open'
+            ? ft.promptOpen
+            : feedSelected.prompt_visibility === 'partial'
+              ? ft.promptPartial
+              : ft.promptHidden}
         </strong>
-        {feedSelected.promptVisibility !== 'hidden' && (
+        {feedSelected.prompt && (
           <>
             <span className={feedPromptExpanded ? '' : 'clamped'}>{feedSelected.prompt}</span>
             <button className="nf-more" type="button" onClick={() => setFeedPromptExpanded((v) => !v)}>
-              {feedPromptExpanded ? 'Свернуть' : 'Показать полностью'}
+              {feedPromptExpanded ? ft.collapse : ft.showFull}
             </button>
           </>
         )}
       </div>
       <div className="nf-params">
-        <div className="nf-param"><span>Модель</span><strong>{feedSelected.params.model}</strong></div>
-        <div className="nf-param"><span>Стиль</span><strong>{feedSelected.params.style}</strong></div>
-        <div className="nf-param"><span>Соотношение</span><strong>{feedSelected.params.ratio}</strong></div>
-        <div className="nf-param"><span>Шаги</span><strong>{feedSelected.params.steps}</strong></div>
-        <div className="nf-param"><span>CFG</span><strong>{feedSelected.params.cfg}</strong></div>
-        <div className="nf-param"><span>Seed</span><strong>{feedSelected.params.seed}</strong></div>
-      </div>
-      <div className="nf-remix-tree">
-        <div className="nf-label-row">
-          <strong>Дерево ремиксов</strong>
-          <span>{feedSelected.remixCount} remix</span>
-        </div>
-        <div className="nf-remix-chain">
-          {feedPosts
-            .filter((p) => p.id !== feedSelected.id)
-            .slice(0, 4)
-            .map((p, i) => (
-              <span key={p.id} className="nf-remix-node">
-                <img src={p.image} alt="" loading="lazy" onClick={() => setFeedSelectedId(p.id)} />
-                {i < 3 && <em aria-hidden="true">→</em>}
-              </span>
-            ))}
-        </div>
+        <div className="nf-param"><span>{feedLang === 'ru' ? 'Модель' : 'Model'}</span><strong>{feedSelected.model || '—'}</strong></div>
+        <div className="nf-param"><span>{feedLang === 'ru' ? 'Стиль' : 'Style'}</span><strong>{feedSelected.style || '—'}</strong></div>
+        <div className="nf-param"><span>{feedLang === 'ru' ? 'Соотношение' : 'Ratio'}</span><strong>{feedSelected.aspect_ratio}</strong></div>
+        <div className="nf-param"><span>{feedLang === 'ru' ? 'Разрешение' : 'Resolution'}</span><strong>{feedSelected.resolution || '—'}</strong></div>
+        <div className="nf-param"><span>Seed</span><strong>{feedSelected.seed ?? '—'}</strong></div>
+        <div className="nf-param"><span>{feedLang === 'ru' ? 'Режим' : 'Mode'}</span><strong>{feedSelected.mode || '—'}</strong></div>
       </div>
       <div className="nf-detail-actions">
-        <button className="nf-remix" type="button" onClick={() => startFeedRemix(feedSelected)}>
-          ⟳ Remix
+        <button className="nf-remix" type="button" onClick={() => startFeedRecreate(feedSelected)}>
+          ⟳ {ft.makeSimilar}
         </button>
         <button
-          className={`nf-secondary${feedSaved.has(feedSelected.id) ? ' saved' : ''}`}
+          className={`nf-secondary${feedSelected.is_saved_by_me ? ' saved' : ''}`}
           type="button"
-          onClick={() => toggleFeedSave(feedSelected.id)}
+          onClick={() => toggleFeedReaction(feedSelected, 'save')}
         >
-          {feedSaved.has(feedSelected.id) ? '♥ Сохранено' : '♡ Сохранить'}
+          {feedSelected.is_saved_by_me ? `▣ ${ft.saved}` : `▢ ${ft.save}`}
         </button>
-        <button className="nf-purple" type="button" onClick={() => applyFeedStyle(feedSelected)}>
-          ✦ Использовать стиль
-        </button>
+        {feedSelected.style && I2I_STYLES.some((s) => s.name === feedSelected.style || s.id === feedSelected.style) && (
+          <button className="nf-purple" type="button" onClick={() => applyFeedStyle(feedSelected)}>
+            ✦ {ft.useStyle}
+          </button>
+        )}
       </div>
     </div>
   )
 
-  // ---------- Лента: страница ----------
+  // ---------- Live Feed: страница ----------
+  const feedPlaceholderTab = feedTab === 'challenge' || feedTab === 'follow'
+
   const feed = (
-    <section className="nf-page" aria-label="Лента сообщества">
+    <section className="nf-page" aria-label={ft.feed}>
       <div className="nf-main n2-panel">
         <div className="nf-head">
-          <nav className="nf-tabs" aria-label="Вкладки ленты">
-            {FEED_TABS.map((ft) => (
+          <nav className="nf-tabs" aria-label={ft.feed}>
+            {feedTabs.map((tabDef) => (
               <button
-                key={ft.id}
-                className={`nf-tab${feedTab === ft.id ? ' active' : ''}`}
+                key={tabDef.id}
+                className={`nf-tab${feedTab === tabDef.id ? ' active' : ''}`}
                 type="button"
-                onClick={() => setFeedTab(ft.id)}
+                onClick={() => setFeedTab(tabDef.id)}
               >
-                {ft.label}
+                {tabDef.label}
               </button>
             ))}
           </nav>
-          <div className="nf-activity" aria-label="Активность сообщества">
-            <span><i className="nf-dot" /> 24 891 онлайн</span>
-            <span>1 280 новых работ сегодня</span>
-            <span className="nf-activity-trend">Тренд: «киберпанк москва дождь неон»</span>
-            <span className="nf-activity-mock">демо-данные</span>
-          </div>
         </div>
         <div className="nf-grid-scroll">
-          {feedLoading ? (
+          {feedPlaceholderTab ? (
+            <div className="nf-empty">
+              <span className="icon">✦</span>
+              <h3>{ft.soonTitle}</h3>
+              <p>
+                {feedTab === 'challenge'
+                  ? feedLang === 'ru'
+                    ? 'Челленджи с призовым фондом появятся в следующей фазе.'
+                    : 'Challenges with prize pools arrive in the next phase.'
+                  : feedLang === 'ru'
+                    ? 'Подписки на авторов появятся в следующей фазе.'
+                    : 'Author follows arrive in the next phase.'}
+              </p>
+            </div>
+          ) : feedLoading ? (
             <div className="nf-grid" aria-hidden="true">
               {Array.from({ length: 8 }).map((_, i) => (
                 <div key={i} className={`nf-card nf-skeleton ${i % 3 === 0 ? 'tall' : i % 3 === 1 ? 'wide' : 'square'}`}>
@@ -1184,68 +1343,57 @@ export default function NewStudio(): ReactElement {
                 </div>
               ))}
             </div>
-          ) : feedVisible.length === 0 ? (
+          ) : feedError ? (
+            <div className="nf-empty">
+              <span className="icon error">!</span>
+              <h3>{ft.errorTitle}</h3>
+              <div className="nf-empty-actions">
+                <button className="nf-remix" type="button" onClick={() => setFeedReload((n) => n + 1)}>
+                  {ft.retry}
+                </button>
+              </div>
+            </div>
+          ) : feedItems.length === 0 ? (
             <div className="nf-empty">
               <span className="icon">▧</span>
-              <h3>{feedTab === 'follow' ? 'Вы пока ни на кого не подписаны' : 'Пока здесь нет работ'}</h3>
-              <p>Сгенерируйте изображение или откройте челлендж — лента оживёт.</p>
+              <h3>{ft.emptyTitle}</h3>
+              <p>{ft.emptyText}</p>
               <div className="nf-empty-actions">
-                <button className="nf-remix" type="button" onClick={() => setTab('text')}>
-                  Сгенерировать
+                <button className="nf-remix" type="button" onClick={() => setView('gallery')}>
+                  {ft.openGallery}
                 </button>
-                <button className="nf-secondary" type="button" onClick={() => setFeedTab('challenge')}>
-                  Открыть челленджи
+                <button className="nf-secondary" type="button" onClick={() => setTab('text')}>
+                  {ft.generate}
                 </button>
               </div>
             </div>
           ) : (
-            <div className="nf-grid">{feedVisible.map(feedCard)}</div>
+            <div className="nf-grid">{feedItems.map(feedCard)}</div>
           )}
         </div>
       </div>
 
-      <aside className={`nf-detail n2-panel${feedDetailOpen ? ' open' : ''}`} aria-label="Подробности работы">
-        <button className="nf-detail-close" type="button" aria-label="Закрыть" onClick={() => setFeedDetailOpen(false)}>
-          ‹ Назад к ленте
+      <aside className={`nf-detail n2-panel${feedDetailOpen ? ' open' : ''}`} aria-label={ft.feed}>
+        <button className="nf-detail-close" type="button" aria-label="Close" onClick={() => setFeedDetailOpen(false)}>
+          ‹ {feedLang === 'ru' ? 'Назад к ленте' : 'Back to feed'}
         </button>
-        <div className="nf-challenge">
-          <span className="nf-challenge-chip">Челлендж недели · демо</span>
-          <h3>{FEED_CHALLENGE.title}</h3>
-          <p>
-            {FEED_CHALLENGE.text} Призовой фонд: <strong>{FEED_CHALLENGE.prize}</strong>.
-          </p>
-          <div className="nf-timer">
-            {FEED_CHALLENGE.timer.map((t) => (
-              <span key={t.l} className="nf-time-cell">
-                <strong>{t.v}</strong>
-                <em>{t.l}</em>
-              </span>
-            ))}
+        {feedDetail || (
+          <div className="nf-empty">
+            <span className="icon">▧</span>
+            <h3>{ft.emptyTitle}</h3>
           </div>
-          <button
-            className="nf-remix"
-            type="button"
-            onClick={() => {
-              setPrompts((cur) => ({ ...cur, text: `${FEED_CHALLENGE.title}: ${FEED_CHALLENGE.text}` }))
-              setTab('text')
-              showToast('Тема челленджа подставлена в генератор (mock)')
-            }}
-          >
-            Участвовать
-          </button>
-        </div>
-        {feedDetail}
+        )}
       </aside>
 
-      <nav className="nf-mobile-nav" aria-label="Мобильная навигация">
+      <nav className="nf-mobile-nav" aria-label={feedLang === 'ru' ? 'Мобильная навигация' : 'Mobile navigation'}>
         <button type="button" onClick={() => setTab('text')}>
           <i>⌂</i>ИЗО
         </button>
         <button className="active" type="button" onClick={() => setFeedDetailOpen(false)}>
-          <i>▦</i>Лента
+          <i>▦</i>{ft.feed}
         </button>
         <button type="button" onClick={() => setView('gallery')}>
-          <i>▧</i>Галерея
+          <i>▧</i>{feedLang === 'ru' ? 'Галерея' : 'Gallery'}
         </button>
         <button
           type="button"
@@ -1254,10 +1402,10 @@ export default function NewStudio(): ReactElement {
             setFeedDetailOpen(false)
           }}
         >
-          <i>✦</i>Челленджи
+          <i>✦</i>{ft.challenges}
         </button>
         <button type="button" onClick={() => setAuthOpen(true)}>
-          <i>○</i>Профиль
+          <i>○</i>{feedLang === 'ru' ? 'Профиль' : 'Profile'}
         </button>
       </nav>
     </section>
@@ -1523,6 +1671,51 @@ export default function NewStudio(): ReactElement {
                 }}
               >
                 → В Изо → Изо
+              </button>
+              <button className="n2-ghost purple" type="button" onClick={() => openPublish(galleryItem)}>
+                ✦ {ft.publish}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {publishFor && (
+        <div className="n2-overlay" role="dialog" aria-label={ft.publish} onClick={() => setPublishFor(null)}>
+          <div className="n2-overlay-card" onClick={(e) => e.stopPropagation()}>
+            <button className="n2-overlay-close" type="button" aria-label="Закрыть" onClick={() => setPublishFor(null)}>
+              ×
+            </button>
+            <h2>{ft.publish}</h2>
+            <img className="nf-publish-preview" src={publishFor.thumbnailUrl || publishFor.url} alt="" />
+            <label className="nf-publish-field">
+              <span>{feedLang === 'ru' ? 'Название' : 'Title'}</span>
+              <input
+                type="text"
+                maxLength={120}
+                value={publishTitle}
+                onChange={(e) => setPublishTitle(e.target.value)}
+              />
+            </label>
+            <label className="nf-publish-field">
+              <span>{feedLang === 'ru' ? 'Видимость промпта' : 'Prompt visibility'}</span>
+              <select value={publishVisibility} onChange={(e) => setPublishVisibility(e.target.value as 'open' | 'partial' | 'hidden')}>
+                <option value="open">{feedLang === 'ru' ? 'Открытый' : 'Open'}</option>
+                <option value="partial">{feedLang === 'ru' ? 'Частично' : 'Partial'}</option>
+                <option value="hidden">{feedLang === 'ru' ? 'Скрыт' : 'Hidden'}</option>
+              </select>
+            </label>
+            <label className="nf-publish-check">
+              <input
+                type="checkbox"
+                checked={publishAllowRecreate}
+                onChange={(e) => setPublishAllowRecreate(e.target.checked)}
+              />
+              <span>{feedLang === 'ru' ? `Разрешить «${ft.recreate}»` : `Allow "${ft.recreate}"`}</span>
+            </label>
+            <div className="n2-overlay-actions">
+              <button className="nf-remix" type="button" disabled={publishBusy} onClick={submitPublish}>
+                {publishBusy ? '…' : ft.publish}
               </button>
             </div>
           </div>
