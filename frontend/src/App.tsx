@@ -212,6 +212,12 @@ async function apiFetch(path: string, init: RequestInit = {}) {
   return response
 }
 
+// Лента-эндпоинты — только trusted cookie session, без legacy-заголовка
+// (feed backend не доверяет X-OneNode-User). Используется публикацией из галереи.
+function feedFetch(path: string, init: RequestInit = {}) {
+  return fetch(`${API}${path}`, { ...init, credentials: 'include' })
+}
+
 const modes: Array<{ id: Mode; ru: string; en: string; shortRu: string; shortEn: string }> = [
   { id: 'text_to_image', ru: 'Текст стрелка вправо Изо', en: 'Text arrow right Image', shortRu: 'Текст → Изо', shortEn: 'Text → Img' },
   { id: 'image_to_image', ru: 'Изо стрелка вправо Изо', en: 'Image arrow right Image', shortRu: 'Изо → Изо', shortEn: 'Img → Img' },
@@ -235,6 +241,16 @@ const t = {
     advanced: 'Расширенные настройки',
     gallery: 'Галерея',
     feed: 'Лента',
+    publishToFeed: 'Опубликовать в ленту',
+    publishTitleLabel: 'Название',
+    promptVisibilityLabel: 'Видимость промпта',
+    visOpen: 'Открытый',
+    visPartial: 'Частично',
+    visHidden: 'Скрыт',
+    allowRecreate: 'Разрешить «Повторить»',
+    publishAction: 'Опубликовать',
+    published: 'Опубликовано в ленту',
+    goToFeed: 'Перейти в ленту',
     presets: 'Пресеты',
     settings: 'Настройки',
     admin: 'Админ',
@@ -349,6 +365,16 @@ const t = {
     advanced: 'Advanced controls',
     gallery: 'Gallery',
     feed: 'Feed',
+    publishToFeed: 'Publish to feed',
+    publishTitleLabel: 'Title',
+    promptVisibilityLabel: 'Prompt visibility',
+    visOpen: 'Open',
+    visPartial: 'Partial',
+    visHidden: 'Hidden',
+    allowRecreate: 'Allow "Recreate"',
+    publishAction: 'Publish',
+    published: 'Published to feed',
+    goToFeed: 'Open feed',
     presets: 'Presets',
     settings: 'Settings',
     admin: 'Admin',
@@ -747,6 +773,17 @@ function App() {
   useEffect(() => {
     document.title = 'ИЗО_АСА'
   }, [])
+  // Из Ленты «Открыть галерею» ведёт на /?open=gallery — открываем реальную
+  // рабочую галерею старого интерфейса и убираем параметр из адреса.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('open') === 'gallery') {
+      queueMicrotask(() => setTab('gallery'))
+      params.delete('open')
+      const rest = params.toString()
+      window.history.replaceState(null, '', `/${rest ? `?${rest}` : ''}`)
+    }
+  }, [])
   const [paintLines, setPaintLines] = useState<PaintLine[]>([])
   const [maskLines, setMaskLines] = useState<PaintLine[]>([])
   const [canvasSnapshot, setCanvasSnapshot] = useState<string>()
@@ -809,7 +846,10 @@ function App() {
   // UI 2.0: experimental /new route (docs/new-ui-v2-plan.md). Minimal hook only.
   const newUiRoute = pathName === '/new' || pathName.startsWith('/new/')
   // Live Feed: короткий маршрут /feed открывает Ленту нового UI.
-  const feedRoute = pathName === '/feed' || pathName.startsWith('/feed/')
+  // Лента: /feed (канонический) + /lenta (русский alias). Оба ведут в NewStudio;
+  // сам NewStudio нормализует адрес на /feed.
+  const feedRoute =
+    pathName === '/feed' || pathName.startsWith('/feed/') || pathName === '/lenta' || pathName.startsWith('/lenta/')
 
   useEffect(() => {
     const onPopState = () => setPathName(window.location.pathname)
@@ -2318,6 +2358,53 @@ function JobCard({ job, copy, cancelJob, sendImage, mode, beforeImage, loadingBa
 function GalleryView({ copy, images, quota, selected, setSelected, handleUseImageAs, refreshGallery, clearSelected, backToStudio, view, setView, sendImage, pickSlot = null, onPickForSlot, cancelPick }: { copy: Copy; images: GalleryImage[]; quota?: GalleryQuota; selected?: GalleryImage; setSelected: (image: GalleryImage) => void; handleUseImageAs: (image: GalleryImage, target: Mode, slot?: number) => void; refreshGallery: () => Promise<void>; clearSelected: () => void; backToStudio: () => void; view: 'grid' | 'list'; setView: (view: 'grid' | 'list') => void; sendImage: (platform: 'telegram' | 'max', imageId?: string) => void; pickSlot?: number | null; onPickForSlot?: (image: GalleryImage) => void; cancelPick?: () => void }) {
   const picking = pickSlot !== null
   const [galleryMsg, setGalleryMsg] = useState('')
+  // Публикация выбранного изображения в Ленту (feed backend, cookie-сессия).
+  const [publishOpen, setPublishOpen] = useState(false)
+  const [publishTitle, setPublishTitle] = useState('')
+  const [publishVisibility, setPublishVisibility] = useState<'open' | 'partial' | 'hidden'>('open')
+  const [publishAllow, setPublishAllow] = useState(true)
+  const [publishBusy, setPublishBusy] = useState(false)
+  const [publishDone, setPublishDone] = useState(false)
+
+  function openPublish(image: GalleryImage) {
+    setPublishTitle(image.promptOriginal.slice(0, 60) || 'Моя работа')
+    setPublishVisibility('open')
+    setPublishAllow(true)
+    setPublishDone(false)
+    setPublishOpen(true)
+  }
+
+  async function submitPublish(image: GalleryImage) {
+    const title = publishTitle.trim()
+    if (!title || publishBusy) return
+    setPublishBusy(true)
+    try {
+      const response = await feedFetch('/feed/publications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageId: image.id,
+          title,
+          promptVisibility: publishVisibility,
+          allowRecreate: publishAllow,
+        }),
+      })
+      if (response.status === 401 || response.status === 403) {
+        setGalleryMsg('Войдите, чтобы публиковать работы.')
+        setPublishOpen(false)
+        return
+      }
+      if (!response.ok) {
+        setGalleryMsg('Не удалось опубликовать. Попробуйте ещё раз.')
+        return
+      }
+      setPublishDone(true)
+    } catch {
+      setGalleryMsg('Проблема соединения. Попробуйте ещё раз.')
+    } finally {
+      setPublishBusy(false)
+    }
+  }
   const useOptions: Array<{ label: string; target: Mode; slot?: number }> = [
     { label: copy.useAsImageToImage, target: 'image_to_image' },
     { label: copy.useAsEditOne, target: 'edit', slot: 1 },
@@ -2440,12 +2527,49 @@ function GalleryView({ copy, images, quota, selected, setSelected, handleUseImag
               <div className="gallery-modal-actions">
                 <button className="secondary" onClick={() => void toggleFavorite(selected)}><Heart className={selected.isFavorite ? 'fav' : ''} size={16} />{copy.favorite}</button>
                 <a className="secondary" href={selected.url} download><Download size={16} />{copy.download}</a>
+                <button className="secondary publish-to-feed" onClick={() => openPublish(selected)}><Sparkles size={16} />{copy.publishToFeed}</button>
                 <button className="secondary" onClick={() => void shareSelected(selected)}>Скопировать ссылку</button>
                 <button className="secondary" disabled title="Отправка в Telegram требует привязанный чат">Telegram</button>
                 <button className="secondary" disabled title="MAX отправка требует привязанный чат">MAX</button>
                 <button className="secondary danger" onClick={() => void deleteImage(selected)}><Trash2 size={16} />{copy.delete}</button>
               </div>
               {galleryMsg && <p className="gallery-msg">{galleryMsg}</p>}
+              {publishOpen && (
+                <div className="publish-modal-backdrop" onClick={() => setPublishOpen(false)}>
+                  <div className="publish-modal" role="dialog" aria-label={copy.publishToFeed} onClick={(e) => e.stopPropagation()}>
+                    <button className="floating-clear" aria-label="Закрыть" onClick={() => setPublishOpen(false)}><X size={16} /></button>
+                    <strong>{copy.publishToFeed}</strong>
+                    {publishDone ? (
+                      <div className="publish-done">
+                        <p>{copy.published}</p>
+                        <button className="generate small-action" onClick={() => { window.location.href = '/feed' }}>{copy.goToFeed}</button>
+                      </div>
+                    ) : (
+                      <>
+                        <label className="publish-field">
+                          <span>{copy.publishTitleLabel}</span>
+                          <input type="text" maxLength={120} value={publishTitle} onChange={(e) => setPublishTitle(e.target.value)} />
+                        </label>
+                        <label className="publish-field">
+                          <span>{copy.promptVisibilityLabel}</span>
+                          <select value={publishVisibility} onChange={(e) => setPublishVisibility(e.target.value as 'open' | 'partial' | 'hidden')}>
+                            <option value="open">{copy.visOpen}</option>
+                            <option value="partial">{copy.visPartial}</option>
+                            <option value="hidden">{copy.visHidden}</option>
+                          </select>
+                        </label>
+                        <label className="publish-check">
+                          <input type="checkbox" checked={publishAllow} onChange={(e) => setPublishAllow(e.target.checked)} />
+                          <span>{copy.allowRecreate}</span>
+                        </label>
+                        <button className="generate small-action" disabled={publishBusy || !publishTitle.trim()} onClick={() => void submitPublish(selected)}>
+                          {publishBusy ? '…' : copy.publishAction}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         </div>
