@@ -139,8 +139,12 @@ const FEED_I18N: Record<FeedLang, Record<string, string>> = {
     promptHidden: 'Промпт скрыт автором',
     showFull: 'Показать полностью',
     collapse: 'Свернуть',
-    emptyTitle: 'В ленте пока нет работ',
-    emptyText: 'Опубликуйте своё изображение из галереи — станьте первым.',
+    emptyTitle: 'Лента пока пустая',
+    emptyText: 'Опубликуйте первую работу из Галереи.',
+    notAuthTitle: 'Войдите, чтобы публиковать работы и сохранять идеи',
+    notAuthText: 'Вход через Telegram или MAX.',
+    login: 'Войти',
+    createImage: 'Создать изображение',
     errorTitle: 'Не удалось загрузить ленту',
     retry: 'Повторить попытку',
     generate: 'Сгенерировать',
@@ -168,8 +172,12 @@ const FEED_I18N: Record<FeedLang, Record<string, string>> = {
     promptHidden: 'Prompt hidden by author',
     showFull: 'Show full',
     collapse: 'Collapse',
-    emptyTitle: 'No works in the feed yet',
-    emptyText: 'Publish an image from your gallery — be the first.',
+    emptyTitle: 'The feed is empty for now',
+    emptyText: 'Publish your first work from the Gallery.',
+    notAuthTitle: 'Sign in to publish works and save ideas',
+    notAuthText: 'Sign in with Telegram or MAX.',
+    login: 'Sign in',
+    createImage: 'Create image',
     errorTitle: 'Failed to load the feed',
     retry: 'Retry',
     generate: 'Generate',
@@ -309,6 +317,11 @@ export default function NewStudio(): ReactElement {
   const [feedDetailOpen, setFeedDetailOpen] = useState(false) // mobile overlay
   const [feedPromptExpanded, setFeedPromptExpanded] = useState(false)
   const [feedReload, setFeedReload] = useState(0)
+  // id публикаций с недоступным файлом — показываем error-state, не чёрный блок.
+  const [feedBroken, setFeedBroken] = useState<Set<string>>(() => new Set())
+  const markFeedBroken = useCallback((id: string) => {
+    setFeedBroken((cur) => (cur.has(id) ? cur : new Set(cur).add(id)))
+  }, [])
   const [toastText, setToastText] = useState('')
   const toastTimerRef = useRef<number>(0)
 
@@ -323,6 +336,12 @@ export default function NewStudio(): ReactElement {
     setToastText(text)
     window.clearTimeout(toastTimerRef.current)
     toastTimerRef.current = window.setTimeout(() => setToastText(''), 2100)
+  }, [])
+
+  // «Открыть галерею» из Ленты → РЕАЛЬНАЯ рабочая галерея старого интерфейса
+  // (не сырая /new-галерея), где есть «Опубликовать в ленту».
+  const openRealGallery = useCallback(() => {
+    window.location.href = '/?open=gallery'
   }, [])
 
   // Живая загрузка ленты. Вкладки: Для вас → top (персонализации пока нет),
@@ -1162,7 +1181,14 @@ export default function NewStudio(): ReactElement {
       }}
     >
       <div className="nf-card-image">
-        <img src={apiUrl(post.image_url)} alt={post.title} loading="lazy" />
+        {feedBroken.has(post.id) ? (
+          <div className="nf-img-error" aria-label={feedLang === 'ru' ? 'Изображение недоступно' : 'Image unavailable'}>
+            <span>⚠</span>
+            {feedLang === 'ru' ? 'Изображение недоступно' : 'Image unavailable'}
+          </div>
+        ) : (
+          <img src={apiUrl(post.image_url)} alt={post.title} loading="lazy" onError={() => markFeedBroken(post.id)} />
+        )}
         {post.prompt_visibility === 'open' && (
           <span className="nf-tag">{feedLang === 'ru' ? 'Открытый промпт' : 'Open prompt'}</span>
         )}
@@ -1225,7 +1251,14 @@ export default function NewStudio(): ReactElement {
   const feedDetail = feedSelected && (
     <div className="nf-detail-scroll">
       <div className="nf-detail-image">
-        <img src={apiUrl(feedSelected.image_url)} alt={feedSelected.title} />
+        {feedBroken.has(feedSelected.id) ? (
+          <div className="nf-img-error detail" aria-label={feedLang === 'ru' ? 'Изображение недоступно' : 'Image unavailable'}>
+            <span>⚠</span>
+            {feedLang === 'ru' ? 'Изображение недоступно' : 'Image unavailable'}
+          </div>
+        ) : (
+          <img src={apiUrl(feedSelected.image_url)} alt={feedSelected.title} onError={() => markFeedBroken(feedSelected.id)} />
+        )}
         <span className="nf-ai-label">{feedLang === 'ru' ? 'Сгенерировано ИИ' : 'AI-generated'}</span>
       </div>
       <div className="nf-detail-author">
@@ -1353,17 +1386,28 @@ export default function NewStudio(): ReactElement {
                 </button>
               </div>
             </div>
+          ) : authStatus !== 'authed' ? (
+            <div className="nf-empty">
+              <span className="icon">⏻</span>
+              <h3>{ft.notAuthTitle}</h3>
+              <p>{ft.notAuthText}</p>
+              <div className="nf-empty-actions">
+                <button className="nf-remix" type="button" onClick={() => setAuthOpen(true)}>
+                  {ft.login}
+                </button>
+              </div>
+            </div>
           ) : feedItems.length === 0 ? (
             <div className="nf-empty">
               <span className="icon">▧</span>
               <h3>{ft.emptyTitle}</h3>
               <p>{ft.emptyText}</p>
               <div className="nf-empty-actions">
-                <button className="nf-remix" type="button" onClick={() => setView('gallery')}>
+                <button className="nf-remix" type="button" onClick={openRealGallery}>
                   {ft.openGallery}
                 </button>
                 <button className="nf-secondary" type="button" onClick={() => setTab('text')}>
-                  {ft.generate}
+                  {ft.createImage}
                 </button>
               </div>
             </div>
@@ -1392,7 +1436,7 @@ export default function NewStudio(): ReactElement {
         <button className="active" type="button" onClick={() => setFeedDetailOpen(false)}>
           <i>▦</i>{ft.feed}
         </button>
-        <button type="button" onClick={() => setView('gallery')}>
+        <button type="button" onClick={openRealGallery}>
           <i>▧</i>{feedLang === 'ru' ? 'Галерея' : 'Gallery'}
         </button>
         <button
