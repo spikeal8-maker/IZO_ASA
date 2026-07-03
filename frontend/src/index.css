@@ -1092,7 +1092,17 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
 .mask-top { justify-content: flex-start; gap: 10px; }
 .mask-top label { display: flex; align-items: center; gap: 8px; color: #666; font-size: 12px; letter-spacing: 0; text-transform: none; }
 .mask-top output { min-width: 46px; min-height: 28px; display: grid; place-items: center; border: 1px solid #333; border-radius: 6px; color: #ddd; }
+.mask-mode-hint { align-self: center; color: var(--acid); font-size: 12px; font-weight: 900; line-height: 1.2; }
+.outpaint-top { display: grid; grid-template-columns: auto 220px 180px 34px 1fr 160px 38px; }
+.outpaint-top strong { color: var(--acid); font-size: 16px; }
+.outpaint-top span { color: #aaa; font-size: 13px; font-weight: 900; }
+.outpaint-top .save-sketch { grid-column: 6; }
+.outpaint-top .editor-close { grid-column: 7; }
+.outpaint-size-select { display: grid; grid-template-columns: auto minmax(120px, 1fr); align-items: center; gap: 8px; color: #777; font-size: 11px; letter-spacing: 0; text-transform: none; }
+.outpaint-size-select select { min-height: 34px; border-radius: 7px; border: 1px solid #333; background: #161616; color: #eee; padding: 0 10px; font-weight: 900; }
+.outpaint-info { width: 30px; height: 30px; border-radius: 999px; border: 1px solid rgba(236,255,47,.55); color: var(--acid) !important; display: grid; place-items: center; cursor: help; }
 .mask-body { position: relative; min-height: 0; background: #020202; display: grid; place-items: stretch; overflow: hidden; }
+.outpaint-body { display: grid; place-items: stretch; background: radial-gradient(circle at 50% 42%, #171717 0, #050505 70%); }
 .mask-upload { position: absolute; inset: 0; z-index: 0; background: #010101; color: #555; border: 0; display: grid; place-items: center; align-content: center; gap: 14px; font-size: 18px; overflow: hidden; padding: 0; }
 .mask-image-layer { pointer-events: none; align-content: stretch; }
 .mask-upload span { font-size: 38px; }
@@ -1100,6 +1110,17 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
 .mask-image-bg { width: 100%; height: 100%; background-position: center; background-repeat: no-repeat; background-size: contain; }
 .mask-stage-wrap { position: absolute; inset: 0; z-index: 1; }
 .mask-stage { position: relative; z-index: 1; background: transparent; }
+.outpaint-workbench { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; padding: 16px; align-items: stretch; }
+.outpaint-frame { position: relative; align-self: center; justify-self: center; width: min(100%, 1080px); max-height: calc(100vh - 116px); border: 2px solid rgba(236,255,47,.84); border-radius: 12px; background: repeating-linear-gradient(45deg, rgba(236,255,47,.06), rgba(236,255,47,.06) 10px, rgba(255,255,255,.025) 10px, rgba(255,255,255,.025) 20px); box-shadow: 0 0 0 1px rgba(0,0,0,.7), 0 22px 80px rgba(0,0,0,.55); overflow: hidden; cursor: grab; touch-action: none; user-select: none; }
+.outpaint-frame:active { cursor: grabbing; }
+.outpaint-image { position: absolute; background-position: center; background-repeat: no-repeat; background-size: contain; background-color: rgba(0,0,0,.28); box-shadow: 0 0 0 1px rgba(255,255,255,.28), 0 12px 44px rgba(0,0,0,.42); pointer-events: none; }
+.outpaint-controls { align-self: stretch; display: grid; align-content: start; gap: 12px; padding: 16px; border: 1px solid #2b2b2b; border-radius: 12px; background: rgba(10,10,10,.82); }
+.outpaint-controls strong { color: var(--acid); font-size: 16px; }
+.outpaint-controls span, .outpaint-controls small { color: #858585; line-height: 1.4; }
+.outpaint-controls label { display: grid; gap: 8px; color: #ddd; font-size: 12px; font-weight: 900; letter-spacing: 0; text-transform: none; }
+.outpaint-controls input[type="range"] { width: 100%; accent-color: var(--acid); }
+.outpaint-controls input:disabled { opacity: .35; }
+.outpaint-hidden-stage { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
 .outpaint-inline { position: absolute; left: 16px; bottom: 16px; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; border: 1px solid #303030; border-radius: 10px; background: rgba(12,12,12,.86); }
 .outpaint-inline strong { flex: 1 1 100%; color: var(--acid); font-size: 13px; }
 .outpaint-inline label { color: #777; font-size: 11px; letter-spacing: 0; text-transform: none; }
@@ -1174,7 +1195,7 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .mobile-edit-slot .mobile-thumb { width: 76px; height: 76px; }
   .slot-clear { position: absolute; top: 3px; left: 54px; width: 22px; height: 22px; min-height: 22px; border: 0; border-radius: 999px; background: rgba(0,0,0,.72); color: var(--acid); font-weight: 950; line-height: 1; }
   .mobile-face-inline-hint { grid-column: span 1; min-height: 38px; border-radius: 9px; border: 1px solid rgba(255,255,255,.12); background: rgba(10,10,10,.34); color: rgba(220,220,220,.72); display: grid; place-items: center; padding: 3px 6px; font-size: 10px; line-height: 1.15; font-weight: 850; text-align: center; }
-  .mobile-paint-actions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; max-width: none; }
+  .mobile-paint-actions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; max-width: none; }
   .mobile-paint-actions button { height: 49px; min-height: 0; color: var(--acid); border-color: rgba(236,255,47,.28); display: grid; align-content: center; justify-items: start; gap: 2px; padding: 4px 6px; text-align: left; overflow: hidden; }
   .mobile-paint-actions strong { display: block; color: var(--acid); font-size: 10px; line-height: 1.05; }
   .mobile-paint-actions span { display: block; color: rgba(220,220,220,.68); font-size: 8px; line-height: 1.08; font-weight: 800; }
@@ -1211,6 +1232,7 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
 .preview-panel .job-card.completed .result-actions svg { width: 15px; height: 15px; }
   .preview-panel .mobile-source-preview { position: absolute; inset: 0; width: 100%; height: 100%; }
   .preview-panel .mobile-source-preview img { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; object-fit: cover; border-radius: 14px; }
+  .preview-panel .outpaint-preview-frame img { object-fit: contain !important; background: #050505; }
   .preview-panel .job-card.completed .result-frame,
   .preview-panel .job-card.completed .compare-frame { grid-row: 1; grid-column: 1; width: 100%; height: 100%; }
   .preview-panel .job-card.completed .result-frame > img,
@@ -1369,11 +1391,28 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .canvas-size-bar button { padding: 0 8px; }
   .canvas-size-bar .editor-close { margin-left: auto; width: 34px; min-width: 34px; min-height: 32px; border-color: rgba(255,80,80,.82) !important; background: rgba(40,8,8,.95) !important; color: #ff6868 !important; padding: 0 !important; }
   .mask-editor .paint-editor-top.mask-top { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; align-items: center; }
+  .mask-editor .paint-editor-top.outpaint-top { display: grid; grid-template-columns: minmax(0, 1fr) 128px 34px; gap: 6px; align-items: center; }
+  .outpaint-top strong { font-size: 12px; min-width: 0; }
+  .outpaint-top > span:not(.outpaint-info) { font-size: 11px; }
+  .outpaint-top button { min-width: 0; width: 100%; }
+  .outpaint-top button:not(.save-sketch):not(.editor-close) { display: none; }
+  .outpaint-top .save-sketch { grid-column: 2; }
+  .outpaint-top .editor-close { grid-column: 3; }
+  .outpaint-size-select { grid-column: 1 / -1; grid-row: 2; grid-template-columns: auto minmax(0, 1fr); }
+  .outpaint-size-select select { min-height: 32px; }
+  .outpaint-info { width: 30px; height: 30px; }
   .mask-top { flex-wrap: wrap; }
   .mask-top button { min-width: 0; width: 100%; min-height: 32px; padding: 0 5px; font-size: 10px; }
   .mask-top label { grid-column: span 2; min-width: 0; font-size: 10px; gap: 4px; }
   .mask-top output { min-width: 0; min-height: 28px; font-size: 11px; }
+  .mask-mode-hint { grid-column: span 2; font-size: 10px; }
   .mask-upload { font-size: 14px; padding: 0; text-align: center; }
+  .outpaint-workbench { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; gap: 8px; padding: 8px; }
+  .outpaint-frame { width: 100%; max-height: 58vh; border-radius: 10px; }
+  .outpaint-controls { gap: 8px; padding: 10px; border-radius: 10px; }
+  .outpaint-controls strong { font-size: 13px; }
+  .outpaint-controls span, .outpaint-controls small { font-size: 10px; }
+  .outpaint-controls label { font-size: 10px; gap: 5px; }
   .outpaint-inline { left: 8px; right: 8px; bottom: 8px; }
   .outpaint-inline label { flex: 1 1 40%; }
   .outpaint-inline input { width: 100%; }

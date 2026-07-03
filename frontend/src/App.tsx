@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, Dispatch, MutableRefObject, ReactNode, SetStateAction } from 'react'
+import type { ChangeEvent, Dispatch, MutableRefObject, ReactNode, PointerEvent as ReactPointerEvent, SetStateAction, WheelEvent as ReactWheelEvent } from 'react'
 import {
   AuthV2Modal,
   initAuthV2,
@@ -184,6 +184,8 @@ const EMPTY_EDIT_SLOTS: EditSlot[] = Array.from({ length: EDIT_SLOT_COUNT }, () 
 
 const resolutionPresets = [
   { label: '1024 × 1024', width: 1024, height: 1024 },
+  { label: '1536 × 1024', width: 1536, height: 1024 },
+  { label: '1024 × 1536', width: 1024, height: 1536 },
   { label: '1920 × 1088', width: 1920, height: 1088 },
   { label: '1088 × 1920', width: 1088, height: 1920 },
   { label: '1280 × 720', width: 1280, height: 720 },
@@ -199,10 +201,24 @@ const sessionParams = new URLSearchParams(window.location.search)
 const SESSION_USER_ID = sessionParams.get('userId') || window.localStorage.getItem('onenode_user') || 'demo_user'
 window.localStorage.setItem('onenode_user', SESSION_USER_ID)
 
-function apiFetch(path: string, init: RequestInit = {}) {
+async function apiFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers)
   headers.set('X-OneNode-User', window.localStorage.getItem('onenode_user') || SESSION_USER_ID)
-  return fetch(`${API}${path}`, { ...init, headers, credentials: 'include' })
+  const request = () => fetch(`${API}${path}`, { ...init, headers, credentials: 'include' })
+  let response = await request()
+  if (response.status === 401 && !path.includes('/auth/session/refresh-v2') && !path.includes('/auth/session/logout-v2')) {
+    const refreshed = await fetch(`${API}/auth/session/refresh-v2`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({}),
+    }).catch(() => null)
+    if (refreshed?.ok) {
+      await refreshAuthStateV2().catch(() => null)
+      response = await request()
+    }
+  }
+  return response
 }
 
 const modes: Array<{ id: Mode; ru: string; en: string; shortRu: string; shortEn: string }> = [
@@ -741,6 +757,7 @@ function App() {
   const [paintLines, setPaintLines] = useState<PaintLine[]>([])
   const [maskLines, setMaskLines] = useState<PaintLine[]>([])
   const [canvasSnapshot, setCanvasSnapshot] = useState<string>()
+  const [outpaintPreview, setOutpaintPreview] = useState<string>()
   const [tool, setTool] = useState<'brush' | 'eraser'>('brush')
   const [brushSize, setBrushSize] = useState(10)
   const [paintColor, setPaintColor] = useState('#111827')
@@ -858,6 +875,9 @@ function App() {
   const activeMode = modes.find((item) => item.id === mode)!
   const cloudLimited = provider === 'openrouter'
   const actualMode: Mode = mode === 'paint' && paintTool !== 'sketch' ? paintTool : mode
+  useEffect(() => {
+    if (actualMode !== 'outpaint') queueMicrotask(() => setOutpaintPreview(undefined))
+  }, [actualMode])
   const allPresets = useMemo(() => [...workflowPresets, ...userPresets], [userPresets])
   const promptKey = promptKeyFor(mode, paintTool)
   const prompt = promptByMode[promptKey] ?? ''
@@ -1006,7 +1026,7 @@ function App() {
 
   async function imageRequestSize() {
     const baseImage = actualMode === 'edit' ? editSlots[0].image : inputOne
-    if (!baseImage || actualMode === 'text_to_image' || sizeSource === 'custom') return { width, height }
+    if (!baseImage || actualMode === 'text_to_image' || actualMode === 'outpaint' || sizeSource === 'custom') return { width, height }
     const sourceImage = baseImage
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
       const img = new Image()
@@ -1034,10 +1054,17 @@ function App() {
     generateInFlightRef.current = true
     setIsSubmitting(true)
     try {
-    const canvasData = (actualMode === 'paint' || actualMode === 'inpaint' || actualMode === 'outpaint') ? (canvasRef.current?.toDataURL({ pixelRatio: 1 }) || canvasSnapshot) : undefined
+    const canvasData = actualMode === 'outpaint'
+      ? undefined
+      : (actualMode === 'paint' || actualMode === 'inpaint') ? (canvasRef.current?.toDataURL({ pixelRatio: 1 }) || canvasSnapshot) : undefined
     const lora = loraOptions.find((item) => item.id === activeSelectedLora)
     const effectiveSeed = seed || Math.floor(Math.random() * 999999999)
     const requestSize = await imageRequestSize()
+    if (actualMode === 'outpaint') {
+      setOutpaintPreview(await createOutpaintPreview(inputOne, outpaint, requestSize))
+    } else {
+      setOutpaintPreview(undefined)
+    }
     const isEdit = actualMode === 'edit'
     // Edit: финальный prompt собирает Prompt Composer (auto) или ручной prompt (manual).
     // negativePrompt для edit не уходит; все заполненные слоты идут в inputImages.
@@ -1066,7 +1093,7 @@ function App() {
       inputImages: editInputImages,
       maskImage: actualMode === 'inpaint' ? canvasData : undefined,
       canvas: actualMode === 'paint' ? canvasData : undefined,
-      outpaintMask: actualMode === 'outpaint' ? canvasData : undefined,
+      outpaintMask: undefined,
       outpaint: actualMode === 'outpaint' ? outpaint : undefined,
       // Трассировка серии (backend игнорирует неизвестные поля) — для отладки дублей.
       clientRequestId: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -1337,7 +1364,7 @@ function App() {
     setTab('gallery')
   }
   const editBaseImage = editSlots[0].image
-  const previewSource = job?.status === 'completed' && job.resultUrl ? job.resultUrl : (mode === 'edit' ? editBaseImage : inputOne)
+  const previewSource = job?.status === 'completed' && job.resultUrl ? job.resultUrl : (mode === 'edit' ? editBaseImage : actualMode === 'outpaint' ? outpaintPreview || inputOne : inputOne)
   const canUsePreviewAsInput = Boolean(job?.status === 'completed' && job.resultUrl)
   // Preview panel aspect ratio. Restored after a Phase 12.1 cleanup removed these
   // (and the previewImageSize state) while a usage remained at the preview-panel
@@ -1362,7 +1389,7 @@ function App() {
       <div className="mobile-input-row primary">
         <button className="mobile-thumb" onClick={() => upload(setInputOne)}>{inputOne ? <img src={inputOne} /> : <><ImageIcon size={22} /><span>Добавить</span></>}</button>
         <div className="mobile-input-actions">
-          {mode === 'paint' && <div className="mobile-paint-actions"><button onClick={() => { setPaintTool('sketch'); setPromptForKey('paint:sketch', workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || ''); setPaintEditor('sketch') }}><strong>Эскиз</strong><span>Рисование на чистом холсте</span></button><button onClick={() => { setPaintTool('inpaint'); setPromptForKey('paint:inpaint', workflowPresets.find((item) => item.id === 'mask-01')?.prompt || ''); setPaintEditor('mask') }}><strong>Маска / расширение</strong><span>Закрасить область или расширить изображение</span></button></div>}
+          {mode === 'paint' && <div className="mobile-paint-actions"><button onClick={() => { setPaintTool('sketch'); setPromptForKey('paint:sketch', workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || ''); setPaintEditor('sketch') }}><strong>Эскиз</strong><span>Рисование на чистом холсте</span></button><button onClick={() => { setPaintTool('inpaint'); setPromptForKey('paint:inpaint', workflowPresets.find((item) => item.id === 'mask-01')?.prompt || ''); setPaintEditor('mask') }}><strong>Маска</strong><span>Закрасить область внутри изображения</span></button><button onClick={() => { setPaintTool('outpaint'); setPromptForKey('paint:outpaint', workflowPresets.find((item) => item.id === 'outpaint-01')?.prompt || ''); setPaintEditor('mask') }}><strong>Расширение</strong><span>Дорисовать пространство вокруг</span></button></div>}
           <button onClick={() => upload(setInputOne)}>Файл</button>
           <button onClick={openGallery}>Галерея</button>
           <button className="take-this-button" disabled={!canUsePreviewAsInput && gallery.length === 0} onClick={() => job?.resultUrl ? setInputOne(job.resultUrl) : applyLastImage(1)}><span>Взять это</span><span>↓</span></button>
@@ -1515,7 +1542,7 @@ function App() {
             </section>
             {mobilePreviewInputs}
             <section className={`preview-panel ${!job && !previewSource ? 'empty-preview' : 'has-preview'}`} style={{ aspectRatio: `${previewAspectWidth} / ${previewAspectHeight}` }}>
-              {job && ['queued', 'running', 'uploading', 'sent_to_comfyui'].includes(job.status) ? <JobCard job={job} copy={copy} cancelJob={cancelJob} sendImage={sendImage} mode={mode} beforeImage={mode === 'edit' ? editBaseImage : inputOne} loadingBackdrop={(mode === 'edit' ? editBaseImage : undefined) || gallery[0]?.url} /> : job?.status === 'completed' && job.resultUrl ? <JobCard job={job} copy={copy} cancelJob={cancelJob} sendImage={sendImage} mode={mode} beforeImage={mode === 'edit' ? editBaseImage : inputOne} /> : previewSource && mode !== 'text_to_image' ? <div className="result-frame mobile-source-preview"><img src={previewSource} />{mode === 'edit' && !job && <span className="preview-caption">Предпросмотр основы</span>}</div> : <div className="preview-empty">{mode !== 'text_to_image' ? <><span className="preview-empty-hint">{mode === 'edit' ? 'Добавьте основу для редактирования' : 'Добавьте изображение'}</span><button className="preview-add-button" onClick={() => upload((url) => mode === 'edit' ? setEditSlotImage(0, url) : setInputOne(url))}><Upload size={22} />{mode === 'edit' ? 'Выбрать изображение' : 'Добавить изображение'}</button></> : <><ImageIcon size={64} /><span>{copy.generatedPlaceholder}</span></>}</div>}
+              {job && ['queued', 'running', 'uploading', 'sent_to_comfyui'].includes(job.status) ? <JobCard job={job} copy={copy} cancelJob={cancelJob} sendImage={sendImage} mode={mode} beforeImage={mode === 'edit' ? editBaseImage : actualMode === 'outpaint' ? outpaintPreview || inputOne : inputOne} loadingBackdrop={(actualMode === 'outpaint' ? outpaintPreview || inputOne : mode === 'edit' ? editBaseImage : undefined) || gallery[0]?.url} /> : job?.status === 'completed' && job.resultUrl ? <JobCard job={job} copy={copy} cancelJob={cancelJob} sendImage={sendImage} mode={mode} beforeImage={mode === 'edit' ? editBaseImage : actualMode === 'outpaint' ? outpaintPreview || inputOne : inputOne} /> : previewSource && mode !== 'text_to_image' ? <div className={`result-frame mobile-source-preview ${actualMode === 'outpaint' ? 'outpaint-preview-frame' : ''}`}><img src={previewSource} />{mode === 'edit' && !job && <span className="preview-caption">Предпросмотр основы</span>}</div> : <div className="preview-empty">{mode !== 'text_to_image' ? <><span className="preview-empty-hint">{mode === 'edit' ? 'Добавьте основу для редактирования' : 'Добавьте изображение'}</span><button className="preview-add-button" onClick={() => upload((url) => mode === 'edit' ? setEditSlotImage(0, url) : setInputOne(url))}><Upload size={22} />{mode === 'edit' ? 'Выбрать изображение' : 'Добавить изображение'}</button></> : <><ImageIcon size={64} /><span>{copy.generatedPlaceholder}</span></>}</div>}
             </section>
             <section className="prompt-dock">
               {mode === 'edit' ? (
@@ -1594,6 +1621,9 @@ function App() {
             setPrompt={setPrompt}
             setPromptForKey={setPromptForKey}
             setCanvasSnapshot={setCanvasSnapshot}
+            setOutpaintPreview={setOutpaintPreview}
+            targetWidth={width}
+            targetHeight={height}
           />
         )}
 
@@ -1657,6 +1687,7 @@ function ModeWorkspace(props: ModeWorkspaceProps) {
   if (mode === 'paint') {
     const sketchPrompt = workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || ''
     const maskPrompt = workflowPresets.find((item) => item.id === 'mask-01')?.prompt || ''
+    const outpaintPrompt = workflowPresets.find((item) => item.id === 'outpaint-01')?.prompt || ''
     function openSketch() {
       setPaintTool('sketch')
       setPromptForKey('paint:sketch', sketchPrompt)
@@ -1667,7 +1698,12 @@ function ModeWorkspace(props: ModeWorkspaceProps) {
       setPromptForKey('paint:inpaint', maskPrompt)
       setPaintEditor('mask')
     }
-    return <div className="paint-compact"><ImageBox title="ИЗО" image={inputOne} onUpload={() => upload(setInputOne)} onClear={() => setInputOne(undefined)} onUseLast={() => applyLastImage(1)} copy={copy} /><div className="paint-choice-stack"><button className={paintTool === 'sketch' ? 'paint-choice active' : 'paint-choice'} onClick={openSketch}><strong>Эскиз</strong><span>Рисование на чистом холсте</span></button><button className={paintTool !== 'sketch' ? 'paint-choice active' : 'paint-choice'} onClick={openMask}><strong>Маска / Расширение</strong><span>Закрасить область или расширить изображение</span></button></div></div>
+    function openOutpaint() {
+      setPaintTool('outpaint')
+      setPromptForKey('paint:outpaint', outpaintPrompt)
+      setPaintEditor('mask')
+    }
+    return <div className="paint-compact"><ImageBox title="ИЗО" image={inputOne} onUpload={() => upload(setInputOne)} onClear={() => setInputOne(undefined)} onUseLast={() => applyLastImage(1)} copy={copy} /><div className="paint-choice-stack"><button className={paintTool === 'sketch' ? 'paint-choice active' : 'paint-choice'} onClick={openSketch}><strong>Эскиз</strong><span>Нарисовать объект на холсте</span></button><button className={paintTool === 'inpaint' ? 'paint-choice active' : 'paint-choice'} onClick={openMask}><strong>Маска</strong><span>Закрасить область внутри изображения</span></button><button className={paintTool === 'outpaint' ? 'paint-choice active' : 'paint-choice'} onClick={openOutpaint}><strong>Расширение</strong><span>Добавить пространство вокруг изображения</span></button></div></div>
   }
 
   if (mode === 'faceswap') {
@@ -1833,6 +1869,42 @@ async function createImageMask(inputImage: string | undefined, lines: PaintLine[
   return canvas.toDataURL('image/png')
 }
 
+async function createOutpaintPreview(inputImage: string | undefined, padding: { left: number; right: number; top: number; bottom: number }, target: { width: number; height: number }) {
+  if (!inputImage) return undefined
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = inputImage
+  })
+  const sourceWidth = image.naturalWidth || image.width
+  const sourceHeight = image.naturalHeight || image.height
+  const finalWidth = Math.max(1, sourceWidth + Math.max(0, padding.left) + Math.max(0, padding.right))
+  const finalHeight = Math.max(1, sourceHeight + Math.max(0, padding.top) + Math.max(0, padding.bottom))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(256, Math.round(target.width || 1024))
+  canvas.height = Math.max(256, Math.round(target.height || 1024))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return undefined
+  ctx.fillStyle = '#030303'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.fillStyle = 'rgba(236,255,47,0.08)'
+  for (let x = -canvas.height; x < canvas.width; x += 24) {
+    ctx.fillRect(x, 0, 10, canvas.height)
+  }
+  const scaleX = canvas.width / finalWidth
+  const scaleY = canvas.height / finalHeight
+  const x = Math.round(Math.max(0, padding.left) * scaleX)
+  const y = Math.round(Math.max(0, padding.top) * scaleY)
+  const w = Math.max(1, Math.round(sourceWidth * scaleX))
+  const h = Math.max(1, Math.round(sourceHeight * scaleY))
+  ctx.drawImage(image, x, y, w, h)
+  ctx.strokeStyle = '#dfff22'
+  ctx.lineWidth = Math.max(2, Math.round(Math.min(canvas.width, canvas.height) / 256))
+  ctx.strokeRect(x + 1, y + 1, Math.max(1, w - 2), Math.max(1, h - 2))
+  return canvas.toDataURL('image/jpeg', 0.9)
+}
+
 function PaintEditorModal(props: {
   editor: Exclude<PaintEditor, null>
   paintTool: PaintTool
@@ -1861,8 +1933,11 @@ function PaintEditorModal(props: {
   setPrompt: (value: string) => void
   setPromptForKey: (key: PromptKey, value: string) => void
   setCanvasSnapshot: (value?: string) => void
+  setOutpaintPreview: (value?: string) => void
+  targetWidth: number
+  targetHeight: number
 }) {
-  const { editor, paintTool, setPaintTool, onClose, copy, inputOne, setInputOne, upload, paintLines, setPaintLines, maskLines, setMaskLines, tool, setTool, brushSize, setBrushSize, paintColor, setPaintColor, layerOpacity, setLayerOpacity, outpaint, setOutpaint, drawingRef, canvasRef, setPromptForKey, setCanvasSnapshot } = props
+  const { editor, paintTool, setPaintTool, onClose, copy, inputOne, setInputOne, upload, paintLines, setPaintLines, maskLines, setMaskLines, tool, setTool, brushSize, setBrushSize, paintColor, setPaintColor, layerOpacity, setLayerOpacity, outpaint, setOutpaint, drawingRef, canvasRef, setPromptForKey, setCanvasSnapshot, setOutpaintPreview, targetWidth, targetHeight } = props
   const isSketch = editor === 'sketch'
   const isOutpaint = paintTool === 'outpaint'
   const activeLines = isSketch ? paintLines : maskLines
@@ -1875,7 +1950,82 @@ function PaintEditorModal(props: {
   const [drawMode, setDrawMode] = useState<'free' | 'circle' | 'rect' | 'move'>('free')
   const [fillShape, setFillShape] = useState(true)
   const moveStartRef = useRef<{ x: number; y: number } | null>(null)
+  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null)
+  const [sourceSize, setSourceSize] = useState<{ width: number; height: number } | null>(null)
+  const [outpaintScale, setOutpaintScale] = useState(70)
+  const [outpaintPan, setOutpaintPan] = useState({ x: 50, y: 50 })
   const updateOutpaint = (key: keyof typeof outpaint, value: number | boolean) => setOutpaint({ ...outpaint, [key]: value })
+  const outpaintTarget = useMemo(() => {
+    const sourceWidth = Math.max(1, sourceSize?.width || targetWidth)
+    const sourceHeight = Math.max(1, sourceSize?.height || targetHeight)
+    const targetAspect = Math.max(0.1, targetWidth / Math.max(1, targetHeight))
+    const sourceAspect = sourceWidth / sourceHeight
+    const scale = Math.max(0.35, Math.min(1, outpaintScale / 100))
+    if (sourceAspect > targetAspect) {
+      const baseHeight = Math.max(sourceHeight, Math.ceil(sourceWidth / targetAspect))
+      const finalHeight = Math.ceil(baseHeight / scale)
+      const finalWidth = Math.ceil(finalHeight * targetAspect)
+      return { sourceWidth, sourceHeight, extraX: Math.max(0, finalWidth - sourceWidth), extraY: Math.max(0, finalHeight - sourceHeight) }
+    }
+    const baseWidth = Math.max(sourceWidth, Math.ceil(sourceHeight * targetAspect))
+    const finalWidth = Math.ceil(baseWidth / scale)
+    const finalHeight = Math.ceil(finalWidth / targetAspect)
+    return { sourceWidth, sourceHeight, extraX: Math.max(0, finalWidth - sourceWidth), extraY: Math.max(0, finalHeight - sourceHeight) }
+  }, [outpaintScale, sourceSize, targetHeight, targetWidth])
+  const outpaintFinalWidth = outpaintTarget.sourceWidth + outpaint.left + outpaint.right
+  const outpaintFinalHeight = outpaintTarget.sourceHeight + outpaint.top + outpaint.bottom
+  const outpaintHorizontalValue = outpaintTarget.extraX > 0 ? Math.round((outpaint.left / Math.max(1, outpaintTarget.extraX)) * 100) : 50
+  const outpaintVerticalValue = outpaintTarget.extraY > 0 ? Math.round((outpaint.top / Math.max(1, outpaintTarget.extraY)) * 100) : 50
+  const applyOutpaintPan = useCallback((x: number, y: number, target = outpaintTarget) => {
+    const next = { x: Math.max(0, Math.min(100, Math.round(x))), y: Math.max(0, Math.min(100, Math.round(y))) }
+    const left = Math.round(target.extraX * next.x / 100)
+    const top = Math.round(target.extraY * next.y / 100)
+    setOutpaintPan(next)
+    setOutpaint({ left, right: target.extraX - left, top, bottom: target.extraY - top, scaleDown: true })
+  }, [outpaintTarget, setOutpaint])
+  const updateOutpaintAxis = (axis: 'x' | 'y', value: number) => {
+    const clamped = Math.max(0, Math.min(100, value))
+    if (axis === 'x') applyOutpaintPan(clamped, outpaintPan.y)
+    else applyOutpaintPan(outpaintPan.x, clamped)
+  }
+  const updateOutpaintScale = (value: number) => setOutpaintScale(Math.max(35, Math.min(100, Math.round(value || 100))))
+  const startOutpaintDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isOutpaint || !inputOne) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = { x: event.clientX, y: event.clientY, panX: outpaintPan.x, panY: outpaintPan.y }
+  }
+  const moveOutpaintDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    const dx = ((event.clientX - drag.x) / Math.max(1, rect.width)) * 140
+    const dy = ((event.clientY - drag.y) / Math.max(1, rect.height)) * 140
+    applyOutpaintPan(drag.panX + dx, drag.panY + dy)
+  }
+  const stopOutpaintDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    dragRef.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+  const wheelOutpaintScale = (event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    updateOutpaintScale(outpaintScale + (event.deltaY > 0 ? -5 : 5))
+  }
+  useEffect(() => {
+    if (!inputOne || isSketch) {
+      queueMicrotask(() => setSourceSize(null))
+      return
+    }
+    let cancelled = false
+    const img = new Image()
+    img.onload = () => { if (!cancelled) setSourceSize({ width: img.naturalWidth || targetWidth, height: img.naturalHeight || targetHeight }) }
+    img.onerror = () => { if (!cancelled) setSourceSize(null) }
+    img.src = inputOne
+    return () => { cancelled = true }
+  }, [inputOne, isSketch, targetHeight, targetWidth])
+  useEffect(() => {
+    if (!isOutpaint || !sourceSize) return
+    queueMicrotask(() => applyOutpaintPan(outpaintPan.x, outpaintPan.y))
+  }, [applyOutpaintPan, isOutpaint, outpaintPan.x, outpaintPan.y, sourceSize])
   useEffect(() => {
     const node = stageWrapRef.current
     if (!node) return
@@ -1951,7 +2101,8 @@ function PaintEditorModal(props: {
       setPaintTool('sketch')
       setPromptForKey('paint:sketch', workflowPresets.find((item) => item.id === 'sketch-01')?.prompt || '')
     } else if (paintTool === 'outpaint') {
-      setCanvasSnapshot(await createImageMask(inputOne, activeLines, stageSize))
+      setCanvasSnapshot(undefined)
+      setOutpaintPreview(await createOutpaintPreview(inputOne, outpaint, { width: targetWidth, height: targetHeight }))
       setPromptForKey('paint:outpaint', workflowPresets.find((item) => item.id === 'outpaint-01')?.prompt || '')
     } else {
       setCanvasSnapshot(await createImageMask(inputOne, activeLines, stageSize))
@@ -1984,6 +2135,33 @@ function PaintEditorModal(props: {
       const shifted = last.points.map((value, index) => value + (index % 2 === 0 ? 18 : 10))
       return lines.slice(0, -1).concat({ ...last, points: shifted })
     })
+  }
+  if (!isSketch && isOutpaint) {
+    return <div className="paint-editor-backdrop"><section className="paint-editor mask-editor outpaint-editor">
+      <div className="paint-editor-top outpaint-top">
+        <strong>Расширение изображения</strong>
+        <span>{targetWidth} × {targetHeight}</span>
+        <button className="secondary" onClick={() => upload(setInputOne)}>Загрузить другое</button>
+        <span className="outpaint-info" title="Уменьшите или сдвиньте исходник внутри рамки. Пустые области будут дорисованы моделью.">?</span>
+        <button className="save-sketch" onClick={applyEditor}>Применить</button>
+        <button className="editor-close" onClick={onClose} aria-label="Закрыть"><X size={18} /></button>
+      </div>
+      <div className="mask-body outpaint-body">
+        {inputOne ? <div className="outpaint-workbench">
+          <div className="outpaint-frame" onPointerDown={startOutpaintDrag} onPointerMove={moveOutpaintDrag} onPointerUp={stopOutpaintDrag} onPointerCancel={stopOutpaintDrag} onWheel={wheelOutpaintScale} style={{ aspectRatio: `${targetWidth} / ${targetHeight}` }}>
+            <div className="outpaint-image" style={{ backgroundImage: `url(${inputOne})`, left: `${(outpaint.left / Math.max(1, outpaintFinalWidth)) * 100}%`, top: `${(outpaint.top / Math.max(1, outpaintFinalHeight)) * 100}%`, width: `${(outpaintTarget.sourceWidth / Math.max(1, outpaintFinalWidth)) * 100}%`, height: `${(outpaintTarget.sourceHeight / Math.max(1, outpaintFinalHeight)) * 100}%` }} />
+          </div>
+          <div className="outpaint-controls">
+            <strong>Итоговый кадр: {targetWidth} × {targetHeight}</strong>
+            <span>Колесо мыши меняет масштаб. Исходник можно перетащить внутри рамки.</span>
+            <label>Масштаб исходника<input type="range" min="35" max="100" value={outpaintScale} onChange={(e) => updateOutpaintScale(Number(e.target.value))} /></label>
+            <label>Сдвиг влево / вправо<input type="range" min="0" max="100" value={outpaintHorizontalValue} disabled={outpaintTarget.extraX === 0} onChange={(e) => updateOutpaintAxis('x', Number(e.target.value))} /></label>
+            <label>Сдвиг вверх / вниз<input type="range" min="0" max="100" value={outpaintVerticalValue} disabled={outpaintTarget.extraY === 0} onChange={(e) => updateOutpaintAxis('y', Number(e.target.value))} /></label>
+            <small>Масштаб {outpaintScale}% · поля: слева {outpaint.left}, справа {outpaint.right}, сверху {outpaint.top}, снизу {outpaint.bottom}</small>
+          </div>
+        </div> : <button className="mask-upload" onClick={() => upload(setInputOne)}><span>↥</span><strong>Перетащите изображение или нажмите для загрузки</strong></button>}
+      </div>
+    </section></div>
   }
   return <div className="paint-editor-backdrop"><section className={isSketch ? 'paint-editor sketch-editor' : 'paint-editor mask-editor'}>
     {isSketch ? <div className="paint-editor-top"><div className="canvas-size-bar"><strong>ХОЛСТ</strong><input type="number" value={canvasDraft.width} onChange={(e) => setCanvasDraft({ ...canvasDraft, width: Number(e.target.value) })} /><span>⇆</span><input type="number" value={canvasDraft.height} onChange={(e) => setCanvasDraft({ ...canvasDraft, height: Number(e.target.value) })} /><button onClick={applyCanvasTarget}>Применить</button><button className="editor-close" onClick={onClose} aria-label="Закрыть"><X size={18} /></button></div><div className="editor-zoom"><button>-</button><button>Вписать</button><button>+</button></div><button className="secondary" onClick={() => setActiveLines((lines) => lines.slice(0, -1))}><RotateCcw size={16} />Назад</button><button className="secondary" onClick={() => setActiveLines([])}>Очистить</button><button className="save-sketch" onClick={applyEditor}>Сохранить</button></div> : <div className="paint-editor-top mask-top"><button className={paintTool === 'inpaint' ? 'active' : ''} onClick={() => { setPaintTool('inpaint'); setPromptForKey('paint:inpaint', workflowPresets.find((item) => item.id === 'mask-01')?.prompt || '') }}>Закрасить область</button><button className={paintTool === 'outpaint' ? 'active' : ''} onClick={() => { setPaintTool('outpaint'); setPromptForKey('paint:outpaint', workflowPresets.find((item) => item.id === 'outpaint-01')?.prompt || '') }}>Расширить изображение</button><button onClick={() => upload(setInputOne)}>Загрузить</button><button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>● Кисть</button><button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>○ Ластик</button><label>Размер<input type="range" min="2" max="60" value={brushSize} onChange={(e) => setBrushSize(Number(e.target.value))} /></label><output>{brushSize}</output><label>Жест.<input type="range" min="0" max="100" value="100" readOnly /></label><output>100</output><button onClick={() => setActiveLines((lines) => lines.slice(0, -1))}>↩ Назад</button><button onClick={() => setActiveLines([])}>× Сбросить маску</button><button className="save-sketch" onClick={applyEditor}>Применить</button><button className="secondary" onClick={onClose}>Отмена</button></div>}
