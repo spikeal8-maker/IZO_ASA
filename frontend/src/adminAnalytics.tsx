@@ -288,6 +288,10 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const [reloadKey, setReloadKey] = useState(0)
   const [act, setAct] = useState<{ kind: ActKind; preset?: string; context?: AnyRec } | null>(null)
   const [tab, setTab] = useState<'logs' | 'payments' | 'loyalty' | 'prompts' | 'gallery' | 'tech'>('logs')
+  const [selectedImage, setSelectedImage] = useState<AnyRec | null>(null)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteMsg, setDeleteMsg] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -337,7 +341,23 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const cancellableBonus = (data?.bonus_grants_recent || []).find((b) => String(b.status) === 'granted' && n0(b.token_amount) > 0)
   const recentGenerations = data?.recent_generations || []
   const recentGallery = data?.recent_gallery || []
-  const imageUrl = (img: AnyRec) => String(img.thumbnail_url || img.result_image_url || '')
+  const imageUrl = (img: AnyRec) => String(img.image_url || img.thumbnail_url || img.result_image_url || '')
+  const openImage = (img: AnyRec) => {
+    setSelectedImage(img)
+    setDeleteReason('')
+    setDeleteMsg('')
+  }
+  const deleteGalleryImage = async () => {
+    if (!selectedImage?.admin_delete_id || !u.internal_user_id || !deleteReason.trim()) return
+    setDeleteBusy(true); setDeleteMsg('')
+    try {
+      const res = await adminPost(`/admin/users/${encodeURIComponent(u.internal_user_id)}/gallery/${encodeURIComponent(String(selectedImage.admin_delete_id))}/delete-v2`, { reason: deleteReason.trim() })
+      if (!res.ok) { setDeleteMsg(res.detail || `Ошибка ${res.status}`); return }
+      setSelectedImage(null); setDeleteReason(''); setReloadKey((k) => k + 1); onChanged?.()
+    } finally {
+      setDeleteBusy(false)
+    }
+  }
 
   return (
     <div className="crm-card-overlay" onClick={onClose}>
@@ -368,8 +388,8 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               </div>
             </div>
             <div className="crm-card-top-actions">
-              <button className="secondary" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>Копировать</button>
-              <button className="secondary" onClick={() => setTab('tech')}>Профиль</button>
+              <button className="secondary crm-card-icon-action" title="Копировать код" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>□</button>
+              <button className="secondary" onClick={() => setTab('tech')}>Открыть профиль</button>
               <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
             </div>
           </div>
@@ -432,7 +452,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 </div>
                 <div className="crm-gallery-preview" aria-label="Последние изображения пользователя">
                   {recentGallery.slice(0, 6).map((img, n) => (
-                    <button type="button" className="crm-gallery-thumb" key={n} onClick={() => setTab('gallery')} title={S(img.prompt)}>
+                    <button type="button" className="crm-gallery-thumb" key={n} onClick={() => openImage(img)} title={S(img.prompt)}>
                       {imageUrl(img) ? <img src={imageUrl(img)} alt="" /> : <span className="crm-gallery-empty">Нет превью</span>}
                       <small>{S(img.mode)} · {shortTime(img.created_at)}</small>
                     </button>
@@ -527,7 +547,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               {(data?.referral_rewards_recent || []).map((r, n) => <small key={`lw${n}`}>Реф. награда {shortId(r.id)} · {S(r.status)} · +{S(r.token_amount)} ток. · ledger {S(r.token_ledger_id)}</small>)}
             </div>{!data?.promo_redemptions_recent?.length && !data?.bonus_grants_recent?.length && !data?.referral_rewards_recent?.length && <p className="crm-card-note">Нет реальных промо/бонусов/реферальных начислений.</p>}</div>}
             {tab === 'prompts' && <div className="crm-acc"><strong>Промпты</strong><div className="crm-rows">{(data?.recent_generations || []).slice(0, 12).map((g, n) => <small key={n}>{shortTime(g.created_at)} · {S(g.mode)} · {S(g.status)} · {S(g.prompt)}</small>)}</div>{!data?.recent_generations?.length && <p className="crm-card-note">—</p>}</div>}
-            {tab === 'gallery' && <div className="crm-acc"><strong>Галерея</strong><div className="crm-gallery-strip">{(data?.recent_gallery || []).slice(0, 8).map((img, n) => <span key={n}><img src={String(img.thumbnail_url)} alt="" /><small>{S(img.mode)} · {shortTime(img.created_at)}</small></span>)}</div>{!data?.recent_gallery?.length && <p className="crm-card-note">—</p>}</div>}
+            {tab === 'gallery' && <div className="crm-acc"><strong>Галерея</strong><div className="crm-gallery-strip">{(data?.recent_gallery || []).slice(0, 8).map((img, n) => <button type="button" className="crm-gallery-strip-item" key={n} onClick={() => openImage(img)}><img src={imageUrl(img)} alt="" /><small>{S(img.mode)} · {shortTime(img.created_at)}</small></button>)}</div>{!data?.recent_gallery?.length && <p className="crm-card-note">—</p>}</div>}
             {tab === 'tech' && <div className="crm-acc">
               <strong>Технические идентификаторы</strong>
               <p className="legacy-admin-warn">Не показывать пользователю.</p>
@@ -547,6 +567,36 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
         </div>
 
         {act && <ActionConfirm target={merged} kind={act.kind} preset={act.preset} context={act.context} onClose={() => setAct(null)} onDone={() => { setReloadKey((k) => k + 1); onChanged?.() }} />}
+        {selectedImage && (
+          <div className="crm-image-modal" onClick={() => setSelectedImage(null)}>
+            <div className="crm-image-dialog" role="dialog" aria-label="Изображение пользователя" onClick={(e) => e.stopPropagation()}>
+              <div className="crm-image-head">
+                <strong>Изображение пользователя</strong>
+                <button className="auth-modal-close" aria-label="Закрыть" onClick={() => setSelectedImage(null)}>×</button>
+              </div>
+              <div className="crm-image-body">
+                <div className="crm-image-frame">{imageUrl(selectedImage) ? <img src={imageUrl(selectedImage)} alt="" /> : <span>Нет превью</span>}</div>
+                <aside className="crm-image-side">
+                  <dl className="crm-preview-list">
+                    {row('Режим', selectedImage.mode)}{row('Провайдер', selectedImage.provider)}{row('Создано', shortTime(selectedImage.created_at))}
+                    {row('Image', selectedImage.id)}{row('Job', selectedImage.job_id)}{row('Избранное', selectedImage.favorite ? 'да' : 'нет')}
+                  </dl>
+                  <div className="crm-image-prompt">
+                    <strong>Промпт</strong>
+                    <p>{S(selectedImage.prompt || 'Промпт не сохранён')}</p>
+                  </div>
+                  <div className="crm-image-danger">
+                    <strong>Удаление из галереи</strong>
+                    <p className="crm-card-note">Картинка будет скрыта у пользователя, действие попадёт в audit log.</p>
+                    <input value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Причина удаления" />
+                    <button className="secondary danger crm-supported-action" disabled={!adminReady || deleteBusy || !deleteReason.trim()} onClick={() => void deleteGalleryImage()}>{deleteBusy ? 'Удаляю…' : 'Удалить изображение'}</button>
+                    {deleteMsg && <p className="crm-err">{deleteMsg}</p>}
+                  </div>
+                </aside>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

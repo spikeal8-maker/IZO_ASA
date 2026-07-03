@@ -405,6 +405,10 @@ class AdminProfileV2Request(BaseModel):
     reason: str = ""
 
 
+class AdminDeleteImageV2Request(BaseModel):
+    reason: str = ""
+
+
 class BillingInvoiceItemV2Request(BaseModel):
     package_code: str | None = None
     title: str = ""
@@ -9376,6 +9380,8 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
         } for r in jobs_rows],
         "recent_gallery": [{
             "id": short_public_id(r["id"]),
+            "admin_delete_id": r["id"],
+            "image_url": safe_app_url(r["url"]),
             "thumbnail_url": safe_app_url(r["thumbnail_url"]),
             "job_id": short_public_id(r["job_id"]),
             "mode": r["mode"],
@@ -9407,6 +9413,49 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
         },
         "admin_actions": [{"action": r["action"], "actor": (r["actor_internal_user_id"] or "")[:8], "reason": truncate_admin_text((safe_json_load(r["after_json"]) or {}).get("reason"), 80), "created_at": r["created_at"]} for r in audits],
     }
+
+
+@app.post("/api/admin/users/{internal_user_id}/gallery/{image_id}/delete-v2")
+async def admin_delete_user_gallery_image_v2(
+    internal_user_id: str,
+    image_id: str,
+    req: AdminDeleteImageV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = _billing_reason(req.reason)
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        target = _admin_load_target(conn, internal_user_id)
+        row = conn.execute(
+            """
+            SELECT id, user_id, url, thumbnail_url, prompt_original, job_id, created_at, deleted_at
+            FROM images
+            WHERE id = ? AND user_id = ? AND (deleted_at IS NULL OR deleted_at = '')
+            """,
+            (image_id, target["id"]),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Image not found.")
+        conn.execute("UPDATE images SET deleted_at = ? WHERE id = ? AND user_id = ?", (now, row["id"], target["id"]))
+        record_audit_log(
+            conn,
+            "admin_delete_gallery_image",
+            actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=internal_user_id,
+            entity_type="image",
+            entity_id=row["id"],
+            before={
+                "image_id": short_public_id(row["id"]),
+                "job_id": short_public_id(row["job_id"]),
+                "created_at": row["created_at"],
+            },
+            after={"deleted_at": now, "reason": reason},
+            request=request,
+        )
+    images.pop(image_id, None)
+    delete_image_files_from_disk(url=row["url"], thumbnail_url=row["thumbnail_url"])
+    return {"ok": True, "deleted": short_public_id(image_id), "deleted_at": now}
 
 
 @app.get("/api/admin/diagnostics-v2")
