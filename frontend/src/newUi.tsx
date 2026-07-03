@@ -98,6 +98,72 @@ const DEFAULT_PRESET_BY_KIND: Record<FormatId, string> = {
   horizontal: 'h-1280',
 }
 
+// ============================================================================
+// Лента (MVP, mock-данные). Референсы: izo_feed_visual_spec.md, Лента.html.
+// Backend ленты не существует — все данные и действия локальные (mock).
+// Изображения — существующие ассеты стилей проекта (/preset-previews).
+// ============================================================================
+type FeedTabId = 'all' | 'new' | 'remix' | 'challenge' | 'follow'
+
+const FEED_TABS: Array<{ id: FeedTabId; label: string }> = [
+  { id: 'all', label: 'Для вас' },
+  { id: 'new', label: 'Новое' },
+  { id: 'remix', label: 'Remix' },
+  { id: 'challenge', label: 'Челленджи' },
+  { id: 'follow', label: 'Подписки' },
+]
+
+interface FeedPost {
+  id: string
+  title: string
+  author: string
+  time: string
+  tag: string
+  tabs: FeedTabId[]
+  remixCount: number
+  saves: number
+  views: string
+  promptVisibility: 'open' | 'partial' | 'hidden'
+  prompt: string
+  /** id стиля из I2I_STYLES — «Использовать стиль» реально применяет его. */
+  styleId: string
+  params: { model: string; style: string; ratio: string; steps: number; cfg: number; seed: number }
+  image: string
+  shape: 'tall' | 'wide' | 'square'
+}
+
+function feedImg(n: number, gender: 'female' | 'male'): string {
+  return `/preset-previews/i2i/${gender}/i2i-transform-${String(n).padStart(2, '0')}.webp`
+}
+
+function buildFeedPosts(gender: 'female' | 'male'): FeedPost[] {
+  const base: Array<Omit<FeedPost, 'image'> & { img: number }> = [
+    { id: 'p-cyber', title: 'Киберпанк Москва, дождь, неон', author: 'city_mood', time: '2 ч назад', tag: 'Тренд', tabs: ['all', 'remix', 'challenge'], remixCount: 128, saves: 3400, views: '24.1K', promptVisibility: 'open', prompt: 'Киберпанк Москва в дождь, неоновые вывески, мокрый асфальт с отражениями, люди с зонтиками, атмосфера нуар, кинематографичный свет.', styleId: 'i2i-transform-08', params: { model: 'ИЗО ACA v2.4', style: 'Киберпанк неон', ratio: '16:9', steps: 30, cfg: 6.5, seed: 812341 }, img: 8, shape: 'wide' },
+    { id: 'p-android', title: 'Андроид модель AX-9', author: 'neurocraft', time: '4 ч назад', tag: 'Открытый промпт', tabs: ['all', 'new', 'remix'], remixCount: 86, saves: 2100, views: '15.2K', promptVisibility: 'open', prompt: 'Белый андроид в стерильной лаборатории, мягкий холодный свет, детальная инженерия, крупный портрет.', styleId: 'i2i-transform-07', params: { model: 'ИЗО ACA v2.4', style: 'High-tech лаборатория', ratio: '1:1', steps: 30, cfg: 7, seed: 274401 }, img: 7, shape: 'tall' },
+    { id: 'p-eco', title: 'Эко-город будущего (проект 7Б)', author: 'art_school_7b', time: '6 ч назад', tag: 'Челлендж', tabs: ['all', 'challenge'], remixCount: 42, saves: 1200, views: '8.9K', promptVisibility: 'partial', prompt: 'Светлый эко-город: зелень, солнечные панели, чистый воздух, оптимистичное будущее.', styleId: 'i2i-transform-12', params: { model: 'ИЗО ACA v2.4', style: 'Соларпанк', ratio: '16:9', steps: 28, cfg: 6, seed: 550122 }, img: 12, shape: 'square' },
+    { id: 'p-paladin', title: 'Падший паладин', author: 'dragon_walker', time: '8 ч назад', tag: 'Тренд', tabs: ['all', 'remix'], remixCount: 93, saves: 2800, views: '19.4K', promptVisibility: 'partial', prompt: 'Тёмный рыцарь на заснеженном перевале, драматичное небо, эпическое фэнтези.', styleId: 'i2i-transform-18', params: { model: 'ИЗО ACA v2.4', style: 'Тёмное фэнтези', ratio: '9:16', steps: 32, cfg: 7.5, seed: 918273 }, img: 18, shape: 'tall' },
+    { id: 'p-islands', title: 'РПГ локация: Небесные острова', author: 'pixel_heroe', time: '1 ч назад', tag: 'Челлендж', tabs: ['all', 'new', 'challenge'], remixCount: 39, saves: 987, views: '5.1K', promptVisibility: 'open', prompt: 'Парящие острова с водопадами, древние башни, мягкий солнечный свет, игровая локация.', styleId: 'i2i-transform-19', params: { model: 'ИЗО ACA v2.4', style: 'Светлое фэнтези', ratio: '16:9', steps: 28, cfg: 6.5, seed: 130987 }, img: 19, shape: 'wide' },
+    { id: 'p-ussr', title: 'Плакат: Мы — первые!', author: 'poster_lab', time: '3 ч назад', tag: 'Открытый промпт', tabs: ['all', 'new', 'remix'], remixCount: 73, saves: 1700, views: '11.3K', promptVisibility: 'open', prompt: 'Космонавт в стиле советского плаката, смелая типографика форм, ретро-футуризм 60-х.', styleId: 'i2i-transform-11', params: { model: 'ИЗО ACA v2.4', style: 'Ретрофутуризм 60-х', ratio: '9:16', steps: 26, cfg: 6, seed: 660014 }, img: 11, shape: 'tall' },
+    { id: 'p-spring', title: 'Девушка-весна', author: 'mariya_ai', time: '5 ч назад', tag: 'Тренд', tabs: ['all', 'follow'], remixCount: 147, saves: 3900, views: '27.6K', promptVisibility: 'hidden', prompt: '', styleId: 'i2i-transform-03', params: { model: 'ИЗО ACA v2.4', style: 'Fashion editorial', ratio: '1:1', steps: 30, cfg: 7, seed: 43210 }, img: 3, shape: 'square' },
+    { id: 'p-noir', title: 'Фотостудия: парфюм Noir Éclat', author: 'product_viz', time: '7 ч назад', tag: 'Открытый промпт', tabs: ['all', 'remix', 'follow'], remixCount: 64, saves: 2200, views: '13.8K', promptVisibility: 'open', prompt: 'Флакон парфюма на тёмном камне, драматичный свет, премиальная продуктовая съёмка.', styleId: 'i2i-transform-02', params: { model: 'ИЗО ACA v2.4', style: 'Лакшери премиум', ratio: '1:1', steps: 30, cfg: 7, seed: 998877 }, img: 2, shape: 'square' },
+    { id: 'p-worlds', title: 'Замок в облаках', author: 'fantasy_worlds', time: '6 ч назад', tag: 'Remix-цепочка', tabs: ['all', 'remix'], remixCount: 112, saves: 2600, views: '17.9K', promptVisibility: 'partial', prompt: 'Величественный замок над морем облаков, рассвет, эпическая перспектива.', styleId: 'i2i-transform-20', params: { model: 'ИЗО ACA v2.4', style: 'Другой мир', ratio: '16:9', steps: 30, cfg: 6.5, seed: 775533 }, img: 20, shape: 'wide' },
+    { id: 'p-vintage', title: 'Утро старого города', author: 'vintage_vibes', time: '4 ч назад', tag: 'Новое', tabs: ['all', 'new'], remixCount: 12, saves: 340, views: '2.2K', promptVisibility: 'open', prompt: 'Узкая улица старого города на рассвете, мягкий туман, тёплый свет фонарей.', styleId: 'i2i-transform-16', params: { model: 'ИЗО ACA v2.4', style: 'Средневековая старина', ratio: '9:16', steps: 26, cfg: 6, seed: 220044 }, img: 16, shape: 'tall' },
+  ]
+  return base.map(({ img, ...rest }) => ({ ...rest, image: feedImg(img, gender) }))
+}
+
+const FEED_CHALLENGE = {
+  title: 'Москва 2120',
+  text: 'Покажи, какой будет Москва через 100 лет.',
+  prize: '10 000 IZO',
+  timer: [
+    { v: '05', l: 'дней' },
+    { v: '14', l: 'часов' },
+    { v: '32', l: 'минут' },
+    { v: '47', l: 'секунд' },
+  ],
+}
+
 const JOB_ACTIVE = ['queued', 'running', 'uploading', 'sent_to_comfyui']
 
 // Приписка стиля в промпте (Текст → Изо). Через маркер её можно заменить при
@@ -120,8 +186,16 @@ function newClientRequestId(): string {
 }
 
 export default function NewStudio(): ReactElement {
-  const [tab, setTab] = useState<N2Tab>('feed')
+  // Route: /new/feed — Лента (она же вкладка по умолчанию на /new);
+  // остальные вкладки живут на /new.
+  const [tab, setTabState] = useState<N2Tab>('feed')
   const [view, setView] = useState<N2View>('tabs')
+
+  const setTab = useCallback((next: N2Tab) => {
+    setTabState(next)
+    const target = next === 'feed' ? '/new/feed' : '/new'
+    if (window.location.pathname !== target) window.history.pushState(null, '', target)
+  }, [])
   const { status: authStatus, me } = useAuthV2()
   const [authOpen, setAuthOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -146,6 +220,101 @@ export default function NewStudio(): ReactElement {
 
   // Вкладка «Рисунок»: выбор режима (UX-структура; сам холст — отдельная фаза).
   const [paintMode, setPaintMode] = useState<'sketch' | 'mask' | 'expand'>('sketch')
+
+  // ---------- Лента (mock-state) ----------
+  const feedPosts = useMemo(() => buildFeedPosts(previewGender), [previewGender])
+  const [feedTab, setFeedTab] = useState<FeedTabId>('all')
+  const [feedSelectedId, setFeedSelectedId] = useState<string>(feedPosts[0]?.id || '')
+  const [feedSaved, setFeedSaved] = useState<Set<string>>(() => new Set())
+  const [feedFollowed, setFeedFollowed] = useState<Set<string>>(() => new Set())
+  const [feedDetailOpen, setFeedDetailOpen] = useState(false) // mobile overlay
+  const [feedLoading, setFeedLoading] = useState(true)
+  const [feedPromptExpanded, setFeedPromptExpanded] = useState(false)
+  const [toastText, setToastText] = useState('')
+  const toastTimerRef = useRef<number>(0)
+
+  const showToast = useCallback((text: string) => {
+    setToastText(text)
+    window.clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = window.setTimeout(() => setToastText(''), 1900)
+  }, [])
+
+  // Skeleton при первом открытии Ленты и при смене её вкладки (имитация загрузки).
+  // queueMicrotask — проектный паттерн против react-hooks/set-state-in-effect.
+  useEffect(() => {
+    if (tab !== 'feed') return
+    queueMicrotask(() => setFeedLoading(true))
+    const t = window.setTimeout(() => setFeedLoading(false), 550)
+    return () => window.clearTimeout(t)
+  }, [tab, feedTab])
+
+  const feedVisible = useMemo(
+    () => (feedTab === 'all' ? feedPosts : feedPosts.filter((p) => p.tabs.includes(feedTab))),
+    [feedPosts, feedTab],
+  )
+  const feedSelected = feedPosts.find((p) => p.id === feedSelectedId) || feedVisible[0] || feedPosts[0]
+
+  const toggleFeedSave = (id: string) => {
+    if (authStatus !== 'authed') {
+      setAuthOpen(true)
+      return
+    }
+    setFeedSaved((cur) => {
+      const next = new Set(cur)
+      const added = !next.has(id)
+      if (added) next.add(id)
+      else next.delete(id)
+      showToast(added ? 'Сохранено в коллекцию (mock)' : 'Убрано из коллекции (mock)')
+      return next
+    })
+  }
+
+  const toggleFeedFollow = (author: string) => {
+    if (authStatus !== 'authed') {
+      setAuthOpen(true)
+      return
+    }
+    setFeedFollowed((cur) => {
+      const next = new Set(cur)
+      const added = !next.has(author)
+      if (added) next.add(author)
+      else next.delete(author)
+      showToast(added ? `Вы подписались на @${author} (mock)` : `Подписка на @${author} снята (mock)`)
+      return next
+    })
+  }
+
+  // Remix: без API — префилл промпта в «Текст → Изо» (если промпт не скрыт).
+  const startFeedRemix = (post: FeedPost) => {
+    if (authStatus !== 'authed') {
+      setAuthOpen(true)
+      return
+    }
+    appliedStyleRef.current = null
+    setStyleId('')
+    if (post.promptVisibility !== 'hidden' && post.prompt) {
+      setPrompts((cur) => ({ ...cur, text: post.prompt }))
+      showToast('Remix подготовлен — промпт подставлен в генератор')
+    } else {
+      setPrompts((cur) => ({ ...cur, text: '' }))
+      showToast('Промпт скрыт автором — Remix открыл генератор (mock)')
+    }
+    setFeedDetailOpen(false)
+    setTab('text')
+  }
+
+  // «Использовать стиль»: стиль поста — реальный стиль из stylePresets.
+  const applyFeedStyle = (post: FeedPost) => {
+    const style = I2I_STYLES.find((s) => s.id === post.styleId)
+    if (!style) {
+      showToast('Стиль недоступен (mock)')
+      return
+    }
+    setFeedDetailOpen(false)
+    setTab('text')
+    applyStyleTo('text', style)
+    showToast(`Стиль «${style.name}» применён в генераторе`)
+  }
 
   const [job, setJob] = useState<N2Job>()
   const [jobMode, setJobMode] = useState<'text' | 'i2i'>('text')
@@ -219,9 +388,11 @@ export default function NewStudio(): ReactElement {
   // Стиль в Текст → Изо: приписываем текст стиля в промпт (замена предыдущего).
   // Вся строковая математика — вне setState-updater (updater обязан быть чистым:
   // под StrictMode он вызывается дважды, и мутация ref внутри него ломает замену).
-  function applyStyle(next: StylePreset | null) {
+  // targetTab передаётся явно: из Ленты стиль применяется к «Текст → Изо»,
+  // хотя state `tab` в замыкании ещё старый.
+  function applyStyleTo(targetTab: 'text' | 'i2i', next: StylePreset | null) {
     setStyleId(next?.id || '')
-    if (tab !== 'text') return
+    if (targetTab !== 'text') return
     const applied = appliedStyleRef.current
     let text = prompts.text
     if (applied && text.includes(applied.text)) text = text.replace(applied.text, '')
@@ -233,6 +404,10 @@ export default function NewStudio(): ReactElement {
       appliedStyleRef.current = null
     }
     setPrompts((cur) => ({ ...cur, text }))
+  }
+
+  function applyStyle(next: StylePreset | null) {
+    applyStyleTo(tab === 'i2i' ? 'i2i' : 'text', next)
   }
 
   function applyTemplate(templatePrompt: string) {
@@ -817,38 +992,274 @@ export default function NewStudio(): ReactElement {
     </section>
   )
 
-  const feed = (
-    <section className="n2-panel n2-feed" aria-label="Лента сообщества">
-      <div className="n2-feed-hero">
-        <span className="n2-feed-badge">✦ Скоро</span>
-        <h2>Лента сообщества ИЗО ACA</h2>
-        <p>
-          Лента — это соцсеть внутри ИЗО ACA. Пользователи сами решают, какие свои генерации опубликовать: в ленту
-          попадает только то, чем автор захотел поделиться. Публикации собирают лайки и комментарии. Раздел в
-          разработке — ниже макет того, как это будет выглядеть.
-        </p>
+  // ---------- Лента: карточка публикации ----------
+  const feedCard = (post: FeedPost) => (
+    <article
+      key={post.id}
+      className={`nf-card ${post.shape}${feedSelected?.id === post.id ? ' selected' : ''}`}
+      onClick={() => {
+        setFeedSelectedId(post.id)
+        setFeedPromptExpanded(false)
+        setFeedDetailOpen(true)
+      }}
+    >
+      <div className="nf-card-image">
+        <img src={post.image} alt={post.title} loading="lazy" />
+        <span className="nf-tag">{post.tag}</span>
       </div>
-      <div className="n2-feed-grid">
-        {gallery.slice(0, 12).map((item) => (
-          <div key={item.id} className="n2-feed-card">
-            <img src={item.thumbnailUrl || item.url} alt={item.promptOriginal.slice(0, 60)} loading="lazy" />
-            <div className="n2-feed-card-meta">
-              <span>Вы</span>
-              <span>♥ · 💬</span>
-            </div>
+      <div className="nf-card-body">
+        <div className="nf-author">
+          <span className="nf-avatar" aria-hidden="true">{post.author[0].toUpperCase()}</span>
+          <span className="nf-author-text">
+            <strong>{post.author}</strong>
+            <span>{post.time}</span>
+          </span>
+        </div>
+        <h3>{post.title}</h3>
+        <div className="nf-stats">
+          <span>⟳ {post.remixCount} remix</span>
+          <span>▣ {post.saves >= 1000 ? `${(post.saves / 1000).toFixed(1)}K` : post.saves} сохр.</span>
+        </div>
+        <div className="nf-card-actions">
+          <button
+            className="nf-remix"
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              startFeedRemix(post)
+            }}
+          >
+            ⟳ Remix
+          </button>
+          <button
+            className={`nf-save${feedSaved.has(post.id) ? ' active' : ''}`}
+            type="button"
+            aria-label="Сохранить"
+            onClick={(e) => {
+              e.stopPropagation()
+              toggleFeedSave(post.id)
+            }}
+          >
+            {feedSaved.has(post.id) ? '♥' : '♡'}
+          </button>
+          <button
+            className="nf-menu"
+            type="button"
+            aria-label="Меню"
+            onClick={(e) => {
+              e.stopPropagation()
+              showToast('Скрыть · Пожаловаться · Ссылка — скоро (mock)')
+            }}
+          >
+            ⋯
+          </button>
+        </div>
+      </div>
+    </article>
+  )
+
+  // ---------- Лента: панель подробностей ----------
+  const feedDetail = feedSelected && (
+    <div className="nf-detail-scroll">
+      <div className="nf-detail-image">
+        <img src={feedSelected.image} alt={feedSelected.title} />
+        <span className="nf-ai-label">Сгенерировано ИИ</span>
+      </div>
+      <div className="nf-detail-author">
+        <div className="nf-author">
+          <span className="nf-avatar big" aria-hidden="true">{feedSelected.author[0].toUpperCase()}</span>
+          <span className="nf-author-text">
+            <strong>{feedSelected.author}</strong>
+            <span>{feedSelected.time}</span>
+          </span>
+        </div>
+        <button
+          className={`nf-follow${feedFollowed.has(feedSelected.author) ? ' active' : ''}`}
+          type="button"
+          onClick={() => toggleFeedFollow(feedSelected.author)}
+        >
+          {feedFollowed.has(feedSelected.author) ? '✓ Вы подписаны' : 'Подписаться'}
+        </button>
+      </div>
+      <h2 className="nf-detail-title">{feedSelected.title}</h2>
+      <div className="nf-stats">
+        <span>⟳ {feedSelected.remixCount} remix</span>
+        <span>▣ {feedSelected.saves >= 1000 ? `${(feedSelected.saves / 1000).toFixed(1)}K` : feedSelected.saves} сохр.</span>
+        <span>◉ {feedSelected.views} просмотров</span>
+      </div>
+      <div className="nf-prompt">
+        <strong>
+          {feedSelected.promptVisibility === 'open'
+            ? 'Промпт (открыт)'
+            : feedSelected.promptVisibility === 'partial'
+              ? 'Промпт частично'
+              : 'Промпт скрыт автором'}
+        </strong>
+        {feedSelected.promptVisibility !== 'hidden' && (
+          <>
+            <span className={feedPromptExpanded ? '' : 'clamped'}>{feedSelected.prompt}</span>
+            <button className="nf-more" type="button" onClick={() => setFeedPromptExpanded((v) => !v)}>
+              {feedPromptExpanded ? 'Свернуть' : 'Показать полностью'}
+            </button>
+          </>
+        )}
+      </div>
+      <div className="nf-params">
+        <div className="nf-param"><span>Модель</span><strong>{feedSelected.params.model}</strong></div>
+        <div className="nf-param"><span>Стиль</span><strong>{feedSelected.params.style}</strong></div>
+        <div className="nf-param"><span>Соотношение</span><strong>{feedSelected.params.ratio}</strong></div>
+        <div className="nf-param"><span>Шаги</span><strong>{feedSelected.params.steps}</strong></div>
+        <div className="nf-param"><span>CFG</span><strong>{feedSelected.params.cfg}</strong></div>
+        <div className="nf-param"><span>Seed</span><strong>{feedSelected.params.seed}</strong></div>
+      </div>
+      <div className="nf-remix-tree">
+        <div className="nf-label-row">
+          <strong>Дерево ремиксов</strong>
+          <span>{feedSelected.remixCount} remix</span>
+        </div>
+        <div className="nf-remix-chain">
+          {feedPosts
+            .filter((p) => p.id !== feedSelected.id)
+            .slice(0, 4)
+            .map((p, i) => (
+              <span key={p.id} className="nf-remix-node">
+                <img src={p.image} alt="" loading="lazy" onClick={() => setFeedSelectedId(p.id)} />
+                {i < 3 && <em aria-hidden="true">→</em>}
+              </span>
+            ))}
+        </div>
+      </div>
+      <div className="nf-detail-actions">
+        <button className="nf-remix" type="button" onClick={() => startFeedRemix(feedSelected)}>
+          ⟳ Remix
+        </button>
+        <button
+          className={`nf-secondary${feedSaved.has(feedSelected.id) ? ' saved' : ''}`}
+          type="button"
+          onClick={() => toggleFeedSave(feedSelected.id)}
+        >
+          {feedSaved.has(feedSelected.id) ? '♥ Сохранено' : '♡ Сохранить'}
+        </button>
+        <button className="nf-purple" type="button" onClick={() => applyFeedStyle(feedSelected)}>
+          ✦ Использовать стиль
+        </button>
+      </div>
+    </div>
+  )
+
+  // ---------- Лента: страница ----------
+  const feed = (
+    <section className="nf-page" aria-label="Лента сообщества">
+      <div className="nf-main n2-panel">
+        <div className="nf-head">
+          <nav className="nf-tabs" aria-label="Вкладки ленты">
+            {FEED_TABS.map((ft) => (
+              <button
+                key={ft.id}
+                className={`nf-tab${feedTab === ft.id ? ' active' : ''}`}
+                type="button"
+                onClick={() => setFeedTab(ft.id)}
+              >
+                {ft.label}
+              </button>
+            ))}
+          </nav>
+          <div className="nf-activity" aria-label="Активность сообщества">
+            <span><i className="nf-dot" /> 24 891 онлайн</span>
+            <span>1 280 новых работ сегодня</span>
+            <span className="nf-activity-trend">Тренд: «киберпанк москва дождь неон»</span>
+            <span className="nf-activity-mock">демо-данные</span>
           </div>
-        ))}
-        {gallery.length === 0 &&
-          I2I_STYLES.slice(0, 8).map((style) => (
-            <div key={style.id} className="n2-feed-card">
-              <img src={style.preview[previewGender]} alt={style.preview.alt} loading="lazy" />
-              <div className="n2-feed-card-meta">
-                <span>{style.name}</span>
-                <span>♥ · 💬</span>
+        </div>
+        <div className="nf-grid-scroll">
+          {feedLoading ? (
+            <div className="nf-grid" aria-hidden="true">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className={`nf-card nf-skeleton ${i % 3 === 0 ? 'tall' : i % 3 === 1 ? 'wide' : 'square'}`}>
+                  <div className="nf-card-image" />
+                  <div className="nf-skeleton-lines">
+                    <span />
+                    <span />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : feedVisible.length === 0 ? (
+            <div className="nf-empty">
+              <span className="icon">▧</span>
+              <h3>{feedTab === 'follow' ? 'Вы пока ни на кого не подписаны' : 'Пока здесь нет работ'}</h3>
+              <p>Сгенерируйте изображение или откройте челлендж — лента оживёт.</p>
+              <div className="nf-empty-actions">
+                <button className="nf-remix" type="button" onClick={() => setTab('text')}>
+                  Сгенерировать
+                </button>
+                <button className="nf-secondary" type="button" onClick={() => setFeedTab('challenge')}>
+                  Открыть челленджи
+                </button>
               </div>
             </div>
-          ))}
+          ) : (
+            <div className="nf-grid">{feedVisible.map(feedCard)}</div>
+          )}
+        </div>
       </div>
+
+      <aside className={`nf-detail n2-panel${feedDetailOpen ? ' open' : ''}`} aria-label="Подробности работы">
+        <button className="nf-detail-close" type="button" aria-label="Закрыть" onClick={() => setFeedDetailOpen(false)}>
+          ‹ Назад к ленте
+        </button>
+        <div className="nf-challenge">
+          <span className="nf-challenge-chip">Челлендж недели · демо</span>
+          <h3>{FEED_CHALLENGE.title}</h3>
+          <p>
+            {FEED_CHALLENGE.text} Призовой фонд: <strong>{FEED_CHALLENGE.prize}</strong>.
+          </p>
+          <div className="nf-timer">
+            {FEED_CHALLENGE.timer.map((t) => (
+              <span key={t.l} className="nf-time-cell">
+                <strong>{t.v}</strong>
+                <em>{t.l}</em>
+              </span>
+            ))}
+          </div>
+          <button
+            className="nf-remix"
+            type="button"
+            onClick={() => {
+              setPrompts((cur) => ({ ...cur, text: `${FEED_CHALLENGE.title}: ${FEED_CHALLENGE.text}` }))
+              setTab('text')
+              showToast('Тема челленджа подставлена в генератор (mock)')
+            }}
+          >
+            Участвовать
+          </button>
+        </div>
+        {feedDetail}
+      </aside>
+
+      <nav className="nf-mobile-nav" aria-label="Мобильная навигация">
+        <button type="button" onClick={() => setTab('text')}>
+          <i>⌂</i>ИЗО
+        </button>
+        <button className="active" type="button" onClick={() => setFeedDetailOpen(false)}>
+          <i>▦</i>Лента
+        </button>
+        <button type="button" onClick={() => setView('gallery')}>
+          <i>▧</i>Галерея
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setFeedTab('challenge')
+            setFeedDetailOpen(false)
+          }}
+        >
+          <i>✦</i>Челленджи
+        </button>
+        <button type="button" onClick={() => setAuthOpen(true)}>
+          <i>○</i>Профиль
+        </button>
+      </nav>
     </section>
   )
 
@@ -982,6 +1393,11 @@ export default function NewStudio(): ReactElement {
   return (
     <div className="n2">
       <AuthV2Modal open={authOpen} onClose={() => setAuthOpen(false)} />
+      {toastText && (
+        <div className="nf-toast" role="status">
+          {toastText}
+        </div>
+      )}
       <input
         ref={fileInputRef}
         type="file"
