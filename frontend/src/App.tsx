@@ -3138,8 +3138,9 @@ function AdminView({ copy, admin, setAdmin, tariffs, setTariffs, backToStudio, p
   const timeline = (admin?.timeline || {}) as AdminTimeline
   const isHourlyDashboardRange = HOURLY_DASHBOARD_RANGES.has(dashboardRange)
   const sliceSeries = (key: string): TimelinePoint[] => {
-    const sourceKey = isHourlyDashboardRange ? `${key}_hourly` : key
-    return (Array.isArray(timeline[sourceKey]) ? timeline[sourceKey] : []).slice(-dashboardRange)
+    const sourceKey = isHourlyDashboardRange ? `${key}_${dashboardRange}h` : key
+    const source = Array.isArray(timeline[sourceKey]) ? timeline[sourceKey] : []
+    return isHourlyDashboardRange ? source : source.slice(-dashboardRange)
   }
   const shortDate = (date: string) => {
     if (date.includes('T')) {
@@ -3169,7 +3170,7 @@ function AdminView({ copy, admin, setAdmin, tariffs, setTariffs, backToStudio, p
     const last = rows.at(-1)?.value ?? 0
     const average = rows.length ? Math.round(total / rows.length) : 0
     const peak = rows.reduce((best, point) => (Number(point.value) > Number(best.value) ? point : best), rows[0] || { date: '', value: 0 })
-    const tickStep = dashboardRange <= 6 ? 1 : dashboardRange === 12 ? 3 : dashboardRange === 24 ? 6 : dashboardRange === 7 ? 2 : dashboardRange === 30 ? 10 : 30
+    const tickStep = rows.length <= 12 ? 3 : rows.length <= 24 ? 6 : dashboardRange === 7 ? 2 : dashboardRange === 30 ? 10 : 30
     const dateTicks = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % tickStep === 0)
     const valueTicks = Array.from(new Set([max, Math.round(max * 0.75), Math.round(max * 0.5), Math.round(max * 0.25), 0])).sort((a, b) => b - a)
     const verticalTicks = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % tickStep === 0)

@@ -8948,6 +8948,65 @@ def _hourly_counts(conn: sqlite3.Connection, table: str, column: str, hours: int
     return [{"date": hour, "value": value} for hour, value in series.items()]
 
 
+def _parse_iso_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _floor_to_bucket(value: datetime, bucket_minutes: int) -> datetime:
+    minute = (value.minute // bucket_minutes) * bucket_minutes
+    return value.replace(minute=minute, second=0, microsecond=0)
+
+
+def _rolling_counts(
+    conn: sqlite3.Connection,
+    table: str,
+    column: str,
+    minutes: int,
+    bucket_minutes: int,
+    where: str = "",
+    params: tuple[Any, ...] = (),
+) -> list[dict[str, Any]]:
+    now = datetime.now(timezone.utc)
+    end_bucket = _floor_to_bucket(now, bucket_minutes)
+    bucket_count = max(1, (minutes + bucket_minutes - 1) // bucket_minutes)
+    buckets = [
+        end_bucket - timedelta(minutes=bucket_minutes * offset)
+        for offset in range(bucket_count - 1, -1, -1)
+    ]
+    series = {bucket.isoformat(): 0 for bucket in buckets}
+    start = buckets[0]
+    where_sql = f" AND {where}" if where else ""
+    rows = conn.execute(
+        f"SELECT {column} AS ts FROM {table} WHERE {column} >= ?{where_sql}",
+        (start.isoformat(), *params),
+    ).fetchall()
+    for row in rows:
+        ts = _parse_iso_utc(row["ts"])
+        if ts is None or ts < start or ts > now:
+            continue
+        key = _floor_to_bucket(ts, bucket_minutes).isoformat()
+        if key in series:
+            series[key] += 1
+    return [{"date": bucket, "value": value} for bucket, value in series.items()]
+
+
+def _dashboard_rolling_series(conn: sqlite3.Connection, table: str, column: str, where: str = "") -> dict[str, list[dict[str, Any]]]:
+    return {
+        "1h": _rolling_counts(conn, table, column, 60, 5, where),
+        "6h": _rolling_counts(conn, table, column, 360, 30, where),
+        "12h": _rolling_counts(conn, table, column, 720, 60, where),
+        "24h": _rolling_counts(conn, table, column, 1440, 60, where),
+    }
+
+
 def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_iso: str) -> dict[str, Any]:
     iuid = urow["internal_user_id"]
     legacy = urow["id"]
@@ -9637,6 +9696,12 @@ async def admin_summary(request: Request) -> dict[str, Any]:
         errors_24h = conn.execute("SELECT COUNT(*) FROM auth_login_attempts WHERE success = 0 AND created_at >= ?", (last_24h,)).fetchone()[0]
         settings_row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'finance'").fetchone()
         finance = json.loads(settings_row["value_json"]) if settings_row else {"tokenRevenue": 0, "tokenCost": 0, "electricity": 0, "promoBudget": 0}
+        active_users_rolling = _dashboard_rolling_series(conn, "users", "last_seen_at", "internal_user_id IS NOT NULL")
+        registrations_rolling = _dashboard_rolling_series(conn, "users", "created_at", "internal_user_id IS NOT NULL")
+        logins_rolling = _dashboard_rolling_series(conn, "event_logs", "created_at", "event_name IN ('login_succeeded','password_login_succeeded','password_register_succeeded')")
+        login_errors_rolling = _dashboard_rolling_series(conn, "auth_login_attempts", "created_at", "success = 0")
+        generations_rolling = _dashboard_rolling_series(conn, "jobs", "created_at")
+        generation_errors_rolling = _dashboard_rolling_series(conn, "jobs", "created_at", "status = 'failed'")
         timeline = {
             "days": 90,
             "active_users": _daily_counts(conn, "users", "last_seen_at", 90, "internal_user_id IS NOT NULL"),
@@ -9651,6 +9716,30 @@ async def admin_summary(request: Request) -> dict[str, Any]:
             "login_errors_hourly": _hourly_counts(conn, "auth_login_attempts", "created_at", 24, "success = 0"),
             "generations_hourly": _hourly_counts(conn, "jobs", "created_at", 24),
             "generation_errors_hourly": _hourly_counts(conn, "jobs", "created_at", 24, "status = 'failed'"),
+            "active_users_1h": active_users_rolling["1h"],
+            "active_users_6h": active_users_rolling["6h"],
+            "active_users_12h": active_users_rolling["12h"],
+            "active_users_24h": active_users_rolling["24h"],
+            "registrations_1h": registrations_rolling["1h"],
+            "registrations_6h": registrations_rolling["6h"],
+            "registrations_12h": registrations_rolling["12h"],
+            "registrations_24h": registrations_rolling["24h"],
+            "logins_1h": logins_rolling["1h"],
+            "logins_6h": logins_rolling["6h"],
+            "logins_12h": logins_rolling["12h"],
+            "logins_24h": logins_rolling["24h"],
+            "login_errors_1h": login_errors_rolling["1h"],
+            "login_errors_6h": login_errors_rolling["6h"],
+            "login_errors_12h": login_errors_rolling["12h"],
+            "login_errors_24h": login_errors_rolling["24h"],
+            "generations_1h": generations_rolling["1h"],
+            "generations_6h": generations_rolling["6h"],
+            "generations_12h": generations_rolling["12h"],
+            "generations_24h": generations_rolling["24h"],
+            "generation_errors_1h": generation_errors_rolling["1h"],
+            "generation_errors_6h": generation_errors_rolling["6h"],
+            "generation_errors_12h": generation_errors_rolling["12h"],
+            "generation_errors_24h": generation_errors_rolling["24h"],
         }
     return {
         "users": user_count,
