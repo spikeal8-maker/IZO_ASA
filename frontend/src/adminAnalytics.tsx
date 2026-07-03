@@ -335,6 +335,9 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const unpaidInvoice = (data?.invoices_recent || []).find((i) => ['draft', 'issued'].includes(String(i.status)))
   const refundablePayment = (data?.payments_recent || []).find((p) => ['paid', 'partially_refunded'].includes(String(p.status)))
   const cancellableBonus = (data?.bonus_grants_recent || []).find((b) => String(b.status) === 'granted' && n0(b.token_amount) > 0)
+  const recentGenerations = data?.recent_generations || []
+  const recentGallery = data?.recent_gallery || []
+  const imageUrl = (img: AnyRec) => String(img.thumbnail_url || img.result_image_url || '')
 
   return (
     <div className="crm-card-overlay" onClick={onClose}>
@@ -399,13 +402,43 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 )
               })}{!ids?.length && <p className="crm-card-note">—</p>}
             </div>
-            <div className="crm-panel">
-              <h4>Контент</h4>
-              <dl className="crm-preview-list">
-                {row('Генерации', sm.generations_count)}{row('Промпты', data?.recent_generations?.length ?? 0)}{row('Галерея', quotaLabel(sm))}{row('Последний контент', shortTime(data?.recent_generations?.[0]?.created_at))}
+            <div className="crm-panel crm-content-panel">
+              <div className="crm-panel-titleline">
+                <h4>Контент</h4>
+                <div>
+                  <button type="button" className="crm-panel-link" onClick={() => setTab('prompts')}>Промпты</button>
+                  <button type="button" className="crm-panel-link" onClick={() => setTab('gallery')}>Галерея</button>
+                </div>
+              </div>
+              <dl className="crm-preview-list crm-content-stats">
+                {row('Генерации', sm.generations_count)}{row('Промпты', recentGenerations.length)}{row('Галерея', quotaLabel(sm))}{row('Последний контент', shortTime(recentGenerations[0]?.created_at || recentGallery[0]?.created_at))}
               </dl>
-              <div className="crm-rows">
-                {(data?.recent_generations || []).slice(0, 5).map((g, n) => <small key={n}><strong>{S(g.status)}</strong> · {S(g.mode)} · {S(g.provider || g.model)} · {S(g.token_cost)} ток. · {S(g.prompt)}</small>)}
+              <div className="crm-content-grid">
+                <div className="crm-prompt-feed" aria-label="Последние генерации и промпты">
+                  {recentGenerations.slice(0, 5).map((g, n) => (
+                    <button type="button" className="crm-prompt-row" key={n} onClick={() => setTab('prompts')}>
+                      <span className="crm-prompt-meta">
+                        <strong>{S(g.status || 'generation')}</strong>
+                        <span>{S(g.mode)}</span>
+                        <span>{S(g.provider || g.model)}</span>
+                        <span>{shortTime(g.created_at)}</span>
+                        {g.token_cost !== undefined && g.token_cost !== null && <span>{S(g.token_cost)} ток.</span>}
+                      </span>
+                      <span className="crm-prompt-text">{S(g.prompt || g.error || 'Промпт не сохранён')}</span>
+                      <span className="crm-prompt-foot">job {S(g.id)}{g.result_image_id ? ` · image ${S(g.result_image_id)}` : ''}</span>
+                    </button>
+                  ))}
+                  {!recentGenerations.length && <p className="crm-card-note">Пока нет сохранённых генераций с промптом.</p>}
+                </div>
+                <div className="crm-gallery-preview" aria-label="Последние изображения пользователя">
+                  {recentGallery.slice(0, 6).map((img, n) => (
+                    <button type="button" className="crm-gallery-thumb" key={n} onClick={() => setTab('gallery')} title={S(img.prompt)}>
+                      {imageUrl(img) ? <img src={imageUrl(img)} alt="" /> : <span className="crm-gallery-empty">Нет превью</span>}
+                      <small>{S(img.mode)} · {shortTime(img.created_at)}</small>
+                    </button>
+                  ))}
+                  {!recentGallery.length && <p className="crm-card-note">В галерее нет доступных миниатюр.</p>}
+                </div>
               </div>
             </div>
             <div className="crm-panel">

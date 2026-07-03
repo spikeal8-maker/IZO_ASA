@@ -626,11 +626,150 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .crm-card-left > .crm-panel:nth-of-type(4) {
   grid-column: span 1;
 }
+.crm-card-left > .crm-content-panel {
+  grid-column: 1 / -1;
+}
 .crm-panel {
   padding: 12px;
 }
 .crm-panel h4 {
   margin-bottom: 10px;
+}
+.crm-panel-titleline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.crm-panel-titleline h4 {
+  margin: 0;
+}
+.crm-panel-titleline > div {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.crm-panel-link {
+  border: 1px solid rgba(169, 193, 214, .24);
+  background: rgba(169, 193, 214, .07);
+  color: #e8f1fb;
+  border-radius: 7px;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.crm-panel-link:hover,
+.crm-panel-link:focus-visible {
+  border-color: rgba(223, 255, 34, .8);
+  color: var(--acid);
+  outline: none;
+}
+.crm-content-panel {
+  gap: 10px;
+}
+.crm-content-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.crm-content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(240px, .65fr);
+  gap: 12px;
+  align-items: stretch;
+}
+.crm-prompt-feed {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.crm-prompt-row {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  border: 1px solid rgba(169, 193, 214, .14);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(169, 193, 214, .08), rgba(169, 193, 214, .03));
+  color: #e8f1fb;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.crm-prompt-row:hover,
+.crm-prompt-row:focus-visible {
+  border-color: rgba(223, 255, 34, .55);
+  background: rgba(223, 255, 34, .06);
+  outline: none;
+}
+.crm-prompt-meta {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  color: #a9b5c2;
+  font-size: 11px;
+}
+.crm-prompt-meta strong {
+  color: var(--acid);
+  text-transform: uppercase;
+}
+.crm-prompt-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.35;
+  color: #f3f7fb;
+  font-size: 12px;
+}
+.crm-prompt-foot {
+  color: #728090;
+  font-size: 10px;
+}
+.crm-gallery-preview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+.crm-gallery-thumb {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid rgba(169, 193, 214, .16);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, .28);
+  color: #cdd8e4;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+}
+.crm-gallery-thumb:hover,
+.crm-gallery-thumb:focus-visible {
+  border-color: rgba(223, 255, 34, .6);
+  outline: none;
+}
+.crm-gallery-thumb img,
+.crm-gallery-empty {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  background: #050708;
+}
+.crm-gallery-empty {
+  display: grid;
+  place-items: center;
+  color: #6f7a86;
+  font-size: 11px;
+  padding: 8px;
+}
+.crm-gallery-thumb small {
+  padding: 0 6px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .crm-card-actions::-webkit-scrollbar,
 .crm-card-left::-webkit-scrollbar {
@@ -645,6 +784,8 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 @media (max-width: 1100px) {
   .crm-card-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .crm-preview-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crm-content-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crm-content-grid { grid-template-columns: 1fr; }
   .crm-card-left { grid-template-columns: 1fr; }
   .crm-card-left > .crm-panel:nth-of-type(1),
   .crm-card-left > .crm-panel:nth-of-type(2),
@@ -687,6 +828,8 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
   .crm-card-id h2 { font-size: 24px; }
   .crm-card-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .crm-card-kpis span { min-height: 48px; padding: 8px 10px; }
+  .crm-panel-titleline { align-items: flex-start; }
+  .crm-gallery-preview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .crm-card-cols {
     grid-template-columns: 1fr;
     padding: 10px;
