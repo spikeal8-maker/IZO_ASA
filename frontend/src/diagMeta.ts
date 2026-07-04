@@ -2,7 +2,7 @@
 // diag.tsx so React Fast Refresh can treat that file as component-only.
 
 // Bump this string on every frontend deploy so you can confirm which bundle is live.
-export const APP_BUILD_LABEL = 'MAIN-UI-STABILITY-20260701'
+export const APP_BUILD_LABEL = 'FEED-4COL-FULLWIDTH-20260704'
 
 export function isDiagMode(): boolean {
   try {
