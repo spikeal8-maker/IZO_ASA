@@ -420,19 +420,31 @@ export default function NewStudio(): ReactElement {
     // Формат из соотношения работы.
     const shape = feedShape(post.aspect_ratio)
     setResolutionId(DEFAULT_PRESET_BY_KIND[shape === 'square' ? 'square' : shape === 'wide' ? 'horizontal' : 'vertical'])
+    // «Сделать похожее» ведёт в ту вкладку, где работа была создана: i2i-работы
+    // → Изо → Изо (сама работа становится основой-референсом), остальные → Текст.
+    const targetTab: 'text' | 'i2i' = post.mode === 'image_to_image' ? 'i2i' : 'text'
+    const promptSlot = targetTab === 'i2i' ? 'i2i' : 'text'
+    setPrompts((cur) => ({ ...cur, [promptSlot]: post.prompt || '' }))
+    if (targetTab === 'i2i') {
+      // Референс: сама опубликованная работа (отдельный исходник не хранится —
+      // если автор его не сохранял, его и не будет).
+      setSourceImage(apiUrl(post.image_url))
+    }
     if (post.prompt) {
-      setPrompts((cur) => ({ ...cur, text: post.prompt || '' }))
       showToast(feedLang === 'ru' ? 'Промпт подставлен — генерируйте свою версию' : 'Prompt prefilled — generate your version')
     } else {
-      setPrompts((cur) => ({ ...cur, text: '' }))
       showToast(
         feedLang === 'ru'
-          ? 'Промпт скрыт автором — опишите идею своими словами'
-          : 'Prompt is hidden — describe the idea in your own words',
+          ? targetTab === 'i2i'
+            ? 'Изображение загружено как основа — опишите изменения'
+            : 'Промпт скрыт автором — опишите идею своими словами'
+          : targetTab === 'i2i'
+            ? 'Image loaded as base — describe the changes'
+            : 'Prompt is hidden — describe the idea in your own words',
       )
     }
     setFeedDetailOpen(false)
-    setTab('text')
+    setTab(targetTab)
   }
 
   // «Взять стиль»: style публикации мапится на реальный стиль stylePresets по
