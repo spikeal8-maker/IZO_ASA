@@ -2458,40 +2458,55 @@
   font-weight: 850;
 }
 
+/* Ряд действий карточки: основная «Ремикс» тянется, лайк авторазмер под
+   счётчик, сохранить — компактная иконка. Тоньше и аккуратнее. */
 .nf-card-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 38px 38px;
-  gap: 7px;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
 }
 
 .nf-remix {
-  min-height: 38px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  border: 1px solid rgba(234, 255, 16, 0.9);
-  border-radius: 10px;
+  gap: 6px;
+  border: 1px solid rgba(234, 255, 16, 0.85);
+  border-radius: 9px;
   background: linear-gradient(180deg, #f3ff3a, #dfff10 68%, #c9ea00);
   color: #071006;
-  padding: 0 12px;
-  font-size: 13px;
+  padding: 0 10px;
+  font-size: 12.5px;
   font-weight: 950;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nf-remix:hover {
-  box-shadow: 0 6px 22px rgba(234, 255, 16, 0.25);
+  box-shadow: 0 5px 18px rgba(234, 255, 16, 0.22);
 }
 
 .nf-save,
 .nf-menu {
-  min-height: 38px;
+  flex: 0 0 auto;
+  min-height: 32px;
+  min-width: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   border: 1px solid var(--n2-line-strong);
-  border-radius: 10px;
+  border-radius: 9px;
   background: rgba(18, 21, 18, 0.78);
   color: var(--n2-muted);
-  font-size: 16px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  font-weight: 850;
+  white-space: nowrap;
 }
 
 .nf-save.active {

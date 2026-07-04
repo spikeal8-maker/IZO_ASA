@@ -125,8 +125,9 @@ const FEED_I18N: Record<FeedLang, Record<string, string>> = {
     top: 'Популярное',
     challenges: 'Челленджи',
     follows: 'Подписки',
-    recreate: 'Повторить',
-    makeSimilar: 'Сделать похожее',
+    recreate: 'Ремикс',
+    makeSimilar: 'Сделать ремикс',
+    remixHint: 'Создать свою версию на основе этой работы',
     save: 'Сохранить',
     saved: 'Сохранено',
     useStyle: 'Взять стиль',
@@ -158,8 +159,9 @@ const FEED_I18N: Record<FeedLang, Record<string, string>> = {
     top: 'Top',
     challenges: 'Challenges',
     follows: 'Following',
-    recreate: 'Recreate',
-    makeSimilar: 'Make similar',
+    recreate: 'Remix',
+    makeSimilar: 'Remix this',
+    remixHint: 'Create your own version from this image',
     save: 'Save',
     saved: 'Saved',
     useStyle: 'Use style',
@@ -1250,6 +1252,8 @@ export default function NewStudio(): ReactElement {
           <button
             className="nf-remix"
             type="button"
+            title={ft.remixHint}
+            aria-label={ft.remixHint}
             onClick={(e) => {
               e.stopPropagation()
               startFeedRecreate(post)
@@ -1354,7 +1358,13 @@ export default function NewStudio(): ReactElement {
         <div className="nf-param"><span>{feedLang === 'ru' ? 'Режим' : 'Mode'}</span><strong>{feedSelected.mode || '—'}</strong></div>
       </div>
       <div className="nf-detail-actions">
-        <button className="nf-remix" type="button" onClick={() => startFeedRecreate(feedSelected)}>
+        <button
+          className="nf-remix"
+          type="button"
+          title={ft.remixHint}
+          aria-label={ft.remixHint}
+          onClick={() => startFeedRecreate(feedSelected)}
+        >
           ⟳ {ft.makeSimilar}
         </button>
         <button
