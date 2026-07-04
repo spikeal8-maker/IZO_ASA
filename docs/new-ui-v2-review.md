@@ -631,6 +631,80 @@ Verdict: FEED PRODUCTION LAYOUT READY (стендовая верификация
   за владельцем)
 ```
 
+## 2026-07-05 — Seed-лента (43) + сжатие изображений + UI по документации
+
+```text
+Дата/время: 2026-07-05 (local)
+Ветка: feature/new-ui-v2-integrated-safe (worktree wt-integrated)
+Коммит или WIP: этот коммит (поверх 1f4517c)
+Файлы изменены: backend/main.py, backend/seed_feed.py (новый),
+  backend/test_feed_v2.py, frontend/src/newUi.tsx, frontend/src/newUi.css,
+  docs/new-ui-v2-review.md
+Что сделано:
+  1) Backend схема (additive ALTER feed_publications): is_seed, author_type,
+     author_handle/display/avatar, badge, category, feed_thumb_name,
+     feed_large_name, base_like/save/recreate_count, view_count.
+  2) Сжатие изображений (PIL→WebP): feed_thumb (<=640px, q80) + feed_large
+     (<=1600px, q86) в media/feed; оригинал приватно в media/ (/api/media,
+     401 без сессии). Применяется при seed-импорте И при публикации из галереи
+     (feed_build_derivatives в feed_publish).
+  3) /api/feed отдаёт thumbnail_url (сжатый thumb) + display_url (large);
+     оригинал публично не отдаётся. Виды: new / top / foryou (Для вас — живая
+     выдача с затуханием по свежести; Популярное — вовлечённость; Новое — дата).
+  4) /api/feed/media отдаёт СЖАТЫЕ деривативы с корректным image/webp;
+     /api/feed/avatar — аватарки seed-авторов. Path-traversal защита.
+  5) seed_feed.py: импорт 43 изображений + 14 аватарок как is_seed=1,
+     author_type='editorial', prompt_visibility='hidden', даты 30-45 дней,
+     реалистичные счётчики (like 257-3235), бейджи (trend/editor_pick),
+     face_template + badge 'Шаблон лица' для izo(41). Идемпотентно.
+  6) Frontend: карточка грузит thumbnail (не оригинал; eager вместо
+     loading=lazy — в CSS multicolumn нативный lazy ненадёжен), detail грузит
+     display; бейджи RU/EN (Тренд/Выбор редакции/Шаблон лица); аватарки
+     seed-авторов; «Ваша работа» только для is_current_user (не seed);
+     «Сделать похожее» при hidden prompt → Изо → Изо с изображением-референсом
+     + тост «Промпт скрыт автором, используем изображение как референс».
+Терминология: Повторить/Recreate, Сделать похожее/Make similar, Сохранить/Save,
+  Промпт скрыт автором / Prompt hidden by author, Открытый промпт / Open prompt,
+  Выбор редакции / Editor's pick, Тренд / Trending, Шаблон лица / Face template.
+  Английского «Remix» в RU-UI нет.
+Сжатие (пример): оригинал 2764KB → thumb 66KB / large 353KB. По 43: thumb
+  28-96KB (avg 56), large 160-438KB (avg 280). Аватарки ~3KB.
+Проверки:
+  - rg legacy auth: frontend/src — только комментарии (допустимо); backend —
+    существующий legacy старых эндпоинтов (не лента; лента только
+    require_trusted_user); в моём feed-коде legacy нет.
+  - npm run lint → 0; npx tsc -b → OK; npx vite build → 0
+  - pytest test_feed_v2.py (15) + test_security_hotfix_20260629 → все зелёные;
+    test_password_auth: 1 упавший
+    (test_production_without_email_provider_password_register_creates_session)
+    — ПРЕД-СУЩЕСТВУЮЩИЙ (падает и на базе без моих правок, env-зависимый,
+    из известного baseline); мои правки password auth не трогают.
+Проверено вручную (стенд: backend :8003 seed-БД + сжатые media; frontend :5192):
+  - /api/feed без cookies → 200, 43 seed, prompt=null (hidden не течёт),
+    thumbnail_url+display_url, is_seed/is_current_user/badge/author_avatar
+  - гость видит ленту без login-wall; лайк/сохранить/повторить → AuthV2Modal
+    (Telegram/MAX показываются при настроенных ботах — на проде да, на стенде
+    токены пустые → скрыты; форма актуальная, не legacy)
+  - desktop 1440 и 1920: 4 колонки + detail, разноформатные карточки,
+    все 43 thumbnail загружены, бейджи/аватарки
+  - mobile 375: 2 колонки, без горизонтального скролла, нижняя навигация
+  - «Сделать похожее» на hidden seed (с сессией) → Изо → Изо, референс-основа
+    загружена, промпт пуст, корректный тост
+  - оригинал приватен (/api/media 401 без сессии), media отдаётся webp
+Что НЕ сделано / не проверено:
+  - seed НЕ импортирован в ПРОД-БД и НЕ задеплоено (жду разрешения; нужно
+    прогнать seed_feed.py на прод-media + пере-деплой фронта)
+  - EN-локаль вживую (профиль стенда ru)
+  - реальный бот-логин Telegram/MAX до конца (нужны прод-токены)
+Риски:
+  - seed_feed.py на прод создаёт ~43 оригинала + 86 деривативов + аватарки в
+    media/ (нужен бэкап БД по правилу sqlite-migrations; ALTER additive-безопасны)
+  - face_template (izo41) помечен бейджем и остаётся в «Для вас» — если решите
+    прятать из основной ленты, добавить фильтр отдельно
+Verdict: FEED SEED + COMPRESSION DONE (стендовая верификация; импорт seed на
+  прод + деплой — отдельным разрешённым шагом)
+```
+
 ## Entry Template
 
 ```text

@@ -160,3 +160,111 @@ def test_init_db_idempotent_with_feed_tables(temp_db):
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
             ).fetchone()
             assert row is not None
+
+
+# --- Seed publications + image compression (Phase: feed seed) ---
+
+def make_real_image(image_id: str, legacy_user: str, w: int = 1600, h: int = 900,
+                    prompt: str = "секретный промпт про маяк") -> None:
+    """Реальный PNG (PIL может открыть) — для проверки сжатия."""
+    from PIL import Image
+    img = Image.new("RGB", (w, h), (40, 90, 160))
+    (main.MEDIA).mkdir(exist_ok=True)
+    img.save(main.MEDIA / f"{image_id}.png")
+    (main.MEDIA / f"{image_id}_thumb.webp").write_bytes(b"RIFF fake")
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider, "
+            "prompt_original, settings_json, created_at) "
+            "VALUES (?, ?, 'job-r', ?, ?, ?, ?, 'text_to_image', 'comfyui', ?, '{\"seed\": 42}', '2026-07-03')",
+            (image_id, legacy_user, f"/api/media/{image_id}.png?userId={legacy_user}",
+             f"/api/media/{image_id}_thumb.webp?userId={legacy_user}", w, h, prompt),
+        )
+
+
+def test_publish_creates_compressed_derivatives(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-c1", "web_c1")
+        make_real_image("img-real", "web_c1", 1600, 900)
+        pub = publish(client, token, "img-real", visibility="open", title="Сжатие")
+        assert pub["thumbnail_url"].endswith("?thumb=1")
+        assert pub["display_url"] and "display_url" not in pub["thumbnail_url"]
+        with main.db() as conn:
+            row = conn.execute("SELECT feed_thumb_name, feed_large_name FROM feed_publications WHERE id = ?", (pub["id"],)).fetchone()
+        assert row["feed_thumb_name"] and row["feed_large_name"]
+        thumb_file = main.MEDIA / "feed" / row["feed_thumb_name"]
+        large_file = main.MEDIA / "feed" / row["feed_large_name"]
+        assert thumb_file.exists() and large_file.exists()
+        # derived thumb is much smaller than the 1600x900 original
+        assert thumb_file.stat().st_size < large_file.stat().st_size
+    with TestClient(main.app) as anon:
+        rt = anon.get(f"/api/feed/media/{pub['id']}?thumb=1")
+        assert rt.status_code == 200
+        assert rt.headers["content-type"] == "image/webp"
+        rl = anon.get(f"/api/feed/media/{pub['id']}")
+        assert rl.status_code == 200
+        assert rl.headers["content-type"] == "image/webp"
+
+
+def insert_seed(pub_id: str, image_id: str, badge: str | None = "trend",
+                like: int = 1200, save: int = 200, recreate: int = 40, view: int = 15000) -> None:
+    """Прямая вставка seed-публикации (как делает seed_feed.py)."""
+    from PIL import Image
+    img = Image.new("RGB", (1254, 1254), (120, 60, 160))
+    img.save(main.MEDIA / f"{image_id}.png")
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider, "
+            "prompt_original, settings_json, created_at) "
+            "VALUES (?, 'seed_editorial', 'seed', ?, ?, 1254, 1254, 'image_to_image', 'comfyui', '', '{}', '2026-06-10')",
+            (image_id, f"/api/media/{image_id}.png?userId=seed_editorial",
+             f"/api/media/{image_id}.png?userId=seed_editorial"),
+        )
+        conn.execute(
+            "INSERT INTO feed_publications (id, image_id, internal_user_id, legacy_user_id, title, description, "
+            "prompt_visibility, allow_recreate, status, created_at, is_seed, author_type, author_handle, "
+            "author_display, author_avatar, badge, category, base_like_count, base_save_count, "
+            "base_recreate_count, view_count) "
+            "VALUES (?, ?, 'seed_editorial', 'seed_editorial', 'Seed работа', NULL, 'hidden', 1, 'published', "
+            "'2026-06-10', 1, 'editorial', 'nova_render', 'Nova', 'ava_01.webp', ?, NULL, ?, ?, ?, ?)",
+            (pub_id, image_id, badge, like, save, recreate, view),
+        )
+        main.feed_build_derivatives(conn, pub_id, image_id)
+
+
+def test_seed_publication_public_hidden_and_not_mine(temp_db):
+    insert_seed("seed-pub-x", "seed-img-x", badge="editor_pick", like=1500)
+    # гость (без сессии) видит seed-ленту
+    with TestClient(main.app) as anon:
+        r = anon.get("/api/feed?type=foryou&limit=50")
+        assert r.status_code == 200
+        items = r.json()["items"]
+        seed = next(i for i in items if i["id"] == "seed-pub-x")
+        assert seed["is_seed"] is True
+        assert seed["is_current_user"] is False
+        assert seed["is_mine"] is False
+        assert seed["prompt"] is None          # hidden prompt не раскрывается
+        assert seed["prompt_visibility"] == "hidden"
+        assert seed["badge"] == "editor_pick"
+        assert seed["author_name"] == "Nova"
+        assert seed["author_avatar"] == "/api/feed/avatar/ava_01.webp"
+        assert seed["like_count"] >= 1500      # базовый seed-счётчик
+        assert seed["thumbnail_url"] and seed["display_url"]
+        # компрессия seed отдаётся как webp
+        rt = anon.get(f"/api/feed/media/seed-pub-x?thumb=1")
+        assert rt.status_code == 200 and rt.headers["content-type"] == "image/webp"
+
+
+def test_seed_like_requires_auth_and_increments_over_base(temp_db):
+    insert_seed("seed-pub-y", "seed-img-y", badge=None, like=1000)
+    with TestClient(main.app) as anon:
+        assert anon.post("/api/feed/publications/seed-pub-y/like").status_code == 401
+    with TestClient(main.app) as client:
+        token = make_user("iuid-v", "web_v")
+        r = client.post("/api/feed/publications/seed-pub-y/like", headers=bearer(token))
+        assert r.status_code == 200
+        # база 1000 + 1 реальный лайк
+        assert r.json()["publication"]["like_count"] == 1001
+        # повторный лайк не дублирует
+        r = client.post("/api/feed/publications/seed-pub-y/like", headers=bearer(token))
+        assert r.json()["publication"]["like_count"] == 1001

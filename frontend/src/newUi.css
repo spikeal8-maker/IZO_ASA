@@ -2389,6 +2389,40 @@
   font-size: 15px;
 }
 
+/* Аватарка-изображение seed-автора. */
+.nf-avatar-img {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.nf-avatar-img.big {
+  width: 34px;
+  height: 34px;
+}
+
+/* Бейджи публикаций по документации (RU/EN подписи задаёт React). */
+.nf-tag.badge-trend {
+  border-color: rgba(234, 255, 16, 0.5);
+  background: rgba(60, 66, 8, 0.72);
+  color: #f4ffd6;
+}
+
+.nf-tag.badge-editor_pick {
+  border-color: rgba(155, 124, 255, 0.55);
+  background: rgba(40, 25, 85, 0.78);
+  color: #efe9ff;
+}
+
+.nf-tag.badge-face_template {
+  border-color: rgba(120, 200, 255, 0.5);
+  background: rgba(14, 46, 66, 0.8);
+  color: #d9f0ff;
+}
+
 .nf-author-text {
   min-width: 0;
   display: grid;

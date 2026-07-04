@@ -191,8 +191,16 @@ interface FeedPublication {
   id: string
   image_url: string
   thumbnail_url: string
+  display_url?: string
   user_id: string
   author_name: string
+  author_handle?: string | null
+  author_avatar?: string | null
+  author_type?: string
+  is_seed?: boolean
+  is_current_user?: boolean
+  badge?: string | null
+  category?: string | null
   title: string
   description: string | null
   prompt: string | null
@@ -208,9 +216,18 @@ interface FeedPublication {
   remix_count: number
   save_count: number
   like_count: number
+  view_count?: number
   is_liked_by_me: boolean
   is_saved_by_me: boolean
   is_mine: boolean
+}
+
+// Ключ бейджа с backend → RU/EN подпись. Терминология по ТЗ.
+const FEED_BADGE_LABELS: Record<string, { ru: string; en: string }> = {
+  trend: { ru: 'Тренд', en: 'Trending' },
+  editor_pick: { ru: 'Выбор редакции', en: "Editor's pick" },
+  face_template: { ru: 'Шаблон лица', en: 'Face template' },
+  open_prompt: { ru: 'Открытый промпт', en: 'Open prompt' },
 }
 
 function feedTimeAgo(iso: string, lang: FeedLang): string {
@@ -357,8 +374,9 @@ export default function NewStudio(): ReactElement {
         setFeedError(false)
       }
     })
-    const apiType = feedTab === 'new' ? 'new' : 'top'
-    apiFetch(`/feed?type=${apiType}&limit=40`)
+    // Для вас → foryou (живая выдача), Новое → new, Популярное → top.
+    const apiType = feedTab === 'new' ? 'new' : feedTab === 'top' ? 'top' : 'foryou'
+    apiFetch(`/feed?type=${apiType}&limit=50`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((data) => {
         if (cancelled) return
@@ -420,27 +438,24 @@ export default function NewStudio(): ReactElement {
     // Формат из соотношения работы.
     const shape = feedShape(post.aspect_ratio)
     setResolutionId(DEFAULT_PRESET_BY_KIND[shape === 'square' ? 'square' : shape === 'wide' ? 'horizontal' : 'vertical'])
-    // «Сделать похожее» ведёт в ту вкладку, где работа была создана: i2i-работы
-    // → Изо → Изо (сама работа становится основой-референсом), остальные → Текст.
-    const targetTab: 'text' | 'i2i' = post.mode === 'image_to_image' ? 'i2i' : 'text'
+    // Открытый промпт → в ту вкладку, где сделана работа (i2i→Изо→Изо, иначе Текст),
+    // с подстановкой промпта. Скрытый промпт → НЕ подставляем текст, а используем
+    // само изображение как референс (Изо → Изо).
+    const hasPrompt = !!post.prompt
+    const targetTab: 'text' | 'i2i' = !hasPrompt ? 'i2i' : post.mode === 'image_to_image' ? 'i2i' : 'text'
     const promptSlot = targetTab === 'i2i' ? 'i2i' : 'text'
     setPrompts((cur) => ({ ...cur, [promptSlot]: post.prompt || '' }))
     if (targetTab === 'i2i') {
-      // Референс: сама опубликованная работа (отдельный исходник не хранится —
-      // если автор его не сохранял, его и не будет).
-      setSourceImage(apiUrl(post.image_url))
+      // Референс — сжатая display-версия опубликованной работы.
+      setSourceImage(apiUrl(post.display_url || post.image_url))
     }
-    if (post.prompt) {
+    if (hasPrompt) {
       showToast(feedLang === 'ru' ? 'Промпт подставлен — генерируйте свою версию' : 'Prompt prefilled — generate your version')
     } else {
       showToast(
         feedLang === 'ru'
-          ? targetTab === 'i2i'
-            ? 'Изображение загружено как основа — опишите изменения'
-            : 'Промпт скрыт автором — опишите идею своими словами'
-          : targetTab === 'i2i'
-            ? 'Image loaded as base — describe the changes'
-            : 'Prompt is hidden — describe the idea in your own words',
+          ? 'Промпт скрыт автором, используем изображение как референс'
+          : 'Prompt hidden by author — using the image as reference',
       )
     }
     setFeedDetailOpen(false)
@@ -1199,16 +1214,28 @@ export default function NewStudio(): ReactElement {
             {feedLang === 'ru' ? 'Изображение недоступно' : 'Image unavailable'}
           </div>
         ) : (
-          <img src={apiUrl(post.image_url)} alt={post.title} loading="lazy" onError={() => markFeedBroken(post.id)} />
+          // Сетка грузит СЖАТЫЙ thumbnail (не оригинал). Без loading="lazy":
+          // в CSS multicolumn (masonry) нативный lazy ненадёжно триггерится и
+          // карточки могут не прогрузиться; thumbnails малы (~56KB), грузим eager.
+          <img
+            src={apiUrl(post.thumbnail_url)}
+            alt={post.title}
+            decoding="async"
+            onError={() => markFeedBroken(post.id)}
+          />
         )}
-        {post.prompt_visibility === 'open' && (
-          <span className="nf-tag">{feedLang === 'ru' ? 'Открытый промпт' : 'Open prompt'}</span>
+        {post.badge && FEED_BADGE_LABELS[post.badge] && (
+          <span className={`nf-tag badge-${post.badge}`}>{FEED_BADGE_LABELS[post.badge][feedLang]}</span>
         )}
-        {post.is_mine && <span className="nf-tag mine">{feedLang === 'ru' ? 'Ваша работа' : 'Yours'}</span>}
+        {post.is_current_user && <span className="nf-tag mine">{feedLang === 'ru' ? 'Ваша работа' : 'Yours'}</span>}
       </div>
       <div className="nf-card-body">
         <div className="nf-author">
-          <span className="nf-avatar" aria-hidden="true">{(post.author_name[0] || 'A').toUpperCase()}</span>
+          {post.author_avatar ? (
+            <img className="nf-avatar-img" src={apiUrl(post.author_avatar)} alt="" decoding="async" />
+          ) : (
+            <span className="nf-avatar" aria-hidden="true">{(post.author_name[0] || 'A').toUpperCase()}</span>
+          )}
           <span className="nf-author-text">
             <strong>{post.author_name}</strong>
             <span>{feedTimeAgo(post.created_at, feedLang)}</span>
@@ -1269,13 +1296,18 @@ export default function NewStudio(): ReactElement {
             {feedLang === 'ru' ? 'Изображение недоступно' : 'Image unavailable'}
           </div>
         ) : (
-          <img src={apiUrl(feedSelected.image_url)} alt={feedSelected.title} onError={() => markFeedBroken(feedSelected.id)} />
+          // Detail грузит СЖАТУЮ display-версию (large), не оригинал.
+          <img src={apiUrl(feedSelected.display_url || feedSelected.image_url)} alt={feedSelected.title} onError={() => markFeedBroken(feedSelected.id)} />
         )}
         <span className="nf-ai-label">{feedLang === 'ru' ? 'Сгенерировано ИИ' : 'AI-generated'}</span>
       </div>
       <div className="nf-detail-author">
         <div className="nf-author">
-          <span className="nf-avatar big" aria-hidden="true">{(feedSelected.author_name[0] || 'A').toUpperCase()}</span>
+          {feedSelected.author_avatar ? (
+            <img className="nf-avatar-img big" src={apiUrl(feedSelected.author_avatar)} alt="" loading="lazy" />
+          ) : (
+            <span className="nf-avatar big" aria-hidden="true">{(feedSelected.author_name[0] || 'A').toUpperCase()}</span>
+          )}
           <span className="nf-author-text">
             <strong>{feedSelected.author_name}</strong>
             <span>{feedTimeAgo(feedSelected.created_at, feedLang)}</span>

@@ -1625,6 +1625,27 @@ def init_db() -> None:
         if "refresh_expires_at" not in auth_sessions_columns:
             conn.execute("ALTER TABLE auth_sessions ADD COLUMN refresh_expires_at TEXT")
 
+        # Live Feed: seed/editorial-публикации + сжатые деривативы (feed_thumb/
+        # feed_large) + базовые (seed) счётчики. Additive, безопасно для существующих БД.
+        feed_pub_columns = {row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()}
+        for column, definition in {
+            "is_seed": "INTEGER NOT NULL DEFAULT 0",
+            "author_type": "TEXT NOT NULL DEFAULT 'user'",
+            "author_handle": "TEXT",
+            "author_display": "TEXT",
+            "author_avatar": "TEXT",
+            "badge": "TEXT",
+            "category": "TEXT",
+            "feed_thumb_name": "TEXT",
+            "feed_large_name": "TEXT",
+            "base_like_count": "INTEGER NOT NULL DEFAULT 0",
+            "base_save_count": "INTEGER NOT NULL DEFAULT 0",
+            "base_recreate_count": "INTEGER NOT NULL DEFAULT 0",
+            "view_count": "INTEGER NOT NULL DEFAULT 0",
+        }.items():
+            if column not in feed_pub_columns:
+                conn.execute(f"ALTER TABLE feed_publications ADD COLUMN {column} {definition}")
+
         backfill_identity_core(conn, now)
 
         # Canonical-identity uniqueness, created AFTER backfill so it validates
@@ -10504,6 +10525,76 @@ async def max_webhook(payload: dict[str, Any], request: Request) -> dict[str, An
 FEED_PROMPT_VISIBILITIES = {"open", "partial", "hidden"}
 FEED_PARTIAL_PROMPT_CHARS = 140
 
+# Сжатые деривативы ленты лежат в media/feed. В сетке/detail отдаём только их,
+# оригинал остаётся приватным (media/, /api/media). Ориентиры по ТЗ:
+# thumb ≤640px long side, WebP q80; large ≤1600px, WebP q86.
+# ВАЖНО: считаем каталог динамически от MEDIA (его monkeypatch'ат тесты).
+def _feed_media_dir() -> "Path":
+    return MEDIA / "feed"
+
+
+FEED_THUMB_MAX = 640
+FEED_LARGE_MAX = 1600
+FEED_THUMB_QUALITY = 80
+FEED_LARGE_QUALITY = 86
+
+
+def _feed_compress_variant(img: "ImageType", max_side: int, quality: int, dest: "Path") -> None:
+    from PIL import Image as _PILImage
+
+    w, h = img.size
+    scale = min(1.0, max_side / max(w, h))
+    resized = img if scale >= 1.0 else img.resize((max(1, round(w * scale)), max(1, round(h * scale))), _PILImage.LANCZOS)
+    if resized.mode not in ("RGB", "RGBA"):
+        resized = resized.convert("RGB")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    resized.save(dest, format="WEBP", quality=quality, method=6)
+
+
+def feed_compress_source(src_path: "Path", pub_id: str) -> tuple[str, str] | None:
+    """Собрать feed_thumb + feed_large из исходного файла. Возвращает
+    (thumb_name, large_name) в media/feed или None, если источник недоступен."""
+    try:
+        from PIL import Image, ImageOps
+    except Exception:
+        return None
+    if not src_path or not src_path.exists():
+        return None
+    try:
+        with Image.open(src_path) as raw:
+            img = ImageOps.exif_transpose(raw)
+            thumb_name = f"{pub_id}_thumb.webp"
+            large_name = f"{pub_id}_large.webp"
+            _feed_compress_variant(img, FEED_THUMB_MAX, FEED_THUMB_QUALITY, _feed_media_dir() / thumb_name)
+            _feed_compress_variant(img, FEED_LARGE_MAX, FEED_LARGE_QUALITY, _feed_media_dir() / large_name)
+        return thumb_name, large_name
+    except Exception:
+        return None
+
+
+def _feed_original_path_for(conn: sqlite3.Connection, image_id: str) -> "Path | None":
+    """Путь к оригиналу изображения публикации (для генерации деривативов)."""
+    row = conn.execute("SELECT url FROM images WHERE id = ?", (image_id,)).fetchone()
+    name = _feed_media_name(_row_get(row, "url"))
+    if not name:
+        return None
+    return MEDIA / name
+
+
+def feed_build_derivatives(conn: sqlite3.Connection, pub_id: str, image_id: str) -> None:
+    """Создать/обновить сжатые версии публикации и записать их имена в БД."""
+    src = _feed_original_path_for(conn, image_id)
+    if src is None:
+        return
+    result = feed_compress_source(src, pub_id)
+    if result is None:
+        return
+    thumb_name, large_name = result
+    conn.execute(
+        "UPDATE feed_publications SET feed_thumb_name = ?, feed_large_name = ? WHERE id = ?",
+        (thumb_name, large_name, pub_id),
+    )
+
 
 def _feed_media_name(url: str | None) -> str | None:
     """Имя файла из внутреннего /api/media-URL записи images."""
@@ -10583,12 +10674,38 @@ def _feed_item_payload(
         }
     width = int(_row_get(image, "width") or 0)
     height = int(_row_get(image, "height") or 0)
+    is_seed = bool(_row_get(pub, "is_seed"))
+    author_type = _row_get(pub, "author_type") or "user"
+    # Автор: для seed/editorial берём из публикации (у них нет users-строки),
+    # для пользователя — из users.
+    if is_seed or author_type in ("seed", "editorial"):
+        author_name = _row_get(pub, "author_display") or _row_get(pub, "author_handle") or "ИЗО ACA"
+        author_handle = _row_get(pub, "author_handle")
+        author_avatar = _row_get(pub, "author_avatar")
+    else:
+        author_name = _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"])
+        author_handle = None
+        author_avatar = None
+    # Счётчики: базовые (seed) + реальные реакции пользователей.
+    like_count = int(_row_get(pub, "base_like_count") or 0) + counts.get("like", 0)
+    save_count = int(_row_get(pub, "base_save_count") or 0) + counts.get("save", 0)
+    recreate_count = int(_row_get(pub, "base_recreate_count") or 0) + counts.get("recreate", 0)
+    is_current_user = (not is_seed) and viewer_internal_user_id is not None and viewer_internal_user_id == pub["internal_user_id"]
     return {
         "id": pub["id"],
-        "image_url": f"/api/feed/media/{pub['id']}",
+        # Публично отдаём только сжатые деривативы; оригинал остаётся приватным.
         "thumbnail_url": f"/api/feed/media/{pub['id']}?thumb=1",
+        "display_url": f"/api/feed/media/{pub['id']}",
+        "image_url": f"/api/feed/media/{pub['id']}",  # back-compat
         "user_id": pub["internal_user_id"],
-        "author_name": _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"]),
+        "author_name": author_name,
+        "author_handle": author_handle,
+        "author_avatar": f"/api/feed/avatar/{author_avatar}" if author_avatar else None,
+        "author_type": author_type,
+        "is_seed": is_seed,
+        "is_current_user": is_current_user,
+        "badge": _row_get(pub, "badge"),
+        "category": _row_get(pub, "category"),
         "title": pub["title"],
         "description": pub["description"],
         "prompt": prompt,
@@ -10601,12 +10718,13 @@ def _feed_item_payload(
         "resolution": f"{width}×{height}" if width and height else None,
         "seed": settings.get("seed"),
         "created_at": pub["created_at"],
-        "remix_count": counts.get("recreate", 0),
-        "save_count": counts.get("save", 0),
-        "like_count": counts.get("like", 0),
+        "remix_count": recreate_count,
+        "save_count": save_count,
+        "like_count": like_count,
+        "view_count": int(_row_get(pub, "view_count") or 0),
         "is_liked_by_me": "like" in viewer_kinds,
         "is_saved_by_me": "save" in viewer_kinds,
-        "is_mine": viewer_internal_user_id == pub["internal_user_id"],
+        "is_mine": is_current_user,
     }
 
 
@@ -10619,31 +10737,52 @@ def _feed_optional_viewer(request: Request) -> str | None:
         return None
 
 
+def _feed_engagement(item: dict[str, Any]) -> float:
+    """Композитный вес полезности: повтор важнее сохранения важнее лайка."""
+    return (
+        item["like_count"] * 1.0
+        + item["save_count"] * 2.0
+        + item["remix_count"] * 4.0
+        + item["view_count"] * 0.02
+    )
+
+
+def _feed_age_hours(iso: str) -> float:
+    try:
+        then = datetime.fromisoformat(iso)
+        if then.tzinfo is None:
+            then = then.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - then).total_seconds() / 3600.0)
+    except Exception:
+        return 720.0
+
+
 @app.get("/api/feed")
 async def feed_list(request: Request, type: str = "new", limit: int = 30) -> dict[str, Any]:
-    feed_type = type if type in {"new", "top"} else "new"
+    feed_type = type if type in {"new", "top", "foryou"} else "new"
     limit = max(1, min(int(limit or 30), 60))
     viewer = _feed_optional_viewer(request)
     with db() as conn:
-        if feed_type == "top":
-            rows = conn.execute(
-                """
-                SELECT p.* FROM feed_publications p
-                LEFT JOIN feed_reactions r ON r.publication_id = p.id
-                WHERE p.status = 'published'
-                GROUP BY p.id
-                ORDER BY COUNT(r.publication_id) DESC, p.created_at DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM feed_publications WHERE status = 'published' ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM feed_publications WHERE status = 'published' ORDER BY created_at DESC LIMIT 200"
+        ).fetchall()
         items = [_feed_item_payload(conn, pub, viewer) for pub in rows]
-    return {"ok": True, "type": feed_type, "items": items}
+    if feed_type == "new":
+        items.sort(key=lambda i: i["created_at"], reverse=True)
+    elif feed_type == "top":
+        # Популярное: чистая вовлечённость (при равенстве — свежее выше).
+        items.sort(key=lambda i: (_feed_engagement(i), i["created_at"]), reverse=True)
+    else:
+        # Для вас: вовлечённость с затуханием по свежести — лента выглядит живой,
+        # не отсортированной по номеру файла.
+        import math as _math
+
+        def _foryou_score(i: dict[str, Any]) -> float:
+            freshness = _math.exp(-_feed_age_hours(i["created_at"]) / 480.0)
+            return (_feed_engagement(i) + 8.0) * (0.35 + 0.65 * freshness)
+
+        items.sort(key=_foryou_score, reverse=True)
+    return {"ok": True, "type": feed_type, "items": items[:limit]}
 
 
 @app.post("/api/feed/publications")
@@ -10707,6 +10846,8 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
                     now,
                 ),
             )
+        # Сжатые деривативы (feed_thumb/feed_large) для новой/пере-публикации.
+        feed_build_derivatives(conn, pub_id, image_id)
         pub = conn.execute("SELECT * FROM feed_publications WHERE id = ?", (pub_id,)).fetchone()
         item = _feed_item_payload(conn, pub, user["internal_user_id"])
     return {"ok": True, "publication": item}
@@ -10763,29 +10904,60 @@ async def feed_recreate_mark(publication_id: str, request: Request) -> dict[str,
     return _feed_reaction_toggle(request, publication_id, "recreate", True)
 
 
+def _media_type_for(path: "Path") -> str:
+    ext = path.suffix.lower()
+    return {
+        ".webp": "image/webp",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+    }.get(ext, "application/octet-stream")
+
+
+def _safe_media_file(base: "Path", name: str | None) -> "Path | None":
+    """Разрешить имя файла строго внутри base (защита от path traversal)."""
+    if not name:
+        return None
+    path = (base / name).resolve()
+    try:
+        path.relative_to(base.resolve())
+    except ValueError:
+        return None
+    return path if path.exists() else None
+
+
 @app.get("/api/feed/media/{publication_id}")
 async def feed_media(publication_id: str, request: Request, thumb: int = 0) -> FileResponse:
-    """Файл ОПУБЛИКОВАННОЙ работы. Доступен любому (публичная лента) — но только
-    через публикацию: приватный /api/media остаётся закрытым как был."""
+    """Файл ОПУБЛИКОВАННОЙ работы. Публично отдаём СЖАТЫЕ деривативы
+    (feed_thumb/feed_large из media/feed); оригинал (media/, /api/media)
+    остаётся приватным. Fallback на исходник только если деривативов ещё нет."""
     with db() as conn:
         pub = conn.execute(
-            "SELECT p.image_id FROM feed_publications p WHERE p.id = ? AND p.status = 'published'",
+            "SELECT image_id, feed_thumb_name, feed_large_name FROM feed_publications "
+            "WHERE id = ? AND status = 'published'",
             (publication_id,),
         ).fetchone()
         if pub is None:
             raise HTTPException(404, "Publication not found")
-        image = conn.execute(
-            "SELECT url, thumbnail_url FROM images WHERE id = ?",
-            (pub["image_id"],),
-        ).fetchone()
-    name = _feed_media_name(_row_get(image, "thumbnail_url") if thumb else _row_get(image, "url"))
-    if not name:
+        derivative = _row_get(pub, "feed_thumb_name") if thumb else _row_get(pub, "feed_large_name")
+        path = _safe_media_file(_feed_media_dir(), derivative)
+        if path is None:
+            # Деривативов нет — отдаём исходник (thumbnail для сетки, url для detail).
+            image = conn.execute(
+                "SELECT url, thumbnail_url FROM images WHERE id = ?",
+                (pub["image_id"],),
+            ).fetchone()
+            name = _feed_media_name(_row_get(image, "thumbnail_url") if thumb else _row_get(image, "url"))
+            path = _safe_media_file(MEDIA, name)
+    if path is None:
         raise HTTPException(404, "Image file not found")
-    path = (MEDIA / name).resolve()
-    try:
-        path.relative_to(MEDIA.resolve())
-    except ValueError:
-        raise HTTPException(404, "Image file not found")
-    if not path.exists():
-        raise HTTPException(404, "Image file not found")
-    return FileResponse(path)
+    return FileResponse(path, media_type=_media_type_for(path))
+
+
+@app.get("/api/feed/avatar/{name}")
+async def feed_avatar(name: str) -> FileResponse:
+    """Публичные аватарки seed-авторов (media/feed/avatars). Только внутри каталога."""
+    path = _safe_media_file(_feed_media_dir() / "avatars", name)
+    if path is None:
+        raise HTTPException(404, "Avatar not found")
+    return FileResponse(path, media_type=_media_type_for(path))
