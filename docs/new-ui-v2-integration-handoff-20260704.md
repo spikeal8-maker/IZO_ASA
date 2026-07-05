@@ -7,6 +7,20 @@ Current safe integration branch:
 - latest integrated commit: use the current HEAD of this safe integration branch
   (do not deploy the old `feature/new-ui-v2-clean` worktree directly).
 
+Canonical routes (2026-07-05):
+
+- `/feed` (and `/lenta`) — public live feed, no login wall for reading.
+- `/gallery` (compat `/new/gallery`) — personal gallery; login required. Card
+  actions: open, use as source (→ Изо → Изо), publish to feed, delete; detail
+  modal adds download. Publish reuses the existing feed publish flow.
+- `/profile` (compat `/new/profile`) — from `/me-v2` only: avatar/initials,
+  name/#code/email, token balance, plan, role, linked sign-ins (Telegram/MAX/
+  Email/Web), RU/EN language (updateProfileV2), logout, links to gallery/feed.
+  No invented backend data; honest `—` placeholders when a field is absent.
+- Navigation: topbar Галерея→/gallery, ☺ Профиль→/profile; mobile bottom nav
+  ИЗО/Лента/Галерея/Челленджи/Профиль; Галерея→/gallery, Профиль→/profile.
+  URL sync via pushState/popstate; guest states offer AuthV2Modal (MAX/Telegram).
+
 What was integrated:
 
 - `/new` UI polish from `8cce4e1`

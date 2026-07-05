@@ -10,7 +10,7 @@
 // ============================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
+import { AuthV2Modal, logoutV2, refreshAuthStateV2, updateProfileV2, useAuthV2 } from './authV2'
 import { I2I_STYLES, T2I_TEMPLATES } from './stylePresets'
 import type { StylePreset } from './stylePresets'
 import './newUi.css'
@@ -31,7 +31,16 @@ function apiFetch(path: string, init: RequestInit = {}) {
 }
 
 type N2Tab = 'feed' | 'text' | 'i2i' | 'edit' | 'paint' | 'face'
-type N2View = 'tabs' | 'gallery'
+// tabs — генератор/лента; gallery и profile — отдельные канонические страницы.
+type N2View = 'tabs' | 'gallery' | 'profile'
+
+// Начальное состояние из URL: /gallery, /profile, /feed, /new/*.
+function initialViewFromPath(): { view: N2View; tab: N2Tab } {
+  const p = typeof window !== 'undefined' ? window.location.pathname : '/feed'
+  if (p === '/gallery' || p.startsWith('/gallery') || p.startsWith('/new/gallery')) return { view: 'gallery', tab: 'feed' }
+  if (p === '/profile' || p.startsWith('/profile') || p.startsWith('/new/profile')) return { view: 'profile', tab: 'feed' }
+  return { view: 'tabs', tab: 'feed' }
+}
 
 interface N2Job {
   id: string
@@ -151,6 +160,24 @@ const FEED_I18N: Record<FeedLang, Record<string, string>> = {
     generate: 'Сгенерировать',
     openGallery: 'Открыть галерею',
     soonTitle: 'Скоро',
+    gallery: 'Галерея',
+    profile: 'Профиль',
+    myGallery: 'Моя галерея',
+    myWorks: 'Мои публикации',
+    useAsSource: 'Использовать как основу',
+    download: 'Скачать',
+    del: 'Удалить',
+    signOut: 'Выйти',
+    tokens: 'Токены',
+    plan: 'Тариф',
+    account: 'Аккаунт',
+    language: 'Язык',
+    galleryHint: 'Ваши генерации: открыть, использовать как основу или опубликовать в ленту.',
+    galleryGuest: 'Лента открыта всем, личная галерея — после входа.',
+    profileGuest: 'Войдите, чтобы увидеть профиль, баланс и свои работы.',
+    deleteConfirm: 'Удалить изображение из галереи?',
+    open: 'Открыть',
+    role: 'Статус',
   },
   en: {
     feed: 'Feed',
@@ -185,6 +212,24 @@ const FEED_I18N: Record<FeedLang, Record<string, string>> = {
     generate: 'Generate',
     openGallery: 'Open gallery',
     soonTitle: 'Soon',
+    gallery: 'Gallery',
+    profile: 'Profile',
+    myGallery: 'My gallery',
+    myWorks: 'My posts',
+    useAsSource: 'Use as source',
+    download: 'Download',
+    del: 'Delete',
+    signOut: 'Sign out',
+    tokens: 'Tokens',
+    plan: 'Plan',
+    account: 'Account',
+    language: 'Language',
+    galleryHint: 'Your generations: open, use as a source or publish to the feed.',
+    galleryGuest: 'The feed is public; your personal gallery needs sign-in.',
+    profileGuest: 'Sign in to see your profile, balance and works.',
+    deleteConfirm: 'Delete this image from the gallery?',
+    open: 'Open',
+    role: 'Status',
   },
 }
 
@@ -280,15 +325,41 @@ function newClientRequestId(): string {
 export default function NewStudio(): ReactElement {
   // Route: /new/feed — Лента (она же вкладка по умолчанию на /new);
   // остальные вкладки живут на /new.
-  const [tab, setTabState] = useState<N2Tab>('feed')
-  const [view, setView] = useState<N2View>('tabs')
+  const initialRoute = initialViewFromPath()
+  const [tab, setTabState] = useState<N2Tab>(initialRoute.tab)
+  const [view, setView] = useState<N2View>(initialRoute.view)
 
-  // Канонический маршрут Ленты — /feed (короткий, из старого интерфейса);
-  // /new/feed остаётся рабочим синонимом.
-  const setTab = useCallback((next: N2Tab) => {
-    setTabState(next)
-    const target = next === 'feed' ? '/feed' : '/new'
-    if (window.location.pathname !== target) window.history.pushState(null, '', target)
+  // Навигация страниц нового UI с синхронизацией URL. Каноничные маршруты:
+  // Лента /feed, Галерея /gallery, Профиль /profile, генератор /new.
+  const navTo = useCallback((path: string) => {
+    if (window.location.pathname !== path) window.history.pushState(null, '', path)
+  }, [])
+  const setTab = useCallback(
+    (next: N2Tab) => {
+      setView('tabs')
+      setTabState(next)
+      navTo(next === 'feed' ? '/feed' : '/new')
+    },
+    [navTo],
+  )
+  const goGallery = useCallback(() => {
+    setView('gallery')
+    navTo('/gallery')
+  }, [navTo])
+  const goProfile = useCallback(() => {
+    setView('profile')
+    navTo('/profile')
+  }, [navTo])
+
+  // Кнопка «назад» браузера синхронизирует страницу с URL.
+  useEffect(() => {
+    const onPop = () => {
+      const r = initialViewFromPath()
+      setView(r.view)
+      if (window.location.pathname === '/feed' || window.location.pathname === '/lenta') setTabState('feed')
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
   }, [])
   const { status: authStatus, me } = useAuthV2()
   const [authOpen, setAuthOpen] = useState(false)
@@ -357,11 +428,8 @@ export default function NewStudio(): ReactElement {
     toastTimerRef.current = window.setTimeout(() => setToastText(''), 2100)
   }, [])
 
-  // «Открыть галерею» из Ленты → РЕАЛЬНАЯ рабочая галерея старого интерфейса
-  // (не сырая /new-галерея), где есть «Опубликовать в ленту».
-  const openRealGallery = useCallback(() => {
-    window.location.href = '/?open=gallery'
-  }, [])
+  // «Открыть галерею» → каноническая страница нового UI /gallery.
+  const openRealGallery = goGallery
 
   // Живая загрузка ленты. Вкладки: Для вас → top (персонализации пока нет),
   // Новое → new, Популярное → top. Челленджи/Подписки — placeholder, не грузим.
@@ -488,6 +556,45 @@ export default function NewStudio(): ReactElement {
     setPublishVisibility('open')
     setPublishAllowRecreate(true)
     setPublishFor(item)
+  }
+
+  // Удалить изображение из личной галереи (как в старом интерфейсе: DELETE
+  // /api/gallery/{id}). Только для своей галереи, требует сессию.
+  const deleteGalleryImage = (item: N2GalleryImage) => {
+    if (authStatus !== 'authed') {
+      setAuthOpen(true)
+      return
+    }
+    if (!window.confirm(ft.deleteConfirm)) return
+    apiFetch(`/gallery/${item.id}`, { method: 'DELETE' })
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status))
+        setGallery((cur) => cur.filter((g) => g.id !== item.id))
+        setGalleryItem(undefined)
+        void refreshAuthStateV2()
+        showToast(feedLang === 'ru' ? 'Удалено из галереи' : 'Deleted from gallery')
+      })
+      .catch(() => showToast(feedLang === 'ru' ? 'Не удалось удалить' : 'Delete failed'))
+  }
+
+  // «Использовать как основу» → Изо → Изо с этим изображением-исходником.
+  const applyGalleryAsSource = (item: N2GalleryImage) => {
+    setSourceImage(apiUrl(item.url))
+    setGalleryItem(undefined)
+    setTab('i2i')
+  }
+
+  // Профиль: язык RU/EN и выход.
+  const setProfileLanguage = (lang: 'ru' | 'en') => {
+    if (authStatus !== 'authed') return
+    void updateProfileV2({ language_code: lang }).then(() => refreshAuthStateV2())
+  }
+  const doLogout = () => {
+    void logoutV2().then(() => {
+      void refreshAuthStateV2()
+      setView('tabs')
+      setTab('feed')
+    })
   }
 
   const submitPublish = () => {
@@ -1509,41 +1616,49 @@ export default function NewStudio(): ReactElement {
         >
           <i>✦</i>{ft.challenges}
         </button>
-        <button type="button" onClick={() => setAuthOpen(true)}>
-          <i>○</i>{feedLang === 'ru' ? 'Профиль' : 'Profile'}
+        <button type="button" onClick={authStatus === 'authed' ? goProfile : () => setAuthOpen(true)}>
+          <i>○</i>{ft.profile}
         </button>
       </nav>
     </section>
   )
 
+  // ---------- Каноническая страница Галереи (/gallery) ----------
   const galleryView = (
-    <section className="n2-panel n2-gallery" aria-label="Галерея">
+    <section className="n2-panel n2-gallery" aria-label={ft.gallery}>
       <div className="n2-gallery-head">
         <div>
-          <h2>Галерея</h2>
-          <p>{authStatus === 'authed' ? 'Ваши генерации: открыть, скачать или опубликовать в ленту.' : 'Лента открыта всем, личная галерея доступна после входа.'}</p>
+          <h2>{ft.myGallery}</h2>
+          <p>{authStatus === 'authed' ? ft.galleryHint : ft.galleryGuest}</p>
         </div>
         <div className="n2-gallery-head-actions">
           {authStatus !== 'authed' && (
             <button className="n2-ghost purple" type="button" onClick={() => setAuthOpen(true)}>
-              Войти
+              {ft.login}
             </button>
           )}
-          <button className="n2-ghost" type="button" onClick={() => setView('tabs')}>
-            ← Назад
+          <button className="n2-ghost" type="button" onClick={() => setTab('feed')}>
+            ← {ft.feed}
           </button>
         </div>
       </div>
-      {gallery.length === 0 ? (
+      {authStatus !== 'authed' ? (
+        <div className="n2-placeholder-card">
+          <span className="icon">⏻</span>
+          <h2>{ft.myGallery}</h2>
+          <p>{ft.galleryGuest}</p>
+          <button className="n2-ghost purple" type="button" onClick={() => setAuthOpen(true)}>
+            {ft.login}
+          </button>
+        </div>
+      ) : gallery.length === 0 ? (
         <div className="n2-placeholder-card">
           <span className="icon">▧</span>
-          <h2>Здесь будут ваши изображения</h2>
-          <p>{authStatus === 'authed' ? 'Сгенерируйте первое изображение — оно появится в галерее.' : 'Войдите, чтобы увидеть свои генерации.'}</p>
-          {authStatus !== 'authed' && (
-            <button className="n2-ghost" type="button" onClick={() => setAuthOpen(true)}>
-              Войти
-            </button>
-          )}
+          <h2>{feedLang === 'ru' ? 'Здесь будут ваши изображения' : 'Your images will appear here'}</h2>
+          <p>{feedLang === 'ru' ? 'Сгенерируйте первое изображение — оно появится в галерее.' : 'Generate your first image — it shows up here.'}</p>
+          <button className="n2-ghost purple" type="button" onClick={() => setTab('text')}>
+            {ft.createImage}
+          </button>
         </div>
       ) : (
         <div className="n2-gallery-grid">
@@ -1553,20 +1668,124 @@ export default function NewStudio(): ReactElement {
                 <img src={apiUrl(item.thumbnailUrl || item.url)} alt={item.promptOriginal.slice(0, 60)} loading="lazy" />
               </button>
               <div className="n2-gallery-card-body">
-                <strong>{item.mode || 'image'}</strong>
+                <strong>{(item.mode || 'image').replace(/_/g, ' ')}</strong>
                 <small>{feedTimeAgo(item.createdAt, feedLang)}</small>
                 <p>{item.promptOriginal || '—'}</p>
                 <div className="n2-gallery-card-actions">
                   <button className="n2-gallery-mini" type="button" onClick={() => setGalleryItem(item)}>
-                    Открыть
+                    {ft.open}
                   </button>
                   <button className="n2-gallery-mini publish" type="button" onClick={() => openPublish(item)}>
-                    ✦ В ленту
+                    ✦ {feedLang === 'ru' ? 'В ленту' : 'To feed'}
                   </button>
                 </div>
               </div>
             </article>
           ))}
+        </div>
+      )}
+    </section>
+  )
+
+  // ---------- Каноническая страница Профиля (/profile) ----------
+  const acc = me?.account
+  const prof = me?.profile
+  const profileName = prof?.display_name || prof?.username || prof?.first_name || (feedLang === 'ru' ? 'Пользователь' : 'User')
+  const profileInitial = (profileName[0] || 'U').toUpperCase()
+  const providerLabel = (p: string) => (p === 'telegram' ? 'Telegram' : p === 'max' ? 'MAX' : p === 'email' ? 'Email' : p === 'web' ? 'Web' : p)
+  const profileView = (
+    <section className="n2-panel n2-profile" aria-label={ft.profile}>
+      <div className="n2-gallery-head">
+        <div>
+          <h2>{ft.profile}</h2>
+          <p>{authStatus === 'authed' ? (feedLang === 'ru' ? 'Аккаунт, баланс и ваши работы.' : 'Account, balance and your works.') : ft.profileGuest}</p>
+        </div>
+        <button className="n2-ghost" type="button" onClick={() => setTab('feed')}>
+          ← {ft.feed}
+        </button>
+      </div>
+      {authStatus !== 'authed' ? (
+        <div className="n2-placeholder-card">
+          <span className="icon">⏻</span>
+          <h2>{ft.profile}</h2>
+          <p>{ft.profileGuest}</p>
+          <button className="n2-ghost purple" type="button" onClick={() => setAuthOpen(true)}>
+            {ft.login}
+          </button>
+        </div>
+      ) : (
+        <div className="n2-profile-body">
+          <div className="n2-profile-id">
+            {prof?.avatar_url ? (
+              <img className="n2-profile-avatar" src={prof.avatar_url} alt="" />
+            ) : (
+              <span className="n2-profile-avatar initial" aria-hidden="true">{profileInitial}</span>
+            )}
+            <div className="n2-profile-id-text">
+              <strong>{profileName}</strong>
+              {prof?.public_user_code && <span>#{prof.public_user_code}</span>}
+              {prof?.email && <span>{prof.email}</span>}
+            </div>
+          </div>
+
+          <div className="n2-profile-stats">
+            <div className="n2-profile-stat">
+              <span>{ft.tokens}</span>
+              <strong>{acc?.token_balance ?? '—'}</strong>
+            </div>
+            <div className="n2-profile-stat">
+              <span>{ft.plan}</span>
+              <strong>{acc?.plan || '—'}</strong>
+            </div>
+            <div className="n2-profile-stat">
+              <span>{ft.role}</span>
+              <strong>{acc?.role || 'user'}</strong>
+            </div>
+          </div>
+
+          {((me?.identities?.length || 0) > 0 || (prof?.providers?.length || 0) > 0) && (
+            <div className="n2-profile-block">
+              <h3>{feedLang === 'ru' ? 'Связанные входы' : 'Linked sign-ins'}</h3>
+              <div className="n2-profile-providers">
+                {(me?.identities && me.identities.length
+                  ? me.identities.map((i) => i.provider || '').filter(Boolean)
+                  : prof?.providers || []
+                ).map((p) => (
+                  <span key={p} className="n2-profile-provider">{providerLabel(p)}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="n2-profile-block">
+            <h3>{ft.language}</h3>
+            <div className="n2-segmented">
+              <button className={feedLang === 'ru' ? 'active' : ''} type="button" onClick={() => setProfileLanguage('ru')}>
+                Русский
+              </button>
+              <button className={feedLang === 'en' ? 'active' : ''} type="button" onClick={() => setProfileLanguage('en')}>
+                English
+              </button>
+            </div>
+          </div>
+
+          <div className="n2-profile-links">
+            <button className="n2-ghost" type="button" onClick={goGallery}>
+              ▧ {ft.myGallery}
+            </button>
+            <button className="n2-ghost" type="button" onClick={() => setTab('feed')}>
+              ✦ {ft.myWorks}
+            </button>
+          </div>
+
+          <div className="n2-profile-links">
+            <button className="n2-ghost" type="button" onClick={() => (window.location.href = '/')}>
+              ⚙ {feedLang === 'ru' ? 'Все настройки (текущая версия)' : 'All settings (current version)'}
+            </button>
+            <button className="n2-ghost danger" type="button" onClick={doLogout}>
+              ⏻ {ft.signOut}
+            </button>
+          </div>
         </div>
       )}
     </section>
@@ -1788,22 +2007,16 @@ export default function NewStudio(): ReactElement {
             <p className="n2-overlay-prompt">{galleryItem.promptOriginal}</p>
             <div className="n2-overlay-actions">
               <a className="n2-ghost" href={apiUrl(galleryItem.url)} download target="_blank" rel="noreferrer">
-                ⬇ Скачать
+                ⬇ {ft.download}
               </a>
-              <button
-                className="n2-ghost"
-                type="button"
-                onClick={() => {
-                  setSourceImage(apiUrl(galleryItem.url))
-                  setGalleryItem(undefined)
-                  setView('tabs')
-                  setTab('i2i')
-                }}
-              >
-                → В Изо → Изо
+              <button className="n2-ghost" type="button" onClick={() => applyGalleryAsSource(galleryItem)}>
+                → {ft.useAsSource}
               </button>
               <button className="n2-ghost purple" type="button" onClick={() => openPublish(galleryItem)}>
                 ✦ {ft.publish}
+              </button>
+              <button className="n2-ghost danger" type="button" onClick={() => deleteGalleryImage(galleryItem)}>
+                🗑 {ft.del}
               </button>
             </div>
           </div>
@@ -1887,36 +2100,29 @@ export default function NewStudio(): ReactElement {
             <button
               className={`n2-ghost purple${view === 'gallery' ? ' active-view' : ''}`}
               type="button"
-              onClick={() => setView('gallery')}
+              onClick={goGallery}
             >
-              ▧ <span>Галерея</span>
+              ▧ <span>{ft.gallery}</span>
             </button>
             <button className="n2-ghost" type="button" onClick={() => setHelpOpen(true)}>
-              ? <span>Помощь</span>
+              ? <span>{feedLang === 'ru' ? 'Помощь' : 'Help'}</span>
             </button>
             <button
-              className="n2-icon-button"
+              className={`n2-icon-button${view === 'profile' ? ' active-view' : ''}`}
               type="button"
-              aria-label="Настройки"
-              title="Настройки (пока в текущей версии)"
-              onClick={() => (window.location.href = '/')}
-            >
-              ⚙
-            </button>
-            <button
-              className="n2-icon-button"
-              type="button"
-              aria-label={authStatus === 'authed' ? 'Профиль' : 'Войти'}
-              title={authStatus === 'authed' ? 'Вы вошли' : 'Войти'}
-              onClick={() => setAuthOpen(true)}
+              aria-label={ft.profile}
+              title={authStatus === 'authed' ? ft.profile : ft.login}
+              onClick={authStatus === 'authed' ? goProfile : () => setAuthOpen(true)}
             >
               {authStatus === 'authed' ? '☺' : '⏻'}
             </button>
           </div>
         </header>
 
-        <main className={`n2-main${wideTab || view === 'gallery' ? ' single' : ''}`}>
-          {view === 'gallery' ? (
+        <main className={`n2-main${wideTab || view === 'gallery' || view === 'profile' ? ' single' : ''}`}>
+          {view === 'profile' ? (
+            profileView
+          ) : view === 'gallery' ? (
             galleryView
           ) : (
             <>

@@ -850,6 +850,10 @@ function App() {
   // сам NewStudio нормализует адрес на /feed.
   const feedRoute =
     pathName === '/feed' || pathName.startsWith('/feed/') || pathName === '/lenta' || pathName.startsWith('/lenta/')
+  // Новый UI: отдельные страницы Галереи и Профиля (канонические /gallery, /profile;
+  // /new/gallery и /new/profile — совместимые синонимы). Все ведут в NewStudio.
+  const galleryRoute = pathName === '/gallery' || pathName.startsWith('/gallery/')
+  const profileRoute = pathName === '/profile' || pathName.startsWith('/profile/')
 
   useEffect(() => {
     const onPopState = () => setPathName(window.location.pathname)
@@ -1451,7 +1455,7 @@ function App() {
     </div>
   )
 
-  if (newUiRoute || feedRoute) {
+  if (newUiRoute || feedRoute || galleryRoute || profileRoute) {
     return <NewStudio />
   }
 

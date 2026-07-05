@@ -705,6 +705,59 @@ Verdict: FEED SEED + COMPRESSION DONE (стендовая верификация
   прод + деплой — отдельным разрешённым шагом)
 ```
 
+## 2026-07-05 — Отдельные страницы /gallery и /profile нового UI
+
+```text
+Дата/время: 2026-07-05 (local)
+Ветка: hotfix/live-auth-gallery-faceswap-20260703 (worktree wt-integrated)
+Файлы изменены: frontend/src/App.tsx, frontend/src/newUi.tsx,
+  frontend/src/newUi.css, docs/new-ui-v2-integration-handoff-20260704.md,
+  docs/new-ui-v2-review.md
+Что сделано:
+  1) Роутинг App.tsx: добавлены galleryRoute (/gallery, /gallery/*) и
+     profileRoute (/profile, /profile/*) → рендерят NewStudio. Компат
+     /new/gallery и /new/profile покрыты существующим newUiRoute.
+  2) NewStudio: N2View расширен 'gallery' | 'profile'; initialViewFromPath()
+     читает стартовый вид из URL; navTo/goGallery/goProfile через pushState;
+     popstate-слушатель синхронизирует вид. openRealGallery = goGallery.
+  3) Страница /gallery: заголовок «Моя галерея», гость-состояние с AuthV2Modal,
+     empty-state со ссылкой на генерацию. Карточки: превью(thumbnail), режим,
+     дата, промпт. Действия карточки: Открыть, ✦ В ленту (openPublish). Detail-
+     модалка: Скачать (download оригинала), Использовать как основу (→ Изо→Изо),
+     ✦ Опубликовать (openPublish), 🗑 Удалить (DELETE /gallery/{id} + confirm).
+  4) Страница /profile: строго из /me-v2 — аватар/инициал, имя, #public_code,
+     email, баланс токенов, тариф, статус(role), связанные входы
+     (identities/providers → Telegram/MAX/Email/Web), язык RU/EN
+     (updateProfileV2), ссылки «Моя галерея»/«Мои публикации», «Все настройки
+     (текущая версия)» → '/', Выйти (logoutV2). Плейсхолдеры «—» без выдумок.
+  5) Навигация: topbar Галерея→goGallery, иконка ☺ Профиль→goProfile (гость →
+     AuthV2Modal); мобильная нижняя навигация Галерея→goGallery,
+     Профиль→goProfile. active-view подсветка для обеих.
+  6) i18n RU/EN: gallery, profile, myGallery, myWorks, useAsSource, download,
+     del, signOut, tokens, plan, role, language, galleryHint, galleryGuest,
+     profileGuest, deleteConfirm, open.
+  7) CSS: n2-profile-* (аватар/инициал, статы-грид, провайдеры-чипы, ссылки),
+     .n2-ghost.danger, .n2-icon-button.active-view; мобильный грид статов в 1 кол.
+Безопасность: НЕ возвращены AuthV2Panel / X-OneNode-User / onenode_user /
+  demo_user / SESSION_USER_ID. Гостю лента доступна на чтение, действия
+  (лайк/публикация/галерея/профиль) требуют входа через текущий AuthV2Modal.
+  Профиль не выдумывает бэкенд — только поля /me-v2.
+Проверки:
+  - rg "AuthV2Panel|Вход \\(v2\\)|X-OneNode-User|onenode_user|demo_user|
+    SESSION_USER_ID" frontend/src → только комментарии-запреты (допустимо)
+  - npm run lint → 0 (после переименования useGalleryAsSource→applyGalleryAsSource
+    из-за react-hooks/rules-of-hooks на префикс use*)
+  - npx tsc -b → OK; npx vite build → OK
+  - python -m pytest backend/test_feed_v2.py -q → 9 passed (backend не менялся)
+  - dev-сервер :5189: /gallery 200, трансформ newUi.tsx 200 (гость-путь ок)
+Что НЕ проверено вживую:
+  - authed-состояния (реальная сессия не материализуется в этой среде —
+    ограничение политики). Логика галереи (setGallery/apiFetch/openPublish/
+    DELETE) переиспользует уже работающий поток ленты; профиль читает /me-v2.
+Verdict: GALLERY PROFILE NEW PAGES READY (статические проверки + гость-путь;
+  authed-верификация — на живом стенде с реальной сессией)
+```
+
 ## Entry Template
 
 ```text

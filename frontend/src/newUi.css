@@ -1754,6 +1754,130 @@
   color: #0d0714;
 }
 
+.n2-icon-button.active-view {
+  border-color: rgba(155, 124, 255, 0.92);
+  background: var(--n2-purple);
+  color: #0d0714;
+}
+
+.n2-ghost.danger {
+  border-color: rgba(255, 108, 108, 0.5);
+  color: #ffd7d7;
+}
+
+.n2-ghost.danger:hover {
+  background: rgba(120, 30, 30, 0.4);
+  border-color: rgba(255, 108, 108, 0.75);
+}
+
+/* ---------- профиль (/profile) ---------- */
+
+.n2-profile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 640px;
+}
+
+.n2-profile-id {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.n2-profile-avatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(155, 124, 255, 0.4);
+}
+
+.n2-profile-avatar.initial {
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  font-weight: 700;
+  color: #efe9ff;
+  background: var(--n2-purple);
+}
+
+.n2-profile-id-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.n2-profile-id-text strong {
+  font-size: 20px;
+}
+
+.n2-profile-id-text span {
+  font-size: 13px;
+  opacity: 0.72;
+}
+
+.n2-profile-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.n2-profile-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.n2-profile-stat span {
+  font-size: 12px;
+  opacity: 0.66;
+}
+
+.n2-profile-stat strong {
+  font-size: 20px;
+}
+
+.n2-profile-block h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+  opacity: 0.82;
+}
+
+.n2-profile-providers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.n2-profile-provider {
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  border: 1px solid rgba(155, 124, 255, 0.4);
+  background: rgba(58, 35, 112, 0.4);
+}
+
+.n2-profile-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.n2-profile-links .n2-ghost {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 640px) {
+  .n2-profile-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---------- overlays (помощь, просмотр изображения) ---------- */
 
 .n2-overlay {
