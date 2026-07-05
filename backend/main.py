@@ -3572,6 +3572,20 @@ def _clamp_limit(limit: int, default: int = 50, maximum: int = 200) -> int:
     return max(1, min(int(limit), maximum))
 
 
+def _user_model_name(raw: str | None) -> str:
+    """Пользователь видит только «Flux2» — никогда точный идентификатор модели.
+    Flux Klein 4B/9B, local_flux_klein и другие flux-варианты → «Flux2».
+    OpenRouter → «OpenRouter». Всё остальное → «Flux2» (безопасное умолчание)."""
+    if not raw:
+        return "Flux2"
+    lowered = raw.lower()
+    if any(kw in lowered for kw in ("flux", "klein", "local_flux")):
+        return "Flux2"
+    if "openrouter" in lowered:
+        return "OpenRouter"
+    return "Flux2"
+
+
 def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
     settings = json.loads(row["settings_json"] or "{}")
     return {
@@ -3586,7 +3600,7 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
         "seed": settings.get("seed", 0),
         "width": row["width"],
         "height": row["height"],
-        "modelProfile": settings.get("modelProfile", ""),
+        "modelProfile": _user_model_name(settings.get("modelProfile")),
         "loras": settings.get("loras", []),
         "preset": settings.get("preset"),
         "generationTimeMs": settings.get("generationTimeMs", 0),
@@ -5754,10 +5768,10 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     with db() as conn:
         if conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is None:
             raise HTTPException(404, "User not found.")
-    if req.mode == "faceswap":
-        face_lora = next((item for item in req.loras if item.id and item.id != "none"), None)
-        if face_lora is None:
-            raise HTTPException(422, "FaceSwap mode requires a FaceSwap LoRA. Select bfs_head or another face LoRA.")
+    # FaceSwap lora auto-selection is handled by choose_faceswap_lora() inside
+    # send_to_comfyui (worker). Early validation here is redundant and breaks
+    # the flow when frontend sends an empty loras list — the worker always
+    # resolves the correct face lora from ComfyUI's available models.
     if req.mode == "edit":
         validate_edit_request(req)
     ensure_rate_limit(user_id)
@@ -5838,7 +5852,18 @@ async def models() -> dict[str, Any]:
     try:
         data = await get_comfyui_models()
         model, text_encoder, vae = choose_model(data, "")
-        return {"ok": True, "selected": {"model": model, "textEncoder": text_encoder, "vae": vae}, **data}
+        return {
+            "ok": True,
+            "selected": {
+                "model": _user_model_name(model),
+                "textEncoder": "Flux2 CLIP",
+                "vae": "Flux2 VAE",
+            },
+            "diffusion_models": [_user_model_name(m) for m in data.get("diffusion_models", [])],
+            "text_encoders": ["Flux2 CLIP" for _ in data.get("text_encoders", [])],
+            "vaes": ["Flux2 VAE" for _ in data.get("vaes", [])],
+            "loras": data.get("loras", []),
+        }
     except Exception as exc:
         return {"ok": False, "error": str(exc), "diffusion_models": [], "text_encoders": [], "vaes": [], "loras": []}
 
@@ -6038,7 +6063,14 @@ async def bootstrap(auth: MiniAppAuthRequest, response: Response, request: Reque
     except Exception as exc:
         flux_klein_config["error"] = str(exc)
     try:
-        models_payload = {"ok": True, **await get_comfyui_models()}
+        models_raw = await get_comfyui_models()
+        models_payload = {
+            "ok": True,
+            "diffusion_models": [_user_model_name(m) for m in models_raw.get("diffusion_models", [])],
+            "text_encoders": ["Flux2 CLIP" for _ in models_raw.get("text_encoders", [])],
+            "vaes": ["Flux2 VAE" for _ in models_raw.get("vaes", [])],
+            "loras": models_raw.get("loras", []),
+        }
     except Exception as exc:
         models_payload["error"] = str(exc)
     try:
@@ -10595,7 +10627,7 @@ def _feed_item_payload(
         "prompt_visibility": visibility,
         "allow_recreate": bool(pub["allow_recreate"]),
         "style": settings.get("styleName") or None,
-        "model": settings.get("modelProfile") or _row_get(image, "provider") or None,
+        "model": _user_model_name(settings.get("modelProfile") or _row_get(image, "provider")),
         "mode": _row_get(image, "mode"),
         "aspect_ratio": _feed_aspect_ratio(width, height),
         "resolution": f"{width}×{height}" if width and height else None,

@@ -578,6 +578,58 @@ Verdict: FEED ACCESS AND PUBLISH FLOW READY (стендовая верифика
   прод-деплой feed-эндпоинтов — отдельным шагом)
 ```
 
+## 2026-07-06 — Fix faceswap lora early-validation deadlock
+
+```text
+Date/time: 2026-07-06 ~16:00 (local)
+Branch: feature/new-ui-v2-integrated-safe
+Commit или WIP: WIP (hotfix на проде)
+Файлы изменены: backend/main.py, docs/new-ui-v2-review.md
+Что изменено:
+  - Удалена ранняя валидация lora для faceswap в /api/generate (строка 5757-5760).
+    Раньше эндпоинт требовал непустой loras и выбрасывал HTTP 422, если список
+    пуст. Теперь запрос пропускается без проверки — воркер send_to_comfyui сам
+    вызывает choose_faceswap_lora(available_loras, ...), который авто-подбирает
+    правильную лору (bfs_head 4b/9b) из реального списка моделей ComfyUI.
+  - Фронтенд App.tsx иногда отправлял loras:[] для faceswap-режима (сохранённое
+    в sessionStorage имя лоры не совпадало с актуальным списком, loraOptions.find
+    возвращал undefined). Ранний 422 не давал воркеру выполнить авто-подбор.
+    Теперь авто-подбор работает всегда.
+Что НЕ изменено:
+  - choose_faceswap_lora — без изменений (уже обрабатывает все случаи, включая
+    несовпадение версий 4b/9b и полное отсутствие lora в запросе).
+  - Остальные режимы генерации не затронуты.
+Тесты: вкладка «Лицо → Изо» на проде — генерация прошла успешно.
+Риски: если ComfyUI не имеет ни одной face-лоры, воркер выбросит RuntimeError с
+  понятным сообщением вместо 422. Это допустимо — раньше пользователь вообще не
+  мог дойти до воркера.
+Verdict: FACESWAP LORA DEADLOCK FIXED
+```
+
+## 2026-07-06 — Mask model names from users; always show «Flux2»
+
+```text
+Date/time: 2026-07-06 ~16:30 (local)
+Branch: feature/new-ui-v2-integrated-safe (WIP на проде)
+Файлы изменены: backend/main.py, docs/new-ui-v2-review.md, CLAUDE.md
+Что изменено:
+  - Добавлен helper `_user_model_name(raw)` — маскирует все flux/klein/local_flux
+    варианты в «Flux2», openrouter в «OpenRouter». Остальное → «Flux2» (safe default).
+  - `row_to_image()` — modelProfile теперь через `_user_model_name()`.
+  - `_feed_item_payload()` — поле `model` теперь через `_user_model_name()`.
+  - `/api/models` — `selected.model`/`diffusion_models`/`text_encoders`/`vaes`
+    замаскированы. `loras` — НЕ тронут (нужен фронтенду для lora-matching).
+  - `/api/app/bootstrap` — models_payload замаскирован аналогично.
+  - CLAUDE.md — новый раздел «UI Visibility Rules».
+Что НЕ изменено:
+  - Админские эндпоинты — админы видят полные идентификаторы.
+  - `loras` в /api/models — фронтенд использует для авто-подбора lora.
+  - Фронтенд — просто показывает то, что отдаёт бэкенд.
+Проверки: /api/models → diffusion_models=['Flux2']; /api/feed → model='Flux2';
+  /api/gallery → modelProfile='Flux2'. Админка — без изменений.
+Verdict: MODEL MASKS APPLIED
+```
+
 ## Entry Template
 
 ```text

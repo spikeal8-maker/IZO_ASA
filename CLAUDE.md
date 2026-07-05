@@ -66,3 +66,16 @@
 * Test non-admin cannot access admin endpoints.
 * Test `init_db` idempotency.
 * Test `users.id` is not changed.
+
+## UI Visibility Rules
+
+* **Model names must never be shown to users.** The backend helper `_user_model_name()` in
+  `backend/main.py` masks all model identifiers to `"Flux2"` (or `"OpenRouter"` for OpenRouter).
+  Gallery (`row_to_image`), feed (`_feed_item_payload`), `/api/models`, and
+  `/api/app/bootstrap` all route through this function.
+* Technical endpoints needed by the frontend (e.g. `loras` list for lora matching) are excluded
+  from masking.
+* New API responses that include model name MUST use `_user_model_name()`.
+* New UI components MUST display `model`/`modelProfile` fields as-is from API — never derive
+  model name from other fields (seed, settings, job payload).
+* Admin endpoints are exempt — admins may see full model identifiers.
