@@ -9,6 +9,10 @@ REM ==========================================================================
 setlocal
 chcp 65001 >nul
 
+REM Auto-skip pause when launched non-interactively (e.g. Task Scheduler).
+REM Set IZO_NO_PAUSE=1 manually to skip pauses in interactive runs too.
+echo|pause >nul 2>nul && (set "HAS_CONSOLE=1") || (set "IZO_NO_PAUSE=1")
+
 set "ROOT=%~dp0"
 set "BACKEND=%ROOT%backend"
 set "FRONTEND=%ROOT%frontend"
