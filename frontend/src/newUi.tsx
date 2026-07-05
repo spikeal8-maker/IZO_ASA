@@ -10,10 +10,13 @@
 // ============================================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import { AuthV2Modal, logoutV2, refreshAuthStateV2, updateProfileV2, useAuthV2 } from './authV2'
+import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
 import { I2I_STYLES, T2I_TEMPLATES } from './stylePresets'
 import type { StylePreset } from './stylePresets'
+import TopBarV3 from './TopBarV3'
+import type { V3Section } from './TopBarV3'
 import './newUi.css'
+import './newStudioV3.css'
 
 const API = import.meta.env.VITE_API_BASE_URL || '/api'
 // Origin API-сервера для относительных media-URL из ответов backend
@@ -61,15 +64,6 @@ interface N2GalleryImage {
   createdAt: string
 }
 
-const TABS: Array<{ id: N2Tab; label: string; feed?: boolean }> = [
-  { id: 'feed', label: '✦ Лента', feed: true },
-  { id: 'text', label: 'Текст → Изо' },
-  { id: 'i2i', label: 'Изо → Изо' },
-  { id: 'edit', label: 'Редактор' },
-  { id: 'paint', label: 'Рисунок' },
-  { id: 'face', label: 'Лицо' },
-]
-
 const QUALITY: Array<{ id: string; label: string; steps: number }> = [
   { id: 'fast', label: 'Быстро', steps: 4 },
   { id: 'standard', label: 'Стандарт', steps: 6 },
@@ -80,12 +74,6 @@ const QUALITY: Array<{ id: string; label: string; steps: number }> = [
 // основного интерфейса (App.tsx) + средний размер 1536 (максимум генерации,
 // см. fitGenerationDimension). Перенесены данные, не вёрстка.
 type FormatId = 'square' | 'vertical' | 'horizontal'
-
-const FORMATS: Array<{ id: FormatId; label: string; icon: string }> = [
-  { id: 'square', label: 'Квадрат 1:1', icon: 'square' },
-  { id: 'vertical', label: 'Вертикально 9:16', icon: 'vertical' },
-  { id: 'horizontal', label: 'Горизонтально 16:9', icon: 'horizontal' },
-]
 
 interface ResolutionPreset {
   id: string
@@ -104,8 +92,6 @@ const RESOLUTION_PRESETS: ResolutionPreset[] = [
   { id: 'h-1920', name: 'Горизонтальное Full HD', width: 1920, height: 1088, kind: 'horizontal' },
   { id: 'v-1088', name: 'Вертикальное Full HD', width: 1088, height: 1920, kind: 'vertical' },
 ]
-
-const FORMAT_KIND_MARK: Record<FormatId, string> = { square: '◼', vertical: '▯', horizontal: '▭' }
 
 // Дефолтный пресет для каждой формат-кнопки.
 const DEFAULT_PRESET_BY_KIND: Record<FormatId, string> = {
@@ -327,7 +313,9 @@ export default function NewStudio(): ReactElement {
   // остальные вкладки живут на /new.
   const initialRoute = initialViewFromPath()
   const [tab, setTabState] = useState<N2Tab>(initialRoute.tab)
-  const [view, setView] = useState<N2View>(initialRoute.view)
+  // view: студия (tabs). Галерея/Профиль вынесены на App-level маршруты, но
+  // setView сохраняем для синхронизации при popstate/навигации по вкладкам.
+  const [, setView] = useState<N2View>(initialRoute.view)
 
   // Навигация страниц нового UI с синхронизацией URL. Каноничные маршруты:
   // Лента /feed, Галерея /gallery, Профиль /profile, генератор /new.
@@ -369,19 +357,15 @@ export default function NewStudio(): ReactElement {
 
   const [prompts, setPrompts] = useState<Record<'text' | 'i2i', string>>({ text: '', i2i: '' })
   const [styleId, setStyleId] = useState<string>('')
-  const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
   // Разрешение = конкретный системный пресет; формат-кнопки переключают тип.
   const [resolutionId, setResolutionId] = useState('sq-1024')
   const [quality, setQuality] = useState('fast')
   const [proMode, setProMode] = useState(false)
   const [seed, setSeed] = useState(0)
-  const [guidance, setGuidance] = useState(3.5)
-  const [strengthPct, setStrengthPct] = useState(75)
+  const [guidance] = useState(3.5)
+  const [strengthPct] = useState(75)
   const [sourceImage, setSourceImage] = useState<string>()
-  const [compare, setCompare] = useState(50)
-
-  // Вкладка «Рисунок»: выбор режима (UX-структура; сам холст — отдельная фаза).
-  const [paintMode, setPaintMode] = useState<'sketch' | 'mask' | 'expand'>('sketch')
+  const [, setCompare] = useState(50)
 
   // ---------- Live Feed state ----------
   // Язык ленты из профиля (RU по умолчанию — как весь /new).
@@ -582,17 +566,6 @@ export default function NewStudio(): ReactElement {
   }
 
   // Профиль: язык RU/EN и выход.
-  const setProfileLanguage = (lang: 'ru' | 'en') => {
-    if (authStatus !== 'authed') return
-    void updateProfileV2({ language_code: lang }).then(() => refreshAuthStateV2())
-  }
-  const doLogout = () => {
-    void logoutV2().then(() => {
-      void refreshAuthStateV2()
-      setView('tabs')
-      setTab('feed')
-    })
-  }
 
   const submitPublish = () => {
     if (!publishFor || publishBusy) return
@@ -627,14 +600,20 @@ export default function NewStudio(): ReactElement {
   }
 
   const [job, setJob] = useState<N2Job>()
-  const [jobMode, setJobMode] = useState<'text' | 'i2i'>('text')
+  const [, setJobMode] = useState<'text' | 'i2i'>('text')
   const [resultUrl, setResultUrl] = useState<string>()
   // URL результата не загрузился (битая ссылка/удалённый файл) — error-state.
   const [resultError, setResultError] = useState(false)
-  const [resultSource, setResultSource] = useState<string>()
+  const [, setResultSource] = useState<string>()
   const [notice, setNotice] = useState('')
   const [gallery, setGallery] = useState<N2GalleryImage[]>([])
   const [galleryItem, setGalleryItem] = useState<N2GalleryImage>()
+  // Изображение, чей промпт показан в доке «Промпт изображения» (v3-студия).
+  // Храним только id выбранной миниатюры; сам объект выводим при рендере,
+  // с откатом на самую свежую генерацию (без setState-в-эффекте).
+  const [dockImageId, setDockImageId] = useState<string>()
+  const [shareOpen, setShareOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const inFlightRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -689,7 +668,6 @@ export default function NewStudio(): ReactElement {
   }, [fetchGallery, job])
 
   const promptKey: 'text' | 'i2i' = tab === 'i2i' ? 'i2i' : 'text'
-  const prompt = prompts[promptKey]
   const setPrompt = useCallback(
     (value: string) => setPrompts((cur) => ({ ...cur, [promptKey]: value })),
     [promptKey],
@@ -814,10 +792,6 @@ export default function NewStudio(): ReactElement {
     }
   }
 
-  function uploadSource() {
-    fileInputRef.current?.click()
-  }
-
   function onSourceFile(file: File | undefined) {
     if (!file) return
     const reader = new FileReader()
@@ -828,479 +802,33 @@ export default function NewStudio(): ReactElement {
   const jobActive = !!job && JOB_ACTIVE.includes(job.status)
   const jobProgress = Math.max(0, Math.min(100, Math.round(job?.progress || 0)))
   const history = gallery.slice(0, 6)
-  const loadingBackdrop = resultSource || gallery[0]?.url
   const selectedResolution = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
-  const selectedStyle = styleId ? I2I_STYLES.find((s) => s.id === styleId) || null : null
 
-  const showResult = useCallback((url: string | undefined, source?: string) => {
+  // Док «Промпт изображения»: выбранная миниатюра либо самая свежая генерация.
+  const dockImage = gallery.find((g) => g.id === dockImageId) || gallery[0]
+
+  // v3-студия: выбрать формат (соотношение сторон) — переключает разрешение на
+  // первый пресет нужной ориентации.
+  const selectRatio = (kind: 'square' | 'vertical' | 'horizontal') => {
+    const preset = RESOLUTION_PRESETS.find((p) => p.kind === kind)
+    if (preset) setResolutionId(preset.id)
+  }
+
+  const copyPrompt = (text: string) => {
+    if (!text) return
+    void navigator.clipboard?.writeText(text).then(() => {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    })
+  }
+
+  // Открыть миниатюру истории в предпросмотре + доке промпта.
+  const openHistory = (item: N2GalleryImage) => {
     setResultError(false)
-    setResultUrl(url)
-    setResultSource(source)
-  }, [])
-
-  const progressCard = (
-    <div className="n2-progress">
-      {loadingBackdrop && <img className="n2-progress-backdrop" src={loadingBackdrop} alt="" aria-hidden="true" />}
-      <div className="n2-progress-inner">
-        <span className="n2-progress-title">Генерация…</span>
-        <div className="n2-progress-track">
-          <div
-            className={`n2-progress-fill${jobProgress === 0 ? ' indeterminate' : ''}`}
-            style={jobProgress > 0 ? { width: `${jobProgress}%` } : undefined}
-          />
-        </div>
-        <span className="n2-progress-note">{jobProgress > 0 ? `${jobProgress}%` : job?.message || job?.status}</span>
-      </div>
-    </div>
-  )
-
-  // Мобильный предпросмотр: живёт между промптом и стилями (на десктопе скрыт).
-  const mobilePreview = (
-    <div className="n2-mobile-preview" aria-label="Предпросмотр результата">
-      {jobActive ? (
-        progressCard
-      ) : resultUrl && !resultError ? (
-        <img
-          className="n2-mobile-preview-img"
-          src={resultUrl}
-          alt="Результат генерации"
-          onError={() => setResultError(true)}
-        />
-      ) : (
-        <div className="n2-mobile-preview-empty">
-          <span className="n2-mobile-preview-icon">▧</span>
-          <span>Здесь появится сгенерированное изображение</span>
-        </div>
-      )}
-    </div>
-  )
-
-  // Drag-scroll ленты стилей мышью (touch остаётся нативным). Клик после
-  // перетаскивания подавляется, чтобы случайно не выбрать стиль.
-  const styleScrollRef = useRef<HTMLDivElement | null>(null)
-  const styleDragRef = useRef({ active: false, moved: false, startX: 0, startScroll: 0 })
-
-  const onStyleScrollPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType !== 'mouse' || e.button !== 0) return
-    const el = styleScrollRef.current
-    if (!el) return
-    styleDragRef.current = { active: true, moved: false, startX: e.clientX, startScroll: el.scrollLeft }
-    el.classList.add('dragging')
-    el.setPointerCapture(e.pointerId)
+    setResultUrl(item.url)
+    setResultSource(undefined)
+    setDockImageId(item.id)
   }
-
-  const onStyleScrollPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = styleDragRef.current
-    const el = styleScrollRef.current
-    if (!drag.active || !el) return
-    const delta = e.clientX - drag.startX
-    if (Math.abs(delta) > 5) drag.moved = true
-    el.scrollLeft = drag.startScroll - delta
-  }
-
-  const onStyleScrollPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
-    const el = styleScrollRef.current
-    if (!styleDragRef.current.active || !el) return
-    styleDragRef.current.active = false
-    el.classList.remove('dragging')
-    if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId)
-  }
-
-  const onStyleScrollClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!styleDragRef.current.moved) return
-    styleDragRef.current.moved = false
-    e.preventDefault()
-    e.stopPropagation()
-  }
-
-  // Вертикальное колесо/трекпад скроллит ленту горизонтально. Нативный
-  // listener c passive:false — React-обработчик wheel не даёт preventDefault.
-  useEffect(() => {
-    const el = styleScrollRef.current
-    if (!el) return
-    const onWheel = (event: WheelEvent) => {
-      if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
-        event.preventDefault()
-        el.scrollLeft += event.deltaY
-      }
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [tab])
-
-  const stylesStrip = (
-    <div className="n2-block">
-      <div className="n2-label-row">
-        <strong>Стиль</strong>
-        <span>{I2I_STYLES.length} стилей</span>
-      </div>
-      <div
-        ref={styleScrollRef}
-        className="n2-style-scroll"
-        aria-label="Выбор стиля"
-        onMouseLeave={() => setHoverStyle(null)}
-        onPointerDown={onStyleScrollPointerDown}
-        onPointerMove={onStyleScrollPointerMove}
-        onPointerUp={onStyleScrollPointerEnd}
-        onPointerCancel={onStyleScrollPointerEnd}
-        onClickCapture={onStyleScrollClickCapture}
-      >
-        <button
-          className={`n2-style-card${styleId === '' ? ' active' : ''}`}
-          type="button"
-          onClick={() => applyStyle(null)}
-          onMouseEnter={() => setHoverStyle(null)}
-        >
-          <span className="n2-style-art none">∅</span>
-          <span className="n2-style-name">Без стиля</span>
-        </button>
-        {I2I_STYLES.map((style) => (
-          <button
-            key={style.id}
-            className={`n2-style-card${styleId === style.id ? ' active' : ''}`}
-            type="button"
-            title={style.name}
-            onClick={() => applyStyle(style)}
-            onMouseEnter={() => setHoverStyle(style)}
-          >
-            <img className="n2-style-art" src={style.preview[previewGender]} alt={style.preview.alt} loading="lazy" />
-            <span className="n2-style-name">{style.name}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-
-  // Единый каркас вкладки: заголовок + короткое описание над рабочей областью.
-  const viewHead = (title: string, description: string) => (
-    <div className="n2-view-head">
-      <h2>{title}</h2>
-      <p>{description}</p>
-    </div>
-  )
-
-  const controls = (mode: 'text' | 'i2i') => (
-    <section className="n2-panel n2-controls" aria-label="Панель генерации">
-      <div className="n2-controls-scroll">
-        {mode === 'i2i'
-          ? viewHead('Изо → Изо', 'Загрузите фото и преобразуйте его в выбранный стиль.')
-          : viewHead('Текст → Изо', 'Опишите идею словами — получите изображение.')}
-        {mode === 'i2i' && (
-          <div className="n2-block n2-source-card">
-            <div className="n2-label-row">
-              <strong>Источник</strong>
-              <span>{sourceImage ? '1 изображение' : 'не выбран'}</span>
-            </div>
-            <div className="n2-source-layout">
-              <div className={`n2-source-preview${sourceImage ? ' selected' : ''}`}>
-                {sourceImage ? (
-                  <>
-                    <img src={sourceImage} alt="Исходное изображение" />
-                    <button
-                      className="n2-source-remove"
-                      type="button"
-                      aria-label="Убрать изображение"
-                      onClick={() => setSourceImage(undefined)}
-                    >
-                      ×
-                    </button>
-                  </>
-                ) : (
-                  <div className="n2-source-state">
-                    <strong>Выберите исходник</strong>
-                    <span>PNG, JPG до 20 МБ</span>
-                    <div className="n2-source-buttons">
-                      <button className="n2-source-button" type="button" onClick={uploadSource}>
-                        ＋ Загрузить
-                      </button>
-                      <button
-                        className="n2-source-button"
-                        type="button"
-                        disabled={gallery.length === 0}
-                        onClick={() => setGalleryPickOpen(true)}
-                      >
-                        ▧ Галерея
-                      </button>
-                      <button
-                        className="n2-source-button"
-                        type="button"
-                        disabled={gallery.length === 0}
-                        onClick={() => setSourceImage(gallery[0]?.url)}
-                      >
-                        ↺ Последнее
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="n2-influence">
-                <div className="n2-slider-head">
-                  <span>Влияние промпта</span>
-                  <span className="n2-slider-value">{strengthPct}%</span>
-                </div>
-                <div className="n2-range-wrap">
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={strengthPct}
-                    aria-label="Влияние промпта"
-                    onChange={(e) => setStrengthPct(Number(e.target.value))}
-                  />
-                </div>
-                <div className="n2-slider-labels">
-                  <span>0: ближе к фото</span>
-                  <span>100: больше промпта</span>
-                </div>
-                <p className="n2-recommend-note">Рекомендуем 75%. Выше 80% исходник почти не сохраняется.</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="n2-block n2-prompt-block">
-          <div className="n2-label-row">
-            <strong>{mode === 'i2i' ? 'Что изменить?' : 'Что хотите увидеть?'}</strong>
-            {/* i2i: стиль применяется как transform-prompt под капотом — показываем
-                его пользователю явным чипом (крестик снимает стиль). */}
-            {mode === 'i2i' && selectedStyle ? (
-              <button
-                className="n2-style-chip"
-                type="button"
-                title={`Стиль применяется к генерации: ${selectedStyle.stylePrompt.slice(0, 120)}…`}
-                onClick={() => applyStyle(null)}
-              >
-                Стиль: {selectedStyle.name} <span aria-hidden="true">×</span>
-              </button>
-            ) : (
-              <span>Главный шаг</span>
-            )}
-          </div>
-          <div className="n2-prompt-card">
-            <textarea
-              maxLength={2000}
-              value={prompt}
-              placeholder={mode === 'i2i' ? 'Опишите, что изменить в изображении…' : 'Опишите идею обычными словами…'}
-              aria-label="Запрос для генерации"
-              onChange={(e) => setPrompt(e.target.value)}
-            />
-            <div className="n2-counter">{prompt.length} / 2000</div>
-          </div>
-          <div className="n2-quick-actions">
-            <button className="n2-mini" type="button" disabled title="Скоро">
-              ✦ Улучшить
-            </button>
-            <button className="n2-mini" type="button" onClick={() => setTemplatesOpen(true)}>
-              ▦ Шаблоны
-            </button>
-            <button className="n2-mini" type="button" onClick={randomPrompt}>
-              ◈ Случайно
-            </button>
-          </div>
-        </div>
-
-        {mobilePreview}
-
-        {stylesStrip}
-
-        <div className="n2-block">
-          <div className="n2-label-row">
-            <strong>Формат</strong>
-          </div>
-          <div className="n2-format-row" aria-label="Формат и разрешение">
-            <label className="n2-resolution-cell">
-              <span>Разрешение</span>
-              {/* Закрытый вид показывает только W×H; полный список — в option. */}
-              <span className="n2-resolution-display">
-                <span className="n2-resolution-value">
-                  {selectedResolution.width}×{selectedResolution.height}
-                </span>
-                <select
-                  value={resolutionId}
-                  aria-label="Разрешение изображения"
-                  onChange={(e) => setResolutionId(e.target.value)}
-                >
-                  {RESOLUTION_PRESETS.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {FORMAT_KIND_MARK[preset.kind]} {preset.name} · {preset.width}×{preset.height}
-                    </option>
-                  ))}
-                </select>
-              </span>
-            </label>
-            {FORMATS.map((format) => (
-              <button
-                key={format.id}
-                className={`n2-format-button${selectedResolution.kind === format.id ? ' active' : ''}`}
-                type="button"
-                onClick={() => {
-                  if (selectedResolution.kind !== format.id) setResolutionId(DEFAULT_PRESET_BY_KIND[format.id])
-                }}
-              >
-                <span className={`n2-format-icon ${format.icon}`} />
-                {format.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="n2-segmented-wrap" aria-label="Сложность интерфейса">
-          <div className="n2-segmented">
-            <button className={proMode ? '' : 'active'} type="button" onClick={() => setProMode(false)}>
-              Простой
-            </button>
-            <button className={proMode ? 'active' : ''} type="button" onClick={() => setProMode(true)}>
-              Pro
-            </button>
-          </div>
-          <div className="n2-quality-inline" aria-label="Качество генерации">
-            {QUALITY.map((item) => (
-              <button
-                key={item.id}
-                className={`n2-quality-button${quality === item.id ? ' active' : ''}`}
-                type="button"
-                onClick={() => setQuality(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {proMode && (
-          <div className="n2-pro-panel" aria-label="Pro настройки">
-            <div className="n2-pro-field">
-              <span>Seed (0 — случайный)</span>
-              <input
-                type="number"
-                min={0}
-                value={seed}
-                aria-label="Seed"
-                onChange={(e) => setSeed(Math.max(0, Number(e.target.value) || 0))}
-              />
-            </div>
-            <div className="n2-pro-field">
-              <span>Guidance</span>
-              <select value={guidance} aria-label="Guidance" onChange={(e) => setGuidance(Number(e.target.value))}>
-                <option value={2.5}>Мягко (2.5)</option>
-                <option value={3.5}>Стандарт (3.5)</option>
-                <option value={5}>Точно (5.0)</option>
-              </select>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Док: кнопка генерации всегда привязана к низу панели и видна во всех состояниях. */}
-      <div className="n2-dock">
-        {notice && <div className="n2-notice">{notice}</div>}
-        <button className="n2-generate" type="button" disabled={!canGenerate} onClick={() => void generate(mode)}>
-          {jobActive ? 'Генерация…' : mode === 'i2i' ? '✦ Преобразовать' : '✦ Сгенерировать'}
-        </button>
-      </div>
-    </section>
-  )
-
-  // Статус предпросмотра — единое состояние empty/loading/error/result
-  // (+ временный режим «Предпросмотр стиля» при наведении на карточку стиля).
-  const resultStatus = hoverStyle
-    ? { label: 'Предпросмотр стиля', tone: 'busy' }
-    : jobActive
-      ? { label: 'Генерация…', tone: 'busy' }
-      : resultError || job?.status === 'failed'
-        ? { label: 'Ошибка', tone: 'error' }
-        : resultUrl
-          ? { label: 'Готово', tone: 'done' }
-          : { label: 'Пусто', tone: 'idle' }
-
-  const resultPanel = (
-    <section className="n2-panel n2-result" aria-label="Предпросмотр результата">
-      <div className="n2-result-head">
-        <h3>Предпросмотр</h3>
-        <span className={`n2-status-chip ${resultStatus.tone}`}>{resultStatus.label}</span>
-      </div>
-      <div className="n2-canvas">
-        {hoverStyle ? (
-          <div className="n2-style-preview" aria-label={`Предпросмотр стиля: ${hoverStyle.name}`}>
-            <img src={hoverStyle.preview[previewGender]} alt={hoverStyle.preview.alt} />
-            <div className="n2-style-preview-caption">
-              <strong>{hoverStyle.name}</strong>
-              <span>Нажмите на карточку, чтобы применить стиль</span>
-            </div>
-          </div>
-        ) : jobActive ? (
-          progressCard
-        ) : resultError ? (
-          <div className="n2-empty">
-            <div className="n2-empty-icon error">!</div>
-            <div>
-              <h2>Изображение недоступно</h2>
-              <p>Файл результата не загрузился — возможно, он был удалён. Попробуйте сгенерировать заново.</p>
-            </div>
-          </div>
-        ) : resultUrl && jobMode === 'i2i' && resultSource ? (
-          <div className="n2-compare" style={{ ['--compare' as string]: `${compare}%` }} aria-label="Сравнение до и после">
-            <div className="n2-compare-layer">
-              <img src={resultSource} alt="До" />
-            </div>
-            <div className="n2-compare-layer after">
-              <img src={resultUrl} alt="После" />
-            </div>
-            <span className="n2-compare-label before">До</span>
-            <span className="n2-compare-label after-label">После</span>
-            <div className="n2-compare-handle" />
-            <input
-              className="n2-compare-range"
-              type="range"
-              min={0}
-              max={100}
-              value={compare}
-              aria-label="Ползунок сравнения до и после"
-              onChange={(e) => setCompare(Number(e.target.value))}
-            />
-          </div>
-        ) : resultUrl ? (
-          <img
-            className="n2-result-image"
-            src={resultUrl}
-            alt="Результат генерации"
-            onError={() => setResultError(true)}
-          />
-        ) : (
-          <div className="n2-empty">
-            <div className="n2-empty-icon">▧</div>
-            <div>
-              <h2>Результат появится здесь</h2>
-              <p>Ваше изображение будет сгенерировано на основе указанного описания.</p>
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="n2-result-bottom">
-        <div className="n2-history">
-          <h3>История</h3>
-          {history.length === 0 && <p className="n2-history-empty">Пока пусто — создайте первое изображение.</p>}
-          <div className="n2-thumb-row" aria-label="Последние изображения">
-            {history.map((item) => (
-              <button
-                key={item.id}
-                className={`n2-thumb${resultUrl === item.url ? ' active' : ''}`}
-                type="button"
-                title={item.promptOriginal}
-                onClick={() => showResult(item.url)}
-              >
-                <img src={item.thumbnailUrl || item.url} alt={item.promptOriginal.slice(0, 60)} loading="lazy" />
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="n2-tip">
-          <h3>Совет</h3>
-          <p>Укажите объект, стиль, свет и ракурс — так результат обычно получается точнее.</p>
-        </div>
-      </div>
-    </section>
-  )
 
   // ---------- Live Feed: карточка публикации ----------
   const feedCard = (post: FeedPublication) => (
@@ -1620,269 +1148,295 @@ export default function NewStudio(): ReactElement {
     </section>
   )
 
-  // ---------- Каноническая страница Галереи (/gallery) ----------
-  const galleryView = (
-    <section className="n2-panel n2-gallery" aria-label={ft.gallery}>
-      <div className="n2-gallery-head">
-        <div>
-          <h2>{ft.myGallery}</h2>
-          <p>{authStatus === 'authed' ? ft.galleryHint : ft.galleryGuest}</p>
+
+  // ————————————————————————————————————————————————————————————————
+  // v3-студия «Текст в изображение» (визуальный источник: прототип 14).
+  // Функционально подключена только эта вкладка; остальные — честные заглушки.
+  // ————————————————————————————————————————————————————————————————
+  const dockPromptText = dockImage?.promptOriginal || prompts.text
+  const ratioKind = selectedResolution.kind
+  const shareTarget = dockImage || gallery[0]
+
+  const textStudio = (
+    <main className="layout">
+      <aside className="sidebar">
+        <div className="sidebar-head">
+          <h1>Текст в изображение</h1>
+          <button className={`pro-button${proMode ? ' active' : ''}`} type="button" onClick={() => setProMode((v) => !v)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+            </svg>
+            {proMode ? 'Режим Стандарт' : 'Режим Профи'}
+          </button>
         </div>
-        <div className="n2-gallery-head-actions">
-          {authStatus !== 'authed' && (
-            <button className="n2-ghost purple" type="button" onClick={() => setAuthOpen(true)}>
-              {ft.login}
+
+        <section className="form-section prompt-section">
+          <div className="section-title">
+            <h2>Что хотите увидеть?</h2>
+            <span className="help-dot" role="button" tabIndex={0} onClick={() => setHelpOpen(true)}>?</span>
+          </div>
+          <div className="prompt-card">
+            <textarea
+              placeholder="Опишите идею своими словами — получите изображение..."
+              maxLength={2000}
+              value={prompts.text}
+              onChange={(e) => setPrompt(e.target.value)}
+            />
+            <div className="counter">{prompts.text.length} / 2000</div>
+          </div>
+          <div className="action-row">
+            <button className="tool-button" type="button" onClick={() => showToast('Голосовой ввод скоро')}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3Z" stroke="currentColor" strokeWidth="2" />
+                <path d="M19 11a7 7 0 0 1-14 0M12 18v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              Голос
             </button>
-          )}
-          <button className="n2-ghost" type="button" onClick={() => setTab('feed')}>
-            ← {ft.feed}
-          </button>
-        </div>
-      </div>
-      {authStatus !== 'authed' ? (
-        <div className="n2-placeholder-card">
-          <span className="icon">⏻</span>
-          <h2>{ft.myGallery}</h2>
-          <p>{ft.galleryGuest}</p>
-          <button className="n2-ghost purple" type="button" onClick={() => setAuthOpen(true)}>
-            {ft.login}
-          </button>
-        </div>
-      ) : gallery.length === 0 ? (
-        <div className="n2-placeholder-card">
-          <span className="icon">▧</span>
-          <h2>{feedLang === 'ru' ? 'Здесь будут ваши изображения' : 'Your images will appear here'}</h2>
-          <p>{feedLang === 'ru' ? 'Сгенерируйте первое изображение — оно появится в галерее.' : 'Generate your first image — it shows up here.'}</p>
-          <button className="n2-ghost purple" type="button" onClick={() => setTab('text')}>
-            {ft.createImage}
-          </button>
-        </div>
-      ) : (
-        <div className="n2-gallery-grid">
-          {gallery.map((item) => (
-            <article key={item.id} className="n2-gallery-card">
-              <button className="n2-gallery-thumb" type="button" title={item.promptOriginal} onClick={() => setGalleryItem(item)}>
-                <img src={apiUrl(item.thumbnailUrl || item.url)} alt={item.promptOriginal.slice(0, 60)} loading="lazy" />
+            <button className="tool-button primary" type="button" onClick={() => showToast('Улучшение промпта скоро')}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 3.5l1.6 4 4 1.6-4 1.6-1.6 4-1.6-4-4-1.6 4-1.6L12 3.5Z" fill="currentColor" />
+                <path d="M18.5 14.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z" fill="currentColor" opacity=".72" />
+              </svg>
+              Улучшить
+            </button>
+            <button className="tool-button" type="button" onClick={() => setTemplatesOpen(true)}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z" stroke="currentColor" strokeWidth="1.8" />
+              </svg>
+              Шаблоны
+            </button>
+            <button className="tool-button" type="button" onClick={randomPrompt}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M9 18h6M10 22h4M8.4 14.4A6 6 0 1 1 15.6 14c-.9.7-1.6 1.7-1.8 2.8h-3.6c-.2-1-.8-1.8-1.8-2.4Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Идея
+            </button>
+          </div>
+        </section>
+
+        <section className="form-section style-section">
+          <div className="section-title">
+            <h2>Стиль</h2>
+            <span>{I2I_STYLES.length} стилей</span>
+          </div>
+          <div className="style-row">
+            <figure
+              className={`style-card no-style${!styleId ? ' active' : ''}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => applyStyle(null)}
+            >
+              <span className="no-style-symbol">✓</span>
+              <figcaption>Нет</figcaption>
+            </figure>
+            {I2I_STYLES.map((style) => (
+              <figure
+                key={style.id}
+                className={`style-card${styleId === style.id ? ' active' : ''}`}
+                role="button"
+                tabIndex={0}
+                title={style.name}
+                onClick={() => applyStyle(style)}
+              >
+                <img src={style.preview[previewGender]} alt={style.preview.alt} loading="lazy" />
+                <figcaption>{style.name}</figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
+
+        <section className="form-section format-section">
+          <div className="section-title">
+            <h2>Формат</h2>
+          </div>
+          <div className="control-row">
+            <select
+              className="resolution"
+              aria-label="Разрешение"
+              value={resolutionId}
+              onChange={(e) => setResolutionId(e.target.value)}
+            >
+              {RESOLUTION_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.width}×{p.height}
+                </option>
+              ))}
+            </select>
+            <button className={`ratio-button${ratioKind === 'square' ? ' active' : ''}`} type="button" onClick={() => selectRatio('square')}>
+              <span className="ratio-icon"></span>1:1
+            </button>
+            <button className={`ratio-button${ratioKind === 'vertical' ? ' active' : ''}`} type="button" onClick={() => selectRatio('vertical')}>
+              <span className="ratio-icon tall"></span>9:16
+            </button>
+            <button className={`ratio-button${ratioKind === 'horizontal' ? ' active' : ''}`} type="button" onClick={() => selectRatio('horizontal')}>
+              <span className="ratio-icon wide"></span>16:9
+            </button>
+          </div>
+        </section>
+
+        <section className="form-section quality-section">
+          <div className="section-title">
+            <h2>Качество</h2>
+          </div>
+          <div className="quality-row">
+            {QUALITY.map((q) => (
+              <button
+                key={q.id}
+                className={`quality-button${quality === q.id ? ' active' : ''}`}
+                type="button"
+                onClick={() => setQuality(q.id)}
+              >
+                {q.label}
               </button>
-              <div className="n2-gallery-card-body">
-                <strong>{(item.mode || 'image').replace(/_/g, ' ')}</strong>
-                <small>{feedTimeAgo(item.createdAt, feedLang)}</small>
-                <p>{item.promptOriginal || '—'}</p>
-                <div className="n2-gallery-card-actions">
-                  <button className="n2-gallery-mini" type="button" onClick={() => setGalleryItem(item)}>
-                    {ft.open}
-                  </button>
-                  <button className="n2-gallery-mini publish" type="button" onClick={() => openPublish(item)}>
-                    ✦ {feedLang === 'ru' ? 'В ленту' : 'To feed'}
-                  </button>
-                </div>
-              </div>
-            </article>
-          ))}
+            ))}
+          </div>
+        </section>
+
+        {notice && <div className="iv3-notice" role="alert">{notice}</div>}
+
+        <button className="generate-button" type="button" disabled={!canGenerate} onClick={() => generate('text')}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />
+          </svg>
+          {jobActive || isSubmitting ? 'Генерируем...' : 'Сгенерировать'}
+        </button>
+      </aside>
+
+      <section className="preview-panel">
+        <div className="mobile-title-row">
+          <h1>Текст в изображение</h1>
+          <button className={`pro-button${proMode ? ' active' : ''}`} type="button" onClick={() => setProMode((v) => !v)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+            </svg>
+            {proMode ? 'Режим Стандарт' : 'Режим Профи'}
+          </button>
         </div>
-      )}
-    </section>
+        <div className="preview-image">
+          {jobActive ? (
+            <div className="iv3-preview-loading">
+              <span className="iv3-spinner" aria-hidden="true"></span>
+              <span>Генерируем{jobProgress > 0 ? ` · ${jobProgress}%` : '...'}</span>
+            </div>
+          ) : resultUrl && !resultError ? (
+            <>
+              <img src={resultUrl} alt="Результат генерации" onError={() => setResultError(true)} />
+              <div className="image-actions">
+                {resultUrl && (
+                  <a className="image-action" href={resultUrl} download target="_blank" rel="noreferrer">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    Скачать
+                  </a>
+                )}
+                <button className="image-action" type="button" onClick={() => setShareOpen((v) => !v)}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M18 8a3 3 0 1 0-2.82-4M6 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm12 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM8.7 10.7l6.6 3.6M15.3 9.7l-6.6 3.6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                  Поделиться
+                </button>
+                {shareOpen && (
+                  <div className="iv3-share-menu">
+                    <button type="button" onClick={() => { setShareOpen(false); if (shareTarget) openPublish(shareTarget); else showToast('Сначала сгенерируйте изображение') }}>В ленту</button>
+                    <button type="button" onClick={() => { setShareOpen(false); if (resultUrl) copyPrompt(apiUrl(resultUrl)) }}>Скопировать ссылку</button>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="iv3-preview-empty">
+              <span className="iv3-preview-empty-mark" aria-hidden="true">✦</span>
+              <p>{resultError ? 'Изображение недоступно. Сгенерируйте заново.' : 'Опишите идею слева и нажмите «Сгенерировать»'}</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="result-dock">
+        <div className="history">
+          <div className="history-head">
+            <button className="history-prompt-chip" type="button" onClick={() => copyPrompt(dockPromptText)}>
+              Промпт изображения ›
+            </button>
+          </div>
+          <div className="history-carousel" aria-label="Навигация истории">
+            <div className="history-strip">
+              {history.length === 0 ? (
+                <span className="iv3-history-empty">История пуста</span>
+              ) : (
+                history.map((item) => (
+                  <figure
+                    key={item.id}
+                    className={`history-item${dockImage?.id === item.id ? ' active' : ''}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openHistory(item)}
+                  >
+                    <img src={apiUrl(item.thumbnailUrl || item.url)} alt={item.promptOriginal.slice(0, 40)} loading="lazy" />
+                  </figure>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        <aside className="image-prompt">
+          <div className="prompt-copy">
+            <div className="prompt-copy-head">
+              <h2>Промпт изображения</h2>
+              <button className="prompt-action prompt-copy-button" type="button" onClick={() => copyPrompt(dockPromptText)}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M8 8h10v12H8V8Z" stroke="currentColor" strokeWidth="1.7" />
+                  <path d="M5 16V4h11" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                </svg>
+                <span className="prompt-action-label">{copied ? 'Скопировано' : 'Копировать'}</span>
+              </button>
+            </div>
+            <div className="prompt-scroll">{dockPromptText || 'Здесь появится промпт выбранного изображения.'}</div>
+          </div>
+          <div className="prompt-actions">
+            <details className="prompt-menu">
+              <summary className="prompt-action">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /><path d="m13.5 8.5 3 3" stroke="currentColor" strokeWidth="1.7" /></svg>
+                <span className="prompt-action-label">Изменить в</span>
+                <svg className="menu-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m7 9 5 5 5-5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </summary>
+              <div className="prompt-menu-list">
+                <button type="button" onClick={() => { if (dockImage) setSourceImage(apiUrl(dockImage.url)); setTab('i2i') }}>Изо</button>
+                <button type="button" onClick={() => setTab('edit')}>Редактор</button>
+                <button type="button" onClick={() => setTab('paint')}>Рисунок</button>
+                <button type="button" onClick={() => setTab('face')}>Лицо</button>
+              </div>
+            </details>
+            <button className="prompt-action feed" type="button" onClick={() => (shareTarget ? openPublish(shareTarget) : showToast('Сначала сгенерируйте изображение'))}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5l1.6 4 4 1.6-4 1.6-1.6 4-1.6-4-4-1.6 4-1.6L12 3.5Z" fill="currentColor" /></svg>
+              <span className="prompt-action-label">В ленту</span>
+            </button>
+            <button className="prompt-action" type="button" onClick={() => { if (dockImage) setPrompt(dockImage.promptOriginal); showToast('Промпт подставлен — измените и сгенерируйте') }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 7h10v10H7V7Z" stroke="currentColor" strokeWidth="1.6" /><path d="M4 4h10M10 20h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+              <span className="prompt-action-label">Вариации</span>
+            </button>
+          </div>
+        </aside>
+      </section>
+    </main>
   )
 
-  // ---------- Каноническая страница Профиля (/profile) ----------
-  const acc = me?.account
-  const prof = me?.profile
-  const profileName = prof?.display_name || prof?.username || prof?.first_name || (feedLang === 'ru' ? 'Пользователь' : 'User')
-  const profileInitial = (profileName[0] || 'U').toUpperCase()
-  const providerLabel = (p: string) => (p === 'telegram' ? 'Telegram' : p === 'max' ? 'MAX' : p === 'email' ? 'Email' : p === 'web' ? 'Web' : p)
-  const profileView = (
-    <section className="n2-panel n2-profile" aria-label={ft.profile}>
-      <div className="n2-gallery-head">
-        <div>
-          <h2>{ft.profile}</h2>
-          <p>{authStatus === 'authed' ? (feedLang === 'ru' ? 'Аккаунт, баланс и ваши работы.' : 'Account, balance and your works.') : ft.profileGuest}</p>
-        </div>
-        <button className="n2-ghost" type="button" onClick={() => setTab('feed')}>
-          ← {ft.feed}
+  const placeholderStudio = (title: string, note: string) => (
+    <div className="iv3-placeholder">
+      <div className="iv3-placeholder-card">
+        <span className="iv3-preview-empty-mark" aria-hidden="true">✦</span>
+        <h2>{title}</h2>
+        <p>{note}</p>
+        <button className="iv3-placeholder-cta" type="button" onClick={() => setTab('text')}>
+          Перейти в «Текст → Изо»
         </button>
       </div>
-      {authStatus !== 'authed' ? (
-        <div className="n2-placeholder-card">
-          <span className="icon">⏻</span>
-          <h2>{ft.profile}</h2>
-          <p>{ft.profileGuest}</p>
-          <button className="n2-ghost purple" type="button" onClick={() => setAuthOpen(true)}>
-            {ft.login}
-          </button>
-        </div>
-      ) : (
-        <div className="n2-profile-body">
-          <div className="n2-profile-id">
-            {prof?.avatar_url ? (
-              <img className="n2-profile-avatar" src={prof.avatar_url} alt="" />
-            ) : (
-              <span className="n2-profile-avatar initial" aria-hidden="true">{profileInitial}</span>
-            )}
-            <div className="n2-profile-id-text">
-              <strong>{profileName}</strong>
-              {prof?.public_user_code && <span>#{prof.public_user_code}</span>}
-              {prof?.email && <span>{prof.email}</span>}
-            </div>
-          </div>
-
-          <div className="n2-profile-stats">
-            <div className="n2-profile-stat">
-              <span>{ft.tokens}</span>
-              <strong>{acc?.token_balance ?? '—'}</strong>
-            </div>
-            <div className="n2-profile-stat">
-              <span>{ft.plan}</span>
-              <strong>{acc?.plan || '—'}</strong>
-            </div>
-            <div className="n2-profile-stat">
-              <span>{ft.role}</span>
-              <strong>{acc?.role || 'user'}</strong>
-            </div>
-          </div>
-
-          {((me?.identities?.length || 0) > 0 || (prof?.providers?.length || 0) > 0) && (
-            <div className="n2-profile-block">
-              <h3>{feedLang === 'ru' ? 'Связанные входы' : 'Linked sign-ins'}</h3>
-              <div className="n2-profile-providers">
-                {(me?.identities && me.identities.length
-                  ? me.identities.map((i) => i.provider || '').filter(Boolean)
-                  : prof?.providers || []
-                ).map((p) => (
-                  <span key={p} className="n2-profile-provider">{providerLabel(p)}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="n2-profile-block">
-            <h3>{ft.language}</h3>
-            <div className="n2-segmented">
-              <button className={feedLang === 'ru' ? 'active' : ''} type="button" onClick={() => setProfileLanguage('ru')}>
-                Русский
-              </button>
-              <button className={feedLang === 'en' ? 'active' : ''} type="button" onClick={() => setProfileLanguage('en')}>
-                English
-              </button>
-            </div>
-          </div>
-
-          <div className="n2-profile-links">
-            <button className="n2-ghost" type="button" onClick={goGallery}>
-              ▧ {ft.myGallery}
-            </button>
-            <button className="n2-ghost" type="button" onClick={() => setTab('feed')}>
-              ✦ {ft.myWorks}
-            </button>
-          </div>
-
-          <div className="n2-profile-links">
-            <button className="n2-ghost" type="button" onClick={() => (window.location.href = '/')}>
-              ⚙ {feedLang === 'ru' ? 'Все настройки (текущая версия)' : 'All settings (current version)'}
-            </button>
-            <button className="n2-ghost danger" type="button" onClick={doLogout}>
-              ⏻ {ft.signOut}
-            </button>
-          </div>
-        </div>
-      )}
-    </section>
+    </div>
   )
 
-  // «Рисунок»: структура режимов Эскиз/Маска/Расширение. Холст и генерация для
-  // этих режимов — placeholder (честно подписан), функционал живёт в текущей версии.
-  const paintSize = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
-  const paintModes: Array<{ id: 'sketch' | 'mask' | 'expand'; icon: string; title: string; hint: string; meta?: string }> = [
-    {
-      id: 'sketch',
-      icon: '✎',
-      title: 'Эскиз',
-      hint: 'Нарисуйте набросок — он станет основой изображения',
-      meta: `${paintSize.width}×${paintSize.height}`,
-    },
-    {
-      id: 'mask',
-      icon: '◧',
-      title: 'Маска',
-      hint: 'Изменить выделенную область изображения',
-    },
-    {
-      id: 'expand',
-      icon: '⇱',
-      title: 'Расширение',
-      hint: 'Дорисовать края изображения под выбранный формат',
-    },
-  ]
-
-  const paintView = (
-    <section className="n2-panel n2-paint" aria-label="Рисунок">
-      <div className="n2-paint-head">
-        <h2>Рисунок</h2>
-        <span className="n2-paint-badge">Placeholder — холст в разработке</span>
-      </div>
-      <div className="n2-paint-modes" role="radiogroup" aria-label="Режим рисования">
-        {paintModes.map((mode) => (
-          <button
-            key={mode.id}
-            className={`n2-paint-mode${paintMode === mode.id ? ' active' : ''}`}
-            type="button"
-            role="radio"
-            aria-checked={paintMode === mode.id}
-            onClick={() => setPaintMode(mode.id)}
-          >
-            <span className="n2-paint-mode-icon" aria-hidden="true">{mode.icon}</span>
-            <span className="n2-paint-mode-body">
-              <strong>
-                {mode.title}
-                {mode.meta && <em className="n2-paint-mode-meta">{mode.meta}</em>}
-              </strong>
-              <span>{mode.hint}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-      <div className="n2-paint-stage">
-        <div className="n2-placeholder-card">
-          <span className="icon">▧</span>
-          <h2>
-            {paintMode === 'sketch' ? 'Холст эскиза' : paintMode === 'mask' ? 'Холст маски' : 'Холст расширения'}
-          </h2>
-          <p>
-            Этот режим — placeholder: холст и генерация появятся здесь следующим этапом.
-            Сейчас функционал полностью работает в текущей версии.
-          </p>
-          <button className="n2-ghost" type="button" onClick={() => (window.location.href = '/')}>
-            Открыть в текущей версии
-          </button>
-        </div>
-      </div>
-    </section>
-  )
-
-  // Единый каркас будущих вкладок (Редактор/Лицо): заголовок + honest badge +
-  // placeholder-карточка. Тот же стандарт, что у «Рисунка».
-  const futureView = (title: string, description: string, cardTitle: string, cardText: string) => (
-    <section className="n2-panel n2-paint" aria-label={title}>
-      <div className="n2-paint-head">
-        <div className="n2-view-head bare">
-          <h2>{title}</h2>
-          <p>{description}</p>
-        </div>
-        <span className="n2-paint-badge">Placeholder — в разработке</span>
-      </div>
-      <div className="n2-paint-stage">
-        <div className="n2-placeholder-card">
-          <span className="icon">▧</span>
-          <h2>{cardTitle}</h2>
-          <p>{cardText}</p>
-          <button className="n2-ghost" type="button" onClick={() => (window.location.href = '/')}>
-            Открыть в текущей версии
-          </button>
-        </div>
-      </div>
-    </section>
-  )
-
-  const wideTab = tab === 'feed' || tab === 'edit' || tab === 'paint' || tab === 'face'
+  const topActive: V3Section = tab === 'feed' ? 'feed' : (tab as V3Section)
 
   return (
     <div className="n2">
@@ -2062,98 +1616,33 @@ export default function NewStudio(): ReactElement {
         </div>
       )}
 
-      <div className="n2-shell">
-        <header className="n2-topbar">
-          <button
-            className="n2-brand"
-            type="button"
-            aria-label="ИЗО ACA"
-            onClick={() => {
-              setView('tabs')
-              setTab('feed')
-            }}
-          >
-            <span className="n2-brand-mark">▧</span>
-            <span>
-              ИЗО <span className="n2-brand-accent">ACA</span>
-            </span>
-          </button>
-          <nav className="n2-tabs" aria-label="Режимы">
-            {TABS.map((item) => (
-              <button
-                key={item.id}
-                className={`n2-tab${item.feed ? ' feed-tab' : ''}${view === 'tabs' && tab === item.id ? ' active' : ''}`}
-                type="button"
-                onClick={() => {
-                  setView('tabs')
-                  setTab(item.id)
-                }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </nav>
-          <div className="n2-top-actions">
-            <button
-              className={`n2-ghost purple${view === 'gallery' ? ' active-view' : ''}`}
-              type="button"
-              onClick={goGallery}
-            >
-              ▧ <span>{ft.gallery}</span>
-            </button>
-            <button className="n2-ghost" type="button" onClick={() => setHelpOpen(true)}>
-              ? <span>{feedLang === 'ru' ? 'Помощь' : 'Help'}</span>
-            </button>
-            <button
-              className={`n2-icon-button${view === 'profile' ? ' active-view' : ''}`}
-              type="button"
-              aria-label={ft.profile}
-              title={authStatus === 'authed' ? ft.profile : ft.login}
-              onClick={authStatus === 'authed' ? goProfile : () => setAuthOpen(true)}
-            >
-              {authStatus === 'authed' ? '☺' : '⏻'}
-            </button>
-          </div>
-        </header>
-
-        <main className={`n2-main${wideTab || view === 'gallery' || view === 'profile' ? ' single' : ''}`}>
-          {view === 'profile' ? (
-            profileView
-          ) : view === 'gallery' ? (
-            galleryView
+      <div className="iv3">
+        <div className="app-shell">
+          <TopBarV3
+            active={topActive}
+            authed={authStatus === 'authed'}
+            onSelectMode={(m) => { if (m !== 'video') setTab(m) }}
+            onOpenFeed={() => setTab('feed')}
+            onOpenGallery={goGallery}
+            onOpenHelp={() => setHelpOpen(true)}
+            onOpenProfile={authStatus === 'authed' ? goProfile : () => setAuthOpen(true)}
+          />
+          {tab === 'feed' ? (
+            <div className="iv3-content iv3-feed">{feed}</div>
+          ) : tab === 'text' ? (
+            textStudio
+          ) : tab === 'i2i' ? (
+            placeholderStudio('Изо → Изо', 'Загрузка исходника и преобразование по стилю появятся здесь в новом дизайне. Функционал уже работает в текущей версии.')
+          ) : tab === 'edit' ? (
+            placeholderStudio('Редактор', 'Основа и референсы с ролями (лицо, одежда, стиль, фон) переносятся в новый интерфейс следующим этапом.')
+          ) : tab === 'paint' ? (
+            placeholderStudio('Рисунок', 'Эскиз, маска и расширение появятся здесь в новом дизайне. Функционал уже работает в текущей версии.')
+          ) : tab === 'face' ? (
+            placeholderStudio('Лицо', 'Замена лица (FaceSwap) появится здесь в новом дизайне. Функционал уже работает в текущей версии.')
           ) : (
-            <>
-              {tab === 'feed' && feed}
-              {tab === 'text' && (
-                <>
-                  {controls('text')}
-                  {resultPanel}
-                </>
-              )}
-              {tab === 'i2i' && (
-                <>
-                  {controls('i2i')}
-                  {resultPanel}
-                </>
-              )}
-              {tab === 'edit' &&
-                futureView(
-                  'Редактор',
-                  'Основа + референсы с ролями: лицо, одежда, стиль, фон.',
-                  'Рабочая область редактора',
-                  'Редактор с основой и референсами переезжает в новый интерфейс следующим этапом. Функционал уже работает в текущей версии.',
-                )}
-              {tab === 'paint' && paintView}
-              {tab === 'face' &&
-                futureView(
-                  'Лицо',
-                  'Перенос лица с одного изображения на другое.',
-                  'Рабочая область замены лица',
-                  'Замена лица (FaceSwap) появится здесь в новом дизайне. Пока функционал доступен в текущей версии.',
-                )}
-            </>
+            placeholderStudio('Скоро', 'Раздел в разработке.')
           )}
-        </main>
+        </div>
       </div>
     </div>
   )

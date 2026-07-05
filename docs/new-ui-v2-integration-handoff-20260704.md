@@ -7,6 +7,31 @@ Current safe integration branch:
 - latest integrated commit: use the current HEAD of this safe integration branch
   (do not deploy the old `feature/new-ui-v2-clean` worktree directly).
 
+New visual shell for /new (2026-07-06):
+
+- The /new studio shell is rebuilt from the HTML prototype
+  `izo-aca-new-responsive-page (14).html`. Prototype `<style>` is scoped under
+  `.iv3` in `frontend/src/newStudioV3.css` (auto-transformed: `:root/body/html`
+  → `.iv3`, every selector prefixed `.iv3 `, @media/@keyframes preserved) to
+  avoid collisions with index.css / newUi.css.
+- Shared top bar `frontend/src/TopBarV3.tsx` (brand ИЗО АСА, Лента, mode tabs
+  Текст→Изо/Изо→Изо/Редактор/Рисунок/Лицо/Видео[disabled], Галерея, Помощь,
+  Профиль) is used on /new, /feed, /gallery, /profile. Cross-page links do a
+  full navigation; on /new mode tabs switch in-page via onSelectMode.
+- Only Текст→Изо is functionally wired in the new shell: prompt + 0/2000
+  counter, Шаблоны (templates modal), Идея (random), styles row (I2I_STYLES +
+  «Нет»), resolution select + 1:1/9:16/16:9, quality Быстро/Стандарт/Максимум,
+  Сгенерировать → /api/generate + job polling, loading, result image, error
+  (notice), download, Поделиться menu, history strip, «Промпт изображения» dock
+  (Копировать / Изменить в → tabs / В ленту → openPublish / Вариации). Голос and
+  Улучшить show honest «скоро» toasts.
+- Изо→Изо, Редактор, Рисунок, Лицо, Видео are honest placeholders in the new
+  shell (functionality remains in the current /  UI). Old studio render helpers
+  (controls/resultPanel/paintView/futureView/progressCard/mobilePreview) and the
+  primitive gallery/profile views were deleted from newUi.tsx; the feed and all
+  generation wiring (apiFetch, useAuthV2, AuthV2Modal, /api/generate, polling,
+  gallery, feed publish, stylePresets, RESOLUTION_PRESETS) are preserved.
+
 Canonical routes (updated 2026-07-05, ported working screens):
 
 - `/feed` (and `/lenta`) — public live feed, no login wall for reading.

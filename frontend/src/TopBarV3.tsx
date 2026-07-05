@@ -1,0 +1,121 @@
+// Единый верхний бар нового интерфейса (визуальный источник:
+// izo-aca-new-responsive-page 14). Используется на /new, /feed, /gallery,
+// /profile. Навигация между страницами — полной загрузкой (window.location),
+// а переключение режимов внутри /new — через onSelectMode (без перезагрузки).
+//
+// Разметка и классы намеренно совпадают с прототипом, чтобы работал scoped CSS
+// из newStudioV3.css (обёртка .iv3). Никаких legacy-auth: только колбэки.
+
+export type V3Mode = 'text' | 'i2i' | 'edit' | 'paint' | 'face' | 'video'
+export type V3Section = V3Mode | 'feed' | 'gallery' | 'profile'
+
+const MODE_TABS: Array<{ id: V3Mode; label: string; disabled?: boolean }> = [
+  { id: 'text', label: 'Текст → Изо' },
+  { id: 'i2i', label: 'Изо → Изо' },
+  { id: 'edit', label: 'Редактор' },
+  { id: 'paint', label: 'Рисунок' },
+  { id: 'face', label: 'Лицо' },
+  { id: 'video', label: 'Видео', disabled: true },
+]
+
+function goto(path: string) {
+  if (window.location.pathname !== path) window.location.href = path
+}
+
+export default function TopBarV3({
+  active,
+  onSelectMode,
+  onOpenFeed,
+  onOpenGallery,
+  onOpenHelp,
+  onOpenProfile,
+  authed,
+}: {
+  active: V3Section
+  onSelectMode?: (mode: V3Mode) => void
+  onOpenFeed?: () => void
+  onOpenGallery?: () => void
+  onOpenHelp?: () => void
+  onOpenProfile?: () => void
+  authed?: boolean
+}) {
+  const selectMode = (mode: V3Mode) => {
+    if (onSelectMode) onSelectMode(mode)
+    else goto('/new')
+  }
+  return (
+    <header className="topbar">
+      <div className="brand-zone">
+        <div className="brand" aria-label="ИЗО АСА">
+          <span className="brand-mark" aria-hidden="true"></span>
+          <span>ИЗО <span className="brand-accent">АСА</span></span>
+        </div>
+        <button
+          className={`feed-button${active === 'feed' ? ' active' : ''}`}
+          type="button"
+          onClick={onOpenFeed || (() => goto('/feed'))}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 3.5l1.8 4.6 4.7 1.8-4.7 1.8-1.8 4.8-1.8-4.8-4.7-1.8 4.7-1.8L12 3.5Z" fill="currentColor" />
+          </svg>
+          <span className="feed-label">Лента</span>
+        </button>
+      </div>
+
+      <nav className="mode-tabs" aria-label="Режимы генератора">
+        {MODE_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={`tab${active === t.id ? ' active' : ''}${t.disabled ? ' disabled' : ''}`}
+            aria-disabled={t.disabled || undefined}
+            onClick={() => {
+              if (t.disabled) return
+              selectMode(t.id)
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="top-actions">
+        <button
+          className={`top-button${active === 'gallery' ? ' active' : ''}`}
+          type="button"
+          aria-label="Галерея"
+          onClick={onOpenGallery || (() => goto('/gallery'))}
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.8" />
+            <path d="m7 16 4.1-4.1 2.7 2.7 1.5-1.5L18 16" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="16.4" cy="8.7" r="1.35" fill="currentColor" />
+          </svg>
+          Галерея
+        </button>
+        <button className="top-button" type="button" aria-label="Помощь" onClick={onOpenHelp || (() => goto('/new'))}>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.7" stroke="currentColor" strokeWidth="1.7" />
+            <path d="M9.6 9.2a2.55 2.55 0 1 1 4.7 1.45c-.95.9-2.05 1.42-2.05 3.05" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+            <path d="M12.25 17.35h.01" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
+          </svg>
+          Помощь
+        </button>
+        <button
+          className={`account-button${active === 'profile' ? ' active' : ''}`}
+          type="button"
+          aria-label="Профиль и настройки"
+          onClick={onOpenProfile || (() => goto('/profile'))}
+        >
+          <span className="settings-glyph" aria-hidden="true">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
+              <path d="M12 8.2a3.8 3.8 0 1 1 0 7.6 3.8 3.8 0 0 1 0-7.6Z" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M19.2 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-1.9-3.2-2.4 1a8 8 0 0 0-2.5-1.4L14 2.8h-4l-.4 2.6a8 8 0 0 0-2.5 1.4l-2.4-1L2.8 9l2 1.5c-.1.5-.1 1-.1 1.5s0 1 .1 1.5l-2 1.5 1.9 3.2 2.4-1a8 8 0 0 0 2.5 1.4l.4 2.6h4l.4-2.6a8 8 0 0 0 2.5-1.4l2.4 1 1.9-3.2-2-1.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className={`user-glyph${authed ? ' authed' : ''}`} aria-hidden="true"></span>
+        </button>
+      </div>
+    </header>
+  )
+}
