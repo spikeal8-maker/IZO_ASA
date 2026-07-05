@@ -1863,3 +1863,23 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .outpaint-inline label { flex: 1 1 40%; }
   .outpaint-inline input { width: 100%; }
 }
+
+/* ---------- new-ui-обёртка для перенесённых /gallery и /profile ---------- */
+.new-sub-shell { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.new-sub-nav { display: flex; align-items: center; gap: 18px; padding: 12px 22px; border-bottom: 1px solid rgba(255,255,255,.08); background: rgba(10,8,16,.7); backdrop-filter: blur(10px); flex: 0 0 auto; }
+.new-sub-brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; color: #efe9ff; white-space: nowrap; }
+.new-sub-brand svg { color: var(--acid, #ecff2f); }
+.new-sub-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.new-sub-links button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.03); color: rgba(235,235,235,.86); font-size: 14px; font-weight: 700; cursor: pointer; }
+.new-sub-links button:hover { border-color: rgba(155,124,255,.55); }
+.new-sub-links button.active { border-color: rgba(155,124,255,.92); background: var(--n2-purple, #6b46ff); color: #0d0714; }
+.new-sub-links button.new-sub-admin { margin-left: auto; }
+.new-sub-main { flex: 1 1 auto; height: auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 20px 30px; scrollbar-gutter: stable; }
+@media (max-width: 980px) {
+  .new-sub-shell { height: auto; min-height: 100dvh; overflow: visible; }
+  .new-sub-nav { padding: 10px 14px; gap: 10px; position: sticky; top: 0; z-index: 20; }
+  .new-sub-brand span { display: none; }
+  .new-sub-links { gap: 6px; }
+  .new-sub-links button { padding: 6px 10px; font-size: 12px; }
+  .new-sub-main { height: auto; min-height: 0; overflow: visible; padding: 12px 12px 40px; }
+}

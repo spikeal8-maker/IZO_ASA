@@ -851,9 +851,13 @@ function App() {
   const feedRoute =
     pathName === '/feed' || pathName.startsWith('/feed/') || pathName === '/lenta' || pathName.startsWith('/lenta/')
   // Новый UI: отдельные страницы Галереи и Профиля (канонические /gallery, /profile;
-  // /new/gallery и /new/profile — совместимые синонимы). Все ведут в NewStudio.
-  const galleryRoute = pathName === '/gallery' || pathName.startsWith('/gallery/')
-  const profileRoute = pathName === '/profile' || pathName.startsWith('/profile/')
+  // /new/gallery и /new/profile — совместимые синонимы). Рендерят перенесённые
+  // рабочие экраны старой галереи (GalleryView) и настроек аккаунта (SettingsView)
+  // в new-ui-обёртке — не изобретаем заново, а переносим рабочий UX.
+  const galleryRoute =
+    pathName === '/gallery' || pathName.startsWith('/gallery/') || pathName === '/new/gallery'
+  const profileRoute =
+    pathName === '/profile' || pathName.startsWith('/profile/') || pathName === '/new/profile'
 
   useEffect(() => {
     const onPopState = () => setPathName(window.location.pathname)
@@ -1455,7 +1459,46 @@ function App() {
     </div>
   )
 
-  if (newUiRoute || feedRoute || galleryRoute || profileRoute) {
+  // /gallery и /profile: переносим рабочие экраны старого UI (галерея, настройки
+  // аккаунта) в new-ui-обёртку с общей верхней навигацией. Проверяем ДО NewStudio,
+  // чтобы /new/gallery и /new/profile тоже открывали перенесённые экраны.
+  if (galleryRoute) {
+    return (
+      <div className="app-shell new-sub-shell">
+        {isDiagMode() && <DiagPanel />}
+        <AuthV2Modal open={authModalOpen} onClose={() => setAuthModalOpen(false)} />
+        <NewSubNav active="gallery" copy={copy} lang={lang} isAdmin={isAdmin} openAdmin={openAdminPage} />
+        <main className="workspace new-sub-main">
+          {isAuthedV2 ? (
+            <GalleryView copy={copy} images={gallery} quota={galleryQuota} selected={selected} setSelected={setSelected} handleUseImageAs={useImageAs} refreshGallery={fetchGallery} clearSelected={() => setSelected(undefined)} backToStudio={() => { window.location.href = '/feed' }} view={galleryView} setView={setGalleryView} sendImage={sendImage} pickSlot={pendingEditSlot} onPickForSlot={assignGalleryToEditSlot} cancelPick={() => { setPendingEditSlot(null); window.location.href = '/feed' }} />
+          ) : (
+            <section className="gallery-page">
+              <article className="usr-card usr-auth-card">
+                <h3>{copy.gallery}</h3>
+                <p>{lang === 'ru' ? 'Лента открыта всем, личная галерея — после входа.' : 'The feed is public; your personal gallery needs sign-in.'}</p>
+                <button className="usr-primary" onClick={() => setAuthModalOpen(true)}><Lock size={16} />{lang === 'ru' ? 'Войти' : 'Sign in'}</button>
+              </article>
+            </section>
+          )}
+        </main>
+      </div>
+    )
+  }
+
+  if (profileRoute) {
+    return (
+      <div className="app-shell new-sub-shell">
+        {isDiagMode() && <DiagPanel />}
+        <AuthV2Modal open={authModalOpen} onClose={() => setAuthModalOpen(false)} />
+        <NewSubNav active="profile" copy={copy} lang={lang} isAdmin={isAdmin} openAdmin={openAdminPage} />
+        <main className="workspace new-sub-main">
+          <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={openAdminPage} openGallery={() => { window.location.href = '/gallery' }} backToStudio={() => { window.location.href = '/feed' }} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />
+        </main>
+      </div>
+    )
+  }
+
+  if (newUiRoute || feedRoute) {
     return <NewStudio />
   }
 
@@ -2357,6 +2400,25 @@ function JobCard({ job, copy, cancelJob, sendImage, mode, beforeImage, loadingBa
     ? <div className="notice quota-full-note">Галерея заполнена: результат готов, но не сохранён в галерею. Освободите слот или смените тариф.</div>
     : null
   return <div className={`job-card ${job.status}`}>{canCompare ? <div className="compare-frame"><img className="compare-before" src={beforeImage} /><div className="compare-after" style={{ clipPath: `inset(0 0 0 ${compare}%)` }}><img src={job.resultUrl} /></div><i className="compare-line" style={{ left: `${compare}%` }}><span>↔</span></i><input aria-label="До после" type="range" min="0" max="100" value={compare} onChange={(e) => setCompare(Number(e.target.value))} />{actions}{quotaNote}</div> : job.resultUrl ? <div className="result-frame"><img src={job.resultUrl} />{actions}{quotaNote}</div> : null}</div>
+}
+
+// Верхняя навигация для перенесённых экранов /gallery и /profile в new-ui-стиле.
+// Ссылки ведут через полную навигацию, поэтому App заново разбирает маршрут и
+// показывает нужный экран. Старый / (Studio) продолжает работать отдельно.
+function NewSubNav({ active, copy, lang, isAdmin, openAdmin }: { active: 'gallery' | 'profile'; copy: Copy; lang: Lang; isAdmin: boolean; openAdmin: () => void }) {
+  const go = (path: string) => () => { if (window.location.pathname !== path) window.location.href = path }
+  return (
+    <header className="new-sub-nav">
+      <div className="new-sub-brand"><Sparkles size={20} /><span>{copy.title}</span></div>
+      <nav className="new-sub-links" aria-label={lang === 'ru' ? 'Навигация' : 'Navigation'}>
+        <button type="button" onClick={go('/feed')}>{copy.feed}</button>
+        <button type="button" onClick={go('/new')}>{lang === 'ru' ? 'ИЗО' : 'Studio'}</button>
+        <button type="button" className={active === 'gallery' ? 'active' : ''} onClick={go('/gallery')}><GalleryHorizontalEnd size={16} />{copy.gallery}</button>
+        <button type="button" className={active === 'profile' ? 'active' : ''} onClick={go('/profile')}><Settings size={16} />{lang === 'ru' ? 'Профиль' : 'Profile'}</button>
+        {isAdmin && <button type="button" className="new-sub-admin" onClick={openAdmin}><Shield size={16} />{copy.admin}</button>}
+      </nav>
+    </header>
+  )
 }
 
 function GalleryView({ copy, images, quota, selected, setSelected, handleUseImageAs, refreshGallery, clearSelected, backToStudio, view, setView, sendImage, pickSlot = null, onPickForSlot, cancelPick }: { copy: Copy; images: GalleryImage[]; quota?: GalleryQuota; selected?: GalleryImage; setSelected: (image: GalleryImage) => void; handleUseImageAs: (image: GalleryImage, target: Mode, slot?: number) => void; refreshGallery: () => Promise<void>; clearSelected: () => void; backToStudio: () => void; view: 'grid' | 'list'; setView: (view: 'grid' | 'list') => void; sendImage: (platform: 'telegram' | 'max', imageId?: string) => void; pickSlot?: number | null; onPickForSlot?: (image: GalleryImage) => void; cancelPick?: () => void }) {

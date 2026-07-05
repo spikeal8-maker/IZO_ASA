@@ -7,19 +7,31 @@ Current safe integration branch:
 - latest integrated commit: use the current HEAD of this safe integration branch
   (do not deploy the old `feature/new-ui-v2-clean` worktree directly).
 
-Canonical routes (2026-07-05):
+Canonical routes (updated 2026-07-05, ported working screens):
 
 - `/feed` (and `/lenta`) — public live feed, no login wall for reading.
-- `/gallery` (compat `/new/gallery`) — personal gallery; login required. Card
-  actions: open, use as source (→ Изо → Изо), publish to feed, delete; detail
-  modal adds download. Publish reuses the existing feed publish flow.
-- `/profile` (compat `/new/profile`) — from `/me-v2` only: avatar/initials,
-  name/#code/email, token balance, plan, role, linked sign-ins (Telegram/MAX/
-  Email/Web), RU/EN language (updateProfileV2), logout, links to gallery/feed.
-  No invented backend data; honest `—` placeholders when a field is absent.
-- Navigation: topbar Галерея→/gallery, ☺ Профиль→/profile; mobile bottom nav
-  ИЗО/Лента/Галерея/Челленджи/Профиль; Галерея→/gallery, Профиль→/profile.
-  URL sync via pushState/popstate; guest states offer AuthV2Modal (MAX/Telegram).
+- `/gallery` (compat `/new/gallery`) — renders the REAL working old gallery
+  (`GalleryView` from App.tsx) inside a new-ui wrapper (`NewSubNav`). Full UX
+  parity: quota banner (Галерея: занято X из Y · свободно Z · тариф PRO),
+  Сетка/Список toggle, full-size cards (mode/date/prompt), card actions
+  favorite/download/delete, detail modal with "Использовать изображение"
+  action list (Изо→Изо, edit, paint, faceswap, try_on…), tech info,
+  publish-to-feed modal, copy-link. Login required; guests get a sign-in card.
+- `/profile` (compat `/new/profile`) — renders the REAL old account settings
+  (`SettingsView` from App.tsx) inside the wrapper. Tabs Профиль / Тарифы /
+  Заработать токены / Модели; avatar + "Загрузить файл", avatar presets, name,
+  public code, plan badge, gallery limit, daily/balance tokens, promo/referral,
+  email, language, template preview, age, Сохранить профиль, Выйти, tech info,
+  linked sign-ins, plan cards, earn/referral, model picker. Not-authed handled
+  by SettingsView's own guest branch.
+- Rationale: do NOT reinvent these screens — the new routes mount the same
+  components the old `/` Studio uses, so behaviour and backend wiring are
+  identical. App.tsx routes `/gallery` and `/profile` (and `/new/*` compat)
+  BEFORE the NewStudio branch. NewStudio's own primitive gallery/profile views
+  are now unreachable dead code; its topbar/mobile Галерея/Профиль buttons do a
+  full navigation to `/gallery` / `/profile`. Old `/` Studio still works.
+- Navigation: NewSubNav links Лента(/feed) · ИЗО(/new) · Галерея · Профиль (+
+  Админка if trusted admin). back-to-studio inside the screens → `/feed`.
 
 What was integrated:
 

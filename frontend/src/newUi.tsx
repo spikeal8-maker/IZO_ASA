@@ -342,14 +342,11 @@ export default function NewStudio(): ReactElement {
     },
     [navTo],
   )
-  const goGallery = useCallback(() => {
-    setView('gallery')
-    navTo('/gallery')
-  }, [navTo])
-  const goProfile = useCallback(() => {
-    setView('profile')
-    navTo('/profile')
-  }, [navTo])
+  // Галерея и Профиль вынесены в отдельные страницы (App-level: перенесённые
+  // рабочие экраны старого UI). Переходим полной навигацией, чтобы App заново
+  // разобрал маршрут и отрисовал нужный экран.
+  const goGallery = useCallback(() => { window.location.href = '/gallery' }, [])
+  const goProfile = useCallback(() => { window.location.href = '/profile' }, [])
 
   // Кнопка «назад» браузера синхронизирует страницу с URL.
   useEffect(() => {
