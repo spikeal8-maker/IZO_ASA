@@ -48,15 +48,15 @@ Register-ScheduledTask `
     -Settings $settings `
     -Force
 
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Green
-Write-Host "  Task 'IZO_ASA_Public' INSTALLED"        -ForegroundColor Green
-Write-Host "========================================" -ForegroundColor Green
-Write-Host ""
-Write-Host "  Launcher : $launcher"
+Write-Host ''
+Write-Host '========================================' -ForegroundColor Green
+Write-Host "  Task 'IZO_ASA_Public' INSTALLED"      -ForegroundColor Green
+Write-Host '========================================' -ForegroundColor Green
+Write-Host ''
+Write-Host ('  Launcher : ' + $launcher)
 Write-Host '  Run at   : Windows startup (before login)'
 Write-Host '  Restarts : up to 3 times on failure (2 min apart)'
-Write-Host ""
+Write-Host ''
 Write-Host '  Test now : Start-ScheduledTask -TaskName IZO_ASA_Public'
 Write-Host '  Remove   : Unregister-ScheduledTask -TaskName IZO_ASA_Public'
-Write-Host ""
+Write-Host ''
