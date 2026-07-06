@@ -14,6 +14,7 @@ Start here when you or another agent joins the project:
 - `docs/new-ui-v2-review.md` — current `/new` review state.
 - `docs/new-mvp-release-20260706.md` — frozen `/new` Text-to-Image MVP release notes.
 - `docs/ui-route-layout-baseline-20260706.md` — `/news` legacy scale vs `/new` v3 scale baseline.
+- `docs/project-cleanup-20260706.md` — cleanup/archive baseline after the MVP freeze.
 
 The `docs/phase*.md` files are historical phase reports. They are useful evidence, but
 the current working rules should be read from the files listed above first.
