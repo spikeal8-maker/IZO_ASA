@@ -3865,6 +3865,59 @@ def local_media_path_from_url(url: str) -> Path | None:
     return path if path.exists() else None
 
 
+def media_filename_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    if url.startswith("/api/media/"):
+        filename = url.removeprefix("/api/media/").split("?", 1)[0]
+    elif url.startswith("/media/"):
+        filename = url.removeprefix("/media/").split("?", 1)[0]
+    else:
+        return None
+    path = (MEDIA / filename).resolve()
+    try:
+        path.relative_to(MEDIA.resolve())
+    except ValueError:
+        return None
+    return filename
+
+
+def validate_generation_media_inputs(req: GenerateRequest, user_id: str) -> None:
+    """Fail fast for stale or foreign /api/media inputs before queue/token charge."""
+    candidates: list[tuple[str, str]] = []
+    for field in ("inputImage1", "inputImage2", "maskImage", "outpaintMask"):
+        value = getattr(req, field, None)
+        if value:
+            candidates.append((field, value))
+    for item in req.inputImages or []:
+        if item.image:
+            candidates.append((f"inputImages[{item.index or 0}]", item.image))
+
+    with db() as conn:
+        for field, value in candidates:
+            filename = media_filename_from_url(value)
+            if not filename:
+                continue
+            path = local_media_path_from_url(value)
+            if not path:
+                raise HTTPException(400, {"code": "input_media_missing", "field": field})
+            like = f"%{filename}%"
+            active_image = conn.execute(
+                "SELECT 1 FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') "
+                "AND (url LIKE ? OR thumbnail_url LIKE ?) LIMIT 1",
+                (user_id, like, like),
+            ).fetchone()
+            if active_image:
+                continue
+            job_ref = conn.execute(
+                "SELECT 1 FROM jobs WHERE user_id = ? AND settings_json LIKE ? LIMIT 1",
+                (user_id, like),
+            ).fetchone()
+            if job_ref:
+                continue
+            raise HTTPException(400, {"code": "input_media_unavailable", "field": field})
+
+
 def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     raw_id = auth.userId or ""
@@ -5839,6 +5892,7 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     # resolves the correct face lora from ComfyUI's available models.
     if req.mode == "edit":
         validate_edit_request(req)
+    validate_generation_media_inputs(req, user_id)
     ensure_rate_limit(user_id)
     job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     job = {

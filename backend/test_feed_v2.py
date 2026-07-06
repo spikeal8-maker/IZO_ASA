@@ -149,6 +149,55 @@ def test_reactions_require_session_and_toggle(temp_db):
         assert r.json()["publication"]["remix_count"] == 1
 
 
+def test_generate_rejects_missing_media_input_before_job_created(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-gen-missing", "web_gen_missing")
+        with main.db() as conn:
+            before_jobs = conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"]
+            before_balance = conn.execute("SELECT token_balance FROM users WHERE id = 'web_gen_missing'").fetchone()[0]
+        r = client.post(
+            "/api/generate",
+            json={
+                "mode": "image_to_image",
+                "provider": "comfyui",
+                "prompt": "test",
+                "inputImage1": "/api/media/missing-input.png?userId=web_gen_missing",
+            },
+            headers=bearer(token),
+        )
+        assert r.status_code == 400
+        assert r.json()["detail"]["code"] == "input_media_missing"
+        with main.db() as conn:
+            after_jobs = conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"]
+            after_balance = conn.execute("SELECT token_balance FROM users WHERE id = 'web_gen_missing'").fetchone()[0]
+        assert after_jobs == before_jobs
+        assert after_balance == before_balance
+
+
+def test_generate_rejects_foreign_media_input(temp_db):
+    with TestClient(main.app) as client:
+        make_user("iuid-gen-owner", "web_gen_owner")
+        make_user("iuid-gen-other", "web_gen_other")
+        make_image("img-gen-owner", "web_gen_owner")
+        with main.db() as conn:
+            before_jobs = conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"]
+        r = client.post(
+            "/api/generate",
+            json={
+                "mode": "image_to_image",
+                "provider": "comfyui",
+                "prompt": "test",
+                "inputImage1": "/api/media/img-gen-owner.png?userId=web_gen_owner",
+            },
+            headers=bearer(main.create_auth_session("iuid-gen-other", "web_gen_other", provider="web", platform="web")["session_token"]),
+        )
+        assert r.status_code == 400
+        assert r.json()["detail"]["code"] == "input_media_unavailable"
+        with main.db() as conn:
+            after_jobs = conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"]
+        assert after_jobs == before_jobs
+
+
 def test_feed_media_served_only_for_published(temp_db):
     with TestClient(main.app) as client:
         token = make_user("iuid-c", "web_c")
