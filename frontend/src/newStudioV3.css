@@ -1969,7 +1969,11 @@ padding: 0 7px;
 font-size: 10.5px;
 }
 }
-.iv3{height:100dvh;overflow:hidden;box-sizing:border-box;}
+/* Только desktop: заполнить вьюпорт без body-scroll. На мобильном действует
+   прототипный @media(max-width:820px){.iv3{overflow-y:auto}} для скролла. */
+@media (min-width: 821px) {
+  .iv3 { height: 100dvh; overflow: hidden; box-sizing: border-box; }
+}
 
 /* ---- Дополнительные классы интеграции (не из прототипа) ---- */
 .iv3 .iv3-content { min-height: 0; overflow-y: auto; overflow-x: hidden; }

@@ -1320,11 +1320,11 @@ export default function NewStudio(): ReactElement {
             {proMode ? 'Режим Стандарт' : 'Режим Профи'}
           </button>
         </div>
-        <div className="preview-image">
+        <div className={`preview-image${resultUrl && !jobActive && !resultError ? ' contain-preview' : ''}`}>
           {jobActive ? (
             <div className="iv3-preview-loading">
               <span className="iv3-spinner" aria-hidden="true"></span>
-              <span>Генерируем{jobProgress > 0 ? ` · ${jobProgress}%` : '...'}</span>
+              <span>Генерируем{jobProgress > 0 ? ` · ${jobProgress}%` : '…'}</span>
             </div>
           ) : resultUrl && !resultError ? (
             <>
@@ -1664,6 +1664,14 @@ export default function NewStudio(): ReactElement {
             placeholderStudio('Скоро', 'Раздел в разработке.')
           )}
         </div>
+        {tab === 'text' && (
+          <button className="mobile-bottom-cta" type="button" disabled={!canGenerate} onClick={() => generate('text')}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />
+            </svg>
+            {jobActive || isSubmitting ? 'Генерируем…' : 'Сгенерировать'}
+          </button>
+        )}
       </div>
     </div>
   )
