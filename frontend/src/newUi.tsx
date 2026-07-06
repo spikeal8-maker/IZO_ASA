@@ -15,6 +15,7 @@ import { I2I_STYLES, T2I_TEMPLATES } from './stylePresets'
 import type { StylePreset } from './stylePresets'
 import TopBarV3 from './TopBarV3'
 import type { V3Section } from './TopBarV3'
+import { accountInfo } from './topbarUtils'
 import './newUi.css'
 import './newStudioV3.css'
 
@@ -356,6 +357,7 @@ export default function NewStudio(): ReactElement {
 
   // Пол из профиля определяет вариант превью стилей (по умолчанию female).
   const previewGender: 'female' | 'male' = me?.profile?.gender === 'male' ? 'male' : 'female'
+  const acct = accountInfo(me)
 
   const [prompts, setPrompts] = useState<Record<'text' | 'i2i', string>>({ text: '', i2i: '' })
   const [styleId, setStyleId] = useState<string>('')
@@ -614,12 +616,17 @@ export default function NewStudio(): ReactElement {
   // Храним только id выбранной миниатюры; сам объект выводим при рендере,
   // с откатом на самую свежую генерацию (без setState-в-эффекте).
   const [dockImageId, setDockImageId] = useState<string>()
+  // Фолбэк истории из Ленты, когда у пользователя ещё нет своих генераций.
+  const [feedFallback, setFeedFallback] = useState<N2GalleryImage[]>([])
   const [shareOpen, setShareOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const inFlightRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const historyStripRef = useRef<HTMLDivElement>(null)
+  const styleRowRef = useRef<HTMLDivElement>(null)
+  // true, если пользователь тянул ряд стилей — тогда клик по карточке не выбирает.
+  const styleDraggedRef = useRef(false)
   // Текущая стилевая приписка в text-промпте: {id, text} — чтобы заменять её.
   const appliedStyleRef = useRef<{ id: string; text: string } | null>(null)
   const resultSeededRef = useRef(false)
@@ -638,6 +645,36 @@ export default function NewStudio(): ReactElement {
   useEffect(() => {
     fetchGallery()
   }, [fetchGallery, authStatus])
+
+  // Если своих генераций ещё нет — подгружаем последние работы из Ленты как
+  // наполнение истории (публичный /api/feed). Свои изображения ленту не мешают.
+  useEffect(() => {
+    // Свои генерации есть — лента не нужна (в рендере historyItems берёт ownHistory).
+    if (gallery.length > 0) return
+    let cancelled = false
+    apiFetch('/feed?type=new&limit=10')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return
+        const rows: FeedPublication[] = Array.isArray(data) ? data : data.items || data.publications || []
+        const mapped: N2GalleryImage[] = rows
+          .slice(0, 10)
+          .map((p) => ({
+            id: `feed-${p.id}`,
+            url: p.display_url || p.image_url || p.thumbnail_url || '',
+            thumbnailUrl: p.thumbnail_url || p.display_url || p.image_url || '',
+            mode: 'feed',
+            promptOriginal: p.title || '',
+            createdAt: p.created_at || '',
+          }))
+          .filter((x) => x.url)
+        setFeedFallback(mapped)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [gallery.length])
 
   // В предпросмотре при загрузке страницы показываем последнюю генерацию.
   useEffect(() => {
@@ -807,7 +844,10 @@ export default function NewStudio(): ReactElement {
 
   const jobActive = !!job && JOB_ACTIVE.includes(job.status)
   const jobProgress = Math.max(0, Math.min(100, Math.round(job?.progress || 0)))
-  const history = gallery.slice(0, 6)
+  const ownHistory = gallery.slice(0, 12)
+  // Своя история приоритетна; при её отсутствии показываем работы из Ленты.
+  const historyItems = ownHistory.length > 0 ? ownHistory : feedFallback
+  const historyIsFeed = ownHistory.length === 0 && feedFallback.length > 0
   const selectedResolution = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
 
   // Док «Промпт изображения»: выбранная миниатюра либо самая свежая генерация.
@@ -840,6 +880,50 @@ export default function NewStudio(): ReactElement {
     const strip = historyStripRef.current
     if (strip) strip.scrollBy({ left: dir * Math.max(160, strip.clientWidth * 0.7), behavior: 'smooth' })
   }
+
+  // Горизонтальный скролл ряда стилей: колесо мыши + drag (мышь/тач).
+  // Если пользователь тянул ряд — клик по карточке не выбирает стиль (styleDraggedRef).
+  useEffect(() => {
+    const row = styleRowRef.current
+    if (!row) return
+    const st = { down: false, startX: 0, startScroll: 0 }
+    const onWheel = (e: WheelEvent) => {
+      if (row.scrollWidth <= row.clientWidth) return
+      const d = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+      if (!d) return
+      row.scrollLeft += d
+      e.preventDefault()
+    }
+    const onDown = (e: PointerEvent) => {
+      st.down = true
+      styleDraggedRef.current = false
+      st.startX = e.clientX
+      st.startScroll = row.scrollLeft
+    }
+    const onMove = (e: PointerEvent) => {
+      if (!st.down) return
+      const dx = e.clientX - st.startX
+      if (Math.abs(dx) > 4) {
+        styleDraggedRef.current = true
+        row.classList.add('dragging')
+      }
+      row.scrollLeft = st.startScroll - dx
+    }
+    const onUp = () => {
+      st.down = false
+      row.classList.remove('dragging')
+    }
+    row.addEventListener('wheel', onWheel, { passive: false })
+    row.addEventListener('pointerdown', onDown)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      row.removeEventListener('wheel', onWheel)
+      row.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [tab])
 
   // ---------- Live Feed: карточка публикации ----------
   const feedCard = (post: FeedPublication) => (
@@ -1230,12 +1314,12 @@ export default function NewStudio(): ReactElement {
             <h2>Стиль</h2>
             <span>{I2I_STYLES.length} стилей</span>
           </div>
-          <div className="style-row">
+          <div className="style-row" ref={styleRowRef}>
             <figure
               className={`style-card no-style${!styleId ? ' active' : ''}`}
               role="button"
               tabIndex={0}
-              onClick={() => applyStyle(null)}
+              onClick={() => { if (styleDraggedRef.current) { styleDraggedRef.current = false; return } applyStyle(null) }}
             >
               <span className="no-style-symbol">✓</span>
               <figcaption>Нет</figcaption>
@@ -1247,7 +1331,7 @@ export default function NewStudio(): ReactElement {
                 role="button"
                 tabIndex={0}
                 title={style.name}
-                onClick={() => applyStyle(style)}
+                onClick={() => { if (styleDraggedRef.current) { styleDraggedRef.current = false; return } applyStyle(style) }}
               >
                 <img src={style.preview[previewGender]} alt={style.preview.alt} loading="lazy" />
                 <figcaption>{style.name}</figcaption>
@@ -1305,7 +1389,7 @@ export default function NewStudio(): ReactElement {
 
         {notice && <div className="iv3-notice" role="alert">{notice}</div>}
 
-        <button className="generate-button" type="button" disabled={isSubmitting || jobActive} onClick={() => generate('text')}>
+        <button className={`generate-button${isSubmitting || jobActive ? ' is-generating' : ''}`} type="button" disabled={isSubmitting || jobActive} onClick={() => generate('text')}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />
           </svg>
@@ -1323,7 +1407,7 @@ export default function NewStudio(): ReactElement {
             {proMode ? 'Режим Стандарт' : 'Режим Профи'}
           </button>
         </div>
-        <div className={`preview-image${resultUrl && !jobActive && !resultError ? ' contain-preview' : ''}`}>
+        <div className="preview-image">
           {jobActive ? (
             <div className="iv3-preview-loading">
               <span className="iv3-spinner" aria-hidden="true"></span>
@@ -1331,7 +1415,8 @@ export default function NewStudio(): ReactElement {
             </div>
           ) : resultUrl && !resultError ? (
             <>
-              <img src={resultUrl} alt="Результат генерации" onError={() => setResultError(true)} />
+              <img className="iv3-preview-backdrop" src={resultUrl} alt="" aria-hidden="true" />
+              <img className="iv3-preview-main" src={resultUrl} alt="Результат генерации" onError={() => setResultError(true)} />
               <div className="image-actions">
                 {resultUrl && (
                   <a className="image-action" href={resultUrl} download target="_blank" rel="noreferrer">
@@ -1371,7 +1456,7 @@ export default function NewStudio(): ReactElement {
               Промпт изображения ›
             </button>
           </div>
-          {history.length === 0 ? (
+          {historyItems.length === 0 ? (
             <div className="iv3-history-empty">
               <span className="iv3-history-empty-mark" aria-hidden="true">▧</span>
               <span>{authStatus === 'authed' ? 'Здесь появятся ваши генерации' : 'Войдите — и здесь появятся ваши работы'}</span>
@@ -1384,7 +1469,13 @@ export default function NewStudio(): ReactElement {
                 </svg>
               </button>
               <div className="history-strip" ref={historyStripRef}>
-                {history.map((item) => (
+                {historyIsFeed && (
+                  <div className="history-item square history-placeholder-tile" aria-hidden="true">
+                    <span className="history-placeholder-mark">✦</span>
+                    <span>Здесь появятся ваши генерации</span>
+                  </div>
+                )}
+                {historyItems.map((item) => (
                   <figure
                     key={item.id}
                     className={`history-item square${dockImage?.id === item.id ? ' active' : ''}`}
@@ -1393,6 +1484,7 @@ export default function NewStudio(): ReactElement {
                     onClick={() => openHistory(item)}
                   >
                     <img src={apiUrl(item.thumbnailUrl || item.url)} alt={item.promptOriginal.slice(0, 40)} loading="lazy" />
+                    {historyIsFeed && <span className="history-feed-badge">Лента</span>}
                   </figure>
                 ))}
               </div>
@@ -1645,6 +1737,9 @@ export default function NewStudio(): ReactElement {
           <TopBarV3
             active={topActive}
             authed={authStatus === 'authed'}
+            avatarUrl={authStatus === 'authed' ? acct.avatarUrl : null}
+            userLabel={authStatus === 'authed' ? acct.userLabel : null}
+            initials={authStatus === 'authed' ? acct.initials : null}
             onSelectMode={(m) => { if (m !== 'video') setTab(m) }}
             onOpenFeed={() => setTab('feed')}
             onOpenGallery={goGallery}
@@ -1668,7 +1763,7 @@ export default function NewStudio(): ReactElement {
           )}
         </div>
         {tab === 'text' && (
-          <button className="mobile-bottom-cta" type="button" disabled={isSubmitting || jobActive} onClick={() => generate('text')}>
+          <button className={`mobile-bottom-cta${isSubmitting || jobActive ? ' is-generating' : ''}`} type="button" disabled={isSubmitting || jobActive} onClick={() => generate('text')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />
             </svg>

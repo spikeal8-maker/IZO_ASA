@@ -30,6 +30,9 @@ export default function TopBarV3({
   onOpenHelp,
   onOpenProfile,
   authed,
+  avatarUrl,
+  userLabel,
+  initials,
 }: {
   active: V3Section
   onSelectMode?: (mode: V3Mode) => void
@@ -38,6 +41,9 @@ export default function TopBarV3({
   onOpenHelp?: () => void
   onOpenProfile?: () => void
   authed?: boolean
+  avatarUrl?: string | null
+  userLabel?: string | null
+  initials?: string | null
 }) {
   const selectMode = (mode: V3Mode) => {
     if (onSelectMode) onSelectMode(mode)
@@ -105,15 +111,28 @@ export default function TopBarV3({
           className={`account-button${active === 'profile' ? ' active' : ''}`}
           type="button"
           aria-label="Профиль и настройки"
+          title={authed ? (userLabel || 'Профиль и настройки') : 'Войти'}
           onClick={onOpenProfile || (() => goto('/profile'))}
         >
           <span className="settings-glyph" aria-hidden="true">
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <path d="M12 8.2a3.8 3.8 0 1 1 0 7.6 3.8 3.8 0 0 1 0-7.6Z" stroke="currentColor" strokeWidth="1.8" />
               <path d="M19.2 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-1.9-3.2-2.4 1a8 8 0 0 0-2.5-1.4L14 2.8h-4l-.4 2.6a8 8 0 0 0-2.5 1.4l-2.4-1L2.8 9l2 1.5c-.1.5-.1 1-.1 1.5s0 1 .1 1.5l-2 1.5 1.9 3.2 2.4-1a8 8 0 0 0 2.5 1.4l.4 2.6h4l.4-2.6a8 8 0 0 0 2.5-1.4l2.4 1 1.9-3.2-2-1.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
             </svg>
           </span>
-          <span className={`user-glyph${authed ? ' authed' : ''}`} aria-hidden="true"></span>
+          {userLabel && <span className="user-label">{userLabel}</span>}
+          <span className={`user-glyph${authed ? ' authed' : ''}`} aria-hidden="true">
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="" />
+            ) : initials ? (
+              <span className="user-initials">{initials}</span>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="8.5" r="3.6" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M5.5 19.5a6.5 6.5 0 0 1 13 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            )}
+          </span>
         </button>
       </div>
     </header>

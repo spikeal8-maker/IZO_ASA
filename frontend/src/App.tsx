@@ -26,6 +26,7 @@ import { AdminAnalyticsV2 } from './adminAnalytics'
 import AdminModelsV2 from './adminModels'
 import NewStudio from './newUi'
 import TopBarV3 from './TopBarV3'
+import { accountInfo } from './topbarUtils'
 import './newStudioV3.css'
 import { Stage, Layer, Line, Rect, Text, Circle } from 'react-konva'
 import type { Stage as KonvaStage } from 'konva/lib/Stage'
@@ -1470,7 +1471,7 @@ function App() {
         <div className="app-shell">
           {isDiagMode() && <DiagPanel />}
           <AuthV2Modal open={authModalOpen} onClose={() => setAuthModalOpen(false)} />
-          <TopBarV3 active="gallery" authed={isAuthedV2} onOpenProfile={() => { window.location.href = '/profile' }} onOpenHelp={() => { window.location.href = '/new' }} />
+          <TopBarV3 active="gallery" authed={isAuthedV2} avatarUrl={isAuthedV2 ? accountInfo(authMe).avatarUrl : null} userLabel={isAuthedV2 ? accountInfo(authMe).userLabel : null} initials={isAuthedV2 ? accountInfo(authMe).initials : null} onOpenProfile={() => { window.location.href = '/profile' }} onOpenHelp={() => { window.location.href = '/new' }} />
           <main className="new-sub-main">
           {isAuthedV2 ? (
             <GalleryView copy={copy} images={gallery} quota={galleryQuota} selected={selected} setSelected={setSelected} handleUseImageAs={useImageAs} refreshGallery={fetchGallery} clearSelected={() => setSelected(undefined)} backToStudio={() => { window.location.href = '/feed' }} view={galleryView} setView={setGalleryView} sendImage={sendImage} pickSlot={pendingEditSlot} onPickForSlot={assignGalleryToEditSlot} cancelPick={() => { setPendingEditSlot(null); window.location.href = '/feed' }} />
@@ -1495,7 +1496,7 @@ function App() {
         <div className="app-shell">
           {isDiagMode() && <DiagPanel />}
           <AuthV2Modal open={authModalOpen} onClose={() => setAuthModalOpen(false)} />
-          <TopBarV3 active="profile" authed={isAuthedV2} onOpenGallery={() => { window.location.href = '/gallery' }} onOpenHelp={() => { window.location.href = '/new' }} />
+          <TopBarV3 active="profile" authed={isAuthedV2} avatarUrl={isAuthedV2 ? accountInfo(authMe).avatarUrl : null} userLabel={isAuthedV2 ? accountInfo(authMe).userLabel : null} initials={isAuthedV2 ? accountInfo(authMe).initials : null} onOpenGallery={() => { window.location.href = '/gallery' }} onOpenHelp={() => { window.location.href = '/new' }} />
           <main className="new-sub-main">
             <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={openAdminPage} openGallery={() => { window.location.href = '/gallery' }} backToStudio={() => { window.location.href = '/feed' }} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />
           </main>
