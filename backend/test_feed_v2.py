@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import feed_media_migrate
 import main
 
 
@@ -214,6 +215,35 @@ def test_feed_ignores_published_without_ready_media(temp_db):
         assert r.status_code == 200
         assert all(item["id"] != pub["id"] for item in r.json()["items"])
         assert client.get(f"/api/feed/media/{pub['id']}?variant=thumb").status_code == 404
+
+
+def test_feed_media_migrate_filters_targeted_rows(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-migrate", "web_migrate")
+        make_image("img-migrate-ready", "web_migrate")
+        make_image("img-migrate-missing", "web_migrate")
+        ready_pub = publish(client, token, "img-migrate-ready", title="Ready")
+        missing_pub = publish(client, token, "img-migrate-missing", title="Missing")
+        with main.db() as conn:
+            conn.execute(
+                "UPDATE images SET url = ? WHERE id = ?",
+                ("/api/media/does-not-exist.png?userId=web_migrate", "img-migrate-missing"),
+            )
+            conn.execute(
+                "UPDATE feed_publications SET status = 'media_missing', media_ready_at = NULL WHERE id = ?",
+                (missing_pub["id"],),
+            )
+
+    one = feed_media_migrate.migrate_feed_media(apply=False, publication_ids=[ready_pub["id"]])
+    assert one["filters"]["publication_ids"] == [ready_pub["id"]]
+    assert [item["id"] for item in one["items"]] == [ready_pub["id"]]
+    assert one["skipped"] == 1
+    assert one["media_missing"] == 0
+
+    missing = feed_media_migrate.migrate_feed_media(apply=False, only_missing=True)
+    assert missing["filters"]["only_missing"] is True
+    assert [item["id"] for item in missing["items"]] == [missing_pub["id"]]
+    assert missing["media_missing"] == 1
 
 
 def test_init_db_idempotent_with_feed_tables(temp_db):
