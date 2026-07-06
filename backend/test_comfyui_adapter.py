@@ -169,20 +169,22 @@ def test_save_canvas_json_creates_raster_input() -> None:
         assert image.size == (1024, 1024)
 
 
-def test_prepare_comfyui_input_image_downscales_large_landscape(tmp_path, monkeypatch) -> None:
+def test_prepare_comfyui_i2i_input_uses_requested_canvas_format(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(main, "MEDIA", tmp_path)
     source = tmp_path / "large_landscape.png"
     Image.new("RGB", (4000, 2000), "#2f6fed").save(source, "PNG")
 
-    req = main.GenerateRequest(mode="image_to_image", width=1536, height=1024)
-    prepared = main.prepare_comfyui_input_image(source, "job_large_landscape", req)
+    req = main.GenerateRequest(mode="image_to_image", width=1024, height=1536)
+    prepared = main.prepare_comfyui_input_image(source, "job_large_landscape", req, target_canvas=True)
 
     assert prepared is not None
     with Image.open(prepared) as image:
-        assert image.size == (1536, 768)
+        assert image.size == (1024, 1536)
         assert image.size[0] % 16 == 0
         assert image.size[1] % 16 == 0
         assert max(image.size) <= main.COMFYUI_INPUT_MAX_SIDE
+        assert image.getpixel((512, 128)) == (0, 0, 0)
+        assert image.getpixel((512, 768)) == (47, 111, 237)
 
 
 def test_prepare_comfyui_input_image_downscales_large_portrait(tmp_path, monkeypatch) -> None:

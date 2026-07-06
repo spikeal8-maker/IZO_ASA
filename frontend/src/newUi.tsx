@@ -9,7 +9,7 @@
 // задаёт transform-prompt преобразования (как шаблоны текущей версии).
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ReactElement } from 'react'
+import type { CSSProperties, ReactElement } from 'react'
 import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
 import { I2I_STYLES, T2I_TEMPLATES, styleShortLabel } from './stylePresets'
 import type { StylePreset } from './stylePresets'
@@ -79,6 +79,15 @@ function historyShape(item: N2GalleryImage): 'square' | 'tall' | 'wide' {
   }
   if (item.aspectRatio) return feedShape(item.aspectRatio)
   return 'square'
+}
+
+function historyAspectRatio(item: N2GalleryImage): string | undefined {
+  if (item.width && item.height) return `${item.width} / ${item.height}`
+  if (item.aspectRatio) {
+    const parts = item.aspectRatio.split(':').map((x) => Number(x))
+    if (parts.length === 2 && parts[0] > 0 && parts[1] > 0) return `${parts[0]} / ${parts[1]}`
+  }
+  return undefined
 }
 
 const QUALITY: Array<{ id: string; label: string; steps: number }> = [
@@ -309,6 +318,8 @@ const JOB_ACTIVE = ['queued', 'running', 'uploading', 'sent_to_comfyui']
 // Приписка стиля в промпте (Текст → Изо). Через маркер её можно заменить при
 // выборе другого стиля, не трогая пользовательский текст.
 const STYLE_PREFIX = '\n\nСтиль: '
+const I2I_STYLE_PREFIX = '\n\nСтиль преобразования: '
+const PROMPT_APPEND_PREFIX = '\n\n'
 
 // Вне компонента: react-hooks/purity запрещает impure-вызовы в теле компонента.
 function randomOf<T>(items: T[]): T {
@@ -385,9 +396,11 @@ export default function NewStudio(): ReactElement {
   const [proMode, setProMode] = useState(false)
   const [seed, setSeed] = useState(0)
   const [guidance] = useState(3.5)
-  const [strengthPct] = useState(75)
+  const [strengthPct, setStrengthPct] = useState(75)
   const [sourceImage, setSourceImage] = useState<string>()
-  const [, setCompare] = useState(50)
+  const [compare, setCompare] = useState(50)
+  const [compareAuto, setCompareAuto] = useState(false)
+  const compareTouchedRef = useRef(false)
 
   // ---------- Live Feed state ----------
   // Язык ленты из профиля (RU по умолчанию — как весь /new).
@@ -626,7 +639,7 @@ export default function NewStudio(): ReactElement {
   const [resultUrl, setResultUrl] = useState<string>()
   // URL результата не загрузился (битая ссылка/удалённый файл) — error-state.
   const [resultError, setResultError] = useState(false)
-  const [, setResultSource] = useState<string>()
+  const [resultSource, setResultSource] = useState<string>()
   const [notice, setNotice] = useState('')
   const [gallery, setGallery] = useState<N2GalleryImage[]>([])
   const [galleryItem, setGalleryItem] = useState<N2GalleryImage>()
@@ -652,6 +665,10 @@ export default function NewStudio(): ReactElement {
   const stylePointerDownRef = useRef(false)
   // Текущая стилевая приписка в text-промпте: {id, text} — чтобы заменять её.
   const appliedStyleRef = useRef<{ id: string; text: string } | null>(null)
+  // Текущая стилевая приписка в i2i-промпте — видна прямо в textarea.
+  const appliedI2IStyleRef = useRef<{ id: string; text: string } | null>(null)
+  const lastSubmittedRef = useRef<{ text?: string; i2i?: { prompt: string; source: string; width: number; height: number } }>({})
+  const noticeClearRef = useRef<{ text: string; i2i: string; source: string }>({ text: '', i2i: '', source: '' })
   const resultSeededRef = useRef(false)
 
   useEffect(() => {
@@ -754,6 +771,20 @@ export default function NewStudio(): ReactElement {
     [promptKey],
   )
 
+  useEffect(() => {
+    const prev = noticeClearRef.current
+    const source = sourceImage || ''
+    const changed = prev.text !== prompts.text || prev.i2i !== prompts.i2i || prev.source !== source
+    noticeClearRef.current = { text: prompts.text, i2i: prompts.i2i, source }
+    if (notice && changed) setNotice('')
+  }, [notice, prompts.text, prompts.i2i, sourceImage])
+
+  useEffect(() => {
+    if (!notice) return undefined
+    const timer = window.setTimeout(() => setNotice(''), 5000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
   // Стиль в Текст → Изо: приписываем текст стиля в промпт (замена предыдущего).
   // Вся строковая математика — вне setState-updater (updater обязан быть чистым:
   // под StrictMode он вызывается дважды, и мутация ref внутри него ломает замену).
@@ -761,7 +792,20 @@ export default function NewStudio(): ReactElement {
   // хотя state `tab` в замыкании ещё старый.
   function applyStyleTo(targetTab: 'text' | 'i2i', next: StylePreset | null) {
     setStyleId(next?.id || '')
-    if (targetTab !== 'text') return
+    if (targetTab === 'i2i') {
+      const applied = appliedI2IStyleRef.current
+      let text = prompts.i2i
+      if (applied && text.includes(applied.text)) text = text.replace(applied.text, '')
+      if (next) {
+        const addition = `${I2I_STYLE_PREFIX}${next.transformPrompt}`
+        text = `${text.trimEnd()}${addition}`
+        appliedI2IStyleRef.current = { id: next.id, text: addition }
+      } else {
+        appliedI2IStyleRef.current = null
+      }
+      setPrompts((cur) => ({ ...cur, i2i: text }))
+      return
+    }
     const applied = appliedStyleRef.current
     let text = prompts.text
     if (applied && text.includes(applied.text)) text = text.replace(applied.text, '')
@@ -786,9 +830,17 @@ export default function NewStudio(): ReactElement {
     setTemplatesOpen(false)
   }
 
+  function appendI2ITemplate(templatePrompt: string) {
+    setPrompts((cur) => ({
+      ...cur,
+      i2i: cur.i2i.trim() ? `${cur.i2i.trimEnd()}${PROMPT_APPEND_PREFIX}${templatePrompt}` : templatePrompt,
+    }))
+    showToast('Шаблон добавлен в промпт')
+  }
+
   function randomPrompt() {
     if (tab === 'i2i') {
-      applyStyle(randomOf(I2I_STYLES))
+      appendI2ITemplate(randomOf(I2I_STYLES).transformPrompt)
     } else {
       applyTemplate(randomOf(T2I_TEMPLATES).prompt)
     }
@@ -796,14 +848,35 @@ export default function NewStudio(): ReactElement {
 
   async function generate(mode: 'text' | 'i2i') {
     if (inFlightRef.current || isSubmitting || jobActive) return
+    const textPrompt = prompts.text.trim()
+    const i2iPrompt = prompts.i2i.trim()
+    const i2iSource = sourceImage || ''
+    const size = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
     // Пустой запрос не запускает генерацию — показываем понятную подсказку.
-    if (mode === 'text' && !prompts.text.trim()) {
+    if (mode === 'text' && !textPrompt) {
       showToast('Опишите идею — что вы хотите увидеть')
       return
     }
-    if (mode === 'i2i' && !(sourceImage && (prompts.i2i.trim() || styleId))) {
+    if (mode === 'i2i' && !sourceImage) {
       showToast('Добавьте исходное изображение')
       return
+    }
+    if (mode === 'i2i' && !(i2iPrompt || styleId)) {
+      showToast('Опишите преобразование или выберите стиль')
+      return
+    }
+    if (mode === 'text' && lastSubmittedRef.current.text === textPrompt) {
+      showToast('Измените промпт перед новой генерацией')
+      setNotice('Измените промпт перед новой генерацией.')
+      return
+    }
+    if (mode === 'i2i') {
+      const last = lastSubmittedRef.current.i2i
+      if (last && last.prompt === i2iPrompt && last.source === i2iSource && last.width === size.width && last.height === size.height) {
+        showToast('Измените промпт, формат или изображение')
+        setNotice('Измените промпт, формат или исходное изображение перед новой генерацией.')
+        return
+      }
     }
     if (authStatus !== 'authed') {
       setAuthOpen(true)
@@ -814,16 +887,12 @@ export default function NewStudio(): ReactElement {
     setNotice('')
     try {
       const style = I2I_STYLES.find((s) => s.id === styleId)
-      const size = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
       const steps = QUALITY.find((q) => q.id === quality)?.steps || 4
       const effectiveSeed = seed || randomSeed()
-      const userText = (mode === 'i2i' ? prompts.i2i : prompts.text).trim()
-      // text: стиль уже вписан в промпт (applyStyle). i2i: transform-prompt стиля
-      // + пользовательское уточнение.
-      const fullPrompt =
-        mode === 'i2i'
-          ? [style?.transformPrompt, userText ? `Дополнительно: ${userText}` : ''].filter(Boolean).join(' ') || userText
-          : userText
+      const userText = mode === 'i2i' ? i2iPrompt : textPrompt
+      // В обоих режимах пользователь видит финальный prompt в textarea:
+      // text/i2i-стиль дописывается туда при выборе и может быть отредактирован.
+      const fullPrompt = userText || (mode === 'i2i' ? style?.transformPrompt || '' : '')
       const body = {
         mode: mode === 'i2i' ? 'image_to_image' : 'text_to_image',
         provider: 'comfyui',
@@ -862,11 +931,13 @@ export default function NewStudio(): ReactElement {
         return
       }
       const created: N2Job = await response.json()
+      if (mode === 'i2i') lastSubmittedRef.current.i2i = { prompt: i2iPrompt, source: i2iSource, width: size.width, height: size.height }
+      else lastSubmittedRef.current.text = textPrompt
       setJob(created)
       setJobMode(mode)
       setResultUrl(undefined)
       setResultSource(mode === 'i2i' ? sourceImage : undefined)
-      setCompare(50)
+      setCompare(mode === 'i2i' ? 96 : 50)
       if (!seed) setSeed(effectiveSeed)
     } catch {
       setNotice('Проблема соединения с сервером. Проверьте, что сервис запущен.')
@@ -883,13 +954,57 @@ export default function NewStudio(): ReactElement {
     reader.readAsDataURL(file)
   }
 
+  function setPromptInfluence(value: number) {
+    const next = Math.max(0, Math.min(100, Math.round(value)))
+    setStrengthPct(Math.abs(next - 75) <= 3 ? 75 : next)
+  }
+
+  function useLastSourceImage() {
+    const last = resultUrl || gallery[0]?.url || dockImage?.url || historyItems[0]?.url
+    if (!last) {
+      showToast('Последнего изображения пока нет')
+      return
+    }
+    setSourceImage(apiUrl(last))
+  }
+
   const jobActive = !!job && JOB_ACTIVE.includes(job.status)
   const jobProgress = Math.max(0, Math.min(100, Math.round(job?.progress || 0)))
+
+  useEffect(() => {
+    if (!resultUrl || !resultSource || jobActive) return
+    compareTouchedRef.current = false
+    queueMicrotask(() => {
+      setCompareAuto(true)
+      setCompare(96)
+    })
+    const moveTimer = window.setTimeout(() => {
+      if (!compareTouchedRef.current) setCompare(4)
+    }, 120)
+    const stopTimer = window.setTimeout(() => setCompareAuto(false), 2300)
+    return () => {
+      window.clearTimeout(moveTimer)
+      window.clearTimeout(stopTimer)
+    }
+  }, [jobActive, resultSource, resultUrl])
+
   const ownHistory = gallery.slice(0, 12)
   // Своя история приоритетна; при её отсутствии показываем работы из Ленты.
   const historyItems = ownHistory.length > 0 ? ownHistory : feedFallback
   const historyIsFeed = ownHistory.length === 0 && feedFallback.length > 0
   const selectedResolution = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
+  const studioMode: 'text' | 'i2i' = tab === 'i2i' ? 'i2i' : 'text'
+  const isI2IStudio = studioMode === 'i2i'
+  const studioTitle = isI2IStudio ? 'Изо в изображение' : 'Текст в изображение'
+  const promptTitle = isI2IStudio ? 'Как преобразовать?' : 'Что хотите увидеть?'
+  const promptPlaceholder = isI2IStudio
+    ? 'Опишите, как преобразовать исходное изображение...'
+    : 'Опишите идею своими словами — получите изображение...'
+  const promptLimit = isI2IStudio ? 1000 : 2000
+  const promptValue = prompts[studioMode]
+  const generateLabel = isI2IStudio ? 'Преобразовать' : 'Сгенерировать'
+  const generatingLabel = isI2IStudio ? 'Преобразуем...' : 'Генерируем...'
+  const influenceStyle = { '--i2i-range-progress': `${strengthPct}%` } as CSSProperties
 
   // Док «Промпт изображения»: если пользователь выбрал миниатюру — берём её из
   // видимой истории (своя или лента), чтобы клик по ленте синхронизировал промпт.
@@ -1005,7 +1120,7 @@ export default function NewStudio(): ReactElement {
     ta.style.height = 'auto'
     const max = Math.round(window.innerHeight * 0.34)
     ta.style.height = `${Math.min(ta.scrollHeight, max)}px`
-  }, [prompts.text, tab])
+  }, [prompts.text, prompts.i2i, tab])
 
   // Горизонтальный скролл ряда стилей: колесо мыши + drag (мышь/тач).
   // Если пользователь тянул ряд — клик по карточке не выбирает стиль (styleDraggedRef).
@@ -1374,8 +1489,7 @@ export default function NewStudio(): ReactElement {
 
 
   // ————————————————————————————————————————————————————————————————
-  // v3-студия «Текст в изображение» (визуальный источник: прототип 14).
-  // Функционально подключена только эта вкладка; остальные — честные заглушки.
+  // v3-студия: общий экран для «Текст → Изо» и «Изо → Изо».
   // ————————————————————————————————————————————————————————————————
   // Промпт выбранного изображения; у ленты без промпта — честный fallback.
   const dockPromptText = dockImage
@@ -1383,12 +1497,13 @@ export default function NewStudio(): ReactElement {
     : prompts.text
   const ratioKind = selectedResolution.kind
   const shareTarget = dockImage || gallery[0]
+  const previewNoticeText = notice || toastText
 
-  const textStudio = (
+  const studio = (
     <main className="layout">
       <aside className="sidebar">
         <div className="sidebar-head">
-          <h1>Текст в изображение</h1>
+          <h1>{studioTitle}</h1>
           <button className={`pro-button${proMode ? ' active' : ''}`} type="button" onClick={() => setProMode((v) => !v)}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
@@ -1397,20 +1512,122 @@ export default function NewStudio(): ReactElement {
           </button>
         </div>
 
+        {isI2IStudio && (
+          <section className="form-section i2i-source-section">
+            <div className="section-title">
+              <h2>Исходное изображение</h2>
+              <span className={`i2i-source-status${sourceImage ? ' filled' : ' required'}`}>
+                {sourceImage ? '1 изображение' : 'обязательно'}
+              </span>
+            </div>
+            <div className="i2i-source-grid">
+              <article className={`i2i-upload-card${sourceImage ? ' is-filled' : ''}`}>
+                {!sourceImage && <span className="i2i-required-chip">Обязательно</span>}
+                {sourceImage && (
+                  <button className="i2i-remove" type="button" aria-label="Удалить исходное изображение" onClick={() => setSourceImage(undefined)}>
+                    ×
+                  </button>
+                )}
+                <div className="i2i-preview">
+                  {sourceImage ? (
+                    <img src={apiUrl(sourceImage)} alt="Исходное изображение" />
+                  ) : (
+                    <div className="i2i-upload-empty">
+                      <svg className="i2i-upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M7 18.5h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.4 8.7 4.8 4.8 0 0 0 7 18.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                        <path d="M12 15V9.5m0 0-2.3 2.3M12 9.5l2.3 2.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <div className="i2i-upload-actions">
+                        <button className="i2i-upload-action primary" type="button" onClick={() => fileInputRef.current?.click()}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M12 16V6m0 0-4 4m4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M5 18.5h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          </svg>
+                          Загрузить
+                        </button>
+                        <button className="i2i-upload-action" type="button" onClick={() => setGalleryPickOpen(true)}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M4 5h16v14H4V5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                            <path d="m7 15 3.2-3.2 2.4 2.4 2.2-2.7L20 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M8.4 8.6h.1" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+                          </svg>
+                          Галерея
+                        </button>
+                        <button className="i2i-upload-action" type="button" onClick={useLastSourceImage}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M5 7v5h5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M5.6 12a6.6 6.6 0 1 0 1.9-4.7L5 9.8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M12 8.5V12l2.2 1.4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          Последнее
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </article>
+
+              <article className="i2i-influence-card">
+                <div className="i2i-influence-head">
+                  <h3>Влияние промпта</h3>
+                  <label className="i2i-strength-value">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={strengthPct}
+                      aria-label="Значение влияния промпта в процентах"
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => setPromptInfluence(Number(e.target.value))}
+                    />
+                    <span>%</span>
+                  </label>
+                </div>
+                <div className="i2i-range-wrap" style={influenceStyle}>
+                  <div className="i2i-range-scale" aria-hidden="true">
+                    <span className="i2i-range-edge start">0</span>
+                    <span className="i2i-range-edge end">100</span>
+                  </div>
+                  <button className="i2i-range-mark" type="button" onClick={() => setPromptInfluence(75)}>
+                    75
+                  </button>
+                  <input
+                    className="i2i-range"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={strengthPct}
+                    aria-label="Влияние промпта"
+                    aria-valuetext={`${strengthPct}%`}
+                    onChange={(e) => setPromptInfluence(Number(e.target.value))}
+                  />
+                </div>
+                <div className="i2i-range-legend">
+                  <span><span className="i2i-range-arrow">←</span> ближе к фото</span>
+                  <span>больше промпта <span className="i2i-range-arrow">→</span></span>
+                </div>
+                <p>Рекомендуем 75%. Ниже сохраняет исходник, выше сильнее следует описанию.</p>
+              </article>
+            </div>
+          </section>
+        )}
+
         <section className="form-section prompt-section">
           <div className="section-title">
-            <h2>Что хотите увидеть?</h2>
+            <h2>{promptTitle}</h2>
             <span className="help-dot" role="button" tabIndex={0} onClick={() => setHelpOpen(true)}>?</span>
           </div>
           <div className="prompt-card">
             <textarea
               ref={promptTextareaRef}
-              placeholder="Опишите идею своими словами — получите изображение..."
-              maxLength={2000}
-              value={prompts.text}
+              placeholder={promptPlaceholder}
+              maxLength={promptLimit}
+              value={promptValue}
               onChange={(e) => setPrompt(e.target.value)}
             />
-            <div className="counter">{prompts.text.length} / 2000</div>
+            <div className="counter">{promptValue.length} / {promptLimit}</div>
           </div>
           <div className="action-row">
             <button className="tool-button" type="button" onClick={() => showToast('Голосовой ввод скоро')}>
@@ -1544,17 +1761,17 @@ export default function NewStudio(): ReactElement {
 
         {notice && <div className="iv3-notice" role="alert">{notice}</div>}
 
-        <button className={`generate-button${isSubmitting || jobActive ? ' is-generating' : ''}`} type="button" disabled={isSubmitting || jobActive} onClick={() => generate('text')}>
+        <button className={`generate-button${isSubmitting || jobActive ? ' is-generating' : ''}`} type="button" disabled={isSubmitting || jobActive} onClick={() => generate(studioMode)}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />
           </svg>
-          {jobActive || isSubmitting ? 'Генерируем...' : 'Сгенерировать'}
+          {jobActive || isSubmitting ? generatingLabel : generateLabel}
         </button>
       </aside>
 
       <section className="preview-panel">
         <div className="mobile-title-row">
-          <h1>Текст в изображение</h1>
+          <h1>{studioTitle}</h1>
           <button className={`pro-button${proMode ? ' active' : ''}`} type="button" onClick={() => setProMode((v) => !v)}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
@@ -1584,7 +1801,34 @@ export default function NewStudio(): ReactElement {
           ) : resultUrl && !resultError ? (
             <>
               <img className="iv3-preview-backdrop" src={resultUrl} alt="" aria-hidden="true" />
-              <img className="iv3-preview-main" src={resultUrl} alt="Результат генерации" onError={() => setResultError(true)} />
+              {resultSource ? (
+                <div className={`iv3-compare${compareAuto ? ' is-auto' : ''}`} style={{ '--compare': `${compare}%` } as CSSProperties}>
+                  <img className="iv3-preview-main iv3-compare-after" src={resultUrl} alt="Результат генерации" onError={() => setResultError(true)} />
+                  <div className="iv3-compare-before">
+                    <img className="iv3-preview-main" src={apiUrl(resultSource)} alt="Исходное изображение" />
+                  </div>
+                  <div className="iv3-compare-line" aria-hidden="true">
+                    <span className="iv3-compare-handle"></span>
+                  </div>
+                  <span className="iv3-compare-label before">До</span>
+                  <span className="iv3-compare-label after">После</span>
+                  <input
+                    className="iv3-compare-range"
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={compare}
+                    aria-label="Сравнение до и после"
+                    onChange={(e) => {
+                      compareTouchedRef.current = true
+                      setCompareAuto(false)
+                      setCompare(Number(e.target.value))
+                    }}
+                  />
+                </div>
+              ) : (
+                <img className="iv3-preview-main" src={resultUrl} alt="Результат генерации" onError={() => setResultError(true)} />
+              )}
               <div className="image-actions">
                 {resultUrl && (
                   <a className="image-action" href={resultUrl} download target="_blank" rel="noreferrer">
@@ -1612,6 +1856,12 @@ export default function NewStudio(): ReactElement {
             <div className="iv3-preview-empty">
               <span className="iv3-preview-empty-mark" aria-hidden="true">✦</span>
               <p>{resultError ? 'Изображение недоступно. Сгенерируйте заново.' : 'Опишите идею слева и нажмите «Сгенерировать»'}</p>
+            </div>
+          )}
+          {previewNoticeText && (
+            <div className="iv3-preview-notice" role="status" aria-live="polite">
+              <span className="iv3-preview-notice-mark" aria-hidden="true">!</span>
+              <p>{previewNoticeText}</p>
             </div>
           )}
         </div>
@@ -1647,11 +1897,22 @@ export default function NewStudio(): ReactElement {
                   <figure
                     key={item.id}
                     className={`history-item ${historyShape(item)}${dockImage?.id === item.id ? ' active' : ''}`}
+                    style={historyAspectRatio(item) ? { aspectRatio: historyAspectRatio(item) } : undefined}
                     role="button"
                     tabIndex={0}
                     onClick={() => { if (historyDraggedRef.current) { historyDraggedRef.current = false; return } openHistory(item) }}
                   >
-                    <img src={apiUrl(item.thumbnailUrl || item.url)} alt={item.promptOriginal.slice(0, 40)} loading="lazy" />
+                    <img
+                      src={apiUrl(item.thumbnailUrl || item.url)}
+                      alt={item.promptOriginal.slice(0, 40)}
+                      loading="lazy"
+                      onLoad={(e) => {
+                        const img = e.currentTarget
+                        const frame = img.closest<HTMLElement>('.history-item')
+                        if (!frame || img.naturalWidth <= 0 || img.naturalHeight <= 0) return
+                        frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                      }}
+                    />
                     {historyIsFeed && <span className="history-feed-badge">Лента</span>}
                   </figure>
                 ))}
@@ -1725,7 +1986,7 @@ export default function NewStudio(): ReactElement {
   return (
     <div className="n2">
       <AuthV2Modal open={authOpen} onClose={() => setAuthOpen(false)} />
-      {toastText && (
+      {toastText && tab === 'feed' && (
         <div className="nf-toast" role="status">
           {toastText}
         </div>
@@ -1779,11 +2040,11 @@ export default function NewStudio(): ReactElement {
                 {I2I_STYLES.map((style) => (
                   <button
                     key={style.id}
-                    className={`n2-template-style${styleId === style.id ? ' active' : ''}`}
+                    className="n2-template-style"
                     type="button"
+                    title={style.name}
                     onClick={() => {
-                      applyStyle(style)
-                      setTemplatesOpen(false)
+                      appendI2ITemplate(style.transformPrompt)
                     }}
                   >
                     <img src={style.preview[previewGender]} alt={style.preview.alt} loading="lazy" />
@@ -1820,11 +2081,11 @@ export default function NewStudio(): ReactElement {
                   type="button"
                   title={item.promptOriginal}
                   onClick={() => {
-                    setSourceImage(item.url)
+                    setSourceImage(apiUrl(item.url))
                     setGalleryPickOpen(false)
                   }}
                 >
-                  <img src={item.thumbnailUrl || item.url} alt={item.promptOriginal.slice(0, 60)} loading="lazy" />
+                  <img src={apiUrl(item.thumbnailUrl || item.url)} alt={item.promptOriginal.slice(0, 60)} loading="lazy" />
                 </button>
               ))}
             </div>
@@ -1916,10 +2177,8 @@ export default function NewStudio(): ReactElement {
           />
           {tab === 'feed' ? (
             <div className="iv3-content iv3-feed">{feed}</div>
-          ) : tab === 'text' ? (
-            textStudio
-          ) : tab === 'i2i' ? (
-            placeholderStudio('Изо → Изо', 'Загрузка исходника и преобразование по стилю появятся здесь в новом дизайне. Функционал уже работает в текущей версии.')
+          ) : tab === 'text' || tab === 'i2i' ? (
+            studio
           ) : tab === 'edit' ? (
             placeholderStudio('Редактор', 'Основа и референсы с ролями (лицо, одежда, стиль, фон) переносятся в новый интерфейс следующим этапом.')
           ) : tab === 'paint' ? (
@@ -1930,12 +2189,12 @@ export default function NewStudio(): ReactElement {
             placeholderStudio('Скоро', 'Раздел в разработке.')
           )}
         </div>
-        {tab === 'text' && (
-          <button className={`mobile-bottom-cta${isSubmitting || jobActive ? ' is-generating' : ''}`} type="button" disabled={isSubmitting || jobActive} onClick={() => generate('text')}>
+        {(tab === 'text' || tab === 'i2i') && (
+          <button className={`mobile-bottom-cta${isSubmitting || jobActive ? ' is-generating' : ''}`} type="button" disabled={isSubmitting || jobActive} onClick={() => generate(studioMode)}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />
             </svg>
-            {jobActive || isSubmitting ? 'Генерируем…' : 'Сгенерировать'}
+            {jobActive || isSubmitting ? generatingLabel.replace('...', '…') : generateLabel}
           </button>
         )}
       </div>

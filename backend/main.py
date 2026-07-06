@@ -4958,20 +4958,55 @@ def _fit_comfyui_input_size(source_size: tuple[int, int], target_box: tuple[int,
     return width, height
 
 
-def prepare_comfyui_input_image(image_path: Path | None, prefix: str, req: GenerateRequest, max_side: int | None = None) -> Path | None:
-    """Return an input image safe for ComfyUI VRAM: same aspect, bounded size."""
+def _target_comfyui_canvas_size(req: GenerateRequest, max_side: int | None = None) -> tuple[int, int]:
+    limit = max(COMFYUI_INPUT_MIN_SIDE, min(COMFYUI_INPUT_MAX_SIDE, int(max_side or COMFYUI_INPUT_MAX_SIDE)))
+    width = max(COMFYUI_INPUT_MIN_SIDE, int(req.width or COMFYUI_INPUT_MIN_SIDE))
+    height = max(COMFYUI_INPUT_MIN_SIDE, int(req.height or COMFYUI_INPUT_MIN_SIDE))
+    scale = min(1.0, limit / max(width, height))
+    width = max(16, int(round((width * scale) / 16) * 16))
+    height = max(16, int(round((height * scale) / 16) * 16))
+    return width, height
+
+
+def prepare_comfyui_input_image(
+    image_path: Path | None,
+    prefix: str,
+    req: GenerateRequest,
+    max_side: int | None = None,
+    target_canvas: bool = False,
+) -> Path | None:
+    """Return an input image safe for ComfyUI VRAM.
+
+    Default behavior preserves source aspect. `target_canvas=True` is used by
+    image-to-image when the UI-selected output format must affect generation:
+    the source is fully contained inside a requested-ratio canvas.
+    """
     if not image_path or not image_path.exists():
         return image_path
     try:
         with Image.open(image_path) as opened:
             image = ImageOps.exif_transpose(opened)
-            target_size = _fit_comfyui_input_size(image.size, (req.width, req.height), max_side=max_side)
+            target_size = _target_comfyui_canvas_size(req, max_side=max_side) if target_canvas else _fit_comfyui_input_size(image.size, (req.width, req.height), max_side=max_side)
             if image.size == target_size:
                 return image_path
             resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
-            resized = image.resize(target_size, resample)
-            if resized.mode not in ("RGB", "RGBA"):
-                resized = resized.convert("RGBA" if "A" in resized.getbands() else "RGB")
+            if target_canvas:
+                source = image.convert("RGBA") if image.mode != "RGBA" else image.copy()
+                scale = min(target_size[0] / max(1, source.size[0]), target_size[1] / max(1, source.size[1]))
+                contained_size = (
+                    max(1, int(round(source.size[0] * scale))),
+                    max(1, int(round(source.size[1] * scale))),
+                )
+                source = source.resize(contained_size, resample)
+                canvas = Image.new("RGBA", target_size, (0, 0, 0, 255))
+                left = (target_size[0] - source.size[0]) // 2
+                top = (target_size[1] - source.size[1]) // 2
+                canvas.alpha_composite(source, (left, top))
+                resized = canvas.convert("RGB")
+            else:
+                resized = image.resize(target_size, resample)
+                if resized.mode not in ("RGB", "RGBA"):
+                    resized = resized.convert("RGBA" if "A" in resized.getbands() else "RGB")
             out = MEDIA / f"{prefix}_{uuid.uuid4().hex}_comfy.png"
             resized.save(out, "PNG", optimize=True)
             print(f"comfyui input resized {image_path.name}: {image.size[0]}x{image.size[1]} -> {target_size[0]}x{target_size[1]}")
@@ -5424,6 +5459,8 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
                 outpaint_generated_mask = True
         elif payload.mode == "faceswap":
             primary_input = prepare_comfyui_input_image(primary_input, f"{job['id']}_input1", payload, max_side=COMFYUI_FACE_INPUT_MAX_SIDE)
+        elif payload.mode == "image_to_image":
+            primary_input = prepare_comfyui_input_image(primary_input, f"{job['id']}_input1", payload, target_canvas=True)
         else:
             primary_input = prepare_comfyui_input_image(primary_input, f"{job['id']}_input1", payload)
         uploads["input1"] = await upload_to_comfyui(primary_input)
