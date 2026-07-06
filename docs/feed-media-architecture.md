@@ -408,6 +408,16 @@ reference и remix-файлы могут быть нужны для истори
 пользователя. Отсутствующие файлы возвращают `input_media_missing`, чужие или
 непривязанные — `input_media_unavailable`.
 
+Если старые `jobs.settings_json` уже содержат ссылки на отсутствующие файлы,
+их надо чинить repair-командой. Она переносит битые input-ссылки в
+`_media_ref_status.missing`, а рабочие поля `inputImage1`, `inputImages[].image`
+и аналогичные очищает:
+
+```bash
+python backend/job_media_ref_repair.py --report logs/job-media-ref-repair-dryrun-latest.json
+python backend/job_media_ref_repair.py --apply --report logs/job-media-ref-repair-latest.json
+```
+
 Read-only аудит связки пользователей, галереи и физических файлов:
 
 ```bash

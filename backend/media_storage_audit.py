@@ -9,6 +9,8 @@ from typing import Any
 
 import main
 
+DIAGNOSTIC_SETTINGS_KEYS = {"_media_ref_status", "media_ref_status"}
+
 
 def _bytes_fmt(value: int) -> str:
     if value >= 1024 * 1024 * 1024:
@@ -38,7 +40,9 @@ def _add_ref(refs: dict[str, set[str]], rel: str | None, source: str) -> None:
 
 def _add_text_media_refs(refs: dict[str, set[str]], value: Any, source: str, known_by_name: dict[str, list[str]]) -> None:
     if isinstance(value, dict):
-        for child in value.values():
+        for key, child in value.items():
+            if str(key) in DIAGNOSTIC_SETTINGS_KEYS:
+                continue
             _add_text_media_refs(refs, child, source, known_by_name)
         return
     if isinstance(value, list):

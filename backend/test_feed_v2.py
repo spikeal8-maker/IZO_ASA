@@ -6,11 +6,14 @@ is served only for published items; init_db stays idempotent with feed tables.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
 import feed_media_migrate
+import job_media_ref_repair
 import media_cleanup_apply
 import media_cleanup_plan
 import media_storage_audit
@@ -327,6 +330,36 @@ def test_media_storage_audit_protects_job_settings_refs(temp_db):
     report = media_storage_audit.audit_media_storage(item_limit=20)
     assert report["job_referenced"]["count"] >= 1
     assert all(item["file"] != "job-reference.png" for item in report["largest_unreferenced"])
+
+
+def test_job_media_ref_repair_moves_missing_inputs_to_diagnostics(temp_db):
+    make_user("iuid-job-repair", "web_job_repair")
+    existing = main.MEDIA / "existing-reference.png"
+    existing.write_bytes(b"reference")
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id, user_id, mode, provider, status, prompt_original, settings_json, created_at) "
+            "VALUES ('job-repair', 'web_job_repair', 'edit', 'comfyui', 'completed', 'prompt', ?, '2026-07-07')",
+            (
+                '{"inputImage1": "/api/media/missing-reference.png?userId=web_job_repair", '
+                '"inputImages": [{"index": 1, "role": "base", "image": "/api/media/missing-reference.png?userId=web_job_repair"}, '
+                '{"index": 2, "role": "style", "image": "/api/media/existing-reference.png?userId=web_job_repair"}]}',
+            ),
+        )
+
+    dry = job_media_ref_repair.repair_job_media_refs(apply=False)
+    assert dry["jobs_with_missing_refs"] == 1
+    applied = job_media_ref_repair.repair_job_media_refs(apply=True)
+    assert applied["updated_jobs"] == 1
+    with main.db() as conn:
+        settings = conn.execute("SELECT settings_json FROM jobs WHERE id = 'job-repair'").fetchone()[0]
+    payload = json.loads(settings)
+    assert payload["inputImage1"] is None
+    assert payload["inputImages"][0]["image"] is None
+    assert payload["inputImages"][1]["image"].endswith("existing-reference.png?userId=web_job_repair")
+    assert payload["_media_ref_status"]["missing"][0]["file"] == "missing-reference.png"
+    report = media_storage_audit.audit_media_storage(item_limit=10)
+    assert report["missing_active_refs"] == []
 
 
 def test_media_cleanup_plan_excludes_protected_kinds(temp_db):
