@@ -2025,3 +2025,20 @@ font-size: 10.5px;
   margin-top: 4px; padding: 11px 20px; border-radius: 9px; border: 0;
   background: var(--lime); color: #14210a; font-weight: 700; font-size: 14px;
 }
+
+/* ---- Нейтрализация протечек глобального index.css (общие имена классов) ---- */
+/* index.css задаёт .topbar{position:fixed;...}, .topbar>div:first-child{display:none},
+   .brand{display:none} для СТАРОГО студийного UI. В новом .iv3-скоупе возвращаем
+   протипную раскладку. Специфичность .iv3 … выше одиночных классов index.css. */
+.iv3 .app-shell { position: relative; }
+.iv3 .topbar {
+  position: static;
+  right: auto;
+  top: auto;
+  left: auto;
+  z-index: auto;
+  justify-content: normal;
+}
+.iv3 .topbar > div:first-child { display: flex; }
+.iv3 .brand { display: flex; }
+.iv3 .top-actions { justify-content: flex-end; }

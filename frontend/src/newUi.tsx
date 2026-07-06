@@ -42,7 +42,9 @@ function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   const p = typeof window !== 'undefined' ? window.location.pathname : '/feed'
   if (p === '/gallery' || p.startsWith('/gallery') || p.startsWith('/new/gallery')) return { view: 'gallery', tab: 'feed' }
   if (p === '/profile' || p.startsWith('/profile') || p.startsWith('/new/profile')) return { view: 'profile', tab: 'feed' }
-  return { view: 'tabs', tab: 'feed' }
+  // Лента: /feed, /lenta. Генератор /new открывается на «Текст → Изо».
+  if (p === '/feed' || p.startsWith('/feed') || p === '/lenta' || p.startsWith('/lenta')) return { view: 'tabs', tab: 'feed' }
+  return { view: 'tabs', tab: 'text' }
 }
 
 interface N2Job {
