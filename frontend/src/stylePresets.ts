@@ -84,6 +84,54 @@ export const I2I_STYLES: StylePreset[] = imageToImageTransformRows()
     }
   })
 
+// Короткие локализованные подписи стилей для карточек нового UI (полное имя
+// используется в title и prompt). Ключ — номер стиля (01..36).
+const STYLE_SHORT_LABELS: Record<string, { ru: string; en: string }> = {
+  '01': { ru: 'Фото', en: 'Photo' },
+  '02': { ru: 'Премиум', en: 'Premium' },
+  '03': { ru: 'Мода', en: 'Fashion' },
+  '04': { ru: 'Космос', en: 'Space' },
+  '05': { ru: 'Невесомость', en: 'Zero-G' },
+  '06': { ru: 'Будущее', en: 'Future' },
+  '07': { ru: 'Хай-тек', en: 'Hi-tech' },
+  '08': { ru: 'Неон', en: 'Neon' },
+  '09': { ru: 'Стимпанк', en: 'Steampunk' },
+  '10': { ru: 'Дизель', en: 'Dieselpunk' },
+  '11': { ru: 'Ретро', en: 'Retro' },
+  '12': { ru: 'Солар', en: 'Solarpunk' },
+  '13': { ru: 'Био', en: 'Biopunk' },
+  '14': { ru: 'Руины', en: 'Ruins' },
+  '15': { ru: 'Гранж', en: 'Grunge' },
+  '16': { ru: 'Старина', en: 'Medieval' },
+  '17': { ru: 'Антика', en: 'Antique' },
+  '18': { ru: 'Тьма', en: 'Dark' },
+  '19': { ru: 'Фэнтези', en: 'Fantasy' },
+  '20': { ru: 'Портал', en: 'Portal' },
+  '21': { ru: 'Океан', en: 'Ocean' },
+  '22': { ru: 'Лёд', en: 'Ice' },
+  '23': { ru: 'Пустыня', en: 'Desert' },
+  '24': { ru: 'Аниме', en: 'Anime' },
+  '25': { ru: 'Манга', en: 'Manga' },
+  '26': { ru: 'Комикс', en: 'Comic' },
+  '27': { ru: 'Мульт', en: 'Cartoon' },
+  '28': { ru: 'Low-poly', en: 'Low-poly' },
+  '29': { ru: 'Пластилин', en: 'Clay' },
+  '30': { ru: 'Бумага', en: 'Paper' },
+  '31': { ru: 'Пиксель', en: 'Pixel' },
+  '32': { ru: 'Вектор', en: 'Vector' },
+  '33': { ru: 'Изометрия', en: 'Isometric' },
+  '34': { ru: 'Чертёж', en: 'Blueprint' },
+  '35': { ru: 'Архив', en: 'Archive' },
+  '36': { ru: 'Каталог', en: 'Catalog' },
+}
+
+export function styleShortLabel(style: StylePreset, lang: 'ru' | 'en'): string {
+  const num = style.id.replace('i2i-transform-', '')
+  const s = STYLE_SHORT_LABELS[num]
+  if (s) return lang === 'en' ? s.en : s.ru
+  return style.name.split(/[\s/]+/)[0]
+}
+
 // Шаблоны «Текст → Изо · идеи» — общий источник для пресетов старого UI и
 // панели «Шаблоны» нового UI. Каждая вкладка имеет свой набор шаблонов.
 export function textToImageTemplateRows() {

@@ -2281,3 +2281,34 @@ font-size: 10.5px;
 @media (prefers-reduced-motion: reduce) {
   .iv3 .preview-image .iv3-preview-backdrop { filter: brightness(.42); }
 }
+
+/* Account-button: у прототипа не задавались border-width/style (был только цвет)
+   — поэтому ободка не было. Делаем видимую рамку вокруг всей кнопки + hover. */
+.iv3 .account-button {
+  border-width: 1px;
+  border-style: solid;
+  border-color: rgba(155, 115, 255, .55);
+}
+@media (hover: hover) {
+  .iv3 .account-button:not(.active):hover {
+    border-color: rgba(155, 115, 255, .92);
+    background: rgba(44, 36, 70, .82);
+    transform: translateY(-1px);
+  }
+}
+
+/* Hover-preview стиля: бейдж поверх предпросмотра */
+.iv3 .iv3-style-hover-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 3;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  color: #0d1206;
+  background: rgba(182, 207, 18, .92);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .3);
+  pointer-events: none;
+}

@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
-import { I2I_STYLES, T2I_TEMPLATES } from './stylePresets'
+import { I2I_STYLES, T2I_TEMPLATES, styleShortLabel } from './stylePresets'
 import type { StylePreset } from './stylePresets'
 import TopBarV3 from './TopBarV3'
 import type { V3Section } from './TopBarV3'
@@ -361,6 +361,8 @@ export default function NewStudio(): ReactElement {
 
   const [prompts, setPrompts] = useState<Record<'text' | 'i2i', string>>({ text: '', i2i: '' })
   const [styleId, setStyleId] = useState<string>('')
+  // Временный предпросмотр стиля при наведении на карточку (не выбирает стиль).
+  const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
   // Разрешение = конкретный системный пресет; формат-кнопки переключают тип.
   const [resolutionId, setResolutionId] = useState('sq-1024')
   const [quality, setQuality] = useState('fast')
@@ -627,6 +629,8 @@ export default function NewStudio(): ReactElement {
   const styleRowRef = useRef<HTMLDivElement>(null)
   // true, если пользователь тянул ряд стилей — тогда клик по карточке не выбирает.
   const styleDraggedRef = useRef(false)
+  // true, пока зажата кнопка над рядом стилей — подавляет hover-preview при drag.
+  const stylePointerDownRef = useRef(false)
   // Текущая стилевая приписка в text-промпте: {id, text} — чтобы заменять её.
   const appliedStyleRef = useRef<{ id: string; text: string } | null>(null)
   const resultSeededRef = useRef(false)
@@ -635,10 +639,19 @@ export default function NewStudio(): ReactElement {
     document.title = 'ИЗО ACA — новый интерфейс'
   }, [])
 
+  // Стабильная загрузка галереи: как только увидели свои изображения, спуриозный
+  // пустой ответ (транзиентный 401 при refresh и т.п.) больше не затирает историю,
+  // чтобы лента-фолбэк не «перебивал» уже показанную пользовательскую галерею.
+  const ownGallerySeenRef = useRef(false)
   const fetchGallery = useCallback(() => {
     apiFetch('/gallery')
       .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setGallery(Array.isArray(data) ? data : []))
+      .then((data) => {
+        const arr: N2GalleryImage[] = Array.isArray(data) ? data : []
+        if (arr.length === 0 && ownGallerySeenRef.current) return
+        if (arr.length > 0) ownGallerySeenRef.current = true
+        setGallery(arr)
+      })
       .catch(() => undefined)
   }, [])
 
@@ -658,16 +671,24 @@ export default function NewStudio(): ReactElement {
         if (cancelled || !data) return
         const rows: FeedPublication[] = Array.isArray(data) ? data : data.items || data.publications || []
         const mapped: N2GalleryImage[] = rows
+          .map((p) => {
+            // Только ПУБЛИЧНЫЕ деривативы ленты (display_url/thumbnail_url).
+            // image_url может указывать на приватный оригинал (/api/media → 401),
+            // поэтому его не используем — иначе миниатюра «битая».
+            const display = p.display_url || p.thumbnail_url || ''
+            const thumb = p.thumbnail_url || p.display_url || ''
+            return {
+              id: `feed-${p.id}`,
+              url: display,
+              thumbnailUrl: thumb,
+              mode: 'feed',
+              promptOriginal: p.prompt || p.title || '',
+              createdAt: p.created_at || '',
+            }
+          })
+          // В историю не добавляем элементы без рабочего публичного изображения.
+          .filter((x) => x.url && x.thumbnailUrl)
           .slice(0, 10)
-          .map((p) => ({
-            id: `feed-${p.id}`,
-            url: p.display_url || p.image_url || p.thumbnail_url || '',
-            thumbnailUrl: p.thumbnail_url || p.display_url || p.image_url || '',
-            mode: 'feed',
-            promptOriginal: p.title || '',
-            createdAt: p.created_at || '',
-          }))
-          .filter((x) => x.url)
         setFeedFallback(mapped)
       })
       .catch(() => undefined)
@@ -850,8 +871,12 @@ export default function NewStudio(): ReactElement {
   const historyIsFeed = ownHistory.length === 0 && feedFallback.length > 0
   const selectedResolution = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
 
-  // Док «Промпт изображения»: выбранная миниатюра либо самая свежая генерация.
-  const dockImage = gallery.find((g) => g.id === dockImageId) || gallery[0]
+  // Док «Промпт изображения»: если пользователь выбрал миниатюру — берём её из
+  // видимой истории (своя или лента), чтобы клик по ленте синхронизировал промпт.
+  // Без явного выбора показываем свою последнюю генерацию (но НЕ ленту, чтобы
+  // промпт-блок не рассинхронизировался с пустым preview у гостя).
+  const dockImage = dockImageId ? historyItems.find((g) => g.id === dockImageId) : gallery[0]
+  const dockIsFeed = !!dockImage && dockImage.id.startsWith('feed-')
 
   // v3-студия: выбрать формат (соотношение сторон) — переключает разрешение на
   // первый пресет нужной ориентации.
@@ -896,7 +921,9 @@ export default function NewStudio(): ReactElement {
     }
     const onDown = (e: PointerEvent) => {
       st.down = true
+      stylePointerDownRef.current = true
       styleDraggedRef.current = false
+      setHoverStyle(null) // на время взаимодействия убираем hover-preview
       st.startX = e.clientX
       st.startScroll = row.scrollLeft
     }
@@ -911,6 +938,7 @@ export default function NewStudio(): ReactElement {
     }
     const onUp = () => {
       st.down = false
+      stylePointerDownRef.current = false
       row.classList.remove('dragging')
     }
     row.addEventListener('wheel', onWheel, { passive: false })
@@ -1248,7 +1276,10 @@ export default function NewStudio(): ReactElement {
   // v3-студия «Текст в изображение» (визуальный источник: прототип 14).
   // Функционально подключена только эта вкладка; остальные — честные заглушки.
   // ————————————————————————————————————————————————————————————————
-  const dockPromptText = dockImage?.promptOriginal || prompts.text
+  // Промпт выбранного изображения; у ленты без промпта — честный fallback.
+  const dockPromptText = dockImage
+    ? dockImage.promptOriginal || (dockIsFeed ? 'Промпт недоступен' : '')
+    : prompts.text
   const ratioKind = selectedResolution.kind
   const shareTarget = dockImage || gallery[0]
 
@@ -1332,9 +1363,11 @@ export default function NewStudio(): ReactElement {
                 tabIndex={0}
                 title={style.name}
                 onClick={() => { if (styleDraggedRef.current) { styleDraggedRef.current = false; return } applyStyle(style) }}
+                onMouseEnter={() => { if (!stylePointerDownRef.current) setHoverStyle(style) }}
+                onMouseLeave={() => setHoverStyle(null)}
               >
                 <img src={style.preview[previewGender]} alt={style.preview.alt} loading="lazy" />
-                <figcaption>{style.name}</figcaption>
+                <figcaption>{styleShortLabel(style, feedLang)}</figcaption>
               </figure>
             ))}
           </div>
@@ -1408,7 +1441,13 @@ export default function NewStudio(): ReactElement {
           </button>
         </div>
         <div className="preview-image">
-          {jobActive ? (
+          {hoverStyle ? (
+            <>
+              <img className="iv3-preview-backdrop" src={hoverStyle.preview[previewGender]} alt="" aria-hidden="true" />
+              <img className="iv3-preview-main" src={hoverStyle.preview[previewGender]} alt={hoverStyle.preview.alt} />
+              <span className="iv3-style-hover-badge">Превью стиля · {styleShortLabel(hoverStyle, feedLang)}</span>
+            </>
+          ) : jobActive ? (
             <div className="iv3-preview-loading">
               <span className="iv3-spinner" aria-hidden="true"></span>
               <span>Генерируем{jobProgress > 0 ? ` · ${jobProgress}%` : '…'}</span>
