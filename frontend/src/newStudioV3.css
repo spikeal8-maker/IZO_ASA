@@ -2053,16 +2053,41 @@ font-size: 10.5px;
    протипную раскладку. Специфичность .iv3 … выше одиночных классов index.css. */
 .iv3 .app-shell { position: relative; }
 .iv3 .topbar {
-  position: static;
   right: auto;
-  top: auto;
   left: auto;
-  z-index: auto;
   justify-content: normal;
+}
+/* Desktop: статичный первый ряд грида. Mobile: липкая шапка (см. блок ниже). */
+@media (min-width: 821px) {
+  .iv3 .topbar { position: static; top: auto; z-index: auto; }
 }
 .iv3 .topbar > div:first-child { display: flex; }
 .iv3 .brand { display: flex; }
 .iv3 .top-actions { justify-content: flex-end; }
+
+/* Mobile: две верхние строки (шапка) закреплены, скроллится только контент.
+   Делаем .iv3 единственным скролл-контейнером (height:100dvh), чтобы sticky
+   topbar работал; .n2 при этом не прокручивается. */
+@media (max-width: 820px) {
+  .iv3 {
+    height: 100dvh;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  /* overflow-x:hidden на app-shell превращал overflow-y в auto и делал app-shell
+     скролл-контейнером → sticky ломался. Скролл держит .iv3, здесь — visible. */
+  .iv3 .app-shell {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+  .iv3 .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+  }
+}
 
 /* Длинные названия стилей (реальные из stylePresets) не должны разрастаться на
    всю карточку — ограничиваем нижнюю плашку двумя строками с многоточием. */
@@ -2312,3 +2337,80 @@ font-size: 10.5px;
   box-shadow: 0 6px 16px rgba(0, 0, 0, .3);
   pointer-events: none;
 }
+
+/* Mobile: кнопки под промптом (Голос/Улучшить/Шаблоны/Идея) — читаемый текст.
+   Равная ширина (flex:1), одинаковая высота, без переноса, ряд не ломается. */
+@media (max-width: 820px) {
+  .iv3 .action-row { gap: 5px; }
+  .iv3 .action-row .tool-button {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 34px;
+    height: 34px;
+    gap: 4px;
+    padding: 0 5px;
+    font-size: 12px;
+    letter-spacing: -.01em;
+    white-space: nowrap;
+  }
+  .iv3 .action-row .tool-button svg { width: 15px; height: 15px; flex: 0 0 auto; }
+}
+@media (max-width: 380px) {
+  .iv3 .action-row { gap: 4px; }
+  .iv3 .action-row .tool-button { font-size: 11.5px; gap: 3px; padding: 0 3px; }
+  .iv3 .action-row .tool-button svg { width: 14px; height: 14px; }
+}
+
+/* ---- Кастомный формат-дропдаун: shape-иконка + разрешение + тип ---- */
+.iv3 .iv3-format-select { position: relative; flex: 1 1 auto; min-width: 0; }
+.iv3 .iv3-format-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+  text-align: left;
+}
+.iv3 .iv3-format-trigger .iv3-format-res { flex: 1 1 auto; }
+.iv3 .iv3-format-caret { margin-left: auto; opacity: .7; transition: transform .16s ease; }
+.iv3 .iv3-format-select.open .iv3-format-caret { transform: rotate(180deg); }
+.iv3 .iv3-format-menu {
+  position: absolute;
+  left: 0;
+  right: auto;
+  min-width: 236px;
+  max-width: min(280px, 86vw);
+  top: calc(100% + 6px);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 11px;
+  border: 1px solid var(--line-strong);
+  background: rgba(16, 20, 18, .98);
+  box-shadow: var(--shadow);
+  max-height: 258px;
+  overflow-y: auto;
+}
+.iv3 .iv3-format-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.iv3 .iv3-format-option:hover { background: var(--panel-3); }
+.iv3 .iv3-format-option.active { background: rgba(182, 207, 18, .14); }
+.iv3 .iv3-format-option .iv3-format-res { min-width: 82px; font-weight: 600; }
+.iv3 .iv3-format-option .iv3-format-type { margin-left: auto; opacity: .68; font-size: 12px; }
+
+/* Формат-секция не должна обрезать выпадающее меню (form-section = overflow:hidden). */
+.iv3 .format-section { overflow: visible; }
+.iv3 .format-section .control-row { overflow: visible; }

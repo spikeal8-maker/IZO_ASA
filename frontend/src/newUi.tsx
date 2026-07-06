@@ -365,6 +365,8 @@ export default function NewStudio(): ReactElement {
   const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
   // Разрешение = конкретный системный пресет; формат-кнопки переключают тип.
   const [resolutionId, setResolutionId] = useState('sq-1024')
+  const [formatOpen, setFormatOpen] = useState(false)
+  const formatRef = useRef<HTMLDivElement>(null)
   const [quality, setQuality] = useState('fast')
   const [proMode, setProMode] = useState(false)
   const [seed, setSeed] = useState(0)
@@ -885,6 +887,25 @@ export default function NewStudio(): ReactElement {
     if (preset) setResolutionId(preset.id)
   }
 
+  // Формат-дропдаун: класс shape-иконки и локализованный тип разрешения.
+  const ratioIconClass = (kind: 'square' | 'vertical' | 'horizontal') =>
+    kind === 'vertical' ? 'tall' : kind === 'horizontal' ? 'wide' : ''
+  const formatTypeLabel = (kind: 'square' | 'vertical' | 'horizontal') => {
+    const ru = { square: 'Квадрат', horizontal: 'Широкое', vertical: 'Вертикальное' }
+    const en = { square: 'Square', horizontal: 'Wide', vertical: 'Portrait' }
+    return (feedLang === 'en' ? en : ru)[kind]
+  }
+
+  // Закрытие формат-дропдауна по клику вне него.
+  useEffect(() => {
+    if (!formatOpen) return
+    const onDoc = (e: MouseEvent) => {
+      if (formatRef.current && !formatRef.current.contains(e.target as Node)) setFormatOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [formatOpen])
+
   const copyPrompt = (text: string) => {
     if (!text) return
     void navigator.clipboard?.writeText(text).then(() => {
@@ -1378,18 +1399,40 @@ export default function NewStudio(): ReactElement {
             <h2>Формат</h2>
           </div>
           <div className="control-row">
-            <select
-              className="resolution"
-              aria-label="Разрешение"
-              value={resolutionId}
-              onChange={(e) => setResolutionId(e.target.value)}
-            >
-              {RESOLUTION_PRESETS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.width}×{p.height}
-                </option>
-              ))}
-            </select>
+            <div className={`iv3-format-select${formatOpen ? ' open' : ''}`} ref={formatRef}>
+              <button
+                type="button"
+                className="resolution iv3-format-trigger"
+                aria-haspopup="listbox"
+                aria-expanded={formatOpen}
+                aria-label="Разрешение и формат"
+                onClick={() => setFormatOpen((o) => !o)}
+              >
+                <span className={`ratio-icon ${ratioIconClass(selectedResolution.kind)}`.trim()} aria-hidden="true"></span>
+                <span className="iv3-format-res">{selectedResolution.width}×{selectedResolution.height}</span>
+                <svg className="iv3-format-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="m7 9 5 5 5-5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              {formatOpen && (
+                <div className="iv3-format-menu" role="listbox">
+                  {RESOLUTION_PRESETS.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      role="option"
+                      aria-selected={p.id === resolutionId}
+                      className={`iv3-format-option${p.id === resolutionId ? ' active' : ''}`}
+                      onClick={() => { setResolutionId(p.id); setFormatOpen(false) }}
+                    >
+                      <span className={`ratio-icon ${ratioIconClass(p.kind)}`.trim()} aria-hidden="true"></span>
+                      <span className="iv3-format-res">{p.width}×{p.height}</span>
+                      <span className="iv3-format-type">{formatTypeLabel(p.kind)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button className={`ratio-button${ratioKind === 'square' ? ' active' : ''}`} type="button" onClick={() => selectRatio('square')}>
               <span className="ratio-icon"></span>1:1
             </button>
