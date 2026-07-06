@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import feed_media_migrate
+import media_storage_audit
 import main
 
 
@@ -244,6 +245,19 @@ def test_feed_media_migrate_filters_targeted_rows(temp_db):
     assert missing["filters"]["only_missing"] is True
     assert [item["id"] for item in missing["items"]] == [missing_pub["id"]]
     assert missing["media_missing"] == 1
+
+
+def test_media_storage_audit_reports_unreferenced_files(temp_db):
+    make_user("iuid-storage", "web_storage")
+    make_image("img-storage", "web_storage")
+    orphan = main.MEDIA / "orphan-upload.tmp"
+    orphan.write_bytes(b"unused")
+
+    report = media_storage_audit.audit_media_storage(item_limit=10)
+    assert report["active_referenced"]["count"] >= 2
+    assert report["missing_active_refs"] == []
+    assert any(item["file"] == "orphan-upload.tmp" for item in report["largest_unreferenced"])
+    assert report["unreferenced"]["bytes"] >= len(b"unused")
 
 
 def test_init_db_idempotent_with_feed_tables(temp_db):

@@ -382,6 +382,24 @@ python backend/feed_media_audit.py --report logs/feed-media-audit-latest.json --
 - средний/максимальный вес `thumb` и `large`;
 - orphan-файлы в `backend/media/feed`.
 
+Read-only аудит всего `backend/media` перед будущей чисткой:
+
+```bash
+python backend/media_storage_audit.py --report logs/media-storage-audit-latest.json --fail-on-issues
+```
+
+Он не удаляет файлы. Проверяет:
+
+- общий размер `backend/media`;
+- размер файлов, на которые есть активные ссылки из `images` или feed;
+- файлы, которые остались от deleted image rows;
+- unreferenced файлы без активной ссылки из БД;
+- отсутствующие активные ссылки (`missing_active_refs`).
+
+Любое удаление должно делаться отдельной задачей после просмотра этого отчета и
+после бэкапа. Нельзя удалять `seed_izo_*.png`, пока не принято отдельное решение
+по хранению seed originals.
+
 Read-only проверка миграции без создания файлов:
 
 ```bash
