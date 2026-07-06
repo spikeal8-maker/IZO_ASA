@@ -642,6 +642,7 @@ export default function NewStudio(): ReactElement {
   const inFlightRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const historyStripRef = useRef<HTMLDivElement>(null)
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null)
   // true, если тянули историю мышью — тогда клик по миниатюре не выбирает её.
   const historyDraggedRef = useRef(false)
   const styleRowRef = useRef<HTMLDivElement>(null)
@@ -896,6 +897,15 @@ export default function NewStudio(): ReactElement {
   // промпт-блок не рассинхронизировался с пустым preview у гостя).
   const dockImage = dockImageId ? historyItems.find((g) => g.id === dockImageId) : gallery[0]
   const dockIsFeed = !!dockImage && dockImage.id.startsWith('feed-')
+  // Фон preview во время генерации: текущая работа/история/стиль как размытая
+  // подложка; если ничего нет — брендовый placeholder (в CSS).
+  const loadingBackdropUrl = hoverStyle
+    ? hoverStyle.preview[previewGender]
+    : dockImage
+      ? apiUrl(dockImage.url)
+      : gallery[0]
+        ? apiUrl(gallery[0].url)
+        : undefined
 
   // v3-студия: выбрать формат (соотношение сторон) — переключает разрешение на
   // первый пресет нужной ориентации.
@@ -982,6 +992,20 @@ export default function NewStudio(): ReactElement {
       window.removeEventListener('pointerup', onUp)
     }
   }, [tab, historyItems.length])
+
+  // Auto-grow главного prompt на мобильном: высота по контенту до max-height,
+  // затем внутренний скролл. На desktop высоту не трогаем — там resize вручную.
+  useEffect(() => {
+    const ta = promptTextareaRef.current
+    if (!ta) return
+    if (!window.matchMedia('(max-width: 820px)').matches) {
+      ta.style.height = ''
+      return
+    }
+    ta.style.height = 'auto'
+    const max = Math.round(window.innerHeight * 0.34)
+    ta.style.height = `${Math.min(ta.scrollHeight, max)}px`
+  }, [prompts.text, tab])
 
   // Горизонтальный скролл ряда стилей: колесо мыши + drag (мышь/тач).
   // Если пользователь тянул ряд — клик по карточке не выбирает стиль (styleDraggedRef).
@@ -1380,6 +1404,7 @@ export default function NewStudio(): ReactElement {
           </div>
           <div className="prompt-card">
             <textarea
+              ref={promptTextareaRef}
               placeholder="Опишите идею своими словами — получите изображение..."
               maxLength={2000}
               value={prompts.text}
@@ -1545,9 +1570,16 @@ export default function NewStudio(): ReactElement {
               <span className="iv3-style-hover-badge">Превью стиля · {styleShortLabel(hoverStyle, feedLang)}</span>
             </>
           ) : jobActive ? (
-            <div className="iv3-preview-loading">
-              <span className="iv3-spinner" aria-hidden="true"></span>
-              <span>Генерируем{jobProgress > 0 ? ` · ${jobProgress}%` : '…'}</span>
+            <div className={`iv3-preview-loading${loadingBackdropUrl ? ' has-bg' : ''}`}>
+              {loadingBackdropUrl && <img className="iv3-preview-backdrop" src={loadingBackdropUrl} alt="" aria-hidden="true" />}
+              <div className="iv3-loading-shimmer" aria-hidden="true"></div>
+              <div className="iv3-loading-inner">
+                <span className="iv3-spinner" aria-hidden="true"></span>
+                <span className="iv3-loading-text">Генерируем{jobProgress > 0 ? ` · ${jobProgress}%` : '…'}</span>
+                <div className="iv3-loading-bar" aria-hidden="true">
+                  <div className="iv3-loading-bar-fill" style={jobProgress > 0 ? { width: `${jobProgress}%` } : undefined}></div>
+                </div>
+              </div>
             </div>
           ) : resultUrl && !resultError ? (
             <>
