@@ -34,6 +34,10 @@ New visual shell for /new (2026-07-06):
 
 Canonical routes (updated 2026-07-05, ported working screens):
 
+- `/news` — legacy studio route/scale. This is intentionally documented as the
+  old studio visual baseline and should not be confused with `/new`. See
+  `docs/ui-route-layout-baseline-20260706.md` for measured desktop/mobile
+  differences.
 - `/feed` (and `/lenta`) — public live feed, no login wall for reading.
 - `/gallery` (compat `/new/gallery`) — renders the REAL working old gallery
   (`GalleryView` from App.tsx) inside a new-ui wrapper (`NewSubNav`). Full UX
@@ -57,6 +61,9 @@ Canonical routes (updated 2026-07-05, ported working screens):
   full navigation to `/gallery` / `/profile`. Old `/` Studio still works.
 - Navigation: NewSubNav links Лента(/feed) · ИЗО(/new) · Галерея · Профиль (+
   Админка if trusted admin). back-to-studio inside the screens → `/feed`.
+- Future large workflows: keep heavy surfaces as separate routes/pages when the
+  code grows beyond a simple tab. Drawing/canvas is expected to become a
+  dedicated route/page before it becomes a full editor surface.
 
 What was integrated:
 

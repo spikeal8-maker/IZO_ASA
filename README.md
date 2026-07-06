@@ -12,6 +12,8 @@ Start here when you or another agent joins the project:
 - `docs/admin-panel-product-spec.md` — admin product direction.
 - `docs/new-ui-v2-plan.md` — new UI `/new` (working contract).
 - `docs/new-ui-v2-review.md` — current `/new` review state.
+- `docs/new-mvp-release-20260706.md` — frozen `/new` Text-to-Image MVP release notes.
+- `docs/ui-route-layout-baseline-20260706.md` — `/news` legacy scale vs `/new` v3 scale baseline.
 
 The `docs/phase*.md` files are historical phase reports. They are useful evidence, but
 the current working rules should be read from the files listed above first.

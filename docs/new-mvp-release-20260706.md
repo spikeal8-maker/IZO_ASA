@@ -37,3 +37,17 @@
 `/new` is frozen after this release. Do **not** modify `/new` except for a
 blocker / critical bug. New tabs (Изо→Изо, Редактор, Рисунок, Лицо, Видео),
 full EN localization and further polish are separate, later stages.
+
+## Layout baseline
+
+The current visual-size baseline is documented in
+`docs/ui-route-layout-baseline-20260706.md`.
+
+Important route distinction:
+
+- `/news` is the legacy studio scale.
+- `/new` is the v3 studio scale from this MVP.
+
+They are different UI implementations, not the same page with a different
+browser zoom. Future settings/profile work may add a route/layout preference,
+but should not implement this as global CSS zoom.

@@ -70,7 +70,14 @@ or impersonate a demo user.
 ## Route Design
 
 - `/` remains the current production UI.
+- `/news` is the legacy studio scale/baseline route. It is documented separately
+  from `/new` in `docs/ui-route-layout-baseline-20260706.md`.
 - `/new` renders UI 2.0.
+- `/feed`, `/gallery`, and `/profile` are separate new-wrapper routes for
+  larger product surfaces.
+- Future heavy tools such as drawing/canvas should become dedicated routes/pages
+  instead of being forced into the main `/new` studio tab if the code surface
+  becomes large.
 - The route switch in `App.tsx` must be minimal.
 - `/new` styles must be scoped under a root class such as `.n2`.
 
