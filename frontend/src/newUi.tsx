@@ -619,6 +619,7 @@ export default function NewStudio(): ReactElement {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const inFlightRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const historyStripRef = useRef<HTMLDivElement>(null)
   // Текущая стилевая приписка в text-промпте: {id, text} — чтобы заменять её.
   const appliedStyleRef = useRef<{ id: string; text: string } | null>(null)
   const resultSeededRef = useRef(false)
@@ -830,6 +831,11 @@ export default function NewStudio(): ReactElement {
     setResultUrl(item.url)
     setResultSource(undefined)
     setDockImageId(item.id)
+  }
+
+  const scrollHistory = (dir: -1 | 1) => {
+    const strip = historyStripRef.current
+    if (strip) strip.scrollBy({ left: dir * Math.max(160, strip.clientWidth * 0.7), behavior: 'smooth' })
   }
 
   // ---------- Live Feed: карточка публикации ----------
@@ -1362,25 +1368,38 @@ export default function NewStudio(): ReactElement {
               Промпт изображения ›
             </button>
           </div>
-          <div className="history-carousel" aria-label="Навигация истории">
-            <div className="history-strip">
-              {history.length === 0 ? (
-                <span className="iv3-history-empty">История пуста</span>
-              ) : (
-                history.map((item) => (
+          {history.length === 0 ? (
+            <div className="iv3-history-empty">
+              <span className="iv3-history-empty-mark" aria-hidden="true">▧</span>
+              <span>{authStatus === 'authed' ? 'Здесь появятся ваши генерации' : 'Войдите — и здесь появятся ваши работы'}</span>
+            </div>
+          ) : (
+            <div className="history-carousel" aria-label="Навигация истории">
+              <button className="history-arrow history-prev" type="button" aria-label="Назад" onClick={() => scrollHistory(-1)}>
+                <svg width="18" height="34" viewBox="0 0 18 34" fill="none" aria-hidden="true">
+                  <path d="M12.5 6 3.5 17l9 11" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <div className="history-strip" ref={historyStripRef}>
+                {history.map((item) => (
                   <figure
                     key={item.id}
-                    className={`history-item${dockImage?.id === item.id ? ' active' : ''}`}
+                    className={`history-item square${dockImage?.id === item.id ? ' active' : ''}`}
                     role="button"
                     tabIndex={0}
                     onClick={() => openHistory(item)}
                   >
                     <img src={apiUrl(item.thumbnailUrl || item.url)} alt={item.promptOriginal.slice(0, 40)} loading="lazy" />
                   </figure>
-                ))
-              )}
+                ))}
+              </div>
+              <button className="history-arrow history-next" type="button" aria-label="Вперёд" onClick={() => scrollHistory(1)}>
+                <svg width="18" height="34" viewBox="0 0 18 34" fill="none" aria-hidden="true">
+                  <path d="m5.5 6 9 11-9 11" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
             </div>
-          </div>
+          )}
         </div>
 
         <aside className="image-prompt">
