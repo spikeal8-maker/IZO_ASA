@@ -65,6 +65,20 @@ interface N2GalleryImage {
   mode: string
   promptOriginal: string
   createdAt: string
+  // Для формы миниатюр истории: у галереи есть width/height, у ленты — aspectRatio.
+  width?: number
+  height?: number
+  aspectRatio?: string
+}
+
+// Форма миниатюры истории по реальным размерам/соотношению; квадрат — фолбэк.
+function historyShape(item: N2GalleryImage): 'square' | 'tall' | 'wide' {
+  if (item.width && item.height) {
+    if (item.width === item.height) return 'square'
+    return item.width > item.height ? 'wide' : 'tall'
+  }
+  if (item.aspectRatio) return feedShape(item.aspectRatio)
+  return 'square'
 }
 
 const QUALITY: Array<{ id: string; label: string; steps: number }> = [
@@ -628,6 +642,8 @@ export default function NewStudio(): ReactElement {
   const inFlightRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const historyStripRef = useRef<HTMLDivElement>(null)
+  // true, если тянули историю мышью — тогда клик по миниатюре не выбирает её.
+  const historyDraggedRef = useRef(false)
   const styleRowRef = useRef<HTMLDivElement>(null)
   // true, если пользователь тянул ряд стилей — тогда клик по карточке не выбирает.
   const styleDraggedRef = useRef(false)
@@ -686,6 +702,7 @@ export default function NewStudio(): ReactElement {
               mode: 'feed',
               promptOriginal: p.prompt || p.title || '',
               createdAt: p.created_at || '',
+              aspectRatio: p.aspect_ratio || '1:1',
             }
           })
           // В историю не добавляем элементы без рабочего публичного изображения.
@@ -890,11 +907,6 @@ export default function NewStudio(): ReactElement {
   // Формат-дропдаун: класс shape-иконки и локализованный тип разрешения.
   const ratioIconClass = (kind: 'square' | 'vertical' | 'horizontal') =>
     kind === 'vertical' ? 'tall' : kind === 'horizontal' ? 'wide' : ''
-  const formatTypeLabel = (kind: 'square' | 'vertical' | 'horizontal') => {
-    const ru = { square: 'Квадрат', horizontal: 'Широкое', vertical: 'Вертикальное' }
-    const en = { square: 'Square', horizontal: 'Wide', vertical: 'Portrait' }
-    return (feedLang === 'en' ? en : ru)[kind]
-  }
 
   // Закрытие формат-дропдауна по клику вне него.
   useEffect(() => {
@@ -926,6 +938,50 @@ export default function NewStudio(): ReactElement {
     const strip = historyStripRef.current
     if (strip) strip.scrollBy({ left: dir * Math.max(160, strip.clientWidth * 0.7), behavior: 'smooth' })
   }
+
+  // Drag-скролл ленты истории мышью/тачем (как у ряда стилей). Клик после drag
+  // не выбирает миниатюру; обычный клик — выбирает.
+  useEffect(() => {
+    const strip = historyStripRef.current
+    if (!strip) return
+    const st = { down: false, startX: 0, startScroll: 0 }
+    const onWheel = (e: WheelEvent) => {
+      if (strip.scrollWidth <= strip.clientWidth) return
+      const d = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+      if (!d) return
+      strip.scrollLeft += d
+      e.preventDefault()
+    }
+    const onDown = (e: PointerEvent) => {
+      st.down = true
+      historyDraggedRef.current = false
+      st.startX = e.clientX
+      st.startScroll = strip.scrollLeft
+    }
+    const onMove = (e: PointerEvent) => {
+      if (!st.down) return
+      const dx = e.clientX - st.startX
+      if (Math.abs(dx) > 4) {
+        historyDraggedRef.current = true
+        strip.classList.add('dragging')
+      }
+      strip.scrollLeft = st.startScroll - dx
+    }
+    const onUp = () => {
+      st.down = false
+      strip.classList.remove('dragging')
+    }
+    strip.addEventListener('wheel', onWheel, { passive: false })
+    strip.addEventListener('pointerdown', onDown)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      strip.removeEventListener('wheel', onWheel)
+      strip.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [tab, historyItems.length])
 
   // Горизонтальный скролл ряда стилей: колесо мыши + drag (мышь/тач).
   // Если пользователь тянул ряд — клик по карточке не выбирает стиль (styleDraggedRef).
@@ -1405,10 +1461,9 @@ export default function NewStudio(): ReactElement {
                 className="resolution iv3-format-trigger"
                 aria-haspopup="listbox"
                 aria-expanded={formatOpen}
-                aria-label="Разрешение и формат"
+                aria-label="Разрешение"
                 onClick={() => setFormatOpen((o) => !o)}
               >
-                <span className={`ratio-icon ${ratioIconClass(selectedResolution.kind)}`.trim()} aria-hidden="true"></span>
                 <span className="iv3-format-res">{selectedResolution.width}×{selectedResolution.height}</span>
                 <svg className="iv3-format-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="m7 9 5 5 5-5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
@@ -1427,7 +1482,6 @@ export default function NewStudio(): ReactElement {
                     >
                       <span className={`ratio-icon ${ratioIconClass(p.kind)}`.trim()} aria-hidden="true"></span>
                       <span className="iv3-format-res">{p.width}×{p.height}</span>
-                      <span className="iv3-format-type">{formatTypeLabel(p.kind)}</span>
                     </button>
                   ))}
                 </div>
@@ -1560,10 +1614,10 @@ export default function NewStudio(): ReactElement {
                 {historyItems.map((item) => (
                   <figure
                     key={item.id}
-                    className={`history-item square${dockImage?.id === item.id ? ' active' : ''}`}
+                    className={`history-item ${historyShape(item)}${dockImage?.id === item.id ? ' active' : ''}`}
                     role="button"
                     tabIndex={0}
-                    onClick={() => openHistory(item)}
+                    onClick={() => { if (historyDraggedRef.current) { historyDraggedRef.current = false; return } openHistory(item) }}
                   >
                     <img src={apiUrl(item.thumbnailUrl || item.url)} alt={item.promptOriginal.slice(0, 40)} loading="lazy" />
                     {historyIsFeed && <span className="history-feed-badge">Лента</span>}
