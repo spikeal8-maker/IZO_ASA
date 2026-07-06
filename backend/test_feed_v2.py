@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import feed_media_migrate
+import media_cleanup_plan
 import media_storage_audit
 import main
 
@@ -258,6 +259,27 @@ def test_media_storage_audit_reports_unreferenced_files(temp_db):
     assert report["missing_active_refs"] == []
     assert any(item["file"] == "orphan-upload.tmp" for item in report["largest_unreferenced"])
     assert report["unreferenced"]["bytes"] >= len(b"unused")
+
+
+def test_media_cleanup_plan_excludes_protected_kinds(temp_db):
+    make_user("iuid-cleanup", "web_cleanup")
+    make_image("img-cleanup", "web_cleanup")
+    (main.MEDIA / "orphan-original.png").write_bytes(b"original")
+    (main.MEDIA / "seed_izo_fake.png").write_bytes(b"seed")
+    feed_dir = main.MEDIA / "feed"
+    feed_dir.mkdir(exist_ok=True)
+    (feed_dir / "orphan-feed.webp").write_bytes(b"feed")
+
+    plan = media_cleanup_plan.build_cleanup_plan(
+        kinds={"original_or_input", "seed_original", "feed_variant"},
+        item_limit=20,
+    )
+    files = {item["file"] for item in plan["candidates"]}
+    assert "orphan-original.png" in files
+    assert "seed_izo_fake.png" not in files
+    assert "feed/orphan-feed.webp" not in files
+    assert plan["deletes_files"] is False
+    assert plan["ignored_requested_protected_kinds"] == ["feed_variant", "seed_original"]
 
 
 def test_init_db_idempotent_with_feed_tables(temp_db):

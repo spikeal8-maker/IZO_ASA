@@ -400,6 +400,26 @@ python backend/media_storage_audit.py --report logs/media-storage-audit-latest.j
 после бэкапа. Нельзя удалять `seed_izo_*.png`, пока не принято отдельное решение
 по хранению seed originals.
 
+Read-only manifest кандидатов на будущую чистку:
+
+```bash
+python backend/media_cleanup_plan.py --report logs/media-cleanup-plan-latest.json
+```
+
+По умолчанию manifest включает только unreferenced / deleted-residue файлы типов:
+
+- `original_or_input`;
+- `gallery_thumb`.
+
+Он намеренно защищает и не включает:
+
+- `seed_original`;
+- `feed_variant`.
+
+Даже если передать защищенный тип через `--kind`, он попадет в
+`ignored_requested_protected_kinds`, а не в `candidates`. Этот скрипт тоже ничего
+не удаляет: в отчете должно быть `deletes_files: false`.
+
 Read-only проверка миграции без создания файлов:
 
 ```bash
