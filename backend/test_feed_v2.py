@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import feed_media_audit
 import feed_media_migrate
 import job_media_ref_repair
 import media_cleanup_apply
@@ -257,6 +258,24 @@ def test_gallery_delete_retires_feed_publication_and_variants(temp_db):
         assert row["feed_large_name"] is None
         assert row["media_ready_at"] is None
         assert row["media_error"] == "source_image_deleted"
+
+
+def test_feed_media_audit_flags_published_deleted_source(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-audit-deleted", "web_audit_deleted")
+        make_image("img-audit-deleted", "web_audit_deleted")
+        pub = publish(client, token, "img-audit-deleted")
+        with main.db() as conn:
+            conn.execute(
+                "UPDATE images SET deleted_at = '2026-07-07T00:00:00+00:00' WHERE id = ?",
+                ("img-audit-deleted",),
+            )
+
+    report = feed_media_audit.audit_feed_media(item_limit=10)
+    assert report["published_deleted_sources"] == [
+        {"id": pub["id"], "image_id": "img-audit-deleted", "deleted_at": "2026-07-07T00:00:00+00:00"}
+    ]
+    assert "published_deleted_sources" in report["issues"]
 
 
 def test_publish_creates_feed_variants_not_original_fallback(temp_db):

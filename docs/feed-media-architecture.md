@@ -384,6 +384,7 @@ python backend/feed_media_audit.py --report logs/feed-media-audit-latest.json --
 
 - статусы публикаций;
 - `published` rows без `media_ready_at`;
+- `published` rows, у которых исходная `images` строка уже `deleted_at`;
 - отсутствие физических `feed/*.webp`;
 - средний/максимальный вес `thumb` и `large`;
 - orphan-файлы в `backend/media/feed`.

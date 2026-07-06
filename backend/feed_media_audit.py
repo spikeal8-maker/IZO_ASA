@@ -42,6 +42,7 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
         "ready_publications": 0,
         "seed_ready_publications": 0,
         "media_missing_publications": [],
+        "published_deleted_sources": [],
         "published_not_ready": [],
         "missing_files": [],
         "size_stats": {},
@@ -55,11 +56,20 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
         for row in conn.execute("SELECT status, COUNT(*) AS c FROM feed_publications GROUP BY status ORDER BY status"):
             report["statuses"][row["status"]] = int(row["c"] or 0)
 
+        feed_columns = {row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()}
+        is_seed_expr = "fp.is_seed" if "is_seed" in feed_columns else "0 AS is_seed"
+        author_type_expr = "fp.author_type" if "author_type" in feed_columns else "NULL AS author_type"
+        legacy_user_expr = "fp.legacy_user_id" if "legacy_user_id" in feed_columns else "NULL AS legacy_user_id"
         rows = conn.execute(
-            """
+            f"""
             SELECT id, status, feed_thumb_name, feed_large_name, feed_thumb_bytes, feed_large_bytes,
-                   media_ready_at, media_error, is_seed, author_type, legacy_user_id
-            FROM feed_publications
+                   media_ready_at, media_error, is_seed, author_type, legacy_user_id,
+                   image_id, image_deleted_at
+            FROM (
+                SELECT fp.*, {is_seed_expr}, {author_type_expr}, {legacy_user_expr}, i.deleted_at AS image_deleted_at
+                FROM feed_publications fp
+                LEFT JOIN images i ON i.id = fp.image_id
+            )
             ORDER BY created_at DESC
             """
         ).fetchall()
@@ -78,6 +88,12 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
                 continue
 
             if row["status"] != "published":
+                continue
+
+            if main._row_get(row, "image_deleted_at"):
+                report["published_deleted_sources"].append(
+                    {"id": pub_id, "image_id": main._row_get(row, "image_id"), "deleted_at": main._row_get(row, "image_deleted_at")}
+                )
                 continue
 
             thumb_name = main._row_get(row, "feed_thumb_name")
@@ -113,6 +129,7 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
                     report["orphan_feed_files"].append({"file": rel, "bytes": path.stat().st_size})
 
     report["media_missing_publications"] = report["media_missing_publications"][:item_limit]
+    report["published_deleted_sources"] = report["published_deleted_sources"][:item_limit]
     report["published_not_ready"] = report["published_not_ready"][:item_limit]
     report["missing_files"] = report["missing_files"][:item_limit]
     report["orphan_feed_files"] = report["orphan_feed_files"][:item_limit]
@@ -123,6 +140,8 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
 
     if report["published_not_ready"]:
         report["issues"].append("published_not_ready")
+    if report["published_deleted_sources"]:
+        report["issues"].append("published_deleted_sources")
     if report["missing_files"]:
         report["issues"].append("missing_files")
     if report["size_stats"]["thumb"]["avg"] > 120_000:
@@ -143,7 +162,7 @@ def main_cli() -> None:
     if args.report:
         Path(args.report).write_text(text + "\n", encoding="utf-8")
     print(text)
-    hard_issues = {"published_not_ready", "missing_files"} & set(report["issues"])
+    hard_issues = {"published_not_ready", "published_deleted_sources", "missing_files"} & set(report["issues"])
     if args.fail_on_issues and hard_issues:
         raise SystemExit(2)
 
