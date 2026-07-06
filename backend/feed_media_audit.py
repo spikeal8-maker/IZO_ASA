@@ -42,6 +42,7 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
         "ready_publications": 0,
         "seed_ready_publications": 0,
         "media_missing_publications": [],
+        "published_missing_sources": [],
         "published_deleted_sources": [],
         "published_not_ready": [],
         "missing_files": [],
@@ -64,9 +65,11 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
             f"""
             SELECT id, status, feed_thumb_name, feed_large_name, feed_thumb_bytes, feed_large_bytes,
                    media_ready_at, media_error, is_seed, author_type, legacy_user_id,
-                   image_id, image_deleted_at
+                   image_id, image_exists, image_deleted_at
             FROM (
-                SELECT fp.*, {is_seed_expr}, {author_type_expr}, {legacy_user_expr}, i.deleted_at AS image_deleted_at
+                SELECT fp.*, {is_seed_expr}, {author_type_expr}, {legacy_user_expr},
+                       CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS image_exists,
+                       i.deleted_at AS image_deleted_at
                 FROM feed_publications fp
                 LEFT JOIN images i ON i.id = fp.image_id
             )
@@ -88,6 +91,12 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
                 continue
 
             if row["status"] != "published":
+                continue
+
+            if int(main._row_get(row, "image_exists") or 0) != 1:
+                report["published_missing_sources"].append(
+                    {"id": pub_id, "image_id": main._row_get(row, "image_id")}
+                )
                 continue
 
             if main._row_get(row, "image_deleted_at"):
@@ -129,6 +138,7 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
                     report["orphan_feed_files"].append({"file": rel, "bytes": path.stat().st_size})
 
     report["media_missing_publications"] = report["media_missing_publications"][:item_limit]
+    report["published_missing_sources"] = report["published_missing_sources"][:item_limit]
     report["published_deleted_sources"] = report["published_deleted_sources"][:item_limit]
     report["published_not_ready"] = report["published_not_ready"][:item_limit]
     report["missing_files"] = report["missing_files"][:item_limit]
@@ -140,6 +150,8 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
 
     if report["published_not_ready"]:
         report["issues"].append("published_not_ready")
+    if report["published_missing_sources"]:
+        report["issues"].append("published_missing_sources")
     if report["published_deleted_sources"]:
         report["issues"].append("published_deleted_sources")
     if report["missing_files"]:
@@ -162,7 +174,7 @@ def main_cli() -> None:
     if args.report:
         Path(args.report).write_text(text + "\n", encoding="utf-8")
     print(text)
-    hard_issues = {"published_not_ready", "published_deleted_sources", "missing_files"} & set(report["issues"])
+    hard_issues = {"published_not_ready", "published_missing_sources", "published_deleted_sources", "missing_files"} & set(report["issues"])
     if args.fail_on_issues and hard_issues:
         raise SystemExit(2)
 

@@ -278,6 +278,19 @@ def test_feed_media_audit_flags_published_deleted_source(temp_db):
     assert "published_deleted_sources" in report["issues"]
 
 
+def test_feed_media_audit_flags_published_missing_source(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-audit-missing", "web_audit_missing")
+        make_image("img-audit-missing", "web_audit_missing")
+        pub = publish(client, token, "img-audit-missing")
+        with main.db() as conn:
+            conn.execute("DELETE FROM images WHERE id = ?", ("img-audit-missing",))
+
+    report = feed_media_audit.audit_feed_media(item_limit=10)
+    assert report["published_missing_sources"] == [{"id": pub["id"], "image_id": "img-audit-missing"}]
+    assert "published_missing_sources" in report["issues"]
+
+
 def test_publish_creates_feed_variants_not_original_fallback(temp_db):
     with TestClient(main.app) as client:
         token = make_user("iuid-d", "web_d")
