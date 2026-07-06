@@ -40,6 +40,8 @@ COMFYUI_INPUT_MAX_SIDE = max(512, min(2048, int(os.getenv("COMFYUI_INPUT_MAX_SID
 COMFYUI_FACE_INPUT_MAX_SIDE = max(512, min(COMFYUI_INPUT_MAX_SIDE, int(os.getenv("COMFYUI_FACE_INPUT_MAX_SIDE", "1024"))))
 COMFYUI_FACE_SOURCE_MEGAPIXELS = max(0.15, min(1.0, float(os.getenv("COMFYUI_FACE_SOURCE_MEGAPIXELS", "0.35"))))
 COMFYUI_INPUT_MIN_SIDE = 256
+GALLERY_IMAGE_MAX_SIDE = max(1024, min(4096, int(os.getenv("GALLERY_IMAGE_MAX_SIDE", "2048"))))
+GALLERY_IMAGE_WEBP_QUALITY = max(70, min(95, int(os.getenv("GALLERY_IMAGE_WEBP_QUALITY", "90"))))
 
 
 def load_local_env() -> None:
@@ -4870,6 +4872,16 @@ def create_thumbnail(image_path: Path) -> Path:
     return thumb_path
 
 
+def save_gallery_original(image: Image.Image, job_id: str) -> Path:
+    out = MEDIA / f"{job_id}.webp"
+    prepared = ImageOps.exif_transpose(image)
+    if prepared.mode not in {"RGB", "RGBA"}:
+        prepared = prepared.convert("RGB")
+    prepared.thumbnail((GALLERY_IMAGE_MAX_SIDE, GALLERY_IMAGE_MAX_SIDE), Image.Resampling.LANCZOS)
+    prepared.save(out, "WEBP", quality=GALLERY_IMAGE_WEBP_QUALITY, method=6)
+    return out
+
+
 def feed_media_dir() -> Path:
     path = MEDIA / "feed"
     path.mkdir(exist_ok=True)
@@ -5475,10 +5487,8 @@ async def download_comfyui_image(image: dict[str, str], job_id: str) -> tuple[Pa
     async with httpx.AsyncClient(timeout=120) as client:
         response = await client.get(f"{COMFYUI_BASE_URL}/view", params=params)
         response.raise_for_status()
-        content_type = response.headers.get("content-type", "")
-        extension = "png" if "png" in content_type else "jpg"
-        image_path = MEDIA / f"{job_id}_comfyui.{extension}"
-        image_path.write_bytes(response.content)
+        with Image.open(io.BytesIO(response.content)) as opened:
+            image_path = save_gallery_original(opened, f"{job_id}_comfyui")
     return image_path, create_thumbnail(image_path)
 
 
@@ -5691,12 +5701,8 @@ def mock_image(req: GenerateRequest, job_id: str) -> tuple[Path, Path]:
     except Exception:
         font = ImageFont.load_default()
     draw.multiline_text((72, 72), text, fill="#172033", font=font, spacing=14)
-    out = MEDIA / f"{job_id}.png"
-    thumb = MEDIA / f"{job_id}_thumb.webp"
-    image.save(out, "PNG")
-    image.thumbnail((512, 512))
-    image.save(thumb, "WEBP", quality=88)
-    return out, thumb
+    out = save_gallery_original(image, job_id)
+    return out, create_thumbnail(out)
 
 
 async def worker() -> None:

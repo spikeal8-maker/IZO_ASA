@@ -118,8 +118,8 @@ def test_extract_images_from_history_handles_standard_comfyui_outputs() -> None:
     ]
 
 
-def test_download_comfyui_image_saves_png_and_thumbnail(monkeypatch) -> None:
-    image = Image.new("RGB", (16, 16), "#2f6fed")
+def test_download_comfyui_image_saves_optimized_webp_and_thumbnail(monkeypatch) -> None:
+    image = Image.new("RGB", (3000, 1800), "#2f6fed")
     buffer = BytesIO()
     image.save(buffer, "PNG")
     png_bytes = buffer.getvalue()
@@ -156,8 +156,11 @@ def test_download_comfyui_image_saves_png_and_thumbnail(monkeypatch) -> None:
 
     assert image_path.exists()
     assert thumb_path.exists()
-    assert image_path.name == "job_download_test_comfyui.png"
+    assert image_path.name == "job_download_test_comfyui.webp"
     assert thumb_path.name == "job_download_test_comfyui_thumb.webp"
+    with Image.open(image_path) as saved:
+        assert saved.format == "WEBP"
+        assert max(saved.size) <= main.GALLERY_IMAGE_MAX_SIDE
 
 
 def test_save_canvas_json_creates_raster_input() -> None:

@@ -121,7 +121,7 @@ desktop feed grid и быстрый публичный доступ.
 | Gallery thumb | 512 px | WebP | 82-88 | 20-80 KB |
 | Feed thumb | 640 px | WebP | 78-84 | 25-120 KB |
 | Feed large | 1536 px | WebP | 82-88 | 120-450 KB |
-| Original | как сгенерировано, но в лимитах генерации | PNG/JPG/WebP | source | может быть 1-5 MB |
+| Gallery original | до 2048 px | WebP | 90 | обычно до 1 MB |
 
 Правила:
 
@@ -140,11 +140,16 @@ desktop feed grid и быстрый публичный доступ.
 
 Backend уже должен создавать:
 
-- original: результат ComfyUI/OpenRouter;
+- gallery original: оптимизированный WebP (`GALLERY_IMAGE_MAX_SIDE`, по умолчанию
+  2048 px; `GALLERY_IMAGE_WEBP_QUALITY`, по умолчанию 90);
 - gallery thumbnail: `*_thumb.webp`.
 
 На этом этапе не нужно сразу создавать feed-файлы для всех генераций. Большинство
 работ никогда не попадет в ленту, поэтому это лишняя работа и диск.
+
+Старые PNG/JPG originals остаются валидными и не переписываются автоматически.
+Их можно мигрировать отдельным maintenance-заходом только после read-only отчета,
+backup и проверки, что файл не используется как job input/source.
 
 ### При публикации в ленту
 
