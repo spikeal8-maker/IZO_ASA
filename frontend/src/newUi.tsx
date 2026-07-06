@@ -18,6 +18,7 @@ import type { V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import './newUi.css'
 import './newStudioV3.css'
+import previewPlaceholderUrl from './assets/preview-placeholder.jpg'
 
 const API = import.meta.env.VITE_API_BASE_URL || '/api'
 // Origin API-сервера для относительных media-URL из ответов backend
@@ -1854,6 +1855,8 @@ export default function NewStudio(): ReactElement {
             </>
           ) : (
             <div className="iv3-preview-empty">
+              <img className="iv3-preview-placeholder-bg" src={previewPlaceholderUrl} alt="" aria-hidden="true" />
+              <span className="iv3-preview-placeholder-vignette" aria-hidden="true"></span>
               <span className="iv3-preview-empty-mark" aria-hidden="true">✦</span>
               <p>{resultError ? 'Изображение недоступно. Сгенерируйте заново.' : 'Опишите идею слева и нажмите «Сгенерировать»'}</p>
             </div>
@@ -1970,6 +1973,8 @@ export default function NewStudio(): ReactElement {
 
   const placeholderStudio = (title: string, note: string) => (
     <div className="iv3-placeholder">
+      <img className="iv3-preview-placeholder-bg" src={previewPlaceholderUrl} alt="" aria-hidden="true" />
+      <span className="iv3-preview-placeholder-vignette" aria-hidden="true"></span>
       <div className="iv3-placeholder-card">
         <span className="iv3-preview-empty-mark" aria-hidden="true">✦</span>
         <h2>{title}</h2>
