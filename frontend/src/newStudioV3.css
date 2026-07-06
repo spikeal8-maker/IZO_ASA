@@ -2495,14 +2495,14 @@ font-size: 10.5px;
 .iv3 .iv3-preview-placeholder-bg {
   position: absolute;
   z-index: 0;
-  inset: -18px;
-  width: calc(100% + 36px);
-  height: calc(100% + 36px);
+  inset: -8px;
+  width: calc(100% + 16px);
+  height: calc(100% + 16px);
   object-fit: cover;
   object-position: center;
-  filter: blur(13px) brightness(.42) saturate(.72);
-  transform: scale(1.04);
-  opacity: .9;
+  filter: blur(4px) brightness(.68) saturate(.88) contrast(.96);
+  transform: scale(1.015);
+  opacity: .96;
   pointer-events: none;
 }
 .iv3 .iv3-preview-placeholder-vignette {
@@ -2510,8 +2510,8 @@ font-size: 10.5px;
   z-index: 1;
   inset: 0;
   background:
-    radial-gradient(circle at 50% 44%, rgba(7, 10, 8, .1), rgba(3, 4, 4, .62) 68%),
-    linear-gradient(180deg, rgba(5, 7, 7, .2), rgba(5, 7, 7, .62));
+    radial-gradient(circle at 50% 44%, rgba(7, 10, 8, .02), rgba(3, 4, 4, .42) 72%),
+    linear-gradient(180deg, rgba(5, 7, 7, .08), rgba(5, 7, 7, .46));
   pointer-events: none;
 }
 .iv3 .iv3-preview-empty p {

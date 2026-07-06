@@ -1858,7 +1858,7 @@ export default function NewStudio(): ReactElement {
               <img className="iv3-preview-placeholder-bg" src={previewPlaceholderUrl} alt="" aria-hidden="true" />
               <span className="iv3-preview-placeholder-vignette" aria-hidden="true"></span>
               <span className="iv3-preview-empty-mark" aria-hidden="true">✦</span>
-              <p>{resultError ? 'Изображение недоступно. Сгенерируйте заново.' : 'Опишите идею слева и нажмите «Сгенерировать»'}</p>
+              <p>{resultError ? 'Предыдущий результат не загрузился. Новый появится здесь.' : 'Опишите идею слева и нажмите «Сгенерировать»'}</p>
             </div>
           )}
           {previewNoticeText && (
