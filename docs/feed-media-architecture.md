@@ -391,10 +391,16 @@ python backend/media_storage_audit.py --report logs/media-storage-audit-latest.j
 Он не удаляет файлы. Проверяет:
 
 - общий размер `backend/media`;
-- размер файлов, на которые есть активные ссылки из `images` или feed;
+- размер файлов, на которые есть активные ссылки из `images`, feed или
+  `settings_json`;
 - файлы, которые остались от deleted image rows;
 - unreferenced файлы без активной ссылки из БД;
 - отсутствующие активные ссылки (`missing_active_refs`).
+
+Аудит специально читает `images.settings_json` и `jobs.settings_json`: входные,
+reference и remix-файлы могут быть нужны для истории генераций или повторного
+использования, даже если они не являются `images.url`. Такие файлы нельзя
+автоматически считать мусором.
 
 Read-only аудит связки пользователей, галереи и физических файлов:
 

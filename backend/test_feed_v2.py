@@ -262,6 +262,23 @@ def test_media_storage_audit_reports_unreferenced_files(temp_db):
     assert report["unreferenced"]["bytes"] >= len(b"unused")
 
 
+def test_media_storage_audit_protects_job_settings_refs(temp_db):
+    make_user("iuid-job-ref", "web_job_ref")
+    make_image("img-job-ref", "web_job_ref")
+    ref = main.MEDIA / "job-reference.png"
+    ref.write_bytes(b"reference")
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id, user_id, mode, provider, status, prompt_original, settings_json, created_at) "
+            "VALUES ('job-ref', 'web_job_ref', 'image_to_image', 'comfyui', 'completed', 'prompt', ?, '2026-07-07')",
+            ('{"inputImage": "job-reference.png", "nested": {"url": "/api/media/job-reference.png?userId=web_job_ref"}}',),
+        )
+
+    report = media_storage_audit.audit_media_storage(item_limit=20)
+    assert report["job_referenced"]["count"] >= 1
+    assert all(item["file"] != "job-reference.png" for item in report["largest_unreferenced"])
+
+
 def test_media_cleanup_plan_excludes_protected_kinds(temp_db):
     make_user("iuid-cleanup", "web_cleanup")
     make_image("img-cleanup", "web_cleanup")
