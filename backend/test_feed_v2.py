@@ -554,6 +554,25 @@ def test_init_db_has_feed_media_contract_columns(temp_db):
     assert expected <= columns
 
 
+def test_init_db_has_media_query_indexes(temp_db):
+    main.init_db()
+    with main.db() as conn:
+        indexes = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            ).fetchall()
+        }
+    expected = {
+        "idx_images_user_deleted_created",
+        "idx_images_job_id",
+        "idx_jobs_user_created",
+        "idx_jobs_result_image",
+        "idx_feed_publications_media_ready",
+    }
+    assert expected <= indexes
+
+
 def test_init_db_seeds_editorial_user_for_demo_feed(temp_db):
     main.init_db()
     with main.db() as conn:

@@ -1671,6 +1671,22 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_feed_publications_media_ready "
             "ON feed_publications(status, media_ready_at)"
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_images_user_deleted_created "
+            "ON images(user_id, deleted_at, created_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_images_job_id "
+            "ON images(job_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_user_created "
+            "ON jobs(user_id, created_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_result_image "
+            "ON jobs(result_image_id)"
+        )
 
         backfill_identity_core(conn, now)
 
