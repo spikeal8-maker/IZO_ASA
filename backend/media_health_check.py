@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import db_schema_audit
 import feed_media_audit
 import media_cleanup_plan
 import media_storage_audit
@@ -16,12 +17,15 @@ FEED_HARD_ISSUES = {"published_not_ready", "published_missing_sources", "publish
 
 
 def run_media_health_check(*, item_limit: int = 50) -> dict[str, Any]:
+    schema = db_schema_audit.audit_db_schema()
     feed = feed_media_audit.audit_feed_media(item_limit=item_limit)
     storage = media_storage_audit.audit_media_storage(item_limit=item_limit)
     users = user_gallery_link_audit.audit_user_gallery_links(item_limit=item_limit)
     cleanup = media_cleanup_plan.build_cleanup_plan(item_limit=item_limit)
 
     issues: list[str] = []
+    for issue in schema.get("issues", []):
+        issues.append(f"schema:{issue}")
     for issue in feed.get("issues", []):
         if issue in FEED_HARD_ISSUES:
             issues.append(f"feed:{issue}")
@@ -39,6 +43,10 @@ def run_media_health_check(*, item_limit: int = 50) -> dict[str, Any]:
         "status": "ok" if not issues else "issues",
         "issues": issues,
         "summary": {
+            "schema": {
+                "missing_columns": schema.get("missing_columns", {}),
+                "missing_indexes": schema.get("missing_indexes", []),
+            },
             "feed": {
                 "statuses": feed.get("statuses", {}),
                 "ready_publications": feed.get("ready_publications"),
@@ -53,6 +61,7 @@ def run_media_health_check(*, item_limit: int = 50) -> dict[str, Any]:
             "cleanup": cleanup.get("candidate_summary", {}),
         },
         "reports": {
+            "schema": schema,
             "feed": feed,
             "storage": storage,
             "users": users,

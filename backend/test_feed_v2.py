@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import db_schema_audit
 import feed_media_audit
 import feed_media_migrate
 import job_media_ref_repair
@@ -571,6 +572,19 @@ def test_init_db_has_media_query_indexes(temp_db):
         "idx_feed_publications_media_ready",
     }
     assert expected <= indexes
+
+
+def test_db_schema_audit_reports_ready_schema(temp_db):
+    report = db_schema_audit.audit_db_schema()
+    assert report["issues"] == []
+    assert report["missing_columns"] == {}
+    assert report["missing_indexes"] == []
+
+
+def test_media_health_check_includes_schema_readiness(temp_db):
+    report = media_health_check.run_media_health_check(item_limit=3)
+    assert report["summary"]["schema"] == {"missing_columns": {}, "missing_indexes": []}
+    assert report["reports"]["schema"]["issues"] == []
 
 
 def test_init_db_seeds_editorial_user_for_demo_feed(temp_db):

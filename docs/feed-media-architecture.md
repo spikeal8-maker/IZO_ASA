@@ -380,11 +380,21 @@ Data:
 python backend/media_health_check.py --report logs/media-health-check-latest.json --fail-on-issues
 ```
 
-Она агрегирует feed-audit, storage-audit, user/gallery-audit и cleanup-plan.
+Она агрегирует schema-audit, feed-audit, storage-audit, user/gallery-audit и cleanup-plan.
 `--fail-on-issues` падает только на hard-проблемах связей и файлов: битые
 активные ссылки, опубликованные публикации без source, опубликованные публикации
 на удаленных images, missing feed variants и т.п. Размерные warning остаются в
 детальном nested report и не считаются блокирующей ошибкой health-check.
+
+Read-only аудит готовности SQLite-схемы:
+
+```bash
+python backend/db_schema_audit.py --fail-on-issues
+```
+
+Он проверяет, что в live DB есть feed-media contract columns и индексы под
+частые запросы галереи, jobs и ленты. Это быстрый guard после откатов,
+переносов базы и ручных восстановлений из backup.
 
 Read-only аудит текущего состояния feed media:
 
