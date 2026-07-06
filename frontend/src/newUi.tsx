@@ -1187,7 +1187,13 @@ export default function NewStudio(): ReactElement {
             {feedLang === 'ru' ? 'Изображение недоступно' : 'Image unavailable'}
           </div>
         ) : (
-          <img src={apiUrl(post.image_url)} alt={post.title} loading="lazy" onError={() => markFeedBroken(post.id)} />
+          <img
+            src={apiUrl(post.thumbnail_url || post.image_url)}
+            alt={post.title}
+            loading="lazy"
+            decoding="async"
+            onError={() => markFeedBroken(post.id)}
+          />
         )}
         {post.prompt_visibility === 'open' && (
           <span className="nf-tag">{feedLang === 'ru' ? 'Открытый промпт' : 'Open prompt'}</span>
@@ -1257,7 +1263,12 @@ export default function NewStudio(): ReactElement {
             {feedLang === 'ru' ? 'Изображение недоступно' : 'Image unavailable'}
           </div>
         ) : (
-          <img src={apiUrl(feedSelected.image_url)} alt={feedSelected.title} onError={() => markFeedBroken(feedSelected.id)} />
+          <img
+            src={apiUrl(feedSelected.image_url)}
+            alt={feedSelected.title}
+            decoding="async"
+            onError={() => markFeedBroken(feedSelected.id)}
+          />
         )}
         <span className="nf-ai-label">{feedLang === 'ru' ? 'Сгенерировано ИИ' : 'AI-generated'}</span>
       </div>

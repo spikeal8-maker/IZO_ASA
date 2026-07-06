@@ -1625,6 +1625,40 @@ def init_db() -> None:
         if "refresh_expires_at" not in auth_sessions_columns:
             conn.execute("ALTER TABLE auth_sessions ADD COLUMN refresh_expires_at TEXT")
 
+        # Feed media architecture: additive-only public feed asset metadata.
+        # Some live DBs already have early feed columns, so check every column
+        # individually. Originals stay in images; public feed variants live here.
+        feed_publication_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()
+        }
+        for column, definition in {
+            "feed_thumb_name": "TEXT",
+            "feed_large_name": "TEXT",
+            "feed_thumb_width": "INTEGER",
+            "feed_thumb_height": "INTEGER",
+            "feed_thumb_bytes": "INTEGER",
+            "feed_large_width": "INTEGER",
+            "feed_large_height": "INTEGER",
+            "feed_large_bytes": "INTEGER",
+            "media_ready_at": "TEXT",
+            "media_error": "TEXT",
+            "native_aspect_ratio": "TEXT",
+            "orientation": "TEXT",
+            "source_type": "TEXT",
+            "source_label": "TEXT",
+            "display_policy": "TEXT",
+            "category": "TEXT",
+            "remix_policy": "TEXT",
+            "tags_json": "TEXT",
+            "updated_at": "TEXT",
+        }.items():
+            if column not in feed_publication_columns:
+                conn.execute(f"ALTER TABLE feed_publications ADD COLUMN {column} {definition}")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_feed_publications_media_ready "
+            "ON feed_publications(status, media_ready_at)"
+        )
+
         backfill_identity_core(conn, now)
 
         # Canonical-identity uniqueness, created AFTER backfill so it validates
@@ -4718,6 +4752,24 @@ def create_thumbnail(image_path: Path) -> Path:
             image = image.convert("RGB")
         image.save(thumb_path, "WEBP", quality=88)
     return thumb_path
+
+
+def feed_media_dir() -> Path:
+    path = MEDIA / "feed"
+    path.mkdir(exist_ok=True)
+    return path
+
+
+def _media_file_path_from_url(url: str | None) -> Path | None:
+    name = _feed_media_name(url)
+    if not name:
+        return None
+    path = (MEDIA / name).resolve()
+    try:
+        path.relative_to(MEDIA.resolve())
+    except ValueError:
+        return None
+    return path
 
 
 async def comfyui_available() -> bool:
@@ -10535,6 +10587,96 @@ async def max_webhook(payload: dict[str, Any], request: Request) -> dict[str, An
 
 FEED_PROMPT_VISIBILITIES = {"open", "partial", "hidden"}
 FEED_PARTIAL_PROMPT_CHARS = 140
+FEED_THUMB_MAX_SIDE = 640
+FEED_LARGE_MAX_SIDE = 1536
+FEED_DISPLAY_POLICY = "preserve_aspect_ratio"
+
+
+@dataclass
+class FeedAssetInfo:
+    feed_thumb_name: str
+    feed_large_name: str
+    feed_thumb_width: int
+    feed_thumb_height: int
+    feed_thumb_bytes: int
+    feed_large_width: int
+    feed_large_height: int
+    feed_large_bytes: int
+    native_aspect_ratio: str
+    orientation: str
+
+
+def _feed_orientation(width: int, height: int) -> str:
+    if not width or not height:
+        return "custom"
+    if width == height:
+        return "square"
+    return "landscape" if width > height else "portrait"
+
+
+def _feed_source_label(source_type: str) -> str:
+    return {
+        "text_to_image": "Текст -> Изо",
+        "image_to_image": "Изо -> Изо",
+        "multi_reference": "Несколько референсов",
+        "drawing_to_image": "Рисунок -> Изо",
+        "edit": "Редактировано",
+        "inpaint": "Маска",
+        "outpaint": "Outpaint",
+        "faceswap": "Лицо",
+        "remix": "Remix",
+        "seed": "Выбор редакции",
+    }.get(source_type or "", "Текст -> Изо")
+
+
+def _feed_source_type(mode: str | None, *, is_seed: bool = False) -> str:
+    if is_seed:
+        return "seed"
+    raw = (mode or "text_to_image").strip()
+    return {
+        "paint": "drawing_to_image",
+    }.get(raw, raw)
+
+
+def _save_feed_variant(source: Image.Image, target: Path, max_side: int, quality: int) -> tuple[int, int, int]:
+    image = ImageOps.exif_transpose(source)
+    if image.mode not in {"RGB", "RGBA"}:
+        image = image.convert("RGB")
+    else:
+        image = image.copy()
+    image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+    image.save(target, "WEBP", quality=quality, method=6)
+    return image.width, image.height, target.stat().st_size
+
+
+def create_feed_assets(publication_id: str, source_url: str | None) -> FeedAssetInfo:
+    source_path = _media_file_path_from_url(source_url)
+    if source_path is None or not source_path.exists():
+        raise FileNotFoundError("Feed source image file not found.")
+    target_dir = feed_media_dir()
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", publication_id)
+    thumb_rel = f"feed/{safe_id}_thumb.webp"
+    large_rel = f"feed/{safe_id}_large.webp"
+    thumb_path = MEDIA / thumb_rel
+    large_path = MEDIA / large_rel
+    with Image.open(source_path) as opened:
+        source = ImageOps.exif_transpose(opened)
+        native_ratio = _feed_aspect_ratio(source.width, source.height)
+        orientation = _feed_orientation(source.width, source.height)
+        tw, th, tb = _save_feed_variant(source, thumb_path, FEED_THUMB_MAX_SIDE, 82)
+        lw, lh, lb = _save_feed_variant(source, large_path, FEED_LARGE_MAX_SIDE, 86)
+    return FeedAssetInfo(
+        feed_thumb_name=thumb_rel,
+        feed_large_name=large_rel,
+        feed_thumb_width=tw,
+        feed_thumb_height=th,
+        feed_thumb_bytes=tb,
+        feed_large_width=lw,
+        feed_large_height=lh,
+        feed_large_bytes=lb,
+        native_aspect_ratio=native_ratio,
+        orientation=orientation,
+    )
 
 
 def _feed_media_name(url: str | None) -> str | None:
@@ -10615,10 +10757,14 @@ def _feed_item_payload(
         }
     width = int(_row_get(image, "width") or 0)
     height = int(_row_get(image, "height") or 0)
+    media_ready = bool(_row_get(pub, "feed_thumb_name") and _row_get(pub, "feed_large_name") and _row_get(pub, "media_ready_at"))
+    native_aspect_ratio = _row_get(pub, "native_aspect_ratio") or _feed_aspect_ratio(width, height)
+    source_type = _row_get(pub, "source_type") or _feed_source_type(_row_get(image, "mode"))
     return {
         "id": pub["id"],
-        "image_url": f"/api/feed/media/{pub['id']}",
-        "thumbnail_url": f"/api/feed/media/{pub['id']}?thumb=1",
+        "image_url": f"/api/feed/media/{pub['id']}?variant=large",
+        "thumbnail_url": f"/api/feed/media/{pub['id']}?variant=thumb",
+        "media_status": "ready" if media_ready else "missing",
         "user_id": pub["internal_user_id"],
         "author_name": _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"]),
         "title": pub["title"],
@@ -10629,7 +10775,14 @@ def _feed_item_payload(
         "style": settings.get("styleName") or None,
         "model": _user_model_name(settings.get("modelProfile") or _row_get(image, "provider")),
         "mode": _row_get(image, "mode"),
-        "aspect_ratio": _feed_aspect_ratio(width, height),
+        "aspect_ratio": native_aspect_ratio,
+        "native_aspect_ratio": native_aspect_ratio,
+        "orientation": _row_get(pub, "orientation") or _feed_orientation(width, height),
+        "source_type": source_type,
+        "source_label": _row_get(pub, "source_label") or _feed_source_label(source_type),
+        "display_policy": _row_get(pub, "display_policy") or FEED_DISPLAY_POLICY,
+        "remix_policy": _row_get(pub, "remix_policy") or ("allowed" if bool(pub["allow_recreate"]) else "disabled"),
+        "category": _row_get(pub, "category"),
         "resolution": f"{width}×{height}" if width and height else None,
         "seed": settings.get("seed"),
         "created_at": pub["created_at"],
@@ -10663,6 +10816,9 @@ async def feed_list(request: Request, type: str = "new", limit: int = 30) -> dic
                 SELECT p.* FROM feed_publications p
                 LEFT JOIN feed_reactions r ON r.publication_id = p.id
                 WHERE p.status = 'published'
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
                 GROUP BY p.id
                 ORDER BY COUNT(r.publication_id) DESC, p.created_at DESC
                 LIMIT ?
@@ -10671,7 +10827,15 @@ async def feed_list(request: Request, type: str = "new", limit: int = 30) -> dic
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM feed_publications WHERE status = 'published' ORDER BY created_at DESC LIMIT ?",
+                """
+                SELECT * FROM feed_publications
+                WHERE status = 'published'
+                  AND media_ready_at IS NOT NULL
+                  AND feed_thumb_name IS NOT NULL
+                  AND feed_large_name IS NOT NULL
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
                 (limit,),
             ).fetchall()
         items = [_feed_item_payload(conn, pub, viewer) for pub in rows]
@@ -10695,7 +10859,7 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
     if visibility not in FEED_PROMPT_VISIBILITIES:
         raise HTTPException(400, "invalid promptVisibility")
     with db() as conn:
-        image = conn.execute("SELECT id, user_id FROM images WHERE id = ?", (image_id,)).fetchone()
+        image = conn.execute("SELECT id, user_id, url, width, height, mode FROM images WHERE id = ?", (image_id,)).fetchone()
     # Не раскрываем существование чужих изображений: и «нет», и «не твоё» → 404.
     # security_event пишем отдельным соединением ДО raise — with-блок с raise
     # внутри откатил бы запись (паттерн require_trusted_admin).
@@ -10714,19 +10878,57 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
             "SELECT id FROM feed_publications WHERE image_id = ?", (image_id,)
         ).fetchone()
         now = datetime.now(timezone.utc).isoformat()
+        pub_id = existing["id"] if existing else uuid.uuid4().hex
+        try:
+            assets = create_feed_assets(pub_id, image["url"])
+        except FileNotFoundError:
+            raise HTTPException(404, "Image file not found")
+        except Exception:
+            raise HTTPException(400, "Image cannot be prepared for feed")
+        source_type = _feed_source_type(_row_get(image, "mode"))
+        source_label = _feed_source_label(source_type)
+        remix_policy = "allowed" if allow_recreate else "disabled"
         if existing:
             conn.execute(
                 "UPDATE feed_publications SET title = ?, description = ?, prompt_visibility = ?, "
-                "allow_recreate = ?, status = 'published' WHERE id = ?",
-                (title, description, visibility, int(allow_recreate), existing["id"]),
+                "allow_recreate = ?, status = 'published', feed_thumb_name = ?, feed_large_name = ?, "
+                "feed_thumb_width = ?, feed_thumb_height = ?, feed_thumb_bytes = ?, "
+                "feed_large_width = ?, feed_large_height = ?, feed_large_bytes = ?, "
+                "media_ready_at = ?, media_error = NULL, native_aspect_ratio = ?, orientation = ?, "
+                "source_type = ?, source_label = ?, display_policy = ?, remix_policy = ?, updated_at = ? "
+                "WHERE id = ?",
+                (
+                    title,
+                    description,
+                    visibility,
+                    int(allow_recreate),
+                    assets.feed_thumb_name,
+                    assets.feed_large_name,
+                    assets.feed_thumb_width,
+                    assets.feed_thumb_height,
+                    assets.feed_thumb_bytes,
+                    assets.feed_large_width,
+                    assets.feed_large_height,
+                    assets.feed_large_bytes,
+                    now,
+                    assets.native_aspect_ratio,
+                    assets.orientation,
+                    source_type,
+                    source_label,
+                    FEED_DISPLAY_POLICY,
+                    remix_policy,
+                    now,
+                    pub_id,
+                ),
             )
-            pub_id = existing["id"]
         else:
-            pub_id = uuid.uuid4().hex
             conn.execute(
                 "INSERT INTO feed_publications (id, image_id, internal_user_id, legacy_user_id, title, "
-                "description, prompt_visibility, allow_recreate, status, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', ?)",
+                "description, prompt_visibility, allow_recreate, status, created_at, feed_thumb_name, "
+                "feed_large_name, feed_thumb_width, feed_thumb_height, feed_thumb_bytes, "
+                "feed_large_width, feed_large_height, feed_large_bytes, media_ready_at, media_error, "
+                "native_aspect_ratio, orientation, source_type, source_label, display_policy, remix_policy, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     pub_id,
                     image_id,
@@ -10736,6 +10938,22 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
                     description,
                     visibility,
                     int(allow_recreate),
+                    now,
+                    assets.feed_thumb_name,
+                    assets.feed_large_name,
+                    assets.feed_thumb_width,
+                    assets.feed_thumb_height,
+                    assets.feed_thumb_bytes,
+                    assets.feed_large_width,
+                    assets.feed_large_height,
+                    assets.feed_large_bytes,
+                    now,
+                    assets.native_aspect_ratio,
+                    assets.orientation,
+                    source_type,
+                    source_label,
+                    FEED_DISPLAY_POLICY,
+                    remix_policy,
                     now,
                 ),
             )
@@ -10796,21 +11014,27 @@ async def feed_recreate_mark(publication_id: str, request: Request) -> dict[str,
 
 
 @app.get("/api/feed/media/{publication_id}")
-async def feed_media(publication_id: str, request: Request, thumb: int = 0) -> FileResponse:
+async def feed_media(publication_id: str, request: Request, variant: str = "large", thumb: int = 0) -> FileResponse:
     """Файл ОПУБЛИКОВАННОЙ работы. Доступен любому (публичная лента) — но только
     через публикацию: приватный /api/media остаётся закрытым как был."""
+    selected = "thumb" if int(thumb or 0) else (variant or "large").strip().lower()
+    if selected not in {"thumb", "large"}:
+        raise HTTPException(400, "Invalid feed media variant")
     with db() as conn:
         pub = conn.execute(
-            "SELECT p.image_id FROM feed_publications p WHERE p.id = ? AND p.status = 'published'",
+            """
+            SELECT feed_thumb_name, feed_large_name FROM feed_publications
+            WHERE id = ?
+              AND status = 'published'
+              AND media_ready_at IS NOT NULL
+              AND feed_thumb_name IS NOT NULL
+              AND feed_large_name IS NOT NULL
+            """,
             (publication_id,),
         ).fetchone()
         if pub is None:
             raise HTTPException(404, "Publication not found")
-        image = conn.execute(
-            "SELECT url, thumbnail_url FROM images WHERE id = ?",
-            (pub["image_id"],),
-        ).fetchone()
-    name = _feed_media_name(_row_get(image, "thumbnail_url") if thumb else _row_get(image, "url"))
+    name = _row_get(pub, "feed_thumb_name") if selected == "thumb" else _row_get(pub, "feed_large_name")
     if not name:
         raise HTTPException(404, "Image file not found")
     path = (MEDIA / name).resolve()
@@ -10820,4 +11044,8 @@ async def feed_media(publication_id: str, request: Request, thumb: int = 0) -> F
         raise HTTPException(404, "Image file not found")
     if not path.exists():
         raise HTTPException(404, "Image file not found")
-    return FileResponse(path)
+    return FileResponse(
+        path,
+        media_type="image/webp",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )

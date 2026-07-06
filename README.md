@@ -12,6 +12,7 @@ Start here when you or another agent joins the project:
 - `docs/admin-panel-product-spec.md` — admin product direction.
 - `docs/new-ui-v2-plan.md` — new UI `/new` (working contract).
 - `docs/new-ui-v2-review.md` — current `/new` review state.
+- `docs/feed-media-architecture.md` — public feed image storage, compression and DB contract.
 
 The `docs/phase*.md` files are historical phase reports. They are useful evidence, but
 the current working rules should be read from the files listed above first.

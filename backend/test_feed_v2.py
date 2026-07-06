@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 import main
 
@@ -39,14 +40,20 @@ def make_user(iuid: str, legacy: str, display_name: str = "Автор Теста
 
 def make_image(image_id: str, legacy_user: str, prompt: str = "секретный промпт про маяк") -> None:
     media_file = main.MEDIA / f"{image_id}.png"
-    media_file.write_bytes(b"\x89PNG fake")
+    image = Image.new("RGB", (1200, 800), (70, 120, 180))
+    pixels = image.load()
+    for y in range(800):
+        for x in range(1200):
+            pixels[x, y] = ((x * 7 + y * 3) % 256, (x * 5 + y * 11) % 256, (x * 13 + y * 2) % 256)
+    image.save(media_file, "PNG")
     thumb = main.MEDIA / f"{image_id}_thumb.webp"
-    thumb.write_bytes(b"RIFF fake")
+    image.thumbnail((512, 512))
+    image.save(thumb, "WEBP", quality=88)
     with main.db() as conn:
         conn.execute(
             "INSERT INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider, "
             "prompt_original, settings_json, created_at) "
-            "VALUES (?, ?, 'job-x', ?, ?, 1024, 1024, 'text_to_image', 'comfyui', ?, '{\"seed\": 42}', '2026-07-03')",
+            "VALUES (?, ?, 'job-x', ?, ?, 1200, 800, 'text_to_image', 'comfyui', ?, '{\"seed\": 42}', '2026-07-03')",
             (image_id, legacy_user, f"/api/media/{image_id}.png?userId={legacy_user}",
              f"/api/media/{image_id}_thumb.webp?userId={legacy_user}", prompt),
         )
@@ -107,8 +114,11 @@ def test_feed_public_read_and_prompt_visibility(temp_db):
         assert items["Скрытая"]["prompt"] is None
         assert "секрет" not in r.text
         assert items["Открытая"]["is_liked_by_me"] is False
-        assert items["Открытая"]["resolution"] == "1024×1024"
+        assert items["Открытая"]["resolution"] == "1200×800"
         assert items["Открытая"]["seed"] == 42
+        assert items["Открытая"]["media_status"] == "ready"
+        assert items["Открытая"]["native_aspect_ratio"] == "3:2"
+        assert items["Открытая"]["orientation"] == "landscape"
 
 
 def test_reactions_require_session_and_toggle(temp_db):
@@ -143,12 +153,67 @@ def test_feed_media_served_only_for_published(temp_db):
         # Публичный доступ к опубликованному файлу (без сессии, без владения).
         r = anon.get(f"/api/feed/media/{pub['id']}")
         assert r.status_code == 200
+        assert r.headers["content-type"] == "image/webp"
         r = anon.get(f"/api/feed/media/{pub['id']}?thumb=1")
         assert r.status_code == 200
+        assert r.headers["content-type"] == "image/webp"
+        r = anon.get(f"/api/feed/media/{pub['id']}?variant=thumb")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/webp"
         # Несуществующая публикация — 404.
         assert anon.get("/api/feed/media/nope").status_code == 404
         # Приватный /api/media как был: без сессии чужой файл не отдаётся
         # (легаси-фолбэк ?userId в проде закрыт trusted-сессией — см. gallery).
+
+
+def test_publish_creates_feed_variants_not_original_fallback(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-d", "web_d")
+        make_image("img-d", "web_d")
+        original = main.MEDIA / "img-d.png"
+        pub = publish(client, token, "img-d")
+        assert pub["image_url"].endswith(f"/api/feed/media/{pub['id']}?variant=large")
+        assert pub["thumbnail_url"].endswith(f"/api/feed/media/{pub['id']}?variant=thumb")
+        with main.db() as conn:
+            row = conn.execute(
+                "SELECT feed_thumb_name, feed_large_name, feed_thumb_bytes, feed_large_bytes, "
+                "native_aspect_ratio, orientation, source_type, display_policy "
+                "FROM feed_publications WHERE id = ?",
+                (pub["id"],),
+            ).fetchone()
+        thumb = main.MEDIA / row["feed_thumb_name"]
+        large = main.MEDIA / row["feed_large_name"]
+        assert thumb.exists()
+        assert large.exists()
+        assert thumb.suffix == ".webp"
+        assert large.suffix == ".webp"
+        assert row["feed_thumb_bytes"] == thumb.stat().st_size
+        assert row["feed_large_bytes"] == large.stat().st_size
+        assert row["feed_large_name"] != original.name
+        with Image.open(large) as large_image:
+            assert max(large_image.size) <= main.FEED_LARGE_MAX_SIDE
+        with Image.open(thumb) as thumb_image:
+            assert max(thumb_image.size) <= main.FEED_THUMB_MAX_SIDE
+        assert row["native_aspect_ratio"] == "3:2"
+        assert row["orientation"] == "landscape"
+        assert row["source_type"] == "text_to_image"
+        assert row["display_policy"] == "preserve_aspect_ratio"
+
+
+def test_feed_ignores_published_without_ready_media(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-ready", "web_ready")
+        make_image("img-ready", "web_ready")
+        pub = publish(client, token, "img-ready", title="Готовая")
+        with main.db() as conn:
+            conn.execute(
+                "UPDATE feed_publications SET media_ready_at = NULL, media_error = 'test missing media' WHERE id = ?",
+                (pub["id"],),
+            )
+        r = client.get("/api/feed?type=new")
+        assert r.status_code == 200
+        assert all(item["id"] != pub["id"] for item in r.json()["items"])
+        assert client.get(f"/api/feed/media/{pub['id']}?variant=thumb").status_code == 404
 
 
 def test_init_db_idempotent_with_feed_tables(temp_db):
@@ -160,3 +225,31 @@ def test_init_db_idempotent_with_feed_tables(temp_db):
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
             ).fetchone()
             assert row is not None
+
+
+def test_init_db_has_feed_media_contract_columns(temp_db):
+    main.init_db()
+    with main.db() as conn:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()}
+    expected = {
+        "feed_thumb_name",
+        "feed_large_name",
+        "feed_thumb_width",
+        "feed_thumb_height",
+        "feed_thumb_bytes",
+        "feed_large_width",
+        "feed_large_height",
+        "feed_large_bytes",
+        "media_ready_at",
+        "media_error",
+        "native_aspect_ratio",
+        "orientation",
+        "source_type",
+        "source_label",
+        "display_policy",
+        "category",
+        "remix_policy",
+        "tags_json",
+        "updated_at",
+    }
+    assert expected <= columns
