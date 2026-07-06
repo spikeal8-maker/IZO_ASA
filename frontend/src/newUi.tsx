@@ -8,7 +8,7 @@
 // промпта; выбор другого стиля заменяет предыдущую приписку. В Изо → Изо стиль
 // задаёт transform-prompt преобразования (как шаблоны текущей версии).
 // ============================================================================
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
 import { I2I_STYLES, T2I_TEMPLATES } from './stylePresets'
@@ -716,14 +716,17 @@ export default function NewStudio(): ReactElement {
     }
   }
 
-  const canGenerate = useMemo(() => {
-    if (isSubmitting || (job && JOB_ACTIVE.includes(job.status))) return false
-    if (tab === 'i2i') return !!sourceImage && (prompts.i2i.trim().length > 0 || !!styleId)
-    return prompts.text.trim().length > 0
-  }, [isSubmitting, job, prompts, sourceImage, styleId, tab])
-
   async function generate(mode: 'text' | 'i2i') {
-    if (inFlightRef.current || !canGenerate) return
+    if (inFlightRef.current || isSubmitting || jobActive) return
+    // Пустой запрос не запускает генерацию — показываем понятную подсказку.
+    if (mode === 'text' && !prompts.text.trim()) {
+      showToast('Опишите идею — что вы хотите увидеть')
+      return
+    }
+    if (mode === 'i2i' && !(sourceImage && (prompts.i2i.trim() || styleId))) {
+      showToast('Добавьте исходное изображение')
+      return
+    }
     if (authStatus !== 'authed') {
       setAuthOpen(true)
       return
@@ -1302,7 +1305,7 @@ export default function NewStudio(): ReactElement {
 
         {notice && <div className="iv3-notice" role="alert">{notice}</div>}
 
-        <button className="generate-button" type="button" disabled={!canGenerate} onClick={() => generate('text')}>
+        <button className="generate-button" type="button" disabled={isSubmitting || jobActive} onClick={() => generate('text')}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />
           </svg>
@@ -1665,7 +1668,7 @@ export default function NewStudio(): ReactElement {
           )}
         </div>
         {tab === 'text' && (
-          <button className="mobile-bottom-cta" type="button" disabled={!canGenerate} onClick={() => generate('text')}>
+          <button className="mobile-bottom-cta" type="button" disabled={isSubmitting || jobActive} onClick={() => generate('text')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />
             </svg>
