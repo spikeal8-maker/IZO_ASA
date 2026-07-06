@@ -14,6 +14,7 @@ import feed_media_migrate
 import media_cleanup_plan
 import media_storage_audit
 import main
+import user_gallery_link_audit
 
 
 @pytest.fixture
@@ -280,6 +281,25 @@ def test_media_cleanup_plan_excludes_protected_kinds(temp_db):
     assert "feed/orphan-feed.webp" not in files
     assert plan["deletes_files"] is False
     assert plan["ignored_requested_protected_kinds"] == ["feed_variant", "seed_original"]
+
+
+def test_user_gallery_link_audit_separates_active_and_deleted_missing_files(temp_db):
+    make_user("iuid-links", "web_links")
+    make_image("img-links-active", "web_links")
+    make_image("img-links-deleted", "web_links")
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE images SET deleted_at = '2026-07-07T00:00:00+00:00' WHERE id = ?",
+            ("img-links-deleted",),
+        )
+    (main.MEDIA / "img-links-deleted.png").unlink()
+    (main.MEDIA / "img-links-deleted_thumb.webp").unlink()
+
+    report = user_gallery_link_audit.audit_user_gallery_links(item_limit=10)
+    assert report["totals"]["missing_user_images"] == 0
+    assert report["totals"]["active_missing_file_refs"] == 0
+    assert report["totals"]["deleted_missing_file_refs"] == 2
+    assert report["issues"] == []
 
 
 def test_init_db_idempotent_with_feed_tables(temp_db):

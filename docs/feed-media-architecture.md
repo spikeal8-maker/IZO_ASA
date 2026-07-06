@@ -396,6 +396,21 @@ python backend/media_storage_audit.py --report logs/media-storage-audit-latest.j
 - unreferenced файлы без активной ссылки из БД;
 - отсутствующие активные ссылки (`missing_active_refs`).
 
+Read-only аудит связки пользователей, галереи и физических файлов:
+
+```bash
+python backend/user_gallery_link_audit.py --report logs/user-gallery-link-audit-latest.json
+```
+
+Он проверяет:
+
+- `images.user_id` существует в `users.id`;
+- у пользователей есть `internal_user_id`;
+- нет дублей `internal_user_id`;
+- `jobs.user_id` совпадает с `images.user_id`;
+- active images имеют физические original/thumbnail-файлы;
+- deleted images отделяются от active missing и не считаются поломкой галереи.
+
 Любое удаление должно делаться отдельной задачей после просмотра этого отчета и
 после бэкапа. Нельзя удалять `seed_izo_*.png`, пока не принято отдельное решение
 по хранению seed originals.
