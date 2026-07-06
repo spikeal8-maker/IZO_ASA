@@ -445,6 +445,18 @@ python backend/media_cleanup_plan.py --report logs/media-cleanup-plan-latest.jso
 `ignored_requested_protected_kinds`, а не в `candidates`. Этот скрипт тоже ничего
 не удаляет: в отчете должно быть `deletes_files: false`.
 
+Фактическое удаление выполняется отдельным apply-скриптом после dry-run и
+бэкапа:
+
+```bash
+python backend/media_cleanup_apply.py --report logs/media-cleanup-apply-dryrun-latest.json --limit 5000
+python backend/media_cleanup_apply.py --apply --report logs/media-cleanup-apply-latest.json --limit 5000
+```
+
+Apply-скрипт удаляет только кандидатов из плана, повторно проверяет, что путь
+строго внутри `backend/media`, и не удаляет защищенные типы `seed_original` и
+`feed_variant`.
+
 Read-only проверка миграции без создания файлов:
 
 ```bash

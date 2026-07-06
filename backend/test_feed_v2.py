@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import feed_media_migrate
+import media_cleanup_apply
 import media_cleanup_plan
 import media_storage_audit
 import main
@@ -298,6 +299,31 @@ def test_media_cleanup_plan_excludes_protected_kinds(temp_db):
     assert "feed/orphan-feed.webp" not in files
     assert plan["deletes_files"] is False
     assert plan["ignored_requested_protected_kinds"] == ["feed_variant", "seed_original"]
+
+
+def test_media_cleanup_apply_deletes_only_safe_candidates(temp_db):
+    make_user("iuid-cleanup-apply", "web_cleanup_apply")
+    make_image("img-cleanup-apply", "web_cleanup_apply")
+    orphan = main.MEDIA / "orphan-apply.png"
+    seed = main.MEDIA / "seed_izo_keep.png"
+    feed_dir = main.MEDIA / "feed"
+    feed_dir.mkdir(exist_ok=True)
+    feed = feed_dir / "keep-feed.webp"
+    orphan.write_bytes(b"delete")
+    seed.write_bytes(b"seed")
+    feed.write_bytes(b"feed")
+
+    result = media_cleanup_apply.apply_cleanup(
+        apply=True,
+        kinds={"original_or_input", "seed_original", "feed_variant"},
+        item_limit=20,
+    )
+    deleted_files = {item["file"] for item in result["deleted"]}
+    assert "orphan-apply.png" in deleted_files
+    assert not orphan.exists()
+    assert seed.exists()
+    assert feed.exists()
+    assert result["deletes_files"] is True
 
 
 def test_user_gallery_link_audit_separates_active_and_deleted_missing_files(temp_db):
