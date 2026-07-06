@@ -374,6 +374,18 @@ Data:
 
 ## Maintenance Commands
 
+Общая проверка здоровья ленты, пользователей и media-storage:
+
+```bash
+python backend/media_health_check.py --report logs/media-health-check-latest.json --fail-on-issues
+```
+
+Она агрегирует feed-audit, storage-audit, user/gallery-audit и cleanup-plan.
+`--fail-on-issues` падает только на hard-проблемах связей и файлов: битые
+активные ссылки, опубликованные публикации без source, опубликованные публикации
+на удаленных images, missing feed variants и т.п. Размерные warning остаются в
+детальном nested report и не считаются блокирующей ошибкой health-check.
+
 Read-only аудит текущего состояния feed media:
 
 ```bash

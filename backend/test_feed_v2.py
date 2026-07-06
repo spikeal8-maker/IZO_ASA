@@ -16,6 +16,7 @@ import feed_media_audit
 import feed_media_migrate
 import job_media_ref_repair
 import media_cleanup_apply
+import media_health_check
 import media_cleanup_plan
 import media_storage_audit
 import main
@@ -289,6 +290,25 @@ def test_feed_media_audit_flags_published_missing_source(temp_db):
     report = feed_media_audit.audit_feed_media(item_limit=10)
     assert report["published_missing_sources"] == [{"id": pub["id"], "image_id": "img-audit-missing"}]
     assert "published_missing_sources" in report["issues"]
+
+
+def test_media_health_check_rolls_up_nested_issues(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-health", "web_health")
+        make_image("img-health", "web_health")
+        publish(client, token, "img-health")
+    ok = media_health_check.run_media_health_check(item_limit=10)
+    assert ok["status"] == "ok", ok["issues"]
+    assert ok["issues"] == []
+
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE images SET deleted_at = '2026-07-07T00:00:00+00:00' WHERE id = ?",
+            ("img-health",),
+        )
+    broken = media_health_check.run_media_health_check(item_limit=10)
+    assert broken["status"] == "issues"
+    assert "feed:published_deleted_sources" in broken["issues"]
 
 
 def test_publish_creates_feed_variants_not_original_fallback(temp_db):
