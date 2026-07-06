@@ -21,11 +21,16 @@ def _is_seed_publication(row: Any) -> bool:
     )
 
 
-def migrate_feed_media(*, apply: bool) -> dict[str, Any]:
+def migrate_feed_media(*, apply: bool, publication_ids: list[str] | None = None, only_missing: bool = False) -> dict[str, Any]:
     main.init_db()
+    selected_ids = [str(item).strip() for item in (publication_ids or []) if str(item).strip()]
     report: dict[str, Any] = {
         "started_at": datetime.now(timezone.utc).isoformat(),
         "apply": apply,
+        "filters": {
+            "publication_ids": selected_ids,
+            "only_missing": only_missing,
+        },
         "created_or_updated": 0,
         "media_missing": 0,
         "skipped": 0,
@@ -33,14 +38,22 @@ def migrate_feed_media(*, apply: bool) -> dict[str, Any]:
         "items": [],
     }
     with main.db() as conn:
+        where = ["p.status IN ('published', 'media_missing')"]
+        params: list[Any] = []
+        if only_missing:
+            where = ["p.status = 'media_missing'"]
+        if selected_ids:
+            where.append(f"p.id IN ({','.join('?' for _ in selected_ids)})")
+            params.extend(selected_ids)
         rows = conn.execute(
-            """
+            f"""
             SELECT p.*, i.url AS image_url, i.width AS image_width, i.height AS image_height, i.mode AS image_mode
             FROM feed_publications p
             LEFT JOIN images i ON i.id = p.image_id
-            WHERE p.status IN ('published', 'media_missing')
+            WHERE {' AND '.join(where)}
             ORDER BY p.created_at ASC
-            """
+            """,
+            params,
         ).fetchall()
         for row in rows:
             pub_id = row["id"]
@@ -153,9 +166,11 @@ def migrate_feed_media(*, apply: bool) -> dict[str, Any]:
 def main_cli() -> None:
     parser = argparse.ArgumentParser(description="Prepare optimized public feed media variants.")
     parser.add_argument("--apply", action="store_true", help="Create WebP files and write DB updates. Without this, run read-only validation.")
+    parser.add_argument("--publication-id", action="append", default=[], help="Limit to one publication id. Can be passed more than once.")
+    parser.add_argument("--only-missing", action="store_true", help="Limit to rows currently marked media_missing.")
     parser.add_argument("--report", default="", help="Optional JSON report path.")
     args = parser.parse_args()
-    report = migrate_feed_media(apply=args.apply)
+    report = migrate_feed_media(apply=args.apply, publication_ids=args.publication_id, only_missing=args.only_missing)
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.report:
         Path(args.report).write_text(text + "\n", encoding="utf-8")

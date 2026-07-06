@@ -394,6 +394,21 @@ python backend/feed_media_migrate.py --report logs/feed-media-migrate-dryrun-lat
 python backend/feed_media_migrate.py --apply --report logs/feed-media-migration-latest.json
 ```
 
+Точечная проверка/пересоздание одной публикации:
+
+```bash
+python backend/feed_media_migrate.py --publication-id <publication_id> --report logs/feed-media-one-dryrun.json
+python backend/feed_media_migrate.py --apply --publication-id <publication_id> --report logs/feed-media-one-apply.json
+```
+
+Проверка/пересоздание только тех публикаций, которые сейчас находятся в
+`media_missing`:
+
+```bash
+python backend/feed_media_migrate.py --only-missing --report logs/feed-media-missing-dryrun.json
+python backend/feed_media_migrate.py --apply --only-missing --report logs/feed-media-missing-apply.json
+```
+
 Если восстановили один или несколько пропавших original-файлов из списка
 `media_missing`, запуск `--apply` пересоздаст для них `thumb/large` и вернет такие
 публикации в `published`.
