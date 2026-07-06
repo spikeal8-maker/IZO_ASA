@@ -411,6 +411,10 @@ python backend/user_gallery_link_audit.py --report logs/user-gallery-link-audit-
 - active images имеют физические original/thumbnail-файлы;
 - deleted images отделяются от active missing и не считаются поломкой галереи.
 
+Seed/demo изображения принадлежат системному владельцу `seed_editorial`.
+`init_db` создает эту строку в `users` idempotent-миграцией без auth identity:
+это нужно только для целостной связки `images.user_id -> users.id`.
+
 Любое удаление должно делаться отдельной задачей после просмотра этого отчета и
 после бэкапа. Нельзя удалять `seed_izo_*.png`, пока не принято отдельное решение
 по хранению seed originals.

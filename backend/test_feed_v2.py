@@ -339,3 +339,15 @@ def test_init_db_has_feed_media_contract_columns(temp_db):
         "updated_at",
     }
     assert expected <= columns
+
+
+def test_init_db_seeds_editorial_user_for_demo_feed(temp_db):
+    main.init_db()
+    with main.db() as conn:
+        row = conn.execute(
+            "SELECT id, internal_user_id, display_name, gallery_enabled FROM users WHERE id = 'seed_editorial'"
+        ).fetchone()
+    assert row is not None
+    assert row["internal_user_id"] == "seed_editorial"
+    assert row["display_name"] == "Выбор редакции"
+    assert row["gallery_enabled"] == 0

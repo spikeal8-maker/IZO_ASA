@@ -1376,6 +1376,19 @@ def init_db() -> None:
         # alongside the legacy provider-based users.id, plus idempotent backfill.
         if "internal_user_id" not in existing_user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN internal_user_id TEXT")
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO users (
+                id, username, first_name, display_name, language, role, plan,
+                token_balance, gallery_enabled, internal_user_id, created_at, last_login_at
+            )
+            VALUES (
+                'seed_editorial', 'seed_editorial', 'Выбор редакции', 'Выбор редакции',
+                'ru', 'user', 'mini', 0, 0, 'seed_editorial', ?, ?
+            )
+            """,
+            (now, now),
+        )
 
         conn.executescript(
             """
