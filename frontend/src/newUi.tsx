@@ -9,8 +9,18 @@
 // задаёт transform-prompt преобразования (как шаблоны текущей версии).
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { CSSProperties, ReactElement } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, WheelEvent as ReactWheelEvent } from 'react'
 import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
+import {
+  DEFAULT_EDIT_STRENGTH,
+  EDIT_DISABLED_REFERENCE_ROLES,
+  EDIT_REFERENCE_ROLE_LABELS,
+  EDIT_SELECTABLE_REFERENCE_ROLES,
+  EDIT_SLOT_COUNT,
+  editComposerStatus,
+  type EditReferenceRole,
+  type EditSlot,
+} from './editPrompt'
 import { I2I_STYLES, T2I_TEMPLATES, styleShortLabel } from './stylePresets'
 import type { StylePreset } from './stylePresets'
 import TopBarV3 from './TopBarV3'
@@ -38,6 +48,11 @@ function apiFetch(path: string, init: RequestInit = {}) {
 type N2Tab = 'feed' | 'text' | 'i2i' | 'edit' | 'paint' | 'face'
 // tabs — генератор/лента; gallery и profile — отдельные канонические страницы.
 type N2View = 'tabs' | 'gallery' | 'profile'
+type StudioMode = 'text' | 'i2i' | 'edit'
+type UploadTarget = { kind: 'i2i' } | { kind: 'edit'; index: number }
+type InspectPreview = { url: string; title: string }
+
+const EMPTY_EDIT_SLOTS: EditSlot[] = Array.from({ length: EDIT_SLOT_COUNT }, () => ({ image: undefined, role: '', takeNote: '' }))
 
 // Начальное состояние из URL: /gallery, /profile, /feed, /new/*.
 function initialViewFromPath(): { view: N2View; tab: N2Tab } {
@@ -379,13 +394,14 @@ export default function NewStudio(): ReactElement {
   const [authOpen, setAuthOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
-  const [galleryPickOpen, setGalleryPickOpen] = useState(false)
+  const [galleryPickTarget, setGalleryPickTarget] = useState<UploadTarget | null>(null)
+  const [uploadTarget, setUploadTarget] = useState<UploadTarget | null>(null)
 
   // Пол из профиля определяет вариант превью стилей (по умолчанию female).
   const previewGender: 'female' | 'male' = me?.profile?.gender === 'male' ? 'male' : 'female'
   const acct = accountInfo(me)
 
-  const [prompts, setPrompts] = useState<Record<'text' | 'i2i', string>>({ text: '', i2i: '' })
+  const [prompts, setPrompts] = useState<Record<StudioMode, string>>({ text: '', i2i: '', edit: '' })
   const [styleId, setStyleId] = useState<string>('')
   // Временный предпросмотр стиля при наведении на карточку (не выбирает стиль).
   const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
@@ -399,6 +415,8 @@ export default function NewStudio(): ReactElement {
   const [guidance] = useState(3.5)
   const [strengthPct, setStrengthPct] = useState(75)
   const [sourceImage, setSourceImage] = useState<string>()
+  const [editSlots, setEditSlots] = useState<EditSlot[]>(() => EMPTY_EDIT_SLOTS.map((slot) => ({ ...slot })))
+  const [editExtraOpen, setEditExtraOpen] = useState(false)
   const [compare, setCompare] = useState(50)
   const [compareAuto, setCompareAuto] = useState(false)
   const compareTouchedRef = useRef(false)
@@ -636,11 +654,14 @@ export default function NewStudio(): ReactElement {
   }
 
   const [job, setJob] = useState<N2Job>()
-  const [, setJobMode] = useState<'text' | 'i2i'>('text')
+  const [, setJobMode] = useState<StudioMode>('text')
   const [resultUrl, setResultUrl] = useState<string>()
   // URL результата не загрузился (битая ссылка/удалённый файл) — error-state.
   const [resultError, setResultError] = useState(false)
   const [resultSource, setResultSource] = useState<string>()
+  const [inspectPreview, setInspectPreview] = useState<InspectPreview | null>(null)
+  const [inspectZoom, setInspectZoom] = useState(1)
+  const [inspectPan, setInspectPan] = useState({ x: 0, y: 0 })
   const [notice, setNotice] = useState('')
   const [gallery, setGallery] = useState<N2GalleryImage[]>([])
   const [galleryItem, setGalleryItem] = useState<N2GalleryImage>()
@@ -664,12 +685,13 @@ export default function NewStudio(): ReactElement {
   const styleDraggedRef = useRef(false)
   // true, пока зажата кнопка над рядом стилей — подавляет hover-preview при drag.
   const stylePointerDownRef = useRef(false)
+  const inspectDragRef = useRef<{ active: boolean; startX: number; startY: number; panX: number; panY: number }>({ active: false, startX: 0, startY: 0, panX: 0, panY: 0 })
   // Текущая стилевая приписка в text-промпте: {id, text} — чтобы заменять её.
   const appliedStyleRef = useRef<{ id: string; text: string } | null>(null)
   // Текущая стилевая приписка в i2i-промпте — видна прямо в textarea.
   const appliedI2IStyleRef = useRef<{ id: string; text: string } | null>(null)
   const lastSubmittedRef = useRef<{ text?: string; i2i?: { prompt: string; source: string; width: number; height: number } }>({})
-  const noticeClearRef = useRef<{ text: string; i2i: string; source: string }>({ text: '', i2i: '', source: '' })
+  const noticeClearRef = useRef<{ text: string; i2i: string; edit: string; source: string; editSlots: string }>({ text: '', i2i: '', edit: '', source: '', editSlots: '' })
   const resultSeededRef = useRef(false)
 
   useEffect(() => {
@@ -766,7 +788,7 @@ export default function NewStudio(): ReactElement {
     return () => window.clearInterval(timer)
   }, [fetchGallery, job])
 
-  const promptKey: 'text' | 'i2i' = tab === 'i2i' ? 'i2i' : 'text'
+  const promptKey: StudioMode = tab === 'i2i' ? 'i2i' : tab === 'edit' ? 'edit' : 'text'
   const setPrompt = useCallback(
     (value: string) => setPrompts((cur) => ({ ...cur, [promptKey]: value })),
     [promptKey],
@@ -775,10 +797,11 @@ export default function NewStudio(): ReactElement {
   useEffect(() => {
     const prev = noticeClearRef.current
     const source = sourceImage || ''
-    const changed = prev.text !== prompts.text || prev.i2i !== prompts.i2i || prev.source !== source
-    noticeClearRef.current = { text: prompts.text, i2i: prompts.i2i, source }
+    const editSlotSignature = editSlots.map((slot) => `${slot.image || ''}:${slot.role}:${slot.takeNote || ''}`).join('|')
+    const changed = prev.text !== prompts.text || prev.i2i !== prompts.i2i || prev.edit !== prompts.edit || prev.source !== source || prev.editSlots !== editSlotSignature
+    noticeClearRef.current = { text: prompts.text, i2i: prompts.i2i, edit: prompts.edit, source, editSlots: editSlotSignature }
     if (notice && changed) setNotice('')
-  }, [notice, prompts.text, prompts.i2i, sourceImage])
+  }, [editSlots, notice, prompts.edit, prompts.i2i, prompts.text, sourceImage])
 
   useEffect(() => {
     if (!notice) return undefined
@@ -847,12 +870,61 @@ export default function NewStudio(): ReactElement {
     }
   }
 
-  async function generate(mode: 'text' | 'i2i') {
+  function clearEditSlot(index: number) {
+    if (inspectPreview && editSlots[index]?.image === inspectPreview.url) setInspectPreview(null)
+    setEditSlots((current) => current.map((slot, i) => (i === index ? { image: undefined, role: '', takeNote: '' } : slot)))
+  }
+
+  function setEditSlotRole(index: number, role: EditReferenceRole | '') {
+    if (role === 'pose') {
+      showToast('Поза временно недоступна')
+      setNotice('Смена позы временно отключена: workflow нестабилен.')
+      return
+    }
+    setEditSlots((current) => current.map((slot, i) => (i === index ? { ...slot, role } : slot)))
+  }
+
+  function setEditSlotTakeNote(index: number, takeNote: string) {
+    setEditSlots((current) => current.map((slot, i) => (i === index ? { ...slot, takeNote } : slot)))
+  }
+
+  function openUpload(target: UploadTarget) {
+    setUploadTarget(target)
+    fileInputRef.current?.click()
+  }
+
+  function openGalleryPick(target: UploadTarget) {
+    setGalleryPickTarget(target)
+  }
+
+  function showInspectPreview(url: string, title: string) {
+    setInspectPreview({ url, title })
+    setInspectZoom(1)
+    setInspectPan({ x: 0, y: 0 })
+    setResultError(false)
+  }
+
+  function applyImageToTarget(target: UploadTarget | null, image: string) {
+    if (!target || target.kind === 'i2i') {
+      setSourceImage(image)
+      showInspectPreview(image, 'Исходное изображение')
+      return
+    }
+    setEditSlots((current) => current.map((slot, i) => {
+      if (i !== target.index) return slot
+      return target.index > 0 ? { image, role: '', takeNote: '' } : { ...slot, image }
+    }))
+    showInspectPreview(image, target.index === 0 ? 'Основа' : `Референс ${target.index}`)
+  }
+
+  async function generate(mode: StudioMode) {
     if (inFlightRef.current || isSubmitting || jobActive) return
     const textPrompt = prompts.text.trim()
     const i2iPrompt = prompts.i2i.trim()
+    const editPrompt = prompts.edit.trim()
     const i2iSource = sourceImage || ''
     const size = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
+    const editComposer = editComposerStatus({ slots: editSlots, userNote: editPrompt, manualMode: false, manualPrompt: '' })
     // Пустой запрос не запускает генерацию — показываем понятную подсказку.
     if (mode === 'text' && !textPrompt) {
       showToast('Опишите идею — что вы хотите увидеть')
@@ -864,6 +936,11 @@ export default function NewStudio(): ReactElement {
     }
     if (mode === 'i2i' && !(i2iPrompt || styleId)) {
       showToast('Опишите преобразование или выберите стиль')
+      return
+    }
+    if (mode === 'edit' && editComposer.blockReason) {
+      showToast(editComposer.blockReason)
+      setNotice(editComposer.blockReason)
       return
     }
     if (mode === 'text' && lastSubmittedRef.current.text === textPrompt) {
@@ -895,20 +972,26 @@ export default function NewStudio(): ReactElement {
       // text/i2i-стиль дописывается туда при выборе и может быть отредактирован.
       const fullPrompt = userText || (mode === 'i2i' ? style?.transformPrompt || '' : '')
       const body = {
-        mode: mode === 'i2i' ? 'image_to_image' : 'text_to_image',
+        mode: mode === 'i2i' ? 'image_to_image' : mode === 'edit' ? 'edit' : 'text_to_image',
         provider: 'comfyui',
-        prompt: fullPrompt,
-        negativePrompt: '',
+        prompt: mode === 'edit' ? editComposer.finalPrompt : fullPrompt,
+        negativePrompt: mode === 'edit' ? '' : '',
         seed: effectiveSeed,
         width: size.width,
         height: size.height,
         steps,
         cfg: 1,
         guidance,
-        strength: strengthPct / 100,
+        strength: mode === 'edit' ? DEFAULT_EDIT_STRENGTH : strengthPct / 100,
         modelProfile: 'local_flux_klein',
         loras: [],
-        inputImage1: mode === 'i2i' ? sourceImage : undefined,
+        inputImage1: mode === 'i2i' ? sourceImage : mode === 'edit' ? editSlots[0]?.image : undefined,
+        inputImages: mode === 'edit'
+          ? editSlots
+              .map((slot, index) => ({ slot, index }))
+              .filter(({ slot }) => slot.image)
+              .map(({ slot, index }) => ({ index: index + 1, role: index === 0 ? 'base' : slot.role, image: slot.image! }))
+          : undefined,
         clientRequestId: newClientRequestId(),
       }
       const response = await apiFetch('/generate', {
@@ -937,8 +1020,10 @@ export default function NewStudio(): ReactElement {
       setJob(created)
       setJobMode(mode)
       setResultUrl(undefined)
-      setResultSource(mode === 'i2i' ? sourceImage : undefined)
-      setCompare(mode === 'i2i' ? 96 : 50)
+      setInspectPreview(null)
+      resetInspectView()
+      setResultSource(mode === 'i2i' ? sourceImage : mode === 'edit' ? editSlots[0]?.image : undefined)
+      setCompare(mode === 'i2i' || mode === 'edit' ? 96 : 50)
       if (!seed) setSeed(effectiveSeed)
     } catch {
       setNotice('Проблема соединения с сервером. Проверьте, что сервис запущен.')
@@ -951,7 +1036,11 @@ export default function NewStudio(): ReactElement {
   function onSourceFile(file: File | undefined) {
     if (!file) return
     const reader = new FileReader()
-    reader.onload = () => setSourceImage(typeof reader.result === 'string' ? reader.result : undefined)
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') return
+      applyImageToTarget(uploadTarget, reader.result)
+      setUploadTarget(null)
+    }
     reader.readAsDataURL(file)
   }
 
@@ -960,13 +1049,64 @@ export default function NewStudio(): ReactElement {
     setStrengthPct(Math.abs(next - 75) <= 3 ? 75 : next)
   }
 
-  function useLastSourceImage() {
+  function applyLastSourceImage() {
     const last = resultUrl || gallery[0]?.url || dockImage?.url || historyItems[0]?.url
     if (!last) {
       showToast('Последнего изображения пока нет')
       return
     }
-    setSourceImage(apiUrl(last))
+    const image = apiUrl(last)
+    setSourceImage(image)
+    showInspectPreview(image, 'Исходное изображение')
+  }
+
+  function applyLastImageToTarget(target: UploadTarget) {
+    const last = resultUrl || gallery[0]?.url || dockImage?.url || historyItems[0]?.url
+    if (!last) {
+      showToast('Последнего изображения пока нет')
+      return
+    }
+    applyImageToTarget(target, apiUrl(last))
+  }
+
+  function resetInspectView() {
+    setInspectZoom(1)
+    setInspectPan({ x: 0, y: 0 })
+  }
+
+  function onInspectWheel(e: ReactWheelEvent<HTMLDivElement>) {
+    e.preventDefault()
+    const rect = e.currentTarget.getBoundingClientRect()
+    const localX = e.clientX - rect.left - rect.width / 2
+    const localY = e.clientY - rect.top - rect.height / 2
+    setInspectZoom((current) => {
+      const next = Math.max(0.46, Math.min(5, current * (e.deltaY < 0 ? 1.16 : 0.86)))
+      const ratio = next / current
+      setInspectPan((pan) => Math.abs(next - 1) <= 0.02
+        ? { x: 0, y: 0 }
+        : {
+            x: localX - (localX - pan.x) * ratio,
+            y: localY - (localY - pan.y) * ratio,
+          })
+      return next
+    })
+  }
+
+  function onInspectPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (Math.abs(inspectZoom - 1) <= 0.02) return
+    inspectDragRef.current = { active: true, startX: e.clientX, startY: e.clientY, panX: inspectPan.x, panY: inspectPan.y }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+
+  function onInspectPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const drag = inspectDragRef.current
+    if (!drag.active) return
+    setInspectPan({ x: drag.panX + e.clientX - drag.startX, y: drag.panY + e.clientY - drag.startY })
+  }
+
+  function onInspectPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    inspectDragRef.current.active = false
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
   }
 
   const jobActive = !!job && JOB_ACTIVE.includes(job.status)
@@ -994,18 +1134,27 @@ export default function NewStudio(): ReactElement {
   const historyItems = ownHistory.length > 0 ? ownHistory : feedFallback
   const historyIsFeed = ownHistory.length === 0 && feedFallback.length > 0
   const selectedResolution = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
-  const studioMode: 'text' | 'i2i' = tab === 'i2i' ? 'i2i' : 'text'
+  const studioMode: StudioMode = tab === 'i2i' ? 'i2i' : tab === 'edit' ? 'edit' : 'text'
   const isI2IStudio = studioMode === 'i2i'
-  const studioTitle = isI2IStudio ? 'Изо в изображение' : 'Текст в изображение'
-  const promptTitle = isI2IStudio ? 'Как преобразовать?' : 'Что хотите увидеть?'
+  const isEditStudio = studioMode === 'edit'
+  const studioTitle = isI2IStudio ? 'Изо в изображение' : isEditStudio ? 'Редактор' : 'Текст в изображение'
+  const promptTitle = isI2IStudio ? 'Как преобразовать?' : isEditStudio ? 'Дополнительные пожелания' : 'Что хотите увидеть?'
   const promptPlaceholder = isI2IStudio
     ? 'Опишите, как преобразовать исходное изображение...'
+    : isEditStudio
+      ? 'Например: сохранить лицо, заменить одежду, взять фон или цвет из референса...'
     : 'Опишите идею своими словами — получите изображение...'
-  const promptLimit = isI2IStudio ? 1000 : 2000
+  const promptLimit = isI2IStudio || isEditStudio ? 1000 : 2000
   const promptValue = prompts[studioMode]
-  const generateLabel = isI2IStudio ? 'Преобразовать' : 'Сгенерировать'
-  const generatingLabel = isI2IStudio ? 'Преобразуем...' : 'Генерируем...'
+  const generateLabel = isI2IStudio ? 'Преобразовать' : isEditStudio ? 'Создать изображение' : 'Сгенерировать'
+  const generatingLabel = isI2IStudio ? 'Преобразуем...' : isEditStudio ? 'Создаём...' : 'Генерируем...'
   const influenceStyle = { '--i2i-range-progress': `${strengthPct}%` } as CSSProperties
+  const inspectImageStyle = {
+    transform: `translate(${inspectPan.x}px, ${inspectPan.y}px) scale(${inspectZoom})`,
+  } as CSSProperties
+  const inspectToolsVisible = Math.abs(inspectZoom - 1) > 0.02
+  const visibleEditSlots = editExtraOpen ? editSlots : editSlots.slice(0, 2)
+  const editFilledCount = editSlots.filter((slot) => slot.image).length
 
   // Док «Промпт изображения»: если пользователь выбрал миниатюру — берём её из
   // видимой истории (своя или лента), чтобы клик по ленте синхронизировал промпт.
@@ -1055,6 +1204,8 @@ export default function NewStudio(): ReactElement {
   // Открыть миниатюру истории в предпросмотре + доке промпта.
   const openHistory = (item: N2GalleryImage) => {
     setResultError(false)
+    setInspectPreview(null)
+    resetInspectView()
     setResultUrl(item.url)
     setResultSource(undefined)
     setDockImageId(item.id)
@@ -1121,7 +1272,7 @@ export default function NewStudio(): ReactElement {
     ta.style.height = 'auto'
     const max = Math.round(window.innerHeight * 0.34)
     ta.style.height = `${Math.min(ta.scrollHeight, max)}px`
-  }, [prompts.text, prompts.i2i, tab])
+  }, [prompts.text, prompts.i2i, prompts.edit, tab])
 
   // Горизонтальный скролл ряда стилей: колесо мыши + drag (мышь/тач).
   // Если пользователь тянул ряд — клик по карточке не выбирает стиль (styleDraggedRef).
@@ -1500,6 +1651,100 @@ export default function NewStudio(): ReactElement {
   const shareTarget = dockImage || gallery[0]
   const previewNoticeText = notice || toastText
 
+  const renderEditorSlot = (slot: EditSlot, index: number) => {
+    const isBase = index === 0
+    const target: UploadTarget = { kind: 'edit', index }
+    const title = isBase ? 'Основа' : `Референс ${index}`
+    const subtitle = isBase ? 'На что применяем изменения' : 'Что берём из изображения'
+    return (
+      <article className={`editor-slot editor-ref-card${slot.image ? ' is-filled' : ''}`} key={index}>
+        <div className="editor-slot-title editor-ref-header">
+          <div>
+            <strong>{title}</strong>
+            <span>{subtitle}</span>
+          </div>
+        </div>
+        <article className={`i2i-upload-card editor-upload-card${slot.image ? ' is-filled' : ''}${isBase ? ' is-required' : ''}`}>
+          {isBase && !slot.image && <span className="i2i-required-chip">Обязательно</span>}
+          {slot.image && (
+            <button className="i2i-remove" type="button" aria-label={`Удалить ${title.toLowerCase()}`} onClick={() => clearEditSlot(index)}>
+              ×
+            </button>
+          )}
+          <div className="i2i-preview">
+            {slot.image ? (
+              <button className="editor-preview-open" type="button" aria-label={`Показать ${title.toLowerCase()} в предпросмотре`} onClick={() => showInspectPreview(slot.image!, title)}>
+                <img src={apiUrl(slot.image)} alt={title} />
+              </button>
+            ) : (
+              <div className="i2i-upload-empty">
+                <svg className="i2i-upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M7 18.5h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.4 8.7 4.8 4.8 0 0 0 7 18.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                  <path d="M12 15V9.5m0 0-2.3 2.3M12 9.5l2.3 2.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <div className="i2i-upload-actions">
+                  <button className="i2i-upload-action primary" type="button" onClick={() => openUpload(target)}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M12 16V6m0 0-4 4m4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M5 18.5h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                    Загрузить
+                  </button>
+                  <button className="i2i-upload-action" type="button" onClick={() => openGalleryPick(target)}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M4 5h16v14H4V5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                      <path d="m7 15 3.2-3.2 2.4 2.4 2.2-2.7L20 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M8.4 8.6h.1" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+                    </svg>
+                    Галерея
+                  </button>
+                  <button className="i2i-upload-action" type="button" onClick={() => applyLastImageToTarget(target)}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M5 7v5h5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M5.6 12a6.6 6.6 0 1 0 1.9-4.7L5 9.8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M12 8.5V12l2.2 1.4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    Последнее
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          {!isBase && slot.image && (
+            <div className="editor-role-controls">
+              <label>
+                <span>Что взять из картинки</span>
+                <select
+                  className="editor-role-select"
+                  value={slot.role}
+                  aria-label={`Роль для ${title.toLowerCase()}`}
+                  onChange={(e) => setEditSlotRole(index, e.target.value as EditReferenceRole | '')}
+                >
+                  <option value="">Выберите роль</option>
+                  {EDIT_SELECTABLE_REFERENCE_ROLES.map((role) => (
+                    <option key={role} value={role} disabled={EDIT_DISABLED_REFERENCE_ROLES.includes(role)}>
+                      {EDIT_REFERENCE_ROLE_LABELS[role]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {slot.role === 'other' && (
+                <input
+                  className="editor-role-note"
+                  type="text"
+                  maxLength={120}
+                  placeholder="Например: материал, предмет, настроение..."
+                  value={slot.takeNote || ''}
+                  onChange={(e) => setEditSlotTakeNote(index, e.target.value)}
+                />
+              )}
+            </div>
+          )}
+        </article>
+      </article>
+    )
+  }
+
   const studio = (
     <main className="layout">
       <aside className="sidebar">
@@ -1531,7 +1776,14 @@ export default function NewStudio(): ReactElement {
                 )}
                 <div className="i2i-preview">
                   {sourceImage ? (
-                    <img src={apiUrl(sourceImage)} alt="Исходное изображение" />
+                    <button
+                      className="editor-preview-open i2i-preview-open"
+                      type="button"
+                      aria-label="Показать исходное изображение в предпросмотре"
+                      onClick={() => showInspectPreview(sourceImage, 'Исходное изображение')}
+                    >
+                      <img src={apiUrl(sourceImage)} alt="Исходное изображение" />
+                    </button>
                   ) : (
                     <div className="i2i-upload-empty">
                       <svg className="i2i-upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -1539,14 +1791,14 @@ export default function NewStudio(): ReactElement {
                         <path d="M12 15V9.5m0 0-2.3 2.3M12 9.5l2.3 2.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                       <div className="i2i-upload-actions">
-                        <button className="i2i-upload-action primary" type="button" onClick={() => fileInputRef.current?.click()}>
+                        <button className="i2i-upload-action primary" type="button" onClick={() => openUpload({ kind: 'i2i' })}>
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                             <path d="M12 16V6m0 0-4 4m4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                             <path d="M5 18.5h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                           </svg>
                           Загрузить
                         </button>
-                        <button className="i2i-upload-action" type="button" onClick={() => setGalleryPickOpen(true)}>
+                        <button className="i2i-upload-action" type="button" onClick={() => openGalleryPick({ kind: 'i2i' })}>
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                             <path d="M4 5h16v14H4V5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
                             <path d="m7 15 3.2-3.2 2.4 2.4 2.2-2.7L20 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -1554,7 +1806,7 @@ export default function NewStudio(): ReactElement {
                           </svg>
                           Галерея
                         </button>
-                        <button className="i2i-upload-action" type="button" onClick={useLastSourceImage}>
+                        <button className="i2i-upload-action" type="button" onClick={applyLastSourceImage}>
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                             <path d="M5 7v5h5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
                             <path d="M5.6 12a6.6 6.6 0 1 0 1.9-4.7L5 9.8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
@@ -1615,7 +1867,24 @@ export default function NewStudio(): ReactElement {
           </section>
         )}
 
-        <section className="form-section prompt-section">
+        {isEditStudio && (
+          <section className="form-section i2i-source-section editor-source-section">
+            <div className="section-title">
+              <h2>Изображения</h2>
+              <span className={`i2i-source-status${editSlots[0]?.image ? ' filled' : ' required'}`}>
+                {editSlots[0]?.image ? `${editFilledCount} из ${EDIT_SLOT_COUNT}` : `${visibleEditSlots.length} из ${EDIT_SLOT_COUNT}`}
+              </span>
+            </div>
+            <div className="editor-source-grid">
+              {visibleEditSlots.map(renderEditorSlot)}
+            </div>
+            <button className="editor-extra-toggle" type="button" onClick={() => setEditExtraOpen((open) => !open)}>
+              {editExtraOpen ? 'Скрыть референсы' : 'Еще референсы'}
+            </button>
+          </section>
+        )}
+
+        <section className={`form-section prompt-section${isEditStudio ? ' editor-prompt-section' : ''}`}>
           <div className="section-title">
             <h2>{promptTitle}</h2>
             <span className="help-dot" role="button" tabIndex={0} onClick={() => setHelpOpen(true)}>?</span>
@@ -1645,22 +1914,26 @@ export default function NewStudio(): ReactElement {
               </svg>
               Улучшить
             </button>
-            <button className="tool-button" type="button" onClick={() => setTemplatesOpen(true)}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z" stroke="currentColor" strokeWidth="1.8" />
-              </svg>
-              Шаблоны
-            </button>
-            <button className="tool-button" type="button" onClick={randomPrompt}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M9 18h6M10 22h4M8.4 14.4A6 6 0 1 1 15.6 14c-.9.7-1.6 1.7-1.8 2.8h-3.6c-.2-1-.8-1.8-1.8-2.4Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              Идея
-            </button>
+            {!isEditStudio && (
+              <>
+                <button className="tool-button" type="button" onClick={() => setTemplatesOpen(true)}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z" stroke="currentColor" strokeWidth="1.8" />
+                  </svg>
+                  Шаблоны
+                </button>
+                <button className="tool-button" type="button" onClick={randomPrompt}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M9 18h6M10 22h4M8.4 14.4A6 6 0 1 1 15.6 14c-.9.7-1.6 1.7-1.8 2.8h-3.6c-.2-1-.8-1.8-1.8-2.4Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Идея
+                </button>
+              </>
+            )}
           </div>
         </section>
 
-        <section className="form-section style-section">
+        {!isEditStudio && <section className="form-section style-section">
           <div className="section-title">
             <h2>Стиль</h2>
             <span>{I2I_STYLES.length} стилей</span>
@@ -1691,7 +1964,7 @@ export default function NewStudio(): ReactElement {
               </figure>
             ))}
           </div>
-        </section>
+        </section>}
 
         <section className="form-section format-section">
           <div className="section-title">
@@ -1799,6 +2072,25 @@ export default function NewStudio(): ReactElement {
                 </div>
               </div>
             </div>
+          ) : inspectPreview ? (
+            <>
+              <img className="iv3-preview-backdrop" src={apiUrl(inspectPreview.url)} alt="" aria-hidden="true" />
+              <div
+                className={`iv3-inspect-stage${inspectToolsVisible ? ' is-zoomed' : ''}`}
+                onWheel={onInspectWheel}
+                onPointerDown={onInspectPointerDown}
+                onPointerMove={onInspectPointerMove}
+                onPointerUp={onInspectPointerUp}
+                onPointerCancel={onInspectPointerUp}
+                onDoubleClick={resetInspectView}
+              >
+                <img className="iv3-preview-main iv3-inspect-image" src={apiUrl(inspectPreview.url)} alt={inspectPreview.title} style={inspectImageStyle} draggable={false} />
+              </div>
+              {inspectToolsVisible && <div className="iv3-inspect-tools">
+                <span>{inspectPreview.title} · {Math.round(inspectZoom * 100)}%</span>
+                <button type="button" onClick={resetInspectView}>Сброс</button>
+              </div>}
+            </>
           ) : resultUrl && !resultError ? (
             <>
               <img className="iv3-preview-backdrop" src={resultUrl} alt="" aria-hidden="true" />
@@ -1828,7 +2120,23 @@ export default function NewStudio(): ReactElement {
                   />
                 </div>
               ) : (
-                <img className="iv3-preview-main" src={resultUrl} alt="Результат генерации" onError={() => setResultError(true)} />
+                <div
+                  className={`iv3-inspect-stage${inspectToolsVisible ? ' is-zoomed' : ''}`}
+                  onWheel={onInspectWheel}
+                  onPointerDown={onInspectPointerDown}
+                  onPointerMove={onInspectPointerMove}
+                  onPointerUp={onInspectPointerUp}
+                  onPointerCancel={onInspectPointerUp}
+                  onDoubleClick={resetInspectView}
+                >
+                  <img className="iv3-preview-main iv3-inspect-image" src={resultUrl} alt="Результат генерации" style={inspectImageStyle} draggable={false} onError={() => setResultError(true)} />
+                </div>
+              )}
+              {!resultSource && inspectToolsVisible && (
+                <div className="iv3-inspect-tools">
+                  <span>Предпросмотр · {Math.round(inspectZoom * 100)}%</span>
+                  <button type="button" onClick={resetInspectView}>Сброс</button>
+                </div>
               )}
               <div className="image-actions">
                 {resultUrl && (
@@ -2071,13 +2379,13 @@ export default function NewStudio(): ReactElement {
         </div>
       )}
 
-      {galleryPickOpen && (
-        <div className="n2-overlay" role="dialog" aria-label="Выбор из галереи" onClick={() => setGalleryPickOpen(false)}>
+      {galleryPickTarget && (
+        <div className="n2-overlay" role="dialog" aria-label="Выбор из галереи" onClick={() => setGalleryPickTarget(null)}>
           <div className="n2-overlay-card n2-templates" onClick={(e) => e.stopPropagation()}>
-            <button className="n2-overlay-close" type="button" aria-label="Закрыть" onClick={() => setGalleryPickOpen(false)}>
+            <button className="n2-overlay-close" type="button" aria-label="Закрыть" onClick={() => setGalleryPickTarget(null)}>
               ×
             </button>
-            <h2>Выберите исходник из галереи</h2>
+            <h2>{galleryPickTarget.kind === 'edit' ? 'Выберите изображение' : 'Выберите исходник из галереи'}</h2>
             <div className="n2-templates-styles">
               {gallery.map((item) => (
                 <button
@@ -2086,8 +2394,8 @@ export default function NewStudio(): ReactElement {
                   type="button"
                   title={item.promptOriginal}
                   onClick={() => {
-                    setSourceImage(apiUrl(item.url))
-                    setGalleryPickOpen(false)
+                    applyImageToTarget(galleryPickTarget, apiUrl(item.url))
+                    setGalleryPickTarget(null)
                   }}
                 >
                   <img src={apiUrl(item.thumbnailUrl || item.url)} alt={item.promptOriginal.slice(0, 60)} loading="lazy" />
@@ -2182,10 +2490,8 @@ export default function NewStudio(): ReactElement {
           />
           {tab === 'feed' ? (
             <div className="iv3-content iv3-feed">{feed}</div>
-          ) : tab === 'text' || tab === 'i2i' ? (
+          ) : tab === 'text' || tab === 'i2i' || tab === 'edit' ? (
             studio
-          ) : tab === 'edit' ? (
-            placeholderStudio('Редактор', 'Основа и референсы с ролями (лицо, одежда, стиль, фон) переносятся в новый интерфейс следующим этапом.')
           ) : tab === 'paint' ? (
             placeholderStudio('Рисунок', 'Эскиз, маска и расширение появятся здесь в новом дизайне. Функционал уже работает в текущей версии.')
           ) : tab === 'face' ? (
@@ -2194,7 +2500,7 @@ export default function NewStudio(): ReactElement {
             placeholderStudio('Скоро', 'Раздел в разработке.')
           )}
         </div>
-        {(tab === 'text' || tab === 'i2i') && (
+        {(tab === 'text' || tab === 'i2i' || tab === 'edit') && (
           <button className={`mobile-bottom-cta${isSubmitting || jobActive ? ' is-generating' : ''}`} type="button" disabled={isSubmitting || jobActive} onClick={() => generate(studioMode)}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />
