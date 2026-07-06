@@ -4810,6 +4810,40 @@ def delete_image_files_from_disk(url: str | None = None, thumbnail_url: str | No
             pass
 
 
+def _delete_media_rel(rel: str | None) -> None:
+    if not rel:
+        return
+    try:
+        target = (MEDIA / rel).resolve()
+        target.relative_to(MEDIA.resolve())
+        if target.exists() and target.is_file():
+            target.unlink()
+    except Exception:
+        pass
+
+
+def retire_feed_publications_for_image(conn: sqlite3.Connection, image_id: str, now: str, reason: str = "source_image_deleted") -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()}
+    if not columns:
+        return
+    media_columns = {"feed_thumb_name", "feed_large_name", "media_ready_at", "media_error", "updated_at"}
+    rows = conn.execute(
+        "SELECT id, feed_thumb_name, feed_large_name FROM feed_publications WHERE image_id = ?",
+        (image_id,),
+    ).fetchall()
+    for row in rows:
+        _delete_media_rel(_row_get(row, "feed_thumb_name"))
+        _delete_media_rel(_row_get(row, "feed_large_name"))
+    if media_columns <= columns:
+        conn.execute(
+            "UPDATE feed_publications SET status = 'hidden', feed_thumb_name = NULL, feed_large_name = NULL, "
+            "media_ready_at = NULL, media_error = ?, updated_at = ? WHERE image_id = ?",
+            (reason, now, image_id),
+        )
+    else:
+        conn.execute("UPDATE feed_publications SET status = 'hidden' WHERE image_id = ?", (image_id,))
+
+
 def create_thumbnail(image_path: Path) -> Path:
     thumb_path = image_path.with_name(f"{image_path.stem}_thumb.webp")
     with Image.open(image_path) as image:
@@ -5731,6 +5765,7 @@ async def worker() -> None:
                     ).fetchone()
                     if oldest:
                         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ?", (created_at, oldest["id"]))
+                        retire_feed_publications_for_image(conn, oldest["id"], created_at)
                         delete_image_files_from_disk(url=oldest["url"], thumbnail_url=oldest["thumbnail_url"])
                         if oldest["id"] in images:
                             images.pop(oldest["id"])
@@ -6086,6 +6121,7 @@ async def gallery_delete(image_id: str, request: Request) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ? AND user_id = ?", (now, image_id, user_id))
+        retire_feed_publications_for_image(conn, image_id, now)
     delete_image_files_from_disk(url=record.get("url"), thumbnail_url=record.get("thumbnailUrl"))
     return {"ok": True, "deleted": image_id, "url": record["url"]}
 

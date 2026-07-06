@@ -223,6 +223,42 @@ def test_feed_media_served_only_for_published(temp_db):
         # (легаси-фолбэк ?userId в проде закрыт trusted-сессией — см. gallery).
 
 
+def test_gallery_delete_retires_feed_publication_and_variants(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-delete-feed", "web_delete_feed")
+        make_image("img-delete-feed", "web_delete_feed")
+        pub = publish(client, token, "img-delete-feed")
+        with main.db() as conn:
+            row = conn.execute(
+                "SELECT feed_thumb_name, feed_large_name FROM feed_publications WHERE id = ?",
+                (pub["id"],),
+            ).fetchone()
+        thumb = main.MEDIA / row["feed_thumb_name"]
+        large = main.MEDIA / row["feed_large_name"]
+        assert thumb.exists()
+        assert large.exists()
+
+        r = client.delete("/api/gallery/img-delete-feed", headers=bearer(token))
+        assert r.status_code == 200
+        assert not thumb.exists()
+        assert not large.exists()
+        assert client.get(f"/api/feed/media/{pub['id']}?variant=thumb").status_code == 404
+        feed = client.get("/api/feed?type=new")
+        assert feed.status_code == 200
+        assert all(item["id"] != pub["id"] for item in feed.json()["items"])
+        with main.db() as conn:
+            row = conn.execute(
+                "SELECT status, feed_thumb_name, feed_large_name, media_ready_at, media_error "
+                "FROM feed_publications WHERE id = ?",
+                (pub["id"],),
+            ).fetchone()
+        assert row["status"] == "hidden"
+        assert row["feed_thumb_name"] is None
+        assert row["feed_large_name"] is None
+        assert row["media_ready_at"] is None
+        assert row["media_error"] == "source_image_deleted"
+
+
 def test_publish_creates_feed_variants_not_original_fallback(temp_db):
     with TestClient(main.app) as client:
         token = make_user("iuid-d", "web_d")
