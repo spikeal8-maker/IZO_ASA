@@ -21,6 +21,10 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
+      '/gallery': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
       '/static': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
@@ -42,6 +46,10 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/feed': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/gallery': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
