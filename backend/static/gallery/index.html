@@ -27,19 +27,20 @@ button{cursor:pointer;color:inherit}
 img{max-width:100%}
 [hidden]{display:none!important}
 
-.appTop{height:58px;border-bottom:1px solid var(--line);background:rgba(5,7,6,.96);backdrop-filter:blur(16px);display:flex;align-items:center;gap:16px;padding:0 14px;position:sticky;top:0;z-index:20}
-.logo{display:flex;align-items:center;gap:10px;font-weight:900;font-size:22px;letter-spacing:-.04em;white-space:nowrap}
-.logoMark{width:30px;height:30px;border:2px solid var(--acid);border-radius:9px;display:grid;place-items:center;box-shadow:0 0 18px rgba(221,255,0,.25);color:var(--acid);font-size:17px;line-height:1}
-.logo b{color:var(--acid)}
-.feedNav{height:38px;padding:0 18px;border-radius:13px;border:1px solid rgba(204,90,255,.7);background:linear-gradient(180deg,#9138de,#4b197a);box-shadow:0 0 20px rgba(160,67,255,.35);font-weight:850;display:flex;align-items:center;gap:7px}
-.mainNav{margin:0 auto;display:flex;align-items:center;border:1px solid var(--line);border-radius:13px;overflow:hidden;background:#090b0a;min-width:360px;max-width:760px;flex:1}
-.mainNav button{height:38px;min-width:110px;padding:0 18px;background:transparent;border:0;border-right:1px solid var(--line);font-weight:800;color:#f3f6ef}
-.mainNav button:last-child{border-right:0;color:#757a75}
-.topRight{display:flex;align-items:center;gap:8px}
-.navBtn{height:38px;border:1px solid var(--line);border-radius:10px;background:#0e1110;padding:0 15px;font-weight:800;white-space:nowrap}
-.navBtn.active{background:var(--acid);border-color:var(--acid);color:#0b0d08}
-.userBtn{height:38px;border:1px solid rgba(168,92,255,.55);border-radius:10px;background:#16111f;padding:0 12px;font-weight:800;display:flex;align-items:center;gap:8px}
-.userDot{width:18px;height:18px;border-radius:50%;background:conic-gradient(var(--acid),#4ff, var(--purple), var(--acid));box-shadow:0 0 10px var(--acid)}
+.n2-topbar{min-height:58px;position:sticky;top:0;z-index:100;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:18px;padding:10px 16px;background:rgba(10,12,10,.94);border-bottom:1px solid var(--line);backdrop-filter:blur(18px)}
+.n2-brand{display:inline-flex;align-items:center;gap:10px;min-width:max-content;color:var(--text);text-decoration:none;font-size:23px;font-weight:950;letter-spacing:-.03em;border:0;background:transparent;padding:0;cursor:pointer;white-space:nowrap}
+.n2-brand-mark{width:32px;height:32px;display:grid;place-items:center;border:2px solid var(--acid);border-radius:8px;color:var(--acid);box-shadow:0 0 24px rgba(221,255,0,.18);font-size:14px;line-height:1}
+.n2-brand-accent{color:var(--acid)}
+.n2-tabs,.n2-top-actions{display:flex;align-items:center;gap:8px;min-width:0}
+.n2-tabs{justify-content:center;overflow-x:auto;padding:2px;scrollbar-width:none}.n2-tabs::-webkit-scrollbar{display:none}
+.n2-tab,.n2-ghost,.n2-icon-button{min-height:38px;border:1px solid rgba(255,255,255,.105);border-radius:8px;background:rgba(18,21,18,.78);color:var(--text);padding:0 15px;font-size:14px;font-weight:850;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:7px;box-shadow:0 8px 22px rgba(0,0,0,.13);cursor:pointer}
+.n2-tab:hover,.n2-ghost:hover,.n2-icon-button:hover{border-color:rgba(221,255,0,.45)}
+.n2-tab.feed-tab{color:#eee8ff;border-color:rgba(155,124,255,.42);background:rgba(155,124,255,.16)}
+.n2-tab.feed-tab.active{color:#0d0714;border-color:rgba(155,124,255,.92);background:var(--purple);box-shadow:0 0 24px rgba(155,124,255,.28)}
+.n2-tab.active:not(.feed-tab){color:#090c06;border-color:rgba(221,255,0,.82);background:var(--acid);box-shadow:0 0 24px rgba(221,255,0,.18)}
+.n2-ghost.purple{color:#eee8ff;border-color:rgba(155,124,255,.42);background:rgba(155,124,255,.16)}
+.n2-ghost.purple.active-view{border-color:rgba(221,255,0,.55);color:var(--acid)}
+.n2-icon-button{width:38px;padding:0}
 
 .page{max-width:1880px;margin:0 auto;padding:20px 16px 54px}
 .compactBar{display:grid;grid-template-columns:auto auto minmax(260px,560px) auto;gap:12px;align-items:center;margin-bottom:20px}
@@ -167,7 +168,7 @@ h2{margin:0;font-size:22px;line-height:1.1;font-weight:950;letter-spacing:-.03em
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 @media (max-width:980px){
-  .mainNav{display:none}.appTop{height:50px;padding:0 10px}.logo{font-size:18px}.logoMark{width:26px;height:26px}.feedNav{height:34px;padding:0 12px}.topRight .navBtn:not(.active),.userBtn{display:none}
+  .n2-topbar{min-height:108px;grid-template-columns:minmax(0,1fr) auto;align-content:center;padding:8px 10px 7px;gap:8px}.n2-brand{font-size:19px}.n2-brand-mark{width:28px;height:28px;border-radius:7px}.n2-tabs{grid-column:1/-1;order:3;justify-content:flex-start;overflow-x:auto;padding-bottom:1px}.n2-tab{min-height:32px;padding:0 11px;border-radius:999px;font-size:12px;flex:0 0 auto}.n2-top-actions{justify-content:flex-end}.n2-top-actions .n2-ghost span{display:none}.n2-ghost,.n2-icon-button{min-height:32px}.n2-icon-button{width:32px}
   .page{padding:12px 10px 36px}
   .compactBar{grid-template-columns:1fr auto;gap:8px;margin-bottom:14px}
   .titleLine{grid-column:1;gap:8px}h1{font-size:26px}.infoTiny{width:32px;height:32px}
@@ -179,16 +180,29 @@ h2{margin:0;font-size:22px;line-height:1.1;font-weight:950;letter-spacing:-.03em
   .popover{left:0;right:auto;top:44px;width:min(300px,calc(100vw - 20px))}
 }
 @media (max-width:420px){.toolbarBtns{grid-template-columns:1fr 1fr 1fr 40px}.toolbarBtns .btn{font-size:12px}.searchBox input{font-size:13px}.masonry{column-gap:7px}.cardDate{font-size:9px}.pill{font-size:9px}}
+@media (max-width:560px){.n2-tab:nth-child(n+5){display:none}.n2-ghost.purple{font-size:0;width:34px;padding:0}.n2-ghost.purple:before{content:"▧";font-size:13px}}
 </style>
 </head>
 <body>
-<header class="appTop">
-  <div class="logo"><span class="logoMark">▧</span><span>ИЗО <b>ACA</b></span></div>
-  <button class="feedNav" title="Перейти в общую ленту">✦ Лента</button>
-  <nav class="mainNav" aria-label="Основная навигация">
-    <button data-href="/#text-to-image">Текст → Изо</button><button data-href="/#image-to-image">Изо → Изо</button><button data-href="/#editor">Редактор</button><button data-href="/#draw">Рисунок</button><button data-href="/#face">Лицо</button><button data-href="/#video">Видео</button>
+<header class="n2-topbar">
+  <a class="n2-brand" href="/gallery" aria-label="ИЗО ACA">
+    <span class="n2-brand-mark">▧</span>
+    <span>ИЗО <span class="n2-brand-accent">ACA</span></span>
+  </a>
+  <nav class="n2-tabs" aria-label="Режимы">
+    <a class="n2-tab feed-tab" href="/feed">✦ Лента</a>
+    <a class="n2-tab" href="/#text-to-image">Текст → Изо</a>
+    <a class="n2-tab" href="/#image-to-image">Изо → Изо</a>
+    <a class="n2-tab" href="/#editor">Редактор</a>
+    <a class="n2-tab" href="/#draw">Рисунок</a>
+    <a class="n2-tab" href="/#face">Лицо</a>
   </nav>
-  <div class="topRight"><button class="navBtn active">Галерея</button><button class="navBtn">Помощь</button><button class="userBtn">Алекс <span class="userDot"></span></button></div>
+  <div class="n2-top-actions">
+    <a class="n2-ghost purple active-view" href="/gallery">▧ <span>Галерея</span></a>
+    <button class="n2-ghost" type="button" data-action="help">? <span>Помощь</span></button>
+    <a class="n2-icon-button" href="/" aria-label="Настройки" title="Настройки">⚙</a>
+    <a class="n2-icon-button" href="/#profile" aria-label="Профиль" title="Профиль">⏻</a>
+  </div>
 </header>
 
 <main class="page">
@@ -511,8 +525,7 @@ document.getElementById('helpBtn').addEventListener('click', ()=>openSmall('help
 document.querySelectorAll('[data-close-small]').forEach(b=>b.addEventListener('click', closeSmalls));
 document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeViewer(); closeSmalls(); } if(document.getElementById('viewer').classList.contains('open') && e.key==='ArrowRight') stepViewer(1); if(document.getElementById('viewer').classList.contains('open') && e.key==='ArrowLeft') stepViewer(-1); });
 document.getElementById('createBtn').addEventListener('click', ()=>{ window.location.href = '/#text-to-image'; });
-document.querySelector('.feedNav').addEventListener('click', ()=>{ window.location.href = '/feed'; });
-document.querySelector('.mainNav').addEventListener('click', e=>{ const btn=e.target.closest('[data-href]'); if(btn) window.location.href = btn.dataset.href; });
+document.querySelector('[data-action="help"]')?.addEventListener('click', ()=>openSmall('helpModal'));
 document.getElementById('openFeedBtn').addEventListener('click', ()=>{ window.location.href = '/feed'; });
 document.getElementById('editBtn').addEventListener('click', e=>{ const menu=document.getElementById('editMenu'); menu.classList.toggle('open'); closeMenus(menu.classList.contains('open') ? menu : null); e.stopPropagation(); });
 document.getElementById('shareBtn').addEventListener('click', e=>{ const menu=document.getElementById('shareMenu'); menu.classList.toggle('open'); closeMenus(menu.classList.contains('open') ? menu : null); e.stopPropagation(); });
