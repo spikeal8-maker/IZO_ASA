@@ -51,10 +51,13 @@
 }
 
 .n2-shell {
-  width: min(1880px, calc(100vw - 32px));
+  /* Тянемся почти на всю ширину экрана (минимум зазоров по краям), высокий
+     потолок для широких мониторов — Лента получает место под 4 колонки. */
+  width: calc(100vw - 20px);
+  max-width: 2560px;
   /* Десктоп: приложение всегда целиком в экране; панели скроллятся внутри. */
-  height: calc(100dvh - 32px);
-  margin: 16px auto;
+  height: calc(100dvh - 20px);
+  margin: 10px auto;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   /* minmax(0,1fr): колонка = ширине контейнера, min-content контента не раздувает shell. */
@@ -1751,6 +1754,130 @@
   color: #0d0714;
 }
 
+.n2-icon-button.active-view {
+  border-color: rgba(155, 124, 255, 0.92);
+  background: var(--n2-purple);
+  color: #0d0714;
+}
+
+.n2-ghost.danger {
+  border-color: rgba(255, 108, 108, 0.5);
+  color: #ffd7d7;
+}
+
+.n2-ghost.danger:hover {
+  background: rgba(120, 30, 30, 0.4);
+  border-color: rgba(255, 108, 108, 0.75);
+}
+
+/* ---------- профиль (/profile) ---------- */
+
+.n2-profile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 640px;
+}
+
+.n2-profile-id {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.n2-profile-avatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(155, 124, 255, 0.4);
+}
+
+.n2-profile-avatar.initial {
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  font-weight: 700;
+  color: #efe9ff;
+  background: var(--n2-purple);
+}
+
+.n2-profile-id-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.n2-profile-id-text strong {
+  font-size: 20px;
+}
+
+.n2-profile-id-text span {
+  font-size: 13px;
+  opacity: 0.72;
+}
+
+.n2-profile-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.n2-profile-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.n2-profile-stat span {
+  font-size: 12px;
+  opacity: 0.66;
+}
+
+.n2-profile-stat strong {
+  font-size: 20px;
+}
+
+.n2-profile-block h3 {
+  font-size: 14px;
+  margin: 0 0 8px;
+  opacity: 0.82;
+}
+
+.n2-profile-providers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.n2-profile-provider {
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  border: 1px solid rgba(155, 124, 255, 0.4);
+  background: rgba(58, 35, 112, 0.4);
+}
+
+.n2-profile-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.n2-profile-links .n2-ghost {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 640px) {
+  .n2-profile-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---------- overlays (помощь, просмотр изображения) ---------- */
 
 .n2-overlay {
@@ -2282,7 +2409,10 @@
 }
 
 .nf-grid {
-  columns: 3 210px;
+  /* Десктоп: до 4 колонок masonry (референс «компьютерный вид ленты2»).
+     column-width 200px даёт 4 колонки на обычных экранах и мягко уменьшает
+     их число на узких. */
+  columns: 4 200px;
   column-gap: 12px;
 }
 
@@ -2383,6 +2513,40 @@
   font-size: 15px;
 }
 
+/* Аватарка-изображение seed-автора. */
+.nf-avatar-img {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.nf-avatar-img.big {
+  width: 34px;
+  height: 34px;
+}
+
+/* Бейджи публикаций по документации (RU/EN подписи задаёт React). */
+.nf-tag.badge-trend {
+  border-color: rgba(234, 255, 16, 0.5);
+  background: rgba(60, 66, 8, 0.72);
+  color: #f4ffd6;
+}
+
+.nf-tag.badge-editor_pick {
+  border-color: rgba(155, 124, 255, 0.55);
+  background: rgba(40, 25, 85, 0.78);
+  color: #efe9ff;
+}
+
+.nf-tag.badge-face_template {
+  border-color: rgba(120, 200, 255, 0.5);
+  background: rgba(14, 46, 66, 0.8);
+  color: #d9f0ff;
+}
+
 .nf-author-text {
   min-width: 0;
   display: grid;
@@ -2418,40 +2582,55 @@
   font-weight: 850;
 }
 
+/* Ряд действий карточки: основная «Ремикс» тянется, лайк авторазмер под
+   счётчик, сохранить — компактная иконка. Тоньше и аккуратнее. */
 .nf-card-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 38px 38px;
-  gap: 7px;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
 }
 
 .nf-remix {
-  min-height: 38px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  border: 1px solid rgba(234, 255, 16, 0.9);
-  border-radius: 10px;
+  gap: 6px;
+  border: 1px solid rgba(234, 255, 16, 0.85);
+  border-radius: 9px;
   background: linear-gradient(180deg, #f3ff3a, #dfff10 68%, #c9ea00);
   color: #071006;
-  padding: 0 12px;
-  font-size: 13px;
+  padding: 0 10px;
+  font-size: 12.5px;
   font-weight: 950;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nf-remix:hover {
-  box-shadow: 0 6px 22px rgba(234, 255, 16, 0.25);
+  box-shadow: 0 5px 18px rgba(234, 255, 16, 0.22);
 }
 
 .nf-save,
 .nf-menu {
-  min-height: 38px;
+  flex: 0 0 auto;
+  min-height: 32px;
+  min-width: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   border: 1px solid var(--n2-line-strong);
-  border-radius: 10px;
+  border-radius: 9px;
   background: rgba(18, 21, 18, 0.78);
   color: var(--n2-muted);
-  font-size: 16px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  font-weight: 850;
+  white-space: nowrap;
 }
 
 .nf-save.active {
@@ -2980,7 +3159,10 @@
 
 @media (max-width: 430px) {
   .nf-grid {
-    columns: 1;
+    /* Телефон: две карточки в ряд (референс «телефонный вид лента»), не
+       одноколоночная лента. */
+    columns: 2 130px;
+    column-gap: 9px;
   }
 
   .nf-params {

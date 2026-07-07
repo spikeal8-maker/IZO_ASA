@@ -17,6 +17,18 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
+      '/feed': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/gallery': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/static': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
     },
   },
   // Phase 16.4B: `vite preview` serves the built dist (no /@vite/client, no raw
@@ -30,6 +42,18 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/media': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/feed': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/gallery': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/static': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
