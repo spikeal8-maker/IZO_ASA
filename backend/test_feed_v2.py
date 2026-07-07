@@ -264,6 +264,37 @@ def test_gallery_delete_retires_feed_publication_and_variants(temp_db):
         assert row["media_error"] == "source_image_deleted"
 
 
+def test_gallery_page_returns_visual_shell_contract(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-gallery-page", "web_gallery_page")
+        make_image("img-gallery-page", "web_gallery_page", prompt="город на рассвете")
+        pub = publish(client, token, "img-gallery-page", title="Рассвет")
+        client.post(f"/api/feed/publications/{pub['id']}/like", headers=bearer(token))
+
+        r = client.get("/api/gallery/page", headers=bearer(token))
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["ok"] is True
+        assert data["limits"]["originals"]["used"] == 1
+        assert data["limits"]["feed"]["used"] == 1
+        assert data["limits"]["favorites"]["limit"] >= 0
+
+        item = data["items"][0]
+        assert item["id"] == "img-gallery-page"
+        assert item["prompt"] == "город на рассвете"
+        assert item["published"] is True
+        assert item["feedPublicationId"] == pub["id"]
+        assert item["modeLabel"] == "Текст -> Изо"
+        assert item["aspectRatio"] == "3:2"
+        assert item["src"].startswith("/api/media/")
+
+        feed_item = data["feedItems"][0]
+        assert feed_item["id"] == "img-gallery-page"
+        assert feed_item["src"].endswith(f"/api/feed/media/{pub['id']}?variant=thumb")
+        assert feed_item["viewerSrc"].endswith(f"/api/feed/media/{pub['id']}?variant=large")
+        assert feed_item["likes"] == 1
+
+
 def test_feed_media_audit_flags_published_deleted_source(temp_db):
     with TestClient(main.app) as client:
         token = make_user("iuid-audit-deleted", "web_audit_deleted")

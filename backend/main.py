@@ -4,6 +4,7 @@ import asyncio
 import base64
 import io
 import json
+import math
 import os
 import re
 import secrets
@@ -3677,6 +3678,140 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _gallery_aspect_ratio(width: int | None, height: int | None) -> str | None:
+    if not width or not height:
+        return None
+    gcd = math.gcd(int(width), int(height))
+    if gcd <= 0:
+        return None
+    return f"{int(width) // gcd}:{int(height) // gcd}"
+
+
+def _gallery_mode_label(mode: str | None) -> str:
+    return {
+        "text_to_image": "Текст -> Изо",
+        "image_to_image": "Изо -> Изо",
+        "face": "Лицо",
+        "face_swap": "Лицо",
+        "drawing": "Рисунок",
+        "editor": "Редактор",
+    }.get(str(mode or "").strip(), str(mode or "Текст -> Изо"))
+
+
+def _gallery_source_ids(settings: dict[str, Any]) -> list[str]:
+    raw = (
+        settings.get("sourceImageIds")
+        or settings.get("source_image_ids")
+        or settings.get("sourceIds")
+        or []
+    )
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw[:4] if str(item or "").strip()]
+
+
+def _gallery_page_item(
+    row: sqlite3.Row,
+    publication: sqlite3.Row | None = None,
+    *,
+    include_feed_media: bool = False,
+) -> dict[str, Any]:
+    settings = json.loads(row["settings_json"] or "{}")
+    publication_id = _row_get(publication, "id") if publication is not None else None
+    published = bool(publication_id and _row_get(publication, "status") == "published")
+    thumb_url = row["thumbnail_url"]
+    image_url = row["url"]
+    if include_feed_media and publication_id:
+        thumb_url = f"/api/feed/media/{publication_id}?variant=thumb"
+        image_url = f"/api/feed/media/{publication_id}?variant=large"
+    prompt = row["prompt_original"] or row["prompt_translated"] or ""
+    width = int(row["width"] or 0)
+    height = int(row["height"] or 0)
+    return {
+        "id": row["id"],
+        "imageId": row["id"],
+        "src": thumb_url,
+        "thumbnailUrl": thumb_url,
+        "viewerSrc": image_url,
+        "downloadUrl": image_url,
+        "prompt": prompt,
+        "promptOriginal": row["prompt_original"] or "",
+        "promptTranslated": row["prompt_translated"] or "",
+        "mode": row["mode"],
+        "modeLabel": _gallery_mode_label(row["mode"]),
+        "provider": row["provider"],
+        "model": _user_model_name(settings.get("modelProfile") or row["provider"]),
+        "modelProfile": _user_model_name(settings.get("modelProfile") or row["provider"]),
+        "preset": settings.get("preset") or settings.get("styleName"),
+        "loras": settings.get("loras") if isinstance(settings.get("loras"), list) else [],
+        "seed": settings.get("seed"),
+        "width": width,
+        "height": height,
+        "aspect": _gallery_aspect_ratio(width, height),
+        "aspectRatio": _gallery_aspect_ratio(width, height),
+        "createdAt": row["created_at"],
+        "date": row["created_at"],
+        "generationTimeMs": settings.get("generationTimeMs", 0),
+        "genTime": settings.get("generationTimeMs", 0),
+        "favorite": bool(row["is_favorite"]),
+        "isFavorite": bool(row["is_favorite"]),
+        "published": published,
+        "feedPublicationId": publication_id,
+        "publishedAt": _row_get(publication, "created_at") if publication is not None else None,
+        "feedMediaStatus": "ready" if (
+            publication is not None
+            and _row_get(publication, "media_ready_at")
+            and _row_get(publication, "feed_thumb_name")
+            and _row_get(publication, "feed_large_name")
+        ) else ("missing" if publication is not None else None),
+        "views": _row_get(publication, "view_count") if publication is not None else 0,
+        "likes": 0,
+        "saves": 0,
+        "remixes": 0,
+        "sourceIds": _gallery_source_ids(settings),
+    }
+
+
+def _gallery_page_limits(
+    conn: sqlite3.Connection,
+    user_row: sqlite3.Row | None,
+    legacy_user_id: str,
+) -> dict[str, Any]:
+    quota = gallery_quota_for_user(conn, user_row, legacy_user_id)
+    feed_used = int(conn.execute(
+        """
+        SELECT COUNT(*) AS c FROM feed_publications
+        WHERE legacy_user_id = ? AND status = 'published'
+        """,
+        (legacy_user_id,),
+    ).fetchone()["c"])
+    favorites_used = int(conn.execute(
+        """
+        SELECT COUNT(*) AS c FROM images
+        WHERE user_id = ? AND is_favorite = 1 AND (deleted_at IS NULL OR deleted_at = '')
+        """,
+        (legacy_user_id,),
+    ).fetchone()["c"])
+    favorite_limit = max(0, int(quota["gallery_slots"]) * 80 // 100)
+    return {
+        "plan": quota["plan"],
+        "originals": {
+            "used": quota["gallery_used"],
+            "limit": quota["gallery_slots"],
+            "free": quota["gallery_free"],
+            "full": quota["gallery_full"],
+        },
+        "feed": {
+            "used": feed_used,
+            "limit": quota["gallery_slots"],
+        },
+        "favorites": {
+            "used": favorites_used,
+            "limit": favorite_limit,
+        },
+    }
+
+
 def recover_gallery_index_from_media(conn: sqlite3.Connection) -> int:
     """Rebuild missing gallery rows from token ledger + existing media files.
 
@@ -6095,6 +6230,81 @@ async def gallery(request: Request) -> list[dict[str, Any]]:
     for item in restored:
         images[item["id"]] = item
     return restored
+
+
+@app.get("/api/gallery/page")
+async def gallery_page(request: Request, limit: int = 120) -> dict[str, Any]:
+    """Structured gallery payload for the new visual shell.
+
+    Keeps /api/gallery stable while giving the gallery page counters, original
+    cards and separate feed-copy cards in one DB-backed response.
+    """
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    limit = _clamp_limit(limit, default=120, maximum=240)
+    with db() as conn:
+        user_row = conn.execute(
+            "SELECT * FROM users WHERE internal_user_id = ? OR id = ?",
+            (trusted["internal_user_id"], user_id),
+        ).fetchone()
+        if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
+            raise HTTPException(403, "Gallery is not available for this plan.")
+        image_rows = conn.execute(
+            """
+            SELECT * FROM images
+            WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        ).fetchall()
+        publications = {
+            row["image_id"]: row
+            for row in conn.execute(
+                """
+                SELECT * FROM feed_publications
+                WHERE legacy_user_id = ? AND status = 'published'
+                ORDER BY created_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        }
+        reaction_counts = {
+            row["publication_id"]: row
+            for row in conn.execute(
+                """
+                SELECT publication_id,
+                       SUM(CASE WHEN kind = 'like' THEN 1 ELSE 0 END) AS likes,
+                       SUM(CASE WHEN kind = 'save' THEN 1 ELSE 0 END) AS saves,
+                       SUM(CASE WHEN kind = 'recreate' THEN 1 ELSE 0 END) AS remixes
+                FROM feed_reactions
+                WHERE publication_id IN (
+                    SELECT id FROM feed_publications
+                    WHERE legacy_user_id = ? AND status = 'published'
+                )
+                GROUP BY publication_id
+                """,
+                (user_id,),
+            ).fetchall()
+        }
+        items = [_gallery_page_item(row, publications.get(row["id"])) for row in image_rows]
+        feed_items = [
+            _gallery_page_item(row, publications[row["id"]], include_feed_media=True)
+            for row in image_rows
+            if row["id"] in publications
+        ]
+        for item in feed_items:
+            counts = reaction_counts.get(item["feedPublicationId"])
+            item["likes"] = int(_row_get(counts, "likes") or 0)
+            item["saves"] = int(_row_get(counts, "saves") or 0)
+            item["remixes"] = int(_row_get(counts, "remixes") or 0)
+        limits = _gallery_page_limits(conn, user_row, user_id)
+    return {
+        "ok": True,
+        "limits": limits,
+        "items": items,
+        "feedItems": feed_items,
+    }
 
 
 @app.get("/api/gallery/{image_id}")
