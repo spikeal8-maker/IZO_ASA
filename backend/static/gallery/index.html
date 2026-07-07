@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ИЗО ACA — Галерея</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=LJdeCo2cPc-3ZMNqnS2XkaR4klaISuvqGhWuc89BjmC-Lga01EHPlOzW7JgGKOsu9-APGVYASf9PfIr0gHcvX4Wxf_Zefp6L0C2VmIZTODsryBAS1MPMJ89udwKPDUZyNhfw7SW4i2oybbLDRD9QnMNXIbQxoidpfy9zzIx3TQ6OWRm7TLzfri6O7xK5qJn8zP8QdpHL5QaXoLd84Anmp4kRM3M6uND4IcgeRSs5t3_KVXjmYNcsHkG3zWlKzSEFI7Ous3bUzc1ne9WZTJ5pP3kXOEDgFLPQbNn4vUDW3tKBow_p-bCLuiLudDF9jYNmmnh5QZHHcuBCVHKWCM57Fg" charset="UTF-8"></script><link rel="stylesheet" crossorigin="anonymous" href="https://gc.kis.v2.scr.kaspersky-labs.com/E3E8934C-235A-4B0E-825A-35A08381A191/abn/main.css?attr=aHR0cHM6Ly9jaGF0Z3B0LmNvbS9iYWNrZW5kLWFwaS9lc3R1YXJ5L2NvbnRlbnQ_aWQ9ZmlsZV8wMDAwMDAwMGVkMzQ3MWZkYjEyM2FhOGVhYjk3Mzk3MyZmbj1pem8tYWNhLWdhbGxlcnktb25lZmlsZS12MTQuaHRtbCZjZD1hdHRhY2htZW50JnRzPTQ5NTM4MyZwPWZzJmNpZD0xJnNpZz1hMmJlYzZjM2U0MmFmMDk3Y2JlMzg2YjE2ODM1NzI1MTQyZWI3MDMyZWUyYjg3NTc3YmIwNGY3NjEwMmNmMWI0JnY9MA"/><style>
+<style>
 :root{
   --bg:#050706;
   --panel:#0c100e;
@@ -100,6 +100,7 @@ h2{margin:0;font-size:22px;line-height:1.1;font-weight:950;letter-spacing:-.03em
 .action.feedOn{background:rgba(255,233,113,.95);border-color:#ffe971;color:#171306}
 .promptPeek{position:absolute;left:8px;right:8px;bottom:50px;z-index:4;opacity:0;transform:translateY(6px);transition:.16s ease;background:rgba(7,9,8,.9);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:9px 10px;font-size:12px;line-height:1.25;color:#ecf4e9;box-shadow:0 10px 28px rgba(0,0,0,.36);pointer-events:none;max-height:72px;overflow:hidden}
 .card:hover .promptPeek{opacity:1;transform:none}
+.promptPeek.empty{color:#aeb8ac;font-style:italic}
 
 .masonry.list{column-count:1!important}
 .masonry.list .card{display:grid;grid-template-columns:168px 1fr 86px;min-height:108px;max-width:100%;margin-bottom:8px;break-inside:auto}
@@ -185,7 +186,7 @@ h2{margin:0;font-size:22px;line-height:1.1;font-weight:950;letter-spacing:-.03em
   <div class="logo"><span class="logoMark">▧</span><span>ИЗО <b>ACA</b></span></div>
   <button class="feedNav" title="Перейти в общую ленту">✦ Лента</button>
   <nav class="mainNav" aria-label="Основная навигация">
-    <button>Текст → Изо</button><button>Изо → Изо</button><button>Редактор</button><button>Рисунок</button><button>Лицо</button><button>Видео</button>
+    <button data-href="/#text-to-image">Текст → Изо</button><button data-href="/#image-to-image">Изо → Изо</button><button data-href="/#editor">Редактор</button><button data-href="/#draw">Рисунок</button><button data-href="/#face">Лицо</button><button data-href="/#video">Видео</button>
   </nav>
   <div class="topRight"><button class="navBtn active">Галерея</button><button class="navBtn">Помощь</button><button class="userBtn">Алекс <span class="userDot"></span></button></div>
 </header>
@@ -299,8 +300,12 @@ function allItems(){ return [...images, ...feedImages]; }
 function itemById(id){ return images.find(i => String(i.id) === String(id)) || feedImages.find(i => String(i.id) === String(id)); }
 function originalById(id){ return images.find(i => String(i.id) === String(id)); }
 function favoriteLimit(){ return Number(limits?.favorites?.limit || 0); }
+function itemPrompt(item){
+  return String(item?.prompt || item?.promptOriginal || item?.promptTranslated || '').trim();
+}
 function normalizeItem(item){
-  return { ...item, favorite: Boolean(item.favorite ?? item.isFavorite), modeText: item.modeLabel || item.mode || 'Текст -> Изо', dateText: formatDate(item.createdAt || item.date), src: apiUrl(item.src || item.thumbnailUrl), viewerSrc: apiUrl(item.viewerSrc || item.downloadUrl || item.src || item.thumbnailUrl) };
+  const prompt = itemPrompt(item);
+  return { ...item, prompt, favorite: Boolean(item.favorite ?? item.isFavorite), modeText: item.modeLabel || item.mode || 'Текст -> Изо', dateText: formatDate(item.createdAt || item.date), src: apiUrl(item.src || item.thumbnailUrl), viewerSrc: apiUrl(item.viewerSrc || item.downloadUrl || item.src || item.thumbnailUrl) };
 }
 function formatDate(value){
   if(!value) return '';
@@ -327,18 +332,19 @@ function filteredItems(base){
 }
 function cardTemplate(raw, context){
   const item = normalizeItem(raw);
+  const promptText = item.prompt || 'Промпт не сохранен';
   const pubPill = item.published && context === 'gallery' ? `<span class="pill feed">В ленте</span>` : '';
   const heartTitle = item.favorite ? 'Убрать сердечко' : 'Поставить сердечко: оставить изображение и защитить от автоудаления';
   const feedTitle = item.published ? 'Открыть публикацию в общей ленте' : 'Опубликовать в ленту';
-  return `<article class="card" data-id="${escapeHtml(item.id)}" data-context="${context}" title="${escapeHtml(item.prompt)}">
-    <img src="${escapeHtml(item.src)}" alt="${escapeHtml(item.prompt)}" loading="lazy">
+  return `<article class="card" data-id="${escapeHtml(item.id)}" data-context="${context}" title="${escapeHtml(promptText)}">
+    <img src="${escapeHtml(item.src)}" alt="${escapeHtml(promptText)}" loading="lazy">
     <div class="cardTop"><span class="pill" title="Режим генерации">${escapeHtml(item.modeText)}</span>${pubPill}</div>
-    <div class="promptPeek">${escapeHtml(item.prompt)}</div>
+    <div class="promptPeek ${item.prompt ? '' : 'empty'}">${escapeHtml(promptText)}</div>
     <div class="cardBottom"><time class="cardDate">${escapeHtml(item.dateText)}</time><div class="cardActions">
       <button class="action heart ${item.favorite?'active':''}" data-action="heart" title="${heartTitle}" aria-label="${heartTitle}">${item.favorite ? heartFilled : heartOutline}</button>
       <button class="action feedAct ${item.published?'feedOn':''}" data-action="feed" title="${feedTitle}" aria-label="${feedTitle}">${feedIcon}</button>
     </div></div>
-    <div class="listContent"><div class="listPrompt">${escapeHtml(item.prompt)}</div><div class="listMeta">${escapeHtml(item.dateText)} · ${escapeHtml(item.modeText)}${item.published?' · В ленте':''}</div></div>
+    <div class="listContent"><div class="listPrompt">${escapeHtml(promptText)}</div><div class="listMeta">${escapeHtml(item.dateText)} · ${escapeHtml(item.modeText)}${item.published?' · В ленте':''}</div></div>
   </article>`;
 }
 function render(){
@@ -382,7 +388,7 @@ async function toggleFavorite(id){
 }
 async function feedAction(id){
   const item = originalById(id); if(!item) return;
-  if(item.published){ showToast('Публикация уже есть в ленте.'); return; }
+  if(item.published){ window.location.href = '/feed'; return; }
   const title = (item.prompt || 'Публикация').slice(0, 80) || 'Публикация';
   try{
     await api('/api/feed/publications', { method:'POST', body:JSON.stringify({ imageId:id, title, promptVisibility:'open', allowRecreate:true }) });
@@ -401,8 +407,9 @@ function openViewerById(id, collection){
 }
 function updateViewer(){
   const item = normalizeItem(currentCollection[currentIndex]); if(!item) return;
+  const promptText = item.prompt || 'Промпт не сохранен';
   document.getElementById('viewerImg').src = item.viewerSrc || item.src;
-  document.getElementById('viewerImg').alt = item.prompt;
+  document.getElementById('viewerImg').alt = promptText;
   document.getElementById('viewerCounter').textContent = `${currentIndex+1} / ${currentCollection.length}`;
   document.getElementById('viewerMode').textContent = item.modeText;
   document.getElementById('viewerDate').textContent = item.dateText;
@@ -412,7 +419,7 @@ function updateViewer(){
   heartBtn.classList.toggle('acid', item.favorite);
   const feedBtn = document.getElementById('feedBtn');
   feedBtn.textContent = item.published ? '✦ Пост' : '✦ В ленту';
-  document.getElementById('viewerPrompt').textContent = item.prompt;
+  document.getElementById('viewerPrompt').textContent = promptText;
   renderSources(item); renderPublication(item); renderParams(item); renderThumbs();
 }
 function renderSources(item){
@@ -439,6 +446,51 @@ function stepViewer(dir){ currentIndex = (currentIndex + dir + currentCollection
 function openSmall(id){ document.getElementById(id).classList.add('open'); }
 function closeSmalls(){ document.querySelectorAll('.smallModal').forEach(m=>m.classList.remove('open')); }
 function showSpace(){ document.getElementById('spaceText').textContent = `${limits.originals.used} из ${limits.originals.limit} оригиналов, ${limits.feed.used} публикаций в ленте, ${limits.favorites.used} из ${favoriteLimit()} сердечек. Тариф: ${String(limits.plan || '').toUpperCase()}.`; openSmall('spaceModal'); }
+function closeMenus(except){
+  document.querySelectorAll('.dropMenu.open').forEach(menu => { if(menu !== except) menu.classList.remove('open'); });
+}
+function currentItem(){
+  return currentCollection[currentIndex] ? normalizeItem(currentCollection[currentIndex]) : null;
+}
+async function copyText(text, success){
+  try{
+    await navigator.clipboard.writeText(text);
+    showToast(success);
+  }catch(err){
+    showToast('Не удалось скопировать.');
+    console.error(err);
+  }
+}
+async function shareCurrent(kind){
+  const item = currentItem(); if(!item) return;
+  const url = new URL(item.viewerSrc || item.src, window.location.origin).href;
+  const text = item.prompt || 'Изображение ИЗО ACA';
+  if(kind === 'copy') return copyText(url, 'Ссылка скопирована.');
+  if(navigator.share && (kind === 'telegram' || kind === 'max' || kind === 'vk')){
+    try{ await navigator.share({ title:'ИЗО ACA', text, url }); showToast('Открыли системный шаринг.'); return; }catch(err){ if(err?.name === 'AbortError') return; }
+  }
+  const encodedUrl = encodeURIComponent(url);
+  const encodedText = encodeURIComponent(text);
+  const links = {
+    telegram: `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`,
+    vk: `https://vk.com/share.php?url=${encodedUrl}&title=${encodedText}`,
+    max: url
+  };
+  if(kind === 'max') return copyText(url, 'Ссылка для MAX скопирована.');
+  window.open(links[kind] || url, '_blank', 'noopener,noreferrer');
+}
+async function useCurrentAs(target){
+  const item = currentItem(); if(!item) return;
+  try{
+    const data = await api(`/api/gallery/${encodeURIComponent(item.imageId || item.id)}/use-as`, { method:'POST', body:JSON.stringify({ target }) });
+    sessionStorage.setItem('izoUseAsDraft', JSON.stringify({ ...data, source:'gallery', createdAt:new Date().toISOString() }));
+    const routes = { editor:'/#editor', image:'/#image-to-image', face:'/#face', draw:'/#draw' };
+    window.location.href = routes[target] || '/';
+  }catch(err){
+    showToast('Не удалось подготовить изображение.');
+    console.error(err);
+  }
+}
 
 galleryGrid.addEventListener('click', e=>{ const card=e.target.closest('.card'); if(!card) return; const id=card.dataset.id; if(e.target.closest('[data-action="heart"]')) return toggleFavorite(id); if(e.target.closest('[data-action="feed"]')) return feedAction(id); openViewerById(id, filteredItems(images)); });
 feedGrid.addEventListener('click', e=>{ const card=e.target.closest('.card'); if(!card) return; const id=card.dataset.id; if(e.target.closest('[data-action="heart"]')) return toggleFavorite(id); if(e.target.closest('[data-action="feed"]')) return feedAction(id); openViewerById(id, filteredItems(feedImages)); });
@@ -456,12 +508,17 @@ document.getElementById('publishSelectedBtn').addEventListener('click', ()=>feed
 document.getElementById('publicationContent').addEventListener('click', e=>{ if(e.target.closest('#publishSelectedBtnInline')) feedAction(currentCollection[currentIndex]?.id); });
 document.getElementById('spaceBtn').addEventListener('click', showSpace);
 document.getElementById('helpBtn').addEventListener('click', ()=>openSmall('helpModal'));
-document.querySelectorAll('.smallClose').forEach(b=>b.addEventListener('click', closeSmalls));
+document.querySelectorAll('[data-close-small]').forEach(b=>b.addEventListener('click', closeSmalls));
 document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeViewer(); closeSmalls(); } if(document.getElementById('viewer').classList.contains('open') && e.key==='ArrowRight') stepViewer(1); if(document.getElementById('viewer').classList.contains('open') && e.key==='ArrowLeft') stepViewer(-1); });
-document.getElementById('createBtn').addEventListener('click', ()=>showToast('Переход к генерации подключается в основном приложении.'));
-document.getElementById('openFeedBtn').addEventListener('click', ()=>showToast('Переход к общей ленте подключается в основном приложении.'));
-document.getElementById('editBtn').addEventListener('click', ()=>showToast('Редактор подключается в основном приложении.'));
-document.getElementById('shareBtn').addEventListener('click', ()=>showToast('Шаринг подключается следующим шагом.'));
+document.getElementById('createBtn').addEventListener('click', ()=>{ window.location.href = '/#text-to-image'; });
+document.querySelector('.feedNav').addEventListener('click', ()=>{ window.location.href = '/feed'; });
+document.querySelector('.mainNav').addEventListener('click', e=>{ const btn=e.target.closest('[data-href]'); if(btn) window.location.href = btn.dataset.href; });
+document.getElementById('openFeedBtn').addEventListener('click', ()=>{ window.location.href = '/feed'; });
+document.getElementById('editBtn').addEventListener('click', e=>{ const menu=document.getElementById('editMenu'); menu.classList.toggle('open'); closeMenus(menu.classList.contains('open') ? menu : null); e.stopPropagation(); });
+document.getElementById('shareBtn').addEventListener('click', e=>{ const menu=document.getElementById('shareMenu'); menu.classList.toggle('open'); closeMenus(menu.classList.contains('open') ? menu : null); e.stopPropagation(); });
+document.getElementById('editMenu').addEventListener('click', e=>{ const btn=e.target.closest('[data-edit]'); if(!btn) return; closeMenus(); useCurrentAs(btn.dataset.edit); });
+document.getElementById('shareMenu').addEventListener('click', e=>{ const btn=e.target.closest('[data-share]'); if(!btn) return; closeMenus(); shareCurrent(btn.dataset.share); });
+document.addEventListener('click', e=>{ if(!e.target.closest('.dropHost')) closeMenus(); });
 loadGallery();
 </script>
 </body>
