@@ -53,10 +53,10 @@ type N2View = 'tabs' | 'gallery' | 'profile'
 type StudioMode = 'text' | 'i2i' | 'edit' | 'face' | 'paint'
 type PaintSubMode = 'sketch' | 'mask' | 'outpaint' | 'remove_bg'
 type PaintTool = 'brush' | 'eraser'
-type PaintDrawMode = 'free' | 'rect' | 'circle'
+type PaintDrawMode = 'free' | 'line' | 'rect' | 'circle'
 type PaintLine = {
   tool: PaintTool
-  kind?: 'line' | 'rect' | 'circle'
+  kind?: PaintDrawMode
   color?: string
   fill?: boolean
   strokeWidth: number
@@ -2041,7 +2041,7 @@ export default function NewStudio(): ReactElement {
     if (paintMode === 'outpaint' || paintMode === 'remove_bg') return
     paintDrawingRef.current = true
     const point = paintPoint(stage)
-    const kind = paintDrawMode === 'free' ? 'line' : paintDrawMode
+    const kind = paintDrawMode
     setPaintLines((lines) => lines.concat({
       tool: paintTool,
       kind,
@@ -2058,7 +2058,7 @@ export default function NewStudio(): ReactElement {
     setPaintLines((lines) => {
       const last = lines[lines.length - 1]
       if (!last) return lines
-      const points = last.kind && last.kind !== 'line' ? last.points.slice(0, 2).concat(point) : last.points.concat(point)
+      const points = last.kind && last.kind !== 'free' ? last.points.slice(0, 2).concat(point) : last.points.concat(point)
       return lines.slice(0, -1).concat({ ...last, points })
     })
   }
@@ -2088,6 +2088,24 @@ export default function NewStudio(): ReactElement {
     <div ref={paintWorkbenchRef} className={`paint-workbench mode-${paintMode}`}>
       {paintMode !== 'sketch' && paintImage && (
         <img className="paint-workbench-image" src={apiUrl(paintImage)} alt="" aria-hidden="true" />
+      )}
+      {(paintMode === 'sketch' || paintMode === 'mask') && (
+        <div className="paint-canvas-toolbar" aria-label="Быстрые инструменты холста">
+          <button className={paintTool === 'brush' && paintDrawMode === 'free' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('free') }}>Кисть</button>
+          <button className={paintTool === 'eraser' ? 'active' : ''} type="button" onClick={() => { setPaintTool('eraser'); setPaintDrawMode('free') }}>Ластик</button>
+          {paintMode === 'sketch' && (
+            <>
+              <button className={paintDrawMode === 'line' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}>Линия</button>
+              <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect') }}>□</button>
+              <button className={paintDrawMode === 'circle' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle') }}>○</button>
+              <input aria-label="Цвет кисти" type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} />
+            </>
+          )}
+          <label>
+            <span>{paintBrushSize}</span>
+            <input aria-label="Размер кисти" type="range" min="2" max="64" value={paintBrushSize} onChange={(e) => setPaintBrushSize(Number(e.target.value))} />
+          </label>
+        </div>
       )}
       {paintMode === 'outpaint' && (
         <div className="paint-outpaint-frame">
@@ -2493,7 +2511,7 @@ export default function NewStudio(): ReactElement {
         {isPaintStudio && (
           <section className="form-section paint-panel-section">
             <div className="section-title">
-              <h2>Инструменты</h2>
+              <h2>Режим рисунка</h2>
               <span>{paintModeMeta[paintMode].label}</span>
             </div>
             <div className="paint-mode-tabs" role="tablist" aria-label="Режимы рисунка">
@@ -2522,83 +2540,86 @@ export default function NewStudio(): ReactElement {
                 </button>
               ))}
             </div>
-            <p className="paint-mode-hint">{paintModeMeta[paintMode].hint}</p>
+            <div className={`paint-mode-panel mode-${paintMode}`}>
+              <div className="paint-panel-head">
+                <strong>{paintModeMeta[paintMode].label}</strong>
+                <span>{paintModeMeta[paintMode].hint}</span>
+              </div>
 
-            {paintMode !== 'sketch' && (
-              <article className={`i2i-upload-card paint-upload-card${paintImage ? ' is-filled' : ''} is-required`}>
-                {!paintImage && <span className="i2i-required-chip">Обязательно</span>}
-                {paintImage && (
-                  <button className="i2i-remove" type="button" aria-label="Удалить изображение" onClick={() => { setPaintImage(undefined); setPaintOutpaintPreview(undefined) }}>
-                    ×
-                  </button>
-                )}
-                <div className="i2i-preview">
-                  {paintImage ? (
-                    <button className="editor-preview-open i2i-preview-open" type="button" onClick={() => showInspectPreview(paintImage, paintModeMeta[paintMode].label)}>
-                      <img src={apiUrl(paintImage)} alt="Изображение для рисунка" />
+              {paintMode !== 'sketch' && (
+                <article className={`i2i-upload-card paint-upload-card${paintImage ? ' is-filled' : ''} is-required`}>
+                  {!paintImage && <span className="i2i-required-chip">Обязательно</span>}
+                  {paintImage && (
+                    <button className="i2i-remove" type="button" aria-label="Удалить изображение" onClick={() => { setPaintImage(undefined); setPaintOutpaintPreview(undefined) }}>
+                      ×
                     </button>
-                  ) : (
-                    <div className="i2i-upload-empty">
-                      <svg className="i2i-upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path d="M7 18.5h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.4 8.7 4.8 4.8 0 0 0 7 18.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                        <path d="M12 15V9.5m0 0-2.3 2.3M12 9.5l2.3 2.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <div className="i2i-upload-actions">
-                        <button className="i2i-upload-action primary" type="button" onClick={() => openUpload({ kind: 'paint' })}>Загрузить</button>
-                        <button className="i2i-upload-action" type="button" onClick={() => openGalleryPick({ kind: 'paint' })}>Галерея</button>
-                        <button className="i2i-upload-action" type="button" onClick={() => applyLastImageToTarget({ kind: 'paint' })}>Последнее</button>
+                  )}
+                  <div className="i2i-preview">
+                    {paintImage ? (
+                      <button className="editor-preview-open i2i-preview-open" type="button" onClick={() => showInspectPreview(paintImage, paintModeMeta[paintMode].label)}>
+                        <img src={apiUrl(paintImage)} alt="Изображение для рисунка" />
+                      </button>
+                    ) : (
+                      <div className="i2i-upload-empty">
+                        <svg className="i2i-upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <path d="M7 18.5h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.4 8.7 4.8 4.8 0 0 0 7 18.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                          <path d="M12 15V9.5m0 0-2.3 2.3M12 9.5l2.3 2.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <div className="i2i-upload-actions">
+                          <button className="i2i-upload-action primary" type="button" onClick={() => openUpload({ kind: 'paint' })}>Загрузить</button>
+                          <button className="i2i-upload-action" type="button" onClick={() => openGalleryPick({ kind: 'paint' })}>Галерея</button>
+                          <button className="i2i-upload-action" type="button" onClick={() => applyLastImageToTarget({ kind: 'paint' })}>Последнее</button>
+                        </div>
                       </div>
-                    </div>
+                    )}
+                  </div>
+                </article>
+              )}
+
+              {(paintMode === 'sketch' || paintMode === 'mask') && (
+                <div className="paint-toolbox">
+                  <div className="paint-sidebar-tools" aria-label="Инструменты рисования">
+                    <button className={paintTool === 'brush' && paintDrawMode === 'free' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('free') }}>Кисть</button>
+                    <button className={paintTool === 'eraser' ? 'active' : ''} type="button" onClick={() => { setPaintTool('eraser'); setPaintDrawMode('free') }}>Ластик</button>
+                    {paintMode === 'sketch' && (
+                      <>
+                        <button className={paintDrawMode === 'line' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}>Линия</button>
+                        <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect') }}>□</button>
+                        <button className={paintDrawMode === 'circle' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle') }}>○</button>
+                      </>
+                    )}
+                  </div>
+                  <label className="paint-control">Размер <input type="range" min="2" max="64" value={paintBrushSize} onChange={(e) => setPaintBrushSize(Number(e.target.value))} /><span>{paintBrushSize}</span></label>
+                  {paintMode === 'sketch' && (
+                    <>
+                      <div className="paint-compact-grid">
+                        <label className="paint-control color">Цвет <input type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></label>
+                        <div className="paint-segment">
+                          <button className={paintFillShape ? 'active' : ''} type="button" onClick={() => setPaintFillShape(true)}>Заливка</button>
+                          <button className={!paintFillShape ? 'active' : ''} type="button" onClick={() => setPaintFillShape(false)}>Контур</button>
+                        </div>
+                      </div>
+                      <div className="paint-segment">
+                        <button className={paintCanvasBg === 'white' ? 'active' : ''} type="button" onClick={() => setPaintCanvasBg('white')}>Белый холст</button>
+                        <button className={paintCanvasBg === 'gray' ? 'active' : ''} type="button" onClick={() => setPaintCanvasBg('gray')}>Серый холст</button>
+                      </div>
+                    </>
                   )}
                 </div>
-              </article>
-            )}
+              )}
 
-            {(paintMode === 'sketch' || paintMode === 'mask') && (
-              <div className="paint-toolbox">
-                <div className="paint-segment">
-                  <button className={paintTool === 'brush' ? 'active' : ''} type="button" onClick={() => setPaintTool('brush')}>Кисть</button>
-                  <button className={paintTool === 'eraser' ? 'active' : ''} type="button" onClick={() => setPaintTool('eraser')}>Ластик</button>
+              {paintMode === 'outpaint' && (
+                <div className="paint-toolbox">
+                  {(['left', 'right', 'top', 'bottom'] as const).map((key) => (
+                    <label className="paint-control" key={key}>
+                      {key === 'left' ? 'Слева' : key === 'right' ? 'Справа' : key === 'top' ? 'Сверху' : 'Снизу'}
+                      <input type="range" min="0" max="768" step="16" value={paintOutpaint[key]} onChange={(e) => setPaintOutpaint((cur) => ({ ...cur, [key]: Number(e.target.value) }))} />
+                      <span>{paintOutpaint[key]}</span>
+                    </label>
+                  ))}
                 </div>
-                {paintMode === 'sketch' && (
-                  <div className="paint-segment">
-                    <button className={paintDrawMode === 'free' ? 'active' : ''} type="button" onClick={() => setPaintDrawMode('free')}>Линия</button>
-                    <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" onClick={() => setPaintDrawMode('rect')}>□</button>
-                    <button className={paintDrawMode === 'circle' ? 'active' : ''} type="button" onClick={() => setPaintDrawMode('circle')}>○</button>
-                  </div>
-                )}
-                <label className="paint-control">Размер <input type="range" min="2" max="64" value={paintBrushSize} onChange={(e) => setPaintBrushSize(Number(e.target.value))} /><span>{paintBrushSize}</span></label>
-                {paintMode === 'sketch' && (
-                  <>
-                    <label className="paint-control color">Цвет <input type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></label>
-                    <div className="paint-segment">
-                      <button className={paintFillShape ? 'active' : ''} type="button" onClick={() => setPaintFillShape(true)}>Заливка</button>
-                      <button className={!paintFillShape ? 'active' : ''} type="button" onClick={() => setPaintFillShape(false)}>Контур</button>
-                    </div>
-                    <div className="paint-segment">
-                      <button className={paintCanvasBg === 'white' ? 'active' : ''} type="button" onClick={() => setPaintCanvasBg('white')}>Белый</button>
-                      <button className={paintCanvasBg === 'gray' ? 'active' : ''} type="button" onClick={() => setPaintCanvasBg('gray')}>Серый</button>
-                    </div>
-                  </>
-                )}
-                <div className="paint-mini-actions">
-                  <button type="button" onClick={() => setPaintLines((lines) => lines.slice(0, -1))}>Назад</button>
-                  <button type="button" onClick={() => setPaintLines([])}>Очистить</button>
-                </div>
-              </div>
-            )}
-
-            {paintMode === 'outpaint' && (
-              <div className="paint-toolbox">
-                {(['left', 'right', 'top', 'bottom'] as const).map((key) => (
-                  <label className="paint-control" key={key}>
-                    {key === 'left' ? 'Слева' : key === 'right' ? 'Справа' : key === 'top' ? 'Сверху' : 'Снизу'}
-                    <input type="range" min="0" max="768" step="16" value={paintOutpaint[key]} onChange={(e) => setPaintOutpaint((cur) => ({ ...cur, [key]: Number(e.target.value) }))} />
-                    <span>{paintOutpaint[key]}</span>
-                  </label>
-                ))}
-              </div>
-            )}
+              )}
+            </div>
           </section>
         )}
 

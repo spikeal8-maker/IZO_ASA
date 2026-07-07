@@ -33,10 +33,13 @@ Current tools:
 UI rules added after first visual review:
 
 - the four modes are a horizontal tab strip, not a 2x2 button grid;
+- the active tab is visually connected to the settings panel below it, so the panel reads as the body of the selected mode;
 - every mode shows its own state in the tab (`пусто`, `есть эскиз`, `есть маска`, `изображение`);
 - switching between sketch/mask/outpaint/remove-bg must not erase the existing sketch or mask state;
 - the sketch canvas follows the selected generation format: `1:1` is square, `9:16` is vertical, `16:9` is wide;
-- undo/clear actions are visible on the workbench itself for sketch and mask modes.
+- undo/clear actions are visible on the workbench itself for sketch and mask modes;
+- on desktop, quick sketch/mask tools live beside the canvas as a floating workbench toolbar;
+- on mobile, the quick tools move back into the sidebar panel so they do not cover the canvas.
 
 ## Backend Payload
 
