@@ -4,8 +4,10 @@ const NewStudio = lazy(() => import('./newUi'))
 const LegacyApp = lazy(() => import('./LegacyApp'))
 
 function isNewStudioRoute(path: string) {
-  if (path === '/new' || path === '/new/' || path === '/paint' || path.startsWith('/paint/')) return true
-  if (path === '/feed' || path.startsWith('/feed/') || path === '/lenta' || path.startsWith('/lenta/')) return true
+  if (path === '/' || path === '/new' || path === '/new/' || path === '/paint' || path.startsWith('/paint/')) return true
+  if (path === '/profile' || path.startsWith('/profile/') || path.startsWith('/new/profile')) return true
+  if (path === '/old' || path === '/legacy' || path === '/v1') return false
+  if (path === '/feed' || path.startsWith('/feed/') || path === '/gallery' || path.startsWith('/gallery/')) return false
   if (path.startsWith('/new/gallery') || path.startsWith('/new/profile')) return false
   return path.startsWith('/new/')
 }

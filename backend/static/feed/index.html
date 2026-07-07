@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>IZO ACA — Лента</title>
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=YE1BgWSXJNvVy48ToGkcTDuOpqIBXa9nCxoNH-oNVatiBO-9SNG6NHZMCY6Olu03UKOeqW57ypXdwvu47m1wRf9HmajvgFyhYJvF5AX0vpRCWIJFAkh2fMdaRJL7mpMA_DH9u3XCxx3p5fys4_Ua8j1GfPZjDJb56XY2ksPENATxnQDb9tZE-5XbOVNo2wqvRB8W1ASYzm4AISTe4ndXBsPlX72b3-vuN56gXiDuhAv0Ai2WbDxkiG29Hmd9HVc789qAA8UumkxqOBmg06vC3m1jthbkkLdq__eCurRSc7QeqQ03qVKaZbRy26GGnNR4YPSIzaQM3g9ny9gtUPjS1w" charset="UTF-8"></script><link rel="stylesheet" crossorigin="anonymous" href="https://gc.kis.v2.scr.kaspersky-labs.com/E3E8934C-235A-4B0E-825A-35A08381A191/abn/main.css?attr=aHR0cHM6Ly9jaGF0Z3B0LmNvbS9iYWNrZW5kLWFwaS9lc3R1YXJ5L2NvbnRlbnQ_aWQ9ZmlsZV8wMDAwMDAwMDA1YzA3MWY4YTg1YmJjZmJhNjg4NjZmMCZmbj1pem8tYWNhLWZlZWQtdjktcmVhZHkuaHRtbCZjZD1hdHRhY2htZW50JnRzPTQ5NTM4NSZwPWZzJmNpZD0xJnNpZz01YWQ1YzVjMmJiNDM5NGIxNDM5OGQwMTVmNDkxNWNlN2YyMDFiMDgzMDEwYzhjYjQyNTQ0MjIxZTkwNjZiNzhiJnY9MA"/><style>
+<title>ИЗО АСА — Лента</title>
+<style>
 :root {
   --bg:#050705;
   --panel:#0a0f0b;
@@ -164,9 +164,9 @@ button{user-select:none}
 </head>
 <body>
 <header class="n2-topbar">
-  <a class="n2-brand" href="/feed" aria-label="ИЗО ACA">
+  <a class="n2-brand" href="/feed" aria-label="ИЗО АСА">
     <span class="n2-brand-mark">▧</span>
-    <span>ИЗО <span class="n2-brand-accent">ACA</span></span>
+    <span>ИЗО <span class="n2-brand-accent">АСА</span></span>
   </a>
   <nav class="n2-tabs" aria-label="Режимы">
     <a class="n2-tab feed-tab active" href="/feed">✦ Лента</a>
@@ -337,7 +337,7 @@ function formatTime(value){
 }
 function titleFromPrompt(prompt){
   const clean = String(prompt || '').trim();
-  if(!clean) return 'Работа ИЗО ACA';
+  if(!clean) return 'Работа ИЗО АСА';
   return clean.length > 54 ? `${clean.slice(0, 54).trim()}...` : clean;
 }
 function avatarFromName(name){ return String(name || 'И').trim().slice(0,1).toUpperCase() || 'И'; }
@@ -360,7 +360,7 @@ function normalizeFeedItem(item){
     avatar:avatarFromName(item.author?.displayName || item.author_name),
     time:formatTime(item.created_at),
     source:item.source_label || item.mode || 'Текст -> Изо',
-    style:item.style || item.category || item.model || 'ИЗО ACA',
+    style:item.style || item.category || item.model || 'ИЗО АСА',
     ratio:item.native_aspect_ratio || item.aspect_ratio || '1:1',
     w:width || 1200,
     h:height || 1200,
@@ -730,3 +730,4 @@ loadFeed('for_you');
 </script>
 </body>
 </html>
+

@@ -66,11 +66,18 @@ const EMPTY_FACE_SLOTS: EditSlot[] = [
 ]
 const DEFAULT_PAINT_SKETCH_PROMPT = 'Преобразуй исходный эскиз в реалистичную кинематографичную сцену. Сохрани расположение объектов из эскиза. Добавь красивый свет, атмосферу, тени, глубину, реалистичные материалы и чистую композицию.'
 
-// Начальное состояние из URL: /gallery, /profile, /feed, /new/*.
+// Начальное состояние из URL. Статические /feed и /gallery отдаются backend,
+// а hash-ссылки из этих страниц возвращают пользователя в нужный режим UI 2.0.
 function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   const p = typeof window !== 'undefined' ? window.location.pathname : '/feed'
+  const h = typeof window !== 'undefined' ? window.location.hash : ''
   if (p === '/gallery' || p.startsWith('/gallery') || p.startsWith('/new/gallery')) return { view: 'gallery', tab: 'feed' }
   if (p === '/profile' || p.startsWith('/profile') || p.startsWith('/new/profile')) return { view: 'profile', tab: 'feed' }
+  if (h === '#image-to-image') return { view: 'tabs', tab: 'i2i' }
+  if (h === '#editor') return { view: 'tabs', tab: 'edit' }
+  if (h === '#face' || h === '#face-to-image') return { view: 'tabs', tab: 'face' }
+  if (h === '#draw' || h === '#drawing' || h === '#paint') return { view: 'tabs', tab: 'paint' }
+  if (h === '#text-to-image') return { view: 'tabs', tab: 'text' }
   if (p === '/paint' || p.startsWith('/paint/') || p === '/new/paint' || p.startsWith('/new/paint/')) return { view: 'tabs', tab: 'paint' }
   // Лента: /feed, /lenta. Генератор /new открывается на «Текст → Изо».
   if (p === '/feed' || p.startsWith('/feed') || p === '/lenta' || p.startsWith('/lenta')) return { view: 'tabs', tab: 'feed' }
@@ -907,7 +914,7 @@ export default function NewStudio(): ReactElement {
   const resultSeededRef = useRef(false)
 
   useEffect(() => {
-    document.title = 'ИЗО ACA — новый интерфейс'
+    document.title = 'ИЗО АСА — новый интерфейс'
   }, [])
 
   useEffect(() => {
@@ -3214,7 +3221,7 @@ export default function NewStudio(): ReactElement {
             userLabel={authStatus === 'authed' ? acct.userLabel : null}
             initials={authStatus === 'authed' ? acct.initials : null}
             onSelectMode={selectStudioMode}
-            onOpenFeed={() => setTab('feed')}
+            onOpenFeed={() => { window.location.href = '/feed' }}
             onOpenGallery={goGallery}
             onOpenHelp={() => setHelpOpen(true)}
             onOpenProfile={authStatus === 'authed' ? goProfile : () => setAuthOpen(true)}

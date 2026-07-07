@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>ИЗО ACA — Галерея</title>
+<title>ИЗО АСА — Галерея</title>
 <style>
 :root{
   --bg:#050706;
@@ -185,9 +185,9 @@ h2{margin:0;font-size:22px;line-height:1.1;font-weight:950;letter-spacing:-.03em
 </head>
 <body>
 <header class="n2-topbar">
-  <a class="n2-brand" href="/gallery" aria-label="ИЗО ACA">
+  <a class="n2-brand" href="/gallery" aria-label="ИЗО АСА">
     <span class="n2-brand-mark">▧</span>
-    <span>ИЗО <span class="n2-brand-accent">ACA</span></span>
+    <span>ИЗО <span class="n2-brand-accent">АСА</span></span>
   </a>
   <nav class="n2-tabs" aria-label="Режимы">
     <a class="n2-tab feed-tab" href="/feed">✦ Лента</a>
@@ -478,10 +478,10 @@ async function copyText(text, success){
 async function shareCurrent(kind){
   const item = currentItem(); if(!item) return;
   const url = new URL(item.viewerSrc || item.src, window.location.origin).href;
-  const text = item.prompt || 'Изображение ИЗО ACA';
+  const text = item.prompt || 'Изображение ИЗО АСА';
   if(kind === 'copy') return copyText(url, 'Ссылка скопирована.');
   if(navigator.share && (kind === 'telegram' || kind === 'max' || kind === 'vk')){
-    try{ await navigator.share({ title:'ИЗО ACA', text, url }); showToast('Открыли системный шаринг.'); return; }catch(err){ if(err?.name === 'AbortError') return; }
+    try{ await navigator.share({ title:'ИЗО АСА', text, url }); showToast('Открыли системный шаринг.'); return; }catch(err){ if(err?.name === 'AbortError') return; }
   }
   const encodedUrl = encodeURIComponent(url);
   const encodedText = encodeURIComponent(text);
