@@ -10,7 +10,7 @@
 // ============================================================================
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, WheelEvent as ReactWheelEvent } from 'react'
-import { Brush, Circle as CircleIcon, Clock3, Eraser, Images, Moon, PaintBucket, Palette, Slash, Square as SquareIcon, SquareDashed, Sun, Upload, X } from 'lucide-react'
+import { Brush, Circle as CircleIcon, Eraser, Moon, PaintBucket, Palette, Slash, Square as SquareIcon, SquareDashed, Sun } from 'lucide-react'
 import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
 import {
   DEFAULT_EDIT_STRENGTH,
@@ -64,7 +64,9 @@ const EMPTY_FACE_SLOTS: EditSlot[] = [
   { image: undefined, role: '', takeNote: '' },
   { image: undefined, role: 'face', takeNote: '' },
 ]
-const DEFAULT_PAINT_SKETCH_PROMPT = 'Преобразуй исходный эскиз в реалистичную кинематографичную сцену. Сохрани расположение объектов из эскиза. Добавь красивый свет, атмосферу, тени, глубину, реалистичные материалы и чистую композицию.'
+const DEFAULT_PAINT_SKETCH_PROMPT = 'Transform this sketch into a hyper-realistic cinematic scene. Interpret the lines as real-world objects with high-quality textures, cinematic lighting, natural shadows, depth, realistic materials and clean composition. Preserve the exact composition, silhouettes, poses, proportions and spatial relationships from the sketch. Scene description:'
+const DEFAULT_PAINT_MASK_PROMPT = 'Edit only the masked area. Seamlessly blend the change with the surrounding scene while preserving lighting, shadows, perspective, depth of field and photo grain.'
+const DEFAULT_PAINT_OUTPAINT_PROMPT = 'Extend the composition of this image. Replace black or empty spaces with a logical continuation of the background and foreground. Match perspective, lighting, color palette and texture so the transition is invisible. Scene description:'
 
 // Начальное состояние из URL. Статические /feed и /gallery отдаются backend,
 // а hash-ссылки из этих страниц возвращают пользователя в нужный режим UI 2.0.
@@ -538,6 +540,15 @@ function paintStageForResolution(resolution: { width: number; height: number }) 
     return { width: maxSide, height: Math.max(256, Math.round((maxSide * height) / width)) }
   }
   return { width: Math.max(256, Math.round((maxSide * width) / height)), height: maxSide }
+}
+
+function composePaintPrompt(basePrompt: string, userPrompt: string) {
+  const base = basePrompt.trim()
+  const user = userPrompt.trim()
+  if (!user) return base
+  const normalizedUser = user.toLowerCase()
+  const baseLead = base.slice(0, 42).toLowerCase()
+  return normalizedUser.includes(baseLead) ? user : `${base}\n\n${user}`
 }
 
 export default function NewStudio(): ReactElement {
@@ -1215,7 +1226,7 @@ export default function NewStudio(): ReactElement {
       }
     }
     if (mode === 'paint') {
-      const paintBlock = paintMode === 'sketch' && paintLines.length === 0 && !paintSketchImage
+      const paintBlock = paintMode === 'sketch' && paintLines.length === 0
         ? 'Нарисуйте эскиз на холсте.'
         : paintMode !== 'sketch' && !paintImage
           ? 'Загрузите изображение для этого режима.'
@@ -1271,11 +1282,11 @@ export default function NewStudio(): ReactElement {
       const paintBasePrompt = paintMode === 'sketch'
         ? DEFAULT_PAINT_SKETCH_PROMPT
         : paintMode === 'mask'
-          ? 'Измени только отмеченную маской область, всё вне маски сохрани естественным.'
+          ? DEFAULT_PAINT_MASK_PROMPT
           : paintMode === 'outpaint'
-            ? 'Естественно продолжи изображение за пределами исходного кадра.'
+            ? DEFAULT_PAINT_OUTPAINT_PROMPT
             : 'Аккуратно удали фон, сохрани главный объект и его края.'
-      const paintPrompt = paintUserPrompt || paintBasePrompt
+      const paintPrompt = composePaintPrompt(paintBasePrompt, paintUserPrompt)
       const faceFinalPrompt = [
         facePrompt,
         'Use Image 1 as the target scene. Use Image 2 only as the source face. Preserve the target body, clothing, pose, background, camera angle, lighting, and style.',
@@ -2492,7 +2503,7 @@ export default function NewStudio(): ReactElement {
                   <span className="paint-tab-label">{paintModeMeta[id].label}</span>
                   <span className="paint-tab-state">
                     {id === 'sketch'
-                      ? paintSketchLines.length || paintSketchImage ? 'есть эскиз' : 'пусто'
+                      ? paintSketchLines.length ? 'есть эскиз' : 'пусто'
                       : id === 'mask'
                         ? paintMaskLines.length ? 'есть маска' : 'пусто'
                         : id === 'outpaint'
@@ -2537,26 +2548,6 @@ export default function NewStudio(): ReactElement {
                     )}
                   </div>
                 </article>
-              )}
-
-              {paintMode === 'sketch' && (
-                <div className={`paint-sketch-import${paintSketchImage ? ' is-filled' : ''}`}>
-                  <div className="paint-sketch-import-text">
-                    <strong>{paintSketchImage ? 'Загруженный эскиз' : 'Рисунок с устройства'}</strong>
-                    <span>{paintSketchImage ? 'Можно дорисовать сверху или сразу генерировать.' : 'Загрузите рисунок ребёнка или нарисуйте с нуля.'}</span>
-                  </div>
-                  {paintSketchImage && (
-                    <button className="paint-sketch-thumb" type="button" onClick={() => showInspectPreview(paintSketchImage, 'Эскиз')}>
-                      <img src={apiUrl(paintSketchImage)} alt="Загруженный эскиз" />
-                    </button>
-                  )}
-                  <div className="paint-sketch-actions">
-                    <button type="button" onClick={() => openUpload({ kind: 'paintSketch' })}><Upload size={15} />Загрузить</button>
-                    <button type="button" onClick={() => openGalleryPick({ kind: 'paintSketch' })}><Images size={15} />Галерея</button>
-                    <button type="button" onClick={() => applyLastImageToTarget({ kind: 'paintSketch' })}><Clock3 size={15} />Последнее</button>
-                    {paintSketchImage && <button type="button" aria-label="Убрать загруженный эскиз" onClick={() => setPaintSketchImage(undefined)}><X size={15} />Убрать</button>}
-                  </div>
-                </div>
               )}
 
               {(paintMode === 'sketch' || paintMode === 'mask') && (
@@ -3212,7 +3203,7 @@ export default function NewStudio(): ReactElement {
         </div>
       )}
 
-      <div className="iv3">
+      <div className={`iv3 mode-${tab}`}>
         <div className="app-shell">
           <TopBarV3
             active={topActive}
