@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ИЗО ACA — Галерея</title>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=LJdeCo2cPc-3ZMNqnS2XkaR4klaISuvqGhWuc89BjmC-Lga01EHPlOzW7JgGKOsu9-APGVYASf9PfIr0gHcvX4Wxf_Zefp6L0C2VmIZTODsryBAS1MPMJ89udwKPDUZyNhfw7SW4i2oybbLDRD9QnMNXIbQxoidpfy9zzIx3TQ6OWRm7TLzfri6O7xK5qJn8zP8QdpHL5QaXoLd84Anmp4kRM3M6uND4IcgeRSs5t3_KVXjmYNcsHkG3zWlKzSEFI7Ous3bUzc1ne9WZTJ5pP3kXOEDgFLPQbNn4vUDW3tKBow_p-bCLuiLudDF9jYNmmnh5QZHHcuBCVHKWCM57Fg" charset="UTF-8"></script><link rel="stylesheet" crossorigin="anonymous" href="https://gc.kis.v2.scr.kaspersky-labs.com/E3E8934C-235A-4B0E-825A-35A08381A191/abn/main.css?attr=aHR0cHM6Ly9jaGF0Z3B0LmNvbS9iYWNrZW5kLWFwaS9lc3R1YXJ5L2NvbnRlbnQ_aWQ9ZmlsZV8wMDAwMDAwMGVkMzQ3MWZkYjEyM2FhOGVhYjk3Mzk3MyZmbj1pem8tYWNhLWdhbGxlcnktb25lZmlsZS12MTQuaHRtbCZjZD1hdHRhY2htZW50JnRzPTQ5NTM4MyZwPWZzJmNpZD0xJnNpZz1hMmJlYzZjM2U0MmFmMDk3Y2JlMzg2YjE2ODM1NzI1MTQyZWI3MDMyZWUyYjg3NTc3YmIwNGY3NjEwMmNmMWI0JnY9MA"/><style>
+:root{
+  --bg:#050706;
+  --panel:#0c100e;
+  --panel-2:#111712;
+  --line:rgba(255,255,255,.16);
+  --muted:#a8afa8;
+  --text:#f7fff0;
+  --acid:#ddff00;
+  --acid-2:#baf900;
+  --green:#4df49a;
+  --purple:#8b35d7;
+  --danger:#ff6767;
+  --shadow:0 18px 45px rgba(0,0,0,.42);
+  --radius:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:radial-gradient(circle at 0 0,rgba(221,255,0,.06),transparent 28%),var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.35;overflow-x:hidden}
+button,input{font:inherit}
+button{cursor:pointer;color:inherit}
+img{max-width:100%}
+[hidden]{display:none!important}
+
+.appTop{height:58px;border-bottom:1px solid var(--line);background:rgba(5,7,6,.96);backdrop-filter:blur(16px);display:flex;align-items:center;gap:16px;padding:0 14px;position:sticky;top:0;z-index:20}
+.logo{display:flex;align-items:center;gap:10px;font-weight:900;font-size:22px;letter-spacing:-.04em;white-space:nowrap}
+.logoMark{width:30px;height:30px;border:2px solid var(--acid);border-radius:9px;display:grid;place-items:center;box-shadow:0 0 18px rgba(221,255,0,.25);color:var(--acid);font-size:17px;line-height:1}
+.logo b{color:var(--acid)}
+.feedNav{height:38px;padding:0 18px;border-radius:13px;border:1px solid rgba(204,90,255,.7);background:linear-gradient(180deg,#9138de,#4b197a);box-shadow:0 0 20px rgba(160,67,255,.35);font-weight:850;display:flex;align-items:center;gap:7px}
+.mainNav{margin:0 auto;display:flex;align-items:center;border:1px solid var(--line);border-radius:13px;overflow:hidden;background:#090b0a;min-width:360px;max-width:760px;flex:1}
+.mainNav button{height:38px;min-width:110px;padding:0 18px;background:transparent;border:0;border-right:1px solid var(--line);font-weight:800;color:#f3f6ef}
+.mainNav button:last-child{border-right:0;color:#757a75}
+.topRight{display:flex;align-items:center;gap:8px}
+.navBtn{height:38px;border:1px solid var(--line);border-radius:10px;background:#0e1110;padding:0 15px;font-weight:800;white-space:nowrap}
+.navBtn.active{background:var(--acid);border-color:var(--acid);color:#0b0d08}
+.userBtn{height:38px;border:1px solid rgba(168,92,255,.55);border-radius:10px;background:#16111f;padding:0 12px;font-weight:800;display:flex;align-items:center;gap:8px}
+.userDot{width:18px;height:18px;border-radius:50%;background:conic-gradient(var(--acid),#4ff, var(--purple), var(--acid));box-shadow:0 0 10px var(--acid)}
+
+.page{max-width:1880px;margin:0 auto;padding:20px 16px 54px}
+.compactBar{display:grid;grid-template-columns:auto auto minmax(260px,560px) auto;gap:12px;align-items:center;margin-bottom:20px}
+.titleLine{display:flex;align-items:center;gap:10px;min-width:0}
+h1{font-size:36px;line-height:1;margin:0;font-weight:950;letter-spacing:-.055em;text-shadow:1px 1px 0 #ff8b43}
+.infoTiny{width:36px;height:36px;border:1px solid rgba(221,255,0,.45);background:#10150f;border-radius:11px;color:var(--acid);font-weight:950;font-size:18px;display:grid;place-items:center}
+.counts{display:flex;align-items:center;gap:7px;white-space:nowrap;min-width:0}
+.countChip{height:38px;min-width:82px;padding:5px 11px;border:1px solid var(--line);border-radius:10px;background:rgba(18,20,24,.8);display:flex;flex-direction:column;justify-content:center;gap:1px}
+.countChip strong{font-size:13px;letter-spacing:.01em}
+.countChip span{font-size:10.5px;color:#c9cec7}
+.countChip.tariff{background:var(--acid);color:#111300;border-color:var(--acid);min-width:160px}
+.countChip.tariff span{color:#273000}
+.searchBox{height:40px;display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:#0b0f0d;border-radius:12px;padding:0 12px;min-width:0}
+.searchBox svg{flex:0 0 auto;opacity:.72}
+.searchBox input{width:100%;height:100%;border:0;background:transparent;color:var(--text);outline:0;font-weight:650;min-width:0}
+.searchBox input::placeholder{color:#7d857d}
+.toolbarBtns{display:flex;align-items:center;gap:8px;justify-self:end;white-space:nowrap}
+.btn{height:40px;border:1px solid var(--line);background:#0c100e;border-radius:11px;padding:0 14px;font-weight:850;display:inline-flex;align-items:center;justify-content:center;gap:7px;box-shadow:none}
+.btn:hover{border-color:rgba(221,255,0,.55)}
+.btn.acid{background:var(--acid);border-color:var(--acid);color:#101300;box-shadow:0 0 18px rgba(221,255,0,.18)}
+.btn.icon{width:40px;padding:0;font-size:18px}
+
+.popWrap{position:relative}
+.popover{position:absolute;right:0;top:48px;width:280px;border:1px solid var(--line);background:rgba(13,17,14,.98);border-radius:14px;box-shadow:var(--shadow);padding:12px;z-index:40;display:none}
+.popover.open{display:block}
+.popover h4{margin:0 0 9px;font-size:13px;color:var(--acid);text-transform:uppercase;letter-spacing:.02em}
+.filterGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.filterGrid button{height:36px;border:1px solid var(--line);border-radius:10px;background:#111713;color:#edf3ea;font-weight:800}
+.filterGrid button.active{background:var(--acid);border-color:var(--acid);color:#111400}
+
+.section{margin-top:18px}
+.sectionHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px}
+.sectionTitle{display:flex;align-items:baseline;gap:10px;min-width:0}
+h2{margin:0;font-size:22px;line-height:1.1;font-weight:950;letter-spacing:-.03em}
+.sectionCount{font-size:12px;color:var(--muted);font-weight:750}
+.sectionBtns{display:flex;gap:8px;align-items:center}
+
+.masonry{column-count:6;column-gap:12px;width:100%}
+@media (max-width:1680px){.masonry{column-count:5}}
+@media (max-width:1380px){.masonry{column-count:4}}
+@media (max-width:1020px){.masonry{column-count:3}}
+.card{position:relative;display:inline-block;width:100%;margin:0 0 12px;border:1px solid rgba(255,255,255,.15);border-radius:14px;background:#0b0f0d;overflow:hidden;box-shadow:0 8px 22px rgba(0,0,0,.18);break-inside:avoid;vertical-align:top;transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease;isolation:isolate}
+.card:hover{transform:translateY(-2px);border-color:rgba(221,255,0,.42);box-shadow:0 14px 34px rgba(0,0,0,.36)}
+.card img{display:block;width:100%;height:auto}
+.card::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.56) 0%,rgba(0,0,0,.18) 18%,rgba(0,0,0,0) 48%,rgba(0,0,0,.62) 100%)}
+.cardTop{position:absolute;left:8px;right:8px;top:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;z-index:3;pointer-events:none}
+.pill{display:inline-flex;align-items:center;min-height:22px;padding:3px 8px;border-radius:99px;background:rgba(8,10,9,.72);border:1px solid rgba(255,255,255,.18);color:#fff;font-size:11px;font-weight:850;line-height:1;backdrop-filter:blur(10px);white-space:nowrap}
+.pill.feed{background:#ffe971;color:#171306;border-color:#ffe971}
+.cardBottom{position:absolute;left:9px;right:9px;bottom:9px;display:flex;align-items:flex-end;justify-content:space-between;gap:8px;z-index:3;pointer-events:none}
+.cardDate{font-size:11px;line-height:1.1;font-weight:850;color:#fff;text-shadow:0 1px 8px #000,0 0 2px #000;min-width:0;max-width:calc(100% - 82px)}
+.cardActions{display:flex;gap:6px;pointer-events:auto;flex:0 0 auto}
+.action{width:34px;height:34px;border-radius:10px;border:1px solid rgba(255,255,255,.26);background:rgba(12,15,13,.76);display:grid;place-items:center;backdrop-filter:blur(12px);box-shadow:0 8px 16px rgba(0,0,0,.22);padding:0;color:#fff;line-height:1}
+.action svg{width:19px;height:19px;display:block}
+.action.heart svg{width:21px;height:21px}
+.action.feedAct svg{width:18px;height:18px}
+.action:hover{border-color:var(--acid);background:rgba(22,28,21,.94)}
+.action.active{background:var(--green);border-color:var(--green);color:#001508}
+.action.feedOn{background:rgba(255,233,113,.95);border-color:#ffe971;color:#171306}
+.promptPeek{position:absolute;left:8px;right:8px;bottom:50px;z-index:4;opacity:0;transform:translateY(6px);transition:.16s ease;background:rgba(7,9,8,.9);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:9px 10px;font-size:12px;line-height:1.25;color:#ecf4e9;box-shadow:0 10px 28px rgba(0,0,0,.36);pointer-events:none;max-height:72px;overflow:hidden}
+.card:hover .promptPeek{opacity:1;transform:none}
+
+.masonry.list{column-count:1!important}
+.masonry.list .card{display:grid;grid-template-columns:168px 1fr 86px;min-height:108px;max-width:100%;margin-bottom:8px;break-inside:auto}
+.masonry.list .card img{width:168px;height:108px;object-fit:cover;grid-column:1;grid-row:1}
+.listContent{display:none}
+.masonry.list .listContent{display:block;padding:13px 12px;grid-column:2;grid-row:1;min-width:0}
+.masonry.list .listPrompt{font-size:14px;font-weight:760;line-height:1.25;color:#f3f9ee;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:9px}
+.masonry.list .listMeta{font-size:12px;color:#b9c2b6}
+.masonry.list .card::after,.masonry.list .cardTop,.masonry.list .cardBottom .cardDate,.masonry.list .promptPeek{display:none}
+.masonry.list .cardBottom{position:static;grid-column:3;grid-row:1;align-self:center;justify-self:end;margin-right:12px;display:block}
+.masonry.list .cardActions{display:flex}
+
+.empty{border:1px dashed rgba(255,255,255,.18);border-radius:18px;padding:36px;text-align:center;color:var(--muted);background:rgba(255,255,255,.02)}
+
+.viewerOverlay{position:fixed;inset:0;background:rgba(0,0,0,.72);backdrop-filter:blur(8px);z-index:100;display:none;align-items:center;justify-content:center;padding:24px}
+.viewerOverlay.open{display:flex}
+.viewerDialog{position:relative;width:min(1500px,calc(100vw - 48px));height:min(900px,calc(100dvh - 48px));background:#080b09;border:1px solid rgba(255,255,255,.18);border-radius:20px;box-shadow:0 25px 80px rgba(0,0,0,.72);display:grid;grid-template-columns:minmax(0,1fr) 390px;overflow:hidden}
+.viewerMedia{position:relative;min-width:0;min-height:0;background:radial-gradient(circle at 50% 44%,rgba(255,255,255,.05),transparent 34%),#020302;display:grid;grid-template-rows:minmax(0,1fr) 72px;border-right:1px solid var(--line)}
+.viewerStage{position:relative;min-width:0;min-height:0;display:flex;align-items:center;justify-content:center;padding:18px 58px 12px}
+.viewerStage img{display:block;max-width:100%;max-height:100%;object-fit:contain;border-radius:12px;box-shadow:0 18px 52px rgba(0,0,0,.5);background:#050706}
+.viewerClose{position:absolute;right:12px;top:12px;z-index:5;width:44px;height:44px;border-radius:13px;border:1px solid rgba(255,255,255,.26);background:rgba(10,12,11,.9);font-size:25px;font-weight:400;color:#fff;display:grid;place-items:center}
+.viewerClose:hover{border-color:var(--acid);color:var(--acid)}
+.viewerCounter{position:absolute;left:16px;top:16px;z-index:4;display:flex;align-items:center;gap:7px;color:#fff;font-weight:850;font-size:13px;background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.16);border-radius:99px;padding:7px 11px;backdrop-filter:blur(10px)}
+.viewerNav{position:absolute;top:50%;transform:translateY(-50%);width:46px;height:56px;border-radius:15px;border:1px solid rgba(255,255,255,.22);background:rgba(9,12,10,.72);color:#fff;font-size:34px;z-index:4;display:grid;place-items:center;backdrop-filter:blur(10px)}
+.viewerNav:hover{border-color:var(--acid);color:var(--acid)}
+.viewerNav.prev{left:12px}.viewerNav.next{right:12px}
+.thumbRail{height:72px;border-top:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.34);display:flex;align-items:center;gap:8px;overflow-x:auto;padding:9px 14px;scrollbar-width:thin}
+.thumb{height:52px;width:auto;min-width:52px;border:2px solid transparent;border-radius:9px;padding:0;background:transparent;overflow:hidden;opacity:.68;flex:0 0 auto}
+.thumb img{height:100%;width:auto;display:block;border-radius:7px}
+.thumb.active{border-color:var(--acid);opacity:1;box-shadow:0 0 0 3px rgba(221,255,0,.18)}
+.infoPanel{min-width:0;min-height:0;overflow:auto;background:linear-gradient(180deg,#0e130f,#080b09);padding:18px 18px 22px}
+.infoTop{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:14px;padding-right:42px}
+.infoKicker{display:flex;flex-wrap:wrap;gap:6px;align-items:center;color:#c9d2c4;font-size:12px;font-weight:800}
+.infoDate{font-size:12px;color:#aeb7ac;font-weight:750;margin-top:8px}
+.infoActions{display:flex;gap:8px;margin:0 0 14px;flex-wrap:wrap}
+.infoActions .btn{height:36px;padding:0 11px;border-radius:10px;font-size:12.5px}
+.infoBlock{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.035);border-radius:14px;padding:13px;margin:0 0 12px}
+.infoBlock h3{margin:0 0 8px;color:var(--acid);font-size:13px;letter-spacing:.02em;text-transform:uppercase}
+.infoBlock p{margin:0;color:#edf5e9;font-size:13px;line-height:1.45}
+.sourceGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.sourceItem{border:1px solid rgba(255,255,255,.14);border-radius:10px;overflow:hidden;background:#050706}
+.sourceItem img{display:block;width:100%;aspect-ratio:1/1;object-fit:cover}
+.sourceItem span{display:block;padding:6px;font-size:10.5px;color:#b8c1b6}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px}
+.stat{border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:8px;background:rgba(0,0,0,.18)}
+.stat strong{display:block;font-size:14px}.stat span{font-size:10.5px;color:#aab2a8}
+.paramGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px}
+.param{border:1px solid rgba(255,255,255,.11);border-radius:10px;padding:8px;background:rgba(0,0,0,.12)}
+.param span{display:block;color:#aeb8ac;font-size:10.5px;margin-bottom:2px}.param b{font-size:12px}
+.dropHost{position:relative}
+.dropMenu{display:none;position:absolute;left:0;top:42px;min-width:190px;border:1px solid var(--line);background:rgba(12,16,13,.98);border-radius:12px;box-shadow:var(--shadow);padding:6px;z-index:6}
+.dropMenu.open{display:block}
+.dropMenu button{width:100%;height:34px;border:0;background:transparent;border-radius:9px;color:#eff6ed;text-align:left;padding:0 10px;font-size:12.5px;font-weight:750}
+.dropMenu button:hover{background:rgba(221,255,0,.12)}
+
+.smallModal{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(8px);z-index:120;display:none;align-items:center;justify-content:center;padding:18px}
+.smallModal.open{display:flex}
+.smallDialog{width:min(520px,100%);background:#0b0f0d;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:18px;position:relative}
+.smallDialog h3{margin:0 0 10px;font-size:20px}
+.smallDialog p{color:#dce5d9;margin:0 0 10px;line-height:1.45}
+.smallDialog ul{margin:0;padding-left:19px;color:#dce5d9;line-height:1.5}
+.smallDialog .viewerClose{right:10px;top:10px;width:38px;height:38px;font-size:22px}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(16px);opacity:0;pointer-events:none;background:#121812;border:1px solid rgba(221,255,0,.45);border-radius:14px;padding:12px 16px;box-shadow:var(--shadow);z-index:150;color:#f4ffef;font-weight:760;transition:.18s ease;max-width:min(440px,calc(100vw - 28px));text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media (max-width:980px){
+  .mainNav{display:none}.appTop{height:50px;padding:0 10px}.logo{font-size:18px}.logoMark{width:26px;height:26px}.feedNav{height:34px;padding:0 12px}.topRight .navBtn:not(.active),.userBtn{display:none}
+  .page{padding:12px 10px 36px}
+  .compactBar{grid-template-columns:1fr auto;gap:8px;margin-bottom:14px}
+  .titleLine{grid-column:1;gap:8px}h1{font-size:26px}.infoTiny{width:32px;height:32px}
+  .counts{grid-column:1 / -1;grid-row:2;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}.counts::-webkit-scrollbar{display:none}.countChip{height:34px;min-width:76px;padding:4px 9px}.countChip.tariff{min-width:90px}.countChip.tariff strong{font-size:12px}.countChip.tariff span{display:none}
+  .searchBox{grid-column:1 / -1;grid-row:3;height:38px}.toolbarBtns{grid-column:1 / -1;grid-row:4;justify-self:stretch;display:grid;grid-template-columns:1fr 1fr 1fr 42px;gap:7px}.toolbarBtns .btn{height:38px;padding:0 8px}.toolbarBtns .btn.icon{width:auto}
+  .section{margin-top:14px}.sectionHead{margin-bottom:9px}h2{font-size:20px}.sectionCount{display:none}.sectionBtns{display:none}
+  .masonry{column-count:2;column-gap:8px}.card{border-radius:12px;margin-bottom:8px}.pill{font-size:9.5px;min-height:19px;padding:3px 6px}.cardTop{left:6px;right:6px;top:6px}.cardBottom{left:6px;right:6px;bottom:6px}.cardDate{font-size:9.5px;max-width:calc(100% - 68px)}.action{width:30px;height:30px;border-radius:9px}.action svg{width:17px;height:17px}.action.heart svg{width:19px;height:19px}.cardActions{gap:4px}.promptPeek{display:none}
+  .viewerOverlay{padding:6px}.viewerDialog{width:calc(100vw - 12px);height:calc(100dvh - 12px);border-radius:16px;grid-template-columns:1fr;grid-template-rows:minmax(270px,52dvh) minmax(0,1fr)}.viewerMedia{border-right:0;border-bottom:1px solid var(--line);grid-template-rows:minmax(0,1fr) 58px}.viewerStage{padding:46px 8px 8px}.viewerStage img{border-radius:10px}.viewerCounter{top:10px;left:10px;font-size:11px;padding:6px 8px}.viewerClose{right:8px;top:8px;width:42px;height:42px;background:rgba(10,12,11,.96)}.viewerNav{width:38px;height:46px;font-size:28px}.viewerNav.prev{left:6px}.viewerNav.next{right:6px}.thumbRail{height:58px;padding:7px 8px}.thumb{height:42px;min-width:42px}.infoPanel{padding:12px}.infoTop{padding-right:44px;margin-bottom:10px}.infoActions{display:grid;grid-template-columns:48px 1fr 1fr 1fr;gap:6px}.infoActions .btn{height:34px;font-size:11.5px;min-width:0;padding:0 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.infoBlock{padding:11px;border-radius:12px}.paramGrid{grid-template-columns:1fr}.sourceGrid{grid-template-columns:repeat(3,1fr)}
+  .popover{left:0;right:auto;top:44px;width:min(300px,calc(100vw - 20px))}
+}
+@media (max-width:420px){.toolbarBtns{grid-template-columns:1fr 1fr 1fr 40px}.toolbarBtns .btn{font-size:12px}.searchBox input{font-size:13px}.masonry{column-gap:7px}.cardDate{font-size:9px}.pill{font-size:9px}}
+</style>
+</head>
+<body>
+<header class="appTop">
+  <div class="logo"><span class="logoMark">▧</span><span>ИЗО <b>ACA</b></span></div>
+  <button class="feedNav" title="Перейти в общую ленту">✦ Лента</button>
+  <nav class="mainNav" aria-label="Основная навигация">
+    <button>Текст → Изо</button><button>Изо → Изо</button><button>Редактор</button><button>Рисунок</button><button>Лицо</button><button>Видео</button>
+  </nav>
+  <div class="topRight"><button class="navBtn active">Галерея</button><button class="navBtn">Помощь</button><button class="userBtn">Алекс <span class="userDot"></span></button></div>
+</header>
+
+<main class="page">
+  <div class="compactBar">
+    <div class="titleLine"><h1>Галерея</h1><button id="helpBtn" class="infoTiny" title="Как работает галерея">?</button></div>
+    <div class="counts" aria-label="Лимиты галереи">
+      <div class="countChip"><strong id="originalCount">20 / 50</strong><span>Оригиналы</span></div>
+      <div class="countChip"><strong id="feedCount">8 / 50</strong><span>В ленте</span></div>
+      <div class="countChip"><strong id="favCount">5 / 16</strong><span>Сердечки</span></div>
+      <div class="countChip tariff"><strong>Тариф PLUS</strong><span>50 оригиналов + 50 копий в ленте</span></div>
+    </div>
+    <label class="searchBox" title="Поиск по промпту, режиму, модели или ID">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m21 21-4.2-4.2m1.2-5.3a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="searchInput" placeholder="Поиск по промпту, модели или ID" autocomplete="off">
+    </label>
+    <div class="toolbarBtns">
+      <div class="popWrap"><button id="filterBtn" class="btn">Фильтр</button>
+        <div id="filterPopover" class="popover" role="menu">
+          <h4>Показать</h4>
+          <div class="filterGrid">
+            <button data-filter="all" class="active">Все</button><button data-filter="favorite">С сердечком</button><button data-filter="published">В ленте</button><button data-filter="unpublished">Не в ленте</button><button data-filter="16:9">16:9</button><button data-filter="4:5">4:5</button><button data-filter="1:1">1:1</button><button data-filter="face">Лицо</button>
+          </div>
+        </div>
+      </div>
+      <button id="spaceBtn" class="btn" title="Проверить, что будет удалено при переполнении">Место</button>
+      <button id="createBtn" class="btn acid" title="Перейти к генерации нового изображения">Создать</button>
+      <button id="viewBtn" class="btn icon" title="Переключить сетку и список">▦</button>
+    </div>
+  </div>
+
+  <section class="section" aria-labelledby="myGalleryTitle">
+    <div class="sectionHead"><div class="sectionTitle"><h2 id="myGalleryTitle">Моя галерея</h2><span class="sectionCount" id="gallerySectionCount">20 изображений</span></div></div>
+    <div id="galleryGrid" class="masonry"></div>
+  </section>
+
+  <section class="section" aria-labelledby="feedTitle">
+    <div class="sectionHead"><div class="sectionTitle"><h2 id="feedTitle">В ленте</h2><span class="sectionCount" id="feedSectionCount">8 публикаций</span></div><div class="sectionBtns"><button class="btn" id="openFeedBtn">Открыть ленту</button><button class="btn" id="publishSelectedBtn">Опубликовать выбранное</button></div></div>
+    <div id="feedGrid" class="masonry feedMasonry"></div>
+  </section>
+</main>
+
+<div id="viewer" class="viewerOverlay" aria-modal="true" role="dialog">
+  <div class="viewerDialog">
+    <button id="viewerClose" class="viewerClose" title="Закрыть просмотр">×</button>
+    <div class="viewerMedia">
+      <div class="viewerStage">
+        <div id="viewerCounter" class="viewerCounter"></div>
+        <button id="prevBtn" class="viewerNav prev" title="Предыдущее изображение">‹</button>
+        <img id="viewerImg" alt="Просмотр изображения">
+        <button id="nextBtn" class="viewerNav next" title="Следующее изображение">›</button>
+      </div>
+      <div id="thumbRail" class="thumbRail" aria-label="Миниатюры"></div>
+    </div>
+    <aside class="infoPanel">
+      <div class="infoTop">
+        <div><div class="infoKicker"><span id="viewerMode" class="pill"></span><span id="viewerPub" class="pill feed" hidden>В ленте</span></div><div id="viewerDate" class="infoDate"></div></div>
+      </div>
+      <div class="infoActions">
+        <button id="heartBtn" class="btn" title="Сердечко: оставить изображение и защитить от автоудаления">♡</button>
+        <button id="feedBtn" class="btn acid" title="Опубликовать в ленту">✦ В ленту</button>
+        <div class="dropHost"><button id="shareBtn" class="btn" title="Поделиться изображением">Поделиться</button><div id="shareMenu" class="dropMenu"><button data-share="telegram">Telegram</button><button data-share="max">Max</button><button data-share="vk">ВК</button><button data-share="copy">Копировать ссылку</button></div></div>
+        <div class="dropHost"><button id="editBtn" class="btn" title="Открыть изображение в одном из режимов">Изменить</button><div id="editMenu" class="dropMenu"><button data-edit="editor">Открыть в редакторе</button><button data-edit="image">Использовать в Изо → Изо</button><button data-edit="face">Использовать в Лицо</button><button data-edit="draw">Использовать в Рисунок</button></div></div>
+      </div>
+      <section class="infoBlock"><h3>Промпт</h3><p id="viewerPrompt"></p></section>
+      <section class="infoBlock"><h3>Исходники</h3><div id="sourceContent"></div></section>
+      <section class="infoBlock"><h3>Публикация</h3><div id="publicationContent"></div></section>
+      <section class="infoBlock"><h3>Параметры</h3><div id="paramsContent" class="paramGrid"></div></section>
+    </aside>
+  </div>
+</div>
+
+<div id="helpModal" class="smallModal"><div class="smallDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Как устроена галерея</h3><p>Верхний блок — ваши несжатые оригиналы после генерации. Нижний блок — отдельные публичные копии, которые уже находятся в ленте.</p><ul><li>Сердечко оставляет изображение в галерее и защищает от автоудаления.</li><li>В ленту отправляется отдельная WebP-копия, оригинал остается здесь.</li><li>При переполнении удаляется самый старый незащищенный оригинал, два последних не трогаются.</li></ul></div></div>
+<div id="spaceModal" class="smallModal"><div class="smallDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Место в галерее</h3><div id="spaceText"></div></div></div>
+<div id="toast" class="toast"></div>
+
+<script id="imageData" type="application/json">[]</script>
+<script>
+let images = [];
+let feedImages = [];
+let limits = { originals:{used:0,limit:0}, feed:{used:0,limit:0}, favorites:{used:0,limit:0}, plan:'mini' };
+const galleryGrid = document.getElementById('galleryGrid');
+const feedGrid = document.getElementById('feedGrid');
+const searchInput = document.getElementById('searchInput');
+const filterBtn = document.getElementById('filterBtn');
+const filterPopover = document.getElementById('filterPopover');
+const viewBtn = document.getElementById('viewBtn');
+const toast = document.getElementById('toast');
+let currentFilter = 'all';
+let listMode = false;
+let currentIndex = 0;
+let currentCollection = images;
+const API_BASE = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : '';
+
+const heartOutline = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 20.3S4.5 16 3.1 10.4C2.2 6.7 4.5 4 7.7 4c1.8 0 3.3 1 4.3 2.4C13 5 14.5 4 16.3 4c3.2 0 5.5 2.7 4.6 6.4C19.5 16 12 20.3 12 20.3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
+const heartFilled = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21.2 10.7 20C5.4 15.3 2 12.2 2 8.4 2 5.3 4.4 3 7.4 3c1.7 0 3.4.8 4.6 2.1C13.2 3.8 14.9 3 16.6 3 19.6 3 22 5.3 22 8.4c0 3.8-3.4 6.9-8.7 11.6L12 21.2Z"/></svg>`;
+const feedIcon = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.7 5.1L19 10l-5.3 1.9L12 17l-1.7-5.1L5 10l5.3-1.9L12 3Z" fill="currentColor"/><path d="M5 15l.8 2.2L8 18l-2.2.8L5 21l-.8-2.2L2 18l2.2-.8L5 15Zm14 1 .7 1.8 1.8.7-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7L19 16Z" fill="currentColor"/></svg>`;
+
+function apiUrl(path){ return `${API_BASE}${path}`; }
+async function api(path, options = {}){
+  const headers = { ...(options.headers || {}) };
+  if(options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  const res = await fetch(apiUrl(path), { credentials:'include', ...options, headers });
+  if(!res.ok){ throw new Error(await res.text() || `HTTP ${res.status}`); }
+  return res.json();
+}
+function showToast(text){ toast.textContent = text; toast.classList.add('show'); clearTimeout(showToast.t); showToast.t = setTimeout(()=>toast.classList.remove('show'), 2400); }
+function escapeHtml(s){ return String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+function allItems(){ return [...images, ...feedImages]; }
+function itemById(id){ return images.find(i => String(i.id) === String(id)) || feedImages.find(i => String(i.id) === String(id)); }
+function originalById(id){ return images.find(i => String(i.id) === String(id)); }
+function favoriteLimit(){ return Number(limits?.favorites?.limit || 0); }
+function normalizeItem(item){
+  return { ...item, favorite: Boolean(item.favorite ?? item.isFavorite), modeText: item.modeLabel || item.mode || 'Текст -> Изо', dateText: formatDate(item.createdAt || item.date), src: apiUrl(item.src || item.thumbnailUrl), viewerSrc: apiUrl(item.viewerSrc || item.downloadUrl || item.src || item.thumbnailUrl) };
+}
+function formatDate(value){
+  if(!value) return '';
+  const date = new Date(value);
+  if(Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+}
+function filteredItems(base){
+  const q = searchInput.value.trim().toLowerCase();
+  return base.filter(raw => {
+    const item = normalizeItem(raw);
+    if(q){
+      const loras = Array.isArray(item.loras) ? item.loras.join(' ') : '';
+      const hay = `${item.id} ${item.prompt} ${item.modeText} ${item.model} ${item.preset} ${loras}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    if(currentFilter === 'favorite' && !item.favorite) return false;
+    if(currentFilter === 'published' && !item.published) return false;
+    if(currentFilter === 'unpublished' && item.published) return false;
+    if(['16:9','4:5','1:1'].includes(currentFilter) && item.aspectRatio !== currentFilter && item.aspect !== currentFilter) return false;
+    if(currentFilter === 'face' && item.modeText !== 'Лицо') return false;
+    return true;
+  });
+}
+function cardTemplate(raw, context){
+  const item = normalizeItem(raw);
+  const pubPill = item.published && context === 'gallery' ? `<span class="pill feed">В ленте</span>` : '';
+  const heartTitle = item.favorite ? 'Убрать сердечко' : 'Поставить сердечко: оставить изображение и защитить от автоудаления';
+  const feedTitle = item.published ? 'Открыть публикацию в общей ленте' : 'Опубликовать в ленту';
+  return `<article class="card" data-id="${escapeHtml(item.id)}" data-context="${context}" title="${escapeHtml(item.prompt)}">
+    <img src="${escapeHtml(item.src)}" alt="${escapeHtml(item.prompt)}" loading="lazy">
+    <div class="cardTop"><span class="pill" title="Режим генерации">${escapeHtml(item.modeText)}</span>${pubPill}</div>
+    <div class="promptPeek">${escapeHtml(item.prompt)}</div>
+    <div class="cardBottom"><time class="cardDate">${escapeHtml(item.dateText)}</time><div class="cardActions">
+      <button class="action heart ${item.favorite?'active':''}" data-action="heart" title="${heartTitle}" aria-label="${heartTitle}">${item.favorite ? heartFilled : heartOutline}</button>
+      <button class="action feedAct ${item.published?'feedOn':''}" data-action="feed" title="${feedTitle}" aria-label="${feedTitle}">${feedIcon}</button>
+    </div></div>
+    <div class="listContent"><div class="listPrompt">${escapeHtml(item.prompt)}</div><div class="listMeta">${escapeHtml(item.dateText)} · ${escapeHtml(item.modeText)}${item.published?' · В ленте':''}</div></div>
+  </article>`;
+}
+function render(){
+  const galleryItems = filteredItems(images);
+  const feedItems = filteredItems(feedImages);
+  galleryGrid.classList.toggle('list', listMode);
+  feedGrid.classList.toggle('list', listMode);
+  galleryGrid.innerHTML = galleryItems.length ? galleryItems.map(i=>cardTemplate(i,'gallery')).join('') : `<div class="empty">Ничего не найдено.</div>`;
+  feedGrid.innerHTML = feedItems.length ? feedItems.map(i=>cardTemplate(i,'feed')).join('') : `<div class="empty">Публикаций по выбранному фильтру нет.</div>`;
+  document.getElementById('originalCount').textContent = `${limits.originals.used} / ${limits.originals.limit}`;
+  document.getElementById('feedCount').textContent = `${limits.feed.used} / ${limits.feed.limit}`;
+  document.getElementById('favCount').textContent = `${limits.favorites.used} / ${favoriteLimit()}`;
+  document.getElementById('gallerySectionCount').textContent = `${galleryItems.length} изображений`;
+  document.getElementById('feedSectionCount').textContent = `${feedItems.length} публикаций`;
+}
+async function loadGallery(){
+  try{
+    const data = await api('/api/gallery/page');
+    limits = data.limits || limits;
+    images = (data.items || []).map(normalizeItem);
+    feedImages = (data.feedItems || []).map(normalizeItem);
+    currentCollection = images;
+    render();
+  }catch(err){
+    galleryGrid.innerHTML = `<div class="empty">Не удалось загрузить галерею. Проверьте авторизацию.</div>`;
+    feedGrid.innerHTML = `<div class="empty">Лента пока недоступна.</div>`;
+    showToast('Галерея не загрузилась.');
+    console.error(err);
+  }
+}
+async function toggleFavorite(id){
+  const item = originalById(id); if(!item) return;
+  if(!item.favorite && favoriteLimit() && limits.favorites.used >= favoriteLimit()){ showToast(`Лимит сердечек: максимум ${favoriteLimit()}.`); return; }
+  const next = !item.favorite;
+  try{
+    await api(`/api/gallery/${encodeURIComponent(id)}/favorite`, { method:'POST', body:JSON.stringify({ isFavorite: next }) });
+    await loadGallery();
+    showToast(next ? 'Сердечко поставлено. Изображение защищено.' : 'Сердечко убрано.');
+    if(document.getElementById('viewer').classList.contains('open')) updateViewer();
+  }catch(err){ showToast('Не удалось изменить сердечко.'); console.error(err); }
+}
+async function feedAction(id){
+  const item = originalById(id); if(!item) return;
+  if(item.published){ showToast('Публикация уже есть в ленте.'); return; }
+  const title = (item.prompt || 'Публикация').slice(0, 80) || 'Публикация';
+  try{
+    await api('/api/feed/publications', { method:'POST', body:JSON.stringify({ imageId:id, title, promptVisibility:'open', allowRecreate:true }) });
+    await loadGallery();
+    showToast('Изображение опубликовано в ленту.');
+    if(document.getElementById('viewer').classList.contains('open')) updateViewer();
+  }catch(err){ showToast('Не удалось опубликовать в ленту.'); console.error(err); }
+}
+function openViewerById(id, collection){
+  currentCollection = collection && collection.length ? collection.map(normalizeItem) : images;
+  currentIndex = currentCollection.findIndex(i=>String(i.id)===String(id));
+  if(currentIndex < 0){ currentCollection = images; currentIndex = images.findIndex(i=>String(i.id)===String(id)); }
+  document.getElementById('viewer').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  updateViewer();
+}
+function updateViewer(){
+  const item = normalizeItem(currentCollection[currentIndex]); if(!item) return;
+  document.getElementById('viewerImg').src = item.viewerSrc || item.src;
+  document.getElementById('viewerImg').alt = item.prompt;
+  document.getElementById('viewerCounter').textContent = `${currentIndex+1} / ${currentCollection.length}`;
+  document.getElementById('viewerMode').textContent = item.modeText;
+  document.getElementById('viewerDate').textContent = item.dateText;
+  document.getElementById('viewerPub').hidden = !item.published;
+  const heartBtn = document.getElementById('heartBtn');
+  heartBtn.textContent = item.favorite ? '♥' : '♡';
+  heartBtn.classList.toggle('acid', item.favorite);
+  const feedBtn = document.getElementById('feedBtn');
+  feedBtn.textContent = item.published ? '✦ Пост' : '✦ В ленту';
+  document.getElementById('viewerPrompt').textContent = item.prompt;
+  renderSources(item); renderPublication(item); renderParams(item); renderThumbs();
+}
+function renderSources(item){
+  const wrap = document.getElementById('sourceContent');
+  if(!item.sourceIds || item.sourceIds.length === 0){ wrap.innerHTML = `<p>Исходников нет: изображение создано из текста.</p>`; return; }
+  wrap.innerHTML = `<div class="sourceGrid">${item.sourceIds.map((sid,n)=>{ const s=normalizeItem(itemById(sid)); return s ? `<div class="sourceItem"><img src="${escapeHtml(s.src)}" alt="Исходник ${n+1}"><span>Исходник ${n+1}, WebP-превью</span></div>` : ''; }).join('')}</div>`;
+}
+function renderPublication(item){
+  const wrap = document.getElementById('publicationContent');
+  if(!item.published){ wrap.innerHTML = `<p>Это изображение пока не опубликовано. При публикации будет создана отдельная WebP-копия для ленты, оригинал останется в галерее.</p><p style="margin-top:10px"><button class="btn acid" id="publishSelectedBtnInline">Опубликовать в ленту</button></p>`; return; }
+  wrap.innerHTML = `<p>Опубликовано: <b>${escapeHtml(formatDate(item.publishedAt || item.createdAt))}</b>. В ленте хранится отдельная WebP-копия.</p><div class="stats"><div class="stat"><strong>${escapeHtml(item.views || 0)}</strong><span>Просмотры</span></div><div class="stat"><strong>${item.likes || 0}</strong><span>Лайки</span></div><div class="stat"><strong>${item.saves || 0}</strong><span>Сохранения</span></div><div class="stat"><strong>${item.remixes || 0}</strong><span>Ремиксы</span></div></div>`;
+}
+function renderParams(item){
+  const lora = Array.isArray(item.loras) && item.loras.length ? item.loras.map(l=>l.name || l.id || l).join(', ') : '—';
+  document.getElementById('paramsContent').innerHTML = [
+    ['Модель', item.model || item.modelProfile || 'Flux2'], ['Пресет', item.preset || '—'], ['LoRA', lora], ['Seed', item.seed ?? '—'], ['Размер', `${item.width || 0}×${item.height || 0}`], ['Время', item.generationTimeMs ? `${Math.round(item.generationTimeMs/100)/10} c` : '—'], ['ID', item.id], ['Режим', item.modeText]
+  ].map(([k,v])=>`<div class="param"><span>${escapeHtml(k)}</span><b>${escapeHtml(v)}</b></div>`).join('');
+}
+function renderThumbs(){
+  document.getElementById('thumbRail').innerHTML = currentCollection.map((raw,idx)=>{ const item=normalizeItem(raw); return `<button class="thumb ${idx===currentIndex?'active':''}" data-idx="${idx}"><img src="${escapeHtml(item.src)}" alt=""></button>`; }).join('');
+}
+function closeViewer(){ document.getElementById('viewer').classList.remove('open'); document.body.style.overflow = ''; }
+function stepViewer(dir){ currentIndex = (currentIndex + dir + currentCollection.length) % currentCollection.length; updateViewer(); }
+function openSmall(id){ document.getElementById(id).classList.add('open'); }
+function closeSmalls(){ document.querySelectorAll('.smallModal').forEach(m=>m.classList.remove('open')); }
+function showSpace(){ document.getElementById('spaceText').textContent = `${limits.originals.used} из ${limits.originals.limit} оригиналов, ${limits.feed.used} публикаций в ленте, ${limits.favorites.used} из ${favoriteLimit()} сердечек. Тариф: ${String(limits.plan || '').toUpperCase()}.`; openSmall('spaceModal'); }
+
+galleryGrid.addEventListener('click', e=>{ const card=e.target.closest('.card'); if(!card) return; const id=card.dataset.id; if(e.target.closest('[data-action="heart"]')) return toggleFavorite(id); if(e.target.closest('[data-action="feed"]')) return feedAction(id); openViewerById(id, filteredItems(images)); });
+feedGrid.addEventListener('click', e=>{ const card=e.target.closest('.card'); if(!card) return; const id=card.dataset.id; if(e.target.closest('[data-action="heart"]')) return toggleFavorite(id); if(e.target.closest('[data-action="feed"]')) return feedAction(id); openViewerById(id, filteredItems(feedImages)); });
+searchInput.addEventListener('input', render);
+filterBtn.addEventListener('click', ()=>filterPopover.classList.toggle('open'));
+filterPopover.addEventListener('click', e=>{ const btn=e.target.closest('button[data-filter]'); if(!btn) return; currentFilter=btn.dataset.filter; filterPopover.querySelectorAll('button').forEach(b=>b.classList.toggle('active', b===btn)); filterPopover.classList.remove('open'); render(); });
+viewBtn.addEventListener('click', ()=>{ listMode=!listMode; viewBtn.textContent=listMode?'▦':'☷'; render(); });
+document.getElementById('viewerClose').addEventListener('click', closeViewer);
+document.getElementById('prevBtn').addEventListener('click', ()=>stepViewer(-1));
+document.getElementById('nextBtn').addEventListener('click', ()=>stepViewer(1));
+document.getElementById('thumbRail').addEventListener('click', e=>{ const b=e.target.closest('.thumb'); if(!b) return; currentIndex=Number(b.dataset.idx); updateViewer(); });
+document.getElementById('heartBtn').addEventListener('click', ()=>toggleFavorite(currentCollection[currentIndex]?.id));
+document.getElementById('feedBtn').addEventListener('click', ()=>feedAction(currentCollection[currentIndex]?.id));
+document.getElementById('publishSelectedBtn').addEventListener('click', ()=>feedAction(currentCollection[currentIndex]?.id));
+document.getElementById('publicationContent').addEventListener('click', e=>{ if(e.target.closest('#publishSelectedBtnInline')) feedAction(currentCollection[currentIndex]?.id); });
+document.getElementById('spaceBtn').addEventListener('click', showSpace);
+document.getElementById('helpBtn').addEventListener('click', ()=>openSmall('helpModal'));
+document.querySelectorAll('.smallClose').forEach(b=>b.addEventListener('click', closeSmalls));
+document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeViewer(); closeSmalls(); } if(document.getElementById('viewer').classList.contains('open') && e.key==='ArrowRight') stepViewer(1); if(document.getElementById('viewer').classList.contains('open') && e.key==='ArrowLeft') stepViewer(-1); });
+document.getElementById('createBtn').addEventListener('click', ()=>showToast('Переход к генерации подключается в основном приложении.'));
+document.getElementById('openFeedBtn').addEventListener('click', ()=>showToast('Переход к общей ленте подключается в основном приложении.'));
+document.getElementById('editBtn').addEventListener('click', ()=>showToast('Редактор подключается в основном приложении.'));
+document.getElementById('shareBtn').addEventListener('click', ()=>showToast('Шаринг подключается следующим шагом.'));
+loadGallery();
+</script>
+</body>
+</html>

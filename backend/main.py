@@ -35,6 +35,8 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parent
 MEDIA = ROOT / "media"
 MEDIA.mkdir(exist_ok=True)
+STATIC_DIR = ROOT / "static"
+GALLERY_PAGE_FILE = STATIC_DIR / "gallery" / "index.html"
 AVATAR_DIR = MEDIA / "avatars"
 AVATAR_DIR.mkdir(exist_ok=True)
 COMFYUI_INPUT_MAX_SIDE = max(512, min(2048, int(os.getenv("COMFYUI_INPUT_MAX_SIDE", "1536"))))
@@ -215,6 +217,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.mount("/media", StaticFiles(directory=MEDIA), name="media")
+
+
+@app.get("/gallery", include_in_schema=False)
+async def gallery_page_shell() -> FileResponse:
+    if not GALLERY_PAGE_FILE.exists():
+        raise HTTPException(404, "Gallery page is not installed.")
+    return FileResponse(
+        GALLERY_PAGE_FILE,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/gallery/", include_in_schema=False)
+async def gallery_page_shell_slash() -> FileResponse:
+    return await gallery_page_shell()
 
 
 class Lora(BaseModel):

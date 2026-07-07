@@ -88,6 +88,16 @@ def test_publish_requires_session(temp_db):
         assert r.status_code == 401
 
 
+def test_gallery_page_shell_serves_installed_visual_file(temp_db):
+    with TestClient(main.app) as client:
+        r = client.get("/gallery")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert "no-store" in r.headers["cache-control"]
+        assert "/api/gallery/page" in r.text
+        assert "data:image" not in r.text
+
+
 def test_publish_foreign_image_denied_and_logged(temp_db):
     with TestClient(main.app) as client:
         owner_token = make_user("iuid-owner", "web_owner")
