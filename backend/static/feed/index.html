@@ -347,12 +347,11 @@ function renderModes(){
   modeGrid.innerHTML = '';
   modes.forEach((mode, idx)=>{
     const card = document.createElement('a');
-    card.className = 'mode-card';
+    card.className = 'mode-tile';
     card.href = mode.href;
     card.dataset.toast = mode.msg;
     const work = works[idx % Math.max(works.length, 1)];
-    if(work?.src) card.style.setProperty('--mode-img', `url('${work.src}')`);
-    card.innerHTML = `<b>${escapeHtml(mode.title)}</b><span>${escapeHtml(mode.line)}</span><em>${escapeHtml(mode.cta)}</em>`;
+    card.innerHTML = `${work?.src ? `<img src="${escapeHtml(work.src)}" alt="">` : ''}<span>${escapeHtml(mode.title)}</span>`;
     card.addEventListener('mouseenter',()=>setFeature(mode));
     card.addEventListener('focus',()=>setFeature(mode));
     modeGrid.appendChild(card);
@@ -364,8 +363,7 @@ function getCols(){
   if(w < 640) return 2;
   if(w < 980) return 3;
   if(w < 1280) return 4;
-  if(w < 1600) return 5;
-  return 6;
+  return 5;
 }
 function matchFilter(item){
   if(activeFilter === 'all') return true;
@@ -484,6 +482,9 @@ async function loadFeed(type = 'new'){
     emptyState.classList.remove('show');
     const data = await api(`/api/feed?type=${encodeURIComponent(type)}&limit=60`);
     works = (data.items || []).filter(i=>i.media_status !== 'missing').map(normalizeFeedItem);
+    const challenge = document.querySelector('.rail-challenge');
+    const challengeWork = works.find(w=>w.ratio === '16:9') || works[2] || works[0];
+    if(challenge && challengeWork?.src) challenge.style.setProperty('--challenge-bg', `url('${challengeWork.src}')`);
     renderModes();
     renderFeed();
     const hashId = location.hash.replace('#work-', '');

@@ -98,6 +98,14 @@ def test_gallery_page_shell_serves_installed_visual_file(temp_db):
         assert "data:image" not in r.text
 
 
+def test_home_page_serves_gallery_as_primary_page(temp_db):
+    with TestClient(main.app) as client:
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "/api/gallery/page" in r.text
+        assert "galleryGrid" in r.text
+
+
 def test_feed_page_shell_serves_installed_visual_file(temp_db):
     with TestClient(main.app) as client:
         r = client.get("/feed")
@@ -107,6 +115,9 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "/api/feed" in r.text
         assert "/api/gallery/page" not in r.text
         assert "data:image" not in r.text
+        assert "return 6" not in r.text
+        assert "mode-tile" in r.text
+        assert "rail-challenge" in r.text
 
 
 def test_publish_foreign_image_denied_and_logged(temp_db):

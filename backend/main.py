@@ -220,6 +220,11 @@ app.add_middleware(
 app.mount("/media", StaticFiles(directory=MEDIA), name="media")
 
 
+@app.get("/", include_in_schema=False)
+async def home_page_shell() -> FileResponse:
+    return await gallery_page_shell()
+
+
 @app.get("/gallery", include_in_schema=False)
 async def gallery_page_shell() -> FileResponse:
     if not GALLERY_PAGE_FILE.exists():
