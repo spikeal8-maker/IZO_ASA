@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, Dispatch, MutableRefObject, ReactNode, PointerEvent as ReactPointerEvent, SetStateAction, WheelEvent as ReactWheelEvent } from 'react'
 import {
   AuthV2Modal,
@@ -24,7 +24,6 @@ import {
 } from './editPrompt'
 import { AdminAnalyticsV2 } from './adminAnalytics'
 import AdminModelsV2 from './adminModels'
-import NewStudio from './newUi'
 import TopBarV3 from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import './newStudioV3.css'
@@ -53,6 +52,8 @@ import {
   Zap,
 } from 'lucide-react'
 import './index.css'
+
+const NewStudio = lazy(() => import('./newUi'))
 
 type Mode = 'text_to_image' | 'image_to_image' | 'edit' | 'paint' | 'inpaint' | 'outpaint' | 'faceswap' | 'remove_background' | 'try_on' | 'texture_transfer'
 type Tab = 'studio' | 'gallery' | 'presets' | 'settings'
@@ -1509,7 +1510,11 @@ function App() {
   }
 
   if (newUiRoute || feedRoute || paintRoute) {
-    return <NewStudio />
+    return (
+      <Suspense fallback={<div className="iv3"><div className="app-shell"><main className="new-sub-main"><div className="preview-empty">Загружаем интерфейс...</div></main></div></div>}>
+        <NewStudio />
+      </Suspense>
+    )
   }
 
   if (adminRoute) {

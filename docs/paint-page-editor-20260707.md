@@ -4,7 +4,9 @@
 
 `Рисунок` has its own canonical route: `/paint`. The compatibility route `/new/paint` also opens the same page state. It is not a small form block: the preview area becomes a workbench, and the left sidebar switches between paint-specific toolsets.
 
-Important performance note: the current implementation is route-separated, but still rendered by the shared `NewStudio` bundle. A real weak-PC optimization still requires extracting the paint editor into a dedicated lazy-loaded component/chunk so `/new` does not load the drawing editor code until the user opens `/paint`.
+Performance contract: `/paint` is route-separated, `NewStudio` is lazy-loaded from `App.tsx`, and the Konva drawing workbench is lazy-loaded as `PaintWorkbench`. `/new` must not load the `PaintWorkbench` chunk; `/paint` may load it.
+
+Remaining architecture note: the legacy root app is still a large chunk because the old interface remains available and still contains legacy editor code. Do not treat that as the new Paint page living inside `/new`; it is a separate old-app cleanup problem.
 
 ## Modes
 
@@ -94,7 +96,7 @@ This is the first working editor shell, not the final vector editor.
 
 Planned follow-up layers:
 
-- extract `/paint` into a lazy-loaded page component/chunk instead of keeping it inside the monolithic `NewStudio`;
+- continue shrinking the legacy root app chunk after the old interface is retired or split;
 - movable vector objects instead of only final-line geometry;
 - polygon/star tool with adjustable point count;
 - fill bucket;
