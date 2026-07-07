@@ -15,6 +15,7 @@ from PIL import Image
 import db_schema_audit
 import feed_media_audit
 import feed_media_migrate
+import gallery_original_audit
 import job_media_ref_repair
 import media_cleanup_apply
 import media_health_check
@@ -404,6 +405,18 @@ def test_media_storage_audit_reports_unreferenced_files(temp_db):
     assert report["unreferenced"]["bytes"] >= len(b"unused")
 
 
+def test_gallery_original_audit_reports_optimization_candidates(temp_db):
+    make_user("iuid-gallery-originals", "web_gallery_originals")
+    make_image("img-gallery-originals", "web_gallery_originals")
+
+    report = gallery_original_audit.audit_gallery_originals(item_limit=10)
+    assert report["issues"] == []
+    assert report["totals"]["active_originals"] >= 1
+    candidate = next(item for item in report["candidates"] if item["image_id"] == "img-gallery-originals")
+    assert candidate["file"] == "img-gallery-originals.png"
+    assert "legacy_format" in candidate["reasons"]
+
+
 def test_media_storage_audit_protects_job_settings_refs(temp_db):
     make_user("iuid-job-ref", "web_job_ref")
     make_image("img-job-ref", "web_job_ref")
@@ -585,6 +598,7 @@ def test_media_health_check_includes_schema_readiness(temp_db):
     report = media_health_check.run_media_health_check(item_limit=3)
     assert report["summary"]["schema"] == {"missing_columns": {}, "missing_indexes": []}
     assert report["reports"]["schema"]["issues"] == []
+    assert "gallery_originals" in report["summary"]
 
 
 def test_init_db_seeds_editorial_user_for_demo_feed(temp_db):

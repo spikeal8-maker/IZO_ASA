@@ -443,6 +443,18 @@ reference и remix-файлы могут быть нужны для истори
 пользователя. Отсутствующие файлы возвращают `input_media_missing`, чужие или
 непривязанные — `input_media_unavailable`.
 
+Read-only аудит старых gallery originals, которые стоит оптимизировать:
+
+```bash
+python backend/gallery_original_audit.py --report logs/gallery-original-audit-latest.json --fail-on-issues
+```
+
+Он не переписывает файлы. Проверяет активные `images.url` по новому контракту
+gallery original: WebP, максимум `GALLERY_IMAGE_MAX_SIDE`, рекомендуемый вес до
+1.5 MB. PNG/JPG и слишком тяжелые файлы попадают в `candidates`, seed/demo
+считаются отдельным bucket. Hard issue только если активный original отсутствует
+или не читается.
+
 Если старые `jobs.settings_json` уже содержат ссылки на отсутствующие файлы,
 их надо чинить repair-командой. Она переносит битые input-ссылки в
 `_media_ref_status.missing`, а рабочие поля `inputImage1`, `inputImages[].image`
