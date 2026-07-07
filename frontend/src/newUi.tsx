@@ -10,6 +10,7 @@
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, WheelEvent as ReactWheelEvent } from 'react'
+import { Brush, Circle as CircleIcon, Eraser, Minus, Moon, PaintBucket, Palette, Square as SquareIcon, SquareDashed, Sun } from 'lucide-react'
 import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import type { Stage as KonvaStage } from 'konva/lib/Stage'
 import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
@@ -2091,19 +2092,23 @@ export default function NewStudio(): ReactElement {
       )}
       {(paintMode === 'sketch' || paintMode === 'mask') && (
         <div className="paint-canvas-toolbar" aria-label="Быстрые инструменты холста">
-          <button className={paintTool === 'brush' && paintDrawMode === 'free' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('free') }}>Кисть</button>
-          <button className={paintTool === 'eraser' ? 'active' : ''} type="button" onClick={() => { setPaintTool('eraser'); setPaintDrawMode('free') }}>Ластик</button>
+          <button className={paintTool === 'brush' && paintDrawMode === 'free' ? 'active' : ''} type="button" title="Кисть" aria-label="Кисть" onClick={() => { setPaintTool('brush'); setPaintDrawMode('free') }}><Brush size={19} strokeWidth={2.2} /></button>
+          <button className={paintTool === 'eraser' ? 'active' : ''} type="button" title="Ластик" aria-label="Ластик" onClick={() => { setPaintTool('eraser'); setPaintDrawMode('free') }}><Eraser size={19} strokeWidth={2.2} /></button>
           {paintMode === 'sketch' && (
             <>
-              <button className={paintDrawMode === 'line' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}>Линия</button>
-              <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect') }}>□</button>
-              <button className={paintDrawMode === 'circle' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle') }}>○</button>
-              <input aria-label="Цвет кисти" type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} />
+              <button className={paintDrawMode === 'line' ? 'active' : ''} type="button" title="Линия" aria-label="Линия" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}><Minus size={20} strokeWidth={2.6} /></button>
+              <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" title="Прямоугольник" aria-label="Прямоугольник" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect') }}><SquareIcon size={19} strokeWidth={2.2} /></button>
+              <button className={paintDrawMode === 'circle' ? 'active' : ''} type="button" title="Круг" aria-label="Круг" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle') }}><CircleIcon size={19} strokeWidth={2.2} /></button>
+              <label className="paint-color-dot" title="Цвет кисти" aria-label="Цвет кисти" style={{ '--paint-color': paintColor } as CSSProperties}>
+                <Palette size={14} strokeWidth={2.2} aria-hidden="true" />
+                <input aria-label="Цвет кисти" type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} />
+              </label>
             </>
           )}
-          <label>
-            <span>{paintBrushSize}</span>
+          <label className="paint-toolbar-size">
+            <span>Размер</span>
             <input aria-label="Размер кисти" type="range" min="2" max="64" value={paintBrushSize} onChange={(e) => setPaintBrushSize(Number(e.target.value))} />
+            <b>{paintBrushSize}</b>
           </label>
         </div>
       )}
@@ -2579,13 +2584,13 @@ export default function NewStudio(): ReactElement {
               {(paintMode === 'sketch' || paintMode === 'mask') && (
                 <div className="paint-toolbox">
                   <div className="paint-sidebar-tools" aria-label="Инструменты рисования">
-                    <button className={paintTool === 'brush' && paintDrawMode === 'free' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('free') }}>Кисть</button>
-                    <button className={paintTool === 'eraser' ? 'active' : ''} type="button" onClick={() => { setPaintTool('eraser'); setPaintDrawMode('free') }}>Ластик</button>
+                    <button className={paintTool === 'brush' && paintDrawMode === 'free' ? 'active' : ''} type="button" title="Кисть" aria-label="Кисть" onClick={() => { setPaintTool('brush'); setPaintDrawMode('free') }}><Brush size={18} strokeWidth={2.2} /></button>
+                    <button className={paintTool === 'eraser' ? 'active' : ''} type="button" title="Ластик" aria-label="Ластик" onClick={() => { setPaintTool('eraser'); setPaintDrawMode('free') }}><Eraser size={18} strokeWidth={2.2} /></button>
                     {paintMode === 'sketch' && (
                       <>
-                        <button className={paintDrawMode === 'line' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}>Линия</button>
-                        <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect') }}>□</button>
-                        <button className={paintDrawMode === 'circle' ? 'active' : ''} type="button" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle') }}>○</button>
+                        <button className={paintDrawMode === 'line' ? 'active' : ''} type="button" title="Линия" aria-label="Линия" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}><Minus size={19} strokeWidth={2.6} /></button>
+                        <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" title="Прямоугольник" aria-label="Прямоугольник" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect') }}><SquareIcon size={18} strokeWidth={2.2} /></button>
+                        <button className={paintDrawMode === 'circle' ? 'active' : ''} type="button" title="Круг" aria-label="Круг" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle') }}><CircleIcon size={18} strokeWidth={2.2} /></button>
                       </>
                     )}
                   </div>
@@ -2593,15 +2598,15 @@ export default function NewStudio(): ReactElement {
                   {paintMode === 'sketch' && (
                     <>
                       <div className="paint-compact-grid">
-                        <label className="paint-control color">Цвет <input type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></label>
-                        <div className="paint-segment">
-                          <button className={paintFillShape ? 'active' : ''} type="button" onClick={() => setPaintFillShape(true)}>Заливка</button>
-                          <button className={!paintFillShape ? 'active' : ''} type="button" onClick={() => setPaintFillShape(false)}>Контур</button>
+                        <label className="paint-control color">Цвет <span className="paint-color-dot inline" style={{ '--paint-color': paintColor } as CSSProperties}><Palette size={14} strokeWidth={2.2} aria-hidden="true" /><input type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></span></label>
+                        <div className="paint-segment paint-icon-segment">
+                          <button className={paintFillShape ? 'active' : ''} type="button" title="Заливка" onClick={() => setPaintFillShape(true)}><PaintBucket size={16} strokeWidth={2.2} /><span>Заливка</span></button>
+                          <button className={!paintFillShape ? 'active' : ''} type="button" title="Контур" onClick={() => setPaintFillShape(false)}><SquareDashed size={16} strokeWidth={2.2} /><span>Контур</span></button>
                         </div>
                       </div>
-                      <div className="paint-segment">
-                        <button className={paintCanvasBg === 'white' ? 'active' : ''} type="button" onClick={() => setPaintCanvasBg('white')}>Белый холст</button>
-                        <button className={paintCanvasBg === 'gray' ? 'active' : ''} type="button" onClick={() => setPaintCanvasBg('gray')}>Серый холст</button>
+                      <div className="paint-segment paint-icon-segment">
+                        <button className={paintCanvasBg === 'white' ? 'active' : ''} type="button" title="Белый холст" onClick={() => setPaintCanvasBg('white')}><Sun size={16} strokeWidth={2.2} /><span>Белый холст</span></button>
+                        <button className={paintCanvasBg === 'gray' ? 'active' : ''} type="button" title="Серый холст" onClick={() => setPaintCanvasBg('gray')}><Moon size={16} strokeWidth={2.2} /><span>Серый холст</span></button>
                       </div>
                     </>
                   )}
@@ -2793,7 +2798,7 @@ export default function NewStudio(): ReactElement {
           </button>
         </div>
         <div className="preview-image">
-          {isPaintStudio ? (
+          {isPaintStudio && !hoverStyle && !jobActive && !inspectPreview && !(resultUrl && !resultError) ? (
             paintWorkbench
           ) : hoverStyle ? (
             <>
