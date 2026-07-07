@@ -10,6 +10,8 @@
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, WheelEvent as ReactWheelEvent } from 'react'
+import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva'
+import type { Stage as KonvaStage } from 'konva/lib/Stage'
 import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
 import {
   DEFAULT_EDIT_STRENGTH,
@@ -48,8 +50,19 @@ function apiFetch(path: string, init: RequestInit = {}) {
 type N2Tab = 'feed' | 'text' | 'i2i' | 'edit' | 'paint' | 'face'
 // tabs — генератор/лента; gallery и profile — отдельные канонические страницы.
 type N2View = 'tabs' | 'gallery' | 'profile'
-type StudioMode = 'text' | 'i2i' | 'edit' | 'face'
-type UploadTarget = { kind: 'i2i' } | { kind: 'edit'; index: number } | { kind: 'face'; index: number }
+type StudioMode = 'text' | 'i2i' | 'edit' | 'face' | 'paint'
+type PaintSubMode = 'sketch' | 'mask' | 'outpaint' | 'remove_bg'
+type PaintTool = 'brush' | 'eraser'
+type PaintDrawMode = 'free' | 'rect' | 'circle'
+type PaintLine = {
+  tool: PaintTool
+  kind?: 'line' | 'rect' | 'circle'
+  color?: string
+  fill?: boolean
+  strokeWidth: number
+  points: number[]
+}
+type UploadTarget = { kind: 'i2i' } | { kind: 'edit'; index: number } | { kind: 'face'; index: number } | { kind: 'paint' }
 type InspectPreview = { url: string; title: string }
 type ModelsPayload = { loras?: string[] }
 type LoraOption = { id: string; label: string; triggerWord: string; strength: number }
@@ -206,6 +219,100 @@ async function imageRequestSizeFromSource(source: string | undefined, fallback: 
     width: fitGenerationDimension(sourceWidth * scale),
     height: fitGenerationDimension(sourceHeight * scale),
   }
+}
+
+async function createPaintMask(inputImage: string | undefined, lines: PaintLine[], stageSize: { width: number; height: number }) {
+  if (!inputImage) return undefined
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = inputImage
+  }).catch(() => undefined)
+  if (!image) return undefined
+  const canvas = document.createElement('canvas')
+  canvas.width = image.naturalWidth || image.width
+  canvas.height = image.naturalHeight || image.height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return undefined
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  const scale = Math.min(stageSize.width / canvas.width, stageSize.height / canvas.height)
+  const offsetX = (stageSize.width - canvas.width * scale) / 2
+  const offsetY = (stageSize.height - canvas.height * scale) / 2
+  const map = (x: number, y: number) => [
+    Math.max(0, Math.min(canvas.width, (x - offsetX) / scale)),
+    Math.max(0, Math.min(canvas.height, (y - offsetY) / scale)),
+  ]
+  for (const line of lines) {
+    ctx.save()
+    ctx.strokeStyle = line.tool === 'eraser' ? '#000' : '#fff'
+    ctx.fillStyle = line.tool === 'eraser' ? '#000' : '#fff'
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = Math.max(1, line.strokeWidth / Math.max(0.1, scale))
+    if (line.kind === 'rect' || line.kind === 'circle') {
+      const [x1 = 0, y1 = 0, x2 = x1, y2 = y1] = line.points
+      const [mx1, my1] = map(x1, y1)
+      const [mx2, my2] = map(x2, y2)
+      const x = Math.min(mx1, mx2)
+      const y = Math.min(my1, my2)
+      const w = Math.abs(mx2 - mx1)
+      const h = Math.abs(my2 - my1)
+      if (line.kind === 'circle') {
+        ctx.beginPath()
+        ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
+        if (line.fill === false) ctx.stroke()
+        else ctx.fill()
+      } else if (line.fill === false) ctx.strokeRect(x, y, w, h)
+      else ctx.fillRect(x, y, w, h)
+    } else {
+      ctx.beginPath()
+      for (let i = 0; i < line.points.length; i += 2) {
+        const [x, y] = map(line.points[i] || 0, line.points[i + 1] || 0)
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      }
+      ctx.stroke()
+    }
+    ctx.restore()
+  }
+  return canvas.toDataURL('image/png')
+}
+
+async function createOutpaintPreview(inputImage: string | undefined, padding: { left: number; right: number; top: number; bottom: number }, target: { width: number; height: number }) {
+  if (!inputImage) return undefined
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = inputImage
+  }).catch(() => undefined)
+  if (!image) return undefined
+  const sourceWidth = image.naturalWidth || image.width
+  const sourceHeight = image.naturalHeight || image.height
+  const finalWidth = Math.max(1, sourceWidth + Math.max(0, padding.left) + Math.max(0, padding.right))
+  const finalHeight = Math.max(1, sourceHeight + Math.max(0, padding.top) + Math.max(0, padding.bottom))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(256, Math.round(target.width || 1024))
+  canvas.height = Math.max(256, Math.round(target.height || 1024))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return undefined
+  ctx.fillStyle = '#030403'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.fillStyle = 'rgba(182, 207, 18, .08)'
+  for (let x = -canvas.height; x < canvas.width; x += 24) ctx.fillRect(x, 0, 10, canvas.height)
+  const scaleX = canvas.width / finalWidth
+  const scaleY = canvas.height / finalHeight
+  const x = Math.round(Math.max(0, padding.left) * scaleX)
+  const y = Math.round(Math.max(0, padding.top) * scaleY)
+  const w = Math.max(1, Math.round(sourceWidth * scaleX))
+  const h = Math.max(1, Math.round(sourceHeight * scaleY))
+  ctx.drawImage(image, x, y, w, h)
+  ctx.strokeStyle = '#b6cf12'
+  ctx.lineWidth = Math.max(2, Math.round(Math.min(canvas.width, canvas.height) / 240))
+  ctx.strokeRect(x + 1, y + 1, Math.max(1, w - 2), Math.max(1, h - 2))
+  return canvas.toDataURL('image/jpeg', 0.9)
 }
 
 // ============================================================================
@@ -469,7 +576,7 @@ export default function NewStudio(): ReactElement {
   const previewGender: 'female' | 'male' = me?.profile?.gender === 'male' ? 'male' : 'female'
   const acct = accountInfo(me)
 
-  const [prompts, setPrompts] = useState<Record<StudioMode, string>>({ text: '', i2i: '', edit: '', face: '' })
+  const [prompts, setPrompts] = useState<Record<StudioMode, string>>({ text: '', i2i: '', edit: '', face: '', paint: '' })
   const [styleId, setStyleId] = useState<string>('')
   // Временный предпросмотр стиля при наведении на карточку (не выбирает стиль).
   const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
@@ -487,6 +594,18 @@ export default function NewStudio(): ReactElement {
   const [editExtraOpen, setEditExtraOpen] = useState(false)
   const [faceSlots, setFaceSlots] = useState<EditSlot[]>(() => EMPTY_FACE_SLOTS.map((slot) => ({ ...slot })))
   const [faceStrengthPct, setFaceStrengthPct] = useState(DEFAULT_FACE_STRENGTH)
+  const [paintMode, setPaintMode] = useState<PaintSubMode>('sketch')
+  const [paintImage, setPaintImage] = useState<string>()
+  const [paintLines, setPaintLines] = useState<PaintLine[]>([])
+  const [paintTool, setPaintTool] = useState<PaintTool>('brush')
+  const [paintDrawMode, setPaintDrawMode] = useState<PaintDrawMode>('free')
+  const [paintBrushSize, setPaintBrushSize] = useState(12)
+  const [paintColor, setPaintColor] = useState('#111827')
+  const [paintFillShape, setPaintFillShape] = useState(true)
+  const [paintCanvasBg, setPaintCanvasBg] = useState<'white' | 'gray'>('white')
+  const [paintOutpaint, setPaintOutpaint] = useState({ left: 256, right: 256, top: 0, bottom: 0 })
+  const [paintOutpaintPreview, setPaintOutpaintPreview] = useState<string>()
+  const [paintStageSize] = useState({ width: 1024, height: 620 })
   const [compare, setCompare] = useState(50)
   const [compareAuto, setCompareAuto] = useState(false)
   const compareTouchedRef = useRef(false)
@@ -756,12 +875,14 @@ export default function NewStudio(): ReactElement {
   // true, пока зажата кнопка над рядом стилей — подавляет hover-preview при drag.
   const stylePointerDownRef = useRef(false)
   const inspectDragRef = useRef<{ active: boolean; startX: number; startY: number; panX: number; panY: number }>({ active: false, startX: 0, startY: 0, panX: 0, panY: 0 })
+  const paintStageRef = useRef<KonvaStage>(null)
+  const paintDrawingRef = useRef(false)
   // Текущая стилевая приписка в text-промпте: {id, text} — чтобы заменять её.
   const appliedStyleRef = useRef<{ id: string; text: string } | null>(null)
   // Текущая стилевая приписка в i2i-промпте — видна прямо в textarea.
   const appliedI2IStyleRef = useRef<{ id: string; text: string } | null>(null)
   const lastSubmittedRef = useRef<{ text?: string; i2i?: { prompt: string; source: string; width: number; height: number } }>({})
-  const noticeClearRef = useRef<{ text: string; i2i: string; edit: string; face: string; source: string; editSlots: string; faceSlots: string }>({ text: '', i2i: '', edit: '', face: '', source: '', editSlots: '', faceSlots: '' })
+  const noticeClearRef = useRef<{ text: string; i2i: string; edit: string; face: string; paint: string; source: string; editSlots: string; faceSlots: string }>({ text: '', i2i: '', edit: '', face: '', paint: '', source: '', editSlots: '', faceSlots: '' })
   const resultSeededRef = useRef(false)
 
   useEffect(() => {
@@ -869,7 +990,7 @@ export default function NewStudio(): ReactElement {
     return () => window.clearInterval(timer)
   }, [fetchGallery, job])
 
-  const promptKey: StudioMode = tab === 'i2i' ? 'i2i' : tab === 'edit' ? 'edit' : tab === 'face' ? 'face' : 'text'
+  const promptKey: StudioMode = tab === 'i2i' ? 'i2i' : tab === 'edit' ? 'edit' : tab === 'face' ? 'face' : tab === 'paint' ? 'paint' : 'text'
   const setPrompt = useCallback(
     (value: string) => setPrompts((cur) => ({ ...cur, [promptKey]: value })),
     [promptKey],
@@ -880,10 +1001,10 @@ export default function NewStudio(): ReactElement {
     const source = sourceImage || ''
     const editSlotSignature = editSlots.map((slot) => `${slot.image || ''}:${slot.role}:${slot.takeNote || ''}`).join('|')
     const faceSlotSignature = faceSlots.map((slot) => `${slot.image || ''}:${slot.role}:${slot.takeNote || ''}`).join('|')
-    const changed = prev.text !== prompts.text || prev.i2i !== prompts.i2i || prev.edit !== prompts.edit || prev.face !== prompts.face || prev.source !== source || prev.editSlots !== editSlotSignature || prev.faceSlots !== faceSlotSignature
-    noticeClearRef.current = { text: prompts.text, i2i: prompts.i2i, edit: prompts.edit, face: prompts.face, source, editSlots: editSlotSignature, faceSlots: faceSlotSignature }
+    const changed = prev.text !== prompts.text || prev.i2i !== prompts.i2i || prev.edit !== prompts.edit || prev.face !== prompts.face || prev.paint !== prompts.paint || prev.source !== source || prev.editSlots !== editSlotSignature || prev.faceSlots !== faceSlotSignature
+    noticeClearRef.current = { text: prompts.text, i2i: prompts.i2i, edit: prompts.edit, face: prompts.face, paint: prompts.paint, source, editSlots: editSlotSignature, faceSlots: faceSlotSignature }
     if (notice && changed) setNotice('')
-  }, [editSlots, faceSlots, notice, prompts.edit, prompts.face, prompts.i2i, prompts.text, sourceImage])
+  }, [editSlots, faceSlots, notice, prompts.edit, prompts.face, prompts.i2i, prompts.paint, prompts.text, sourceImage])
 
   useEffect(() => {
     if (!notice) return undefined
@@ -1002,6 +1123,12 @@ export default function NewStudio(): ReactElement {
       showInspectPreview(image, target.index === 0 ? 'Основа' : 'Лицо')
       return
     }
+    if (target.kind === 'paint') {
+      setPaintImage(image)
+      setPaintOutpaintPreview(undefined)
+      if (paintMode !== 'sketch') showInspectPreview(image, paintMode === 'remove_bg' ? 'Изображение для удаления фона' : 'Изображение для рисунка')
+      return
+    }
     setEditSlots((current) => current.map((slot, i) => {
       if (i !== target.index) return slot
       return target.index > 0 ? { image, role: '', takeNote: '' } : { ...slot, image }
@@ -1050,6 +1177,20 @@ export default function NewStudio(): ReactElement {
         return
       }
     }
+    if (mode === 'paint') {
+      const paintBlock = paintMode === 'sketch' && paintLines.length === 0
+        ? 'Нарисуйте эскиз на холсте.'
+        : paintMode !== 'sketch' && !paintImage
+          ? 'Загрузите изображение для этого режима.'
+          : paintMode === 'mask' && paintLines.length === 0
+            ? 'Закрасьте область маской.'
+            : null
+      if (paintBlock) {
+        showToast(paintBlock)
+        setNotice(paintBlock)
+        return
+      }
+    }
     if (mode === 'text' && lastSubmittedRef.current.text === textPrompt) {
       showToast('Измените промпт перед новой генерацией')
       setNotice('Измените промпт перед новой генерацией.')
@@ -1074,23 +1215,54 @@ export default function NewStudio(): ReactElement {
       const style = I2I_STYLES.find((s) => s.id === styleId)
       const steps = QUALITY.find((q) => q.id === quality)?.steps || 4
       const effectiveSeed = seed || randomSeed()
-      const requestSize = mode === 'face' ? await imageRequestSizeFromSource(faceSlots[0]?.image, size) : size
+      const requestSize = mode === 'face'
+        ? await imageRequestSizeFromSource(faceSlots[0]?.image, size)
+        : mode === 'paint' && paintMode !== 'sketch'
+          ? await imageRequestSizeFromSource(paintImage, size)
+          : size
       const userText = mode === 'i2i' ? i2iPrompt : textPrompt
       // В обоих режимах пользователь видит финальный prompt в textarea:
       // text/i2i-стиль дописывается туда при выборе и может быть отредактирован.
       const fullPrompt = userText || (mode === 'i2i' ? style?.transformPrompt || '' : '')
       const isEditLikeMode = mode === 'edit' || mode === 'face'
       const activeEditSlots = mode === 'face' ? faceSlots : editSlots
+      const paintCanvas = mode === 'paint' && paintMode === 'sketch' ? paintStageRef.current?.toDataURL({ pixelRatio: 1 }) : undefined
+      const paintMask = mode === 'paint' && paintMode === 'mask' ? await createPaintMask(paintImage, paintLines, paintStageSize) : undefined
+      const nextOutpaintPreview = mode === 'paint' && paintMode === 'outpaint' ? await createOutpaintPreview(paintImage, paintOutpaint, requestSize) : undefined
+      if (mode === 'paint') setPaintOutpaintPreview(nextOutpaintPreview)
+      const paintPrompt = prompts.paint.trim() || (
+        paintMode === 'sketch'
+          ? 'Преобразуй эскиз в цельную выразительную сцену, сохрани расположение объектов из рисунка.'
+          : paintMode === 'mask'
+            ? 'Измени только отмеченную маской область, всё вне маски сохрани естественным.'
+            : paintMode === 'outpaint'
+              ? 'Естественно продолжи изображение за пределами исходного кадра.'
+              : 'Аккуратно удали фон, сохрани главный объект и его края.'
+      )
       const faceFinalPrompt = [
         facePrompt,
         'Use Image 1 as the target scene. Use Image 2 only as the source face. Preserve the target body, clothing, pose, background, camera angle, lighting, and style.',
         faceStrengthPrompt(faceStrengthPct),
       ].filter(Boolean).join('\n\n')
       const body = {
-        mode: mode === 'i2i' ? 'image_to_image' : mode === 'face' ? 'faceswap' : mode === 'edit' ? 'edit' : 'text_to_image',
+        mode: mode === 'i2i'
+          ? 'image_to_image'
+          : mode === 'face'
+            ? 'faceswap'
+            : mode === 'edit'
+              ? 'edit'
+              : mode === 'paint'
+                ? paintMode === 'sketch'
+                  ? 'paint'
+                  : paintMode === 'mask'
+                    ? 'inpaint'
+                    : paintMode === 'outpaint'
+                      ? 'outpaint'
+                      : 'remove_background'
+                : 'text_to_image',
         provider: 'comfyui',
-        prompt: mode === 'edit' ? editComposer.finalPrompt : mode === 'face' ? faceFinalPrompt : fullPrompt,
-        negativePrompt: isEditLikeMode ? '' : '',
+        prompt: mode === 'edit' ? editComposer.finalPrompt : mode === 'face' ? faceFinalPrompt : mode === 'paint' ? paintPrompt : fullPrompt,
+        negativePrompt: isEditLikeMode || mode === 'paint' ? '' : '',
         seed: effectiveSeed,
         width: requestSize.width,
         height: requestSize.height,
@@ -1100,7 +1272,7 @@ export default function NewStudio(): ReactElement {
         strength: mode === 'edit' ? DEFAULT_EDIT_STRENGTH : mode === 'face' ? faceStrengthPct / 100 : strengthPct / 100,
         modelProfile: 'local_flux_klein',
         loras: mode === 'face' && faceLora ? [{ id: faceLora.id, strength: faceStrengthPct / 100, triggerWord: faceLora.triggerWord }] : [],
-        inputImage1: mode === 'i2i' ? sourceImage : isEditLikeMode ? activeEditSlots[0]?.image : undefined,
+        inputImage1: mode === 'i2i' ? sourceImage : isEditLikeMode ? activeEditSlots[0]?.image : mode === 'paint' && paintMode !== 'sketch' ? paintImage : undefined,
         inputImage2: mode === 'face' ? activeEditSlots[1]?.image : undefined,
         inputImages: mode === 'edit'
           ? activeEditSlots
@@ -1108,6 +1280,9 @@ export default function NewStudio(): ReactElement {
               .filter(({ slot }) => slot.image)
               .map(({ slot, index }) => ({ index: index + 1, role: index === 0 ? 'base' : slot.role, image: slot.image! }))
           : undefined,
+        maskImage: mode === 'paint' && paintMode === 'mask' ? paintMask : undefined,
+        canvas: mode === 'paint' && paintMode === 'sketch' ? paintCanvas : undefined,
+        outpaint: mode === 'paint' && paintMode === 'outpaint' ? paintOutpaint : undefined,
         clientRequestId: newClientRequestId(),
       }
       const response = await apiFetch('/generate', {
@@ -1138,8 +1313,8 @@ export default function NewStudio(): ReactElement {
       setResultUrl(undefined)
       setInspectPreview(null)
       resetInspectView()
-      setResultSource(mode === 'i2i' ? sourceImage : isEditLikeMode ? activeEditSlots[0]?.image : undefined)
-      setCompare(mode === 'i2i' || isEditLikeMode ? 96 : 50)
+      setResultSource(mode === 'i2i' ? sourceImage : isEditLikeMode ? activeEditSlots[0]?.image : mode === 'paint' ? (paintMode === 'sketch' ? paintCanvas : nextOutpaintPreview || paintImage) : undefined)
+      setCompare(mode === 'i2i' || isEditLikeMode || mode === 'paint' ? 96 : 50)
       if (!seed && mode !== 'face') setSeed(effectiveSeed)
     } catch {
       setNotice('Проблема соединения с сервером. Проверьте, что сервис запущен.')
@@ -1262,20 +1437,29 @@ export default function NewStudio(): ReactElement {
   const historyItems = ownHistory.length > 0 ? ownHistory : feedFallback
   const historyIsFeed = ownHistory.length === 0 && feedFallback.length > 0
   const selectedResolution = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
-  const studioMode: StudioMode = tab === 'i2i' ? 'i2i' : tab === 'edit' ? 'edit' : tab === 'face' ? 'face' : 'text'
+  const studioMode: StudioMode = tab === 'i2i' ? 'i2i' : tab === 'edit' ? 'edit' : tab === 'face' ? 'face' : tab === 'paint' ? 'paint' : 'text'
   const isI2IStudio = studioMode === 'i2i'
   const isEditStudio = studioMode === 'edit'
   const isFaceStudio = studioMode === 'face'
-  const studioTitle = isI2IStudio ? 'Изо в изображение' : isEditStudio ? 'Редактор' : isFaceStudio ? 'Лицо' : 'Текст в изображение'
-  const promptTitle = isI2IStudio ? 'Как преобразовать?' : isEditStudio || isFaceStudio ? 'Дополнительные пожелания' : 'Что хотите увидеть?'
+  const isPaintStudio = studioMode === 'paint'
+  const studioTitle = isI2IStudio ? 'Изо в изображение' : isEditStudio ? 'Редактор' : isFaceStudio ? 'Лицо' : isPaintStudio ? 'Рисунок' : 'Текст в изображение'
+  const promptTitle = isI2IStudio ? 'Как преобразовать?' : isEditStudio || isFaceStudio || isPaintStudio ? 'Дополнительные пожелания' : 'Что хотите увидеть?'
   const promptPlaceholder = isI2IStudio
     ? 'Опишите, как преобразовать исходное изображение...'
     : isFaceStudio
       ? 'Например: сохранить прическу и свет основы, взять только лицо...'
+    : isPaintStudio
+      ? paintMode === 'sketch'
+        ? 'Опишите, во что превратить эскиз...'
+        : paintMode === 'mask'
+          ? 'Опишите, что изменить внутри маски...'
+          : paintMode === 'outpaint'
+            ? 'Опишите, чем продолжить изображение за границами...'
+            : 'Например: аккуратно отделить объект от фона...'
     : isEditStudio
       ? 'Например: сохранить лицо, заменить одежду, взять фон или цвет из референса...'
     : 'Опишите идею своими словами — получите изображение...'
-  const promptLimit = isI2IStudio || isEditStudio || isFaceStudio ? 1000 : 2000
+  const promptLimit = isI2IStudio || isEditStudio || isFaceStudio || isPaintStudio ? 1000 : 2000
   const promptValue = prompts[studioMode]
   const loraOptions: LoraOption[] = (() => {
     const found = (modelsPayload?.loras || []).filter((item) => item && item !== 'none')
@@ -1294,8 +1478,8 @@ export default function NewStudio(): ReactElement {
     const candidates = loraOptions.filter((item) => item.id !== 'none')
     return candidates.find((item) => /bfs|face|head/i.test(item.id)) || candidates[0]
   })()
-  const generateLabel = isI2IStudio ? 'Преобразовать' : isEditStudio ? 'Создать изображение' : isFaceStudio ? 'Заменить лицо' : 'Сгенерировать'
-  const generatingLabel = isI2IStudio ? 'Преобразуем...' : isEditStudio ? 'Создаём...' : isFaceStudio ? 'Заменяем...' : 'Генерируем...'
+  const generateLabel = isI2IStudio ? 'Преобразовать' : isEditStudio ? 'Создать изображение' : isFaceStudio ? 'Заменить лицо' : isPaintStudio ? paintMode === 'remove_bg' ? 'Удалить фон' : paintMode === 'outpaint' ? 'Расширить' : 'Создать по рисунку' : 'Сгенерировать'
+  const generatingLabel = isI2IStudio ? 'Преобразуем...' : isEditStudio ? 'Создаём...' : isFaceStudio ? 'Заменяем...' : isPaintStudio ? 'Готовим рисунок...' : 'Генерируем...'
   const influenceStyle = { '--i2i-range-progress': `${strengthPct}%` } as CSSProperties
   const faceStrengthStyle = { '--i2i-range-progress': `${faceStrengthPct}%` } as CSSProperties
   const inspectImageStyle = {
@@ -1422,7 +1606,7 @@ export default function NewStudio(): ReactElement {
     ta.style.height = 'auto'
     const max = Math.round(window.innerHeight * 0.34)
     ta.style.height = `${Math.min(ta.scrollHeight, max)}px`
-  }, [prompts.text, prompts.i2i, prompts.edit, tab])
+  }, [prompts.text, prompts.i2i, prompts.edit, prompts.face, prompts.paint, tab])
 
   // Горизонтальный скролл ряда стилей: колесо мыши + drag (мышь/тач).
   // Если пользователь тянул ряд — клик по карточке не выбирает стиль (styleDraggedRef).
@@ -1800,6 +1984,105 @@ export default function NewStudio(): ReactElement {
   const ratioKind = selectedResolution.kind
   const shareTarget = dockImage || gallery[0]
   const previewNoticeText = notice || toastText
+  const paintModeMeta: Record<PaintSubMode, { label: string; hint: string }> = {
+    sketch: { label: 'Эскиз', hint: 'Нарисуйте идею на холсте. Модель превратит рисунок в изображение.' },
+    mask: { label: 'Маска', hint: 'Загрузите изображение и закрасьте область, которую нужно изменить.' },
+    outpaint: { label: 'Расширение', hint: 'Загрузите изображение и задайте поля для дорисовки.' },
+    remove_bg: { label: 'Удалить фон', hint: 'Загрузите изображение, backend отделит объект от фона.' },
+  }
+
+  function paintPoint(stage: KonvaStage | null) {
+    const pos = stage?.getPointerPosition()
+    return [pos?.x || 0, pos?.y || 0]
+  }
+
+  function startPaintLine(stage: KonvaStage | null) {
+    if (paintMode === 'outpaint' || paintMode === 'remove_bg') return
+    paintDrawingRef.current = true
+    const point = paintPoint(stage)
+    const kind = paintDrawMode === 'free' ? 'line' : paintDrawMode
+    setPaintLines((lines) => lines.concat({
+      tool: paintTool,
+      kind,
+      color: paintMode === 'mask' ? '#dfff22' : paintColor,
+      fill: paintFillShape,
+      strokeWidth: paintBrushSize,
+      points: point.concat(point),
+    }))
+  }
+
+  function extendPaintLine(stage: KonvaStage | null) {
+    if (!paintDrawingRef.current) return
+    const point = paintPoint(stage)
+    setPaintLines((lines) => {
+      const last = lines[lines.length - 1]
+      if (!last) return lines
+      const points = last.kind && last.kind !== 'line' ? last.points.slice(0, 2).concat(point) : last.points.concat(point)
+      return lines.slice(0, -1).concat({ ...last, points })
+    })
+  }
+
+  function stopPaintLine() {
+    paintDrawingRef.current = false
+  }
+
+  const renderPaintLine = (line: PaintLine, index: number) => {
+    const color = line.tool === 'eraser' ? (paintMode === 'mask' ? 'rgba(0,0,0,.8)' : (paintCanvasBg === 'white' ? '#fff' : '#2b2f2c')) : (line.color || paintColor)
+    const width = line.tool === 'eraser' ? line.strokeWidth * 1.7 : line.strokeWidth
+    if (line.kind === 'rect' || line.kind === 'circle') {
+      const [x1 = 0, y1 = 0, x2 = x1, y2 = y1] = line.points
+      const x = Math.min(x1, x2)
+      const y = Math.min(y1, y2)
+      const w = Math.abs(x2 - x1)
+      const h = Math.abs(y2 - y1)
+      if (line.kind === 'circle') {
+        return <Circle key={index} x={x + w / 2} y={y + h / 2} radius={Math.max(w, h) / 2} stroke={color} strokeWidth={width} fill={line.fill ? color : undefined} opacity={line.tool === 'eraser' ? 1 : .9} />
+      }
+      return <Rect key={index} x={x} y={y} width={w} height={h} stroke={color} strokeWidth={width} fill={line.fill ? color : undefined} opacity={line.tool === 'eraser' ? 1 : .9} />
+    }
+    return <Line key={index} points={line.points} stroke={color} strokeWidth={width} tension={0.45} lineCap="round" lineJoin="round" opacity={paintMode === 'mask' && line.tool !== 'eraser' ? .78 : 1} />
+  }
+
+  const paintWorkbench = (
+    <div className={`paint-workbench mode-${paintMode}`}>
+      {paintMode !== 'sketch' && paintImage && (
+        <img className="paint-workbench-image" src={apiUrl(paintImage)} alt="" aria-hidden="true" />
+      )}
+      {paintMode === 'outpaint' && (
+        <div className="paint-outpaint-frame">
+          {paintOutpaintPreview ? <img src={paintOutpaintPreview} alt="Предпросмотр расширения" /> : paintImage ? <img src={apiUrl(paintImage)} alt="Исходное изображение" /> : <span>Загрузите изображение для расширения</span>}
+        </div>
+      )}
+      {paintMode === 'remove_bg' && (
+        <div className="paint-remove-bg-frame">
+          {paintImage ? <img src={apiUrl(paintImage)} alt="Изображение для удаления фона" /> : <span>Загрузите изображение</span>}
+        </div>
+      )}
+      {(paintMode === 'sketch' || paintMode === 'mask') && (
+        <Stage
+          ref={paintStageRef}
+          width={paintStageSize.width}
+          height={paintStageSize.height}
+          className="paint-stage"
+          onMouseDown={(e) => startPaintLine(e.target.getStage() || null)}
+          onMouseMove={(e) => extendPaintLine(e.target.getStage() || null)}
+          onMouseUp={stopPaintLine}
+          onMouseLeave={stopPaintLine}
+          onTouchStart={(e) => { e.evt.preventDefault(); startPaintLine(e.target.getStage() || null) }}
+          onTouchMove={(e) => { e.evt.preventDefault(); extendPaintLine(e.target.getStage() || null) }}
+          onTouchEnd={stopPaintLine}
+        >
+          <Layer>
+            <Rect width={paintStageSize.width} height={paintStageSize.height} fill={paintMode === 'mask' ? 'rgba(0,0,0,0)' : paintCanvasBg === 'white' ? '#ffffff' : '#2b2f2c'} />
+            {paintMode === 'sketch' && paintLines.length === 0 && <Text text="Нарисуйте эскиз" x={paintStageSize.width / 2 - 94} y={paintStageSize.height / 2 - 13} fill="#74806d" fontSize={22} fontStyle="bold" />}
+            {paintMode === 'mask' && paintLines.length === 0 && <Text text="Закрасьте область маской" x={paintStageSize.width / 2 - 142} y={paintStageSize.height / 2 - 13} fill="#dfff22" fontSize={20} fontStyle="bold" opacity={0.72} />}
+            {paintLines.map(renderPaintLine)}
+          </Layer>
+        </Stage>
+      )}
+      <div className="paint-workbench-badge">{paintModeMeta[paintMode].label}</div>
+    </div>
+  )
 
   const renderEditorSlot = (slot: EditSlot, index: number) => {
     const isBase = index === 0
@@ -2155,7 +2438,110 @@ export default function NewStudio(): ReactElement {
           </section>
         )}
 
-        <section className={`form-section prompt-section${isEditStudio || isFaceStudio ? ' editor-prompt-section' : ''}`}>
+        {isPaintStudio && (
+          <section className="form-section paint-panel-section">
+            <div className="section-title">
+              <h2>Инструменты</h2>
+              <span>{paintModeMeta[paintMode].label}</span>
+            </div>
+            <div className="paint-mode-tabs" role="tablist" aria-label="Режимы рисунка">
+              {(Object.keys(paintModeMeta) as PaintSubMode[]).map((id) => (
+                <button
+                  key={id}
+                  className={paintMode === id ? 'active' : ''}
+                  type="button"
+                  onClick={() => {
+                    setPaintMode(id)
+                    setPaintLines([])
+                    setInspectPreview(null)
+                    setPaintOutpaintPreview(undefined)
+                  }}
+                >
+                  {paintModeMeta[id].label}
+                </button>
+              ))}
+            </div>
+            <p className="paint-mode-hint">{paintModeMeta[paintMode].hint}</p>
+
+            {paintMode !== 'sketch' && (
+              <article className={`i2i-upload-card paint-upload-card${paintImage ? ' is-filled' : ''} is-required`}>
+                {!paintImage && <span className="i2i-required-chip">Обязательно</span>}
+                {paintImage && (
+                  <button className="i2i-remove" type="button" aria-label="Удалить изображение" onClick={() => { setPaintImage(undefined); setPaintOutpaintPreview(undefined) }}>
+                    ×
+                  </button>
+                )}
+                <div className="i2i-preview">
+                  {paintImage ? (
+                    <button className="editor-preview-open i2i-preview-open" type="button" onClick={() => showInspectPreview(paintImage, paintModeMeta[paintMode].label)}>
+                      <img src={apiUrl(paintImage)} alt="Изображение для рисунка" />
+                    </button>
+                  ) : (
+                    <div className="i2i-upload-empty">
+                      <svg className="i2i-upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M7 18.5h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.4 8.7 4.8 4.8 0 0 0 7 18.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                        <path d="M12 15V9.5m0 0-2.3 2.3M12 9.5l2.3 2.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <div className="i2i-upload-actions">
+                        <button className="i2i-upload-action primary" type="button" onClick={() => openUpload({ kind: 'paint' })}>Загрузить</button>
+                        <button className="i2i-upload-action" type="button" onClick={() => openGalleryPick({ kind: 'paint' })}>Галерея</button>
+                        <button className="i2i-upload-action" type="button" onClick={() => applyLastImageToTarget({ kind: 'paint' })}>Последнее</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </article>
+            )}
+
+            {(paintMode === 'sketch' || paintMode === 'mask') && (
+              <div className="paint-toolbox">
+                <div className="paint-segment">
+                  <button className={paintTool === 'brush' ? 'active' : ''} type="button" onClick={() => setPaintTool('brush')}>Кисть</button>
+                  <button className={paintTool === 'eraser' ? 'active' : ''} type="button" onClick={() => setPaintTool('eraser')}>Ластик</button>
+                </div>
+                {paintMode === 'sketch' && (
+                  <div className="paint-segment">
+                    <button className={paintDrawMode === 'free' ? 'active' : ''} type="button" onClick={() => setPaintDrawMode('free')}>Линия</button>
+                    <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" onClick={() => setPaintDrawMode('rect')}>□</button>
+                    <button className={paintDrawMode === 'circle' ? 'active' : ''} type="button" onClick={() => setPaintDrawMode('circle')}>○</button>
+                  </div>
+                )}
+                <label className="paint-control">Размер <input type="range" min="2" max="64" value={paintBrushSize} onChange={(e) => setPaintBrushSize(Number(e.target.value))} /><span>{paintBrushSize}</span></label>
+                {paintMode === 'sketch' && (
+                  <>
+                    <label className="paint-control color">Цвет <input type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></label>
+                    <div className="paint-segment">
+                      <button className={paintFillShape ? 'active' : ''} type="button" onClick={() => setPaintFillShape(true)}>Заливка</button>
+                      <button className={!paintFillShape ? 'active' : ''} type="button" onClick={() => setPaintFillShape(false)}>Контур</button>
+                    </div>
+                    <div className="paint-segment">
+                      <button className={paintCanvasBg === 'white' ? 'active' : ''} type="button" onClick={() => setPaintCanvasBg('white')}>Белый</button>
+                      <button className={paintCanvasBg === 'gray' ? 'active' : ''} type="button" onClick={() => setPaintCanvasBg('gray')}>Серый</button>
+                    </div>
+                  </>
+                )}
+                <div className="paint-mini-actions">
+                  <button type="button" onClick={() => setPaintLines((lines) => lines.slice(0, -1))}>Назад</button>
+                  <button type="button" onClick={() => setPaintLines([])}>Очистить</button>
+                </div>
+              </div>
+            )}
+
+            {paintMode === 'outpaint' && (
+              <div className="paint-toolbox">
+                {(['left', 'right', 'top', 'bottom'] as const).map((key) => (
+                  <label className="paint-control" key={key}>
+                    {key === 'left' ? 'Слева' : key === 'right' ? 'Справа' : key === 'top' ? 'Сверху' : 'Снизу'}
+                    <input type="range" min="0" max="768" step="16" value={paintOutpaint[key]} onChange={(e) => setPaintOutpaint((cur) => ({ ...cur, [key]: Number(e.target.value) }))} />
+                    <span>{paintOutpaint[key]}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        <section className={`form-section prompt-section${isEditStudio || isFaceStudio || isPaintStudio ? ' editor-prompt-section' : ''}`}>
           <div className="section-title">
             <h2>{promptTitle}</h2>
             <span className="help-dot" role="button" tabIndex={0} onClick={() => setHelpOpen(true)}>?</span>
@@ -2185,7 +2571,7 @@ export default function NewStudio(): ReactElement {
               </svg>
               Улучшить
             </button>
-            {!isEditStudio && !isFaceStudio && (
+            {!isEditStudio && !isFaceStudio && !isPaintStudio && (
               <>
                 <button className="tool-button" type="button" onClick={() => setTemplatesOpen(true)}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -2204,7 +2590,7 @@ export default function NewStudio(): ReactElement {
           </div>
         </section>
 
-        {!isEditStudio && !isFaceStudio && <section className="form-section style-section">
+        {!isEditStudio && !isFaceStudio && !isPaintStudio && <section className="form-section style-section">
           <div className="section-title">
             <h2>Стиль</h2>
             <span>{I2I_STYLES.length} стилей</span>
@@ -2325,7 +2711,9 @@ export default function NewStudio(): ReactElement {
           </button>
         </div>
         <div className="preview-image">
-          {hoverStyle ? (
+          {isPaintStudio ? (
+            paintWorkbench
+          ) : hoverStyle ? (
             <>
               <img className="iv3-preview-backdrop" src={hoverStyle.preview[previewGender]} alt="" aria-hidden="true" />
               <img className="iv3-preview-main" src={hoverStyle.preview[previewGender]} alt={hoverStyle.preview.alt} />
@@ -2761,15 +3149,13 @@ export default function NewStudio(): ReactElement {
           />
           {tab === 'feed' ? (
             <div className="iv3-content iv3-feed">{feed}</div>
-          ) : tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face' ? (
+          ) : tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face' || tab === 'paint' ? (
             studio
-          ) : tab === 'paint' ? (
-            placeholderStudio('Рисунок', 'Эскиз, маска и расширение появятся здесь в новом дизайне. Функционал уже работает в текущей версии.')
           ) : (
             placeholderStudio('Скоро', 'Раздел в разработке.')
           )}
         </div>
-        {(tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face') && (
+        {(tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face' || tab === 'paint') && (
           <button className={`mobile-bottom-cta${isSubmitting || jobActive ? ' is-generating' : ''}`} type="button" disabled={isSubmitting || jobActive} onClick={() => generate(studioMode)}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />

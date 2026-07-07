@@ -1053,6 +1053,155 @@ color: rgba(218, 226, 215, .62);
 font-size: 11.5px;
 line-height: 1.28;
 }
+.iv3 .paint-panel-section {
+gap: 10px;
+}
+.iv3 .paint-mode-tabs {
+display: grid;
+grid-template-columns: repeat(2, minmax(0, 1fr));
+gap: 7px;
+}
+.iv3 .paint-mode-tabs button,
+.iv3 .paint-segment button,
+.iv3 .paint-mini-actions button {
+min-height: 32px;
+border: 1px solid rgba(255, 255, 255, .14);
+border-radius: 8px;
+color: var(--text);
+background: rgba(18, 22, 20, .76);
+font-weight: 780;
+font-size: 12px;
+}
+.iv3 .paint-mode-tabs button.active,
+.iv3 .paint-segment button.active {
+border-color: rgba(182, 207, 18, .86);
+color: #101906;
+background: linear-gradient(180deg, #dfff22, var(--lime));
+}
+.iv3 .paint-mode-hint {
+margin: 0;
+color: rgba(218, 226, 215, .66);
+font-size: 12px;
+line-height: 1.3;
+}
+.iv3 .paint-upload-card {
+height: 164px;
+}
+.iv3 .paint-toolbox {
+display: grid;
+gap: 9px;
+padding: 10px;
+border: 1px solid rgba(255, 255, 255, .1);
+border-radius: 10px;
+background: rgba(7, 10, 9, .62);
+}
+.iv3 .paint-segment {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+gap: 6px;
+}
+.iv3 .paint-control {
+display: grid;
+grid-template-columns: 58px minmax(0, 1fr) 34px;
+gap: 8px;
+align-items: center;
+color: rgba(238, 244, 235, .86);
+font-size: 12px;
+font-weight: 720;
+}
+.iv3 .paint-control input[type="range"] {
+width: 100%;
+accent-color: var(--lime);
+}
+.iv3 .paint-control.color {
+grid-template-columns: 58px 44px;
+}
+.iv3 .paint-control.color input {
+width: 42px;
+height: 28px;
+padding: 0;
+border: 1px solid rgba(255, 255, 255, .16);
+border-radius: 7px;
+background: transparent;
+}
+.iv3 .paint-mini-actions {
+display: grid;
+grid-template-columns: 1fr 1fr;
+gap: 7px;
+}
+.iv3 .paint-workbench {
+position: relative;
+width: 100%;
+height: 100%;
+display: grid;
+place-items: center;
+overflow: hidden;
+border-radius: inherit;
+background:
+        radial-gradient(circle at 30% 20%, rgba(182, 207, 18, .08), transparent 36%),
+        #050706;
+}
+.iv3 .paint-stage {
+max-width: calc(100% - 28px);
+max-height: calc(100% - 28px);
+overflow: hidden;
+border: 1px solid rgba(182, 207, 18, .42);
+border-radius: 10px;
+box-shadow: 0 18px 46px rgba(0, 0, 0, .42);
+background: #fff;
+}
+.iv3 .paint-stage canvas {
+max-width: 100% !important;
+height: auto !important;
+display: block;
+}
+.iv3 .paint-workbench-image {
+position: absolute;
+inset: 18px;
+width: calc(100% - 36px);
+height: calc(100% - 36px);
+object-fit: contain;
+opacity: .72;
+filter: saturate(.9) brightness(.82);
+}
+.iv3 .paint-workbench.mode-mask .paint-stage {
+background: transparent;
+}
+.iv3 .paint-workbench-badge {
+position: absolute;
+left: 18px;
+top: 18px;
+z-index: 4;
+padding: 6px 9px;
+border: 1px solid rgba(182, 207, 18, .48);
+border-radius: 8px;
+color: var(--lime);
+background: rgba(4, 6, 5, .68);
+font-size: 12px;
+font-weight: 850;
+}
+.iv3 .paint-outpaint-frame,
+.iv3 .paint-remove-bg-frame {
+width: calc(100% - 32px);
+height: calc(100% - 32px);
+display: grid;
+place-items: center;
+border: 1px dashed rgba(182, 207, 18, .48);
+border-radius: 10px;
+background: rgba(0, 0, 0, .34);
+}
+.iv3 .paint-outpaint-frame img,
+.iv3 .paint-remove-bg-frame img {
+max-width: 100%;
+max-height: 100%;
+object-fit: contain;
+border-radius: 8px;
+}
+.iv3 .paint-outpaint-frame span,
+.iv3 .paint-remove-bg-frame span {
+color: rgba(238, 244, 235, .66);
+font-weight: 780;
+}
 .iv3 textarea {
 display: block;
 width: 100%;
