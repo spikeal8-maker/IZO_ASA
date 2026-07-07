@@ -30,6 +30,14 @@ Current tools:
 - outpaint: source image upload plus left/right/top/bottom expansion controls;
 - remove background: source image upload and dedicated submit route.
 
+UI rules added after first visual review:
+
+- the four modes are a horizontal tab strip, not a 2x2 button grid;
+- every mode shows its own state in the tab (`пусто`, `есть эскиз`, `есть маска`, `изображение`);
+- switching between sketch/mask/outpaint/remove-bg must not erase the existing sketch or mask state;
+- the sketch canvas follows the selected generation format: `1:1` is square, `9:16` is vertical, `16:9` is wide;
+- undo/clear actions are visible on the workbench itself for sketch and mask modes.
+
 ## Backend Payload
 
 Sketch:

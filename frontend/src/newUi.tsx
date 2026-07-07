@@ -525,6 +525,16 @@ function newClientRequestId(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
+function paintStageForResolution(resolution: { width: number; height: number }) {
+  const maxSide = 1024
+  const width = Math.max(1, resolution.width)
+  const height = Math.max(1, resolution.height)
+  if (width >= height) {
+    return { width: maxSide, height: Math.max(256, Math.round((maxSide * height) / width)) }
+  }
+  return { width: Math.max(256, Math.round((maxSide * width) / height)), height: maxSide }
+}
+
 export default function NewStudio(): ReactElement {
   // Route: /new/feed — Лента (она же вкладка по умолчанию на /new);
   // остальные вкладки живут на /new.
@@ -596,7 +606,8 @@ export default function NewStudio(): ReactElement {
   const [faceStrengthPct, setFaceStrengthPct] = useState(DEFAULT_FACE_STRENGTH)
   const [paintMode, setPaintMode] = useState<PaintSubMode>('sketch')
   const [paintImage, setPaintImage] = useState<string>()
-  const [paintLines, setPaintLines] = useState<PaintLine[]>([])
+  const [paintSketchLines, setPaintSketchLines] = useState<PaintLine[]>([])
+  const [paintMaskLines, setPaintMaskLines] = useState<PaintLine[]>([])
   const [paintTool, setPaintTool] = useState<PaintTool>('brush')
   const [paintDrawMode, setPaintDrawMode] = useState<PaintDrawMode>('free')
   const [paintBrushSize, setPaintBrushSize] = useState(12)
@@ -605,7 +616,7 @@ export default function NewStudio(): ReactElement {
   const [paintCanvasBg, setPaintCanvasBg] = useState<'white' | 'gray'>('white')
   const [paintOutpaint, setPaintOutpaint] = useState({ left: 256, right: 256, top: 0, bottom: 0 })
   const [paintOutpaintPreview, setPaintOutpaintPreview] = useState<string>()
-  const [paintStageSize] = useState({ width: 1024, height: 620 })
+  const [paintStageSize, setPaintStageSize] = useState({ width: 720, height: 720 })
   const [compare, setCompare] = useState(50)
   const [compareAuto, setCompareAuto] = useState(false)
   const compareTouchedRef = useRef(false)
@@ -876,7 +887,10 @@ export default function NewStudio(): ReactElement {
   const stylePointerDownRef = useRef(false)
   const inspectDragRef = useRef<{ active: boolean; startX: number; startY: number; panX: number; panY: number }>({ active: false, startX: 0, startY: 0, panX: 0, panY: 0 })
   const paintStageRef = useRef<KonvaStage>(null)
+  const paintWorkbenchRef = useRef<HTMLDivElement>(null)
   const paintDrawingRef = useRef(false)
+  const paintLines = paintMode === 'mask' ? paintMaskLines : paintSketchLines
+  const setPaintLines = paintMode === 'mask' ? setPaintMaskLines : setPaintSketchLines
   // Текущая стилевая приписка в text-промпте: {id, text} — чтобы заменять её.
   const appliedStyleRef = useRef<{ id: string; text: string } | null>(null)
   // Текущая стилевая приписка в i2i-промпте — видна прямо в textarea.
@@ -1461,6 +1475,33 @@ export default function NewStudio(): ReactElement {
     : 'Опишите идею своими словами — получите изображение...'
   const promptLimit = isI2IStudio || isEditStudio || isFaceStudio || isPaintStudio ? 1000 : 2000
   const promptValue = prompts[studioMode]
+
+  useEffect(() => {
+    if (tab !== 'paint') return undefined
+    const node = paintWorkbenchRef.current
+    if (!node) {
+      queueMicrotask(() => setPaintStageSize(paintStageForResolution(selectedResolution)))
+      return undefined
+    }
+    const update = () => {
+      const rect = node.getBoundingClientRect()
+      const maxW = Math.max(256, rect.width - 28)
+      const maxH = Math.max(256, rect.height - 28)
+      const ratio = Math.max(0.1, selectedResolution.width / Math.max(1, selectedResolution.height))
+      let width = maxW
+      let height = width / ratio
+      if (height > maxH) {
+        height = maxH
+        width = height * ratio
+      }
+      setPaintStageSize({ width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) })
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [selectedResolution, tab])
+
   const loraOptions: LoraOption[] = (() => {
     const found = (modelsPayload?.loras || []).filter((item) => item && item !== 'none')
     if (!found.length) return FALLBACK_LORA_OPTIONS
@@ -2044,7 +2085,7 @@ export default function NewStudio(): ReactElement {
   }
 
   const paintWorkbench = (
-    <div className={`paint-workbench mode-${paintMode}`}>
+    <div ref={paintWorkbenchRef} className={`paint-workbench mode-${paintMode}`}>
       {paintMode !== 'sketch' && paintImage && (
         <img className="paint-workbench-image" src={apiUrl(paintImage)} alt="" aria-hidden="true" />
       )}
@@ -2064,6 +2105,11 @@ export default function NewStudio(): ReactElement {
           width={paintStageSize.width}
           height={paintStageSize.height}
           className="paint-stage"
+          style={{
+            '--paint-stage-w': `${paintStageSize.width}px`,
+            '--paint-stage-h': `${paintStageSize.height}px`,
+            '--paint-stage-ratio': `${paintStageSize.width} / ${paintStageSize.height}`,
+          } as CSSProperties}
           onMouseDown={(e) => startPaintLine(e.target.getStage() || null)}
           onMouseMove={(e) => extendPaintLine(e.target.getStage() || null)}
           onMouseUp={stopPaintLine}
@@ -2079,6 +2125,12 @@ export default function NewStudio(): ReactElement {
             {paintLines.map(renderPaintLine)}
           </Layer>
         </Stage>
+      )}
+      {(paintMode === 'sketch' || paintMode === 'mask') && (
+        <div className="paint-workbench-actions">
+          <button type="button" onClick={() => setPaintLines((lines) => lines.slice(0, -1))}>Назад</button>
+          <button type="button" onClick={() => setPaintLines([])}>Очистить</button>
+        </div>
       )}
       <div className="paint-workbench-badge">{paintModeMeta[paintMode].label}</div>
     </div>
@@ -2452,12 +2504,21 @@ export default function NewStudio(): ReactElement {
                   type="button"
                   onClick={() => {
                     setPaintMode(id)
-                    setPaintLines([])
                     setInspectPreview(null)
                     setPaintOutpaintPreview(undefined)
                   }}
                 >
-                  {paintModeMeta[id].label}
+                  <span className="paint-tab-label">{paintModeMeta[id].label}</span>
+                  <span className="paint-tab-state">
+                    {id === 'sketch'
+                      ? paintSketchLines.length ? 'есть эскиз' : 'пусто'
+                      : id === 'mask'
+                        ? paintMaskLines.length ? 'есть маска' : 'пусто'
+                        : id === 'outpaint'
+                          ? paintImage ? 'изображение' : 'пусто'
+                          : paintImage ? 'готово' : 'пусто'}
+                  </span>
+                  <span className="paint-tab-indicator" aria-hidden="true"></span>
                 </button>
               ))}
             </div>
