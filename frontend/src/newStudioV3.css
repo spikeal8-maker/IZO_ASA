@@ -1084,7 +1084,7 @@ font-size: 12px;
 }
 .iv3 .paint-mode-tabs button {
 position: relative;
-min-width: 102px;
+min-width: 98px;
 height: 54px;
 display: grid;
 align-content: center;
@@ -1097,6 +1097,19 @@ border-bottom-color: rgba(182, 207, 18, .34);
 border-radius: 10px 10px 0 0;
 background: transparent;
 color: rgba(238, 244, 235, .76);
+}
+.iv3 .paint-mode-tabs button:not(.active) {
+background:
+        linear-gradient(180deg, rgba(255, 255, 255, .035), rgba(255, 255, 255, .012)),
+        rgba(11, 15, 13, .72);
+border-color: rgba(255, 255, 255, .08);
+border-bottom-color: rgba(182, 207, 18, .34);
+}
+.iv3 .paint-mode-tabs button:not(.active):hover {
+color: var(--text);
+background:
+        linear-gradient(180deg, rgba(182, 207, 18, .09), rgba(255, 255, 255, .018)),
+        rgba(13, 18, 15, .86);
 }
 .iv3 .paint-mode-tabs button.active,
 .iv3 .paint-segment button.active {
@@ -1163,7 +1176,19 @@ font-size: 11.5px;
 line-height: 1.3;
 }
 .iv3 .paint-upload-card {
-height: 164px;
+width: min(100%, 198px);
+height: 198px;
+justify-self: start;
+}
+.iv3 .paint-upload-card .i2i-upload-actions {
+width: min(100%, 126px);
+}
+.iv3 .paint-upload-card .i2i-upload-action {
+min-height: 30px;
+font-size: 11.5px;
+}
+.iv3 .paint-upload-copy {
+display: none;
 }
 .iv3 .paint-sketch-import {
 display: grid;
@@ -1382,6 +1407,8 @@ box-shadow: inset 0 0 0 1px rgba(182, 207, 18, .12);
 width: var(--paint-stage-w, 720px) !important;
 height: var(--paint-stage-h, 720px) !important;
 aspect-ratio: var(--paint-stage-ratio, 1 / 1);
+max-width: calc(100% - 28px);
+max-height: calc(100% - 28px);
 overflow: hidden;
 border: 1px solid rgba(182, 207, 18, .42);
 border-radius: 10px;
@@ -1471,8 +1498,8 @@ transform: translateY(-1px);
 }
 .iv3 .paint-outpaint-frame,
 .iv3 .paint-remove-bg-frame {
-width: calc(100% - 32px);
-height: calc(100% - 32px);
+width: min(calc(100% - 32px), 760px);
+height: min(calc(100% - 32px), 760px);
 display: grid;
 place-items: center;
 border: 1px dashed rgba(182, 207, 18, .48);

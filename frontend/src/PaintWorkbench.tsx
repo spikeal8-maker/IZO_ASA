@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from 'react'
 import type { CSSProperties, Dispatch, RefObject, SetStateAction } from 'react'
 import { Brush, Circle as CircleIcon, Eraser, Palette, Slash, Square as SquareIcon } from 'lucide-react'
 import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva'
@@ -31,6 +31,7 @@ type Props = {
   setPaintColor: Dispatch<SetStateAction<string>>
   paintFillShape: boolean
   paintCanvasBg: 'white' | 'gray'
+  onReady?: () => void
 }
 
 function paintPoint(stage: KonvaStage | null) {
@@ -58,6 +59,7 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
   setPaintColor,
   paintFillShape,
   paintCanvasBg,
+  onReady,
 }, ref) {
   const stageRef = useRef<KonvaStage>(null)
   const drawingRef = useRef(false)
@@ -65,6 +67,10 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
   useImperativeHandle(ref, () => ({
     toDataURL: () => stageRef.current?.toDataURL({ pixelRatio: 1 }),
   }), [])
+
+  useLayoutEffect(() => {
+    onReady?.()
+  }, [onReady])
 
   function startPaintLine(stage: KonvaStage | null) {
     if (paintMode === 'outpaint' || paintMode === 'remove_bg') return
@@ -141,6 +147,9 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
                 <input aria-label="Цвет кисти" type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} />
               </label>
             </>
+          )}
+          {paintMode === 'mask' && (
+            <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" title="Прямоугольная маска" aria-label="Прямоугольная маска" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect') }}><SquareIcon size={19} strokeWidth={2.2} /></button>
           )}
         </div>
       )}

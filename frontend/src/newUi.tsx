@@ -10,7 +10,7 @@
 // ============================================================================
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, WheelEvent as ReactWheelEvent } from 'react'
-import { Brush, Circle as CircleIcon, Clock3, Eraser, Images, Moon, PaintBucket, Palette, Slash, Square as SquareIcon, SquareDashed, Sun, Upload, X } from 'lucide-react'
+import { Brush, Circle as CircleIcon, Clock3, Eraser, Images, Moon, PaintBucket, Palette, Slash, Square as SquareIcon, SquareDashed, Sun, Upload } from 'lucide-react'
 import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
 import {
   DEFAULT_EDIT_STRENGTH,
@@ -625,6 +625,7 @@ export default function NewStudio(): ReactElement {
   const [paintOutpaintPreview, setPaintOutpaintPreview] = useState<string>()
   const [paintStageSize, setPaintStageSize] = useState({ width: 720, height: 720 })
   const [paintWorkbenchVisible, setPaintWorkbenchVisible] = useState(true)
+  const [paintWorkbenchReadyTick, setPaintWorkbenchReadyTick] = useState(0)
   const [compare, setCompare] = useState(50)
   const [compareAuto, setCompareAuto] = useState(false)
   const compareTouchedRef = useRef(false)
@@ -1493,31 +1494,51 @@ export default function NewStudio(): ReactElement {
   const promptLimit = isI2IStudio || isEditStudio || isFaceStudio || isPaintStudio ? 1000 : 2000
   const promptValue = prompts[studioMode]
 
+  const measurePaintStage = useCallback(() => {
+    const node = paintWorkbenchRef.current
+    if (!node) {
+      setPaintStageSize(paintStageForResolution(selectedResolution))
+      return
+    }
+    const rect = node.getBoundingClientRect()
+    const maxW = Math.max(256, rect.width - 28)
+    const maxH = Math.max(256, rect.height - 28)
+    const ratio = Math.max(0.1, selectedResolution.width / Math.max(1, selectedResolution.height))
+    let width = maxW
+    let height = width / ratio
+    if (height > maxH) {
+      height = maxH
+      width = height * ratio
+    }
+    setPaintStageSize({ width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) })
+  }, [selectedResolution])
+
   useEffect(() => {
     if (tab !== 'paint' || !paintWorkbenchVisible) return undefined
     const node = paintWorkbenchRef.current
     if (!node) {
-      queueMicrotask(() => setPaintStageSize(paintStageForResolution(selectedResolution)))
-      return undefined
-    }
-    const update = () => {
-      const rect = node.getBoundingClientRect()
-      const maxW = Math.max(256, rect.width - 28)
-      const maxH = Math.max(256, rect.height - 28)
-      const ratio = Math.max(0.1, selectedResolution.width / Math.max(1, selectedResolution.height))
-      let width = maxW
-      let height = width / ratio
-      if (height > maxH) {
-        height = maxH
-        width = height * ratio
+      const frame = window.requestAnimationFrame(measurePaintStage)
+      const timer = window.setTimeout(measurePaintStage, 80)
+      return () => {
+        window.cancelAnimationFrame(frame)
+        window.clearTimeout(timer)
       }
-      setPaintStageSize({ width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) })
     }
-    update()
-    const observer = new ResizeObserver(update)
+    measurePaintStage()
+    const secondPass = window.requestAnimationFrame(measurePaintStage)
+    const thirdPass = window.setTimeout(measurePaintStage, 120)
+    const observer = new ResizeObserver(measurePaintStage)
     observer.observe(node)
-    return () => observer.disconnect()
-  }, [paintMode, paintWorkbenchVisible, selectedResolution, tab])
+    return () => {
+      observer.disconnect()
+      window.cancelAnimationFrame(secondPass)
+      window.clearTimeout(thirdPass)
+    }
+  }, [measurePaintStage, paintMode, paintWorkbenchReadyTick, paintWorkbenchVisible, tab])
+
+  const onPaintWorkbenchReady = useCallback(() => {
+    setPaintWorkbenchReadyTick((tick) => tick + 1)
+  }, [])
 
   const loraOptions: LoraOption[] = (() => {
     const found = (modelsPayload?.loras || []).filter((item) => item && item !== 'none')
@@ -2056,6 +2077,68 @@ export default function NewStudio(): ReactElement {
     remove_bg: 'К удалению фона',
   }
 
+  const paintUploadTitle = paintMode === 'sketch'
+    ? paintSketchImage ? 'Загруженный эскиз' : 'Рисунок с устройства'
+    : paintMode === 'mask'
+      ? 'Исходное изображение'
+      : paintMode === 'outpaint'
+        ? 'Изображение для расширения'
+        : 'Изображение для фона'
+  const paintUploadHint = paintMode === 'sketch'
+    ? paintSketchImage ? 'Можно дорисовать сверху или сразу генерировать.' : 'Загрузите рисунок ребёнка или нарисуйте с нуля.'
+    : paintMode === 'mask'
+      ? 'Закрасьте область, которую нужно изменить.'
+      : paintMode === 'outpaint'
+        ? 'Дальше задайте поля расширения.'
+        : 'Главный объект будет сохранён без фона.'
+
+  function renderPaintUploadCard() {
+    const isSketch = paintMode === 'sketch'
+    const image = isSketch ? paintSketchImage : paintImage
+    const target: UploadTarget = isSketch ? { kind: 'paintSketch' } : { kind: 'paint' }
+    const clearImage = () => {
+      if (isSketch) setPaintSketchImage(undefined)
+      else {
+        setPaintImage(undefined)
+        setPaintOutpaintPreview(undefined)
+      }
+    }
+
+    return (
+      <article className={`i2i-upload-card paint-upload-card${image ? ' is-filled' : ''} is-required`}>
+        {!image && <span className="i2i-required-chip">Обязательно</span>}
+        {image && (
+          <button className="i2i-remove" type="button" aria-label="Удалить изображение" onClick={clearImage}>
+            ×
+          </button>
+        )}
+        <div className="paint-upload-copy">
+          <strong>{paintUploadTitle}</strong>
+          <span>{paintUploadHint}</span>
+        </div>
+        <div className="i2i-preview">
+          {image ? (
+            <button className="editor-preview-open i2i-preview-open" type="button" onClick={() => showInspectPreview(image, paintModeMeta[paintMode].label)}>
+              <img src={apiUrl(image)} alt={paintUploadTitle} />
+            </button>
+          ) : (
+            <div className="i2i-upload-empty">
+              <svg className="i2i-upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M7 18.5h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.4 8.7 4.8 4.8 0 0 0 7 18.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                <path d="M12 15V9.5m0 0-2.3 2.3M12 9.5l2.3 2.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <div className="i2i-upload-actions">
+                <button className="i2i-upload-action primary" type="button" onClick={() => openUpload(target)}><Upload size={15} />Загрузить</button>
+                <button className="i2i-upload-action" type="button" onClick={() => openGalleryPick(target)}><Images size={15} />Галерея</button>
+                <button className="i2i-upload-action" type="button" onClick={() => applyLastImageToTarget(target)}><Clock3 size={15} />Последнее</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </article>
+    )
+  }
+
   async function createPaintSketchCanvas() {
     const stageUrl = paintStageRef.current?.toDataURL()
     if (!paintSketchImage) return stageUrl
@@ -2103,6 +2186,7 @@ export default function NewStudio(): ReactElement {
         setPaintColor={setPaintColor}
         paintFillShape={paintFillShape}
         paintCanvasBg={paintCanvasBg}
+        onReady={onPaintWorkbenchReady}
       />
     </Suspense>
   )
@@ -2502,55 +2586,7 @@ export default function NewStudio(): ReactElement {
                 <span>{paintModeMeta[paintMode].hint}</span>
               </div>
 
-              {paintMode !== 'sketch' && (
-                <article className={`i2i-upload-card paint-upload-card${paintImage ? ' is-filled' : ''} is-required`}>
-                  {!paintImage && <span className="i2i-required-chip">Обязательно</span>}
-                  {paintImage && (
-                    <button className="i2i-remove" type="button" aria-label="Удалить изображение" onClick={() => { setPaintImage(undefined); setPaintOutpaintPreview(undefined) }}>
-                      ×
-                    </button>
-                  )}
-                  <div className="i2i-preview">
-                    {paintImage ? (
-                      <button className="editor-preview-open i2i-preview-open" type="button" onClick={() => showInspectPreview(paintImage, paintModeMeta[paintMode].label)}>
-                        <img src={apiUrl(paintImage)} alt="Изображение для рисунка" />
-                      </button>
-                    ) : (
-                      <div className="i2i-upload-empty">
-                        <svg className="i2i-upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                          <path d="M7 18.5h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.4 8.7 4.8 4.8 0 0 0 7 18.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                          <path d="M12 15V9.5m0 0-2.3 2.3M12 9.5l2.3 2.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <div className="i2i-upload-actions">
-                          <button className="i2i-upload-action primary" type="button" onClick={() => openUpload({ kind: 'paint' })}>Загрузить</button>
-                          <button className="i2i-upload-action" type="button" onClick={() => openGalleryPick({ kind: 'paint' })}>Галерея</button>
-                          <button className="i2i-upload-action" type="button" onClick={() => applyLastImageToTarget({ kind: 'paint' })}>Последнее</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </article>
-              )}
-
-              {paintMode === 'sketch' && (
-                <div className={`paint-sketch-import${paintSketchImage ? ' is-filled' : ''}`}>
-                  <div className="paint-sketch-import-text">
-                    <strong>{paintSketchImage ? 'Загруженный эскиз' : 'Рисунок с устройства'}</strong>
-                    <span>{paintSketchImage ? 'Можно дорисовать сверху или сразу генерировать.' : 'Загрузите рисунок ребёнка или нарисуйте с нуля.'}</span>
-                  </div>
-                  {paintSketchImage && (
-                    <button className="paint-sketch-thumb" type="button" onClick={() => showInspectPreview(paintSketchImage, 'Эскиз')}>
-                      <img src={apiUrl(paintSketchImage)} alt="Загруженный эскиз" />
-                    </button>
-                  )}
-                  <div className="paint-sketch-actions">
-                    <button type="button" onClick={() => openUpload({ kind: 'paintSketch' })}><Upload size={15} />Загрузить</button>
-                    <button type="button" onClick={() => openGalleryPick({ kind: 'paintSketch' })}><Images size={15} />Галерея</button>
-                    <button type="button" onClick={() => applyLastImageToTarget({ kind: 'paintSketch' })}><Clock3 size={15} />Последнее</button>
-                    {paintSketchImage && <button type="button" aria-label="Убрать загруженный эскиз" onClick={() => setPaintSketchImage(undefined)}><X size={15} />Убрать</button>}
-                  </div>
-                </div>
-              )}
+              {renderPaintUploadCard()}
 
               {(paintMode === 'sketch' || paintMode === 'mask') && (
                 <div className="paint-toolbox">
@@ -2563,6 +2599,9 @@ export default function NewStudio(): ReactElement {
                         <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" title="Прямоугольник" aria-label="Прямоугольник" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect') }}><SquareIcon size={18} strokeWidth={2.2} /></button>
                         <button className={paintDrawMode === 'circle' ? 'active' : ''} type="button" title="Круг" aria-label="Круг" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle') }}><CircleIcon size={18} strokeWidth={2.2} /></button>
                       </>
+                    )}
+                    {paintMode === 'mask' && (
+                      <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" title="Прямоугольная маска" aria-label="Прямоугольная маска" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect') }}><SquareIcon size={18} strokeWidth={2.2} /></button>
                     )}
                   </div>
                   <label className="paint-control">Размер <input type="range" min="2" max="64" value={paintBrushSize} onChange={(e) => setPaintBrushSize(Number(e.target.value))} /><span>{paintBrushSize}</span></label>
