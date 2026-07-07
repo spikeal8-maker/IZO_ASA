@@ -11271,6 +11271,8 @@ def _feed_item_payload(
         "is_liked_by_me": "like" in viewer_kinds,
         "is_saved_by_me": "save" in viewer_kinds,
         "is_disliked_by_me": "dislike" in viewer_kinds,
+        "is_hidden_by_me": "hide" in viewer_kinds,
+        "is_reported_by_me": "report" in viewer_kinds,
         "is_followed_by_me": is_followed_by_me,
         "is_mine": viewer_internal_user_id == pub["internal_user_id"],
     }
@@ -11579,6 +11581,21 @@ async def feed_dislike(publication_id: str, request: Request) -> dict[str, Any]:
 @app.delete("/api/feed/publications/{publication_id}/dislike")
 async def feed_undislike(publication_id: str, request: Request) -> dict[str, Any]:
     return _feed_reaction_toggle(request, publication_id, "dislike", False)
+
+
+@app.post("/api/feed/publications/{publication_id}/hide")
+async def feed_hide(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "hide", True)
+
+
+@app.delete("/api/feed/publications/{publication_id}/hide")
+async def feed_unhide(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "hide", False)
+
+
+@app.post("/api/feed/publications/{publication_id}/report")
+async def feed_report(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "report", True)
 
 
 @app.post("/api/feed/authors/{author_id}/follow")

@@ -249,6 +249,18 @@ def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
         )
         assert disliked.status_code == 200
         assert disliked.json()["publication"]["is_disliked_by_me"] is True
+        hidden = client.post(
+            f"/api/feed/publications/{pub_b['id']}/hide",
+            headers=bearer(viewer_token),
+        )
+        assert hidden.status_code == 200
+        assert hidden.json()["publication"]["is_hidden_by_me"] is True
+        reported = client.post(
+            f"/api/feed/publications/{pub_b['id']}/report",
+            headers=bearer(viewer_token),
+        )
+        assert reported.status_code == 200
+        assert reported.json()["publication"]["is_reported_by_me"] is True
 
         challenges = client.get("/api/feed/challenges", headers=bearer(viewer_token)).json()
         assert challenges["ok"] is True

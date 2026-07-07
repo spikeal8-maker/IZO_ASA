@@ -31,21 +31,23 @@ body{
 button,a,input,summary{font:inherit}
 button{user-select:none}
 .topbar{
-  height:var(--top);position:sticky;top:0;z-index:100;display:grid;grid-template-columns:220px minmax(0,1fr) auto;align-items:center;gap:12px;
-  padding:8px 12px;background:rgba(5,7,5,.93);border-bottom:1px solid var(--line);backdrop-filter:blur(18px);
+  min-height:var(--top);position:sticky;top:0;z-index:100;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:18px;
+  padding:10px 16px;background:rgba(7,8,7,.96);border-bottom:1px solid var(--line);backdrop-filter:blur(18px);
 }
-.logo{display:flex;align-items:center;gap:9px;text-decoration:none;color:#fff;font-size:22px;font-weight:840;letter-spacing:-.04em;white-space:nowrap}
-.logo-mark{width:29px;height:29px;border-radius:7px;border:2px solid var(--acid);display:grid;place-items:center;color:var(--acid);font-size:14px;line-height:1}
+.logo{display:flex;align-items:center;gap:9px;text-decoration:none;color:#fff;font-size:22px;font-weight:900;letter-spacing:-.04em;white-space:nowrap;background:transparent;border:0;padding:0;cursor:pointer}
+.logo-mark{width:31px;height:31px;border-radius:8px;border:2px solid var(--acid);display:grid;place-items:center;color:var(--acid);font-size:14px;line-height:1;box-shadow:0 0 18px rgba(234,255,0,.14)}
 .logo b{color:var(--acid);font-weight:900}
-.product-nav{display:flex;justify-content:center;gap:7px;min-width:0;overflow:auto;scrollbar-width:none}.product-nav::-webkit-scrollbar{display:none}
+.product-nav{display:flex;justify-content:center;gap:8px;min-width:0;overflow:auto;scrollbar-width:none}.product-nav::-webkit-scrollbar{display:none}
 .nav-btn,.top-action,.filter-btn{
   min-height:34px;border:1px solid var(--line);background:rgba(255,255,255,.045);border-radius:9px;display:inline-flex;align-items:center;justify-content:center;gap:6px;
-  padding:0 15px;color:#f4f6ef;text-decoration:none;font-size:12px;font-weight:760;white-space:nowrap;box-shadow:0 8px 22px rgba(0,0,0,.13);
+  padding:0 15px;color:#f4f6ef;text-decoration:none;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 8px 22px rgba(0,0,0,.13);
 }
 .nav-btn.active{background:linear-gradient(180deg,#9b72ff,#7140dd);border-color:rgba(211,192,255,.58);box-shadow:0 0 22px rgba(124,75,232,.34)}
 .top-right{display:flex;align-items:center;justify-content:flex-end;gap:7px;white-space:nowrap}
 .top-action.acid{color:var(--acid);border-color:rgba(234,255,0,.45)}
-.user-dot{width:33px;height:33px;border-radius:50%;background:var(--acid);color:#050705;display:grid;place-items:center;font-weight:850}
+.token-pill{min-height:34px;border:1px solid rgba(234,255,0,.32);border-radius:9px;background:rgba(234,255,0,.055);color:var(--acid);display:inline-flex;align-items:center;padding:0 11px;font-size:12px;font-weight:850}
+.icon-top{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.045);color:#fff;display:grid;place-items:center;text-decoration:none;font-weight:850}
+.user-dot{width:34px;height:34px;border-radius:50%;background:var(--acid);color:#050705;display:grid;place-items:center;font-weight:900}
 .app{display:grid;grid-template-columns:var(--rail) minmax(0,1fr);gap:10px;align-items:start;padding:10px}
 .rail{
   position:sticky;top:calc(var(--top) + 10px);height:calc(100vh - var(--top) - 20px);border:1px solid var(--line);border-radius:14px;
@@ -91,6 +93,7 @@ button{user-select:none}
 .search{height:36px;min-width:0;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.045);color:#fff;padding:0 13px;outline:none;font-size:13px;font-weight:580}
 .search:focus{border-color:rgba(234,255,0,.5);box-shadow:0 0 0 3px rgba(234,255,0,.08)}
 .status{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#cad2c4;white-space:nowrap}.status:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--acid);box-shadow:0 0 14px rgba(234,255,0,.65)}
+.tab-explainer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 auto 10px;max-width:1580px;border:1px solid var(--line-soft);border-radius:10px;background:rgba(255,255,255,.032);padding:9px 12px;color:#cfd7cb;font-size:12px;line-height:1.32;font-weight:650}.tab-explainer b{color:#fff;font-weight:850}.tab-explainer button{height:30px;border:1px solid rgba(234,255,0,.32);border-radius:8px;background:rgba(234,255,0,.055);color:var(--acid);font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
 .challenge-intro{display:none;margin:0 auto 10px;max-width:1580px;border:1px solid rgba(234,255,0,.22);border-radius:12px;background:linear-gradient(90deg,rgba(15,20,15,.96),rgba(11,14,11,.88));padding:14px;gap:14px;align-items:center;justify-content:space-between;box-shadow:0 18px 50px rgba(0,0,0,.25)}
 .challenge-intro.show{display:flex}
 .challenge-copy{min-width:0}.challenge-copy small{display:block;color:var(--acid);font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:850;margin-bottom:4px}.challenge-copy h2{margin:0;color:#fff;font-size:24px;line-height:1.04;letter-spacing:-.045em}.challenge-copy p{margin:6px 0 0;color:#dfe7d9;font-size:13px;line-height:1.32;max-width:760px}
@@ -105,7 +108,7 @@ button{user-select:none}
 .work-card img{width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.001);transition:transform .32s ease,filter .22s ease}.work-card:hover img{transform:scale(1.026);filter:saturate(1.04) contrast(1.035)}
 .stat-fade{position:absolute;left:0;right:0;bottom:0;height:64px;z-index:1;background:linear-gradient(180deg,transparent,rgba(0,0,0,.66));pointer-events:none}
 .persist-stats{position:absolute;right:9px;bottom:8px;z-index:4;display:flex;align-items:center;gap:13px;color:#fff;text-shadow:0 3px 16px rgba(0,0,0,.96);font-size:13px;font-weight:480;line-height:1;letter-spacing:-.02em;pointer-events:none;filter:drop-shadow(0 5px 14px rgba(0,0,0,.7))}
-.persist-stat{display:inline-flex;align-items:center;gap:4px}.persist-stat.heart .ico{font-size:22px;line-height:.8;color:#fff;font-weight:300}.persist-stat.remix .ico{font-size:15px;line-height:1;color:#e7eee1}
+.persist-stat{display:inline-flex;align-items:center;gap:4px}.persist-stat.heart .ico{font-size:22px;line-height:.8;color:#fff;font-weight:300}.persist-stat.remix .ico{font-size:15px;line-height:1;color:#e7eee1}.persist-stat.saved .ico{font-size:15px;color:var(--acid)}
 .card-overlay{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;justify-content:space-between;padding:9px;opacity:0;pointer-events:none;transition:opacity .16s ease;background:linear-gradient(180deg,rgba(0,0,0,.42),rgba(0,0,0,.02) 42%,rgba(0,0,0,.58))}
 .work-card:hover .card-overlay,.work-card:focus-within .card-overlay{opacity:1;pointer-events:auto}
 .card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
@@ -117,18 +120,20 @@ button{user-select:none}
 .card-actions{display:flex;align-items:center;gap:9px;padding-bottom:1px;filter:drop-shadow(0 7px 18px rgba(0,0,0,.72))}
 .inline-action{appearance:none;border:1px solid transparent;background:rgba(255,255,255,.08);color:#fff;padding:7px 9px;border-radius:10px;cursor:pointer;font-size:13px;font-weight:560;line-height:1;text-shadow:0 2px 13px rgba(0,0,0,.9);transition:background .14s ease,color .14s ease,transform .14s ease,border-color .14s ease}
 .inline-action:hover{background:rgba(0,0,0,.58);border-color:rgba(255,255,255,.13);color:var(--acid);transform:translateY(-1px)}
-.inline-action.like{font-size:25px;font-weight:350;padding:4px 8px;background:rgba(234,255,0,.11);color:var(--acid);border-color:rgba(234,255,0,.18)}
-.inline-action.remix{letter-spacing:-.01em;background:transparent;border-color:transparent;padding:7px 5px}.inline-action.remix:hover{background:rgba(0,0,0,.54);padding:7px 10px}
+.inline-action.save{font-size:18px;font-weight:750;padding:5px 8px;background:rgba(234,255,0,.11);color:var(--acid);border-color:rgba(234,255,0,.18)}
+.inline-action.like{font-size:20px;font-weight:350;padding:5px 8px;background:rgba(255,255,255,.07);color:#fff;border-color:rgba(255,255,255,.12)}
+.inline-action.remix{letter-spacing:-.01em;background:var(--acid);border-color:var(--acid);color:#050705;text-shadow:none;font-weight:850;padding:8px 10px}.inline-action.remix:hover{background:#f2ff37;color:#050705;padding:8px 10px}
+.inline-action.menu{margin-left:auto;font-weight:900;padding:5px 9px}
 .empty-state{display:none;padding:28px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.035);color:var(--muted);font-weight:680}.empty-state.show{display:block}
 .toast{position:fixed;left:50%;bottom:24px;z-index:500;transform:translateX(-50%) translateY(20px);opacity:0;transition:.18s ease;border:1px solid rgba(234,255,0,.22);background:rgba(12,16,12,.86);color:#fff;border-radius:999px;padding:10px 14px;font-size:13px;font-weight:650;box-shadow:0 18px 44px rgba(0,0,0,.42);backdrop-filter:blur(14px)}.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.mobile-bottom-nav{display:none}
 .modal{position:fixed;inset:0;z-index:250;display:none;background:rgba(0,0,0,.78);backdrop-filter:blur(18px);padding:18px;overflow:auto}
 .modal.open{display:flex;align-items:center;justify-content:center}
 .modal-shell{--info:540px;--media-w:980px;position:relative;width:min(calc(var(--media-w) + var(--info)),calc(100vw - 36px));height:min(930px,calc(100vh - 36px));display:grid;grid-template-columns:minmax(0,var(--media-w)) var(--info);gap:0;align-items:stretch;border:1px solid rgba(255,255,255,.13);border-radius:16px;background:rgba(9,12,9,.74);box-shadow:0 30px 100px rgba(0,0,0,.6);overflow:hidden}
 .modal-media{min-width:0;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;background:rgba(0,0,0,.16)}
 .modal-media img{width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;display:block;border-radius:0;box-shadow:none;background:transparent}
-.close-btn{position:fixed;top:18px;right:20px;width:38px;height:38px;border-radius:11px;border:1px solid rgba(255,255,255,.18);background:rgba(5,7,5,.70);color:#fff;font-size:22px;line-height:1;font-weight:500;cursor:pointer;backdrop-filter:blur(12px);z-index:5}
 .modal-info{width:var(--info);height:100%;overflow:hidden;border-left:1px solid rgba(255,255,255,.10);background:linear-gradient(180deg,rgba(14,19,15,.97),rgba(7,10,8,.98));display:flex;flex-direction:column;min-height:0}
-.info-scroll{padding:16px;overflow:auto;min-height:0;scrollbar-width:thin;scrollbar-color:rgba(234,255,0,.35) transparent}
+.info-scroll{padding:16px;overflow:auto;min-height:0;height:100%;display:flex;flex-direction:column;scrollbar-width:thin;scrollbar-color:rgba(234,255,0,.35) transparent}
 .detail-author{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;margin-bottom:12px}
 .detail-avatar{width:40px;height:40px;border-radius:50%;background:var(--acid);color:#050705;display:grid;place-items:center;font-weight:860}
 .detail-author b{display:block;font-size:14px;font-weight:720;line-height:1.05}.detail-author span{display:block;color:var(--muted);font-size:11px;font-weight:520;margin-top:2px}
@@ -136,20 +141,23 @@ button{user-select:none}
 .modal-close-inline{width:32px;height:32px;border-radius:9px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.055);color:#fff;font-size:18px;line-height:1;cursor:pointer}
 .detail-title{font-size:25px;line-height:1.08;letter-spacing:-.045em;font-weight:780;margin:0 0 8px}
 .metric-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:#dfe7d9;font-size:13px;font-weight:500;margin:0 0 14px}.metric-row b{color:#fff;font-weight:650}
-.detail-actions{display:grid;grid-template-columns:minmax(170px,1fr) 108px 108px 118px;gap:8px;align-items:stretch;margin-bottom:14px}
+.detail-actions{display:grid;grid-template-columns:minmax(150px,1fr) 102px 116px 106px;gap:8px;align-items:stretch;margin-bottom:10px}
 .remix-main{height:48px;border:0;border-radius:11px;background:var(--acid);color:#050705;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 14px 30px rgba(234,255,0,.14)}
-.detail-icon,.download-btn{height:48px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.055);color:#f6f9f2;cursor:pointer;font-weight:650;box-shadow:0 12px 28px rgba(0,0,0,.20)}
-.detail-icon{display:flex;align-items:center;justify-content:center;gap:7px;font-size:24px;line-height:1;position:relative}.detail-icon.like{font-size:30px;color:var(--acid);border-color:rgba(234,255,0,.30);background:rgba(234,255,0,.055)}.detail-icon small{display:block;font-size:12px;line-height:1;color:#fff;font-weight:760}
+.detail-icon,.download-btn,.style-btn{height:48px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.055);color:#f6f9f2;cursor:pointer;font-weight:650;box-shadow:0 12px 28px rgba(0,0,0,.20)}
+.detail-icon{display:flex;align-items:center;justify-content:center;gap:8px;font-size:25px;line-height:1;position:relative}.detail-icon.like{font-size:34px;color:var(--acid);border-color:rgba(234,255,0,.30);background:rgba(234,255,0,.055)}.detail-icon small{display:block;font-size:13px;line-height:1;color:#fff;font-weight:820}
+.style-btn{font-size:13px;padding:0 10px;color:#efe9ff;border-color:rgba(126,75,232,.45);background:rgba(126,75,232,.18)}
 .download-btn{font-size:13px;padding:0 12px}.detail-icon:hover,.download-btn:hover{border-color:rgba(234,255,0,.45);background:rgba(255,255,255,.08)}
+.detail-secondary{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}.detail-secondary button{height:34px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#dfe7d9;font-size:12px;font-weight:720;cursor:pointer}.detail-secondary button:hover{border-color:rgba(234,255,0,.36);color:#fff}
 [data-tip]{position:relative}[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:50%;top:-34px;transform:translateX(-50%);white-space:nowrap;background:rgba(14,17,14,.93);border:1px solid rgba(255,255,255,.13);color:#fff;border-radius:7px;padding:6px 8px;font-size:11px;font-weight:600;box-shadow:0 12px 28px rgba(0,0,0,.35);z-index:10}
 .panel-block{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.035);overflow:hidden;margin-bottom:10px}
 .panel-block summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 12px;color:#fff;font-size:12px;font-weight:780;text-transform:uppercase;letter-spacing:.02em}
 .panel-block summary::-webkit-details-marker{display:none}.panel-block summary span{color:var(--acid);font-size:18px;line-height:1;font-weight:500}
+.prompt-state{margin-left:auto;color:var(--muted);font-size:11px;text-transform:none;letter-spacing:0;font-weight:700}
 .prompt-text{padding:0 12px 13px;color:#dce4d7;font-size:12px;line-height:1.42;font-weight:500}
 .specs{padding:0 12px 12px;display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
 .spec{border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:8px;background:rgba(0,0,0,.12);min-width:0}.spec span{display:block;color:var(--muted);font-size:9px;text-transform:uppercase;font-weight:760;margin-bottom:3px}.spec b{display:block;color:#fff;font-size:11px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .more-head{display:flex;align-items:center;justify-content:space-between;margin:14px 0 8px;color:#fff;font-size:12px;text-transform:uppercase;letter-spacing:.02em;font-weight:780}.more-head b{font-size:11px;color:var(--acid);font-weight:780}
-.more-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:430px;overflow:auto;padding-right:2px;scrollbar-width:thin;scrollbar-color:rgba(234,255,0,.35) transparent}
+.more-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;flex:1;min-height:0;overflow:auto;padding-right:2px;scrollbar-width:thin;scrollbar-color:rgba(234,255,0,.35) transparent}
 .more-card{position:relative;border:1px solid rgba(255,255,255,.075);border-radius:9px;overflow:hidden;background:#10140f;min-height:105px;cursor:pointer;box-shadow:0 10px 26px rgba(0,0,0,.16)}
 .more-card img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .2s ease}.more-card:hover img{transform:scale(1.035)}
 .more-card::after{content:"";position:absolute;left:0;right:0;bottom:0;height:58%;background:linear-gradient(180deg,transparent,rgba(0,0,0,.76))}
@@ -157,24 +165,27 @@ button{user-select:none}
 .more-card-stats{position:absolute;left:8px;right:8px;bottom:8px;z-index:2;display:flex;gap:10px;color:#e8eee2;font-size:11px;font-weight:500;text-shadow:0 3px 12px rgba(0,0,0,.9)}
 @media (hover:none){.work-card:hover{transform:none;border-color:rgba(255,255,255,.078);box-shadow:0 10px 26px rgba(0,0,0,.20)}.work-card:hover img{transform:scale(1.001);filter:none}.card-overlay{opacity:1;pointer-events:auto;background:linear-gradient(180deg,rgba(0,0,0,.22),rgba(0,0,0,.02) 50%,rgba(0,0,0,.54))}.card-top{display:none}.card-actions{gap:7px}.inline-action{font-size:12px;background:rgba(0,0,0,.28)}.inline-action.like{font-size:21px;background:rgba(234,255,0,.08)}.persist-stats{font-size:12px;gap:9px}.persist-stat.heart .ico{font-size:19px}}
 @media (max-width:1260px){:root{--rail:292px}.mode-feature{height:190px}.mode-tile{height:82px}.feedbar{grid-template-columns:1fr}.search-wrap{grid-template-columns:1fr}.status{display:none}}
-@media (max-width:980px){:root{--rail:1fr;--top:104px;--gap:7px}.topbar{height:var(--top);display:flex;flex-wrap:wrap;align-content:center;align-items:center;padding:7px 9px;gap:7px}.logo{font-size:19px;flex:0 0 auto}.logo-mark{width:26px;height:26px}.top-right{margin-left:auto}.top-action{padding:0 10px}.top-right .top-action:not(.acid){display:none}.user-dot{width:30px;height:30px}.product-nav{order:2;flex:1 0 100%;justify-content:flex-start;overflow-x:auto;padding-bottom:1px}.nav-btn{font-size:12px;padding:0 11px;min-height:32px;flex:0 0 auto}.app{display:block;padding:8px}.rail{position:relative;top:auto;height:auto;margin-bottom:8px;border-radius:12px;padding:8px;overflow:hidden}.rail-head{display:none}.mode-feature{height:104px;min-height:104px;margin-bottom:8px}.feature-title{font-size:18px}.feature-line,.feature-kicker{display:none}.feature-open{width:28px;height:28px}.mode-grid{display:flex;overflow-x:auto;gap:8px;margin-bottom:0;scrollbar-width:none}.mode-grid::-webkit-scrollbar{display:none}.mode-tile{min-width:152px;height:76px}.rail-challenge{display:none}.feedbar{top:var(--top);grid-template-columns:1fr;padding:8px;gap:8px}.challenge-intro{display:none}.challenge-intro.show{display:block;padding:12px}.challenge-meta{justify-content:flex-start;margin-top:10px}.modal{padding:0;align-items:stretch;justify-content:stretch}.modal.open{display:block}.modal-shell{width:100%;height:auto;max-width:none;min-height:100vh;display:block;border:0;border-radius:0;padding:8px;background:rgba(0,0,0,.32);overflow:visible}.modal-media{height:auto;max-height:none;margin:0 0 8px;background:transparent}.modal-media img{width:100%;height:auto;max-height:none;border-radius:12px}.modal-info{width:100%;height:auto;max-height:none;border:1px solid rgba(255,255,255,.12);border-radius:14px}.info-scroll{padding:12px}.close-btn{display:none}.detail-title{font-size:22px}.detail-actions{grid-template-columns:1fr 86px 86px;gap:7px}.download-btn{grid-column:1/-1;height:42px}.remix-main,.detail-icon{height:44px}.specs{grid-template-columns:1fr 1fr}.more-grid{max-height:none;overflow:visible}}
-@media (max-width:560px){.topbar{--top:104px}.nav-btn:nth-child(n+5){display:none}.top-action.acid{font-size:0;width:34px;padding:0}.top-action.acid:before{content:"▧";font-size:13px}.user-dot{display:none}.filter-btn{min-height:31px;padding:0 12px}.search{height:34px}.challenge-copy h2{font-size:20px}.challenge-copy p{font-size:12px}.masonry{gap:7px}.masonry-col{gap:7px}.masonry-col:nth-child(n){padding-top:0}.mode-feature{height:96px}.mode-tile{min-width:146px;height:72px}.detail-author{grid-template-columns:auto 1fr auto auto}.follow{padding:0 9px;font-size:11px}.metric-row{font-size:12px;gap:9px}.more-grid{grid-template-columns:1fr 1fr;gap:7px}.more-card{min-height:96px}}
+@media (max-width:980px){:root{--rail:1fr;--top:104px;--gap:7px}.topbar{min-height:var(--top);display:flex;flex-wrap:wrap;align-content:center;align-items:center;padding:8px 10px 7px;gap:8px}.logo{font-size:19px;flex:0 0 auto}.logo-mark{width:26px;height:26px}.top-right{margin-left:auto}.top-action{padding:0 10px}.top-right .top-action:not(.acid),.token-pill{display:none}.user-dot{width:30px;height:30px}.product-nav{order:2;flex:1 0 100%;justify-content:flex-start;overflow-x:auto;padding-bottom:1px}.nav-btn{font-size:12px;padding:0 11px;min-height:32px;flex:0 0 auto}.app{display:block;padding:8px}.rail{position:relative;top:auto;height:auto;margin-bottom:8px;border-radius:12px;padding:8px;overflow:hidden}.rail-head{display:none}.mode-feature{height:104px;min-height:104px;margin-bottom:8px}.feature-title{font-size:18px}.feature-line,.feature-kicker{display:none}.feature-open{width:28px;height:28px}.mode-grid{display:flex;overflow-x:auto;gap:8px;margin-bottom:0;scrollbar-width:none}.mode-grid::-webkit-scrollbar{display:none}.mode-tile{min-width:152px;height:76px}.rail-challenge{display:none}.feedbar{top:var(--top);grid-template-columns:1fr;padding:8px;gap:8px}.tab-explainer{display:block;padding:9px 10px}.tab-explainer button{margin-top:8px}.challenge-intro{display:none}.challenge-intro.show{display:block;padding:12px}.challenge-meta{justify-content:flex-start;margin-top:10px}.modal{padding:0;align-items:stretch;justify-content:stretch}.modal.open{display:block}.modal-shell{width:100%;height:auto;max-width:none;min-height:100vh;display:block;border:0;border-radius:0;padding:8px;background:rgba(0,0,0,.32);overflow:visible}.modal-media{height:auto;max-height:none;margin:0 0 8px;background:transparent}.modal-media img{width:100%;height:auto;max-height:none;border-radius:12px}.modal-info{width:100%;height:auto;max-height:none;border:1px solid rgba(255,255,255,.12);border-radius:14px}.info-scroll{padding:12px;display:block}.detail-title{font-size:22px}.detail-actions{grid-template-columns:1fr 86px 96px;gap:7px}.style-btn{grid-column:1/-1;height:42px}.download-btn{height:42px}.remix-main,.detail-icon{height:44px}.detail-secondary{grid-template-columns:1fr 1fr}.specs{grid-template-columns:1fr 1fr}.more-grid{max-height:none;overflow:visible}}
+@media (max-width:560px){.topbar{--top:104px}.nav-btn:nth-child(n+5){display:none}.top-action.acid{font-size:0;width:34px;padding:0}.top-action.acid:before{content:"▧";font-size:13px}.icon-top{width:32px;height:32px}.user-dot{display:none}.filter-btn{min-height:31px;padding:0 12px}.search{height:34px}.challenge-copy h2{font-size:20px}.challenge-copy p{font-size:12px}.masonry{gap:7px}.masonry-col{gap:7px}.masonry-col:nth-child(n){padding-top:0}.mode-feature{height:96px}.mode-tile{min-width:146px;height:72px}.detail-author{grid-template-columns:auto 1fr auto auto}.follow{padding:0 9px;font-size:11px}.metric-row{font-size:12px;gap:9px}.more-grid{grid-template-columns:1fr 1fr;gap:7px}.more-card{min-height:96px}}
+@media (max-width:980px){body{padding-bottom:58px}.mobile-bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:220;display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--line);background:rgba(8,10,8,.97);backdrop-filter:blur(16px)}.mobile-bottom-nav a,.mobile-bottom-nav button{min-height:56px;border:0;background:transparent;color:#dfe7d9;text-decoration:none;display:grid;place-items:center;gap:2px;font-size:10px;font-weight:800}.mobile-bottom-nav i{font-style:normal;font-size:17px;line-height:1}.mobile-bottom-nav .active{color:var(--acid)}}
 </style>
 </head>
 <body>
 <header class="topbar">
-  <a class="logo" href="#top" aria-label="ИЗО АСА"><span class="logo-mark">▧</span><span>ИЗО <b>ACA</b></span></a>
+  <a class="logo" href="/" aria-label="ИЗО АСА"><span class="logo-mark">▧</span><span>ИЗО <b>ACA</b></span></a>
   <nav class="product-nav" aria-label="Режимы продукта">
-    <a class="nav-btn active" href="#feed">✦ Лента</a>
-    <a class="nav-btn" href="#text-to-image">Текст → Изо</a>
-    <a class="nav-btn" href="#image-to-image">Изо → Изо</a>
-    <a class="nav-btn" href="#editor">Редактор</a>
-    <a class="nav-btn" href="#draw">Рисунок</a>
-    <a class="nav-btn" href="#face">Лицо</a>
+    <a class="nav-btn active" href="/feed">✦ Лента</a>
+    <a class="nav-btn" href="/#text-to-image">Текст → Изо</a>
+    <a class="nav-btn" href="/#image-to-image">Изо → Изо</a>
+    <a class="nav-btn" href="/#editor">Редактор</a>
+    <a class="nav-btn" href="/#draw">Рисунок</a>
+    <a class="nav-btn" href="/#face">Лицо</a>
   </nav>
   <div class="top-right">
-    <a class="top-action acid" href="#gallery">▧ Галерея</a>
-    <a class="top-action" href="#help">Помощь</a>
+    <span class="token-pill">IZO 0</span>
+    <a class="top-action acid" href="/gallery">▧ Галерея</a>
+    <a class="top-action" href="/#presets">Шаблоны</a>
+    <a class="icon-top" href="/#notifications" aria-label="Уведомления">!</a>
     <span class="user-dot">A</span>
   </div>
 </header>
@@ -203,6 +214,7 @@ button{user-select:none}
       </div>
       <div class="search-wrap"><input class="search" id="search" type="search" placeholder="Найти автора, стиль, prompt…"><div class="status">24 891 онлайн</div></div>
     </section>
+    <section class="tab-explainer" id="tabExplainer"></section>
     <section class="challenge-intro" id="challengeIntro" aria-label="Активный челлендж"></section>
     <section class="masonry" id="masonry" aria-label="Лента изображений"></section>
     <div class="empty-state" id="emptyState">Ничего не найдено. Попробуйте другой запрос.</div>
@@ -210,7 +222,6 @@ button{user-select:none}
 </div>
 <div class="toast" id="toast"></div>
 <div class="modal" id="modal" aria-hidden="true" role="dialog" aria-label="Просмотр работы">
-  <button class="close-btn" type="button" id="closeModal" aria-label="Закрыть">×</button>
   <div class="modal-shell">
     <div class="modal-media"><img id="modalImg" alt=""></div>
     <aside class="modal-info" aria-label="Информация о работе">
@@ -226,17 +237,32 @@ button{user-select:none}
         <div class="detail-actions">
           <button class="remix-main" type="button" id="modalRemixBtn" data-tip="Создать свою версию">↻ Ремикс</button>
           <button class="detail-icon like" type="button" id="modalLikeBtn" data-tip="Лайк">♡<small id="modalLikeCount">4.8K</small></button>
-          <button class="detail-icon" type="button" id="modalSaveBtn" data-tip="Сохранить идею">▣<small id="modalSaveCount">0</small></button>
-          <button class="download-btn" type="button" data-tip="Скачать изображение" data-toast="Скачивание изображения">⇩ Скачать</button>
+          <button class="style-btn" type="button" id="modalSaveBtn" data-tip="Сохранить в идеи">☆ Сохранить</button>
+          <button class="style-btn" type="button" id="modalStyleBtn" data-tip="Перенести стиль в генератор">✦ Стиль</button>
         </div>
-        <details class="panel-block"><summary>Промпт <span>+</span></summary><div class="prompt-text" id="modalPrompt"></div></details>
-        <details class="panel-block"><summary>Параметры <span>+</span></summary><div class="specs" id="modalSpecs"></div></details>
+        <div class="detail-secondary">
+          <button type="button" id="modalAuthorBtn">Профиль автора</button>
+          <button type="button" id="modalHideBtn">Не интересно</button>
+          <button type="button" id="modalReportBtn">Пожаловаться</button>
+          <button class="download-btn" type="button" data-tip="Скачать файл изображения" data-toast="Скачивание изображения">⇩ Скачать файл</button>
+          <button type="button" id="modalShareBtn">Скопировать ссылку</button>
+          <button type="button" id="modalRefBtn">Как референс</button>
+        </div>
+        <details class="panel-block" open><summary>Промпт <small class="prompt-state" id="modalPromptState"></small><span>+</span></summary><div class="prompt-text" id="modalPrompt"></div></details>
+        <details class="panel-block" open><summary>Параметры <span>+</span></summary><div class="specs" id="modalSpecs"></div></details>
         <div class="more-head"><span>Другие работы автора</span><b id="moreCount">0</b></div>
         <div class="more-grid" id="moreGrid"></div>
       </div>
     </aside>
   </div>
 </div>
+<nav class="mobile-bottom-nav" aria-label="Мобильная навигация">
+  <a href="/#text-to-image"><i>▧</i><span>ИЗО</span></a>
+  <a class="active" href="/feed"><i>✦</i><span>Лента</span></a>
+  <a href="/gallery"><i>□</i><span>Галерея</span></a>
+  <button type="button" data-action="challenge"><i>◆</i><span>Челленджи</span></button>
+  <a href="/#profile"><i>A</i><span>Профиль</span></a>
+</nav>
 <script>
 let works = [];
 let activeFilter = 'all';
@@ -244,6 +270,7 @@ let currentIndex = 0;
 const masonry = document.querySelector('#masonry');
 const emptyState = document.querySelector('#emptyState');
 const challengeIntro = document.querySelector('#challengeIntro');
+const tabExplainer = document.querySelector('#tabExplainer');
 const search = document.querySelector('#search');
 const toast = document.querySelector('#toast');
 const modal = document.querySelector('#modal');
@@ -255,6 +282,7 @@ const modalTime = document.querySelector('#modalTime');
 const modalAvatar = document.querySelector('#modalAvatar');
 const modalStats = document.querySelector('#modalStats');
 const modalPrompt = document.querySelector('#modalPrompt');
+const modalPromptState = document.querySelector('#modalPromptState');
 const modalSpecs = document.querySelector('#modalSpecs');
 const moreGrid = document.querySelector('#moreGrid');
 const moreCount = document.querySelector('#moreCount');
@@ -267,8 +295,21 @@ const modalCloseInline = document.querySelector('#modalCloseInline');
 const modalLikeBtn = document.querySelector('#modalLikeBtn');
 const modalSaveBtn = document.querySelector('#modalSaveBtn');
 const modalRemixBtn = document.querySelector('#modalRemixBtn');
+const modalStyleBtn = document.querySelector('#modalStyleBtn');
+const modalAuthorBtn = document.querySelector('#modalAuthorBtn');
+const modalHideBtn = document.querySelector('#modalHideBtn');
+const modalReportBtn = document.querySelector('#modalReportBtn');
+const modalShareBtn = document.querySelector('#modalShareBtn');
+const modalRefBtn = document.querySelector('#modalRefBtn');
 let toastTimer = 0;
 const API_BASE = '';
+const tabTexts = {
+  all:{title:'Для вас', text:'Персональная смесь: сильные remix-работы, свежие публикации, челленджи и авторы, которые могут привести к новой генерации.', cta:'Как это работает'},
+  fresh:{title:'Новое', text:'Хронологическая выдача: сверху самые свежие публикации после подготовки медиа и модерации.', cta:'Показать свежие'},
+  remix:{title:'Ремиксы', text:'Работы, которые чаще всего используют как основу. Это не только лайки: главный сигнал здесь - новые генерации из идеи.', cta:'Что такое Remix'},
+  challenge:{title:'Челленджи', text:'Творческие задания с темой, правилами, призовым фондом и работами участников. Сейчас активен челлендж Москва 2120.', cta:'Правила'},
+  following:{title:'Подписки', text:'Новые работы авторов, на которых вы подписались. Подписки помогают формировать вашу ленту Для вас.', cta:'Зачем подписки'}
+};
 const modes = [
   {id:'text', title:'Текст -> Изо', line:'Опишите идею или скажите голосом', cta:'Попробовать текст', img:'/static/feed/assets/mode_text.webp', href:'#text-to-image', msg:'Открываем генерацию по тексту или голосу'},
   {id:'face', title:'Измени внешность', line:'Лицо, стиль, образ и детали', cta:'Изменить образ', img:'/static/feed/assets/mode_face.webp', href:'#face-to-image', msg:'Открываем работу с лицом и образом'},
@@ -346,8 +387,11 @@ function normalizeFeedItem(item){
     savesNum:Number(item.save_count || 0),
     seed:item.seed || '—',
     prompt:item.prompt || item.description || 'Промпт скрыт автором.',
+    promptVisibility:item.prompt_visibility || 'hidden',
     liked:Boolean(item.is_liked_by_me),
     saved:Boolean(item.is_saved_by_me),
+    hidden:Boolean(item.is_hidden_by_me),
+    reported:Boolean(item.is_reported_by_me),
     mine:Boolean(item.is_mine),
     followed:Boolean(item.is_followed_by_me),
     challenge:item.challenge || null,
@@ -386,7 +430,7 @@ function getCols(){
   return 5;
 }
 function matchFilter(item){
-  return true;
+  return !item.hidden;
 }
 function matchSearch(item){
   const q = search.value.trim().toLowerCase();
@@ -404,8 +448,9 @@ function createWorkCard(item, realIndex){
     <img src="${escapeHtml(item.src)}" alt="${escapeHtml(item.title)}" loading="lazy">
     <div class="stat-fade"></div>
     <div class="persist-stats" aria-hidden="true">
-      <span class="persist-stat heart"><span class="ico">♡</span><span class="num">${escapeHtml(item.likes)}</span></span>
       <span class="persist-stat remix"><span class="ico">↻</span><span class="num">${escapeHtml(item.remix)}</span></span>
+      <span class="persist-stat saved"><span class="ico">☆</span><span class="num">${escapeHtml(compactCount(item.savesNum))}</span></span>
+      <span class="persist-stat heart"><span class="ico">${item.liked ? '♥' : '♡'}</span><span class="num">${escapeHtml(item.likes)}</span></span>
     </div>
     <div class="card-overlay">
       <div class="card-top">
@@ -413,8 +458,10 @@ function createWorkCard(item, realIndex){
         <button class="open-chip" type="button" data-action="open">Открыть ↗</button>
       </div>
       <div class="card-actions">
-        <button class="inline-action like" type="button" data-action="like" title="Лайк" aria-label="Лайк">${item.liked ? '♥' : '♡'}</button>
         <button class="inline-action remix" type="button" data-action="remix" title="Создать свою версию">↻ Ремикс</button>
+        <button class="inline-action save" type="button" data-action="save" title="Сохранить идею" aria-label="Сохранить идею">${item.saved ? '★' : '☆'}</button>
+        <button class="inline-action like" type="button" data-action="like" title="Лайк" aria-label="Лайк">${item.liked ? '♥' : '♡'}</button>
+        <button class="inline-action menu" type="button" data-action="menu" title="Меню">...</button>
       </div>
     </div>`;
   card.addEventListener('click', e=>{
@@ -423,8 +470,10 @@ function createWorkCard(item, realIndex){
       e.stopPropagation();
       const a = action.dataset.action;
       if(a === 'like') likeWork(item.id);
+      if(a === 'save') saveWork(item.id);
       if(a === 'remix') remixWork(item.id);
       if(a === 'open') openModal(realIndex);
+      if(a === 'menu') showCardMenu(item);
       return;
     }
     openModal(realIndex);
@@ -446,6 +495,10 @@ function renderFeed(){
     target.appendChild(createWorkCard(item, realIndex));
     target._h += estimateHeight(item) + 0.045;
   });
+}
+function renderTabExplainer(){
+  const meta = tabTexts[activeFilter] || tabTexts.all;
+  tabExplainer.innerHTML = `<span><b>${escapeHtml(meta.title)}:</b> ${escapeHtml(meta.text)}</span><button type="button" data-action="${activeFilter === 'challenge' ? 'challenge' : 'tab-help'}">${escapeHtml(meta.cta)}</button>`;
 }
 function renderChallengeIntro(feedType, challenge){
   if(!challengeIntro) return;
@@ -520,8 +573,12 @@ function openModal(index){
   followBtn.disabled = item.mine || !item.authorId;
   followBtn.title = item.mine ? 'Это ваша работа' : '';
   modalLikeBtn.innerHTML = `${item.liked ? '♥' : '♡'}<small>${escapeHtml(item.likes)}</small>`;
-  modalSaveBtn.innerHTML = `${item.saved ? '▣' : '▢'}<small>${escapeHtml(compactCount(item.savesNum))}</small>`;
+  modalSaveBtn.innerHTML = `${item.saved ? '★' : '☆'} ${item.saved ? 'Сохранено' : 'Сохранить'} <small>${escapeHtml(compactCount(item.savesNum))}</small>`;
+  modalHideBtn.textContent = item.hidden ? 'Вернуть в ленту' : 'Не интересно';
+  modalReportBtn.textContent = item.reported ? 'Жалоба отправлена' : 'Пожаловаться';
+  modalReportBtn.disabled = item.reported;
   modalStats.innerHTML = `<span><b>${item.remix}</b> ремиксов</span><span><b>${item.likes}</b> лайков</span><span><b>${compactCount(item.savesNum)}</b> сохранений</span>`;
+  modalPromptState.textContent = item.promptVisibility === 'open' ? 'открыт' : item.promptVisibility === 'partial' ? 'частично открыт' : 'скрыт автором';
   modalPrompt.textContent = item.challenge ? `${item.prompt}\n\nЧеллендж: ${item.challenge.title}. ${item.challenge.promptHint || item.challenge.description || ''}` : item.prompt;
   modalSpecs.innerHTML = `<div class="spec"><span>Модель</span><b>${escapeHtml(item.model)}</b></div><div class="spec"><span>Стиль</span><b>${escapeHtml(item.style)}</b></div><div class="spec"><span>Формат</span><b>${escapeHtml(item.ratio)}</b></div><div class="spec"><span>Разрешение</span><b>${escapeHtml(item.w)}×${escapeHtml(item.h)}</b></div><div class="spec"><span>Seed</span><b>${escapeHtml(item.seed)}</b></div><div class="spec"><span>Источник</span><b>${escapeHtml(item.source)}</b></div>${item.challenge ? `<div class="spec"><span>Челлендж</span><b>${escapeHtml(item.challenge.title)}</b></div>` : ''}`;
   let similar = works.filter((w,i)=>i!==index && w.authorId && w.authorId===item.authorId).slice(0,18);
@@ -573,6 +630,7 @@ async function loadFeed(type = 'for_you'){
     const challenge = document.querySelector('.rail-challenge');
     if(challenge) challenge.style.setProperty('--challenge-bg', "url('/static/feed/assets/challenge_moscow_2120.webp')");
     renderModes();
+    renderTabExplainer();
     renderChallengeIntro(data.type, challengeMeta);
     renderFeed();
     const hashId = location.hash.replace('#work-', '');
@@ -580,6 +638,7 @@ async function loadFeed(type = 'for_you'){
   }catch(err){
     works = [];
     renderModes();
+    renderTabExplainer();
     renderChallengeIntro('', null);
     renderFeed();
     showToast('Не удалось загрузить ленту');
@@ -598,6 +657,23 @@ async function saveWork(id){
   try{ await api(`/api/feed/publications/${encodeURIComponent(id)}/save`, { method }); showToast(method === 'POST' ? 'Сохранено' : 'Убрано из сохранённых'); await loadFeed(feedTypeForFilter(activeFilter)); }
   catch(err){ showToast('Войдите, чтобы сохранить'); console.error(err); }
 }
+async function hideWork(id){
+  const item = works.find(w=>String(w.id) === String(id));
+  const method = item?.hidden ? 'DELETE' : 'POST';
+  try{
+    await api(`/api/feed/publications/${encodeURIComponent(id)}/hide`, { method });
+    showToast(method === 'POST' ? 'Скрыто из вашей ленты' : 'Работа возвращена');
+    closeModal();
+    await loadFeed(feedTypeForFilter(activeFilter));
+  }catch(err){ showToast('Войдите, чтобы настроить ленту'); console.error(err); }
+}
+async function reportWork(id){
+  try{
+    await api(`/api/feed/publications/${encodeURIComponent(id)}/report`, { method:'POST' });
+    showToast('Жалоба отправлена на модерацию');
+    await loadFeed(feedTypeForFilter(activeFilter));
+  }catch(err){ showToast('Войдите, чтобы отправить жалобу'); console.error(err); }
+}
 async function remixWork(id){
   try{
     const data = await api(`/api/feed/publications/${encodeURIComponent(id)}/remix/start`, { method:'POST' });
@@ -607,22 +683,63 @@ async function remixWork(id){
   }
   catch(err){ showToast('Войдите, чтобы сделать ремикс'); console.error(err); }
 }
+function startStyleUse(item){
+  sessionStorage.setItem('izoStyleDraft', JSON.stringify({ publicationId:item.id, style:item.style, model:item.model, aspectRatio:item.ratio }));
+  showToast('Стиль подготовлен для генератора');
+}
+function startReferenceUse(item){
+  sessionStorage.setItem('izoReferenceDraft', JSON.stringify({ publicationId:item.id, imageUrl:item.fullSrc, aspectRatio:item.ratio }));
+  showToast('Изображение подготовлено как референс');
+}
+async function copyWorkLink(item){
+  const url = `${location.origin}${location.pathname}#work-${item.id}`;
+  try{
+    await navigator.clipboard.writeText(url);
+    showToast('Ссылка скопирована');
+  }catch(_err){
+    showToast(url);
+  }
+}
+async function openAuthorFeed(item){
+  if(!item?.authorId) return;
+  try{
+    closeModal();
+    const data = await api(`/api/feed/authors/${encodeURIComponent(item.authorId)}/publications?limit=60`);
+    works = (data.items || []).filter(i=>i.media_status !== 'missing').map(normalizeFeedItem);
+    activeFilter = 'author';
+    document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+    tabExplainer.innerHTML = `<span><b>${escapeHtml(item.author)}:</b> все публичные работы автора. Здесь можно подписаться, сохранить идеи или начать Remix.</span><button type="button" data-action="back-feed">Вернуться в ленту</button>`;
+    renderChallengeIntro('', null);
+    renderFeed();
+    document.querySelector('#feed')?.scrollIntoView({behavior:'smooth', block:'start'});
+  }catch(err){ showToast('Не удалось открыть автора'); console.error(err); }
+}
+function showCardMenu(item){
+  const text = item.reported ? 'Жалоба уже отправлена' : 'Меню: открыть работу, скрыть, пожаловаться или скопировать ссылку доступны в предпросмотре.';
+  showToast(text);
+  openModal(works.indexOf(item));
+}
 async function followAuthor(authorId){
   const item = works[currentIndex];
   const method = item?.followed ? 'DELETE' : 'POST';
   try{
     await api(`/api/feed/authors/${encodeURIComponent(authorId)}/follow`, { method });
     showToast(method === 'POST' ? 'Вы подписались на автора' : 'Подписка снята');
-    await loadFeed(feedTypeForFilter(activeFilter));
+    await loadFeed(activeFilter === 'author' ? 'for_you' : feedTypeForFilter(activeFilter));
     const idx = works.findIndex(w=>String(w.id) === String(item?.id));
     if(idx >= 0) openModal(idx);
   }catch(err){ showToast('Войдите, чтобы подписаться'); console.error(err); }
 }
-document.querySelector('#closeModal').addEventListener('click', closeModal);
 modalCloseInline.addEventListener('click', closeModal);
 modalLikeBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) likeWork(item.id); });
 modalSaveBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) saveWork(item.id); });
 modalRemixBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) remixWork(item.id); });
+modalStyleBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) startStyleUse(item); });
+modalAuthorBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) openAuthorFeed(item); });
+modalHideBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) hideWork(item.id); });
+modalReportBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) reportWork(item.id); });
+modalShareBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) copyWorkLink(item); });
+modalRefBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) startReferenceUse(item); });
 followBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item?.authorId) followAuthor(item.authorId); });
 modal.addEventListener('click', e=>{ if(e.target===modal) closeModal(); });
 document.addEventListener('keydown', e=>{
@@ -643,6 +760,8 @@ document.querySelector('#filters').addEventListener('click', e=>{
 document.addEventListener('click', e=>{
   const action = e.target.closest('[data-action]');
   if(action?.dataset.action === 'challenge'){ showChallenge(); return; }
+  if(action?.dataset.action === 'tab-help'){ showToast((tabTexts[activeFilter] || tabTexts.all).text); return; }
+  if(action?.dataset.action === 'back-feed'){ activeFilter = 'all'; document.querySelector('[data-filter="all"]')?.classList.add('active'); loadFeed('for_you'); return; }
   if(e.target.closest('.download-btn')){ downloadCurrent(); return; }
   const t = e.target.closest('[data-toast]');
   if(t) showToast(t.dataset.toast);
