@@ -4,6 +4,8 @@ import asyncio
 import base64
 import io
 import json
+import math
+import mimetypes
 import os
 import re
 import secrets
@@ -34,12 +36,17 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parent
 MEDIA = ROOT / "media"
 MEDIA.mkdir(exist_ok=True)
+STATIC_DIR = ROOT / "static"
+GALLERY_PAGE_FILE = STATIC_DIR / "gallery" / "index.html"
+FEED_PAGE_FILE = STATIC_DIR / "feed" / "index.html"
 AVATAR_DIR = MEDIA / "avatars"
 AVATAR_DIR.mkdir(exist_ok=True)
 COMFYUI_INPUT_MAX_SIDE = max(512, min(2048, int(os.getenv("COMFYUI_INPUT_MAX_SIDE", "1536"))))
 COMFYUI_FACE_INPUT_MAX_SIDE = max(512, min(COMFYUI_INPUT_MAX_SIDE, int(os.getenv("COMFYUI_FACE_INPUT_MAX_SIDE", "1024"))))
 COMFYUI_FACE_SOURCE_MEGAPIXELS = max(0.15, min(1.0, float(os.getenv("COMFYUI_FACE_SOURCE_MEGAPIXELS", "0.35"))))
 COMFYUI_INPUT_MIN_SIDE = 256
+GALLERY_IMAGE_MAX_SIDE = max(1024, min(4096, int(os.getenv("GALLERY_IMAGE_MAX_SIDE", "2048"))))
+GALLERY_IMAGE_WEBP_QUALITY = max(70, min(95, int(os.getenv("GALLERY_IMAGE_WEBP_QUALITY", "90"))))
 
 
 def load_local_env() -> None:
@@ -58,6 +65,7 @@ def load_local_env() -> None:
 
 
 load_local_env()
+mimetypes.add_type("image/webp", ".webp")
 
 # Identity Core session service (Phase 4 + 4.1). Keying material for token hashing
 # comes from the environment when available. Only hashes are persisted — raw tokens
@@ -211,7 +219,45 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/media", StaticFiles(directory=MEDIA), name="media")
+
+
+@app.get("/", include_in_schema=False)
+async def home_page_shell() -> FileResponse:
+    return await gallery_page_shell()
+
+
+@app.get("/gallery", include_in_schema=False)
+async def gallery_page_shell() -> FileResponse:
+    if not GALLERY_PAGE_FILE.exists():
+        raise HTTPException(404, "Gallery page is not installed.")
+    return FileResponse(
+        GALLERY_PAGE_FILE,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/gallery/", include_in_schema=False)
+async def gallery_page_shell_slash() -> FileResponse:
+    return await gallery_page_shell()
+
+
+@app.get("/feed", include_in_schema=False)
+async def feed_page_shell() -> FileResponse:
+    if not FEED_PAGE_FILE.exists():
+        raise HTTPException(404, "Feed page is not installed.")
+    return FileResponse(
+        FEED_PAGE_FILE,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/feed/", include_in_schema=False)
+async def feed_page_shell_slash() -> FileResponse:
+    return await feed_page_shell()
 
 
 class Lora(BaseModel):
@@ -1376,6 +1422,19 @@ def init_db() -> None:
         # alongside the legacy provider-based users.id, plus idempotent backfill.
         if "internal_user_id" not in existing_user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN internal_user_id TEXT")
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO users (
+                id, username, first_name, display_name, language, role, plan,
+                token_balance, gallery_enabled, internal_user_id, created_at, last_login_at
+            )
+            VALUES (
+                'seed_editorial', 'seed_editorial', 'Выбор редакции', 'Выбор редакции',
+                'ru', 'user', 'mini', 0, 0, 'seed_editorial', ?, ?
+            )
+            """,
+            (now, now),
+        )
 
         conn.executescript(
             """
@@ -1602,6 +1661,43 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_feed_reactions_publication
                 ON feed_reactions(publication_id, kind);
 
+            CREATE TABLE IF NOT EXISTS feed_author_follows (
+                follower_internal_user_id TEXT NOT NULL,
+                author_internal_user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (follower_internal_user_id, author_internal_user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_feed_author_follows_author
+                ON feed_author_follows(author_internal_user_id);
+
+            CREATE TABLE IF NOT EXISTS challenges (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                rules TEXT NOT NULL,
+                prompt_hint TEXT,
+                category TEXT NOT NULL,
+                status TEXT NOT NULL,
+                reward_pool INTEGER NOT NULL DEFAULT 0,
+                starts_at TEXT NOT NULL,
+                ends_at TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS challenge_entries (
+                id TEXT PRIMARY KEY,
+                challenge_id TEXT NOT NULL,
+                publication_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                judge_score REAL,
+                final_score REAL,
+                created_at TEXT NOT NULL,
+                UNIQUE (challenge_id, publication_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_challenge_entries_challenge
+                ON challenge_entries(challenge_id, status);
+
             CREATE TABLE IF NOT EXISTS password_reset_challenges (
                 id TEXT PRIMARY KEY,
                 internal_user_id TEXT NOT NULL,
@@ -1625,26 +1721,76 @@ def init_db() -> None:
         if "refresh_expires_at" not in auth_sessions_columns:
             conn.execute("ALTER TABLE auth_sessions ADD COLUMN refresh_expires_at TEXT")
 
-        # Live Feed: seed/editorial-публикации + сжатые деривативы (feed_thumb/
-        # feed_large) + базовые (seed) счётчики. Additive, безопасно для существующих БД.
-        feed_pub_columns = {row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()}
+        # Feed media architecture: additive-only public feed asset metadata.
+        # Some live DBs already have early feed columns, so check every column
+        # individually. Originals stay in images; public feed variants live here.
+        feed_publication_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()
+        }
         for column, definition in {
-            "is_seed": "INTEGER NOT NULL DEFAULT 0",
-            "author_type": "TEXT NOT NULL DEFAULT 'user'",
-            "author_handle": "TEXT",
-            "author_display": "TEXT",
-            "author_avatar": "TEXT",
-            "badge": "TEXT",
-            "category": "TEXT",
             "feed_thumb_name": "TEXT",
             "feed_large_name": "TEXT",
-            "base_like_count": "INTEGER NOT NULL DEFAULT 0",
-            "base_save_count": "INTEGER NOT NULL DEFAULT 0",
-            "base_recreate_count": "INTEGER NOT NULL DEFAULT 0",
-            "view_count": "INTEGER NOT NULL DEFAULT 0",
+            "feed_thumb_width": "INTEGER",
+            "feed_thumb_height": "INTEGER",
+            "feed_thumb_bytes": "INTEGER",
+            "feed_large_width": "INTEGER",
+            "feed_large_height": "INTEGER",
+            "feed_large_bytes": "INTEGER",
+            "media_ready_at": "TEXT",
+            "media_error": "TEXT",
+            "native_aspect_ratio": "TEXT",
+            "orientation": "TEXT",
+            "source_type": "TEXT",
+            "source_label": "TEXT",
+            "display_policy": "TEXT",
+            "category": "TEXT",
+            "remix_policy": "TEXT",
+            "tags_json": "TEXT",
+            "updated_at": "TEXT",
         }.items():
-            if column not in feed_pub_columns:
+            if column not in feed_publication_columns:
                 conn.execute(f"ALTER TABLE feed_publications ADD COLUMN {column} {definition}")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_feed_publications_media_ready "
+            "ON feed_publications(status, media_ready_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_images_user_deleted_created "
+            "ON images(user_id, deleted_at, created_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_images_job_id "
+            "ON images(job_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_user_created "
+            "ON jobs(user_id, created_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_result_image "
+            "ON jobs(result_image_id)"
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO challenges (
+                id, title, description, rules, prompt_hint, category, status,
+                reward_pool, starts_at, ends_at, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+            """,
+            (
+                "moscow_2120_week",
+                "Москва 2120",
+                "Покажите город будущего. Лучшие работы получают токены и место в витрине.",
+                "Создайте образ Москвы будущего: город, транспорт, люди, архитектура или повседневная сцена. Без логотипов, текста на изображении и копирования чужих работ.",
+                "Футуристическая Москва 2120 года, город будущего, выразительная архитектура, живые люди, кинематографичный свет",
+                "challenge_moscow_2120",
+                10000,
+                "2026-07-01T00:00:00+00:00",
+                "2026-07-14T23:59:59+00:00",
+                now,
+            ),
+        )
 
         backfill_identity_core(conn, now)
 
@@ -3593,6 +3739,20 @@ def _clamp_limit(limit: int, default: int = 50, maximum: int = 200) -> int:
     return max(1, min(int(limit), maximum))
 
 
+def _user_model_name(raw: str | None) -> str:
+    """Пользователь видит только «Flux2» — никогда точный идентификатор модели.
+    Flux Klein 4B/9B, local_flux_klein и другие flux-варианты → «Flux2».
+    OpenRouter → «OpenRouter». Всё остальное → «Flux2» (безопасное умолчание)."""
+    if not raw:
+        return "Flux2"
+    lowered = raw.lower()
+    if any(kw in lowered for kw in ("flux", "klein", "local_flux")):
+        return "Flux2"
+    if "openrouter" in lowered:
+        return "OpenRouter"
+    return "Flux2"
+
+
 def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
     settings = json.loads(row["settings_json"] or "{}")
     return {
@@ -3607,7 +3767,7 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
         "seed": settings.get("seed", 0),
         "width": row["width"],
         "height": row["height"],
-        "modelProfile": settings.get("modelProfile", ""),
+        "modelProfile": _user_model_name(settings.get("modelProfile")),
         "loras": settings.get("loras", []),
         "preset": settings.get("preset"),
         "generationTimeMs": settings.get("generationTimeMs", 0),
@@ -3616,6 +3776,140 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
         "comfyuiPromptId": settings.get("comfyuiPromptId"),
         "comfyuiHistory": settings.get("comfyuiHistory"),
         "deletedAt": _row_get(row, "deleted_at"),
+    }
+
+
+def _gallery_aspect_ratio(width: int | None, height: int | None) -> str | None:
+    if not width or not height:
+        return None
+    gcd = math.gcd(int(width), int(height))
+    if gcd <= 0:
+        return None
+    return f"{int(width) // gcd}:{int(height) // gcd}"
+
+
+def _gallery_mode_label(mode: str | None) -> str:
+    return {
+        "text_to_image": "Текст -> Изо",
+        "image_to_image": "Изо -> Изо",
+        "face": "Лицо",
+        "face_swap": "Лицо",
+        "drawing": "Рисунок",
+        "editor": "Редактор",
+    }.get(str(mode or "").strip(), str(mode or "Текст -> Изо"))
+
+
+def _gallery_source_ids(settings: dict[str, Any]) -> list[str]:
+    raw = (
+        settings.get("sourceImageIds")
+        or settings.get("source_image_ids")
+        or settings.get("sourceIds")
+        or []
+    )
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw[:4] if str(item or "").strip()]
+
+
+def _gallery_page_item(
+    row: sqlite3.Row,
+    publication: sqlite3.Row | None = None,
+    *,
+    include_feed_media: bool = False,
+) -> dict[str, Any]:
+    settings = json.loads(row["settings_json"] or "{}")
+    publication_id = _row_get(publication, "id") if publication is not None else None
+    published = bool(publication_id and _row_get(publication, "status") == "published")
+    thumb_url = row["thumbnail_url"]
+    image_url = row["url"]
+    if include_feed_media and publication_id:
+        thumb_url = f"/api/feed/media/{publication_id}?variant=thumb"
+        image_url = f"/api/feed/media/{publication_id}?variant=large"
+    prompt = row["prompt_original"] or row["prompt_translated"] or ""
+    width = int(row["width"] or 0)
+    height = int(row["height"] or 0)
+    return {
+        "id": row["id"],
+        "imageId": row["id"],
+        "src": thumb_url,
+        "thumbnailUrl": thumb_url,
+        "viewerSrc": image_url,
+        "downloadUrl": image_url,
+        "prompt": prompt,
+        "promptOriginal": row["prompt_original"] or "",
+        "promptTranslated": row["prompt_translated"] or "",
+        "mode": row["mode"],
+        "modeLabel": _gallery_mode_label(row["mode"]),
+        "provider": row["provider"],
+        "model": _user_model_name(settings.get("modelProfile") or row["provider"]),
+        "modelProfile": _user_model_name(settings.get("modelProfile") or row["provider"]),
+        "preset": settings.get("preset") or settings.get("styleName"),
+        "loras": settings.get("loras") if isinstance(settings.get("loras"), list) else [],
+        "seed": settings.get("seed"),
+        "width": width,
+        "height": height,
+        "aspect": _gallery_aspect_ratio(width, height),
+        "aspectRatio": _gallery_aspect_ratio(width, height),
+        "createdAt": row["created_at"],
+        "date": row["created_at"],
+        "generationTimeMs": settings.get("generationTimeMs", 0),
+        "genTime": settings.get("generationTimeMs", 0),
+        "favorite": bool(row["is_favorite"]),
+        "isFavorite": bool(row["is_favorite"]),
+        "published": published,
+        "feedPublicationId": publication_id,
+        "publishedAt": _row_get(publication, "created_at") if publication is not None else None,
+        "feedMediaStatus": "ready" if (
+            publication is not None
+            and _row_get(publication, "media_ready_at")
+            and _row_get(publication, "feed_thumb_name")
+            and _row_get(publication, "feed_large_name")
+        ) else ("missing" if publication is not None else None),
+        "views": _row_get(publication, "view_count") if publication is not None else 0,
+        "likes": 0,
+        "saves": 0,
+        "remixes": 0,
+        "sourceIds": _gallery_source_ids(settings),
+    }
+
+
+def _gallery_page_limits(
+    conn: sqlite3.Connection,
+    user_row: sqlite3.Row | None,
+    legacy_user_id: str,
+) -> dict[str, Any]:
+    quota = gallery_quota_for_user(conn, user_row, legacy_user_id)
+    feed_used = int(conn.execute(
+        """
+        SELECT COUNT(*) AS c FROM feed_publications
+        WHERE legacy_user_id = ? AND status = 'published'
+        """,
+        (legacy_user_id,),
+    ).fetchone()["c"])
+    favorites_used = int(conn.execute(
+        """
+        SELECT COUNT(*) AS c FROM images
+        WHERE user_id = ? AND is_favorite = 1 AND (deleted_at IS NULL OR deleted_at = '')
+        """,
+        (legacy_user_id,),
+    ).fetchone()["c"])
+    favorite_limit = max(0, int(quota["gallery_slots"]) * 80 // 100)
+    return {
+        "plan": quota["plan"],
+        "originals": {
+            "used": quota["gallery_used"],
+            "limit": quota["gallery_slots"],
+            "free": quota["gallery_free"],
+            "full": quota["gallery_full"],
+        },
+        "feed": {
+            "used": feed_used,
+            "limit": quota["gallery_slots"],
+        },
+        "favorites": {
+            "used": favorites_used,
+            "limit": favorite_limit,
+        },
     }
 
 
@@ -3823,6 +4117,59 @@ def local_media_path_from_url(url: str) -> Path | None:
     except ValueError:
         raise RuntimeError("Недопустимый путь media-файла.")
     return path if path.exists() else None
+
+
+def media_filename_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    if url.startswith("/api/media/"):
+        filename = url.removeprefix("/api/media/").split("?", 1)[0]
+    elif url.startswith("/media/"):
+        filename = url.removeprefix("/media/").split("?", 1)[0]
+    else:
+        return None
+    path = (MEDIA / filename).resolve()
+    try:
+        path.relative_to(MEDIA.resolve())
+    except ValueError:
+        return None
+    return filename
+
+
+def validate_generation_media_inputs(req: GenerateRequest, user_id: str) -> None:
+    """Fail fast for stale or foreign /api/media inputs before queue/token charge."""
+    candidates: list[tuple[str, str]] = []
+    for field in ("inputImage1", "inputImage2", "maskImage", "outpaintMask"):
+        value = getattr(req, field, None)
+        if value:
+            candidates.append((field, value))
+    for item in req.inputImages or []:
+        if item.image:
+            candidates.append((f"inputImages[{item.index or 0}]", item.image))
+
+    with db() as conn:
+        for field, value in candidates:
+            filename = media_filename_from_url(value)
+            if not filename:
+                continue
+            path = local_media_path_from_url(value)
+            if not path:
+                raise HTTPException(400, {"code": "input_media_missing", "field": field})
+            like = f"%{filename}%"
+            active_image = conn.execute(
+                "SELECT 1 FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') "
+                "AND (url LIKE ? OR thumbnail_url LIKE ?) LIMIT 1",
+                (user_id, like, like),
+            ).fetchone()
+            if active_image:
+                continue
+            job_ref = conn.execute(
+                "SELECT 1 FROM jobs WHERE user_id = ? AND settings_json LIKE ? LIMIT 1",
+                (user_id, like),
+            ).fetchone()
+            if job_ref:
+                continue
+            raise HTTPException(400, {"code": "input_media_unavailable", "field": field})
 
 
 def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
@@ -4717,6 +5064,40 @@ def delete_image_files_from_disk(url: str | None = None, thumbnail_url: str | No
             pass
 
 
+def _delete_media_rel(rel: str | None) -> None:
+    if not rel:
+        return
+    try:
+        target = (MEDIA / rel).resolve()
+        target.relative_to(MEDIA.resolve())
+        if target.exists() and target.is_file():
+            target.unlink()
+    except Exception:
+        pass
+
+
+def retire_feed_publications_for_image(conn: sqlite3.Connection, image_id: str, now: str, reason: str = "source_image_deleted") -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()}
+    if not columns:
+        return
+    media_columns = {"feed_thumb_name", "feed_large_name", "media_ready_at", "media_error", "updated_at"}
+    rows = conn.execute(
+        "SELECT id, feed_thumb_name, feed_large_name FROM feed_publications WHERE image_id = ?",
+        (image_id,),
+    ).fetchall()
+    for row in rows:
+        _delete_media_rel(_row_get(row, "feed_thumb_name"))
+        _delete_media_rel(_row_get(row, "feed_large_name"))
+    if media_columns <= columns:
+        conn.execute(
+            "UPDATE feed_publications SET status = 'hidden', feed_thumb_name = NULL, feed_large_name = NULL, "
+            "media_ready_at = NULL, media_error = ?, updated_at = ? WHERE image_id = ?",
+            (reason, now, image_id),
+        )
+    else:
+        conn.execute("UPDATE feed_publications SET status = 'hidden' WHERE image_id = ?", (image_id,))
+
+
 def create_thumbnail(image_path: Path) -> Path:
     thumb_path = image_path.with_name(f"{image_path.stem}_thumb.webp")
     with Image.open(image_path) as image:
@@ -4725,6 +5106,34 @@ def create_thumbnail(image_path: Path) -> Path:
             image = image.convert("RGB")
         image.save(thumb_path, "WEBP", quality=88)
     return thumb_path
+
+
+def save_gallery_original(image: Image.Image, job_id: str) -> Path:
+    out = MEDIA / f"{job_id}.webp"
+    prepared = ImageOps.exif_transpose(image)
+    if prepared.mode not in {"RGB", "RGBA"}:
+        prepared = prepared.convert("RGB")
+    prepared.thumbnail((GALLERY_IMAGE_MAX_SIDE, GALLERY_IMAGE_MAX_SIDE), Image.Resampling.LANCZOS)
+    prepared.save(out, "WEBP", quality=GALLERY_IMAGE_WEBP_QUALITY, method=6)
+    return out
+
+
+def feed_media_dir() -> Path:
+    path = MEDIA / "feed"
+    path.mkdir(exist_ok=True)
+    return path
+
+
+def _media_file_path_from_url(url: str | None) -> Path | None:
+    name = _feed_media_name(url)
+    if not name:
+        return None
+    path = (MEDIA / name).resolve()
+    try:
+        path.relative_to(MEDIA.resolve())
+    except ValueError:
+        return None
+    return path
 
 
 async def comfyui_available() -> bool:
@@ -5349,10 +5758,8 @@ async def download_comfyui_image(image: dict[str, str], job_id: str) -> tuple[Pa
     async with httpx.AsyncClient(timeout=120) as client:
         response = await client.get(f"{COMFYUI_BASE_URL}/view", params=params)
         response.raise_for_status()
-        content_type = response.headers.get("content-type", "")
-        extension = "png" if "png" in content_type else "jpg"
-        image_path = MEDIA / f"{job_id}_comfyui.{extension}"
-        image_path.write_bytes(response.content)
+        with Image.open(io.BytesIO(response.content)) as opened:
+            image_path = save_gallery_original(opened, f"{job_id}_comfyui")
     return image_path, create_thumbnail(image_path)
 
 
@@ -5567,12 +5974,8 @@ def mock_image(req: GenerateRequest, job_id: str) -> tuple[Path, Path]:
     except Exception:
         font = ImageFont.load_default()
     draw.multiline_text((72, 72), text, fill="#172033", font=font, spacing=14)
-    out = MEDIA / f"{job_id}.png"
-    thumb = MEDIA / f"{job_id}_thumb.webp"
-    image.save(out, "PNG")
-    image.thumbnail((512, 512))
-    image.save(thumb, "WEBP", quality=88)
-    return out, thumb
+    out = save_gallery_original(image, job_id)
+    return out, create_thumbnail(out)
 
 
 async def worker() -> None:
@@ -5657,6 +6060,7 @@ async def worker() -> None:
                     ).fetchone()
                     if oldest:
                         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ?", (created_at, oldest["id"]))
+                        retire_feed_publications_for_image(conn, oldest["id"], created_at)
                         delete_image_files_from_disk(url=oldest["url"], thumbnail_url=oldest["thumbnail_url"])
                         if oldest["id"] in images:
                             images.pop(oldest["id"])
@@ -5812,12 +6216,13 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     with db() as conn:
         if conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is None:
             raise HTTPException(404, "User not found.")
-    if req.mode == "faceswap":
-        face_lora = next((item for item in req.loras if item.id and item.id != "none"), None)
-        if face_lora is None:
-            raise HTTPException(422, "FaceSwap mode requires a FaceSwap LoRA. Select bfs_head or another face LoRA.")
+    # FaceSwap lora auto-selection is handled by choose_faceswap_lora() inside
+    # send_to_comfyui (worker). Early validation here is redundant and breaks
+    # the flow when frontend sends an empty loras list — the worker always
+    # resolves the correct face lora from ComfyUI's available models.
     if req.mode == "edit":
         validate_edit_request(req)
+    validate_generation_media_inputs(req, user_id)
     ensure_rate_limit(user_id)
     job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     job = {
@@ -5896,7 +6301,18 @@ async def models() -> dict[str, Any]:
     try:
         data = await get_comfyui_models()
         model, text_encoder, vae = choose_model(data, "")
-        return {"ok": True, "selected": {"model": model, "textEncoder": text_encoder, "vae": vae}, **data}
+        return {
+            "ok": True,
+            "selected": {
+                "model": _user_model_name(model),
+                "textEncoder": "Flux2 CLIP",
+                "vae": "Flux2 VAE",
+            },
+            "diffusion_models": [_user_model_name(m) for m in data.get("diffusion_models", [])],
+            "text_encoders": ["Flux2 CLIP" for _ in data.get("text_encoders", [])],
+            "vaes": ["Flux2 VAE" for _ in data.get("vaes", [])],
+            "loras": data.get("loras", []),
+        }
     except Exception as exc:
         return {"ok": False, "error": str(exc), "diffusion_models": [], "text_encoders": [], "vaes": [], "loras": []}
 
@@ -5954,6 +6370,81 @@ async def gallery(request: Request) -> list[dict[str, Any]]:
     return restored
 
 
+@app.get("/api/gallery/page")
+async def gallery_page(request: Request, limit: int = 120) -> dict[str, Any]:
+    """Structured gallery payload for the new visual shell.
+
+    Keeps /api/gallery stable while giving the gallery page counters, original
+    cards and separate feed-copy cards in one DB-backed response.
+    """
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    limit = _clamp_limit(limit, default=120, maximum=240)
+    with db() as conn:
+        user_row = conn.execute(
+            "SELECT * FROM users WHERE internal_user_id = ? OR id = ?",
+            (trusted["internal_user_id"], user_id),
+        ).fetchone()
+        if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
+            raise HTTPException(403, "Gallery is not available for this plan.")
+        image_rows = conn.execute(
+            """
+            SELECT * FROM images
+            WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        ).fetchall()
+        publications = {
+            row["image_id"]: row
+            for row in conn.execute(
+                """
+                SELECT * FROM feed_publications
+                WHERE legacy_user_id = ? AND status = 'published'
+                ORDER BY created_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        }
+        reaction_counts = {
+            row["publication_id"]: row
+            for row in conn.execute(
+                """
+                SELECT publication_id,
+                       SUM(CASE WHEN kind = 'like' THEN 1 ELSE 0 END) AS likes,
+                       SUM(CASE WHEN kind = 'save' THEN 1 ELSE 0 END) AS saves,
+                       SUM(CASE WHEN kind = 'recreate' THEN 1 ELSE 0 END) AS remixes
+                FROM feed_reactions
+                WHERE publication_id IN (
+                    SELECT id FROM feed_publications
+                    WHERE legacy_user_id = ? AND status = 'published'
+                )
+                GROUP BY publication_id
+                """,
+                (user_id,),
+            ).fetchall()
+        }
+        items = [_gallery_page_item(row, publications.get(row["id"])) for row in image_rows]
+        feed_items = [
+            _gallery_page_item(row, publications[row["id"]], include_feed_media=True)
+            for row in image_rows
+            if row["id"] in publications
+        ]
+        for item in feed_items:
+            counts = reaction_counts.get(item["feedPublicationId"])
+            item["likes"] = int(_row_get(counts, "likes") or 0)
+            item["saves"] = int(_row_get(counts, "saves") or 0)
+            item["remixes"] = int(_row_get(counts, "remixes") or 0)
+        limits = _gallery_page_limits(conn, user_row, user_id)
+    return {
+        "ok": True,
+        "limits": limits,
+        "items": items,
+        "feedItems": feed_items,
+    }
+
+
 @app.get("/api/gallery/{image_id}")
 async def gallery_detail(image_id: str, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
@@ -6000,6 +6491,7 @@ async def gallery_delete(image_id: str, request: Request) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ? AND user_id = ?", (now, image_id, user_id))
+        retire_feed_publications_for_image(conn, image_id, now)
     delete_image_files_from_disk(url=record.get("url"), thumbnail_url=record.get("thumbnailUrl"))
     return {"ok": True, "deleted": image_id, "url": record["url"]}
 
@@ -6096,7 +6588,14 @@ async def bootstrap(auth: MiniAppAuthRequest, response: Response, request: Reque
     except Exception as exc:
         flux_klein_config["error"] = str(exc)
     try:
-        models_payload = {"ok": True, **await get_comfyui_models()}
+        models_raw = await get_comfyui_models()
+        models_payload = {
+            "ok": True,
+            "diffusion_models": [_user_model_name(m) for m in models_raw.get("diffusion_models", [])],
+            "text_encoders": ["Flux2 CLIP" for _ in models_raw.get("text_encoders", [])],
+            "vaes": ["Flux2 VAE" for _ in models_raw.get("vaes", [])],
+            "loras": models_raw.get("loras", []),
+        }
     except Exception as exc:
         models_payload["error"] = str(exc)
     try:
@@ -10561,75 +11060,95 @@ async def max_webhook(payload: dict[str, Any], request: Request) -> dict[str, An
 
 FEED_PROMPT_VISIBILITIES = {"open", "partial", "hidden"}
 FEED_PARTIAL_PROMPT_CHARS = 140
-
-# Сжатые деривативы ленты лежат в media/feed. В сетке/detail отдаём только их,
-# оригинал остаётся приватным (media/, /api/media). Ориентиры по ТЗ:
-# thumb ≤640px long side, WebP q80; large ≤1600px, WebP q86.
-# ВАЖНО: считаем каталог динамически от MEDIA (его monkeypatch'ат тесты).
-def _feed_media_dir() -> "Path":
-    return MEDIA / "feed"
+FEED_THUMB_MAX_SIDE = 640
+FEED_LARGE_MAX_SIDE = 1536
+FEED_DISPLAY_POLICY = "preserve_aspect_ratio"
 
 
-FEED_THUMB_MAX = 640
-FEED_LARGE_MAX = 1600
-FEED_THUMB_QUALITY = 80
-FEED_LARGE_QUALITY = 86
+@dataclass
+class FeedAssetInfo:
+    feed_thumb_name: str
+    feed_large_name: str
+    feed_thumb_width: int
+    feed_thumb_height: int
+    feed_thumb_bytes: int
+    feed_large_width: int
+    feed_large_height: int
+    feed_large_bytes: int
+    native_aspect_ratio: str
+    orientation: str
 
 
-def _feed_compress_variant(img: "ImageType", max_side: int, quality: int, dest: "Path") -> None:
-    from PIL import Image as _PILImage
-
-    w, h = img.size
-    scale = min(1.0, max_side / max(w, h))
-    resized = img if scale >= 1.0 else img.resize((max(1, round(w * scale)), max(1, round(h * scale))), _PILImage.LANCZOS)
-    if resized.mode not in ("RGB", "RGBA"):
-        resized = resized.convert("RGB")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    resized.save(dest, format="WEBP", quality=quality, method=6)
+def _feed_orientation(width: int, height: int) -> str:
+    if not width or not height:
+        return "custom"
+    if width == height:
+        return "square"
+    return "landscape" if width > height else "portrait"
 
 
-def feed_compress_source(src_path: "Path", pub_id: str) -> tuple[str, str] | None:
-    """Собрать feed_thumb + feed_large из исходного файла. Возвращает
-    (thumb_name, large_name) в media/feed или None, если источник недоступен."""
-    try:
-        from PIL import Image, ImageOps
-    except Exception:
-        return None
-    if not src_path or not src_path.exists():
-        return None
-    try:
-        with Image.open(src_path) as raw:
-            img = ImageOps.exif_transpose(raw)
-            thumb_name = f"{pub_id}_thumb.webp"
-            large_name = f"{pub_id}_large.webp"
-            _feed_compress_variant(img, FEED_THUMB_MAX, FEED_THUMB_QUALITY, _feed_media_dir() / thumb_name)
-            _feed_compress_variant(img, FEED_LARGE_MAX, FEED_LARGE_QUALITY, _feed_media_dir() / large_name)
-        return thumb_name, large_name
-    except Exception:
-        return None
+def _feed_source_label(source_type: str) -> str:
+    return {
+        "text_to_image": "Текст -> Изо",
+        "image_to_image": "Изо -> Изо",
+        "multi_reference": "Несколько референсов",
+        "drawing_to_image": "Рисунок -> Изо",
+        "edit": "Редактировано",
+        "inpaint": "Маска",
+        "outpaint": "Outpaint",
+        "faceswap": "Лицо",
+        "remix": "Remix",
+        "seed": "Выбор редакции",
+    }.get(source_type or "", "Текст -> Изо")
 
 
-def _feed_original_path_for(conn: sqlite3.Connection, image_id: str) -> "Path | None":
-    """Путь к оригиналу изображения публикации (для генерации деривативов)."""
-    row = conn.execute("SELECT url FROM images WHERE id = ?", (image_id,)).fetchone()
-    name = _feed_media_name(_row_get(row, "url"))
-    if not name:
-        return None
-    return MEDIA / name
+def _feed_source_type(mode: str | None, *, is_seed: bool = False) -> str:
+    if is_seed:
+        return "seed"
+    raw = (mode or "text_to_image").strip()
+    return {
+        "paint": "drawing_to_image",
+    }.get(raw, raw)
 
 
-def feed_build_derivatives(conn: sqlite3.Connection, pub_id: str, image_id: str) -> None:
-    """Создать/обновить сжатые версии публикации и записать их имена в БД."""
-    src = _feed_original_path_for(conn, image_id)
-    if src is None:
-        return
-    result = feed_compress_source(src, pub_id)
-    if result is None:
-        return
-    thumb_name, large_name = result
-    conn.execute(
-        "UPDATE feed_publications SET feed_thumb_name = ?, feed_large_name = ? WHERE id = ?",
-        (thumb_name, large_name, pub_id),
+def _save_feed_variant(source: Image.Image, target: Path, max_side: int, quality: int) -> tuple[int, int, int]:
+    image = ImageOps.exif_transpose(source)
+    if image.mode not in {"RGB", "RGBA"}:
+        image = image.convert("RGB")
+    else:
+        image = image.copy()
+    image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+    image.save(target, "WEBP", quality=quality, method=6)
+    return image.width, image.height, target.stat().st_size
+
+
+def create_feed_assets(publication_id: str, source_url: str | None) -> FeedAssetInfo:
+    source_path = _media_file_path_from_url(source_url)
+    if source_path is None or not source_path.exists():
+        raise FileNotFoundError("Feed source image file not found.")
+    target_dir = feed_media_dir()
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", publication_id)
+    thumb_rel = f"feed/{safe_id}_thumb.webp"
+    large_rel = f"feed/{safe_id}_large.webp"
+    thumb_path = MEDIA / thumb_rel
+    large_path = MEDIA / large_rel
+    with Image.open(source_path) as opened:
+        source = ImageOps.exif_transpose(opened)
+        native_ratio = _feed_aspect_ratio(source.width, source.height)
+        orientation = _feed_orientation(source.width, source.height)
+        tw, th, tb = _save_feed_variant(source, thumb_path, FEED_THUMB_MAX_SIDE, 82)
+        lw, lh, lb = _save_feed_variant(source, large_path, FEED_LARGE_MAX_SIDE, 86)
+    return FeedAssetInfo(
+        feed_thumb_name=thumb_rel,
+        feed_large_name=large_rel,
+        feed_thumb_width=tw,
+        feed_thumb_height=th,
+        feed_thumb_bytes=tb,
+        feed_large_width=lw,
+        feed_large_height=lh,
+        feed_large_bytes=lb,
+        native_aspect_ratio=native_ratio,
+        orientation=orientation,
     )
 
 
@@ -10657,7 +11176,37 @@ def _feed_author_name(conn: sqlite3.Connection, internal_user_id: str, legacy_us
         ).fetchone()
     if row is None:
         return "Автор"
-    return _row_get(row, "display_name") or _row_get(row, "username") or _row_get(row, "first_name") or "Автор"
+    return _row_get(row, "display_name") or _row_get(row, "username") or _row_get(row, "first_name") or "Пользователь ИЗО"
+
+
+def _feed_challenge_payload(conn: sqlite3.Connection, category: str | None) -> dict[str, Any] | None:
+    if not category:
+        return None
+    row = conn.execute(
+        """
+        SELECT id, title, description, rules, prompt_hint, category, status,
+               reward_pool, starts_at, ends_at
+        FROM challenges
+        WHERE category = ? AND status = 'active'
+        ORDER BY ends_at ASC
+        LIMIT 1
+        """,
+        (category,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "description": row["description"],
+        "rules": row["rules"],
+        "promptHint": row["prompt_hint"],
+        "category": row["category"],
+        "status": row["status"],
+        "rewardPool": row["reward_pool"],
+        "startsAt": row["starts_at"],
+        "endsAt": row["ends_at"],
+    }
 
 
 def _feed_aspect_ratio(width: int, height: int) -> str:
@@ -10701,6 +11250,7 @@ def _feed_item_payload(
         ).fetchall()
     }
     viewer_kinds: set[str] = set()
+    is_followed_by_me = False
     if viewer_internal_user_id:
         viewer_kinds = {
             r["kind"]
@@ -10709,59 +11259,59 @@ def _feed_item_payload(
                 (pub["id"], viewer_internal_user_id),
             ).fetchall()
         }
+        is_followed_by_me = bool(conn.execute(
+            """
+            SELECT 1 FROM feed_author_follows
+            WHERE follower_internal_user_id = ? AND author_internal_user_id = ?
+            """,
+            (viewer_internal_user_id, pub["internal_user_id"]),
+        ).fetchone())
     width = int(_row_get(image, "width") or 0)
     height = int(_row_get(image, "height") or 0)
-    is_seed = bool(_row_get(pub, "is_seed"))
-    author_type = _row_get(pub, "author_type") or "user"
-    # Автор: для seed/editorial берём из публикации (у них нет users-строки),
-    # для пользователя — из users.
-    if is_seed or author_type in ("seed", "editorial"):
-        author_name = _row_get(pub, "author_display") or _row_get(pub, "author_handle") or "ИЗО ACA"
-        author_handle = _row_get(pub, "author_handle")
-        author_avatar = _row_get(pub, "author_avatar")
-    else:
-        author_name = _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"])
-        author_handle = None
-        author_avatar = None
-    # Счётчики: базовые (seed) + реальные реакции пользователей.
-    like_count = int(_row_get(pub, "base_like_count") or 0) + counts.get("like", 0)
-    save_count = int(_row_get(pub, "base_save_count") or 0) + counts.get("save", 0)
-    recreate_count = int(_row_get(pub, "base_recreate_count") or 0) + counts.get("recreate", 0)
-    is_current_user = (not is_seed) and viewer_internal_user_id is not None and viewer_internal_user_id == pub["internal_user_id"]
+    media_ready = bool(_row_get(pub, "feed_thumb_name") and _row_get(pub, "feed_large_name") and _row_get(pub, "media_ready_at"))
+    native_aspect_ratio = _row_get(pub, "native_aspect_ratio") or _feed_aspect_ratio(width, height)
+    source_type = _row_get(pub, "source_type") or _feed_source_type(_row_get(image, "mode"))
     return {
         "id": pub["id"],
-        # Публично отдаём только сжатые деривативы; оригинал остаётся приватным.
-        "thumbnail_url": f"/api/feed/media/{pub['id']}?thumb=1",
-        "display_url": f"/api/feed/media/{pub['id']}",
-        "image_url": f"/api/feed/media/{pub['id']}",  # back-compat
+        "image_url": f"/api/feed/media/{pub['id']}?variant=large",
+        "thumbnail_url": f"/api/feed/media/{pub['id']}?variant=thumb",
+        "media_status": "ready" if media_ready else "missing",
         "user_id": pub["internal_user_id"],
-        "author_name": author_name,
-        "author_handle": author_handle,
-        "author_avatar": f"/api/feed/avatar/{author_avatar}" if author_avatar else None,
-        "author_type": author_type,
-        "is_seed": is_seed,
-        "is_current_user": is_current_user,
-        "badge": _row_get(pub, "badge"),
-        "category": _row_get(pub, "category"),
+        "author": {
+            "id": pub["internal_user_id"],
+            "displayName": _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"]),
+        },
+        "author_name": _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"]),
         "title": pub["title"],
         "description": pub["description"],
         "prompt": prompt,
         "prompt_visibility": visibility,
         "allow_recreate": bool(pub["allow_recreate"]),
         "style": settings.get("styleName") or None,
-        "model": settings.get("modelProfile") or _row_get(image, "provider") or None,
+        "model": _user_model_name(settings.get("modelProfile") or _row_get(image, "provider")),
         "mode": _row_get(image, "mode"),
-        "aspect_ratio": _feed_aspect_ratio(width, height),
+        "aspect_ratio": native_aspect_ratio,
+        "native_aspect_ratio": native_aspect_ratio,
+        "orientation": _row_get(pub, "orientation") or _feed_orientation(width, height),
+        "source_type": source_type,
+        "source_label": _row_get(pub, "source_label") or _feed_source_label(source_type),
+        "display_policy": _row_get(pub, "display_policy") or FEED_DISPLAY_POLICY,
+        "remix_policy": _row_get(pub, "remix_policy") or ("allowed" if bool(pub["allow_recreate"]) else "disabled"),
+        "category": _row_get(pub, "category"),
+        "challenge": _feed_challenge_payload(conn, _row_get(pub, "category")),
         "resolution": f"{width}×{height}" if width and height else None,
         "seed": settings.get("seed"),
         "created_at": pub["created_at"],
-        "remix_count": recreate_count,
-        "save_count": save_count,
-        "like_count": like_count,
-        "view_count": int(_row_get(pub, "view_count") or 0),
+        "remix_count": counts.get("recreate", 0),
+        "save_count": counts.get("save", 0),
+        "like_count": counts.get("like", 0),
         "is_liked_by_me": "like" in viewer_kinds,
         "is_saved_by_me": "save" in viewer_kinds,
-        "is_mine": is_current_user,
+        "is_disliked_by_me": "dislike" in viewer_kinds,
+        "is_hidden_by_me": "hide" in viewer_kinds,
+        "is_reported_by_me": "report" in viewer_kinds,
+        "is_followed_by_me": is_followed_by_me,
+        "is_mine": viewer_internal_user_id == pub["internal_user_id"],
     }
 
 
@@ -10774,52 +11324,126 @@ def _feed_optional_viewer(request: Request) -> str | None:
         return None
 
 
-def _feed_engagement(item: dict[str, Any]) -> float:
-    """Композитный вес полезности: повтор важнее сохранения важнее лайка."""
-    return (
-        item["like_count"] * 1.0
-        + item["save_count"] * 2.0
-        + item["remix_count"] * 4.0
-        + item["view_count"] * 0.02
-    )
-
-
-def _feed_age_hours(iso: str) -> float:
-    try:
-        then = datetime.fromisoformat(iso)
-        if then.tzinfo is None:
-            then = then.replace(tzinfo=timezone.utc)
-        return max(0.0, (datetime.now(timezone.utc) - then).total_seconds() / 3600.0)
-    except Exception:
-        return 720.0
-
-
 @app.get("/api/feed")
-async def feed_list(request: Request, type: str = "new", limit: int = 30) -> dict[str, Any]:
-    feed_type = type if type in {"new", "top", "foryou"} else "new"
+async def feed_list(
+    request: Request,
+    type: str = "for_you",
+    limit: int = 30,
+    challenge_id: str | None = None,
+) -> dict[str, Any]:
+    aliases = {"all": "for_you", "new": "fresh"}
+    feed_type = aliases.get(type, type)
+    if feed_type not in {"for_you", "fresh", "top", "remix", "challenge", "following"}:
+        feed_type = "for_you"
     limit = max(1, min(int(limit or 30), 60))
     viewer = _feed_optional_viewer(request)
     with db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM feed_publications WHERE status = 'published' ORDER BY created_at DESC LIMIT 200"
-        ).fetchall()
+        if feed_type == "following":
+            if not viewer:
+                rows = []
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT p.* FROM feed_publications p
+                    JOIN feed_author_follows f ON f.author_internal_user_id = p.internal_user_id
+                    WHERE f.follower_internal_user_id = ?
+                      AND p.status = 'published'
+                      AND p.media_ready_at IS NOT NULL
+                      AND p.feed_thumb_name IS NOT NULL
+                      AND p.feed_large_name IS NOT NULL
+                    ORDER BY p.created_at DESC
+                    LIMIT ?
+                    """,
+                    (viewer, limit),
+                ).fetchall()
+        elif feed_type == "challenge":
+            challenge = None
+            if challenge_id:
+                challenge = conn.execute(
+                    "SELECT category FROM challenges WHERE id = ? AND status = 'active'",
+                    (challenge_id,),
+                ).fetchone()
+            category = _row_get(challenge, "category") or "challenge_moscow_2120"
+            rows = conn.execute(
+                """
+                SELECT p.* FROM feed_publications p
+                WHERE p.status = 'published'
+                  AND p.category = ?
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
+                ORDER BY p.created_at DESC
+                LIMIT ?
+                """,
+                (category, limit),
+            ).fetchall()
+        elif feed_type == "remix":
+            rows = conn.execute(
+                """
+                SELECT p.* FROM feed_publications p
+                LEFT JOIN feed_reactions r ON r.publication_id = p.id
+                WHERE p.status = 'published'
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
+                GROUP BY p.id
+                ORDER BY SUM(CASE WHEN r.kind = 'recreate' THEN 1 ELSE 0 END) DESC,
+                         SUM(CASE WHEN r.kind = 'save' THEN 1 ELSE 0 END) DESC,
+                         p.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        elif feed_type == "top":
+            rows = conn.execute(
+                """
+                SELECT p.* FROM feed_publications p
+                LEFT JOIN feed_reactions r ON r.publication_id = p.id
+                WHERE p.status = 'published'
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
+                GROUP BY p.id
+                ORDER BY COUNT(r.publication_id) DESC, p.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        elif feed_type == "for_you":
+            rows = conn.execute(
+                """
+                SELECT p.* FROM feed_publications p
+                LEFT JOIN feed_reactions r ON r.publication_id = p.id
+                WHERE p.status = 'published'
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
+                GROUP BY p.id
+                ORDER BY
+                    SUM(CASE WHEN r.kind = 'recreate' THEN 8 ELSE 0 END)
+                  + SUM(CASE WHEN r.kind = 'save' THEN 4 ELSE 0 END)
+                  + SUM(CASE WHEN r.kind = 'like' THEN 1 ELSE 0 END) DESC,
+                  CASE WHEN p.category = 'challenge_moscow_2120' THEN 1 ELSE 0 END DESC,
+                  p.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM feed_publications
+                WHERE status = 'published'
+                  AND media_ready_at IS NOT NULL
+                  AND feed_thumb_name IS NOT NULL
+                  AND feed_large_name IS NOT NULL
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
         items = [_feed_item_payload(conn, pub, viewer) for pub in rows]
-    if feed_type == "new":
-        items.sort(key=lambda i: i["created_at"], reverse=True)
-    elif feed_type == "top":
-        # Популярное: чистая вовлечённость (при равенстве — свежее выше).
-        items.sort(key=lambda i: (_feed_engagement(i), i["created_at"]), reverse=True)
-    else:
-        # Для вас: вовлечённость с затуханием по свежести — лента выглядит живой,
-        # не отсортированной по номеру файла.
-        import math as _math
-
-        def _foryou_score(i: dict[str, Any]) -> float:
-            freshness = _math.exp(-_feed_age_hours(i["created_at"]) / 480.0)
-            return (_feed_engagement(i) + 8.0) * (0.35 + 0.65 * freshness)
-
-        items.sort(key=_foryou_score, reverse=True)
-    return {"ok": True, "type": feed_type, "items": items[:limit]}
+    return {"ok": True, "type": feed_type, "items": items}
 
 
 @app.post("/api/feed/publications")
@@ -10839,7 +11463,7 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
     if visibility not in FEED_PROMPT_VISIBILITIES:
         raise HTTPException(400, "invalid promptVisibility")
     with db() as conn:
-        image = conn.execute("SELECT id, user_id FROM images WHERE id = ?", (image_id,)).fetchone()
+        image = conn.execute("SELECT id, user_id, url, width, height, mode FROM images WHERE id = ?", (image_id,)).fetchone()
     # Не раскрываем существование чужих изображений: и «нет», и «не твоё» → 404.
     # security_event пишем отдельным соединением ДО raise — with-блок с raise
     # внутри откатил бы запись (паттерн require_trusted_admin).
@@ -10858,19 +11482,57 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
             "SELECT id FROM feed_publications WHERE image_id = ?", (image_id,)
         ).fetchone()
         now = datetime.now(timezone.utc).isoformat()
+        pub_id = existing["id"] if existing else uuid.uuid4().hex
+        try:
+            assets = create_feed_assets(pub_id, image["url"])
+        except FileNotFoundError:
+            raise HTTPException(404, "Image file not found")
+        except Exception:
+            raise HTTPException(400, "Image cannot be prepared for feed")
+        source_type = _feed_source_type(_row_get(image, "mode"))
+        source_label = _feed_source_label(source_type)
+        remix_policy = "allowed" if allow_recreate else "disabled"
         if existing:
             conn.execute(
                 "UPDATE feed_publications SET title = ?, description = ?, prompt_visibility = ?, "
-                "allow_recreate = ?, status = 'published' WHERE id = ?",
-                (title, description, visibility, int(allow_recreate), existing["id"]),
+                "allow_recreate = ?, status = 'published', feed_thumb_name = ?, feed_large_name = ?, "
+                "feed_thumb_width = ?, feed_thumb_height = ?, feed_thumb_bytes = ?, "
+                "feed_large_width = ?, feed_large_height = ?, feed_large_bytes = ?, "
+                "media_ready_at = ?, media_error = NULL, native_aspect_ratio = ?, orientation = ?, "
+                "source_type = ?, source_label = ?, display_policy = ?, remix_policy = ?, updated_at = ? "
+                "WHERE id = ?",
+                (
+                    title,
+                    description,
+                    visibility,
+                    int(allow_recreate),
+                    assets.feed_thumb_name,
+                    assets.feed_large_name,
+                    assets.feed_thumb_width,
+                    assets.feed_thumb_height,
+                    assets.feed_thumb_bytes,
+                    assets.feed_large_width,
+                    assets.feed_large_height,
+                    assets.feed_large_bytes,
+                    now,
+                    assets.native_aspect_ratio,
+                    assets.orientation,
+                    source_type,
+                    source_label,
+                    FEED_DISPLAY_POLICY,
+                    remix_policy,
+                    now,
+                    pub_id,
+                ),
             )
-            pub_id = existing["id"]
         else:
-            pub_id = uuid.uuid4().hex
             conn.execute(
                 "INSERT INTO feed_publications (id, image_id, internal_user_id, legacy_user_id, title, "
-                "description, prompt_visibility, allow_recreate, status, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', ?)",
+                "description, prompt_visibility, allow_recreate, status, created_at, feed_thumb_name, "
+                "feed_large_name, feed_thumb_width, feed_thumb_height, feed_thumb_bytes, "
+                "feed_large_width, feed_large_height, feed_large_bytes, media_ready_at, media_error, "
+                "native_aspect_ratio, orientation, source_type, source_label, display_policy, remix_policy, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     pub_id,
                     image_id,
@@ -10881,10 +11543,24 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
                     visibility,
                     int(allow_recreate),
                     now,
+                    assets.feed_thumb_name,
+                    assets.feed_large_name,
+                    assets.feed_thumb_width,
+                    assets.feed_thumb_height,
+                    assets.feed_thumb_bytes,
+                    assets.feed_large_width,
+                    assets.feed_large_height,
+                    assets.feed_large_bytes,
+                    now,
+                    assets.native_aspect_ratio,
+                    assets.orientation,
+                    source_type,
+                    source_label,
+                    FEED_DISPLAY_POLICY,
+                    remix_policy,
+                    now,
                 ),
             )
-        # Сжатые деривативы (feed_thumb/feed_large) для новой/пере-публикации.
-        feed_build_derivatives(conn, pub_id, image_id)
         pub = conn.execute("SELECT * FROM feed_publications WHERE id = ?", (pub_id,)).fetchone()
         item = _feed_item_payload(conn, pub, user["internal_user_id"])
     return {"ok": True, "publication": item}
@@ -10934,6 +11610,114 @@ async def feed_unsave(publication_id: str, request: Request) -> dict[str, Any]:
     return _feed_reaction_toggle(request, publication_id, "save", False)
 
 
+@app.post("/api/feed/publications/{publication_id}/dislike")
+async def feed_dislike(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "dislike", True)
+
+
+@app.delete("/api/feed/publications/{publication_id}/dislike")
+async def feed_undislike(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "dislike", False)
+
+
+@app.post("/api/feed/publications/{publication_id}/hide")
+async def feed_hide(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "hide", True)
+
+
+@app.delete("/api/feed/publications/{publication_id}/hide")
+async def feed_unhide(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "hide", False)
+
+
+@app.post("/api/feed/publications/{publication_id}/report")
+async def feed_report(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "report", True)
+
+
+@app.post("/api/feed/authors/{author_id}/follow")
+async def feed_follow_author(author_id: str, request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    if author_id == user["internal_user_id"]:
+        raise HTTPException(400, "Cannot follow yourself")
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM feed_publications WHERE internal_user_id = ? AND status = 'published' LIMIT 1",
+            (author_id,),
+        ).fetchone()
+        if exists is None:
+            raise HTTPException(404, "Author not found")
+        conn.execute(
+            "INSERT OR IGNORE INTO feed_author_follows (follower_internal_user_id, author_internal_user_id, created_at) "
+            "VALUES (?, ?, ?)",
+            (user["internal_user_id"], author_id, now),
+        )
+    return {"ok": True, "authorId": author_id, "following": True}
+
+
+@app.delete("/api/feed/authors/{author_id}/follow")
+async def feed_unfollow_author(author_id: str, request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    with db() as conn:
+        conn.execute(
+            "DELETE FROM feed_author_follows WHERE follower_internal_user_id = ? AND author_internal_user_id = ?",
+            (user["internal_user_id"], author_id),
+        )
+    return {"ok": True, "authorId": author_id, "following": False}
+
+
+@app.get("/api/feed/authors/{author_id}/publications")
+async def feed_author_publications(
+    author_id: str,
+    request: Request,
+    limit: int = 18,
+) -> dict[str, Any]:
+    limit = max(1, min(int(limit or 18), 60))
+    viewer = _feed_optional_viewer(request)
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM feed_publications
+            WHERE internal_user_id = ?
+              AND status = 'published'
+              AND media_ready_at IS NOT NULL
+              AND feed_thumb_name IS NOT NULL
+              AND feed_large_name IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (author_id, limit),
+        ).fetchall()
+        items = [_feed_item_payload(conn, pub, viewer) for pub in rows]
+    return {"ok": True, "authorId": author_id, "items": items}
+
+
+@app.get("/api/feed/challenges")
+async def feed_challenges(request: Request) -> dict[str, Any]:
+    viewer = _feed_optional_viewer(request)
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.*, COUNT(p.id) AS publication_count
+            FROM challenges c
+            LEFT JOIN feed_publications p
+              ON p.category = c.category
+             AND p.status = 'published'
+             AND p.media_ready_at IS NOT NULL
+            WHERE c.status = 'active'
+            GROUP BY c.id
+            ORDER BY c.ends_at ASC
+            """
+        ).fetchall()
+        challenges = []
+        for row in rows:
+            payload = _feed_challenge_payload(conn, row["category"]) or {}
+            payload["publicationCount"] = int(row["publication_count"] or 0)
+            challenges.append(payload)
+    return {"ok": True, "viewer": viewer, "items": challenges}
+
+
 @app.post("/api/feed/publications/{publication_id}/recreate")
 async def feed_recreate_mark(publication_id: str, request: Request) -> dict[str, Any]:
     """Счётчик «Повторить» (remix_count). Только отметка события — генерация
@@ -10941,60 +11725,68 @@ async def feed_recreate_mark(publication_id: str, request: Request) -> dict[str,
     return _feed_reaction_toggle(request, publication_id, "recreate", True)
 
 
-def _media_type_for(path: "Path") -> str:
-    ext = path.suffix.lower()
-    return {
-        ".webp": "image/webp",
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-    }.get(ext, "application/octet-stream")
-
-
-def _safe_media_file(base: "Path", name: str | None) -> "Path | None":
-    """Разрешить имя файла строго внутри base (защита от path traversal)."""
-    if not name:
-        return None
-    path = (base / name).resolve()
-    try:
-        path.relative_to(base.resolve())
-    except ValueError:
-        return None
-    return path if path.exists() else None
-
-
-@app.get("/api/feed/media/{publication_id}")
-async def feed_media(publication_id: str, request: Request, thumb: int = 0) -> FileResponse:
-    """Файл ОПУБЛИКОВАННОЙ работы. Публично отдаём СЖАТЫЕ деривативы
-    (feed_thumb/feed_large из media/feed); оригинал (media/, /api/media)
-    остаётся приватным. Fallback на исходник только если деривативов ещё нет."""
+@app.post("/api/feed/publications/{publication_id}/remix/start")
+async def feed_remix_start(publication_id: str, request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
     with db() as conn:
         pub = conn.execute(
-            "SELECT image_id, feed_thumb_name, feed_large_name FROM feed_publications "
-            "WHERE id = ? AND status = 'published'",
+            "SELECT * FROM feed_publications WHERE id = ? AND status = 'published'",
             (publication_id,),
         ).fetchone()
         if pub is None:
             raise HTTPException(404, "Publication not found")
-        derivative = _row_get(pub, "feed_thumb_name") if thumb else _row_get(pub, "feed_large_name")
-        path = _safe_media_file(_feed_media_dir(), derivative)
-        if path is None:
-            # Деривативов нет — отдаём исходник (thumbnail для сетки, url для detail).
-            image = conn.execute(
-                "SELECT url, thumbnail_url FROM images WHERE id = ?",
-                (pub["image_id"],),
-            ).fetchone()
-            name = _feed_media_name(_row_get(image, "thumbnail_url") if thumb else _row_get(image, "url"))
-            path = _safe_media_file(MEDIA, name)
-    if path is None:
+        item = _feed_item_payload(conn, pub, user["internal_user_id"])
+        conn.execute(
+            "INSERT OR IGNORE INTO feed_reactions (publication_id, internal_user_id, kind, created_at) "
+            "VALUES (?, ?, 'recreate', ?)",
+            (publication_id, user["internal_user_id"], datetime.now(timezone.utc).isoformat()),
+        )
+    return {
+        "ok": True,
+        "remixSessionId": uuid.uuid4().hex,
+        "publication": item,
+        "mode": item["mode"],
+        "prompt": item["prompt"],
+        "style": item["style"],
+        "sourceImageUrl": item["image_url"] if item["allow_recreate"] else None,
+        "aspectRatio": item["native_aspect_ratio"],
+        "lockedPrompt": item["prompt_visibility"] == "hidden",
+    }
+
+
+@app.get("/api/feed/media/{publication_id}")
+async def feed_media(publication_id: str, request: Request, variant: str = "large", thumb: int = 0) -> FileResponse:
+    """Файл ОПУБЛИКОВАННОЙ работы. Доступен любому (публичная лента) — но только
+    через публикацию: приватный /api/media остаётся закрытым как был."""
+    selected = "thumb" if int(thumb or 0) else (variant or "large").strip().lower()
+    if selected not in {"thumb", "large"}:
+        raise HTTPException(400, "Invalid feed media variant")
+    with db() as conn:
+        pub = conn.execute(
+            """
+            SELECT feed_thumb_name, feed_large_name FROM feed_publications
+            WHERE id = ?
+              AND status = 'published'
+              AND media_ready_at IS NOT NULL
+              AND feed_thumb_name IS NOT NULL
+              AND feed_large_name IS NOT NULL
+            """,
+            (publication_id,),
+        ).fetchone()
+        if pub is None:
+            raise HTTPException(404, "Publication not found")
+    name = _row_get(pub, "feed_thumb_name") if selected == "thumb" else _row_get(pub, "feed_large_name")
+    if not name:
         raise HTTPException(404, "Image file not found")
-    return FileResponse(path, media_type=_media_type_for(path))
-
-
-@app.get("/api/feed/avatar/{name}")
-async def feed_avatar(name: str) -> FileResponse:
-    """Публичные аватарки seed-авторов (media/feed/avatars). Только внутри каталога."""
-    path = _safe_media_file(_feed_media_dir() / "avatars", name)
-    if path is None:
-        raise HTTPException(404, "Avatar not found")
-    return FileResponse(path, media_type=_media_type_for(path))
+    path = (MEDIA / name).resolve()
+    try:
+        path.relative_to(MEDIA.resolve())
+    except ValueError:
+        raise HTTPException(404, "Image file not found")
+    if not path.exists():
+        raise HTTPException(404, "Image file not found")
+    return FileResponse(
+        path,
+        media_type="image/webp",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )

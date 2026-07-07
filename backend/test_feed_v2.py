@@ -6,10 +6,25 @@ is served only for published items; init_db stays idempotent with feed tables.
 """
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
+import db_schema_audit
+import feed_media_audit
+import feed_media_migrate
+import feed_seed_demo_migrate
+import gallery_original_audit
+import gallery_original_migrate
+import job_media_ref_repair
+import media_cleanup_apply
+import media_health_check
+import media_cleanup_plan
+import media_storage_audit
 import main
+import user_gallery_link_audit
 
 
 @pytest.fixture
@@ -39,14 +54,20 @@ def make_user(iuid: str, legacy: str, display_name: str = "Автор Теста
 
 def make_image(image_id: str, legacy_user: str, prompt: str = "секретный промпт про маяк") -> None:
     media_file = main.MEDIA / f"{image_id}.png"
-    media_file.write_bytes(b"\x89PNG fake")
+    image = Image.new("RGB", (1200, 800), (70, 120, 180))
+    pixels = image.load()
+    for y in range(800):
+        for x in range(1200):
+            pixels[x, y] = ((x * 7 + y * 3) % 256, (x * 5 + y * 11) % 256, (x * 13 + y * 2) % 256)
+    image.save(media_file, "PNG")
     thumb = main.MEDIA / f"{image_id}_thumb.webp"
-    thumb.write_bytes(b"RIFF fake")
+    image.thumbnail((512, 512))
+    image.save(thumb, "WEBP", quality=88)
     with main.db() as conn:
         conn.execute(
             "INSERT INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider, "
             "prompt_original, settings_json, created_at) "
-            "VALUES (?, ?, 'job-x', ?, ?, 1024, 1024, 'text_to_image', 'comfyui', ?, '{\"seed\": 42}', '2026-07-03')",
+            "VALUES (?, ?, 'job-x', ?, ?, 1200, 800, 'text_to_image', 'comfyui', ?, '{\"seed\": 42}', '2026-07-03')",
             (image_id, legacy_user, f"/api/media/{image_id}.png?userId={legacy_user}",
              f"/api/media/{image_id}_thumb.webp?userId={legacy_user}", prompt),
         )
@@ -66,6 +87,45 @@ def test_publish_requires_session(temp_db):
     with TestClient(main.app) as client:
         r = client.post("/api/feed/publications", json={"imageId": "img-1", "title": "X"})
         assert r.status_code == 401
+
+
+def test_gallery_page_shell_serves_installed_visual_file(temp_db):
+    with TestClient(main.app) as client:
+        r = client.get("/gallery")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert "no-store" in r.headers["cache-control"]
+        assert "/api/gallery/page" in r.text
+        assert "data:image" not in r.text
+
+
+def test_home_page_serves_gallery_as_primary_page(temp_db):
+    with TestClient(main.app) as client:
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "/api/gallery/page" in r.text
+        assert "galleryGrid" in r.text
+
+
+def test_feed_page_shell_serves_installed_visual_file(temp_db):
+    with TestClient(main.app) as client:
+        r = client.get("/feed")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert "no-store" in r.headers["cache-control"]
+        assert "/api/feed" in r.text
+        assert "/api/gallery/page" not in r.text
+        assert "data:image" not in r.text
+        assert "return 6" not in r.text
+        assert "mode-tile" in r.text
+        assert "rail-challenge" in r.text
+        assert "/static/feed/assets/mode_text.webp" in r.text
+        assert 'data-action="challenge"' in r.text
+        assert "downloadCurrent" in r.text
+
+        asset = client.get("/static/feed/assets/mode_text.webp")
+        assert asset.status_code == 200
+        assert asset.headers["content-type"] == "image/webp"
 
 
 def test_publish_foreign_image_denied_and_logged(temp_db):
@@ -107,8 +167,11 @@ def test_feed_public_read_and_prompt_visibility(temp_db):
         assert items["Скрытая"]["prompt"] is None
         assert "секрет" not in r.text
         assert items["Открытая"]["is_liked_by_me"] is False
-        assert items["Открытая"]["resolution"] == "1024×1024"
+        assert items["Открытая"]["resolution"] == "1200×800"
         assert items["Открытая"]["seed"] == 42
+        assert items["Открытая"]["media_status"] == "ready"
+        assert items["Открытая"]["native_aspect_ratio"] == "3:2"
+        assert items["Открытая"]["orientation"] == "landscape"
 
 
 def test_reactions_require_session_and_toggle(temp_db):
@@ -134,6 +197,126 @@ def test_reactions_require_session_and_toggle(temp_db):
         assert r.json()["publication"]["remix_count"] == 1
 
 
+def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
+    with TestClient(main.app) as client:
+        author_token = make_user("iuid-author-tabs", "web_author_tabs", display_name="Тимур Ким")
+        viewer_token = make_user("iuid-viewer-tabs", "web_viewer_tabs", display_name="Зритель")
+        make_image("img-tabs-a", "web_author_tabs", prompt="Москва 2120, город будущего")
+        make_image("img-tabs-b", "web_author_tabs", prompt="Неоновый двор")
+        pub_a = publish(client, author_token, "img-tabs-a", title="Москва 2120")
+        pub_b = publish(client, author_token, "img-tabs-b", title="Двор")
+        with main.db() as conn:
+            conn.execute(
+                "UPDATE feed_publications SET category = 'challenge_moscow_2120' WHERE id = ?",
+                (pub_a["id"],),
+            )
+
+        challenge = client.get("/api/feed?type=challenge", headers=bearer(viewer_token)).json()
+        assert challenge["type"] == "challenge"
+        assert [item["id"] for item in challenge["items"]] == [pub_a["id"]]
+        assert challenge["items"][0]["challenge"]["id"] == "moscow_2120_week"
+
+        remix_started = client.post(
+            f"/api/feed/publications/{pub_a['id']}/remix/start",
+            headers=bearer(viewer_token),
+        )
+        assert remix_started.status_code == 200
+        remix_body = remix_started.json()
+        assert remix_body["ok"] is True
+        assert remix_body["prompt"] == "Москва 2120, город будущего"
+        remix_feed = client.get("/api/feed?type=remix", headers=bearer(viewer_token)).json()
+        assert remix_feed["items"][0]["id"] == pub_a["id"]
+
+        followed = client.post(
+            f"/api/feed/authors/{pub_a['user_id']}/follow",
+            headers=bearer(viewer_token),
+        )
+        assert followed.status_code == 200
+        following = client.get("/api/feed?type=following", headers=bearer(viewer_token)).json()
+        assert {item["id"] for item in following["items"]} == {pub_a["id"], pub_b["id"]}
+        assert all(item["is_followed_by_me"] for item in following["items"])
+
+        author_items = client.get(
+            f"/api/feed/authors/{pub_a['user_id']}/publications",
+            headers=bearer(viewer_token),
+        ).json()
+        assert {item["id"] for item in author_items["items"]} == {pub_a["id"], pub_b["id"]}
+        assert all(item["author"]["displayName"] == "Тимур Ким" for item in author_items["items"])
+
+        disliked = client.post(
+            f"/api/feed/publications/{pub_b['id']}/dislike",
+            headers=bearer(viewer_token),
+        )
+        assert disliked.status_code == 200
+        assert disliked.json()["publication"]["is_disliked_by_me"] is True
+        hidden = client.post(
+            f"/api/feed/publications/{pub_b['id']}/hide",
+            headers=bearer(viewer_token),
+        )
+        assert hidden.status_code == 200
+        assert hidden.json()["publication"]["is_hidden_by_me"] is True
+        reported = client.post(
+            f"/api/feed/publications/{pub_b['id']}/report",
+            headers=bearer(viewer_token),
+        )
+        assert reported.status_code == 200
+        assert reported.json()["publication"]["is_reported_by_me"] is True
+
+        challenges = client.get("/api/feed/challenges", headers=bearer(viewer_token)).json()
+        assert challenges["ok"] is True
+        assert challenges["items"][0]["id"] == "moscow_2120_week"
+        assert challenges["items"][0]["publicationCount"] >= 1
+
+
+def test_generate_rejects_missing_media_input_before_job_created(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-gen-missing", "web_gen_missing")
+        with main.db() as conn:
+            before_jobs = conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"]
+            before_balance = conn.execute("SELECT token_balance FROM users WHERE id = 'web_gen_missing'").fetchone()[0]
+        r = client.post(
+            "/api/generate",
+            json={
+                "mode": "image_to_image",
+                "provider": "comfyui",
+                "prompt": "test",
+                "inputImage1": "/api/media/missing-input.png?userId=web_gen_missing",
+            },
+            headers=bearer(token),
+        )
+        assert r.status_code == 400
+        assert r.json()["detail"]["code"] == "input_media_missing"
+        with main.db() as conn:
+            after_jobs = conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"]
+            after_balance = conn.execute("SELECT token_balance FROM users WHERE id = 'web_gen_missing'").fetchone()[0]
+        assert after_jobs == before_jobs
+        assert after_balance == before_balance
+
+
+def test_generate_rejects_foreign_media_input(temp_db):
+    with TestClient(main.app) as client:
+        make_user("iuid-gen-owner", "web_gen_owner")
+        make_user("iuid-gen-other", "web_gen_other")
+        make_image("img-gen-owner", "web_gen_owner")
+        with main.db() as conn:
+            before_jobs = conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"]
+        r = client.post(
+            "/api/generate",
+            json={
+                "mode": "image_to_image",
+                "provider": "comfyui",
+                "prompt": "test",
+                "inputImage1": "/api/media/img-gen-owner.png?userId=web_gen_owner",
+            },
+            headers=bearer(main.create_auth_session("iuid-gen-other", "web_gen_other", provider="web", platform="web")["session_token"]),
+        )
+        assert r.status_code == 400
+        assert r.json()["detail"]["code"] == "input_media_unavailable"
+        with main.db() as conn:
+            after_jobs = conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"]
+        assert after_jobs == before_jobs
+
+
 def test_feed_media_served_only_for_published(temp_db):
     with TestClient(main.app) as client:
         token = make_user("iuid-c", "web_c")
@@ -143,12 +326,447 @@ def test_feed_media_served_only_for_published(temp_db):
         # Публичный доступ к опубликованному файлу (без сессии, без владения).
         r = anon.get(f"/api/feed/media/{pub['id']}")
         assert r.status_code == 200
+        assert r.headers["content-type"] == "image/webp"
         r = anon.get(f"/api/feed/media/{pub['id']}?thumb=1")
         assert r.status_code == 200
+        assert r.headers["content-type"] == "image/webp"
+        r = anon.get(f"/api/feed/media/{pub['id']}?variant=thumb")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/webp"
         # Несуществующая публикация — 404.
         assert anon.get("/api/feed/media/nope").status_code == 404
         # Приватный /api/media как был: без сессии чужой файл не отдаётся
         # (легаси-фолбэк ?userId в проде закрыт trusted-сессией — см. gallery).
+
+
+def test_gallery_delete_retires_feed_publication_and_variants(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-delete-feed", "web_delete_feed")
+        make_image("img-delete-feed", "web_delete_feed")
+        pub = publish(client, token, "img-delete-feed")
+        with main.db() as conn:
+            row = conn.execute(
+                "SELECT feed_thumb_name, feed_large_name FROM feed_publications WHERE id = ?",
+                (pub["id"],),
+            ).fetchone()
+        thumb = main.MEDIA / row["feed_thumb_name"]
+        large = main.MEDIA / row["feed_large_name"]
+        assert thumb.exists()
+        assert large.exists()
+
+        r = client.delete("/api/gallery/img-delete-feed", headers=bearer(token))
+        assert r.status_code == 200
+        assert not thumb.exists()
+        assert not large.exists()
+        assert client.get(f"/api/feed/media/{pub['id']}?variant=thumb").status_code == 404
+        feed = client.get("/api/feed?type=new")
+        assert feed.status_code == 200
+        assert all(item["id"] != pub["id"] for item in feed.json()["items"])
+        with main.db() as conn:
+            row = conn.execute(
+                "SELECT status, feed_thumb_name, feed_large_name, media_ready_at, media_error "
+                "FROM feed_publications WHERE id = ?",
+                (pub["id"],),
+            ).fetchone()
+        assert row["status"] == "hidden"
+        assert row["feed_thumb_name"] is None
+        assert row["feed_large_name"] is None
+        assert row["media_ready_at"] is None
+        assert row["media_error"] == "source_image_deleted"
+
+
+def test_gallery_page_returns_visual_shell_contract(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-gallery-page", "web_gallery_page")
+        make_image("img-gallery-page", "web_gallery_page", prompt="город на рассвете")
+        pub = publish(client, token, "img-gallery-page", title="Рассвет")
+        client.post(f"/api/feed/publications/{pub['id']}/like", headers=bearer(token))
+
+        r = client.get("/api/gallery/page", headers=bearer(token))
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["ok"] is True
+        assert data["limits"]["originals"]["used"] == 1
+        assert data["limits"]["feed"]["used"] == 1
+        assert data["limits"]["favorites"]["limit"] >= 0
+
+        item = data["items"][0]
+        assert item["id"] == "img-gallery-page"
+        assert item["prompt"] == "город на рассвете"
+        assert item["published"] is True
+        assert item["feedPublicationId"] == pub["id"]
+        assert item["modeLabel"] == "Текст -> Изо"
+        assert item["aspectRatio"] == "3:2"
+        assert item["src"].startswith("/api/media/")
+
+        feed_item = data["feedItems"][0]
+        assert feed_item["id"] == "img-gallery-page"
+        assert feed_item["src"].endswith(f"/api/feed/media/{pub['id']}?variant=thumb")
+        assert feed_item["viewerSrc"].endswith(f"/api/feed/media/{pub['id']}?variant=large")
+        assert feed_item["likes"] == 1
+
+
+def test_feed_media_audit_flags_published_deleted_source(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-audit-deleted", "web_audit_deleted")
+        make_image("img-audit-deleted", "web_audit_deleted")
+        pub = publish(client, token, "img-audit-deleted")
+        with main.db() as conn:
+            conn.execute(
+                "UPDATE images SET deleted_at = '2026-07-07T00:00:00+00:00' WHERE id = ?",
+                ("img-audit-deleted",),
+            )
+
+    report = feed_media_audit.audit_feed_media(item_limit=10)
+    assert report["published_deleted_sources"] == [
+        {"id": pub["id"], "image_id": "img-audit-deleted", "deleted_at": "2026-07-07T00:00:00+00:00"}
+    ]
+    assert "published_deleted_sources" in report["issues"]
+
+
+def test_feed_media_audit_flags_published_missing_source(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-audit-missing", "web_audit_missing")
+        make_image("img-audit-missing", "web_audit_missing")
+        pub = publish(client, token, "img-audit-missing")
+        with main.db() as conn:
+            conn.execute("DELETE FROM images WHERE id = ?", ("img-audit-missing",))
+
+    report = feed_media_audit.audit_feed_media(item_limit=10)
+    assert report["published_missing_sources"] == [{"id": pub["id"], "image_id": "img-audit-missing"}]
+    assert "published_missing_sources" in report["issues"]
+
+
+def test_media_health_check_rolls_up_nested_issues(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-health", "web_health")
+        make_image("img-health", "web_health")
+        publish(client, token, "img-health")
+    ok = media_health_check.run_media_health_check(item_limit=10)
+    assert ok["status"] == "ok", ok["issues"]
+    assert ok["issues"] == []
+
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE images SET deleted_at = '2026-07-07T00:00:00+00:00' WHERE id = ?",
+            ("img-health",),
+        )
+    broken = media_health_check.run_media_health_check(item_limit=10)
+    assert broken["status"] == "issues"
+    assert "feed:published_deleted_sources" in broken["issues"]
+
+
+def test_publish_creates_feed_variants_not_original_fallback(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-d", "web_d")
+        make_image("img-d", "web_d")
+        original = main.MEDIA / "img-d.png"
+        pub = publish(client, token, "img-d")
+        assert pub["image_url"].endswith(f"/api/feed/media/{pub['id']}?variant=large")
+        assert pub["thumbnail_url"].endswith(f"/api/feed/media/{pub['id']}?variant=thumb")
+        with main.db() as conn:
+            row = conn.execute(
+                "SELECT feed_thumb_name, feed_large_name, feed_thumb_bytes, feed_large_bytes, "
+                "native_aspect_ratio, orientation, source_type, display_policy "
+                "FROM feed_publications WHERE id = ?",
+                (pub["id"],),
+            ).fetchone()
+        thumb = main.MEDIA / row["feed_thumb_name"]
+        large = main.MEDIA / row["feed_large_name"]
+        assert thumb.exists()
+        assert large.exists()
+        assert thumb.suffix == ".webp"
+        assert large.suffix == ".webp"
+        assert row["feed_thumb_bytes"] == thumb.stat().st_size
+        assert row["feed_large_bytes"] == large.stat().st_size
+        assert row["feed_large_name"] != original.name
+        with Image.open(large) as large_image:
+            assert max(large_image.size) <= main.FEED_LARGE_MAX_SIDE
+        with Image.open(thumb) as thumb_image:
+            assert max(thumb_image.size) <= main.FEED_THUMB_MAX_SIDE
+        assert row["native_aspect_ratio"] == "3:2"
+        assert row["orientation"] == "landscape"
+        assert row["source_type"] == "text_to_image"
+        assert row["display_policy"] == "preserve_aspect_ratio"
+
+
+def test_feed_ignores_published_without_ready_media(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-ready", "web_ready")
+        make_image("img-ready", "web_ready")
+        pub = publish(client, token, "img-ready", title="Готовая")
+        with main.db() as conn:
+            conn.execute(
+                "UPDATE feed_publications SET media_ready_at = NULL, media_error = 'test missing media' WHERE id = ?",
+                (pub["id"],),
+            )
+        r = client.get("/api/feed?type=new")
+        assert r.status_code == 200
+        assert all(item["id"] != pub["id"] for item in r.json()["items"])
+        assert client.get(f"/api/feed/media/{pub['id']}?variant=thumb").status_code == 404
+
+
+def test_feed_media_migrate_filters_targeted_rows(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-migrate", "web_migrate")
+        make_image("img-migrate-ready", "web_migrate")
+        make_image("img-migrate-missing", "web_migrate")
+        ready_pub = publish(client, token, "img-migrate-ready", title="Ready")
+        missing_pub = publish(client, token, "img-migrate-missing", title="Missing")
+        with main.db() as conn:
+            conn.execute(
+                "UPDATE images SET url = ? WHERE id = ?",
+                ("/api/media/does-not-exist.png?userId=web_migrate", "img-migrate-missing"),
+            )
+            conn.execute(
+                "UPDATE feed_publications SET status = 'media_missing', media_ready_at = NULL WHERE id = ?",
+                (missing_pub["id"],),
+            )
+
+    one = feed_media_migrate.migrate_feed_media(apply=False, publication_ids=[ready_pub["id"]])
+    assert one["filters"]["publication_ids"] == [ready_pub["id"]]
+    assert [item["id"] for item in one["items"]] == [ready_pub["id"]]
+    assert one["skipped"] == 1
+    assert one["media_missing"] == 0
+
+    missing = feed_media_migrate.migrate_feed_media(apply=False, only_missing=True)
+    assert missing["filters"]["only_missing"] is True
+    assert [item["id"] for item in missing["items"]] == [missing_pub["id"]]
+    assert missing["media_missing"] == 1
+
+
+def test_media_storage_audit_reports_unreferenced_files(temp_db):
+    make_user("iuid-storage", "web_storage")
+    make_image("img-storage", "web_storage")
+    orphan = main.MEDIA / "orphan-upload.tmp"
+    orphan.write_bytes(b"unused")
+
+    report = media_storage_audit.audit_media_storage(item_limit=10)
+    assert report["active_referenced"]["count"] >= 2
+    assert report["missing_active_refs"] == []
+    assert any(item["file"] == "orphan-upload.tmp" for item in report["largest_unreferenced"])
+    assert report["unreferenced"]["bytes"] >= len(b"unused")
+
+
+def test_gallery_original_audit_reports_optimization_candidates(temp_db):
+    make_user("iuid-gallery-originals", "web_gallery_originals")
+    make_image("img-gallery-originals", "web_gallery_originals")
+
+    report = gallery_original_audit.audit_gallery_originals(item_limit=10)
+    assert report["issues"] == []
+    assert report["totals"]["active_originals"] >= 1
+    candidate = next(item for item in report["candidates"] if item["image_id"] == "img-gallery-originals")
+    assert candidate["file"] == "img-gallery-originals.png"
+    assert "legacy_format" in candidate["reasons"]
+
+
+def test_gallery_original_migrate_dry_run_excludes_seed_by_default(temp_db):
+    make_user("iuid-gallery-migrate", "web_gallery_migrate")
+    make_image("img-gallery-migrate", "web_gallery_migrate")
+    make_image("seed_izo_migrate", "seed_editorial")
+
+    report = gallery_original_migrate.migrate_gallery_originals(apply=False, item_limit=20)
+    files = {item["source"] for item in report["items"]}
+    skipped = {item["file"]: item["skip_reason"] for item in report["skipped"] if item.get("file")}
+    assert "img-gallery-migrate.png" in files
+    assert "seed_izo_migrate.png" not in files
+    assert skipped["seed_izo_migrate.png"] == "seed_not_requested"
+    assert report["changes_db"] is False
+
+
+def test_gallery_original_migrate_apply_updates_url_without_deleting_source(temp_db):
+    make_user("iuid-gallery-apply", "web_gallery_apply")
+    make_image("img-gallery-apply", "web_gallery_apply")
+    source = main.MEDIA / "img-gallery-apply.png"
+
+    report = gallery_original_migrate.migrate_gallery_originals(apply=True, item_limit=1)
+    item = report["items"][0]
+    target = main.MEDIA / item["target"]
+    with main.db() as conn:
+        row = conn.execute("SELECT url, width, height FROM images WHERE id = 'img-gallery-apply'").fetchone()
+
+    assert report["changes_db"] is True
+    assert target.exists()
+    assert target.suffix == ".webp"
+    assert row["url"].startswith("/api/media/")
+    assert row["url"].split("?", 1)[0].endswith(".webp")
+    assert row["width"] <= main.GALLERY_IMAGE_MAX_SIDE
+    assert row["height"] <= main.GALLERY_IMAGE_MAX_SIDE
+    assert source.exists()
+
+
+def test_gallery_original_migrate_updates_thumbnail_when_it_matches_source(temp_db):
+    make_image("seed_izo_thumb_match", "seed_editorial")
+    source = main.MEDIA / "seed_izo_thumb_match.png"
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE images SET thumbnail_url = url WHERE id = ?",
+            ("seed_izo_thumb_match",),
+        )
+
+    report = gallery_original_migrate.migrate_gallery_originals(
+        apply=True,
+        include_seed=True,
+        delete_source=True,
+        item_limit=1,
+    )
+    item = report["items"][0]
+    with main.db() as conn:
+        row = conn.execute(
+            "SELECT url, thumbnail_url FROM images WHERE id = ?",
+            ("seed_izo_thumb_match",),
+        ).fetchone()
+
+    assert item["source_deleted"] is True
+    assert not source.exists()
+    assert row["url"].split("?", 1)[0].endswith(".webp")
+    assert row["thumbnail_url"] == row["url"]
+    assert (main.MEDIA / item["target"]).exists()
+
+
+def test_media_storage_audit_protects_job_settings_refs(temp_db):
+    make_user("iuid-job-ref", "web_job_ref")
+    make_image("img-job-ref", "web_job_ref")
+    ref = main.MEDIA / "job-reference.png"
+    ref.write_bytes(b"reference")
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id, user_id, mode, provider, status, prompt_original, settings_json, created_at) "
+            "VALUES ('job-ref', 'web_job_ref', 'image_to_image', 'comfyui', 'completed', 'prompt', ?, '2026-07-07')",
+            ('{"inputImage": "job-reference.png", "nested": {"url": "/api/media/job-reference.png?userId=web_job_ref"}}',),
+        )
+
+    report = media_storage_audit.audit_media_storage(item_limit=20)
+    assert report["job_referenced"]["count"] >= 1
+    assert all(item["file"] != "job-reference.png" for item in report["largest_unreferenced"])
+
+
+def test_job_media_ref_repair_moves_missing_inputs_to_diagnostics(temp_db):
+    make_user("iuid-job-repair", "web_job_repair")
+    existing = main.MEDIA / "existing-reference.png"
+    existing.write_bytes(b"reference")
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id, user_id, mode, provider, status, prompt_original, settings_json, created_at) "
+            "VALUES ('job-repair', 'web_job_repair', 'edit', 'comfyui', 'completed', 'prompt', ?, '2026-07-07')",
+            (
+                '{"inputImage1": "/api/media/missing-reference.png?userId=web_job_repair", '
+                '"inputImages": [{"index": 1, "role": "base", "image": "/api/media/missing-reference.png?userId=web_job_repair"}, '
+                '{"index": 2, "role": "style", "image": "/api/media/existing-reference.png?userId=web_job_repair"}]}',
+            ),
+        )
+
+    dry = job_media_ref_repair.repair_job_media_refs(apply=False)
+    assert dry["jobs_with_missing_refs"] == 1
+    applied = job_media_ref_repair.repair_job_media_refs(apply=True)
+    assert applied["updated_jobs"] == 1
+    with main.db() as conn:
+        settings = conn.execute("SELECT settings_json FROM jobs WHERE id = 'job-repair'").fetchone()[0]
+    payload = json.loads(settings)
+    assert payload["inputImage1"] is None
+    assert payload["inputImages"][0]["image"] is None
+    assert payload["inputImages"][1]["image"].endswith("existing-reference.png?userId=web_job_repair")
+    assert payload["_media_ref_status"]["missing"][0]["file"] == "missing-reference.png"
+    report = media_storage_audit.audit_media_storage(item_limit=10)
+    assert report["missing_active_refs"] == []
+
+
+def test_media_cleanup_plan_excludes_protected_kinds(temp_db):
+    make_user("iuid-cleanup", "web_cleanup")
+    make_image("img-cleanup", "web_cleanup")
+    (main.MEDIA / "orphan-original.png").write_bytes(b"original")
+    (main.MEDIA / "seed_izo_fake.png").write_bytes(b"seed")
+    feed_dir = main.MEDIA / "feed"
+    feed_dir.mkdir(exist_ok=True)
+    (feed_dir / "orphan-feed.webp").write_bytes(b"feed")
+
+    plan = media_cleanup_plan.build_cleanup_plan(
+        kinds={"original_or_input", "seed_original", "feed_variant"},
+        item_limit=20,
+    )
+    files = {item["file"] for item in plan["candidates"]}
+    assert "orphan-original.png" in files
+    assert "seed_izo_fake.png" not in files
+    assert "feed/orphan-feed.webp" not in files
+    assert plan["deletes_files"] is False
+    assert plan["ignored_requested_protected_kinds"] == ["feed_variant", "seed_original"]
+
+
+def test_media_cleanup_apply_deletes_only_safe_candidates(temp_db):
+    make_user("iuid-cleanup-apply", "web_cleanup_apply")
+    make_image("img-cleanup-apply", "web_cleanup_apply")
+    orphan = main.MEDIA / "orphan-apply.png"
+    seed = main.MEDIA / "seed_izo_keep.png"
+    feed_dir = main.MEDIA / "feed"
+    feed_dir.mkdir(exist_ok=True)
+    feed = feed_dir / "keep-feed.webp"
+    orphan.write_bytes(b"delete")
+    seed.write_bytes(b"seed")
+    feed.write_bytes(b"feed")
+
+    result = media_cleanup_apply.apply_cleanup(
+        apply=True,
+        kinds={"original_or_input", "seed_original", "feed_variant"},
+        item_limit=20,
+    )
+    deleted_files = {item["file"] for item in result["deleted"]}
+    assert "orphan-apply.png" in deleted_files
+    assert not orphan.exists()
+    assert seed.exists()
+    assert feed.exists()
+    assert result["deletes_files"] is True
+
+
+def test_media_cleanup_apply_blocks_when_source_audit_has_issues(temp_db, monkeypatch):
+    candidate = main.MEDIA / "blocked-orphan.png"
+    candidate.write_bytes(b"keep")
+
+    def fake_plan(**_kwargs):
+        return {
+            "created_at": "2026-07-07T00:00:00+00:00",
+            "candidate_summary": {"count": 1, "bytes": 4, "human": "4 B", "truncated_to": 1},
+            "source_audit": {"issues": ["missing_active_refs"]},
+            "selected_kinds": ["original_or_input"],
+            "protected_kinds": [],
+            "ignored_requested_protected_kinds": [],
+            "candidates": [
+                {
+                    "file": "blocked-orphan.png",
+                    "bytes": 4,
+                    "human": "4 B",
+                    "kind": "original_or_input",
+                    "reason": "unreferenced",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(media_cleanup_plan, "build_cleanup_plan", fake_plan)
+
+    result = media_cleanup_apply.apply_cleanup(apply=True)
+    assert result["mode"] == "blocked"
+    assert result["deletes_files"] is False
+    assert result["source_issues"] == ["missing_active_refs"]
+    assert result["skipped"][0]["skip_reason"] == "blocked_by_source_issues"
+    assert candidate.exists()
+
+
+def test_user_gallery_link_audit_separates_active_and_deleted_missing_files(temp_db):
+    make_user("iuid-links", "web_links")
+    make_image("img-links-active", "web_links")
+    make_image("img-links-deleted", "web_links")
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE images SET deleted_at = '2026-07-07T00:00:00+00:00' WHERE id = ?",
+            ("img-links-deleted",),
+        )
+    (main.MEDIA / "img-links-deleted.png").unlink()
+    (main.MEDIA / "img-links-deleted_thumb.webp").unlink()
+
+    report = user_gallery_link_audit.audit_user_gallery_links(item_limit=10)
+    assert report["totals"]["missing_user_images"] == 0
+    assert report["totals"]["active_missing_file_refs"] == 0
+    assert report["totals"]["deleted_missing_file_refs"] == 2
+    assert report["issues"] == []
 
 
 def test_init_db_idempotent_with_feed_tables(temp_db):
@@ -162,109 +780,125 @@ def test_init_db_idempotent_with_feed_tables(temp_db):
             assert row is not None
 
 
-# --- Seed publications + image compression (Phase: feed seed) ---
+def test_init_db_has_feed_media_contract_columns(temp_db):
+    main.init_db()
+    with main.db() as conn:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()}
+    expected = {
+        "feed_thumb_name",
+        "feed_large_name",
+        "feed_thumb_width",
+        "feed_thumb_height",
+        "feed_thumb_bytes",
+        "feed_large_width",
+        "feed_large_height",
+        "feed_large_bytes",
+        "media_ready_at",
+        "media_error",
+        "native_aspect_ratio",
+        "orientation",
+        "source_type",
+        "source_label",
+        "display_policy",
+        "category",
+        "remix_policy",
+        "tags_json",
+        "updated_at",
+    }
+    assert expected <= columns
 
-def make_real_image(image_id: str, legacy_user: str, w: int = 1600, h: int = 900,
-                    prompt: str = "секретный промпт про маяк") -> None:
-    """Реальный PNG (PIL может открыть) — для проверки сжатия."""
-    from PIL import Image
-    img = Image.new("RGB", (w, h), (40, 90, 160))
-    (main.MEDIA).mkdir(exist_ok=True)
-    img.save(main.MEDIA / f"{image_id}.png")
-    (main.MEDIA / f"{image_id}_thumb.webp").write_bytes(b"RIFF fake")
+
+def test_init_db_has_media_query_indexes(temp_db):
+    main.init_db()
+    with main.db() as conn:
+        indexes = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            ).fetchall()
+        }
+    expected = {
+        "idx_images_user_deleted_created",
+        "idx_images_job_id",
+        "idx_jobs_user_created",
+        "idx_jobs_result_image",
+        "idx_feed_publications_media_ready",
+    }
+    assert expected <= indexes
+
+
+def test_db_schema_audit_reports_ready_schema(temp_db):
+    report = db_schema_audit.audit_db_schema()
+    assert report["issues"] == []
+    assert report["missing_columns"] == {}
+    assert report["missing_indexes"] == []
+
+
+def test_media_health_check_includes_schema_readiness(temp_db):
+    report = media_health_check.run_media_health_check(item_limit=3)
+    assert report["summary"]["schema"] == {"missing_columns": {}, "missing_indexes": []}
+    assert report["reports"]["schema"]["issues"] == []
+    assert "gallery_originals" in report["summary"]
+
+
+def test_init_db_seeds_editorial_user_for_demo_feed(temp_db):
+    main.init_db()
+    with main.db() as conn:
+        row = conn.execute(
+            "SELECT id, internal_user_id, display_name, gallery_enabled FROM users WHERE id = 'seed_editorial'"
+        ).fetchone()
+    assert row is not None
+    assert row["internal_user_id"] == "seed_editorial"
+    assert row["display_name"] == "Выбор редакции"
+    assert row["gallery_enabled"] == 0
+
+
+def test_seed_demo_migrate_assigns_demo_authors_and_reactions(temp_db):
+    make_image("seed-img-01", "seed_editorial")
+    make_image("seed-img-02", "seed_editorial")
+    make_image("real-img-01", "web_real")
     with main.db() as conn:
         conn.execute(
-            "INSERT INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider, "
-            "prompt_original, settings_json, created_at) "
-            "VALUES (?, ?, 'job-r', ?, ?, ?, ?, 'text_to_image', 'comfyui', ?, '{\"seed\": 42}', '2026-07-03')",
-            (image_id, legacy_user, f"/api/media/{image_id}.png?userId={legacy_user}",
-             f"/api/media/{image_id}_thumb.webp?userId={legacy_user}", w, h, prompt),
+            "INSERT INTO feed_publications (id, image_id, internal_user_id, legacy_user_id, title, status, created_at) "
+            "VALUES ('seed-pub-01', 'seed-img-01', 'seed_editorial', 'seed_editorial', 'Seed 1', 'published', '2026-07-01')"
+        )
+        conn.execute(
+            "INSERT INTO feed_publications (id, image_id, internal_user_id, legacy_user_id, title, status, created_at) "
+            "VALUES ('seed-pub-02', 'seed-img-02', 'seed_editorial', 'seed_editorial', 'Seed 2', 'published', '2026-07-01')"
+        )
+        conn.execute(
+            "INSERT INTO users (id, internal_user_id, display_name, role, token_balance, language, created_at, last_login_at) "
+            "VALUES ('web_real', 'iuid_real', 'Настоящий пользователь', 'user', 0, 'ru', '2026-07-01', '2026-07-01')"
+        )
+        conn.execute(
+            "INSERT INTO feed_publications (id, image_id, internal_user_id, legacy_user_id, title, status, created_at) "
+            "VALUES ('real-pub-01', 'real-img-01', 'iuid_real', 'web_real', 'Real', 'published', '2026-07-01')"
         )
 
+    dry = feed_seed_demo_migrate.migrate_seed_demo_feed(apply=False)
+    assert dry["apply"] is False
+    assert dry["seed_publications"] == 2
 
-def test_publish_creates_compressed_derivatives(temp_db):
-    with TestClient(main.app) as client:
-        token = make_user("iuid-c1", "web_c1")
-        make_real_image("img-real", "web_c1", 1600, 900)
-        pub = publish(client, token, "img-real", visibility="open", title="Сжатие")
-        assert pub["thumbnail_url"].endswith("?thumb=1")
-        assert pub["display_url"] and "display_url" not in pub["thumbnail_url"]
-        with main.db() as conn:
-            row = conn.execute("SELECT feed_thumb_name, feed_large_name FROM feed_publications WHERE id = ?", (pub["id"],)).fetchone()
-        assert row["feed_thumb_name"] and row["feed_large_name"]
-        thumb_file = main.MEDIA / "feed" / row["feed_thumb_name"]
-        large_file = main.MEDIA / "feed" / row["feed_large_name"]
-        assert thumb_file.exists() and large_file.exists()
-        # derived thumb is much smaller than the 1600x900 original
-        assert thumb_file.stat().st_size < large_file.stat().st_size
-    with TestClient(main.app) as anon:
-        rt = anon.get(f"/api/feed/media/{pub['id']}?thumb=1")
-        assert rt.status_code == 200
-        assert rt.headers["content-type"] == "image/webp"
-        rl = anon.get(f"/api/feed/media/{pub['id']}")
-        assert rl.status_code == 200
-        assert rl.headers["content-type"] == "image/webp"
-
-
-def insert_seed(pub_id: str, image_id: str, badge: str | None = "trend",
-                like: int = 1200, save: int = 200, recreate: int = 40, view: int = 15000) -> None:
-    """Прямая вставка seed-публикации (как делает seed_feed.py)."""
-    from PIL import Image
-    img = Image.new("RGB", (1254, 1254), (120, 60, 160))
-    img.save(main.MEDIA / f"{image_id}.png")
+    report = feed_seed_demo_migrate.migrate_seed_demo_feed(apply=True)
+    assert report["changed_publications"] == 2
     with main.db() as conn:
-        conn.execute(
-            "INSERT INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider, "
-            "prompt_original, settings_json, created_at) "
-            "VALUES (?, 'seed_editorial', 'seed', ?, ?, 1254, 1254, 'image_to_image', 'comfyui', '', '{}', '2026-06-10')",
-            (image_id, f"/api/media/{image_id}.png?userId=seed_editorial",
-             f"/api/media/{image_id}.png?userId=seed_editorial"),
-        )
-        conn.execute(
-            "INSERT INTO feed_publications (id, image_id, internal_user_id, legacy_user_id, title, description, "
-            "prompt_visibility, allow_recreate, status, created_at, is_seed, author_type, author_handle, "
-            "author_display, author_avatar, badge, category, base_like_count, base_save_count, "
-            "base_recreate_count, view_count) "
-            "VALUES (?, ?, 'seed_editorial', 'seed_editorial', 'Seed работа', NULL, 'hidden', 1, 'published', "
-            "'2026-06-10', 1, 'editorial', 'nova_render', 'Nova', 'ava_01.webp', ?, NULL, ?, ?, ?, ?)",
-            (pub_id, image_id, badge, like, save, recreate, view),
-        )
-        main.feed_build_derivatives(conn, pub_id, image_id)
-
-
-def test_seed_publication_public_hidden_and_not_mine(temp_db):
-    insert_seed("seed-pub-x", "seed-img-x", badge="editor_pick", like=1500)
-    # гость (без сессии) видит seed-ленту
-    with TestClient(main.app) as anon:
-        r = anon.get("/api/feed?type=foryou&limit=50")
-        assert r.status_code == 200
-        items = r.json()["items"]
-        seed = next(i for i in items if i["id"] == "seed-pub-x")
-        assert seed["is_seed"] is True
-        assert seed["is_current_user"] is False
-        assert seed["is_mine"] is False
-        assert seed["prompt"] is None          # hidden prompt не раскрывается
-        assert seed["prompt_visibility"] == "hidden"
-        assert seed["badge"] == "editor_pick"
-        assert seed["author_name"] == "Nova"
-        assert seed["author_avatar"] == "/api/feed/avatar/ava_01.webp"
-        assert seed["like_count"] >= 1500      # базовый seed-счётчик
-        assert seed["thumbnail_url"] and seed["display_url"]
-        # компрессия seed отдаётся как webp
-        rt = anon.get(f"/api/feed/media/seed-pub-x?thumb=1")
-        assert rt.status_code == 200 and rt.headers["content-type"] == "image/webp"
-
-
-def test_seed_like_requires_auth_and_increments_over_base(temp_db):
-    insert_seed("seed-pub-y", "seed-img-y", badge=None, like=1000)
-    with TestClient(main.app) as anon:
-        assert anon.post("/api/feed/publications/seed-pub-y/like").status_code == 401
-    with TestClient(main.app) as client:
-        token = make_user("iuid-v", "web_v")
-        r = client.post("/api/feed/publications/seed-pub-y/like", headers=bearer(token))
-        assert r.status_code == 200
-        # база 1000 + 1 реальный лайк
-        assert r.json()["publication"]["like_count"] == 1001
-        # повторный лайк не дублирует
-        r = client.post("/api/feed/publications/seed-pub-y/like", headers=bearer(token))
-        assert r.json()["publication"]["like_count"] == 1001
+        seed = conn.execute(
+            "SELECT internal_user_id, legacy_user_id, category, source_label FROM feed_publications WHERE id = 'seed-pub-01'"
+        ).fetchone()
+        real = conn.execute(
+            "SELECT internal_user_id, legacy_user_id FROM feed_publications WHERE id = 'real-pub-01'"
+        ).fetchone()
+        reactions = conn.execute(
+            "SELECT COUNT(*) AS c FROM feed_reactions WHERE publication_id IN ('seed-pub-01', 'seed-pub-02')"
+        ).fetchone()["c"]
+        authors = conn.execute(
+            "SELECT COUNT(*) AS c FROM users WHERE id LIKE 'seed_author_%'"
+        ).fetchone()["c"]
+    assert seed["internal_user_id"].startswith("seed_author_")
+    assert seed["legacy_user_id"].startswith("seed_author_")
+    assert seed["category"] == "challenge_moscow_2120"
+    assert seed["source_label"] != "Выбор редакции"
+    assert real["internal_user_id"] == "iuid_real"
+    assert real["legacy_user_id"] == "web_real"
+    assert reactions > 0
+    assert authors == len(feed_seed_demo_migrate.DEMO_AUTHORS)

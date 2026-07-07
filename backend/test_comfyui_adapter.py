@@ -118,8 +118,8 @@ def test_extract_images_from_history_handles_standard_comfyui_outputs() -> None:
     ]
 
 
-def test_download_comfyui_image_saves_png_and_thumbnail(monkeypatch) -> None:
-    image = Image.new("RGB", (16, 16), "#2f6fed")
+def test_download_comfyui_image_saves_optimized_webp_and_thumbnail(monkeypatch) -> None:
+    image = Image.new("RGB", (3000, 1800), "#2f6fed")
     buffer = BytesIO()
     image.save(buffer, "PNG")
     png_bytes = buffer.getvalue()
@@ -156,8 +156,11 @@ def test_download_comfyui_image_saves_png_and_thumbnail(monkeypatch) -> None:
 
     assert image_path.exists()
     assert thumb_path.exists()
-    assert image_path.name == "job_download_test_comfyui.png"
+    assert image_path.name == "job_download_test_comfyui.webp"
     assert thumb_path.name == "job_download_test_comfyui_thumb.webp"
+    with Image.open(image_path) as saved:
+        assert saved.format == "WEBP"
+        assert max(saved.size) <= main.GALLERY_IMAGE_MAX_SIDE
 
 
 def test_save_canvas_json_creates_raster_input() -> None:
@@ -169,22 +172,20 @@ def test_save_canvas_json_creates_raster_input() -> None:
         assert image.size == (1024, 1024)
 
 
-def test_prepare_comfyui_i2i_input_uses_requested_canvas_format(tmp_path, monkeypatch) -> None:
+def test_prepare_comfyui_input_image_downscales_large_landscape(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(main, "MEDIA", tmp_path)
     source = tmp_path / "large_landscape.png"
     Image.new("RGB", (4000, 2000), "#2f6fed").save(source, "PNG")
 
-    req = main.GenerateRequest(mode="image_to_image", width=1024, height=1536)
-    prepared = main.prepare_comfyui_input_image(source, "job_large_landscape", req, target_canvas=True)
+    req = main.GenerateRequest(mode="image_to_image", width=1536, height=1024)
+    prepared = main.prepare_comfyui_input_image(source, "job_large_landscape", req)
 
     assert prepared is not None
     with Image.open(prepared) as image:
-        assert image.size == (1024, 1536)
+        assert image.size == (1536, 768)
         assert image.size[0] % 16 == 0
         assert image.size[1] % 16 == 0
         assert max(image.size) <= main.COMFYUI_INPUT_MAX_SIDE
-        assert image.getpixel((512, 128)) == (0, 0, 0)
-        assert image.getpixel((512, 768)) == (47, 111, 237)
 
 
 def test_prepare_comfyui_input_image_downscales_large_portrait(tmp_path, monkeypatch) -> None:
