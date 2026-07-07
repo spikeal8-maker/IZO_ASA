@@ -455,6 +455,26 @@ gallery original: WebP, максимум `GALLERY_IMAGE_MAX_SIDE`, рекоме�
 считаются отдельным bucket. Hard issue только если активный original отсутствует
 или не читается.
 
+Dry-run план оптимизации пользовательских gallery originals:
+
+```bash
+python backend/gallery_original_migrate.py --report logs/gallery-original-migrate-plan-latest.json --limit 50
+```
+
+По умолчанию команда не меняет БД и файлы, а также пропускает seed/demo originals.
+Apply допускается только после backup и свежего health-check:
+
+```bash
+python backend/gallery_original_migrate.py --apply --report logs/gallery-original-migrate-apply-latest.json --limit 50
+python backend/media_health_check.py --report logs/media-health-check-latest.json --fail-on-issues
+```
+
+Первый apply должен выполняться без `--delete-source`: он создает WebP рядом со
+старым файлом и обновляет `images.url`. Удалять старые PNG/JPG можно только
+отдельным проходом после проверки, что новые URLs отдаются, feed не потерял
+source image, а `media_storage_audit` не видит missing active refs. Seed/demo
+переписываются только отдельным явным запуском с `--include-seed`.
+
 Если старые `jobs.settings_json` уже содержат ссылки на отсутствующие файлы,
 их надо чинить repair-командой. Она переносит битые input-ссылки в
 `_media_ref_status.missing`, а рабочие поля `inputImage1`, `inputImages[].image`

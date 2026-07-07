@@ -16,6 +16,7 @@ import db_schema_audit
 import feed_media_audit
 import feed_media_migrate
 import gallery_original_audit
+import gallery_original_migrate
 import job_media_ref_repair
 import media_cleanup_apply
 import media_health_check
@@ -415,6 +416,41 @@ def test_gallery_original_audit_reports_optimization_candidates(temp_db):
     candidate = next(item for item in report["candidates"] if item["image_id"] == "img-gallery-originals")
     assert candidate["file"] == "img-gallery-originals.png"
     assert "legacy_format" in candidate["reasons"]
+
+
+def test_gallery_original_migrate_dry_run_excludes_seed_by_default(temp_db):
+    make_user("iuid-gallery-migrate", "web_gallery_migrate")
+    make_image("img-gallery-migrate", "web_gallery_migrate")
+    make_image("seed_izo_migrate", "seed_editorial")
+
+    report = gallery_original_migrate.migrate_gallery_originals(apply=False, item_limit=20)
+    files = {item["source"] for item in report["items"]}
+    skipped = {item["file"]: item["skip_reason"] for item in report["skipped"] if item.get("file")}
+    assert "img-gallery-migrate.png" in files
+    assert "seed_izo_migrate.png" not in files
+    assert skipped["seed_izo_migrate.png"] == "seed_not_requested"
+    assert report["changes_db"] is False
+
+
+def test_gallery_original_migrate_apply_updates_url_without_deleting_source(temp_db):
+    make_user("iuid-gallery-apply", "web_gallery_apply")
+    make_image("img-gallery-apply", "web_gallery_apply")
+    source = main.MEDIA / "img-gallery-apply.png"
+
+    report = gallery_original_migrate.migrate_gallery_originals(apply=True, item_limit=1)
+    item = report["items"][0]
+    target = main.MEDIA / item["target"]
+    with main.db() as conn:
+        row = conn.execute("SELECT url, width, height FROM images WHERE id = 'img-gallery-apply'").fetchone()
+
+    assert report["changes_db"] is True
+    assert target.exists()
+    assert target.suffix == ".webp"
+    assert row["url"].startswith("/api/media/")
+    assert row["url"].split("?", 1)[0].endswith(".webp")
+    assert row["width"] <= main.GALLERY_IMAGE_MAX_SIDE
+    assert row["height"] <= main.GALLERY_IMAGE_MAX_SIDE
+    assert source.exists()
 
 
 def test_media_storage_audit_protects_job_settings_refs(temp_db):
