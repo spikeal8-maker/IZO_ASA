@@ -10,7 +10,7 @@
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, WheelEvent as ReactWheelEvent } from 'react'
-import { Brush, Circle as CircleIcon, Eraser, Minus, Moon, PaintBucket, Palette, Square as SquareIcon, SquareDashed, Sun } from 'lucide-react'
+import { Brush, Circle as CircleIcon, Eraser, Moon, PaintBucket, Palette, Slash, Square as SquareIcon, SquareDashed, Sun } from 'lucide-react'
 import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import type { Stage as KonvaStage } from 'konva/lib/Stage'
 import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
@@ -1247,15 +1247,15 @@ export default function NewStudio(): ReactElement {
       const paintMask = mode === 'paint' && paintMode === 'mask' ? await createPaintMask(paintImage, paintLines, paintStageSize) : undefined
       const nextOutpaintPreview = mode === 'paint' && paintMode === 'outpaint' ? await createOutpaintPreview(paintImage, paintOutpaint, requestSize) : undefined
       if (mode === 'paint') setPaintOutpaintPreview(nextOutpaintPreview)
-      const paintPrompt = prompts.paint.trim() || (
-        paintMode === 'sketch'
-          ? 'Преобразуй эскиз в цельную выразительную сцену, сохрани расположение объектов из рисунка.'
-          : paintMode === 'mask'
-            ? 'Измени только отмеченную маской область, всё вне маски сохрани естественным.'
-            : paintMode === 'outpaint'
-              ? 'Естественно продолжи изображение за пределами исходного кадра.'
-              : 'Аккуратно удали фон, сохрани главный объект и его края.'
-      )
+      const paintUserPrompt = prompts.paint.trim()
+      const paintBasePrompt = paintMode === 'sketch'
+        ? 'Преобразуй исходный эскиз в реалистичную кинематографичную сцену. Используй эскиз как строгую композиционную карту: сохрани расположение объектов, силуэты, позы, пропорции и основные отношения между объектами. Добавь красивый свет, атмосферу, тени, глубину, реалистичные материалы и чистую композицию.'
+        : paintMode === 'mask'
+          ? 'Измени только отмеченную маской область, всё вне маски сохрани естественным.'
+          : paintMode === 'outpaint'
+            ? 'Естественно продолжи изображение за пределами исходного кадра.'
+            : 'Аккуратно удали фон, сохрани главный объект и его края.'
+      const paintPrompt = paintUserPrompt ? `${paintBasePrompt}\n\nДополнительное описание пользователя: ${paintUserPrompt}` : paintBasePrompt
       const faceFinalPrompt = [
         facePrompt,
         'Use Image 1 as the target scene. Use Image 2 only as the source face. Preserve the target body, clothing, pose, background, camera angle, lighting, and style.',
@@ -1481,7 +1481,7 @@ export default function NewStudio(): ReactElement {
   const promptValue = prompts[studioMode]
 
   useEffect(() => {
-    if (tab !== 'paint') return undefined
+    if (tab !== 'paint' || !paintWorkbenchVisible) return undefined
     const node = paintWorkbenchRef.current
     if (!node) {
       queueMicrotask(() => setPaintStageSize(paintStageForResolution(selectedResolution)))
@@ -1504,7 +1504,7 @@ export default function NewStudio(): ReactElement {
     const observer = new ResizeObserver(update)
     observer.observe(node)
     return () => observer.disconnect()
-  }, [selectedResolution, tab])
+  }, [paintMode, paintWorkbenchVisible, selectedResolution, tab])
 
   const loraOptions: LoraOption[] = (() => {
     const found = (modelsPayload?.loras || []).filter((item) => item && item !== 'none')
@@ -2106,7 +2106,7 @@ export default function NewStudio(): ReactElement {
           <button className={paintTool === 'eraser' ? 'active' : ''} type="button" title="Ластик" aria-label="Ластик" onClick={() => { setPaintTool('eraser'); setPaintDrawMode('free') }}><Eraser size={19} strokeWidth={2.2} /></button>
           {paintMode === 'sketch' && (
             <>
-              <button className={paintDrawMode === 'line' ? 'active' : ''} type="button" title="Линия" aria-label="Линия" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}><Minus size={20} strokeWidth={2.6} /></button>
+              <button className={paintDrawMode === 'line' ? 'active' : ''} type="button" title="Линия" aria-label="Линия" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}><Slash size={20} strokeWidth={2.6} /></button>
               <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" title="Прямоугольник" aria-label="Прямоугольник" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect') }}><SquareIcon size={19} strokeWidth={2.2} /></button>
               <button className={paintDrawMode === 'circle' ? 'active' : ''} type="button" title="Круг" aria-label="Круг" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle') }}><CircleIcon size={19} strokeWidth={2.2} /></button>
               <label className="paint-color-dot" title="Цвет кисти" aria-label="Цвет кисти" style={{ '--paint-color': paintColor } as CSSProperties}>
@@ -2601,7 +2601,7 @@ export default function NewStudio(): ReactElement {
                     <button className={paintTool === 'eraser' ? 'active' : ''} type="button" title="Ластик" aria-label="Ластик" onClick={() => { setPaintTool('eraser'); setPaintDrawMode('free') }}><Eraser size={18} strokeWidth={2.2} /></button>
                     {paintMode === 'sketch' && (
                       <>
-                        <button className={paintDrawMode === 'line' ? 'active' : ''} type="button" title="Линия" aria-label="Линия" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}><Minus size={19} strokeWidth={2.6} /></button>
+                        <button className={paintDrawMode === 'line' ? 'active' : ''} type="button" title="Линия" aria-label="Линия" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}><Slash size={19} strokeWidth={2.6} /></button>
                         <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" title="Прямоугольник" aria-label="Прямоугольник" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect') }}><SquareIcon size={18} strokeWidth={2.2} /></button>
                         <button className={paintDrawMode === 'circle' ? 'active' : ''} type="button" title="Круг" aria-label="Круг" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle') }}><CircleIcon size={18} strokeWidth={2.2} /></button>
                       </>

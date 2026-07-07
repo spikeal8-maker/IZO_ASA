@@ -1245,7 +1245,7 @@ top: 58px;
 z-index: 6;
 display: grid;
 gap: 7px;
-width: 64px;
+width: 82px;
 padding: 8px;
 border: 1px solid rgba(255, 255, 255, .14);
 border-radius: 10px;
@@ -1254,7 +1254,7 @@ box-shadow: 0 16px 42px rgba(0, 0, 0, .34);
 backdrop-filter: blur(12px);
 }
 .iv3 .paint-canvas-toolbar button {
-width: 46px;
+width: 64px;
 height: 42px;
 display: inline-grid;
 place-items: center;
@@ -1309,7 +1309,7 @@ font-weight: 820;
 text-align: center;
 }
 .iv3 .paint-toolbar-size input[type="range"] {
-width: 100%;
+width: 64px;
 accent-color: var(--lime);
 }
 .iv3 .paint-toolbar-size b {

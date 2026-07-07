@@ -41,6 +41,7 @@ UI rules added after first visual review:
 - on desktop, quick sketch/mask tools live beside the canvas as a floating workbench toolbar;
 - on mobile, the quick tools move back into the sidebar panel so they do not cover the canvas.
 - after generation or a history click, the paint page uses the shared result preview instead of keeping the canvas locked on screen, so zoom/pan and before/after comparison stay consistent with the other studio modes.
+- sketch generation always sends a base "use the sketch as a strict composition map" instruction before the user's free-text description; user text adds scene details instead of replacing the sketch contract.
 
 ## Backend Payload
 
