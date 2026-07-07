@@ -69,6 +69,15 @@ const DEFAULT_PAINT_SKETCH_PROMPT = 'Преобразуй исходный эс�
 // Начальное состояние из URL: /, /new, /gallery, /profile, /feed.
 function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   const p = typeof window !== 'undefined' ? window.location.pathname : '/feed'
+  const requestedMode = (() => {
+    if (typeof window === 'undefined') return ''
+    const mode = new URLSearchParams(window.location.search).get('mode') || window.sessionStorage.getItem('izoNextMode') || ''
+    window.sessionStorage.removeItem('izoNextMode')
+    return mode
+  })()
+  if (p === '/' || p === '/new' || p === '/new/') {
+    if (requestedMode === 'i2i' || requestedMode === 'edit' || requestedMode === 'face') return { view: 'tabs', tab: requestedMode }
+  }
   if (p === '/gallery' || p.startsWith('/gallery') || p.startsWith('/new/gallery')) return { view: 'gallery', tab: 'feed' }
   if (p === '/profile' || p.startsWith('/profile') || p.startsWith('/new/profile')) return { view: 'profile', tab: 'feed' }
   if (p === '/paint' || p.startsWith('/paint/') || p === '/new/paint' || p.startsWith('/new/paint/')) return { view: 'tabs', tab: 'paint' }

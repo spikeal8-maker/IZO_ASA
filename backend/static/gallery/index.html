@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>ИЗО ACA — Галерея</title>
+<title>ИЗО АСА — Галерея</title>
 <style>
 :root{
   --bg:#050706;
@@ -183,12 +183,12 @@ h2{margin:0;font-size:22px;line-height:1.1;font-weight:950;letter-spacing:-.03em
 </head>
 <body>
 <header class="appTop">
-  <div class="logo"><span class="logoMark">▧</span><span>ИЗО <b>ACA</b></span></div>
+  <div class="logo"><span class="logoMark">▧</span><span>ИЗО <b>АСА</b></span></div>
   <button class="feedNav" title="Перейти в общую ленту">✦ Лента</button>
   <nav class="mainNav" aria-label="Основная навигация">
-    <button data-href="/#text-to-image">Текст → Изо</button><button data-href="/#image-to-image">Изо → Изо</button><button data-href="/#editor">Редактор</button><button data-href="/#draw">Рисунок</button><button data-href="/#face">Лицо</button><button data-href="/#video">Видео</button>
+    <button data-href="/" data-mode="text">Текст → Изо</button><button data-href="/" data-mode="i2i">Изо → Изо</button><button data-href="/" data-mode="edit">Редактор</button><button data-href="/paint" data-mode="paint">Рисунок</button><button data-href="/" data-mode="face">Лицо</button><button data-href="/" data-mode="video" disabled>Видео</button>
   </nav>
-  <div class="topRight"><button class="navBtn active">Галерея</button><button class="navBtn">Помощь</button><button class="userBtn">Алекс <span class="userDot"></span></button></div>
+  <div class="topRight"><button class="navBtn active" data-top-href="/gallery">Галерея</button><button class="navBtn" data-top-href="/">Помощь</button><button class="userBtn" data-top-href="/profile">Алекс <span class="userDot"></span></button></div>
 </header>
 
 <main class="page">
@@ -484,7 +484,7 @@ async function useCurrentAs(target){
   try{
     const data = await api(`/api/gallery/${encodeURIComponent(item.imageId || item.id)}/use-as`, { method:'POST', body:JSON.stringify({ target }) });
     sessionStorage.setItem('izoUseAsDraft', JSON.stringify({ ...data, source:'gallery', createdAt:new Date().toISOString() }));
-    const routes = { editor:'/#editor', image:'/#image-to-image', face:'/#face', draw:'/#draw' };
+    const routes = { editor:'/?mode=edit', image:'/?mode=i2i', face:'/?mode=face', draw:'/paint' };
     window.location.href = routes[target] || '/';
   }catch(err){
     showToast('Не удалось подготовить изображение.');
@@ -510,9 +510,18 @@ document.getElementById('spaceBtn').addEventListener('click', showSpace);
 document.getElementById('helpBtn').addEventListener('click', ()=>openSmall('helpModal'));
 document.querySelectorAll('[data-close-small]').forEach(b=>b.addEventListener('click', closeSmalls));
 document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeViewer(); closeSmalls(); } if(document.getElementById('viewer').classList.contains('open') && e.key==='ArrowRight') stepViewer(1); if(document.getElementById('viewer').classList.contains('open') && e.key==='ArrowLeft') stepViewer(-1); });
-document.getElementById('createBtn').addEventListener('click', ()=>{ window.location.href = '/#text-to-image'; });
+document.getElementById('createBtn').addEventListener('click', ()=>{ window.location.href = '/'; });
 document.querySelector('.feedNav').addEventListener('click', ()=>{ window.location.href = '/feed'; });
-document.querySelector('.mainNav').addEventListener('click', e=>{ const btn=e.target.closest('[data-href]'); if(btn) window.location.href = btn.dataset.href; });
+document.querySelector('.mainNav').addEventListener('click', e=>{
+  const btn=e.target.closest('[data-href]');
+  if(!btn || btn.disabled) return;
+  if(btn.dataset.mode && btn.dataset.href === '/') sessionStorage.setItem('izoNextMode', btn.dataset.mode);
+  window.location.href = btn.dataset.href;
+});
+document.querySelector('.topRight').addEventListener('click', e=>{
+  const btn=e.target.closest('[data-top-href]');
+  if(btn) window.location.href = btn.dataset.topHref;
+});
 document.getElementById('openFeedBtn').addEventListener('click', ()=>{ window.location.href = '/feed'; });
 document.getElementById('editBtn').addEventListener('click', e=>{ const menu=document.getElementById('editMenu'); menu.classList.toggle('open'); closeMenus(menu.classList.contains('open') ? menu : null); e.stopPropagation(); });
 document.getElementById('shareBtn').addEventListener('click', e=>{ const menu=document.getElementById('shareMenu'); menu.classList.toggle('open'); closeMenus(menu.classList.contains('open') ? menu : null); e.stopPropagation(); });

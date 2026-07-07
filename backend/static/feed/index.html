@@ -170,11 +170,11 @@ button{user-select:none}
   </a>
   <nav class="n2-tabs" aria-label="Режимы">
     <a class="n2-tab feed-tab active" href="/feed">✦ Лента</a>
-    <a class="n2-tab" href="/#text-to-image">Текст → Изо</a>
-    <a class="n2-tab" href="/#image-to-image">Изо → Изо</a>
-    <a class="n2-tab" href="/#editor">Редактор</a>
-    <a class="n2-tab" href="/#draw">Рисунок</a>
-    <a class="n2-tab" href="/#face">Лицо</a>
+    <a class="n2-tab" href="/">Текст → Изо</a>
+    <a class="n2-tab" href="/?mode=i2i">Изо → Изо</a>
+    <a class="n2-tab" href="/?mode=edit">Редактор</a>
+    <a class="n2-tab" href="/paint">Рисунок</a>
+    <a class="n2-tab" href="/?mode=face">Лицо</a>
   </nav>
   <div class="n2-top-actions">
     <a class="n2-ghost purple" href="/gallery">▧ <span>Галерея</span></a>
@@ -186,7 +186,7 @@ button{user-select:none}
 <div class="app" id="top">
   <aside class="rail" aria-label="Быстрый переход к генерации">
     <div class="rail-head"><div><h2>Начать создавать</h2><p>Выберите режим и сразу переходите в генерацию</p></div><div class="spark">✦</div></div>
-    <a class="mode-feature" id="modeFeature" href="#text-to-image" style="--feature-img:url('')">
+    <a class="mode-feature" id="modeFeature" href="/" style="--feature-img:url('')">
       <span class="feature-kicker">Попробуйте</span>
       <div class="feature-copy"><h3 class="feature-title" id="featureTitle">Из текста в картинку</h3><p class="feature-line" id="featureLine">Опишите идею или скажите голосом</p></div>
       <span class="feature-open">→</span>
@@ -246,7 +246,7 @@ button{user-select:none}
   </div>
 </div>
 <nav class="mobile-bottom-nav" aria-label="Мобильная навигация">
-  <a href="/#text-to-image"><i>▧</i><span>ИЗО</span></a>
+  <a href="/"><i>▧</i><span>ИЗО</span></a>
   <a class="active" href="/feed"><i>✦</i><span>Лента</span></a>
   <a href="/gallery"><i>□</i><span>Галерея</span></a>
   <button type="button" data-action="challenge"><i>◆</i><span>Челленджи</span></button>
@@ -295,10 +295,10 @@ const tabTexts = {
   following:{title:'Подписки', text:'Новые работы авторов, на которых вы подписались. Подписки помогают формировать вашу ленту Для вас.', cta:'Зачем подписки'}
 };
 const modes = [
-  {id:'text', title:'Из текста в картинку', line:'Опишите идею или скажите голосом', cta:'Попробовать текст', img:'/static/feed/assets/mode_text.webp', href:'#text-to-image', msg:'Открываем генерацию по тексту или голосу'},
-  {id:'face', title:'Измени внешность', line:'Лицо, стиль, образ и детали', cta:'Изменить образ', img:'/static/feed/assets/mode_face.webp', href:'#face-to-image', msg:'Открываем работу с лицом и образом'},
-  {id:'clothes', title:'Одежда на фото', line:'Верх, низ и обувь на вашем фото', cta:'Примерить одежду', img:'/static/feed/assets/mode_clothes.webp', href:'#clothes', msg:'Открываем виртуальную примерку одежды'},
-  {id:'draw', title:'Нарисуй и оживи', line:'Эскиз, маска, часть или расширение', cta:'Открыть рисунок', img:'/static/feed/assets/mode_draw.webp', href:'#drawing', msg:'Открываем рисунок и редактирование'}
+  {id:'text', title:'Из текста в картинку', line:'Опишите идею или скажите голосом', cta:'Попробовать текст', img:'/static/feed/assets/mode_text.webp', href:'/', msg:'Открываем генерацию по тексту или голосу'},
+  {id:'face', title:'Измени внешность', line:'Лицо, стиль, образ и детали', cta:'Изменить образ', img:'/static/feed/assets/mode_face.webp', href:'/?mode=face', msg:'Открываем работу с лицом и образом'},
+  {id:'clothes', title:'Одежда на фото', line:'Верх, низ и обувь на вашем фото', cta:'Примерить одежду', img:'/static/feed/assets/mode_clothes.webp', href:'/?mode=edit', msg:'Открываем виртуальную примерку одежды'},
+  {id:'draw', title:'Нарисуй и оживи', line:'Эскиз, маска, часть или расширение', cta:'Открыть рисунок', img:'/static/feed/assets/mode_draw.webp', href:'/paint', msg:'Открываем рисунок и редактирование'}
 ];
 function apiUrl(path){ return `${API_BASE}${path}`; }
 async function api(path, options = {}){
@@ -671,12 +671,12 @@ async function remixWork(id){
     const data = await api(`/api/feed/publications/${encodeURIComponent(id)}/remix/start`, { method:'POST' });
     sessionStorage.setItem('izoRemixDraft', JSON.stringify({ ...(item || {}), ...data }));
     showToast('Открываем генератор для ремикса');
-    window.location.href = '/#text-to-image';
+    window.location.href = '/';
   }
   catch(err){
     if(item){
       showToast('Открываем генератор для ремикса');
-      window.location.href = '/#text-to-image';
+      window.location.href = '/';
       return;
     }
     showToast('Не удалось открыть ремикс');
@@ -719,7 +719,7 @@ document.querySelector('#filters').addEventListener('click', e=>{
 document.addEventListener('click', e=>{
   const action = e.target.closest('[data-action]');
   if(action?.dataset.action === 'challenge'){ showChallenge(); return; }
-  if(action?.dataset.action === 'help'){ showToast('Помощь открывается в основном интерфейсе'); window.location.href = '/#help'; return; }
+  if(action?.dataset.action === 'help'){ showToast('Помощь открывается в основном интерфейсе'); window.location.href = '/'; return; }
   if(action?.dataset.action === 'tab-help'){ showToast((tabTexts[activeFilter] || tabTexts.all).text); return; }
   if(action?.dataset.action === 'back-feed'){ activeFilter = 'all'; document.querySelector('[data-filter="all"]')?.classList.add('active'); loadFeed('for_you'); return; }
   if(e.target.closest('.download-btn')){ downloadCurrent(); return; }
