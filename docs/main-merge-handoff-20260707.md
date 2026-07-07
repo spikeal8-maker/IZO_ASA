@@ -67,3 +67,16 @@ Check:
 - `/feed` and `/gallery` are backend static pages proxied through Vite preview on port `5173`.
 - If Vite proxy misses `/feed`, `/gallery`, or `/static`, the domain may show the SPA or a 404 instead of the backend page.
 - If backend is not restarted from this worktree, the live site can temporarily run mixed code: new Vite frontend with an older backend process.
+
+## 2026-07-07 Route Correction
+
+- Do not replace `/feed` or `/gallery` with the older React gallery/feed route while this backend-static implementation is the active source of truth.
+- The correct integrated runtime is:
+  - frontend preview from `wt-integrated/frontend`;
+  - backend from `wt-integrated/backend`;
+  - existing live SQLite DB may still live outside this worktree until the final main migration, but `DATABASE_URL` must point to it explicitly.
+- A stale backend launched from `D:\Google Drive\My progact\Генератор картинок\backend` will serve old static feed/gallery HTML even when the `wt-integrated` branch is correct.
+- Smoke expectation through `127.0.0.1:5173`:
+  - `/feed` title `ИЗО АСА — Лента`, contains `.n2-topbar`, no Kaspersky URLs;
+  - `/gallery` title `ИЗО АСА — Галерея`, contains `.appTop`;
+  - `/` and `/paint` remain frontend SPA routes.
