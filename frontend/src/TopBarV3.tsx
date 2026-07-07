@@ -13,8 +13,8 @@ const MODE_TABS: Array<{ id: V3Mode; label: string; disabled?: boolean }> = [
   { id: 'text', label: 'Текст → Изо' },
   { id: 'i2i', label: 'Изо → Изо' },
   { id: 'edit', label: 'Редактор' },
-  { id: 'paint', label: 'Рисунок' },
   { id: 'face', label: 'Лицо' },
+  { id: 'paint', label: 'Рисунок' },
   { id: 'video', label: 'Видео', disabled: true },
 ]
 

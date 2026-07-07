@@ -839,6 +839,38 @@ font-weight: 720;
 border-color: rgba(182, 207, 18, .62);
 background: rgba(18, 23, 20, .86);
 }
+.iv3 .face-source-section {
+gap: 10px;
+}
+.iv3 .face-source-grid {
+grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.iv3 .face-upload-card {
+aspect-ratio: 1 / 1.08;
+}
+.iv3 .face-strength-card {
+min-width: 0;
+display: grid;
+gap: 8px;
+margin-top: 2px;
+padding: 12px;
+border: 1px solid rgba(255, 255, 255, .12);
+border-radius: 10px;
+background:
+        radial-gradient(circle at 16% 0%, rgba(182, 207, 18, .09), transparent 42%),
+        linear-gradient(180deg, rgba(255, 255, 255, .03), rgba(255, 255, 255, .01)),
+        rgba(7, 10, 9, .62);
+box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+}
+.iv3 .face-strength-card .i2i-influence-head {
+align-items: center;
+}
+.iv3 .face-strength-card .i2i-range-wrap {
+min-height: 56px;
+}
+.iv3 .face-strength-card .i2i-range-legend {
+margin-top: -2px;
+}
 .iv3 .i2i-influence-card {
 min-width: 0;
 height: var(--i2i-card-h);
@@ -955,6 +987,11 @@ transform: translateX(-50%);
 box-shadow: 0 0 0 3px rgba(182, 207, 18, .2);
 outline: 1px solid rgba(255, 255, 255, .22);
 }
+.iv3 .face-range-mark {
+left: var(--i2i-range-progress);
+min-width: 24px;
+text-align: center;
+}
 .iv3 .i2i-range {
 width: 100%;
 height: 24px;
@@ -1009,7 +1046,8 @@ line-height: 1.2;
 color: var(--lime);
 font-weight: 900;
 }
-.iv3 .i2i-influence-card p {
+.iv3 .i2i-influence-card p,
+.iv3 .face-strength-card p {
 margin: 0;
 color: rgba(218, 226, 215, .62);
 font-size: 11.5px;
