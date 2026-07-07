@@ -120,9 +120,13 @@ def migrate_gallery_originals(
             details = _write_optimized(str(item["source"]), str(item["target"]))
             target_url = main.public_url(main.MEDIA / str(item["target"]), str(item["user_id"]))
             with main.db() as conn:
+                row = conn.execute("SELECT thumbnail_url FROM images WHERE id = ?", (item["image_id"],)).fetchone()
+                source_rel = str(item["source"])
+                thumbnail_url = main._row_get(row, "thumbnail_url") if row else None
+                new_thumbnail_url = target_url if _media_rel_from_url(thumbnail_url) == source_rel else thumbnail_url
                 conn.execute(
-                    "UPDATE images SET url = ?, width = ?, height = ? WHERE id = ?",
-                    (target_url, details["target_width"], details["target_height"], item["image_id"]),
+                    "UPDATE images SET url = ?, thumbnail_url = ?, width = ?, height = ? WHERE id = ?",
+                    (target_url, new_thumbnail_url, details["target_width"], details["target_height"], item["image_id"]),
                 )
             if delete_source:
                 try:

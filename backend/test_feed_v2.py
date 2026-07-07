@@ -453,6 +453,35 @@ def test_gallery_original_migrate_apply_updates_url_without_deleting_source(temp
     assert source.exists()
 
 
+def test_gallery_original_migrate_updates_thumbnail_when_it_matches_source(temp_db):
+    make_image("seed_izo_thumb_match", "seed_editorial")
+    source = main.MEDIA / "seed_izo_thumb_match.png"
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE images SET thumbnail_url = url WHERE id = ?",
+            ("seed_izo_thumb_match",),
+        )
+
+    report = gallery_original_migrate.migrate_gallery_originals(
+        apply=True,
+        include_seed=True,
+        delete_source=True,
+        item_limit=1,
+    )
+    item = report["items"][0]
+    with main.db() as conn:
+        row = conn.execute(
+            "SELECT url, thumbnail_url FROM images WHERE id = ?",
+            ("seed_izo_thumb_match",),
+        ).fetchone()
+
+    assert item["source_deleted"] is True
+    assert not source.exists()
+    assert row["url"].split("?", 1)[0].endswith(".webp")
+    assert row["thumbnail_url"] == row["url"]
+    assert (main.MEDIA / item["target"]).exists()
+
+
 def test_media_storage_audit_protects_job_settings_refs(temp_db):
     make_user("iuid-job-ref", "web_job_ref")
     make_image("img-job-ref", "web_job_ref")
