@@ -42,6 +42,36 @@ def apply_cleanup(
     )
     deleted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    source_issues = list(plan.get("source_audit", {}).get("issues") or [])
+
+    if apply and source_issues:
+        candidates = list(plan.get("candidates", []))
+        skipped = [{**item, "skip_reason": "blocked_by_source_issues"} for item in candidates]
+        skipped_bytes = sum(int(item.get("bytes") or 0) for item in skipped)
+        return {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "mode": "blocked",
+            "deletes_files": False,
+            "media_dir": str(main.MEDIA),
+            "source_plan": {
+                "created_at": plan["created_at"],
+                "candidate_summary": plan["candidate_summary"],
+                "source_audit": plan["source_audit"],
+                "selected_kinds": plan["selected_kinds"],
+                "protected_kinds": plan["protected_kinds"],
+                "ignored_requested_protected_kinds": plan["ignored_requested_protected_kinds"],
+            },
+            "deleted_summary": {"count": 0, "bytes": 0, "human": "0 B"},
+            "skipped_summary": {
+                "count": len(skipped),
+                "bytes": skipped_bytes,
+                "human": media_storage_audit._bytes_fmt(skipped_bytes),
+            },
+            "deleted": [],
+            "skipped": skipped,
+            "block_reason": "source_audit_issues",
+            "source_issues": source_issues,
+        }
 
     for item in plan["candidates"]:
         rel = str(item.get("file") or "")

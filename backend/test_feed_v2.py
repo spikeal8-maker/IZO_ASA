@@ -546,6 +546,39 @@ def test_media_cleanup_apply_deletes_only_safe_candidates(temp_db):
     assert result["deletes_files"] is True
 
 
+def test_media_cleanup_apply_blocks_when_source_audit_has_issues(temp_db, monkeypatch):
+    candidate = main.MEDIA / "blocked-orphan.png"
+    candidate.write_bytes(b"keep")
+
+    def fake_plan(**_kwargs):
+        return {
+            "created_at": "2026-07-07T00:00:00+00:00",
+            "candidate_summary": {"count": 1, "bytes": 4, "human": "4 B", "truncated_to": 1},
+            "source_audit": {"issues": ["missing_active_refs"]},
+            "selected_kinds": ["original_or_input"],
+            "protected_kinds": [],
+            "ignored_requested_protected_kinds": [],
+            "candidates": [
+                {
+                    "file": "blocked-orphan.png",
+                    "bytes": 4,
+                    "human": "4 B",
+                    "kind": "original_or_input",
+                    "reason": "unreferenced",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(media_cleanup_plan, "build_cleanup_plan", fake_plan)
+
+    result = media_cleanup_apply.apply_cleanup(apply=True)
+    assert result["mode"] == "blocked"
+    assert result["deletes_files"] is False
+    assert result["source_issues"] == ["missing_active_refs"]
+    assert result["skipped"][0]["skip_reason"] == "blocked_by_source_issues"
+    assert candidate.exists()
+
+
 def test_user_gallery_link_audit_separates_active_and_deleted_missing_files(temp_db):
     make_user("iuid-links", "web_links")
     make_image("img-links-active", "web_links")
