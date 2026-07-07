@@ -37,6 +37,7 @@ MEDIA = ROOT / "media"
 MEDIA.mkdir(exist_ok=True)
 STATIC_DIR = ROOT / "static"
 GALLERY_PAGE_FILE = STATIC_DIR / "gallery" / "index.html"
+FEED_PAGE_FILE = STATIC_DIR / "feed" / "index.html"
 AVATAR_DIR = MEDIA / "avatars"
 AVATAR_DIR.mkdir(exist_ok=True)
 COMFYUI_INPUT_MAX_SIDE = max(512, min(2048, int(os.getenv("COMFYUI_INPUT_MAX_SIDE", "1536"))))
@@ -233,6 +234,22 @@ async def gallery_page_shell() -> FileResponse:
 @app.get("/gallery/", include_in_schema=False)
 async def gallery_page_shell_slash() -> FileResponse:
     return await gallery_page_shell()
+
+
+@app.get("/feed", include_in_schema=False)
+async def feed_page_shell() -> FileResponse:
+    if not FEED_PAGE_FILE.exists():
+        raise HTTPException(404, "Feed page is not installed.")
+    return FileResponse(
+        FEED_PAGE_FILE,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/feed/", include_in_schema=False)
+async def feed_page_shell_slash() -> FileResponse:
+    return await feed_page_shell()
 
 
 class Lora(BaseModel):
