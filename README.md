@@ -7,6 +7,8 @@ Prototype web / Telegram Mini App / MAX Mini App interface for `FluxKleinOneNode
 Start here when you or another agent joins the project:
 
 - `docs/public-launch.md` — public/live launch flow with `start-public.bat` (запуск и deploy).
+- `docs/main-merge-handoff-20260707.md` — current merge/deploy handoff for `/new`, `/feed`,
+  `/gallery`, and the rule that this project folder is the only deploy source.
 - `docs/identity-core-plan.md` — auth architecture (identity core migration plan).
 - `docs/identity-core-risks.md` — auth/security risks.
 - `docs/admin-panel-product-spec.md` — admin product direction.

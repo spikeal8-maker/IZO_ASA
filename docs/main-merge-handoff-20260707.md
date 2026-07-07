@@ -47,7 +47,7 @@ cd frontend
 npm run build
 ```
 
-Then run public mode from the same worktree:
+Then run public mode from the same project folder:
 
 ```powershell
 cd "D:\Google Drive\My progact\Генератор картинок"

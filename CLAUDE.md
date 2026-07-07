@@ -6,6 +6,10 @@
 
 ## Project Facts
 
+* **Canonical project folder:** `D:\Google Drive\My progact\Генератор картинок`.
+* Do not use sibling folders/worktrees as deployment or integration sources for this project.
+* Do not delete `frontend/`. Public launch requires `frontend/` for `vite build` and
+  `vite preview`; if it disappears, restore it before deploy work continues.
 * Backend is FastAPI in `backend/main.py` (single-file monolith).
 * Database is SQLite using raw `sqlite3` (no ORM).
 * There is no dedicated migration layer; schema lives inside `init_db()` and is applied via
