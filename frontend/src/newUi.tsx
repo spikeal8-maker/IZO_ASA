@@ -10,7 +10,7 @@
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, WheelEvent as ReactWheelEvent } from 'react'
-import { Brush, Circle as CircleIcon, Eraser, Moon, PaintBucket, Palette, Slash, Square as SquareIcon, SquareDashed, Sun } from 'lucide-react'
+import { Brush, Circle as CircleIcon, Clock3, Eraser, Images, Moon, PaintBucket, Palette, Slash, Square as SquareIcon, SquareDashed, Sun, Upload, X } from 'lucide-react'
 import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import type { Stage as KonvaStage } from 'konva/lib/Stage'
 import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
@@ -63,7 +63,7 @@ type PaintLine = {
   strokeWidth: number
   points: number[]
 }
-type UploadTarget = { kind: 'i2i' } | { kind: 'edit'; index: number } | { kind: 'face'; index: number } | { kind: 'paint' }
+type UploadTarget = { kind: 'i2i' } | { kind: 'edit'; index: number } | { kind: 'face'; index: number } | { kind: 'paint' } | { kind: 'paintSketch' }
 type InspectPreview = { url: string; title: string }
 type ModelsPayload = { loras?: string[] }
 type LoraOption = { id: string; label: string; triggerWord: string; strength: number }
@@ -73,6 +73,7 @@ const EMPTY_FACE_SLOTS: EditSlot[] = [
   { image: undefined, role: '', takeNote: '' },
   { image: undefined, role: 'face', takeNote: '' },
 ]
+const DEFAULT_PAINT_SKETCH_PROMPT = 'Преобразуй исходный эскиз в реалистичную кинематографичную сцену. Сохрани расположение объектов из эскиза. Добавь красивый свет, атмосферу, тени, глубину, реалистичные материалы и чистую композицию. Все видимые поверхности и декоративные элементы должны содержать только абстрактные формы и узоры.'
 
 // Начальное состояние из URL: /gallery, /profile, /feed, /new/*.
 function initialViewFromPath(): { view: N2View; tab: N2Tab } {
@@ -222,14 +223,18 @@ async function imageRequestSizeFromSource(source: string | undefined, fallback: 
   }
 }
 
-async function createPaintMask(inputImage: string | undefined, lines: PaintLine[], stageSize: { width: number; height: number }) {
-  if (!inputImage) return undefined
-  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+async function loadHtmlImage(source: string): Promise<HTMLImageElement | undefined> {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)
     img.onerror = reject
-    img.src = inputImage
+    img.src = source
   }).catch(() => undefined)
+}
+
+async function createPaintMask(inputImage: string | undefined, lines: PaintLine[], stageSize: { width: number; height: number }) {
+  if (!inputImage) return undefined
+  const image = await loadHtmlImage(inputImage)
   if (!image) return undefined
   const canvas = document.createElement('canvas')
   canvas.width = image.naturalWidth || image.width
@@ -587,7 +592,7 @@ export default function NewStudio(): ReactElement {
   const previewGender: 'female' | 'male' = me?.profile?.gender === 'male' ? 'male' : 'female'
   const acct = accountInfo(me)
 
-  const [prompts, setPrompts] = useState<Record<StudioMode, string>>({ text: '', i2i: '', edit: '', face: '', paint: '' })
+  const [prompts, setPrompts] = useState<Record<StudioMode, string>>({ text: '', i2i: '', edit: '', face: '', paint: DEFAULT_PAINT_SKETCH_PROMPT })
   const [styleId, setStyleId] = useState<string>('')
   // Временный предпросмотр стиля при наведении на карточку (не выбирает стиль).
   const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
@@ -607,6 +612,7 @@ export default function NewStudio(): ReactElement {
   const [faceStrengthPct, setFaceStrengthPct] = useState(DEFAULT_FACE_STRENGTH)
   const [paintMode, setPaintMode] = useState<PaintSubMode>('sketch')
   const [paintImage, setPaintImage] = useState<string>()
+  const [paintSketchImage, setPaintSketchImage] = useState<string>()
   const [paintSketchLines, setPaintSketchLines] = useState<PaintLine[]>([])
   const [paintMaskLines, setPaintMaskLines] = useState<PaintLine[]>([])
   const [paintTool, setPaintTool] = useState<PaintTool>('brush')
@@ -1135,6 +1141,14 @@ export default function NewStudio(): ReactElement {
       showInspectPreview(image, 'Исходное изображение')
       return
     }
+    if (target.kind === 'paintSketch') {
+      setPaintSketchImage(image)
+      setPaintWorkbenchVisible(true)
+      setPaintMode('sketch')
+      setInspectPreview(null)
+      resetInspectView()
+      return
+    }
     if (target.kind === 'face') {
       setFaceSlots((current) => current.map((slot, i) => (i === target.index ? { ...slot, image, role: target.index === 1 ? 'face' : slot.role } : slot)))
       showInspectPreview(image, target.index === 0 ? 'Основа' : 'Лицо')
@@ -1195,7 +1209,7 @@ export default function NewStudio(): ReactElement {
       }
     }
     if (mode === 'paint') {
-      const paintBlock = paintMode === 'sketch' && paintLines.length === 0
+      const paintBlock = paintMode === 'sketch' && paintLines.length === 0 && !paintSketchImage
         ? 'Нарисуйте эскиз на холсте.'
         : paintMode !== 'sketch' && !paintImage
           ? 'Загрузите изображение для этого режима.'
@@ -1243,19 +1257,19 @@ export default function NewStudio(): ReactElement {
       const fullPrompt = userText || (mode === 'i2i' ? style?.transformPrompt || '' : '')
       const isEditLikeMode = mode === 'edit' || mode === 'face'
       const activeEditSlots = mode === 'face' ? faceSlots : editSlots
-      const paintCanvas = mode === 'paint' && paintMode === 'sketch' ? paintStageRef.current?.toDataURL({ pixelRatio: 1 }) : undefined
+      const paintCanvas = mode === 'paint' && paintMode === 'sketch' ? await createPaintSketchCanvas() : undefined
       const paintMask = mode === 'paint' && paintMode === 'mask' ? await createPaintMask(paintImage, paintLines, paintStageSize) : undefined
       const nextOutpaintPreview = mode === 'paint' && paintMode === 'outpaint' ? await createOutpaintPreview(paintImage, paintOutpaint, requestSize) : undefined
       if (mode === 'paint') setPaintOutpaintPreview(nextOutpaintPreview)
       const paintUserPrompt = prompts.paint.trim()
       const paintBasePrompt = paintMode === 'sketch'
-        ? 'Преобразуй исходный эскиз в реалистичную кинематографичную сцену. Используй эскиз как строгую композиционную карту: сохрани расположение объектов, силуэты, позы, пропорции и основные отношения между объектами. Добавь красивый свет, атмосферу, тени, глубину, реалистичные материалы и чистую композицию.'
+        ? DEFAULT_PAINT_SKETCH_PROMPT
         : paintMode === 'mask'
           ? 'Измени только отмеченную маской область, всё вне маски сохрани естественным.'
           : paintMode === 'outpaint'
             ? 'Естественно продолжи изображение за пределами исходного кадра.'
             : 'Аккуратно удали фон, сохрани главный объект и его края.'
-      const paintPrompt = paintUserPrompt ? `${paintBasePrompt}\n\nДополнительное описание пользователя: ${paintUserPrompt}` : paintBasePrompt
+      const paintPrompt = paintUserPrompt || paintBasePrompt
       const faceFinalPrompt = [
         facePrompt,
         'Use Image 1 as the target scene. Use Image 2 only as the source face. Preserve the target body, clothing, pose, background, camera angle, lighting, and style.',
@@ -2078,6 +2092,30 @@ export default function NewStudio(): ReactElement {
     paintDrawingRef.current = false
   }
 
+  async function createPaintSketchCanvas() {
+    const stageUrl = paintStageRef.current?.toDataURL({ pixelRatio: 1 })
+    if (!paintSketchImage) return stageUrl
+    const canvas = document.createElement('canvas')
+    canvas.width = paintStageSize.width
+    canvas.height = paintStageSize.height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return stageUrl || paintSketchImage
+    ctx.fillStyle = paintCanvasBg === 'white' ? '#ffffff' : '#2b2f2c'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    const sketch = await loadHtmlImage(apiUrl(paintSketchImage))
+    if (sketch) {
+      const scale = Math.min(canvas.width / sketch.naturalWidth, canvas.height / sketch.naturalHeight)
+      const width = sketch.naturalWidth * scale
+      const height = sketch.naturalHeight * scale
+      ctx.drawImage(sketch, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height)
+    }
+    if (stageUrl) {
+      const overlay = await loadHtmlImage(stageUrl)
+      if (overlay) ctx.drawImage(overlay, 0, 0, canvas.width, canvas.height)
+    }
+    return canvas.toDataURL('image/png')
+  }
+
   const renderPaintLine = (line: PaintLine, index: number) => {
     const color = line.tool === 'eraser' ? (paintMode === 'mask' ? 'rgba(0,0,0,.8)' : (paintCanvasBg === 'white' ? '#fff' : '#2b2f2c')) : (line.color || paintColor)
     const width = line.tool === 'eraser' ? line.strokeWidth * 1.7 : line.strokeWidth
@@ -2097,8 +2135,17 @@ export default function NewStudio(): ReactElement {
 
   const paintWorkbench = (
     <div ref={paintWorkbenchRef} className={`paint-workbench mode-${paintMode}`}>
-      {paintMode !== 'sketch' && paintImage && (
-        <img className="paint-workbench-image" src={apiUrl(paintImage)} alt="" aria-hidden="true" />
+      {((paintMode === 'sketch' && paintSketchImage) || (paintMode !== 'sketch' && paintImage)) && (
+        <img
+          className={`paint-workbench-image${paintMode === 'sketch' ? ' sketch' : ''}`}
+          src={apiUrl(paintMode === 'sketch' ? paintSketchImage! : paintImage!)}
+          alt=""
+          aria-hidden="true"
+          style={paintMode === 'sketch' ? {
+            '--paint-stage-w': `${paintStageSize.width}px`,
+            '--paint-stage-h': `${paintStageSize.height}px`,
+          } as CSSProperties : undefined}
+        />
       )}
       {(paintMode === 'sketch' || paintMode === 'mask') && (
         <div className="paint-canvas-toolbar" aria-label="Быстрые инструменты холста">
@@ -2115,11 +2162,6 @@ export default function NewStudio(): ReactElement {
               </label>
             </>
           )}
-          <label className="paint-toolbar-size">
-            <span>Размер</span>
-            <input aria-label="Размер кисти" type="range" min="2" max="64" value={paintBrushSize} onChange={(e) => setPaintBrushSize(Number(e.target.value))} />
-            <b>{paintBrushSize}</b>
-          </label>
         </div>
       )}
       {paintMode === 'outpaint' && (
@@ -2152,8 +2194,8 @@ export default function NewStudio(): ReactElement {
           onTouchEnd={stopPaintLine}
         >
           <Layer>
-            <Rect width={paintStageSize.width} height={paintStageSize.height} fill={paintMode === 'mask' ? 'rgba(0,0,0,0)' : paintCanvasBg === 'white' ? '#ffffff' : '#2b2f2c'} />
-            {paintMode === 'sketch' && paintLines.length === 0 && <Text text="Нарисуйте эскиз" x={paintStageSize.width / 2 - 94} y={paintStageSize.height / 2 - 13} fill="#74806d" fontSize={22} fontStyle="bold" />}
+            <Rect width={paintStageSize.width} height={paintStageSize.height} fill={paintMode === 'mask' || paintSketchImage ? 'rgba(0,0,0,0)' : paintCanvasBg === 'white' ? '#ffffff' : '#2b2f2c'} />
+            {paintMode === 'sketch' && paintLines.length === 0 && !paintSketchImage && <Text text="Нарисуйте эскиз" x={paintStageSize.width / 2 - 94} y={paintStageSize.height / 2 - 13} fill="#74806d" fontSize={22} fontStyle="bold" />}
             {paintMode === 'mask' && paintLines.length === 0 && <Text text="Закрасьте область маской" x={paintStageSize.width / 2 - 142} y={paintStageSize.height / 2 - 13} fill="#dfff22" fontSize={20} fontStyle="bold" opacity={0.72} />}
             {paintLines.map(renderPaintLine)}
           </Layer>
@@ -2547,7 +2589,7 @@ export default function NewStudio(): ReactElement {
                   <span className="paint-tab-label">{paintModeMeta[id].label}</span>
                   <span className="paint-tab-state">
                     {id === 'sketch'
-                      ? paintSketchLines.length ? 'есть эскиз' : 'пусто'
+                      ? paintSketchLines.length || paintSketchImage ? 'есть эскиз' : 'пусто'
                       : id === 'mask'
                         ? paintMaskLines.length ? 'есть маска' : 'пусто'
                         : id === 'outpaint'
@@ -2592,6 +2634,26 @@ export default function NewStudio(): ReactElement {
                     )}
                   </div>
                 </article>
+              )}
+
+              {paintMode === 'sketch' && (
+                <div className={`paint-sketch-import${paintSketchImage ? ' is-filled' : ''}`}>
+                  <div className="paint-sketch-import-text">
+                    <strong>{paintSketchImage ? 'Загруженный эскиз' : 'Рисунок с устройства'}</strong>
+                    <span>{paintSketchImage ? 'Можно дорисовать сверху или сразу генерировать.' : 'Загрузите рисунок ребёнка или нарисуйте с нуля.'}</span>
+                  </div>
+                  {paintSketchImage && (
+                    <button className="paint-sketch-thumb" type="button" onClick={() => showInspectPreview(paintSketchImage, 'Эскиз')}>
+                      <img src={apiUrl(paintSketchImage)} alt="Загруженный эскиз" />
+                    </button>
+                  )}
+                  <div className="paint-sketch-actions">
+                    <button type="button" onClick={() => openUpload({ kind: 'paintSketch' })}><Upload size={15} />Загрузить</button>
+                    <button type="button" onClick={() => openGalleryPick({ kind: 'paintSketch' })}><Images size={15} />Галерея</button>
+                    <button type="button" onClick={() => applyLastImageToTarget({ kind: 'paintSketch' })}><Clock3 size={15} />Последнее</button>
+                    {paintSketchImage && <button type="button" aria-label="Убрать загруженный эскиз" onClick={() => setPaintSketchImage(undefined)}><X size={15} />Убрать</button>}
+                  </div>
+                </div>
               )}
 
               {(paintMode === 'sketch' || paintMode === 'mask') && (

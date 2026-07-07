@@ -41,7 +41,8 @@ UI rules added after first visual review:
 - on desktop, quick sketch/mask tools live beside the canvas as a floating workbench toolbar;
 - on mobile, the quick tools move back into the sidebar panel so they do not cover the canvas.
 - after generation or a history click, the paint page uses the shared result preview instead of keeping the canvas locked on screen, so zoom/pan and before/after comparison stay consistent with the other studio modes.
-- sketch generation always sends a base "use the sketch as a strict composition map" instruction before the user's free-text description; user text adds scene details instead of replacing the sketch contract.
+- sketch mode starts with the same working "Sketch to scene" prompt as the legacy UI, visible in the textarea;
+- sketch mode accepts an uploaded drawing/photo as the canvas base; the user can draw on top, and the generated `canvas` payload composites the uploaded sketch plus local strokes.
 
 ## Backend Payload
 
