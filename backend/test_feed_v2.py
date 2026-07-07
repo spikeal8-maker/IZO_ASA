@@ -15,6 +15,7 @@ from PIL import Image
 import db_schema_audit
 import feed_media_audit
 import feed_media_migrate
+import feed_seed_demo_migrate
 import gallery_original_audit
 import gallery_original_migrate
 import job_media_ref_repair
@@ -118,6 +119,13 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "return 6" not in r.text
         assert "mode-tile" in r.text
         assert "rail-challenge" in r.text
+        assert "/static/feed/assets/mode_text.webp" in r.text
+        assert 'data-action="challenge"' in r.text
+        assert "downloadCurrent" in r.text
+
+        asset = client.get("/static/feed/assets/mode_text.webp")
+        assert asset.status_code == 200
+        assert asset.headers["content-type"] == "image/webp"
 
 
 def test_publish_foreign_image_denied_and_logged(temp_db):
@@ -772,3 +780,54 @@ def test_init_db_seeds_editorial_user_for_demo_feed(temp_db):
     assert row["internal_user_id"] == "seed_editorial"
     assert row["display_name"] == "Выбор редакции"
     assert row["gallery_enabled"] == 0
+
+
+def test_seed_demo_migrate_assigns_demo_authors_and_reactions(temp_db):
+    make_image("seed-img-01", "seed_editorial")
+    make_image("seed-img-02", "seed_editorial")
+    make_image("real-img-01", "web_real")
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO feed_publications (id, image_id, internal_user_id, legacy_user_id, title, status, created_at) "
+            "VALUES ('seed-pub-01', 'seed-img-01', 'seed_editorial', 'seed_editorial', 'Seed 1', 'published', '2026-07-01')"
+        )
+        conn.execute(
+            "INSERT INTO feed_publications (id, image_id, internal_user_id, legacy_user_id, title, status, created_at) "
+            "VALUES ('seed-pub-02', 'seed-img-02', 'seed_editorial', 'seed_editorial', 'Seed 2', 'published', '2026-07-01')"
+        )
+        conn.execute(
+            "INSERT INTO users (id, internal_user_id, display_name, role, token_balance, language, created_at, last_login_at) "
+            "VALUES ('web_real', 'iuid_real', 'Настоящий пользователь', 'user', 0, 'ru', '2026-07-01', '2026-07-01')"
+        )
+        conn.execute(
+            "INSERT INTO feed_publications (id, image_id, internal_user_id, legacy_user_id, title, status, created_at) "
+            "VALUES ('real-pub-01', 'real-img-01', 'iuid_real', 'web_real', 'Real', 'published', '2026-07-01')"
+        )
+
+    dry = feed_seed_demo_migrate.migrate_seed_demo_feed(apply=False)
+    assert dry["apply"] is False
+    assert dry["seed_publications"] == 2
+
+    report = feed_seed_demo_migrate.migrate_seed_demo_feed(apply=True)
+    assert report["changed_publications"] == 2
+    with main.db() as conn:
+        seed = conn.execute(
+            "SELECT internal_user_id, legacy_user_id, category, source_label FROM feed_publications WHERE id = 'seed-pub-01'"
+        ).fetchone()
+        real = conn.execute(
+            "SELECT internal_user_id, legacy_user_id FROM feed_publications WHERE id = 'real-pub-01'"
+        ).fetchone()
+        reactions = conn.execute(
+            "SELECT COUNT(*) AS c FROM feed_reactions WHERE publication_id IN ('seed-pub-01', 'seed-pub-02')"
+        ).fetchone()["c"]
+        authors = conn.execute(
+            "SELECT COUNT(*) AS c FROM users WHERE id LIKE 'seed_author_%'"
+        ).fetchone()["c"]
+    assert seed["internal_user_id"].startswith("seed_author_")
+    assert seed["legacy_user_id"].startswith("seed_author_")
+    assert seed["category"] == "challenge_moscow_2120"
+    assert seed["source_label"] != "Выбор редакции"
+    assert real["internal_user_id"] == "iuid_real"
+    assert real["legacy_user_id"] == "web_real"
+    assert reactions > 0
+    assert authors == len(feed_seed_demo_migrate.DEMO_AUTHORS)

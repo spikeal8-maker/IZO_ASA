@@ -5,6 +5,7 @@ import base64
 import io
 import json
 import math
+import mimetypes
 import os
 import re
 import secrets
@@ -64,6 +65,7 @@ def load_local_env() -> None:
 
 
 load_local_env()
+mimetypes.add_type("image/webp", ".webp")
 
 # Identity Core session service (Phase 4 + 4.1). Keying material for token hashing
 # comes from the environment when available. Only hashes are persisted — raw tokens
@@ -217,6 +219,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/media", StaticFiles(directory=MEDIA), name="media")
 
 
@@ -11078,7 +11081,7 @@ def _feed_author_name(conn: sqlite3.Connection, internal_user_id: str, legacy_us
         ).fetchone()
     if row is None:
         return "Автор"
-    return _row_get(row, "display_name") or _row_get(row, "username") or _row_get(row, "first_name") or "Автор"
+    return _row_get(row, "display_name") or _row_get(row, "username") or _row_get(row, "first_name") or "Пользователь ИЗО"
 
 
 def _feed_aspect_ratio(width: int, height: int) -> str:

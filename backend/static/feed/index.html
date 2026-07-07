@@ -184,7 +184,7 @@ button{user-select:none}
     <div class="mode-grid" id="modeGrid"></div>
     <div class="rail-challenge" style="--challenge-bg:url('')">
       <div><small>Челлендж недели</small><strong>Москва 2120</strong><p>Покажите город будущего. Лучшие работы получают токены и место в витрине.</p></div>
-      <button class="primary-cta" type="button" data-toast="Открываем челлендж Москва 2120">Участвовать</button>
+      <button class="primary-cta" type="button" data-action="challenge">Участвовать</button>
     </div>
   </aside>
   <main class="main" id="feed">
@@ -258,10 +258,10 @@ const featureLine = document.querySelector('#featureLine');
 let toastTimer = 0;
 const API_BASE = '';
 const modes = [
-  {id:'text', title:'Текст -> Изо', line:'Опишите идею или скажите голосом', cta:'Попробовать текст', href:'#text-to-image', msg:'Открываем генерацию по тексту или голосу'},
-  {id:'face', title:'Измени внешность', line:'Лицо, стиль, образ и детали', cta:'Изменить образ', href:'#face-to-image', msg:'Открываем работу с лицом и образом'},
-  {id:'clothes', title:'Одежда на фото', line:'Верх, низ и обувь на вашем фото', cta:'Примерить одежду', href:'#clothes', msg:'Открываем виртуальную примерку одежды'},
-  {id:'draw', title:'Нарисуй и оживи', line:'Эскиз, маска, часть или расширение', cta:'Открыть рисунок', href:'#drawing', msg:'Открываем рисунок и редактирование'}
+  {id:'text', title:'Текст -> Изо', line:'Опишите идею или скажите голосом', cta:'Попробовать текст', img:'/static/feed/assets/mode_text.webp', href:'#text-to-image', msg:'Открываем генерацию по тексту или голосу'},
+  {id:'face', title:'Измени внешность', line:'Лицо, стиль, образ и детали', cta:'Изменить образ', img:'/static/feed/assets/mode_face.webp', href:'#face-to-image', msg:'Открываем работу с лицом и образом'},
+  {id:'clothes', title:'Одежда на фото', line:'Верх, низ и обувь на вашем фото', cta:'Примерить одежду', img:'/static/feed/assets/mode_clothes.webp', href:'#clothes', msg:'Открываем виртуальную примерку одежды'},
+  {id:'draw', title:'Нарисуй и оживи', line:'Эскиз, маска, часть или расширение', cta:'Открыть рисунок', img:'/static/feed/assets/mode_draw.webp', href:'#drawing', msg:'Открываем рисунок и редактирование'}
 ];
 function apiUrl(path){ return `${API_BASE}${path}`; }
 async function api(path, options = {}){
@@ -336,8 +336,8 @@ function normalizeFeedItem(item){
   };
 }
 function setFeature(mode){
-  const first = works.find(w=>w.src);
-  if(first) modeFeature.style.setProperty('--feature-img', `url('${first.src}')`);
+  const src = mode.img || works.find(w=>w.src)?.src;
+  if(src) modeFeature.style.setProperty('--feature-img', `url('${src}')`);
   modeFeature.href = mode.href;
   modeFeature.dataset.toast = mode.msg;
   featureTitle.textContent = mode.title;
@@ -351,7 +351,8 @@ function renderModes(){
     card.href = mode.href;
     card.dataset.toast = mode.msg;
     const work = works[idx % Math.max(works.length, 1)];
-    card.innerHTML = `${work?.src ? `<img src="${escapeHtml(work.src)}" alt="">` : ''}<span>${escapeHtml(mode.title)}</span>`;
+    const src = mode.img || work?.src;
+    card.innerHTML = `${src ? `<img src="${escapeHtml(src)}" alt="">` : ''}<span>${escapeHtml(mode.title)}</span>`;
     card.addEventListener('mouseenter',()=>setFeature(mode));
     card.addEventListener('focus',()=>setFeature(mode));
     modeGrid.appendChild(card);
@@ -470,6 +471,24 @@ function openModal(index){
   document.body.style.overflow='hidden';
   history.replaceState(null,'',`#work-${item.id}`);
 }
+function showChallenge(){
+  activeFilter = 'challenge';
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active', b.dataset.filter === 'challenge'));
+  document.querySelector('#feed')?.scrollIntoView({behavior:'smooth', block:'start'});
+  renderFeed();
+  showToast('Открыт челлендж Москва 2120');
+}
+function downloadCurrent(){
+  const item = works[currentIndex];
+  if(!item?.fullSrc) return;
+  const a = document.createElement('a');
+  a.href = item.fullSrc;
+  a.download = `${item.id || 'izo-feed'}.webp`;
+  a.target = '_blank';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 function closeModal(){
   modal.classList.remove('open');
   modal.setAttribute('aria-hidden','true');
@@ -483,8 +502,7 @@ async function loadFeed(type = 'new'){
     const data = await api(`/api/feed?type=${encodeURIComponent(type)}&limit=60`);
     works = (data.items || []).filter(i=>i.media_status !== 'missing').map(normalizeFeedItem);
     const challenge = document.querySelector('.rail-challenge');
-    const challengeWork = works.find(w=>w.ratio === '16:9') || works[2] || works[0];
-    if(challenge && challengeWork?.src) challenge.style.setProperty('--challenge-bg', `url('${challengeWork.src}')`);
+    if(challenge) challenge.style.setProperty('--challenge-bg', "url('/static/feed/assets/challenge_moscow_2120.webp')");
     renderModes();
     renderFeed();
     const hashId = location.hash.replace('#work-', '');
@@ -523,6 +541,9 @@ document.querySelector('#filters').addEventListener('click', e=>{
   if(activeFilter === 'fresh') loadFeed('new'); else renderFeed();
 });
 document.addEventListener('click', e=>{
+  const action = e.target.closest('[data-action]');
+  if(action?.dataset.action === 'challenge'){ showChallenge(); return; }
+  if(e.target.closest('.download-btn')){ downloadCurrent(); return; }
   const t = e.target.closest('[data-toast]');
   if(t) showToast(t.dataset.toast);
 });
