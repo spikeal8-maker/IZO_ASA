@@ -1393,6 +1393,25 @@ font-weight: 800;
 border-color: rgba(182, 207, 18, .62);
 color: var(--lime);
 }
+.iv3 .paint-return-workbench {
+position: absolute;
+left: 18px;
+top: 18px;
+z-index: 8;
+height: 32px;
+padding: 0 12px;
+border: 1px solid rgba(182, 207, 18, .72);
+border-radius: 8px;
+color: #101906;
+background: linear-gradient(180deg, #dfff22, var(--lime));
+box-shadow: 0 10px 28px rgba(0, 0, 0, .34);
+font-size: 12px;
+font-weight: 850;
+}
+.iv3 .paint-return-workbench:hover {
+filter: brightness(1.06);
+transform: translateY(-1px);
+}
 .iv3 .paint-outpaint-frame,
 .iv3 .paint-remove-bg-frame {
 width: calc(100% - 32px);
@@ -1446,6 +1465,10 @@ right: 10px;
 top: 10px;
 }
 .iv3 .paint-workbench-badge {
+left: 10px;
+top: 10px;
+}
+.iv3 .paint-return-workbench {
 left: 10px;
 top: 10px;
 }

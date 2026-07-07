@@ -618,6 +618,7 @@ export default function NewStudio(): ReactElement {
   const [paintOutpaint, setPaintOutpaint] = useState({ left: 256, right: 256, top: 0, bottom: 0 })
   const [paintOutpaintPreview, setPaintOutpaintPreview] = useState<string>()
   const [paintStageSize, setPaintStageSize] = useState({ width: 720, height: 720 })
+  const [paintWorkbenchVisible, setPaintWorkbenchVisible] = useState(true)
   const [compare, setCompare] = useState(50)
   const [compareAuto, setCompareAuto] = useState(false)
   const compareTouchedRef = useRef(false)
@@ -1121,6 +1122,7 @@ export default function NewStudio(): ReactElement {
   }
 
   function showInspectPreview(url: string, title: string) {
+    if (isPaintStudio) setPaintWorkbenchVisible(false)
     setInspectPreview({ url, title })
     setInspectZoom(1)
     setInspectPan({ x: 0, y: 0 })
@@ -1323,6 +1325,7 @@ export default function NewStudio(): ReactElement {
       const created: N2Job = await response.json()
       if (mode === 'i2i') lastSubmittedRef.current.i2i = { prompt: i2iPrompt, source: i2iSource, width: size.width, height: size.height }
       else lastSubmittedRef.current.text = textPrompt
+      if (mode === 'paint') setPaintWorkbenchVisible(false)
       setJob(created)
       setJobMode(mode)
       setResultUrl(undefined)
@@ -1585,6 +1588,7 @@ export default function NewStudio(): ReactElement {
     setResultUrl(item.url)
     setResultSource(undefined)
     setDockImageId(item.id)
+    if (isPaintStudio) setPaintWorkbenchVisible(false)
   }
 
   const scrollHistory = (dir: -1 | 1) => {
@@ -2031,6 +2035,12 @@ export default function NewStudio(): ReactElement {
     mask: { label: 'Маска', hint: 'Загрузите изображение и закрасьте область, которую нужно изменить.' },
     outpaint: { label: 'Расширение', hint: 'Загрузите изображение и задайте поля для дорисовки.' },
     remove_bg: { label: 'Удалить фон', hint: 'Загрузите изображение, backend отделит объект от фона.' },
+  }
+  const paintReturnLabel: Record<PaintSubMode, string> = {
+    sketch: 'К эскизу',
+    mask: 'К маске',
+    outpaint: 'К расширению',
+    remove_bg: 'К удалению фона',
   }
 
   function paintPoint(stage: KonvaStage | null) {
@@ -2527,7 +2537,10 @@ export default function NewStudio(): ReactElement {
                   type="button"
                   onClick={() => {
                     setPaintMode(id)
+                    setPaintWorkbenchVisible(true)
+                    setResultError(false)
                     setInspectPreview(null)
+                    resetInspectView()
                     setPaintOutpaintPreview(undefined)
                   }}
                 >
@@ -2798,7 +2811,7 @@ export default function NewStudio(): ReactElement {
           </button>
         </div>
         <div className="preview-image">
-          {isPaintStudio && !hoverStyle && !jobActive && !inspectPreview && !(resultUrl && !resultError) ? (
+          {isPaintStudio && paintWorkbenchVisible && !hoverStyle && !jobActive ? (
             paintWorkbench
           ) : hoverStyle ? (
             <>
@@ -2914,6 +2927,20 @@ export default function NewStudio(): ReactElement {
               <span className="iv3-preview-empty-mark" aria-hidden="true">✦</span>
               <p>{resultError ? 'Предыдущий результат не загрузился. Новый появится здесь.' : 'Опишите идею слева и нажмите «Сгенерировать»'}</p>
             </div>
+          )}
+          {isPaintStudio && !paintWorkbenchVisible && !jobActive && (
+            <button
+              className="paint-return-workbench"
+              type="button"
+              onClick={() => {
+                setPaintWorkbenchVisible(true)
+                setResultError(false)
+                setInspectPreview(null)
+                resetInspectView()
+              }}
+            >
+              {paintReturnLabel[paintMode]}
+            </button>
           )}
           {previewNoticeText && (
             <div className="iv3-preview-notice" role="status" aria-live="polite">
