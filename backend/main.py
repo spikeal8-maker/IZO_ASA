@@ -1661,6 +1661,43 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_feed_reactions_publication
                 ON feed_reactions(publication_id, kind);
 
+            CREATE TABLE IF NOT EXISTS feed_author_follows (
+                follower_internal_user_id TEXT NOT NULL,
+                author_internal_user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (follower_internal_user_id, author_internal_user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_feed_author_follows_author
+                ON feed_author_follows(author_internal_user_id);
+
+            CREATE TABLE IF NOT EXISTS challenges (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                rules TEXT NOT NULL,
+                prompt_hint TEXT,
+                category TEXT NOT NULL,
+                status TEXT NOT NULL,
+                reward_pool INTEGER NOT NULL DEFAULT 0,
+                starts_at TEXT NOT NULL,
+                ends_at TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS challenge_entries (
+                id TEXT PRIMARY KEY,
+                challenge_id TEXT NOT NULL,
+                publication_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                judge_score REAL,
+                final_score REAL,
+                created_at TEXT NOT NULL,
+                UNIQUE (challenge_id, publication_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_challenge_entries_challenge
+                ON challenge_entries(challenge_id, status);
+
             CREATE TABLE IF NOT EXISTS password_reset_challenges (
                 id TEXT PRIMARY KEY,
                 internal_user_id TEXT NOT NULL,
@@ -1732,6 +1769,27 @@ def init_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_result_image "
             "ON jobs(result_image_id)"
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO challenges (
+                id, title, description, rules, prompt_hint, category, status,
+                reward_pool, starts_at, ends_at, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+            """,
+            (
+                "moscow_2120_week",
+                "Москва 2120",
+                "Покажите город будущего. Лучшие работы получают токены и место в витрине.",
+                "Создайте образ Москвы будущего: город, транспорт, люди, архитектура или повседневная сцена. Без логотипов, текста на изображении и копирования чужих работ.",
+                "Футуристическая Москва 2120 года, город будущего, выразительная архитектура, живые люди, кинематографичный свет",
+                "challenge_moscow_2120",
+                10000,
+                "2026-07-01T00:00:00+00:00",
+                "2026-07-14T23:59:59+00:00",
+                now,
+            ),
         )
 
         backfill_identity_core(conn, now)
@@ -11084,6 +11142,36 @@ def _feed_author_name(conn: sqlite3.Connection, internal_user_id: str, legacy_us
     return _row_get(row, "display_name") or _row_get(row, "username") or _row_get(row, "first_name") or "Пользователь ИЗО"
 
 
+def _feed_challenge_payload(conn: sqlite3.Connection, category: str | None) -> dict[str, Any] | None:
+    if not category:
+        return None
+    row = conn.execute(
+        """
+        SELECT id, title, description, rules, prompt_hint, category, status,
+               reward_pool, starts_at, ends_at
+        FROM challenges
+        WHERE category = ? AND status = 'active'
+        ORDER BY ends_at ASC
+        LIMIT 1
+        """,
+        (category,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "description": row["description"],
+        "rules": row["rules"],
+        "promptHint": row["prompt_hint"],
+        "category": row["category"],
+        "status": row["status"],
+        "rewardPool": row["reward_pool"],
+        "startsAt": row["starts_at"],
+        "endsAt": row["ends_at"],
+    }
+
+
 def _feed_aspect_ratio(width: int, height: int) -> str:
     if not width or not height:
         return "1:1"
@@ -11125,6 +11213,7 @@ def _feed_item_payload(
         ).fetchall()
     }
     viewer_kinds: set[str] = set()
+    is_followed_by_me = False
     if viewer_internal_user_id:
         viewer_kinds = {
             r["kind"]
@@ -11133,6 +11222,13 @@ def _feed_item_payload(
                 (pub["id"], viewer_internal_user_id),
             ).fetchall()
         }
+        is_followed_by_me = bool(conn.execute(
+            """
+            SELECT 1 FROM feed_author_follows
+            WHERE follower_internal_user_id = ? AND author_internal_user_id = ?
+            """,
+            (viewer_internal_user_id, pub["internal_user_id"]),
+        ).fetchone())
     width = int(_row_get(image, "width") or 0)
     height = int(_row_get(image, "height") or 0)
     media_ready = bool(_row_get(pub, "feed_thumb_name") and _row_get(pub, "feed_large_name") and _row_get(pub, "media_ready_at"))
@@ -11144,6 +11240,10 @@ def _feed_item_payload(
         "thumbnail_url": f"/api/feed/media/{pub['id']}?variant=thumb",
         "media_status": "ready" if media_ready else "missing",
         "user_id": pub["internal_user_id"],
+        "author": {
+            "id": pub["internal_user_id"],
+            "displayName": _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"]),
+        },
         "author_name": _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"]),
         "title": pub["title"],
         "description": pub["description"],
@@ -11161,6 +11261,7 @@ def _feed_item_payload(
         "display_policy": _row_get(pub, "display_policy") or FEED_DISPLAY_POLICY,
         "remix_policy": _row_get(pub, "remix_policy") or ("allowed" if bool(pub["allow_recreate"]) else "disabled"),
         "category": _row_get(pub, "category"),
+        "challenge": _feed_challenge_payload(conn, _row_get(pub, "category")),
         "resolution": f"{width}×{height}" if width and height else None,
         "seed": settings.get("seed"),
         "created_at": pub["created_at"],
@@ -11169,6 +11270,8 @@ def _feed_item_payload(
         "like_count": counts.get("like", 0),
         "is_liked_by_me": "like" in viewer_kinds,
         "is_saved_by_me": "save" in viewer_kinds,
+        "is_disliked_by_me": "dislike" in viewer_kinds,
+        "is_followed_by_me": is_followed_by_me,
         "is_mine": viewer_internal_user_id == pub["internal_user_id"],
     }
 
@@ -11183,12 +11286,76 @@ def _feed_optional_viewer(request: Request) -> str | None:
 
 
 @app.get("/api/feed")
-async def feed_list(request: Request, type: str = "new", limit: int = 30) -> dict[str, Any]:
-    feed_type = type if type in {"new", "top"} else "new"
+async def feed_list(
+    request: Request,
+    type: str = "for_you",
+    limit: int = 30,
+    challenge_id: str | None = None,
+) -> dict[str, Any]:
+    aliases = {"all": "for_you", "new": "fresh"}
+    feed_type = aliases.get(type, type)
+    if feed_type not in {"for_you", "fresh", "top", "remix", "challenge", "following"}:
+        feed_type = "for_you"
     limit = max(1, min(int(limit or 30), 60))
     viewer = _feed_optional_viewer(request)
     with db() as conn:
-        if feed_type == "top":
+        if feed_type == "following":
+            if not viewer:
+                rows = []
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT p.* FROM feed_publications p
+                    JOIN feed_author_follows f ON f.author_internal_user_id = p.internal_user_id
+                    WHERE f.follower_internal_user_id = ?
+                      AND p.status = 'published'
+                      AND p.media_ready_at IS NOT NULL
+                      AND p.feed_thumb_name IS NOT NULL
+                      AND p.feed_large_name IS NOT NULL
+                    ORDER BY p.created_at DESC
+                    LIMIT ?
+                    """,
+                    (viewer, limit),
+                ).fetchall()
+        elif feed_type == "challenge":
+            challenge = None
+            if challenge_id:
+                challenge = conn.execute(
+                    "SELECT category FROM challenges WHERE id = ? AND status = 'active'",
+                    (challenge_id,),
+                ).fetchone()
+            category = _row_get(challenge, "category") or "challenge_moscow_2120"
+            rows = conn.execute(
+                """
+                SELECT p.* FROM feed_publications p
+                WHERE p.status = 'published'
+                  AND p.category = ?
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
+                ORDER BY p.created_at DESC
+                LIMIT ?
+                """,
+                (category, limit),
+            ).fetchall()
+        elif feed_type == "remix":
+            rows = conn.execute(
+                """
+                SELECT p.* FROM feed_publications p
+                LEFT JOIN feed_reactions r ON r.publication_id = p.id
+                WHERE p.status = 'published'
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
+                GROUP BY p.id
+                ORDER BY SUM(CASE WHEN r.kind = 'recreate' THEN 1 ELSE 0 END) DESC,
+                         SUM(CASE WHEN r.kind = 'save' THEN 1 ELSE 0 END) DESC,
+                         p.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        elif feed_type == "top":
             rows = conn.execute(
                 """
                 SELECT p.* FROM feed_publications p
@@ -11199,6 +11366,26 @@ async def feed_list(request: Request, type: str = "new", limit: int = 30) -> dic
                   AND p.feed_large_name IS NOT NULL
                 GROUP BY p.id
                 ORDER BY COUNT(r.publication_id) DESC, p.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        elif feed_type == "for_you":
+            rows = conn.execute(
+                """
+                SELECT p.* FROM feed_publications p
+                LEFT JOIN feed_reactions r ON r.publication_id = p.id
+                WHERE p.status = 'published'
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
+                GROUP BY p.id
+                ORDER BY
+                    SUM(CASE WHEN r.kind = 'recreate' THEN 8 ELSE 0 END)
+                  + SUM(CASE WHEN r.kind = 'save' THEN 4 ELSE 0 END)
+                  + SUM(CASE WHEN r.kind = 'like' THEN 1 ELSE 0 END) DESC,
+                  CASE WHEN p.category = 'challenge_moscow_2120' THEN 1 ELSE 0 END DESC,
+                  p.created_at DESC
                 LIMIT ?
                 """,
                 (limit,),
@@ -11384,11 +11571,133 @@ async def feed_unsave(publication_id: str, request: Request) -> dict[str, Any]:
     return _feed_reaction_toggle(request, publication_id, "save", False)
 
 
+@app.post("/api/feed/publications/{publication_id}/dislike")
+async def feed_dislike(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "dislike", True)
+
+
+@app.delete("/api/feed/publications/{publication_id}/dislike")
+async def feed_undislike(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "dislike", False)
+
+
+@app.post("/api/feed/authors/{author_id}/follow")
+async def feed_follow_author(author_id: str, request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    if author_id == user["internal_user_id"]:
+        raise HTTPException(400, "Cannot follow yourself")
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM feed_publications WHERE internal_user_id = ? AND status = 'published' LIMIT 1",
+            (author_id,),
+        ).fetchone()
+        if exists is None:
+            raise HTTPException(404, "Author not found")
+        conn.execute(
+            "INSERT OR IGNORE INTO feed_author_follows (follower_internal_user_id, author_internal_user_id, created_at) "
+            "VALUES (?, ?, ?)",
+            (user["internal_user_id"], author_id, now),
+        )
+    return {"ok": True, "authorId": author_id, "following": True}
+
+
+@app.delete("/api/feed/authors/{author_id}/follow")
+async def feed_unfollow_author(author_id: str, request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    with db() as conn:
+        conn.execute(
+            "DELETE FROM feed_author_follows WHERE follower_internal_user_id = ? AND author_internal_user_id = ?",
+            (user["internal_user_id"], author_id),
+        )
+    return {"ok": True, "authorId": author_id, "following": False}
+
+
+@app.get("/api/feed/authors/{author_id}/publications")
+async def feed_author_publications(
+    author_id: str,
+    request: Request,
+    limit: int = 18,
+) -> dict[str, Any]:
+    limit = max(1, min(int(limit or 18), 60))
+    viewer = _feed_optional_viewer(request)
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM feed_publications
+            WHERE internal_user_id = ?
+              AND status = 'published'
+              AND media_ready_at IS NOT NULL
+              AND feed_thumb_name IS NOT NULL
+              AND feed_large_name IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (author_id, limit),
+        ).fetchall()
+        items = [_feed_item_payload(conn, pub, viewer) for pub in rows]
+    return {"ok": True, "authorId": author_id, "items": items}
+
+
+@app.get("/api/feed/challenges")
+async def feed_challenges(request: Request) -> dict[str, Any]:
+    viewer = _feed_optional_viewer(request)
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.*, COUNT(p.id) AS publication_count
+            FROM challenges c
+            LEFT JOIN feed_publications p
+              ON p.category = c.category
+             AND p.status = 'published'
+             AND p.media_ready_at IS NOT NULL
+            WHERE c.status = 'active'
+            GROUP BY c.id
+            ORDER BY c.ends_at ASC
+            """
+        ).fetchall()
+        challenges = []
+        for row in rows:
+            payload = _feed_challenge_payload(conn, row["category"]) or {}
+            payload["publicationCount"] = int(row["publication_count"] or 0)
+            challenges.append(payload)
+    return {"ok": True, "viewer": viewer, "items": challenges}
+
+
 @app.post("/api/feed/publications/{publication_id}/recreate")
 async def feed_recreate_mark(publication_id: str, request: Request) -> dict[str, Any]:
     """Счётчик «Повторить» (remix_count). Только отметка события — генерация
     идёт обычным /api/generate."""
     return _feed_reaction_toggle(request, publication_id, "recreate", True)
+
+
+@app.post("/api/feed/publications/{publication_id}/remix/start")
+async def feed_remix_start(publication_id: str, request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    with db() as conn:
+        pub = conn.execute(
+            "SELECT * FROM feed_publications WHERE id = ? AND status = 'published'",
+            (publication_id,),
+        ).fetchone()
+        if pub is None:
+            raise HTTPException(404, "Publication not found")
+        item = _feed_item_payload(conn, pub, user["internal_user_id"])
+        conn.execute(
+            "INSERT OR IGNORE INTO feed_reactions (publication_id, internal_user_id, kind, created_at) "
+            "VALUES (?, ?, 'recreate', ?)",
+            (publication_id, user["internal_user_id"], datetime.now(timezone.utc).isoformat()),
+        )
+    return {
+        "ok": True,
+        "remixSessionId": uuid.uuid4().hex,
+        "publication": item,
+        "mode": item["mode"],
+        "prompt": item["prompt"],
+        "style": item["style"],
+        "sourceImageUrl": item["image_url"] if item["allow_recreate"] else None,
+        "aspectRatio": item["native_aspect_ratio"],
+        "lockedPrompt": item["prompt_visibility"] == "hidden",
+    }
 
 
 @app.get("/api/feed/media/{publication_id}")

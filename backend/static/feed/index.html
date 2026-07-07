@@ -91,6 +91,10 @@ button{user-select:none}
 .search{height:36px;min-width:0;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.045);color:#fff;padding:0 13px;outline:none;font-size:13px;font-weight:580}
 .search:focus{border-color:rgba(234,255,0,.5);box-shadow:0 0 0 3px rgba(234,255,0,.08)}
 .status{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#cad2c4;white-space:nowrap}.status:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--acid);box-shadow:0 0 14px rgba(234,255,0,.65)}
+.challenge-intro{display:none;margin:0 auto 10px;max-width:1580px;border:1px solid rgba(234,255,0,.22);border-radius:12px;background:linear-gradient(90deg,rgba(15,20,15,.96),rgba(11,14,11,.88));padding:14px;gap:14px;align-items:center;justify-content:space-between;box-shadow:0 18px 50px rgba(0,0,0,.25)}
+.challenge-intro.show{display:flex}
+.challenge-copy{min-width:0}.challenge-copy small{display:block;color:var(--acid);font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:850;margin-bottom:4px}.challenge-copy h2{margin:0;color:#fff;font-size:24px;line-height:1.04;letter-spacing:-.045em}.challenge-copy p{margin:6px 0 0;color:#dfe7d9;font-size:13px;line-height:1.32;max-width:760px}
+.challenge-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.challenge-pill{min-height:31px;display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,.10);border-radius:999px;background:rgba(255,255,255,.045);padding:0 11px;color:#f7faef;font-size:12px;font-weight:720;white-space:nowrap}.challenge-pill.acid{background:var(--acid);border-color:var(--acid);color:#050705}
 .masonry{display:grid;grid-template-columns:repeat(var(--cols,5),minmax(0,1fr));gap:var(--gap);align-items:start;padding-bottom:44px;max-width:1580px;margin:0 auto}
 .masonry-col{display:flex;flex-direction:column;gap:var(--gap);min-width:0}
 .masonry-col:nth-child(2){padding-top:28px}.masonry-col:nth-child(3){padding-top:8px}.masonry-col:nth-child(4){padding-top:36px}.masonry-col:nth-child(5){padding-top:16px}
@@ -125,16 +129,17 @@ button{user-select:none}
 .close-btn{position:fixed;top:18px;right:20px;width:38px;height:38px;border-radius:11px;border:1px solid rgba(255,255,255,.18);background:rgba(5,7,5,.70);color:#fff;font-size:22px;line-height:1;font-weight:500;cursor:pointer;backdrop-filter:blur(12px);z-index:5}
 .modal-info{width:var(--info);height:100%;overflow:hidden;border-left:1px solid rgba(255,255,255,.10);background:linear-gradient(180deg,rgba(14,19,15,.97),rgba(7,10,8,.98));display:flex;flex-direction:column;min-height:0}
 .info-scroll{padding:16px;overflow:auto;min-height:0;scrollbar-width:thin;scrollbar-color:rgba(234,255,0,.35) transparent}
-.detail-author{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;margin-bottom:12px}
+.detail-author{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;margin-bottom:12px}
 .detail-avatar{width:40px;height:40px;border-radius:50%;background:var(--acid);color:#050705;display:grid;place-items:center;font-weight:860}
 .detail-author b{display:block;font-size:14px;font-weight:720;line-height:1.05}.detail-author span{display:block;color:var(--muted);font-size:11px;font-weight:520;margin-top:2px}
 .follow{height:32px;border-radius:9px;border:1px solid rgba(234,255,0,.45);color:var(--acid);background:rgba(234,255,0,.035);padding:0 12px;font-size:12px;font-weight:730;cursor:pointer}
+.modal-close-inline{width:32px;height:32px;border-radius:9px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.055);color:#fff;font-size:18px;line-height:1;cursor:pointer}
 .detail-title{font-size:25px;line-height:1.08;letter-spacing:-.045em;font-weight:780;margin:0 0 8px}
 .metric-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:#dfe7d9;font-size:13px;font-weight:500;margin:0 0 14px}.metric-row b{color:#fff;font-weight:650}
-.detail-actions{display:grid;grid-template-columns:minmax(154px,1fr) 84px 64px 112px;gap:8px;align-items:stretch;margin-bottom:14px}
+.detail-actions{display:grid;grid-template-columns:minmax(170px,1fr) 108px 108px 118px;gap:8px;align-items:stretch;margin-bottom:14px}
 .remix-main{height:48px;border:0;border-radius:11px;background:var(--acid);color:#050705;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 14px 30px rgba(234,255,0,.14)}
 .detail-icon,.download-btn{height:48px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.055);color:#f6f9f2;cursor:pointer;font-weight:650;box-shadow:0 12px 28px rgba(0,0,0,.20)}
-.detail-icon{display:grid;place-items:center;font-size:25px;line-height:1;position:relative}.detail-icon.like{font-size:33px;color:var(--acid);border-color:rgba(234,255,0,.30);background:rgba(234,255,0,.055)}.detail-icon small{display:block;font-size:10px;line-height:1;margin-top:1px;color:#fff;font-weight:700}
+.detail-icon{display:flex;align-items:center;justify-content:center;gap:7px;font-size:24px;line-height:1;position:relative}.detail-icon.like{font-size:30px;color:var(--acid);border-color:rgba(234,255,0,.30);background:rgba(234,255,0,.055)}.detail-icon small{display:block;font-size:12px;line-height:1;color:#fff;font-weight:760}
 .download-btn{font-size:13px;padding:0 12px}.detail-icon:hover,.download-btn:hover{border-color:rgba(234,255,0,.45);background:rgba(255,255,255,.08)}
 [data-tip]{position:relative}[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:50%;top:-34px;transform:translateX(-50%);white-space:nowrap;background:rgba(14,17,14,.93);border:1px solid rgba(255,255,255,.13);color:#fff;border-radius:7px;padding:6px 8px;font-size:11px;font-weight:600;box-shadow:0 12px 28px rgba(0,0,0,.35);z-index:10}
 .panel-block{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.035);overflow:hidden;margin-bottom:10px}
@@ -152,8 +157,8 @@ button{user-select:none}
 .more-card-stats{position:absolute;left:8px;right:8px;bottom:8px;z-index:2;display:flex;gap:10px;color:#e8eee2;font-size:11px;font-weight:500;text-shadow:0 3px 12px rgba(0,0,0,.9)}
 @media (hover:none){.work-card:hover{transform:none;border-color:rgba(255,255,255,.078);box-shadow:0 10px 26px rgba(0,0,0,.20)}.work-card:hover img{transform:scale(1.001);filter:none}.card-overlay{opacity:1;pointer-events:auto;background:linear-gradient(180deg,rgba(0,0,0,.22),rgba(0,0,0,.02) 50%,rgba(0,0,0,.54))}.card-top{display:none}.card-actions{gap:7px}.inline-action{font-size:12px;background:rgba(0,0,0,.28)}.inline-action.like{font-size:21px;background:rgba(234,255,0,.08)}.persist-stats{font-size:12px;gap:9px}.persist-stat.heart .ico{font-size:19px}}
 @media (max-width:1260px){:root{--rail:292px}.mode-feature{height:190px}.mode-tile{height:82px}.feedbar{grid-template-columns:1fr}.search-wrap{grid-template-columns:1fr}.status{display:none}}
-@media (max-width:980px){:root{--rail:1fr;--top:54px;--gap:7px}.topbar{grid-template-columns:118px 1fr auto;padding:6px 9px;gap:7px}.logo{font-size:19px}.logo-mark{width:26px;height:26px}.product-nav{justify-content:flex-start}.nav-btn{font-size:12px;padding:0 11px;min-height:32px}.top-action{padding:0 10px}.top-right .top-action:not(.acid){display:none}.user-dot{width:30px;height:30px}.app{display:block;padding:8px}.rail{position:relative;top:auto;height:auto;margin-bottom:8px;border-radius:12px;padding:8px;overflow:hidden}.rail-head{display:none}.mode-feature{height:104px;min-height:104px;margin-bottom:8px}.feature-title{font-size:18px}.feature-line,.feature-kicker{display:none}.feature-open{width:28px;height:28px}.mode-grid{display:flex;overflow-x:auto;gap:8px;margin-bottom:0;scrollbar-width:none}.mode-grid::-webkit-scrollbar{display:none}.mode-tile{min-width:152px;height:76px}.rail-challenge{display:none}.feedbar{top:var(--top);grid-template-columns:1fr;padding:8px;gap:8px}.modal{padding:0;align-items:stretch;justify-content:stretch}.modal.open{display:block}.modal-shell{width:100%;height:auto;max-width:none;min-height:100vh;display:block;border:0;border-radius:0;padding:8px;background:rgba(0,0,0,.32);overflow:visible}.modal-media{height:auto;max-height:none;margin:0 0 8px;background:transparent}.modal-media img{width:100%;height:auto;max-height:none;border-radius:12px}.modal-info{width:100%;height:auto;max-height:none;border:1px solid rgba(255,255,255,.12);border-radius:14px}.info-scroll{padding:12px}.close-btn{top:12px;right:12px;background:rgba(0,0,0,.64)}.detail-title{font-size:22px}.detail-actions{grid-template-columns:1fr 70px 58px;gap:7px}.download-btn{grid-column:1/-1;height:42px}.remix-main,.detail-icon{height:44px}.specs{grid-template-columns:1fr 1fr}.more-grid{max-height:none;overflow:visible}}
-@media (max-width:560px){.topbar{grid-template-columns:112px minmax(0,1fr) auto}.nav-btn:nth-child(n+5){display:none}.top-action.acid{font-size:0;width:34px;padding:0}.top-action.acid:before{content:"▧";font-size:13px}.user-dot{display:none}.filter-btn{min-height:31px;padding:0 12px}.search{height:34px}.masonry{gap:7px}.masonry-col{gap:7px}.masonry-col:nth-child(n){padding-top:0}.mode-feature{height:96px}.mode-tile{min-width:146px;height:72px}.detail-author{grid-template-columns:auto 1fr}.follow{display:none}.metric-row{font-size:12px;gap:9px}.more-grid{grid-template-columns:1fr 1fr;gap:7px}.more-card{min-height:96px}}
+@media (max-width:980px){:root{--rail:1fr;--top:104px;--gap:7px}.topbar{height:var(--top);display:flex;flex-wrap:wrap;align-content:center;align-items:center;padding:7px 9px;gap:7px}.logo{font-size:19px;flex:0 0 auto}.logo-mark{width:26px;height:26px}.top-right{margin-left:auto}.top-action{padding:0 10px}.top-right .top-action:not(.acid){display:none}.user-dot{width:30px;height:30px}.product-nav{order:2;flex:1 0 100%;justify-content:flex-start;overflow-x:auto;padding-bottom:1px}.nav-btn{font-size:12px;padding:0 11px;min-height:32px;flex:0 0 auto}.app{display:block;padding:8px}.rail{position:relative;top:auto;height:auto;margin-bottom:8px;border-radius:12px;padding:8px;overflow:hidden}.rail-head{display:none}.mode-feature{height:104px;min-height:104px;margin-bottom:8px}.feature-title{font-size:18px}.feature-line,.feature-kicker{display:none}.feature-open{width:28px;height:28px}.mode-grid{display:flex;overflow-x:auto;gap:8px;margin-bottom:0;scrollbar-width:none}.mode-grid::-webkit-scrollbar{display:none}.mode-tile{min-width:152px;height:76px}.rail-challenge{display:none}.feedbar{top:var(--top);grid-template-columns:1fr;padding:8px;gap:8px}.challenge-intro{display:none}.challenge-intro.show{display:block;padding:12px}.challenge-meta{justify-content:flex-start;margin-top:10px}.modal{padding:0;align-items:stretch;justify-content:stretch}.modal.open{display:block}.modal-shell{width:100%;height:auto;max-width:none;min-height:100vh;display:block;border:0;border-radius:0;padding:8px;background:rgba(0,0,0,.32);overflow:visible}.modal-media{height:auto;max-height:none;margin:0 0 8px;background:transparent}.modal-media img{width:100%;height:auto;max-height:none;border-radius:12px}.modal-info{width:100%;height:auto;max-height:none;border:1px solid rgba(255,255,255,.12);border-radius:14px}.info-scroll{padding:12px}.close-btn{display:none}.detail-title{font-size:22px}.detail-actions{grid-template-columns:1fr 86px 86px;gap:7px}.download-btn{grid-column:1/-1;height:42px}.remix-main,.detail-icon{height:44px}.specs{grid-template-columns:1fr 1fr}.more-grid{max-height:none;overflow:visible}}
+@media (max-width:560px){.topbar{--top:104px}.nav-btn:nth-child(n+5){display:none}.top-action.acid{font-size:0;width:34px;padding:0}.top-action.acid:before{content:"▧";font-size:13px}.user-dot{display:none}.filter-btn{min-height:31px;padding:0 12px}.search{height:34px}.challenge-copy h2{font-size:20px}.challenge-copy p{font-size:12px}.masonry{gap:7px}.masonry-col{gap:7px}.masonry-col:nth-child(n){padding-top:0}.mode-feature{height:96px}.mode-tile{min-width:146px;height:72px}.detail-author{grid-template-columns:auto 1fr auto auto}.follow{padding:0 9px;font-size:11px}.metric-row{font-size:12px;gap:9px}.more-grid{grid-template-columns:1fr 1fr;gap:7px}.more-card{min-height:96px}}
 </style>
 </head>
 <body>
@@ -198,6 +203,7 @@ button{user-select:none}
       </div>
       <div class="search-wrap"><input class="search" id="search" type="search" placeholder="Найти автора, стиль, prompt…"><div class="status">24 891 онлайн</div></div>
     </section>
+    <section class="challenge-intro" id="challengeIntro" aria-label="Активный челлендж"></section>
     <section class="masonry" id="masonry" aria-label="Лента изображений"></section>
     <div class="empty-state" id="emptyState">Ничего не найдено. Попробуйте другой запрос.</div>
   </main>
@@ -212,14 +218,15 @@ button{user-select:none}
         <div class="detail-author">
           <div class="detail-avatar" id="modalAvatar">A</div>
           <div><b id="modalAuthor">Анна А.М.</b><span id="modalTime">2 дня назад · Текст → Изо</span></div>
-          <button class="follow" type="button" data-toast="Автор добавлен в подписки">Подписаться</button>
+          <button class="follow" type="button" id="followBtn">Подписаться</button>
+          <button class="modal-close-inline" type="button" id="modalCloseInline" aria-label="Закрыть">×</button>
         </div>
         <h1 class="detail-title" id="modalTitle">Дом над облаками</h1>
         <div class="metric-row" id="modalStats"></div>
         <div class="detail-actions">
-          <button class="remix-main" type="button" data-tip="Создать свою версию" data-toast="Открываем ремикс">↻ Ремикс</button>
-          <button class="detail-icon like" type="button" data-tip="Лайк" data-toast="Лайк поставлен">♡<small id="modalLikeCount">4.8K</small></button>
-          <button class="detail-icon" type="button" data-tip="Дизлайк" data-toast="Больше не будем показывать похожее">☟</button>
+          <button class="remix-main" type="button" id="modalRemixBtn" data-tip="Создать свою версию">↻ Ремикс</button>
+          <button class="detail-icon like" type="button" id="modalLikeBtn" data-tip="Лайк">♡<small id="modalLikeCount">4.8K</small></button>
+          <button class="detail-icon" type="button" id="modalSaveBtn" data-tip="Сохранить идею">▣<small id="modalSaveCount">0</small></button>
           <button class="download-btn" type="button" data-tip="Скачать изображение" data-toast="Скачивание изображения">⇩ Скачать</button>
         </div>
         <details class="panel-block"><summary>Промпт <span>+</span></summary><div class="prompt-text" id="modalPrompt"></div></details>
@@ -236,6 +243,7 @@ let activeFilter = 'all';
 let currentIndex = 0;
 const masonry = document.querySelector('#masonry');
 const emptyState = document.querySelector('#emptyState');
+const challengeIntro = document.querySelector('#challengeIntro');
 const search = document.querySelector('#search');
 const toast = document.querySelector('#toast');
 const modal = document.querySelector('#modal');
@@ -246,7 +254,6 @@ const modalAuthor = document.querySelector('#modalAuthor');
 const modalTime = document.querySelector('#modalTime');
 const modalAvatar = document.querySelector('#modalAvatar');
 const modalStats = document.querySelector('#modalStats');
-const modalLikeCount = document.querySelector('#modalLikeCount');
 const modalPrompt = document.querySelector('#modalPrompt');
 const modalSpecs = document.querySelector('#modalSpecs');
 const moreGrid = document.querySelector('#moreGrid');
@@ -255,6 +262,11 @@ const modeFeature = document.querySelector('#modeFeature');
 const modeGrid = document.querySelector('#modeGrid');
 const featureTitle = document.querySelector('#featureTitle');
 const featureLine = document.querySelector('#featureLine');
+const followBtn = document.querySelector('#followBtn');
+const modalCloseInline = document.querySelector('#modalCloseInline');
+const modalLikeBtn = document.querySelector('#modalLikeBtn');
+const modalSaveBtn = document.querySelector('#modalSaveBtn');
+const modalRemixBtn = document.querySelector('#modalRemixBtn');
 let toastTimer = 0;
 const API_BASE = '';
 const modes = [
@@ -304,6 +316,9 @@ function titleFromPrompt(prompt){
   return clean.length > 54 ? `${clean.slice(0, 54).trim()}...` : clean;
 }
 function avatarFromName(name){ return String(name || 'И').trim().slice(0,1).toUpperCase() || 'И'; }
+function feedTypeForFilter(filter){
+  return ({all:'for_you', fresh:'fresh', remix:'remix', challenge:'challenge', following:'following'})[filter] || 'for_you';
+}
 function normalizeFeedItem(item){
   const likes = Number(item.like_count || 0);
   const remix = Number(item.remix_count || 0);
@@ -312,11 +327,12 @@ function normalizeFeedItem(item){
   return {
     raw:item,
     id:item.id,
+    authorId:item.user_id || item.author?.id || '',
     src:item.thumbnail_url || item.image_url,
     fullSrc:item.image_url || item.thumbnail_url,
     title:item.title || titleFromPrompt(item.prompt),
-    author:item.author_name || 'Автор ИЗО',
-    avatar:avatarFromName(item.author_name),
+    author:item.author?.displayName || item.author_name || 'Автор ИЗО',
+    avatar:avatarFromName(item.author?.displayName || item.author_name),
     time:formatTime(item.created_at),
     source:item.source_label || item.mode || 'Текст -> Изо',
     style:item.style || item.category || item.model || 'ИЗО ACA',
@@ -332,6 +348,9 @@ function normalizeFeedItem(item){
     prompt:item.prompt || item.description || 'Промпт скрыт автором.',
     liked:Boolean(item.is_liked_by_me),
     saved:Boolean(item.is_saved_by_me),
+    mine:Boolean(item.is_mine),
+    followed:Boolean(item.is_followed_by_me),
+    challenge:item.challenge || null,
     model:item.model || 'Flux2'
   };
 }
@@ -367,11 +386,6 @@ function getCols(){
   return 5;
 }
 function matchFilter(item){
-  if(activeFilter === 'all') return true;
-  if(activeFilter === 'fresh') return true;
-  if(activeFilter === 'remix') return item.remixNum > 0;
-  if(activeFilter === 'challenge') return /challenge|челлендж/i.test(item.raw.category || item.style || '');
-  if(activeFilter === 'following') return item.raw.is_mine;
   return true;
 }
 function matchSearch(item){
@@ -433,6 +447,58 @@ function renderFeed(){
     target._h += estimateHeight(item) + 0.045;
   });
 }
+function renderChallengeIntro(feedType, challenge){
+  if(!challengeIntro) return;
+  if(feedType !== 'challenge' || !challenge){
+    challengeIntro.classList.remove('show');
+    challengeIntro.innerHTML = '';
+    return;
+  }
+  const reward = challenge.rewardPool ? `${compactCount(challenge.rewardPool)} токенов` : 'место в витрине';
+  const entries = compactCount(challenge.publicationCount || works.length);
+  challengeIntro.innerHTML = `
+    <div class="challenge-copy">
+      <small>Челлендж недели</small>
+      <h2>${escapeHtml(challenge.title || 'Москва 2120')}</h2>
+      <p>${escapeHtml(challenge.description || 'Покажите город будущего. Лучшие работы получают токены и место в витрине.')}</p>
+      ${challenge.rules ? `<p>${escapeHtml(challenge.rules)}</p>` : ''}
+    </div>
+    <div class="challenge-meta">
+      <span class="challenge-pill acid">${escapeHtml(reward)}</span>
+      <span class="challenge-pill">${escapeHtml(entries)} работ</span>
+      <span class="challenge-pill">Публикация в витрине</span>
+    </div>`;
+  challengeIntro.classList.add('show');
+}
+function renderMoreWorks(list, currentId){
+  const filtered = list.filter(w=>String(w.id) !== String(currentId)).slice(0,18);
+  moreCount.textContent = filtered.length;
+  moreGrid.innerHTML = '';
+  filtered.forEach(w=>{
+    const real = works.findIndex(item=>String(item.id) === String(w.id));
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'more-card';
+    el.innerHTML = `<img src="${escapeHtml(w.src)}" alt="${escapeHtml(w.title)}" loading="lazy"><span class="more-card-title">${escapeHtml(w.title)}</span><span class="more-card-stats"><span>♡ ${escapeHtml(w.likes)}</span><span>↻ ${escapeHtml(w.remix)}</span></span>`;
+    el.addEventListener('click',()=> real >= 0 ? openModal(real) : openExternalWork(w));
+    moreGrid.appendChild(el);
+  });
+}
+function openExternalWork(item){
+  works.unshift(item);
+  openModal(0);
+}
+async function loadAuthorWorks(item){
+  if(!item.authorId) return;
+  try{
+    const data = await api(`/api/feed/authors/${encodeURIComponent(item.authorId)}/publications?limit=18`);
+    if(currentIndex >= 0 && String(works[currentIndex]?.id) === String(item.id)){
+      renderMoreWorks((data.items || []).map(normalizeFeedItem), item.id);
+    }
+  }catch(err){
+    console.error(err);
+  }
+}
 function setModalMediaSize(item){
   if(window.innerWidth <= 980){ modalShell.style.removeProperty('--media-w'); return; }
   const vh = window.innerHeight * .86;
@@ -450,22 +516,18 @@ function openModal(index){
   modalAuthor.textContent = item.author;
   modalTime.textContent = `${item.time} · ${item.source}`;
   modalAvatar.textContent = item.avatar;
-  modalLikeCount.textContent = item.likes;
-  modalStats.innerHTML = `<span><b>${item.likes}</b> лайков</span><span><b>${item.remix}</b> ремиксов</span><span><b>${compactCount(item.savesNum)}</b> сохранений</span>`;
-  modalPrompt.textContent = item.prompt;
-  modalSpecs.innerHTML = `<div class="spec"><span>Модель</span><b>${escapeHtml(item.model)}</b></div><div class="spec"><span>Стиль</span><b>${escapeHtml(item.style)}</b></div><div class="spec"><span>Формат</span><b>${escapeHtml(item.ratio)}</b></div><div class="spec"><span>Разрешение</span><b>${escapeHtml(item.w)}×${escapeHtml(item.h)}</b></div><div class="spec"><span>Seed</span><b>${escapeHtml(item.seed)}</b></div><div class="spec"><span>Источник</span><b>${escapeHtml(item.source)}</b></div>`;
-  const similar = works.filter((w,i)=>i!==index && (w.author===item.author || w.style===item.style || w.ratio===item.ratio)).slice(0,18);
-  moreCount.textContent = similar.length;
-  moreGrid.innerHTML = '';
-  similar.forEach(w=>{
-    const real = works.indexOf(w);
-    const el = document.createElement('button');
-    el.type = 'button';
-    el.className = 'more-card';
-    el.innerHTML = `<img src="${escapeHtml(w.src)}" alt="${escapeHtml(w.title)}" loading="lazy"><span class="more-card-title">${escapeHtml(w.title)}</span><span class="more-card-stats"><span>♡ ${escapeHtml(w.likes)}</span><span>↻ ${escapeHtml(w.remix)}</span></span>`;
-    el.addEventListener('click',()=>openModal(real));
-    moreGrid.appendChild(el);
-  });
+  followBtn.textContent = item.followed ? 'Отписаться' : 'Подписаться';
+  followBtn.disabled = item.mine || !item.authorId;
+  followBtn.title = item.mine ? 'Это ваша работа' : '';
+  modalLikeBtn.innerHTML = `${item.liked ? '♥' : '♡'}<small>${escapeHtml(item.likes)}</small>`;
+  modalSaveBtn.innerHTML = `${item.saved ? '▣' : '▢'}<small>${escapeHtml(compactCount(item.savesNum))}</small>`;
+  modalStats.innerHTML = `<span><b>${item.remix}</b> ремиксов</span><span><b>${item.likes}</b> лайков</span><span><b>${compactCount(item.savesNum)}</b> сохранений</span>`;
+  modalPrompt.textContent = item.challenge ? `${item.prompt}\n\nЧеллендж: ${item.challenge.title}. ${item.challenge.promptHint || item.challenge.description || ''}` : item.prompt;
+  modalSpecs.innerHTML = `<div class="spec"><span>Модель</span><b>${escapeHtml(item.model)}</b></div><div class="spec"><span>Стиль</span><b>${escapeHtml(item.style)}</b></div><div class="spec"><span>Формат</span><b>${escapeHtml(item.ratio)}</b></div><div class="spec"><span>Разрешение</span><b>${escapeHtml(item.w)}×${escapeHtml(item.h)}</b></div><div class="spec"><span>Seed</span><b>${escapeHtml(item.seed)}</b></div><div class="spec"><span>Источник</span><b>${escapeHtml(item.source)}</b></div>${item.challenge ? `<div class="spec"><span>Челлендж</span><b>${escapeHtml(item.challenge.title)}</b></div>` : ''}`;
+  let similar = works.filter((w,i)=>i!==index && w.authorId && w.authorId===item.authorId).slice(0,18);
+  if(!similar.length) similar = works.filter((w,i)=>i!==index && (w.author===item.author || w.style===item.style || w.ratio===item.ratio)).slice(0,18);
+  renderMoreWorks(similar, item.id);
+  loadAuthorWorks(item);
   modal.classList.add('open');
   modal.setAttribute('aria-hidden','false');
   document.body.style.overflow='hidden';
@@ -475,7 +537,7 @@ function showChallenge(){
   activeFilter = 'challenge';
   document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active', b.dataset.filter === 'challenge'));
   document.querySelector('#feed')?.scrollIntoView({behavior:'smooth', block:'start'});
-  renderFeed();
+  loadFeed('challenge');
   showToast('Открыт челлендж Москва 2120');
 }
 function downloadCurrent(){
@@ -495,35 +557,73 @@ function closeModal(){
   document.body.style.overflow='';
   if(location.hash.startsWith('#work-')) history.replaceState(null,'',location.pathname+location.search);
 }
-async function loadFeed(type = 'new'){
+async function loadFeed(type = 'for_you'){
   try{
     masonry.innerHTML = '';
     emptyState.classList.remove('show');
     const data = await api(`/api/feed?type=${encodeURIComponent(type)}&limit=60`);
     works = (data.items || []).filter(i=>i.media_status !== 'missing').map(normalizeFeedItem);
+    let challengeMeta = works.find(w=>w.challenge)?.challenge || null;
+    if(data.type === 'challenge' && !challengeMeta){
+      try{
+        const challenges = await api('/api/feed/challenges');
+        challengeMeta = (challenges.items || [])[0] || null;
+      }catch(_err){}
+    }
     const challenge = document.querySelector('.rail-challenge');
     if(challenge) challenge.style.setProperty('--challenge-bg', "url('/static/feed/assets/challenge_moscow_2120.webp')");
     renderModes();
+    renderChallengeIntro(data.type, challengeMeta);
     renderFeed();
     const hashId = location.hash.replace('#work-', '');
     if(hashId){ const idx = works.findIndex(w=>String(w.id) === hashId); if(idx >= 0) openModal(idx); }
   }catch(err){
     works = [];
     renderModes();
+    renderChallengeIntro('', null);
     renderFeed();
     showToast('Не удалось загрузить ленту');
     console.error(err);
   }
 }
 async function likeWork(id){
-  try{ await api(`/api/feed/publications/${encodeURIComponent(id)}/like`, { method:'POST' }); showToast('Лайк поставлен'); await loadFeed(activeFilter === 'fresh' ? 'new' : 'new'); }
+  const item = works.find(w=>String(w.id) === String(id));
+  const method = item?.liked ? 'DELETE' : 'POST';
+  try{ await api(`/api/feed/publications/${encodeURIComponent(id)}/like`, { method }); showToast(method === 'POST' ? 'Лайк поставлен' : 'Лайк снят'); await loadFeed(feedTypeForFilter(activeFilter)); }
   catch(err){ showToast('Войдите, чтобы поставить лайк'); console.error(err); }
 }
+async function saveWork(id){
+  const item = works.find(w=>String(w.id) === String(id));
+  const method = item?.saved ? 'DELETE' : 'POST';
+  try{ await api(`/api/feed/publications/${encodeURIComponent(id)}/save`, { method }); showToast(method === 'POST' ? 'Сохранено' : 'Убрано из сохранённых'); await loadFeed(feedTypeForFilter(activeFilter)); }
+  catch(err){ showToast('Войдите, чтобы сохранить'); console.error(err); }
+}
 async function remixWork(id){
-  try{ await api(`/api/feed/publications/${encodeURIComponent(id)}/recreate`, { method:'POST' }); showToast('Открываем ремикс'); await loadFeed(activeFilter === 'fresh' ? 'new' : 'new'); }
+  try{
+    const data = await api(`/api/feed/publications/${encodeURIComponent(id)}/remix/start`, { method:'POST' });
+    sessionStorage.setItem('izoRemixDraft', JSON.stringify(data));
+    showToast('Ремикс подготовлен');
+    await loadFeed(feedTypeForFilter(activeFilter));
+  }
   catch(err){ showToast('Войдите, чтобы сделать ремикс'); console.error(err); }
 }
+async function followAuthor(authorId){
+  const item = works[currentIndex];
+  const method = item?.followed ? 'DELETE' : 'POST';
+  try{
+    await api(`/api/feed/authors/${encodeURIComponent(authorId)}/follow`, { method });
+    showToast(method === 'POST' ? 'Вы подписались на автора' : 'Подписка снята');
+    await loadFeed(feedTypeForFilter(activeFilter));
+    const idx = works.findIndex(w=>String(w.id) === String(item?.id));
+    if(idx >= 0) openModal(idx);
+  }catch(err){ showToast('Войдите, чтобы подписаться'); console.error(err); }
+}
 document.querySelector('#closeModal').addEventListener('click', closeModal);
+modalCloseInline.addEventListener('click', closeModal);
+modalLikeBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) likeWork(item.id); });
+modalSaveBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) saveWork(item.id); });
+modalRemixBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) remixWork(item.id); });
+followBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item?.authorId) followAuthor(item.authorId); });
 modal.addEventListener('click', e=>{ if(e.target===modal) closeModal(); });
 document.addEventListener('keydown', e=>{
   if(e.key === 'Escape' && modal.classList.contains('open')) closeModal();
@@ -538,7 +638,7 @@ document.querySelector('#filters').addEventListener('click', e=>{
   if(!btn) return;
   document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active', b===btn));
   activeFilter = btn.dataset.filter;
-  if(activeFilter === 'fresh') loadFeed('new'); else renderFeed();
+  loadFeed(feedTypeForFilter(activeFilter));
 });
 document.addEventListener('click', e=>{
   const action = e.target.closest('[data-action]');
@@ -548,7 +648,7 @@ document.addEventListener('click', e=>{
   if(t) showToast(t.dataset.toast);
 });
 document.querySelector('.top-action.acid')?.setAttribute('href', '/gallery');
-loadFeed('new');
+loadFeed('for_you');
 </script>
 </body>
 </html>

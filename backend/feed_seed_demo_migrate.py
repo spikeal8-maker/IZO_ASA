@@ -149,6 +149,22 @@ def migrate_seed_demo_feed(*, apply: bool = False) -> dict[str, Any]:
                             (item["id"], f"seed_reactor_{kind}_{idx:03d}", kind, now),
                         )
                         reactions_written += 1
+                if item["category"] == "challenge_moscow_2120":
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO challenge_entries (
+                            id, challenge_id, publication_id, user_id, status,
+                            judge_score, final_score, created_at
+                        )
+                        VALUES (?, 'moscow_2120_week', ?, ?, 'accepted', NULL, NULL, ?)
+                        """,
+                        (
+                            f"moscow_2120_week_{item['id']}",
+                            item["id"],
+                            item["internal_user_id"],
+                            now,
+                        ),
+                    )
     return {
         "apply": apply,
         "seed_publications": len(plan),

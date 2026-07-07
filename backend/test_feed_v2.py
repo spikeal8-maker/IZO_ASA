@@ -197,6 +197,65 @@ def test_reactions_require_session_and_toggle(temp_db):
         assert r.json()["publication"]["remix_count"] == 1
 
 
+def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
+    with TestClient(main.app) as client:
+        author_token = make_user("iuid-author-tabs", "web_author_tabs", display_name="Тимур Ким")
+        viewer_token = make_user("iuid-viewer-tabs", "web_viewer_tabs", display_name="Зритель")
+        make_image("img-tabs-a", "web_author_tabs", prompt="Москва 2120, город будущего")
+        make_image("img-tabs-b", "web_author_tabs", prompt="Неоновый двор")
+        pub_a = publish(client, author_token, "img-tabs-a", title="Москва 2120")
+        pub_b = publish(client, author_token, "img-tabs-b", title="Двор")
+        with main.db() as conn:
+            conn.execute(
+                "UPDATE feed_publications SET category = 'challenge_moscow_2120' WHERE id = ?",
+                (pub_a["id"],),
+            )
+
+        challenge = client.get("/api/feed?type=challenge", headers=bearer(viewer_token)).json()
+        assert challenge["type"] == "challenge"
+        assert [item["id"] for item in challenge["items"]] == [pub_a["id"]]
+        assert challenge["items"][0]["challenge"]["id"] == "moscow_2120_week"
+
+        remix_started = client.post(
+            f"/api/feed/publications/{pub_a['id']}/remix/start",
+            headers=bearer(viewer_token),
+        )
+        assert remix_started.status_code == 200
+        remix_body = remix_started.json()
+        assert remix_body["ok"] is True
+        assert remix_body["prompt"] == "Москва 2120, город будущего"
+        remix_feed = client.get("/api/feed?type=remix", headers=bearer(viewer_token)).json()
+        assert remix_feed["items"][0]["id"] == pub_a["id"]
+
+        followed = client.post(
+            f"/api/feed/authors/{pub_a['user_id']}/follow",
+            headers=bearer(viewer_token),
+        )
+        assert followed.status_code == 200
+        following = client.get("/api/feed?type=following", headers=bearer(viewer_token)).json()
+        assert {item["id"] for item in following["items"]} == {pub_a["id"], pub_b["id"]}
+        assert all(item["is_followed_by_me"] for item in following["items"])
+
+        author_items = client.get(
+            f"/api/feed/authors/{pub_a['user_id']}/publications",
+            headers=bearer(viewer_token),
+        ).json()
+        assert {item["id"] for item in author_items["items"]} == {pub_a["id"], pub_b["id"]}
+        assert all(item["author"]["displayName"] == "Тимур Ким" for item in author_items["items"])
+
+        disliked = client.post(
+            f"/api/feed/publications/{pub_b['id']}/dislike",
+            headers=bearer(viewer_token),
+        )
+        assert disliked.status_code == 200
+        assert disliked.json()["publication"]["is_disliked_by_me"] is True
+
+        challenges = client.get("/api/feed/challenges", headers=bearer(viewer_token)).json()
+        assert challenges["ok"] is True
+        assert challenges["items"][0]["id"] == "moscow_2120_week"
+        assert challenges["items"][0]["publicationCount"] >= 1
+
+
 def test_generate_rejects_missing_media_input_before_job_created(temp_db):
     with TestClient(main.app) as client:
         token = make_user("iuid-gen-missing", "web_gen_missing")
