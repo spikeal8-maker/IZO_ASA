@@ -2,7 +2,9 @@
 
 ## Purpose
 
-`Рисунок` is a separate editor page inside the new `/new` UI. It is not a small form block: the preview area becomes a workbench, and the left sidebar switches between paint-specific toolsets.
+`Рисунок` has its own canonical route: `/paint`. The compatibility route `/new/paint` also opens the same page state. It is not a small form block: the preview area becomes a workbench, and the left sidebar switches between paint-specific toolsets.
+
+Important performance note: the current implementation is route-separated, but still rendered by the shared `NewStudio` bundle. A real weak-PC optimization still requires extracting the paint editor into a dedicated lazy-loaded component/chunk so `/new` does not load the drawing editor code until the user opens `/paint`.
 
 ## Modes
 
@@ -18,6 +20,7 @@ The first integrated version exposes four sidebar modes:
 Shared shell:
 
 - the same top navigation as the rest of `/new`;
+- canonical URL `/paint`; `/new/paint` remains a compatibility alias;
 - the same result/history dock;
 - the same format and quality controls;
 - a fixed bottom CTA on mobile;
@@ -42,6 +45,7 @@ UI rules added after first visual review:
 - on mobile, the quick tools move back into the sidebar panel so they do not cover the canvas.
 - after generation or a history click, the paint page uses the shared result preview instead of keeping the canvas locked on screen, so zoom/pan and before/after comparison stay consistent with the other studio modes.
 - sketch mode starts with the same working "Sketch to scene" prompt as the legacy UI, visible in the textarea;
+- the default sketch prompt must not end with an abstract-pattern instruction; the user writes the final subject/detail themselves;
 - sketch mode accepts an uploaded drawing/photo as the canvas base; the user can draw on top, and the generated `canvas` payload composites the uploaded sketch plus local strokes.
 
 ## Backend Payload
@@ -90,6 +94,7 @@ This is the first working editor shell, not the final vector editor.
 
 Planned follow-up layers:
 
+- extract `/paint` into a lazy-loaded page component/chunk instead of keeping it inside the monolithic `NewStudio`;
 - movable vector objects instead of only final-line geometry;
 - polygon/star tool with adjustable point count;
 - fill bucket;

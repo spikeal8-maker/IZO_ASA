@@ -27,7 +27,7 @@ import {
 import { I2I_STYLES, T2I_TEMPLATES, styleShortLabel } from './stylePresets'
 import type { StylePreset } from './stylePresets'
 import TopBarV3 from './TopBarV3'
-import type { V3Section } from './TopBarV3'
+import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import './newUi.css'
 import './newStudioV3.css'
@@ -73,13 +73,14 @@ const EMPTY_FACE_SLOTS: EditSlot[] = [
   { image: undefined, role: '', takeNote: '' },
   { image: undefined, role: 'face', takeNote: '' },
 ]
-const DEFAULT_PAINT_SKETCH_PROMPT = 'Преобразуй исходный эскиз в реалистичную кинематографичную сцену. Сохрани расположение объектов из эскиза. Добавь красивый свет, атмосферу, тени, глубину, реалистичные материалы и чистую композицию. Все видимые поверхности и декоративные элементы должны содержать только абстрактные формы и узоры.'
+const DEFAULT_PAINT_SKETCH_PROMPT = 'Преобразуй исходный эскиз в реалистичную кинематографичную сцену. Сохрани расположение объектов из эскиза. Добавь красивый свет, атмосферу, тени, глубину, реалистичные материалы и чистую композицию.'
 
 // Начальное состояние из URL: /gallery, /profile, /feed, /new/*.
 function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   const p = typeof window !== 'undefined' ? window.location.pathname : '/feed'
   if (p === '/gallery' || p.startsWith('/gallery') || p.startsWith('/new/gallery')) return { view: 'gallery', tab: 'feed' }
   if (p === '/profile' || p.startsWith('/profile') || p.startsWith('/new/profile')) return { view: 'profile', tab: 'feed' }
+  if (p === '/paint' || p.startsWith('/paint/') || p === '/new/paint' || p.startsWith('/new/paint/')) return { view: 'tabs', tab: 'paint' }
   // Лента: /feed, /lenta. Генератор /new открывается на «Текст → Изо».
   if (p === '/feed' || p.startsWith('/feed') || p === '/lenta' || p.startsWith('/lenta')) return { view: 'tabs', tab: 'feed' }
   return { view: 'tabs', tab: 'text' }
@@ -542,8 +543,8 @@ function paintStageForResolution(resolution: { width: number; height: number }) 
 }
 
 export default function NewStudio(): ReactElement {
-  // Route: /new/feed — Лента (она же вкладка по умолчанию на /new);
-  // остальные вкладки живут на /new.
+  // Route: /paint — отдельная страница «Рисунок»; остальные режимы генератора
+  // пока живут на /new. Это URL-изоляция, физический split компонента ниже в TODO.
   const initialRoute = initialViewFromPath()
   const [tab, setTabState] = useState<N2Tab>(initialRoute.tab)
   // view: студия (tabs). Галерея/Профиль вынесены на App-level маршруты, но
@@ -551,7 +552,8 @@ export default function NewStudio(): ReactElement {
   const [, setView] = useState<N2View>(initialRoute.view)
 
   // Навигация страниц нового UI с синхронизацией URL. Каноничные маршруты:
-  // Лента /feed, Галерея /gallery, Профиль /profile, генератор /new.
+  // Лента /feed, Галерея /gallery, Профиль /profile, Рисунок /paint,
+  // остальные режимы генератора /new.
   const navTo = useCallback((path: string) => {
     if (window.location.pathname !== path) window.history.pushState(null, '', path)
   }, [])
@@ -559,9 +561,16 @@ export default function NewStudio(): ReactElement {
     (next: N2Tab) => {
       setView('tabs')
       setTabState(next)
-      navTo(next === 'feed' ? '/feed' : '/new')
+      navTo(next === 'feed' ? '/feed' : next === 'paint' ? '/paint' : '/new')
     },
     [navTo],
+  )
+  const selectStudioMode = useCallback(
+    (next: V3Mode) => {
+      if (next === 'video') return
+      setTab(next)
+    },
+    [setTab],
   )
   // Галерея и Профиль вынесены в отдельные страницы (App-level: перенесённые
   // рабочие экраны старого UI). Переходим полной навигацией, чтобы App заново
@@ -574,7 +583,7 @@ export default function NewStudio(): ReactElement {
     const onPop = () => {
       const r = initialViewFromPath()
       setView(r.view)
-      if (window.location.pathname === '/feed' || window.location.pathname === '/lenta') setTabState('feed')
+      setTabState(r.tab)
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
@@ -3317,7 +3326,7 @@ export default function NewStudio(): ReactElement {
             avatarUrl={authStatus === 'authed' ? acct.avatarUrl : null}
             userLabel={authStatus === 'authed' ? acct.userLabel : null}
             initials={authStatus === 'authed' ? acct.initials : null}
-            onSelectMode={(m) => { if (m !== 'video') setTab(m) }}
+            onSelectMode={selectStudioMode}
             onOpenFeed={() => setTab('feed')}
             onOpenGallery={goGallery}
             onOpenHelp={() => setHelpOpen(true)}

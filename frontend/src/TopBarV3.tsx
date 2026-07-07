@@ -1,7 +1,7 @@
 // Единый верхний бар нового интерфейса (визуальный источник:
 // izo-aca-new-responsive-page 14). Используется на /new, /feed, /gallery,
 // /profile. Навигация между страницами — полной загрузкой (window.location),
-// а переключение режимов внутри /new — через onSelectMode (без перезагрузки).
+// а переключение режимов внутри генератора — через onSelectMode.
 //
 // Разметка и классы намеренно совпадают с прототипом, чтобы работал scoped CSS
 // из newStudioV3.css (обёртка .iv3). Никаких legacy-auth: только колбэки.
@@ -47,7 +47,7 @@ export default function TopBarV3({
 }) {
   const selectMode = (mode: V3Mode) => {
     if (onSelectMode) onSelectMode(mode)
-    else goto('/new')
+    else goto(mode === 'paint' ? '/paint' : '/new')
   }
   return (
     <header className="topbar">
