@@ -1,5 +1,5 @@
 // Единый верхний бар нового интерфейса (визуальный источник:
-// izo-aca-new-responsive-page 14). Используется на /new, /feed, /gallery,
+// izo-aca-new-responsive-page 14). Используется на /, /new, /feed, /gallery,
 // /profile. Навигация между страницами — полной загрузкой (window.location),
 // а переключение режимов внутри генератора — через onSelectMode.
 //
@@ -47,7 +47,7 @@ export default function TopBarV3({
 }) {
   const selectMode = (mode: V3Mode) => {
     if (onSelectMode) onSelectMode(mode)
-    else goto(mode === 'paint' ? '/paint' : '/new')
+    else goto(mode === 'paint' ? '/paint' : '/')
   }
   return (
     <header className="topbar">
@@ -99,7 +99,7 @@ export default function TopBarV3({
           </svg>
           Галерея
         </button>
-        <button className="top-button" type="button" aria-label="Помощь" onClick={onOpenHelp || (() => goto('/new'))}>
+        <button className="top-button" type="button" aria-label="Помощь" onClick={onOpenHelp || (() => goto('/'))}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <circle cx="12" cy="12" r="8.7" stroke="currentColor" strokeWidth="1.7" />
             <path d="M9.6 9.2a2.55 2.55 0 1 1 4.7 1.45c-.95.9-2.05 1.42-2.05 3.05" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />

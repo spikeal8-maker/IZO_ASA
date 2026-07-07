@@ -1,5 +1,5 @@
 // ============================================================================
-// UI 2.0 — страница /new. Самодостаточный модуль: собственный layout по новым
+// UI 2.0 — основная страница /. /new оставлен как совместимый алиас.
 // макетам, реальный функционал через те же API, что и основной интерфейс
 // (/api/generate, /api/jobs, /api/gallery, auth v2). Работает параллельно с
 // текущим интерфейсом и не зависит от него (общие только stylePresets/authV2).
@@ -66,7 +66,7 @@ const EMPTY_FACE_SLOTS: EditSlot[] = [
 ]
 const DEFAULT_PAINT_SKETCH_PROMPT = 'Преобразуй исходный эскиз в реалистичную кинематографичную сцену. Сохрани расположение объектов из эскиза. Добавь красивый свет, атмосферу, тени, глубину, реалистичные материалы и чистую композицию.'
 
-// Начальное состояние из URL: /gallery, /profile, /feed, /new/*.
+// Начальное состояние из URL: /, /new, /gallery, /profile, /feed.
 function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   const p = typeof window !== 'undefined' ? window.location.pathname : '/feed'
   if (p === '/gallery' || p.startsWith('/gallery') || p.startsWith('/new/gallery')) return { view: 'gallery', tab: 'feed' }
@@ -535,7 +535,7 @@ function paintStageForResolution(resolution: { width: number; height: number }) 
 
 export default function NewStudio(): ReactElement {
   // Route: /paint — отдельная страница «Рисунок»; остальные режимы генератора
-  // пока живут на /new. Это URL-изоляция, физический split компонента ниже в TODO.
+  // живут на корневой странице /. /new остаётся совместимым алиасом.
   const initialRoute = initialViewFromPath()
   const [tab, setTabState] = useState<N2Tab>(initialRoute.tab)
   // view: студия (tabs). Галерея/Профиль вынесены на App-level маршруты, но
@@ -544,7 +544,7 @@ export default function NewStudio(): ReactElement {
 
   // Навигация страниц нового UI с синхронизацией URL. Каноничные маршруты:
   // Лента /feed, Галерея /gallery, Профиль /profile, Рисунок /paint,
-  // остальные режимы генератора /new.
+  // остальные режимы генератора /.
   const navTo = useCallback((path: string) => {
     if (window.location.pathname !== path) window.history.pushState(null, '', path)
   }, [])
@@ -552,7 +552,7 @@ export default function NewStudio(): ReactElement {
     (next: N2Tab) => {
       setView('tabs')
       setTabState(next)
-      navTo(next === 'feed' ? '/feed' : next === 'paint' ? '/paint' : '/new')
+      navTo(next === 'feed' ? '/feed' : next === 'paint' ? '/paint' : '/')
     },
     [navTo],
   )
@@ -2586,7 +2586,7 @@ export default function NewStudio(): ReactElement {
                 <span>{paintModeMeta[paintMode].hint}</span>
               </div>
 
-              {renderPaintUploadCard()}
+              {paintMode !== 'sketch' && renderPaintUploadCard()}
 
               {(paintMode === 'sketch' || paintMode === 'mask') && (
                 <div className="paint-toolbox">

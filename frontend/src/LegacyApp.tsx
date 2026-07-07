@@ -873,7 +873,8 @@ function App() {
   }, [])
 
   const navigateApp = useCallback((nextTab: Tab = 'studio') => {
-    if (window.location.pathname !== '/') window.history.pushState(null, '', '/')
+    const studioPath = window.location.pathname.startsWith('/legacy') ? '/legacy' : '/'
+    if (window.location.pathname !== studioPath) window.history.pushState(null, '', studioPath)
     setPathName(window.location.pathname)
     setTab(nextTab)
   }, [])
@@ -1475,7 +1476,7 @@ function App() {
         <div className="app-shell">
           {isDiagMode() && <DiagPanel />}
           <AuthV2Modal open={authModalOpen} onClose={() => setAuthModalOpen(false)} />
-          <TopBarV3 active="gallery" authed={isAuthedV2} avatarUrl={isAuthedV2 ? accountInfo(authMe).avatarUrl : null} userLabel={isAuthedV2 ? accountInfo(authMe).userLabel : null} initials={isAuthedV2 ? accountInfo(authMe).initials : null} onOpenProfile={() => { window.location.href = '/profile' }} onOpenHelp={() => { window.location.href = '/new' }} />
+          <TopBarV3 active="gallery" authed={isAuthedV2} avatarUrl={isAuthedV2 ? accountInfo(authMe).avatarUrl : null} userLabel={isAuthedV2 ? accountInfo(authMe).userLabel : null} initials={isAuthedV2 ? accountInfo(authMe).initials : null} onOpenProfile={() => { window.location.href = '/profile' }} onOpenHelp={() => { window.location.href = '/' }} />
           <main className="new-sub-main">
           {isAuthedV2 ? (
             <GalleryView copy={copy} images={gallery} quota={galleryQuota} selected={selected} setSelected={setSelected} handleUseImageAs={useImageAs} refreshGallery={fetchGallery} clearSelected={() => setSelected(undefined)} backToStudio={() => { window.location.href = '/feed' }} view={galleryView} setView={setGalleryView} sendImage={sendImage} pickSlot={pendingEditSlot} onPickForSlot={assignGalleryToEditSlot} cancelPick={() => { setPendingEditSlot(null); window.location.href = '/feed' }} />
@@ -1500,7 +1501,7 @@ function App() {
         <div className="app-shell">
           {isDiagMode() && <DiagPanel />}
           <AuthV2Modal open={authModalOpen} onClose={() => setAuthModalOpen(false)} />
-          <TopBarV3 active="profile" authed={isAuthedV2} avatarUrl={isAuthedV2 ? accountInfo(authMe).avatarUrl : null} userLabel={isAuthedV2 ? accountInfo(authMe).userLabel : null} initials={isAuthedV2 ? accountInfo(authMe).initials : null} onOpenGallery={() => { window.location.href = '/gallery' }} onOpenHelp={() => { window.location.href = '/new' }} />
+          <TopBarV3 active="profile" authed={isAuthedV2} avatarUrl={isAuthedV2 ? accountInfo(authMe).avatarUrl : null} userLabel={isAuthedV2 ? accountInfo(authMe).userLabel : null} initials={isAuthedV2 ? accountInfo(authMe).initials : null} onOpenGallery={() => { window.location.href = '/gallery' }} onOpenHelp={() => { window.location.href = '/' }} />
           <main className="new-sub-main">
             <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={openAdminPage} openGallery={() => { window.location.href = '/gallery' }} backToStudio={() => { window.location.href = '/feed' }} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />
           </main>
