@@ -1,5 +1,5 @@
-import type { ChangeEvent, Dispatch, SetStateAction } from 'react'
-import { Lock, SlidersHorizontal, Sparkles, Upload, WandSparkles, Zap } from 'lucide-react'
+import { useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
+import { Copy, Lock, SlidersHorizontal, Sparkles, Upload, WandSparkles, Zap } from 'lucide-react'
 import type { AuthStatusV2, MeV2 } from './authV2'
 import { DEFAULT_TARIFFS, avatarPresets, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 
@@ -65,8 +65,6 @@ export default function ProfilePage({
   profileTab,
   setProfileTab,
   tariffs,
-  tariffsState,
-  authCapsState,
   authCaps,
   quality,
   setQuality,
@@ -108,6 +106,8 @@ export default function ProfilePage({
   onVerifyLinkEmail,
   onLinkBot,
 }: ProfilePageProps) {
+  const [avatarChooserOpen, setAvatarChooserOpen] = useState(false)
+  const [codeCopied, setCodeCopied] = useState(false)
   const account = me?.account
   const activePlan = (tariffKeys.includes(String(account?.plan || 'mini').toLowerCase() as TariffKey) ? String(account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
   const currentTariff = tariffs[activePlan] || DEFAULT_TARIFFS[activePlan]
@@ -119,6 +119,7 @@ export default function ProfilePage({
   const gallerySlots = Number(account?.gallery_slots ?? currentTariff.gallery_slots)
   const galleryUsed = Number(account?.gallery_used ?? galleryCount)
   const galleryFree = Math.max(0, Number(account?.gallery_free ?? gallerySlots - galleryUsed))
+  const feedLikes = Number((account as { feed_likes?: number | null; likes_received?: number | null } | undefined)?.feed_likes ?? (account as { likes_received?: number | null } | undefined)?.likes_received ?? 0)
   const displayEmail = me?.identities?.find((i) => i.provider_email)?.provider_email
   const telegramIdentity = me?.identities?.find((i) => i.provider === 'telegram')
   const maxIdentity = me?.identities?.find((i) => i.provider === 'max')
@@ -133,9 +134,16 @@ export default function ProfilePage({
   const friendPromoCode = `FRIEND-${String(me?.profile?.public_user_code || me?.internal_user_id || 'GUEST').replace(/^web_/, '').toUpperCase().slice(0, 12)}`
   const referralLink = `${window.location.origin}?ref=${me?.profile?.public_user_code || me?.internal_user_id || 'guest'}`
   const tokenPrice = (quality === 'fast' ? 1 : quality === 'standard' ? 2 : 4) * (provider === 'openrouter' ? 2 : 1)
-  const profileDataState = me ? 'ready' : 'fallback'
-  const tariffsStateLabel = tariffsState === 'ready' ? 'Тарифы из базы' : tariffsState === 'loading' ? 'Тарифы загружаются' : 'Тарифы по умолчанию'
-  const authCapsStateLabel = authCapsState === 'ready' ? 'Способы входа из базы' : authCapsState === 'loading' ? 'Способы входа загружаются' : 'Способы входа ограничены'
+  const copyPublicCode = async () => {
+    const value = publicCode || 'GUEST'
+    try {
+      await navigator.clipboard?.writeText(value)
+      setCodeCopied(true)
+      window.setTimeout(() => setCodeCopied(false), 1400)
+    } catch {
+      setCodeCopied(false)
+    }
+  }
   const planCards = tariffKeys.map((id) => ({
     id,
     title: id[0].toUpperCase() + id.slice(1),
@@ -172,16 +180,11 @@ export default function ProfilePage({
         </>
       ) : (
         <>
-          <div className="profile-data-health" aria-label="Состояние данных профиля">
-            <span className={profileDataState === 'ready' ? 'ok' : 'warn'}>{profileDataState === 'ready' ? 'Профиль из базы' : 'Профиль восстанавливается'}</span>
-            <span className={tariffsState === 'ready' ? 'ok' : 'warn'}>{tariffsStateLabel}</span>
-            <span className={authCapsState === 'ready' ? 'ok' : 'warn'}>{authCapsStateLabel}</span>
-          </div>
           <nav className="profile-tabs" aria-label="Разделы настроек">
-            <button type="button" className={profileTab === 'profile' ? 'active' : ''} onClick={() => setProfileTab('profile')}>Профиль</button>
-            <button type="button" className={profileTab === 'tariffs' ? 'active' : ''} onClick={() => setProfileTab('tariffs')}>Тарифы</button>
-            <button type="button" className={profileTab === 'earn' ? 'active' : ''} onClick={() => setProfileTab('earn')}>Заработать токены</button>
-            <button type="button" className={profileTab === 'models' ? 'active' : ''} onClick={() => setProfileTab('models')}>Модели</button>
+            <button type="button" className={profileTab === 'profile' ? 'active' : ''} onClick={() => setProfileTab('profile')}><span className="tabFull">Профиль</span><span className="tabShort">Профиль</span></button>
+            <button type="button" className={profileTab === 'tariffs' ? 'active' : ''} onClick={() => setProfileTab('tariffs')}><span className="tabFull">Тарифы</span><span className="tabShort">Тарифы</span></button>
+            <button type="button" className={profileTab === 'earn' ? 'active' : ''} onClick={() => setProfileTab('earn')}><span className="tabFull">Заработать токены</span><span className="tabShort">Токены</span></button>
+            <button type="button" className={profileTab === 'models' ? 'active' : ''} onClick={() => setProfileTab('models')}><span className="tabFull">Модели</span><span className="tabShort">Модели</span></button>
           </nav>
 
           {profileTab === 'profile' && <>
@@ -190,35 +193,55 @@ export default function ProfilePage({
                 <div className="profile-avatar" aria-label="Аватар пользователя">
                   {avatarSrc ? <img src={avatarSrc} alt="" /> : <span>{userInitials}</span>}
                 </div>
-                <label className={avatarBusy ? 'profile-avatar-upload disabled' : 'profile-avatar-upload'}>
-                  <Upload size={16} />
-                  <span>{avatarBusy ? 'Сохраняем...' : 'Загрузить файл'}</span>
-                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={uploadAvatar} disabled={avatarBusy} />
-                </label>
+                <button className="profile-avatar-upload" type="button" onClick={() => setAvatarChooserOpen(true)} disabled={avatarBusy}>{avatarBusy ? 'Сохраняем...' : 'Выбрать'}</button>
                 {avatarMsg && <small className={avatarMsg.includes('сохран') || avatarMsg.includes('загруж') ? 'profile-save-ok' : 'profile-save-err'}>{avatarMsg}</small>}
               </div>
               <div className="profile-hero-main">
-                <div className="profile-identity">
-                  <h3>{displayNameFallback}</h3>
-                  <span className="profile-chip current">{planLabel}</span>
-                  <span className="profile-chip green">Галерея {galleryUsed}/{gallerySlots}</span>
+                <div className="profile-hero-top">
+                  <div className="profile-identity">
+                    <h3>{displayNameFallback}</h3>
+                    <div className="profile-identity-meta">
+                      <button className="profile-chip current" type="button" onClick={() => setProfileTab('tariffs')} title="Открыть тарифы">{planLabel}</button>
+                      <a className="profile-chip green" href="/gallery" title="Открыть галерею"><span className="galleryFull">Галерея {galleryUsed}/{gallerySlots}</span><span className="galleryShort">{galleryUsed}/{gallerySlots}</span></a>
+                      <button className={codeCopied ? 'profile-code copied' : 'profile-code'} type="button" onClick={copyPublicCode} title="Скопировать код">
+                        <span><span className="codeLabel">Код: </span>{publicCode || 'GUEST'}</span>
+                        <Copy size={14} aria-hidden="true" />
+                        <em aria-live="polite">{codeCopied ? 'Скопировано' : ''}</em>
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div className="profile-code"><span>Публичный код: {publicCode || 'GUEST'}</span></div>
                 <div className="profile-metrics">
-                  <div><span>Токенов сегодня</span><strong>{dailyUsed} / {dailyLimit}</strong><small>осталось {dailyRemaining}</small></div>
-                  <div><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>доступно сейчас</small></div>
-                  <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
-                  <div><span>Промо и друзья</span><strong>+50</strong><small>за промокод или друга</small></div>
-                </div>
-                <div className="profile-avatar-picker" aria-label="Выбор аватара">
-                  {avatarPresets.map((preset) => (
-                    <button type="button" className={avatarPreset === preset.id ? 'active' : ''} onClick={() => void selectAvatarPreset(preset.id)} disabled={avatarBusy} key={preset.id} title={preset.label}>
-                      <img src={preset.url} alt="" />
-                    </button>
-                  ))}
+                  <div><strong>{dailyUsed}/{dailyLimit}</strong><span>Токены</span><small>осталось {dailyRemaining}</small></div>
+                  <div><strong>{tokenBalance}</strong><span>Баланс</span><small>доступно</small></div>
+                  <div><strong>{galleryUsed}/{gallerySlots}</strong><span>Галерея</span><small>свободно {galleryFree}</small></div>
+                  <div><strong>{feedLikes}</strong><span>Лайки</span><small>в ленте</small></div>
+                  <div><strong>+50</strong><span>Бонусы</span><small>промо</small></div>
                 </div>
               </div>
             </section>
+            {avatarChooserOpen && (
+              <div className="profile-avatar-modal" role="dialog" aria-modal="true" aria-label="Выбор аватара">
+                <div className="profile-avatar-dialog">
+                  <div className="profile-avatar-dialog-head">
+                    <h3>Аватар</h3>
+                    <button type="button" onClick={() => setAvatarChooserOpen(false)} aria-label="Закрыть">×</button>
+                  </div>
+                  <div className="profile-avatar-grid">
+                    <label className={avatarBusy ? 'profile-avatar-tile upload disabled' : 'profile-avatar-tile upload'}>
+                      <Upload size={18} />
+                      <span>Файл</span>
+                      <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { uploadAvatar(event); setAvatarChooserOpen(false) }} disabled={avatarBusy} />
+                    </label>
+                    {avatarPresets.map((preset) => (
+                      <button type="button" className={avatarPreset === preset.id ? 'profile-avatar-tile active' : 'profile-avatar-tile'} onClick={() => { void selectAvatarPreset(preset.id); setAvatarChooserOpen(false) }} disabled={avatarBusy} key={preset.id} title={preset.label}>
+                        <img src={preset.url} alt="" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             <section className="profile-card profile-profile">
               <label>Имя<input type="text" value={displayName} onChange={(e) => { setDisplayName(e.target.value); setSaveMsg('') }} placeholder="Ваше имя" maxLength={80} /></label>
               <label>Email<input type="email" value={displayEmail || ''} placeholder="Email не указан" readOnly disabled /></label>
