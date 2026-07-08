@@ -489,6 +489,18 @@ function compactCount(value){
   if(n >= 1000) return `${(n/1000).toFixed(n >= 10000 ? 0 : 1)}K`;
   return String(n);
 }
+const metricIcons = { views:'◉', likes:'♡', remix:'↻', saves:'★' };
+function metricHtml(kind, value, label){
+  return `<span title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"><i class="metric-ico" aria-hidden="true">${metricIcons[kind] || ''}</i><b>${escapeHtml(compactCount(value))}</b><small>${escapeHtml(label)}</small></span>`;
+}
+function renderModalStats(item){
+  return [
+    metricHtml('views', item.viewsNum || 0, 'просмотров'),
+    metricHtml('remix', item.remixNum || 0, 'ремиксов'),
+    metricHtml('likes', item.likesNum || 0, 'лайков'),
+    metricHtml('saves', item.savesNum || 0, 'избранных')
+  ].join('');
+}
 function formatTime(value){
   if(!value) return '';
   const date = new Date(value);
