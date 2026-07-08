@@ -245,6 +245,40 @@ def test_prepare_comfyui_outpaint_inputs_builds_canvas_and_mask(tmp_path, monkey
         assert mask.getpixel((512, 256)) == (0, 0, 0)
 
 
+def test_prepare_comfyui_outpaint_inputs_uses_frame_placement(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "MEDIA", tmp_path)
+    source = tmp_path / "wide.png"
+    Image.new("RGB", (160, 90), "#c80028").save(source, "PNG")
+
+    req = main.GenerateRequest(
+        mode="outpaint",
+        width=1024,
+        height=1024,
+        outpaint={
+            "left": 0,
+            "right": 0,
+            "top": 35,
+            "bottom": 35,
+            "frameW": 1024,
+            "frameH": 1024,
+            "sourceX": 0,
+            "sourceY": 224,
+            "sourceW": 1024,
+            "sourceH": 576,
+        },
+    )
+    image_path, mask_path = main.prepare_comfyui_outpaint_inputs(source, "job_outpaint_square", req)
+
+    assert image_path is not None and mask_path is not None
+    with Image.open(image_path) as image, Image.open(mask_path) as mask:
+        assert image.size == (1024, 1024)
+        assert mask.size == (1024, 1024)
+        assert image.getpixel((512, 512)) == (200, 0, 40)
+        assert mask.getpixel((512, 40)) == (255, 255, 255)
+        assert mask.getpixel((512, 512)) == (0, 0, 0)
+        assert mask.getpixel((512, 980)) == (255, 255, 255)
+
+
 def test_patch_outpaint_workflow_uses_full_denoise_and_target_size() -> None:
     wf = {
         "FKO:194": {"inputs": {}},
