@@ -61,7 +61,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "if ($item.Length -lt 10MB) { Write-Host '[ERROR] Refusing suspiciously small live DB:' $size 'MB'; exit 12 }"
 if errorlevel 1 (echo [ERROR] Production DB preflight failed. Public backend NOT started. & pause & exit /b 1)
 
-echo [1/5] Building frontend (tsc -b + vite build)...
+echo [1/5] Building frontend ^(tsc -b + vite build^)...
 pushd "%FRONTEND%" >nul
 if not exist "node_modules" (
   echo Installing frontend dependencies...
@@ -69,7 +69,7 @@ if not exist "node_modules" (
 )
 call npx tsc -b
 if errorlevel 1 (
-  echo [WARN] tsc -b had type errors (likely WIP code). Vite build will still run.
+  echo [WARN] tsc -b had type errors ^(likely WIP code^). Vite build will still run.
   echo        Fix uncommitted TypeScript errors in newUi.tsx before final deploy.
 )
 call npx vite build
