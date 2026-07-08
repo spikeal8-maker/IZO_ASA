@@ -3718,6 +3718,7 @@ def build_profile(row: sqlite3.Row | None) -> dict[str, Any]:
 
 AVATAR_PRESET_COUNT = 71
 AVATAR_PRESET_IDS = {f"avatar-{i:03d}" for i in range(1, AVATAR_PRESET_COUNT + 1)}
+LEGACY_AVATAR_PRESET_IDS = {f"preset-{i}": f"avatar-{i:03d}" for i in range(1, 11)}
 AVATAR_MAX_BYTES = 8 * 1024 * 1024
 AVATAR_OUTPUT_SIZE = 512
 AVATAR_WEBP_QUALITY = 86
@@ -3727,6 +3728,8 @@ AVATAR_ALLOWED_CONTENT_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "imag
 def validate_avatar_choice(avatar_url: str | None, avatar_preset: str | None) -> tuple[str | None, str | None]:
     preset = (avatar_preset or "").strip()
     url = (avatar_url or "").strip()
+    if preset in LEGACY_AVATAR_PRESET_IDS:
+        preset = LEGACY_AVATAR_PRESET_IDS[preset]
     if preset:
         if preset not in AVATAR_PRESET_IDS:
             raise HTTPException(400, "Unknown avatar preset.")

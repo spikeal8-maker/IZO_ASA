@@ -2465,7 +2465,7 @@
 .profile-avatar-upload.disabled { opacity: .55; cursor: not-allowed; }
 .profile-hero-main { display: grid; gap: 14px; min-width: 0; }
 .profile-hero-top { display: grid; gap: 10px; align-items: start; }
-.profile-identity { display: grid; gap: 8px; min-width: 0; }
+.profile-identity { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .profile-identity h3 { margin: 0; color: #f2f5ee; font-size: clamp(30px, 4vw, 46px); line-height: 1; overflow-wrap: anywhere; }
 .profile-identity-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .profile-chip { display: inline-flex; align-items: center; justify-content: center; min-height: 26px; padding: 4px 9px; border-radius: 999px; border: 1px solid #2c332e; background: rgba(255,255,255,.04); color: #98a19a; font-size: 12px; font-weight: 900; text-transform: uppercase; text-decoration: none; }
@@ -2473,7 +2473,8 @@ button.profile-chip { cursor: pointer; }
 .profile-chip.current { color: #071006; background: var(--n2-lime); border-color: var(--n2-lime); }
 .profile-chip.green { color: #40d85c; border-color: rgba(64,216,92,.42); background: rgba(64,216,92,.08); }
 .profile-chip .galleryShort { display: none; }
-.profile-code { position: relative; display: inline-flex; align-items: center; gap: 7px; min-height: 26px; max-width: 100%; padding: 4px 8px; border-radius: 8px; border: 1px solid rgba(236,255,47,.34); color: var(--n2-lime); background: rgba(236,255,47,.045); font-size: 12px; font-weight: 760; letter-spacing: .01em; overflow-wrap: anywhere; }
+.profile-code { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 24px; max-width: 100%; padding: 3px 7px; border-radius: 8px; border: 1px solid rgba(236,255,47,.34); color: var(--n2-lime); background: rgba(236,255,47,.045); font-size: 11px; font-weight: 760; letter-spacing: .01em; overflow-wrap: anywhere; }
+.profile-code .codeLabel { display: none; }
 .profile-code svg { width: 14px; height: 14px; flex: 0 0 auto; }
 .profile-code em { position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); min-width: max-content; padding: 4px 7px; border-radius: 7px; background: rgba(12,17,13,.96); border: 1px solid rgba(236,255,47,.28); color: var(--n2-lime); font-size: 10px; font-style: normal; opacity: 0; pointer-events: none; transition: opacity .14s ease; z-index: 2; }
 .profile-code.copied em { opacity: 1; }
@@ -2585,6 +2586,7 @@ button.profile-chip { cursor: pointer; }
   .profile-avatar-upload { min-width: 62px; min-height: 26px; padding: 0 8px; font-size: 11px; }
   .profile-hero-main { gap: 10px; }
   .profile-hero-top { gap: 8px; }
+  .profile-identity { gap: 6px; }
   .profile-identity h3 { font-size: 25px; }
   .profile-identity-meta { gap: 5px; }
   .profile-chip { min-height: 21px; padding: 3px 7px; font-size: 10px; }
