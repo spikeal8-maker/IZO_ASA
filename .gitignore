@@ -15,6 +15,7 @@ backend/.env
 *.db-wal
 *.db-shm
 backend/media/
+wt-integrated/
 
 # Python
 __pycache__/

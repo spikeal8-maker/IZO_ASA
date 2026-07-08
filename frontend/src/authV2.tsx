@@ -222,7 +222,14 @@ export async function startBotLoginV2(provider: 'telegram' | 'max'): Promise<{ o
 
 export async function pollBotLoginStatusV2(): Promise<{ status: 'pending' | 'approved' | 'expired' | 'authenticated' | 'conflict' | 'error' }> {
   const res = await authFetch('/auth/bot-login/status')
-  if (!res.ok) return { status: 'error' }
+  if (!res.ok) {
+    // After a successful bot login the backend consumes and clears the temporary
+    // challenge cookie. A late poll can then receive 401 even though the real
+    // trusted session cookie is already set, so confirm /me-v2 before showing an
+    // error to the user.
+    const me = await fetchMeV2()
+    return me ? { status: 'authenticated' } : { status: 'error' }
+  }
   return (await res.json()) as { status: 'pending' | 'approved' | 'expired' | 'authenticated' | 'conflict' }
 }
 
@@ -596,19 +603,28 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   useEffect(() => {
     if (!open || phase !== 'bot') return
     let stopped = false
+    let polling = false
+    let timer = 0
     const tick = async () => {
+      if (polling || stopped) return
+      polling = true
       const result = await pollBotLoginStatusV2()
+      polling = false
       if (stopped) return
       if (result.status === 'authenticated') {
+        stopped = true
+        window.clearInterval(timer)
         await refreshAuthStateV2()
         handleClose()
       } else if (result.status === 'expired') {
+        stopped = true
+        window.clearInterval(timer)
         setError('Ссылка входа устарела. Попробуйте снова.')
       } else if (result.status === 'error') {
         setError('Не удалось проверить вход. Попробуйте снова.')
       }
     }
-    const timer = window.setInterval(tick, botPollMs)
+    timer = window.setInterval(tick, botPollMs)
     void tick()
     return () => {
       stopped = true
