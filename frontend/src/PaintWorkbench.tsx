@@ -3,7 +3,7 @@ import type { CSSProperties, Dispatch, PointerEvent as ReactPointerEvent, RefObj
 import { Brush, Eraser, History, Images, PaintBucket, Palette, Slash, Trash2, Undo2, Upload } from 'lucide-react'
 import { Circle, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import type { Stage as KonvaStage } from 'konva/lib/Stage'
-import type { PaintDrawMode, PaintLine, PaintLineKind, PaintSubMode, PaintTool } from './paintTypes'
+import type { PaintDrawMode, PaintLine, PaintLineKind, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 
 export type PaintWorkbenchHandle = {
   toDataURL: () => string | undefined
@@ -16,8 +16,8 @@ type Props = {
   paintImage?: string
   paintSketchImage?: string
   paintOutpaintPreview?: string
-  paintOutpaint: { left: number; right: number; top: number; bottom: number }
-  setPaintOutpaint: Dispatch<SetStateAction<{ left: number; right: number; top: number; bottom: number }>>
+  paintOutpaint: PaintOutpaintPlacement
+  setPaintOutpaint: Dispatch<SetStateAction<PaintOutpaintPlacement>>
   paintStageSize: { width: number; height: number }
   paintLines: PaintLine[]
   setPaintLines: Dispatch<SetStateAction<PaintLine[]>>
@@ -165,7 +165,7 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
     kind: 'image' | 'left' | 'right' | 'top' | 'bottom'
     x: number
     y: number
-    padding: { left: number; right: number; top: number; bottom: number }
+    rect: { x: number; y: number; w: number; h: number }
   }>(null)
   const [view, setView] = useState({ scale: 1, x: 0, y: 0 })
   const [outpaintSourceSize, setOutpaintSourceSize] = useState({ width: paintStageSize.width, height: paintStageSize.height })
@@ -201,6 +201,10 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
     if (outpaintFitKeyRef.current === fitKey) return
     outpaintFitKeyRef.current = fitKey
     const scale = Math.min(frameW / sourceW, frameH / sourceH)
+    const rectW = Math.round(sourceW * scale)
+    const rectH = Math.round(sourceH * scale)
+    const rectX = Math.round((frameW - rectW) / 2)
+    const rectY = Math.round((frameH - rectH) / 2)
     const finalW = frameW / Math.max(0.0001, scale)
     const finalH = frameH / Math.max(0.0001, scale)
     const extraX = Math.max(0, Math.round(finalW - sourceW))
@@ -210,6 +214,12 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
       right: Math.ceil(extraX / 2),
       top: Math.floor(extraY / 2),
       bottom: Math.ceil(extraY / 2),
+      frameW,
+      frameH,
+      sourceX: rectX,
+      sourceY: rectY,
+      sourceW: rectW,
+      sourceH: rectH,
     })
   }, [outpaintSourceSize.height, outpaintSourceSize.width, paintImage, paintMode, paintStageSize.height, paintStageSize.width, setPaintOutpaint])
 
@@ -364,20 +374,79 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
 
   function outpaintUnits(dx: number, dy: number) {
     const box = outpaintFrameRef.current?.getBoundingClientRect()
-    const sourceSize = paintImage ? outpaintSourceSize : paintStageSize
-    const finalWidth = sourceSize.width + paintOutpaint.left + paintOutpaint.right
-    const finalHeight = sourceSize.height + paintOutpaint.top + paintOutpaint.bottom
     return {
-      x: box?.width ? dx * finalWidth / box.width : 0,
-      y: box?.height ? dy * finalHeight / box.height : 0,
+      x: box?.width ? dx * paintStageSize.width / box.width : 0,
+      y: box?.height ? dy * paintStageSize.height / box.height : 0,
     }
+  }
+
+  function clampOutpaintRect(rect: { x: number; y: number; w: number; h: number }) {
+    const frameW = Math.max(1, paintStageSize.width)
+    const frameH = Math.max(1, paintStageSize.height)
+    const minVisible = Math.min(48, frameW / 3, frameH / 3)
+    const w = clamp(rect.w, minVisible, frameW * 4)
+    const h = clamp(rect.h, minVisible, frameH * 4)
+    const x = clamp(rect.x, minVisible - w, frameW - minVisible)
+    const y = clamp(rect.y, minVisible - h, frameH - minVisible)
+    return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) }
+  }
+
+  function outpaintPaddingFromRect(rect: { x: number; y: number; w: number; h: number }) {
+    const frameW = Math.max(1, paintStageSize.width)
+    const frameH = Math.max(1, paintStageSize.height)
+    const naturalW = Math.max(1, outpaintSourceSize.width)
+    const naturalH = Math.max(1, outpaintSourceSize.height)
+    const scaleX = rect.w / naturalW
+    const scaleY = rect.h / naturalH
+    return {
+      left: Math.max(0, Math.round(rect.x / Math.max(0.0001, scaleX))),
+      right: Math.max(0, Math.round((frameW - rect.x - rect.w) / Math.max(0.0001, scaleX))),
+      top: Math.max(0, Math.round(rect.y / Math.max(0.0001, scaleY))),
+      bottom: Math.max(0, Math.round((frameH - rect.y - rect.h) / Math.max(0.0001, scaleY))),
+    }
+  }
+
+  function currentOutpaintRect() {
+    const frameW = Math.max(1, paintStageSize.width)
+    const frameH = Math.max(1, paintStageSize.height)
+    if (
+      typeof paintOutpaint.sourceX === 'number'
+      && typeof paintOutpaint.sourceY === 'number'
+      && typeof paintOutpaint.sourceW === 'number'
+      && typeof paintOutpaint.sourceH === 'number'
+    ) {
+      return clampOutpaintRect({ x: paintOutpaint.sourceX, y: paintOutpaint.sourceY, w: paintOutpaint.sourceW, h: paintOutpaint.sourceH })
+    }
+    const sourceSize = paintImage ? outpaintSourceSize : paintStageSize
+    const finalWidth = Math.max(1, sourceSize.width + paintOutpaint.left + paintOutpaint.right)
+    const finalHeight = Math.max(1, sourceSize.height + paintOutpaint.top + paintOutpaint.bottom)
+    return {
+      x: Math.round(paintOutpaint.left / finalWidth * frameW),
+      y: Math.round(paintOutpaint.top / finalHeight * frameH),
+      w: Math.round(sourceSize.width / finalWidth * frameW),
+      h: Math.round(sourceSize.height / finalHeight * frameH),
+    }
+  }
+
+  function updateOutpaintRect(rect: { x: number; y: number; w: number; h: number }) {
+    const next = clampOutpaintRect(rect)
+    const padding = outpaintPaddingFromRect(next)
+    setPaintOutpaint({
+      ...padding,
+      frameW: paintStageSize.width,
+      frameH: paintStageSize.height,
+      sourceX: next.x,
+      sourceY: next.y,
+      sourceW: next.w,
+      sourceH: next.h,
+    })
   }
 
   function startOutpaintDrag(kind: NonNullable<typeof outpaintDragRef.current>['kind'], event: ReactPointerEvent) {
     if (!paintImage) return
     event.preventDefault()
     event.stopPropagation()
-    outpaintDragRef.current = { kind, x: event.clientX, y: event.clientY, padding: paintOutpaint }
+    outpaintDragRef.current = { kind, x: event.clientX, y: event.clientY, rect: currentOutpaintRect() }
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
 
@@ -386,19 +455,20 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
     if (!drag) return
     event.preventDefault()
     const delta = outpaintUnits(event.clientX - drag.x, event.clientY - drag.y)
-    const totalX = drag.padding.left + drag.padding.right
-    const totalY = drag.padding.top + drag.padding.bottom
-    setPaintOutpaint(() => {
-      if (drag.kind === 'image') {
-        const left = totalX > 0 ? Math.round(clamp(drag.padding.left + delta.x, 0, totalX)) : drag.padding.left
-        const top = totalY > 0 ? Math.round(clamp(drag.padding.top + delta.y, 0, totalY)) : drag.padding.top
-        return { left, right: totalX - left, top, bottom: totalY - top }
-      }
-      if (drag.kind === 'left') return { ...drag.padding, left: Math.round(clamp(drag.padding.left + delta.x, 0, 768)) }
-      if (drag.kind === 'right') return { ...drag.padding, right: Math.round(clamp(drag.padding.right - delta.x, 0, 768)) }
-      if (drag.kind === 'top') return { ...drag.padding, top: Math.round(clamp(drag.padding.top + delta.y, 0, 768)) }
-      return { ...drag.padding, bottom: Math.round(clamp(drag.padding.bottom - delta.y, 0, 768)) }
-    })
+    const minSize = 48
+    if (drag.kind === 'image') {
+      updateOutpaintRect({ ...drag.rect, x: drag.rect.x + delta.x, y: drag.rect.y + delta.y })
+    } else if (drag.kind === 'left') {
+      const nextX = drag.rect.x + delta.x
+      updateOutpaintRect({ x: nextX, y: drag.rect.y, w: Math.max(minSize, drag.rect.w - delta.x), h: drag.rect.h })
+    } else if (drag.kind === 'right') {
+      updateOutpaintRect({ ...drag.rect, w: Math.max(minSize, drag.rect.w + delta.x) })
+    } else if (drag.kind === 'top') {
+      const nextY = drag.rect.y + delta.y
+      updateOutpaintRect({ x: drag.rect.x, y: nextY, w: drag.rect.w, h: Math.max(minSize, drag.rect.h - delta.y) })
+    } else {
+      updateOutpaintRect({ ...drag.rect, h: Math.max(minSize, drag.rect.h + delta.y) })
+    }
   }
 
   function stopOutpaintDrag() {
@@ -435,14 +505,12 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
       : paintMode === 'outpaint'
         ? 'Загрузите изображение, затем потяните исходник или его края в нужную сторону.'
         : 'Загрузите изображение, результат появится после генерации.'
-  const outpaintDisplaySize = paintImage ? outpaintSourceSize : paintStageSize
-  const outpaintFinalWidth = Math.max(1, outpaintDisplaySize.width + paintOutpaint.left + paintOutpaint.right)
-  const outpaintFinalHeight = Math.max(1, outpaintDisplaySize.height + paintOutpaint.top + paintOutpaint.bottom)
+  const outpaintRect = currentOutpaintRect()
   const outpaintImageStyle = {
-    left: `${paintOutpaint.left / outpaintFinalWidth * 100}%`,
-    top: `${paintOutpaint.top / outpaintFinalHeight * 100}%`,
-    width: `${outpaintDisplaySize.width / outpaintFinalWidth * 100}%`,
-    height: `${outpaintDisplaySize.height / outpaintFinalHeight * 100}%`,
+    left: `${outpaintRect.x / Math.max(1, paintStageSize.width) * 100}%`,
+    top: `${outpaintRect.y / Math.max(1, paintStageSize.height) * 100}%`,
+    width: `${outpaintRect.w / Math.max(1, paintStageSize.width) * 100}%`,
+    height: `${outpaintRect.h / Math.max(1, paintStageSize.height) * 100}%`,
   } as CSSProperties
 
   return (

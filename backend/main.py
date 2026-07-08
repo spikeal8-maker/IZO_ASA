@@ -5865,6 +5865,35 @@ def _outpaint_padding(req: GenerateRequest) -> dict[str, int]:
     return padding
 
 
+def _outpaint_int(raw: dict[str, Any], key: str, default: int = 0) -> int:
+    try:
+        value = raw.get(key, default)
+        if isinstance(value, bool):
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
+def _outpaint_placement(req: GenerateRequest, target_w: int, target_h: int) -> dict[str, int] | None:
+    raw = req.outpaint or {}
+    required = ("sourceX", "sourceY", "sourceW", "sourceH")
+    if not all(key in raw for key in required):
+        return None
+    frame_w = max(1, _outpaint_int(raw, "frameW", req.width or target_w))
+    frame_h = max(1, _outpaint_int(raw, "frameH", req.height or target_h))
+    source_w = max(1, _outpaint_int(raw, "sourceW", frame_w))
+    source_h = max(1, _outpaint_int(raw, "sourceH", frame_h))
+    scale_x = target_w / frame_w
+    scale_y = target_h / frame_h
+    return {
+        "x": int(round(_outpaint_int(raw, "sourceX", 0) * scale_x)),
+        "y": int(round(_outpaint_int(raw, "sourceY", 0) * scale_y)),
+        "w": max(1, int(round(source_w * scale_x))),
+        "h": max(1, int(round(source_h * scale_y))),
+    }
+
+
 def prepare_comfyui_outpaint_inputs(input_path: Path | None, prefix: str, req: GenerateRequest) -> tuple[Path | None, Path | None]:
     """Build a real outpaint canvas and mask for ComfyUI.
 
@@ -5888,6 +5917,41 @@ def prepare_comfyui_outpaint_inputs(input_path: Path | None, prefix: str, req: G
             target_h = max(16, int(round(req.height / 16) * 16))
             target_w = min(COMFYUI_INPUT_MAX_SIDE, max(COMFYUI_INPUT_MIN_SIDE, target_w))
             target_h = min(COMFYUI_INPUT_MAX_SIDE, max(COMFYUI_INPUT_MIN_SIDE, target_h))
+            placement = _outpaint_placement(req, target_w, target_h)
+            if placement is not None:
+                resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
+                resized = source.resize((placement["w"], placement["h"]), resample)
+                left = max(0, placement["x"])
+                top = max(0, placement["y"])
+                right = min(target_w, placement["x"] + placement["w"])
+                bottom = min(target_h, placement["y"] + placement["h"])
+                if right <= left or bottom <= top:
+                    prepared = prepare_comfyui_input_image(input_path, prefix, req)
+                    return prepared, None
+                crop = (
+                    left - placement["x"],
+                    top - placement["y"],
+                    right - placement["x"],
+                    bottom - placement["y"],
+                )
+                canvas = Image.new("RGB", (target_w, target_h), "#000000")
+                canvas.paste(resized.crop(crop), (left, top))
+
+                mask = Image.new("L", (target_w, target_h), 255)
+                draw = ImageDraw.Draw(mask)
+                draw.rectangle([left, top, right - 1, bottom - 1], fill=0)
+
+                image_out = MEDIA / f"{prefix}_{uuid.uuid4().hex}_outpaint_input.png"
+                mask_out = MEDIA / f"{prefix}_{uuid.uuid4().hex}_outpaint_mask.png"
+                canvas.save(image_out, "PNG", optimize=True)
+                mask.convert("RGB").save(mask_out, "PNG", optimize=True)
+                print(
+                    "comfyui outpaint placement prepared "
+                    f"{input_path.name}: source={source_w}x{source_h} "
+                    f"placement={placement['x']},{placement['y']},{placement['w']},{placement['h']} "
+                    f"target={target_w}x{target_h}"
+                )
+                return image_out, mask_out
 
             scale_x = target_w / final_w
             scale_y = target_h / final_h
@@ -11922,6 +11986,7 @@ def _feed_item_payload(
         "resolution": f"{width}×{height}" if width and height else None,
         "seed": settings.get("seed"),
         "created_at": pub["created_at"],
+        "view_count": int(_row_get(pub, "view_count") or 0),
         "remix_count": counts.get("recreate", 0),
         "save_count": counts.get("save", 0),
         "like_count": counts.get("like", 0),
@@ -12275,6 +12340,26 @@ async def feed_save(publication_id: str, request: Request) -> dict[str, Any]:
 @app.delete("/api/feed/publications/{publication_id}/save")
 async def feed_unsave(publication_id: str, request: Request) -> dict[str, Any]:
     return _feed_reaction_toggle(request, publication_id, "save", False)
+
+
+@app.post("/api/feed/publications/{publication_id}/view")
+async def feed_publication_view(publication_id: str, request: Request) -> dict[str, Any]:
+    viewer = _feed_optional_viewer(request)
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        pub = conn.execute(
+            "SELECT * FROM feed_publications WHERE id = ? AND status = 'published'",
+            (publication_id,),
+        ).fetchone()
+        if pub is None:
+            raise HTTPException(404, "Publication not found")
+        conn.execute(
+            "UPDATE feed_publications SET view_count = COALESCE(view_count, 0) + 1, updated_at = ? WHERE id = ?",
+            (now, publication_id),
+        )
+        updated = conn.execute("SELECT * FROM feed_publications WHERE id = ?", (publication_id,)).fetchone()
+        item = _feed_item_payload(conn, updated, viewer)
+    return {"ok": True, "publication": item}
 
 
 @app.post("/api/feed/publications/{publication_id}/dislike")

@@ -13,3 +13,16 @@ export type PaintLine = {
   points: number[]
 }
 
+export type PaintOutpaintPlacement = {
+  left: number
+  right: number
+  top: number
+  bottom: number
+  frameW?: number
+  frameH?: number
+  sourceX?: number
+  sourceY?: number
+  sourceW?: number
+  sourceH?: number
+}
+

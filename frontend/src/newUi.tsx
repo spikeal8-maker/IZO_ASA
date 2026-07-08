@@ -42,7 +42,7 @@ import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import ProfilePage from './ProfilePage'
 import { DEFAULT_TARIFFS, avatarPresets, normalizeTariffs, type TariffConfig } from './profileSupport'
-import type { PaintDrawMode, PaintLine, PaintSubMode, PaintTool } from './paintTypes'
+import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
 import './newUi.css'
 import './newStudioV3.css'
@@ -340,7 +340,7 @@ async function createPaintMask(inputImage: string | undefined, lines: PaintLine[
   return canvas.toDataURL('image/png')
 }
 
-async function createOutpaintPreview(inputImage: string | undefined, padding: { left: number; right: number; top: number; bottom: number }, target: { width: number; height: number }) {
+async function createOutpaintPreview(inputImage: string | undefined, placement: PaintOutpaintPlacement, target: { width: number; height: number }) {
   if (!inputImage) return undefined
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image()
@@ -351,8 +351,6 @@ async function createOutpaintPreview(inputImage: string | undefined, padding: { 
   if (!image) return undefined
   const sourceWidth = image.naturalWidth || image.width
   const sourceHeight = image.naturalHeight || image.height
-  const finalWidth = Math.max(1, sourceWidth + Math.max(0, padding.left) + Math.max(0, padding.right))
-  const finalHeight = Math.max(1, sourceHeight + Math.max(0, padding.top) + Math.max(0, padding.bottom))
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(256, Math.round(target.width || 1024))
   canvas.height = Math.max(256, Math.round(target.height || 1024))
@@ -362,12 +360,20 @@ async function createOutpaintPreview(inputImage: string | undefined, padding: { 
   ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.fillStyle = 'rgba(182, 207, 18, .08)'
   for (let x = -canvas.height; x < canvas.width; x += 24) ctx.fillRect(x, 0, 10, canvas.height)
-  const scaleX = canvas.width / finalWidth
-  const scaleY = canvas.height / finalHeight
-  const x = Math.round(Math.max(0, padding.left) * scaleX)
-  const y = Math.round(Math.max(0, padding.top) * scaleY)
-  const w = Math.max(1, Math.round(sourceWidth * scaleX))
-  const h = Math.max(1, Math.round(sourceHeight * scaleY))
+  const hasPlacement = typeof placement.sourceX === 'number'
+    && typeof placement.sourceY === 'number'
+    && typeof placement.sourceW === 'number'
+    && typeof placement.sourceH === 'number'
+  const frameW = Math.max(1, placement.frameW || target.width || canvas.width)
+  const frameH = Math.max(1, placement.frameH || target.height || canvas.height)
+  const scaleX = canvas.width / frameW
+  const scaleY = canvas.height / frameH
+  const finalWidth = Math.max(1, sourceWidth + Math.max(0, placement.left) + Math.max(0, placement.right))
+  const finalHeight = Math.max(1, sourceHeight + Math.max(0, placement.top) + Math.max(0, placement.bottom))
+  const x = hasPlacement ? Math.round((placement.sourceX || 0) * scaleX) : Math.round(Math.max(0, placement.left) * canvas.width / finalWidth)
+  const y = hasPlacement ? Math.round((placement.sourceY || 0) * scaleY) : Math.round(Math.max(0, placement.top) * canvas.height / finalHeight)
+  const w = hasPlacement ? Math.max(1, Math.round((placement.sourceW || frameW) * scaleX)) : Math.max(1, Math.round(sourceWidth * canvas.width / finalWidth))
+  const h = hasPlacement ? Math.max(1, Math.round((placement.sourceH || frameH) * scaleY)) : Math.max(1, Math.round(sourceHeight * canvas.height / finalHeight))
   ctx.drawImage(image, x, y, w, h)
   ctx.strokeStyle = '#b6cf12'
   ctx.lineWidth = Math.max(2, Math.round(Math.min(canvas.width, canvas.height) / 240))
@@ -844,7 +850,7 @@ export default function NewStudio(): ReactElement {
   const [paintTechPromptOpen, setPaintTechPromptOpen] = useState(false)
   const [paintColor, setPaintColor] = useState('#111827')
   const [paintCanvasBg, setPaintCanvasBg] = useState<'white' | 'gray'>('white')
-  const [paintOutpaint, setPaintOutpaint] = useState({ left: 0, right: 0, top: 0, bottom: 0 })
+  const [paintOutpaint, setPaintOutpaint] = useState<PaintOutpaintPlacement>({ left: 0, right: 0, top: 0, bottom: 0 })
   const [paintOutpaintPreview, setPaintOutpaintPreview] = useState<string>()
   const [paintStageSize, setPaintStageSize] = useState(() => paintStageForResolution(RESOLUTION_PRESETS[0]))
   const [paintWorkbenchVisible, setPaintWorkbenchVisible] = useState(true)
@@ -2104,6 +2110,23 @@ export default function NewStudio(): ReactElement {
     setPaintOutpaintPreview(undefined)
   }
 
+  function updateOutpaintPadding(key: 'left' | 'right' | 'top' | 'bottom', value: number) {
+    setPaintOutpaint((cur) => {
+      const next = { ...cur, [key]: value }
+      const frameW = Math.max(1, cur.frameW || paintStageSize.width)
+      const frameH = Math.max(1, cur.frameH || paintStageSize.height)
+      return {
+        ...next,
+        frameW,
+        frameH,
+        sourceX: Math.max(0, next.left),
+        sourceY: Math.max(0, next.top),
+        sourceW: Math.max(48, frameW - Math.max(0, next.left) - Math.max(0, next.right)),
+        sourceH: Math.max(48, frameH - Math.max(0, next.top) - Math.max(0, next.bottom)),
+      }
+    })
+  }
+
   function markVisiblePreviewError() {
     if (isPaintStudio) {
       setResultError(true)
@@ -2618,7 +2641,7 @@ export default function NewStudio(): ReactElement {
                         {key === 'left' ? <ArrowLeft size={13} strokeWidth={2.4} /> : key === 'right' ? <ArrowRight size={13} strokeWidth={2.4} /> : key === 'top' ? <ArrowUp size={13} strokeWidth={2.4} /> : <ArrowDown size={13} strokeWidth={2.4} />}
                         {key === 'left' ? 'Слева' : key === 'right' ? 'Справа' : key === 'top' ? 'Сверху' : 'Снизу'}
                       </span>
-                      <input type="range" min="0" max="768" step="16" value={paintOutpaint[key]} onChange={(e) => setPaintOutpaint((cur) => ({ ...cur, [key]: Number(e.target.value) }))} />
+                      <input type="range" min="0" max="768" step="16" value={paintOutpaint[key]} onChange={(e) => updateOutpaintPadding(key, Number(e.target.value))} />
                       <span>{paintOutpaint[key]}</span>
                     </label>
                   ))}
