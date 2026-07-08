@@ -1,0 +1,93 @@
+# Gallery Current Product Plan
+
+Date: 2026-07-08.
+
+## Canonical Gallery Screen
+
+The current production-facing gallery is the page served at `/gallery` from:
+
+- `backend/static/gallery/index.html`
+- `backend/static/gallery/gallery.css`
+- `backend/static/gallery/gallery.js`
+
+`frontend/src/LegacyApp.tsx` still contains an older React gallery view. Treat it
+as reference material unless we explicitly decide to migrate the visible
+`/gallery` page into React later.
+
+## Storage And Slot Rules
+
+- Gallery slots are tariff-based and counted from active `images` rows where
+  `deleted_at` is empty.
+- A heart/favorite marks an original as protected from automatic eviction.
+- When a new generation completes and the gallery is full, the backend deletes
+  the oldest active non-favorite original.
+- Favorite originals are never auto-deleted. If the newest or last visible
+  important image is favorite-protected, an older non-favorite image should be
+  evicted instead.
+- If every occupied slot is favorite-protected, the generated result is returned
+  to the job, but it is not persisted as a gallery item. The user must unheart
+  or manually delete an image to free a slot.
+- Manual delete is explicit and may delete a favorite after confirmation.
+  Deleting an original also retires linked feed publications and removes related
+  media files.
+
+## Visible Gallery Behavior
+
+- The grid must render in normal reading order: newest item at the top-left,
+  then left-to-right across the row, then the next row.
+- Do not use CSS multi-column layout for gallery cards. Browser columns fill
+  top-to-bottom first, which makes users scan down one column before seeing the
+  next newest item.
+- The visual grid uses CSS Grid masonry via calculated `grid-row-end` spans.
+  Tall cards may be tall and wide cards may be wide, but one tall card must not
+  stretch the whole row and create a large empty black band beside it.
+- Normal user navigation to the gallery must do a real navigation to `/gallery`.
+  React routes must not render a second public gallery. If a React fallback ever
+  sees `/gallery`, it should show only a loading/guard state while the backend
+  static page is expected to own the route.
+- The older React gallery picker in `frontend/src/LegacyApp.tsx` is only allowed
+  for internal image picking flows, such as choosing an editor/source slot. It
+  must not be exposed as the normal user gallery screen.
+- Gallery topbar styles must stay scoped under `.iv3.topbar-scope`; do not add
+  unscoped `.topbar`, `.brand`, `.mode-tabs`, or similar duplicates to
+  `gallery.css`, because they drift from `TopBarV3` and can break mobile parity.
+- Card actions are: heart, publish to feed, delete.
+- Publish opens a confirmation modal. The user provides a title and chooses
+  whether the prompt is visible (`open`) or hidden (`hidden`).
+- Delete opens an in-page confirmation modal. Do not use browser-native
+  `confirm()` for this flow.
+- The image viewer is fullscreen and includes zoom controls, download, publish,
+  delete, favorite, share, and edit/use-as actions.
+- Mobile layout keeps counters compact, hides the tariff chip and secondary
+  utility buttons, and places search next to filter/view controls.
+- Keep the HTML shell light. Gallery CSS and JavaScript live in separate static
+  files so the browser can cache them independently from the no-store HTML page.
+- Empty search/filter states should offer a reset action.
+- The fullscreen thumbnail rail should render a small window around the current
+  image instead of every loaded thumbnail at once.
+
+## Backend/API Contract
+
+- `GET /api/gallery/page` is the structured payload for the visible gallery.
+  It is cursor-paginated and should be loaded in small batches, not as one large
+  all-history payload. Search (`q`) and filters (`filter`) are server-side so
+  they work beyond the currently loaded card batch.
+- `POST /api/gallery/{image_id}/favorite` toggles favorite protection only.
+- `DELETE /api/gallery/{image_id}` performs explicit deletion and slot release.
+- `POST /api/feed/publications` publishes an original to the feed using the
+  submitted title and prompt visibility.
+- `/api/media/{filename}` checks active image ownership through SQLite. A narrow
+  in-memory fallback exists only for a just-generated result that could not be
+  persisted because every gallery slot is favorite-protected.
+
+## Test Coverage To Keep
+
+- `test_favorite_image_is_not_auto_evicted_when_gallery_quota_is_full`
+- `test_auto_eviction_skips_newer_favorite_and_removes_previous_unprotected`
+- `test_stage3_gallery_detail_favorite_use_as_and_delete`
+- `test_gallery_page_uses_cursor_pagination`
+- `test_gallery_page_search_and_filter_are_server_side`
+- `test_gallery_media_access_is_db_backed_and_removed_after_delete`
+
+Any change to gallery quota, favorite protection, deletion, or feed-publication
+side effects should update these tests and this document together.

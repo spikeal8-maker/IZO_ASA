@@ -49,6 +49,10 @@ The experimental `/new` page must be checked separately from the current `/` UI.
 - No `X-OneNode-User`, `onenode_user` or `demo_user` auth path exists in `frontend/src/newUi.tsx`.
 - Without a session, clicking generate opens the auth modal and does not create a job.
 - With a valid session, text-to-image starts a job, polls `/api/jobs/{id}`, and renders the result image.
+- Local HTTP auth-cookie check: login/register on `http://127.0.0.1:8000` must set
+  `onenode_session`/`onenode_refresh` without `Secure` and with `SameSite=lax`; `/api/me-v2`
+  must remain `200` with the same cookie after backend restart. Public HTTPS must keep
+  production cookie flags from env. See `docs/auth-cookie-local-production-guide-20260708.md`.
 - Image-to-image can use an uploaded image and an image selected from gallery.
 - Gallery opens, shows real user images, and does not leak images without auth.
 - Mobile scroll works in every `/new` tab; sticky generate controls do not cover required inputs.

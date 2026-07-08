@@ -777,15 +777,12 @@ function App() {
   useEffect(() => {
     document.title = 'ИЗО_АСА'
   }, [])
-  // Из Ленты «Открыть галерею» ведёт на /?open=gallery — открываем реальную
-  // рабочую галерею старого интерфейса и убираем параметр из адреса.
+  // Из Ленты «Открыть галерею» ведёт на /?open=gallery — уводим на
+  // каноничную статическую галерею, чтобы не оживлять старый React-экран.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('open') === 'gallery') {
-      queueMicrotask(() => setTab('gallery'))
-      params.delete('open')
-      const rest = params.toString()
-      window.history.replaceState(null, '', `/${rest ? `?${rest}` : ''}`)
+      window.location.replace('/gallery')
     }
   }, [])
   const [paintLines, setPaintLines] = useState<PaintLine[]>([])
@@ -852,17 +849,11 @@ function App() {
   // Рисунок — отдельный канонический маршрут нового UI. Пока использует общий
   // shell NewStudio; физическое code-splitting вынесено отдельным слоем.
   const paintRoute = pathName === '/paint' || pathName.startsWith('/paint/')
-  // Live Feed: короткий маршрут /feed открывает Ленту нового UI.
-  // Лента: /feed (канонический) + /lenta (русский alias). Оба ведут в NewStudio;
-  // сам NewStudio нормализует адрес на /feed.
-  const feedRoute =
-    pathName === '/feed' || pathName.startsWith('/feed/') || pathName === '/lenta' || pathName.startsWith('/lenta/')
-  // Новый UI: отдельные страницы Галереи и Профиля (канонические /gallery, /profile;
-  // /new/gallery и /new/profile — совместимые синонимы). Рендерят перенесённые
-  // рабочие экраны старой галереи (GalleryView) и настроек аккаунта (SettingsView)
-  // в new-ui-обёртке — не изобретаем заново, а переносим рабочий UX.
-  const galleryRoute =
-    pathName === '/gallery' || pathName.startsWith('/gallery/') || pathName === '/new/gallery'
+  // /feed is a backend static page. Keep a guard here so a stale frontend
+  // fallback cannot revive the old React feed implementation.
+  const staticFeedRoute = pathName === '/feed' || pathName.startsWith('/feed/')
+  // Профиль остаётся React-страницей. Галерея больше не рендерится здесь:
+  // канонический /gallery отдаётся backend/static/gallery.
   const profileRoute =
     pathName === '/profile' || pathName.startsWith('/profile/') || pathName === '/new/profile'
 
@@ -1416,12 +1407,15 @@ function App() {
     { id: 'presets', label: copy.help, icon: Sparkles },
     { id: 'settings', label: copy.settings, icon: Settings },
   ] as Array<{ id: Tab; label: string; icon: typeof WandSparkles }>
-  const openGallery = () => {
+  const openGalleryPicker = () => {
     if (galleryLocked) {
       setTab('settings')
       return
     }
     setTab('gallery')
+  }
+  const openGallery = () => {
+    window.location.href = '/gallery'
   }
   const editBaseImage = editSlots[0].image
   const previewSource = job?.status === 'completed' && job.resultUrl ? job.resultUrl : (mode === 'edit' ? editBaseImage : actualMode === 'outpaint' ? outpaintPreview || inputOne : inputOne)
@@ -1437,7 +1431,7 @@ function App() {
       <EditCards
         editSlots={editSlots}
         onUpload={(i) => upload((url) => setEditSlotImage(i, url))}
-        onPickGallery={(i) => { setPendingEditSlot(i); openGallery() }}
+        onPickGallery={(i) => { setPendingEditSlot(i); openGalleryPicker() }}
         onClear={clearEditSlot}
         onRole={setEditSlotRole}
         onTakeNote={setEditSlotTakeNote}
@@ -1466,34 +1460,6 @@ function App() {
     </div>
   )
 
-  // /gallery и /profile: переносим рабочие экраны старого UI (галерея, настройки
-  // аккаунта) в new-ui-обёртку с общей верхней навигацией. Проверяем ДО NewStudio,
-  // чтобы /new/gallery и /new/profile тоже открывали перенесённые экраны.
-  if (galleryRoute) {
-    return (
-      <div className="iv3">
-        <div className="app-shell">
-          {isDiagMode() && <DiagPanel />}
-          <AuthV2Modal open={authModalOpen} onClose={() => setAuthModalOpen(false)} />
-          <TopBarV3 active="gallery" authed={isAuthedV2} avatarUrl={isAuthedV2 ? accountInfo(authMe).avatarUrl : null} userLabel={isAuthedV2 ? accountInfo(authMe).userLabel : null} initials={isAuthedV2 ? accountInfo(authMe).initials : null} onOpenProfile={() => { window.location.href = '/profile' }} onOpenHelp={() => { window.location.href = '/new' }} />
-          <main className="new-sub-main">
-          {isAuthedV2 ? (
-            <GalleryView copy={copy} images={gallery} quota={galleryQuota} selected={selected} setSelected={setSelected} handleUseImageAs={useImageAs} refreshGallery={fetchGallery} clearSelected={() => setSelected(undefined)} backToStudio={() => { window.location.href = '/feed' }} view={galleryView} setView={setGalleryView} sendImage={sendImage} pickSlot={pendingEditSlot} onPickForSlot={assignGalleryToEditSlot} cancelPick={() => { setPendingEditSlot(null); window.location.href = '/feed' }} />
-          ) : (
-            <section className="gallery-page">
-              <article className="usr-card usr-auth-card">
-                <h3>{copy.gallery}</h3>
-                <p>{lang === 'ru' ? 'Лента открыта всем, личная галерея — после входа.' : 'The feed is public; your personal gallery needs sign-in.'}</p>
-                <button className="usr-primary" onClick={() => setAuthModalOpen(true)}><Lock size={16} />{lang === 'ru' ? 'Войти' : 'Sign in'}</button>
-              </article>
-            </section>
-          )}
-          </main>
-        </div>
-      </div>
-    )
-  }
-
   if (profileRoute) {
     return (
       <div className="iv3">
@@ -1509,7 +1475,11 @@ function App() {
     )
   }
 
-  if (newUiRoute || feedRoute || paintRoute) {
+  if (staticFeedRoute) {
+    return <div className="app-loading">Загружаем ленту...</div>
+  }
+
+  if (newUiRoute || paintRoute) {
     return (
       <Suspense fallback={<div className="iv3"><div className="app-shell"><main className="new-sub-main"><div className="preview-empty">Загружаем интерфейс...</div></main></div></div>}>
         <NewStudio />
@@ -1592,7 +1562,7 @@ function App() {
                 <EditCards
                   editSlots={editSlots}
                   onUpload={(i) => upload((url) => setEditSlotImage(i, url))}
-                  onPickGallery={(i) => { setPendingEditSlot(i); openGallery() }}
+                  onPickGallery={(i) => { setPendingEditSlot(i); openGalleryPicker() }}
                   onClear={clearEditSlot}
                   onRole={setEditSlotRole}
                   onTakeNote={setEditSlotTakeNote}
@@ -1685,9 +1655,9 @@ function App() {
         )}
 
         {tab === 'gallery' && !galleryLocked && <GalleryView copy={copy} images={gallery} quota={galleryQuota} selected={selected} setSelected={setSelected} handleUseImageAs={useImageAs} refreshGallery={fetchGallery} clearSelected={() => setSelected(undefined)} backToStudio={() => setTab('studio')} view={galleryView} setView={setGalleryView} sendImage={sendImage} pickSlot={pendingEditSlot} onPickForSlot={assignGalleryToEditSlot} cancelPick={() => { setPendingEditSlot(null); setTab('studio') }} />}
-        {tab === 'gallery' && galleryLocked && <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={openAdminPage} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'gallery' && galleryLocked && <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={openAdminPage} openGallery={openGallery} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
         {tab === 'presets' && <HelpView lang={lang} applyPreset={applyPreset} copy={copy} backToStudio={() => setTab('studio')} />}
-        {tab === 'settings' && <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={openAdminPage} openGallery={() => setTab('gallery')} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
+        {tab === 'settings' && <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={openAdminPage} openGallery={openGallery} backToStudio={() => setTab('studio')} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />}
 
         {instructionOpen && <InstructionModal mode={mode} paintTool={paintTool} onClose={() => setInstructionOpen(false)} />}
         {editTemplatesOpen && <EditTemplatesModal templates={EDIT_TEMPLATES} applyTemplate={applyEditTemplate} onClose={() => setEditTemplatesOpen(false)} />}
@@ -1740,7 +1710,7 @@ function App() {
         )}
 
         {!galleryLocked && <section className="bottom-strip">
-          {gallery.slice(0, 6).map((image) => <button key={image.id} onClick={() => { setSelected(image); setTab('gallery') }}><img src={image.thumbnailUrl} alt="" /></button>)}
+          {gallery.slice(0, 6).map((image) => <button key={image.id} onClick={() => { setSelected(image); openGalleryPicker() }}><img src={image.thumbnailUrl} alt="" /></button>)}
         </section>}
       </main>
 
@@ -2423,13 +2393,17 @@ function GalleryView({ copy, images, quota, selected, setSelected, handleUseImag
   // Публикация выбранного изображения в Ленту (feed backend, cookie-сессия).
   const [publishOpen, setPublishOpen] = useState(false)
   const [publishTitle, setPublishTitle] = useState('')
-  const [publishVisibility, setPublishVisibility] = useState<'open' | 'partial' | 'hidden'>('open')
+  const [publishVisibility, setPublishVisibility] = useState<'open' | 'hidden'>('open')
   const [publishAllow, setPublishAllow] = useState(true)
   const [publishBusy, setPublishBusy] = useState(false)
   const [publishDone, setPublishDone] = useState(false)
+  const [imageZoom, setImageZoom] = useState(1)
+  const [imagePan, setImagePan] = useState({ x: 0, y: 0 })
+  const imageDragRef = useRef({ active: false, startX: 0, startY: 0, panX: 0, panY: 0 })
 
   function openPublish(image: GalleryImage) {
-    setPublishTitle(image.promptOriginal.slice(0, 60) || 'Моя работа')
+    void image
+    setPublishTitle('')
     setPublishVisibility('open')
     setPublishAllow(true)
     setPublishDone(false)
@@ -2518,6 +2492,38 @@ function GalleryView({ copy, images, quota, selected, setSelected, handleUseImag
     await navigator.clipboard?.writeText(image.url)
     setGalleryMsg('Ссылка скопирована')
   }
+  const favoriteLimit = Math.max(0, Math.floor((quota?.gallery_slots || 0) * 0.8))
+  const favoriteUsed = images.filter((image) => image.isFavorite).length
+  const imageZoomStyle = {
+    transform: `translate3d(${imagePan.x}px, ${imagePan.y}px, 0) scale(${imageZoom})`,
+  }
+  const resetImageView = () => {
+    setImageZoom(1)
+    setImagePan({ x: 0, y: 0 })
+  }
+  const changeImageZoom = (next: number) => {
+    const clamped = Math.max(0.5, Math.min(5, next))
+    setImageZoom(clamped)
+    if (Math.abs(clamped - 1) < 0.02) setImagePan({ x: 0, y: 0 })
+  }
+  const onImageWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    changeImageZoom(imageZoom * (event.deltaY < 0 ? 1.14 : 0.88))
+  }
+  const onImagePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (imageZoom <= 1.02) return
+    imageDragRef.current = { active: true, startX: event.clientX, startY: event.clientY, panX: imagePan.x, panY: imagePan.y }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  const onImagePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = imageDragRef.current
+    if (!drag.active) return
+    setImagePan({ x: drag.panX + event.clientX - drag.startX, y: drag.panY + event.clientY - drag.startY })
+  }
+  const onImagePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    imageDragRef.current.active = false
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
   void sendImage
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -2526,10 +2532,23 @@ function GalleryView({ copy, images, quota, selected, setSelected, handleUseImag
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [selected, clearSelected])
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      resetImageView()
+      setGalleryMsg('')
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [selected?.id])
   return (
     <section className="gallery-page">
       {picking && <div className="gallery-pick-banner"><span>Выберите изображение для слота {pickSlot === 0 ? 'Основа' : `Референс ${pickSlot}`}</span><button className="secondary" onClick={() => cancelPick?.()}>Отмена</button></div>}
-      {quota && <div className="gallery-pick-banner gallery-quota-banner"><span>Галерея: занято {quota.gallery_used} из {quota.gallery_slots} · свободно {quota.gallery_free} · тариф {quota.plan.toUpperCase()}</span></div>}
+      {quota && (
+        <div className="gallery-pick-banner gallery-quota-banner">
+          <span>Галерея</span>
+          <span>Оригиналы {quota.gallery_used}/{quota.gallery_slots}</span>
+          <span>Сердечки {favoriteUsed}/{favoriteLimit}</span>
+        </div>
+      )}
       <div className="view-actions gallery-toolbar">
         <button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button>
         <button className={view === 'grid' ? 'secondary active' : 'secondary'} onClick={() => setView('grid')}>{copy.grid}</button>
@@ -2550,8 +2569,8 @@ function GalleryView({ copy, images, quota, selected, setSelected, handleUseImag
               </div>
               <div className="gallery-card-actions">
                 <button type="button" title={copy.favorite} onClick={() => void toggleFavorite(image)}><Heart className={image.isFavorite ? 'fav' : ''} size={16} /></button>
-                <a title={copy.download} href={image.url} download onClick={(e) => e.stopPropagation()}><Download size={16} /></a>
-                <button type="button" title={copy.delete} onClick={() => void deleteImage(image)}><Trash2 size={16} /></button>
+                <button type="button" title={copy.publishToFeed} onClick={() => openPublish(image)}><Sparkles size={16} /></button>
+                <button className="danger" type="button" title={copy.delete} onClick={() => void deleteImage(image)}><Trash2 size={16} /></button>
               </div>
             </article>
           ))}
@@ -2560,8 +2579,37 @@ function GalleryView({ copy, images, quota, selected, setSelected, handleUseImag
       {selected && (
         <div className="gallery-modal-backdrop" onClick={clearSelected}>
           <section className="gallery-modal" role="dialog" aria-label="Предпросмотр изображения" onClick={(e) => e.stopPropagation()}>
-            <button className="floating-clear" aria-label="Закрыть" onClick={clearSelected}><X size={16} /></button>
-            <div className="gallery-modal-media"><img src={selected.url || selected.thumbnailUrl} alt="" onError={(event) => { if (selected.thumbnailUrl && event.currentTarget.src !== selected.thumbnailUrl) event.currentTarget.src = selected.thumbnailUrl }} /></div>
+            <div className="gallery-modal-topbar">
+              <button className="gallery-icon-button" aria-label="Закрыть" onClick={clearSelected}><X size={17} /></button>
+              <div className="gallery-zoom-controls">
+                <button className="gallery-icon-button" type="button" aria-label="Уменьшить" onClick={() => changeImageZoom(imageZoom - 0.25)}>−</button>
+                <button className="gallery-zoom-value" type="button" onClick={resetImageView}>{Math.round(imageZoom * 100)}%</button>
+                <button className="gallery-icon-button" type="button" aria-label="Увеличить" onClick={() => changeImageZoom(imageZoom + 0.25)}>+</button>
+              </div>
+              <div className="gallery-modal-top-actions">
+                <a className="gallery-icon-button" href={selected.url} download title={copy.download} aria-label={copy.download}><Download size={17} /></a>
+                <button className="gallery-icon-button" type="button" title={copy.favorite} aria-label={copy.favorite} onClick={() => void toggleFavorite(selected)}><Heart className={selected.isFavorite ? 'fav' : ''} size={17} /></button>
+                <button className="gallery-icon-button publish-to-feed" type="button" title={copy.publishToFeed} aria-label={copy.publishToFeed} onClick={() => openPublish(selected)}><Sparkles size={17} /></button>
+                <button className="gallery-icon-button danger" type="button" title={copy.delete} aria-label={copy.delete} onClick={() => void deleteImage(selected)}><Trash2 size={17} /></button>
+              </div>
+            </div>
+            <div
+              className={`gallery-modal-media${imageZoom > 1.02 ? ' is-zoomed' : ''}`}
+              onWheel={onImageWheel}
+              onPointerDown={onImagePointerDown}
+              onPointerMove={onImagePointerMove}
+              onPointerUp={onImagePointerUp}
+              onPointerCancel={onImagePointerUp}
+            >
+              <img
+                src={selected.url || selected.thumbnailUrl}
+                alt=""
+                style={imageZoomStyle}
+                draggable={false}
+                onDoubleClick={() => changeImageZoom(imageZoom > 1.02 ? 1 : 2)}
+                onError={(event) => { if (selected.thumbnailUrl && event.currentTarget.src !== selected.thumbnailUrl) event.currentTarget.src = selected.thumbnailUrl }}
+              />
+            </div>
             <div className="gallery-modal-panel">
               <header>
                 <strong>{copy.preview}</strong>
@@ -2591,8 +2639,6 @@ function GalleryView({ copy, images, quota, selected, setSelected, handleUseImag
                 <a className="secondary" href={selected.url} download><Download size={16} />{copy.download}</a>
                 <button className="secondary publish-to-feed" onClick={() => openPublish(selected)}><Sparkles size={16} />{copy.publishToFeed}</button>
                 <button className="secondary" onClick={() => void shareSelected(selected)}>Скопировать ссылку</button>
-                <button className="secondary" disabled title="Отправка в Telegram требует привязанный чат">Telegram</button>
-                <button className="secondary" disabled title="MAX отправка требует привязанный чат">MAX</button>
                 <button className="secondary danger" onClick={() => void deleteImage(selected)}><Trash2 size={16} />{copy.delete}</button>
               </div>
               {galleryMsg && <p className="gallery-msg">{galleryMsg}</p>}
@@ -2614,15 +2660,14 @@ function GalleryView({ copy, images, quota, selected, setSelected, handleUseImag
                         </label>
                         <label className="publish-field">
                           <span>{copy.promptVisibilityLabel}</span>
-                          <select value={publishVisibility} onChange={(e) => setPublishVisibility(e.target.value as 'open' | 'partial' | 'hidden')}>
-                            <option value="open">{copy.visOpen}</option>
-                            <option value="partial">{copy.visPartial}</option>
-                            <option value="hidden">{copy.visHidden}</option>
-                          </select>
-                        </label>
-                        <label className="publish-check">
-                          <input type="checkbox" checked={publishAllow} onChange={(e) => setPublishAllow(e.target.checked)} />
-                          <span>{copy.allowRecreate}</span>
+                          <label className="publish-check inline">
+                            <input
+                              type="checkbox"
+                              checked={publishVisibility === 'open'}
+                              onChange={(e) => setPublishVisibility(e.target.checked ? 'open' : 'hidden')}
+                            />
+                            <span>{publishVisibility === 'open' ? copy.visOpen : copy.visHidden}</span>
+                          </label>
                         </label>
                         <button className="generate small-action" disabled={publishBusy || !publishTitle.trim()} onClick={() => void submitPublish(selected)}>
                           {publishBusy ? '…' : copy.publishAction}
@@ -2909,16 +2954,6 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
   }
   return (
     <section className="settings-page user-settings usr-page">
-      <div className="usr-head">
-        <button className="secondary" onClick={backToStudio}><WandSparkles size={16} />{copy.backToStudio}</button>
-        <span className="usr-status"><i />Сессия активна</span>
-      </div>
-
-      <header className="usr-title">
-        <h2>Настройки аккаунта</h2>
-        <p>Профиль, тарифы, токены, промокоды и параметры генерации.</p>
-      </header>
-
       <nav className="usr-tabs" aria-label="Разделы настроек">
         <button type="button" className={settingsTab === 'profile' ? 'active' : ''} onClick={() => setSettingsTab('profile')}>Профиль</button>
         <button type="button" className={settingsTab === 'tariffs' ? 'active' : ''} onClick={() => setSettingsTab('tariffs')}>Тарифы</button>

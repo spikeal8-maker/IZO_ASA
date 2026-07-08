@@ -9,9 +9,22 @@
 // задаёт transform-prompt преобразования (как шаблоны текущей версии).
 // ============================================================================
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, WheelEvent as ReactWheelEvent } from 'react'
-import { Brush, Circle as CircleIcon, Eraser, Moon, PaintBucket, Palette, Slash, Square as SquareIcon, SquareDashed, Sun } from 'lucide-react'
-import { AuthV2Modal, refreshAuthStateV2, useAuthV2 } from './authV2'
+import type { ChangeEvent } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, Eraser, Moon, PaintBucket, Palette, Slash, Sun } from 'lucide-react'
+import {
+  AuthV2Modal,
+  getAuthCapabilitiesV2,
+  initAuthV2,
+  logoutV2,
+  pollBotLoginStatusV2,
+  refreshAuthStateV2,
+  requestEmailLinkCodeV2,
+  startBotLinkV2,
+  updateProfileV2,
+  useAuthV2,
+  verifyEmailLinkCodeV2,
+} from './authV2'
 import {
   DEFAULT_EDIT_STRENGTH,
   EDIT_DISABLED_REFERENCE_ROLES,
@@ -27,6 +40,8 @@ import type { StylePreset } from './stylePresets'
 import TopBarV3 from './TopBarV3'
 import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
+import ProfilePage from './ProfilePage'
+import { DEFAULT_TARIFFS, avatarPresets, normalizeTariffs, type TariffConfig } from './profileSupport'
 import type { PaintDrawMode, PaintLine, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
 import './newUi.css'
@@ -44,6 +59,11 @@ function apiUrl(path: string): string {
   return path.startsWith('/') ? `${API_ORIGIN}${path}` : path
 }
 
+function userMediaUrl(path: string | null | undefined): string | null {
+  if (!path) return null
+  return path.startsWith('/media/') ? apiUrl(path) : path
+}
+
 // Auth: только trusted cookie session (credentials: include). Никаких legacy
 // заголовков, кук или клиентских идентификаторов — см. docs/new-ui-v2-plan.md.
 function apiFetch(path: string, init: RequestInit = {}) {
@@ -52,12 +72,51 @@ function apiFetch(path: string, init: RequestInit = {}) {
 
 type N2Tab = 'feed' | 'text' | 'i2i' | 'edit' | 'paint' | 'face'
 // tabs — генератор/лента; gallery и profile — отдельные канонические страницы.
-type N2View = 'tabs' | 'gallery' | 'profile'
+type N2View = 'tabs' | 'profile'
 type StudioMode = 'text' | 'i2i' | 'edit' | 'face' | 'paint'
+type CoreStudioMode = Exclude<StudioMode, 'paint'>
 type UploadTarget = { kind: 'i2i' } | { kind: 'edit'; index: number } | { kind: 'face'; index: number } | { kind: 'paint' } | { kind: 'paintSketch' }
 type InspectPreview = { url: string; title: string }
+type PreviewShape = 'square' | 'wide' | 'tall'
+type StudioPreviewState = {
+  kind: 'empty' | 'inspect' | 'result' | 'history'
+  url?: string
+  sourceUrl?: string
+  shape?: PreviewShape
+  title?: string
+  galleryId?: string
+  promptOriginal?: string
+  resultImageId?: string
+  error?: boolean
+}
 type ModelsPayload = { loras?: string[] }
 type LoraOption = { id: string; label: string; triggerWord: string; strength: number }
+
+function coreModeFromTab(tab: N2Tab): CoreStudioMode | null {
+  if (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face') return tab
+  return null
+}
+
+function emptyPreview(): StudioPreviewState {
+  return { kind: 'empty' }
+}
+
+function shapeFromSize(width?: number, height?: number): PreviewShape {
+  if (!width || !height) return 'square'
+  const ratio = width / height
+  if (ratio > 1.18) return 'wide'
+  if (ratio < 0.82) return 'tall'
+  return 'square'
+}
+
+function loadImageShape(url: string): Promise<PreviewShape> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => resolve(shapeFromSize(img.naturalWidth, img.naturalHeight))
+    img.onerror = () => resolve('square')
+    img.src = apiUrl(url)
+  })
+}
 
 const EMPTY_EDIT_SLOTS: EditSlot[] = Array.from({ length: EDIT_SLOT_COUNT }, () => ({ image: undefined, role: '', takeNote: '' }))
 const EMPTY_FACE_SLOTS: EditSlot[] = [
@@ -65,7 +124,7 @@ const EMPTY_FACE_SLOTS: EditSlot[] = [
   { image: undefined, role: 'face', takeNote: '' },
 ]
 const DEFAULT_PAINT_SKETCH_PROMPT = 'Transform this sketch into a hyper-realistic cinematic scene. Interpret the lines as real-world objects with high-quality textures, cinematic lighting, natural shadows, depth, realistic materials and clean composition. Preserve the exact composition, silhouettes, poses, proportions and spatial relationships from the sketch. Scene description:'
-const DEFAULT_PAINT_MASK_PROMPT = 'Edit only the masked area. Seamlessly blend the change with the surrounding scene while preserving lighting, shadows, perspective, depth of field and photo grain.'
+const DEFAULT_PAINT_MASK_PROMPT = 'Edit only the masked area and follow the user instruction literally for that selected region. Seamlessly blend the change with the surrounding scene while preserving lighting, shadows, perspective, depth of field and photo grain. Do not change unmasked areas.'
 const DEFAULT_PAINT_OUTPAINT_PROMPT = 'Extend the composition of this image. Replace black or empty spaces with a logical continuation of the background and foreground. Match perspective, lighting, color palette and texture so the transition is invisible. Scene description:'
 
 // Начальное состояние из URL. Статические /feed и /gallery отдаются backend,
@@ -73,7 +132,7 @@ const DEFAULT_PAINT_OUTPAINT_PROMPT = 'Extend the composition of this image. Rep
 function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   const p = typeof window !== 'undefined' ? window.location.pathname : '/feed'
   const h = typeof window !== 'undefined' ? window.location.hash : ''
-  if (p === '/gallery' || p.startsWith('/gallery') || p.startsWith('/new/gallery')) return { view: 'gallery', tab: 'feed' }
+  if (p === '/gallery' || p.startsWith('/gallery') || p.startsWith('/new/gallery')) return { view: 'tabs', tab: 'text' }
   if (p === '/profile' || p.startsWith('/profile') || p.startsWith('/new/profile')) return { view: 'profile', tab: 'feed' }
   if (h === '#image-to-image') return { view: 'tabs', tab: 'i2i' }
   if (h === '#editor') return { view: 'tabs', tab: 'edit' }
@@ -81,8 +140,8 @@ function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   if (h === '#draw' || h === '#drawing' || h === '#paint') return { view: 'tabs', tab: 'paint' }
   if (h === '#text-to-image') return { view: 'tabs', tab: 'text' }
   if (p === '/paint' || p.startsWith('/paint/') || p === '/new/paint' || p.startsWith('/new/paint/')) return { view: 'tabs', tab: 'paint' }
-  // Лента: /feed, /lenta. Генератор /new открывается на «Текст → Изо».
-  if (p === '/feed' || p.startsWith('/feed') || p === '/lenta' || p.startsWith('/lenta')) return { view: 'tabs', tab: 'feed' }
+  // /feed is owned by backend/static/feed/index.html. If the SPA is ever served
+  // for that path by a stale build or broken proxy, do not revive the old React feed.
   return { view: 'tabs', tab: 'text' }
 }
 
@@ -157,12 +216,6 @@ const RESOLUTION_PRESETS: ResolutionPreset[] = [
   { id: 'v-1088', name: 'Вертикальное Full HD', width: 1088, height: 1920, kind: 'vertical' },
 ]
 
-// Дефолтный пресет для каждой формат-кнопки.
-const DEFAULT_PRESET_BY_KIND: Record<FormatId, string> = {
-  square: 'sq-1024',
-  vertical: 'v-720',
-  horizontal: 'h-1280',
-}
 const DEFAULT_FACE_STRENGTH = 75
 const FALLBACK_LORA_OPTIONS: LoraOption[] = [
   { id: 'none', label: 'None', triggerWord: '', strength: 0 },
@@ -322,14 +375,6 @@ async function createOutpaintPreview(inputImage: string | undefined, padding: { 
   return canvas.toDataURL('image/jpeg', 0.9)
 }
 
-// ============================================================================
-// Live Feed. Данные — реальный backend: GET /api/feed, публикации из галереи
-// (POST /api/feed/publications), реакции like/save/recreate. Референсы:
-// izo_feed_visual_spec.md, лента_izo_feed_documentation.md, Лента.html.
-// Челленджи/Подписки — честные placeholder-вкладки (backend будущей фазы).
-// ============================================================================
-type FeedTabId = 'all' | 'new' | 'top' | 'challenge' | 'follow'
-
 type FeedLang = 'ru' | 'en'
 
 // RU/EN тексты ленты. Главная кнопка по ТЗ: «Повторить» / "Recreate"
@@ -477,29 +522,6 @@ interface FeedPublication {
   is_mine: boolean
 }
 
-// Ключ бейджа с backend → RU/EN подпись. Терминология по ТЗ.
-const FEED_BADGE_LABELS: Record<string, { ru: string; en: string }> = {
-  trend: { ru: 'Тренд', en: 'Trending' },
-  editor_pick: { ru: 'Выбор редакции', en: "Editor's pick" },
-  face_template: { ru: 'Шаблон лица', en: 'Face template' },
-  open_prompt: { ru: 'Открытый промпт', en: 'Open prompt' },
-}
-
-function feedTimeAgo(iso: string, lang: FeedLang): string {
-  const then = Date.parse(iso)
-  if (Number.isNaN(then)) return ''
-  const minutes = Math.max(1, Math.round((Date.now() - then) / 60000))
-  if (minutes < 60) return lang === 'ru' ? `${minutes} мин назад` : `${minutes}m ago`
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return lang === 'ru' ? `${hours} ч назад` : `${hours}h ago`
-  const days = Math.round(hours / 24)
-  return lang === 'ru' ? `${days} дн назад` : `${days}d ago`
-}
-
-function feedCount(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n)
-}
-
 // Форма карточки по соотношению сторон публикации.
 function feedShape(ratio: string): 'tall' | 'wide' | 'square' {
   const parts = ratio.split(':').map(Number)
@@ -556,9 +578,7 @@ export default function NewStudio(): ReactElement {
   // пока живут на /new. Это URL-изоляция, физический split компонента ниже в TODO.
   const initialRoute = initialViewFromPath()
   const [tab, setTabState] = useState<N2Tab>(initialRoute.tab)
-  // view: студия (tabs). Галерея/Профиль вынесены на App-level маршруты, но
-  // setView сохраняем для синхронизации при popstate/навигации по вкладкам.
-  const [, setView] = useState<N2View>(initialRoute.view)
+  const [view, setView] = useState<N2View>(initialRoute.view)
 
   // Навигация страниц нового UI с синхронизацией URL. Каноничные маршруты:
   // Лента /feed, Галерея /gallery, Профиль /profile, Рисунок /paint,
@@ -568,9 +588,13 @@ export default function NewStudio(): ReactElement {
   }, [])
   const setTab = useCallback(
     (next: N2Tab) => {
+      if (next === 'feed') {
+        window.location.href = '/feed'
+        return
+      }
       setView('tabs')
       setTabState(next)
-      navTo(next === 'feed' ? '/feed' : next === 'paint' ? '/paint' : '/new')
+      navTo(next === 'paint' ? '/paint' : '/new')
     },
     [navTo],
   )
@@ -581,11 +605,17 @@ export default function NewStudio(): ReactElement {
     },
     [setTab],
   )
-  // Галерея и Профиль вынесены в отдельные страницы (App-level: перенесённые
-  // рабочие экраны старого UI). Переходим полной навигацией, чтобы App заново
-  // разобрал маршрут и отрисовал нужный экран.
-  const goGallery = useCallback(() => { window.location.href = '/gallery' }, [])
-  const goProfile = useCallback(() => { window.location.href = '/profile' }, [])
+  const goGallery = useCallback(() => {
+    window.location.href = '/gallery'
+  }, [])
+  const goProfile = useCallback(() => {
+    setView('profile')
+    navTo('/profile')
+  }, [navTo])
+
+  useEffect(() => {
+    if (view === 'tabs' && tab === 'feed') window.location.href = '/feed'
+  }, [view, tab])
 
   // Кнопка «назад» браузера синхронизирует страницу с URL.
   useEffect(() => {
@@ -601,14 +631,150 @@ export default function NewStudio(): ReactElement {
   const [authOpen, setAuthOpen] = useState(false)
   const ensureAuthed = useCallback(async () => {
     if (authStatus === 'authed') return true
+    if (authStatus === 'loading') {
+      await initAuthV2()
+      if (await refreshAuthStateV2()) return true
+    }
     const current = await refreshAuthStateV2()
     if (current) return true
     setAuthOpen(true)
     return false
   }, [authStatus])
-  const openProfileOrAuth = useCallback(async () => {
-    if (await ensureAuthed()) goProfile()
-  }, [ensureAuthed, goProfile])
+  const openProfilePage = useCallback(() => {
+    goProfile()
+    if (authStatus === 'loading') void initAuthV2()
+  }, [authStatus, goProfile])
+  const onSaveProfile = async () => {
+    const trimmed = displayName.trim()
+    if (!trimmed) { setSaveMsg('Введите имя'); return }
+    const age = profileAge.trim()
+    if (age && (Number(age) < 13 || Number(age) > 120)) { setSaveMsg('Возраст должен быть от 13 до 120'); return }
+    setSaveMsg('')
+    const result = await updateProfileV2({ display_name: trimmed, gender: profileGender, age })
+    if (result) { await refreshAuthStateV2(); setSaveMsg('Сохранено') }
+    else setSaveMsg('Ошибка сохранения')
+  }
+  const selectAvatarPreset = async (presetId: string) => {
+    const preset = avatarPresets.find((item) => item.id === presetId)
+    if (!preset) return
+    setAvatarBusy(true)
+    setAvatarMsg('')
+    const result = await updateProfileV2({ avatar_preset: presetId })
+    if (result) {
+      setAvatarPreset(presetId)
+      setAvatarUrl(preset.url)
+      await refreshAuthStateV2()
+      setAvatarMsg('Аватар сохранён')
+    } else setAvatarMsg('Не удалось сохранить аватар')
+    setAvatarBusy(false)
+  }
+  const uploadAvatar = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) { setAvatarMsg('Нужен PNG, JPG или WEBP'); return }
+    if (file.size > 2 * 1024 * 1024) { setAvatarMsg('Файл больше 2 МБ'); return }
+    setAvatarBusy(true)
+    setAvatarMsg('')
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const r = await fetch(`${API}/me/avatar-upload-v2`, { method: 'POST', credentials: 'include', body: form })
+      const payload = await r.json().catch(() => ({}))
+      if (!r.ok || !payload.avatar_url) { setAvatarMsg(String(payload.detail || 'Не удалось загрузить аватар')); return }
+      setAvatarUrl(String(payload.avatar_url))
+      setAvatarPreset('')
+      await refreshAuthStateV2()
+      setAvatarMsg('Аватар загружен')
+    } catch {
+      setAvatarMsg('Ошибка загрузки аватара')
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
+  const onLogout = async () => {
+    await logoutV2()
+    await refreshAuthStateV2()
+  }
+  const onApplyPromo = async () => {
+    const code = promoCode.trim().toUpperCase()
+    if (!code) { setPromoResult('Введите промокод'); return }
+    setPromoBusy(true)
+    setPromoResult('')
+    try {
+      const r = await apiFetch('/account/apply-promo-v2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ promo_code: code }),
+      })
+      const payload = await r.json().catch(() => ({}))
+      if (!r.ok) { setPromoResult(String(payload.detail || 'Промокод не применён')); return }
+      const bonus = Number(payload.token_bonus || 50)
+      setPromoResult(`Промокод применён: +${bonus} токенов`)
+      await refreshAuthStateV2()
+    } catch {
+      setPromoResult('Не удалось проверить промокод')
+    } finally {
+      setPromoBusy(false)
+    }
+  }
+  const onRequestLinkEmail = async () => {
+    const email = linkEmail.trim()
+    if (!email) { setLinkMsg('Введите email'); return }
+    setLinkBusy(true)
+    setLinkMsg('')
+    const result = await requestEmailLinkCodeV2(email)
+    if (!result) setLinkMsg('Не удалось отправить код')
+    else if ('error' in result) setLinkMsg(result.error === 'email_already_linked' ? 'Этот email уже привязан к другому аккаунту' : 'Email-подтверждение сейчас недоступно')
+    else { setLinkEmailChallenge(result.challenge_id); setLinkMsg('Код отправлен на email') }
+    setLinkBusy(false)
+  }
+  const onVerifyLinkEmail = async () => {
+    if (!linkEmailChallenge || !linkEmailCode.trim()) return
+    setLinkBusy(true)
+    setLinkMsg('')
+    const result = await verifyEmailLinkCodeV2(linkEmailChallenge, linkEmailCode.trim())
+    if (!result.ok) setLinkMsg(result.error === 'email_already_linked' ? 'Этот email уже привязан к другому аккаунту' : 'Неверный или просроченный код')
+    else {
+      setLinkEmailChallenge('')
+      setLinkEmailCode('')
+      setLinkEmail('')
+      await refreshAuthStateV2()
+      setLinkMsg(result.reward_tokens ? `Email подключен: +${result.reward_tokens} токенов` : 'Email уже подключен')
+    }
+    setLinkBusy(false)
+  }
+  const onLinkBot = async (providerName: 'telegram' | 'max') => {
+    setLinkBusy(true)
+    setLinkMsg('')
+    const started = await startBotLinkV2(providerName)
+    if (!started.ok) {
+      setLinkMsg(providerName === 'telegram' ? 'Telegram-подключение сейчас недоступно' : 'MAX-подключение сейчас недоступно')
+      setLinkBusy(false)
+      return
+    }
+    window.open(started.deep_link, '_blank', 'noopener,noreferrer')
+    setLinkMsg(`Подтвердите подключение в ${providerName === 'telegram' ? 'Telegram' : 'MAX'}-боте`)
+    let attemptsLeft = Math.ceil((10 * 60 * 1000) / (started.poll_interval_ms || 2000))
+    const timer = window.setInterval(async () => {
+      attemptsLeft -= 1
+      const status = await pollBotLoginStatusV2()
+      if (status.status === 'authenticated') {
+        window.clearInterval(timer)
+        await refreshAuthStateV2()
+        setLinkBusy(false)
+        setLinkMsg(`${providerName === 'telegram' ? 'Telegram' : 'MAX'} подключен`)
+      } else if (status.status === 'conflict') {
+        window.clearInterval(timer)
+        setLinkBusy(false)
+        setLinkMsg('Этот способ входа уже привязан к другому аккаунту')
+      } else if (status.status === 'expired' || status.status === 'error' || attemptsLeft <= 0) {
+        window.clearInterval(timer)
+        setLinkBusy(false)
+        setLinkMsg('Подключение не завершено. Попробуйте снова')
+      }
+    }, started.poll_interval_ms || 2000)
+  }
   const [helpOpen, setHelpOpen] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [galleryPickTarget, setGalleryPickTarget] = useState<UploadTarget | null>(null)
@@ -620,7 +786,7 @@ export default function NewStudio(): ReactElement {
   const previewGender: 'female' | 'male' = me?.profile?.gender === 'male' ? 'male' : 'female'
   const acct = accountInfo(me)
 
-  const [prompts, setPrompts] = useState<Record<StudioMode, string>>({ text: '', i2i: '', edit: '', face: '', paint: DEFAULT_PAINT_SKETCH_PROMPT })
+  const [prompts, setPrompts] = useState<Record<StudioMode, string>>({ text: '', i2i: '', edit: '', face: '', paint: '' })
   const [styleId, setStyleId] = useState<string>('')
   // Временный предпросмотр стиля при наведении на карточку (не выбирает стиль).
   const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
@@ -629,6 +795,7 @@ export default function NewStudio(): ReactElement {
   const [formatOpen, setFormatOpen] = useState(false)
   const formatRef = useRef<HTMLDivElement>(null)
   const [quality, setQuality] = useState('fast')
+  const [provider, setProvider] = useState<'comfyui' | 'openrouter'>('comfyui')
   const [proMode, setProMode] = useState(false)
   const [seed, setSeed] = useState(0)
   const [guidance] = useState(3.5)
@@ -638,6 +805,28 @@ export default function NewStudio(): ReactElement {
   const [editExtraOpen, setEditExtraOpen] = useState(false)
   const [faceSlots, setFaceSlots] = useState<EditSlot[]>(() => EMPTY_FACE_SLOTS.map((slot) => ({ ...slot })))
   const [faceStrengthPct, setFaceStrengthPct] = useState(DEFAULT_FACE_STRENGTH)
+  const [profileTab, setProfileTab] = useState<'profile' | 'tariffs' | 'earn' | 'models'>('profile')
+  const [tariffs, setTariffs] = useState<TariffConfig>(DEFAULT_TARIFFS)
+  const [tariffsState, setTariffsState] = useState<'loading' | 'ready' | 'fallback'>('loading')
+  const [displayName, setDisplayName] = useState(me?.profile?.display_name || '')
+  const [profileGender, setProfileGender] = useState<'female' | 'male'>(me?.profile?.gender === 'male' ? 'male' : 'female')
+  const [profileAge, setProfileAge] = useState(me?.profile?.age ? String(me.profile.age) : '')
+  const [saveMsg, setSaveMsg] = useState('')
+  const [avatarUrl, setAvatarUrl] = useState(me?.profile?.avatar_url || avatarPresets[0].url)
+  const [avatarPreset, setAvatarPreset] = useState(me?.profile?.avatar_preset || '')
+  const [avatarMsg, setAvatarMsg] = useState('')
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const [promoCode, setPromoCode] = useState('')
+  const [promoResult, setPromoResult] = useState('')
+  const [promoBusy, setPromoBusy] = useState(false)
+  const [inviteMsg, setInviteMsg] = useState('')
+  const [authCaps, setAuthCaps] = useState({ telegram_bot_login_available: false, max_bot_login_available: false })
+  const [authCapsState, setAuthCapsState] = useState<'loading' | 'ready' | 'fallback'>('loading')
+  const [linkEmail, setLinkEmail] = useState('')
+  const [linkEmailChallenge, setLinkEmailChallenge] = useState('')
+  const [linkEmailCode, setLinkEmailCode] = useState('')
+  const [linkMsg, setLinkMsg] = useState('')
+  const [linkBusy, setLinkBusy] = useState(false)
   const [paintMode, setPaintMode] = useState<PaintSubMode>('sketch')
   const [paintImage, setPaintImage] = useState<string>()
   const [paintSketchImage, setPaintSketchImage] = useState<string>()
@@ -645,13 +834,19 @@ export default function NewStudio(): ReactElement {
   const [paintMaskLines, setPaintMaskLines] = useState<PaintLine[]>([])
   const [paintTool, setPaintTool] = useState<PaintTool>('brush')
   const [paintDrawMode, setPaintDrawMode] = useState<PaintDrawMode>('free')
-  const [paintBrushSize, setPaintBrushSize] = useState(12)
+  const [paintBrushSize, setPaintBrushSize] = useState(3)
+  const [paintTechPrompts, setPaintTechPrompts] = useState<Record<PaintSubMode, string>>({
+    sketch: DEFAULT_PAINT_SKETCH_PROMPT,
+    mask: DEFAULT_PAINT_MASK_PROMPT,
+    outpaint: DEFAULT_PAINT_OUTPAINT_PROMPT,
+    remove_bg: 'Аккуратно удали фон, сохрани главный объект и его края.',
+  })
+  const [paintTechPromptOpen, setPaintTechPromptOpen] = useState(false)
   const [paintColor, setPaintColor] = useState('#111827')
-  const [paintFillShape, setPaintFillShape] = useState(true)
   const [paintCanvasBg, setPaintCanvasBg] = useState<'white' | 'gray'>('white')
   const [paintOutpaint, setPaintOutpaint] = useState({ left: 256, right: 256, top: 0, bottom: 0 })
   const [paintOutpaintPreview, setPaintOutpaintPreview] = useState<string>()
-  const [paintStageSize, setPaintStageSize] = useState({ width: 720, height: 720 })
+  const [paintStageSize, setPaintStageSize] = useState(() => paintStageForResolution(RESOLUTION_PRESETS[0]))
   const [paintWorkbenchVisible, setPaintWorkbenchVisible] = useState(true)
   const [compare, setCompare] = useState(50)
   const [compareAuto, setCompareAuto] = useState(false)
@@ -662,27 +857,6 @@ export default function NewStudio(): ReactElement {
   const feedLang: FeedLang = me?.profile?.language_code === 'en' ? 'en' : 'ru'
   const ft = FEED_I18N[feedLang]
 
-  const feedTabs: Array<{ id: FeedTabId; label: string }> = [
-    { id: 'all', label: ft.forYou },
-    { id: 'new', label: ft.fresh },
-    { id: 'top', label: ft.top },
-    { id: 'challenge', label: ft.challenges },
-    { id: 'follow', label: ft.follows },
-  ]
-
-  const [feedTab, setFeedTab] = useState<FeedTabId>('all')
-  const [feedItems, setFeedItems] = useState<FeedPublication[]>([])
-  const [feedLoading, setFeedLoading] = useState(true)
-  const [feedError, setFeedError] = useState(false)
-  const [feedSelectedId, setFeedSelectedId] = useState<string>('')
-  const [feedDetailOpen, setFeedDetailOpen] = useState(false) // mobile overlay
-  const [feedPromptExpanded, setFeedPromptExpanded] = useState(false)
-  const [feedReload, setFeedReload] = useState(0)
-  // id публикаций с недоступным файлом — показываем error-state, не чёрный блок.
-  const [feedBroken, setFeedBroken] = useState<Set<string>>(() => new Set())
-  const markFeedBroken = useCallback((id: string) => {
-    setFeedBroken((cur) => (cur.has(id) ? cur : new Set(cur).add(id)))
-  }, [])
   const [toastText, setToastText] = useState('')
   const toastTimerRef = useRef<number>(0)
 
@@ -699,122 +873,10 @@ export default function NewStudio(): ReactElement {
     toastTimerRef.current = window.setTimeout(() => setToastText(''), 2100)
   }, [])
 
-  // «Открыть галерею» → каноническая страница нового UI /gallery.
-  const openRealGallery = goGallery
-
-  // Живая загрузка ленты. Вкладки: Для вас → top (персонализации пока нет),
-  // Новое → new, Популярное → top. Челленджи/Подписки — placeholder, не грузим.
-  useEffect(() => {
-    if (tab !== 'feed') return
-    if (feedTab === 'challenge' || feedTab === 'follow') return
-    let cancelled = false
-    // queueMicrotask — проектный паттерн против react-hooks/set-state-in-effect.
-    queueMicrotask(() => {
-      if (!cancelled) {
-        setFeedLoading(true)
-        setFeedError(false)
-      }
-    })
-    // Для вас → foryou (живая выдача), Новое → new, Популярное → top.
-    const apiType = feedTab === 'new' ? 'new' : feedTab === 'top' ? 'top' : 'foryou'
-    apiFetch(`/feed?type=${apiType}&limit=50`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((data) => {
-        if (cancelled) return
-        const items: FeedPublication[] = Array.isArray(data?.items) ? data.items : []
-        setFeedItems(items)
-        setFeedSelectedId((cur) => (items.some((i) => i.id === cur) ? cur : items[0]?.id || ''))
-        setFeedLoading(false)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setFeedError(true)
-        setFeedLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [tab, feedTab, feedReload])
-
-  const feedSelected = feedItems.find((p) => p.id === feedSelectedId) || feedItems[0]
-
-  const patchFeedItem = useCallback((updated: FeedPublication) => {
-    setFeedItems((cur) => cur.map((item) => (item.id === updated.id ? updated : item)))
-  }, [])
-
-  // Реальные реакции like/save: POST/DELETE, ответ содержит свежую публикацию.
-  const toggleFeedReaction = async (post: FeedPublication, kind: 'like' | 'save') => {
-    if (!(await ensureAuthed())) return
-    const active = kind === 'like' ? post.is_liked_by_me : post.is_saved_by_me
-    apiFetch(`/feed/publications/${post.id}/${kind}`, { method: active ? 'DELETE' : 'POST' })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((data) => {
-        if (data?.publication) patchFeedItem(data.publication)
-      })
-      .catch(() => showToast(feedLang === 'ru' ? 'Не удалось сохранить реакцию' : 'Reaction failed'))
-  }
-
-  // «Повторить»/«Сделать похожее»: prompt/format в генератор + счётчик recreate.
-  const startFeedRecreate = async (post: FeedPublication) => {
-    if (!(await ensureAuthed())) return
-    if (!post.allow_recreate) {
-      showToast(feedLang === 'ru' ? 'Автор запретил повторение этой работы' : 'Author disabled recreate')
-      return
-    }
-    // Счётчик — fire-and-forget; сама генерация идёт обычным /api/generate.
-    void apiFetch(`/feed/publications/${post.id}/recreate`, { method: 'POST' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.publication) patchFeedItem(data.publication)
-      })
-      .catch(() => undefined)
-    appliedStyleRef.current = null
-    setStyleId('')
-    // Формат из соотношения работы.
-    const shape = feedShape(post.aspect_ratio)
-    setResolutionId(DEFAULT_PRESET_BY_KIND[shape === 'square' ? 'square' : shape === 'wide' ? 'horizontal' : 'vertical'])
-    // Открытый промпт → в ту вкладку, где сделана работа (i2i→Изо→Изо, иначе Текст),
-    // с подстановкой промпта. Скрытый промпт → НЕ подставляем текст, а используем
-    // само изображение как референс (Изо → Изо).
-    const hasPrompt = !!post.prompt
-    const targetTab: 'text' | 'i2i' = !hasPrompt ? 'i2i' : post.mode === 'image_to_image' ? 'i2i' : 'text'
-    const promptSlot = targetTab === 'i2i' ? 'i2i' : 'text'
-    setPrompts((cur) => ({ ...cur, [promptSlot]: post.prompt || '' }))
-    if (targetTab === 'i2i') {
-      // Референс — сжатая display-версия опубликованной работы.
-      setSourceImage(apiUrl(post.display_url || post.image_url))
-    }
-    if (hasPrompt) {
-      showToast(feedLang === 'ru' ? 'Промпт подставлен — генерируйте свою версию' : 'Prompt prefilled — generate your version')
-    } else {
-      showToast(
-        feedLang === 'ru'
-          ? 'Промпт скрыт автором, используем изображение как референс'
-          : 'Prompt hidden by author — using the image as reference',
-      )
-    }
-    setFeedDetailOpen(false)
-    setTab(targetTab)
-  }
-
-  // «Взять стиль»: style публикации мапится на реальный стиль stylePresets по
-  // имени; у старых генераций поле пустое — кнопка тогда не показывается.
-  const applyFeedStyle = (post: FeedPublication) => {
-    const style = post.style ? I2I_STYLES.find((s) => s.name === post.style || s.id === post.style) : undefined
-    if (!style) {
-      showToast(feedLang === 'ru' ? 'У этой работы стиль не размечен' : 'This work has no tagged style')
-      return
-    }
-    setFeedDetailOpen(false)
-    setTab('text')
-    applyStyleTo('text', style)
-    showToast(feedLang === 'ru' ? `Стиль «${style.name}» применён` : `Style "${style.name}" applied`)
-  }
-
   // Публикация выбранного изображения галереи.
   const openPublish = async (item: N2GalleryImage) => {
     if (!(await ensureAuthed())) return
-    setPublishTitle(item.promptOriginal.slice(0, 60) || (feedLang === 'ru' ? 'Моя работа' : 'My work'))
+    setPublishTitle('')
     setPublishVisibility('open')
     setPublishAllowRecreate(true)
     setPublishFor(item)
@@ -845,6 +907,10 @@ export default function NewStudio(): ReactElement {
 
   // Профиль: язык RU/EN и выход.
 
+  useEffect(() => {
+    void initAuthV2()
+  }, [])
+
   const submitPublish = () => {
     if (!publishFor || publishBusy) return
     const title = publishTitle.trim()
@@ -867,23 +933,28 @@ export default function NewStudio(): ReactElement {
       .then(() => {
         setPublishFor(null)
         setGalleryItem(undefined)
-        setFeedReload((n) => n + 1)
-        setView('tabs')
-        setTab('feed')
-        setFeedTab('new')
         showToast(feedLang === 'ru' ? 'Опубликовано в ленту' : 'Published to feed')
+        window.setTimeout(() => {
+          window.location.href = '/feed'
+        }, 250)
       })
       .catch(() => showToast(feedLang === 'ru' ? 'Не удалось опубликовать' : 'Publish failed'))
       .finally(() => setPublishBusy(false))
   }
 
   const [job, setJob] = useState<N2Job>()
-  const [, setJobMode] = useState<StudioMode>('text')
+  const [jobMode, setJobMode] = useState<StudioMode>('text')
   const [resultUrl, setResultUrl] = useState<string>()
   // URL результата не загрузился (битая ссылка/удалённый файл) — error-state.
   const [resultError, setResultError] = useState(false)
   const [resultSource, setResultSource] = useState<string>()
   const [inspectPreview, setInspectPreview] = useState<InspectPreview | null>(null)
+  const [previewByMode, setPreviewByMode] = useState<Record<CoreStudioMode, StudioPreviewState>>({
+    text: emptyPreview(),
+    i2i: emptyPreview(),
+    edit: emptyPreview(),
+    face: emptyPreview(),
+  })
   const [inspectZoom, setInspectZoom] = useState(1)
   const [inspectPan, setInspectPan] = useState({ x: 0, y: 0 })
   const [notice, setNotice] = useState('')
@@ -905,11 +976,23 @@ export default function NewStudio(): ReactElement {
   // true, если тянули историю мышью — тогда клик по миниатюре не выбирает её.
   const historyDraggedRef = useRef(false)
   const styleRowRef = useRef<HTMLDivElement>(null)
+  const pendingResultSourceRef = useRef<Record<StudioMode, string | undefined>>({ text: undefined, i2i: undefined, edit: undefined, face: undefined, paint: undefined })
+  const pendingResultShapeRef = useRef<Record<StudioMode, PreviewShape | undefined>>({ text: undefined, i2i: undefined, edit: undefined, face: undefined, paint: undefined })
   // true, если пользователь тянул ряд стилей — тогда клик по карточке не выбирает.
   const styleDraggedRef = useRef(false)
   // true, пока зажата кнопка над рядом стилей — подавляет hover-preview при drag.
   const stylePointerDownRef = useRef(false)
   const inspectDragRef = useRef<{ active: boolean; startX: number; startY: number; panX: number; panY: number }>({ active: false, startX: 0, startY: 0, panX: 0, panY: 0 })
+  const inspectTouchRef = useRef<{ pinching: boolean; distance: number; zoom: number; panX: number; panY: number; startX: number; startY: number; lastTap: number }>({
+    pinching: false,
+    distance: 0,
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    startX: 0,
+    startY: 0,
+    lastTap: 0,
+  })
   const paintStageRef = useRef<PaintWorkbenchHandle>(null)
   const paintWorkbenchRef = useRef<HTMLDivElement>(null)
   const paintLines = paintMode === 'mask' ? paintMaskLines : paintSketchLines
@@ -935,6 +1018,51 @@ export default function NewStudio(): ReactElement {
       })
       .catch(() => undefined)
     return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    apiFetch('/tariffs')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return
+        if (data?.tariffs) {
+          setTariffs(normalizeTariffs(data.tariffs))
+          setTariffsState('ready')
+        } else {
+          setTariffsState('fallback')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setTariffsState('fallback')
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setDisplayName(me?.profile?.display_name || '')
+      setProfileGender(me?.profile?.gender === 'male' ? 'male' : 'female')
+      setProfileAge(me?.profile?.age ? String(me.profile.age) : '')
+      setAvatarUrl(me?.profile?.avatar_url || avatarPresets[0].url)
+      setAvatarPreset(me?.profile?.avatar_preset || '')
+      setSaveMsg('')
+      setAvatarMsg('')
+    })
+  }, [me?.profile?.age, me?.profile?.avatar_preset, me?.profile?.avatar_url, me?.profile?.display_name, me?.profile?.gender])
+
+  useEffect(() => {
+    let active = true
+    getAuthCapabilitiesV2()
+      .then((caps) => {
+        if (!active) return
+        setAuthCaps({ telegram_bot_login_available: caps.telegram_bot_login_available, max_bot_login_available: caps.max_bot_login_available })
+        setAuthCapsState(caps.capabilities_loaded ? 'ready' : 'fallback')
+      })
+      .catch(() => {
+        if (active) setAuthCapsState('fallback')
+      })
+    return () => { active = false }
   }, [])
 
   // Стабильная загрузка галереи: как только увидели свои изображения, спуриозный
@@ -1000,7 +1128,9 @@ export default function NewStudio(): ReactElement {
   useEffect(() => {
     if (resultSeededRef.current || resultUrl || gallery.length === 0) return
     resultSeededRef.current = true
-    setResultUrl(gallery[0].url)
+    setPreviewByMode((cur) => cur.text.kind === 'empty'
+      ? { ...cur, text: { kind: 'history', url: gallery[0].url, shape: historyShape(gallery[0]), galleryId: gallery[0].id, promptOriginal: gallery[0].promptOriginal, title: 'Последняя генерация' } }
+      : cur)
   }, [gallery, resultUrl])
 
   // Поллинг активной задачи — тот же контракт, что в основном UI (resultUrl).
@@ -1013,7 +1143,23 @@ export default function NewStudio(): ReactElement {
         if (next.status === 'completed') {
           if (next.resultUrl) {
             setResultError(false)
-            setResultUrl(next.resultUrl)
+            if (jobMode === 'paint') {
+              setResultUrl(next.resultUrl)
+            } else {
+              const coreMode = jobMode as CoreStudioMode
+              setPreviewByMode((cur) => ({
+                ...cur,
+                [coreMode]: {
+                  kind: 'result',
+                  url: next.resultUrl,
+                  sourceUrl: pendingResultSourceRef.current[jobMode],
+                  shape: pendingResultShapeRef.current[jobMode],
+                  title: 'Результат генерации',
+                  resultImageId: next.resultImageId,
+                  error: false,
+                },
+              }))
+            }
           }
           fetchGallery()
           void refreshAuthStateV2()
@@ -1025,7 +1171,7 @@ export default function NewStudio(): ReactElement {
       }
     }, 900)
     return () => window.clearInterval(timer)
-  }, [fetchGallery, job])
+  }, [fetchGallery, job, jobMode])
 
   const promptKey: StudioMode = tab === 'i2i' ? 'i2i' : tab === 'edit' ? 'edit' : tab === 'face' ? 'face' : tab === 'paint' ? 'paint' : 'text'
   const setPrompt = useCallback(
@@ -1112,11 +1258,19 @@ export default function NewStudio(): ReactElement {
 
   function clearEditSlot(index: number) {
     if (inspectPreview && editSlots[index]?.image === inspectPreview.url) setInspectPreview(null)
+    if (editSlots[index]?.image) {
+      const removed = editSlots[index].image
+      setPreviewByMode((cur) => cur.edit.url === removed || cur.edit.sourceUrl === removed ? { ...cur, edit: emptyPreview() } : cur)
+    }
     setEditSlots((current) => current.map((slot, i) => (i === index ? { image: undefined, role: '', takeNote: '' } : slot)))
   }
 
   function clearFaceSlot(index: number) {
     if (inspectPreview && faceSlots[index]?.image === inspectPreview.url) setInspectPreview(null)
+    if (faceSlots[index]?.image) {
+      const removed = faceSlots[index].image
+      setPreviewByMode((cur) => cur.face.url === removed || cur.face.sourceUrl === removed ? { ...cur, face: emptyPreview() } : cur)
+    }
     setFaceSlots((current) => current.map((slot, i) => (i === index ? { ...slot, image: undefined } : slot)))
   }
 
@@ -1143,8 +1297,19 @@ export default function NewStudio(): ReactElement {
   }
 
   function showInspectPreview(url: string, title: string) {
-    if (isPaintStudio) setPaintWorkbenchVisible(false)
-    setInspectPreview({ url, title })
+    const coreMode = coreModeFromTab(tab)
+    if (!coreMode) {
+      setPaintWorkbenchVisible(false)
+      setInspectPreview({ url, title })
+    } else {
+      setPreviewByMode((cur) => ({ ...cur, [coreMode]: { kind: 'inspect', url, title, shape: cur[coreMode].shape, error: false } }))
+      void loadImageShape(url).then((shape) => {
+        setPreviewByMode((cur) => {
+          const current = cur[coreMode]
+          return current.kind === 'inspect' && current.url === url ? { ...cur, [coreMode]: { ...current, shape } } : cur
+        })
+      })
+    }
     setInspectZoom(1)
     setInspectPan({ x: 0, y: 0 })
     setResultError(false)
@@ -1172,7 +1337,9 @@ export default function NewStudio(): ReactElement {
     if (target.kind === 'paint') {
       setPaintImage(image)
       setPaintOutpaintPreview(undefined)
-      if (paintMode !== 'sketch') showInspectPreview(image, paintMode === 'remove_bg' ? 'Изображение для удаления фона' : 'Изображение для рисунка')
+      setPaintWorkbenchVisible(true)
+      setInspectPreview(null)
+      resetInspectView()
       return
     }
     setEditSlots((current) => current.map((slot, i) => {
@@ -1272,15 +1439,11 @@ export default function NewStudio(): ReactElement {
       const paintCanvas = mode === 'paint' && paintMode === 'sketch' ? await createPaintSketchCanvas() : undefined
       const paintMask = mode === 'paint' && paintMode === 'mask' ? await createPaintMask(paintImage, paintLines, paintStageSize) : undefined
       const nextOutpaintPreview = mode === 'paint' && paintMode === 'outpaint' ? await createOutpaintPreview(paintImage, paintOutpaint, requestSize) : undefined
+      const nextResultSource = mode === 'i2i' ? sourceImage : isEditLikeMode ? activeEditSlots[0]?.image : mode === 'paint' ? (paintMode === 'sketch' ? paintCanvas : nextOutpaintPreview || paintImage) : undefined
+      const nextResultShape = shapeFromSize(requestSize.width, requestSize.height)
       if (mode === 'paint') setPaintOutpaintPreview(nextOutpaintPreview)
       const paintUserPrompt = prompts.paint.trim()
-      const paintBasePrompt = paintMode === 'sketch'
-        ? DEFAULT_PAINT_SKETCH_PROMPT
-        : paintMode === 'mask'
-          ? DEFAULT_PAINT_MASK_PROMPT
-          : paintMode === 'outpaint'
-            ? DEFAULT_PAINT_OUTPAINT_PROMPT
-            : 'Аккуратно удали фон, сохрани главный объект и его края.'
+      const paintBasePrompt = paintTechPrompts[paintMode]
       const paintPrompt = composePaintPrompt(paintBasePrompt, paintUserPrompt)
       const faceFinalPrompt = [
         facePrompt,
@@ -1303,7 +1466,7 @@ export default function NewStudio(): ReactElement {
                       ? 'outpaint'
                       : 'remove_background'
                 : 'text_to_image',
-        provider: 'comfyui',
+        provider,
         prompt: mode === 'edit' ? editComposer.finalPrompt : mode === 'face' ? faceFinalPrompt : mode === 'paint' ? paintPrompt : fullPrompt,
         negativePrompt: isEditLikeMode || mode === 'paint' ? '' : '',
         seed: effectiveSeed,
@@ -1313,7 +1476,7 @@ export default function NewStudio(): ReactElement {
         cfg: 1,
         guidance,
         strength: mode === 'edit' ? DEFAULT_EDIT_STRENGTH : mode === 'face' ? faceStrengthPct / 100 : strengthPct / 100,
-        modelProfile: 'local_flux_klein',
+        modelProfile: provider === 'comfyui' ? 'local_flux_klein' : 'openrouter_cloud',
         loras: mode === 'face' && faceLora ? [{ id: faceLora.id, strength: faceStrengthPct / 100, triggerWord: faceLora.triggerWord }] : [],
         inputImage1: mode === 'i2i' ? sourceImage : isEditLikeMode ? activeEditSlots[0]?.image : mode === 'paint' && paintMode !== 'sketch' ? paintImage : undefined,
         inputImage2: mode === 'face' ? activeEditSlots[1]?.image : undefined,
@@ -1352,12 +1515,17 @@ export default function NewStudio(): ReactElement {
       if (mode === 'i2i') lastSubmittedRef.current.i2i = { prompt: i2iPrompt, source: i2iSource, width: size.width, height: size.height }
       else lastSubmittedRef.current.text = textPrompt
       if (mode === 'paint') setPaintWorkbenchVisible(false)
+      pendingResultSourceRef.current[mode] = nextResultSource
+      pendingResultShapeRef.current[mode] = nextResultShape
       setJob(created)
       setJobMode(mode)
       setResultUrl(undefined)
       setInspectPreview(null)
+      if (mode !== 'paint') {
+        setPreviewByMode((cur) => ({ ...cur, [mode]: { kind: 'empty' } }))
+      }
       resetInspectView()
-      setResultSource(mode === 'i2i' ? sourceImage : isEditLikeMode ? activeEditSlots[0]?.image : mode === 'paint' ? (paintMode === 'sketch' ? paintCanvas : nextOutpaintPreview || paintImage) : undefined)
+      setResultSource(nextResultSource)
       setCompare(mode === 'i2i' || isEditLikeMode || mode === 'paint' ? 96 : 50)
       if (!seed && mode !== 'face') setSeed(effectiveSeed)
     } catch {
@@ -1397,7 +1565,7 @@ export default function NewStudio(): ReactElement {
   }
 
   function applyLastSourceImage() {
-    const last = resultUrl || gallery[0]?.url || dockImage?.url || historyItems[0]?.url
+    const last = visibleResultUrl || gallery[0]?.url || dockImage?.url || historyItems[0]?.url
     if (!last) {
       showToast('Последнего изображения пока нет')
       return
@@ -1408,12 +1576,21 @@ export default function NewStudio(): ReactElement {
   }
 
   function applyLastImageToTarget(target: UploadTarget) {
-    const last = resultUrl || gallery[0]?.url || dockImage?.url || historyItems[0]?.url
+    const last = visibleResultUrl || gallery[0]?.url || dockImage?.url || historyItems[0]?.url
     if (!last) {
       showToast('Последнего изображения пока нет')
       return
     }
     applyImageToTarget(target, apiUrl(last))
+  }
+
+  function useCurrentPreviewInPaint() {
+    const source = visibleInspectPreview?.url || visibleResultUrl
+    if (!source) {
+      showToast('Сначала выберите изображение в предпросмотре')
+      return
+    }
+    applyImageToTarget(paintMode === 'sketch' ? { kind: 'paintSketch' } : { kind: 'paint' }, apiUrl(source))
   }
 
   function resetInspectView() {
@@ -1456,25 +1633,70 @@ export default function NewStudio(): ReactElement {
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
   }
 
+  function touchDistance(touches: ReactTouchEvent<HTMLDivElement>['touches']) {
+    if (touches.length < 2) return 0
+    const a = touches[0]
+    const b = touches[1]
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
+  }
+
+  function onInspectTouchStart(e: ReactTouchEvent<HTMLDivElement>) {
+    const touch = inspectTouchRef.current
+    if (e.touches.length === 2) {
+      e.preventDefault()
+      touch.pinching = true
+      touch.distance = touchDistance(e.touches)
+      touch.zoom = inspectZoom
+      touch.panX = inspectPan.x
+      touch.panY = inspectPan.y
+      return
+    }
+    if (e.touches.length !== 1) return
+    const now = e.timeStamp
+    const first = e.touches[0]
+    touch.startX = first.clientX
+    touch.startY = first.clientY
+    touch.panX = inspectPan.x
+    touch.panY = inspectPan.y
+    if (now - touch.lastTap < 280) {
+      e.preventDefault()
+      if (inspectZoom > 1.05) resetInspectView()
+      else {
+        setInspectZoom(2.2)
+        setInspectPan({ x: 0, y: 0 })
+      }
+      touch.lastTap = 0
+    } else {
+      touch.lastTap = now
+    }
+  }
+
+  function onInspectTouchMove(e: ReactTouchEvent<HTMLDivElement>) {
+    const touch = inspectTouchRef.current
+    if (e.touches.length === 2 && touch.pinching) {
+      e.preventDefault()
+      const distance = touchDistance(e.touches)
+      if (!touch.distance || !distance) return
+      setInspectZoom(Math.max(1, Math.min(5, touch.zoom * (distance / touch.distance))))
+      return
+    }
+    if (e.touches.length === 1 && inspectZoom > 1.02) {
+      e.preventDefault()
+      const first = e.touches[0]
+      setInspectPan({
+        x: touch.panX + first.clientX - touch.startX,
+        y: touch.panY + first.clientY - touch.startY,
+      })
+    }
+  }
+
+  function onInspectTouchEnd(e: ReactTouchEvent<HTMLDivElement>) {
+    if (e.touches.length < 2) inspectTouchRef.current.pinching = false
+    if (inspectZoom <= 1.02) setInspectPan({ x: 0, y: 0 })
+  }
+
   const jobActive = !!job && JOB_ACTIVE.includes(job.status)
   const jobProgress = Math.max(0, Math.min(100, Math.round(job?.progress || 0)))
-
-  useEffect(() => {
-    if (!resultUrl || !resultSource || jobActive) return
-    compareTouchedRef.current = false
-    queueMicrotask(() => {
-      setCompareAuto(true)
-      setCompare(96)
-    })
-    const moveTimer = window.setTimeout(() => {
-      if (!compareTouchedRef.current) setCompare(4)
-    }, 120)
-    const stopTimer = window.setTimeout(() => setCompareAuto(false), 2300)
-    return () => {
-      window.clearTimeout(moveTimer)
-      window.clearTimeout(stopTimer)
-    }
-  }, [jobActive, resultSource, resultUrl])
 
   const ownHistory = gallery.slice(0, 12)
   // Своя история приоритетна; при её отсутствии показываем работы из Ленты.
@@ -1486,37 +1708,97 @@ export default function NewStudio(): ReactElement {
   const isEditStudio = studioMode === 'edit'
   const isFaceStudio = studioMode === 'face'
   const isPaintStudio = studioMode === 'paint'
+  const activeCoreMode = coreModeFromTab(tab)
+  const activeCorePreview = activeCoreMode ? previewByMode[activeCoreMode] : null
+  const visibleInspectPreview = isPaintStudio
+    ? inspectPreview
+    : activeCorePreview?.kind === 'inspect' && activeCorePreview.url
+      ? { url: activeCorePreview.url, title: activeCorePreview.title || 'Предпросмотр' }
+      : null
+  const visibleResultUrl = isPaintStudio
+    ? resultUrl
+    : (activeCorePreview?.kind === 'result' || activeCorePreview?.kind === 'history') && activeCorePreview.url
+      ? activeCorePreview.url
+      : undefined
+  const visibleResultSource = isPaintStudio ? resultSource : activeCorePreview?.kind === 'result' ? activeCorePreview.sourceUrl : undefined
+  const visibleResultError = isPaintStudio ? resultError : !!activeCorePreview?.error
+  const previewJobActive = jobActive && (isPaintStudio ? jobMode === 'paint' : jobMode === studioMode)
+  useEffect(() => {
+    if (!visibleResultUrl || !visibleResultSource || previewJobActive) return undefined
+    compareTouchedRef.current = false
+    queueMicrotask(() => {
+      setInspectZoom(1)
+      setInspectPan({ x: 0, y: 0 })
+      setCompareAuto(true)
+      setCompare(96)
+    })
+    const moveTimer = window.setTimeout(() => {
+      if (!compareTouchedRef.current) setCompare(4)
+    }, 120)
+    const stopTimer = window.setTimeout(() => setCompareAuto(false), 2300)
+    return () => {
+      window.clearTimeout(moveTimer)
+      window.clearTimeout(stopTimer)
+    }
+  }, [previewJobActive, visibleResultSource, visibleResultUrl])
   const studioTitle = isI2IStudio ? 'Изо в изображение' : isEditStudio ? 'Редактор' : isFaceStudio ? 'Лицо' : isPaintStudio ? 'Рисунок' : 'Текст в изображение'
-  const promptTitle = isI2IStudio ? 'Как преобразовать?' : isEditStudio || isFaceStudio || isPaintStudio ? 'Дополнительные пожелания' : 'Что хотите увидеть?'
+  const promptTitle = isI2IStudio ? 'Как преобразовать?' : isPaintStudio ? 'Что визуализируем?' : isEditStudio || isFaceStudio ? 'Дополнительные пожелания' : 'Что хотите увидеть?'
   const promptPlaceholder = isI2IStudio
     ? 'Опишите, как преобразовать исходное изображение...'
     : isFaceStudio
       ? 'Например: сохранить прическу и свет основы, взять только лицо...'
     : isPaintStudio
       ? paintMode === 'sketch'
-        ? 'Опишите, во что превратить эскиз...'
+        ? 'Опишите сцену, которую нужно получить из эскиза...'
         : paintMode === 'mask'
-          ? 'Опишите, что изменить внутри маски...'
+          ? 'Опишите, что должно появиться или измениться внутри маски...'
           : paintMode === 'outpaint'
             ? 'Опишите, чем продолжить изображение за границами...'
-            : 'Например: аккуратно отделить объект от фона...'
+            : 'Опишите, что важно сохранить после удаления фона...'
     : isEditStudio
       ? 'Например: сохранить лицо, заменить одежду, взять фон или цвет из референса...'
     : 'Опишите идею своими словами — получите изображение...'
   const promptLimit = isI2IStudio || isEditStudio || isFaceStudio || isPaintStudio ? 1000 : 2000
   const promptValue = prompts[studioMode]
+  const paintPromptDisplayValue = isPaintStudio && paintTechPromptOpen
+    ? `${prompts.paint}${prompts.paint.trim() ? '\n\n' : ''}${paintTechPrompts[paintMode]}`
+    : promptValue
+  const promptTextareaValue = isPaintStudio ? paintPromptDisplayValue : promptValue
+  const promptTextareaLimit = isPaintStudio && paintTechPromptOpen ? 2800 : promptLimit
+  const promptCounterValue = promptTextareaValue.length
+
+  function updatePromptTextarea(value: string) {
+    if (isPaintStudio && paintTechPromptOpen) {
+      const currentUserPrompt = prompts.paint
+      if (!currentUserPrompt) {
+        setPaintTechPrompts((cur) => ({ ...cur, [paintMode]: value }))
+        return
+      }
+      if (value.startsWith(currentUserPrompt)) {
+        setPaintTechPrompts((cur) => ({ ...cur, [paintMode]: value.slice(currentUserPrompt.length).replace(/^\n+/, '') }))
+        return
+      }
+      const [nextUserPrompt = '', ...nextTechPrompt] = value.split(/\n{2,}/)
+      setPrompt(nextUserPrompt)
+      setPaintTechPrompts((cur) => ({ ...cur, [paintMode]: nextTechPrompt.join('\n\n') }))
+      return
+    }
+    setPrompt(value)
+  }
 
   useEffect(() => {
     if (tab !== 'paint' || !paintWorkbenchVisible) return undefined
-    const node = paintWorkbenchRef.current
-    if (!node) {
-      queueMicrotask(() => setPaintStageSize(paintStageForResolution(selectedResolution)))
-      return undefined
-    }
+    let observedNode: HTMLDivElement | null = null
+    let frame = 0
+    const timers: number[] = []
+    const observer = new ResizeObserver(() => update())
     const update = () => {
+      const node = paintWorkbenchRef.current
+      if (!node) return
       const rect = node.getBoundingClientRect()
-      const maxW = Math.max(256, rect.width - 28)
-      const maxH = Math.max(256, rect.height - 28)
+      if (rect.width < 160 || rect.height < 160) return
+      const maxW = Math.max(256, rect.width - 36)
+      const maxH = Math.max(256, rect.height - 36)
       const ratio = Math.max(0.1, selectedResolution.width / Math.max(1, selectedResolution.height))
       let width = maxW
       let height = width / ratio
@@ -1524,12 +1806,28 @@ export default function NewStudio(): ReactElement {
         height = maxH
         width = height * ratio
       }
-      setPaintStageSize({ width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) })
+      const next = { width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) }
+      setPaintStageSize((current) => current.width === next.width && current.height === next.height ? current : next)
     }
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(node)
-    return () => observer.disconnect()
+    const attach = () => {
+      const node = paintWorkbenchRef.current
+      if (!node) return
+      if (observedNode !== node) {
+        observer.disconnect()
+        observer.observe(node)
+        observedNode = node
+      }
+      update()
+    }
+    frame = window.requestAnimationFrame(attach)
+    timers.push(window.setTimeout(attach, 80), window.setTimeout(attach, 240), window.setTimeout(attach, 600))
+    window.addEventListener('resize', attach)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      timers.forEach((timer) => window.clearTimeout(timer))
+      observer.disconnect()
+      window.removeEventListener('resize', attach)
+    }
   }, [paintMode, paintWorkbenchVisible, selectedResolution, tab])
 
   const loraOptions: LoraOption[] = (() => {
@@ -1567,6 +1865,24 @@ export default function NewStudio(): ReactElement {
   // промпт-блок не рассинхронизировался с пустым preview у гостя).
   const dockImage = dockImageId ? historyItems.find((g) => g.id === dockImageId) : gallery[0]
   const dockIsFeed = !!dockImage && dockImage.id.startsWith('feed-')
+  const visibleGalleryImage = visibleResultUrl
+    ? gallery.find((item) => item.id === activeCorePreview?.galleryId || apiUrl(item.url) === apiUrl(visibleResultUrl) || apiUrl(item.thumbnailUrl) === apiUrl(visibleResultUrl))
+    : undefined
+  const visiblePreviewShape = isPaintStudio
+    ? selectedResolution.kind === 'vertical'
+      ? 'tall'
+      : selectedResolution.kind === 'horizontal'
+        ? 'wide'
+        : 'square'
+    : activeCorePreview?.shape
+      ? activeCorePreview.shape
+    : visibleGalleryImage
+      ? historyShape(visibleGalleryImage)
+      : selectedResolution.kind === 'vertical'
+        ? 'tall'
+        : selectedResolution.kind === 'horizontal'
+          ? 'wide'
+          : 'square'
   // Фон preview во время генерации: текущая работа/история/стиль как размытая
   // подложка; если ничего нет — брендовый placeholder (в CSS).
   const loadingBackdropUrl = hoverStyle
@@ -1611,8 +1927,24 @@ export default function NewStudio(): ReactElement {
     setResultError(false)
     setInspectPreview(null)
     resetInspectView()
-    setResultUrl(item.url)
-    setResultSource(undefined)
+    const coreMode = coreModeFromTab(tab)
+    if (coreMode) {
+      setPreviewByMode((cur) => ({
+        ...cur,
+        [coreMode]: {
+          kind: 'history',
+          url: item.url,
+          shape: historyShape(item),
+          title: 'История',
+          galleryId: item.id,
+          promptOriginal: item.promptOriginal,
+          error: false,
+        },
+      }))
+    } else {
+      setResultUrl(item.url)
+      setResultSource(undefined)
+    }
     setDockImageId(item.id)
     if (isPaintStudio) setPaintWorkbenchVisible(false)
   }
@@ -1727,323 +2059,7 @@ export default function NewStudio(): ReactElement {
     }
   }, [tab])
 
-  // ---------- Live Feed: карточка публикации ----------
-  const feedCard = (post: FeedPublication) => (
-    <article
-      key={post.id}
-      className={`nf-card ${feedShape(post.aspect_ratio)}${feedSelected?.id === post.id ? ' selected' : ''}`}
-      onClick={() => {
-        setFeedSelectedId(post.id)
-        setFeedPromptExpanded(false)
-        setFeedDetailOpen(true)
-      }}
-    >
-      <div className="nf-card-image">
-        {feedBroken.has(post.id) ? (
-          <div className="nf-img-error" aria-label={feedLang === 'ru' ? 'Изображение недоступно' : 'Image unavailable'}>
-            <span>⚠</span>
-            {feedLang === 'ru' ? 'Изображение недоступно' : 'Image unavailable'}
-          </div>
-        ) : (
-          // Сетка грузит СЖАТЫЙ thumbnail (не оригинал). Без loading="lazy":
-          // в CSS multicolumn (masonry) нативный lazy ненадёжно триггерится и
-          // карточки могут не прогрузиться; thumbnails малы (~56KB), грузим eager.
-          <img
-            src={apiUrl(post.thumbnail_url)}
-            alt={post.title}
-            decoding="async"
-            onError={() => markFeedBroken(post.id)}
-          />
-        )}
-        {post.badge && FEED_BADGE_LABELS[post.badge] && (
-          <span className={`nf-tag badge-${post.badge}`}>{FEED_BADGE_LABELS[post.badge][feedLang]}</span>
-        )}
-        {post.is_current_user && <span className="nf-tag mine">{feedLang === 'ru' ? 'Ваша работа' : 'Yours'}</span>}
-      </div>
-      <div className="nf-card-body">
-        <div className="nf-author">
-          {post.author_avatar ? (
-            <img className="nf-avatar-img" src={apiUrl(post.author_avatar)} alt="" decoding="async" />
-          ) : (
-            <span className="nf-avatar" aria-hidden="true">{(post.author_name[0] || 'A').toUpperCase()}</span>
-          )}
-          <span className="nf-author-text">
-            <strong>{post.author_name}</strong>
-            <span>{feedTimeAgo(post.created_at, feedLang)}</span>
-          </span>
-        </div>
-        <h3>{post.title}</h3>
-        <div className="nf-stats">
-          <span>⟳ {feedCount(post.remix_count)}</span>
-          <span>▣ {feedCount(post.save_count)}</span>
-        </div>
-        <div className="nf-card-actions">
-          <button
-            className="nf-remix"
-            type="button"
-            title={ft.remixHint}
-            aria-label={ft.remixHint}
-            onClick={(e) => {
-              e.stopPropagation()
-              startFeedRecreate(post)
-            }}
-          >
-            ⟳ {ft.recreate}
-          </button>
-          <button
-            className={`nf-save${post.is_liked_by_me ? ' active' : ''}`}
-            type="button"
-            aria-label={ft.like}
-            title={ft.like}
-            onClick={(e) => {
-              e.stopPropagation()
-              toggleFeedReaction(post, 'like')
-            }}
-          >
-            {post.is_liked_by_me ? '♥' : '♡'}{post.like_count > 0 ? ` ${feedCount(post.like_count)}` : ''}
-          </button>
-          <button
-            className={`nf-save${post.is_saved_by_me ? ' active' : ''}`}
-            type="button"
-            aria-label={ft.save}
-            title={ft.save}
-            onClick={(e) => {
-              e.stopPropagation()
-              toggleFeedReaction(post, 'save')
-            }}
-          >
-            {post.is_saved_by_me ? '▣' : '▢'}
-          </button>
-        </div>
-      </div>
-    </article>
-  )
-
-  // ---------- Live Feed: панель подробностей ----------
-  const feedDetail = feedSelected && (
-    <div className="nf-detail-scroll">
-      <div className="nf-detail-image">
-        {feedBroken.has(feedSelected.id) ? (
-          <div className="nf-img-error detail" aria-label={feedLang === 'ru' ? 'Изображение недоступно' : 'Image unavailable'}>
-            <span>⚠</span>
-            {feedLang === 'ru' ? 'Изображение недоступно' : 'Image unavailable'}
-          </div>
-        ) : (
-          // Detail грузит СЖАТУЮ display-версию (large), не оригинал.
-          <img src={apiUrl(feedSelected.display_url || feedSelected.image_url)} alt={feedSelected.title} onError={() => markFeedBroken(feedSelected.id)} />
-        )}
-        <span className="nf-ai-label">{feedLang === 'ru' ? 'Сгенерировано ИИ' : 'AI-generated'}</span>
-      </div>
-      <div className="nf-detail-author">
-        <div className="nf-author">
-          {feedSelected.author_avatar ? (
-            <img className="nf-avatar-img big" src={apiUrl(feedSelected.author_avatar)} alt="" loading="lazy" />
-          ) : (
-            <span className="nf-avatar big" aria-hidden="true">{(feedSelected.author_name[0] || 'A').toUpperCase()}</span>
-          )}
-          <span className="nf-author-text">
-            <strong>{feedSelected.author_name}</strong>
-            <span>{feedTimeAgo(feedSelected.created_at, feedLang)}</span>
-          </span>
-        </div>
-        {/* Подписки — backend будущей фазы: honest placeholder-кнопка. */}
-        <button
-          className="nf-follow"
-          type="button"
-          onClick={() => showToast(feedLang === 'ru' ? 'Подписки скоро появятся' : 'Follows are coming soon')}
-        >
-          {ft.follow}
-        </button>
-      </div>
-      <h2 className="nf-detail-title">{feedSelected.title}</h2>
-      <div className="nf-stats">
-        <span>⟳ {feedCount(feedSelected.remix_count)} {ft.recreate.toLowerCase()}</span>
-        <span>♥ {feedCount(feedSelected.like_count)}</span>
-        <span>▣ {feedCount(feedSelected.save_count)}</span>
-      </div>
-      <div className="nf-prompt">
-        <strong>
-          {feedSelected.prompt_visibility === 'open'
-            ? ft.promptOpen
-            : feedSelected.prompt_visibility === 'partial'
-              ? ft.promptPartial
-              : ft.promptHidden}
-        </strong>
-        {feedSelected.prompt && (
-          <>
-            <span className={feedPromptExpanded ? '' : 'clamped'}>{feedSelected.prompt}</span>
-            <button className="nf-more" type="button" onClick={() => setFeedPromptExpanded((v) => !v)}>
-              {feedPromptExpanded ? ft.collapse : ft.showFull}
-            </button>
-          </>
-        )}
-      </div>
-      <div className="nf-params">
-        <div className="nf-param"><span>{feedLang === 'ru' ? 'Модель' : 'Model'}</span><strong>{feedSelected.model || '—'}</strong></div>
-        <div className="nf-param"><span>{feedLang === 'ru' ? 'Стиль' : 'Style'}</span><strong>{feedSelected.style || '—'}</strong></div>
-        <div className="nf-param"><span>{feedLang === 'ru' ? 'Соотношение' : 'Ratio'}</span><strong>{feedSelected.aspect_ratio}</strong></div>
-        <div className="nf-param"><span>{feedLang === 'ru' ? 'Разрешение' : 'Resolution'}</span><strong>{feedSelected.resolution || '—'}</strong></div>
-        <div className="nf-param"><span>Seed</span><strong>{feedSelected.seed ?? '—'}</strong></div>
-        <div className="nf-param"><span>{feedLang === 'ru' ? 'Режим' : 'Mode'}</span><strong>{feedSelected.mode || '—'}</strong></div>
-      </div>
-      <div className="nf-detail-actions">
-        <button
-          className="nf-remix"
-          type="button"
-          title={ft.remixHint}
-          aria-label={ft.remixHint}
-          onClick={() => startFeedRecreate(feedSelected)}
-        >
-          ⟳ {ft.makeSimilar}
-        </button>
-        <button
-          className={`nf-secondary${feedSelected.is_saved_by_me ? ' saved' : ''}`}
-          type="button"
-          onClick={() => toggleFeedReaction(feedSelected, 'save')}
-        >
-          {feedSelected.is_saved_by_me ? `▣ ${ft.saved}` : `▢ ${ft.save}`}
-        </button>
-        {feedSelected.style && I2I_STYLES.some((s) => s.name === feedSelected.style || s.id === feedSelected.style) && (
-          <button className="nf-purple" type="button" onClick={() => applyFeedStyle(feedSelected)}>
-            ✦ {ft.useStyle}
-          </button>
-        )}
-      </div>
-    </div>
-  )
-
-  // ---------- Live Feed: страница ----------
-  const feedPlaceholderTab = feedTab === 'challenge' || feedTab === 'follow'
-
-  const feed = (
-    <section className="nf-page" aria-label={ft.feed}>
-      <div className="nf-main n2-panel">
-        <div className="nf-head">
-          <nav className="nf-tabs" aria-label={ft.feed}>
-            {feedTabs.map((tabDef) => (
-              <button
-                key={tabDef.id}
-                className={`nf-tab${feedTab === tabDef.id ? ' active' : ''}`}
-                type="button"
-                onClick={() => setFeedTab(tabDef.id)}
-              >
-                {tabDef.label}
-              </button>
-            ))}
-          </nav>
-          {authStatus !== 'authed' && !feedPlaceholderTab && (
-            <button className="nf-login-pill" type="button" onClick={() => void ensureAuthed()}>
-              {feedLang === 'ru' ? 'Войти для публикации' : 'Sign in to publish'}
-            </button>
-          )}
-        </div>
-        <div className="nf-grid-scroll">
-          {feedPlaceholderTab ? (
-            <div className="nf-empty">
-              <span className="icon">✦</span>
-              <h3>{ft.soonTitle}</h3>
-              <p>
-                {feedTab === 'challenge'
-                  ? feedLang === 'ru'
-                    ? 'Челленджи с призовым фондом появятся в следующей фазе.'
-                    : 'Challenges with prize pools arrive in the next phase.'
-                  : feedLang === 'ru'
-                    ? 'Подписки на авторов появятся в следующей фазе.'
-                    : 'Author follows arrive in the next phase.'}
-              </p>
-            </div>
-          ) : feedLoading ? (
-            <div className="nf-grid" aria-hidden="true">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className={`nf-card nf-skeleton ${i % 3 === 0 ? 'tall' : i % 3 === 1 ? 'wide' : 'square'}`}>
-                  <div className="nf-card-image" />
-                  <div className="nf-skeleton-lines">
-                    <span />
-                    <span />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : feedError ? (
-            <div className="nf-empty">
-              <span className="icon error">!</span>
-              <h3>{ft.errorTitle}</h3>
-              <div className="nf-empty-actions">
-                <button className="nf-remix" type="button" onClick={() => setFeedReload((n) => n + 1)}>
-                  {ft.retry}
-                </button>
-              </div>
-            </div>
-          ) : feedItems.length === 0 ? (
-            <div className="nf-empty">
-              <span className="icon">▧</span>
-              <h3>{ft.emptyTitle}</h3>
-              <p>{ft.emptyText}</p>
-              <div className="nf-empty-actions">
-                {authStatus === 'authed' ? (
-                  <>
-                    <button className="nf-remix" type="button" onClick={openRealGallery}>
-                      {ft.openGallery}
-                    </button>
-                    <button className="nf-secondary" type="button" onClick={() => setTab('text')}>
-                      {ft.createImage}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button className="nf-remix" type="button" onClick={() => setTab('text')}>
-                      {ft.createImage}
-                    </button>
-                    <button className="nf-secondary" type="button" onClick={() => void ensureAuthed()}>
-                      {ft.login}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="nf-grid">{feedItems.map(feedCard)}</div>
-          )}
-        </div>
-      </div>
-
-      <aside className={`nf-detail n2-panel${feedDetailOpen ? ' open' : ''}`} aria-label={ft.feed}>
-        <button className="nf-detail-close" type="button" aria-label="Close" onClick={() => setFeedDetailOpen(false)}>
-          ‹ {feedLang === 'ru' ? 'Назад к ленте' : 'Back to feed'}
-        </button>
-        {feedDetail || (
-          <div className="nf-empty">
-            <span className="icon">▧</span>
-            <h3>{ft.emptyTitle}</h3>
-          </div>
-        )}
-      </aside>
-
-      <nav className="nf-mobile-nav" aria-label={feedLang === 'ru' ? 'Мобильная навигация' : 'Mobile navigation'}>
-        <button type="button" onClick={() => setTab('text')}>
-          <i>⌂</i>ИЗО
-        </button>
-        <button className="active" type="button" onClick={() => setFeedDetailOpen(false)}>
-          <i>▦</i>{ft.feed}
-        </button>
-        <button type="button" onClick={openRealGallery}>
-          <i>▧</i>{feedLang === 'ru' ? 'Галерея' : 'Gallery'}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setFeedTab('challenge')
-            setFeedDetailOpen(false)
-          }}
-        >
-          <i>✦</i>{ft.challenges}
-        </button>
-        <button type="button" onClick={() => void openProfileOrAuth()}>
-          <i>○</i>{ft.profile}
-        </button>
-      </nav>
-    </section>
-  )
+  // /feed is the backend static product page; keep no React feed surface here.
 
 
   // ————————————————————————————————————————————————————————————————
@@ -2054,19 +2070,28 @@ export default function NewStudio(): ReactElement {
     ? dockImage.promptOriginal || (dockIsFeed ? 'Промпт недоступен' : '')
     : prompts.text
   const ratioKind = selectedResolution.kind
-  const shareTarget = dockImage || gallery[0]
+  const shareTarget = visibleGalleryImage
   const previewNoticeText = notice || toastText
   const paintModeMeta: Record<PaintSubMode, { label: string; hint: string }> = {
     sketch: { label: 'Эскиз', hint: 'Нарисуйте идею на холсте. Модель превратит рисунок в изображение.' },
     mask: { label: 'Маска', hint: 'Загрузите изображение и закрасьте область, которую нужно изменить.' },
     outpaint: { label: 'Расширение', hint: 'Загрузите изображение и задайте поля для дорисовки.' },
-    remove_bg: { label: 'Удалить фон', hint: 'Загрузите изображение, backend отделит объект от фона.' },
+    remove_bg: { label: 'Удалить фон', hint: 'Загрузите изображение. Результат вернётся с прозрачным фоном.' },
   }
   const paintReturnLabel: Record<PaintSubMode, string> = {
     sketch: 'К эскизу',
     mask: 'К маске',
     outpaint: 'К расширению',
     remove_bg: 'К удалению фона',
+  }
+
+  function markVisiblePreviewError() {
+    if (isPaintStudio) {
+      setResultError(true)
+      return
+    }
+    if (!activeCoreMode) return
+    setPreviewByMode((cur) => ({ ...cur, [activeCoreMode]: { ...cur[activeCoreMode], error: true } }))
   }
 
   async function createPaintSketchCanvas() {
@@ -2100,7 +2125,6 @@ export default function NewStudio(): ReactElement {
         apiUrl={apiUrl}
         workbenchRef={paintWorkbenchRef}
         paintMode={paintMode}
-        paintModeMeta={paintModeMeta}
         paintImage={paintImage}
         paintSketchImage={paintSketchImage}
         paintOutpaintPreview={paintOutpaintPreview}
@@ -2114,8 +2138,20 @@ export default function NewStudio(): ReactElement {
         paintBrushSize={paintBrushSize}
         paintColor={paintColor}
         setPaintColor={setPaintColor}
-        paintFillShape={paintFillShape}
         paintCanvasBg={paintCanvasBg}
+        onUploadImage={() => openUpload(paintMode === 'sketch' ? { kind: 'paintSketch' } : { kind: 'paint' })}
+        onPickGallery={() => openGalleryPick(paintMode === 'sketch' ? { kind: 'paintSketch' } : { kind: 'paint' })}
+        onUseLastImage={() => applyLastImageToTarget(paintMode === 'sketch' ? { kind: 'paintSketch' } : { kind: 'paint' })}
+        onRemoveImage={() => {
+          if (paintMode === 'sketch') {
+            setPaintSketchImage(undefined)
+            setPaintSketchLines([])
+          } else {
+            setPaintImage(undefined)
+            setPaintOutpaintPreview(undefined)
+            setPaintMaskLines([])
+          }
+        }}
       />
     </Suspense>
   )
@@ -2303,7 +2339,11 @@ export default function NewStudio(): ReactElement {
               <article className={`i2i-upload-card${sourceImage ? ' is-filled' : ''}`}>
                 {!sourceImage && <span className="i2i-required-chip">Обязательно</span>}
                 {sourceImage && (
-                  <button className="i2i-remove" type="button" aria-label="Удалить исходное изображение" onClick={() => setSourceImage(undefined)}>
+                  <button className="i2i-remove" type="button" aria-label="Удалить исходное изображение" onClick={() => {
+                    const removed = sourceImage
+                    setSourceImage(undefined)
+                    if (removed) setPreviewByMode((cur) => cur.i2i.url === removed || cur.i2i.sourceUrl === removed ? { ...cur, i2i: emptyPreview() } : cur)
+                  }}>
                     ×
                   </button>
                 )}
@@ -2488,6 +2528,14 @@ export default function NewStudio(): ReactElement {
                   type="button"
                   onClick={() => {
                     setPaintMode(id)
+                    if (id === 'sketch') {
+                      setPaintTool('brush')
+                      setPaintBrushSize(3)
+                    } else if (id === 'mask') {
+                      setPaintTool('brush')
+                      setPaintDrawMode('free')
+                      setPaintBrushSize(25)
+                    }
                     setPaintWorkbenchVisible(true)
                     setResultError(false)
                     setInspectPreview(null)
@@ -2515,59 +2563,30 @@ export default function NewStudio(): ReactElement {
                 <span>{paintModeMeta[paintMode].hint}</span>
               </div>
 
-              {paintMode !== 'sketch' && (
-                <article className={`i2i-upload-card paint-upload-card${paintImage ? ' is-filled' : ''} is-required`}>
-                  {!paintImage && <span className="i2i-required-chip">Обязательно</span>}
-                  {paintImage && (
-                    <button className="i2i-remove" type="button" aria-label="Удалить изображение" onClick={() => { setPaintImage(undefined); setPaintOutpaintPreview(undefined) }}>
-                      ×
-                    </button>
-                  )}
-                  <div className="i2i-preview">
-                    {paintImage ? (
-                      <button className="editor-preview-open i2i-preview-open" type="button" onClick={() => showInspectPreview(paintImage, paintModeMeta[paintMode].label)}>
-                        <img src={apiUrl(paintImage)} alt="Изображение для рисунка" />
-                      </button>
-                    ) : (
-                      <div className="i2i-upload-empty">
-                        <svg className="i2i-upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                          <path d="M7 18.5h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.4 8.7 4.8 4.8 0 0 0 7 18.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                          <path d="M12 15V9.5m0 0-2.3 2.3M12 9.5l2.3 2.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <div className="i2i-upload-actions">
-                          <button className="i2i-upload-action primary" type="button" onClick={() => openUpload({ kind: 'paint' })}>Загрузить</button>
-                          <button className="i2i-upload-action" type="button" onClick={() => openGalleryPick({ kind: 'paint' })}>Галерея</button>
-                          <button className="i2i-upload-action" type="button" onClick={() => applyLastImageToTarget({ kind: 'paint' })}>Последнее</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </article>
-              )}
-
               {(paintMode === 'sketch' || paintMode === 'mask') && (
                 <div className="paint-toolbox">
                   <div className="paint-sidebar-tools" aria-label="Инструменты рисования">
-                    <button className={paintTool === 'brush' && paintDrawMode === 'free' ? 'active' : ''} type="button" title="Кисть" aria-label="Кисть" onClick={() => { setPaintTool('brush'); setPaintDrawMode('free') }}><Brush size={18} strokeWidth={2.2} /></button>
-                    <button className={paintTool === 'eraser' ? 'active' : ''} type="button" title="Ластик" aria-label="Ластик" onClick={() => { setPaintTool('eraser'); setPaintDrawMode('free') }}><Eraser size={18} strokeWidth={2.2} /></button>
+                    <button className={`paint-tool-brush${paintTool === 'brush' && paintDrawMode === 'free' ? ' active' : ''}`} type="button" title="Кисть" aria-label="Кисть" onClick={() => { setPaintTool('brush'); setPaintDrawMode('free') }}><Brush size={18} strokeWidth={2.2} /></button>
+                    {paintMode === 'sketch' && (
+                      <label className="paint-tool-color paint-mobile-color" title="Цвет кисти" aria-label="Цвет кисти">
+                        <span className="paint-color-dot inline" style={{ '--paint-color': paintColor } as CSSProperties}><Palette size={14} strokeWidth={2.2} aria-hidden="true" /><input type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></span>
+                      </label>
+                    )}
+                    <button className={`paint-tool-eraser${paintTool === 'eraser' ? ' active' : ''}`} type="button" title="Ластик" aria-label="Ластик" onClick={() => { setPaintTool('eraser'); setPaintDrawMode('free') }}><Eraser size={18} strokeWidth={2.2} /></button>
                     {paintMode === 'sketch' && (
                       <>
-                        <button className={paintDrawMode === 'line' ? 'active' : ''} type="button" title="Линия" aria-label="Линия" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}><Slash size={19} strokeWidth={2.6} /></button>
-                        <button className={paintDrawMode === 'rect' ? 'active' : ''} type="button" title="Прямоугольник" aria-label="Прямоугольник" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect') }}><SquareIcon size={18} strokeWidth={2.2} /></button>
-                        <button className={paintDrawMode === 'circle' ? 'active' : ''} type="button" title="Круг" aria-label="Круг" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle') }}><CircleIcon size={18} strokeWidth={2.2} /></button>
+                        <button className={`paint-tool-line${paintDrawMode === 'line' ? ' active' : ''}`} type="button" title="Линия" aria-label="Линия" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}><Slash size={19} strokeWidth={2.6} /></button>
+                        <button className={`paint-tool-rect-fill${paintDrawMode === 'rect-fill' ? ' active' : ''}`} type="button" title="Залитый прямоугольник" aria-label="Залитый прямоугольник" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect-fill') }}><span className="paint-shape-icon rect filled" /></button>
+                        <button className={`paint-tool-rect-outline${paintDrawMode === 'rect-outline' ? ' active' : ''}`} type="button" title="Контурный прямоугольник" aria-label="Контурный прямоугольник" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect-outline') }}><span className="paint-shape-icon rect outline" /></button>
+                        <button className={`paint-tool-circle-fill${paintDrawMode === 'circle-fill' ? ' active' : ''}`} type="button" title="Залитый круг" aria-label="Залитый круг" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle-fill') }}><span className="paint-shape-icon circle filled" /></button>
+                        <button className={`paint-tool-circle-outline${paintDrawMode === 'circle-outline' ? ' active' : ''}`} type="button" title="Контурный круг" aria-label="Контурный круг" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle-outline') }}><span className="paint-shape-icon circle outline" /></button>
+                        <button className={`paint-tool-bucket${paintDrawMode === 'bucket' ? ' active' : ''}`} type="button" title="Заливка области" aria-label="Заливка области" onClick={() => { setPaintTool('brush'); setPaintDrawMode('bucket') }}><PaintBucket size={18} strokeWidth={2.2} /></button>
                       </>
                     )}
                   </div>
-                  <label className="paint-control">Размер <input type="range" min="2" max="64" value={paintBrushSize} onChange={(e) => setPaintBrushSize(Number(e.target.value))} /><span>{paintBrushSize}</span></label>
+                  <label className="paint-control"><span className="paint-control-label">Размер</span><input type="range" min="1" max="64" value={paintBrushSize} onChange={(e) => setPaintBrushSize(Number(e.target.value))} /><span>{paintBrushSize}</span></label>
                   {paintMode === 'sketch' && (
                     <>
-                      <div className="paint-compact-grid">
-                        <label className="paint-control color">Цвет <span className="paint-color-dot inline" style={{ '--paint-color': paintColor } as CSSProperties}><Palette size={14} strokeWidth={2.2} aria-hidden="true" /><input type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></span></label>
-                        <div className="paint-segment paint-icon-segment">
-                          <button className={paintFillShape ? 'active' : ''} type="button" title="Заливка" onClick={() => setPaintFillShape(true)}><PaintBucket size={16} strokeWidth={2.2} /><span>Заливка</span></button>
-                          <button className={!paintFillShape ? 'active' : ''} type="button" title="Контур" onClick={() => setPaintFillShape(false)}><SquareDashed size={16} strokeWidth={2.2} /><span>Контур</span></button>
-                        </div>
-                      </div>
                       <div className="paint-segment paint-icon-segment">
                         <button className={paintCanvasBg === 'white' ? 'active' : ''} type="button" title="Белый холст" onClick={() => setPaintCanvasBg('white')}><Sun size={16} strokeWidth={2.2} /><span>Белый холст</span></button>
                         <button className={paintCanvasBg === 'gray' ? 'active' : ''} type="button" title="Серый холст" onClick={() => setPaintCanvasBg('gray')}><Moon size={16} strokeWidth={2.2} /><span>Серый холст</span></button>
@@ -2581,7 +2600,10 @@ export default function NewStudio(): ReactElement {
                 <div className="paint-toolbox">
                   {(['left', 'right', 'top', 'bottom'] as const).map((key) => (
                     <label className="paint-control" key={key}>
-                      {key === 'left' ? 'Слева' : key === 'right' ? 'Справа' : key === 'top' ? 'Сверху' : 'Снизу'}
+                      <span className="paint-control-label">
+                        {key === 'left' ? <ArrowLeft size={13} strokeWidth={2.4} /> : key === 'right' ? <ArrowRight size={13} strokeWidth={2.4} /> : key === 'top' ? <ArrowUp size={13} strokeWidth={2.4} /> : <ArrowDown size={13} strokeWidth={2.4} />}
+                        {key === 'left' ? 'Слева' : key === 'right' ? 'Справа' : key === 'top' ? 'Сверху' : 'Снизу'}
+                      </span>
                       <input type="range" min="0" max="768" step="16" value={paintOutpaint[key]} onChange={(e) => setPaintOutpaint((cur) => ({ ...cur, [key]: Number(e.target.value) }))} />
                       <span>{paintOutpaint[key]}</span>
                     </label>
@@ -2595,17 +2617,23 @@ export default function NewStudio(): ReactElement {
         <section className={`form-section prompt-section${isEditStudio || isFaceStudio || isPaintStudio ? ' editor-prompt-section' : ''}`}>
           <div className="section-title">
             <h2>{promptTitle}</h2>
+            {isPaintStudio && (
+              <label className="paint-tech-toggle">
+                <input type="checkbox" checked={paintTechPromptOpen} onChange={(e) => setPaintTechPromptOpen(e.target.checked)} />
+                <span>Технический промпт</span>
+              </label>
+            )}
             <span className="help-dot" role="button" tabIndex={0} onClick={() => setHelpOpen(true)}>?</span>
           </div>
-          <div className="prompt-card">
+          <div className={`prompt-card paint-prompt-card${isPaintStudio && paintTechPromptOpen ? ' is-tech-open' : ''}`}>
             <textarea
               ref={promptTextareaRef}
               placeholder={promptPlaceholder}
-              maxLength={promptLimit}
-              value={promptValue}
-              onChange={(e) => setPrompt(e.target.value)}
+              maxLength={promptTextareaLimit}
+              value={promptTextareaValue}
+              onChange={(e) => updatePromptTextarea(e.target.value)}
             />
-            <div className="counter">{promptValue.length} / {promptLimit}</div>
+            <div className="counter">{promptCounterValue} / {promptTextareaLimit}</div>
           </div>
           <div className="action-row">
             <button className="tool-button" type="button" onClick={() => showToast('Голосовой ввод скоро')}>
@@ -2761,8 +2789,8 @@ export default function NewStudio(): ReactElement {
             {proMode ? 'Режим Стандарт' : 'Режим Профи'}
           </button>
         </div>
-        <div className="preview-image">
-          {isPaintStudio && paintWorkbenchVisible && !hoverStyle && !jobActive ? (
+        <div className={`preview-image preview-shape-${visiblePreviewShape}`}>
+          {isPaintStudio && paintWorkbenchVisible && !hoverStyle && !previewJobActive ? (
             paintWorkbench
           ) : hoverStyle ? (
             <>
@@ -2770,7 +2798,7 @@ export default function NewStudio(): ReactElement {
               <img className="iv3-preview-main" src={hoverStyle.preview[previewGender]} alt={hoverStyle.preview.alt} />
               <span className="iv3-style-hover-badge">Превью стиля · {styleShortLabel(hoverStyle, feedLang)}</span>
             </>
-          ) : jobActive ? (
+          ) : previewJobActive ? (
             <div className={`iv3-preview-loading${loadingBackdropUrl ? ' has-bg' : ''}`}>
               {loadingBackdropUrl && <img className="iv3-preview-backdrop" src={loadingBackdropUrl} alt="" aria-hidden="true" />}
               <div className="iv3-loading-shimmer" aria-hidden="true"></div>
@@ -2782,9 +2810,9 @@ export default function NewStudio(): ReactElement {
                 </div>
               </div>
             </div>
-          ) : inspectPreview ? (
+          ) : visibleInspectPreview ? (
             <>
-              <img className="iv3-preview-backdrop" src={apiUrl(inspectPreview.url)} alt="" aria-hidden="true" />
+              <img className="iv3-preview-backdrop" src={apiUrl(visibleInspectPreview.url)} alt="" aria-hidden="true" />
               <div
                 className={`iv3-inspect-stage${inspectToolsVisible ? ' is-zoomed' : ''}`}
                 onWheel={onInspectWheel}
@@ -2792,23 +2820,35 @@ export default function NewStudio(): ReactElement {
                 onPointerMove={onInspectPointerMove}
                 onPointerUp={onInspectPointerUp}
                 onPointerCancel={onInspectPointerUp}
+                onTouchStart={onInspectTouchStart}
+                onTouchMove={onInspectTouchMove}
+                onTouchEnd={onInspectTouchEnd}
+                onTouchCancel={onInspectTouchEnd}
                 onDoubleClick={resetInspectView}
               >
-                <img className="iv3-preview-main iv3-inspect-image" src={apiUrl(inspectPreview.url)} alt={inspectPreview.title} style={inspectImageStyle} draggable={false} />
+                <img className="iv3-preview-main iv3-inspect-image" src={apiUrl(visibleInspectPreview.url)} alt={visibleInspectPreview.title} style={inspectImageStyle} draggable={false} />
               </div>
               {inspectToolsVisible && <div className="iv3-inspect-tools">
-                <span>{inspectPreview.title} · {Math.round(inspectZoom * 100)}%</span>
+                <span>{visibleInspectPreview.title} · {Math.round(inspectZoom * 100)}%</span>
                 <button type="button" onClick={resetInspectView}>Сброс</button>
               </div>}
             </>
-          ) : resultUrl && !resultError ? (
+          ) : visibleResultUrl && !visibleResultError ? (
             <>
-              <img className="iv3-preview-backdrop" src={resultUrl} alt="" aria-hidden="true" />
-              {resultSource ? (
-                <div className={`iv3-compare${compareAuto ? ' is-auto' : ''}`} style={{ '--compare': `${compare}%` } as CSSProperties}>
-                  <img className="iv3-preview-main iv3-compare-after" src={resultUrl} alt="Результат генерации" onError={() => setResultError(true)} />
+              <img className="iv3-preview-backdrop" src={apiUrl(visibleResultUrl)} alt="" aria-hidden="true" />
+              {visibleResultSource ? (
+                <div
+                  className={`iv3-compare${compareAuto ? ' is-auto' : ''}${inspectToolsVisible ? ' is-zoomed' : ''}`}
+                  style={{ '--compare': `${compare}%`, ...inspectImageStyle } as CSSProperties}
+                  onTouchStart={onInspectTouchStart}
+                  onTouchMove={onInspectTouchMove}
+                  onTouchEnd={onInspectTouchEnd}
+                  onTouchCancel={onInspectTouchEnd}
+                  onDoubleClick={resetInspectView}
+                >
+                  <img className="iv3-preview-main iv3-compare-after" src={apiUrl(visibleResultUrl)} alt="Результат генерации" onError={markVisiblePreviewError} />
                   <div className="iv3-compare-before">
-                    <img className="iv3-preview-main" src={apiUrl(resultSource)} alt="Исходное изображение" />
+                    <img className="iv3-preview-main" src={apiUrl(visibleResultSource)} alt="Исходное изображение" />
                   </div>
                   <div className="iv3-compare-line" aria-hidden="true">
                     <span className="iv3-compare-handle"></span>
@@ -2837,20 +2877,30 @@ export default function NewStudio(): ReactElement {
                   onPointerMove={onInspectPointerMove}
                   onPointerUp={onInspectPointerUp}
                   onPointerCancel={onInspectPointerUp}
+                  onTouchStart={onInspectTouchStart}
+                  onTouchMove={onInspectTouchMove}
+                  onTouchEnd={onInspectTouchEnd}
+                  onTouchCancel={onInspectTouchEnd}
                   onDoubleClick={resetInspectView}
                 >
-                  <img className="iv3-preview-main iv3-inspect-image" src={resultUrl} alt="Результат генерации" style={inspectImageStyle} draggable={false} onError={() => setResultError(true)} />
+                  <img className="iv3-preview-main iv3-inspect-image" src={apiUrl(visibleResultUrl)} alt="Результат генерации" style={inspectImageStyle} draggable={false} onError={markVisiblePreviewError} />
                 </div>
               )}
-              {!resultSource && inspectToolsVisible && (
+              {!visibleResultSource && inspectToolsVisible && (
                 <div className="iv3-inspect-tools">
                   <span>Предпросмотр · {Math.round(inspectZoom * 100)}%</span>
                   <button type="button" onClick={resetInspectView}>Сброс</button>
                 </div>
               )}
+              {visibleResultSource && inspectToolsVisible && (
+                <div className="iv3-inspect-tools">
+                  <span>Сравнение · {Math.round(inspectZoom * 100)}%</span>
+                  <button type="button" onClick={resetInspectView}>Сброс</button>
+                </div>
+              )}
               <div className="image-actions">
-                {resultUrl && (
-                  <a className="image-action" href={resultUrl} download target="_blank" rel="noreferrer">
+                {visibleResultUrl && (
+                  <a className="image-action" href={apiUrl(visibleResultUrl)} download target="_blank" rel="noreferrer">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                       <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
@@ -2865,8 +2915,8 @@ export default function NewStudio(): ReactElement {
                 </button>
                 {shareOpen && (
                   <div className="iv3-share-menu">
-                    <button type="button" onClick={() => { setShareOpen(false); if (shareTarget) openPublish(shareTarget); else showToast('Сначала сгенерируйте изображение') }}>В ленту</button>
-                    <button type="button" onClick={() => { setShareOpen(false); if (resultUrl) copyPrompt(apiUrl(resultUrl)) }}>Скопировать ссылку</button>
+                    <button type="button" onClick={() => { setShareOpen(false); if (shareTarget) openPublish(shareTarget); else showToast(visibleResultUrl ? 'Результат ещё сохраняется в галерею. Подождите секунду.' : 'Сначала сгенерируйте изображение') }}>В ленту</button>
+                    <button type="button" onClick={() => { setShareOpen(false); if (visibleResultUrl) copyPrompt(apiUrl(visibleResultUrl)) }}>Скопировать ссылку</button>
                   </div>
                 )}
               </div>
@@ -2876,22 +2926,29 @@ export default function NewStudio(): ReactElement {
               <img className="iv3-preview-placeholder-bg" src={previewPlaceholderUrl} alt="" aria-hidden="true" />
               <span className="iv3-preview-placeholder-vignette" aria-hidden="true"></span>
               <span className="iv3-preview-empty-mark" aria-hidden="true">✦</span>
-              <p>{resultError ? 'Предыдущий результат не загрузился. Новый появится здесь.' : 'Опишите идею слева и нажмите «Сгенерировать»'}</p>
+              <p>{visibleResultError ? 'Предыдущий результат не загрузился. Новый появится здесь.' : 'Опишите идею слева и нажмите «Сгенерировать»'}</p>
             </div>
           )}
-          {isPaintStudio && !paintWorkbenchVisible && !jobActive && (
-            <button
-              className="paint-return-workbench"
-              type="button"
-              onClick={() => {
-                setPaintWorkbenchVisible(true)
-                setResultError(false)
-                setInspectPreview(null)
-                resetInspectView()
-              }}
-            >
-              {paintReturnLabel[paintMode]}
-            </button>
+          {isPaintStudio && !paintWorkbenchVisible && !previewJobActive && (
+            <div className="paint-preview-actions">
+              <button
+                className="paint-return-workbench"
+                type="button"
+                onClick={() => {
+                  setPaintWorkbenchVisible(true)
+                  setResultError(false)
+                  setInspectPreview(null)
+                  resetInspectView()
+                }}
+              >
+                {paintReturnLabel[paintMode]}
+              </button>
+              {(visibleInspectPreview?.url || visibleResultUrl) && (
+                <button className="paint-use-preview" type="button" onClick={useCurrentPreviewInPaint}>
+                  Взять это
+                </button>
+              )}
+            </div>
           )}
           {previewNoticeText && (
             <div className="iv3-preview-notice" role="status" aria-live="polite">
@@ -3018,13 +3075,68 @@ export default function NewStudio(): ReactElement {
     </div>
   )
 
-  const topActive: V3Section = tab === 'feed' ? 'feed' : (tab as V3Section)
+  const topbarAvatarSrc = userMediaUrl(acct.avatarUrl)
+  const profileAvatarSrc = userMediaUrl(avatarUrl)
+  const profilePage = (
+    <ProfilePage
+      authStatus={authStatus}
+      me={me}
+      galleryCount={gallery.length}
+      profileTab={profileTab}
+      setProfileTab={setProfileTab}
+      tariffs={tariffs}
+      tariffsState={tariffsState}
+      authCapsState={authCapsState}
+      authCaps={authCaps}
+      quality={quality}
+      setQuality={setQuality}
+      provider={provider}
+      setProvider={setProvider}
+      displayName={displayName}
+      setDisplayName={setDisplayName}
+      profileGender={profileGender}
+      setProfileGender={setProfileGender}
+      profileAge={profileAge}
+      setProfileAge={setProfileAge}
+      saveMsg={saveMsg}
+      setSaveMsg={setSaveMsg}
+      avatarSrc={profileAvatarSrc}
+      avatarPreset={avatarPreset}
+      avatarBusy={avatarBusy}
+      avatarMsg={avatarMsg}
+      uploadAvatar={uploadAvatar}
+      selectAvatarPreset={selectAvatarPreset}
+      promoCode={promoCode}
+      setPromoCode={setPromoCode}
+      promoBusy={promoBusy}
+      promoResult={promoResult}
+      setPromoResult={setPromoResult}
+      inviteMsg={inviteMsg}
+      setInviteMsg={setInviteMsg}
+      linkEmail={linkEmail}
+      setLinkEmail={setLinkEmail}
+      linkEmailChallenge={linkEmailChallenge}
+      linkEmailCode={linkEmailCode}
+      setLinkEmailCode={setLinkEmailCode}
+      linkBusy={linkBusy}
+      linkMsg={linkMsg}
+      onOpenAuth={() => setAuthOpen(true)}
+      onBackToGeneration={() => setTab('text')}
+      onSaveProfile={onSaveProfile}
+      onLogout={onLogout}
+      onApplyPromo={onApplyPromo}
+      onRequestLinkEmail={onRequestLinkEmail}
+      onVerifyLinkEmail={onVerifyLinkEmail}
+      onLinkBot={(providerName) => void onLinkBot(providerName)}
+    />
+  )
+  const topActive: V3Section = view === 'profile' ? 'profile' : tab === 'feed' ? 'feed' : (tab as V3Section)
 
   return (
     <div className="n2">
       <AuthV2Modal open={authOpen} onClose={() => setAuthOpen(false)} />
       {toastText && tab === 'feed' && (
-        <div className="nf-toast" role="status">
+        <div className="n2-toast" role="status">
           {toastText}
         </div>
       )}
@@ -3163,8 +3275,8 @@ export default function NewStudio(): ReactElement {
               ×
             </button>
             <h2>{ft.publish}</h2>
-            <img className="nf-publish-preview" src={apiUrl(publishFor.thumbnailUrl || publishFor.url)} alt="" />
-            <label className="nf-publish-field">
+            <img className="n2-publish-preview" src={apiUrl(publishFor.thumbnailUrl || publishFor.url)} alt="" />
+            <label className="n2-publish-field">
               <span>{feedLang === 'ru' ? 'Название' : 'Title'}</span>
               <input
                 type="text"
@@ -3173,7 +3285,7 @@ export default function NewStudio(): ReactElement {
                 onChange={(e) => setPublishTitle(e.target.value)}
               />
             </label>
-            <label className="nf-publish-field">
+            <label className="n2-publish-field">
               <span>{feedLang === 'ru' ? 'Видимость промпта' : 'Prompt visibility'}</span>
               <select value={publishVisibility} onChange={(e) => setPublishVisibility(e.target.value as 'open' | 'partial' | 'hidden')}>
                 <option value="open">{feedLang === 'ru' ? 'Открытый' : 'Open'}</option>
@@ -3181,7 +3293,7 @@ export default function NewStudio(): ReactElement {
                 <option value="hidden">{feedLang === 'ru' ? 'Скрыт' : 'Hidden'}</option>
               </select>
             </label>
-            <label className="nf-publish-check">
+            <label className="n2-publish-check">
               <input
                 type="checkbox"
                 checked={publishAllowRecreate}
@@ -3190,7 +3302,7 @@ export default function NewStudio(): ReactElement {
               <span>{feedLang === 'ru' ? `Разрешить «${ft.recreate}»` : `Allow "${ft.recreate}"`}</span>
             </label>
             <div className="n2-overlay-actions">
-              <button className="nf-remix" type="button" disabled={publishBusy} onClick={submitPublish}>
+              <button className="n2-publish-submit" type="button" disabled={publishBusy} onClick={submitPublish}>
                 {publishBusy ? '…' : ft.publish}
               </button>
             </div>
@@ -3203,24 +3315,26 @@ export default function NewStudio(): ReactElement {
           <TopBarV3
             active={topActive}
             authed={authStatus === 'authed'}
-            avatarUrl={authStatus === 'authed' ? acct.avatarUrl : null}
+            avatarUrl={authStatus === 'authed' ? topbarAvatarSrc : null}
             userLabel={authStatus === 'authed' ? acct.userLabel : null}
             initials={authStatus === 'authed' ? acct.initials : null}
             onSelectMode={selectStudioMode}
-            onOpenFeed={() => { window.location.href = '/feed' }}
+            onOpenFeed={() => setTab('feed')}
             onOpenGallery={goGallery}
             onOpenHelp={() => setHelpOpen(true)}
-            onOpenProfile={() => void openProfileOrAuth()}
+            onOpenProfile={openProfilePage}
           />
-          {tab === 'feed' ? (
-            <div className="iv3-content iv3-feed">{feed}</div>
+          {view === 'profile' ? (
+            <div className="iv3-content">{profilePage}</div>
+          ) : tab === 'feed' ? (
+            <div className="iv3-content"><div className="preview-empty">Открываем ленту...</div></div>
           ) : tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face' || tab === 'paint' ? (
             studio
           ) : (
             placeholderStudio('Скоро', 'Раздел в разработке.')
           )}
         </div>
-        {(tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face' || tab === 'paint') && (
+        {view === 'tabs' && (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face' || tab === 'paint') && (
           <button className={`mobile-bottom-cta${isSubmitting || jobActive ? ' is-generating' : ''}`} type="button" disabled={isSubmitting || jobActive} onClick={() => generate(studioMode)}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />

@@ -47,6 +47,8 @@ COMFYUI_FACE_SOURCE_MEGAPIXELS = max(0.15, min(1.0, float(os.getenv("COMFYUI_FAC
 COMFYUI_INPUT_MIN_SIDE = 256
 GALLERY_IMAGE_MAX_SIDE = max(1024, min(4096, int(os.getenv("GALLERY_IMAGE_MAX_SIDE", "2048"))))
 GALLERY_IMAGE_WEBP_QUALITY = max(70, min(95, int(os.getenv("GALLERY_IMAGE_WEBP_QUALITY", "90"))))
+SOURCE_THUMB_MAX_SIDE = max(192, min(768, int(os.getenv("SOURCE_THUMB_MAX_SIDE", "384"))))
+SOURCE_THUMB_WEBP_QUALITY = max(55, min(90, int(os.getenv("SOURCE_THUMB_WEBP_QUALITY", "76"))))
 
 
 def load_local_env() -> None:
@@ -1026,6 +1028,26 @@ def init_db() -> None:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS image_sources (
+                id TEXT PRIMARY KEY,
+                image_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                source_image_id TEXT,
+                source_kind TEXT NOT NULL,
+                role TEXT,
+                slot_index INTEGER NOT NULL DEFAULT 0,
+                thumb_url TEXT NOT NULL,
+                thumb_width INTEGER NOT NULL DEFAULT 0,
+                thumb_height INTEGER NOT NULL DEFAULT 0,
+                thumb_bytes INTEGER NOT NULL DEFAULT 0,
+                children_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_image_sources_image
+                ON image_sources(image_id, slot_index);
+            CREATE INDEX IF NOT EXISTS idx_image_sources_user
+                ON image_sources(user_id, created_at);
+
             CREATE TABLE IF NOT EXISTS presets (
                 id TEXT PRIMARY KEY,
                 owner_user_id TEXT,
@@ -1755,13 +1777,38 @@ def init_db() -> None:
             "ON feed_publications(status, media_ready_at)"
         )
         conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_feed_publications_category_ready_created "
+            "ON feed_publications(category, status, media_ready_at, created_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_feed_publications_legacy_ready_created "
+            "ON feed_publications(legacy_user_id, status, media_ready_at, created_at)"
+        )
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_images_user_deleted_created "
             "ON images(user_id, deleted_at, created_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_images_user_favorite_deleted_created "
+            "ON images(user_id, is_favorite, deleted_at, created_at)"
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_images_job_id "
             "ON images(job_id)"
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_image_sources_image "
+            "ON image_sources(image_id, slot_index)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_image_sources_user "
+            "ON image_sources(user_id, created_at)"
+        )
+        image_source_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(image_sources)").fetchall()
+        }
+        if "children_json" not in image_source_columns:
+            conn.execute("ALTER TABLE image_sources ADD COLUMN children_json TEXT NOT NULL DEFAULT '[]'")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_user_created "
             "ON jobs(user_id, created_at)"
@@ -2557,15 +2604,8 @@ def auth_capabilities_payload() -> dict[str, Any]:
     }
 
 
-def set_bot_login_cookie(response: Response, provider: str, nonce: str) -> None:
-    common = {
-        "httponly": True,
-        "secure": TRUSTED_COOKIE_SECURE,
-        "samesite": TRUSTED_COOKIE_SAMESITE,
-        "path": TRUSTED_COOKIE_PATH,
-    }
-    if TRUSTED_COOKIE_DOMAIN:
-        common["domain"] = TRUSTED_COOKIE_DOMAIN
+def set_bot_login_cookie(response: Response, provider: str, nonce: str, request: Request | None = None) -> None:
+    common = trusted_cookie_common(request)
     response.set_cookie(
         BOT_LOGIN_CHALLENGE_COOKIE_NAME,
         f"{provider}:{nonce}",
@@ -3196,6 +3236,115 @@ def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | Non
     }
 
 
+ACTIVE_IMAGE_WHERE = "(deleted_at IS NULL OR deleted_at = '')"
+
+
+def evict_gallery_images_for_new_save(
+    conn: sqlite3.Connection,
+    legacy_user_id: str,
+    quota: dict[str, Any],
+    now_iso: str,
+) -> int:
+    """Free space for a new generated image without touching favorite-protected rows.
+
+    When a user is already above the current tariff limit, evict two old
+    unprotected images before saving one new image. That lets historical
+    over-limit galleries shrink gradually with continued use instead of staying
+    permanently above quota.
+    """
+    total = int(quota.get("gallery_slots") or 0)
+    used = int(quota.get("gallery_used") or 0)
+    if total <= 0 or used < total:
+        return 0
+    target = 2 if used > total else 1
+    rows = conn.execute(
+        """
+        SELECT id, url, thumbnail_url FROM images
+        WHERE user_id = ? AND is_favorite = 0 AND (deleted_at IS NULL OR deleted_at = '')
+        ORDER BY created_at ASC, id ASC
+        LIMIT ?
+        """,
+        (legacy_user_id, target),
+    ).fetchall()
+    for row in rows:
+        delete_image_source_files(conn, row["id"])
+        conn.execute("UPDATE images SET deleted_at = ? WHERE id = ?", (now_iso, row["id"]))
+        retire_feed_publications_for_image(conn, row["id"], now_iso)
+        delete_image_files_from_disk(url=row["url"], thumbnail_url=row["thumbnail_url"])
+        if row["id"] in images:
+            images.pop(row["id"])
+    return len(rows)
+
+
+def gallery_cursor_from_row(row: sqlite3.Row) -> str:
+    payload = {"created_at": _row_get(row, "created_at") or "", "id": _row_get(row, "id") or ""}
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def parse_gallery_cursor(cursor: str | None) -> tuple[str, str] | None:
+    if not cursor:
+        return None
+    try:
+        padded = cursor + ("=" * (-len(cursor) % 4))
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+    except Exception:
+        raise HTTPException(400, "invalid gallery cursor")
+    created_at = str(payload.get("created_at") or "")
+    image_id = str(payload.get("id") or "")
+    if not created_at or not image_id:
+        raise HTTPException(400, "invalid gallery cursor")
+    return created_at, image_id
+
+
+def gallery_media_owner_row(conn: sqlite3.Connection, filename: str, legacy_user_id: str) -> sqlite3.Row | None:
+    media_url_prefix = f"/api/media/{filename}"
+    image_row = conn.execute(
+        f"""
+        SELECT id, user_id, url, thumbnail_url FROM images
+        WHERE user_id = ? AND {ACTIVE_IMAGE_WHERE}
+          AND (url LIKE ? OR thumbnail_url LIKE ?)
+        LIMIT 1
+        """,
+        (legacy_user_id, f"{media_url_prefix}%", f"{media_url_prefix}%"),
+    ).fetchone()
+    if image_row is not None:
+        return image_row
+    return conn.execute(
+        """
+        SELECT id, user_id, image_id, thumb_url FROM image_sources
+        WHERE user_id = ? AND thumb_url LIKE ?
+        LIMIT 1
+        """,
+        (legacy_user_id, f"{media_url_prefix}%"),
+    ).fetchone()
+
+
+def gallery_image_id_from_media_url(conn: sqlite3.Connection, url: str | None, legacy_user_id: str) -> str | None:
+    filename = media_filename_from_url(url)
+    if not filename:
+        return None
+    row = conn.execute(
+        f"""
+        SELECT id FROM images
+        WHERE user_id = ? AND {ACTIVE_IMAGE_WHERE}
+          AND (url LIKE ? OR thumbnail_url LIKE ?)
+        LIMIT 1
+        """,
+        (legacy_user_id, f"/api/media/{filename}%", f"/api/media/{filename}%"),
+    ).fetchone()
+    return row["id"] if row is not None else None
+
+
+def delete_image_source_files(conn: sqlite3.Connection, image_id: str) -> None:
+    rows = conn.execute("SELECT thumb_url FROM image_sources WHERE image_id = ?", (image_id,)).fetchall()
+    for row in rows:
+        name = media_filename_from_url(row["thumb_url"])
+        if name:
+            _delete_media_rel(name)
+    conn.execute("DELETE FROM image_sources WHERE image_id = ?", (image_id,))
+
+
 def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None, legacy_user_id: str | None) -> bool:
     row = None
     if internal_user_id:
@@ -3397,26 +3546,40 @@ def revoke_auth_session(
     return True
 
 
+def trusted_cookie_common(request: Request | None = None) -> dict[str, Any]:
+    cookie_secure = TRUSTED_COOKIE_SECURE
+    cookie_samesite = TRUSTED_COOKIE_SAMESITE
+    if request is not None:
+        host = (request.url.hostname or request.headers.get("host") or "").split(":", 1)[0].lower()
+        if request.url.scheme == "http" and host in {"localhost", "127.0.0.1", "::1"}:
+            cookie_secure = False
+            if cookie_samesite.lower() == "none":
+                cookie_samesite = "lax"
+    common = {
+        "httponly": True,  # always
+        "secure": cookie_secure,
+        "samesite": cookie_samesite,
+        "path": TRUSTED_COOKIE_PATH,
+    }
+    if TRUSTED_COOKIE_DOMAIN:
+        common["domain"] = TRUSTED_COOKIE_DOMAIN
+    return common
+
+
 def set_trusted_auth_cookies(
     response: Response,
     session_token: str,
     refresh_token: str,
     expires_at: str | None = None,
     refresh_expires_at: str | None = None,
+    request: Request | None = None,
 ) -> None:
     """Set HttpOnly session + refresh cookies carrying the raw tokens.
 
     The DB still stores only hashes; the cookie is just secure transport. Raw
     cookie values are never logged. secure/samesite/domain/path come from config.
     """
-    common = {
-        "httponly": True,  # always
-        "secure": TRUSTED_COOKIE_SECURE,
-        "samesite": TRUSTED_COOKIE_SAMESITE,
-        "path": TRUSTED_COOKIE_PATH,
-    }
-    if TRUSTED_COOKIE_DOMAIN:
-        common["domain"] = TRUSTED_COOKIE_DOMAIN
+    common = trusted_cookie_common(request)
     response.set_cookie(
         TRUSTED_SESSION_COOKIE_NAME, session_token, max_age=SESSION_ACCESS_TTL_SECONDS, **common
     )
@@ -3790,13 +3953,21 @@ def _gallery_aspect_ratio(width: int | None, height: int | None) -> str | None:
 
 def _gallery_mode_label(mode: str | None) -> str:
     return {
-        "text_to_image": "Текст -> Изо",
-        "image_to_image": "Изо -> Изо",
+        "text_to_image": "Из текста в изображение",
+        "image_to_image": "Из изображения в изображение",
+        "edit": "Редактор",
+        "paint": "Рисунок",
+        "inpaint": "Инпейнт",
+        "outpaint": "Аутпейнт",
+        "try_on": "Примерка",
+        "texture_transfer": "Перенос текстуры",
+        "remove_background": "Удаление фона",
+        "faceswap": "Лицо",
         "face": "Лицо",
         "face_swap": "Лицо",
         "drawing": "Рисунок",
         "editor": "Редактор",
-    }.get(str(mode or "").strip(), str(mode or "Текст -> Изо"))
+    }.get(str(mode or "").strip(), str(mode or "Из текста в изображение"))
 
 
 def _gallery_source_ids(settings: dict[str, Any]) -> list[str]:
@@ -3811,6 +3982,16 @@ def _gallery_source_ids(settings: dict[str, Any]) -> list[str]:
     return [str(item) for item in raw[:4] if str(item or "").strip()]
 
 
+def _feed_publication_ready(publication: sqlite3.Row | None) -> bool:
+    return bool(
+        publication is not None
+        and _row_get(publication, "status") == "published"
+        and _row_get(publication, "media_ready_at")
+        and _row_get(publication, "feed_thumb_name")
+        and _row_get(publication, "feed_large_name")
+    )
+
+
 def _gallery_page_item(
     row: sqlite3.Row,
     publication: sqlite3.Row | None = None,
@@ -3819,10 +4000,11 @@ def _gallery_page_item(
 ) -> dict[str, Any]:
     settings = json.loads(row["settings_json"] or "{}")
     publication_id = _row_get(publication, "id") if publication is not None else None
-    published = bool(publication_id and _row_get(publication, "status") == "published")
+    feed_ready = _feed_publication_ready(publication)
+    published = bool(publication_id and feed_ready)
     thumb_url = row["thumbnail_url"]
     image_url = row["url"]
-    if include_feed_media and publication_id:
+    if include_feed_media and publication_id and feed_ready:
         thumb_url = f"/api/feed/media/{publication_id}?variant=thumb"
         image_url = f"/api/feed/media/{publication_id}?variant=large"
     prompt = row["prompt_original"] or row["prompt_translated"] or ""
@@ -3859,12 +4041,7 @@ def _gallery_page_item(
         "published": published,
         "feedPublicationId": publication_id,
         "publishedAt": _row_get(publication, "created_at") if publication is not None else None,
-        "feedMediaStatus": "ready" if (
-            publication is not None
-            and _row_get(publication, "media_ready_at")
-            and _row_get(publication, "feed_thumb_name")
-            and _row_get(publication, "feed_large_name")
-        ) else ("missing" if publication is not None else None),
+        "feedMediaStatus": "ready" if feed_ready else ("missing" if publication is not None else None),
         "views": _row_get(publication, "view_count") if publication is not None else 0,
         "likes": 0,
         "saves": 0,
@@ -3882,7 +4059,11 @@ def _gallery_page_limits(
     feed_used = int(conn.execute(
         """
         SELECT COUNT(*) AS c FROM feed_publications
-        WHERE legacy_user_id = ? AND status = 'published'
+        WHERE legacy_user_id = ?
+          AND status = 'published'
+          AND media_ready_at IS NOT NULL
+          AND feed_thumb_name IS NOT NULL
+          AND feed_large_name IS NOT NULL
         """,
         (legacy_user_id,),
     ).fetchone()["c"])
@@ -3890,6 +4071,17 @@ def _gallery_page_limits(
         """
         SELECT COUNT(*) AS c FROM images
         WHERE user_id = ? AND is_favorite = 1 AND (deleted_at IS NULL OR deleted_at = '')
+        """,
+        (legacy_user_id,),
+    ).fetchone()["c"])
+    feed_likes = int(conn.execute(
+        """
+        SELECT COUNT(*) AS c
+        FROM feed_reactions r
+        JOIN feed_publications p ON p.id = r.publication_id
+        WHERE p.legacy_user_id = ?
+          AND p.status = 'published'
+          AND r.kind = 'like'
         """,
         (legacy_user_id,),
     ).fetchone()["c"])
@@ -3909,6 +4101,9 @@ def _gallery_page_limits(
         "favorites": {
             "used": favorites_used,
             "limit": favorite_limit,
+        },
+        "likes": {
+            "used": feed_likes,
         },
     }
 
@@ -4011,7 +4206,7 @@ def load_db_state() -> None:
         restored_gallery_rows = recover_gallery_index_from_media(conn)
         if restored_gallery_rows:
             conn.commit()
-        for row in conn.execute("SELECT * FROM images WHERE deleted_at IS NULL ORDER BY created_at DESC"):
+        for row in conn.execute(f"SELECT * FROM images WHERE {ACTIVE_IMAGE_WHERE} ORDER BY created_at DESC"):
             images[row["id"]] = row_to_image(row)
         for row in conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 100"):
             jobs[row["id"]] = {
@@ -4134,6 +4329,242 @@ def media_filename_from_url(url: str | None) -> str | None:
     except ValueError:
         return None
     return filename
+
+
+def _source_role_label(role: str | None, slot_index: int, mode: str | None = None) -> str:
+    key = str(role or "").strip().lower()
+    labels = {
+        "base": "Основа",
+        "image": "Изображение",
+        "reference": "Референс",
+        "ref": "Референс",
+        "pose": "Поза",
+        "face": "Лицо",
+        "target": "Основа",
+        "source": "Источник",
+        "style": "Стиль",
+        "clothes": "Одежда",
+        "clothing": "Одежда",
+        "background": "Фон",
+        "mask": "Маска",
+        "canvas": "Холст",
+    }
+    if key in labels:
+        return labels[key]
+    if slot_index == 1:
+        return "Основа"
+    if mode == "faceswap" and slot_index == 2:
+        return "Лицо"
+    if mode == "try_on" and slot_index == 2:
+        return "Одежда"
+    return f"Исходник {slot_index}"
+
+
+def _generation_source_inputs(req: GenerateRequest) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    if req.mode == "edit" and req.inputImages:
+        for item in sorted(req.inputImages, key=lambda x: x.index or 0):
+            if item.image:
+                index = int(item.index or len(sources) + 1)
+                sources.append({"slot": index, "role": item.role or ("base" if index == 1 else "reference"), "value": item.image})
+    else:
+        if req.inputImage1:
+            role = "base"
+            if req.mode == "faceswap":
+                role = "target"
+            sources.append({"slot": 1, "role": role, "value": req.inputImage1})
+        if req.inputImage2:
+            role = "reference"
+            if req.mode == "faceswap":
+                role = "face"
+            elif req.mode == "try_on":
+                role = "clothes"
+            sources.append({"slot": 2, "role": role, "value": req.inputImage2})
+    if req.canvas:
+        sources.append({"slot": max([int(s["slot"]) for s in sources] or [0]) + 1, "role": "canvas", "value": req.canvas})
+    mask_value = req.maskImage or req.outpaintMask
+    if mask_value:
+        sources.append({"slot": max([int(s["slot"]) for s in sources] or [0]) + 1, "role": "mask", "value": mask_value})
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for source in sources[:8]:
+        key = (str(source.get("role") or ""), str(source.get("value") or "")[:500])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(source)
+    return deduped
+
+
+def _open_source_image(source_value: str | None) -> Image.Image | None:
+    if not source_value:
+        return None
+    if source_value.startswith("data:image"):
+        try:
+            _header, encoded = source_value.split(",", 1)
+            return Image.open(io.BytesIO(base64.b64decode(encoded)))
+        except Exception:
+            return None
+    path = local_media_path_from_url(source_value)
+    if path and path.exists():
+        try:
+            return Image.open(path)
+        except Exception:
+            return None
+    return None
+
+
+def _save_source_thumb(source_value: str | None, image_id: str, slot_index: int) -> tuple[Path, int, int, int] | None:
+    opened = _open_source_image(source_value)
+    if opened is None:
+        return None
+    try:
+        with opened:
+            image = ImageOps.exif_transpose(opened).convert("RGB")
+            image.thumbnail((SOURCE_THUMB_MAX_SIDE, SOURCE_THUMB_MAX_SIDE), Image.Resampling.LANCZOS)
+            target = MEDIA / f"{image_id}_source{slot_index}_{uuid.uuid4().hex[:10]}.webp"
+            image.save(target, "WEBP", quality=SOURCE_THUMB_WEBP_QUALITY, method=6)
+            return target, image.width, image.height, target.stat().st_size
+    except Exception:
+        return None
+
+
+def persist_image_sources(image_id: str, user_id: str, req: GenerateRequest, created_at: str) -> list[dict[str, Any]]:
+    source_inputs = _generation_source_inputs(req)
+    if not source_inputs:
+        return []
+    saved: list[dict[str, Any]] = []
+    with db() as conn:
+        conn.execute("DELETE FROM image_sources WHERE image_id = ?", (image_id,))
+        for pos, source in enumerate(source_inputs, start=1):
+            slot = int(source.get("slot") or pos)
+            value = str(source.get("value") or "")
+            thumb = _save_source_thumb(value, image_id, slot)
+            if thumb is None:
+                continue
+            thumb_path, width, height, byte_size = thumb
+            role = str(source.get("role") or "")
+            source_id = gallery_image_id_from_media_url(conn, value, user_id)
+            children_snapshot = (
+                gallery_sources_for_image(conn, source_id, user_id, depth=2, visited={image_id})
+                if source_id
+                else []
+            )
+            kind = "gallery_image" if source_id else ("upload" if value.startswith("data:image") else "media")
+            source_row = {
+                "id": uuid.uuid4().hex,
+                "imageId": image_id,
+                "sourceImageId": source_id,
+                "sourceKind": kind,
+                "role": role,
+                "roleLabel": _source_role_label(role, slot, req.mode),
+                "slotIndex": slot,
+                "thumbUrl": public_url(thumb_path, user_id),
+                "width": width,
+                "height": height,
+                "bytes": byte_size,
+                "children": children_snapshot,
+            }
+            conn.execute(
+                """
+                INSERT INTO image_sources
+                    (id, image_id, user_id, source_image_id, source_kind, role, slot_index,
+                     thumb_url, thumb_width, thumb_height, thumb_bytes, children_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    source_row["id"],
+                    image_id,
+                    user_id,
+                    source_id,
+                    kind,
+                    role,
+                    slot,
+                    source_row["thumbUrl"],
+                    width,
+                    height,
+                    byte_size,
+                    json.dumps(children_snapshot, ensure_ascii=False),
+                    created_at,
+                ),
+            )
+            saved.append(source_row)
+    return saved
+
+
+def gallery_sources_for_image(
+    conn: sqlite3.Connection,
+    image_id: str,
+    user_id: str,
+    *,
+    depth: int = 3,
+    visited: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    visited = set(visited or set())
+    if depth <= 0 or image_id in visited:
+        return []
+    visited.add(image_id)
+    rows = conn.execute(
+        """
+        SELECT * FROM image_sources
+        WHERE image_id = ? AND user_id = ?
+        ORDER BY slot_index ASC, created_at ASC
+        """,
+        (image_id, user_id),
+    ).fetchall()
+    sources: list[dict[str, Any]] = []
+    for row in rows:
+        source_image_id = row["source_image_id"]
+        snapshot_children = safe_json_load(_row_get(row, "children_json")) or []
+        if not isinstance(snapshot_children, list):
+            snapshot_children = []
+        live_children = (
+            gallery_sources_for_image(conn, source_image_id, user_id, depth=depth - 1, visited=visited)
+            if source_image_id
+            else []
+        )
+        children = live_children or snapshot_children
+        sources.append({
+            "id": row["id"],
+            "imageId": row["image_id"],
+            "sourceImageId": source_image_id,
+            "sourceKind": row["source_kind"],
+            "role": row["role"],
+            "roleLabel": _source_role_label(row["role"], int(row["slot_index"] or 0)),
+            "slotIndex": int(row["slot_index"] or 0),
+            "thumbUrl": row["thumb_url"],
+            "width": int(row["thumb_width"] or 0),
+            "height": int(row["thumb_height"] or 0),
+            "bytes": int(row["thumb_bytes"] or 0),
+            "children": children,
+        })
+    return sources
+
+
+def repair_image_sources_from_job(image_id: str, user_id: str) -> list[dict[str, Any]]:
+    with db() as conn:
+        image = conn.execute(
+            f"SELECT id, user_id, job_id, created_at FROM images WHERE id = ? AND user_id = ? AND {ACTIVE_IMAGE_WHERE}",
+            (image_id, user_id),
+        ).fetchone()
+        if image is None:
+            return []
+        existing = int(conn.execute(
+            "SELECT COUNT(*) AS c FROM image_sources WHERE image_id = ? AND user_id = ?",
+            (image_id, user_id),
+        ).fetchone()["c"])
+        if existing:
+            return gallery_sources_for_image(conn, image_id, user_id)
+        job = conn.execute("SELECT settings_json FROM jobs WHERE id = ? AND user_id = ?", (image["job_id"], user_id)).fetchone()
+    if job is None:
+        return []
+    try:
+        req = GenerateRequest(**(safe_json_load(job["settings_json"]) or {}))
+    except Exception:
+        return []
+    if not _generation_source_inputs(req):
+        return []
+    return persist_image_sources(image_id, user_id, req, image["created_at"])
 
 
 def validate_generation_media_inputs(req: GenerateRequest, user_id: str) -> None:
@@ -5955,8 +6386,6 @@ async def worker() -> None:
                 continue
             job.update(status="uploading", progress=12, message="Загружаем изображения")
             persist_job(job, req)
-            save_data_url(req.inputImage1, f"{job_id}_input1")
-            save_data_url(req.inputImage2, f"{job_id}_input2")
             await asyncio.sleep(0.5)
             job.update(status="sent_to_comfyui", progress=24, message="Отправляем в ComfyUI")
             persist_job(job, req)
@@ -6017,18 +6446,22 @@ async def worker() -> None:
             }
             if gallery_quota["gallery_full"]:
                 with db() as conn:
-                    oldest = conn.execute(
-                        "SELECT id, url, thumbnail_url FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY created_at ASC LIMIT 1",
-                        (user_id,),
-                    ).fetchone()
-                    if oldest:
-                        conn.execute("UPDATE images SET deleted_at = ? WHERE id = ?", (created_at, oldest["id"]))
-                        retire_feed_publications_for_image(conn, oldest["id"], created_at)
-                        delete_image_files_from_disk(url=oldest["url"], thumbnail_url=oldest["thumbnail_url"])
-                        if oldest["id"] in images:
-                            images.pop(oldest["id"])
-                images[image_id] = record
-                persist_image(record, job_id)
+                    evicted_count = evict_gallery_images_for_new_save(conn, user_id, gallery_quota, created_at)
+                if evicted_count:
+                    images[image_id] = record
+                    persist_image(record, job_id)
+                    sources = persist_image_sources(image_id, user_id, req, created_at)
+                    if sources:
+                        images[image_id]["sources"] = sources
+                    save_status = "saved"
+                    result_image_id = image_id
+                else:
+                    # All occupied slots are protected by favorites. Do not evict
+                    # them automatically; return the generated file for this job
+                    # but leave gallery storage unchanged.
+                    images[image_id] = record
+                    save_status = "quota_full"
+                    result_image_id = None
                 with db() as conn:
                     saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
                     gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
@@ -6036,15 +6469,18 @@ async def worker() -> None:
                     status="completed",
                     progress=100,
                     message="Готово",
-                    resultImageId=image_id,
+                    resultImageId=result_image_id,
                     resultUrl=record["url"],
-                    gallerySaveStatus="saved",
+                    gallerySaveStatus=save_status,
                     galleryQuota=gallery_quota,
                     completedAt=created_at,
                 )
             else:
                 images[image_id] = record
                 persist_image(record, job_id)
+                sources = persist_image_sources(image_id, user_id, req, created_at)
+                if sources:
+                    images[image_id]["sources"] = sources
                 with db() as conn:
                     saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
                     gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
@@ -6324,7 +6760,7 @@ async def gallery(request: Request) -> list[dict[str, Any]]:
         if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
             raise HTTPException(403, "Gallery is not available for this plan.")
         rows = conn.execute(
-            "SELECT * FROM images WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
+            f"SELECT * FROM images WHERE user_id = ? AND {ACTIVE_IMAGE_WHERE} ORDER BY created_at DESC",
             (user_id,),
         ).fetchall()
     restored = [row_to_image(row) for row in rows]
@@ -6334,7 +6770,13 @@ async def gallery(request: Request) -> list[dict[str, Any]]:
 
 
 @app.get("/api/gallery/page")
-async def gallery_page(request: Request, limit: int = 120) -> dict[str, Any]:
+async def gallery_page(
+    request: Request,
+    limit: int = 60,
+    cursor: str | None = None,
+    q: str = "",
+    filter: str = "all",
+) -> dict[str, Any]:
     """Structured gallery payload for the new visual shell.
 
     Keeps /api/gallery stable while giving the gallery page counters, original
@@ -6342,7 +6784,10 @@ async def gallery_page(request: Request, limit: int = 120) -> dict[str, Any]:
     """
     trusted = require_trusted_user(request)
     user_id = trusted["legacy_user_id"]
-    limit = _clamp_limit(limit, default=120, maximum=240)
+    limit = _clamp_limit(limit, default=60, maximum=120)
+    cursor_value = parse_gallery_cursor(cursor)
+    search = str(q or "").strip()[:120]
+    gallery_filter = str(filter or "all").strip().lower()
     with db() as conn:
         user_row = conn.execute(
             "SELECT * FROM users WHERE internal_user_id = ? OR id = ?",
@@ -6350,15 +6795,57 @@ async def gallery_page(request: Request, limit: int = 120) -> dict[str, Any]:
         ).fetchone()
         if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
             raise HTTPException(403, "Gallery is not available for this plan.")
-        image_rows = conn.execute(
-            """
-            SELECT * FROM images
-            WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (user_id, limit),
-        ).fetchall()
+        where_sql = [f"user_id = ?", ACTIVE_IMAGE_WHERE]
+        params: list[Any] = [user_id]
+        if search:
+            like = f"%{search}%"
+            where_sql.append(
+                "(id LIKE ? OR prompt_original LIKE ? OR prompt_translated LIKE ? OR mode LIKE ? OR provider LIKE ? OR settings_json LIKE ?)"
+            )
+            params.extend([like, like, like, like, like, like])
+        if gallery_filter == "favorite":
+            where_sql.append("is_favorite = 1")
+        elif gallery_filter == "published":
+            where_sql.append("EXISTS (SELECT 1 FROM feed_publications p WHERE p.image_id = images.id AND p.legacy_user_id = ? AND p.status = 'published')")
+            params.append(user_id)
+        elif gallery_filter == "unpublished":
+            where_sql.append("NOT EXISTS (SELECT 1 FROM feed_publications p WHERE p.image_id = images.id AND p.legacy_user_id = ? AND p.status = 'published')")
+            params.append(user_id)
+        elif gallery_filter == "16:9":
+            where_sql.append("width > 0 AND height > 0 AND width * 9 = height * 16")
+        elif gallery_filter == "4:5":
+            where_sql.append("width > 0 AND height > 0 AND width * 5 = height * 4")
+        elif gallery_filter == "1:1":
+            where_sql.append("width > 0 AND height > 0 AND width = height")
+        elif gallery_filter == "face":
+            where_sql.append("mode IN ('face', 'face_swap', 'faceswap')")
+        where_clause = " AND ".join(f"({part})" for part in where_sql)
+        if cursor_value:
+            cursor_created_at, cursor_id = cursor_value
+            page_params = [*params, cursor_created_at, cursor_created_at, cursor_id, limit + 1]
+            image_rows = conn.execute(
+                f"""
+                SELECT * FROM images
+                WHERE {where_clause}
+                  AND (created_at < ? OR (created_at = ? AND id < ?))
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                page_params,
+            ).fetchall()
+        else:
+            page_params = [*params, limit + 1]
+            image_rows = conn.execute(
+                f"""
+                SELECT * FROM images
+                WHERE {where_clause}
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                page_params,
+            ).fetchall()
+        has_more = len(image_rows) > limit
+        page_rows = image_rows[:limit]
         publications = {
             row["image_id"]: row
             for row in conn.execute(
@@ -6388,11 +6875,51 @@ async def gallery_page(request: Request, limit: int = 120) -> dict[str, Any]:
                 (user_id,),
             ).fetchall()
         }
-        items = [_gallery_page_item(row, publications.get(row["id"])) for row in image_rows]
+        items = [_gallery_page_item(row, publications.get(row["id"])) for row in page_rows]
+        feed_where_sql = [
+            "images.user_id = ?",
+            ACTIVE_IMAGE_WHERE,
+            "p.legacy_user_id = ?",
+            "p.status = 'published'",
+            "p.media_ready_at IS NOT NULL",
+            "p.feed_thumb_name IS NOT NULL",
+            "p.feed_large_name IS NOT NULL",
+        ]
+        feed_params: list[Any] = [user_id, user_id]
+        if search:
+            like = f"%{search}%"
+            feed_where_sql.append(
+                "(images.id LIKE ? OR images.prompt_original LIKE ? OR images.prompt_translated LIKE ? OR images.mode LIKE ? OR images.provider LIKE ? OR images.settings_json LIKE ?)"
+            )
+            feed_params.extend([like, like, like, like, like, like])
+        if gallery_filter == "favorite":
+            feed_where_sql.append("images.is_favorite = 1")
+        elif gallery_filter == "unpublished":
+            feed_where_sql.append("0 = 1")
+        elif gallery_filter == "16:9":
+            feed_where_sql.append("images.width > 0 AND images.height > 0 AND images.width * 9 = images.height * 16")
+        elif gallery_filter == "4:5":
+            feed_where_sql.append("images.width > 0 AND images.height > 0 AND images.width * 5 = images.height * 4")
+        elif gallery_filter == "1:1":
+            feed_where_sql.append("images.width > 0 AND images.height > 0 AND images.width = images.height")
+        elif gallery_filter == "face":
+            feed_where_sql.append("images.mode IN ('face', 'face_swap', 'faceswap')")
+        feed_where_clause = " AND ".join(f"({part})" for part in feed_where_sql)
+        feed_rows = conn.execute(
+            f"""
+            SELECT DISTINCT images.*
+            FROM images
+            JOIN feed_publications p ON p.image_id = images.id
+            WHERE {feed_where_clause}
+            ORDER BY p.created_at DESC, images.created_at DESC, images.id DESC
+            LIMIT ?
+            """,
+            [*feed_params, limit],
+        ).fetchall()
         feed_items = [
             _gallery_page_item(row, publications[row["id"]], include_feed_media=True)
-            for row in image_rows
-            if row["id"] in publications
+            for row in feed_rows
+            if row["id"] in publications and _feed_publication_ready(publications[row["id"]])
         ]
         for item in feed_items:
             counts = reaction_counts.get(item["feedPublicationId"])
@@ -6405,6 +6932,8 @@ async def gallery_page(request: Request, limit: int = 120) -> dict[str, Any]:
         "limits": limits,
         "items": items,
         "feedItems": feed_items,
+        "hasMore": has_more,
+        "nextCursor": gallery_cursor_from_row(page_rows[-1]) if has_more and page_rows else None,
     }
 
 
@@ -6415,11 +6944,21 @@ async def gallery_detail(image_id: str, request: Request) -> dict[str, Any]:
     with db() as conn:
         if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
             raise HTTPException(403, "Gallery is not available for this plan.")
-    if image_id not in images and DB_PATH.exists():
-        load_db_state()
-    if image_id not in images or images[image_id].get("userId", "demo_user") != user_id:
-        raise HTTPException(404, "Image not found")
-    return images[image_id]
+        row = conn.execute(
+            f"SELECT * FROM images WHERE id = ? AND user_id = ? AND {ACTIVE_IMAGE_WHERE}",
+            (image_id, user_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Image not found")
+        detail = row_to_image(row)
+        sources = gallery_sources_for_image(conn, image_id, user_id)
+        settings = json.loads(row["settings_json"] or "{}")
+        detail["sourceIds"] = _gallery_source_ids(settings)
+    if not sources:
+        sources = repair_image_sources_from_job(image_id, user_id)
+    detail["sources"] = sources
+    images[image_id] = {**images.get(image_id, {}), **detail}
+    return detail
 
 
 @app.post("/api/gallery/{image_id}/favorite")
@@ -6453,6 +6992,7 @@ async def gallery_delete(image_id: str, request: Request) -> dict[str, Any]:
     record = images.pop(image_id)
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
+        delete_image_source_files(conn, image_id)
         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ? AND user_id = ?", (now, image_id, user_id))
         retire_feed_publications_for_image(conn, image_id, now)
     delete_image_files_from_disk(url=record.get("url"), thumbnail_url=record.get("thumbnailUrl"))
@@ -6494,15 +7034,15 @@ async def secure_media(filename: str, request: Request) -> FileResponse:
         raise HTTPException(404, "Image not found")
     if not path.exists():
         raise HTTPException(404, "Image not found")
-    if filename.endswith("_thumb.webp"):
-        stem = filename.removesuffix("_thumb.webp")
+    with db() as conn:
+        allowed = gallery_media_owner_row(conn, filename, user_id) is not None
+    if not allowed:
         allowed = any(
-            item.get("thumbnailUrl", "").startswith(f"/api/media/{filename}") and item.get("userId", "demo_user") == user_id
-            for item in images.values()
-        )
-    else:
-        allowed = any(
-            item.get("url", "").startswith(f"/api/media/{filename}") and item.get("userId", "demo_user") == user_id
+            item.get("userId", "demo_user") == user_id
+            and (
+                item.get("url", "").startswith(f"/api/media/{filename}")
+                or item.get("thumbnailUrl", "").startswith(f"/api/media/{filename}")
+            )
             for item in images.values()
         )
     if not allowed:
@@ -6639,6 +7179,7 @@ async def web_login(req: WebLoginRequest, request: Request, response: Response) 
         session["refresh_token"],
         session["expires_at"],
         session["refresh_expires_at"],
+        request=request,
     )
     response.delete_cookie("onenode_user", path="/")
     return {"ok": True, "user": user, "session": {"expires_at": session["expires_at"]}}
@@ -6786,7 +7327,7 @@ async def auth_bot_login_start(req: BotLoginStartRequest, request: Request, resp
                 _hash_user_agent(request),
             ),
         )
-    set_bot_login_cookie(response, provider, nonce)
+    set_bot_login_cookie(response, provider, nonce, request=request)
     deep_link = bot_login_deep_link(provider, token)
     if provider == "max":
         print(f"deep_link created provider=max payloadLength={len(f'login_{token}')}")
@@ -6829,7 +7370,7 @@ async def auth_bot_link_start(req: BotLoginStartRequest, request: Request, respo
                 _hash_user_agent(request),
             ),
         )
-    set_bot_login_cookie(response, provider, nonce)
+    set_bot_login_cookie(response, provider, nonce, request=request)
     return {
         "ok": True,
         "provider": provider,
@@ -6891,6 +7432,7 @@ async def auth_bot_login_status(request: Request, response: Response) -> dict[st
         session["refresh_token"],
         session["expires_at"],
         session["refresh_expires_at"],
+        request=request,
     )
     print(f"session created provider={provider}")
     clear_bot_login_cookie(response)
@@ -6952,7 +7494,7 @@ async def auth_telegram_v2(req: TelegramAuthV2Request, request: Request, respons
                 )
             else:
                 conn.execute(
-                    """
+                    f"""
                     INSERT INTO device_installations
                         (id, internal_user_id, legacy_user_id, installation_id, anonymous_id, platform, storage_type, first_seen_at, last_seen_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -6983,6 +7525,7 @@ async def auth_telegram_v2(req: TelegramAuthV2Request, request: Request, respons
     set_trusted_auth_cookies(
         response, session["session_token"], session["refresh_token"],
         session["expires_at"], session["refresh_expires_at"],
+        request=request,
     )
     return {
         "internal_user_id": internal_user_id,
@@ -7078,6 +7621,7 @@ async def auth_max_v2(req: MaxAuthV2Request, request: Request, response: Respons
     set_trusted_auth_cookies(
         response, session["session_token"], session["refresh_token"],
         session["expires_at"], session["refresh_expires_at"],
+        request=request,
     )
     return {
         "internal_user_id": internal_user_id,
@@ -7247,6 +7791,7 @@ async def auth_email_verify_code_v2(req: EmailVerifyCodeV2Request, request: Requ
     set_trusted_auth_cookies(
         response, session["session_token"], session["refresh_token"],
         session["expires_at"], session["refresh_expires_at"],
+        request=request,
     )
     return {
         "internal_user_id": internal_user_id,
@@ -7440,7 +7985,7 @@ async def auth_password_register_v2(req: PasswordRegisterV2Request, request: Req
                 "legacy_user_id": legacy_user_id, "profile_completed": False}
 
     session = create_auth_session(internal_user_id, legacy_user_id, provider="web_email", platform=platform, request=request)
-    set_trusted_auth_cookies(response, session["session_token"], session["refresh_token"], session["expires_at"], session["refresh_expires_at"])
+    set_trusted_auth_cookies(response, session["session_token"], session["refresh_token"], session["expires_at"], session["refresh_expires_at"], request=request)
     try:
         record_event_log("password_register_succeeded", internal_user_id=internal_user_id, legacy_user_id=legacy_user_id,
                           session_id=session["session_id"], platform=platform, properties={"provider": "web_email"})
@@ -7525,7 +8070,7 @@ async def auth_password_login_v2(req: PasswordLoginV2Request, request: Request, 
         record_login_attempt(conn, "web_email", True, identifier=email_norm, internal_user_id=internal_user_id, platform=platform, request=request)
 
     session = create_auth_session(internal_user_id, legacy_user_id, provider="web_email", platform=platform, request=request)
-    set_trusted_auth_cookies(response, session["session_token"], session["refresh_token"], session["expires_at"], session["refresh_expires_at"])
+    set_trusted_auth_cookies(response, session["session_token"], session["refresh_token"], session["expires_at"], session["refresh_expires_at"], request=request)
     try:
         record_event_log("password_login_succeeded", internal_user_id=internal_user_id, legacy_user_id=legacy_user_id,
                           session_id=session["session_id"], platform=platform, properties={"provider": "web_email"})
@@ -10151,6 +10696,7 @@ async def auth_session_refresh_v2(req: SessionRefreshRequest, request: Request, 
     set_trusted_auth_cookies(
         response, new_session["session_token"], new_session["refresh_token"],
         new_session["expires_at"], new_session["refresh_expires_at"],
+        request=request,
     )
     return {
         "session_token": new_session["session_token"],
@@ -11031,6 +11577,16 @@ FEED_PARTIAL_PROMPT_CHARS = 140
 FEED_THUMB_MAX_SIDE = 640
 FEED_LARGE_MAX_SIDE = 1536
 FEED_DISPLAY_POLICY = "preserve_aspect_ratio"
+FEED_VIEWER_VISIBLE_SQL = """
+  AND (
+    ? IS NULL OR NOT EXISTS (
+      SELECT 1 FROM feed_reactions hidden
+      WHERE hidden.publication_id = p.id
+        AND hidden.internal_user_id = ?
+        AND hidden.kind = 'hide'
+    )
+  )
+"""
 
 
 @dataclass
@@ -11147,6 +11703,35 @@ def _feed_author_name(conn: sqlite3.Connection, internal_user_id: str, legacy_us
     return _row_get(row, "display_name") or _row_get(row, "username") or _row_get(row, "first_name") or "Пользователь ИЗО"
 
 
+def _feed_author_profile(conn: sqlite3.Connection, internal_user_id: str, legacy_user_id: str | None) -> dict[str, Any]:
+    row = conn.execute(
+        "SELECT display_name, username, first_name, avatar_url, avatar_preset FROM users WHERE internal_user_id = ?",
+        (internal_user_id,),
+    ).fetchone()
+    if row is None and legacy_user_id:
+        row = conn.execute(
+            "SELECT display_name, username, first_name, avatar_url, avatar_preset FROM users WHERE id = ?",
+            (legacy_user_id,),
+        ).fetchone()
+    identity = conn.execute(
+        "SELECT provider_avatar_url FROM auth_identities WHERE internal_user_id = ? AND provider_avatar_url IS NOT NULL AND provider_avatar_url != '' ORDER BY last_login_at DESC LIMIT 1",
+        (internal_user_id,),
+    ).fetchone()
+    name = (
+        _row_get(row, "display_name")
+        or _row_get(row, "username")
+        or _row_get(row, "first_name")
+        or "Пользователь ИЗО"
+    )
+    avatar_url = _row_get(row, "avatar_url") or _row_get(identity, "provider_avatar_url")
+    return {
+        "id": internal_user_id,
+        "displayName": name,
+        "avatarUrl": avatar_url,
+        "avatarPreset": _row_get(row, "avatar_preset"),
+    }
+
+
 def _feed_challenge_payload(conn: sqlite3.Connection, category: str | None) -> dict[str, Any] | None:
     if not category:
         return None
@@ -11175,6 +11760,34 @@ def _feed_challenge_payload(conn: sqlite3.Connection, category: str | None) -> d
         "startsAt": row["starts_at"],
         "endsAt": row["ends_at"],
     }
+
+
+def _feed_source_history_payload(conn: sqlite3.Connection, image_id: str | None) -> list[dict[str, Any]]:
+    if not image_id:
+        return []
+    rows = conn.execute(
+        """
+        SELECT source_kind, role, slot_index, thumb_url, thumb_width, thumb_height, children_json
+        FROM image_sources
+        WHERE image_id = ?
+        ORDER BY slot_index ASC, created_at ASC
+        """,
+        (image_id,),
+    ).fetchall()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        children = safe_json_load(_row_get(row, "children_json")) or []
+        items.append({
+            "kind": _row_get(row, "source_kind"),
+            "role": _row_get(row, "role"),
+            "roleLabel": _source_role_label(_row_get(row, "role"), int(_row_get(row, "slot_index") or 0)),
+            "slotIndex": int(_row_get(row, "slot_index") or 0),
+            "thumbUrl": _row_get(row, "thumb_url"),
+            "width": int(_row_get(row, "thumb_width") or 0),
+            "height": int(_row_get(row, "thumb_height") or 0),
+            "children": children if isinstance(children, list) else [],
+        })
+    return items
 
 
 def _feed_aspect_ratio(width: int, height: int) -> str:
@@ -11219,6 +11832,7 @@ def _feed_item_payload(
     }
     viewer_kinds: set[str] = set()
     is_followed_by_me = False
+    viewer_role: str | None = None
     if viewer_internal_user_id:
         viewer_kinds = {
             r["kind"]
@@ -11234,22 +11848,27 @@ def _feed_item_payload(
             """,
             (viewer_internal_user_id, pub["internal_user_id"]),
         ).fetchone())
+        viewer_row = conn.execute(
+            "SELECT role FROM users WHERE internal_user_id = ?",
+            (viewer_internal_user_id,),
+        ).fetchone()
+        viewer_role = _row_get(viewer_row, "role")
     width = int(_row_get(image, "width") or 0)
     height = int(_row_get(image, "height") or 0)
     media_ready = bool(_row_get(pub, "feed_thumb_name") and _row_get(pub, "feed_large_name") and _row_get(pub, "media_ready_at"))
     native_aspect_ratio = _row_get(pub, "native_aspect_ratio") or _feed_aspect_ratio(width, height)
     source_type = _row_get(pub, "source_type") or _feed_source_type(_row_get(image, "mode"))
+    is_mine = viewer_internal_user_id == pub["internal_user_id"]
+    viewer_is_admin = viewer_role == "admin"
+    author_profile = _feed_author_profile(conn, pub["internal_user_id"], pub["legacy_user_id"])
     return {
         "id": pub["id"],
         "image_url": f"/api/feed/media/{pub['id']}?variant=large",
         "thumbnail_url": f"/api/feed/media/{pub['id']}?variant=thumb",
         "media_status": "ready" if media_ready else "missing",
         "user_id": pub["internal_user_id"],
-        "author": {
-            "id": pub["internal_user_id"],
-            "displayName": _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"]),
-        },
-        "author_name": _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"]),
+        "author": author_profile,
+        "author_name": author_profile["displayName"],
         "title": pub["title"],
         "description": pub["description"],
         "prompt": prompt,
@@ -11267,6 +11886,7 @@ def _feed_item_payload(
         "remix_policy": _row_get(pub, "remix_policy") or ("allowed" if bool(pub["allow_recreate"]) else "disabled"),
         "category": _row_get(pub, "category"),
         "challenge": _feed_challenge_payload(conn, _row_get(pub, "category")),
+        "source_history": _feed_source_history_payload(conn, pub["image_id"]),
         "resolution": f"{width}×{height}" if width and height else None,
         "seed": settings.get("seed"),
         "created_at": pub["created_at"],
@@ -11279,7 +11899,9 @@ def _feed_item_payload(
         "is_hidden_by_me": "hide" in viewer_kinds,
         "is_reported_by_me": "report" in viewer_kinds,
         "is_followed_by_me": is_followed_by_me,
-        "is_mine": viewer_internal_user_id == pub["internal_user_id"],
+        "is_mine": is_mine,
+        "can_delete_by_me": bool(viewer_internal_user_id and (is_mine or viewer_is_admin)),
+        "delete_role": "owner" if is_mine else ("admin" if viewer_is_admin else None),
     }
 
 
@@ -11290,7 +11912,6 @@ def _feed_optional_viewer(request: Request) -> str | None:
         return require_trusted_user(request)["internal_user_id"]
     except HTTPException:
         return None
-
 
 @app.get("/api/feed")
 async def feed_list(
@@ -11311,7 +11932,7 @@ async def feed_list(
                 rows = []
             else:
                 rows = conn.execute(
-                    """
+                    f"""
                     SELECT p.* FROM feed_publications p
                     JOIN feed_author_follows f ON f.author_internal_user_id = p.internal_user_id
                     WHERE f.follower_internal_user_id = ?
@@ -11319,10 +11940,11 @@ async def feed_list(
                       AND p.media_ready_at IS NOT NULL
                       AND p.feed_thumb_name IS NOT NULL
                       AND p.feed_large_name IS NOT NULL
+                      {FEED_VIEWER_VISIBLE_SQL}
                     ORDER BY p.created_at DESC
                     LIMIT ?
                     """,
-                    (viewer, limit),
+                    (viewer, viewer, viewer, limit),
                 ).fetchall()
         elif feed_type == "challenge":
             challenge = None
@@ -11333,59 +11955,64 @@ async def feed_list(
                 ).fetchone()
             category = _row_get(challenge, "category") or "challenge_moscow_2120"
             rows = conn.execute(
-                """
+                f"""
                 SELECT p.* FROM feed_publications p
                 WHERE p.status = 'published'
                   AND p.category = ?
                   AND p.media_ready_at IS NOT NULL
                   AND p.feed_thumb_name IS NOT NULL
                   AND p.feed_large_name IS NOT NULL
+                  {FEED_VIEWER_VISIBLE_SQL}
                 ORDER BY p.created_at DESC
                 LIMIT ?
                 """,
-                (category, limit),
+                (category, viewer, viewer, limit),
             ).fetchall()
         elif feed_type == "remix":
             rows = conn.execute(
-                """
+                f"""
                 SELECT p.* FROM feed_publications p
                 LEFT JOIN feed_reactions r ON r.publication_id = p.id
                 WHERE p.status = 'published'
                   AND p.media_ready_at IS NOT NULL
                   AND p.feed_thumb_name IS NOT NULL
                   AND p.feed_large_name IS NOT NULL
+                  {FEED_VIEWER_VISIBLE_SQL}
                 GROUP BY p.id
                 ORDER BY SUM(CASE WHEN r.kind = 'recreate' THEN 1 ELSE 0 END) DESC,
                          SUM(CASE WHEN r.kind = 'save' THEN 1 ELSE 0 END) DESC,
                          p.created_at DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (viewer, viewer, limit),
             ).fetchall()
         elif feed_type == "top":
             rows = conn.execute(
-                """
+                f"""
                 SELECT p.* FROM feed_publications p
                 LEFT JOIN feed_reactions r ON r.publication_id = p.id
                 WHERE p.status = 'published'
                   AND p.media_ready_at IS NOT NULL
                   AND p.feed_thumb_name IS NOT NULL
                   AND p.feed_large_name IS NOT NULL
+                  {FEED_VIEWER_VISIBLE_SQL}
                 GROUP BY p.id
-                ORDER BY COUNT(r.publication_id) DESC, p.created_at DESC
+                ORDER BY SUM(CASE WHEN r.kind IN ('like', 'save', 'recreate') THEN 1 ELSE 0 END) DESC,
+                         p.created_at DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (viewer, viewer, limit),
             ).fetchall()
         elif feed_type == "for_you":
             rows = conn.execute(
-                """
+                f"""
                 SELECT p.* FROM feed_publications p
                 LEFT JOIN feed_reactions r ON r.publication_id = p.id
                 WHERE p.status = 'published'
                   AND p.media_ready_at IS NOT NULL
                   AND p.feed_thumb_name IS NOT NULL
                   AND p.feed_large_name IS NOT NULL
+                  {FEED_VIEWER_VISIBLE_SQL}
                 GROUP BY p.id
                 ORDER BY
                     SUM(CASE WHEN r.kind = 'recreate' THEN 8 ELSE 0 END)
@@ -11395,20 +12022,21 @@ async def feed_list(
                   p.created_at DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (viewer, viewer, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                """
-                SELECT * FROM feed_publications
-                WHERE status = 'published'
-                  AND media_ready_at IS NOT NULL
-                  AND feed_thumb_name IS NOT NULL
-                  AND feed_large_name IS NOT NULL
-                ORDER BY created_at DESC
+                f"""
+                SELECT p.* FROM feed_publications p
+                WHERE p.status = 'published'
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
+                  {FEED_VIEWER_VISIBLE_SQL}
+                ORDER BY p.created_at DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (viewer, viewer, limit),
             ).fetchall()
         items = [_feed_item_payload(conn, pub, viewer) for pub in rows]
     return {"ok": True, "type": feed_type, "items": items}
@@ -11534,6 +12162,45 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
     return {"ok": True, "publication": item}
 
 
+@app.patch("/api/feed/publications/{publication_id}")
+async def update_own_feed_publication(publication_id: str, payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    title = str(payload.get("title") or "").strip()
+    if not title:
+        raise HTTPException(400, "title required")
+    if len(title) > 120:
+        raise HTTPException(400, "title too long")
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        pub = conn.execute(
+            "SELECT * FROM feed_publications WHERE id = ? AND status = 'published'",
+            (publication_id,),
+        ).fetchone()
+        if pub is None:
+            raise HTTPException(404, "Publication not found.")
+        if pub["internal_user_id"] != user["internal_user_id"]:
+            raise HTTPException(403, "You can edit only your own publication.")
+        before_title = pub["title"]
+        conn.execute(
+            "UPDATE feed_publications SET title = ?, updated_at = ? WHERE id = ?",
+            (title, now, publication_id),
+        )
+        record_audit_log(
+            conn,
+            "update_own_feed_publication",
+            actor_internal_user_id=user["internal_user_id"],
+            target_internal_user_id=pub["internal_user_id"],
+            entity_type="feed_publication",
+            entity_id=pub["id"],
+            before={"title": before_title},
+            after={"title": title},
+            request=request,
+        )
+        updated = conn.execute("SELECT * FROM feed_publications WHERE id = ?", (publication_id,)).fetchone()
+        item = _feed_item_payload(conn, updated, user["internal_user_id"])
+    return {"ok": True, "publication": item}
+
+
 def _feed_reaction_toggle(request: Request, publication_id: str, kind: str, enable: bool) -> dict[str, Any]:
     user = require_trusted_user(request)
     with db() as conn:
@@ -11645,17 +12312,18 @@ async def feed_author_publications(
     viewer = _feed_optional_viewer(request)
     with db() as conn:
         rows = conn.execute(
-            """
-            SELECT * FROM feed_publications
-            WHERE internal_user_id = ?
-              AND status = 'published'
-              AND media_ready_at IS NOT NULL
-              AND feed_thumb_name IS NOT NULL
-              AND feed_large_name IS NOT NULL
-            ORDER BY created_at DESC
+            f"""
+            SELECT p.* FROM feed_publications p
+            WHERE p.internal_user_id = ?
+              AND p.status = 'published'
+              AND p.media_ready_at IS NOT NULL
+              AND p.feed_thumb_name IS NOT NULL
+              AND p.feed_large_name IS NOT NULL
+              {FEED_VIEWER_VISIBLE_SQL}
+            ORDER BY p.created_at DESC
             LIMIT ?
             """,
-            (author_id, limit),
+            (author_id, viewer, viewer, limit),
         ).fetchall()
         items = [_feed_item_payload(conn, pub, viewer) for pub in rows]
     return {"ok": True, "authorId": author_id, "items": items}
@@ -11722,6 +12390,165 @@ async def feed_remix_start(publication_id: str, request: Request) -> dict[str, A
     }
 
 
+@app.post("/api/admin/feed/publications/{publication_id}/delete-v2")
+async def admin_delete_feed_publication_v2(
+    publication_id: str,
+    req: AdminDeleteImageV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = _billing_reason(req.reason)
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        pub = conn.execute(
+            """
+            SELECT id, image_id, internal_user_id, legacy_user_id, title, status,
+                   feed_thumb_name, feed_large_name, created_at
+            FROM feed_publications
+            WHERE id = ?
+            """,
+            (publication_id,),
+        ).fetchone()
+        if pub is None or pub["status"] != "published":
+            raise HTTPException(404, "Publication not found.")
+        thumb_name = _row_get(pub, "feed_thumb_name")
+        large_name = _row_get(pub, "feed_large_name")
+        conn.execute(
+            """
+            UPDATE feed_publications
+            SET status = 'hidden',
+                feed_thumb_name = NULL,
+                feed_large_name = NULL,
+                media_ready_at = NULL,
+                media_error = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            ("admin_deleted", now, publication_id),
+        )
+        record_audit_log(
+            conn,
+            "admin_delete_feed_publication",
+            actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=pub["internal_user_id"],
+            entity_type="feed_publication",
+            entity_id=pub["id"],
+            before={
+                "publication_id": short_public_id(pub["id"]),
+                "image_id": short_public_id(pub["image_id"]),
+                "status": pub["status"],
+                "created_at": pub["created_at"],
+            },
+            after={"status": "hidden", "media_error": "admin_deleted", "reason": reason},
+            request=request,
+        )
+        record_security_event(
+            conn,
+            "admin_feed_publication_deleted",
+            severity="warning",
+            internal_user_id=pub["internal_user_id"],
+            request=request,
+            details={
+                "actor_internal_user_id": admin["internal_user_id"],
+                "publication_id": short_public_id(pub["id"]),
+                "image_id": short_public_id(pub["image_id"]),
+                "reason": reason,
+            },
+        )
+    _delete_media_rel(thumb_name)
+    _delete_media_rel(large_name)
+    return {
+        "ok": True,
+        "publicationId": short_public_id(publication_id),
+        "status": "hidden",
+        "deleted_at": now,
+    }
+
+
+@app.delete("/api/feed/publications/{publication_id}")
+async def delete_own_feed_publication(publication_id: str, request: Request) -> dict[str, Any]:
+    """Снять свою публикацию с публичной ленты, не удаляя исходник из галереи."""
+    user = require_trusted_user(request)
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        pub = conn.execute(
+            """
+            SELECT id, image_id, internal_user_id, legacy_user_id, title, status,
+                   feed_thumb_name, feed_large_name, created_at
+            FROM feed_publications
+            WHERE id = ?
+            """,
+            (publication_id,),
+        ).fetchone()
+        if pub is None or pub["status"] != "published":
+            raise HTTPException(404, "Publication not found.")
+        if pub["internal_user_id"] != user["internal_user_id"]:
+            record_security_event(
+                conn,
+                "feed_publication_delete_denied",
+                severity="warning",
+                internal_user_id=user["internal_user_id"],
+                request=request,
+                details={
+                    "publication_id": short_public_id(pub["id"]),
+                    "owner_internal_user_id": pub["internal_user_id"],
+                },
+            )
+            conn.commit()
+            raise HTTPException(403, "You can delete only your own publication.")
+
+        thumb_name = _row_get(pub, "feed_thumb_name")
+        large_name = _row_get(pub, "feed_large_name")
+        conn.execute(
+            """
+            UPDATE feed_publications
+            SET status = 'hidden',
+                feed_thumb_name = NULL,
+                feed_large_name = NULL,
+                media_ready_at = NULL,
+                media_error = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            ("owner_deleted", now, publication_id),
+        )
+        record_audit_log(
+            conn,
+            "delete_own_feed_publication",
+            actor_internal_user_id=user["internal_user_id"],
+            target_internal_user_id=pub["internal_user_id"],
+            entity_type="feed_publication",
+            entity_id=pub["id"],
+            before={
+                "publication_id": short_public_id(pub["id"]),
+                "image_id": short_public_id(pub["image_id"]),
+                "status": pub["status"],
+                "created_at": pub["created_at"],
+            },
+            after={"status": "hidden", "media_error": "owner_deleted"},
+            request=request,
+        )
+        record_security_event(
+            conn,
+            "feed_publication_owner_deleted",
+            severity="info",
+            internal_user_id=user["internal_user_id"],
+            request=request,
+            details={
+                "publication_id": short_public_id(pub["id"]),
+                "image_id": short_public_id(pub["image_id"]),
+            },
+        )
+    _delete_media_rel(thumb_name)
+    _delete_media_rel(large_name)
+    return {
+        "ok": True,
+        "publicationId": short_public_id(publication_id),
+        "status": "hidden",
+        "deleted_at": now,
+    }
+
+
 @app.get("/api/feed/media/{publication_id}")
 async def feed_media(publication_id: str, request: Request, variant: str = "large", thumb: int = 0) -> FileResponse:
     """Файл ОПУБЛИКОВАННОЙ работы. Доступен любому (публичная лента) — но только
@@ -11731,7 +12558,7 @@ async def feed_media(publication_id: str, request: Request, variant: str = "larg
         raise HTTPException(400, "Invalid feed media variant")
     with db() as conn:
         pub = conn.execute(
-            """
+                f"""
             SELECT feed_thumb_name, feed_large_name FROM feed_publications
             WHERE id = ?
               AND status = 'published'

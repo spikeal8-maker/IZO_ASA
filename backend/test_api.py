@@ -627,6 +627,186 @@ def test_stage3_gallery_detail_favorite_use_as_and_delete(monkeypatch) -> None:
     assert missing.status_code == 404
 
 
+def test_favorite_image_is_not_auto_evicted_when_gallery_quota_is_full(monkeypatch) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    with main.db() as conn:
+        conn.execute("UPDATE users SET plan = 'free' WHERE id = ?", (_SESSION["legacy_user_id"],))
+    with authed_client() as client:
+        first = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "keep favorite", "width": 512, "height": 512},
+        ).json()
+        first_final = wait_for_terminal_job(client, first["id"])
+        first_id = first_final["resultImageId"]
+
+        favorite = client.post(f"/api/gallery/{first_id}/favorite", json={"isFavorite": True})
+        assert favorite.status_code == 200
+
+        second = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "do not save over favorite", "width": 512, "height": 512},
+        ).json()
+        second_final = wait_for_terminal_job(client, second["id"])
+
+        kept = client.get(f"/api/gallery/{first_id}")
+        gallery_after_second = client.get("/api/gallery").json()
+        transient_media = client.get(second_final["resultUrl"])
+
+        client.post(f"/api/gallery/{first_id}/favorite", json={"isFavorite": False})
+        third = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "replace unprotected", "width": 512, "height": 512},
+        ).json()
+        third_final = wait_for_terminal_job(client, third["id"])
+
+        evicted = client.get(f"/api/gallery/{first_id}")
+        gallery_after_third = client.get("/api/gallery").json()
+
+    assert first_final["gallerySaveStatus"] == "saved"
+    assert second_final["status"] == "completed"
+    assert second_final["gallerySaveStatus"] == "quota_full"
+    assert second_final["resultImageId"] is None
+    assert kept.status_code == 200
+    assert [item["id"] for item in gallery_after_second] == [first_id]
+    assert transient_media.status_code == 200
+    assert third_final["gallerySaveStatus"] == "saved"
+    assert evicted.status_code == 404
+    assert [item["id"] for item in gallery_after_third] == [third_final["resultImageId"]]
+
+
+def test_auto_eviction_skips_newer_favorite_and_removes_previous_unprotected(monkeypatch) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    monkeypatch.setitem(main.DEFAULT_TARIFFS["free"], "gallery_slots", 2)
+    with main.db() as conn:
+        conn.execute("UPDATE users SET plan = 'free' WHERE id = ?", (_SESSION["legacy_user_id"],))
+    with authed_client() as client:
+        first = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "older unprotected", "width": 512, "height": 512},
+        ).json()
+        first_final = wait_for_terminal_job(client, first["id"])
+        first_id = first_final["resultImageId"]
+
+        second = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "newer favorite", "width": 512, "height": 512},
+        ).json()
+        second_final = wait_for_terminal_job(client, second["id"])
+        second_id = second_final["resultImageId"]
+        favorite = client.post(f"/api/gallery/{second_id}/favorite", json={"isFavorite": True})
+
+        third = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "replacement", "width": 512, "height": 512},
+        ).json()
+        third_final = wait_for_terminal_job(client, third["id"])
+
+        first_after = client.get(f"/api/gallery/{first_id}")
+        second_after = client.get(f"/api/gallery/{second_id}")
+        gallery_after = client.get("/api/gallery").json()
+
+    assert favorite.status_code == 200
+    assert third_final["gallerySaveStatus"] == "saved"
+    assert first_after.status_code == 404
+    assert second_after.status_code == 200
+    assert [item["id"] for item in gallery_after] == [third_final["resultImageId"], second_id]
+
+
+def test_over_limit_gallery_shrinks_gradually_on_new_generation(monkeypatch) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    monkeypatch.setitem(main.DEFAULT_TARIFFS["free"], "gallery_slots", 3)
+    with main.db() as conn:
+        conn.execute("UPDATE users SET plan = 'free' WHERE id = ?", (_SESSION["legacy_user_id"],))
+    with authed_client() as client:
+        created_ids = []
+        for prompt in ("old one", "old two", "old three"):
+            created = client.post(
+                "/api/generate",
+                json={"mode": "text_to_image", "provider": "comfyui", "prompt": prompt, "width": 512, "height": 512},
+            ).json()
+            created_ids.append(wait_for_terminal_job(client, created["id"])["resultImageId"])
+
+        monkeypatch.setitem(main.DEFAULT_TARIFFS["free"], "gallery_slots", 2)
+        replacement = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "new after downgrade", "width": 512, "height": 512},
+        ).json()
+        replacement_final = wait_for_terminal_job(client, replacement["id"])
+        gallery_after = client.get("/api/gallery").json()
+
+    assert replacement_final["gallerySaveStatus"] == "saved"
+    assert [item["id"] for item in gallery_after] == [replacement_final["resultImageId"], created_ids[2]]
+
+
+def test_gallery_page_uses_cursor_pagination(monkeypatch) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    prompts = ["page first", "page second", "page third"]
+    with authed_client() as client:
+        created_ids = []
+        for prompt in prompts:
+            created = client.post(
+                "/api/generate",
+                json={"mode": "text_to_image", "provider": "comfyui", "prompt": prompt, "width": 512, "height": 512},
+            ).json()
+            created_ids.append(wait_for_terminal_job(client, created["id"])["resultImageId"])
+
+        first_page = client.get("/api/gallery/page?limit=2").json()
+        second_page = client.get(f"/api/gallery/page?limit=2&cursor={first_page['nextCursor']}").json()
+
+    assert [item["id"] for item in first_page["items"]] == [created_ids[2], created_ids[1]]
+    assert first_page["hasMore"] is True
+    assert first_page["nextCursor"]
+    assert [item["id"] for item in second_page["items"]] == [created_ids[0]]
+    assert second_page["hasMore"] is False
+    assert second_page["nextCursor"] is None
+
+
+def test_gallery_page_search_and_filter_are_server_side(monkeypatch) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    with authed_client() as client:
+        first = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "red castle archive", "width": 512, "height": 512},
+        ).json()
+        first_id = wait_for_terminal_job(client, first["id"])["resultImageId"]
+        second = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "blue forest favorite", "width": 512, "height": 512},
+        ).json()
+        second_id = wait_for_terminal_job(client, second["id"])["resultImageId"]
+        client.post(f"/api/gallery/{second_id}/favorite", json={"isFavorite": True})
+
+        search_page = client.get("/api/gallery/page?limit=1&q=castle").json()
+        favorite_page = client.get("/api/gallery/page?filter=favorite").json()
+
+    assert [item["id"] for item in search_page["items"]] == [first_id]
+    assert search_page["hasMore"] is False
+    assert [item["id"] for item in favorite_page["items"]] == [second_id]
+
+
+def test_gallery_media_access_is_db_backed_and_removed_after_delete(monkeypatch) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    with authed_client() as client:
+        created = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "media db backed", "width": 512, "height": 512},
+        ).json()
+        final = wait_for_terminal_job(client, created["id"])
+        image_id = final["resultImageId"]
+        media_url = final["resultUrl"]
+
+        before_clear = client.get(media_url)
+        main.images.clear()
+        after_clear = client.get(media_url)
+        deleted = client.delete(f"/api/gallery/{image_id}")
+        after_delete = client.get(media_url)
+
+    assert before_clear.status_code == 200
+    assert after_clear.status_code == 200
+    assert deleted.status_code == 200
+    assert after_delete.status_code == 404
+
+
 def test_stage3_media_url_inputs_work_for_i2i_and_edit(monkeypatch) -> None:
     seen_modes = []
 
@@ -658,6 +838,198 @@ def test_stage3_media_url_inputs_work_for_i2i_and_edit(monkeypatch) -> None:
     assert edit_final["status"] == "completed"
     assert ("image_to_image", source_url, None) in seen_modes
     assert ("edit", source_url, None) in seen_modes
+
+
+def test_generation_persists_source_snapshots_for_gallery_history(monkeypatch) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    monkeypatch.setitem(main.DEFAULT_TARIFFS["free"], "gallery_slots", 5)
+    with main.db() as conn:
+        conn.execute("UPDATE users SET plan = 'free' WHERE id = ?", (_SESSION["legacy_user_id"],))
+    with authed_client() as client:
+        source = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "source for history", "width": 512, "height": 512},
+        ).json()
+        source_final = wait_for_terminal_job(client, source["id"])
+        source_id = source_final["resultImageId"]
+
+        derived = client.post(
+            "/api/generate",
+            json={
+                "mode": "image_to_image",
+                "provider": "comfyui",
+                "prompt": "derived with visible history",
+                "width": 512,
+                "height": 512,
+                "inputImage1": source_final["resultUrl"],
+            },
+        ).json()
+        derived_final = wait_for_terminal_job(client, derived["id"])
+        derived_id = derived_final["resultImageId"]
+
+        detail = client.get(f"/api/gallery/{derived_id}").json()
+        source_thumb = client.get(detail["sources"][0]["thumbUrl"])
+        deleted = client.delete(f"/api/gallery/{derived_id}")
+        source_thumb_after_delete = client.get(detail["sources"][0]["thumbUrl"])
+
+    assert detail["sources"][0]["sourceImageId"] == source_id
+    assert detail["sources"][0]["sourceKind"] == "gallery_image"
+    assert detail["sources"][0]["roleLabel"] == "Основа"
+    assert source_thumb.status_code == 200
+    assert deleted.status_code == 200
+    assert source_thumb_after_delete.status_code == 404
+
+
+def test_gallery_source_history_includes_parent_chain(monkeypatch) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    monkeypatch.setitem(main.DEFAULT_TARIFFS["free"], "gallery_slots", 5)
+    with main.db() as conn:
+        conn.execute("UPDATE users SET plan = 'free' WHERE id = ?", (_SESSION["legacy_user_id"],))
+    with authed_client() as client:
+        source = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "root source", "width": 512, "height": 512},
+        ).json()
+        source_final = wait_for_terminal_job(client, source["id"])
+
+        first = client.post(
+            "/api/generate",
+            json={
+                "mode": "image_to_image",
+                "provider": "comfyui",
+                "prompt": "first branch",
+                "width": 512,
+                "height": 512,
+                "inputImage1": source_final["resultUrl"],
+            },
+        ).json()
+        first_final = wait_for_terminal_job(client, first["id"])
+
+        second = client.post(
+            "/api/generate",
+            json={
+                "mode": "image_to_image",
+                "provider": "comfyui",
+                "prompt": "second branch",
+                "width": 512,
+                "height": 512,
+                "inputImage1": first_final["resultUrl"],
+            },
+        ).json()
+        second_final = wait_for_terminal_job(client, second["id"])
+
+        detail = client.get(f"/api/gallery/{second_final['resultImageId']}").json()
+
+    assert detail["sources"][0]["sourceImageId"] == first_final["resultImageId"]
+    assert detail["sources"][0]["children"][0]["sourceImageId"] == source_final["resultImageId"]
+
+
+def test_gallery_source_history_survives_deleted_intermediate(monkeypatch) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    monkeypatch.setitem(main.DEFAULT_TARIFFS["free"], "gallery_slots", 5)
+    with main.db() as conn:
+        conn.execute("UPDATE users SET plan = 'free' WHERE id = ?", (_SESSION["legacy_user_id"],))
+    with authed_client() as client:
+        source = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "root survives", "width": 512, "height": 512},
+        ).json()
+        source_final = wait_for_terminal_job(client, source["id"])
+
+        middle = client.post(
+            "/api/generate",
+            json={
+                "mode": "image_to_image",
+                "provider": "comfyui",
+                "prompt": "middle source",
+                "width": 512,
+                "height": 512,
+                "inputImage1": source_final["resultUrl"],
+            },
+        ).json()
+        middle_final = wait_for_terminal_job(client, middle["id"])
+
+        result = client.post(
+            "/api/generate",
+            json={
+                "mode": "image_to_image",
+                "provider": "comfyui",
+                "prompt": "result keeps snapshot tree",
+                "width": 512,
+                "height": 512,
+                "inputImage1": middle_final["resultUrl"],
+            },
+        ).json()
+        result_final = wait_for_terminal_job(client, result["id"])
+
+        assert client.delete(f"/api/gallery/{middle_final['resultImageId']}").status_code == 200
+        detail = client.get(f"/api/gallery/{result_final['resultImageId']}").json()
+
+    assert detail["sources"][0]["sourceImageId"] == middle_final["resultImageId"]
+    assert detail["sources"][0]["children"][0]["sourceImageId"] == source_final["resultImageId"]
+
+
+def test_gallery_detail_repairs_missing_sources_from_job_settings(monkeypatch) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    monkeypatch.setitem(main.DEFAULT_TARIFFS["free"], "gallery_slots", 5)
+    with main.db() as conn:
+        conn.execute("UPDATE users SET plan = 'free' WHERE id = ?", (_SESSION["legacy_user_id"],))
+    with authed_client() as client:
+        source = client.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "repair source", "width": 512, "height": 512},
+        ).json()
+        source_final = wait_for_terminal_job(client, source["id"])
+        derived = client.post(
+            "/api/generate",
+            json={
+                "mode": "image_to_image",
+                "provider": "comfyui",
+                "prompt": "repair derived",
+                "width": 512,
+                "height": 512,
+                "inputImage1": source_final["resultUrl"],
+            },
+        ).json()
+        derived_final = wait_for_terminal_job(client, derived["id"])
+        with main.db() as conn:
+            conn.execute("DELETE FROM image_sources WHERE image_id = ?", (derived_final["resultImageId"],))
+
+        detail = client.get(f"/api/gallery/{derived_final['resultImageId']}").json()
+
+    assert detail["sources"][0]["sourceImageId"] == source_final["resultImageId"]
+    assert detail["sources"][0]["sourceKind"] == "gallery_image"
+
+
+def test_edit_generation_persists_multiple_upload_source_snapshots(monkeypatch) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    monkeypatch.setitem(main.DEFAULT_TARIFFS["free"], "gallery_slots", 5)
+    with main.db() as conn:
+        conn.execute("UPDATE users SET plan = 'free' WHERE id = ?", (_SESSION["legacy_user_id"],))
+    roles = ["base", "clothing", "style", "background"]
+    with authed_client() as client:
+        created = client.post(
+            "/api/generate",
+            json={
+                "mode": "edit",
+                "provider": "comfyui",
+                "prompt": "compose multiple sources",
+                "width": 512,
+                "height": 512,
+                "inputImages": [
+                    {"index": index + 1, "role": role, "image": tiny_image_data_url()}
+                    for index, role in enumerate(roles)
+                ],
+            },
+        )
+        assert created.status_code == 200, created.text
+        created = created.json()
+        final = wait_for_terminal_job(client, created["id"])
+        detail = client.get(f"/api/gallery/{final['resultImageId']}").json()
+
+    assert [source["role"] for source in detail["sources"]] == roles
+    assert [source["sourceKind"] for source in detail["sources"]] == ["upload"] * 4
+    assert all(source["thumbUrl"].startswith("/api/media/") for source in detail["sources"])
 
 
 def test_stage3_local_media_url_resolves_to_safe_file() -> None:

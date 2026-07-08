@@ -35,6 +35,8 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
 
 EXPECTED_INDEXES: dict[str, str] = {
     "idx_feed_publications_media_ready": "feed_publications",
+    "idx_feed_publications_category_ready_created": "feed_publications",
+    "idx_feed_publications_legacy_ready_created": "feed_publications",
     "idx_images_user_deleted_created": "images",
     "idx_images_job_id": "images",
     "idx_jobs_user_created": "jobs",

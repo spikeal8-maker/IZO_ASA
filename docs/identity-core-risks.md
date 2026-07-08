@@ -93,7 +93,18 @@ unrelated, working features (generation, gallery, tokens, templates).
 edits per phase, preserving existing data and behavior. Every security-sensitive change ships
 with tests; keep compatibility with the current project.
 
-## 10. Mitigation summary
+## 10. Production cookie flags breaking local login
+
+**Risk.** Production cookie flags (`Secure=true`, `SameSite=None`) are correct for HTTPS, but
+on local HTTP the browser will not persist/send the trusted session cookie. The login endpoint
+can return success while `/api/me-v2` immediately sees an anonymous user.
+
+**Mitigation.** Keep env production flags intact, but derive actual cookie transport flags from
+the incoming request in `trusted_cookie_common(request)`: local HTTP uses `Secure=false` and
+`SameSite=lax`; public HTTPS keeps the production values. Reuse the helper for session,
+refresh and bot-login cookies. See `docs/auth-cookie-local-production-guide-20260708.md`.
+
+## 11. Mitigation summary
 
 | # | Risk | Primary mitigation | Phase(s) |
 |---|------|--------------------|----------|
@@ -106,3 +117,4 @@ with tests; keep compatibility with the current project.
 | 7 | Secrets in `.env` | No secret logging; only hashes stored; no `.env` edits | all |
 | 8 | Two parallel auth systems | Gradual cutover to single trusted layer | 3, 7, 9, 10 |
 | 9 | Mass `main.py` refactor | Surgical edits only; no unapproved module split | all |
+| 10 | Secure production cookies on local HTTP | Request-aware cookie flags; no env weakening | 11 |

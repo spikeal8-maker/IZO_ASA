@@ -99,6 +99,19 @@ the previous one is approved.
   enforcement, banned-user refresh denial, negative-test coverage.
 * **Phase 12 — Final docs.** Update plan/risks/rules to reflect the shipped state.
 
+## 4.1. Cookie environment rule
+
+Trusted auth cookies must keep production security on the public HTTPS domain, but local HTTP
+must still be testable:
+
+* `https://izo.alikinas.ru`: use env values (`Secure=true`, `SameSite=None`).
+* `http://localhost`, `http://127.0.0.1`, `http://[::1]`: downgrade only the cookie transport
+  to `Secure=false`, `SameSite=lax`, based on the incoming request host/scheme.
+
+This rule is implemented centrally in `trusted_cookie_common(request)` and must be reused for
+session, refresh and bot-login challenge cookies. See
+`docs/auth-cookie-local-production-guide-20260708.md`.
+
 ## 5. Out of scope right now
 
 The following are explicitly **not** part of this migration at this time:

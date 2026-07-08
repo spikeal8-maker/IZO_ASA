@@ -75,9 +75,12 @@ def test_models_endpoint_reports_selected_models(monkeypatch) -> None:
         payload = client.get("/api/models").json()
 
     assert payload["ok"] is True
-    assert payload["selected"]["model"] == "flux-2-klein-9b-fp8.safetensors"
-    assert payload["selected"]["textEncoder"] == "qwen_3_8b_fp8mixed.safetensors"
-    assert payload["selected"]["vae"] == "flux2-vae.safetensors"
+    assert payload["selected"]["model"] == "Flux2"
+    assert payload["selected"]["textEncoder"] == "Flux2 CLIP"
+    assert payload["selected"]["vae"] == "Flux2 VAE"
+    assert payload["diffusion_models"] == ["Flux2"]
+    assert payload["text_encoders"] == ["Flux2 CLIP"]
+    assert payload["vaes"] == ["Flux2 VAE"]
     assert payload["loras"] == ["bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors"]
 
 

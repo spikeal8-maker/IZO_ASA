@@ -11,10 +11,14 @@ Start here when you or another agent joins the project:
   `/gallery`, and the rule that this project folder is the only deploy source.
 - `docs/identity-core-plan.md` — auth architecture (identity core migration plan).
 - `docs/identity-core-risks.md` — auth/security risks.
+- `docs/auth-cookie-local-production-guide-20260708.md` — trusted-cookie rule for local
+  HTTP vs production HTTPS, including restart persistence checks.
 - `docs/admin-panel-product-spec.md` — admin product direction.
 - `docs/new-ui-v2-plan.md` — new UI `/new` (working contract).
 - `docs/new-ui-v2-review.md` — current `/new` review state.
 - `docs/feed-media-architecture.md` — public feed image storage, compression and DB contract.
+- `docs/gallery-current-product-plan.md` — visible `/gallery` contract: slots,
+  favorite protection, deletion, publish modal, viewer and grid order.
 
 The `docs/phase*.md` files are historical phase reports. They are useful evidence, but
 the current working rules should be read from the files listed above first.

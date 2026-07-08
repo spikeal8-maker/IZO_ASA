@@ -1,0 +1,300 @@
+import type { ChangeEvent, Dispatch, SetStateAction } from 'react'
+import { Lock, SlidersHorizontal, Sparkles, Upload, WandSparkles, Zap } from 'lucide-react'
+import type { AuthStatusV2, MeV2 } from './authV2'
+import { DEFAULT_TARIFFS, avatarPresets, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
+
+type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
+type Provider = 'comfyui' | 'openrouter'
+
+type ProfilePageProps = {
+  authStatus: AuthStatusV2
+  me: MeV2 | null
+  galleryCount: number
+  profileTab: ProfileTab
+  setProfileTab: Dispatch<SetStateAction<ProfileTab>>
+  tariffs: TariffConfig
+  tariffsState: 'loading' | 'ready' | 'fallback'
+  authCapsState: 'loading' | 'ready' | 'fallback'
+  authCaps: { telegram_bot_login_available: boolean; max_bot_login_available: boolean }
+  quality: string
+  setQuality: Dispatch<SetStateAction<string>>
+  provider: Provider
+  setProvider: Dispatch<SetStateAction<Provider>>
+  displayName: string
+  setDisplayName: Dispatch<SetStateAction<string>>
+  profileGender: 'female' | 'male'
+  setProfileGender: Dispatch<SetStateAction<'female' | 'male'>>
+  profileAge: string
+  setProfileAge: Dispatch<SetStateAction<string>>
+  saveMsg: string
+  setSaveMsg: Dispatch<SetStateAction<string>>
+  avatarSrc: string | null
+  avatarPreset: string
+  avatarBusy: boolean
+  avatarMsg: string
+  uploadAvatar: (event: ChangeEvent<HTMLInputElement>) => void
+  selectAvatarPreset: (presetId: string) => Promise<void>
+  promoCode: string
+  setPromoCode: Dispatch<SetStateAction<string>>
+  promoBusy: boolean
+  promoResult: string
+  setPromoResult: Dispatch<SetStateAction<string>>
+  inviteMsg: string
+  setInviteMsg: Dispatch<SetStateAction<string>>
+  linkEmail: string
+  setLinkEmail: Dispatch<SetStateAction<string>>
+  linkEmailChallenge: string
+  linkEmailCode: string
+  setLinkEmailCode: Dispatch<SetStateAction<string>>
+  linkBusy: boolean
+  linkMsg: string
+  onOpenAuth: () => void
+  onBackToGeneration: () => void
+  onSaveProfile: () => void
+  onLogout: () => void
+  onApplyPromo: () => void
+  onRequestLinkEmail: () => void
+  onVerifyLinkEmail: () => void
+  onLinkBot: (providerName: 'telegram' | 'max') => void
+}
+
+export default function ProfilePage({
+  authStatus,
+  me,
+  galleryCount,
+  profileTab,
+  setProfileTab,
+  tariffs,
+  tariffsState,
+  authCapsState,
+  authCaps,
+  quality,
+  setQuality,
+  provider,
+  setProvider,
+  displayName,
+  setDisplayName,
+  profileGender,
+  setProfileGender,
+  profileAge,
+  setProfileAge,
+  saveMsg,
+  setSaveMsg,
+  avatarSrc,
+  avatarPreset,
+  avatarBusy,
+  avatarMsg,
+  uploadAvatar,
+  selectAvatarPreset,
+  promoCode,
+  setPromoCode,
+  promoBusy,
+  promoResult,
+  setPromoResult,
+  inviteMsg,
+  setInviteMsg,
+  linkEmail,
+  setLinkEmail,
+  linkEmailChallenge,
+  linkEmailCode,
+  setLinkEmailCode,
+  linkBusy,
+  linkMsg,
+  onOpenAuth,
+  onSaveProfile,
+  onLogout,
+  onApplyPromo,
+  onRequestLinkEmail,
+  onVerifyLinkEmail,
+  onLinkBot,
+}: ProfilePageProps) {
+  const account = me?.account
+  const activePlan = (tariffKeys.includes(String(account?.plan || 'mini').toLowerCase() as TariffKey) ? String(account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
+  const currentTariff = tariffs[activePlan] || DEFAULT_TARIFFS[activePlan]
+  const planLabel = activePlan.toUpperCase()
+  const tokenBalance = Number(account?.token_balance ?? 0)
+  const dailyLimit = Number(account?.daily_tokens_limit ?? account?.daily_tokens ?? currentTariff.daily_tokens)
+  const dailyUsed = Math.max(0, Number(account?.daily_tokens_used ?? 0))
+  const dailyRemaining = Math.max(0, Number(account?.daily_tokens_remaining ?? dailyLimit - dailyUsed))
+  const gallerySlots = Number(account?.gallery_slots ?? currentTariff.gallery_slots)
+  const galleryUsed = Number(account?.gallery_used ?? galleryCount)
+  const galleryFree = Math.max(0, Number(account?.gallery_free ?? gallerySlots - galleryUsed))
+  const displayEmail = me?.identities?.find((i) => i.provider_email)?.provider_email
+  const telegramIdentity = me?.identities?.find((i) => i.provider === 'telegram')
+  const maxIdentity = me?.identities?.find((i) => i.provider === 'max')
+  const emailIdentity = me?.identities?.find((i) => i.provider === 'web_email')
+  const emailStatus = emailIdentity ? (emailIdentity.verified_at || me?.profile?.email_verified_at ? 'Подтвержден' : 'Ожидает подтверждения') : 'Не указан'
+  const displayNameFallback = me?.profile?.display_name
+    || [me?.profile?.first_name, me?.profile?.last_name].filter(Boolean).join(' ')
+    || displayEmail?.split('@')[0]
+    || 'Пользователь'
+  const userInitials = displayNameFallback.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'AI'
+  const publicCode = String(me?.profile?.public_user_code || me?.internal_user_id || '').replace(/^web_/, '').toUpperCase()
+  const friendPromoCode = `FRIEND-${String(me?.profile?.public_user_code || me?.internal_user_id || 'GUEST').replace(/^web_/, '').toUpperCase().slice(0, 12)}`
+  const referralLink = `${window.location.origin}?ref=${me?.profile?.public_user_code || me?.internal_user_id || 'guest'}`
+  const tokenPrice = (quality === 'fast' ? 1 : quality === 'standard' ? 2 : 4) * (provider === 'openrouter' ? 2 : 1)
+  const profileDataState = me ? 'ready' : 'fallback'
+  const tariffsStateLabel = tariffsState === 'ready' ? 'Тарифы из базы' : tariffsState === 'loading' ? 'Тарифы загружаются' : 'Тарифы по умолчанию'
+  const authCapsStateLabel = authCapsState === 'ready' ? 'Способы входа из базы' : authCapsState === 'loading' ? 'Способы входа загружаются' : 'Способы входа ограничены'
+  const planCards = tariffKeys.map((id) => ({
+    id,
+    title: id[0].toUpperCase() + id.slice(1),
+    note: id === 'free' ? 'Базовый доступ' : id === 'mini' ? 'Оптимальный старт' : id === 'plus' ? 'Больше возможностей' : 'Максимум мощности',
+    daily: tariffs[id].daily_tokens,
+    slots: tariffs[id].gallery_slots,
+    features: ['Галерея открыта', `${tariffs[id].gallery_slots} слот(ов) галереи`, `${tariffs[id].daily_tokens} токенов в сутки`],
+  }))
+
+  return (
+    <section className="profile-page">
+      {authStatus === 'loading' ? (
+        <>
+          <header className="profile-title">
+            <h2>Настройки аккаунта</h2>
+            <p>Проверяем активную сессию и загружаем данные профиля.</p>
+          </header>
+          <article className="profile-card profile-auth-card">
+            <h3>Загружаем профиль</h3>
+            <p>Если вы уже входили, страница откроется без повторного входа.</p>
+          </article>
+        </>
+      ) : authStatus !== 'authed' ? (
+        <>
+          <header className="profile-title">
+            <h2>Настройки аккаунта</h2>
+            <p>Войдите, чтобы увидеть профиль, тарифы, токены и параметры генерации.</p>
+          </header>
+          <article className="profile-card profile-auth-card">
+            <h3>Аккаунт</h3>
+            <p>После входа здесь появятся ваш баланс, тариф, промокоды и реферальная ссылка.</p>
+            <button className="profile-primary" type="button" onClick={onOpenAuth}><Lock size={16} />Войти</button>
+          </article>
+        </>
+      ) : (
+        <>
+          <div className="profile-data-health" aria-label="Состояние данных профиля">
+            <span className={profileDataState === 'ready' ? 'ok' : 'warn'}>{profileDataState === 'ready' ? 'Профиль из базы' : 'Профиль восстанавливается'}</span>
+            <span className={tariffsState === 'ready' ? 'ok' : 'warn'}>{tariffsStateLabel}</span>
+            <span className={authCapsState === 'ready' ? 'ok' : 'warn'}>{authCapsStateLabel}</span>
+          </div>
+          <nav className="profile-tabs" aria-label="Разделы настроек">
+            <button type="button" className={profileTab === 'profile' ? 'active' : ''} onClick={() => setProfileTab('profile')}>Профиль</button>
+            <button type="button" className={profileTab === 'tariffs' ? 'active' : ''} onClick={() => setProfileTab('tariffs')}>Тарифы</button>
+            <button type="button" className={profileTab === 'earn' ? 'active' : ''} onClick={() => setProfileTab('earn')}>Заработать токены</button>
+            <button type="button" className={profileTab === 'models' ? 'active' : ''} onClick={() => setProfileTab('models')}>Модели</button>
+          </nav>
+
+          {profileTab === 'profile' && <>
+            <section className="profile-card profile-hero">
+              <div className="profile-avatar-block">
+                <div className="profile-avatar" aria-label="Аватар пользователя">
+                  {avatarSrc ? <img src={avatarSrc} alt="" /> : <span>{userInitials}</span>}
+                </div>
+                <label className={avatarBusy ? 'profile-avatar-upload disabled' : 'profile-avatar-upload'}>
+                  <Upload size={16} />
+                  <span>{avatarBusy ? 'Сохраняем...' : 'Загрузить файл'}</span>
+                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={uploadAvatar} disabled={avatarBusy} />
+                </label>
+                {avatarMsg && <small className={avatarMsg.includes('сохран') || avatarMsg.includes('загруж') ? 'profile-save-ok' : 'profile-save-err'}>{avatarMsg}</small>}
+              </div>
+              <div className="profile-hero-main">
+                <div className="profile-identity">
+                  <h3>{displayNameFallback}</h3>
+                  <span className="profile-chip current">{planLabel}</span>
+                  <span className="profile-chip green">Галерея {galleryUsed}/{gallerySlots}</span>
+                </div>
+                <div className="profile-code"><span>Публичный код: {publicCode || 'GUEST'}</span></div>
+                <div className="profile-metrics">
+                  <div><span>Токенов сегодня</span><strong>{dailyUsed} / {dailyLimit}</strong><small>осталось {dailyRemaining}</small></div>
+                  <div><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>доступно сейчас</small></div>
+                  <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
+                  <div><span>Промо и друзья</span><strong>+50</strong><small>за промокод или друга</small></div>
+                </div>
+                <div className="profile-avatar-picker" aria-label="Выбор аватара">
+                  {avatarPresets.map((preset) => (
+                    <button type="button" className={avatarPreset === preset.id ? 'active' : ''} onClick={() => void selectAvatarPreset(preset.id)} disabled={avatarBusy} key={preset.id} title={preset.label}>
+                      <img src={preset.url} alt="" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+            <section className="profile-card profile-profile">
+              <label>Имя<input type="text" value={displayName} onChange={(e) => { setDisplayName(e.target.value); setSaveMsg('') }} placeholder="Ваше имя" maxLength={80} /></label>
+              <label>Email<input type="email" value={displayEmail || ''} placeholder="Email не указан" readOnly disabled /></label>
+              <label>Превью шаблонов
+                <select value={profileGender} onChange={(e) => { setProfileGender(e.target.value === 'male' ? 'male' : 'female'); setSaveMsg('') }}>
+                  <option value="female">Женский набор</option>
+                  <option value="male">Мужской набор</option>
+                </select>
+              </label>
+              <label>Возраст<input type="number" min="13" max="120" value={profileAge} onChange={(e) => { setProfileAge(e.target.value); setSaveMsg('') }} placeholder="Например, 28" /></label>
+              <div className="profile-profile-actions">
+                <button className="profile-primary" type="button" onClick={onSaveProfile} disabled={!displayName.trim()}>Сохранить профиль</button>
+                <button className="profile-ghost" type="button" onClick={onLogout}><Lock size={14} />Выйти</button>
+                {saveMsg && <small className={saveMsg === 'Сохранено' ? 'profile-save-ok' : 'profile-save-err'}>{saveMsg}</small>}
+              </div>
+            </section>
+            <section className="profile-card profile-login-methods">
+              <div className="profile-section-head"><h3>Способы входа</h3><span>+10 токенов за новое подтвержденное подключение</span></div>
+              <div className="profile-login-grid">
+                <article><strong>Telegram</strong><p>{telegramIdentity ? `Подключен: ${telegramIdentity.provider_username ? `@${telegramIdentity.provider_username}` : `ID ${telegramIdentity.provider_user_id || '—'}`}` : 'Не подключен'}</p>{!telegramIdentity && authCaps.telegram_bot_login_available && <button className="profile-secondary" type="button" onClick={() => onLinkBot('telegram')} disabled={linkBusy}>Подключить Telegram</button>}</article>
+                <article><strong>Email</strong><p>{emailIdentity?.provider_email ? `${emailStatus}: ${emailIdentity.provider_email}` : emailStatus}</p>{!emailIdentity && <div className="profile-link-email"><input type="email" value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)} placeholder="email@example.com" disabled={linkBusy || Boolean(linkEmailChallenge)} />{!linkEmailChallenge ? <button className="profile-secondary" type="button" onClick={onRequestLinkEmail} disabled={linkBusy || !linkEmail.trim()}>Получить код</button> : <><input value={linkEmailCode} onChange={(e) => setLinkEmailCode(e.target.value)} placeholder="Код из письма" disabled={linkBusy} /><button className="profile-secondary" type="button" onClick={onVerifyLinkEmail} disabled={linkBusy || !linkEmailCode.trim()}>Подтвердить</button></>}</div>}</article>
+                <article><strong>MAX</strong><p>{maxIdentity ? `Подключен: ${maxIdentity.provider_username || `ID ${maxIdentity.provider_user_id || '—'}`}` : 'Не подключен'}</p>{!maxIdentity && authCaps.max_bot_login_available && <button className="profile-secondary" type="button" onClick={() => onLinkBot('max')} disabled={linkBusy}>Подключить MAX</button>}</article>
+                <article><strong>Телефон</strong><p>Будет доступно позже</p></article>
+              </div>
+              {linkMsg && <small className={linkMsg.includes('подключ') || linkMsg.includes('отправлен') ? 'profile-save-ok' : 'profile-save-err'}>{linkMsg}</small>}
+            </section>
+          </>}
+
+          {profileTab === 'tariffs' && <>
+            <section className="profile-section">
+              <div className="profile-tariff-summary profile-card">
+                <div><span>Текущий тариф</span><strong>{planLabel}</strong></div>
+                <div><span>Токены сегодня</span><strong>{dailyUsed} / {dailyLimit}</strong></div>
+                <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
+                <button type="button" className="profile-primary" disabled>Управление тарифом скоро</button>
+              </div>
+              <div className="profile-plans">
+                {planCards.map((item) => (
+                  <article className={`${item.id === activePlan ? 'profile-card profile-plan active current' : 'profile-card profile-plan'}`} key={item.id}>
+                    {item.id === activePlan && <span className="profile-chip current">Текущий</span>}
+                    <h4>{item.title}</h4><p>{item.note}</p><strong>{item.daily}</strong><span>токенов в сутки · {item.slots} слот(ов)</span>
+                    <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
+                    <button type="button" disabled>{item.id === activePlan ? 'Текущий тариф' : 'Смена тарифа скоро'}</button>
+                  </article>
+                ))}
+              </div>
+            </section>
+            <section className="profile-card profile-compare"><div>Функции</div><div>FREE</div><div>MINI</div><div>PLUS</div><div>PRO</div><span>Токены в сутки</span><b>{tariffs.free.daily_tokens}</b><b>{tariffs.mini.daily_tokens}</b><b>{tariffs.plus.daily_tokens}</b><b>{tariffs.pro.daily_tokens}</b><span>Галерея</span><b>{tariffs.free.gallery_slots}</b><b>{tariffs.mini.gallery_slots}</b><b>{tariffs.plus.gallery_slots}</b><b>{tariffs.pro.gallery_slots}</b></section>
+          </>}
+
+          {profileTab === 'earn' && <>
+            <section className="profile-section">
+              <div className="profile-earn-hero profile-card"><h3>Получайте токены</h3><div><span>Текущий баланс</span><strong>{tokenBalance}</strong><small>токенов</small></div><div><span>Ожидает начисления</span><strong>+50</strong><small>за друга или промокод</small></div></div>
+              <div className="profile-earn">
+                <article className="profile-card profile-earn-card"><h4>Промокод</h4><p>Введите промокод и получите награду, если код активен.</p><div className="profile-inline"><input value={promoCode} onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoResult('') }} placeholder="Например START50" aria-label="Промокод" /><button type="button" disabled={promoBusy || !promoCode.trim()} onClick={onApplyPromo}>{promoBusy ? 'Проверяем...' : 'Применить'}</button></div><div className={promoResult ? 'profile-reward result' : 'profile-reward'}>{promoResult || '+50 токенов за успешный промокод'}</div></article>
+                <article className="profile-card profile-earn-card"><h4>Пригласи друга</h4><p>Отправьте другу ссылку. Бонус начислится после регистрации.</p><label>Реферальный код<input readOnly value={friendPromoCode} onFocus={(e) => e.currentTarget.select()} /></label><div className="profile-inline"><input readOnly value={referralLink} onFocus={(e) => e.currentTarget.select()} aria-label="Реферальная ссылка" /><button type="button" onClick={async () => { await navigator.clipboard?.writeText(`${referralLink}\nПромокод: ${friendPromoCode}`); setInviteMsg('Скопировано') }}>Копировать</button></div><div className="profile-reward">{inviteMsg || '+50 токенов за каждого друга'}</div></article>
+                <article className="profile-card profile-earn-card"><h4>Баланс</h4><p>Токены списываются при генерации. Стоимость зависит от качества.</p><strong className="profile-token-balance">{tokenBalance} токенов</strong><button type="button" className="profile-primary" disabled>Пополнение скоро</button></article>
+              </div>
+            </section>
+          </>}
+
+          {profileTab === 'models' && <>
+            <section className="profile-section">
+              <div className="profile-model-summary"><article className="profile-card profile-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article><article className="profile-card profile-stat-card"><span>Дневной лимит</span><strong>{dailyUsed} / {dailyLimit}</strong><small>осталось {dailyRemaining}</small></article><article className="profile-card profile-stat-card"><span>Модель по умолчанию</span><strong>{quality === 'fast' ? 'Быстрая' : quality === 'standard' ? 'Стандарт' : 'Максимум'}</strong><small>рекомендуется</small></article><article className="profile-card profile-stat-card"><span>Стоимость</span><strong>{tokenPrice}</strong><small>{tokenPrice === 1 ? 'токен' : 'токена'}</small></article></div>
+              <div className="profile-section-head"><h3>Модели и стоимость</h3><span>Стоимость будет показана перед генерацией</span></div>
+              <div className="profile-models">
+                <button type="button" className={quality === 'fast' ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality('fast')}><Sparkles size={26} /><b>Быстрая</b><span>1 токен</span></button>
+                <button type="button" className={quality === 'standard' ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality('standard')}><WandSparkles size={26} /><b>Стандарт</b><span>2 токена</span></button>
+                <button type="button" className={quality === 'max' ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality('max')}><SlidersHorizontal size={26} /><b>Максимум</b><span>4 токена</span></button>
+                <button type="button" className={provider === 'openrouter' ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setProvider(provider === 'openrouter' ? 'comfyui' : 'openrouter')}><Zap size={26} /><b>Мегаскорость</b><span>{provider === 'openrouter' ? 'Включена' : 'Выключена'}</span></button>
+              </div>
+              <div className="profile-estimate"><span>Выбрано: <strong>{quality === 'fast' ? 'Быстрая' : quality === 'standard' ? 'Стандарт' : 'Максимум'}</strong></span><span>Провайдер: <strong>{provider === 'openrouter' ? 'OpenRouter Cloud' : 'ComfyUI локально'}</strong></span><span>Примерная стоимость: <strong>{tokenPrice} {tokenPrice === 1 ? 'токен' : 'токена'}</strong></span></div>
+            </section>
+          </>}
+        </>
+      )}
+    </section>
+  )
+}

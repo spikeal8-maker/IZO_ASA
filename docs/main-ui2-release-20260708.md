@@ -10,7 +10,8 @@ Main merge commit: `26d2951`.
 
 - `/` and `/new` serve the UI 2.0 generator shell.
 - `/paint` serves the separated drawing page.
-- `/feed` serves the new public feed.
+- `/feed` serves the new public feed from `backend/static/feed/index.html`; this
+  visible static page is the canonical feed UI for current optimization work.
 - `/gallery` serves the new gallery shell and requires a valid user session for private gallery data.
 - `/profile` remains part of the UI 2.0 shell.
 

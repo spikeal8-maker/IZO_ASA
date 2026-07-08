@@ -52,6 +52,16 @@ def make_user(iuid: str, legacy: str, display_name: str = "Автор Теста
     return main.create_auth_session(iuid, legacy, provider="telegram", platform="telegram_mini_app")["session_token"]
 
 
+def make_admin(iuid: str = "iuid-admin-feed", legacy: str = "web_admin_feed") -> str:
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO users (id, internal_user_id, role, token_balance, language, display_name, created_at, last_login_at) "
+            "VALUES (?, ?, 'admin', 50, 'ru', 'Админ', '2026-01-01', '2026-01-01')",
+            (legacy, iuid),
+        )
+    return main.create_auth_session(iuid, legacy, provider="web", platform="web")["session_token"]
+
+
 def make_image(image_id: str, legacy_user: str, prompt: str = "секретный промпт про маяк") -> None:
     media_file = main.MEDIA / f"{image_id}.png"
     image = Image.new("RGB", (1200, 800), (70, 120, 180))
@@ -95,16 +105,30 @@ def test_gallery_page_shell_serves_installed_visual_file(temp_db):
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
         assert "no-store" in r.headers["cache-control"]
-        assert "/api/gallery/page" in r.text
+        assert "galleryGrid" in r.text
+        assert "/static/gallery/gallery.js" in r.text
+        assert 'href="/#text-to-image"' in r.text
+        assert 'href="/#image-to-image"' in r.text
+        assert 'href="/#editor"' in r.text
+        assert 'href="/#face"' in r.text
+        assert "/new#text-to-image" not in r.text
+        assert "legacy-unused-topbar" not in r.text
+        assert "n2-tab" not in r.text
         assert "data:image" not in r.text
+        script = client.get("/static/gallery/gallery.js")
+        assert script.status_code == 200
+        assert "/api/gallery/page" in script.text
+        assert "/#text-to-image" in script.text
+        assert "/#image-to-image" in script.text
+        assert "/new#" not in script.text
 
 
 def test_home_page_serves_gallery_as_primary_page(temp_db):
     with TestClient(main.app) as client:
         r = client.get("/")
         assert r.status_code == 200
-        assert "/api/gallery/page" in r.text
         assert "galleryGrid" in r.text
+        assert "/static/gallery/gallery.js" in r.text
 
 
 def test_feed_page_shell_serves_installed_visual_file(temp_db):
@@ -120,8 +144,58 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "mode-tile" in r.text
         assert "rail-challenge" in r.text
         assert "/static/feed/assets/mode_text.webp" in r.text
+        assert 'href="/#text-to-image"' in r.text
+        assert "/new#text-to-image" not in r.text
+        assert "legacy-unused-topbar" not in r.text
+        assert "n2-tab" not in r.text
         assert 'data-action="challenge"' in r.text
         assert "downloadCurrent" in r.text
+        assert "modalSaveBtn" in r.text
+        assert "modalDeleteBtn" in r.text
+        assert "modalEditBtn" in r.text
+        assert "detailOwnerActions" in r.text
+        assert "authorNotifyBtn" in r.text
+        assert "/api/me-v2" in r.text
+        assert "arrangeModalForViewport" in r.text
+        assert "avatarHtml(item.author, item.avatarUrl)" in r.text
+        assert "function deleteCurrentPublication()" in r.text
+        assert "function editCurrentPublication()" in r.text
+        assert "method:'PATCH'" in r.text
+        assert "/save" in r.text
+        assert "nf-page" not in r.text
+        assert "iv3-feed" not in r.text
+        assert "Загружаем ленту" not in r.text
+        assert "src:item.thumbnail_url || ''" in r.text
+        assert "fullSrc:item.image_url || ''" in r.text
+        assert "i.thumbnail_url && i.image_url" in r.text
+        assert ".inline-action{appearance:none;border:0;background:transparent" in r.text
+        assert ".author-line{display:flex;align-items:center;gap:7px;min-width:0;color:#fff" in r.text
+        assert '<button class="persist-stat remix" type="button" data-action="remix"' in r.text
+        assert '<button class="persist-stat heart' in r.text
+        assert ".card-actions{display:none}" in r.text
+        assert "card.dataset.publicationId = item.id" in r.text
+        assert "function syncPublicationUi(item)" in r.text
+        assert "showToast(method === 'POST' ? 'Лайк поставлен' : 'Лайк снят'); await loadFeed" not in r.text
+        assert "detail-panels" in r.text
+        assert "authorTotals" in r.text
+        assert "function renderAuthorCard(item, authorWorks)" in r.text
+        assert "author-work-count" in r.text
+        assert "more-col" in r.text
+        assert "overflow-y:auto;overflow-x:hidden" in r.text
+        assert "--more-ratio" in r.text
+        assert "modalSaveBtn" in r.text
+        assert "detail-icon save" in r.text
+        assert "в избранном" in r.text
+        assert "История создания" in r.text
+        assert "modalHistory" in r.text
+        assert "function renderSourceHistory(item)" in r.text
+        assert "Работы автора появятся во вкладке Подписки" in r.text
+        assert "Снять вашу публикацию с публичной ленты" in r.text
+        assert "feedbar.feedbar-hidden" in r.text
+        assert "updateFeedbarForScroll" in r.text
+        assert ".iv3.topbar-scope{--line:" in r.text
+        assert "position:sticky;top:0;z-index:160" in r.text
+        assert "mobile-bottom-nav" not in r.text
 
         asset = client.get("/static/feed/assets/mode_text.webp")
         assert asset.status_code == 200
@@ -203,8 +277,10 @@ def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
         viewer_token = make_user("iuid-viewer-tabs", "web_viewer_tabs", display_name="Зритель")
         make_image("img-tabs-a", "web_author_tabs", prompt="Москва 2120, город будущего")
         make_image("img-tabs-b", "web_author_tabs", prompt="Неоновый двор")
+        make_image("img-tabs-c", "web_author_tabs", prompt="Стеклянная башня")
         pub_a = publish(client, author_token, "img-tabs-a", title="Москва 2120")
         pub_b = publish(client, author_token, "img-tabs-b", title="Двор")
+        pub_c = publish(client, author_token, "img-tabs-c", title="Башня")
         with main.db() as conn:
             conn.execute(
                 "UPDATE feed_publications SET category = 'challenge_moscow_2120' WHERE id = ?",
@@ -233,14 +309,14 @@ def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
         )
         assert followed.status_code == 200
         following = client.get("/api/feed?type=following", headers=bearer(viewer_token)).json()
-        assert {item["id"] for item in following["items"]} == {pub_a["id"], pub_b["id"]}
+        assert {item["id"] for item in following["items"]} == {pub_a["id"], pub_b["id"], pub_c["id"]}
         assert all(item["is_followed_by_me"] for item in following["items"])
 
         author_items = client.get(
             f"/api/feed/authors/{pub_a['user_id']}/publications",
             headers=bearer(viewer_token),
         ).json()
-        assert {item["id"] for item in author_items["items"]} == {pub_a["id"], pub_b["id"]}
+        assert {item["id"] for item in author_items["items"]} == {pub_a["id"], pub_b["id"], pub_c["id"]}
         assert all(item["author"]["displayName"] == "Тимур Ким" for item in author_items["items"])
 
         disliked = client.post(
@@ -255,12 +331,28 @@ def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
         )
         assert hidden.status_code == 200
         assert hidden.json()["publication"]["is_hidden_by_me"] is True
+
+        following_after_hide = client.get("/api/feed?type=following", headers=bearer(viewer_token)).json()
+        assert {item["id"] for item in following_after_hide["items"]} == {pub_a["id"], pub_c["id"]}
+        fresh_after_hide = client.get("/api/feed?type=new&limit=2", headers=bearer(viewer_token)).json()
+        assert len(fresh_after_hide["items"]) == 2
+        assert pub_b["id"] not in {item["id"] for item in fresh_after_hide["items"]}
+
+        # Hide is personal: guests still see the published item.
+        guest_fresh = client.get("/api/feed?type=new").json()
+        assert pub_b["id"] in {item["id"] for item in guest_fresh["items"]}
+
         reported = client.post(
             f"/api/feed/publications/{pub_b['id']}/report",
             headers=bearer(viewer_token),
         )
         assert reported.status_code == 200
         assert reported.json()["publication"]["is_reported_by_me"] is True
+
+        # Negative reactions do not promote an item in Top. pub_a has a
+        # recreate signal; pub_b has dislike/hide/report and must not outrank it.
+        top_guest = client.get("/api/feed?type=top").json()
+        assert top_guest["items"][0]["id"] == pub_a["id"]
 
         challenges = client.get("/api/feed/challenges", headers=bearer(viewer_token)).json()
         assert challenges["ok"] is True
@@ -375,6 +467,233 @@ def test_gallery_delete_retires_feed_publication_and_variants(temp_db):
         assert row["media_error"] == "source_image_deleted"
 
 
+def test_admin_can_delete_feed_publication_without_deleting_gallery_source(temp_db):
+    with TestClient(main.app) as client:
+        owner_token = make_user("iuid-admin-feed-owner", "web_admin_feed_owner")
+        non_admin_token = make_user("iuid-admin-feed-user", "web_admin_feed_user")
+        admin_token = make_admin()
+        make_image("img-admin-feed-delete", "web_admin_feed_owner")
+        pub = publish(client, owner_token, "img-admin-feed-delete", title="Удалить из ленты")
+        with main.db() as conn:
+            row = conn.execute(
+                "SELECT feed_thumb_name, feed_large_name FROM feed_publications WHERE id = ?",
+                (pub["id"],),
+            ).fetchone()
+        thumb = main.MEDIA / row["feed_thumb_name"]
+        large = main.MEDIA / row["feed_large_name"]
+        assert thumb.exists()
+        assert large.exists()
+
+        denied = client.post(
+            f"/api/admin/feed/publications/{pub['id']}/delete-v2",
+            json={"reason": "moderation"},
+            headers=bearer(non_admin_token),
+        )
+        assert denied.status_code == 403
+
+        missing_reason = client.post(
+            f"/api/admin/feed/publications/{pub['id']}/delete-v2",
+            json={"reason": ""},
+            headers=bearer(admin_token),
+        )
+        assert missing_reason.status_code == 400
+
+        deleted = client.post(
+            f"/api/admin/feed/publications/{pub['id']}/delete-v2",
+            json={"reason": "moderation"},
+            headers=bearer(admin_token),
+        )
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json()["status"] == "hidden"
+        assert not thumb.exists()
+        assert not large.exists()
+        assert client.get(f"/api/feed/media/{pub['id']}?variant=thumb").status_code == 404
+        feed = client.get("/api/feed?type=new").json()
+        assert pub["id"] not in {item["id"] for item in feed["items"]}
+
+        gallery = client.get("/api/gallery/page", headers=bearer(owner_token)).json()
+        assert gallery["items"][0]["id"] == "img-admin-feed-delete"
+        assert gallery["items"][0]["published"] is False
+        assert gallery["items"][0]["feedMediaStatus"] is None
+        with main.db() as conn:
+            row = conn.execute(
+                "SELECT status, feed_thumb_name, feed_large_name, media_ready_at, media_error "
+                "FROM feed_publications WHERE id = ?",
+                (pub["id"],),
+            ).fetchone()
+            audits = conn.execute(
+                "SELECT COUNT(*) AS c FROM audit_logs WHERE action = 'admin_delete_feed_publication'"
+            ).fetchone()["c"]
+            events = conn.execute(
+                "SELECT COUNT(*) AS c FROM security_events WHERE event_type = 'admin_feed_publication_deleted'"
+            ).fetchone()["c"]
+        assert row["status"] == "hidden"
+        assert row["feed_thumb_name"] is None
+        assert row["feed_large_name"] is None
+        assert row["media_ready_at"] is None
+        assert row["media_error"] == "admin_deleted"
+        assert audits == 1
+        assert events == 1
+
+
+def test_owner_can_delete_feed_publication_without_deleting_gallery_source(temp_db):
+    with TestClient(main.app) as client:
+        owner_token = make_user("iuid-owner-feed-delete", "web_owner_feed_delete")
+        other_token = make_user("iuid-other-feed-delete", "web_other_feed_delete")
+        make_image("img-owner-feed-delete", "web_owner_feed_delete")
+        pub = publish(client, owner_token, "img-owner-feed-delete", title="Снять из ленты")
+        with main.db() as conn:
+            row = conn.execute(
+                "SELECT feed_thumb_name, feed_large_name FROM feed_publications WHERE id = ?",
+                (pub["id"],),
+            ).fetchone()
+        thumb = main.MEDIA / row["feed_thumb_name"]
+        large = main.MEDIA / row["feed_large_name"]
+        assert thumb.exists()
+        assert large.exists()
+
+        denied = client.delete(f"/api/feed/publications/{pub['id']}", headers=bearer(other_token))
+        assert denied.status_code == 403
+
+        deleted = client.delete(f"/api/feed/publications/{pub['id']}", headers=bearer(owner_token))
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json()["status"] == "hidden"
+        assert not thumb.exists()
+        assert not large.exists()
+        assert client.get(f"/api/feed/media/{pub['id']}?variant=thumb").status_code == 404
+        feed = client.get("/api/feed?type=new").json()
+        assert pub["id"] not in {item["id"] for item in feed["items"]}
+
+        gallery = client.get("/api/gallery/page", headers=bearer(owner_token)).json()
+        assert gallery["items"][0]["id"] == "img-owner-feed-delete"
+        assert gallery["items"][0]["published"] is False
+        assert gallery["items"][0]["feedMediaStatus"] is None
+        with main.db() as conn:
+            row = conn.execute(
+                "SELECT status, feed_thumb_name, feed_large_name, media_ready_at, media_error "
+                "FROM feed_publications WHERE id = ?",
+                (pub["id"],),
+            ).fetchone()
+            denied_events = conn.execute(
+                "SELECT COUNT(*) AS c FROM security_events WHERE event_type = 'feed_publication_delete_denied'"
+            ).fetchone()["c"]
+            deleted_events = conn.execute(
+                "SELECT COUNT(*) AS c FROM security_events WHERE event_type = 'feed_publication_owner_deleted'"
+            ).fetchone()["c"]
+            audits = conn.execute(
+                "SELECT COUNT(*) AS c FROM audit_logs WHERE action = 'delete_own_feed_publication'"
+            ).fetchone()["c"]
+        assert row["status"] == "hidden"
+        assert row["feed_thumb_name"] is None
+        assert row["feed_large_name"] is None
+        assert row["media_ready_at"] is None
+        assert row["media_error"] == "owner_deleted"
+        assert denied_events == 1
+        assert deleted_events == 1
+        assert audits == 1
+
+
+def test_owner_can_update_feed_publication_title(temp_db):
+    with TestClient(main.app) as client:
+        owner_token = make_user("iuid-owner-feed-edit", "web_owner_feed_edit")
+        other_token = make_user("iuid-other-feed-edit", "web_other_feed_edit")
+        make_image("img-owner-feed-edit", "web_owner_feed_edit")
+        pub = publish(client, owner_token, "img-owner-feed-edit", title="Старое название")
+
+        denied = client.patch(
+            f"/api/feed/publications/{pub['id']}",
+            json={"title": "Чужая правка"},
+            headers=bearer(other_token),
+        )
+        assert denied.status_code == 403
+
+        empty = client.patch(
+            f"/api/feed/publications/{pub['id']}",
+            json={"title": ""},
+            headers=bearer(owner_token),
+        )
+        assert empty.status_code == 400
+
+        updated = client.patch(
+            f"/api/feed/publications/{pub['id']}",
+            json={"title": "Новое название"},
+            headers=bearer(owner_token),
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["publication"]["title"] == "Новое название"
+        with main.db() as conn:
+            row = conn.execute("SELECT title FROM feed_publications WHERE id = ?", (pub["id"],)).fetchone()
+            audits = conn.execute(
+                "SELECT COUNT(*) AS c FROM audit_logs WHERE action = 'update_own_feed_publication'"
+            ).fetchone()["c"]
+        assert row["title"] == "Новое название"
+        assert audits == 1
+
+
+def test_feed_payload_marks_owner_and_admin_delete_capability(temp_db):
+    with TestClient(main.app) as client:
+        owner_token = make_user("iuid-feed-delete-owner", "web_feed_delete_owner")
+        other_token = make_user("iuid-feed-delete-other", "web_feed_delete_other")
+        admin_token = make_admin("iuid-feed-delete-admin", "web_feed_delete_admin")
+        make_image("img-feed-delete-capability", "web_feed_delete_owner")
+        pub = publish(client, owner_token, "img-feed-delete-capability", title="Право удаления")
+
+        owner_item = client.get("/api/feed?type=new", headers=bearer(owner_token)).json()["items"][0]
+        other_item = client.get("/api/feed?type=new", headers=bearer(other_token)).json()["items"][0]
+        admin_item = client.get("/api/feed?type=new", headers=bearer(admin_token)).json()["items"][0]
+        anon_item = client.get("/api/feed?type=new").json()["items"][0]
+
+        assert owner_item["id"] == pub["id"]
+        assert owner_item["can_delete_by_me"] is True
+        assert owner_item["delete_role"] == "owner"
+        assert other_item["can_delete_by_me"] is False
+        assert other_item["delete_role"] is None
+        assert admin_item["can_delete_by_me"] is True
+        assert admin_item["delete_role"] == "admin"
+        assert anon_item["can_delete_by_me"] is False
+        assert anon_item["delete_role"] is None
+
+
+def test_feed_payload_exposes_author_avatar(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-feed-avatar", "web_feed_avatar", display_name="Алекс")
+        with main.db() as conn:
+            conn.execute(
+                "UPDATE users SET avatar_url = '/media/avatars/alex.webp' WHERE internal_user_id = ?",
+                ("iuid-feed-avatar",),
+            )
+        make_image("img-feed-avatar", "web_feed_avatar")
+        pub = publish(client, token, "img-feed-avatar", title="Аватар автора")
+
+        item = client.get("/api/feed?type=new", headers=bearer(token)).json()["items"][0]
+        assert item["id"] == pub["id"]
+        assert item["author"]["displayName"] == "Алекс"
+        assert item["author"]["avatarUrl"] == "/media/avatars/alex.webp"
+
+
+def test_feed_payload_exposes_creation_history(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-feed-history", "web_feed_history")
+        make_image("img-feed-history", "web_feed_history")
+        with main.db() as conn:
+            conn.execute(
+                """
+                INSERT INTO image_sources (
+                    id, image_id, user_id, source_kind, role, slot_index,
+                    thumb_url, thumb_width, thumb_height, thumb_bytes, children_json, created_at
+                )
+                VALUES ('src-feed-history', 'img-feed-history', 'web_feed_history', 'upload', 'base', 1,
+                        '/api/media/source.webp?userId=web_feed_history', 320, 240, 1000, '[]', '2026-07-03')
+                """
+            )
+        publish(client, token, "img-feed-history", title="История")
+
+        item = client.get("/api/feed?type=new", headers=bearer(token)).json()["items"][0]
+        assert item["source_history"][0]["roleLabel"] == "Основа"
+        assert item["source_history"][0]["thumbUrl"].startswith("/api/media/source.webp")
+        assert item["source_history"][0]["width"] == 320
+
+
 def test_gallery_page_returns_visual_shell_contract(temp_db):
     with TestClient(main.app) as client:
         token = make_user("iuid-gallery-page", "web_gallery_page")
@@ -395,7 +714,7 @@ def test_gallery_page_returns_visual_shell_contract(temp_db):
         assert item["prompt"] == "город на рассвете"
         assert item["published"] is True
         assert item["feedPublicationId"] == pub["id"]
-        assert item["modeLabel"] == "Текст -> Изо"
+        assert item["modeLabel"] == "Из текста в изображение"
         assert item["aspectRatio"] == "3:2"
         assert item["src"].startswith("/api/media/")
 
@@ -404,6 +723,48 @@ def test_gallery_page_returns_visual_shell_contract(temp_db):
         assert feed_item["src"].endswith(f"/api/feed/media/{pub['id']}?variant=thumb")
         assert feed_item["viewerSrc"].endswith(f"/api/feed/media/{pub['id']}?variant=large")
         assert feed_item["likes"] == 1
+
+
+def test_gallery_page_feed_items_are_not_limited_to_visible_original_page(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-gallery-feed-page", "web_gallery_feed_page")
+        for index in range(5):
+            image_id = f"img-gallery-feed-page-{index}"
+            make_image(image_id, "web_gallery_feed_page", prompt=f"лента {index}")
+            if index < 3:
+                publish(client, token, image_id, title=f"Публикация {index}")
+
+        r = client.get("/api/gallery/page?limit=2", headers=bearer(token))
+        assert r.status_code == 200, r.text
+        data = r.json()
+
+        assert data["limits"]["feed"]["used"] == 3
+        assert len(data["items"]) == 2
+        assert len(data["feedItems"]) == 2
+        assert {item["id"] for item in data["feedItems"]} != {item["id"] for item in data["items"]}
+
+
+def test_gallery_page_does_not_mark_missing_feed_media_as_published(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-gallery-missing-feed", "web_gallery_missing_feed")
+        make_image("img-gallery-missing-feed", "web_gallery_missing_feed", prompt="город в тумане")
+        pub = publish(client, token, "img-gallery-missing-feed", title="Туман")
+        with main.db() as conn:
+            conn.execute(
+                "UPDATE feed_publications SET media_ready_at = NULL, media_error = 'test missing media' WHERE id = ?",
+                (pub["id"],),
+            )
+
+        r = client.get("/api/gallery/page", headers=bearer(token))
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["limits"]["feed"]["used"] == 0
+        item = data["items"][0]
+        assert item["id"] == "img-gallery-missing-feed"
+        assert item["published"] is False
+        assert item["feedPublicationId"] == pub["id"]
+        assert item["feedMediaStatus"] == "missing"
+        assert data["feedItems"] == []
 
 
 def test_feed_media_audit_flags_published_deleted_source(temp_db):
@@ -823,6 +1184,8 @@ def test_init_db_has_media_query_indexes(temp_db):
         "idx_jobs_user_created",
         "idx_jobs_result_image",
         "idx_feed_publications_media_ready",
+        "idx_feed_publications_category_ready_created",
+        "idx_feed_publications_legacy_ready_created",
     }
     assert expected <= indexes
 
