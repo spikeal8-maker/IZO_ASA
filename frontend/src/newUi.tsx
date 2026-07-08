@@ -844,7 +844,7 @@ export default function NewStudio(): ReactElement {
   const [paintTechPromptOpen, setPaintTechPromptOpen] = useState(false)
   const [paintColor, setPaintColor] = useState('#111827')
   const [paintCanvasBg, setPaintCanvasBg] = useState<'white' | 'gray'>('white')
-  const [paintOutpaint, setPaintOutpaint] = useState({ left: 256, right: 256, top: 0, bottom: 0 })
+  const [paintOutpaint, setPaintOutpaint] = useState({ left: 0, right: 0, top: 0, bottom: 0 })
   const [paintOutpaintPreview, setPaintOutpaintPreview] = useState<string>()
   const [paintStageSize, setPaintStageSize] = useState(() => paintStageForResolution(RESOLUTION_PRESETS[0]))
   const [paintWorkbenchVisible, setPaintWorkbenchVisible] = useState(true)
@@ -1427,6 +1427,8 @@ export default function NewStudio(): ReactElement {
       const effectiveSeed = seed || randomSeed()
       const requestSize = mode === 'face'
         ? await imageRequestSizeFromSource(faceSlots[0]?.image, size)
+        : mode === 'paint' && paintMode === 'outpaint'
+          ? size
         : mode === 'paint' && paintMode !== 'sketch'
           ? await imageRequestSizeFromSource(paintImage, size)
           : size
@@ -1753,7 +1755,7 @@ export default function NewStudio(): ReactElement {
         : paintMode === 'mask'
           ? 'Опишите, что должно появиться или измениться внутри маски...'
           : paintMode === 'outpaint'
-            ? 'Опишите, чем продолжить изображение за границами...'
+            ? 'Опишите, что дорисовать в пустых краях кадра: фон, свет, детали, продолжение сцены...'
             : 'Опишите, что важно сохранить после удаления фона...'
     : isEditStudio
       ? 'Например: сохранить лицо, заменить одежду, взять фон или цвет из референса...'
@@ -2085,6 +2087,23 @@ export default function NewStudio(): ReactElement {
     remove_bg: 'К удалению фона',
   }
 
+  function choosePaintMode(id: PaintSubMode) {
+    setPaintMode(id)
+    if (id === 'sketch') {
+      setPaintTool('brush')
+      setPaintBrushSize(3)
+    } else if (id === 'mask') {
+      setPaintTool('brush')
+      setPaintDrawMode('free')
+      setPaintBrushSize(25)
+    }
+    setPaintWorkbenchVisible(true)
+    setResultError(false)
+    setInspectPreview(null)
+    resetInspectView()
+    setPaintOutpaintPreview(undefined)
+  }
+
   function markVisiblePreviewError() {
     if (isPaintStudio) {
       setResultError(true)
@@ -2128,6 +2147,8 @@ export default function NewStudio(): ReactElement {
         paintImage={paintImage}
         paintSketchImage={paintSketchImage}
         paintOutpaintPreview={paintOutpaintPreview}
+        paintOutpaint={paintOutpaint}
+        setPaintOutpaint={setPaintOutpaint}
         paintStageSize={paintStageSize}
         paintLines={paintLines}
         setPaintLines={setPaintLines}
@@ -2520,28 +2541,21 @@ export default function NewStudio(): ReactElement {
               <h2>Режим рисунка</h2>
               <span>{paintModeMeta[paintMode].label}</span>
             </div>
+            <label className="paint-mode-select">
+              <span>Режим</span>
+              <select value={paintMode} onChange={(e) => choosePaintMode(e.target.value as PaintSubMode)}>
+                {(Object.keys(paintModeMeta) as PaintSubMode[]).map((id) => (
+                  <option value={id} key={id}>{paintModeMeta[id].label}</option>
+                ))}
+              </select>
+            </label>
             <div className="paint-mode-tabs" role="tablist" aria-label="Режимы рисунка">
               {(Object.keys(paintModeMeta) as PaintSubMode[]).map((id) => (
                 <button
                   key={id}
                   className={paintMode === id ? 'active' : ''}
                   type="button"
-                  onClick={() => {
-                    setPaintMode(id)
-                    if (id === 'sketch') {
-                      setPaintTool('brush')
-                      setPaintBrushSize(3)
-                    } else if (id === 'mask') {
-                      setPaintTool('brush')
-                      setPaintDrawMode('free')
-                      setPaintBrushSize(25)
-                    }
-                    setPaintWorkbenchVisible(true)
-                    setResultError(false)
-                    setInspectPreview(null)
-                    resetInspectView()
-                    setPaintOutpaintPreview(undefined)
-                  }}
+                  onClick={() => choosePaintMode(id)}
                 >
                   <span className="paint-tab-label">{paintModeMeta[id].label}</span>
                   <span className="paint-tab-state">

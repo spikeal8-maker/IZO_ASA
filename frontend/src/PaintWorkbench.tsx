@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import type { CSSProperties, Dispatch, RefObject, SetStateAction } from 'react'
+import type { CSSProperties, Dispatch, PointerEvent as ReactPointerEvent, RefObject, SetStateAction } from 'react'
 import { Brush, Eraser, History, Images, PaintBucket, Palette, Slash, Trash2, Undo2, Upload } from 'lucide-react'
 import { Circle, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import type { Stage as KonvaStage } from 'konva/lib/Stage'
@@ -16,6 +16,8 @@ type Props = {
   paintImage?: string
   paintSketchImage?: string
   paintOutpaintPreview?: string
+  paintOutpaint: { left: number; right: number; top: number; bottom: number }
+  setPaintOutpaint: Dispatch<SetStateAction<{ left: number; right: number; top: number; bottom: number }>>
   paintStageSize: { width: number; height: number }
   paintLines: PaintLine[]
   setPaintLines: Dispatch<SetStateAction<PaintLine[]>>
@@ -111,6 +113,10 @@ function loadImage(source: string) {
   })
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
 function PaintBitmapImage({ line, width, height }: { line: PaintLine; width: number; height: number }) {
   const [image, setImage] = useState<HTMLImageElement | null>(null)
   useEffect(() => {
@@ -133,6 +139,8 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
   paintImage,
   paintSketchImage,
   paintOutpaintPreview,
+  paintOutpaint,
+  setPaintOutpaint,
   paintStageSize,
   paintLines,
   setPaintLines,
@@ -151,12 +159,59 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
 }, ref) {
   const stageRef = useRef<KonvaStage>(null)
   const drawingRef = useRef(false)
+  const outpaintFrameRef = useRef<HTMLDivElement | null>(null)
+  const outpaintFitKeyRef = useRef('')
+  const outpaintDragRef = useRef<null | {
+    kind: 'image' | 'left' | 'right' | 'top' | 'bottom'
+    x: number
+    y: number
+    padding: { left: number; right: number; top: number; bottom: number }
+  }>(null)
   const [view, setView] = useState({ scale: 1, x: 0, y: 0 })
+  const [outpaintSourceSize, setOutpaintSourceSize] = useState({ width: paintStageSize.width, height: paintStageSize.height })
   const touchViewRef = useRef({ pinching: false, distance: 0, centerX: 0, centerY: 0, scale: 1, x: 0, y: 0 })
 
   useImperativeHandle(ref, () => ({
     toDataURL: () => stageRef.current?.toDataURL({ pixelRatio: 1 }),
   }), [])
+
+  useEffect(() => {
+    if (!paintImage) {
+      outpaintFitKeyRef.current = ''
+      return undefined
+    }
+    let cancelled = false
+    void loadImage(apiUrl(paintImage)).then((image) => {
+      if (!cancelled) {
+        setOutpaintSourceSize({ width: image.naturalWidth || image.width || paintStageSize.width, height: image.naturalHeight || image.height || paintStageSize.height })
+      }
+    }).catch(() => {
+      if (!cancelled) setOutpaintSourceSize({ width: paintStageSize.width, height: paintStageSize.height })
+    })
+    return () => { cancelled = true }
+  }, [apiUrl, paintImage, paintStageSize.height, paintStageSize.width])
+
+  useEffect(() => {
+    if (paintMode !== 'outpaint' || !paintImage) return
+    const sourceW = Math.max(1, outpaintSourceSize.width)
+    const sourceH = Math.max(1, outpaintSourceSize.height)
+    const frameW = Math.max(1, paintStageSize.width)
+    const frameH = Math.max(1, paintStageSize.height)
+    const fitKey = `${paintImage}|${sourceW}x${sourceH}|${frameW}x${frameH}`
+    if (outpaintFitKeyRef.current === fitKey) return
+    outpaintFitKeyRef.current = fitKey
+    const scale = Math.min(frameW / sourceW, frameH / sourceH)
+    const finalW = frameW / Math.max(0.0001, scale)
+    const finalH = frameH / Math.max(0.0001, scale)
+    const extraX = Math.max(0, Math.round(finalW - sourceW))
+    const extraY = Math.max(0, Math.round(finalH - sourceH))
+    setPaintOutpaint({
+      left: Math.floor(extraX / 2),
+      right: Math.ceil(extraX / 2),
+      top: Math.floor(extraY / 2),
+      bottom: Math.ceil(extraY / 2),
+    })
+  }, [outpaintSourceSize.height, outpaintSourceSize.width, paintImage, paintMode, paintStageSize.height, paintStageSize.width, setPaintOutpaint])
 
   function startPaintLine(stage: KonvaStage | null) {
     if (paintMode === 'outpaint' || paintMode === 'remove_bg') return
@@ -307,6 +362,49 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
     if (e.evt.touches.length === 0) stopPaintLine()
   }
 
+  function outpaintUnits(dx: number, dy: number) {
+    const box = outpaintFrameRef.current?.getBoundingClientRect()
+    const sourceSize = paintImage ? outpaintSourceSize : paintStageSize
+    const finalWidth = sourceSize.width + paintOutpaint.left + paintOutpaint.right
+    const finalHeight = sourceSize.height + paintOutpaint.top + paintOutpaint.bottom
+    return {
+      x: box?.width ? dx * finalWidth / box.width : 0,
+      y: box?.height ? dy * finalHeight / box.height : 0,
+    }
+  }
+
+  function startOutpaintDrag(kind: NonNullable<typeof outpaintDragRef.current>['kind'], event: ReactPointerEvent) {
+    if (!paintImage) return
+    event.preventDefault()
+    event.stopPropagation()
+    outpaintDragRef.current = { kind, x: event.clientX, y: event.clientY, padding: paintOutpaint }
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+
+  function moveOutpaintDrag(event: ReactPointerEvent) {
+    const drag = outpaintDragRef.current
+    if (!drag) return
+    event.preventDefault()
+    const delta = outpaintUnits(event.clientX - drag.x, event.clientY - drag.y)
+    const totalX = drag.padding.left + drag.padding.right
+    const totalY = drag.padding.top + drag.padding.bottom
+    setPaintOutpaint(() => {
+      if (drag.kind === 'image') {
+        const left = totalX > 0 ? Math.round(clamp(drag.padding.left + delta.x, 0, totalX)) : drag.padding.left
+        const top = totalY > 0 ? Math.round(clamp(drag.padding.top + delta.y, 0, totalY)) : drag.padding.top
+        return { left, right: totalX - left, top, bottom: totalY - top }
+      }
+      if (drag.kind === 'left') return { ...drag.padding, left: Math.round(clamp(drag.padding.left + delta.x, 0, 768)) }
+      if (drag.kind === 'right') return { ...drag.padding, right: Math.round(clamp(drag.padding.right - delta.x, 0, 768)) }
+      if (drag.kind === 'top') return { ...drag.padding, top: Math.round(clamp(drag.padding.top + delta.y, 0, 768)) }
+      return { ...drag.padding, bottom: Math.round(clamp(drag.padding.bottom - delta.y, 0, 768)) }
+    })
+  }
+
+  function stopOutpaintDrag() {
+    outpaintDragRef.current = null
+  }
+
   const renderPaintLine = (line: PaintLine, index: number | string) => {
     if (line.kind === 'bitmap') return <PaintBitmapImage key={index} line={line} width={paintStageSize.width} height={paintStageSize.height} />
     const color = line.tool === 'eraser' ? (paintMode === 'mask' ? 'rgba(0,0,0,.8)' : (paintCanvasBg === 'white' ? '#fff' : '#2b2f2c')) : (line.color || paintColor)
@@ -324,19 +422,28 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
   const needsPaintImage = paintMode !== 'sketch'
   const hasPaintImage = !!paintImage
   const uploadTitle = paintMode === 'sketch'
-    ? 'Загрузить эскиз'
+    ? 'Нарисуйте эскиз'
     : paintMode === 'mask'
       ? 'Загрузить изображение для маски'
       : paintMode === 'outpaint'
         ? 'Загрузить изображение для расширения'
         : 'Загрузить изображение для удаления фона'
   const uploadHint = paintMode === 'sketch'
-    ? 'Можно рисовать сразу или загрузить набросок прямо сюда.'
+    ? 'Нарисуйте эскиз и получите реалистичное изображение.'
     : paintMode === 'mask'
-      ? 'После загрузки сразу закрасьте область, которую нужно изменить.'
+      ? 'Загрузите изображение и выделите, что нужно изменить.'
       : paintMode === 'outpaint'
-        ? 'Изображение появится здесь, поля расширения настраиваются слева.'
+        ? 'Загрузите изображение, затем потяните исходник или его края в нужную сторону.'
         : 'Загрузите изображение, результат появится после генерации.'
+  const outpaintDisplaySize = paintImage ? outpaintSourceSize : paintStageSize
+  const outpaintFinalWidth = Math.max(1, outpaintDisplaySize.width + paintOutpaint.left + paintOutpaint.right)
+  const outpaintFinalHeight = Math.max(1, outpaintDisplaySize.height + paintOutpaint.top + paintOutpaint.bottom)
+  const outpaintImageStyle = {
+    left: `${paintOutpaint.left / outpaintFinalWidth * 100}%`,
+    top: `${paintOutpaint.top / outpaintFinalHeight * 100}%`,
+    width: `${outpaintDisplaySize.width / outpaintFinalWidth * 100}%`,
+    height: `${outpaintDisplaySize.height / outpaintFinalHeight * 100}%`,
+  } as CSSProperties
 
   return (
     <div
@@ -381,8 +488,29 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
         </div>
       )}
       {paintMode === 'outpaint' && (
-        <div className="paint-outpaint-frame">
-          {paintOutpaintPreview ? <img src={paintOutpaintPreview} alt="Предпросмотр расширения" /> : paintImage ? <img src={apiUrl(paintImage)} alt="Исходное изображение" /> : null}
+        <div
+          ref={outpaintFrameRef}
+          className={`paint-outpaint-frame${paintImage ? ' is-filled' : ''}`}
+          style={{ '--paint-stage-ratio': `${paintStageSize.width} / ${paintStageSize.height}` } as CSSProperties}
+          onPointerMove={moveOutpaintDrag}
+          onPointerUp={stopOutpaintDrag}
+          onPointerCancel={stopOutpaintDrag}
+          onPointerLeave={stopOutpaintDrag}
+        >
+          {paintImage ? (
+            <>
+              <div className="paint-outpaint-guidance">Потяните изображение или его края, чтобы задать пустые области для дорисовки</div>
+              <div className="paint-outpaint-empty-area" aria-hidden="true" />
+              <div className="paint-outpaint-source" style={outpaintImageStyle} onPointerDown={(event) => startOutpaintDrag('image', event)}>
+                <img src={apiUrl(paintImage)} alt="Исходное изображение" draggable={false} />
+                <button className="paint-outpaint-handle left" type="button" aria-label="Изменить левое поле" onPointerDown={(event) => startOutpaintDrag('left', event)} />
+                <button className="paint-outpaint-handle right" type="button" aria-label="Изменить правое поле" onPointerDown={(event) => startOutpaintDrag('right', event)} />
+                <button className="paint-outpaint-handle top" type="button" aria-label="Изменить верхнее поле" onPointerDown={(event) => startOutpaintDrag('top', event)} />
+                <button className="paint-outpaint-handle bottom" type="button" aria-label="Изменить нижнее поле" onPointerDown={(event) => startOutpaintDrag('bottom', event)} />
+              </div>
+              {paintOutpaintPreview && <img className="paint-outpaint-preview-ghost" src={paintOutpaintPreview} alt="Последний предпросмотр расширения" />}
+            </>
+          ) : null}
         </div>
       )}
       {paintMode === 'remove_bg' && (
@@ -416,8 +544,8 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
         >
           <Layer>
             <Rect width={paintStageSize.width} height={paintStageSize.height} fill={paintMode === 'mask' || paintSketchImage ? 'rgba(0,0,0,0)' : paintCanvasBg === 'white' ? '#ffffff' : '#2b2f2c'} />
-            {paintMode === 'sketch' && paintLines.length === 0 && !paintSketchImage && <Text text="Нарисуйте эскиз" x={paintStageSize.width / 2 - 94} y={paintStageSize.height / 2 - 13} fill="#74806d" fontSize={22} fontStyle="bold" />}
-            {paintMode === 'mask' && paintLines.length === 0 && <Text text="Закрасьте область маской" x={paintStageSize.width / 2 - 142} y={paintStageSize.height / 2 - 13} fill="#dfff22" fontSize={20} fontStyle="bold" opacity={0.72} />}
+            {paintMode === 'sketch' && paintLines.length === 0 && !paintSketchImage && <Text text="Нарисуйте эскиз и получите реалистичное изображение" x={Math.max(20, paintStageSize.width / 2 - 255)} y={paintStageSize.height / 2 - 13} fill="#74806d" fontSize={Math.min(22, Math.max(14, paintStageSize.width / 44))} fontStyle="bold" />}
+            {paintMode === 'mask' && paintLines.length === 0 && <Text text="Выделите область, которую нужно изменить" x={Math.max(20, paintStageSize.width / 2 - 210)} y={paintStageSize.height / 2 - 13} fill="#dfff22" fontSize={Math.min(20, Math.max(14, paintStageSize.width / 46))} fontStyle="bold" opacity={0.72} />}
             {paintLines.map((line, index) => line.fill ? renderPaintLine(line, `${index}-fill`) : null)}
             {paintLines.map((line, index) => line.fill ? null : renderPaintLine(line, `${index}-stroke`))}
           </Layer>
