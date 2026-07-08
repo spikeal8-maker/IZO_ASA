@@ -288,6 +288,10 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const [reloadKey, setReloadKey] = useState(0)
   const [act, setAct] = useState<{ kind: ActKind; preset?: string; context?: AnyRec } | null>(null)
   const [tab, setTab] = useState<'logs' | 'payments' | 'loyalty' | 'prompts' | 'gallery' | 'tech'>('logs')
+  const [selectedImage, setSelectedImage] = useState<AnyRec | null>(null)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteMsg, setDeleteMsg] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -335,30 +339,64 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const unpaidInvoice = (data?.invoices_recent || []).find((i) => ['draft', 'issued'].includes(String(i.status)))
   const refundablePayment = (data?.payments_recent || []).find((p) => ['paid', 'partially_refunded'].includes(String(p.status)))
   const cancellableBonus = (data?.bonus_grants_recent || []).find((b) => String(b.status) === 'granted' && n0(b.token_amount) > 0)
+  const recentGenerations = data?.recent_generations || []
+  const recentGallery = data?.recent_gallery || []
+  const imageUrl = (img: AnyRec) => String(img.image_url || img.thumbnail_url || img.result_image_url || '')
+  const openImage = (img: AnyRec) => {
+    setSelectedImage(img)
+    setDeleteReason('')
+    setDeleteMsg('')
+  }
+  const deleteGalleryImage = async () => {
+    if (!selectedImage?.admin_delete_id || !u.internal_user_id || !deleteReason.trim()) return
+    setDeleteBusy(true); setDeleteMsg('')
+    try {
+      const res = await adminPost(`/admin/users/${encodeURIComponent(u.internal_user_id)}/gallery/${encodeURIComponent(String(selectedImage.admin_delete_id))}/delete-v2`, { reason: deleteReason.trim() })
+      if (!res.ok) { setDeleteMsg(res.detail || `Ошибка ${res.status}`); return }
+      setSelectedImage(null); setDeleteReason(''); setReloadKey((k) => k + 1); onChanged?.()
+    } finally {
+      setDeleteBusy(false)
+    }
+  }
 
   return (
     <div className="crm-card-overlay" onClick={onClose}>
       <div className="crm-card" role="dialog" aria-label="Карточка пользователя" onClick={(e) => e.stopPropagation()}>
         <header className="crm-card-header">
-          <div className="crm-card-id crm-card-id-rich">
-            <AvatarMark u={sm} ids={ids} className={`crm-avatar activity-${active} ${isBanned ? 'risk' : ''}`} />
-            <div>
-              <h2>{parsedName(sm, ids)}</h2>
-              <span className="crm-preview-code">{S(sm.public_user_code)}</span>
+          <div className="crm-card-hero">
+            <div className="crm-card-id crm-card-id-rich">
+              <AvatarMark u={sm} ids={ids} className={`crm-avatar activity-${active} ${isBanned ? 'risk' : ''}`} />
+              <div className="crm-card-person">
+                <div className="crm-card-titleline">
+                  <h2>{parsedName(sm, ids)}</h2>
+                  <span className={isBanned ? 'status-banned' : 'status-active'}>{S(sm.status)}</span>
+                  <span className="crm-role-chip">{S(sm.role)}</span>
+                  <span className="crm-plan-chip">{S(sm.plan)}</span>
+                </div>
+                <div className="crm-card-code-row">
+                  <span className="crm-preview-code">{S(sm.public_user_code)}</span>
+                  <button type="button" className="crm-copy-mini" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)} title="Скопировать код">□</button>
+                </div>
+                <div className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</div>
+                <div className="crm-card-kpis">
+                  <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Списано <b>{S(sm.tokens_spent)}</b></span>
+                  <span>Генераций <b>{S(sm.generations_count)}</b></span><span>Галерея <b>{quotaLabel(sm)}</b></span>
+                  <span>Последняя активность <b>{shortTime(sm.last_seen_at)}</b></span><span>Создан <b>{shortTime(sm.first_seen_at)}</b></span><span>Риск <b>{riskLabel(sm)}</b></span>
+                </div>
+                <div className="crm-activity-legend">
+                  <span className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}
+                  <span className="crm-dot activity-online" />Онлайн
+                  <span className="crm-dot activity-today" />Сегодня
+                  <span className="crm-dot activity-week" />Неделя
+                  <span className="crm-dot activity-cold" />Нет генераций
+                </div>
+              </div>
             </div>
-            <span className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</span>
-            <span className={isBanned ? 'status-banned' : 'status-active'}>{S(sm.status)}</span>
-            <span>{S(sm.role)}</span><span>{S(sm.plan)}</span><span>{ACTIVITY_LABEL[active]}</span>
-          </div>
-          <div className="crm-card-top-actions">
-            <button className="secondary" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>Копировать</button>
-            <button className="secondary" onClick={() => setTab('tech')}>Профиль</button>
-            <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
-          </div>
-          <div className="crm-card-kpis">
-            <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Списано <b>{S(sm.tokens_spent)}</b></span>
-            <span>Генераций <b>{S(sm.generations_count)}</b></span><span>Галерея <b>{quotaLabel(sm)}</b></span>
-            <span>Вход {shortTime(sm.last_seen_at)}</span><span>Создан {shortTime(sm.first_seen_at)}</span><span>Риск <b>{riskLabel(sm)}</b></span>
+            <div className="crm-card-top-actions">
+              <button className="secondary crm-card-icon-action" title="Копировать код" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>□</button>
+              <button className="secondary" onClick={() => setTab('tech')}>Открыть профиль</button>
+              <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
+            </div>
           </div>
         </header>
 
@@ -384,13 +422,43 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 )
               })}{!ids?.length && <p className="crm-card-note">—</p>}
             </div>
-            <div className="crm-panel">
-              <h4>Контент</h4>
-              <dl className="crm-preview-list">
-                {row('Генерации', sm.generations_count)}{row('Промпты', data?.recent_generations?.length ?? 0)}{row('Галерея', quotaLabel(sm))}{row('Последний контент', shortTime(data?.recent_generations?.[0]?.created_at))}
+            <div className="crm-panel crm-content-panel">
+              <div className="crm-panel-titleline">
+                <h4>Контент</h4>
+                <div>
+                  <button type="button" className="crm-panel-link" onClick={() => setTab('prompts')}>Промпты</button>
+                  <button type="button" className="crm-panel-link" onClick={() => setTab('gallery')}>Галерея</button>
+                </div>
+              </div>
+              <dl className="crm-preview-list crm-content-stats">
+                {row('Генерации', sm.generations_count)}{row('Промпты', recentGenerations.length)}{row('Галерея', quotaLabel(sm))}{row('Последний контент', shortTime(recentGenerations[0]?.created_at || recentGallery[0]?.created_at))}
               </dl>
-              <div className="crm-rows">
-                {(data?.recent_generations || []).slice(0, 5).map((g, n) => <small key={n}><strong>{S(g.status)}</strong> · {S(g.mode)} · {S(g.provider || g.model)} · {S(g.token_cost)} ток. · {S(g.prompt)}</small>)}
+              <div className="crm-content-grid">
+                <div className="crm-prompt-feed" aria-label="Последние генерации и промпты">
+                  {recentGenerations.slice(0, 5).map((g, n) => (
+                    <button type="button" className="crm-prompt-row" key={n} onClick={() => setTab('prompts')}>
+                      <span className="crm-prompt-meta">
+                        <strong>{S(g.status || 'generation')}</strong>
+                        <span>{S(g.mode)}</span>
+                        <span>{S(g.provider || g.model)}</span>
+                        <span>{shortTime(g.created_at)}</span>
+                        {g.token_cost !== undefined && g.token_cost !== null && <span>{S(g.token_cost)} ток.</span>}
+                      </span>
+                      <span className="crm-prompt-text">{S(g.prompt || g.error || 'Промпт не сохранён')}</span>
+                      <span className="crm-prompt-foot">job {S(g.id)}{g.result_image_id ? ` · image ${S(g.result_image_id)}` : ''}</span>
+                    </button>
+                  ))}
+                  {!recentGenerations.length && <p className="crm-card-note">Пока нет сохранённых генераций с промптом.</p>}
+                </div>
+                <div className="crm-gallery-preview" aria-label="Последние изображения пользователя">
+                  {recentGallery.slice(0, 6).map((img, n) => (
+                    <button type="button" className="crm-gallery-thumb" key={n} onClick={() => openImage(img)} title={S(img.prompt)}>
+                      {imageUrl(img) ? <img src={imageUrl(img)} alt="" /> : <span className="crm-gallery-empty">Нет превью</span>}
+                      <small>{S(img.mode)} · {shortTime(img.created_at)}</small>
+                    </button>
+                  ))}
+                  {!recentGallery.length && <p className="crm-card-note">В галерее нет доступных миниатюр.</p>}
+                </div>
               </div>
             </div>
             <div className="crm-panel">
@@ -479,7 +547,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               {(data?.referral_rewards_recent || []).map((r, n) => <small key={`lw${n}`}>Реф. награда {shortId(r.id)} · {S(r.status)} · +{S(r.token_amount)} ток. · ledger {S(r.token_ledger_id)}</small>)}
             </div>{!data?.promo_redemptions_recent?.length && !data?.bonus_grants_recent?.length && !data?.referral_rewards_recent?.length && <p className="crm-card-note">Нет реальных промо/бонусов/реферальных начислений.</p>}</div>}
             {tab === 'prompts' && <div className="crm-acc"><strong>Промпты</strong><div className="crm-rows">{(data?.recent_generations || []).slice(0, 12).map((g, n) => <small key={n}>{shortTime(g.created_at)} · {S(g.mode)} · {S(g.status)} · {S(g.prompt)}</small>)}</div>{!data?.recent_generations?.length && <p className="crm-card-note">—</p>}</div>}
-            {tab === 'gallery' && <div className="crm-acc"><strong>Галерея</strong><div className="crm-gallery-strip">{(data?.recent_gallery || []).slice(0, 8).map((img, n) => <span key={n}><img src={String(img.thumbnail_url)} alt="" /><small>{S(img.mode)} · {shortTime(img.created_at)}</small></span>)}</div>{!data?.recent_gallery?.length && <p className="crm-card-note">—</p>}</div>}
+            {tab === 'gallery' && <div className="crm-acc"><strong>Галерея</strong><div className="crm-gallery-strip">{(data?.recent_gallery || []).slice(0, 8).map((img, n) => <button type="button" className="crm-gallery-strip-item" key={n} onClick={() => openImage(img)}><img src={imageUrl(img)} alt="" /><small>{S(img.mode)} · {shortTime(img.created_at)}</small></button>)}</div>{!data?.recent_gallery?.length && <p className="crm-card-note">—</p>}</div>}
             {tab === 'tech' && <div className="crm-acc">
               <strong>Технические идентификаторы</strong>
               <p className="legacy-admin-warn">Не показывать пользователю.</p>
@@ -499,6 +567,36 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
         </div>
 
         {act && <ActionConfirm target={merged} kind={act.kind} preset={act.preset} context={act.context} onClose={() => setAct(null)} onDone={() => { setReloadKey((k) => k + 1); onChanged?.() }} />}
+        {selectedImage && (
+          <div className="crm-image-modal" onClick={() => setSelectedImage(null)}>
+            <div className="crm-image-dialog" role="dialog" aria-label="Изображение пользователя" onClick={(e) => e.stopPropagation()}>
+              <div className="crm-image-head">
+                <strong>Изображение пользователя</strong>
+                <button className="auth-modal-close" aria-label="Закрыть" onClick={() => setSelectedImage(null)}>×</button>
+              </div>
+              <div className="crm-image-body">
+                <div className="crm-image-frame">{imageUrl(selectedImage) ? <img src={imageUrl(selectedImage)} alt="" /> : <span>Нет превью</span>}</div>
+                <aside className="crm-image-side">
+                  <dl className="crm-preview-list">
+                    {row('Режим', selectedImage.mode)}{row('Провайдер', selectedImage.provider)}{row('Создано', shortTime(selectedImage.created_at))}
+                    {row('Image', selectedImage.id)}{row('Job', selectedImage.job_id)}{row('Избранное', selectedImage.favorite ? 'да' : 'нет')}
+                  </dl>
+                  <div className="crm-image-prompt">
+                    <strong>Промпт</strong>
+                    <p>{S(selectedImage.prompt || 'Промпт не сохранён')}</p>
+                  </div>
+                  <div className="crm-image-danger">
+                    <strong>Удаление из галереи</strong>
+                    <p className="crm-card-note">Картинка будет скрыта у пользователя, действие попадёт в audit log.</p>
+                    <input value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Причина удаления" />
+                    <button className="secondary danger crm-supported-action" disabled={!adminReady || deleteBusy || !deleteReason.trim()} onClick={() => void deleteGalleryImage()}>{deleteBusy ? 'Удаляю…' : 'Удалить изображение'}</button>
+                    {deleteMsg && <p className="crm-err">{deleteMsg}</p>}
+                  </div>
+                </aside>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

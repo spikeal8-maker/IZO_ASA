@@ -154,7 +154,7 @@ def test_all_generation_modes_complete_and_save_gallery_records(monkeypatch) -> 
             assert final["status"] == "completed"
             assert final["progress"] == 100
             assert final["resultImageId"]
-            assert final["resultUrl"].split("?", 1)[0].endswith(".png")
+            assert final["resultUrl"].split("?", 1)[0].endswith(".webp")
             completed.append(final)
 
         gallery = client.get("/api/gallery").json()
@@ -185,7 +185,7 @@ def test_openrouter_generation_skips_comfyui(monkeypatch) -> None:
         final = wait_for_terminal_job(client, response.json()["id"])
 
     assert final["status"] == "completed"
-    assert final["resultUrl"].split("?", 1)[0].endswith(".png")
+    assert final["resultUrl"].split("?", 1)[0].endswith(".webp")
 
 
 def test_cancel_generation_sets_cancelled_status(monkeypatch) -> None:

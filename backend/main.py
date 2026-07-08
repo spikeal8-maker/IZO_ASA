@@ -4,6 +4,8 @@ import asyncio
 import base64
 import io
 import json
+import math
+import mimetypes
 import os
 import re
 import secrets
@@ -34,10 +36,17 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parent
 MEDIA = ROOT / "media"
 MEDIA.mkdir(exist_ok=True)
+STATIC_DIR = ROOT / "static"
+GALLERY_PAGE_FILE = STATIC_DIR / "gallery" / "index.html"
+FEED_PAGE_FILE = STATIC_DIR / "feed" / "index.html"
 AVATAR_DIR = MEDIA / "avatars"
 AVATAR_DIR.mkdir(exist_ok=True)
 COMFYUI_INPUT_MAX_SIDE = max(512, min(2048, int(os.getenv("COMFYUI_INPUT_MAX_SIDE", "1536"))))
+COMFYUI_FACE_INPUT_MAX_SIDE = max(512, min(COMFYUI_INPUT_MAX_SIDE, int(os.getenv("COMFYUI_FACE_INPUT_MAX_SIDE", "1024"))))
+COMFYUI_FACE_SOURCE_MEGAPIXELS = max(0.15, min(1.0, float(os.getenv("COMFYUI_FACE_SOURCE_MEGAPIXELS", "0.35"))))
 COMFYUI_INPUT_MIN_SIDE = 256
+GALLERY_IMAGE_MAX_SIDE = max(1024, min(4096, int(os.getenv("GALLERY_IMAGE_MAX_SIDE", "2048"))))
+GALLERY_IMAGE_WEBP_QUALITY = max(70, min(95, int(os.getenv("GALLERY_IMAGE_WEBP_QUALITY", "90"))))
 
 
 def load_local_env() -> None:
@@ -56,6 +65,7 @@ def load_local_env() -> None:
 
 
 load_local_env()
+mimetypes.add_type("image/webp", ".webp")
 
 # Identity Core session service (Phase 4 + 4.1). Keying material for token hashing
 # comes from the environment when available. Only hashes are persisted — raw tokens
@@ -84,6 +94,7 @@ COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188")
 COMFYUI_REQUIRED = os.getenv("COMFYUI_REQUIRED", "false").lower() == "true"
 COMFYUI_MOCK_FALLBACK = os.getenv("COMFYUI_MOCK_FALLBACK", "false").lower() == "true"
 COMFYUI_TIMEOUT_SECONDS = int(os.getenv("COMFYUI_TIMEOUT_SECONDS", "900"))
+COMFYUI_FACE_TIMEOUT_SECONDS = max(60, min(COMFYUI_TIMEOUT_SECONDS, int(os.getenv("COMFYUI_FACE_TIMEOUT_SECONDS", "240"))))
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -208,7 +219,45 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/media", StaticFiles(directory=MEDIA), name="media")
+
+
+@app.get("/", include_in_schema=False)
+async def home_page_shell() -> FileResponse:
+    return await gallery_page_shell()
+
+
+@app.get("/gallery", include_in_schema=False)
+async def gallery_page_shell() -> FileResponse:
+    if not GALLERY_PAGE_FILE.exists():
+        raise HTTPException(404, "Gallery page is not installed.")
+    return FileResponse(
+        GALLERY_PAGE_FILE,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/gallery/", include_in_schema=False)
+async def gallery_page_shell_slash() -> FileResponse:
+    return await gallery_page_shell()
+
+
+@app.get("/feed", include_in_schema=False)
+async def feed_page_shell() -> FileResponse:
+    if not FEED_PAGE_FILE.exists():
+        raise HTTPException(404, "Feed page is not installed.")
+    return FileResponse(
+        FEED_PAGE_FILE,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/feed/", include_in_schema=False)
+async def feed_page_shell_slash() -> FileResponse:
+    return await feed_page_shell()
 
 
 class Lora(BaseModel):
@@ -400,6 +449,15 @@ class AdminProfileV2Request(BaseModel):
     gender: Literal["female", "male"] | None = None
     age: int | None = None
     reason: str = ""
+
+
+class AdminDeleteImageV2Request(BaseModel):
+    reason: str = ""
+
+
+class AdminMailTestV2Request(BaseModel):
+    email: str = ""
+    template: Literal["verify_email", "support_reply", "system_notice"] = "verify_email"
 
 
 class BillingInvoiceItemV2Request(BaseModel):
@@ -1364,6 +1422,19 @@ def init_db() -> None:
         # alongside the legacy provider-based users.id, plus idempotent backfill.
         if "internal_user_id" not in existing_user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN internal_user_id TEXT")
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO users (
+                id, username, first_name, display_name, language, role, plan,
+                token_balance, gallery_enabled, internal_user_id, created_at, last_login_at
+            )
+            VALUES (
+                'seed_editorial', 'seed_editorial', 'Выбор редакции', 'Выбор редакции',
+                'ru', 'user', 'mini', 0, 0, 'seed_editorial', ?, ?
+            )
+            """,
+            (now, now),
+        )
 
         conn.executescript(
             """
@@ -1560,6 +1631,73 @@ def init_db() -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS ux_auth_passwords_active
                 ON auth_passwords(internal_user_id) WHERE disabled_at IS NULL;
 
+            -- Live Feed MVP: публикации из личной галереи + реакции (like/save).
+            -- Additive-only. Публикация ссылается на существующую строку images;
+            -- prompt_visibility: open | partial | hidden. status: published | hidden.
+            CREATE TABLE IF NOT EXISTS feed_publications (
+                id TEXT PRIMARY KEY,
+                image_id TEXT NOT NULL UNIQUE,
+                internal_user_id TEXT NOT NULL,
+                legacy_user_id TEXT,
+                title TEXT NOT NULL,
+                description TEXT,
+                prompt_visibility TEXT NOT NULL DEFAULT 'open',
+                allow_recreate INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'published',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_feed_publications_status_created
+                ON feed_publications(status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_feed_publications_user
+                ON feed_publications(internal_user_id);
+
+            CREATE TABLE IF NOT EXISTS feed_reactions (
+                publication_id TEXT NOT NULL,
+                internal_user_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (publication_id, internal_user_id, kind)
+            );
+            CREATE INDEX IF NOT EXISTS idx_feed_reactions_publication
+                ON feed_reactions(publication_id, kind);
+
+            CREATE TABLE IF NOT EXISTS feed_author_follows (
+                follower_internal_user_id TEXT NOT NULL,
+                author_internal_user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (follower_internal_user_id, author_internal_user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_feed_author_follows_author
+                ON feed_author_follows(author_internal_user_id);
+
+            CREATE TABLE IF NOT EXISTS challenges (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                rules TEXT NOT NULL,
+                prompt_hint TEXT,
+                category TEXT NOT NULL,
+                status TEXT NOT NULL,
+                reward_pool INTEGER NOT NULL DEFAULT 0,
+                starts_at TEXT NOT NULL,
+                ends_at TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS challenge_entries (
+                id TEXT PRIMARY KEY,
+                challenge_id TEXT NOT NULL,
+                publication_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                judge_score REAL,
+                final_score REAL,
+                created_at TEXT NOT NULL,
+                UNIQUE (challenge_id, publication_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_challenge_entries_challenge
+                ON challenge_entries(challenge_id, status);
+
             CREATE TABLE IF NOT EXISTS password_reset_challenges (
                 id TEXT PRIMARY KEY,
                 internal_user_id TEXT NOT NULL,
@@ -1582,6 +1720,77 @@ def init_db() -> None:
         auth_sessions_columns = {row["name"] for row in conn.execute("PRAGMA table_info(auth_sessions)").fetchall()}
         if "refresh_expires_at" not in auth_sessions_columns:
             conn.execute("ALTER TABLE auth_sessions ADD COLUMN refresh_expires_at TEXT")
+
+        # Feed media architecture: additive-only public feed asset metadata.
+        # Some live DBs already have early feed columns, so check every column
+        # individually. Originals stay in images; public feed variants live here.
+        feed_publication_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()
+        }
+        for column, definition in {
+            "feed_thumb_name": "TEXT",
+            "feed_large_name": "TEXT",
+            "feed_thumb_width": "INTEGER",
+            "feed_thumb_height": "INTEGER",
+            "feed_thumb_bytes": "INTEGER",
+            "feed_large_width": "INTEGER",
+            "feed_large_height": "INTEGER",
+            "feed_large_bytes": "INTEGER",
+            "media_ready_at": "TEXT",
+            "media_error": "TEXT",
+            "native_aspect_ratio": "TEXT",
+            "orientation": "TEXT",
+            "source_type": "TEXT",
+            "source_label": "TEXT",
+            "display_policy": "TEXT",
+            "category": "TEXT",
+            "remix_policy": "TEXT",
+            "tags_json": "TEXT",
+            "updated_at": "TEXT",
+        }.items():
+            if column not in feed_publication_columns:
+                conn.execute(f"ALTER TABLE feed_publications ADD COLUMN {column} {definition}")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_feed_publications_media_ready "
+            "ON feed_publications(status, media_ready_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_images_user_deleted_created "
+            "ON images(user_id, deleted_at, created_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_images_job_id "
+            "ON images(job_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_user_created "
+            "ON jobs(user_id, created_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_result_image "
+            "ON jobs(result_image_id)"
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO challenges (
+                id, title, description, rules, prompt_hint, category, status,
+                reward_pool, starts_at, ends_at, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+            """,
+            (
+                "moscow_2120_week",
+                "Москва 2120",
+                "Покажите город будущего. Лучшие работы получают токены и место в витрине.",
+                "Создайте образ Москвы будущего: город, транспорт, люди, архитектура или повседневная сцена. Без логотипов, текста на изображении и копирования чужих работ.",
+                "Футуристическая Москва 2120 года, город будущего, выразительная архитектура, живые люди, кинематографичный свет",
+                "challenge_moscow_2120",
+                10000,
+                "2026-07-01T00:00:00+00:00",
+                "2026-07-14T23:59:59+00:00",
+                now,
+            ),
+        )
 
         backfill_identity_core(conn, now)
 
@@ -3530,6 +3739,20 @@ def _clamp_limit(limit: int, default: int = 50, maximum: int = 200) -> int:
     return max(1, min(int(limit), maximum))
 
 
+def _user_model_name(raw: str | None) -> str:
+    """Пользователь видит только «Flux2» — никогда точный идентификатор модели.
+    Flux Klein 4B/9B, local_flux_klein и другие flux-варианты → «Flux2».
+    OpenRouter → «OpenRouter». Всё остальное → «Flux2» (безопасное умолчание)."""
+    if not raw:
+        return "Flux2"
+    lowered = raw.lower()
+    if any(kw in lowered for kw in ("flux", "klein", "local_flux")):
+        return "Flux2"
+    if "openrouter" in lowered:
+        return "OpenRouter"
+    return "Flux2"
+
+
 def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
     settings = json.loads(row["settings_json"] or "{}")
     return {
@@ -3544,7 +3767,7 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
         "seed": settings.get("seed", 0),
         "width": row["width"],
         "height": row["height"],
-        "modelProfile": settings.get("modelProfile", ""),
+        "modelProfile": _user_model_name(settings.get("modelProfile")),
         "loras": settings.get("loras", []),
         "preset": settings.get("preset"),
         "generationTimeMs": settings.get("generationTimeMs", 0),
@@ -3556,10 +3779,238 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _gallery_aspect_ratio(width: int | None, height: int | None) -> str | None:
+    if not width or not height:
+        return None
+    gcd = math.gcd(int(width), int(height))
+    if gcd <= 0:
+        return None
+    return f"{int(width) // gcd}:{int(height) // gcd}"
+
+
+def _gallery_mode_label(mode: str | None) -> str:
+    return {
+        "text_to_image": "Текст -> Изо",
+        "image_to_image": "Изо -> Изо",
+        "face": "Лицо",
+        "face_swap": "Лицо",
+        "drawing": "Рисунок",
+        "editor": "Редактор",
+    }.get(str(mode or "").strip(), str(mode or "Текст -> Изо"))
+
+
+def _gallery_source_ids(settings: dict[str, Any]) -> list[str]:
+    raw = (
+        settings.get("sourceImageIds")
+        or settings.get("source_image_ids")
+        or settings.get("sourceIds")
+        or []
+    )
+    if not isinstance(raw, list):
+        return []
+    return [str(item) for item in raw[:4] if str(item or "").strip()]
+
+
+def _gallery_page_item(
+    row: sqlite3.Row,
+    publication: sqlite3.Row | None = None,
+    *,
+    include_feed_media: bool = False,
+) -> dict[str, Any]:
+    settings = json.loads(row["settings_json"] or "{}")
+    publication_id = _row_get(publication, "id") if publication is not None else None
+    published = bool(publication_id and _row_get(publication, "status") == "published")
+    thumb_url = row["thumbnail_url"]
+    image_url = row["url"]
+    if include_feed_media and publication_id:
+        thumb_url = f"/api/feed/media/{publication_id}?variant=thumb"
+        image_url = f"/api/feed/media/{publication_id}?variant=large"
+    prompt = row["prompt_original"] or row["prompt_translated"] or ""
+    width = int(row["width"] or 0)
+    height = int(row["height"] or 0)
+    return {
+        "id": row["id"],
+        "imageId": row["id"],
+        "src": thumb_url,
+        "thumbnailUrl": thumb_url,
+        "viewerSrc": image_url,
+        "downloadUrl": image_url,
+        "prompt": prompt,
+        "promptOriginal": row["prompt_original"] or "",
+        "promptTranslated": row["prompt_translated"] or "",
+        "mode": row["mode"],
+        "modeLabel": _gallery_mode_label(row["mode"]),
+        "provider": row["provider"],
+        "model": _user_model_name(settings.get("modelProfile") or row["provider"]),
+        "modelProfile": _user_model_name(settings.get("modelProfile") or row["provider"]),
+        "preset": settings.get("preset") or settings.get("styleName"),
+        "loras": settings.get("loras") if isinstance(settings.get("loras"), list) else [],
+        "seed": settings.get("seed"),
+        "width": width,
+        "height": height,
+        "aspect": _gallery_aspect_ratio(width, height),
+        "aspectRatio": _gallery_aspect_ratio(width, height),
+        "createdAt": row["created_at"],
+        "date": row["created_at"],
+        "generationTimeMs": settings.get("generationTimeMs", 0),
+        "genTime": settings.get("generationTimeMs", 0),
+        "favorite": bool(row["is_favorite"]),
+        "isFavorite": bool(row["is_favorite"]),
+        "published": published,
+        "feedPublicationId": publication_id,
+        "publishedAt": _row_get(publication, "created_at") if publication is not None else None,
+        "feedMediaStatus": "ready" if (
+            publication is not None
+            and _row_get(publication, "media_ready_at")
+            and _row_get(publication, "feed_thumb_name")
+            and _row_get(publication, "feed_large_name")
+        ) else ("missing" if publication is not None else None),
+        "views": _row_get(publication, "view_count") if publication is not None else 0,
+        "likes": 0,
+        "saves": 0,
+        "remixes": 0,
+        "sourceIds": _gallery_source_ids(settings),
+    }
+
+
+def _gallery_page_limits(
+    conn: sqlite3.Connection,
+    user_row: sqlite3.Row | None,
+    legacy_user_id: str,
+) -> dict[str, Any]:
+    quota = gallery_quota_for_user(conn, user_row, legacy_user_id)
+    feed_used = int(conn.execute(
+        """
+        SELECT COUNT(*) AS c FROM feed_publications
+        WHERE legacy_user_id = ? AND status = 'published'
+        """,
+        (legacy_user_id,),
+    ).fetchone()["c"])
+    favorites_used = int(conn.execute(
+        """
+        SELECT COUNT(*) AS c FROM images
+        WHERE user_id = ? AND is_favorite = 1 AND (deleted_at IS NULL OR deleted_at = '')
+        """,
+        (legacy_user_id,),
+    ).fetchone()["c"])
+    favorite_limit = max(0, int(quota["gallery_slots"]) * 80 // 100)
+    return {
+        "plan": quota["plan"],
+        "originals": {
+            "used": quota["gallery_used"],
+            "limit": quota["gallery_slots"],
+            "free": quota["gallery_free"],
+            "full": quota["gallery_full"],
+        },
+        "feed": {
+            "used": feed_used,
+            "limit": quota["gallery_slots"],
+        },
+        "favorites": {
+            "used": favorites_used,
+            "limit": favorite_limit,
+        },
+    }
+
+
+def recover_gallery_index_from_media(conn: sqlite3.Connection) -> int:
+    """Rebuild missing gallery rows from token ledger + existing media files.
+
+    This is a safe self-heal path for cases where SQLite gallery metadata was
+    lost while generated files and token ledger rows remained. It only restores
+    jobs that have a ledger-owned user_id; loose files and smoke artifacts stay
+    out of user galleries.
+    """
+    existing = {
+        row["job_id"]
+        for row in conn.execute("SELECT job_id FROM images WHERE job_id IS NOT NULL AND job_id != ''")
+    }
+    rows = conn.execute(
+        """
+        SELECT user_id, meta_json, created_at
+        FROM token_ledger
+        WHERE meta_json LIKE '%"jobId": "job_%'
+        ORDER BY created_at ASC
+        """
+    ).fetchall()
+    restored = 0
+    for row in rows:
+        try:
+            meta = json.loads(row["meta_json"] or "{}")
+        except Exception:
+            continue
+        job_id = str(meta.get("jobId") or "").strip()
+        user_id = str(row["user_id"] or "").strip()
+        if not job_id.startswith("job_") or not user_id or job_id in existing:
+            continue
+        image_path = next(
+            (MEDIA / f"{job_id}_comfyui{ext}" for ext in (".png", ".jpg", ".jpeg", ".webp") if (MEDIA / f"{job_id}_comfyui{ext}").exists()),
+            None,
+        )
+        if image_path is None:
+            continue
+        thumb_path = next(
+            (MEDIA / f"{job_id}_comfyui_thumb{ext}" for ext in (".webp", ".png", ".jpg", ".jpeg") if (MEDIA / f"{job_id}_comfyui_thumb{ext}").exists()),
+            None,
+        )
+        if thumb_path is None:
+            try:
+                thumb_path = create_thumbnail(image_path)
+            except Exception:
+                thumb_path = image_path
+        try:
+            with Image.open(image_path) as opened:
+                width, height = opened.size
+        except Exception:
+            width = int(meta.get("width") or 1024)
+            height = int(meta.get("height") or 1024)
+        image_id = f"img_{hashlib.sha1(job_id.encode('utf-8')).hexdigest()[:12]}"
+        settings = {
+            "seed": meta.get("seed"),
+            "modelProfile": meta.get("modelProfile", ""),
+            "loras": meta.get("loras", []),
+            "preset": None,
+            "generationTimeMs": meta.get("generationTimeMs", 0),
+            "comfyuiPromptId": meta.get("promptId"),
+            "recoveredFrom": "token_ledger_media",
+        }
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO images
+                (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider,
+                 prompt_original, prompt_translated, settings_json, is_favorite, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+            """,
+            (
+                image_id,
+                user_id,
+                job_id,
+                public_url(image_path, user_id),
+                public_url(thumb_path, user_id),
+                width,
+                height,
+                str(meta.get("mode") or "text_to_image"),
+                str(meta.get("provider") or "comfyui"),
+                "",
+                "",
+                json.dumps(settings, ensure_ascii=False),
+                row["created_at"],
+            ),
+        )
+        existing.add(job_id)
+        restored += 1
+    if restored:
+        print(f"gallery recovery restored {restored} image rows from token ledger/media")
+    return restored
+
+
 def load_db_state() -> None:
     jobs.clear()
     images.clear()
     with db() as conn:
+        restored_gallery_rows = recover_gallery_index_from_media(conn)
+        if restored_gallery_rows:
+            conn.commit()
         for row in conn.execute("SELECT * FROM images WHERE deleted_at IS NULL ORDER BY created_at DESC"):
             images[row["id"]] = row_to_image(row)
         for row in conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 100"):
@@ -3666,6 +4117,59 @@ def local_media_path_from_url(url: str) -> Path | None:
     except ValueError:
         raise RuntimeError("Недопустимый путь media-файла.")
     return path if path.exists() else None
+
+
+def media_filename_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    if url.startswith("/api/media/"):
+        filename = url.removeprefix("/api/media/").split("?", 1)[0]
+    elif url.startswith("/media/"):
+        filename = url.removeprefix("/media/").split("?", 1)[0]
+    else:
+        return None
+    path = (MEDIA / filename).resolve()
+    try:
+        path.relative_to(MEDIA.resolve())
+    except ValueError:
+        return None
+    return filename
+
+
+def validate_generation_media_inputs(req: GenerateRequest, user_id: str) -> None:
+    """Fail fast for stale or foreign /api/media inputs before queue/token charge."""
+    candidates: list[tuple[str, str]] = []
+    for field in ("inputImage1", "inputImage2", "maskImage", "outpaintMask"):
+        value = getattr(req, field, None)
+        if value:
+            candidates.append((field, value))
+    for item in req.inputImages or []:
+        if item.image:
+            candidates.append((f"inputImages[{item.index or 0}]", item.image))
+
+    with db() as conn:
+        for field, value in candidates:
+            filename = media_filename_from_url(value)
+            if not filename:
+                continue
+            path = local_media_path_from_url(value)
+            if not path:
+                raise HTTPException(400, {"code": "input_media_missing", "field": field})
+            like = f"%{filename}%"
+            active_image = conn.execute(
+                "SELECT 1 FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') "
+                "AND (url LIKE ? OR thumbnail_url LIKE ?) LIMIT 1",
+                (user_id, like, like),
+            ).fetchone()
+            if active_image:
+                continue
+            job_ref = conn.execute(
+                "SELECT 1 FROM jobs WHERE user_id = ? AND settings_json LIKE ? LIMIT 1",
+                (user_id, like),
+            ).fetchone()
+            if job_ref:
+                continue
+            raise HTTPException(400, {"code": "input_media_unavailable", "field": field})
 
 
 def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
@@ -4560,6 +5064,40 @@ def delete_image_files_from_disk(url: str | None = None, thumbnail_url: str | No
             pass
 
 
+def _delete_media_rel(rel: str | None) -> None:
+    if not rel:
+        return
+    try:
+        target = (MEDIA / rel).resolve()
+        target.relative_to(MEDIA.resolve())
+        if target.exists() and target.is_file():
+            target.unlink()
+    except Exception:
+        pass
+
+
+def retire_feed_publications_for_image(conn: sqlite3.Connection, image_id: str, now: str, reason: str = "source_image_deleted") -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()}
+    if not columns:
+        return
+    media_columns = {"feed_thumb_name", "feed_large_name", "media_ready_at", "media_error", "updated_at"}
+    rows = conn.execute(
+        "SELECT id, feed_thumb_name, feed_large_name FROM feed_publications WHERE image_id = ?",
+        (image_id,),
+    ).fetchall()
+    for row in rows:
+        _delete_media_rel(_row_get(row, "feed_thumb_name"))
+        _delete_media_rel(_row_get(row, "feed_large_name"))
+    if media_columns <= columns:
+        conn.execute(
+            "UPDATE feed_publications SET status = 'hidden', feed_thumb_name = NULL, feed_large_name = NULL, "
+            "media_ready_at = NULL, media_error = ?, updated_at = ? WHERE image_id = ?",
+            (reason, now, image_id),
+        )
+    else:
+        conn.execute("UPDATE feed_publications SET status = 'hidden' WHERE image_id = ?", (image_id,))
+
+
 def create_thumbnail(image_path: Path) -> Path:
     thumb_path = image_path.with_name(f"{image_path.stem}_thumb.webp")
     with Image.open(image_path) as image:
@@ -4568,6 +5106,34 @@ def create_thumbnail(image_path: Path) -> Path:
             image = image.convert("RGB")
         image.save(thumb_path, "WEBP", quality=88)
     return thumb_path
+
+
+def save_gallery_original(image: Image.Image, job_id: str) -> Path:
+    out = MEDIA / f"{job_id}.webp"
+    prepared = ImageOps.exif_transpose(image)
+    if prepared.mode not in {"RGB", "RGBA"}:
+        prepared = prepared.convert("RGB")
+    prepared.thumbnail((GALLERY_IMAGE_MAX_SIDE, GALLERY_IMAGE_MAX_SIDE), Image.Resampling.LANCZOS)
+    prepared.save(out, "WEBP", quality=GALLERY_IMAGE_WEBP_QUALITY, method=6)
+    return out
+
+
+def feed_media_dir() -> Path:
+    path = MEDIA / "feed"
+    path.mkdir(exist_ok=True)
+    return path
+
+
+def _media_file_path_from_url(url: str | None) -> Path | None:
+    name = _feed_media_name(url)
+    if not name:
+        return None
+    path = (MEDIA / name).resolve()
+    try:
+        path.relative_to(MEDIA.resolve())
+    except ValueError:
+        return None
+    return path
 
 
 async def comfyui_available() -> bool:
@@ -4677,6 +5243,17 @@ def effective_pose_profile(requested: str) -> str:
     return get_model_settings().get("poseModelProfile") or effective_edit_profile(requested)
 
 
+def effective_face_profile(_: str = "") -> str:
+    """Face mode is pinned to Flux 2 Klein 9B.
+
+    The face/head LoRA we ship and validate is the 9B variant, so this route must
+    not follow the generic edit model if an operator temporarily switches edit to
+    4B. Keeping the same 9B UNET name lets ComfyUI reuse the already loaded base
+    model instead of drifting into a different workflow/model pair.
+    """
+    return "flux_klein_9b"
+
+
 def get_profile_row(profile_id: str) -> dict[str, Any] | None:
     with db() as conn:
         row = conn.execute(
@@ -4741,6 +5318,25 @@ def choose_model(models: dict[str, list[str]], requested: str) -> tuple[str, str
     return model, text_encoder, vae
 
 
+def choose_faceswap_lora(available_loras: list[str], requested: Lora | None, model: str) -> Lora:
+    """Return the face/head LoRA matching the loaded Flux Klein variant."""
+    target_tag = "4b" if "4b" in model.lower() else "9b"
+    requested_strength = requested.strength if requested else 1.0
+    requested_id = (requested.id if requested else "").strip()
+    if requested_id and requested_id != "none" and target_tag in requested_id.lower() and requested_id in available_loras:
+        return Lora(id=requested_id, strength=requested_strength)
+    match = next(
+        (
+            item for item in available_loras
+            if target_tag in item.lower() and any(kw in item.lower() for kw in ("bfs", "face", "head"))
+        ),
+        "",
+    )
+    if not match:
+        raise RuntimeError(f"FaceSwap LoRA for Flux Klein {target_tag.upper()} not found in ComfyUI.")
+    return Lora(id=match, strength=requested_strength)
+
+
 async def upload_to_comfyui(path: Path) -> str:
     async with httpx.AsyncClient(timeout=60) as client:
         with path.open("rb") as file:
@@ -4752,32 +5348,33 @@ async def upload_to_comfyui(path: Path) -> str:
     return payload.get("name") or path.name
 
 
-def _fit_comfyui_input_size(source_size: tuple[int, int], target_box: tuple[int, int] | None = None) -> tuple[int, int]:
+def _fit_comfyui_input_size(source_size: tuple[int, int], target_box: tuple[int, int] | None = None, max_side: int | None = None) -> tuple[int, int]:
     source_w, source_h = source_size
     if source_w <= 0 or source_h <= 0:
         return (1024, 1024)
+    limit = max(COMFYUI_INPUT_MIN_SIDE, min(COMFYUI_INPUT_MAX_SIDE, int(max_side or COMFYUI_INPUT_MAX_SIDE)))
     box_w = target_box[0] if target_box else COMFYUI_INPUT_MAX_SIDE
     box_h = target_box[1] if target_box else COMFYUI_INPUT_MAX_SIDE
-    box_w = max(COMFYUI_INPUT_MIN_SIDE, min(COMFYUI_INPUT_MAX_SIDE, int(box_w or COMFYUI_INPUT_MAX_SIDE)))
-    box_h = max(COMFYUI_INPUT_MIN_SIDE, min(COMFYUI_INPUT_MAX_SIDE, int(box_h or COMFYUI_INPUT_MAX_SIDE)))
-    scale = min(1.0, box_w / source_w, box_h / source_h, COMFYUI_INPUT_MAX_SIDE / max(source_w, source_h))
+    box_w = max(COMFYUI_INPUT_MIN_SIDE, min(limit, int(box_w or limit)))
+    box_h = max(COMFYUI_INPUT_MIN_SIDE, min(limit, int(box_h or limit)))
+    scale = min(1.0, box_w / source_w, box_h / source_h, limit / max(source_w, source_h))
     width = max(16, int(round((source_w * scale) / 16) * 16))
     height = max(16, int(round((source_h * scale) / 16) * 16))
-    if max(width, height) > COMFYUI_INPUT_MAX_SIDE:
-        scale = COMFYUI_INPUT_MAX_SIDE / max(width, height)
+    if max(width, height) > limit:
+        scale = limit / max(width, height)
         width = max(16, int(round((width * scale) / 16) * 16))
         height = max(16, int(round((height * scale) / 16) * 16))
     return width, height
 
 
-def prepare_comfyui_input_image(image_path: Path | None, prefix: str, req: GenerateRequest) -> Path | None:
+def prepare_comfyui_input_image(image_path: Path | None, prefix: str, req: GenerateRequest, max_side: int | None = None) -> Path | None:
     """Return an input image safe for ComfyUI VRAM: same aspect, bounded size."""
     if not image_path or not image_path.exists():
         return image_path
     try:
         with Image.open(image_path) as opened:
             image = ImageOps.exif_transpose(opened)
-            target_size = _fit_comfyui_input_size(image.size, (req.width, req.height))
+            target_size = _fit_comfyui_input_size(image.size, (req.width, req.height), max_side=max_side)
             if image.size == target_size:
                 return image_path
             resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
@@ -4793,6 +5390,79 @@ def prepare_comfyui_input_image(image_path: Path | None, prefix: str, req: Gener
         return image_path
 
 
+def _outpaint_padding(req: GenerateRequest) -> dict[str, int]:
+    raw = req.outpaint or {}
+    padding: dict[str, int] = {}
+    for key in ("left", "right", "top", "bottom"):
+        try:
+            value = int(raw.get(key, 0))
+        except Exception:
+            value = 0
+        padding[key] = max(0, min(8192, value))
+    return padding
+
+
+def prepare_comfyui_outpaint_inputs(input_path: Path | None, prefix: str, req: GenerateRequest) -> tuple[Path | None, Path | None]:
+    """Build a real outpaint canvas and mask for ComfyUI.
+
+    The source image is placed inside the requested output frame. White mask
+    pixels mark the empty border areas to regenerate, black pixels preserve the
+    original source region.
+    """
+    if not input_path or not input_path.exists():
+        return input_path, None
+    padding = _outpaint_padding(req)
+    if not any(padding.values()):
+        prepared = prepare_comfyui_input_image(input_path, prefix, req)
+        return prepared, None
+    try:
+        with Image.open(input_path) as opened:
+            source = ImageOps.exif_transpose(opened).convert("RGB")
+            source_w, source_h = source.size
+            final_w = max(1, source_w + padding["left"] + padding["right"])
+            final_h = max(1, source_h + padding["top"] + padding["bottom"])
+            target_w = max(16, int(round(req.width / 16) * 16))
+            target_h = max(16, int(round(req.height / 16) * 16))
+            target_w = min(COMFYUI_INPUT_MAX_SIDE, max(COMFYUI_INPUT_MIN_SIDE, target_w))
+            target_h = min(COMFYUI_INPUT_MAX_SIDE, max(COMFYUI_INPUT_MIN_SIDE, target_h))
+
+            scale_x = target_w / final_w
+            scale_y = target_h / final_h
+            left = int(round(padding["left"] * scale_x))
+            top = int(round(padding["top"] * scale_y))
+            right = int(round((padding["left"] + source_w) * scale_x))
+            bottom = int(round((padding["top"] + source_h) * scale_y))
+            right = max(left + 1, min(target_w, right))
+            bottom = max(top + 1, min(target_h, bottom))
+            left = max(0, min(target_w - 1, left))
+            top = max(0, min(target_h - 1, top))
+
+            resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
+            source_resized = source.resize((right - left, bottom - top), resample)
+            canvas = Image.new("RGB", (target_w, target_h), "#000000")
+            canvas.paste(source_resized, (left, top))
+
+            mask = Image.new("L", (target_w, target_h), 255)
+            draw = ImageDraw.Draw(mask)
+            draw.rectangle([left, top, right - 1, bottom - 1], fill=0)
+
+            image_out = MEDIA / f"{prefix}_{uuid.uuid4().hex}_outpaint_input.png"
+            mask_out = MEDIA / f"{prefix}_{uuid.uuid4().hex}_outpaint_mask.png"
+            canvas.save(image_out, "PNG", optimize=True)
+            mask.convert("RGB").save(mask_out, "PNG", optimize=True)
+            print(
+                "comfyui outpaint prepared "
+                f"{input_path.name}: source={source_w}x{source_h} "
+                f"padding={padding['left']},{padding['right']},{padding['top']},{padding['bottom']} "
+                f"target={target_w}x{target_h}"
+            )
+            return image_out, mask_out
+    except Exception as exc:
+        print(f"comfyui outpaint prepare failed {input_path.name}: {type(exc).__name__}")
+        prepared = prepare_comfyui_input_image(input_path, prefix, req)
+        return prepared, None
+
+
 async def fetch_workflow(mode: str) -> dict[str, Any]:
     workflow_by_mode = {
         "text_to_image": "workflow_t2i",
@@ -4801,7 +5471,9 @@ async def fetch_workflow(mode: str) -> dict[str, Any]:
         "paint": "workflow_edit",
         "inpaint": "workflow_inpaint",
         "outpaint": "workflow_outpaint",
-        "faceswap": "workflow_faceswap",
+        # Dedicated workflow_faceswap hangs on Flux 2 Klein 9B in production.
+        # Use the stable multi-reference edit graph: target image + face reference.
+        "faceswap": "workflow_edit",
         "remove_background": "workflow_remove_bg",
         "try_on": "workflow_edit",
         "texture_transfer": "workflow_edit",
@@ -4825,7 +5497,7 @@ def patch_shared_flux_nodes(prompt: dict[str, Any], req: GenerateRequest, model:
     set_input(prompt, "FK:166", "text", req.prompt)
     # Edit-режим намеренно не использует negative prompt: ограничения уходят в основной
     # prompt. Для остальных режимов сохраняем прежний дефолтный negative как fallback.
-    set_input(prompt, "FK:156", "text", "" if req.mode == "edit" else (req.negativePrompt or DEFAULT_NEG_PROMPT))
+    set_input(prompt, "FK:156", "text", "" if req.mode in {"edit", "faceswap"} else (req.negativePrompt or DEFAULT_NEG_PROMPT))
     set_input(prompt, "FK:170", "width", req.width)
     set_input(prompt, "FK:170", "height", req.height)
     set_input(prompt, "FK:171", "seed", req.seed)
@@ -4924,7 +5596,7 @@ def patch_mode_nodes(prompt: dict[str, Any], req: GenerateRequest, uploads: dict
         set_input(prompt, "rmbg:load", "bg_removal_name", "birefnet.safetensors")
         set_input(prompt, "rmbg:img", "image", uploads["input1"])
         set_input(prompt, "rmbg:save", "filename_prefix", "one-node-flux-2-klein/assets/rmbg")
-    elif req.mode in {"edit", "paint", "try_on", "texture_transfer"}:
+    elif req.mode in {"edit", "paint", "faceswap", "try_on", "texture_transfer"}:
         # 1..4 изображения в порядке слотов; цепочка ReferenceLatent + denoise=1.
         image_files = [uploads.get(f"input{i}") for i in range(1, 5)]
         patch_edit_reference_chain(prompt, image_files)
@@ -4951,10 +5623,14 @@ def patch_mode_nodes(prompt: dict[str, Any], req: GenerateRequest, uploads: dict
         set_input(prompt, "FKO:6", "text", req.prompt)
         set_input(prompt, "FKO:198", "image", uploads["input1"])
         set_input(prompt, "FKO:maskload", "image", uploads.get("mask", uploads["input1"]))
+        set_input(prompt, "FKO:209", "preresize_min_width", req.width)
+        set_input(prompt, "FKO:209", "preresize_min_height", req.height)
+        set_input(prompt, "FKO:209", "output_target_width", req.width)
+        set_input(prompt, "FKO:209", "output_target_height", req.height)
         set_input(prompt, "FKO:163", "seed", req.seed)
         set_input(prompt, "FKO:163", "steps", req.steps)
         set_input(prompt, "FKO:163", "cfg", req.cfg)
-        set_input(prompt, "FKO:163", "denoise", req.strength)
+        set_input(prompt, "FKO:163", "denoise", 1)
         set_input(prompt, "FKO:203", "filename_prefix", "one-node-flux-2-klein/FK")
     elif req.mode == "faceswap":
         face_lora = req.loras[0] if req.loras else None
@@ -4966,6 +5642,7 @@ def patch_mode_nodes(prompt: dict[str, Any], req: GenerateRequest, uploads: dict
             set_input(prompt, "FKF:226", "strength_model", face_lora.strength)
         set_input(prompt, "FKF:234", "image", uploads["input1"])
         set_input(prompt, "FKF:236", "image", uploads["input2"])
+        set_input(prompt, "FKF:scaleSrc", "megapixels", COMFYUI_FACE_SOURCE_MEGAPIXELS)
         if req.prompt.strip():
             set_input(prompt, "FKF:227", "text", req.prompt)
         set_input(prompt, "FKF:229", "text", "")
@@ -4999,6 +5676,14 @@ async def submit_workflow(workflow: dict[str, Any], job: dict[str, Any]) -> tupl
     return prompt_id, history, extract_images_from_history(history)
 
 
+async def interrupt_comfyui_prompt() -> None:
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(f"{COMFYUI_BASE_URL}/interrupt")
+    except Exception:
+        pass
+
+
 def extract_images_from_history(history: dict[str, Any]) -> list[dict[str, str]]:
     found: list[dict[str, str]] = []
     outputs = history.get("outputs", {})
@@ -5016,7 +5701,8 @@ def extract_images_from_history(history: dict[str, Any]) -> list[dict[str, str]]
 
 
 async def wait_for_history(prompt_id: str, job: dict[str, Any]) -> dict[str, Any]:
-    deadline = time.monotonic() + COMFYUI_TIMEOUT_SECONDS
+    timeout = COMFYUI_FACE_TIMEOUT_SECONDS if job.get("mode") == "faceswap" else COMFYUI_TIMEOUT_SECONDS
+    deadline = time.monotonic() + timeout
     async with httpx.AsyncClient(timeout=20) as client:
         while time.monotonic() < deadline:
             if job.get("status") == "cancelled":
@@ -5028,6 +5714,7 @@ async def wait_for_history(prompt_id: str, job: dict[str, Any]) -> dict[str, Any
                 return payload[prompt_id]
             job["progress"] = min(94, int(job.get("progress", 24)) + 2)
             await asyncio.sleep(2)
+    await interrupt_comfyui_prompt()
     raise TimeoutError("ComfyUI не вернул результат до истечения таймаута.")
 
 
@@ -5036,10 +5723,8 @@ async def download_comfyui_image(image: dict[str, str], job_id: str) -> tuple[Pa
     async with httpx.AsyncClient(timeout=120) as client:
         response = await client.get(f"{COMFYUI_BASE_URL}/view", params=params)
         response.raise_for_status()
-        content_type = response.headers.get("content-type", "")
-        extension = "png" if "png" in content_type else "jpg"
-        image_path = MEDIA / f"{job_id}_comfyui.{extension}"
-        image_path.write_bytes(response.content)
+        with Image.open(io.BytesIO(response.content)) as opened:
+            image_path = save_gallery_original(opened, f"{job_id}_comfyui")
     return image_path, create_thumbnail(image_path)
 
 
@@ -5052,23 +5737,33 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
         return None
 
     models = await get_comfyui_models()
-    model, text_encoder, vae = choose_model(models, effective_edit_profile(payload.modelProfile))
+    profile_id = effective_face_profile(payload.modelProfile) if payload.mode == "faceswap" else effective_edit_profile(payload.modelProfile)
+    model, text_encoder, vae = choose_model(models, profile_id)
     available_loras = models.get("loras", [])
-    is_4b = "4b" in model.lower()
-    target_lora_tag = "4b" if is_4b else "9b"
-    for lora in payload.loras:
-        if lora.id == "none" or not lora.id:
-            continue
-        if target_lora_tag not in lora.id.lower():
-            fallback = next(
-                (item for item in available_loras
-                 if target_lora_tag in item.lower() and any(kw in item.lower() for kw in ("bfs", "face", "head"))),
-                "",
-            )
-            if not fallback:
-                fallback = next((item for item in available_loras if target_lora_tag in item.lower()), "")
-            if fallback:
-                lora.id = fallback
+    if payload.mode == "faceswap":
+        face_lora = choose_faceswap_lora(available_loras, payload.loras[0] if payload.loras else None, model)
+        payload.loras = [face_lora]
+        print(
+            "faceswap-route "
+            f"job={job['id']} profile={profile_id} model={model} "
+            f"text_encoder={text_encoder} lora={face_lora.id} max_side={COMFYUI_FACE_INPUT_MAX_SIDE}"
+        )
+    else:
+        is_4b = "4b" in model.lower()
+        target_lora_tag = "4b" if is_4b else "9b"
+        for lora in payload.loras:
+            if lora.id == "none" or not lora.id:
+                continue
+            if target_lora_tag not in lora.id.lower():
+                fallback = next(
+                    (item for item in available_loras
+                     if target_lora_tag in item.lower() and any(kw in item.lower() for kw in ("bfs", "face", "head"))),
+                    "",
+                )
+                if not fallback:
+                    fallback = next((item for item in available_loras if target_lora_tag in item.lower()), "")
+                if fallback:
+                    lora.id = fallback
     workflow = await fetch_workflow(payload.mode)
     pose_graph: dict[str, Any] | None = None
 
@@ -5079,6 +5774,7 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
     mask_path = local_media_path_from_url(mask_source or "") or save_data_url(mask_source, f"{job['id']}_mask")
     canvas_path = save_canvas_json(payload.canvas, f"{job['id']}_canvas")
     primary_input = input1_path or canvas_path
+    outpaint_generated_mask = False
     if payload.mode == "edit":
         # До 4 изображений. Источник — payload.inputImages (новый формат) или legacy inputImage1/2.
         edit_sources: list[tuple[str, str]] = []
@@ -5128,15 +5824,29 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
     elif payload.mode in {"image_to_image", "paint", "inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
         if not primary_input:
             raise RuntimeError("Для выбранного режима нужно входное изображение.")
-        primary_input = prepare_comfyui_input_image(primary_input, f"{job['id']}_input1", payload)
+        if payload.mode == "outpaint":
+            primary_input, generated_mask = prepare_comfyui_outpaint_inputs(primary_input, f"{job['id']}_input1", payload)
+            if generated_mask:
+                mask_path = generated_mask
+                outpaint_generated_mask = True
+        elif payload.mode == "faceswap":
+            primary_input = prepare_comfyui_input_image(primary_input, f"{job['id']}_input1", payload, max_side=COMFYUI_FACE_INPUT_MAX_SIDE)
+        else:
+            primary_input = prepare_comfyui_input_image(primary_input, f"{job['id']}_input1", payload)
         uploads["input1"] = await upload_to_comfyui(primary_input)
     if payload.mode in {"faceswap", "try_on", "texture_transfer"}:
         if not input2_path:
             raise RuntimeError("Для выбранного режима нужно два изображения.")
-        input2_path = prepare_comfyui_input_image(input2_path, f"{job['id']}_input2", payload)
+        input2_path = prepare_comfyui_input_image(
+            input2_path,
+            f"{job['id']}_input2",
+            payload,
+            max_side=COMFYUI_FACE_INPUT_MAX_SIDE if payload.mode == "faceswap" else None,
+        )
         uploads["input2"] = await upload_to_comfyui(input2_path)
     if payload.mode in {"inpaint", "outpaint"} and mask_path:
-        mask_path = prepare_comfyui_input_image(mask_path, f"{job['id']}_mask", payload)
+        if payload.mode != "outpaint" or not outpaint_generated_mask:
+            mask_path = prepare_comfyui_input_image(mask_path, f"{job['id']}_mask", payload)
         uploads["mask"] = await upload_to_comfyui(mask_path)
 
     if pose_graph is not None:
@@ -5146,11 +5856,15 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
     try:
         prompt_id, history, output_images = await submit_workflow(workflow, job)
     except Exception as exc:
+        if payload.mode == "faceswap":
+            raise RuntimeError(f"FaceSwap workflow failed: {exc}") from exc
         if payload.mode not in {"inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
             raise
         prompt_id = "fallback_after_workflow_error"
         history = {"error": str(exc)}
         output_images = []
+    if payload.mode == "faceswap" and not output_images:
+        raise RuntimeError("FaceSwap workflow completed without output image.")
     if not output_images and payload.mode in {"inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
         try:
             fallback = await fetch_workflow("edit")
@@ -5223,12 +5937,8 @@ def mock_image(req: GenerateRequest, job_id: str) -> tuple[Path, Path]:
     except Exception:
         font = ImageFont.load_default()
     draw.multiline_text((72, 72), text, fill="#172033", font=font, spacing=14)
-    out = MEDIA / f"{job_id}.png"
-    thumb = MEDIA / f"{job_id}_thumb.webp"
-    image.save(out, "PNG")
-    image.thumbnail((512, 512))
-    image.save(thumb, "WEBP", quality=88)
-    return out, thumb
+    out = save_gallery_original(image, job_id)
+    return out, create_thumbnail(out)
 
 
 async def worker() -> None:
@@ -5313,6 +6023,7 @@ async def worker() -> None:
                     ).fetchone()
                     if oldest:
                         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ?", (created_at, oldest["id"]))
+                        retire_feed_publications_for_image(conn, oldest["id"], created_at)
                         delete_image_files_from_disk(url=oldest["url"], thumbnail_url=oldest["thumbnail_url"])
                         if oldest["id"] in images:
                             images.pop(oldest["id"])
@@ -5468,12 +6179,13 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     with db() as conn:
         if conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is None:
             raise HTTPException(404, "User not found.")
-    if req.mode == "faceswap":
-        face_lora = next((item for item in req.loras if item.id and item.id != "none"), None)
-        if face_lora is None:
-            raise HTTPException(422, "FaceSwap mode requires a FaceSwap LoRA. Select bfs_head or another face LoRA.")
+    # FaceSwap lora auto-selection is handled by choose_faceswap_lora() inside
+    # send_to_comfyui (worker). Early validation here is redundant and breaks
+    # the flow when frontend sends an empty loras list — the worker always
+    # resolves the correct face lora from ComfyUI's available models.
     if req.mode == "edit":
         validate_edit_request(req)
+    validate_generation_media_inputs(req, user_id)
     ensure_rate_limit(user_id)
     job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     job = {
@@ -5552,7 +6264,18 @@ async def models() -> dict[str, Any]:
     try:
         data = await get_comfyui_models()
         model, text_encoder, vae = choose_model(data, "")
-        return {"ok": True, "selected": {"model": model, "textEncoder": text_encoder, "vae": vae}, **data}
+        return {
+            "ok": True,
+            "selected": {
+                "model": _user_model_name(model),
+                "textEncoder": "Flux2 CLIP",
+                "vae": "Flux2 VAE",
+            },
+            "diffusion_models": [_user_model_name(m) for m in data.get("diffusion_models", [])],
+            "text_encoders": ["Flux2 CLIP" for _ in data.get("text_encoders", [])],
+            "vaes": ["Flux2 VAE" for _ in data.get("vaes", [])],
+            "loras": data.get("loras", []),
+        }
     except Exception as exc:
         return {"ok": False, "error": str(exc), "diffusion_models": [], "text_encoders": [], "vaes": [], "loras": []}
 
@@ -5600,9 +6323,89 @@ async def gallery(request: Request) -> list[dict[str, Any]]:
     with db() as conn:
         if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
             raise HTTPException(403, "Gallery is not available for this plan.")
-    if not images and DB_PATH.exists():
-        load_db_state()
-    return sorted([item for item in images.values() if item.get("userId", "demo_user") == user_id], key=lambda item: item["createdAt"], reverse=True)
+        rows = conn.execute(
+            "SELECT * FROM images WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
+    restored = [row_to_image(row) for row in rows]
+    for item in restored:
+        images[item["id"]] = item
+    return restored
+
+
+@app.get("/api/gallery/page")
+async def gallery_page(request: Request, limit: int = 120) -> dict[str, Any]:
+    """Structured gallery payload for the new visual shell.
+
+    Keeps /api/gallery stable while giving the gallery page counters, original
+    cards and separate feed-copy cards in one DB-backed response.
+    """
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    limit = _clamp_limit(limit, default=120, maximum=240)
+    with db() as conn:
+        user_row = conn.execute(
+            "SELECT * FROM users WHERE internal_user_id = ? OR id = ?",
+            (trusted["internal_user_id"], user_id),
+        ).fetchone()
+        if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
+            raise HTTPException(403, "Gallery is not available for this plan.")
+        image_rows = conn.execute(
+            """
+            SELECT * FROM images
+            WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        ).fetchall()
+        publications = {
+            row["image_id"]: row
+            for row in conn.execute(
+                """
+                SELECT * FROM feed_publications
+                WHERE legacy_user_id = ? AND status = 'published'
+                ORDER BY created_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        }
+        reaction_counts = {
+            row["publication_id"]: row
+            for row in conn.execute(
+                """
+                SELECT publication_id,
+                       SUM(CASE WHEN kind = 'like' THEN 1 ELSE 0 END) AS likes,
+                       SUM(CASE WHEN kind = 'save' THEN 1 ELSE 0 END) AS saves,
+                       SUM(CASE WHEN kind = 'recreate' THEN 1 ELSE 0 END) AS remixes
+                FROM feed_reactions
+                WHERE publication_id IN (
+                    SELECT id FROM feed_publications
+                    WHERE legacy_user_id = ? AND status = 'published'
+                )
+                GROUP BY publication_id
+                """,
+                (user_id,),
+            ).fetchall()
+        }
+        items = [_gallery_page_item(row, publications.get(row["id"])) for row in image_rows]
+        feed_items = [
+            _gallery_page_item(row, publications[row["id"]], include_feed_media=True)
+            for row in image_rows
+            if row["id"] in publications
+        ]
+        for item in feed_items:
+            counts = reaction_counts.get(item["feedPublicationId"])
+            item["likes"] = int(_row_get(counts, "likes") or 0)
+            item["saves"] = int(_row_get(counts, "saves") or 0)
+            item["remixes"] = int(_row_get(counts, "remixes") or 0)
+        limits = _gallery_page_limits(conn, user_row, user_id)
+    return {
+        "ok": True,
+        "limits": limits,
+        "items": items,
+        "feedItems": feed_items,
+    }
 
 
 @app.get("/api/gallery/{image_id}")
@@ -5651,6 +6454,7 @@ async def gallery_delete(image_id: str, request: Request) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ? AND user_id = ?", (now, image_id, user_id))
+        retire_feed_publications_for_image(conn, image_id, now)
     delete_image_files_from_disk(url=record.get("url"), thumbnail_url=record.get("thumbnailUrl"))
     return {"ok": True, "deleted": image_id, "url": record["url"]}
 
@@ -5747,7 +6551,14 @@ async def bootstrap(auth: MiniAppAuthRequest, response: Response, request: Reque
     except Exception as exc:
         flux_klein_config["error"] = str(exc)
     try:
-        models_payload = {"ok": True, **await get_comfyui_models()}
+        models_raw = await get_comfyui_models()
+        models_payload = {
+            "ok": True,
+            "diffusion_models": [_user_model_name(m) for m in models_raw.get("diffusion_models", [])],
+            "text_encoders": ["Flux2 CLIP" for _ in models_raw.get("text_encoders", [])],
+            "vaes": ["Flux2 VAE" for _ in models_raw.get("vaes", [])],
+            "loras": models_raw.get("loras", []),
+        }
     except Exception as exc:
         models_payload["error"] = str(exc)
     try:
@@ -8670,14 +9481,14 @@ def _daily_counts(conn: sqlite3.Connection, table: str, column: str, days: int, 
 def _empty_hourly_series(hours: int) -> dict[str, int]:
     current = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
     return {
-        (current - timedelta(hours=offset)).strftime("%Y-%m-%dT%H"): 0
+        (current - timedelta(hours=offset)).isoformat(): 0
         for offset in range(hours - 1, -1, -1)
     }
 
 
 def _hourly_counts(conn: sqlite3.Connection, table: str, column: str, hours: int, where: str = "", params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
     series = _empty_hourly_series(hours)
-    start = next(iter(series))
+    start = (datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) - timedelta(hours=hours - 1)).isoformat()
     where_sql = f" AND {where}" if where else ""
     rows = conn.execute(
         f"""
@@ -8690,10 +9501,69 @@ def _hourly_counts(conn: sqlite3.Connection, table: str, column: str, hours: int
         (start, *params),
     ).fetchall()
     for row in rows:
-        key = row["hour"]
+        key = f"{row['hour']}:00:00+00:00"
         if key in series:
             series[key] = int(row["c"] or 0)
     return [{"date": hour, "value": value} for hour, value in series.items()]
+
+
+def _parse_iso_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _floor_to_bucket(value: datetime, bucket_minutes: int) -> datetime:
+    minute = (value.minute // bucket_minutes) * bucket_minutes
+    return value.replace(minute=minute, second=0, microsecond=0)
+
+
+def _rolling_counts(
+    conn: sqlite3.Connection,
+    table: str,
+    column: str,
+    minutes: int,
+    bucket_minutes: int,
+    where: str = "",
+    params: tuple[Any, ...] = (),
+) -> list[dict[str, Any]]:
+    now = datetime.now(timezone.utc)
+    end_bucket = _floor_to_bucket(now, bucket_minutes)
+    bucket_count = max(1, (minutes + bucket_minutes - 1) // bucket_minutes)
+    buckets = [
+        end_bucket - timedelta(minutes=bucket_minutes * offset)
+        for offset in range(bucket_count - 1, -1, -1)
+    ]
+    series = {bucket.isoformat(): 0 for bucket in buckets}
+    start = buckets[0]
+    where_sql = f" AND {where}" if where else ""
+    rows = conn.execute(
+        f"SELECT {column} AS ts FROM {table} WHERE {column} >= ?{where_sql}",
+        (start.isoformat(), *params),
+    ).fetchall()
+    for row in rows:
+        ts = _parse_iso_utc(row["ts"])
+        if ts is None or ts < start or ts > now:
+            continue
+        key = _floor_to_bucket(ts, bucket_minutes).isoformat()
+        if key in series:
+            series[key] += 1
+    return [{"date": bucket, "value": value} for bucket, value in series.items()]
+
+
+def _dashboard_rolling_series(conn: sqlite3.Connection, table: str, column: str, where: str = "") -> dict[str, list[dict[str, Any]]]:
+    return {
+        "1h": _rolling_counts(conn, table, column, 60, 5, where),
+        "6h": _rolling_counts(conn, table, column, 360, 30, where),
+        "12h": _rolling_counts(conn, table, column, 720, 60, where),
+        "24h": _rolling_counts(conn, table, column, 1440, 60, where),
+    }
 
 
 def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_iso: str) -> dict[str, Any]:
@@ -9065,6 +9935,8 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
         } for r in jobs_rows],
         "recent_gallery": [{
             "id": short_public_id(r["id"]),
+            "admin_delete_id": r["id"],
+            "image_url": safe_app_url(r["url"]),
             "thumbnail_url": safe_app_url(r["thumbnail_url"]),
             "job_id": short_public_id(r["job_id"]),
             "mode": r["mode"],
@@ -9096,6 +9968,148 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
         },
         "admin_actions": [{"action": r["action"], "actor": (r["actor_internal_user_id"] or "")[:8], "reason": truncate_admin_text((safe_json_load(r["after_json"]) or {}).get("reason"), 80), "created_at": r["created_at"]} for r in audits],
     }
+
+
+@app.post("/api/admin/users/{internal_user_id}/gallery/{image_id}/delete-v2")
+async def admin_delete_user_gallery_image_v2(
+    internal_user_id: str,
+    image_id: str,
+    req: AdminDeleteImageV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = _billing_reason(req.reason)
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        target = _admin_load_target(conn, internal_user_id)
+        row = conn.execute(
+            """
+            SELECT id, user_id, url, thumbnail_url, prompt_original, job_id, created_at, deleted_at
+            FROM images
+            WHERE id = ? AND user_id = ? AND (deleted_at IS NULL OR deleted_at = '')
+            """,
+            (image_id, target["id"]),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Image not found.")
+        conn.execute("UPDATE images SET deleted_at = ? WHERE id = ? AND user_id = ?", (now, row["id"], target["id"]))
+        record_audit_log(
+            conn,
+            "admin_delete_gallery_image",
+            actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=internal_user_id,
+            entity_type="image",
+            entity_id=row["id"],
+            before={
+                "image_id": short_public_id(row["id"]),
+                "job_id": short_public_id(row["job_id"]),
+                "created_at": row["created_at"],
+            },
+            after={"deleted_at": now, "reason": reason},
+            request=request,
+        )
+    images.pop(image_id, None)
+    delete_image_files_from_disk(url=row["url"], thumbnail_url=row["thumbnail_url"])
+    return {"ok": True, "deleted": short_public_id(image_id), "deleted_at": now}
+
+
+@app.get("/api/admin/mail/status-v2")
+async def admin_mail_status_v2(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    now = datetime.now(timezone.utc)
+    day_cutoff = (now - timedelta(hours=24)).isoformat()
+    with db() as conn:
+        otp_total = conn.execute("SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE channel = 'email'").fetchone()["c"]
+        otp_24h = conn.execute("SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE channel = 'email' AND created_at >= ?", (day_cutoff,)).fetchone()["c"]
+        otp_active = conn.execute("SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE channel = 'email' AND consumed_at IS NULL AND expires_at > ?", (now.isoformat(),)).fetchone()["c"]
+        otp_consumed_24h = conn.execute("SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE channel = 'email' AND consumed_at IS NOT NULL AND consumed_at >= ?", (day_cutoff,)).fetchone()["c"]
+        challenges = conn.execute(
+            """
+            SELECT id, destination, purpose, attempts_count, max_attempts, expires_at, consumed_at, created_at
+            FROM auth_otp_challenges
+            WHERE channel = 'email'
+            ORDER BY created_at DESC
+            LIMIT 20
+            """
+        ).fetchall()
+        attempts = conn.execute(
+            """
+            SELECT success, failure_reason, identifier, platform, created_at
+            FROM auth_login_attempts
+            WHERE provider = 'web_email'
+            ORDER BY created_at DESC
+            LIMIT 20
+            """
+        ).fetchall()
+    provider = EMAIL_PROVIDER.strip()
+    production = APP_ENV.lower() == "production"
+    # Current code has the secure OTP contract, but no production provider adapter yet.
+    delivery_implemented = not (production and bool(provider))
+    service_ready = email_otp_available() and delivery_implemented
+    return {
+        "ok": True,
+        "generated_at": now.isoformat(),
+        "service_ready": service_ready,
+        "status": "ready" if service_ready else ("provider_adapter_missing" if provider else "provider_not_configured"),
+        "provider": provider or None,
+        "environment": APP_ENV,
+        "otp_available": email_otp_available(),
+        "delivery_implemented": delivery_implemented,
+        "debug_return_code": EMAIL_OTP_DEBUG_RETURN_CODE and not production,
+        "config": {
+            "EMAIL_PROVIDER": bool(provider),
+            "EMAIL_FROM": bool(os.getenv("EMAIL_FROM") or os.getenv("SMTP_FROM")),
+            "SMTP_HOST": bool(os.getenv("SMTP_HOST")),
+            "SMTP_PORT": bool(os.getenv("SMTP_PORT")),
+            "SUPPORT_EMAIL": bool(os.getenv("SUPPORT_EMAIL")),
+        },
+        "summary": {
+            "otp_total": int(otp_total or 0),
+            "otp_24h": int(otp_24h or 0),
+            "otp_active": int(otp_active or 0),
+            "otp_consumed_24h": int(otp_consumed_24h or 0),
+            "mock_outbox": len(_mock_email_outbox),
+        },
+        "templates": [
+            {"id": "verify_email", "title": "Подтверждение email", "subject": "Код подтверждения ИЗО АСА", "status": "готов шаблон OTP"},
+            {"id": "support_reply", "title": "Ответ поддержки", "subject": "Ответ поддержки ИЗО АСА", "status": "черновик"},
+            {"id": "system_notice", "title": "Системное уведомление", "subject": "Уведомление ИЗО АСА", "status": "черновик"},
+        ],
+        "recent_challenges": [{
+            "id": short_public_id(r["id"], 10),
+            "email": mask_email(r["destination"]),
+            "purpose": r["purpose"],
+            "attempts": int(r["attempts_count"] or 0),
+            "max_attempts": int(r["max_attempts"] or 0),
+            "expires_at": r["expires_at"],
+            "consumed_at": r["consumed_at"],
+            "created_at": r["created_at"],
+        } for r in challenges],
+        "recent_attempts": [{
+            "success": bool(r["success"]),
+            "reason": r["failure_reason"],
+            "email": mask_email(r["identifier"]),
+            "platform": r["platform"],
+            "created_at": r["created_at"],
+        } for r in attempts],
+        "mock_outbox": [{"to": mask_email(r.get("to")), "sent_at": r.get("sent_at")} for r in _mock_email_outbox[-20:]],
+    }
+
+
+@app.post("/api/admin/mail/test-v2")
+async def admin_mail_test_v2(req: AdminMailTestV2Request, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    email_norm = normalize_email(req.email)
+    if not email_norm:
+        raise HTTPException(400, "Введите корректный email.")
+    if not email_otp_available():
+        raise HTTPException(503, "email_provider_not_configured")
+    code = generate_otp_code(EMAIL_OTP_LENGTH)
+    try:
+        send_email_otp(email_norm, code)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return {"ok": True, "email": mask_email(email_norm), "template": req.template, "sent_at": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/api/admin/diagnostics-v2")
@@ -9378,30 +10392,57 @@ async def admin_summary(request: Request) -> dict[str, Any]:
         token_total = conn.execute("SELECT COALESCE(SUM(token_balance), 0) FROM users").fetchone()[0]
         tokens_spent = conn.execute("SELECT COALESCE(SUM(-delta), 0) FROM token_ledger WHERE delta < 0").fetchone()[0]
         active_today = conn.execute("SELECT COUNT(*) FROM users WHERE last_seen_at >= ?", (today_start,)).fetchone()[0]
-        generations_today = conn.execute(
-            "SELECT COUNT(*) FROM event_logs WHERE event_name = 'generation_started' AND created_at >= ?",
-            (today_start,),
-        ).fetchone()[0]
+        generations_today = conn.execute("SELECT COUNT(*) FROM jobs WHERE created_at >= ?", (today_start,)).fetchone()[0]
         active_sessions = conn.execute("SELECT COUNT(*) FROM auth_sessions WHERE revoked_at IS NULL AND expires_at > ?", (now_iso,)).fetchone()[0]
         generation_errors_count = conn.execute("SELECT COUNT(*) FROM jobs WHERE status = 'failed'").fetchone()[0]
         completed_today_count = conn.execute("SELECT COUNT(*) FROM jobs WHERE status = 'completed' AND created_at >= ?", (today_start,)).fetchone()[0]
         errors_24h = conn.execute("SELECT COUNT(*) FROM auth_login_attempts WHERE success = 0 AND created_at >= ?", (last_24h,)).fetchone()[0]
         settings_row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'finance'").fetchone()
         finance = json.loads(settings_row["value_json"]) if settings_row else {"tokenRevenue": 0, "tokenCost": 0, "electricity": 0, "promoBudget": 0}
+        active_users_rolling = _dashboard_rolling_series(conn, "users", "last_seen_at", "internal_user_id IS NOT NULL")
+        registrations_rolling = _dashboard_rolling_series(conn, "users", "created_at", "internal_user_id IS NOT NULL")
+        logins_rolling = _dashboard_rolling_series(conn, "event_logs", "created_at", "event_name IN ('login_succeeded','password_login_succeeded','password_register_succeeded')")
+        login_errors_rolling = _dashboard_rolling_series(conn, "auth_login_attempts", "created_at", "success = 0")
+        generations_rolling = _dashboard_rolling_series(conn, "jobs", "created_at")
+        generation_errors_rolling = _dashboard_rolling_series(conn, "jobs", "created_at", "status = 'failed'")
         timeline = {
             "days": 90,
             "active_users": _daily_counts(conn, "users", "last_seen_at", 90, "internal_user_id IS NOT NULL"),
             "registrations": _daily_counts(conn, "users", "created_at", 90, "internal_user_id IS NOT NULL"),
             "logins": _daily_counts(conn, "event_logs", "created_at", 90, "event_name IN ('login_succeeded','password_login_succeeded','password_register_succeeded')"),
             "login_errors": _daily_counts(conn, "auth_login_attempts", "created_at", 90, "success = 0"),
-            "generations": _daily_counts(conn, "event_logs", "created_at", 90, "event_name = 'generation_started'"),
+            "generations": _daily_counts(conn, "jobs", "created_at", 90),
             "generation_errors": _daily_counts(conn, "jobs", "created_at", 90, "status = 'failed'"),
             "active_users_hourly": _hourly_counts(conn, "users", "last_seen_at", 24, "internal_user_id IS NOT NULL"),
             "registrations_hourly": _hourly_counts(conn, "users", "created_at", 24, "internal_user_id IS NOT NULL"),
             "logins_hourly": _hourly_counts(conn, "event_logs", "created_at", 24, "event_name IN ('login_succeeded','password_login_succeeded','password_register_succeeded')"),
             "login_errors_hourly": _hourly_counts(conn, "auth_login_attempts", "created_at", 24, "success = 0"),
-            "generations_hourly": _hourly_counts(conn, "event_logs", "created_at", 24, "event_name = 'generation_started'"),
+            "generations_hourly": _hourly_counts(conn, "jobs", "created_at", 24),
             "generation_errors_hourly": _hourly_counts(conn, "jobs", "created_at", 24, "status = 'failed'"),
+            "active_users_1h": active_users_rolling["1h"],
+            "active_users_6h": active_users_rolling["6h"],
+            "active_users_12h": active_users_rolling["12h"],
+            "active_users_24h": active_users_rolling["24h"],
+            "registrations_1h": registrations_rolling["1h"],
+            "registrations_6h": registrations_rolling["6h"],
+            "registrations_12h": registrations_rolling["12h"],
+            "registrations_24h": registrations_rolling["24h"],
+            "logins_1h": logins_rolling["1h"],
+            "logins_6h": logins_rolling["6h"],
+            "logins_12h": logins_rolling["12h"],
+            "logins_24h": logins_rolling["24h"],
+            "login_errors_1h": login_errors_rolling["1h"],
+            "login_errors_6h": login_errors_rolling["6h"],
+            "login_errors_12h": login_errors_rolling["12h"],
+            "login_errors_24h": login_errors_rolling["24h"],
+            "generations_1h": generations_rolling["1h"],
+            "generations_6h": generations_rolling["6h"],
+            "generations_12h": generations_rolling["12h"],
+            "generations_24h": generations_rolling["24h"],
+            "generation_errors_1h": generation_errors_rolling["1h"],
+            "generation_errors_6h": generation_errors_rolling["6h"],
+            "generation_errors_12h": generation_errors_rolling["12h"],
+            "generation_errors_24h": generation_errors_rolling["24h"],
         }
     return {
         "users": user_count,
@@ -9971,3 +11012,744 @@ async def max_webhook(payload: dict[str, Any], request: Request) -> dict[str, An
         MAX_POLLING_DIAG["lastWebhookError"] = type(exc).__name__
         print("max webhook handler error", type(exc).__name__)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Live Feed MVP. Публикации из личной галереи + публичная лента + реакции.
+# Auth: чтение ленты публичное (viewerState только при trusted session);
+# публикация и реакции — только trusted cookie session (require_trusted_user).
+# Легаси-заголовки/куки здесь не читаются никогда.
+# ---------------------------------------------------------------------------
+
+FEED_PROMPT_VISIBILITIES = {"open", "partial", "hidden"}
+FEED_PARTIAL_PROMPT_CHARS = 140
+FEED_THUMB_MAX_SIDE = 640
+FEED_LARGE_MAX_SIDE = 1536
+FEED_DISPLAY_POLICY = "preserve_aspect_ratio"
+
+
+@dataclass
+class FeedAssetInfo:
+    feed_thumb_name: str
+    feed_large_name: str
+    feed_thumb_width: int
+    feed_thumb_height: int
+    feed_thumb_bytes: int
+    feed_large_width: int
+    feed_large_height: int
+    feed_large_bytes: int
+    native_aspect_ratio: str
+    orientation: str
+
+
+def _feed_orientation(width: int, height: int) -> str:
+    if not width or not height:
+        return "custom"
+    if width == height:
+        return "square"
+    return "landscape" if width > height else "portrait"
+
+
+def _feed_source_label(source_type: str) -> str:
+    return {
+        "text_to_image": "Текст -> Изо",
+        "image_to_image": "Изо -> Изо",
+        "multi_reference": "Несколько референсов",
+        "drawing_to_image": "Рисунок -> Изо",
+        "edit": "Редактировано",
+        "inpaint": "Маска",
+        "outpaint": "Outpaint",
+        "faceswap": "Лицо",
+        "remix": "Remix",
+        "seed": "Выбор редакции",
+    }.get(source_type or "", "Текст -> Изо")
+
+
+def _feed_source_type(mode: str | None, *, is_seed: bool = False) -> str:
+    if is_seed:
+        return "seed"
+    raw = (mode or "text_to_image").strip()
+    return {
+        "paint": "drawing_to_image",
+    }.get(raw, raw)
+
+
+def _save_feed_variant(source: Image.Image, target: Path, max_side: int, quality: int) -> tuple[int, int, int]:
+    image = ImageOps.exif_transpose(source)
+    if image.mode not in {"RGB", "RGBA"}:
+        image = image.convert("RGB")
+    else:
+        image = image.copy()
+    image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+    image.save(target, "WEBP", quality=quality, method=6)
+    return image.width, image.height, target.stat().st_size
+
+
+def create_feed_assets(publication_id: str, source_url: str | None) -> FeedAssetInfo:
+    source_path = _media_file_path_from_url(source_url)
+    if source_path is None or not source_path.exists():
+        raise FileNotFoundError("Feed source image file not found.")
+    target_dir = feed_media_dir()
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", publication_id)
+    thumb_rel = f"feed/{safe_id}_thumb.webp"
+    large_rel = f"feed/{safe_id}_large.webp"
+    thumb_path = MEDIA / thumb_rel
+    large_path = MEDIA / large_rel
+    with Image.open(source_path) as opened:
+        source = ImageOps.exif_transpose(opened)
+        native_ratio = _feed_aspect_ratio(source.width, source.height)
+        orientation = _feed_orientation(source.width, source.height)
+        tw, th, tb = _save_feed_variant(source, thumb_path, FEED_THUMB_MAX_SIDE, 82)
+        lw, lh, lb = _save_feed_variant(source, large_path, FEED_LARGE_MAX_SIDE, 86)
+    return FeedAssetInfo(
+        feed_thumb_name=thumb_rel,
+        feed_large_name=large_rel,
+        feed_thumb_width=tw,
+        feed_thumb_height=th,
+        feed_thumb_bytes=tb,
+        feed_large_width=lw,
+        feed_large_height=lh,
+        feed_large_bytes=lb,
+        native_aspect_ratio=native_ratio,
+        orientation=orientation,
+    )
+
+
+def _feed_media_name(url: str | None) -> str | None:
+    """Имя файла из внутреннего /api/media-URL записи images."""
+    if not url:
+        return None
+    s = str(url)
+    if s.startswith("/api/media/"):
+        return s.removeprefix("/api/media/").split("?", 1)[0]
+    if s.startswith("/media/"):
+        return s.removeprefix("/media/").split("?", 1)[0]
+    return None
+
+
+def _feed_author_name(conn: sqlite3.Connection, internal_user_id: str, legacy_user_id: str | None) -> str:
+    row = conn.execute(
+        "SELECT display_name, username, first_name FROM users WHERE internal_user_id = ?",
+        (internal_user_id,),
+    ).fetchone()
+    if row is None and legacy_user_id:
+        row = conn.execute(
+            "SELECT display_name, username, first_name FROM users WHERE id = ?",
+            (legacy_user_id,),
+        ).fetchone()
+    if row is None:
+        return "Автор"
+    return _row_get(row, "display_name") or _row_get(row, "username") or _row_get(row, "first_name") or "Пользователь ИЗО"
+
+
+def _feed_challenge_payload(conn: sqlite3.Connection, category: str | None) -> dict[str, Any] | None:
+    if not category:
+        return None
+    row = conn.execute(
+        """
+        SELECT id, title, description, rules, prompt_hint, category, status,
+               reward_pool, starts_at, ends_at
+        FROM challenges
+        WHERE category = ? AND status = 'active'
+        ORDER BY ends_at ASC
+        LIMIT 1
+        """,
+        (category,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "description": row["description"],
+        "rules": row["rules"],
+        "promptHint": row["prompt_hint"],
+        "category": row["category"],
+        "status": row["status"],
+        "rewardPool": row["reward_pool"],
+        "startsAt": row["starts_at"],
+        "endsAt": row["ends_at"],
+    }
+
+
+def _feed_aspect_ratio(width: int, height: int) -> str:
+    if not width or not height:
+        return "1:1"
+    from math import gcd
+
+    g = gcd(int(width), int(height)) or 1
+    return f"{int(width) // g}:{int(height) // g}"
+
+
+def _feed_item_payload(
+    conn: sqlite3.Connection,
+    pub: sqlite3.Row,
+    viewer_internal_user_id: str | None,
+) -> dict[str, Any]:
+    image = conn.execute(
+        "SELECT id, url, thumbnail_url, width, height, prompt_original, settings_json, provider, mode "
+        "FROM images WHERE id = ?",
+        (pub["image_id"],),
+    ).fetchone()
+    settings: dict[str, Any] = {}
+    if image is not None:
+        try:
+            settings = json.loads(image["settings_json"] or "{}")
+        except (TypeError, ValueError):
+            settings = {}
+    visibility = pub["prompt_visibility"]
+    raw_prompt = (_row_get(image, "prompt_original") or "").strip()
+    if visibility == "open":
+        prompt: str | None = raw_prompt or None
+    elif visibility == "partial":
+        prompt = (raw_prompt[:FEED_PARTIAL_PROMPT_CHARS] + "…") if len(raw_prompt) > FEED_PARTIAL_PROMPT_CHARS else (raw_prompt or None)
+    else:
+        prompt = None
+    counts = {
+        r["kind"]: r["c"]
+        for r in conn.execute(
+            "SELECT kind, COUNT(*) AS c FROM feed_reactions WHERE publication_id = ? GROUP BY kind",
+            (pub["id"],),
+        ).fetchall()
+    }
+    viewer_kinds: set[str] = set()
+    is_followed_by_me = False
+    if viewer_internal_user_id:
+        viewer_kinds = {
+            r["kind"]
+            for r in conn.execute(
+                "SELECT kind FROM feed_reactions WHERE publication_id = ? AND internal_user_id = ?",
+                (pub["id"], viewer_internal_user_id),
+            ).fetchall()
+        }
+        is_followed_by_me = bool(conn.execute(
+            """
+            SELECT 1 FROM feed_author_follows
+            WHERE follower_internal_user_id = ? AND author_internal_user_id = ?
+            """,
+            (viewer_internal_user_id, pub["internal_user_id"]),
+        ).fetchone())
+    width = int(_row_get(image, "width") or 0)
+    height = int(_row_get(image, "height") or 0)
+    media_ready = bool(_row_get(pub, "feed_thumb_name") and _row_get(pub, "feed_large_name") and _row_get(pub, "media_ready_at"))
+    native_aspect_ratio = _row_get(pub, "native_aspect_ratio") or _feed_aspect_ratio(width, height)
+    source_type = _row_get(pub, "source_type") or _feed_source_type(_row_get(image, "mode"))
+    return {
+        "id": pub["id"],
+        "image_url": f"/api/feed/media/{pub['id']}?variant=large",
+        "thumbnail_url": f"/api/feed/media/{pub['id']}?variant=thumb",
+        "media_status": "ready" if media_ready else "missing",
+        "user_id": pub["internal_user_id"],
+        "author": {
+            "id": pub["internal_user_id"],
+            "displayName": _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"]),
+        },
+        "author_name": _feed_author_name(conn, pub["internal_user_id"], pub["legacy_user_id"]),
+        "title": pub["title"],
+        "description": pub["description"],
+        "prompt": prompt,
+        "prompt_visibility": visibility,
+        "allow_recreate": bool(pub["allow_recreate"]),
+        "style": settings.get("styleName") or None,
+        "model": _user_model_name(settings.get("modelProfile") or _row_get(image, "provider")),
+        "mode": _row_get(image, "mode"),
+        "aspect_ratio": native_aspect_ratio,
+        "native_aspect_ratio": native_aspect_ratio,
+        "orientation": _row_get(pub, "orientation") or _feed_orientation(width, height),
+        "source_type": source_type,
+        "source_label": _row_get(pub, "source_label") or _feed_source_label(source_type),
+        "display_policy": _row_get(pub, "display_policy") or FEED_DISPLAY_POLICY,
+        "remix_policy": _row_get(pub, "remix_policy") or ("allowed" if bool(pub["allow_recreate"]) else "disabled"),
+        "category": _row_get(pub, "category"),
+        "challenge": _feed_challenge_payload(conn, _row_get(pub, "category")),
+        "resolution": f"{width}×{height}" if width and height else None,
+        "seed": settings.get("seed"),
+        "created_at": pub["created_at"],
+        "remix_count": counts.get("recreate", 0),
+        "save_count": counts.get("save", 0),
+        "like_count": counts.get("like", 0),
+        "is_liked_by_me": "like" in viewer_kinds,
+        "is_saved_by_me": "save" in viewer_kinds,
+        "is_disliked_by_me": "dislike" in viewer_kinds,
+        "is_hidden_by_me": "hide" in viewer_kinds,
+        "is_reported_by_me": "report" in viewer_kinds,
+        "is_followed_by_me": is_followed_by_me,
+        "is_mine": viewer_internal_user_id == pub["internal_user_id"],
+    }
+
+
+def _feed_optional_viewer(request: Request) -> str | None:
+    """internal_user_id, если есть валидная trusted-сессия; иначе None.
+    Ошибок наружу не поднимает — чтение ленты доступно без входа."""
+    try:
+        return require_trusted_user(request)["internal_user_id"]
+    except HTTPException:
+        return None
+
+
+@app.get("/api/feed")
+async def feed_list(
+    request: Request,
+    type: str = "for_you",
+    limit: int = 30,
+    challenge_id: str | None = None,
+) -> dict[str, Any]:
+    aliases = {"all": "for_you", "new": "fresh"}
+    feed_type = aliases.get(type, type)
+    if feed_type not in {"for_you", "fresh", "top", "remix", "challenge", "following"}:
+        feed_type = "for_you"
+    limit = max(1, min(int(limit or 30), 60))
+    viewer = _feed_optional_viewer(request)
+    with db() as conn:
+        if feed_type == "following":
+            if not viewer:
+                rows = []
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT p.* FROM feed_publications p
+                    JOIN feed_author_follows f ON f.author_internal_user_id = p.internal_user_id
+                    WHERE f.follower_internal_user_id = ?
+                      AND p.status = 'published'
+                      AND p.media_ready_at IS NOT NULL
+                      AND p.feed_thumb_name IS NOT NULL
+                      AND p.feed_large_name IS NOT NULL
+                    ORDER BY p.created_at DESC
+                    LIMIT ?
+                    """,
+                    (viewer, limit),
+                ).fetchall()
+        elif feed_type == "challenge":
+            challenge = None
+            if challenge_id:
+                challenge = conn.execute(
+                    "SELECT category FROM challenges WHERE id = ? AND status = 'active'",
+                    (challenge_id,),
+                ).fetchone()
+            category = _row_get(challenge, "category") or "challenge_moscow_2120"
+            rows = conn.execute(
+                """
+                SELECT p.* FROM feed_publications p
+                WHERE p.status = 'published'
+                  AND p.category = ?
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
+                ORDER BY p.created_at DESC
+                LIMIT ?
+                """,
+                (category, limit),
+            ).fetchall()
+        elif feed_type == "remix":
+            rows = conn.execute(
+                """
+                SELECT p.* FROM feed_publications p
+                LEFT JOIN feed_reactions r ON r.publication_id = p.id
+                WHERE p.status = 'published'
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
+                GROUP BY p.id
+                ORDER BY SUM(CASE WHEN r.kind = 'recreate' THEN 1 ELSE 0 END) DESC,
+                         SUM(CASE WHEN r.kind = 'save' THEN 1 ELSE 0 END) DESC,
+                         p.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        elif feed_type == "top":
+            rows = conn.execute(
+                """
+                SELECT p.* FROM feed_publications p
+                LEFT JOIN feed_reactions r ON r.publication_id = p.id
+                WHERE p.status = 'published'
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
+                GROUP BY p.id
+                ORDER BY COUNT(r.publication_id) DESC, p.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        elif feed_type == "for_you":
+            rows = conn.execute(
+                """
+                SELECT p.* FROM feed_publications p
+                LEFT JOIN feed_reactions r ON r.publication_id = p.id
+                WHERE p.status = 'published'
+                  AND p.media_ready_at IS NOT NULL
+                  AND p.feed_thumb_name IS NOT NULL
+                  AND p.feed_large_name IS NOT NULL
+                GROUP BY p.id
+                ORDER BY
+                    SUM(CASE WHEN r.kind = 'recreate' THEN 8 ELSE 0 END)
+                  + SUM(CASE WHEN r.kind = 'save' THEN 4 ELSE 0 END)
+                  + SUM(CASE WHEN r.kind = 'like' THEN 1 ELSE 0 END) DESC,
+                  CASE WHEN p.category = 'challenge_moscow_2120' THEN 1 ELSE 0 END DESC,
+                  p.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM feed_publications
+                WHERE status = 'published'
+                  AND media_ready_at IS NOT NULL
+                  AND feed_thumb_name IS NOT NULL
+                  AND feed_large_name IS NOT NULL
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        items = [_feed_item_payload(conn, pub, viewer) for pub in rows]
+    return {"ok": True, "type": feed_type, "items": items}
+
+
+@app.post("/api/feed/publications")
+async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    image_id = str(payload.get("imageId") or "").strip()
+    title = str(payload.get("title") or "").strip()
+    description = str(payload.get("description") or "").strip() or None
+    visibility = str(payload.get("promptVisibility") or "open").strip()
+    allow_recreate = bool(payload.get("allowRecreate", True))
+    if not image_id:
+        raise HTTPException(400, "imageId required")
+    if not title:
+        raise HTTPException(400, "title required")
+    if len(title) > 120:
+        raise HTTPException(400, "title too long")
+    if visibility not in FEED_PROMPT_VISIBILITIES:
+        raise HTTPException(400, "invalid promptVisibility")
+    with db() as conn:
+        image = conn.execute("SELECT id, user_id, url, width, height, mode FROM images WHERE id = ?", (image_id,)).fetchone()
+    # Не раскрываем существование чужих изображений: и «нет», и «не твоё» → 404.
+    # security_event пишем отдельным соединением ДО raise — with-блок с raise
+    # внутри откатил бы запись (паттерн require_trusted_admin).
+    if image is None or image["user_id"] != user["legacy_user_id"]:
+        with db() as conn:
+            record_security_event(
+                conn,
+                "feed_publish_denied",
+                internal_user_id=user["internal_user_id"],
+                session_id=user.get("session_id"),
+                request=request,
+            )
+        raise HTTPException(404, "Image not found")
+    with db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM feed_publications WHERE image_id = ?", (image_id,)
+        ).fetchone()
+        now = datetime.now(timezone.utc).isoformat()
+        pub_id = existing["id"] if existing else uuid.uuid4().hex
+        try:
+            assets = create_feed_assets(pub_id, image["url"])
+        except FileNotFoundError:
+            raise HTTPException(404, "Image file not found")
+        except Exception:
+            raise HTTPException(400, "Image cannot be prepared for feed")
+        source_type = _feed_source_type(_row_get(image, "mode"))
+        source_label = _feed_source_label(source_type)
+        remix_policy = "allowed" if allow_recreate else "disabled"
+        if existing:
+            conn.execute(
+                "UPDATE feed_publications SET title = ?, description = ?, prompt_visibility = ?, "
+                "allow_recreate = ?, status = 'published', feed_thumb_name = ?, feed_large_name = ?, "
+                "feed_thumb_width = ?, feed_thumb_height = ?, feed_thumb_bytes = ?, "
+                "feed_large_width = ?, feed_large_height = ?, feed_large_bytes = ?, "
+                "media_ready_at = ?, media_error = NULL, native_aspect_ratio = ?, orientation = ?, "
+                "source_type = ?, source_label = ?, display_policy = ?, remix_policy = ?, updated_at = ? "
+                "WHERE id = ?",
+                (
+                    title,
+                    description,
+                    visibility,
+                    int(allow_recreate),
+                    assets.feed_thumb_name,
+                    assets.feed_large_name,
+                    assets.feed_thumb_width,
+                    assets.feed_thumb_height,
+                    assets.feed_thumb_bytes,
+                    assets.feed_large_width,
+                    assets.feed_large_height,
+                    assets.feed_large_bytes,
+                    now,
+                    assets.native_aspect_ratio,
+                    assets.orientation,
+                    source_type,
+                    source_label,
+                    FEED_DISPLAY_POLICY,
+                    remix_policy,
+                    now,
+                    pub_id,
+                ),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO feed_publications (id, image_id, internal_user_id, legacy_user_id, title, "
+                "description, prompt_visibility, allow_recreate, status, created_at, feed_thumb_name, "
+                "feed_large_name, feed_thumb_width, feed_thumb_height, feed_thumb_bytes, "
+                "feed_large_width, feed_large_height, feed_large_bytes, media_ready_at, media_error, "
+                "native_aspect_ratio, orientation, source_type, source_label, display_policy, remix_policy, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    pub_id,
+                    image_id,
+                    user["internal_user_id"],
+                    user["legacy_user_id"],
+                    title,
+                    description,
+                    visibility,
+                    int(allow_recreate),
+                    now,
+                    assets.feed_thumb_name,
+                    assets.feed_large_name,
+                    assets.feed_thumb_width,
+                    assets.feed_thumb_height,
+                    assets.feed_thumb_bytes,
+                    assets.feed_large_width,
+                    assets.feed_large_height,
+                    assets.feed_large_bytes,
+                    now,
+                    assets.native_aspect_ratio,
+                    assets.orientation,
+                    source_type,
+                    source_label,
+                    FEED_DISPLAY_POLICY,
+                    remix_policy,
+                    now,
+                ),
+            )
+        pub = conn.execute("SELECT * FROM feed_publications WHERE id = ?", (pub_id,)).fetchone()
+        item = _feed_item_payload(conn, pub, user["internal_user_id"])
+    return {"ok": True, "publication": item}
+
+
+def _feed_reaction_toggle(request: Request, publication_id: str, kind: str, enable: bool) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    with db() as conn:
+        pub = conn.execute(
+            "SELECT * FROM feed_publications WHERE id = ? AND status = 'published'",
+            (publication_id,),
+        ).fetchone()
+        if pub is None:
+            raise HTTPException(404, "Publication not found")
+        if enable:
+            conn.execute(
+                "INSERT OR IGNORE INTO feed_reactions (publication_id, internal_user_id, kind, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (publication_id, user["internal_user_id"], kind, datetime.now(timezone.utc).isoformat()),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM feed_reactions WHERE publication_id = ? AND internal_user_id = ? AND kind = ?",
+                (publication_id, user["internal_user_id"], kind),
+            )
+        item = _feed_item_payload(conn, pub, user["internal_user_id"])
+    return {"ok": True, "publication": item}
+
+
+@app.post("/api/feed/publications/{publication_id}/like")
+async def feed_like(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "like", True)
+
+
+@app.delete("/api/feed/publications/{publication_id}/like")
+async def feed_unlike(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "like", False)
+
+
+@app.post("/api/feed/publications/{publication_id}/save")
+async def feed_save(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "save", True)
+
+
+@app.delete("/api/feed/publications/{publication_id}/save")
+async def feed_unsave(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "save", False)
+
+
+@app.post("/api/feed/publications/{publication_id}/dislike")
+async def feed_dislike(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "dislike", True)
+
+
+@app.delete("/api/feed/publications/{publication_id}/dislike")
+async def feed_undislike(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "dislike", False)
+
+
+@app.post("/api/feed/publications/{publication_id}/hide")
+async def feed_hide(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "hide", True)
+
+
+@app.delete("/api/feed/publications/{publication_id}/hide")
+async def feed_unhide(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "hide", False)
+
+
+@app.post("/api/feed/publications/{publication_id}/report")
+async def feed_report(publication_id: str, request: Request) -> dict[str, Any]:
+    return _feed_reaction_toggle(request, publication_id, "report", True)
+
+
+@app.post("/api/feed/authors/{author_id}/follow")
+async def feed_follow_author(author_id: str, request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    if author_id == user["internal_user_id"]:
+        raise HTTPException(400, "Cannot follow yourself")
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM feed_publications WHERE internal_user_id = ? AND status = 'published' LIMIT 1",
+            (author_id,),
+        ).fetchone()
+        if exists is None:
+            raise HTTPException(404, "Author not found")
+        conn.execute(
+            "INSERT OR IGNORE INTO feed_author_follows (follower_internal_user_id, author_internal_user_id, created_at) "
+            "VALUES (?, ?, ?)",
+            (user["internal_user_id"], author_id, now),
+        )
+    return {"ok": True, "authorId": author_id, "following": True}
+
+
+@app.delete("/api/feed/authors/{author_id}/follow")
+async def feed_unfollow_author(author_id: str, request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    with db() as conn:
+        conn.execute(
+            "DELETE FROM feed_author_follows WHERE follower_internal_user_id = ? AND author_internal_user_id = ?",
+            (user["internal_user_id"], author_id),
+        )
+    return {"ok": True, "authorId": author_id, "following": False}
+
+
+@app.get("/api/feed/authors/{author_id}/publications")
+async def feed_author_publications(
+    author_id: str,
+    request: Request,
+    limit: int = 18,
+) -> dict[str, Any]:
+    limit = max(1, min(int(limit or 18), 60))
+    viewer = _feed_optional_viewer(request)
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM feed_publications
+            WHERE internal_user_id = ?
+              AND status = 'published'
+              AND media_ready_at IS NOT NULL
+              AND feed_thumb_name IS NOT NULL
+              AND feed_large_name IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (author_id, limit),
+        ).fetchall()
+        items = [_feed_item_payload(conn, pub, viewer) for pub in rows]
+    return {"ok": True, "authorId": author_id, "items": items}
+
+
+@app.get("/api/feed/challenges")
+async def feed_challenges(request: Request) -> dict[str, Any]:
+    viewer = _feed_optional_viewer(request)
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.*, COUNT(p.id) AS publication_count
+            FROM challenges c
+            LEFT JOIN feed_publications p
+              ON p.category = c.category
+             AND p.status = 'published'
+             AND p.media_ready_at IS NOT NULL
+            WHERE c.status = 'active'
+            GROUP BY c.id
+            ORDER BY c.ends_at ASC
+            """
+        ).fetchall()
+        challenges = []
+        for row in rows:
+            payload = _feed_challenge_payload(conn, row["category"]) or {}
+            payload["publicationCount"] = int(row["publication_count"] or 0)
+            challenges.append(payload)
+    return {"ok": True, "viewer": viewer, "items": challenges}
+
+
+@app.post("/api/feed/publications/{publication_id}/recreate")
+async def feed_recreate_mark(publication_id: str, request: Request) -> dict[str, Any]:
+    """Счётчик «Повторить» (remix_count). Только отметка события — генерация
+    идёт обычным /api/generate."""
+    return _feed_reaction_toggle(request, publication_id, "recreate", True)
+
+
+@app.post("/api/feed/publications/{publication_id}/remix/start")
+async def feed_remix_start(publication_id: str, request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    with db() as conn:
+        pub = conn.execute(
+            "SELECT * FROM feed_publications WHERE id = ? AND status = 'published'",
+            (publication_id,),
+        ).fetchone()
+        if pub is None:
+            raise HTTPException(404, "Publication not found")
+        item = _feed_item_payload(conn, pub, user["internal_user_id"])
+        conn.execute(
+            "INSERT OR IGNORE INTO feed_reactions (publication_id, internal_user_id, kind, created_at) "
+            "VALUES (?, ?, 'recreate', ?)",
+            (publication_id, user["internal_user_id"], datetime.now(timezone.utc).isoformat()),
+        )
+    return {
+        "ok": True,
+        "remixSessionId": uuid.uuid4().hex,
+        "publication": item,
+        "mode": item["mode"],
+        "prompt": item["prompt"],
+        "style": item["style"],
+        "sourceImageUrl": item["image_url"] if item["allow_recreate"] else None,
+        "aspectRatio": item["native_aspect_ratio"],
+        "lockedPrompt": item["prompt_visibility"] == "hidden",
+    }
+
+
+@app.get("/api/feed/media/{publication_id}")
+async def feed_media(publication_id: str, request: Request, variant: str = "large", thumb: int = 0) -> FileResponse:
+    """Файл ОПУБЛИКОВАННОЙ работы. Доступен любому (публичная лента) — но только
+    через публикацию: приватный /api/media остаётся закрытым как был."""
+    selected = "thumb" if int(thumb or 0) else (variant or "large").strip().lower()
+    if selected not in {"thumb", "large"}:
+        raise HTTPException(400, "Invalid feed media variant")
+    with db() as conn:
+        pub = conn.execute(
+            """
+            SELECT feed_thumb_name, feed_large_name FROM feed_publications
+            WHERE id = ?
+              AND status = 'published'
+              AND media_ready_at IS NOT NULL
+              AND feed_thumb_name IS NOT NULL
+              AND feed_large_name IS NOT NULL
+            """,
+            (publication_id,),
+        ).fetchone()
+        if pub is None:
+            raise HTTPException(404, "Publication not found")
+    name = _row_get(pub, "feed_thumb_name") if selected == "thumb" else _row_get(pub, "feed_large_name")
+    if not name:
+        raise HTTPException(404, "Image file not found")
+    path = (MEDIA / name).resolve()
+    try:
+        path.relative_to(MEDIA.resolve())
+    except ValueError:
+        raise HTTPException(404, "Image file not found")
+    if not path.exists():
+        raise HTTPException(404, "Image file not found")
+    return FileResponse(
+        path,
+        media_type="image/webp",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )

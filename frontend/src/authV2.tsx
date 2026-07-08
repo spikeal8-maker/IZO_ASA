@@ -421,13 +421,27 @@ export async function getActivityV2(): Promise<ActivityV2 | null> {
   return (await res.json()) as ActivityV2
 }
 
+let refreshSessionPromise: Promise<boolean> | null = null
+
+export function ensureSessionRefreshedV2(): Promise<boolean> {
+  if (!refreshSessionPromise) {
+    refreshSessionPromise = authFetch('/auth/session/refresh-v2', { method: 'POST', body: JSON.stringify({}) })
+      .then((res) => res.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshSessionPromise = null
+      })
+  }
+  return refreshSessionPromise
+}
+
 // Restore/validate the session purely via cookies. On a 401 (expired access
-// session), Option A: try a cookie-based refresh, then retry /me-v2 once.
+// session), Option A: try one shared cookie-based refresh, then retry /me-v2 once.
 export async function fetchMeV2(): Promise<MeV2 | null> {
   let res = await authFetch('/me-v2')
   if (res.status === 401) {
-    const refreshed = await authFetch('/auth/session/refresh-v2', { method: 'POST', body: JSON.stringify({}) })
-    if (refreshed.ok) res = await authFetch('/me-v2')
+    const refreshed = await ensureSessionRefreshedV2()
+    if (refreshed) res = await authFetch('/me-v2')
   }
   if (!res.ok) return null
   return (await res.json()) as MeV2
@@ -505,94 +519,6 @@ export async function refreshAuthStateV2(): Promise<MeV2 | null> {
   const me = await fetchMeV2()
   setAuthState(me ? 'authed' : 'anon', me)
   return me
-}
-
-export function AuthV2Panel(): ReactElement {
-  const { status, me } = useAuthV2()
-  const [view, setView] = useState<'email' | 'otp'>('email')
-  const [email, setEmail] = useState('')
-  const [challengeId, setChallengeId] = useState('')
-  const [code, setCode] = useState('')
-  const [debugCode, setDebugCode] = useState<string | undefined>(undefined)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    void initAuthV2()
-  }, [])
-
-  const onRequestCode = async () => {
-    setError('')
-    const result = await requestEmailCodeV2(email.trim())
-    if (!result) {
-      setError('Не удалось отправить код. Попробуйте ещё раз.') // generic — no existence disclosure
-      return
-    }
-    setChallengeId(result.challenge_id)
-    setDebugCode(result.debug_code) // shown only if backend returned it (dev/test)
-    setView('otp')
-  }
-
-  const onVerify = async () => {
-    setError('')
-    const ok = await verifyEmailCodeV2(challengeId, code.trim())
-    if (!ok) {
-      setError('Неверный или просроченный код.')
-      return
-    }
-    await refreshAuthStateV2() // updates shared store -> generation unlocks
-  }
-
-  const onLogout = async () => {
-    await logoutV2()
-    setView('email')
-    setEmail('')
-    setCode('')
-    setChallengeId('')
-    setDebugCode(undefined)
-    setError('')
-    await refreshAuthStateV2() // -> 'anon' -> generation locks
-  }
-
-  if (status === 'loading') {
-    return <div className="auth-v2"><strong>Вход (v2)</strong><p>Загрузка…</p></div>
-  }
-  if (status === 'authed') {
-    const name = me?.profile?.display_name || me?.identities?.[0]?.provider_username || me?.profile?.public_user_code || 'Пользователь'
-    const code = me?.profile?.public_user_code
-    const email = me?.profile?.email
-    const providers = me?.profile?.providers || me?.identities?.map((i) => i.provider).filter(Boolean) as string[] | undefined
-    const badge: Record<string, string> = { web_email: 'Web', telegram: 'TG', max: 'MAX' }
-    return (
-      <div className="auth-v2">
-        <strong>Вход выполнен (v2)</strong>
-        <p>{name}</p>
-        {code && <small className="auth-v2-code">Код аккаунта: {code}</small>}
-        {email && <small>{email}</small>}
-        {providers && providers.length > 0 && (
-          <div className="auth-v2-providers">{providers.map((p) => <span key={p} className={`src-badge src-${p}`}>{badge[p] || p}</span>)}</div>
-        )}
-        <button className="secondary" onClick={onLogout}>Выйти</button>
-      </div>
-    )
-  }
-  return (
-    <div className="auth-v2">
-      <strong>Вход по email (v2)</strong>
-      {error && <p className="auth-v2-error">{error}</p>}
-      {view !== 'otp' ? (
-        <>
-          <label>Email<input type="email" value={email} placeholder="you@example.com" onChange={(e) => setEmail(e.target.value)} /></label>
-          <button className="secondary" onClick={onRequestCode} disabled={!email.trim()}>Получить код</button>
-        </>
-      ) : (
-        <>
-          <label>Код из письма<input inputMode="numeric" value={code} placeholder="------" onChange={(e) => setCode(e.target.value)} /></label>
-          {debugCode && <small className="auth-v2-debug">debug code: {debugCode}</small>}
-          <button className="secondary" onClick={onVerify} disabled={!code.trim()}>Войти</button>
-        </>
-      )}
-    </div>
-  )
 }
 
 // Modal login surface opened by the locked generation CTA. Cookie-only auth; no

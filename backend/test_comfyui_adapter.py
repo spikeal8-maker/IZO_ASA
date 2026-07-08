@@ -5,15 +5,17 @@ from io import BytesIO
 
 from fastapi.testclient import TestClient
 from PIL import Image
+import pytest
 
 import main
 
 
-def setup_function() -> None:
+@pytest.fixture(autouse=True)
+def isolated_comfyui_test_state(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "DB_PATH", tmp_path / "comfyui_adapter_test.sqlite3")
+    monkeypatch.setattr(main, "MEDIA", tmp_path / "media")
+    main.MEDIA.mkdir(parents=True, exist_ok=True)
     main.init_db()
-    with main.db() as conn:
-        conn.execute("DELETE FROM jobs")
-        conn.execute("DELETE FROM images")
     main.jobs.clear()
     main.images.clear()
     main.queue = asyncio.Queue()
@@ -38,6 +40,25 @@ def test_choose_model_prefers_installed_flux_klein_9b_fp8() -> None:
         "qwen_3_8b_fp8mixed.safetensors",
         "flux2-vae.safetensors",
     )
+
+
+def test_effective_face_profile_is_pinned_to_flux_klein_9b() -> None:
+    assert main.effective_face_profile("flux_klein_4b") == "flux_klein_9b"
+    assert main.effective_face_profile("local_flux_klein") == "flux_klein_9b"
+
+
+def test_choose_faceswap_lora_prefers_matching_9b_face_lora() -> None:
+    selected = main.choose_faceswap_lora(
+        [
+            "bfs_head_v1_flux-klein_4b_step3500_rank128.safetensors",
+            "bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors",
+        ],
+        main.Lora(id="bfs_head_v1_flux-klein_4b_step3500_rank128.safetensors", strength=0.72),
+        "flux-2-klein-9b-fp8.safetensors",
+    )
+
+    assert selected.id == "bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors"
+    assert selected.strength == 0.72
 
 
 def test_models_endpoint_reports_selected_models(monkeypatch) -> None:
@@ -97,8 +118,8 @@ def test_extract_images_from_history_handles_standard_comfyui_outputs() -> None:
     ]
 
 
-def test_download_comfyui_image_saves_png_and_thumbnail(monkeypatch) -> None:
-    image = Image.new("RGB", (16, 16), "#2f6fed")
+def test_download_comfyui_image_saves_optimized_webp_and_thumbnail(monkeypatch) -> None:
+    image = Image.new("RGB", (3000, 1800), "#2f6fed")
     buffer = BytesIO()
     image.save(buffer, "PNG")
     png_bytes = buffer.getvalue()
@@ -135,8 +156,11 @@ def test_download_comfyui_image_saves_png_and_thumbnail(monkeypatch) -> None:
 
     assert image_path.exists()
     assert thumb_path.exists()
-    assert image_path.name == "job_download_test_comfyui.png"
+    assert image_path.name == "job_download_test_comfyui.webp"
     assert thumb_path.name == "job_download_test_comfyui_thumb.webp"
+    with Image.open(image_path) as saved:
+        assert saved.format == "WEBP"
+        assert max(saved.size) <= main.GALLERY_IMAGE_MAX_SIDE
 
 
 def test_save_canvas_json_creates_raster_input() -> None:
@@ -180,6 +204,67 @@ def test_prepare_comfyui_input_image_downscales_large_portrait(tmp_path, monkeyp
         assert max(image.size) <= main.COMFYUI_INPUT_MAX_SIDE
 
 
+def test_prepare_comfyui_face_input_uses_smaller_safe_limit(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "MEDIA", tmp_path)
+    source = tmp_path / "large_face_target.png"
+    Image.new("RGB", (3200, 2400), "#663399").save(source, "PNG")
+
+    req = main.GenerateRequest(mode="faceswap", width=1536, height=1152)
+    prepared = main.prepare_comfyui_input_image(source, "job_face_target", req, max_side=1024)
+
+    assert prepared is not None
+    with Image.open(prepared) as image:
+        assert image.size == (1024, 768)
+        assert image.size[0] % 16 == 0
+        assert image.size[1] % 16 == 0
+        assert max(image.size) <= 1024
+
+
+def test_prepare_comfyui_outpaint_inputs_builds_canvas_and_mask(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "MEDIA", tmp_path)
+    source = tmp_path / "source.png"
+    Image.new("RGB", (100, 100), "#2f6fed").save(source, "PNG")
+
+    req = main.GenerateRequest(
+        mode="outpaint",
+        width=1024,
+        height=512,
+        outpaint={"left": 50, "right": 50, "top": 0, "bottom": 0, "scaleDown": True},
+    )
+    image_path, mask_path = main.prepare_comfyui_outpaint_inputs(source, "job_outpaint", req)
+
+    assert image_path is not None and mask_path is not None
+    with Image.open(image_path) as image, Image.open(mask_path) as mask:
+        assert image.size == (1024, 512)
+        assert mask.size == (1024, 512)
+        assert image.getpixel((512, 256)) == (47, 111, 237)
+        assert mask.getpixel((10, 256)) == (255, 255, 255)
+        assert mask.getpixel((512, 256)) == (0, 0, 0)
+
+
+def test_patch_outpaint_workflow_uses_full_denoise_and_target_size() -> None:
+    wf = {
+        "FKO:194": {"inputs": {}},
+        "FKO:195": {"inputs": {}},
+        "FKO:196": {"inputs": {}},
+        "FKO:6": {"inputs": {}},
+        "FKO:198": {"inputs": {}},
+        "FKO:maskload": {"inputs": {}},
+        "FKO:209": {"inputs": {}},
+        "FKO:163": {"inputs": {"denoise": 0.25}},
+        "FKO:203": {"inputs": {}},
+    }
+    req = main.GenerateRequest(mode="outpaint", prompt="expand", width=1024, height=1024, strength=0.25)
+
+    main.patch_mode_nodes(wf, req, {"input1": "expanded.png", "mask": "mask.png"}, "m", "t", "v")
+
+    assert wf["FKO:198"]["inputs"]["image"] == "expanded.png"
+    assert wf["FKO:maskload"]["inputs"]["image"] == "mask.png"
+    assert wf["FKO:209"]["inputs"]["output_target_width"] == 1024
+    assert wf["FKO:209"]["inputs"]["output_target_height"] == 1024
+    assert wf["FKO:163"]["inputs"]["denoise"] == 1
+
+
 def test_patch_upload_modes_wire_expected_input_nodes() -> None:
     uploads = {"input1": "source.png", "input2": "face.png"}
 
@@ -188,31 +273,17 @@ def test_patch_upload_modes_wire_expected_input_nodes() -> None:
     assert i2i["FKI2I:img"]["inputs"]["image"] == "source.png"
     assert i2i["FK:171"]["inputs"]["denoise"] == 0.33
 
-    faceswap = {
-        "FKF:225": {"inputs": {}},
-        "FKF:223": {"inputs": {}},
-        "FKF:235": {"inputs": {}},
-        "FKF:226": {"inputs": {}},
-        "FKF:234": {"inputs": {}},
-        "FKF:236": {"inputs": {}},
-        "FKF:227": {"inputs": {"text": "original workflow prompt"}},
-        "FKF:229": {"inputs": {"text": "old negative"}},
-        "FKF:239": {"inputs": {}},
-        "FKF:228": {"inputs": {}},
-        "FKF:232": {"inputs": {}},
-    }
+    faceswap = _edit_workflow_template()
     req = main.GenerateRequest(mode="faceswap", prompt="", seed=7, strength=0.75, loras=[main.Lora(id="face.safetensors", strength=0.75)])
     main.patch_mode_nodes(faceswap, req, uploads, "m", "t", "v")
-    assert faceswap["FKF:234"]["inputs"]["image"] == "source.png"
-    assert faceswap["FKF:236"]["inputs"]["image"] == "face.png"
-    assert faceswap["FKF:226"]["inputs"]["lora_name"] == "face.safetensors"
-    assert faceswap["FKF:226"]["inputs"]["strength_model"] == 0.75
-    assert faceswap["FKF:228"]["inputs"]["seed"] == 7
-    assert faceswap["FKF:228"]["inputs"]["denoise"] == 1
-    assert faceswap["FKF:228"]["inputs"]["scheduler"] == "simple"
-    assert faceswap["FKF:227"]["inputs"]["text"] == "original workflow prompt"
-    assert faceswap["FKF:229"]["inputs"]["text"] == ""
-    assert faceswap["FKF:239"]["inputs"]["model"] == ["FKF:226", 0]
+    assert faceswap["FK:91"]["inputs"]["image"] == "source.png"
+    assert faceswap["FK:88"]["inputs"]["image"] == "face.png"
+    assert faceswap["FK:171"]["inputs"]["seed"] == 7
+    assert faceswap["FK:171"]["inputs"]["denoise"] == 1
+    assert faceswap["FK:171"]["inputs"]["scheduler"] == "simple"
+    assert faceswap["FK:156"]["inputs"]["text"] == ""
+    assert faceswap["FK:171"]["inputs"]["positive"] == ["FK:233", 0]
+    assert faceswap["FK:171"]["inputs"]["negative"] == ["FK:231", 0]
 
 
 def _edit_workflow_template() -> dict:
