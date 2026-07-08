@@ -1666,6 +1666,7 @@ def init_db() -> None:
                 prompt_visibility TEXT NOT NULL DEFAULT 'open',
                 allow_recreate INTEGER NOT NULL DEFAULT 1,
                 status TEXT NOT NULL DEFAULT 'published',
+                view_count INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_feed_publications_status_created
@@ -1769,6 +1770,7 @@ def init_db() -> None:
             "remix_policy": "TEXT",
             "tags_json": "TEXT",
             "updated_at": "TEXT",
+            "view_count": "INTEGER NOT NULL DEFAULT 0",
         }.items():
             if column not in feed_publication_columns:
                 conn.execute(f"ALTER TABLE feed_publications ADD COLUMN {column} {definition}")

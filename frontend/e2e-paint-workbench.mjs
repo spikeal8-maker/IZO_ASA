@@ -77,6 +77,46 @@ async function testDesktop() {
     const topValue = Number(await page.locator('.mode-outpaint .paint-control').nth(2).locator('span').last().innerText())
     assert(leftValue === 0, `wide source in square frame should touch horizontal edges, got left padding ${leftValue}`)
     assert(topValue > 0, `wide source in square frame should have vertical outpaint space, got top padding ${topValue}`)
+    const squareMetrics = await page.evaluate(() => {
+      const frame = document.querySelector('.paint-outpaint-frame')?.getBoundingClientRect()
+      const source = document.querySelector('.paint-outpaint-source')?.getBoundingClientRect()
+      return frame && source ? {
+        frameW: frame.width,
+        frameH: frame.height,
+        sourceW: source.width,
+        sourceH: source.height,
+        sourceX: source.x - frame.x,
+        sourceY: source.y - frame.y,
+      } : null
+    })
+    assert(Boolean(squareMetrics), 'outpaint square metrics are missing')
+    assert(Math.abs(squareMetrics.frameW - squareMetrics.frameH) <= 2, `square frame is not square: ${JSON.stringify(squareMetrics)}`)
+    assert(Math.abs(squareMetrics.sourceW - squareMetrics.frameW) <= 3, `wide source should span square frame width: ${JSON.stringify(squareMetrics)}`)
+    assert(squareMetrics.sourceY > 12 && squareMetrics.sourceH < squareMetrics.frameH, `wide source should leave top/bottom outpaint bands in square frame: ${JSON.stringify(squareMetrics)}`)
+
+    await page.getByRole('button', { name: '9:16' }).click()
+    await page.waitForTimeout(80)
+    const verticalMetrics = await page.evaluate(() => {
+      const frame = document.querySelector('.paint-outpaint-frame')?.getBoundingClientRect()
+      const source = document.querySelector('.paint-outpaint-source')?.getBoundingClientRect()
+      return frame && source ? { frameW: frame.width, frameH: frame.height, sourceW: source.width, sourceH: source.height } : null
+    })
+    assert(Boolean(verticalMetrics), 'outpaint vertical metrics are missing')
+    assert(verticalMetrics.frameH > verticalMetrics.frameW * 1.55, `9:16 should render a vertical frame: ${JSON.stringify(verticalMetrics)}`)
+    assert(Math.abs(verticalMetrics.sourceW - verticalMetrics.frameW) <= 3, `wide source should fit across vertical frame width: ${JSON.stringify(verticalMetrics)}`)
+    assert(verticalMetrics.sourceH < verticalMetrics.frameH * 0.45, `wide source should leave vertical extension space in 9:16: ${JSON.stringify(verticalMetrics)}`)
+
+    await page.getByRole('button', { name: '16:9' }).click()
+    await page.waitForTimeout(80)
+    const wideMetrics = await page.evaluate(() => {
+      const frame = document.querySelector('.paint-outpaint-frame')?.getBoundingClientRect()
+      const source = document.querySelector('.paint-outpaint-source')?.getBoundingClientRect()
+      return frame && source ? { frameW: frame.width, frameH: frame.height, sourceW: source.width, sourceH: source.height } : null
+    })
+    assert(Boolean(wideMetrics), 'outpaint wide metrics are missing')
+    assert(wideMetrics.frameW > wideMetrics.frameH * 1.55, `16:9 should render a wide frame: ${JSON.stringify(wideMetrics)}`)
+    assert(wideMetrics.sourceW <= wideMetrics.frameW + 3 && wideMetrics.sourceH <= wideMetrics.frameH + 3, `wide source should stay inside 16:9 frame: ${JSON.stringify(wideMetrics)}`)
+    assert(wideMetrics.sourceW > wideMetrics.frameW * 0.82 && wideMetrics.sourceH > wideMetrics.frameH * 0.82, `wide source should be fitted prominently in 16:9 frame: ${JSON.stringify(wideMetrics)}`)
 
     const before = await page.locator('.mode-outpaint .paint-control').nth(2).locator('span').last().innerText()
     const box = await page.locator('.paint-outpaint-source').boundingBox()

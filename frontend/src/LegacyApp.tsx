@@ -5,6 +5,7 @@ import {
   ensureSessionRefreshedV2,
   initAuthV2,
   updateProfileV2,
+  updateProfileV2Detailed,
   logoutV2,
   getAuthCapabilitiesV2,
   pollBotLoginStatusV2,
@@ -2813,13 +2814,13 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
     const preset = avatarPresets.find((item) => item.id === presetId)
     if (!preset) return
     setAvatarBusy(true); setAvatarMsg('')
-    const result = await updateProfileV2({ avatar_preset: presetId })
-    if (result) {
+    const result = await updateProfileV2Detailed({ avatar_preset: presetId, avatar_url: preset.url })
+    if (result.ok) {
       setAvatarPreset(presetId)
       setAvatarUrl(preset.url)
       await refreshAuthStateV2()
       setAvatarMsg('Аватар сохранён')
-    } else setAvatarMsg('Не удалось сохранить аватар')
+    } else setAvatarMsg(result.detail || 'Не удалось сохранить аватар')
     setAvatarBusy(false)
   }
   const uploadAvatar = async (event: ChangeEvent<HTMLInputElement>) => {

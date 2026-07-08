@@ -465,12 +465,43 @@ export async function logoutV2(): Promise<void> {
 }
 
 export async function updateProfileV2(fields: Record<string, string>): Promise<MeV2 | null> {
-  const res = await authFetch('/me/profile-v2', {
+  let res = await authFetch('/me/profile-v2', {
     method: 'PATCH',
     body: JSON.stringify(fields),
   })
+  if (res.status === 401) {
+    const refreshed = await ensureSessionRefreshedV2()
+    if (refreshed) {
+      res = await authFetch('/me/profile-v2', {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+      })
+    }
+  }
   if (!res.ok) return null
   return (await res.json()) as MeV2
+}
+
+export async function updateProfileV2Detailed(fields: Record<string, string>): Promise<{ ok: true; data: MeV2 } | { ok: false; detail: string; status: number }> {
+  let res = await authFetch('/me/profile-v2', {
+    method: 'PATCH',
+    body: JSON.stringify(fields),
+  })
+  if (res.status === 401) {
+    const refreshed = await ensureSessionRefreshedV2()
+    if (refreshed) {
+      res = await authFetch('/me/profile-v2', {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+      })
+    }
+  }
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({})) as { detail?: unknown }
+    const detail = typeof payload.detail === 'string' ? payload.detail : 'Не удалось сохранить профиль'
+    return { ok: false, detail, status: res.status }
+  }
+  return { ok: true, data: (await res.json()) as MeV2 }
 }
 
 // ---------------------------------------------------------------------------

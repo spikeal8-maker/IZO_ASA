@@ -22,6 +22,7 @@ import {
   requestEmailLinkCodeV2,
   startBotLinkV2,
   updateProfileV2,
+  updateProfileV2Detailed,
   useAuthV2,
   verifyEmailLinkCodeV2,
 } from './authV2'
@@ -665,13 +666,13 @@ export default function NewStudio(): ReactElement {
     if (!preset) return
     setAvatarBusy(true)
     setAvatarMsg('')
-    const result = await updateProfileV2({ avatar_preset: presetId })
-    if (result) {
+    const result = await updateProfileV2Detailed({ avatar_preset: presetId, avatar_url: preset.url })
+    if (result.ok) {
       setAvatarPreset(presetId)
       setAvatarUrl(preset.url)
       await refreshAuthStateV2()
       setAvatarMsg('Аватар сохранён')
-    } else setAvatarMsg('Не удалось сохранить аватар')
+    } else setAvatarMsg(result.detail || 'Не удалось сохранить аватар')
     setAvatarBusy(false)
   }
   const uploadAvatar = async (event: ChangeEvent<HTMLInputElement>) => {

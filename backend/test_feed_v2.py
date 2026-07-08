@@ -185,8 +185,12 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "--more-ratio" in r.text
         assert "modalSaveBtn" in r.text
         assert "detail-icon save" in r.text
-        assert "в избранном" in r.text
-        assert "История создания" in r.text
+        assert "избранных" in r.text
+        assert "view_count" in r.text
+        assert "/view" in r.text
+        assert "data-panel=\"history\"" in r.text
+        assert "function setActivePanel(name = '')" in r.text
+        assert "История создания" not in r.text
         assert "modalHistory" in r.text
         assert "function renderSourceHistory(item)" in r.text
         assert "Работы автора появятся во вкладке Подписки" in r.text
@@ -246,6 +250,7 @@ def test_feed_public_read_and_prompt_visibility(temp_db):
         assert items["Открытая"]["media_status"] == "ready"
         assert items["Открытая"]["native_aspect_ratio"] == "3:2"
         assert items["Открытая"]["orientation"] == "landscape"
+        assert items["Открытая"]["view_count"] == 0
 
 
 def test_reactions_require_session_and_toggle(temp_db):
@@ -269,6 +274,23 @@ def test_reactions_require_session_and_toggle(temp_db):
         assert r.json()["publication"]["save_count"] == 1
         r = client.post(f"/api/feed/publications/{pub['id']}/recreate", headers=bearer(token))
         assert r.json()["publication"]["remix_count"] == 1
+
+
+def test_feed_publication_view_count_is_public_and_incremented(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-view-author", "web_view_author")
+        make_image("img-view", "web_view_author")
+        pub = publish(client, token, "img-view")
+
+    with TestClient(main.app) as anon:
+        r = anon.post(f"/api/feed/publications/{pub['id']}/view")
+        assert r.status_code == 200
+        assert r.json()["publication"]["view_count"] == 1
+        r = anon.post(f"/api/feed/publications/{pub['id']}/view")
+        assert r.json()["publication"]["view_count"] == 2
+        feed = anon.get("/api/feed?type=new").json()
+        item = next(i for i in feed["items"] if i["id"] == pub["id"])
+        assert item["view_count"] == 2
 
 
 def test_feed_tabs_follow_challenge_and_remix_start(temp_db):

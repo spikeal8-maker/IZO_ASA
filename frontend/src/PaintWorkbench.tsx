@@ -168,6 +168,7 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
     rect: { x: number; y: number; w: number; h: number }
   }>(null)
   const [view, setView] = useState({ scale: 1, x: 0, y: 0 })
+  const [outpaintFrameSize, setOutpaintFrameSize] = useState(paintStageSize)
   const [outpaintSourceSize, setOutpaintSourceSize] = useState({ width: paintStageSize.width, height: paintStageSize.height })
   const touchViewRef = useRef({ pinching: false, distance: 0, centerX: 0, centerY: 0, scale: 1, x: 0, y: 0 })
 
@@ -190,6 +191,28 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
     })
     return () => { cancelled = true }
   }, [apiUrl, paintImage, paintStageSize.height, paintStageSize.width])
+
+  useEffect(() => {
+    if (paintMode !== 'outpaint') return undefined
+    const update = () => {
+      const box = workbenchRef.current?.getBoundingClientRect()
+      const maxW = Math.max(240, (box?.width || paintStageSize.width) - 36)
+      const maxH = Math.max(240, (box?.height || paintStageSize.height) - 36)
+      const scale = Math.min(maxW / Math.max(1, paintStageSize.width), maxH / Math.max(1, paintStageSize.height))
+      setOutpaintFrameSize({
+        width: Math.max(1, Math.round(paintStageSize.width * scale)),
+        height: Math.max(1, Math.round(paintStageSize.height * scale)),
+      })
+    }
+    update()
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update)
+    if (workbenchRef.current && observer) observer.observe(workbenchRef.current)
+    window.addEventListener('resize', update)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', update)
+    }
+  }, [paintMode, paintStageSize.height, paintStageSize.width, workbenchRef])
 
   useEffect(() => {
     if (paintMode !== 'outpaint' || !paintImage) return
@@ -559,7 +582,11 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
         <div
           ref={outpaintFrameRef}
           className={`paint-outpaint-frame${paintImage ? ' is-filled' : ''}`}
-          style={{ '--paint-stage-ratio': `${paintStageSize.width} / ${paintStageSize.height}` } as CSSProperties}
+          style={{
+            '--paint-stage-ratio': `${paintStageSize.width} / ${paintStageSize.height}`,
+            width: `${outpaintFrameSize.width}px`,
+            height: `${outpaintFrameSize.height}px`,
+          } as CSSProperties}
           onPointerMove={moveOutpaintDrag}
           onPointerUp={stopOutpaintDrag}
           onPointerCancel={stopOutpaintDrag}
