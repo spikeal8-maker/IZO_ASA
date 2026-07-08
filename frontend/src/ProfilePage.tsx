@@ -65,6 +65,8 @@ export default function ProfilePage({
   profileTab,
   setProfileTab,
   tariffs,
+  tariffsState,
+  authCapsState,
   authCaps,
   quality,
   setQuality,
@@ -131,6 +133,9 @@ export default function ProfilePage({
   const friendPromoCode = `FRIEND-${String(me?.profile?.public_user_code || me?.internal_user_id || 'GUEST').replace(/^web_/, '').toUpperCase().slice(0, 12)}`
   const referralLink = `${window.location.origin}?ref=${me?.profile?.public_user_code || me?.internal_user_id || 'guest'}`
   const tokenPrice = (quality === 'fast' ? 1 : quality === 'standard' ? 2 : 4) * (provider === 'openrouter' ? 2 : 1)
+  const profileDataState = me ? 'ready' : 'fallback'
+  const tariffsStateLabel = tariffsState === 'ready' ? 'Тарифы из базы' : tariffsState === 'loading' ? 'Тарифы загружаются' : 'Тарифы по умолчанию'
+  const authCapsStateLabel = authCapsState === 'ready' ? 'Способы входа из базы' : authCapsState === 'loading' ? 'Способы входа загружаются' : 'Способы входа ограничены'
   const planCards = tariffKeys.map((id) => ({
     id,
     title: id[0].toUpperCase() + id.slice(1),
@@ -167,6 +172,11 @@ export default function ProfilePage({
         </>
       ) : (
         <>
+          <div className="profile-data-health" aria-label="Состояние данных профиля">
+            <span className={profileDataState === 'ready' ? 'ok' : 'warn'}>{profileDataState === 'ready' ? 'Профиль из базы' : 'Профиль восстанавливается'}</span>
+            <span className={tariffsState === 'ready' ? 'ok' : 'warn'}>{tariffsStateLabel}</span>
+            <span className={authCapsState === 'ready' ? 'ok' : 'warn'}>{authCapsStateLabel}</span>
+          </div>
           <nav className="profile-tabs" aria-label="Разделы настроек">
             <button type="button" className={profileTab === 'profile' ? 'active' : ''} onClick={() => setProfileTab('profile')}>Профиль</button>
             <button type="button" className={profileTab === 'tariffs' ? 'active' : ''} onClick={() => setProfileTab('tariffs')}>Тарифы</button>
