@@ -599,6 +599,16 @@ export default function NewStudio(): ReactElement {
   }, [])
   const { status: authStatus, me } = useAuthV2()
   const [authOpen, setAuthOpen] = useState(false)
+  const ensureAuthed = useCallback(async () => {
+    if (authStatus === 'authed') return true
+    const current = await refreshAuthStateV2()
+    if (current) return true
+    setAuthOpen(true)
+    return false
+  }, [authStatus])
+  const openProfileOrAuth = useCallback(async () => {
+    if (await ensureAuthed()) goProfile()
+  }, [ensureAuthed, goProfile])
   const [helpOpen, setHelpOpen] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [galleryPickTarget, setGalleryPickTarget] = useState<UploadTarget | null>(null)
@@ -733,11 +743,8 @@ export default function NewStudio(): ReactElement {
   }, [])
 
   // Реальные реакции like/save: POST/DELETE, ответ содержит свежую публикацию.
-  const toggleFeedReaction = (post: FeedPublication, kind: 'like' | 'save') => {
-    if (authStatus !== 'authed') {
-      setAuthOpen(true)
-      return
-    }
+  const toggleFeedReaction = async (post: FeedPublication, kind: 'like' | 'save') => {
+    if (!(await ensureAuthed())) return
     const active = kind === 'like' ? post.is_liked_by_me : post.is_saved_by_me
     apiFetch(`/feed/publications/${post.id}/${kind}`, { method: active ? 'DELETE' : 'POST' })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
@@ -748,11 +755,8 @@ export default function NewStudio(): ReactElement {
   }
 
   // «Повторить»/«Сделать похожее»: prompt/format в генератор + счётчик recreate.
-  const startFeedRecreate = (post: FeedPublication) => {
-    if (authStatus !== 'authed') {
-      setAuthOpen(true)
-      return
-    }
+  const startFeedRecreate = async (post: FeedPublication) => {
+    if (!(await ensureAuthed())) return
     if (!post.allow_recreate) {
       showToast(feedLang === 'ru' ? 'Автор запретил повторение этой работы' : 'Author disabled recreate')
       return
@@ -808,11 +812,8 @@ export default function NewStudio(): ReactElement {
   }
 
   // Публикация выбранного изображения галереи.
-  const openPublish = (item: N2GalleryImage) => {
-    if (authStatus !== 'authed') {
-      setAuthOpen(true)
-      return
-    }
+  const openPublish = async (item: N2GalleryImage) => {
+    if (!(await ensureAuthed())) return
     setPublishTitle(item.promptOriginal.slice(0, 60) || (feedLang === 'ru' ? 'Моя работа' : 'My work'))
     setPublishVisibility('open')
     setPublishAllowRecreate(true)
@@ -821,11 +822,8 @@ export default function NewStudio(): ReactElement {
 
   // Удалить изображение из личной галереи (как в старом интерфейсе: DELETE
   // /api/gallery/{id}). Только для своей галереи, требует сессию.
-  const deleteGalleryImage = (item: N2GalleryImage) => {
-    if (authStatus !== 'authed') {
-      setAuthOpen(true)
-      return
-    }
+  const deleteGalleryImage = async (item: N2GalleryImage) => {
+    if (!(await ensureAuthed())) return
     if (!window.confirm(ft.deleteConfirm)) return
     apiFetch(`/gallery/${item.id}`, { method: 'DELETE' })
       .then((r) => {
@@ -1252,10 +1250,7 @@ export default function NewStudio(): ReactElement {
         return
       }
     }
-    if (authStatus !== 'authed') {
-      setAuthOpen(true)
-      return
-    }
+    if (!(await ensureAuthed())) return
     inFlightRef.current = true
     setIsSubmitting(true)
     setNotice('')
@@ -1937,7 +1932,7 @@ export default function NewStudio(): ReactElement {
             ))}
           </nav>
           {authStatus !== 'authed' && !feedPlaceholderTab && (
-            <button className="nf-login-pill" type="button" onClick={() => setAuthOpen(true)}>
+            <button className="nf-login-pill" type="button" onClick={() => void ensureAuthed()}>
               {feedLang === 'ru' ? 'Войти для публикации' : 'Sign in to publish'}
             </button>
           )}
@@ -1999,7 +1994,7 @@ export default function NewStudio(): ReactElement {
                     <button className="nf-remix" type="button" onClick={() => setTab('text')}>
                       {ft.createImage}
                     </button>
-                    <button className="nf-secondary" type="button" onClick={() => setAuthOpen(true)}>
+                    <button className="nf-secondary" type="button" onClick={() => void ensureAuthed()}>
                       {ft.login}
                     </button>
                   </>
@@ -2043,7 +2038,7 @@ export default function NewStudio(): ReactElement {
         >
           <i>✦</i>{ft.challenges}
         </button>
-        <button type="button" onClick={authStatus === 'authed' ? goProfile : () => setAuthOpen(true)}>
+        <button type="button" onClick={() => void openProfileOrAuth()}>
           <i>○</i>{ft.profile}
         </button>
       </nav>
@@ -3215,7 +3210,7 @@ export default function NewStudio(): ReactElement {
             onOpenFeed={() => { window.location.href = '/feed' }}
             onOpenGallery={goGallery}
             onOpenHelp={() => setHelpOpen(true)}
-            onOpenProfile={authStatus === 'authed' ? goProfile : () => setAuthOpen(true)}
+            onOpenProfile={() => void openProfileOrAuth()}
           />
           {tab === 'feed' ? (
             <div className="iv3-content iv3-feed">{feed}</div>

@@ -614,14 +614,22 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
       if (result.status === 'authenticated') {
         stopped = true
         window.clearInterval(timer)
-        await refreshAuthStateV2()
-        handleClose()
+        const me = await refreshAuthStateV2()
+        if (me) handleClose()
+        else setError('Вход подтверждён, но браузер не сохранил сессию. Обновите страницу и попробуйте снова.')
       } else if (result.status === 'expired') {
         stopped = true
         window.clearInterval(timer)
         setError('Ссылка входа устарела. Попробуйте снова.')
       } else if (result.status === 'error') {
-        setError('Не удалось проверить вход. Попробуйте снова.')
+        const me = await refreshAuthStateV2()
+        if (me) {
+          stopped = true
+          window.clearInterval(timer)
+          handleClose()
+        } else {
+          setError('Не удалось проверить вход. Попробуйте снова.')
+        }
       }
     }
     timer = window.setInterval(tick, botPollMs)
