@@ -32,6 +32,7 @@ def temp_db(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(main, "MAX_WEB_APP_DATA_TTL_SECONDS", 86400)
     monkeypatch.setattr(main, "APP_ENV", "development")
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
+    monkeypatch.setattr(main, "TRUSTED_COOKIE_SAMESITE", "lax")
     monkeypatch.setattr(main, "SESSION_ACCESS_TTL_SECONDS", 3600)
     monkeypatch.setattr(main, "SESSION_REFRESH_TTL_SECONDS", 2592000)
     main.init_db()

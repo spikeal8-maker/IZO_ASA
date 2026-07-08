@@ -6915,6 +6915,7 @@ async def auth_telegram_v2(req: TelegramAuthV2Request, request: Request, respons
                 anonymous_id=req.anonymous_id,
                 installation_id=req.installation_id,
                 platform=platform,
+                request=request,
                 properties={"provider": "telegram", "reason": reason},
             )
         except Exception as exc:  # pragma: no cover - defensive
@@ -6971,6 +6972,7 @@ async def auth_telegram_v2(req: TelegramAuthV2Request, request: Request, respons
             installation_id=req.installation_id,
             session_id=session["session_id"],
             platform=platform,
+            request=request,
             properties={"provider": "telegram", "telegram_user_id": str(user["id"])},
         )
     except Exception as exc:  # pragma: no cover - defensive
@@ -7012,6 +7014,7 @@ async def auth_max_v2(req: MaxAuthV2Request, request: Request, response: Respons
                 anonymous_id=req.anonymous_id,
                 installation_id=req.installation_id,
                 platform=platform,
+                request=request,
                 properties={"provider": "max", "reason": reason},
             )
         except Exception as exc:  # pragma: no cover - defensive
@@ -7066,6 +7069,7 @@ async def auth_max_v2(req: MaxAuthV2Request, request: Request, response: Respons
             installation_id=req.installation_id,
             session_id=session["session_id"],
             platform=platform,
+            request=request,
             properties={"provider": "max", "max_user_id": str(user["id"])},
         )
     except Exception as exc:  # pragma: no cover - defensive
@@ -7589,6 +7593,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
             legacy_user_id=legacy,
             session_id=user["session_id"],
             platform=user["platform"],
+            request=request,
             properties={"provider": user["provider"]},
         )
     except Exception as exc:  # pragma: no cover - defensive

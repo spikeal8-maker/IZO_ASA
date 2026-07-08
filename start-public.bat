@@ -26,6 +26,10 @@ set "DB_GUARD_ALLOWED_PATHS=%LIVE_DB%"
 set "DB_GUARD_MIN_SIZE_MB=10"
 set "DB_GUARD_MIN_USERS=5"
 set "DB_GUARD_MIN_ACTIVE_ADMINS=1"
+set "TRUSTED_COOKIE_SECURE=true"
+set "TRUSTED_COOKIE_SAMESITE=none"
+set "TRUSTED_COOKIE_PATH=/"
+set "TRUST_CLOUDFLARE_HEADERS=true"
 set "LOG_DIR=%ROOT%logs"
 REM platform-api.max.ru passes Python/certifi TLS verification; platform-api2 does not.
 if "%MAX_API_BASE_URL%"=="" set "MAX_API_BASE_URL=https://platform-api.max.ru"
@@ -126,6 +130,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "Write-Host ('MAX_API_BASE_URL           : ' + $env:MAX_API_BASE_URL);" ^
   "Write-Host ('BOT_UPDATES_MODE           : ' + $env:BOT_UPDATES_MODE);" ^
   "Write-Host ('MAX_UPDATES_MODE           : ' + $env:MAX_UPDATES_MODE);" ^
+  "Write-Host ('TRUSTED_COOKIE_SAMESITE    : ' + $env:TRUSTED_COOKIE_SAMESITE);" ^
   "if (!$be) { Write-Host 'BACKEND DOWN: port 8000 is not listening'; exit 20 }" ^
   "try { $h=Invoke-WebRequest 'http://127.0.0.1:8000/api/health' -UseBasicParsing -TimeoutSec 8; Write-Host ('backend /api/health : ' + $h.StatusCode) } catch { Write-Host 'BACKEND DOWN: /api/health failed'; exit 21 }" ^
   "try { $c=Invoke-WebRequest 'http://127.0.0.1:8000/api/auth/capabilities-v2' -UseBasicParsing -TimeoutSec 8; Write-Host ('backend /api/auth/capabilities-v2 : ' + $c.StatusCode) } catch { Write-Host 'BACKEND DOWN: /api/auth/capabilities-v2 failed'; exit 22 }" ^
