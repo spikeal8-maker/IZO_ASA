@@ -3716,8 +3716,11 @@ def build_profile(row: sqlite3.Row | None) -> dict[str, Any]:
     return {api_field: _row_get(row, col) for api_field, col in PROFILE_FIELD_COLUMNS.items()}
 
 
-AVATAR_PRESET_IDS = {f"preset-{i}" for i in range(1, 11)}
-AVATAR_MAX_BYTES = 2 * 1024 * 1024
+AVATAR_PRESET_COUNT = 71
+AVATAR_PRESET_IDS = {f"avatar-{i:03d}" for i in range(1, AVATAR_PRESET_COUNT + 1)}
+AVATAR_MAX_BYTES = 8 * 1024 * 1024
+AVATAR_OUTPUT_SIZE = 512
+AVATAR_WEBP_QUALITY = 86
 AVATAR_ALLOWED_CONTENT_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 
 
@@ -3727,11 +3730,36 @@ def validate_avatar_choice(avatar_url: str | None, avatar_preset: str | None) ->
     if preset:
         if preset not in AVATAR_PRESET_IDS:
             raise HTTPException(400, "Unknown avatar preset.")
-        expected = f"/avatars/{preset}.svg"
+        expected = f"/avatars/{preset}.webp"
         return expected, preset
     if url and not url.startswith("/media/avatars/"):
         raise HTTPException(400, "Avatar URL is not allowed.")
     return url or None, None
+
+
+def compress_avatar_image(data: bytes) -> bytes:
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            img = ImageOps.exif_transpose(img)
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGBA")
+            if img.mode == "RGBA":
+                bg = Image.new("RGBA", img.size, (18, 22, 20, 255))
+                bg.alpha_composite(img)
+                img = bg.convert("RGB")
+            else:
+                img = img.convert("RGB")
+            img = ImageOps.fit(
+                img,
+                (AVATAR_OUTPUT_SIZE, AVATAR_OUTPUT_SIZE),
+                method=Image.Resampling.LANCZOS,
+                centering=(0.5, 0.5),
+            )
+            out = io.BytesIO()
+            img.save(out, format="WEBP", quality=AVATAR_WEBP_QUALITY, method=6)
+            return out.getvalue()
+    except Exception:
+        raise HTTPException(400, "Avatar file is not a valid image.")
 
 
 def sanitize_device_metadata(metadata_json: str | None) -> dict[str, Any]:
@@ -5075,12 +5103,13 @@ async def ensure_user_avatar_cached(provider: Literal["telegram", "max"], provid
     data = await _download_avatar_bytes(source)
     if not data:
         return None
-    suffix = _avatar_suffix_from_bytes(data)
-    if not suffix:
-        return None
-    filename = f"{iuid}-{provider}-{uuid.uuid4().hex[:12]}{suffix}"
     try:
-        (AVATAR_DIR / filename).write_bytes(data)
+        avatar_bytes = compress_avatar_image(data)
+    except HTTPException:
+        return None
+    filename = f"{iuid}-{provider}-{uuid.uuid4().hex[:12]}.webp"
+    try:
+        (AVATAR_DIR / filename).write_bytes(avatar_bytes)
     except Exception as exc:  # pragma: no cover - filesystem/defensive
         print(f"avatar cache write failed: {type(exc).__name__}")
         return None
@@ -8426,21 +8455,16 @@ async def me_avatar_upload_v2(request: Request, file: UploadFile = File(...)) ->
     iuid = user["internal_user_id"]
     legacy = user["legacy_user_id"]
     content_type = (file.content_type or "").lower()
-    suffix = AVATAR_ALLOWED_CONTENT_TYPES.get(content_type)
-    if not suffix:
+    if content_type not in AVATAR_ALLOWED_CONTENT_TYPES:
         raise HTTPException(400, "Avatar must be PNG, JPEG or WEBP.")
     data = await file.read(AVATAR_MAX_BYTES + 1)
     if len(data) > AVATAR_MAX_BYTES:
         raise HTTPException(413, "Avatar file is too large.")
-    try:
-        img = Image.open(io.BytesIO(data))
-        img.verify()
-    except Exception:
-        raise HTTPException(400, "Avatar file is not a valid image.")
+    avatar_bytes = compress_avatar_image(data)
 
-    filename = f"{iuid}-{uuid.uuid4().hex[:12]}{suffix}"
+    filename = f"{iuid}-{uuid.uuid4().hex[:12]}.webp"
     dest = AVATAR_DIR / filename
-    dest.write_bytes(data)
+    dest.write_bytes(avatar_bytes)
     avatar_url = f"/media/avatars/{filename}"
     with db() as conn:
         conn.execute(
@@ -8455,7 +8479,12 @@ async def me_avatar_upload_v2(request: Request, file: UploadFile = File(...)) ->
             legacy_user_id=legacy,
             session_id=user["session_id"],
             platform=user["platform"],
-            properties={"content_type": content_type},
+            properties={
+                "content_type": content_type,
+                "stored_content_type": "image/webp",
+                "source_bytes": len(data),
+                "stored_bytes": len(avatar_bytes),
+            },
         )
     except Exception as exc:  # pragma: no cover - defensive
         print(f"avatar-upload-v2: event log error: {type(exc).__name__}")

@@ -673,7 +673,7 @@ export default function NewStudio(): ReactElement {
     event.target.value = ''
     if (!file) return
     if (!/^image\/(png|jpeg|webp)$/.test(file.type)) { setAvatarMsg('Нужен PNG, JPG или WEBP'); return }
-    if (file.size > 2 * 1024 * 1024) { setAvatarMsg('Файл больше 2 МБ'); return }
+    if (file.size > 8 * 1024 * 1024) { setAvatarMsg('Файл больше 8 МБ'); return }
     setAvatarBusy(true)
     setAvatarMsg('')
     try {

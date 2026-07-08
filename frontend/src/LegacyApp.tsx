@@ -196,9 +196,11 @@ const resolutionPresets = [
   { label: '1280 × 720', width: 1280, height: 720 },
   { label: '720 × 1280', width: 720, height: 1280 },
 ]
-const avatarPresets = Array.from({ length: 10 }, (_, index) => {
-  const id = `preset-${index + 1}`
-  return { id, url: `/avatars/${id}.svg`, label: `Аватар ${index + 1}` }
+const AVATAR_PRESET_COUNT = 71
+const avatarPresets = Array.from({ length: AVATAR_PRESET_COUNT }, (_, index) => {
+  const number = String(index + 1).padStart(3, '0')
+  const id = `avatar-${number}`
+  return { id, url: `/avatars/${id}.webp`, label: `Аватар ${index + 1}` }
 })
 // Старые статичные каталоги (openRouterImageModels / localFluxProfiles) удалены:
 // их заменил provider-aware экран «Админ → Модели v2» (adminModels.tsx + /api/admin/models-page).
@@ -2825,7 +2827,7 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
     event.target.value = ''
     if (!file) return
     if (!/^image\/(png|jpeg|webp)$/.test(file.type)) { setAvatarMsg('Нужен PNG, JPG или WEBP'); return }
-    if (file.size > 2 * 1024 * 1024) { setAvatarMsg('Файл больше 2 МБ'); return }
+    if (file.size > 8 * 1024 * 1024) { setAvatarMsg('Файл больше 8 МБ'); return }
     setAvatarBusy(true); setAvatarMsg('')
     try {
       const form = new FormData()

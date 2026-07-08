@@ -10,9 +10,12 @@ export const DEFAULT_TARIFFS: TariffConfig = {
   pro: { daily_tokens: 200, gallery_slots: 500 },
 }
 
-export const avatarPresets = Array.from({ length: 10 }, (_, index) => {
-  const id = `preset-${index + 1}`
-  return { id, url: `/avatars/${id}.svg`, label: `Аватар ${index + 1}` }
+export const AVATAR_PRESET_COUNT = 71
+
+export const avatarPresets = Array.from({ length: AVATAR_PRESET_COUNT }, (_, index) => {
+  const number = String(index + 1).padStart(3, '0')
+  const id = `avatar-${number}`
+  return { id, url: `/avatars/${id}.webp`, label: `Аватар ${index + 1}` }
 })
 
 export function normalizeTariffs(input: unknown): TariffConfig {
