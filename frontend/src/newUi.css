@@ -2459,7 +2459,7 @@
 .profile-avatar-block { display: grid; gap: 12px; justify-items: center; align-content: start; }
 .profile-avatar { width: 150px; height: 150px; border-radius: 50%; border: 3px solid var(--n2-lime); display: grid; place-items: center; justify-self: center; align-self: start; color: var(--n2-lime); font-size: 46px; font-weight: 950; background: radial-gradient(circle at 50% 30%, #42564b, transparent 30%), linear-gradient(135deg, #202b27, #080908); box-shadow: 0 0 42px rgba(236,255,47,.14); overflow: hidden; }
 .profile-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.profile-avatar-upload { width: 100%; min-height: 46px; border: 1px solid #2c332e; border-radius: 8px; background: #1d231f; color: #f2f5ee; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 950; cursor: pointer; }
+.profile-avatar-upload { width: 100%; min-height: 46px; border: 1px solid #2c332e; border-radius: 8px; background: #1d231f; color: #f2f5ee; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 760; cursor: pointer; letter-spacing: 0; }
 .profile-avatar-upload input { display: none; }
 .profile-avatar-upload.disabled { opacity: .55; cursor: not-allowed; }
 .profile-hero-main { display: grid; gap: 16px; min-width: 0; }
@@ -2484,7 +2484,7 @@
 .profile-page input, .profile-page select { border: 1px solid #2c332e; border-radius: 8px; background: #1b1f1c; color: #f2f5ee; min-height: 48px; padding: 12px 14px; font-size: 15px; }
 .profile-page input:disabled { color: #7d857f; background: #151816; }
 .profile-profile-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.profile-primary, .profile-ghost, .profile-inline button, .profile-plan button, .profile-plan-tabs button, .profile-size-options button { min-height: 44px; border-radius: 8px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 950; }
+.profile-primary, .profile-ghost, .profile-inline button, .profile-plan button, .profile-plan-tabs button, .profile-size-options button { min-height: 44px; border-radius: 8px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 760; }
 .profile-primary { border: 1px solid var(--n2-lime); background: var(--n2-lime); color: #071006; box-shadow: 0 18px 44px rgba(236,255,47,.12); }
 .profile-ghost, .profile-inline button, .profile-plan button, .profile-plan-tabs button, .profile-size-options button { border: 1px solid #2c332e; background: #1d231f; color: #f2f5ee; }
 .profile-primary:disabled, .profile-ghost:disabled, .profile-inline button:disabled, .profile-plan button:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }

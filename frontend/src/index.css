@@ -1298,7 +1298,7 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .usr-avatar-block { display: grid; gap: 12px; justify-items: center; align-content: start; }
 .usr-avatar { width: 150px; height: 150px; border-radius: 50%; border: 3px solid var(--acid); display: grid; place-items: center; justify-self: center; align-self: start; color: var(--acid); font-size: 46px; font-weight: 950; background: radial-gradient(circle at 50% 30%, #42564b, transparent 30%), linear-gradient(135deg, #202b27, #080908); box-shadow: 0 0 42px rgba(236,255,47,.14); overflow: hidden; }
 .usr-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.usr-avatar-upload { width: 100%; min-height: 46px; border: 1px solid #2c332e; border-radius: 8px; background: #1d231f; color: #f2f5ee; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 950; cursor: pointer; }
+.usr-avatar-upload { width: 100%; min-height: 46px; border: 1px solid #2c332e; border-radius: 8px; background: #1d231f; color: #f2f5ee; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 760; cursor: pointer; letter-spacing: 0; }
 .usr-avatar-upload input { display: none; }
 .usr-avatar-upload.disabled { opacity: .55; cursor: not-allowed; }
 .usr-hero-main { display: grid; gap: 16px; min-width: 0; }
@@ -1323,7 +1323,7 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .usr-page input, .usr-page select { border: 1px solid #2c332e; border-radius: 8px; background: #1b1f1c; color: #f2f5ee; min-height: 48px; padding: 12px 14px; font-size: 15px; }
 .usr-page input:disabled { color: #7d857f; background: #151816; }
 .usr-profile-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.usr-primary, .usr-ghost, .usr-inline button, .usr-plan button, .usr-plan-tabs button, .usr-size-options button { min-height: 44px; border-radius: 8px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 950; }
+.usr-primary, .usr-ghost, .usr-inline button, .usr-plan button, .usr-plan-tabs button, .usr-size-options button { min-height: 44px; border-radius: 8px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 760; }
 .usr-primary { border: 1px solid var(--acid); background: var(--acid); color: #071006; box-shadow: 0 18px 44px rgba(236,255,47,.12); }
 .usr-ghost, .usr-inline button, .usr-plan button, .usr-plan-tabs button, .usr-size-options button { border: 1px solid #2c332e; background: #1d231f; color: #f2f5ee; }
 .usr-primary:disabled, .usr-ghost:disabled, .usr-inline button:disabled, .usr-plan button:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
@@ -1753,9 +1753,9 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .settings-page, .admin-page { min-height: auto; padding-bottom: 88px; }
   .user-settings-grid { grid-template-columns: 1fr; }
   .user-settings-grid article { padding: 12px; }
-  .usr-page { padding: 14px; }
-  .usr-head { align-items: flex-start; flex-direction: column; }
-  .usr-tabs { gap: 18px; margin-right: -14px; padding-right: 14px; }
+  .usr-page { padding: 12px 10px 24px; gap: 12px; }
+  .usr-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; overflow: visible; border-bottom: 0; padding: 0; }
+  .usr-tabs button { min-width: 0; min-height: 36px; padding: 0 7px; font-size: 13px; line-height: 1.05; overflow: hidden; text-overflow: ellipsis; }
   .usr-hero { grid-template-columns: 1fr; padding: 18px; }
   .usr-avatar-block { justify-items: start; }
   .usr-avatar { width: 118px; height: 118px; justify-self: start; font-size: 38px; }
@@ -1805,7 +1805,8 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
 @media (max-width: 520px) {
   .workspace { padding-inline: 10px; padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 36px); }
   .usr-metrics, .usr-plans, .usr-earn, .usr-models, .usr-generation, .usr-plan-tabs, .usr-profile-dashboard, .usr-model-summary, .usr-tariff-summary, .usr-earn-hero { grid-template-columns: 1fr; }
-  .usr-tabs button { min-height: 44px; }
+  .usr-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .usr-tabs button { min-height: 36px; font-size: 12.5px; }
   .usr-stat-card { min-height: 96px; padding: 16px; }
   .usr-tariff-summary div { border-right: 0; border-bottom: 1px solid rgba(255,255,255,.08); padding: 0 0 12px; }
   .usr-earn-hero div { min-width: 0; }
