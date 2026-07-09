@@ -574,6 +574,7 @@ class ProfileUpdateV2Request(BaseModel):
     public_about: str | None = None
     public_website: str | None = None
     public_focus: str | None = None
+    public_phone: str | None = None
     public_links: list[dict[str, str]] | None = None
 
 
@@ -1427,6 +1428,7 @@ def init_db() -> None:
             "public_about": "TEXT",
             "public_website": "TEXT",
             "public_focus": "TEXT",
+            "public_phone": "TEXT",
             "public_links_json": "TEXT",
             "gender": "TEXT",
             "age": "INTEGER",
@@ -3802,6 +3804,7 @@ PROFILE_FIELD_COLUMNS = {
     "public_about": "public_about",
     "public_website": "public_website",
     "public_focus": "public_focus",
+    "public_phone": "public_phone",
     "public_links": "public_links_json",
     "gender": "gender",
     "age": "age",
@@ -3817,6 +3820,7 @@ PROFILE_FIELD_MAX_LEN_BY_FIELD = {
     "public_about": 700,
     "public_website": 240,
     "public_focus": 120,
+    "public_phone": 40,
 }
 PUBLIC_LINKS_MAX_COUNT = 6
 PUBLIC_LINK_LABEL_MAX_LEN = 40
@@ -8618,6 +8622,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
         "public_about": _row_get(urow, "public_about"),
         "public_website": _row_get(urow, "public_website"),
         "public_focus": _row_get(urow, "public_focus"),
+        "public_phone": _row_get(urow, "public_phone"),
         "public_links": parse_public_links(_row_get(urow, "public_links_json")),
         "gender": _row_get(urow, "gender"),
         "age": _row_get(urow, "age"),

@@ -770,6 +770,7 @@ export default function NewStudio(): ReactElement {
       public_about: publicAbout.trim(),
       public_website: publicWebsite.trim(),
       public_focus: publicFocus.trim(),
+      public_phone: publicPhone.trim(),
       public_links: publicLinks
         .map((item) => ({ label: item.label.trim(), url: item.url.trim() }))
         .filter((item) => item.url),
@@ -947,6 +948,7 @@ export default function NewStudio(): ReactElement {
   const [publicAbout, setPublicAbout] = useState(me?.profile?.public_about || '')
   const [publicWebsite, setPublicWebsite] = useState(me?.profile?.public_website || '')
   const [publicFocus, setPublicFocus] = useState(me?.profile?.public_focus || '')
+  const [publicPhone, setPublicPhone] = useState(me?.profile?.public_phone || '')
   const [publicLinks, setPublicLinks] = useState<PublicProfileLink[]>(() => (
     (me?.profile?.public_links || [])
       .map((item) => ({ label: String(item.label || ''), url: String(item.url || '') }))
@@ -1191,13 +1193,14 @@ export default function NewStudio(): ReactElement {
       setPublicAbout(me?.profile?.public_about || '')
       setPublicWebsite(me?.profile?.public_website || '')
       setPublicFocus(me?.profile?.public_focus || '')
+      setPublicPhone(me?.profile?.public_phone || '')
       setPublicLinks((me?.profile?.public_links || []).map((item) => ({ label: String(item.label || ''), url: String(item.url || '') })).filter((item) => item.url).slice(0, 6))
       setAvatarUrl(me?.profile?.avatar_url || avatarPresets[0].url)
       setAvatarPreset(me?.profile?.avatar_preset || '')
       setSaveMsg('')
       setAvatarMsg('')
     })
-  }, [me?.profile?.age, me?.profile?.avatar_preset, me?.profile?.avatar_url, me?.profile?.display_name, me?.profile?.gender, me?.profile?.public_about, me?.profile?.public_focus, me?.profile?.public_links, me?.profile?.public_website])
+  }, [me?.profile?.age, me?.profile?.avatar_preset, me?.profile?.avatar_url, me?.profile?.display_name, me?.profile?.gender, me?.profile?.public_about, me?.profile?.public_focus, me?.profile?.public_links, me?.profile?.public_phone, me?.profile?.public_website])
 
   useEffect(() => {
     let active = true
@@ -3328,6 +3331,8 @@ export default function NewStudio(): ReactElement {
       setPublicWebsite={setPublicWebsite}
       publicFocus={publicFocus}
       setPublicFocus={setPublicFocus}
+      publicPhone={publicPhone}
+      setPublicPhone={setPublicPhone}
       publicLinks={publicLinks}
       setPublicLinks={setPublicLinks}
       saveMsg={saveMsg}

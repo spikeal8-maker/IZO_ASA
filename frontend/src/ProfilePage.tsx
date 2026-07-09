@@ -33,6 +33,8 @@ type ProfilePageProps = {
   setPublicWebsite: Dispatch<SetStateAction<string>>
   publicFocus: string
   setPublicFocus: Dispatch<SetStateAction<string>>
+  publicPhone: string
+  setPublicPhone: Dispatch<SetStateAction<string>>
   publicLinks: PublicProfileLink[]
   setPublicLinks: Dispatch<SetStateAction<PublicProfileLink[]>>
   saveMsg: string
@@ -91,6 +93,8 @@ export default function ProfilePage({
   setPublicWebsite,
   publicFocus,
   setPublicFocus,
+  publicPhone,
+  setPublicPhone,
   publicLinks,
   setPublicLinks,
   saveMsg,
@@ -318,9 +322,16 @@ export default function ProfilePage({
                 <span>для ленты</span>
               </div>
               <div className="profile-public-grid">
-                <label className="profile-public-wide">О себе<textarea value={publicAbout} onChange={(e) => { setPublicAbout(e.target.value); setSaveMsg('') }} placeholder="Расскажите, чем занимаетесь, что создаёте, чем можете быть полезны аудитории" maxLength={700} rows={4} /></label>
+                <label className="profile-public-wide profile-about-field">
+                  <span>О себе</span>
+                  <span className="profile-about-input">
+                    <textarea value={publicAbout} onChange={(e) => { setPublicAbout(e.target.value); setSaveMsg('') }} placeholder="Расскажите, чем занимаетесь, что создаёте, чем можете быть полезны аудитории" maxLength={700} rows={4} />
+                    <small>{publicAbout.length}/700</small>
+                  </span>
+                </label>
                 <label>Чем занимаетесь<input type="text" value={publicFocus} onChange={(e) => { setPublicFocus(e.target.value); setSaveMsg('') }} placeholder="Дизайнер, фотограф, бренд одежды" maxLength={120} /></label>
                 <label>Основной сайт<input type="url" value={publicWebsite} onChange={(e) => { setPublicWebsite(e.target.value); setSaveMsg('') }} placeholder="site.ru или https://..." maxLength={240} /></label>
+                <label>Телефон для связи<input type="tel" value={publicPhone} onChange={(e) => { setPublicPhone(e.target.value); setSaveMsg('') }} placeholder="+7 900 000-00-00" maxLength={40} /></label>
               </div>
               <div className="profile-public-links">
                 <div className="profile-public-links-head">
