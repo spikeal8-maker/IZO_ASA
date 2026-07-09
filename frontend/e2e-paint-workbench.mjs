@@ -226,6 +226,25 @@ async function testMobile() {
     await page.locator('.mode-outpaint .paint-tools-toggle').click()
     const outpaintControls = await page.locator('.mode-outpaint .paint-control').count()
     assert(outpaintControls === 4, `mobile outpaint should expose four sliders after opening tools, got ${outpaintControls}`)
+    await page.locator('.iv3-format-trigger').click()
+    const formatGeometry = await page.evaluate(() => {
+      const trigger = document.querySelector('.iv3-format-trigger')?.getBoundingClientRect()
+      const menu = document.querySelector('.iv3-format-menu')?.getBoundingClientRect()
+      const menuEl = document.querySelector('.iv3-format-menu')
+      return trigger && menu && menuEl ? {
+        triggerTop: trigger.top,
+        menuBottom: menu.bottom,
+        menuTop: menu.top,
+        menuHeight: menu.height,
+        scrollHeight: menuEl.scrollHeight,
+        clientHeight: menuEl.clientHeight,
+      } : null
+    })
+    assert(Boolean(formatGeometry), 'mobile format dropdown is missing')
+    assert(formatGeometry.menuBottom <= formatGeometry.triggerTop + 2, `mobile format dropdown should open upward: ${JSON.stringify(formatGeometry)}`)
+    assert(formatGeometry.menuHeight > 120, `mobile format dropdown is too short to select resolutions: ${JSON.stringify(formatGeometry)}`)
+    assert(formatGeometry.scrollHeight >= formatGeometry.clientHeight, `mobile format dropdown should own its scrolling: ${JSON.stringify(formatGeometry)}`)
+    await page.keyboard.press('Escape')
     await page.getByRole('button', { name: /^Загрузить$/ }).first().click()
     await page.locator('input[type="file"]').setInputFiles({ name: 'paint-mobile-source.png', mimeType: 'image/png', buffer: widePng })
     await page.locator('.paint-outpaint-guidance').waitFor()
