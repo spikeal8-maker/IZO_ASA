@@ -1,10 +1,11 @@
 import { useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
-import { Copy, Lock, SlidersHorizontal, Sparkles, Upload, WandSparkles, Zap } from 'lucide-react'
+import { Copy, Link as LinkIcon, Lock, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles, Zap } from 'lucide-react'
 import type { AuthStatusV2, MeV2 } from './authV2'
 import { DEFAULT_TARIFFS, avatarPresets, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 
 type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
 type Provider = 'comfyui' | 'openrouter'
+export type PublicProfileLink = { label: string; url: string }
 
 type ProfilePageProps = {
   authStatus: AuthStatusV2
@@ -32,6 +33,8 @@ type ProfilePageProps = {
   setPublicWebsite: Dispatch<SetStateAction<string>>
   publicFocus: string
   setPublicFocus: Dispatch<SetStateAction<string>>
+  publicLinks: PublicProfileLink[]
+  setPublicLinks: Dispatch<SetStateAction<PublicProfileLink[]>>
   saveMsg: string
   setSaveMsg: Dispatch<SetStateAction<string>>
   avatarSrc: string | null
@@ -88,6 +91,8 @@ export default function ProfilePage({
   setPublicWebsite,
   publicFocus,
   setPublicFocus,
+  publicLinks,
+  setPublicLinks,
   saveMsg,
   setSaveMsg,
   avatarSrc,
@@ -159,6 +164,18 @@ export default function ProfilePage({
     } catch {
       setCodeCopied(false)
     }
+  }
+  const updatePublicLink = (index: number, patch: Partial<PublicProfileLink>) => {
+    setPublicLinks((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item))
+    setSaveMsg('')
+  }
+  const addPublicLink = () => {
+    setPublicLinks((current) => current.length >= 6 ? current : [...current, { label: '', url: '' }])
+    setSaveMsg('')
+  }
+  const removePublicLink = (index: number) => {
+    setPublicLinks((current) => current.filter((_, itemIndex) => itemIndex !== index))
+    setSaveMsg('')
   }
   const planTitles: Record<TariffKey, string> = { free: 'Free', mini: 'Mini', plus: 'Plus', pro: 'Pro', business: 'Бизнес' }
   const planNotes: Record<TariffKey, string> = {
@@ -278,9 +295,6 @@ export default function ProfilePage({
             )}
             <section className="profile-card profile-profile">
               <label>Имя<input type="text" value={displayName} onChange={(e) => { setDisplayName(e.target.value); setSaveMsg('') }} placeholder="Ваше имя" maxLength={80} /></label>
-              <label className="profile-public-wide">О себе<textarea value={publicAbout} onChange={(e) => { setPublicAbout(e.target.value); setSaveMsg('') }} placeholder="Чем вы занимаетесь, что создаёте, чем можете быть полезны аудитории" maxLength={700} rows={4} /></label>
-              <label>Сайт или ссылка<input type="url" value={publicWebsite} onChange={(e) => { setPublicWebsite(e.target.value); setSaveMsg('') }} placeholder="site.ru или https://..." maxLength={240} /></label>
-              <label>Чем занимаетесь<input type="text" value={publicFocus} onChange={(e) => { setPublicFocus(e.target.value); setSaveMsg('') }} placeholder="Например: дизайнер, фотограф, бренд одежды" maxLength={120} /></label>
               <label>Email<input type="email" value={displayEmail || ''} placeholder="Email не указан" readOnly disabled /></label>
               <label>Превью шаблонов
                 <select value={profileGender} onChange={(e) => { setProfileGender(e.target.value === 'male' ? 'male' : 'female'); setSaveMsg('') }}>
@@ -292,6 +306,41 @@ export default function ProfilePage({
               <div className="profile-profile-actions">
                 <button className="profile-primary" type="button" onClick={onSaveProfile} disabled={!displayName.trim()}>Сохранить профиль</button>
                 <button className="profile-ghost" type="button" onClick={onLogout}><Lock size={14} />Выйти</button>
+                {saveMsg && <small className={saveMsg === 'Сохранено' ? 'profile-save-ok' : 'profile-save-err'}>{saveMsg}</small>}
+              </div>
+            </section>
+            <section className="profile-card profile-public">
+              <div className="profile-public-head">
+                <div>
+                  <h3>Публичные данные</h3>
+                  <p>Эта информация нужна только для ленты и публичного профиля автора. Можно оставить пустым, если вы не хотите рассказывать о себе.</p>
+                </div>
+                <span>для ленты</span>
+              </div>
+              <div className="profile-public-grid">
+                <label className="profile-public-wide">О себе<textarea value={publicAbout} onChange={(e) => { setPublicAbout(e.target.value); setSaveMsg('') }} placeholder="Расскажите, чем занимаетесь, что создаёте, чем можете быть полезны аудитории" maxLength={700} rows={4} /></label>
+                <label>Чем занимаетесь<input type="text" value={publicFocus} onChange={(e) => { setPublicFocus(e.target.value); setSaveMsg('') }} placeholder="Дизайнер, фотограф, бренд одежды" maxLength={120} /></label>
+                <label>Основной сайт<input type="url" value={publicWebsite} onChange={(e) => { setPublicWebsite(e.target.value); setSaveMsg('') }} placeholder="site.ru или https://..." maxLength={240} /></label>
+              </div>
+              <div className="profile-public-links">
+                <div className="profile-public-links-head">
+                  <strong><LinkIcon size={16} />Соцсети и ссылки</strong>
+                  <button className="profile-secondary" type="button" onClick={addPublicLink} disabled={publicLinks.length >= 6}><Plus size={15} />Добавить</button>
+                </div>
+                <div className="profile-public-link-list">
+                  {publicLinks.length ? publicLinks.map((item, index) => (
+                    <div className="profile-public-link-row" key={index}>
+                      <input value={item.label} onChange={(e) => updatePublicLink(index, { label: e.target.value })} placeholder="Название: Telegram, VK, Portfolio" maxLength={40} aria-label="Название публичной ссылки" />
+                      <input value={item.url} onChange={(e) => updatePublicLink(index, { url: e.target.value })} placeholder="https://..." maxLength={240} aria-label="URL публичной ссылки" />
+                      <button type="button" onClick={() => removePublicLink(index)} aria-label="Удалить ссылку"><Trash2 size={16} /></button>
+                    </div>
+                  )) : (
+                    <div className="profile-public-empty">Добавьте ссылки на соцсети, портфолио или сайт, если хотите показывать их в публичном профиле.</div>
+                  )}
+                </div>
+              </div>
+              <div className="profile-profile-actions">
+                <button className="profile-primary" type="button" onClick={onSaveProfile} disabled={!displayName.trim()}>Сохранить публичные данные</button>
                 {saveMsg && <small className={saveMsg === 'Сохранено' ? 'profile-save-ok' : 'profile-save-err'}>{saveMsg}</small>}
               </div>
             </section>

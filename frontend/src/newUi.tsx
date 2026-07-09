@@ -4,8 +4,8 @@
 // (/api/generate, /api/jobs, /api/gallery, auth v2). Работает параллельно с
 // текущим интерфейсом и не зависит от него (общие только stylePresets/authV2).
 //
-// Логика стилей (Текст → Изо): клик по стилю дописывает текст стиля в конец
-// промпта; выбор другого стиля заменяет предыдущую приписку. В Изо → Изо стиль
+// Логика стилей (По тексту): клик по стилю дописывает текст стиля в конец
+// промпта; выбор другого стиля заменяет предыдущую приписку. В По фото стиль
 // задаёт transform-prompt преобразования (как шаблоны текущей версии).
 // ============================================================================
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
@@ -41,7 +41,7 @@ import type { StylePreset } from './stylePresets'
 import TopBarV3 from './TopBarV3'
 import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
-import ProfilePage from './ProfilePage'
+import ProfilePage, { type PublicProfileLink } from './ProfilePage'
 import { DEFAULT_TARIFFS, avatarPresets, normalizeTariffs, type TariffConfig } from './profileSupport'
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
@@ -541,7 +541,7 @@ function feedShape(ratio: string): 'tall' | 'wide' | 'square' {
 
 const JOB_ACTIVE = ['queued', 'running', 'uploading', 'sent_to_comfyui']
 
-// Приписка стиля в промпте (Текст → Изо). Через маркер её можно заменить при
+// Приписка стиля в промпте (По тексту). Через маркер её можно заменить при
 // выборе другого стиля, не трогая пользовательский текст.
 const STYLE_PREFIX = '\n\nСтиль: '
 const I2I_STYLE_PREFIX = '\n\nСтиль преобразования: '
@@ -609,17 +609,17 @@ function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
       canonical: 'https://izo.alikinas.ru/feed',
     },
     text: {
-      title: 'Текст в изображение — ИЗО АСА',
+      title: 'По тексту — ИЗО АСА',
       description: 'Создавайте изображения нейросетью по текстовому описанию: выбирайте стиль, формат, качество и публикуйте результат в ленту.',
       canonical,
     },
     i2i: {
-      title: 'Изображение в изображение — ИЗО АСА',
+      title: 'По фото — ИЗО АСА',
       description: 'Преобразуйте исходное изображение по промпту и стилю, управляйте влиянием описания и сохраняйте результат в галерею.',
       canonical,
     },
     edit: {
-      title: 'AI-редактор с референсами — ИЗО АСА',
+      title: 'Сборка изображения — ИЗО АСА',
       description: 'Объединяйте несколько изображений, переносите одежду, фон, стиль и детали с референсов через AI-редактор ИЗО АСА.',
       canonical,
     },
@@ -629,8 +629,8 @@ function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
       canonical,
     },
     paint: {
-      title: 'Рисунок в изображение — ИЗО АСА',
-      description: 'Рисуйте эскиз, создавайте изображение по рисунку, работайте с маской, расширением холста и AI-дорисовкой.',
+      title: 'Редактор изображения — ИЗО АСА',
+      description: 'Редактируйте изображения: рисуйте эскиз, работайте с маской, расширением холста и AI-дорисовкой.',
       canonical,
     },
     video: {
@@ -647,17 +647,17 @@ function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
       canonical: 'https://izo.alikinas.ru/feed',
     },
     text: {
-      title: 'Text to image — IZO ASA',
+      title: 'By text — IZO ASA',
       description: 'Create AI images from text prompts, choose styles, aspect ratios and quality, then publish results to the feed.',
       canonical,
     },
     i2i: {
-      title: 'Image to image — IZO ASA',
+      title: 'By photo — IZO ASA',
       description: 'Transform a source image with a prompt and style, control prompt influence and save results to your gallery.',
       canonical,
     },
     edit: {
-      title: 'AI reference editor — IZO ASA',
+      title: 'Image assembly — IZO ASA',
       description: 'Combine multiple images, transfer clothes, background, style and details from references with the IZO ASA editor.',
       canonical,
     },
@@ -667,8 +667,8 @@ function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
       canonical,
     },
     paint: {
-      title: 'Sketch to image — IZO ASA',
-      description: 'Draw a sketch, generate an image from it, use masks, outpainting and AI-assisted canvas editing.',
+      title: 'Image editor — IZO ASA',
+      description: 'Edit images with sketches, masks, outpainting and AI-assisted canvas tools.',
       canonical,
     },
     video: {
@@ -682,14 +682,14 @@ function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
 }
 
 export default function NewStudio(): ReactElement {
-  // Route: /paint — отдельная страница «Рисунок»; остальные режимы генератора
+  // Route: /paint — отдельная страница режима «Редактор»; остальные режимы генератора
   // пока живут на /new. Это URL-изоляция, физический split компонента ниже в TODO.
   const initialRoute = initialViewFromPath()
   const [tab, setTabState] = useState<N2Tab>(initialRoute.tab)
   const [view, setView] = useState<N2View>(initialRoute.view)
 
   // Навигация страниц нового UI с синхронизацией URL. Каноничные маршруты:
-  // Лента /feed, Галерея /gallery, Профиль /profile, Рисунок /paint,
+  // Лента /feed, Галерея /gallery, Профиль /profile, Редактор /paint,
   // остальные режимы генератора /new.
   const navTo = useCallback((path: string) => {
     if (window.location.pathname !== path) window.history.pushState(null, '', path)
@@ -770,6 +770,9 @@ export default function NewStudio(): ReactElement {
       public_about: publicAbout.trim(),
       public_website: publicWebsite.trim(),
       public_focus: publicFocus.trim(),
+      public_links: publicLinks
+        .map((item) => ({ label: item.label.trim(), url: item.url.trim() }))
+        .filter((item) => item.url),
     })
     if (result) { await refreshAuthStateV2(); setSaveMsg('Сохранено') }
     else setSaveMsg('Ошибка сохранения')
@@ -944,6 +947,12 @@ export default function NewStudio(): ReactElement {
   const [publicAbout, setPublicAbout] = useState(me?.profile?.public_about || '')
   const [publicWebsite, setPublicWebsite] = useState(me?.profile?.public_website || '')
   const [publicFocus, setPublicFocus] = useState(me?.profile?.public_focus || '')
+  const [publicLinks, setPublicLinks] = useState<PublicProfileLink[]>(() => (
+    (me?.profile?.public_links || [])
+      .map((item) => ({ label: String(item.label || ''), url: String(item.url || '') }))
+      .filter((item) => item.url)
+      .slice(0, 6)
+  ))
   const [saveMsg, setSaveMsg] = useState('')
   const [avatarUrl, setAvatarUrl] = useState(me?.profile?.avatar_url || avatarPresets[0].url)
   const [avatarPreset, setAvatarPreset] = useState(me?.profile?.avatar_preset || '')
@@ -1033,7 +1042,7 @@ export default function NewStudio(): ReactElement {
       .catch(() => showToast(feedLang === 'ru' ? 'Не удалось удалить' : 'Delete failed'))
   }
 
-  // «Использовать как основу» → Изо → Изо с этим изображением-исходником.
+  // «Использовать как основу» → По фото с этим изображением-исходником.
   const applyGalleryAsSource = (item: N2GalleryImage) => {
     setSourceImage(apiUrl(item.url))
     setGalleryItem(undefined)
@@ -1182,12 +1191,13 @@ export default function NewStudio(): ReactElement {
       setPublicAbout(me?.profile?.public_about || '')
       setPublicWebsite(me?.profile?.public_website || '')
       setPublicFocus(me?.profile?.public_focus || '')
+      setPublicLinks((me?.profile?.public_links || []).map((item) => ({ label: String(item.label || ''), url: String(item.url || '') })).filter((item) => item.url).slice(0, 6))
       setAvatarUrl(me?.profile?.avatar_url || avatarPresets[0].url)
       setAvatarPreset(me?.profile?.avatar_preset || '')
       setSaveMsg('')
       setAvatarMsg('')
     })
-  }, [me?.profile?.age, me?.profile?.avatar_preset, me?.profile?.avatar_url, me?.profile?.display_name, me?.profile?.gender, me?.profile?.public_about, me?.profile?.public_focus, me?.profile?.public_website])
+  }, [me?.profile?.age, me?.profile?.avatar_preset, me?.profile?.avatar_url, me?.profile?.display_name, me?.profile?.gender, me?.profile?.public_about, me?.profile?.public_focus, me?.profile?.public_links, me?.profile?.public_website])
 
   useEffect(() => {
     let active = true
@@ -1333,10 +1343,10 @@ export default function NewStudio(): ReactElement {
     return () => window.clearTimeout(timer)
   }, [notice])
 
-  // Стиль в Текст → Изо: приписываем текст стиля в промпт (замена предыдущего).
+  // Стиль в «По тексту»: приписываем текст стиля в промпт (замена предыдущего).
   // Вся строковая математика — вне setState-updater (updater обязан быть чистым:
   // под StrictMode он вызывается дважды, и мутация ref внутри него ломает замену).
-  // targetTab передаётся явно: из Ленты стиль применяется к «Текст → Изо»,
+  // targetTab передаётся явно: из Ленты стиль применяется к «По тексту»,
   // хотя state `tab` в замыкании ещё старый.
   function applyStyleTo(targetTab: 'text' | 'i2i', next: StylePreset | null) {
     setStyleId(next?.id || '')
@@ -1881,7 +1891,7 @@ export default function NewStudio(): ReactElement {
       window.clearTimeout(stopTimer)
     }
   }, [previewJobActive, visibleResultSource, visibleResultUrl])
-  const studioTitle = isI2IStudio ? 'Изо в изображение' : isEditStudio ? 'Редактор' : isFaceStudio ? 'Лицо' : isPaintStudio ? 'Рисунок' : 'Текст в изображение'
+  const studioTitle = isI2IStudio ? 'По фото' : isEditStudio ? 'Сборка' : isFaceStudio ? 'Лицо' : isPaintStudio ? 'Редактор' : 'По тексту'
   const promptTitle = isI2IStudio ? 'Как преобразовать?' : isPaintStudio ? 'Что визуализируем?' : isEditStudio || isFaceStudio ? 'Дополнительные пожелания' : 'Что хотите увидеть?'
   const promptPlaceholder = isI2IStudio
     ? 'Опишите, как преобразовать исходное изображение...'
@@ -2203,7 +2213,7 @@ export default function NewStudio(): ReactElement {
 
 
   // ————————————————————————————————————————————————————————————————
-  // v3-студия: общий экран для «Текст → Изо» и «Изо → Изо».
+  // v3-студия: общий экран для «По тексту» и «По фото».
   // ————————————————————————————————————————————————————————————————
   // Промпт выбранного изображения; у ленты без промпта — честный fallback.
   const dockPromptText = dockImage
@@ -3254,10 +3264,10 @@ export default function NewStudio(): ReactElement {
                 <svg className="menu-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m7 9 5 5 5-5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" /></svg>
               </summary>
               <div className="prompt-menu-list">
-                <button type="button" onClick={() => { if (dockImage) setSourceImage(apiUrl(dockImage.url)); setTab('i2i') }}>Изо</button>
-                <button type="button" onClick={() => setTab('edit')}>Редактор</button>
+                <button type="button" onClick={() => { if (dockImage) setSourceImage(apiUrl(dockImage.url)); setTab('i2i') }}>По фото</button>
+                <button type="button" onClick={() => setTab('edit')}>Сборка</button>
                 <button type="button" onClick={() => setTab('face')}>Лицо</button>
-                <button type="button" onClick={() => setTab('paint')}>Рисунок</button>
+                <button type="button" onClick={() => setTab('paint')}>Редактор</button>
               </div>
             </details>
             <button className="prompt-action feed" type="button" onClick={() => (shareTarget ? openPublish(shareTarget) : showToast('Сначала сгенерируйте изображение'))}>
@@ -3283,7 +3293,7 @@ export default function NewStudio(): ReactElement {
         <h2>{title}</h2>
         <p>{note}</p>
         <button className="iv3-placeholder-cta" type="button" onClick={() => setTab('text')}>
-          Перейти в «Текст → Изо»
+          Перейти в «По тексту»
         </button>
       </div>
     </div>
@@ -3318,6 +3328,8 @@ export default function NewStudio(): ReactElement {
       setPublicWebsite={setPublicWebsite}
       publicFocus={publicFocus}
       setPublicFocus={setPublicFocus}
+      publicLinks={publicLinks}
+      setPublicLinks={setPublicLinks}
       saveMsg={saveMsg}
       setSaveMsg={setSaveMsg}
       avatarSrc={profileAvatarSrc}
@@ -3398,15 +3410,15 @@ export default function NewStudio(): ReactElement {
               <h3>Что умеет сервис</h3>
               <div className="n2-help-grid">
                 <article>
-                  <strong>Текст → Изо</strong>
+                  <strong>По тексту</strong>
                   <p>Создает изображение по описанию: персонаж, сцена, предмет, интерьер, афиша, иллюстрация, обложка, концепт-арт или реалистичная фотография.</p>
                 </article>
                 <article>
-                  <strong>Изо → Изо</strong>
+                  <strong>По фото</strong>
                   <p>Преобразует исходное изображение по промпту и стилю. Ползунок влияния промпта регулирует силу изменения; рекомендуемое значение — 75%.</p>
                 </article>
                 <article>
-                  <strong>Редактор</strong>
+                  <strong>Сборка</strong>
                   <p>Объединяет изображения и переносит детали с референсов: одежду, фон, объект, стиль, цвет, материал, позу или лицо.</p>
                 </article>
                 <article>
@@ -3414,7 +3426,7 @@ export default function NewStudio(): ReactElement {
                   <p>Переносит лицо из одного изображения в другое. Оптимальное значение силы замены по умолчанию — 75%.</p>
                 </article>
                 <article>
-                  <strong>Рисунок</strong>
+                  <strong>Редактор</strong>
                   <p>Превращает эскиз в сцену, работает с маской, дорисовывает область и расширяет холст вокруг изображения.</p>
                 </article>
                 <article>
@@ -3432,7 +3444,7 @@ export default function NewStudio(): ReactElement {
               </details>
               <details>
                 <summary>Можно ли использовать свои изображения?</summary>
-                <p>Да. В режимах Изо → Изо, Редактор, Лицо и Рисунок можно загрузить изображение, взять работу из галереи или использовать последнее созданное изображение.</p>
+                <p>Да. В режимах По фото, Сборка, Лицо и Редактор можно загрузить изображение, взять работу из галереи или использовать последнее созданное изображение.</p>
               </details>
               <details>
                 <summary>Где хранятся результаты?</summary>

@@ -367,6 +367,7 @@ export interface MeV2 {
     display_name?: string | null; first_name?: string | null; last_name?: string | null
     public_user_code?: string | null; username?: string | null; email?: string | null; email_verified_at?: string | null; providers?: string[]
     public_about?: string | null; public_website?: string | null; public_focus?: string | null
+    public_links?: Array<{ label?: string | null; url?: string | null }> | null
     language_code?: string | null; timezone?: string | null; city?: string | null; country_code?: string | null
     avatar_url?: string | null; avatar_preset?: string | null; gender?: 'female' | 'male' | null; age?: number | null
   } | null
@@ -467,7 +468,7 @@ export async function logoutV2(): Promise<void> {
   // installation_id / anonymous_id are intentionally retained.
 }
 
-export async function updateProfileV2(fields: Record<string, string>): Promise<MeV2 | null> {
+export async function updateProfileV2(fields: Record<string, unknown>): Promise<MeV2 | null> {
   let res = await authFetch('/me/profile-v2', {
     method: 'PATCH',
     body: JSON.stringify(fields),
@@ -485,7 +486,7 @@ export async function updateProfileV2(fields: Record<string, string>): Promise<M
   return (await res.json()) as MeV2
 }
 
-export async function updateProfileV2Detailed(fields: Record<string, string>): Promise<{ ok: true; data: MeV2 } | { ok: false; detail: string; status: number }> {
+export async function updateProfileV2Detailed(fields: Record<string, unknown>): Promise<{ ok: true; data: MeV2 } | { ok: false; detail: string; status: number }> {
   let res = await authFetch('/me/profile-v2', {
     method: 'PATCH',
     body: JSON.stringify(fields),

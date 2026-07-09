@@ -143,6 +143,10 @@ def test_patch_updates_allowed_fields(temp_db):
                 "public_about": " Создаю визуалы для брендов ",
                 "public_website": "example.com/portfolio",
                 "public_focus": "бренд-дизайн",
+                "public_links": [
+                    {"label": "Telegram", "url": "t.me/brand"},
+                    {"label": "Портфолио", "url": "https://portfolio.example"},
+                ],
             },
                          headers=bearer(s["session_token"]))
         me = client.get("/api/me-v2", headers=bearer(s["session_token"]))
@@ -154,12 +158,18 @@ def test_patch_updates_allowed_fields(temp_db):
     assert p["public_about"] == "Создаю визуалы для брендов"
     assert p["public_website"] == "https://example.com/portfolio"
     assert p["public_focus"] == "бренд-дизайн"
+    assert p["public_links"] == [
+        {"label": "Telegram", "url": "https://t.me/brand"},
+        {"label": "Портфолио", "url": "https://portfolio.example"},
+    ]
     assert me.json()["profile"]["public_website"] == "https://example.com/portfolio"
+    assert me.json()["profile"]["public_links"][0]["url"] == "https://t.me/brand"
     with main.db() as conn:
-        row = conn.execute("SELECT public_about, public_website, public_focus FROM users WHERE internal_user_id='iuid-1'").fetchone()
+        row = conn.execute("SELECT public_about, public_website, public_focus, public_links_json FROM users WHERE internal_user_id='iuid-1'").fetchone()
     assert row["public_about"] == "Создаю визуалы для брендов"
     assert row["public_website"] == "https://example.com/portfolio"
     assert row["public_focus"] == "бренд-дизайн"
+    assert '"https://t.me/brand"' in row["public_links_json"]
 
 
 # 9, 10, 11, 12

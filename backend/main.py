@@ -574,6 +574,7 @@ class ProfileUpdateV2Request(BaseModel):
     public_about: str | None = None
     public_website: str | None = None
     public_focus: str | None = None
+    public_links: list[dict[str, str]] | None = None
 
 
 class ConsentV2Request(BaseModel):
@@ -1426,6 +1427,7 @@ def init_db() -> None:
             "public_about": "TEXT",
             "public_website": "TEXT",
             "public_focus": "TEXT",
+            "public_links_json": "TEXT",
             "gender": "TEXT",
             "age": "INTEGER",
             "daily_tokens_used": "INTEGER NOT NULL DEFAULT 0",
@@ -3800,6 +3802,7 @@ PROFILE_FIELD_COLUMNS = {
     "public_about": "public_about",
     "public_website": "public_website",
     "public_focus": "public_focus",
+    "public_links": "public_links_json",
     "gender": "gender",
     "age": "age",
 }
@@ -3815,6 +3818,8 @@ PROFILE_FIELD_MAX_LEN_BY_FIELD = {
     "public_website": 240,
     "public_focus": 120,
 }
+PUBLIC_LINKS_MAX_COUNT = 6
+PUBLIC_LINK_LABEL_MAX_LEN = 40
 
 
 def normalize_public_website(value: str | None) -> str | None:
@@ -3832,9 +3837,48 @@ def normalize_public_website(value: str | None) -> str | None:
     return url
 
 
+def normalize_public_links(value: Any) -> str:
+    if value is None:
+        return "[]"
+    if not isinstance(value, list):
+        raise HTTPException(400, "Публичные ссылки должны быть списком.")
+    result: list[dict[str, str]] = []
+    for raw in value[:PUBLIC_LINKS_MAX_COUNT]:
+        if not isinstance(raw, dict):
+            continue
+        label = str(raw.get("label") or raw.get("title") or "").strip()[:PUBLIC_LINK_LABEL_MAX_LEN]
+        url = normalize_public_website(str(raw.get("url") or "").strip())
+        if not url:
+            continue
+        result.append({"label": label or "Ссылка", "url": url})
+    return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+
+
+def parse_public_links(value: Any) -> list[dict[str, str]]:
+    if not value:
+        return []
+    try:
+        loaded = json.loads(str(value))
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(loaded, list):
+        return []
+    result: list[dict[str, str]] = []
+    for raw in loaded[:PUBLIC_LINKS_MAX_COUNT]:
+        if not isinstance(raw, dict):
+            continue
+        label = str(raw.get("label") or "").strip()[:PUBLIC_LINK_LABEL_MAX_LEN]
+        url = str(raw.get("url") or "").strip()[:PROFILE_FIELD_MAX_LEN_BY_FIELD["public_website"]]
+        if url:
+            result.append({"label": label or "Ссылка", "url": url})
+    return result
+
+
 def build_profile(row: sqlite3.Row | None) -> dict[str, Any]:
     """Safe profile projection — only whitelisted columns, null where missing."""
-    return {api_field: _row_get(row, col) for api_field, col in PROFILE_FIELD_COLUMNS.items()}
+    profile = {api_field: _row_get(row, col) for api_field, col in PROFILE_FIELD_COLUMNS.items() if api_field != "public_links"}
+    profile["public_links"] = parse_public_links(_row_get(row, "public_links_json"))
+    return profile
 
 
 AVATAR_PRESET_COUNT = 71
@@ -8574,6 +8618,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
         "public_about": _row_get(urow, "public_about"),
         "public_website": _row_get(urow, "public_website"),
         "public_focus": _row_get(urow, "public_focus"),
+        "public_links": parse_public_links(_row_get(urow, "public_links_json")),
         "gender": _row_get(urow, "gender"),
         "age": _row_get(urow, "age"),
         "providers": sorted({i["provider"] for i in identities}),
@@ -8830,6 +8875,8 @@ async def me_profile_update_v2(req: ProfileUpdateV2Request, request: Request) ->
                 value = value.strip()[:PROFILE_FIELD_MAX_LEN_BY_FIELD.get(api_field, PROFILE_FIELD_MAX_LEN)]
             if api_field == "public_website":
                 value = normalize_public_website(value)
+            if api_field == "public_links":
+                value = normalize_public_links(value)
             if api_field == "age" and value is not None:
                 try:
                     value = int(value)
