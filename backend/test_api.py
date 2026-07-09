@@ -51,6 +51,19 @@ async def fake_send_to_comfyui(_payload: main.GenerateRequest, job: dict) -> mai
     return main.ComfyUIResult(prompt_id="prompt_test_123", image_path=image_path, thumbnail_path=thumb_path, history={"outputs": {}})
 
 
+async def fake_send_to_openrouter(payload: main.GenerateRequest, job: dict) -> main.OpenRouterResult:
+    image_path, thumb_path = main.mock_image(payload, f"{job['id']}_openrouter")
+    return main.OpenRouterResult(
+        image_path=image_path,
+        thumbnail_path=thumb_path,
+        response_id="or_test_123",
+        model="black-forest-labs/flux.2-klein-4b",
+        usage={"images": 1},
+        cost_usd=0.014,
+        raw={"id": "or_test_123"},
+    )
+
+
 # Populated by the isolated_db fixture for each test: the seeded admin user and a
 # trusted server session whose raw token is sent as the onenode_session cookie.
 _SESSION: dict[str, str] = {}
@@ -170,6 +183,7 @@ def test_openrouter_generation_skips_comfyui(monkeypatch) -> None:
         raise AssertionError("OpenRouter path must not call ComfyUI adapter")
 
     monkeypatch.setattr(main, "send_to_comfyui", fail_if_called)
+    monkeypatch.setattr(main, "send_to_openrouter", fake_send_to_openrouter)
     with authed_client() as client:
         response = client.post(
             "/api/generate",
@@ -186,6 +200,11 @@ def test_openrouter_generation_skips_comfyui(monkeypatch) -> None:
 
     assert final["status"] == "completed"
     assert final["resultUrl"].split("?", 1)[0].endswith(".webp")
+    with main.db() as conn:
+        row = conn.execute("SELECT settings_json FROM jobs WHERE id = ?", (response.json()["id"],)).fetchone()
+    settings = main.safe_json_load(row["settings_json"])
+    assert settings["openrouterModel"] == "black-forest-labs/flux.2-klein-4b"
+    assert settings["openrouterCostUsd"] == 0.014
 
 
 def test_cancel_generation_sets_cancelled_status(monkeypatch) -> None:

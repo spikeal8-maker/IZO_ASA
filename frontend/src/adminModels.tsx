@@ -40,12 +40,17 @@ type PageData = {
   catalog: CatalogItem[]
   loras: Lora[]
   comfyuiAvailable: boolean
-  openrouter: { keyConfigured: boolean }
+  openrouter: {
+    keyConfigured: boolean
+    status?: { ok?: boolean; configured?: boolean; error?: unknown; data?: Record<string, unknown> }
+    usage?: { pricedImages?: number; totalCostUsd?: number; avgCostUsd?: number | null; avgCostPerMpUsd?: number | null; lastCostUsd?: number | null; models?: Array<Record<string, unknown>> }
+  }
   comfyFiles: Record<string, unknown>
   profiles: ProfileOption[]
 }
 
 const USD_RUB = 90
+const TOKEN_RUB = 5
 const OPENROUTER_SNAPSHOT_DATE = '09.07.2026'
 type ApiImageModel = {
   id: string; name: string; provider: string; input: string; output: string; params: string; pricing: string
@@ -169,6 +174,11 @@ const modelUsdPrice = (m: ApiImageModel) => {
   const value = estimatedUsdPerMp(m)
   return value === null ? 'нет данных' : usd(value)
 }
+const tokenPriceForModel = (m: ApiImageModel) => {
+  const value = estimatedUsdPerMp(m)
+  if (value === null) return null
+  return Math.max(1, Math.ceil((value * USD_RUB) / TOKEN_RUB))
+}
 const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState) => [...rows].sort((a, b) => {
   let result = 0
   if (sort.key === 'name') result = modelShortName(a).localeCompare(modelShortName(b), 'ru')
@@ -214,6 +224,9 @@ const CSS = `
 .amv2 .api-key-panel{padding:12px;display:grid;grid-template-columns:1.1fr 1.4fr;gap:12px;border-bottom:1px solid var(--line)}
 .amv2 .api-key-box{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.032);display:grid;gap:8px;align-content:start}
 .amv2 .api-key-box input{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+.amv2 .or-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px;border-bottom:1px solid var(--line)}
+.amv2 .or-stat{border:1px solid var(--line);border-radius:var(--radius);padding:10px;background:rgba(255,255,255,.032)}
+.amv2 .or-stat span{display:block;color:var(--muted);font-size:11px;font-weight:800}.amv2 .or-stat strong{display:block;margin-top:5px;font-size:16px;color:var(--lime)}
 .amv2 .mode-board{padding:12px;display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:10px}
 .amv2 .mode-card{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.032);display:grid;gap:8px;align-content:start}
 .amv2 .mode-card strong{font-size:13px}.amv2 .mode-card span{color:var(--muted);font-size:12px;line-height:1.35}
@@ -221,7 +234,7 @@ const CSS = `
 .amv2 .api-section-head{width:100%;border:0;background:transparent;color:inherit;text-align:left;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:14px}
 .amv2 .api-section-head .card-title::before{content:"▾";display:inline-block;margin-right:8px;color:var(--lime)}
 .amv2 .api-section-head.collapsed .card-title::before{content:"▸"}
-.amv2 .api-table{min-width:680px}
+.amv2 .api-table{min-width:760px}
 .amv2 .api-table td,.amv2 .api-table th{vertical-align:middle}
 .amv2 .api-table th{padding:6px 8px}
 .amv2 .api-table td{padding:2px 8px;height:26px;line-height:1.15}
@@ -309,8 +322,8 @@ const CSS = `
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel{grid-template-columns:1fr}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .mobile-models{display:grid}}
-@media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:1fr}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats{grid-template-columns:1fr}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .mobile-models{display:grid}}
+@media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats{grid-template-columns:1fr}}
 `
 
 export default function AdminModelsV2() {
@@ -531,6 +544,13 @@ export default function AdminModelsV2() {
         </div>
       </article>
 
+      <div className="or-stats">
+        <div className="or-stat"><span>OpenRouter ключ</span><strong>{data.openrouter.status?.ok ? 'подключен' : data.openrouter.keyConfigured ? 'ошибка' : 'нет ключа'}</strong></div>
+        <div className="or-stat"><span>Реальных API-картинок</span><strong>{data.openrouter.usage?.pricedImages || 0}</strong></div>
+        <div className="or-stat"><span>Средняя цена фактически</span><strong>{typeof data.openrouter.usage?.avgCostPerMpUsd === 'number' ? `${rub(data.openrouter.usage.avgCostPerMpUsd)} / MP` : 'нет истории'}</strong></div>
+        <div className="or-stat"><span>Токен проекта</span><strong>1 токен = {TOKEN_RUB} ₽</strong></div>
+      </div>
+
       <div className="toolbar">
         <input type="search" placeholder="Фильтр по всем карточкам: модель, provider, price, параметр" value={query} onChange={(e) => setQuery(e.target.value)} />
         <button className="ghost" onClick={() => setQuery('')}>Сбросить</button>
@@ -566,6 +586,7 @@ export default function AdminModelsV2() {
                 <th><button className={`sort-head ${sort.key === 'provider' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'provider')}>Производитель {sortMark(sort, 'provider')}</button></th>
                 <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, ₽ {sortMark(sort, 'price')}</button></th>
                 <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, $ {sortMark(sort, 'price')}</button></th>
+                <th>Токены</th>
               </tr></thead>
               <tbody>{sortedRows.map((m) => {
                 const rowKey = `${section.id}-${m.id}`
@@ -586,14 +607,16 @@ export default function AdminModelsV2() {
                     <td><span className="provider openrouter">{modelBrand(m)}</span></td>
                     <td><span className="money">{modelRubPrice(m)}</span></td>
                     <td><span className="money">{modelUsdPrice(m)}</span></td>
+                    <td><span className="money">{tokenPriceForModel(m) ?? '—'}</span></td>
                   </tr>
                   {expanded && <tr>
-                    <td className="detail-cell" colSpan={5}>
+                    <td className="detail-cell" colSpan={6}>
                       <div className="detail-box">
                         <span><b>Полное имя:</b> {m.name}</span>
                         <span><b>OpenRouter id:</b> {m.id}</span>
                         <span><b>Как посчитано:</b> {priceConfidence(m)}</span>
                         <span><b>Цена из OpenRouter:</b> {m.pricing}</span>
+                        <span><b>Токены проекта:</b> {tokenPriceForModel(m) ?? 'нужно измерить'} при {TOKEN_RUB} ₽/токен</span>
                         <span><b>Вход/выход API:</b> {m.input} {'->'} {m.output}</span>
                         <span><b>Параметры:</b> {m.params || 'нет в endpoint metadata'}</span>
                       </div>

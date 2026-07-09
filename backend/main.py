@@ -108,6 +108,8 @@ COMFYUI_REQUIRED = os.getenv("COMFYUI_REQUIRED", "false").lower() == "true"
 COMFYUI_MOCK_FALLBACK = os.getenv("COMFYUI_MOCK_FALLBACK", "false").lower() == "true"
 COMFYUI_TIMEOUT_SECONDS = int(os.getenv("COMFYUI_TIMEOUT_SECONDS", "900"))
 COMFYUI_FACE_TIMEOUT_SECONDS = max(60, min(COMFYUI_TIMEOUT_SECONDS, int(os.getenv("COMFYUI_FACE_TIMEOUT_SECONDS", "240"))))
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
+OPENROUTER_TIMEOUT_SECONDS = max(30, min(300, int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "120"))))
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -674,6 +676,17 @@ class ComfyUIResult:
     image_path: Path
     thumbnail_path: Path
     history: dict[str, Any]
+
+
+@dataclass
+class OpenRouterResult:
+    image_path: Path
+    thumbnail_path: Path
+    response_id: str | None
+    model: str
+    usage: dict[str, Any]
+    cost_usd: float | None
+    raw: dict[str, Any]
 
 
 jobs: dict[str, dict[str, Any]] = {}
@@ -4298,6 +4311,9 @@ def load_db_state() -> None:
 
 def persist_job(job: dict[str, Any], request: GenerateRequest | None = None, conn: sqlite3.Connection | None = None) -> None:
     settings = request.model_dump() if request else job.get("request", {})
+    for key in ("openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd"):
+        if key in job:
+            settings[key] = job.get(key)
     def write(target_conn: sqlite3.Connection) -> None:
         target_conn.execute(
             """
@@ -4345,6 +4361,10 @@ def persist_image(record: dict[str, Any], job_id: str) -> None:
         "generationTimeMs": record.get("generationTimeMs"),
         "comfyuiPromptId": record.get("comfyuiPromptId"),
         "comfyuiHistory": record.get("comfyuiHistory"),
+        "openrouterModel": record.get("openrouterModel"),
+        "openrouterResponseId": record.get("openrouterResponseId"),
+        "openrouterUsage": record.get("openrouterUsage"),
+        "openrouterCostUsd": record.get("openrouterCostUsd"),
     }
     with db() as conn:
         conn.execute(
@@ -5626,6 +5646,141 @@ def save_gallery_original(image: Image.Image, job_id: str) -> Path:
     return out
 
 
+def openrouter_api_key() -> str:
+    return os.getenv("OPENROUTER_API_KEY", "").strip()
+
+
+def openrouter_headers() -> dict[str, str]:
+    headers = {"Authorization": f"Bearer {openrouter_api_key()}", "Content-Type": "application/json"}
+    referer = os.getenv("OPENROUTER_SITE_URL", "").strip()
+    title = os.getenv("OPENROUTER_SITE_NAME", "IZO ASA").strip()
+    if referer:
+        headers["HTTP-Referer"] = referer
+    if title:
+        headers["X-Title"] = title
+    return headers
+
+
+def resolve_openrouter_model(req: GenerateRequest) -> str:
+    raw = (req.modelProfile or "").strip()
+    aliases = {
+        "": "black-forest-labs/flux.2-klein-4b",
+        "openrouter_cloud": "black-forest-labs/flux.2-klein-4b",
+        "openrouter_gpt_image": "openai/gpt-image-1",
+        "openrouter_recraft": "recraft/recraft-v3",
+        "openrouter_gemini_image": "google/gemini-2.5-flash-image",
+        "local_flux_klein": "black-forest-labs/flux.2-klein-4b",
+    }
+    return aliases.get(raw, raw if "/" in raw else "black-forest-labs/flux.2-klein-4b")
+
+
+def _openrouter_generation_cost(payload: dict[str, Any]) -> float | None:
+    candidates = [
+        payload.get("cost"),
+        payload.get("total_cost"),
+        payload.get("total_cost_usd"),
+        (payload.get("usage") or {}).get("cost"),
+        (payload.get("usage") or {}).get("total_cost"),
+        (payload.get("usage") or {}).get("total_cost_usd"),
+    ]
+    for value in candidates:
+        try:
+            if value is not None:
+                return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _openrouter_first_image(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data")
+    if isinstance(data, list) and data:
+        first = data[0]
+        if isinstance(first, dict):
+            return first
+    images_data = payload.get("images")
+    if isinstance(images_data, list) and images_data:
+        first = images_data[0]
+        if isinstance(first, dict):
+            return first
+        if isinstance(first, str):
+            return {"url": first}
+    output = payload.get("output")
+    if isinstance(output, list):
+        for item in output:
+            if isinstance(item, dict):
+                if item.get("b64_json") or item.get("url"):
+                    return item
+                content = item.get("content")
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and (part.get("b64_json") or part.get("url")):
+                            return part
+    raise RuntimeError("OpenRouter не вернул изображение в ответе.")
+
+
+async def _openrouter_image_to_pil(image_payload: dict[str, Any]) -> Image.Image:
+    b64_value = image_payload.get("b64_json") or image_payload.get("base64") or image_payload.get("image_base64")
+    if isinstance(b64_value, str) and b64_value:
+        if "," in b64_value and b64_value.split(",", 1)[0].startswith("data:"):
+            b64_value = b64_value.split(",", 1)[1]
+        return Image.open(io.BytesIO(base64.b64decode(b64_value)))
+    url = image_payload.get("url")
+    if isinstance(url, str) and url:
+        async with httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT_SECONDS, follow_redirects=True) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+        return Image.open(io.BytesIO(response.content))
+    raise RuntimeError("OpenRouter response не содержит b64_json или url изображения.")
+
+
+async def fetch_openrouter_key_status() -> dict[str, Any]:
+    key = openrouter_api_key()
+    if not key:
+        return {"configured": False, "ok": False, "error": "OPENROUTER_API_KEY не задан"}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(f"{OPENROUTER_BASE_URL}/key", headers=openrouter_headers())
+        data = response.json() if response.content else {}
+        if response.status_code >= 400:
+            return {"configured": True, "ok": False, "status_code": response.status_code, "error": data.get("error") or data}
+        key_data = data.get("data") if isinstance(data.get("data"), dict) else data
+        return {"configured": True, "ok": True, "status_code": response.status_code, "data": key_data}
+    except Exception as exc:
+        return {"configured": True, "ok": False, "error": str(exc)}
+
+
+async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> OpenRouterResult:
+    if not openrouter_api_key():
+        raise RuntimeError("OPENROUTER_API_KEY не задан. Добавьте ключ перед включением OpenRouter.")
+    model = resolve_openrouter_model(payload)
+    body: dict[str, Any] = {
+        "model": model,
+        "prompt": payload.prompt,
+        "n": 1,
+        "size": f"{payload.width}x{payload.height}",
+    }
+    job.update(status="sent_to_openrouter", progress=24, message="Отправляем в OpenRouter")
+    persist_job(job, payload)
+    async with httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT_SECONDS) as client:
+        response = await client.post(f"{OPENROUTER_BASE_URL}/images", headers=openrouter_headers(), json=body)
+    data = response.json() if response.content else {}
+    if response.status_code >= 400:
+        raise RuntimeError(f"OpenRouter API error {response.status_code}: {data.get('error') or data}")
+    image_payload = _openrouter_first_image(data)
+    with await _openrouter_image_to_pil(image_payload) as opened:
+        image_path = save_gallery_original(opened, f"{job['id']}_openrouter")
+    return OpenRouterResult(
+        image_path=image_path,
+        thumbnail_path=create_thumbnail(image_path),
+        response_id=data.get("id") or data.get("response_id"),
+        model=model,
+        usage=data.get("usage") if isinstance(data.get("usage"), dict) else {},
+        cost_usd=_openrouter_generation_cost(data),
+        raw={k: v for k, v in data.items() if k not in {"data", "images", "output"}},
+    )
+
+
 def feed_media_dir() -> Path:
     path = MEDIA / "feed"
     path.mkdir(exist_ok=True)
@@ -6528,22 +6683,35 @@ async def worker() -> None:
             job.update(status="uploading", progress=12, message="Загружаем изображения")
             persist_job(job, req)
             await asyncio.sleep(0.5)
-            job.update(status="sent_to_comfyui", progress=24, message="Отправляем в ComfyUI")
-            persist_job(job, req)
             prompt_id = None
             image_path = None
             thumb_path = None
             comfyui_history = None
+            openrouter_result: OpenRouterResult | None = None
             if req.provider == "comfyui":
+                job.update(status="sent_to_comfyui", progress=24, message="Отправляем в ComfyUI")
+                persist_job(job, req)
                 result = await send_to_comfyui(req, job)
                 if result:
                     prompt_id = result.prompt_id
                     image_path = result.image_path
                     thumb_path = result.thumbnail_path
                     comfyui_history = result.history
+            elif req.provider == "openrouter":
+                openrouter_result = await send_to_openrouter(req, job)
+                image_path = openrouter_result.image_path
+                thumb_path = openrouter_result.thumbnail_path
+                job.update(
+                    openrouterModel=openrouter_result.model,
+                    openrouterResponseId=openrouter_result.response_id,
+                    openrouterUsage=openrouter_result.usage,
+                    openrouterCostUsd=openrouter_result.cost_usd,
+                )
             if not image_path:
                 if req.provider == "comfyui" and not COMFYUI_MOCK_FALLBACK:
                     raise RuntimeError("ComfyUI не вернул изображение, mock fallback отключён.")
+                if req.provider == "openrouter":
+                    raise RuntimeError("OpenRouter не вернул изображение.")
                 await asyncio.sleep(0.8)
                 for progress in (38, 52, 67, 81, 94):
                     if job["status"] == "cancelled":
@@ -6584,6 +6752,10 @@ async def worker() -> None:
                 "createdAt": created_at,
                 "comfyuiPromptId": prompt_id,
                 "comfyuiHistory": comfyui_history,
+                "openrouterModel": openrouter_result.model if openrouter_result else None,
+                "openrouterResponseId": openrouter_result.response_id if openrouter_result else None,
+                "openrouterUsage": openrouter_result.usage if openrouter_result else None,
+                "openrouterCostUsd": openrouter_result.cost_usd if openrouter_result else None,
             }
             if gallery_quota["gallery_full"]:
                 with db() as conn:
@@ -11741,6 +11913,67 @@ def default_tariff_matrix() -> list[dict[str, Any]]:
     ]
 
 
+def openrouter_usage_stats() -> dict[str, Any]:
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT width, height, settings_json, created_at FROM images WHERE provider = 'openrouter' ORDER BY created_at DESC LIMIT 500"
+        ).fetchall()
+    total_cost = 0.0
+    total_mp = 0.0
+    priced = 0
+    last_cost: float | None = None
+    last_at: str | None = None
+    models: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        settings = safe_json_load(row["settings_json"]) or {}
+        if not isinstance(settings, dict):
+            continue
+        try:
+            cost = float(settings.get("openrouterCostUsd"))
+        except (TypeError, ValueError):
+            continue
+        mp = max(0.0001, (int(row["width"] or 0) * int(row["height"] or 0)) / 1_000_000)
+        model = str(settings.get("openrouterModel") or "unknown")
+        total_cost += cost
+        total_mp += mp
+        priced += 1
+        if last_cost is None:
+            last_cost = cost
+            last_at = row["created_at"]
+        bucket = models.setdefault(model, {"count": 0, "costUsd": 0.0, "megapixels": 0.0})
+        bucket["count"] += 1
+        bucket["costUsd"] += cost
+        bucket["megapixels"] += mp
+    model_rows = []
+    for model, item in models.items():
+        mp = float(item["megapixels"] or 0)
+        cost = float(item["costUsd"] or 0)
+        model_rows.append({
+            "model": model,
+            "count": item["count"],
+            "costUsd": round(cost, 6),
+            "avgCostUsd": round(cost / item["count"], 6) if item["count"] else None,
+            "avgCostPerMpUsd": round(cost / mp, 6) if mp else None,
+        })
+    model_rows.sort(key=lambda x: x["count"], reverse=True)
+    return {
+        "pricedImages": priced,
+        "totalCostUsd": round(total_cost, 6),
+        "avgCostUsd": round(total_cost / priced, 6) if priced else None,
+        "avgCostPerMpUsd": round(total_cost / total_mp, 6) if total_mp else None,
+        "lastCostUsd": last_cost,
+        "lastAt": last_at,
+        "models": model_rows[:20],
+    }
+
+
+@app.get("/api/admin/openrouter/status")
+async def admin_openrouter_status(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    key_status = await fetch_openrouter_key_status()
+    return {"key": key_status, "usage": openrouter_usage_stats()}
+
+
 def default_routes(model_status: dict[str, Any]) -> list[dict[str, Any]]:
     sel = get_model_settings()
     edit_model = sel.get("editModelProfile") or "flux_klein_9b"
@@ -11781,7 +12014,9 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
     loras = await scan_loras()
     routes = _saved_setting("generation_routes").get("routes") or default_routes(status)
     matrix = _saved_setting("tariff_matrix").get("matrix") or default_tariff_matrix()
-    openrouter_key = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
+    openrouter_status = await fetch_openrouter_key_status()
+    openrouter_key = bool(openrouter_status.get("configured"))
+    openrouter_usage = openrouter_usage_stats()
 
     # Каталог: local (из profiles) + openrouter.
     catalog: list[dict[str, Any]] = []
@@ -11832,7 +12067,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
         "catalog": catalog,
         "loras": loras,
         "comfyuiAvailable": status.get("comfyuiAvailable"),
-        "openrouter": {"keyConfigured": openrouter_key},
+        "openrouter": {"keyConfigured": openrouter_key, "status": openrouter_status, "usage": openrouter_usage},
         "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"},
         "profiles": status.get("profiles", []),
     }

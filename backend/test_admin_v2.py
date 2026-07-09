@@ -87,6 +87,17 @@ def test_admin_v2_without_session_401(temp_db):
         assert client.post("/api/admin/users/iuid-x/block-v2", json={"reason": "x"}).status_code == 401
 
 
+def test_admin_openrouter_status_without_key(temp_db, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    sess = admin_session()
+    with TestClient(main.app) as client:
+        response = client.get("/api/admin/openrouter/status", cookies={"onenode_session": sess["session_token"]})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["key"]["configured"] is False
+    assert payload["usage"]["pricedImages"] == 0
+
+
 def test_web_login_requires_explicit_admin_code(temp_db, monkeypatch):
     monkeypatch.delenv("ADMIN_ONE_TIME_CODE", raising=False)
     with TestClient(main.app) as client:
