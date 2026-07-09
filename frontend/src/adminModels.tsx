@@ -21,6 +21,7 @@ type Lora = {
 type UserChoiceItem = { key?: string; label: string; model?: string; cost?: number | string; plan?: string; provider?: string }
 type CatalogItem = { provider: string; displayName: string; modelId: string; capabilities: string[]; cost: string; margin: string; status: string }
 type ProfileOption = { id: string; name: string; supportsPose?: boolean }
+type BackendOpenRouterPrice = { id: string; name: string; provider: string; pricing_type: string; usd: number; min_tokens: number; source: string }
 type ConfigStatus = {
   status?: string
   checked_at?: string
@@ -55,6 +56,7 @@ type PageData = {
     config?: OpenRouterConfig
     exchange?: { rate?: number | null; source?: string; sourceUrl?: string; sourceDate?: string; fetchedAt?: string; cache?: string; error?: string; fallback?: boolean; warning?: string }
     economy?: { minMarginPercent?: number; tokenRub?: number }
+    backendPricing?: BackendOpenRouterPrice[]
   }
   comfyFiles: Record<string, unknown>
   profiles: ProfileOption[]
@@ -696,6 +698,8 @@ export default function AdminModelsV2() {
   const orRemaining = orData.limit_remaining === null || orData.limit_remaining === undefined ? '—' : moneyUsdText(orData.limit_remaining)
   const orUsageModels = usageModelMap(data.openrouter.usage?.models)
   const orUsageModes = usageModeMap(data.openrouter.usage?.modes)
+  const backendPricingMap = new Map((data.openrouter.backendPricing || []).map((m) => [m.id, m]))
+  const backendPricedCount = backendPricingMap.size
   const totalSpentPair = typeof data.openrouter.usage?.totalCostUsd === 'number' ? moneyPair(data.openrouter.usage.totalCostUsd, usdRubEffective) : '—'
   const avgImagePair = typeof data.openrouter.usage?.avgCostUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostUsd, usdRubEffective) : '—'
   const avgMpPair = typeof data.openrouter.usage?.avgCostPerMpUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostPerMpUsd, usdRubEffective) : '—'
@@ -724,6 +728,7 @@ export default function AdminModelsV2() {
       {pageTab === 'api' && <div className="tab-status">
         <span className={`status-dot ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : ''}`} aria-hidden="true" />
         <span className={`state ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{orStatus.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
+        <span className="state ok">billing: {backendPricedCount} моделей</span>
         <button className={`state ${exchangeStateClass}`} disabled={exchangeBusy} onClick={refreshExchange}>{exchangeBusy ? 'обновляю курс…' : `${exchangeStateText}: ${effectiveRateText}`}</button>
       </div>}
     </div>
@@ -927,6 +932,8 @@ export default function AdminModelsV2() {
                 const rowKey = `${section.id}-${m.id}`
                 const enabled = enabledForSection.includes(m.id)
                 const expanded = apiExpandedRows[rowKey] || false
+                const backendPrice = backendPricingMap.get(m.id)
+                const canBill = Boolean(backendPrice)
                 const modelStats = orUsageModels.get(m.id)
                 const avgActualUsd = typeof modelStats?.avgCostUsd === 'number' ? modelStats.avgCostUsd : null
                 const generatedCount = modelStatText(modelStats?.count)
@@ -942,12 +949,13 @@ export default function AdminModelsV2() {
                       <input
                         type="checkbox"
                         checked={enabled}
+                        disabled={!canBill && !enabled}
                         aria-label={`Включить ${modelShortName(m)} для ${section.title}`}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => toggleOpenrouterModel(section.id, m.id, e.target.checked)}
                       />
                     </td>
-                    <td><strong className="model-name">{modelShortName(m)}</strong>{defaultForSection === m.id ? <span className="mini" style={{ marginLeft: 8 }}>default</span> : null}</td>
+                    <td><strong className="model-name">{modelShortName(m)}</strong>{defaultForSection === m.id ? <span className="mini" style={{ marginLeft: 8 }}>default</span> : null}{!canBill ? <span className="mini risk-high" style={{ marginLeft: 8 }}>нет backend цены</span> : null}</td>
                     <td><span className="provider openrouter">{modelBrand(m)}</span></td>
                     <td><span className="money">{modelRubPrice(m, usdRubEffective, avgActualUsd)}</span></td>
                     <td><span className="money">{modelUsdPrice(m, avgActualUsd)}</span></td>
@@ -963,6 +971,7 @@ export default function AdminModelsV2() {
                       <div className="detail-box">
                         <span><b>Полное имя:</b> {m.name}</span>
                         <span><b>OpenRouter id:</b> {m.id}</span>
+                        <span><b>Backend billing:</b> {backendPrice ? `${backendPrice.pricing_type} · min ${backendPrice.min_tokens} ток. · ${backendPrice.source}` : 'не подключено, модель нельзя включать в реальную генерацию'}</span>
                         <span><b>Как посчитано:</b> {priceConfidence(m)}</span>
                         <span><b>Цена из OpenRouter:</b> {m.pricing}</span>
                         <span><b>Токены проекта:</b> {tokenCount ?? 'нужно измерить'} при {tokenRub} ₽/токен и марже от {minMarginPercent}%</span>
