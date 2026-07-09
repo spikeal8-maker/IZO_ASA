@@ -1,0 +1,17 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin
+Disallow: /admin/
+Disallow: /profile
+Disallow: /profile/
+Disallow: /new/profile
+Disallow: /old
+Disallow: /legacy
+Disallow: /v1
+Disallow: /diag
+Disallow: /media/
+Disallow: /avatars/
+
+Sitemap: https://izo.alikinas.ru/sitemap.xml
+Host: https://izo.alikinas.ru
