@@ -382,6 +382,10 @@ font-weight: 620;
 background:
         linear-gradient(180deg, rgba(182, 207, 18, .08), rgba(182, 207, 18, .018)),
         rgba(9, 11, 9, .72);
+box-shadow:
+        0 8px 18px rgba(0, 0, 0, .28),
+        inset 0 1px 0 rgba(255, 255, 255, .11),
+        inset 0 -8px 16px rgba(0, 0, 0, .18);
 }
 .iv3 .form-section {
 border: 1px solid rgba(255, 255, 255, .105);
@@ -3654,24 +3658,57 @@ font-size: 12px;
 .iv3 .mobile-title-row {
 min-height: 22px;
 display: grid;
-grid-template-columns: auto minmax(0, 1fr) auto;
+grid-template-columns: minmax(0, 1fr) auto;
 align-items: center;
 gap: 7px;
 }
 .iv3 .mobile-title-row h1 {
+grid-column: 1;
+min-width: 0;
 font-size: 14px;
 line-height: 1.05;
 }
 .iv3 .mobile-title-row .pro-button {
+grid-column: 2;
+justify-self: end;
+width: auto;
+max-width: none;
 min-height: 24px;
-padding: 0 8px;
+padding: 0 9px;
 gap: 5px;
 border-radius: 7px;
 font-size: 10px;
+white-space: nowrap;
+background:
+          linear-gradient(180deg, rgba(236, 255, 47, .11), rgba(236, 255, 47, .025)),
+          rgba(9, 12, 8, .86);
+box-shadow:
+          0 5px 14px rgba(0, 0, 0, .32),
+          0 0 0 1px rgba(236, 255, 47, .15),
+          inset 0 1px 0 rgba(255, 255, 255, .13),
+          inset 0 -7px 13px rgba(0, 0, 0, .24);
 }
 .iv3 .mobile-title-row .pro-button svg {
 width: 13px;
 height: 13px;
+}
+.iv3.mode-paint .preview-panel > .mobile-title-row {
+display: grid;
+grid-template-columns: auto minmax(0, 1fr) auto;
+align-items: center;
+}
+.iv3.mode-paint .preview-panel > .mobile-title-row h1 {
+grid-column: 1;
+}
+.iv3.mode-paint .preview-panel > .mobile-title-row .paint-mobile-history-actions,
+.iv3.mode-paint .preview-panel > .mobile-title-row .paint-preview-actions {
+grid-column: 2;
+justify-self: end;
+}
+.iv3.mode-paint .preview-panel > .mobile-title-row .pro-button {
+grid-column: 3;
+justify-self: end;
+margin-left: 0;
 }
 .iv3 .preview-image, .iv3 .prompt-card, .iv3 .form-section, .iv3 .style-card, .iv3 .history, .iv3 .history-item, .iv3 .ratio-button, .iv3 .resolution, .iv3 .image-action, .iv3 .tool-button {
 border-radius: 8px;
