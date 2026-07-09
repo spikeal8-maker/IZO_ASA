@@ -42,7 +42,7 @@ type PageData = {
   comfyuiAvailable: boolean
   openrouter: {
     keyConfigured: boolean
-    status?: { ok?: boolean; configured?: boolean; error?: unknown; data?: Record<string, unknown> }
+    status?: { ok?: boolean; configured?: boolean; source?: string; status_code?: number; error?: unknown; data?: Record<string, unknown> }
     usage?: { pricedImages?: number; totalCostUsd?: number; avgCostUsd?: number | null; avgCostPerMpUsd?: number | null; lastCostUsd?: number | null; models?: Array<Record<string, unknown>> }
   }
   comfyFiles: Record<string, unknown>
@@ -179,6 +179,13 @@ const tokenPriceForModel = (m: ApiImageModel) => {
   if (value === null) return null
   return Math.max(1, Math.ceil((value * USD_RUB) / TOKEN_RUB))
 }
+const valueText = (value: unknown) => value === null || value === undefined || value === '' ? '—' : String(value)
+const moneyUsdText = (value: unknown) => typeof value === 'number' ? `$${value.toFixed(4)}` : valueText(value)
+const openrouterErrorText = (error: unknown) => {
+  if (!error) return ''
+  if (typeof error === 'string') return error
+  try { return JSON.stringify(error) } catch { return String(error) }
+}
 const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState) => [...rows].sort((a, b) => {
   let result = 0
   if (sort.key === 'name') result = modelShortName(a).localeCompare(modelShortName(b), 'ru')
@@ -224,6 +231,11 @@ const CSS = `
 .amv2 .api-key-panel{padding:12px;display:grid;grid-template-columns:1.1fr 1.4fr;gap:12px;border-bottom:1px solid var(--line)}
 .amv2 .api-key-box{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.032);display:grid;gap:8px;align-content:start}
 .amv2 .api-key-box input{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+.amv2 .key-status{border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.028);padding:8px;display:grid;gap:6px}
+.amv2 .key-status-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:5px}
+.amv2 .key-status-row:last-child{border-bottom:0;padding-bottom:0}
+.amv2 .key-status-row span{color:var(--muted)}.amv2 .key-status-row strong{color:var(--text);text-align:right;overflow-wrap:anywhere}
+.amv2 .key-ok strong{color:var(--green)}.amv2 .key-bad strong{color:var(--red)}.amv2 .key-warn strong{color:var(--yellow)}
 .amv2 .or-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px;border-bottom:1px solid var(--line)}
 .amv2 .or-stat{border:1px solid var(--line);border-radius:var(--radius);padding:10px;background:rgba(255,255,255,.032)}
 .amv2 .or-stat span{display:block;color:var(--muted);font-size:11px;font-weight:800}.amv2 .or-stat strong{display:block;margin-top:5px;font-size:16px;color:var(--lime)}
@@ -438,6 +450,13 @@ export default function AdminModelsV2() {
 
   if (!data) return <div className="amv2"><style>{CSS}</style><div style={{ padding: 12, display: 'grid', gap: 10 }}><p style={{ color: err ? 'var(--red)' : 'var(--muted)' }}>{err || 'Загрузка страницы моделей…'}</p>{err && <button className="ghost" style={{ width: 'max-content' }} onClick={() => void load()}>Повторить</button>}</div></div>
 
+  const orStatus = data.openrouter.status || {}
+  const orData = orStatus.data || {}
+  const orStatusClass = orStatus.ok ? 'key-ok' : orStatus.configured ? 'key-bad' : 'key-warn'
+  const orStatusText = orStatus.ok ? 'работает' : orStatus.configured ? 'ключ есть, проверка не прошла' : 'ключ не сохранён'
+  const orLimit = orData.limit === null || orData.limit === undefined ? 'без лимита / не задан' : moneyUsdText(orData.limit)
+  const orRemaining = orData.limit_remaining === null || orData.limit_remaining === undefined ? '—' : moneyUsdText(orData.limit_remaining)
+
   return <div className="amv2">
     <style>{CSS}</style>
     {msg && <p style={{ color: 'var(--lime)', fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
@@ -568,6 +587,15 @@ export default function AdminModelsV2() {
               <button className="primary" disabled={openrouterBusy || !openrouterKeyInput.trim()} onClick={saveOpenrouterKey}>Сохранить и проверить</button>
               <button className="ghost" disabled={openrouterBusy} onClick={() => { void load(); setMsg('Статус OpenRouter обновлён') }}>Проверить</button>
               <button className="danger" disabled={openrouterBusy || !data.openrouter.keyConfigured} onClick={deleteOpenrouterKey}>Удалить UI-ключ</button>
+            </div>
+            <div className="key-status">
+              <div className={`key-status-row ${orStatusClass}`}><span>Проверка</span><strong>{orStatusText}</strong></div>
+              <div className="key-status-row"><span>Источник</span><strong>{orStatus.source === 'admin_ui' ? 'ключ из админки' : orStatus.source === 'env' ? 'OPENROUTER_API_KEY env' : '—'}</strong></div>
+              <div className="key-status-row"><span>Ответ OpenRouter</span><strong>{orStatus.status_code || '—'}</strong></div>
+              <div className="key-status-row"><span>Метка ключа</span><strong>{valueText(orData.label)}</strong></div>
+              <div className="key-status-row"><span>Usage месяц</span><strong>{moneyUsdText(orData.usage_monthly)}</strong></div>
+              <div className="key-status-row"><span>Лимит / остаток</span><strong>{orLimit} / {orRemaining}</strong></div>
+              {!orStatus.ok && orStatus.error ? <div className="key-status-row key-bad"><span>Ошибка</span><strong>{openrouterErrorText(orStatus.error)}</strong></div> : null}
             </div>
             <small>Ключ сохраняется в отдельном backend-хранилище секретов и не возвращается обратно в браузер. Если ключ задан через переменную <b>OPENROUTER_API_KEY</b>, она имеет приоритет.</small>
           </div>

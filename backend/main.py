@@ -5673,11 +5673,15 @@ def save_admin_secret(key: str, value: str) -> None:
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
             (key, value, now),
         )
+    _admin_models_page_cache["ts"] = 0.0
+    _admin_models_page_cache["data"] = None
 
 
 def delete_admin_secret(key: str) -> None:
     with db() as conn:
         conn.execute("DELETE FROM admin_secrets WHERE key = ?", (key,))
+    _admin_models_page_cache["ts"] = 0.0
+    _admin_models_page_cache["data"] = None
 
 
 def openrouter_api_key_source() -> str:
