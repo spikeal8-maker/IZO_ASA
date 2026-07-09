@@ -52,11 +52,6 @@ type ProfilePageProps = {
   setPromoResult: Dispatch<SetStateAction<string>>
   inviteMsg: string
   setInviteMsg: Dispatch<SetStateAction<string>>
-  linkEmail: string
-  setLinkEmail: Dispatch<SetStateAction<string>>
-  linkEmailChallenge: string
-  linkEmailCode: string
-  setLinkEmailCode: Dispatch<SetStateAction<string>>
   linkBusy: boolean
   linkMsg: string
   onOpenAuth: () => void
@@ -64,8 +59,6 @@ type ProfilePageProps = {
   onSaveProfile: () => void
   onLogout: () => void
   onApplyPromo: () => void
-  onRequestLinkEmail: () => void
-  onVerifyLinkEmail: () => void
   onLinkBot: (providerName: 'telegram' | 'max') => void
 }
 
@@ -112,19 +105,12 @@ export default function ProfilePage({
   setPromoResult,
   inviteMsg,
   setInviteMsg,
-  linkEmail,
-  setLinkEmail,
-  linkEmailChallenge,
-  linkEmailCode,
-  setLinkEmailCode,
   linkBusy,
   linkMsg,
   onOpenAuth,
   onSaveProfile,
   onLogout,
   onApplyPromo,
-  onRequestLinkEmail,
-  onVerifyLinkEmail,
   onLinkBot,
 }: ProfilePageProps) {
   const [avatarChooserOpen, setAvatarChooserOpen] = useState(false)
@@ -148,8 +134,6 @@ export default function ProfilePage({
   const displayEmail = me?.identities?.find((i) => i.provider_email)?.provider_email
   const telegramIdentity = me?.identities?.find((i) => i.provider === 'telegram')
   const maxIdentity = me?.identities?.find((i) => i.provider === 'max')
-  const emailIdentity = me?.identities?.find((i) => i.provider === 'web_email')
-  const emailStatus = emailIdentity ? (emailIdentity.verified_at || me?.profile?.email_verified_at ? 'Подтвержден' : 'Ожидает подтверждения') : 'Не указан'
   const displayNameFallback = me?.profile?.display_name
     || [me?.profile?.first_name, me?.profile?.last_name].filter(Boolean).join(' ')
     || displayEmail?.split('@')[0]
@@ -299,18 +283,28 @@ export default function ProfilePage({
             )}
             <section className="profile-card profile-profile">
               <label>Имя<input type="text" value={displayName} onChange={(e) => { setDisplayName(e.target.value); setSaveMsg('') }} placeholder="Ваше имя" maxLength={80} /></label>
-              <label>Email<input type="email" value={displayEmail || ''} placeholder="Email не указан" readOnly disabled /></label>
-              <label>Превью шаблонов
-                <select value={profileGender} onChange={(e) => { setProfileGender(e.target.value === 'male' ? 'male' : 'female'); setSaveMsg('') }}>
-                  <option value="female">Женский набор</option>
-                  <option value="male">Мужской набор</option>
-                </select>
-              </label>
-              <label>Возраст<input type="number" min="13" max="120" value={profileAge} onChange={(e) => { setProfileAge(e.target.value); setSaveMsg('') }} placeholder="Например, 28" /></label>
+              <label>Email<input type="email" value={displayEmail || ''} placeholder="Email не указан" readOnly /></label>
+              <div className="profile-auth-inline">
+                <div>
+                  <strong>Способы входа</strong>
+                  <span>Подключения помогают нам точнее видеть активность аккаунта и не терять доступ.</span>
+                </div>
+                <article>
+                  <b>Telegram</b>
+                  <p>{telegramIdentity ? `Подключен${telegramIdentity.provider_username ? `: @${telegramIdentity.provider_username}` : ''}` : 'Не подключен'}</p>
+                  {!telegramIdentity && authCaps.telegram_bot_login_available && <button className="profile-secondary" type="button" onClick={() => onLinkBot('telegram')} disabled={linkBusy}>Подключить</button>}
+                </article>
+                <article>
+                  <b>MAX</b>
+                  <p>{maxIdentity ? `Подключен${maxIdentity.provider_username ? `: ${maxIdentity.provider_username}` : ''}` : 'Не подключен'}</p>
+                  {!maxIdentity && authCaps.max_bot_login_available && <button className="profile-secondary" type="button" onClick={() => onLinkBot('max')} disabled={linkBusy}>Подключить</button>}
+                </article>
+              </div>
               <div className="profile-profile-actions">
                 <button className="profile-primary" type="button" onClick={onSaveProfile} disabled={!displayName.trim()}>Сохранить профиль</button>
                 <button className="profile-ghost" type="button" onClick={onLogout}><Lock size={14} />Выйти</button>
                 {saveMsg && <small className={saveMsg === 'Сохранено' ? 'profile-save-ok' : 'profile-save-err'}>{saveMsg}</small>}
+                {linkMsg && <small className={linkMsg.includes('подключ') || linkMsg.includes('отправлен') ? 'profile-save-ok' : 'profile-save-err'}>{linkMsg}</small>}
               </div>
             </section>
             <section className="profile-card profile-public">
@@ -330,6 +324,13 @@ export default function ProfilePage({
                   </span>
                 </label>
                 <label>Чем занимаетесь<input type="text" value={publicFocus} onChange={(e) => { setPublicFocus(e.target.value); setSaveMsg('') }} placeholder="Дизайнер, фотограф, бренд одежды" maxLength={120} /></label>
+                <label>Кто вы
+                  <select value={profileGender} onChange={(e) => { setProfileGender(e.target.value === 'male' ? 'male' : 'female'); setSaveMsg('') }}>
+                    <option value="female">Женщина</option>
+                    <option value="male">Мужчина</option>
+                  </select>
+                </label>
+                <label>Возраст<input type="number" min="13" max="120" value={profileAge} onChange={(e) => { setProfileAge(e.target.value); setSaveMsg('') }} placeholder="Например, 28" /></label>
                 <label>Основной сайт<input type="url" value={publicWebsite} onChange={(e) => { setPublicWebsite(e.target.value); setSaveMsg('') }} placeholder="site.ru или https://..." maxLength={240} /></label>
                 <label>Телефон для связи<input type="tel" value={publicPhone} onChange={(e) => { setPublicPhone(e.target.value); setSaveMsg('') }} placeholder="+7 900 000-00-00" maxLength={40} /></label>
               </div>
@@ -354,16 +355,6 @@ export default function ProfilePage({
                 <button className="profile-primary" type="button" onClick={onSaveProfile} disabled={!displayName.trim()}>Сохранить публичные данные</button>
                 {saveMsg && <small className={saveMsg === 'Сохранено' ? 'profile-save-ok' : 'profile-save-err'}>{saveMsg}</small>}
               </div>
-            </section>
-            <section className="profile-card profile-login-methods">
-              <div className="profile-section-head"><h3>Способы входа</h3><span>+10 токенов за новое подтвержденное подключение</span></div>
-              <div className="profile-login-grid">
-                <article><strong>Telegram</strong><p>{telegramIdentity ? `Подключен: ${telegramIdentity.provider_username ? `@${telegramIdentity.provider_username}` : `ID ${telegramIdentity.provider_user_id || '—'}`}` : 'Не подключен'}</p>{!telegramIdentity && authCaps.telegram_bot_login_available && <button className="profile-secondary" type="button" onClick={() => onLinkBot('telegram')} disabled={linkBusy}>Подключить Telegram</button>}</article>
-                <article><strong>Email</strong><p>{emailIdentity?.provider_email ? `${emailStatus}: ${emailIdentity.provider_email}` : emailStatus}</p>{!emailIdentity && <div className="profile-link-email"><input type="email" value={linkEmail} onChange={(e) => setLinkEmail(e.target.value)} placeholder="email@example.com" disabled={linkBusy || Boolean(linkEmailChallenge)} />{!linkEmailChallenge ? <button className="profile-secondary" type="button" onClick={onRequestLinkEmail} disabled={linkBusy || !linkEmail.trim()}>Получить код</button> : <><input value={linkEmailCode} onChange={(e) => setLinkEmailCode(e.target.value)} placeholder="Код из письма" disabled={linkBusy} /><button className="profile-secondary" type="button" onClick={onVerifyLinkEmail} disabled={linkBusy || !linkEmailCode.trim()}>Подтвердить</button></>}</div>}</article>
-                <article><strong>MAX</strong><p>{maxIdentity ? `Подключен: ${maxIdentity.provider_username || `ID ${maxIdentity.provider_user_id || '—'}`}` : 'Не подключен'}</p>{!maxIdentity && authCaps.max_bot_login_available && <button className="profile-secondary" type="button" onClick={() => onLinkBot('max')} disabled={linkBusy}>Подключить MAX</button>}</article>
-                <article><strong>Телефон</strong><p>Будет доступно позже</p></article>
-              </div>
-              {linkMsg && <small className={linkMsg.includes('подключ') || linkMsg.includes('отправлен') ? 'profile-save-ok' : 'profile-save-err'}>{linkMsg}</small>}
             </section>
           </>}
 

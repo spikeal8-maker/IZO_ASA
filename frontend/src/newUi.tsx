@@ -19,12 +19,10 @@ import {
   logoutV2,
   pollBotLoginStatusV2,
   refreshAuthStateV2,
-  requestEmailLinkCodeV2,
   startBotLinkV2,
   updateProfileV2,
   updateProfileV2Detailed,
   useAuthV2,
-  verifyEmailLinkCodeV2,
 } from './authV2'
 import {
   DEFAULT_EDIT_STRENGTH,
@@ -842,32 +840,6 @@ export default function NewStudio(): ReactElement {
       setPromoBusy(false)
     }
   }
-  const onRequestLinkEmail = async () => {
-    const email = linkEmail.trim()
-    if (!email) { setLinkMsg('Введите email'); return }
-    setLinkBusy(true)
-    setLinkMsg('')
-    const result = await requestEmailLinkCodeV2(email)
-    if (!result) setLinkMsg('Не удалось отправить код')
-    else if ('error' in result) setLinkMsg(result.error === 'email_already_linked' ? 'Этот email уже привязан к другому аккаунту' : 'Email-подтверждение сейчас недоступно')
-    else { setLinkEmailChallenge(result.challenge_id); setLinkMsg('Код отправлен на email') }
-    setLinkBusy(false)
-  }
-  const onVerifyLinkEmail = async () => {
-    if (!linkEmailChallenge || !linkEmailCode.trim()) return
-    setLinkBusy(true)
-    setLinkMsg('')
-    const result = await verifyEmailLinkCodeV2(linkEmailChallenge, linkEmailCode.trim())
-    if (!result.ok) setLinkMsg(result.error === 'email_already_linked' ? 'Этот email уже привязан к другому аккаунту' : 'Неверный или просроченный код')
-    else {
-      setLinkEmailChallenge('')
-      setLinkEmailCode('')
-      setLinkEmail('')
-      await refreshAuthStateV2()
-      setLinkMsg(result.reward_tokens ? `Email подключен: +${result.reward_tokens} токенов` : 'Email уже подключен')
-    }
-    setLinkBusy(false)
-  }
   const onLinkBot = async (providerName: 'telegram' | 'max') => {
     setLinkBusy(true)
     setLinkMsg('')
@@ -966,9 +938,6 @@ export default function NewStudio(): ReactElement {
   const [inviteMsg, setInviteMsg] = useState('')
   const [authCaps, setAuthCaps] = useState({ telegram_bot_login_available: false, max_bot_login_available: false })
   const [authCapsState, setAuthCapsState] = useState<'loading' | 'ready' | 'fallback'>('loading')
-  const [linkEmail, setLinkEmail] = useState('')
-  const [linkEmailChallenge, setLinkEmailChallenge] = useState('')
-  const [linkEmailCode, setLinkEmailCode] = useState('')
   const [linkMsg, setLinkMsg] = useState('')
   const [linkBusy, setLinkBusy] = useState(false)
   const [paintMode, setPaintMode] = useState<PaintSubMode>('sketch')
@@ -3350,11 +3319,6 @@ export default function NewStudio(): ReactElement {
       setPromoResult={setPromoResult}
       inviteMsg={inviteMsg}
       setInviteMsg={setInviteMsg}
-      linkEmail={linkEmail}
-      setLinkEmail={setLinkEmail}
-      linkEmailChallenge={linkEmailChallenge}
-      linkEmailCode={linkEmailCode}
-      setLinkEmailCode={setLinkEmailCode}
       linkBusy={linkBusy}
       linkMsg={linkMsg}
       onOpenAuth={() => setAuthOpen(true)}
@@ -3362,8 +3326,6 @@ export default function NewStudio(): ReactElement {
       onSaveProfile={onSaveProfile}
       onLogout={onLogout}
       onApplyPromo={onApplyPromo}
-      onRequestLinkEmail={onRequestLinkEmail}
-      onVerifyLinkEmail={onVerifyLinkEmail}
       onLinkBot={(providerName) => void onLinkBot(providerName)}
     />
   )
