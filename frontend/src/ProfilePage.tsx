@@ -26,6 +26,12 @@ type ProfilePageProps = {
   setProfileGender: Dispatch<SetStateAction<'female' | 'male'>>
   profileAge: string
   setProfileAge: Dispatch<SetStateAction<string>>
+  publicAbout: string
+  setPublicAbout: Dispatch<SetStateAction<string>>
+  publicWebsite: string
+  setPublicWebsite: Dispatch<SetStateAction<string>>
+  publicFocus: string
+  setPublicFocus: Dispatch<SetStateAction<string>>
   saveMsg: string
   setSaveMsg: Dispatch<SetStateAction<string>>
   avatarSrc: string | null
@@ -76,6 +82,12 @@ export default function ProfilePage({
   setProfileGender,
   profileAge,
   setProfileAge,
+  publicAbout,
+  setPublicAbout,
+  publicWebsite,
+  setPublicWebsite,
+  publicFocus,
+  setPublicFocus,
   saveMsg,
   setSaveMsg,
   avatarSrc,
@@ -266,6 +278,9 @@ export default function ProfilePage({
             )}
             <section className="profile-card profile-profile">
               <label>Имя<input type="text" value={displayName} onChange={(e) => { setDisplayName(e.target.value); setSaveMsg('') }} placeholder="Ваше имя" maxLength={80} /></label>
+              <label className="profile-public-wide">О себе<textarea value={publicAbout} onChange={(e) => { setPublicAbout(e.target.value); setSaveMsg('') }} placeholder="Чем вы занимаетесь, что создаёте, чем можете быть полезны аудитории" maxLength={700} rows={4} /></label>
+              <label>Сайт или ссылка<input type="url" value={publicWebsite} onChange={(e) => { setPublicWebsite(e.target.value); setSaveMsg('') }} placeholder="site.ru или https://..." maxLength={240} /></label>
+              <label>Чем занимаетесь<input type="text" value={publicFocus} onChange={(e) => { setPublicFocus(e.target.value); setSaveMsg('') }} placeholder="Например: дизайнер, фотограф, бренд одежды" maxLength={120} /></label>
               <label>Email<input type="email" value={displayEmail || ''} placeholder="Email не указан" readOnly disabled /></label>
               <label>Превью шаблонов
                 <select value={profileGender} onChange={(e) => { setProfileGender(e.target.value === 'male' ? 'male' : 'female'); setSaveMsg('') }}>

@@ -366,6 +366,7 @@ export interface MeV2 {
   profile?: {
     display_name?: string | null; first_name?: string | null; last_name?: string | null
     public_user_code?: string | null; username?: string | null; email?: string | null; email_verified_at?: string | null; providers?: string[]
+    public_about?: string | null; public_website?: string | null; public_focus?: string | null
     language_code?: string | null; timezone?: string | null; city?: string | null; country_code?: string | null
     avatar_url?: string | null; avatar_preset?: string | null; gender?: 'female' | 'male' | null; age?: number | null
   } | null

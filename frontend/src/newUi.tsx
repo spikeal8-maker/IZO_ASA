@@ -763,7 +763,14 @@ export default function NewStudio(): ReactElement {
     const age = profileAge.trim()
     if (age && (Number(age) < 13 || Number(age) > 120)) { setSaveMsg('Возраст должен быть от 13 до 120'); return }
     setSaveMsg('')
-    const result = await updateProfileV2({ display_name: trimmed, gender: profileGender, age })
+    const result = await updateProfileV2({
+      display_name: trimmed,
+      gender: profileGender,
+      age,
+      public_about: publicAbout.trim(),
+      public_website: publicWebsite.trim(),
+      public_focus: publicFocus.trim(),
+    })
     if (result) { await refreshAuthStateV2(); setSaveMsg('Сохранено') }
     else setSaveMsg('Ошибка сохранения')
   }
@@ -934,6 +941,9 @@ export default function NewStudio(): ReactElement {
   const [displayName, setDisplayName] = useState(me?.profile?.display_name || '')
   const [profileGender, setProfileGender] = useState<'female' | 'male'>(me?.profile?.gender === 'male' ? 'male' : 'female')
   const [profileAge, setProfileAge] = useState(me?.profile?.age ? String(me.profile.age) : '')
+  const [publicAbout, setPublicAbout] = useState(me?.profile?.public_about || '')
+  const [publicWebsite, setPublicWebsite] = useState(me?.profile?.public_website || '')
+  const [publicFocus, setPublicFocus] = useState(me?.profile?.public_focus || '')
   const [saveMsg, setSaveMsg] = useState('')
   const [avatarUrl, setAvatarUrl] = useState(me?.profile?.avatar_url || avatarPresets[0].url)
   const [avatarPreset, setAvatarPreset] = useState(me?.profile?.avatar_preset || '')
@@ -1169,12 +1179,15 @@ export default function NewStudio(): ReactElement {
       setDisplayName(me?.profile?.display_name || '')
       setProfileGender(me?.profile?.gender === 'male' ? 'male' : 'female')
       setProfileAge(me?.profile?.age ? String(me.profile.age) : '')
+      setPublicAbout(me?.profile?.public_about || '')
+      setPublicWebsite(me?.profile?.public_website || '')
+      setPublicFocus(me?.profile?.public_focus || '')
       setAvatarUrl(me?.profile?.avatar_url || avatarPresets[0].url)
       setAvatarPreset(me?.profile?.avatar_preset || '')
       setSaveMsg('')
       setAvatarMsg('')
     })
-  }, [me?.profile?.age, me?.profile?.avatar_preset, me?.profile?.avatar_url, me?.profile?.display_name, me?.profile?.gender])
+  }, [me?.profile?.age, me?.profile?.avatar_preset, me?.profile?.avatar_url, me?.profile?.display_name, me?.profile?.gender, me?.profile?.public_about, me?.profile?.public_focus, me?.profile?.public_website])
 
   useEffect(() => {
     let active = true
@@ -3299,6 +3312,12 @@ export default function NewStudio(): ReactElement {
       setProfileGender={setProfileGender}
       profileAge={profileAge}
       setProfileAge={setProfileAge}
+      publicAbout={publicAbout}
+      setPublicAbout={setPublicAbout}
+      publicWebsite={publicWebsite}
+      setPublicWebsite={setPublicWebsite}
+      publicFocus={publicFocus}
+      setPublicFocus={setPublicFocus}
       saveMsg={saveMsg}
       setSaveMsg={setSaveMsg}
       avatarSrc={profileAvatarSrc}
