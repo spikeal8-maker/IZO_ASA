@@ -11973,7 +11973,7 @@ def default_tariff_matrix() -> list[dict[str, Any]]:
 def openrouter_usage_stats() -> dict[str, Any]:
     with db() as conn:
         rows = conn.execute(
-            "SELECT width, height, settings_json, created_at FROM images WHERE provider = 'openrouter' ORDER BY created_at DESC LIMIT 500"
+            "SELECT width, height, mode, settings_json, created_at FROM images WHERE provider = 'openrouter' ORDER BY created_at DESC LIMIT 500"
         ).fetchall()
     total_cost = 0.0
     total_mp = 0.0
@@ -11981,6 +11981,7 @@ def openrouter_usage_stats() -> dict[str, Any]:
     last_cost: float | None = None
     last_at: str | None = None
     models: dict[str, dict[str, Any]] = {}
+    modes: dict[str, dict[str, Any]] = {}
     for row in rows:
         settings = safe_json_load(row["settings_json"]) or {}
         if not isinstance(settings, dict):
@@ -11991,6 +11992,7 @@ def openrouter_usage_stats() -> dict[str, Any]:
             continue
         mp = max(0.0001, (int(row["width"] or 0) * int(row["height"] or 0)) / 1_000_000)
         model = str(settings.get("openrouterModel") or "unknown")
+        mode = str(row["mode"] or "unknown")
         total_cost += cost
         total_mp += mp
         priced += 1
@@ -12001,6 +12003,14 @@ def openrouter_usage_stats() -> dict[str, Any]:
         bucket["count"] += 1
         bucket["costUsd"] += cost
         bucket["megapixels"] += mp
+        mode_bucket = modes.setdefault(mode, {"count": 0, "costUsd": 0.0, "megapixels": 0.0, "models": {}})
+        mode_bucket["count"] += 1
+        mode_bucket["costUsd"] += cost
+        mode_bucket["megapixels"] += mp
+        mode_models = mode_bucket["models"]
+        model_mode_bucket = mode_models.setdefault(model, {"count": 0, "costUsd": 0.0})
+        model_mode_bucket["count"] += 1
+        model_mode_bucket["costUsd"] += cost
     model_rows = []
     for model, item in models.items():
         mp = float(item["megapixels"] or 0)
@@ -12013,6 +12023,28 @@ def openrouter_usage_stats() -> dict[str, Any]:
             "avgCostPerMpUsd": round(cost / mp, 6) if mp else None,
         })
     model_rows.sort(key=lambda x: x["count"], reverse=True)
+    mode_rows = []
+    for mode, item in modes.items():
+        mp = float(item["megapixels"] or 0)
+        cost = float(item["costUsd"] or 0)
+        model_items = item.get("models") if isinstance(item.get("models"), dict) else {}
+        favorite = ""
+        favorite_count = 0
+        for model, model_item in model_items.items():
+            count = int(model_item.get("count") or 0)
+            if count > favorite_count:
+                favorite = model
+                favorite_count = count
+        mode_rows.append({
+            "mode": mode,
+            "count": item["count"],
+            "costUsd": round(cost, 6),
+            "avgCostUsd": round(cost / item["count"], 6) if item["count"] else None,
+            "avgCostPerMpUsd": round(cost / mp, 6) if mp else None,
+            "favoriteModel": favorite or None,
+            "favoriteCount": favorite_count,
+        })
+    mode_rows.sort(key=lambda x: x["count"], reverse=True)
     return {
         "pricedImages": priced,
         "totalCostUsd": round(total_cost, 6),
@@ -12021,6 +12053,7 @@ def openrouter_usage_stats() -> dict[str, Any]:
         "lastCostUsd": last_cost,
         "lastAt": last_at,
         "models": model_rows[:20],
+        "modes": mode_rows,
     }
 
 

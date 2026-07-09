@@ -43,7 +43,15 @@ type PageData = {
   openrouter: {
     keyConfigured: boolean
     status?: { ok?: boolean; configured?: boolean; source?: string; status_code?: number; error?: unknown; data?: Record<string, unknown> }
-    usage?: { pricedImages?: number; totalCostUsd?: number; avgCostUsd?: number | null; avgCostPerMpUsd?: number | null; lastCostUsd?: number | null; models?: Array<Record<string, unknown>> }
+    usage?: {
+      pricedImages?: number
+      totalCostUsd?: number
+      avgCostUsd?: number | null
+      avgCostPerMpUsd?: number | null
+      lastCostUsd?: number | null
+      models?: Array<Record<string, unknown>>
+      modes?: Array<Record<string, unknown>>
+    }
     config?: OpenRouterConfig
   }
   comfyFiles: Record<string, unknown>
@@ -138,6 +146,11 @@ const modelShortName = (m: ApiImageModel) => {
   const withoutBrand = m.name.includes(':') ? m.name.split(':').slice(1).join(':').trim() : m.name
   return withoutBrand.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
 }
+const modelLabelById = (id: unknown) => {
+  const value = String(id || '')
+  const found = OPENROUTER_IMAGE_MODELS.find((m) => m.id === value)
+  return found ? modelShortName(found) : value || '—'
+}
 const extractTokenRate = (pricing: string, key: string) => {
   const match = pricing.match(new RegExp(`${key}: \\$(\\d+(?:\\.\\d+)?)/token`))
   return match ? Number(match[1]) : null
@@ -176,14 +189,18 @@ const modelUsdPrice = (m: ApiImageModel) => {
   const value = estimatedUsdPerMp(m)
   return value === null ? 'нет данных' : usd(value)
 }
-const tokenPriceForModel = (m: ApiImageModel) => {
+const minTokenTier = (m: ApiImageModel) => {
   if (m.id === 'black-forest-labs/flux.2-klein-4b') return 1
   if (m.id === 'black-forest-labs/flux.2-pro') return 2
   if (m.id === 'black-forest-labs/flux.2-max') return 3
   if (m.id === 'black-forest-labs/flux.2-flex') return 4
-  const value = estimatedUsdPerMp(m)
+  return 1
+}
+const tokenPriceForModel = (m: ApiImageModel, actualUsdPerMp?: number | null) => {
+  const estimated = estimatedUsdPerMp(m)
+  const value = typeof actualUsdPerMp === 'number' ? Math.max(estimated || 0, actualUsdPerMp) : estimated
   if (value === null) return null
-  return Math.max(1, Math.ceil((value * USD_RUB) / TOKEN_RUB))
+  return Math.max(minTokenTier(m), Math.ceil((value * USD_RUB) / TOKEN_RUB))
 }
 const valueText = (value: unknown) => value === null || value === undefined || value === '' ? '—' : String(value)
 const moneyUsdText = (value: unknown) => typeof value === 'number' ? `$${value.toFixed(4)}` : valueText(value)
@@ -193,7 +210,9 @@ const openrouterErrorText = (error: unknown) => {
   try { return JSON.stringify(error) } catch { return String(error) }
 }
 const usageModelMap = (models?: Array<Record<string, unknown>>) => new Map((models || []).map((item) => [String(item.model || ''), item]))
+const usageModeMap = (modes?: Array<Record<string, unknown>>) => new Map((modes || []).map((item) => [String(item.mode || ''), item]))
 const modelStatText = (value: unknown, suffix = '') => typeof value === 'number' ? `${value}${suffix}` : '—'
+const moneyPair = (usdValue: unknown) => typeof usdValue === 'number' ? `${rub(usdValue)} - $${usdValue.toFixed(4)}` : '—'
 const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState) => [...rows].sort((a, b) => {
   let result = 0
   if (sort.key === 'name') result = modelShortName(a).localeCompare(modelShortName(b), 'ru')
@@ -213,14 +232,14 @@ const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState) => [...rows].s
 })
 
 const CSS = `
-.amv2{--panel:#101310;--line:rgba(255,255,255,.10);--line-strong:rgba(255,255,255,.18);--text:#f5f7ef;--muted:#a6aea3;--dim:#727b70;--lime:#eaff10;--green:#43df62;--yellow:#ffd24a;--red:#ff5c62;--radius:8px;color:var(--text);}
-.amv2 h1,.amv2 h2,.amv2 h3,.amv2 p{margin:0}
+.amv2{--panel:#101310;--line:rgba(255,255,255,.10);--line-strong:rgba(255,255,255,.18);--text:#f5f7ef;--muted:#a6aea3;--dim:#727b70;--lime:#cfe56b;--green:#70dd78;--yellow:#d8bb61;--red:#ff7479;--radius:8px;color:var(--text);font-weight:500}
+.amv2 h1,.amv2 h2,.amv2 h3,.amv2 p{margin:0;text-transform:none}
 .amv2 button{cursor:pointer;font:inherit}
-.amv2 .state,.amv2 .provider,.amv2 .mini,.amv2 .plan{display:inline-flex;align-items:center;gap:6px;border-radius:999px;border:1px solid var(--line-strong);background:rgba(255,255,255,.045);color:var(--muted);font-size:12px;font-weight:800;padding:4px 8px;white-space:nowrap}
+.amv2 .state,.amv2 .provider,.amv2 .mini,.amv2 .plan{display:inline-flex;align-items:center;gap:6px;border-radius:999px;border:1px solid var(--line-strong);background:rgba(255,255,255,.045);color:var(--muted);font-size:12px;font-weight:650;padding:4px 8px;white-space:nowrap}
 .amv2 .provider.local{color:var(--lime);border-color:rgba(234,255,16,.30);background:rgba(234,255,16,.07)}
 .amv2 .provider.openrouter{color:#7bc3ff;border-color:rgba(85,169,255,.35);background:rgba(85,169,255,.08)}
 .amv2 .state.ok{color:var(--green)}.amv2 .state.warn{color:var(--yellow)}.amv2 .state.bad{color:var(--red)}
-.amv2 .ghost,.amv2 .primary,.amv2 .danger{min-height:32px;border:1px solid var(--line-strong);border-radius:var(--radius);padding:0 12px;color:var(--text);background:rgba(18,21,18,.78);font-size:13px;font-weight:800}
+.amv2 .ghost,.amv2 .primary,.amv2 .danger{min-height:32px;border:1px solid var(--line-strong);border-radius:var(--radius);padding:0 12px;color:var(--text);background:rgba(18,21,18,.78);font-size:13px;font-weight:650}
 .amv2 .primary{color:#080a07;border-color:rgba(234,255,16,.8);background:var(--lime)}
 .amv2 .danger{color:#ffe6e7;border-color:rgba(255,92,98,.28);background:rgba(255,92,98,.12)}
 .amv2 .card{border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.012)),rgba(16,19,16,.92);overflow:hidden;margin-bottom:12px}
@@ -228,11 +247,11 @@ const CSS = `
 .amv2 .card-title{font-size:15px;line-height:1.2}
 .amv2 .card-note{margin-top:5px;color:var(--muted);font-size:12px;line-height:1.35}
 .amv2 .page-tabs{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto}
-.amv2 .page-tabs button{min-height:38px;border:1px solid var(--line-strong);border-radius:var(--radius);padding:0 14px;background:rgba(255,255,255,.04);color:var(--muted);font-weight:900;white-space:nowrap}
+.amv2 .page-tabs button{min-height:38px;border:1px solid var(--line-strong);border-radius:var(--radius);padding:0 14px;background:rgba(255,255,255,.04);color:var(--muted);font-weight:650;white-space:nowrap}
 .amv2 .page-tabs button.active{background:var(--lime);border-color:var(--lime);color:#080a07}
 .amv2 .status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:12px}
 .amv2 .status-card{border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.035);padding:12px;display:grid;gap:6px;align-content:start}
-.amv2 .status-card strong{font-size:13px}.amv2 .status-card span{font-size:22px;font-weight:950}.amv2 .status-card small{color:var(--muted);overflow-wrap:anywhere}
+.amv2 .status-card strong{font-size:13px}.amv2 .status-card span{font-size:22px;font-weight:700}.amv2 .status-card small{color:var(--muted);overflow-wrap:anywhere}
 .amv2 .ops-row{display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto;gap:10px;padding:12px;border-top:1px solid var(--line);align-items:center}
 .amv2 .job-list{padding:0 12px 12px;display:grid;gap:6px}
 .amv2 .job-row{display:grid;grid-template-columns:minmax(120px,1fr) 96px 90px minmax(140px,1.2fr);gap:8px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);padding:8px;background:rgba(255,255,255,.028);font-size:12px}
@@ -248,9 +267,9 @@ const CSS = `
 .amv2 .or-test{border:1px solid rgba(234,255,16,.18);border-radius:var(--radius);background:rgba(234,255,16,.04);padding:8px;display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;align-items:center}
 .amv2 .or-test img{width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
 .amv2 .or-test strong{font-size:12px}.amv2 .or-test span{display:block;margin-top:4px;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
-.amv2 .or-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;padding:12px;border-bottom:1px solid var(--line)}
+.amv2 .or-stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;padding:12px;border-bottom:1px solid var(--line)}
 .amv2 .or-stat{border:1px solid var(--line);border-radius:var(--radius);padding:10px;background:rgba(255,255,255,.032)}
-.amv2 .or-stat span{display:block;color:var(--muted);font-size:11px;font-weight:800}.amv2 .or-stat strong{display:block;margin-top:5px;font-size:16px;color:var(--lime)}
+.amv2 .or-stat span{display:block;color:var(--muted);font-size:11px;font-weight:650}.amv2 .or-stat strong{display:block;margin-top:5px;font-size:15px;color:var(--lime);font-weight:700}
 .amv2 .mode-board{padding:12px;display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:10px}
 .amv2 .mode-card{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.032);display:grid;gap:8px;align-content:start}
 .amv2 .mode-card strong{font-size:13px}.amv2 .mode-card span{color:var(--muted);font-size:12px;line-height:1.35}
@@ -265,17 +284,17 @@ const CSS = `
 .amv2 .api-table tr.api-model-row{cursor:pointer}
 .amv2 .api-table tr.api-model-row:hover td{background:rgba(234,255,16,.035)}
 .amv2 .api-table tr.api-model-row.expanded td{background:rgba(234,255,16,.05)}
-.amv2 .sort-head{appearance:none;border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;padding:0;display:inline-flex;align-items:center;gap:6px}
+.amv2 .sort-head{appearance:none;border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;padding:0;display:inline-flex;align-items:center;gap:6px}
 .amv2 .sort-head.active{color:var(--lime)}
 .amv2 .detail-cell{padding:0 10px 9px 10px!important;background:rgba(255,255,255,.018)}
 .amv2 .detail-box{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 14px;color:var(--muted);line-height:1.35;font-size:11px}
 .amv2 .detail-box span{overflow-wrap:anywhere}
-.amv2 .api-table .model-name{white-space:nowrap;font-size:12px}
+.amv2 .api-table .model-name{white-space:nowrap;font-size:12px;font-weight:700}
 .amv2 .api-enabled{width:28px;text-align:center}
 .amv2 .api-enabled input{width:14px;height:14px;min-height:14px;padding:0;margin:0;vertical-align:middle}
 .amv2 .api-table .provider{font-size:11px;padding:2px 6px}
 .amv2 .api-table .money{font-size:12px}
-.amv2 .money{font-weight:950;color:var(--lime);white-space:nowrap}
+.amv2 .money{font-weight:650;color:var(--lime);white-space:nowrap}
 .amv2 .risk-low{color:var(--green)}.amv2 .risk-mid{color:var(--yellow)}.amv2 .risk-high{color:var(--red)}
 .amv2 .dashboard{display:grid;grid-template-columns:1fr 1.18fr .82fr;gap:12px;margin-bottom:12px}
 .amv2 .metric-grid{padding:12px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
@@ -306,7 +325,7 @@ const CSS = `
 .amv2 th,.amv2 td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:12px}
 .amv2 th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.025)}
 .amv2 tr.selected td{background:rgba(234,255,16,.055)}
-.amv2 .model-cell{display:grid;gap:5px}.amv2 .model-name{font-size:14px;font-weight:900}.amv2 .model-id{color:var(--dim);font-size:11px;overflow-wrap:anywhere}
+.amv2 .model-cell{display:grid;gap:5px}.amv2 .model-name{font-size:14px;font-weight:750}.amv2 .model-id{color:var(--dim);font-size:11px;overflow-wrap:anywhere}
 .amv2 .tariff-cell{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;min-width:140px}
 .amv2 .tariff-cell.off{opacity:.48}
 .amv2 .toggle{position:relative;width:36px;height:20px}
@@ -519,15 +538,19 @@ export default function AdminModelsV2() {
   const orLimit = orData.limit === null || orData.limit === undefined ? 'без лимита / не задан' : moneyUsdText(orData.limit)
   const orRemaining = orData.limit_remaining === null || orData.limit_remaining === undefined ? '—' : moneyUsdText(orData.limit_remaining)
   const orUsageModels = usageModelMap(data.openrouter.usage?.models)
-  const totalSpentRub = typeof data.openrouter.usage?.totalCostUsd === 'number' ? rub(data.openrouter.usage.totalCostUsd) : '—'
-  const avgImageRub = typeof data.openrouter.usage?.avgCostUsd === 'number' ? rub(data.openrouter.usage.avgCostUsd) : '—'
-  const avgMpRub = typeof data.openrouter.usage?.avgCostPerMpUsd === 'number' ? `${rub(data.openrouter.usage.avgCostPerMpUsd)} / MP` : '—'
+  const orUsageModes = usageModeMap(data.openrouter.usage?.modes)
+  const totalSpentPair = typeof data.openrouter.usage?.totalCostUsd === 'number' ? moneyPair(data.openrouter.usage.totalCostUsd) : '—'
+  const avgImagePair = typeof data.openrouter.usage?.avgCostUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostUsd) : '—'
+  const avgMpPair = typeof data.openrouter.usage?.avgCostPerMpUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostPerMpUsd) : '—'
+  const favoriteOverall = (data.openrouter.usage?.models || [])[0]
+  const favoriteOverallName = modelLabelById(favoriteOverall?.model)
+  const balanceText = orData.limit_remaining === null || orData.limit_remaining === undefined ? 'баланс API не отдаёт' : moneyUsdText(orData.limit_remaining)
 
   return <div className="amv2">
     <style>{CSS}</style>
     {msg && <p style={{ color: 'var(--lime)', fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
     <div className="page-tabs" aria-label="Разделы моделей">
-      <button className={pageTab === 'api' ? 'active' : ''} onClick={() => setPageTab('api')}>API модели</button>
+      <button className={pageTab === 'api' ? 'active' : ''} onClick={() => setPageTab('api')}>OpenRouter</button>
       <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Config UI</button>
     </div>
 
@@ -636,12 +659,124 @@ export default function AdminModelsV2() {
     {pageTab === 'api' && <>
       <article className="card">
         <div className="card-head">
-          <div><h2 className="card-title">API модели</h2><p className="card-note">OpenRouter, себестоимость, токены проекта и включение моделей по режимам.</p></div>
+          <div><h2 className="card-title">OpenRouter</h2><p className="card-note">Себестоимость, токены проекта и включение моделей по режимам.</p></div>
           <span className={`state ${data.openrouter.status?.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{data.openrouter.status?.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
+        </div>
+      </article>
+
+      <div className="or-stats">
+        <div className="or-stat"><span>Баланс / лимит</span><strong>{balanceText}</strong></div>
+        <div className="or-stat"><span>Сгенерировано картинок</span><strong>{data.openrouter.usage?.pricedImages || 0}</strong></div>
+        <div className="or-stat"><span>Потрачено всего</span><strong>{totalSpentPair}</strong></div>
+        <div className="or-stat"><span>Средняя за картинку</span><strong>{avgImagePair}</strong></div>
+        <div className="or-stat"><span>Средняя за 1MP</span><strong>{avgMpPair}</strong></div>
+        <div className="or-stat"><span>Фаворит по генерациям</span><strong>{favoriteOverallName}</strong></div>
+      </div>
+
+      <div className="toolbar">
+        <input type="search" placeholder="Фильтр по всем карточкам: модель, provider, price, параметр" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <button className="ghost" onClick={() => setQuery('')}>Сбросить</button>
+      </div>
+
+      {API_MODE_SECTIONS.map((section) => {
+        const sort = apiSorts[section.id] || { key: 'price' as const, dir: 'asc' as const }
+        const sectionOpen = apiSectionsOpen[section.id] ?? false
+        const enabledForSection = data.openrouter.config?.enabled?.[section.id] || []
+        const defaultForSection = data.openrouter.config?.defaults?.[section.id] || ''
+        const sectionStats = orUsageModes.get(section.id)
+        const sectionCount = typeof sectionStats?.count === 'number' ? sectionStats.count : 0
+        const sectionSpent = typeof sectionStats?.costUsd === 'number' ? moneyPair(sectionStats.costUsd) : '—'
+        const sectionFavorite = modelLabelById(sectionStats?.favoriteModel)
+        const rows = OPENROUTER_IMAGE_MODELS
+          .filter(section.filter)
+          .filter((m) => {
+            const hay = `${m.id} ${m.name} ${m.provider} ${m.input} ${m.output} ${m.params} ${m.pricing}`.toLowerCase()
+            return !query || hay.includes(query.toLowerCase())
+          })
+        const sortedRows = sortedApiRows(rows, sort)
+        return <article className="card" key={section.id}>
+          <button className={`api-section-head ${sectionOpen ? '' : 'collapsed'}`} onClick={() => setApiSectionsOpen((prev) => ({ ...prev, [section.id]: !sectionOpen }))}>
+            <div>
+              <h2 className="card-title">{section.title}</h2>
+              <p className="card-note">{sectionCount} картинок · {sectionSpent} · фаворит: {sectionFavorite}</p>
+            </div>
+            <div className="api-count">
+              <span className="state ok">{rows.length} моделей</span>
+              <span className={`state ${enabledForSection.length ? 'ok' : 'warn'}`}>{enabledForSection.length ? `${enabledForSection.length} включено` : 'не включено'}</span>
+              {openrouterConfigBusy ? <span className="mini">сохраняю…</span> : null}
+            </div>
+          </button>
+          {sectionOpen && <>
+          <div className="hint" style={{ margin: '8px 12px' }}>Локальный аналог: {section.local}. Клик по строке раскрывает технические детали и оценку подключения.</div>
+          <div className="matrix-wrap">
+            <table className="api-table">
+              <thead><tr>
+                <th className="api-enabled">Вкл.</th>
+                <th><button className={`sort-head ${sort.key === 'name' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'name')}>Модель {sortMark(sort, 'name')}</button></th>
+                <th><button className={`sort-head ${sort.key === 'provider' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'provider')}>Производитель {sortMark(sort, 'provider')}</button></th>
+                <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, ₽ {sortMark(sort, 'price')}</button></th>
+                <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, $ {sortMark(sort, 'price')}</button></th>
+                <th>Токены</th>
+                <th>Сген.</th>
+                <th>Потрачено</th>
+              </tr></thead>
+              <tbody>{sortedRows.map((m) => {
+                const rowKey = `${section.id}-${m.id}`
+                const enabled = enabledForSection.includes(m.id)
+                const expanded = apiExpandedRows[rowKey] || false
+                const modelStats = orUsageModels.get(m.id)
+                const avgActualUsd = typeof modelStats?.avgCostPerMpUsd === 'number' ? modelStats.avgCostPerMpUsd : null
+                const generatedCount = modelStatText(modelStats?.count)
+                const spentTotal = typeof modelStats?.costUsd === 'number' ? moneyPair(modelStats.costUsd) : '—'
+                const tokenCount = tokenPriceForModel(m, avgActualUsd)
+                return <Fragment key={rowKey}>
+                  <tr className={`api-model-row ${expanded ? 'expanded' : ''}`} onClick={() => setApiExpandedRows((prev) => ({ ...prev, [rowKey]: !expanded }))}>
+                    <td className="api-enabled">
+                      <input
+                        type="checkbox"
+                        checked={enabled}
+                        aria-label={`Включить ${modelShortName(m)} для ${section.title}`}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => toggleOpenrouterModel(section.id, m.id, e.target.checked)}
+                      />
+                    </td>
+                    <td><strong className="model-name">{modelShortName(m)}</strong>{defaultForSection === m.id ? <span className="mini" style={{ marginLeft: 8 }}>default</span> : null}</td>
+                    <td><span className="provider openrouter">{modelBrand(m)}</span></td>
+                    <td><span className="money">{modelRubPrice(m)}</span></td>
+                    <td><span className="money">{modelUsdPrice(m)}</span></td>
+                    <td><span className="money">{tokenCount ?? '—'}</span></td>
+                    <td>{generatedCount}</td>
+                    <td><span className="money">{spentTotal}</span></td>
+                  </tr>
+                  {expanded && <tr>
+                    <td className="detail-cell" colSpan={8}>
+                      <div className="detail-box">
+                        <span><b>Полное имя:</b> {m.name}</span>
+                        <span><b>OpenRouter id:</b> {m.id}</span>
+                        <span><b>Как посчитано:</b> {priceConfidence(m)}</span>
+                        <span><b>Цена из OpenRouter:</b> {m.pricing}</span>
+                        <span><b>Токены проекта:</b> {tokenCount ?? 'нужно измерить'} при {TOKEN_RUB} ₽/токен</span>
+                        <span><b>Факт по проекту:</b> {generatedCount} шт · {spentTotal}</span>
+                        <span><b>Вход/выход API:</b> {m.input} {'->'} {m.output}</span>
+                        <span><b>Параметры:</b> {m.params || 'нет в endpoint metadata'}</span>
+                      </div>
+                    </td>
+                  </tr>}
+                </Fragment>
+              })}</tbody>
+            </table>
+          </div>
+          </>}
+        </article>
+      })}
+
+      <article className="card">
+        <div className="card-head">
+          <div><h2 className="card-title">Ключ и тест OpenRouter</h2><p className="card-note">Меняется редко, поэтому живет внизу страницы.</p></div>
+          <span className={`state ${orStatus.ok ? 'ok' : orStatus.configured ? 'warn' : 'bad'}`}>{orStatusText}</span>
         </div>
         <div className="api-key-panel">
           <div className="api-key-box">
-            <strong>Ключ OpenRouter</strong>
             <div className="api-key-main">
               <input
                 type="password"
@@ -681,105 +816,6 @@ export default function AdminModelsV2() {
           </div>
         </div>
       </article>
-
-      <div className="or-stats">
-        <div className="or-stat"><span>Остаток лимита OpenRouter</span><strong>{orRemaining}</strong></div>
-        <div className="or-stat"><span>Сгенерировано API</span><strong>{data.openrouter.usage?.pricedImages || 0}</strong></div>
-        <div className="or-stat"><span>Потрачено всего</span><strong>{totalSpentRub}</strong></div>
-        <div className="or-stat"><span>Средняя за картинку</span><strong>{avgImageRub}</strong></div>
-        <div className="or-stat"><span>Средняя за 1MP</span><strong>{avgMpRub}</strong></div>
-      </div>
-
-      <div className="toolbar">
-        <input type="search" placeholder="Фильтр по всем карточкам: модель, provider, price, параметр" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <button className="ghost" onClick={() => setQuery('')}>Сбросить</button>
-      </div>
-
-      {API_MODE_SECTIONS.map((section) => {
-        const sort = apiSorts[section.id] || { key: 'price' as const, dir: 'asc' as const }
-        const sectionOpen = apiSectionsOpen[section.id] ?? false
-        const enabledForSection = data.openrouter.config?.enabled?.[section.id] || []
-        const defaultForSection = data.openrouter.config?.defaults?.[section.id] || ''
-        const rows = OPENROUTER_IMAGE_MODELS
-          .filter(section.filter)
-          .filter((m) => {
-            const hay = `${m.id} ${m.name} ${m.provider} ${m.input} ${m.output} ${m.params} ${m.pricing}`.toLowerCase()
-            return !query || hay.includes(query.toLowerCase())
-          })
-        const sortedRows = sortedApiRows(rows, sort)
-        return <article className="card" key={section.id}>
-          <button className={`api-section-head ${sectionOpen ? '' : 'collapsed'}`} onClick={() => setApiSectionsOpen((prev) => ({ ...prev, [section.id]: !sectionOpen }))}>
-            <div>
-              <h2 className="card-title">{section.title}</h2>
-              <p className="card-note">{section.note}</p>
-            </div>
-            <div className="api-count">
-              <span className="state ok">{rows.length} моделей</span>
-              <span className={`state ${enabledForSection.length ? 'ok' : 'warn'}`}>{enabledForSection.length ? `${enabledForSection.length} включено` : 'не включено'}</span>
-              {openrouterConfigBusy ? <span className="mini">сохраняю…</span> : null}
-            </div>
-          </button>
-          {sectionOpen && <>
-          <div className="hint" style={{ margin: '8px 12px' }}>Локальный аналог: {section.local}. Клик по строке раскрывает технические детали и оценку подключения.</div>
-          <div className="matrix-wrap">
-            <table className="api-table">
-              <thead><tr>
-                <th className="api-enabled">Вкл.</th>
-                <th><button className={`sort-head ${sort.key === 'name' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'name')}>Модель {sortMark(sort, 'name')}</button></th>
-                <th><button className={`sort-head ${sort.key === 'provider' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'provider')}>Производитель {sortMark(sort, 'provider')}</button></th>
-                <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, ₽ {sortMark(sort, 'price')}</button></th>
-                <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, $ {sortMark(sort, 'price')}</button></th>
-                <th>Токены</th>
-                <th>Факт ср.</th>
-                <th>Всего</th>
-              </tr></thead>
-              <tbody>{sortedRows.map((m) => {
-                const rowKey = `${section.id}-${m.id}`
-                const enabled = enabledForSection.includes(m.id)
-                const expanded = apiExpandedRows[rowKey] || false
-                const modelStats = orUsageModels.get(m.id)
-                const avgActual = typeof modelStats?.avgCostPerMpUsd === 'number' ? `${rub(modelStats.avgCostPerMpUsd)} / MP` : '—'
-                const generatedCount = modelStatText(modelStats?.count)
-                return <Fragment key={rowKey}>
-                  <tr className={`api-model-row ${expanded ? 'expanded' : ''}`} onClick={() => setApiExpandedRows((prev) => ({ ...prev, [rowKey]: !expanded }))}>
-                    <td className="api-enabled">
-                      <input
-                        type="checkbox"
-                        checked={enabled}
-                        aria-label={`Включить ${modelShortName(m)} для ${section.title}`}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => toggleOpenrouterModel(section.id, m.id, e.target.checked)}
-                      />
-                    </td>
-                    <td><strong className="model-name">{modelShortName(m)}</strong>{defaultForSection === m.id ? <span className="mini" style={{ marginLeft: 8 }}>default</span> : null}</td>
-                    <td><span className="provider openrouter">{modelBrand(m)}</span></td>
-                    <td><span className="money">{modelRubPrice(m)}</span></td>
-                    <td><span className="money">{modelUsdPrice(m)}</span></td>
-                    <td><span className="money">{tokenPriceForModel(m) ?? '—'}</span></td>
-                    <td><span className="money">{avgActual}</span></td>
-                    <td>{generatedCount}</td>
-                  </tr>
-                  {expanded && <tr>
-                    <td className="detail-cell" colSpan={8}>
-                      <div className="detail-box">
-                        <span><b>Полное имя:</b> {m.name}</span>
-                        <span><b>OpenRouter id:</b> {m.id}</span>
-                        <span><b>Как посчитано:</b> {priceConfidence(m)}</span>
-                        <span><b>Цена из OpenRouter:</b> {m.pricing}</span>
-                        <span><b>Токены проекта:</b> {tokenPriceForModel(m) ?? 'нужно измерить'} при {TOKEN_RUB} ₽/токен</span>
-                        <span><b>Факт по проекту:</b> {generatedCount} шт · {avgActual}</span>
-                        <span><b>Вход/выход API:</b> {m.input} {'->'} {m.output}</span>
-                        <span><b>Параметры:</b> {m.params || 'нет в endpoint metadata'}</span>
-                      </div>
-                    </td>
-                  </tr>}
-                </Fragment>
-              })}</tbody>
-            </table>
-          </div>
-          </>}
-        </article>
-      })}
     </>}
   </div>
 }
