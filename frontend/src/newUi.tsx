@@ -45,6 +45,7 @@ import ProfilePage from './ProfilePage'
 import { DEFAULT_TARIFFS, avatarPresets, normalizeTariffs, type TariffConfig } from './profileSupport'
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
+import { applyClientSeo, currentSeoLocale, type SeoMeta } from './seo'
 import './newUi.css'
 import './newStudioV3.css'
 import previewPlaceholderUrl from './assets/preview-placeholder.jpg'
@@ -580,6 +581,106 @@ function composePaintPrompt(basePrompt: string, userPrompt: string) {
   return normalizedUser.includes(baseLead) ? user : `${base}\n\n${user}`
 }
 
+function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
+  const locale = currentSeoLocale()
+  const path = view === 'profile' ? '/profile' : tab === 'paint' ? '/paint' : '/'
+  const canonical = `https://izo.alikinas.ru${path}`
+
+  if (view === 'profile') {
+    return locale === 'en'
+      ? {
+        title: 'Profile and settings — IZO ASA',
+        description: 'Manage your IZO ASA profile, avatar, accounts, tariffs, bonuses and generation history settings.',
+        canonical,
+        robots: 'noindex, nofollow',
+      }
+      : {
+        title: 'Профиль и настройки — ИЗО АСА',
+        description: 'Управляйте профилем ИЗО АСА: аватаром, аккаунтами, тарифами, бонусами и настройками истории генераций.',
+        canonical,
+        robots: 'noindex, nofollow',
+      }
+  }
+
+  const ru: Record<N2Tab, SeoMeta> = {
+    feed: {
+      title: 'ИЗО АСА — лента AI-изображений',
+      description: 'Смотрите публичную ленту изображений, промптов и идей пользователей ИЗО АСА.',
+      canonical: 'https://izo.alikinas.ru/feed',
+    },
+    text: {
+      title: 'Текст в изображение — ИЗО АСА',
+      description: 'Создавайте изображения нейросетью по текстовому описанию: выбирайте стиль, формат, качество и публикуйте результат в ленту.',
+      canonical,
+    },
+    i2i: {
+      title: 'Изображение в изображение — ИЗО АСА',
+      description: 'Преобразуйте исходное изображение по промпту и стилю, управляйте влиянием описания и сохраняйте результат в галерею.',
+      canonical,
+    },
+    edit: {
+      title: 'AI-редактор с референсами — ИЗО АСА',
+      description: 'Объединяйте несколько изображений, переносите одежду, фон, стиль и детали с референсов через AI-редактор ИЗО АСА.',
+      canonical,
+    },
+    face: {
+      title: 'Замена лица нейросетью — ИЗО АСА',
+      description: 'Переносите лицо с одного изображения на другое, настраивайте силу замены и сохраняйте естественный свет, позу и сцену.',
+      canonical,
+    },
+    paint: {
+      title: 'Рисунок в изображение — ИЗО АСА',
+      description: 'Рисуйте эскиз, создавайте изображение по рисунку, работайте с маской, расширением холста и AI-дорисовкой.',
+      canonical,
+    },
+    video: {
+      title: 'Видео — ИЗО АСА',
+      description: 'Раздел генерации видео в ИЗО АСА готовится к запуску.',
+      canonical,
+      robots: 'noindex, follow',
+    },
+  }
+  const en: Record<N2Tab, SeoMeta> = {
+    feed: {
+      title: 'AI image feed — IZO ASA',
+      description: 'Explore public AI images, prompts, ideas and remixes from IZO ASA users.',
+      canonical: 'https://izo.alikinas.ru/feed',
+    },
+    text: {
+      title: 'Text to image — IZO ASA',
+      description: 'Create AI images from text prompts, choose styles, aspect ratios and quality, then publish results to the feed.',
+      canonical,
+    },
+    i2i: {
+      title: 'Image to image — IZO ASA',
+      description: 'Transform a source image with a prompt and style, control prompt influence and save results to your gallery.',
+      canonical,
+    },
+    edit: {
+      title: 'AI reference editor — IZO ASA',
+      description: 'Combine multiple images, transfer clothes, background, style and details from references with the IZO ASA editor.',
+      canonical,
+    },
+    face: {
+      title: 'AI face swap — IZO ASA',
+      description: 'Transfer a face from one image to another while preserving the target pose, lighting, clothing and scene.',
+      canonical,
+    },
+    paint: {
+      title: 'Sketch to image — IZO ASA',
+      description: 'Draw a sketch, generate an image from it, use masks, outpainting and AI-assisted canvas editing.',
+      canonical,
+    },
+    video: {
+      title: 'Video — IZO ASA',
+      description: 'AI video generation in IZO ASA is being prepared for launch.',
+      canonical,
+      robots: 'noindex, follow',
+    },
+  }
+  return locale === 'en' ? en[tab] : ru[tab]
+}
+
 export default function NewStudio(): ReactElement {
   // Route: /paint — отдельная страница «Рисунок»; остальные режимы генератора
   // пока живут на /new. Это URL-изоляция, физический split компонента ниже в TODO.
@@ -622,6 +723,10 @@ export default function NewStudio(): ReactElement {
   useEffect(() => {
     if (view === 'tabs' && tab === 'feed') window.location.href = '/feed'
   }, [view, tab])
+
+  useEffect(() => {
+    applyClientSeo(studioSeoMeta(tab, view))
+  }, [tab, view])
 
   // Кнопка «назад» браузера синхронизирует страницу с URL.
   useEffect(() => {

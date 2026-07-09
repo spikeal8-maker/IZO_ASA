@@ -1,4 +1,5 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
+import { appShellSeo, applyClientSeo } from './seo'
 
 const NewStudio = lazy(() => import('./newUi'))
 const LegacyApp = lazy(() => import('./LegacyApp'))
@@ -34,6 +35,10 @@ function NotFound() {
 
 function App() {
   const path = window.location.pathname
+  useEffect(() => {
+    applyClientSeo(appShellSeo(path))
+  }, [path])
+
   if (isStaticFeedRoute(path)) {
     return <div className="app-loading">Загружаем ленту...</div>
   }
