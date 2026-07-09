@@ -68,7 +68,7 @@ type ApiImageModel = {
   id: string; name: string; provider: string; input: string; output: string; params: string; pricing: string
   mpUsd?: number; imageUsd?: number; token?: boolean; tiered?: boolean
 }
-type ApiSortKey = 'price' | 'name' | 'provider'
+type ApiSortKey = 'price' | 'name' | 'provider' | 'tokens' | 'revenue' | 'profit' | 'margin'
 type ApiSortState = { key: ApiSortKey; dir: 'asc' | 'desc' }
 type ApiModeSection = {
   id: string
@@ -188,12 +188,17 @@ const priceConfidence = (m: ApiImageModel) => {
   if (m.tiered) return 'минимальный тариф из OpenRouter'
   return 'нет endpoint pricing'
 }
-const modelRubPrice = (m: ApiImageModel, rate: number | null) => {
-  const value = estimatedUsdPerMp(m)
+const modelImageUsdPrice = (m: ApiImageModel, actualUsdPerImage?: number | null) => {
+  const estimated = estimatedUsdPerMp(m)
+  if (typeof actualUsdPerImage === 'number') return Math.max(estimated || 0, actualUsdPerImage)
+  return estimated
+}
+const modelRubPrice = (m: ApiImageModel, rate: number | null, actualUsdPerImage?: number | null) => {
+  const value = modelImageUsdPrice(m, actualUsdPerImage)
   return value === null ? 'нет данных' : `${rub(value, rate)}`
 }
-const modelUsdPrice = (m: ApiImageModel) => {
-  const value = estimatedUsdPerMp(m)
+const modelUsdPrice = (m: ApiImageModel, actualUsdPerImage?: number | null) => {
+  const value = modelImageUsdPrice(m, actualUsdPerImage)
   return value === null ? 'нет данных' : usd(value)
 }
 const minTokenTier = (m: ApiImageModel) => {
@@ -211,13 +216,12 @@ const clampTokenRub = (value: unknown) => {
   const n = typeof value === 'number' ? value : DEFAULT_TOKEN_RUB
   return Math.max(0.01, Math.min(100000, n))
 }
-const costRubForModel = (m: ApiImageModel, actualUsdPerMp: number | null | undefined, rate: number | null) => {
-  const estimated = estimatedUsdPerMp(m)
-  const value = typeof actualUsdPerMp === 'number' ? Math.max(estimated || 0, actualUsdPerMp) : estimated
+const costRubForModel = (m: ApiImageModel, actualUsdPerImage: number | null | undefined, rate: number | null) => {
+  const value = modelImageUsdPrice(m, actualUsdPerImage)
   return value === null || rate === null ? null : value * rate
 }
-const tokenPriceForModel = (m: ApiImageModel, actualUsdPerMp: number | null | undefined, rate: number | null, minMarginPercent: number, tokenRub: number) => {
-  const costRub = costRubForModel(m, actualUsdPerMp, rate)
+const tokenPriceForModel = (m: ApiImageModel, actualUsdPerImage: number | null | undefined, rate: number | null, minMarginPercent: number, tokenRub: number) => {
+  const costRub = costRubForModel(m, actualUsdPerImage, rate)
   if (costRub === null) return null
   const marginFactor = Math.max(0.05, 1 - clampMargin(minMarginPercent) / 100)
   return Math.max(minTokenTier(m), Math.ceil(costRub / tokenRub), Math.ceil(costRub / (tokenRub * marginFactor)))
@@ -277,21 +281,33 @@ const fetchBrowserUsdRub = async (): Promise<PageData['openrouter']['exchange']>
     }
   }
 }
-const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState) => [...rows].sort((a, b) => {
+const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState, stats: Map<string, Record<string, unknown>>, rate: number | null, minMarginPercent: number, tokenRub: number) => [...rows].sort((a, b) => {
+  const economics = (m: ApiImageModel) => {
+    const modelStats = stats.get(m.id)
+    const avgImageUsd = typeof modelStats?.avgCostUsd === 'number' ? modelStats.avgCostUsd : null
+    const cost = costRubForModel(m, avgImageUsd, rate)
+    const tokens = tokenPriceForModel(m, avgImageUsd, rate, minMarginPercent, tokenRub)
+    const revenue = revenueRub(tokens, tokenRub)
+    const profit = profitRub(revenue, cost)
+    const margin = marginPercent(revenue, profit)
+    return { cost, tokens, revenue, profit, margin }
+  }
+  const compareNullable = (av: number | null, bv: number | null) => {
+    if (av === null && bv === null) return modelShortName(a).localeCompare(modelShortName(b), 'ru')
+    if (av === null) return 1
+    if (bv === null) return -1
+    return av - bv || modelShortName(a).localeCompare(modelShortName(b), 'ru')
+  }
   let result = 0
   if (sort.key === 'name') result = modelShortName(a).localeCompare(modelShortName(b), 'ru')
   if (sort.key === 'provider') result = modelBrand(a).localeCompare(modelBrand(b), 'ru') || modelShortName(a).localeCompare(modelShortName(b), 'ru')
   if (sort.key === 'price') {
-    const ap = estimatedUsdPerMp(a)
-    const bp = estimatedUsdPerMp(b)
-    if (ap === null && bp === null) result = modelShortName(a).localeCompare(modelShortName(b), 'ru')
-    else if (ap === null) return 1
-    else if (bp === null) return -1
-    else {
-      result = ap - bp || modelShortName(a).localeCompare(modelShortName(b), 'ru')
-      return sort.dir === 'desc' ? -result : result
-    }
+    result = compareNullable(economics(a).cost, economics(b).cost)
   }
+  if (sort.key === 'tokens') result = compareNullable(economics(a).tokens, economics(b).tokens)
+  if (sort.key === 'revenue') result = compareNullable(economics(a).revenue, economics(b).revenue)
+  if (sort.key === 'profit') result = compareNullable(economics(a).profit, economics(b).profit)
+  if (sort.key === 'margin') result = compareNullable(economics(a).margin, economics(b).margin)
   return sort.dir === 'desc' ? -result : result
 })
 
@@ -821,7 +837,7 @@ export default function AdminModelsV2() {
         <div className="or-stat"><span>Потрачено всего</span><strong>{totalSpentPair}</strong></div>
         <div className="or-stat"><span>Списано токенов</span><strong>{spentTokensText}</strong></div>
         <div className="or-stat"><span>Средняя за картинку</span><strong>{avgImagePair}</strong></div>
-        <div className="or-stat"><span>Средняя за 1MP</span><strong>{avgMpPair}</strong></div>
+        <div className="or-stat"><span>Справка 1MP</span><strong>{avgMpPair}</strong></div>
         <div className="or-stat"><span>Фаворит по генерациям</span><strong>{favoriteOverallName}</strong></div>
         <div className="or-stat">
           <span>Мин. маржа, %</span>
@@ -872,15 +888,15 @@ export default function AdminModelsV2() {
             const hay = `${m.id} ${m.name} ${m.provider} ${m.input} ${m.output} ${m.params} ${m.pricing}`.toLowerCase()
             return !query || hay.includes(query.toLowerCase())
           })
-        const sortedRows = sortedApiRows(rows, sort)
+        const sortedRows = sortedApiRows(rows, sort, orUsageModels, usdRubEffective, minMarginPercent, tokenRub)
         return <article className="card" key={section.id}>
           <button className={`api-section-head ${sectionOpen ? '' : 'collapsed'}`} onClick={() => setApiSectionsOpen((prev) => ({ ...prev, [section.id]: !sectionOpen }))}>
             <div className="section-cell">
               <h2 className="card-title">{section.title}</h2>
             </div>
             <div className="section-cell"><span>Сген.</span><strong>{sectionCount}</strong></div>
-            <div className="section-cell"><span>Средняя</span><strong>{sectionAvg}</strong></div>
-            <div className="section-cell"><span>Средняя 1MP</span><strong>{sectionAvgMp}</strong></div>
+            <div className="section-cell"><span>Средняя картинка</span><strong>{sectionAvg}</strong></div>
+            <div className="section-cell"><span>Справка 1MP</span><strong>{sectionAvgMp}</strong></div>
             <div className="section-cell"><span>Токены</span><strong>{sectionTokens}</strong></div>
             <div className="section-cell"><span>Потрачено</span><strong>{sectionSpent}</strong></div>
             <div className="section-cell"><span>Фаворит</span><strong>{sectionFavorite}</strong></div>
@@ -898,12 +914,12 @@ export default function AdminModelsV2() {
                 <th className="api-enabled">Вкл.</th>
                 <th><button className={`sort-head ${sort.key === 'name' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'name')}>Модель {sortMark(sort, 'name')}</button></th>
                 <th><button className={`sort-head ${sort.key === 'provider' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'provider')}>Производитель {sortMark(sort, 'provider')}</button></th>
-                <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, ₽ {sortMark(sort, 'price')}</button></th>
-                <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, $ {sortMark(sort, 'price')}</button></th>
-                <th>Токены</th>
-                <th>Выручка</th>
-                <th>Выгода</th>
-                <th>Маржа</th>
+                <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена картинки, ₽ {sortMark(sort, 'price')}</button></th>
+                <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена картинки, $ {sortMark(sort, 'price')}</button></th>
+                <th><button className={`sort-head ${sort.key === 'tokens' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'tokens')}>Токены {sortMark(sort, 'tokens')}</button></th>
+                <th><button className={`sort-head ${sort.key === 'revenue' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'revenue')}>Выручка {sortMark(sort, 'revenue')}</button></th>
+                <th><button className={`sort-head ${sort.key === 'profit' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'profit')}>Выгода {sortMark(sort, 'profit')}</button></th>
+                <th><button className={`sort-head ${sort.key === 'margin' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'margin')}>Маржа {sortMark(sort, 'margin')}</button></th>
                 <th>Сген.</th>
                 <th>Потрачено</th>
               </tr></thead>
@@ -912,7 +928,7 @@ export default function AdminModelsV2() {
                 const enabled = enabledForSection.includes(m.id)
                 const expanded = apiExpandedRows[rowKey] || false
                 const modelStats = orUsageModels.get(m.id)
-                const avgActualUsd = typeof modelStats?.avgCostPerMpUsd === 'number' ? modelStats.avgCostPerMpUsd : null
+                const avgActualUsd = typeof modelStats?.avgCostUsd === 'number' ? modelStats.avgCostUsd : null
                 const generatedCount = modelStatText(modelStats?.count)
                 const spentTotal = typeof modelStats?.costUsd === 'number' ? moneyPair(modelStats.costUsd, usdRubEffective) : '—'
                 const costRub = costRubForModel(m, avgActualUsd, usdRubEffective)
@@ -933,8 +949,8 @@ export default function AdminModelsV2() {
                     </td>
                     <td><strong className="model-name">{modelShortName(m)}</strong>{defaultForSection === m.id ? <span className="mini" style={{ marginLeft: 8 }}>default</span> : null}</td>
                     <td><span className="provider openrouter">{modelBrand(m)}</span></td>
-                    <td><span className="money">{modelRubPrice(m, usdRubEffective)}</span></td>
-                    <td><span className="money">{modelUsdPrice(m)}</span></td>
+                    <td><span className="money">{modelRubPrice(m, usdRubEffective, avgActualUsd)}</span></td>
+                    <td><span className="money">{modelUsdPrice(m, avgActualUsd)}</span></td>
                     <td><span className="money">{tokenCount ?? '—'}</span></td>
                     <td><span className="money">{rubText(revenue)}</span></td>
                     <td><span className="money">{rubText(profit)}</span></td>
