@@ -162,6 +162,37 @@ def test_admin_openrouter_test_generate_records_cost(temp_db, monkeypatch):
     assert payload["stats"]["pricedImages"] == 1
 
 
+def test_admin_can_refresh_openrouter_exchange_rate(temp_db, monkeypatch):
+    class FakeResponse:
+        content = b'<ValCurs Date="09.07.2026"><Valute><CharCode>USD</CharCode><Nominal>1</Nominal><Value>78,4567</Value></Valute></ValCurs>'
+
+        def raise_for_status(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url):
+            return FakeResponse()
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeClient)
+    sess = admin_session()
+    with TestClient(main.app) as client:
+        response = client.post("/api/admin/openrouter/exchange/refresh", cookies={"onenode_session": sess["session_token"]})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["exchange"]["rate"] == 78.4567
+    assert main._saved_setting("exchange_usd_rub")["rate"] == 78.4567
+
+
 def test_web_login_requires_explicit_admin_code(temp_db, monkeypatch):
     monkeypatch.delenv("ADMIN_ONE_TIME_CODE", raising=False)
     with TestClient(main.app) as client:

@@ -250,6 +250,7 @@ const CSS = `
 .amv2 .provider.local{color:var(--lime);border-color:rgba(234,255,16,.30);background:rgba(234,255,16,.07)}
 .amv2 .provider.openrouter{color:#7bc3ff;border-color:rgba(85,169,255,.35);background:rgba(85,169,255,.08)}
 .amv2 .state.ok{color:var(--green)}.amv2 .state.warn{color:var(--yellow)}.amv2 .state.bad{color:var(--red)}
+.amv2 .state.rate-ok{color:var(--green);border-color:rgba(112,221,120,.28)}.amv2 .state.rate-stale{color:var(--yellow);border-color:rgba(216,187,97,.28)}.amv2 .state.rate-bad{color:var(--red);border-color:rgba(255,116,121,.28)}
 .amv2 .ghost,.amv2 .primary,.amv2 .danger{min-height:32px;border:1px solid var(--line-strong);border-radius:var(--radius);padding:0 12px;color:var(--text);background:rgba(18,21,18,.78);font-size:13px;font-weight:650}
 .amv2 .primary{color:#080a07;border-color:rgba(234,255,16,.8);background:var(--lime)}
 .amv2 .danger{color:#ffe6e7;border-color:rgba(255,92,98,.28);background:rgba(255,92,98,.12)}
@@ -400,6 +401,7 @@ export default function AdminModelsV2() {
   const [openrouterBusy, setOpenrouterBusy] = useState(false)
   const [openrouterConfigBusy, setOpenrouterConfigBusy] = useState(false)
   const [openrouterTestBusy, setOpenrouterTestBusy] = useState(false)
+  const [exchangeBusy, setExchangeBusy] = useState(false)
   const [openrouterTestResult, setOpenrouterTestResult] = useState<OpenRouterTestResult | null>(null)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
@@ -530,6 +532,19 @@ export default function AdminModelsV2() {
     } else setMsg(`OpenRouter test не выполнен: ${r?.detail || 'unknown error'}`)
   }
 
+  const refreshExchange = async () => {
+    setExchangeBusy(true); setMsg('Обновляю курс ЦБ')
+    const r = await amvFetch('/admin/openrouter/exchange/refresh', { method: 'POST' })
+      .then((x) => x.json())
+      .catch(() => null) as { ok?: boolean; exchange?: PageData['openrouter']['exchange'] } | null
+    setExchangeBusy(false)
+    if (r?.exchange) {
+      setData((prev) => prev ? { ...prev, openrouter: { ...prev.openrouter, exchange: r.exchange } } : prev)
+      await load()
+    }
+    setMsg(r?.ok ? 'Курс ЦБ обновлён' : `Курс не обновился: ${r?.exchange?.error || 'нет ответа'}`)
+  }
+
   const toggleApiSort = (sectionId: string, key: ApiSortKey) => {
     setApiSorts((prev) => {
       const current = prev[sectionId] || { key: 'price', dir: 'asc' as const }
@@ -576,6 +591,9 @@ export default function AdminModelsV2() {
     ? 'курс ЦБ не загрузился'
     : `$1 ЦБ ${usdRubBase.toFixed(2)} ₽ + ${Math.round(USD_FEE_RATE * 100)}% = ${usdRubEffective.toFixed(2)} ₽`
   const spentTokensText = tokensText(data.openrouter.usage?.totalCostUsd, usdRubEffective)
+  const exchangeCache = data.openrouter.exchange?.cache || ''
+  const exchangeStateClass = usdRubBase === null ? 'rate-bad' : exchangeCache === 'stale' ? 'rate-stale' : 'rate-ok'
+  const exchangeStateText = usdRubBase === null ? 'курс не загружен' : exchangeCache === 'stale' ? 'курс из последнего кэша' : 'курс свежий'
 
   return <div className="amv2">
     <style>{CSS}</style>
@@ -586,7 +604,8 @@ export default function AdminModelsV2() {
       {pageTab === 'api' && <div className="tab-status">
         <span className={`status-dot ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : ''}`} aria-hidden="true" />
         <span className={`state ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{orStatus.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
-        <span className="state">{effectiveRateText}</span>
+        <span className={`state ${exchangeStateClass}`}>{exchangeStateText}: {effectiveRateText}</span>
+        <button className="ghost" disabled={exchangeBusy} onClick={refreshExchange}>{exchangeBusy ? 'Обновляю…' : 'Обновить курс'}</button>
       </div>}
     </div>
 

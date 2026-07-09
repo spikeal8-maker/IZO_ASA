@@ -11972,10 +11972,10 @@ def _save_setting(key: str, value: dict[str, Any]) -> None:
         )
 
 
-async def fetch_usd_rub_rate() -> dict[str, Any]:
+async def fetch_usd_rub_rate(force: bool = False) -> dict[str, Any]:
     cached = _saved_setting("exchange_usd_rub")
     today = datetime.now(timezone.utc).date().isoformat()
-    if cached.get("fetched_date") == today and isinstance(cached.get("rate"), (int, float)):
+    if not force and cached.get("fetched_date") == today and isinstance(cached.get("rate"), (int, float)):
         return {**cached, "cache": "hit"}
     try:
         async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
@@ -12151,7 +12151,16 @@ def get_openrouter_config() -> dict[str, Any]:
 async def admin_openrouter_status(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
     key_status = await fetch_openrouter_key_status()
-    return {"key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config()}
+    return {"key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config(), "exchange": await fetch_usd_rub_rate()}
+
+
+@app.post("/api/admin/openrouter/exchange/refresh")
+async def admin_openrouter_refresh_exchange(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    exchange = await fetch_usd_rub_rate(force=True)
+    _admin_models_page_cache["ts"] = 0.0
+    _admin_models_page_cache["data"] = None
+    return {"ok": isinstance(exchange.get("rate"), (int, float)), "exchange": exchange}
 
 
 @app.post("/api/admin/openrouter/config")
