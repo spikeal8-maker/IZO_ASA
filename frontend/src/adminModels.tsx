@@ -53,6 +53,7 @@ type PageData = {
       modes?: Array<Record<string, unknown>>
     }
     config?: OpenRouterConfig
+    exchange?: { rate?: number | null; source?: string; sourceUrl?: string; sourceDate?: string; fetchedAt?: string; cache?: string; error?: string }
   }
   comfyFiles: Record<string, unknown>
   profiles: ProfileOption[]
@@ -60,9 +61,7 @@ type PageData = {
 type OpenRouterConfig = { enabled?: Record<string, string[]>; defaults?: Record<string, string> }
 type OpenRouterTestResult = { image?: { url?: string; thumbnailUrl?: string }; costUsd?: number | null; model?: string; usage?: Record<string, unknown> }
 
-const USD_RUB_BASE = 100
 const USD_FEE_RATE = 0.30
-const USD_RUB = USD_RUB_BASE * (1 + USD_FEE_RATE)
 const TOKEN_RUB = 5
 type ApiImageModel = {
   id: string; name: string; provider: string; input: string; output: string; params: string; pricing: string
@@ -135,7 +134,12 @@ const API_MODE_SECTIONS: ApiModeSection[] = [
   { id: 'remove_background', title: 'Удаление фона / прозрачность', local: 'локальный workflow/утилита', note: 'Только модели с background/transparent-like параметрами; это отдельный инструмент, не массовый txt2img.', filter: (m) => transparentModels().includes(m) },
 ]
 
-const rub = (usd: number) => `${(usd * USD_RUB).toFixed(2)} ₽`
+const exchangeRate = (exchange?: PageData['openrouter']['exchange']) => typeof exchange?.rate === 'number' ? exchange.rate : null
+const effectiveUsdRub = (exchange?: PageData['openrouter']['exchange']) => {
+  const rate = exchangeRate(exchange)
+  return rate === null ? null : rate * (1 + USD_FEE_RATE)
+}
+const rub = (usd: number, rate: number | null) => rate === null ? 'курс не загружен' : `${(usd * rate).toFixed(2)} ₽`
 const SHORT_PROMPT_TEXT_TOKENS = 40
 const OUTPUT_IMAGE_TOKENS_1MP = 1300
 const usd = (value: number) => `$${value.toFixed(value < 0.01 ? 4 : 3)}`
@@ -183,9 +187,9 @@ const priceConfidence = (m: ApiImageModel) => {
   if (m.tiered) return 'минимальный тариф из OpenRouter'
   return 'нет endpoint pricing'
 }
-const modelRubPrice = (m: ApiImageModel) => {
+const modelRubPrice = (m: ApiImageModel, rate: number | null) => {
   const value = estimatedUsdPerMp(m)
-  return value === null ? 'нет данных' : `${rub(value)}`
+  return value === null ? 'нет данных' : `${rub(value, rate)}`
 }
 const modelUsdPrice = (m: ApiImageModel) => {
   const value = estimatedUsdPerMp(m)
@@ -198,11 +202,11 @@ const minTokenTier = (m: ApiImageModel) => {
   if (m.id === 'black-forest-labs/flux.2-flex') return 4
   return 1
 }
-const tokenPriceForModel = (m: ApiImageModel, actualUsdPerMp?: number | null) => {
+const tokenPriceForModel = (m: ApiImageModel, actualUsdPerMp: number | null | undefined, rate: number | null) => {
   const estimated = estimatedUsdPerMp(m)
   const value = typeof actualUsdPerMp === 'number' ? Math.max(estimated || 0, actualUsdPerMp) : estimated
-  if (value === null) return null
-  return Math.max(minTokenTier(m), Math.ceil((value * USD_RUB) / TOKEN_RUB))
+  if (value === null || rate === null) return null
+  return Math.max(minTokenTier(m), Math.ceil((value * rate) / TOKEN_RUB))
 }
 const valueText = (value: unknown) => value === null || value === undefined || value === '' ? '—' : String(value)
 const moneyUsdText = (value: unknown) => typeof value === 'number' ? `$${value.toFixed(4)}` : valueText(value)
@@ -214,10 +218,10 @@ const openrouterErrorText = (error: unknown) => {
 const usageModelMap = (models?: Array<Record<string, unknown>>) => new Map((models || []).map((item) => [String(item.model || ''), item]))
 const usageModeMap = (modes?: Array<Record<string, unknown>>) => new Map((modes || []).map((item) => [String(item.mode || ''), item]))
 const modelStatText = (value: unknown, suffix = '') => typeof value === 'number' ? `${value}${suffix}` : '—'
-const moneyPair = (usdValue: unknown) => typeof usdValue === 'number' ? `${rub(usdValue)} - $${usdValue.toFixed(4)}` : '—'
-const projectTokensForUsd = (usdValue: unknown) => typeof usdValue === 'number' ? Math.ceil((usdValue * USD_RUB) / TOKEN_RUB) : null
-const tokensText = (usdValue: unknown) => {
-  const tokens = projectTokensForUsd(usdValue)
+const moneyPair = (usdValue: unknown, rate: number | null) => typeof usdValue === 'number' ? `${rub(usdValue, rate)} - $${usdValue.toFixed(4)}` : '—'
+const projectTokensForUsd = (usdValue: unknown, rate: number | null) => typeof usdValue === 'number' && rate !== null ? Math.ceil((usdValue * rate) / TOKEN_RUB) : null
+const tokensText = (usdValue: unknown, rate: number | null) => {
+  const tokens = projectTokensForUsd(usdValue, rate)
   return tokens === null ? '—' : `${tokens} ток.`
 }
 const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState) => [...rows].sort((a, b) => {
@@ -549,25 +553,29 @@ export default function AdminModelsV2() {
   const orData = orStatus.data || {}
   const orCredits = orStatus.credits || {}
   const orCreditsData = orCredits.data && typeof orCredits.data === 'object' ? orCredits.data as Record<string, unknown> : {}
+  const usdRubBase = exchangeRate(data.openrouter.exchange)
+  const usdRubEffective = effectiveUsdRub(data.openrouter.exchange)
   const orStatusClass = orStatus.ok ? 'key-ok' : orStatus.configured ? 'key-bad' : 'key-warn'
   const orStatusText = orStatus.ok ? 'работает' : orStatus.configured ? 'ключ есть, проверка не прошла' : 'ключ не сохранён'
   const orLimit = orData.limit === null || orData.limit === undefined ? 'без лимита / не задан' : moneyUsdText(orData.limit)
   const orRemaining = orData.limit_remaining === null || orData.limit_remaining === undefined ? '—' : moneyUsdText(orData.limit_remaining)
   const orUsageModels = usageModelMap(data.openrouter.usage?.models)
   const orUsageModes = usageModeMap(data.openrouter.usage?.modes)
-  const totalSpentPair = typeof data.openrouter.usage?.totalCostUsd === 'number' ? moneyPair(data.openrouter.usage.totalCostUsd) : '—'
-  const avgImagePair = typeof data.openrouter.usage?.avgCostUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostUsd) : '—'
-  const avgMpPair = typeof data.openrouter.usage?.avgCostPerMpUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostPerMpUsd) : '—'
+  const totalSpentPair = typeof data.openrouter.usage?.totalCostUsd === 'number' ? moneyPair(data.openrouter.usage.totalCostUsd, usdRubEffective) : '—'
+  const avgImagePair = typeof data.openrouter.usage?.avgCostUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostUsd, usdRubEffective) : '—'
+  const avgMpPair = typeof data.openrouter.usage?.avgCostPerMpUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostPerMpUsd, usdRubEffective) : '—'
   const favoriteOverall = (data.openrouter.usage?.models || [])[0]
   const favoriteOverallName = modelLabelById(favoriteOverall?.model)
   const creditsBalance = typeof orCredits.balance === 'number' ? orCredits.balance : null
   const balanceText = creditsBalance !== null
-    ? moneyPair(creditsBalance)
+    ? moneyPair(creditsBalance, usdRubEffective)
     : orCredits.status_code === 403
       ? 'нужен management key'
       : orData.limit_remaining === null || orData.limit_remaining === undefined ? 'лимит не задан' : moneyUsdText(orData.limit_remaining)
-  const effectiveRateText = `$1 = ${USD_RUB_BASE} ₽ + ${Math.round(USD_FEE_RATE * 100)}% = ${USD_RUB.toFixed(0)} ₽`
-  const spentTokensText = tokensText(data.openrouter.usage?.totalCostUsd)
+  const effectiveRateText = usdRubBase === null || usdRubEffective === null
+    ? 'курс ЦБ не загрузился'
+    : `$1 ЦБ ${usdRubBase.toFixed(2)} ₽ + ${Math.round(USD_FEE_RATE * 100)}% = ${usdRubEffective.toFixed(2)} ₽`
+  const spentTokensText = tokensText(data.openrouter.usage?.totalCostUsd, usdRubEffective)
 
   return <div className="amv2">
     <style>{CSS}</style>
@@ -707,10 +715,10 @@ export default function AdminModelsV2() {
         const defaultForSection = data.openrouter.config?.defaults?.[section.id] || ''
         const sectionStats = orUsageModes.get(section.id)
         const sectionCount = typeof sectionStats?.count === 'number' ? sectionStats.count : 0
-        const sectionSpent = typeof sectionStats?.costUsd === 'number' ? moneyPair(sectionStats.costUsd) : '—'
-        const sectionAvg = typeof sectionStats?.avgCostUsd === 'number' ? moneyPair(sectionStats.avgCostUsd) : '—'
-        const sectionAvgMp = typeof sectionStats?.avgCostPerMpUsd === 'number' ? moneyPair(sectionStats.avgCostPerMpUsd) : '—'
-        const sectionTokens = tokensText(sectionStats?.costUsd)
+        const sectionSpent = typeof sectionStats?.costUsd === 'number' ? moneyPair(sectionStats.costUsd, usdRubEffective) : '—'
+        const sectionAvg = typeof sectionStats?.avgCostUsd === 'number' ? moneyPair(sectionStats.avgCostUsd, usdRubEffective) : '—'
+        const sectionAvgMp = typeof sectionStats?.avgCostPerMpUsd === 'number' ? moneyPair(sectionStats.avgCostPerMpUsd, usdRubEffective) : '—'
+        const sectionTokens = tokensText(sectionStats?.costUsd, usdRubEffective)
         const sectionFavorite = modelLabelById(sectionStats?.favoriteModel)
         const rows = OPENROUTER_IMAGE_MODELS
           .filter(section.filter)
@@ -757,8 +765,8 @@ export default function AdminModelsV2() {
                 const modelStats = orUsageModels.get(m.id)
                 const avgActualUsd = typeof modelStats?.avgCostPerMpUsd === 'number' ? modelStats.avgCostPerMpUsd : null
                 const generatedCount = modelStatText(modelStats?.count)
-                const spentTotal = typeof modelStats?.costUsd === 'number' ? moneyPair(modelStats.costUsd) : '—'
-                const tokenCount = tokenPriceForModel(m, avgActualUsd)
+                const spentTotal = typeof modelStats?.costUsd === 'number' ? moneyPair(modelStats.costUsd, usdRubEffective) : '—'
+                const tokenCount = tokenPriceForModel(m, avgActualUsd, usdRubEffective)
                 return <Fragment key={rowKey}>
                   <tr className={`api-model-row ${expanded ? 'expanded' : ''}`} onClick={() => setApiExpandedRows((prev) => ({ ...prev, [rowKey]: !expanded }))}>
                     <td className="api-enabled">
@@ -772,7 +780,7 @@ export default function AdminModelsV2() {
                     </td>
                     <td><strong className="model-name">{modelShortName(m)}</strong>{defaultForSection === m.id ? <span className="mini" style={{ marginLeft: 8 }}>default</span> : null}</td>
                     <td><span className="provider openrouter">{modelBrand(m)}</span></td>
-                    <td><span className="money">{modelRubPrice(m)}</span></td>
+                    <td><span className="money">{modelRubPrice(m, usdRubEffective)}</span></td>
                     <td><span className="money">{modelUsdPrice(m)}</span></td>
                     <td><span className="money">{tokenCount ?? '—'}</span></td>
                     <td>{generatedCount}</td>
@@ -833,10 +841,13 @@ export default function AdminModelsV2() {
                 <div className="key-status-row"><span>Usage месяц</span><strong>{moneyUsdText(orData.usage_monthly)}</strong></div>
                 <div className="key-status-row"><span>Лимит / остаток</span><strong>{orLimit} / {orRemaining}</strong></div>
                 <div className={`key-status-row ${orCredits.ok ? 'key-ok' : 'key-warn'}`}><span>Credits API</span><strong>{orCredits.ok ? 'management key работает' : orCredits.status_code === 403 ? 'нужен management key' : valueText(orCredits.status_code)}</strong></div>
-                <div className="key-status-row"><span>Баланс credits</span><strong>{creditsBalance !== null ? moneyPair(creditsBalance) : '—'}</strong></div>
+                <div className="key-status-row"><span>Баланс credits</span><strong>{creditsBalance !== null ? moneyPair(creditsBalance, usdRubEffective) : '—'}</strong></div>
                 <div className="key-status-row"><span>Кредиты / usage</span><strong>{moneyUsdText(orCreditsData.total_credits)} / {moneyUsdText(orCreditsData.total_usage)}</strong></div>
+                <div className="key-status-row"><span>Курс USD</span><strong>{usdRubBase === null ? 'не загружен' : `${usdRubBase.toFixed(4)} ₽ ЦБ · ${usdRubEffective?.toFixed(4)} ₽ с комиссией`}</strong></div>
+                <div className="key-status-row"><span>Источник курса</span><strong>{valueText(data.openrouter.exchange?.source)} · {valueText(data.openrouter.exchange?.sourceDate)} · {valueText(data.openrouter.exchange?.cache)}</strong></div>
                 {!orStatus.ok && orStatus.error ? <div className="key-status-row key-bad"><span>Ошибка</span><strong>{openrouterErrorText(orStatus.error)}</strong></div> : null}
                 {!orCredits.ok && orCredits.error ? <div className="key-status-row key-warn"><span>Credits ошибка</span><strong>{openrouterErrorText(orCredits.error)}</strong></div> : null}
+                {data.openrouter.exchange?.error ? <div className="key-status-row key-warn"><span>Курс ошибка</span><strong>{data.openrouter.exchange.error}</strong></div> : null}
               </div>
             </details>
             {openrouterTestResult?.image?.thumbnailUrl ? <div className="or-test">
@@ -844,7 +855,7 @@ export default function AdminModelsV2() {
               <div>
                 <strong>Последний тест OpenRouter</strong>
                 <span>Модель: {openrouterTestResult.model || '—'}</span>
-                <span>Стоимость: {typeof openrouterTestResult.costUsd === 'number' ? `${rub(openrouterTestResult.costUsd)} · $${openrouterTestResult.costUsd.toFixed(4)}` : 'cost не пришёл'}</span>
+                <span>Стоимость: {typeof openrouterTestResult.costUsd === 'number' ? `${rub(openrouterTestResult.costUsd, usdRubEffective)} · $${openrouterTestResult.costUsd.toFixed(4)}` : 'cost не пришёл'}</span>
               </div>
             </div> : null}
           </div>

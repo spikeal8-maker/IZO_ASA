@@ -13,6 +13,7 @@ import sqlite3
 import subprocess
 import time
 import uuid
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -110,6 +111,7 @@ COMFYUI_TIMEOUT_SECONDS = int(os.getenv("COMFYUI_TIMEOUT_SECONDS", "900"))
 COMFYUI_FACE_TIMEOUT_SECONDS = max(60, min(COMFYUI_TIMEOUT_SECONDS, int(os.getenv("COMFYUI_FACE_TIMEOUT_SECONDS", "240"))))
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
 OPENROUTER_TIMEOUT_SECONDS = max(30, min(300, int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "120"))))
+CBR_DAILY_XML_URL = os.getenv("CBR_DAILY_XML_URL", "https://www.cbr.ru/scripts/XML_daily.asp")
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -11961,6 +11963,53 @@ def _saved_setting(key: str) -> dict[str, Any]:
     return {}
 
 
+def _save_setting(key: str, value: dict[str, Any]) -> None:
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+            (key, json.dumps(value, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+        )
+
+
+async def fetch_usd_rub_rate() -> dict[str, Any]:
+    cached = _saved_setting("exchange_usd_rub")
+    today = datetime.now(timezone.utc).date().isoformat()
+    if cached.get("fetched_date") == today and isinstance(cached.get("rate"), (int, float)):
+        return {**cached, "cache": "hit"}
+    try:
+        async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+            response = await client.get(CBR_DAILY_XML_URL)
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+        rate: float | None = None
+        nominal = 1
+        for valute in root.findall("Valute"):
+            if (valute.findtext("CharCode") or "").strip().upper() == "USD":
+                nominal = int((valute.findtext("Nominal") or "1").strip() or "1")
+                value = (valute.findtext("Value") or "").replace(",", ".").strip()
+                rate = float(value) / max(1, nominal)
+                break
+        if rate is None:
+            raise RuntimeError("USD не найден в XML ЦБ РФ")
+        item = {
+            "rate": round(rate, 6),
+            "currency": "USD",
+            "base": "RUB",
+            "source": "ЦБ РФ",
+            "sourceUrl": CBR_DAILY_XML_URL,
+            "sourceDate": root.attrib.get("Date") or "",
+            "fetchedAt": datetime.now(timezone.utc).isoformat(),
+            "fetched_date": today,
+        }
+        _save_setting("exchange_usd_rub", item)
+        return {**item, "cache": "refresh"}
+    except Exception as exc:
+        if isinstance(cached.get("rate"), (int, float)):
+            return {**cached, "cache": "stale", "error": str(exc)}
+        return {"rate": None, "currency": "USD", "base": "RUB", "source": "ЦБ РФ", "sourceUrl": CBR_DAILY_XML_URL, "cache": "error", "error": str(exc)}
+
+
 def default_tariff_matrix() -> list[dict[str, Any]]:
     # Дефолтные правила доступности/цены (calculated). Переопределяются admin_settings 'tariff_matrix'.
     def cell(enabled, cost, default, formula):
@@ -12255,6 +12304,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
     openrouter_status = await fetch_openrouter_key_status()
     openrouter_key = bool(openrouter_status.get("configured"))
     openrouter_usage = openrouter_usage_stats()
+    exchange = await fetch_usd_rub_rate()
 
     # Каталог: local (из profiles) + openrouter.
     catalog: list[dict[str, Any]] = []
@@ -12305,7 +12355,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
         "catalog": catalog,
         "loras": loras,
         "comfyuiAvailable": status.get("comfyuiAvailable"),
-        "openrouter": {"keyConfigured": openrouter_key, "status": openrouter_status, "usage": openrouter_usage, "config": get_openrouter_config()},
+        "openrouter": {"keyConfigured": openrouter_key, "status": openrouter_status, "usage": openrouter_usage, "config": get_openrouter_config(), "exchange": exchange},
         "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"},
         "profiles": status.get("profiles", []),
     }
