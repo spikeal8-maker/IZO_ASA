@@ -2,7 +2,7 @@
 // OpenRouter и LoRA из ComfyUI. Структура по референсу admin-models-v2.html.
 // Реальные данные приходят из GET /api/admin/models-page (см. backend). Тарифная матрица,
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 function amvFetch(path: string, init: RequestInit = {}) {
@@ -52,6 +52,7 @@ type ApiImageModel = {
   mpUsd?: number; imageUsd?: number; token?: boolean; tiered?: boolean
 }
 type ApiSortKey = 'price' | 'name' | 'provider'
+type ApiSortState = { key: ApiSortKey; dir: 'asc' | 'desc' }
 type ApiModeSection = {
   id: string
   title: string
@@ -168,15 +169,22 @@ const modelUsdPrice = (m: ApiImageModel) => {
   const value = estimatedUsdPerMp(m)
   return value === null ? 'нет данных' : usd(value)
 }
-const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortKey) => [...rows].sort((a, b) => {
-  if (sort === 'name') return modelShortName(a).localeCompare(modelShortName(b), 'ru')
-  if (sort === 'provider') return modelBrand(a).localeCompare(modelBrand(b), 'ru') || modelShortName(a).localeCompare(modelShortName(b), 'ru')
-  const ap = estimatedUsdPerMp(a)
-  const bp = estimatedUsdPerMp(b)
-  if (ap === null && bp === null) return modelShortName(a).localeCompare(modelShortName(b), 'ru')
-  if (ap === null) return 1
-  if (bp === null) return -1
-  return ap - bp || modelShortName(a).localeCompare(modelShortName(b), 'ru')
+const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState) => [...rows].sort((a, b) => {
+  let result = 0
+  if (sort.key === 'name') result = modelShortName(a).localeCompare(modelShortName(b), 'ru')
+  if (sort.key === 'provider') result = modelBrand(a).localeCompare(modelBrand(b), 'ru') || modelShortName(a).localeCompare(modelShortName(b), 'ru')
+  if (sort.key === 'price') {
+    const ap = estimatedUsdPerMp(a)
+    const bp = estimatedUsdPerMp(b)
+    if (ap === null && bp === null) result = modelShortName(a).localeCompare(modelShortName(b), 'ru')
+    else if (ap === null) return 1
+    else if (bp === null) return -1
+    else {
+      result = ap - bp || modelShortName(a).localeCompare(modelShortName(b), 'ru')
+      return sort.dir === 'desc' ? -result : result
+    }
+  }
+  return sort.dir === 'desc' ? -result : result
 })
 
 const CSS = `
@@ -209,15 +217,27 @@ const CSS = `
 .amv2 .mode-board{padding:12px;display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:10px}
 .amv2 .mode-card{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.032);display:grid;gap:8px;align-content:start}
 .amv2 .mode-card strong{font-size:13px}.amv2 .mode-card span{color:var(--muted);font-size:12px;line-height:1.35}
-.amv2 .api-sort{display:flex;align-items:center;gap:8px;white-space:nowrap}
-.amv2 .api-sort label{letter-spacing:0;text-transform:none;color:var(--muted)}
-.amv2 .api-sort select{width:auto;min-width:142px}
-.amv2 .api-table{min-width:760px}
+.amv2 .api-count{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.amv2 .api-section-head{width:100%;border:0;background:transparent;color:inherit;text-align:left;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:14px}
+.amv2 .api-section-head .card-title::before{content:"▾";display:inline-block;margin-right:8px;color:var(--lime)}
+.amv2 .api-section-head.collapsed .card-title::before{content:"▸"}
+.amv2 .api-table{min-width:680px}
 .amv2 .api-table td,.amv2 .api-table th{vertical-align:middle}
-.amv2 .api-table details{margin:0;border:0;background:transparent}
-.amv2 .api-table summary{padding:0;color:var(--lime);font-size:12px}
-.amv2 .api-table .detail-box{margin-top:8px;display:grid;gap:5px;color:var(--muted);line-height:1.35}
-.amv2 .api-table .model-name{white-space:nowrap}
+.amv2 .api-table th{padding:6px 8px}
+.amv2 .api-table td{padding:2px 8px;height:26px;line-height:1.15}
+.amv2 .api-table tr.api-model-row{cursor:pointer}
+.amv2 .api-table tr.api-model-row:hover td{background:rgba(234,255,16,.035)}
+.amv2 .api-table tr.api-model-row.expanded td{background:rgba(234,255,16,.05)}
+.amv2 .sort-head{appearance:none;border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;padding:0;display:inline-flex;align-items:center;gap:6px}
+.amv2 .sort-head.active{color:var(--lime)}
+.amv2 .detail-cell{padding:0 10px 9px 10px!important;background:rgba(255,255,255,.018)}
+.amv2 .detail-box{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 14px;color:var(--muted);line-height:1.35;font-size:11px}
+.amv2 .detail-box span{overflow-wrap:anywhere}
+.amv2 .api-table .model-name{white-space:nowrap;font-size:12px}
+.amv2 .api-enabled{width:28px;text-align:center}
+.amv2 .api-enabled input{width:14px;height:14px;min-height:14px;padding:0;margin:0;vertical-align:middle}
+.amv2 .api-table .provider{font-size:11px;padding:2px 6px}
+.amv2 .api-table .money{font-size:12px}
 .amv2 .money{font-weight:950;color:var(--lime);white-space:nowrap}
 .amv2 .risk-low{color:var(--green)}.amv2 .risk-mid{color:var(--yellow)}.amv2 .risk-high{color:var(--red)}
 .amv2 .dashboard{display:grid;grid-template-columns:1fr 1.18fr .82fr;gap:12px;margin-bottom:12px}
@@ -299,7 +319,10 @@ export default function AdminModelsV2() {
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
   const [routes, setRoutes] = useState<Route[]>([])
   const [query, setQuery] = useState('')
-  const [apiSorts, setApiSorts] = useState<Record<string, ApiSortKey>>({})
+  const [apiSorts, setApiSorts] = useState<Record<string, ApiSortState>>({})
+  const [apiSectionsOpen, setApiSectionsOpen] = useState<Record<string, boolean>>({ text_to_image: true })
+  const [apiExpandedRows, setApiExpandedRows] = useState<Record<string, boolean>>({})
+  const [apiEnabledModels, setApiEnabledModels] = useState<Record<string, boolean>>({})
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
   const [configErr, setConfigErr] = useState('')
@@ -357,6 +380,14 @@ export default function AdminModelsV2() {
     const next = routes.map((r, i) => i === ri ? { ...r, modelProfileId } : r)
     saveRoutes(next)
   }
+
+  const toggleApiSort = (sectionId: string, key: ApiSortKey) => {
+    setApiSorts((prev) => {
+      const current = prev[sectionId] || { key: 'price', dir: 'asc' as const }
+      return { ...prev, [sectionId]: current.key === key ? { key, dir: current.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' } }
+    })
+  }
+  const sortMark = (sort: ApiSortState, key: ApiSortKey) => sort.key === key ? (sort.dir === 'asc' ? '↑' : '↓') : ''
 
   const kleinLoras = useMemo(() => (data?.loras || []).filter((l) => l.forKlein !== false), [data?.loras])
   const otherLoras = useMemo(() => (data?.loras || []).filter((l) => l.forKlein === false), [data?.loras])
@@ -506,7 +537,8 @@ export default function AdminModelsV2() {
       </div>
 
       {API_MODE_SECTIONS.map((section) => {
-        const sort = apiSorts[section.id] || 'price'
+        const sort = apiSorts[section.id] || { key: 'price' as const, dir: 'asc' as const }
+        const sectionOpen = apiSectionsOpen[section.id] ?? false
         const rows = OPENROUTER_IMAGE_MODELS
           .filter(section.filter)
           .filter((m) => {
@@ -515,46 +547,63 @@ export default function AdminModelsV2() {
           })
         const sortedRows = sortedApiRows(rows, sort)
         return <article className="card" key={section.id}>
-          <div className="card-head">
+          <button className={`api-section-head ${sectionOpen ? '' : 'collapsed'}`} onClick={() => setApiSectionsOpen((prev) => ({ ...prev, [section.id]: !sectionOpen }))}>
             <div>
               <h2 className="card-title">{section.title}</h2>
               <p className="card-note">{section.note}</p>
             </div>
-            <div className="api-sort">
+            <div className="api-count">
               <span className="state ok">{rows.length} моделей</span>
-              <label htmlFor={`sort-${section.id}`}>Сортировка</label>
-              <select id={`sort-${section.id}`} value={sort} onChange={(e) => setApiSorts((prev) => ({ ...prev, [section.id]: e.target.value as ApiSortKey }))}>
-                <option value="price">по цене</option>
-                <option value="name">по названию</option>
-                <option value="provider">по производителю</option>
-              </select>
             </div>
-          </div>
-          <div className="hint" style={{ margin: '12px 12px 0' }}>Локальный аналог: {section.local}. Дубли между карточками нормальны: одна OpenRouter-модель может подходить сразу под несколько режимов.</div>
+          </button>
+          {sectionOpen && <>
+          <div className="hint" style={{ margin: '8px 12px' }}>Локальный аналог: {section.local}. Клик по строке раскрывает технические детали и оценку подключения.</div>
           <div className="matrix-wrap">
             <table className="api-table">
-              <thead><tr><th>Модель</th><th>Производитель</th><th>Цена за 1MP, ₽</th><th>Цена за 1MP, $</th><th>Подробнее</th></tr></thead>
-              <tbody>{sortedRows.map((m) => <tr key={`${section.id}-${m.id}`}>
-                <td><strong className="model-name">{modelShortName(m)}</strong></td>
-                <td><span className="provider openrouter">{modelBrand(m)}</span></td>
-                <td><span className="money">{modelRubPrice(m)}</span></td>
-                <td><span className="money">{modelUsdPrice(m)}</span></td>
-                <td>
-                  <details>
-                    <summary>открыть</summary>
-                    <div className="detail-box">
-                      <span><b>Полное имя:</b> {m.name}</span>
-                      <span><b>OpenRouter id:</b> {m.id}</span>
-                      <span><b>Как посчитано:</b> {priceConfidence(m)}</span>
-                      <span><b>Цена из OpenRouter:</b> {m.pricing}</span>
-                      <span><b>Вход/выход API:</b> {m.input} {'->'} {m.output}</span>
-                      <span><b>Параметры:</b> {m.params || 'нет в endpoint metadata'}</span>
-                    </div>
-                  </details>
-                </td>
-              </tr>)}</tbody>
+              <thead><tr>
+                <th className="api-enabled">Вкл.</th>
+                <th><button className={`sort-head ${sort.key === 'name' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'name')}>Модель {sortMark(sort, 'name')}</button></th>
+                <th><button className={`sort-head ${sort.key === 'provider' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'provider')}>Производитель {sortMark(sort, 'provider')}</button></th>
+                <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, ₽ {sortMark(sort, 'price')}</button></th>
+                <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, $ {sortMark(sort, 'price')}</button></th>
+              </tr></thead>
+              <tbody>{sortedRows.map((m) => {
+                const rowKey = `${section.id}-${m.id}`
+                const enabled = apiEnabledModels[rowKey] || false
+                const expanded = apiExpandedRows[rowKey] || false
+                return <Fragment key={rowKey}>
+                  <tr className={`api-model-row ${expanded ? 'expanded' : ''}`} onClick={() => setApiExpandedRows((prev) => ({ ...prev, [rowKey]: !expanded }))}>
+                    <td className="api-enabled">
+                      <input
+                        type="checkbox"
+                        checked={enabled}
+                        aria-label={`Включить ${modelShortName(m)} для ${section.title}`}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setApiEnabledModels((prev) => ({ ...prev, [rowKey]: e.target.checked }))}
+                      />
+                    </td>
+                    <td><strong className="model-name">{modelShortName(m)}</strong></td>
+                    <td><span className="provider openrouter">{modelBrand(m)}</span></td>
+                    <td><span className="money">{modelRubPrice(m)}</span></td>
+                    <td><span className="money">{modelUsdPrice(m)}</span></td>
+                  </tr>
+                  {expanded && <tr>
+                    <td className="detail-cell" colSpan={5}>
+                      <div className="detail-box">
+                        <span><b>Полное имя:</b> {m.name}</span>
+                        <span><b>OpenRouter id:</b> {m.id}</span>
+                        <span><b>Как посчитано:</b> {priceConfidence(m)}</span>
+                        <span><b>Цена из OpenRouter:</b> {m.pricing}</span>
+                        <span><b>Вход/выход API:</b> {m.input} {'->'} {m.output}</span>
+                        <span><b>Параметры:</b> {m.params || 'нет в endpoint metadata'}</span>
+                      </div>
+                    </td>
+                  </tr>}
+                </Fragment>
+              })}</tbody>
             </table>
           </div>
+          </>}
         </article>
       })}
     </>}
