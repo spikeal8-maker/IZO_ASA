@@ -1312,11 +1312,13 @@ detailAuthor.addEventListener('click', e=>{
   if(item) renderAuthorPublicProfile(item);
 });
 authorProfileClose.addEventListener('click', closeAuthorPublicProfile);
+authorProfileAvatar.addEventListener('click', ()=>{ authorModal.classList.toggle('photo-zoom'); });
 authorModal.addEventListener('click', e=>{ if(e.target === authorModal) closeAuthorPublicProfile(); });
 modalEditBtn.addEventListener('click', editCurrentPublication);
 modalDeleteBtn.addEventListener('click', deleteCurrentPublication);
 modal.addEventListener('click', e=>{ if(e.target===modal) closeModal(); });
 document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape' && authorModal.classList.contains('photo-zoom')){ authorModal.classList.remove('photo-zoom'); return; }
   if(e.key === 'Escape' && authorModal.classList.contains('open')){ closeAuthorPublicProfile(); return; }
   if(e.key === 'Escape' && modal.classList.contains('open')) closeModal();
   if(!modal.classList.contains('open') || !works.length) return;

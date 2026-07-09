@@ -160,6 +160,9 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "authorModal" in r.text
         assert "renderAuthorPublicProfile" in r.text
         assert "detailAuthor.addEventListener('click'" in r.text
+        assert "Чем занимается" in r.text
+        assert "Основной сайт" in r.text
+        assert "photo-zoom" in r.text
         assert "/api/me-v2" in r.text
         assert "arrangeModalForViewport" in r.text
         assert "avatarHtml(item.author, item.avatarUrl)" in r.text
