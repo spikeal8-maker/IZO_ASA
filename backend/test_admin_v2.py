@@ -313,6 +313,128 @@ def test_users_list_limit_clamped(temp_db):
     assert r.json()["limit"] == 200
 
 
+def patch_config_ui_dependencies(monkeypatch, *, comfy_up=True, interrupted=None):
+    async def fake_comfyui_available():
+        return comfy_up
+
+    async def fake_flux_klein_config():
+        return {
+            "autofill_prompts": {"portrait": "x"},
+            "lora_triggers_custom": {"head": "x"},
+            "t2i_templates": [{"id": "base"}],
+            "discover_prompts": {"home": ["x", "y"]},
+        }
+
+    async def fake_comfyui_models():
+        return {
+            "diffusion_models": ["flux.safetensors"],
+            "text_encoders": ["t5xxl.safetensors"],
+            "vaes": ["ae.safetensors"],
+            "loras": ["refcontrol_v2_poses.safetensors"],
+        }
+
+    async def fake_comfyui_node_names():
+        return {"FluxKleinOneNode", "DWPreprocessor", "SaveImage"}
+
+    async def fake_interrupt_comfyui_prompt():
+        if interrupted is not None:
+            interrupted["called"] = True
+        return None
+
+    monkeypatch.setattr(main, "comfyui_available", fake_comfyui_available)
+    monkeypatch.setattr(main, "get_flux_klein_config", fake_flux_klein_config)
+    monkeypatch.setattr(main, "get_comfyui_models", fake_comfyui_models)
+    monkeypatch.setattr(main, "comfyui_node_names", fake_comfyui_node_names)
+    monkeypatch.setattr(main, "interrupt_comfyui_prompt", fake_interrupt_comfyui_prompt)
+
+
+def test_config_ui_status_requires_admin(temp_db):
+    with TestClient(main.app) as client:
+        assert client.get("/api/admin/config-ui/status-v2").status_code == 401
+
+    make_user("iuid-u", "telegram_u", role="user")
+    s = session_for("iuid-u", "telegram_u")
+    with TestClient(main.app) as client:
+        assert client.get("/api/admin/config-ui/status-v2", headers=bearer(s["session_token"])).status_code == 403
+
+
+def test_config_ui_status_reports_config_models_nodes_and_jobs(temp_db, monkeypatch):
+    patch_config_ui_dependencies(monkeypatch)
+    old_jobs = dict(main.jobs)
+    main.jobs.clear()
+    main.jobs["job-1"] = {
+        "id": "job-1",
+        "status": "running",
+        "mode": "txt2img",
+        "provider": "local",
+        "progress": 42,
+        "message": "long config operation",
+    }
+    try:
+        s = admin_session()
+        with TestClient(main.app) as client:
+            main.jobs["job-1"] = {
+                "id": "job-1",
+                "status": "running",
+                "mode": "txt2img",
+                "provider": "local",
+                "progress": 42,
+                "message": "long config operation",
+            }
+            r = client.get("/api/admin/config-ui/status-v2", headers=bearer(s["session_token"]))
+    finally:
+        main.jobs.clear()
+        main.jobs.update(old_jobs)
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ready"
+    assert body["comfyui"]["available"] is True
+    assert body["config_api"]["sections"]["autofill_prompts"] == 1
+    assert body["models_api"]["counts"]["loras"] == 1
+    assert body["nodes"]["required"]["FluxKleinOneNode"] is True
+    assert body["active_jobs"][0]["id"] == "job-1"
+
+
+def test_config_ui_reload_requires_reason_clears_cache_and_logs(temp_db, monkeypatch):
+    patch_config_ui_dependencies(monkeypatch)
+    main._admin_models_page_cache["ts"] = 123.0
+    main._admin_models_page_cache["data"] = {"cached": True}
+    s = admin_session()
+    with TestClient(main.app) as client:
+        empty = client.post("/api/admin/config-ui/reload-v2", json={"reason": "  "}, headers=bearer(s["session_token"]))
+        r = client.post("/api/admin/config-ui/reload-v2", json={"reason": "config api завис"}, headers=bearer(s["session_token"]))
+
+    assert empty.status_code == 400
+    assert r.status_code == 200
+    assert r.json()["reloaded"] is True
+    assert main._admin_models_page_cache["data"] is None
+    assert count("audit_logs", "WHERE action='admin_config_ui_reload'") == 1
+
+
+def test_config_ui_interrupt_requires_reason_calls_comfy_and_logs(temp_db, monkeypatch):
+    interrupted = {"called": False}
+    patch_config_ui_dependencies(monkeypatch, interrupted=interrupted)
+    old_jobs = dict(main.jobs)
+    main.jobs.clear()
+    main.jobs["job-2"] = {"id": "job-2", "status": "sent_to_comfyui"}
+    try:
+        s = admin_session()
+        with TestClient(main.app) as client:
+            empty = client.post("/api/admin/config-ui/interrupt-v2", json={"reason": ""}, headers=bearer(s["session_token"]))
+            main.jobs["job-2"] = {"id": "job-2", "status": "sent_to_comfyui"}
+            r = client.post("/api/admin/config-ui/interrupt-v2", json={"reason": "ручной interrupt"}, headers=bearer(s["session_token"]))
+    finally:
+        main.jobs.clear()
+        main.jobs.update(old_jobs)
+
+    assert empty.status_code == 400
+    assert r.status_code == 200
+    assert r.json()["active_jobs_before"] == ["job-2"]
+    assert interrupted["called"] is True
+    assert count("audit_logs", "WHERE action='admin_config_ui_interrupt'") == 1
+
+
 # 25, 26
 def test_old_admin_and_require_admin_unchanged():
     import inspect

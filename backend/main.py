@@ -470,6 +470,10 @@ class AdminDeleteImageV2Request(BaseModel):
     reason: str = ""
 
 
+class AdminConfigUiActionV2Request(BaseModel):
+    reason: str = ""
+
+
 class AdminMailTestV2Request(BaseModel):
     email: str = ""
     template: Literal["verify_email", "support_reply", "system_notice"] = "verify_email"
@@ -11470,6 +11474,141 @@ async def compute_model_status() -> dict[str, Any]:
 async def admin_model_status(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
     return await compute_model_status()
+
+
+async def compute_config_ui_status() -> dict[str, Any]:
+    started = time.monotonic()
+    checked_at = datetime.now(timezone.utc).isoformat()
+    active_jobs = [
+        {
+            "id": item.get("id"),
+            "status": item.get("status"),
+            "mode": item.get("mode"),
+            "provider": item.get("provider"),
+            "progress": item.get("progress"),
+            "message": truncate_admin_text(item.get("message"), 120),
+        }
+        for item in jobs.values()
+        if item.get("status") in {"queued", "running", "uploading", "sent_to_comfyui"}
+    ]
+
+    comfy_up = await comfyui_available()
+    config_status: dict[str, Any] = {"ok": False}
+    models_status: dict[str, Any] = {"ok": False}
+    nodes_status: dict[str, Any] = {"ok": False}
+
+    try:
+        config = await get_flux_klein_config()
+        config_status = {
+            "ok": True,
+            "sections": {
+                "autofill_prompts": len(config.get("autofill_prompts") or {}),
+                "lora_triggers_custom": len(config.get("lora_triggers_custom") or {}),
+                "t2i_templates": len(config.get("t2i_templates") or []),
+                "discover_prompts": len(config.get("discover_prompts") or {}),
+            },
+        }
+    except Exception as exc:
+        config_status = {"ok": False, "error": truncate_admin_text(str(exc), 180)}
+
+    try:
+        model_lists = await get_comfyui_models()
+        models_status = {
+            "ok": True,
+            "counts": {key: len(value or []) for key, value in model_lists.items()},
+        }
+    except Exception as exc:
+        models_status = {"ok": False, "error": truncate_admin_text(str(exc), 180)}
+
+    try:
+        nodes = await comfyui_node_names()
+        nodes_status = {
+            "ok": bool(nodes),
+            "count": len(nodes),
+            "required": {
+                "FluxKleinOneNode": "FluxKleinOneNode" in nodes,
+                "DWPreprocessor": "DWPreprocessor" in nodes,
+            },
+        }
+    except Exception as exc:
+        nodes_status = {"ok": False, "error": truncate_admin_text(str(exc), 180)}
+
+    required_nodes = nodes_status.get("required") or {}
+    nodes_ready = bool(nodes_status.get("ok")) and all(bool(value) for value in required_nodes.values())
+    status = "ready" if comfy_up and config_status["ok"] and models_status["ok"] and nodes_ready else "degraded"
+    return {
+        "ok": True,
+        "status": status,
+        "checked_at": checked_at,
+        "duration_ms": int((time.monotonic() - started) * 1000),
+        "comfyui": {
+            "available": comfy_up,
+            "base_url": COMFYUI_BASE_URL,
+        },
+        "config_api": config_status,
+        "models_api": models_status,
+        "nodes": nodes_status,
+        "active_jobs": active_jobs,
+        "cache": {
+            "models_page_ttl_seconds": ADMIN_MODELS_PAGE_CACHE_TTL_SECONDS,
+            "models_page_cached": bool(_admin_models_page_cache.get("data")),
+            "models_page_cached_age_seconds": int(time.monotonic() - float(_admin_models_page_cache.get("ts") or 0)) if _admin_models_page_cache.get("data") else None,
+        },
+    }
+
+
+@app.get("/api/admin/config-ui/status-v2")
+async def admin_config_ui_status_v2(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    return await compute_config_ui_status()
+
+
+@app.post("/api/admin/config-ui/reload-v2")
+async def admin_config_ui_reload_v2(req: AdminConfigUiActionV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = truncate_admin_text(req.reason, 300).strip()
+    if not reason:
+        raise HTTPException(400, "Укажите причину.")
+    _admin_models_page_cache["ts"] = 0.0
+    _admin_models_page_cache["data"] = None
+    status = await compute_config_ui_status()
+    with db() as conn:
+        record_audit_log(
+            conn,
+            "admin_config_ui_reload",
+            actor_internal_user_id=admin["internal_user_id"],
+            entity_type="system",
+            entity_id="config-ui",
+            after={"reason": reason, "status": status.get("status")},
+            request=request,
+        )
+    return {"ok": True, "reloaded": True, "status": status}
+
+
+@app.post("/api/admin/config-ui/interrupt-v2")
+async def admin_config_ui_interrupt_v2(req: AdminConfigUiActionV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = truncate_admin_text(req.reason, 300).strip()
+    if not reason:
+        raise HTTPException(400, "Укажите причину.")
+    active_before = [
+        item.get("id")
+        for item in jobs.values()
+        if item.get("status") in {"queued", "running", "uploading", "sent_to_comfyui"}
+    ]
+    await interrupt_comfyui_prompt()
+    status = await compute_config_ui_status()
+    with db() as conn:
+        record_audit_log(
+            conn,
+            "admin_config_ui_interrupt",
+            actor_internal_user_id=admin["internal_user_id"],
+            entity_type="system",
+            entity_id="comfyui",
+            after={"reason": reason, "active_jobs_before": active_before, "status": status.get("status")},
+            request=request,
+        )
+    return {"ok": True, "interrupted": True, "active_jobs_before": active_before, "status": status}
 
 
 # ── Админ → Модели v2 ───────────────────────────────────────────────────────
