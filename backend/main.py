@@ -696,12 +696,12 @@ class AdminOpenRouterTestRequest(BaseModel):
 rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
-DEFAULT_TARIFFS: dict[str, dict[str, int]] = {
-    "free": {"daily_tokens": 10, "gallery_slots": 1, "video_enabled": 0, "video_slots": 0},
-    "mini": {"daily_tokens": 50, "gallery_slots": 10, "video_enabled": 0, "video_slots": 0},
-    "plus": {"daily_tokens": 100, "gallery_slots": 50, "video_enabled": 0, "video_slots": 0},
-    "pro": {"daily_tokens": 200, "gallery_slots": 100, "video_enabled": 1, "video_slots": 10},
-    "business": {"daily_tokens": 500, "gallery_slots": 500, "video_enabled": 1, "video_slots": 50},
+DEFAULT_TARIFFS: dict[str, dict[str, Any]] = {
+    "free": {"title": "Free", "note": "Базовый доступ", "daily_tokens": 10, "gallery_slots": 20, "models_label": "Базовые", "queue_label": "Обычная", "video_enabled": 0, "video_slots": 0},
+    "mini": {"title": "Mini", "note": "Оптимальный старт", "daily_tokens": 50, "gallery_slots": 80, "models_label": "Стандартные", "queue_label": "Обычная", "video_enabled": 0, "video_slots": 0},
+    "plus": {"title": "Plus", "note": "Больше возможностей", "daily_tokens": 100, "gallery_slots": 200, "models_label": "HD", "queue_label": "Ускоренная", "video_enabled": 0, "video_slots": 0},
+    "pro": {"title": "Pro", "note": "Видео и приоритет", "daily_tokens": 200, "gallery_slots": 500, "models_label": "Продвинутые", "queue_label": "Приоритетная", "video_enabled": 1, "video_slots": 10},
+    "business": {"title": "Бизнес", "note": "Для команды и видео", "daily_tokens": 500, "gallery_slots": 500, "models_label": "Бизнес", "queue_label": "Бизнес", "video_enabled": 1, "video_slots": 50},
 }
 
 
@@ -3259,7 +3259,13 @@ def _boolish(value: Any) -> bool:
     return bool(value)
 
 
-def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[str, dict[str, int]]:
+def _tariff_text(source: dict[str, Any], plan: str, key: str, *, max_len: int = 160) -> str:
+    value = source.get(key, DEFAULT_TARIFFS[plan][key])
+    text = str(value if value is not None else DEFAULT_TARIFFS[plan][key]).strip()
+    return (text or str(DEFAULT_TARIFFS[plan][key]))[:max_len]
+
+
+def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[str, dict[str, Any]]:
     if strict and (not isinstance(raw, dict) or not raw):
         raise HTTPException(400, "Tariff config must not be empty.")
     data = raw if isinstance(raw, dict) else {}
@@ -3267,7 +3273,7 @@ def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[s
         unknown = sorted(str(key) for key in data if str(key).lower() not in PLAN_ORDER)
         if unknown:
             raise HTTPException(400, f"Unknown tariff plan: {', '.join(unknown)}")
-    result: dict[str, dict[str, int]] = {}
+    result: dict[str, dict[str, Any]] = {}
     for plan in PLAN_ORDER:
         source = data.get(plan) if isinstance(data.get(plan), dict) else {}
         daily = source.get("daily_tokens", source.get("dailyTokens", DEFAULT_TARIFFS[plan]["daily_tokens"]))
@@ -3287,15 +3293,19 @@ def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[s
         if strict and (daily_int < 0 or slots_int < 0 or video_slots_int < 0):
             raise HTTPException(400, f"Tariff values for {plan} must be non-negative.")
         result[plan] = {
+            "title": _tariff_text(source, plan, "title", max_len=40),
+            "note": _tariff_text(source, plan, "note", max_len=160),
             "daily_tokens": max(0, min(daily_int, 100_000)),
             "gallery_slots": max(0, min(slots_int, 100_000)),
+            "models_label": _tariff_text(source, plan, "models_label", max_len=80),
+            "queue_label": _tariff_text(source, plan, "queue_label", max_len=80),
             "video_enabled": 1 if _boolish(video_enabled) else 0,
             "video_slots": max(0, min(video_slots_int, 100_000)),
         }
     return result
 
 
-def get_tariff_config(conn: sqlite3.Connection | None = None) -> dict[str, dict[str, int]]:
+def get_tariff_config(conn: sqlite3.Connection | None = None) -> dict[str, dict[str, Any]]:
     try:
         if conn is not None:
             row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()

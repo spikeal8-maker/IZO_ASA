@@ -165,20 +165,12 @@ export default function ProfilePage({
     setPublicLinks((current) => current.filter((_, itemIndex) => itemIndex !== index))
     setSaveMsg('')
   }
-  const planTitles: Record<TariffKey, string> = { free: 'Free', mini: 'Mini', plus: 'Plus', pro: 'Pro', business: 'Бизнес' }
-  const planNotes: Record<TariffKey, string> = {
-    free: 'Базовый доступ',
-    mini: 'Оптимальный старт',
-    plus: 'Больше возможностей',
-    pro: 'Видео и приоритет',
-    business: 'Для команды и видео',
-  }
   const planCards = tariffKeys.map((id) => {
     const tariff = tariffs[id] || DEFAULT_TARIFFS[id]
     return {
       id,
-      title: planTitles[id],
-      note: planNotes[id],
+      title: tariff.title,
+      note: tariff.note,
       daily: tariff.daily_tokens,
       slots: tariff.gallery_slots,
       videoSlots: tariff.video_slots,
@@ -380,11 +372,13 @@ export default function ProfilePage({
               </div>
             </section>
             <section className="profile-card profile-compare">
-              <div>Функции</div>{tariffKeys.map((key) => <div key={key}>{planTitles[key]}</div>)}
+              <div>Функции</div>{tariffKeys.map((key) => <div key={key}>{tariffs[key].title}</div>)}
               <span>Токены в сутки</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].daily_tokens}</b>)}
               <span>Галерея</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].gallery_slots}</b>)}
               <span>Видео</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].video_enabled ? 'Открыто' : 'Нет'}</b>)}
               <span>Хранение видео</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].video_slots}</b>)}
+              <span>Модели</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].models_label}</b>)}
+              <span>Очередь</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].queue_label}</b>)}
             </section>
           </>}
 

@@ -316,9 +316,15 @@ function AdminTokens() {
           {tariffKeys.map((plan) => (
             <div key={plan}>
               <strong>{plan.toUpperCase()}</strong>
+              <label>Название<input value={tariffs[plan].title} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], title: e.target.value } }))} /></label>
+              <label>Описание<input value={tariffs[plan].note} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], note: e.target.value } }))} /></label>
               <label>Токенов/день<input type="number" min="0" value={tariffs[plan].daily_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], daily_tokens: Number(e.target.value) } }))} /></label>
               <label>Слоты галереи<input type="number" min="0" value={tariffs[plan].gallery_slots} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], gallery_slots: Number(e.target.value) } }))} /></label>
-              <small>{tariffs[plan].daily_tokens} ток./день · {tariffs[plan].gallery_slots} слот(ов)</small>
+              <label>Модели<input value={tariffs[plan].models_label} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], models_label: e.target.value } }))} /></label>
+              <label>Очередь<input value={tariffs[plan].queue_label} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], queue_label: e.target.value } }))} /></label>
+              <label><input type="checkbox" checked={tariffs[plan].video_enabled} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], video_enabled: e.target.checked } }))} /> Видео доступно</label>
+              <label>Хранение видео<input type="number" min="0" value={tariffs[plan].video_slots} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], video_slots: Number(e.target.value) } }))} /></label>
+              <small>{tariffs[plan].title}: {tariffs[plan].daily_tokens} ток./день · {tariffs[plan].gallery_slots} слот(ов) · видео {tariffs[plan].video_enabled ? tariffs[plan].video_slots : 'нет'}</small>
             </div>
           ))}
         </div>
