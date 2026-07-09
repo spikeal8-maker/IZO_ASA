@@ -9,13 +9,13 @@
 export type V3Mode = 'text' | 'i2i' | 'edit' | 'paint' | 'face' | 'video'
 export type V3Section = V3Mode | 'feed' | 'gallery' | 'profile' | 'admin'
 
-const MODE_TABS: Array<{ id: V3Mode; label: string; gated?: boolean }> = [
-  { id: 'text', label: 'Текст → Изо' },
-  { id: 'i2i', label: 'Изо → Изо' },
-  { id: 'edit', label: 'Редактор' },
-  { id: 'face', label: 'Лицо' },
-  { id: 'paint', label: 'Рисунок' },
-  { id: 'video', label: 'Видео', gated: true },
+const MODE_TABS: Array<{ id: V3Mode; label: string; hint: string; gated?: boolean }> = [
+  { id: 'text', label: 'По тексту', hint: 'Изображение по тексту' },
+  { id: 'i2i', label: 'По фото', hint: 'Изменить изображение по фото' },
+  { id: 'edit', label: 'Сборка', hint: 'Собрать изображение из нескольких фото' },
+  { id: 'face', label: 'Лицо', hint: 'Замена лица' },
+  { id: 'paint', label: 'Редактор', hint: 'Правки изображения' },
+  { id: 'video', label: 'Видео', hint: 'Генерация видео', gated: true },
 ]
 
 function goto(path: string) {
@@ -83,6 +83,8 @@ export default function TopBarV3({
               type="button"
               className={`tab${active === t.id ? ' active' : ''}${disabled ? ' disabled' : ''}`}
               aria-disabled={disabled || undefined}
+              aria-label={t.hint}
+              title={t.hint}
               onClick={() => {
                 if (disabled) return
                 selectMode(t.id)

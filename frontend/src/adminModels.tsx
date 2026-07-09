@@ -129,8 +129,8 @@ const transparentModels = () => textImageModels().filter((m) => has(m, 'backgrou
 const API_MODE_SECTIONS: ApiModeSection[] = [
   { id: 'text_to_image', title: 'Текст -> изображение', local: 'Flux 2 Klein 4B', note: 'Все OpenRouter image-модели, которые принимают text и возвращают image.', filter: (m) => m.input.includes('text') && m.output.includes('image') },
   { id: 'image_to_image', title: 'Изображение -> изображение', local: 'Flux 2 Klein 4B', note: 'Модели с image input или input_references. Здесь допускаются дубли из txt2img.', filter: (m) => imageInputModels().includes(m) },
-  { id: 'edit', title: 'Редактор / multi-reference', local: 'Flux 2 Klein 9B', note: 'Модели, где явно есть input_references или OpenAI/Gemini image-edit capabilities.', filter: (m) => has(m, 'input_references') || m.id.includes('gpt-image') || m.id.includes('gemini') },
-  { id: 'paint', title: 'Рисунок / sketch', local: 'Flux 2 Klein edit workflow', note: 'То же семейство image-input моделей: скетч передается как reference/input image.', filter: (m) => imageInputModels().includes(m) },
+  { id: 'edit', title: 'Сборка / multi-reference', local: 'Flux 2 Klein 9B', note: 'Модели, где явно есть input_references или OpenAI/Gemini image-edit capabilities.', filter: (m) => has(m, 'input_references') || m.id.includes('gpt-image') || m.id.includes('gemini') },
+  { id: 'paint', title: 'Редактор / правки изображения', local: 'Flux 2 Klein edit workflow', note: 'То же семейство image-input моделей: скетч передается как reference/input image.', filter: (m) => imageInputModels().includes(m) },
   { id: 'inpaint', title: 'Редактор - маска / inpaint', local: 'Flux 2 Klein inpaint workflow', note: 'OpenRouter image models не всегда явно обещают mask API; сначала тестируем OpenAI background/quality и image-reference модели.', filter: (m) => m.id.includes('gpt-image') || has(m, 'background') || has(m, 'quality') },
   { id: 'outpaint', title: 'Редактор - расширение / outpaint', local: 'Flux 2 Klein outpaint workflow', note: 'Кандидаты с aspect_ratio/resolution/input_references. Нужен ручной тест расширения границ.', filter: (m) => has(m, 'aspect_ratio') || has(m, 'resolution') || has(m, 'input_references') },
   { id: 'faceswap', title: 'Лицо / reference identity', local: 'Flux 2 Klein 9B + BFS LoRA', note: 'Все image-reference модели, но включать только после теста identity consistency и приватности.', filter: (m) => imageInputModels().includes(m) },
@@ -267,10 +267,10 @@ const fetchBrowserUsdRub = async (): Promise<PageData['openrouter']['exchange']>
     }
   } catch (cbrError) {
     const response = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store' })
-    if (!response.ok) throw new Error(`market rate HTTP ${response.status}`)
+    if (!response.ok) throw new Error(`market rate HTTP ${response.status}`, { cause: cbrError })
     const payload = await response.json() as { rates?: Record<string, number>; time_last_update_utc?: string }
     const rate = payload.rates?.RUB
-    if (typeof rate !== 'number') throw new Error('market rate: RUB не найден')
+    if (typeof rate !== 'number') throw new Error('market rate: RUB не найден', { cause: cbrError })
     return {
       rate,
       source: 'USD/RUB market',
