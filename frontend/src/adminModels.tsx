@@ -11,7 +11,6 @@ function amvFetch(path: string, init: RequestInit = {}) {
 }
 
 type Tariff = 'free' | 'basic' | 'pro' | 'admin'
-const TARIFFS: Tariff[] = ['free', 'basic', 'pro', 'admin']
 type Cell = { enabled: boolean; tokenCost: number; isDefault: boolean; formula: string }
 type MatrixRow = { modelProfileId: string; provider: string; displayName: string; modelId: string; tariffs: Record<Tariff, Cell> }
 type Route = { routeId: string; displayName: string; icon: string; provider: string; modelProfileId: string; state: string; status: string; locked?: boolean; label?: string }
@@ -46,6 +45,55 @@ type PageData = {
   profiles: ProfileOption[]
 }
 
+type ProductMode = {
+  id: string
+  title: string
+  local: string
+  apiNeed: string
+  note: string
+}
+
+type ApiCandidate = {
+  mode: string
+  tier: 'cheap' | 'balanced' | 'premium' | 'special'
+  model: string
+  modelId: string
+  capabilities: string
+  price: string
+  estimateUsd: number | null
+  estimateRub: number | null
+  risk: 'low' | 'mid' | 'high'
+  recommendation: string
+}
+
+const USD_RUB = 90
+const moneyRub = (value: number | null) => value == null ? 'usage' : `~${value.toFixed(2)} ₽`
+const moneyUsd = (value: number | null) => value == null ? 'usage' : `$${value.toFixed(3)}`
+
+const PRODUCT_MODES: ProductMode[] = [
+  { id: 'text_to_image', title: 'Текст -> изображение', local: 'Flux 2 Klein 4B', apiNeed: 'дешевый txt2img, 1MP, быстрый fallback', note: 'Основной массовый режим, цена критична.' },
+  { id: 'image_to_image', title: 'Изображение -> изображение', local: 'Flux 2 Klein 4B', apiNeed: 'image input + prompt + output image', note: 'Нужны reference/input image и управляемая сила изменения.' },
+  { id: 'edit', title: 'Редактор / multi-reference', local: 'Flux 2 Klein 9B', apiNeed: 'несколько input_references, сохранение композиции', note: 'Самый сложный режим для API: важны референсы.' },
+  { id: 'paint', title: 'Рисунок / sketch', local: 'Flux 2 Klein edit workflow', apiNeed: 'image input + prompt, хорошо понимает скетч', note: 'Можно вести через image-to-image модели.' },
+  { id: 'inpaint', title: 'Inpaint', local: 'Flux 2 Klein inpaint workflow', apiNeed: 'маска/редактирование области', note: 'Нужна отдельная проверка: не все OpenRouter image-модели принимают маску.' },
+  { id: 'outpaint', title: 'Outpaint', local: 'Flux 2 Klein outpaint workflow', apiNeed: 'расширение кадра / aspect ratio', note: 'Кандидаты с aspect_ratio и reference image.' },
+  { id: 'faceswap', title: 'Лицо -> изображение', local: 'Flux 2 Klein 9B + BFS LoRA', apiNeed: 'identity/reference consistency', note: 'API-кандидаты только после ручного теста приватности и качества.' },
+  { id: 'remove_background', title: 'Удаление фона', local: 'локальный workflow/утилита', apiNeed: 'transparent/background параметр', note: 'Лучше держать отдельно от генеративных моделей.' },
+]
+
+const API_CANDIDATES: ApiCandidate[] = [
+  { mode: 'text_to_image', tier: 'cheap', model: 'FLUX.2 Klein 4B', modelId: 'black-forest-labs/flux.2-klein-4b', capabilities: 'text+image -> image, seed, input_references', price: '$0.014 / MP output', estimateUsd: 0.014, estimateRub: 0.014 * USD_RUB, risk: 'low', recommendation: 'Лучший первый платный baseline: похож на локальную модель, понятная цена за 1MP.' },
+  { mode: 'text_to_image', tier: 'balanced', model: 'FLUX.2 Pro', modelId: 'black-forest-labs/flux.2-pro', capabilities: 'text+image -> image, seed, input_references', price: '$0.030 / MP output', estimateUsd: 0.03, estimateRub: 0.03 * USD_RUB, risk: 'mid', recommendation: 'Качество выше, можно включать для Pro после теста.' },
+  { mode: 'image_to_image', tier: 'balanced', model: 'FLUX.2 Flex', modelId: 'black-forest-labs/flux.2-flex', capabilities: 'input_image + output_image, seed, input_references', price: '$0.060 / MP input + $0.060 / MP output', estimateUsd: 0.12, estimateRub: 0.12 * USD_RUB, risk: 'high', recommendation: 'Дорого для массового режима, но честный кандидат для i2i/edit.' },
+  { mode: 'edit', tier: 'premium', model: 'GPT Image 1 Mini', modelId: 'openai/gpt-image-1-mini', capabilities: 'quality, background, input_references, compression', price: '$0.000008 / output token', estimateUsd: null, estimateRub: null, risk: 'mid', recommendation: 'Кандидат для редактирования; фактическая цена берется из usage/cost после тестового запроса.' },
+  { mode: 'edit', tier: 'premium', model: 'GPT Image 2', modelId: 'openai/gpt-image-2', capabilities: 'quality, background, input_references, compression', price: '$0.000030 / output token', estimateUsd: null, estimateRub: null, risk: 'high', recommendation: 'Премиум-качество, но пока нельзя обещать цену 1MP без тестового usage.' },
+  { mode: 'paint', tier: 'cheap', model: 'Gemini 2.5 Flash Image', modelId: 'google/gemini-2.5-flash-image', capabilities: 'image+text -> image+text, aspect_ratio, input_references', price: '$0.0000003 input token + $0.0000025 output token', estimateUsd: null, estimateRub: null, risk: 'mid', recommendation: 'Хороший дешевый кандидат для sketch/i2i, но нужен тест цены по usage.' },
+  { mode: 'outpaint', tier: 'balanced', model: 'Gemini 3.1 Flash Lite Image', modelId: 'google/gemini-3.1-flash-lite-image', capabilities: 'resolution, aspect_ratio, input_references', price: '$0.000030 / output token', estimateUsd: null, estimateRub: null, risk: 'mid', recommendation: 'Подходит для экспериментов с aspect ratio и расширением кадра.' },
+  { mode: 'faceswap', tier: 'premium', model: 'Gemini 3 Pro Image', modelId: 'google/gemini-3-pro-image', capabilities: 'image+text -> image+text, resolution, input_references', price: '$0.000002 input token + $0.000120 output token', estimateUsd: null, estimateRub: null, risk: 'high', recommendation: 'Только после ручного теста identity consistency и стоимости.' },
+  { mode: 'text_to_image', tier: 'special', model: 'Recraft V4.1', modelId: 'recraft/recraft-v4.1', capabilities: 'text+image -> image, input_references', price: '$0.035 / image', estimateUsd: 0.035, estimateRub: 0.035 * USD_RUB, risk: 'mid', recommendation: 'Хорош для дизайна/постеров/текста, не основной универсальный генератор.' },
+  { mode: 'text_to_image', tier: 'special', model: 'Seedream 4.5', modelId: 'bytedance-seed/seedream-4.5', capabilities: 'resolution, aspect_ratio, input_references, seed', price: '$0.040 / image', estimateUsd: 0.04, estimateRub: 0.04 * USD_RUB, risk: 'mid', recommendation: 'Кандидат для красивого txt2img, дороже Flux Klein 4B.' },
+]
+
 const CSS = `
 .amv2{--panel:#101310;--line:rgba(255,255,255,.10);--line-strong:rgba(255,255,255,.18);--text:#f5f7ef;--muted:#a6aea3;--dim:#727b70;--lime:#eaff10;--green:#43df62;--yellow:#ffd24a;--red:#ff5c62;--radius:8px;color:var(--text);}
 .amv2 h1,.amv2 h2,.amv2 h3,.amv2 p{margin:0}
@@ -70,6 +118,15 @@ const CSS = `
 .amv2 .ops-row{display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto;gap:10px;padding:12px;border-top:1px solid var(--line);align-items:center}
 .amv2 .job-list{padding:0 12px 12px;display:grid;gap:6px}
 .amv2 .job-row{display:grid;grid-template-columns:minmax(120px,1fr) 96px 90px minmax(140px,1.2fr);gap:8px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);padding:8px;background:rgba(255,255,255,.028);font-size:12px}
+.amv2 .api-key-panel{padding:12px;display:grid;grid-template-columns:1.1fr 1.4fr;gap:12px;border-bottom:1px solid var(--line)}
+.amv2 .api-key-box{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.032);display:grid;gap:8px;align-content:start}
+.amv2 .api-key-box input{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+.amv2 .mode-board{padding:12px;display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:10px}
+.amv2 .mode-card{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.032);display:grid;gap:8px;align-content:start}
+.amv2 .mode-card strong{font-size:13px}.amv2 .mode-card span{color:var(--muted);font-size:12px;line-height:1.35}
+.amv2 .api-table td,.amv2 .api-table th{vertical-align:top}
+.amv2 .money{font-weight:950;color:var(--lime);white-space:nowrap}
+.amv2 .risk-low{color:var(--green)}.amv2 .risk-mid{color:var(--yellow)}.amv2 .risk-high{color:var(--red)}
 .amv2 .dashboard{display:grid;grid-template-columns:1fr 1.18fr .82fr;gap:12px;margin-bottom:12px}
 .amv2 .metric-grid{padding:12px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .amv2 .metric{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035)}
@@ -138,22 +195,17 @@ const CSS = `
 .amv2 .actions{display:flex;gap:8px}
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
-@media (max-width:1360px){.amv2 .dashboard{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row{grid-template-columns:1fr}.amv2 .matrix-wrap{display:none}.amv2 .mobile-models{display:grid}}
-@media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid{grid-template-columns:1fr}}
+@media (max-width:1360px){.amv2 .dashboard{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel{grid-template-columns:1fr}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .mobile-models{display:grid}}
+@media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:1fr}}
 `
-
-const TARIFF_LABEL: Record<Tariff, string> = { free: 'Free', basic: 'Basic', pro: 'Pro', admin: 'Admin' }
 
 export default function AdminModelsV2() {
   const [data, setData] = useState<PageData | null>(null)
   const [pageTab, setPageTab] = useState<'config' | 'api'>('config')
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
-  const [matrix, setMatrix] = useState<MatrixRow[]>([])
   const [routes, setRoutes] = useState<Route[]>([])
-  const [filter, setFilter] = useState<'all' | 'local' | 'openrouter'>('all')
   const [query, setQuery] = useState('')
-  const [selected, setSelected] = useState<string>('')
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
   const [configErr, setConfigErr] = useState('')
@@ -176,8 +228,7 @@ export default function AdminModelsV2() {
       && !!d.userChoice && Array.isArray(d.userChoice.simple) && Array.isArray(d.userChoice.pro)
       && Array.isArray(d.catalog) && Array.isArray(d.loras) && !!d.comfyFiles && !!d.openrouter
     if (ok && d) {
-      setErr(''); setData(d); setMatrix(d.matrix); setRoutes(d.routes)
-      setSelected((cur) => cur || d.matrix[1]?.modelProfileId || d.matrix[0]?.modelProfileId || '')
+      setErr(''); setData(d); setRoutes(d.routes)
     } else {
       setData(null)
       setErr('Не удалось загрузить страницу моделей. Нужен доступ администратора и обновлённый backend (/api/admin/models-page).')
@@ -206,29 +257,16 @@ export default function AdminModelsV2() {
     const r = await amvFetch(`/admin/settings/${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: payload }) }).then((x) => x.json()).catch(() => null)
     setMsg(r?.ok ? `${label} сохранено` : `Ошибка сохранения: ${label}`)
   }
-  const saveMatrix = (next: MatrixRow[]) => { setMatrix(next); void saveSetting('tariff_matrix', { matrix: next }, 'Матрица тарифов') }
   const saveRoutes = (next: Route[]) => { setRoutes(next); void saveSetting('generation_routes', { routes: next }, 'Маршруты') }
 
-  const toggleCell = (mi: number, t: Tariff) => {
-    const next = matrix.map((row, i) => i !== mi ? row : { ...row, tariffs: { ...row.tariffs, [t]: { ...row.tariffs[t], enabled: !row.tariffs[t].enabled } } })
-    saveMatrix(next)
-  }
   const setRouteModel = (ri: number, modelProfileId: string) => {
     const next = routes.map((r, i) => i === ri ? { ...r, modelProfileId } : r)
     saveRoutes(next)
   }
 
-  const filtered = useMemo(() => matrix.filter((m) => {
-    const okP = filter === 'all' || m.provider === filter
-    const hay = `${m.displayName} ${m.modelId} ${m.provider}`.toLowerCase()
-    return okP && (!query || hay.includes(query.toLowerCase()))
-  }), [matrix, filter, query])
-  const apiMatrix = useMemo(() => matrix.filter((m) => m.provider === 'openrouter'), [matrix])
-  const apiCatalog = useMemo(() => (data?.catalog || []).filter((c) => c.provider === 'openrouter'), [data?.catalog])
   const kleinLoras = useMemo(() => (data?.loras || []).filter((l) => l.forKlein !== false), [data?.loras])
   const otherLoras = useMemo(() => (data?.loras || []).filter((l) => l.forKlein === false), [data?.loras])
 
-  const sel = matrix.find((m) => m.modelProfileId === selected) || null
   const profiles = data?.profiles || []
   const localOptions = profiles.map((p) => ({ id: p.id, name: p.name }))
   const fmtTime = (value?: string) => value ? new Date(value).toLocaleString('ru-RU') : '—'
@@ -325,179 +363,95 @@ export default function AdminModelsV2() {
       </article>
     </section>
 
-    <section className="grid-main">
-      <div className="work-area">
-        {/* 6: Матрица тарифов */}
-        <article className="card">
-          <div className="card-head"><div><h2 className="card-title">Матрица доступности и списания</h2><p className="card-note">Включить модель на тарифе, цена и default. Изменения сохраняются сразу.</p></div></div>
-          <div className="toolbar">
-            <input type="search" placeholder="Поиск по модели, провайдеру или capability" value={query} onChange={(e) => setQuery(e.target.value)} />
-            <div className="segmented">{(['all', 'local', 'openrouter'] as const).map((f) => <button key={f} className={filter === f ? 'active' : ''} onClick={() => setFilter(f)}>{f === 'all' ? 'Все' : f === 'local' ? 'Local' : 'OpenRouter'}</button>)}</div>
-            <button className="ghost" onClick={() => void load()}>Обновить</button>
-            <button className="ghost" onClick={() => void load()}>Синхронизировать OpenRouter</button>
-          </div>
-          <div className="matrix-wrap">
-            <table>
-              <thead><tr><th style={{ width: 240 }}>Модель</th>{TARIFFS.map((t) => <th key={t}>{TARIFF_LABEL[t]}</th>)}</tr></thead>
-              <tbody>{filtered.map((m) => {
-                const mi = matrix.indexOf(m)
-                return <tr key={m.modelProfileId} className={selected === m.modelProfileId ? 'selected' : ''} onClick={() => setSelected(m.modelProfileId)}>
-                  <td><div className="model-cell"><span className={`provider ${m.provider === 'local' ? 'local' : 'openrouter'}`}>{m.provider === 'local' ? 'Local ComfyUI' : 'OpenRouter'}</span><span className="model-name">{m.displayName}</span><span className="model-id">{m.modelId}</span></div></td>
-                  {TARIFFS.map((t) => { const c = m.tariffs[t]; return <td key={t}><div className={`tariff-cell ${c.enabled ? '' : 'off'}`}>
-                    <label className="toggle" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={c.enabled} onChange={() => toggleCell(mi, t)} /><span></span></label>
-                    <span className="cost-main">{c.enabled ? `${c.tokenCost} ток.` : '—'}</span>
-                    {c.isDefault && c.enabled ? <span className="default-mark">default</span> : <span />}
-                    <span className="cost-sub">{c.formula}</span>
-                  </div></td> })}
-                </tr>
-              })}</tbody>
-            </table>
-          </div>
-          <div className="mobile-models">{filtered.map((m) => <article className="mobile-model" key={m.modelProfileId} onClick={() => setSelected(m.modelProfileId)}>
-            <div className="model-cell"><span className={`provider ${m.provider === 'local' ? 'local' : 'openrouter'}`}>{m.provider === 'local' ? 'Local ComfyUI' : 'OpenRouter'}</span><span className="model-name">{m.displayName}</span><span className="model-id">{m.modelId}</span></div>
-            <div className="actions">{TARIFFS.map((t) => <span className="mini" key={t}>{TARIFF_LABEL[t]}: {m.tariffs[t].enabled ? `${m.tariffs[t].tokenCost}т` : '—'}</span>)}</div>
-            <button className="ghost" onClick={(e) => { e.stopPropagation(); setSelected(m.modelProfileId) }}>Настроить</button>
-          </article>)}</div>
-        </article>
-
-        {/* 8: Глобальный каталог */}
-        <article className="card">
-          <div className="card-head"><div><h2 className="card-title">Глобальный каталог моделей</h2><p className="card-note">Справочник: provider, capabilities, себестоимость, статус.</p></div></div>
-          <div className="matrix-wrap"><table>
-            <thead><tr><th>Провайдер</th><th>Модель</th><th>Возможности</th><th>Себестоимость</th><th>Маржа</th><th>Статус</th><th>Действия</th></tr></thead>
-            <tbody>{data.catalog.map((c, i) => <tr key={i}>
-              <td><span className={`provider ${c.provider === 'local' ? 'local' : 'openrouter'}`}>{c.provider === 'local' ? 'Local ComfyUI' : 'OpenRouter'}</span></td>
-              <td><strong>{c.displayName}</strong><br /><span className="model-id">{c.modelId}</span></td>
-              <td>{c.capabilities.map((x: string) => <span className="mini" key={x} style={{ marginRight: 4 }}>{x}</span>)}</td>
-              <td>{c.cost}</td><td>{c.margin}</td>
-              <td><span className={`state ${c.status === 'active' ? 'ok' : 'warn'}`}>{c.status}</span></td>
-              <td><button className="ghost">Тест</button></td>
-            </tr>)}</tbody>
-          </table></div>
-        </article>
-
-        {/* 9: LoRA из ComfyUI */}
-        <article className="card">
-          <div className="card-head"><div><h2 className="card-title">Доступные LoRA из ComfyUI</h2><p className="card-note">LoRA — слой поверх модели/workflow. Назначать только совместимым.</p></div><div className="actions"><button className="ghost" onClick={() => void load()}>Сканировать ComfyUI</button></div></div>
-          <div className="lora-grid">{kleinLoras.map((l) => <article className="lora-card" key={l.fileName}>
-            <span className={`provider ${l.installed === false ? 'openrouter' : 'local'}`}>{l.installed === false ? 'Нужно добавить' : 'Klein LoRA'}</span>
-            <h3>{l.fileName}</h3>
-            <p className="lora-meta">Назначение: {l.purpose}.{l.compatible.length ? ` Совместимость: ${l.compatible.join(', ')}.` : ''}{l.requires.length ? ` Требует: ${l.requires.join(', ')}.` : ''}</p>
-            <div className="lora-actions"><select>{(l.routes.length ? l.routes : ['Не назначена']).map((r) => <option key={r}>{r}</option>)}</select><span className={`state ${l.status === 'active' || l.status === 'found' ? 'ok' : l.status === 'untested' ? 'warn' : 'bad'}`}>{l.status}</span></div>
-          </article>)}</div>
-          {otherLoras.length > 0 && <div className="hint" style={{ margin: '0 12px 12px' }}>Не используются в Flux Klein: {otherLoras.map((l) => l.fileName).join(', ')}</div>}
-        </article>
-
-        {/* 11: Advanced ComfyUI files (collapsed) */}
-        <details>
-          <summary>Расширенные файлы ComfyUI</summary>
-          <div className="advanced-grid">
-            {Object.entries(data.comfyFiles).map(([k, v]) => <div className="field" key={k}><label>{k}</label><input defaultValue={String(v)} /></div>)}
-          </div>
-        </details>
+    <article className="card">
+      <div className="card-head">
+        <div><h2 className="card-title">Доступные LoRA из ComfyUI</h2><p className="card-note">Только локальные LoRA и совместимость с Flux 2 Klein 4B/9B. API-модели здесь больше не смешиваются.</p></div>
+        <div className="actions"><button className="ghost" onClick={() => void load()}>Сканировать ComfyUI</button></div>
       </div>
+      <div className="lora-grid">{kleinLoras.map((l) => <article className="lora-card" key={l.fileName}>
+        <span className={`provider ${l.installed === false ? 'openrouter' : 'local'}`}>{l.installed === false ? 'Нужно добавить' : 'Klein LoRA'}</span>
+        <h3>{l.fileName}</h3>
+        <p className="lora-meta">Назначение: {l.purpose}.{l.compatible.length ? ` Совместимость: ${l.compatible.join(', ')}.` : ''}{l.requires.length ? ` Требует: ${l.requires.join(', ')}.` : ''}</p>
+        <div className="lora-actions"><select>{(l.routes.length ? l.routes : ['Не назначена']).map((r) => <option key={r}>{r}</option>)}</select><span className={`state ${l.status === 'active' || l.status === 'found' ? 'ok' : l.status === 'untested' ? 'warn' : 'bad'}`}>{l.status}</span></div>
+      </article>)}</div>
+      {otherLoras.length > 0 && <div className="hint" style={{ margin: '0 12px 12px' }}>Не используются в Flux Klein: {otherLoras.map((l) => l.fileName).join(', ')}</div>}
+    </article>
 
-      {/* 7: Правая панель — настройка выбранной модели */}
-      <aside className="side-panel">
-        <article className="card">
-          <div className="editor-hero">
-            <div className="editor-title"><div className="model-avatar">{sel?.provider === 'local' ? 'LC' : 'OR'}</div><div><h2>{sel ? `${sel.provider === 'local' ? 'Local ComfyUI' : 'OpenRouter'} — ${sel.displayName}` : 'Выберите модель'}</h2><p>{sel?.modelId}</p></div></div>
-            <div className="pill-row"><span className={`provider ${sel?.provider === 'local' ? 'local' : 'openrouter'}`}>{sel?.provider === 'local' ? 'Local ComfyUI' : 'OpenRouter'}</span>{sel && profiles.find((p) => p.id === sel.modelProfileId)?.supportsPose ? <span className="mini">pose</span> : null}</div>
-          </div>
-          <div className="form-grid">
-            <div className="two-col">
-              <div className="field"><label>Название для пользователя</label><input defaultValue={sel?.displayName || ''} /></div>
-              <div className="field"><label>Минимальный тариф</label><select defaultValue="basic">{TARIFFS.map((t) => <option key={t} value={t}>{TARIFF_LABEL[t]}</option>)}</select></div>
-            </div>
-            <div className="field"><label>Правила списания (токены по режимам)</label>
-              {(['Текст → Изо', 'Изо → Изо', 'Редактор', 'Редактор - поза', 'Multi-reference']).map((r, i) => <div className="price-row" key={r}><div><strong>{r}</strong><span>{r === 'Редактор - поза' ? 'DWPose + refcontrol LoRA' : 'base'}</span></div><input type="number" defaultValue={sel ? (sel.tariffs.pro.tokenCost + (i === 4 ? 3 : i === 1 ? 2 : 0)) : 0} /><input type="number" defaultValue={i === 4 ? 2 : i === 1 ? 1 : 0} title="доплата" /></div>)}
-            </div>
-            {sel?.provider === 'openrouter'
-              ? <p className="hint">OpenRouter: model id {sel.modelId}. Хранятся capabilities, pricing, лимит референсов, last checked. {data.openrouter.keyConfigured ? 'API key настроен.' : 'OpenRouter API key не настроен.'}</p>
-              : <p className="hint">Local ComfyUI: workflow + файлы (model/text encoder/VAE) + LoRA + себестоимость сервера. {sel && profiles.find((p) => p.id === sel.modelProfileId)?.supportsPose ? 'Поддерживает pose workflow.' : ''}</p>}
-            <div className="two-col"><button className="danger">Отключить</button><button className="primary" onClick={() => saveMatrix(matrix)}>Сохранить модель</button></div>
-          </div>
-        </article>
-
-        {/* Проверки перед публикацией */}
-        <article className="card">
-          <div className="card-head"><div><h2 className="card-title">Проверки перед публикацией</h2><p className="card-note">Что нельзя отдавать пользователям.</p></div></div>
-          <div className="conflict">
-            {!data.openrouter.keyConfigured && <div className="conflict-item"><span className="mark">!</span><div><strong>OpenRouter API key не настроен</strong><span>Cloud-модели не будут работать у пользователей.</span></div></div>}
-            {data.loras.filter((l) => l.forKlein !== false && (l.status === 'untested' || l.status === 'missing')).map((l) => <div className="conflict-item" key={l.fileName}><span className="mark">!</span><div><strong>LoRA {l.fileName} {l.status === 'missing' ? 'не установлена' : 'не протестирована'}</strong><span>Проверьте перед включением в Pro выбор.</span></div></div>)}
-            {data.economy.priceConflicts === 0 && data.openrouter.keyConfigured && <div className="conflict-item" style={{ borderColor: 'rgba(67,223,98,.24)', background: 'rgba(67,223,98,.07)' }}><span className="mark" style={{ background: 'var(--green)' }}>✓</span><div><strong>Конфликтов не найдено</strong><span>Можно публиковать.</span></div></div>}
-          </div>
-        </article>
-      </aside>
-    </section>
+    <details>
+      <summary>Расширенные файлы ComfyUI</summary>
+      <div className="advanced-grid">
+        {Object.entries(data.comfyFiles).map(([k, v]) => <div className="field" key={k}><label>{k}</label><input defaultValue={String(v)} /></div>)}
+      </div>
+    </details>
     </>}
 
-    {pageTab === 'api' && <section className="grid-main">
-      <div className="work-area">
-        <article className="card">
-          <div className="card-head">
-            <div><h2 className="card-title">API модели</h2><p className="card-note">OpenRouter/API-слой отдельно от локального Config UI.</p></div>
-            <span className={`state ${data.openrouter.keyConfigured ? 'ok' : 'bad'}`}>{data.openrouter.keyConfigured ? 'API key настроен' : 'нет API key'}</span>
+    {pageTab === 'api' && <>
+      <article className="card">
+        <div className="card-head">
+          <div><h2 className="card-title">API модели: OpenRouter планирование</h2><p className="card-note">Первый рабочий слой: какие платные image-модели подходят под режимы генератора, сколько они примерно стоят, где нужен тест.</p></div>
+          <span className={`state ${data.openrouter.keyConfigured ? 'ok' : 'bad'}`}>{data.openrouter.keyConfigured ? 'OPENROUTER_API_KEY есть' : 'нет OPENROUTER_API_KEY'}</span>
+        </div>
+        <div className="api-key-panel">
+          <div className="api-key-box">
+            <strong>Ключ OpenRouter</strong>
+            <input type="password" placeholder="sk-or-... пока не сохраняется из UI" disabled />
+            <small>Безопасное сохранение ключа лучше делать отдельным backend-шагом: шифрование/secret storage/audit. Сейчас backend проверяет переменную окружения <b>OPENROUTER_API_KEY</b>.</small>
           </div>
-          <div className="user-preview">
-            <div className="user-mode-title"><span>Pro/API выбор</span><span>точные модели</span></div>
-            {data.userChoice.pro.filter((c) => c.provider === 'openrouter').map((c) => <div className="choice-card" key={c.label}><span className="choice-icon">OR</span><div><strong>{c.label}</strong><span>{c.provider} — {c.cost} ток.</span></div><span className="mini">API</span></div>)}
+          <div className="api-key-box">
+            <strong>Что уже понятно</strong>
+            <small>OpenRouter image API отдает список моделей через /api/v1/images/models. Для части моделей цена фиксирована за megapixel/image, для token-billed моделей точная стоимость должна браться из usage/cost после тестового запроса.</small>
+            <span className="mini">курс для планирования: $1 = {USD_RUB} ₽</span>
           </div>
-        </article>
+        </div>
+      </article>
 
-        <article className="card">
-          <div className="card-head"><div><h2 className="card-title">Матрица API-моделей</h2><p className="card-note">Доступность и списание только для внешних API-моделей.</p></div></div>
-          <div className="toolbar">
-            <input type="search" placeholder="Поиск по API-модели" value={query} onChange={(e) => setQuery(e.target.value)} />
-            <button className="ghost" onClick={() => void load()}>Синхронизировать OpenRouter</button>
-          </div>
-          <div className="matrix-wrap">
-            <table>
-              <thead><tr><th style={{ width: 240 }}>API модель</th>{TARIFFS.map((t) => <th key={t}>{TARIFF_LABEL[t]}</th>)}</tr></thead>
-              <tbody>{apiMatrix.filter((m) => !query || `${m.displayName} ${m.modelId}`.toLowerCase().includes(query.toLowerCase())).map((m) => {
-                const mi = matrix.indexOf(m)
-                return <tr key={m.modelProfileId} className={selected === m.modelProfileId ? 'selected' : ''} onClick={() => setSelected(m.modelProfileId)}>
-                  <td><div className="model-cell"><span className="provider openrouter">OpenRouter</span><span className="model-name">{m.displayName}</span><span className="model-id">{m.modelId}</span></div></td>
-                  {TARIFFS.map((t) => { const c = m.tariffs[t]; return <td key={t}><div className={`tariff-cell ${c.enabled ? '' : 'off'}`}>
-                    <label className="toggle" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={c.enabled} onChange={() => toggleCell(mi, t)} /><span></span></label>
-                    <span className="cost-main">{c.enabled ? `${c.tokenCost} ток.` : '—'}</span>
-                    {c.isDefault && c.enabled ? <span className="default-mark">default</span> : <span />}
-                    <span className="cost-sub">{c.formula}</span>
-                  </div></td> })}
-                </tr>
-              })}</tbody>
-            </table>
-          </div>
-        </article>
+      <article className="card">
+        <div className="card-head"><div><h2 className="card-title">Режимы генератора - что нужно от API</h2><p className="card-note">Это карта продукта: сначала режимы, потом модели. Не наоборот.</p></div></div>
+        <div className="mode-board">
+          {PRODUCT_MODES.map((m) => <div className="mode-card" key={m.id}>
+            <strong>{m.title}</strong>
+            <span>Локально: {m.local}</span>
+            <span>API нужно: {m.apiNeed}</span>
+            <small>{m.note}</small>
+          </div>)}
+        </div>
+      </article>
 
-        <article className="card">
-          <div className="card-head"><div><h2 className="card-title">Каталог API</h2><p className="card-note">Справочник внешних моделей: capabilities, себестоимость, статус.</p></div></div>
-          <div className="matrix-wrap"><table>
-            <thead><tr><th>Провайдер</th><th>Модель</th><th>Возможности</th><th>Себестоимость</th><th>Маржа</th><th>Статус</th><th>Действия</th></tr></thead>
-            <tbody>{apiCatalog.map((c, i) => <tr key={i}>
-              <td><span className="provider openrouter">OpenRouter</span></td>
-              <td><strong>{c.displayName}</strong><br /><span className="model-id">{c.modelId}</span></td>
-              <td>{c.capabilities.map((x: string) => <span className="mini" key={x} style={{ marginRight: 4 }}>{x}</span>)}</td>
-              <td>{c.cost}</td><td>{c.margin}</td>
-              <td><span className={`state ${c.status === 'active' ? 'ok' : 'warn'}`}>{c.status}</span></td>
-              <td><button className="ghost">Тест API</button></td>
+      <article className="card">
+        <div className="card-head">
+          <div><h2 className="card-title">Кандидаты OpenRouter по режимам</h2><p className="card-note">Таблица для следующего шага: включатели, лимиты и тестовые запросы. Пока ничего не включает пользователям автоматически.</p></div>
+        </div>
+        <div className="toolbar">
+          <input type="search" placeholder="Поиск по режиму, модели, цене" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <button className="ghost" onClick={() => setQuery('')}>Сбросить</button>
+        </div>
+        <div className="matrix-wrap">
+          <table className="api-table">
+            <thead><tr><th>Режим</th><th>Уровень</th><th>Модель</th><th>Capabilities</th><th>Цена OpenRouter</th><th>Оценка 1MP</th><th>Риск</th><th>Рекомендация</th></tr></thead>
+            <tbody>{API_CANDIDATES.filter((c) => {
+              const hay = `${c.mode} ${c.tier} ${c.model} ${c.modelId} ${c.price} ${c.recommendation}`.toLowerCase()
+              return !query || hay.includes(query.toLowerCase())
+            }).map((c) => <tr key={`${c.mode}-${c.modelId}`}>
+              <td><strong>{PRODUCT_MODES.find((m) => m.id === c.mode)?.title || c.mode}</strong><br /><span className="model-id">{c.mode}</span></td>
+              <td><span className="mini">{c.tier}</span></td>
+              <td><strong>{c.model}</strong><br /><span className="model-id">{c.modelId}</span></td>
+              <td>{c.capabilities}</td>
+              <td>{c.price}</td>
+              <td><span className="money">{moneyUsd(c.estimateUsd)}</span><br /><small>{moneyRub(c.estimateRub)}</small></td>
+              <td><strong className={`risk-${c.risk}`}>{c.risk}</strong></td>
+              <td>{c.recommendation}</td>
             </tr>)}</tbody>
-          </table></div>
-        </article>
-      </div>
+          </table>
+        </div>
+      </article>
 
-      <aside className="side-panel">
-        <article className="card">
-          <div className="editor-hero">
-            <div className="editor-title"><div className="model-avatar">API</div><div><h2>{sel?.provider === 'openrouter' ? sel.displayName : 'Выберите API-модель'}</h2><p>{sel?.provider === 'openrouter' ? sel.modelId : 'OpenRouter / внешние модели'}</p></div></div>
-            <div className="pill-row"><span className="provider openrouter">OpenRouter</span>{data.openrouter.keyConfigured ? <span className="state ok">key ok</span> : <span className="state bad">no key</span>}</div>
-          </div>
-          <div className="form-grid">
-            {sel?.provider === 'openrouter' ? <p className="hint">OpenRouter: model id {sel.modelId}. Настройки тарифа сохраняются в матрицу. API key настраивается в окружении backend и не показывается в UI.</p> : <p className="hint">Откройте строку API-модели слева, чтобы редактировать доступность и стоимость.</p>}
-            <button className="primary" onClick={() => saveMatrix(matrix)}>Сохранить API-модели</button>
-          </div>
-        </article>
-      </aside>
-    </section>}
+      <article className="card">
+        <div className="card-head"><div><h2 className="card-title">Локальная база для сравнения</h2><p className="card-note">То, с чем сравниваем платные API-модели.</p></div></div>
+        <div className="mode-board">
+          <div className="mode-card"><strong>Локальный Flux 2 Klein 4B</strong><span>Массовый бесплатный txt2img/i2i.</span><span>OpenRouter аналог: black-forest-labs/flux.2-klein-4b = $0.014/MP (~{(0.014 * USD_RUB).toFixed(2)} ₽).</span><small>Локальная себестоимость у нас пока не посчитана: нужен расчет электричество/GPU/амортизация.</small></div>
+          <div className="mode-card"><strong>Локальный Flux 2 Klein 9B</strong><span>Редактор, лицо, pose через DWPose + LoRA.</span><span>API-кандидаты дороже и требуют тестов на reference consistency.</span><small>Этот локальный слой должен оставаться в Config UI, а не в API-моделях.</small></div>
+        </div>
+      </article>
+    </>}
   </div>
 }
