@@ -42,7 +42,7 @@ type PageData = {
   comfyuiAvailable: boolean
   openrouter: {
     keyConfigured: boolean
-    status?: { ok?: boolean; configured?: boolean; source?: string; status_code?: number; error?: unknown; data?: Record<string, unknown> }
+    status?: { ok?: boolean; configured?: boolean; source?: string; status_code?: number; error?: unknown; data?: Record<string, unknown>; credits?: Record<string, unknown> }
     usage?: {
       pricedImages?: number
       totalCostUsd?: number
@@ -60,7 +60,9 @@ type PageData = {
 type OpenRouterConfig = { enabled?: Record<string, string[]>; defaults?: Record<string, string> }
 type OpenRouterTestResult = { image?: { url?: string; thumbnailUrl?: string }; costUsd?: number | null; model?: string; usage?: Record<string, unknown> }
 
-const USD_RUB = 100
+const USD_RUB_BASE = 100
+const USD_FEE_RATE = 0.30
+const USD_RUB = USD_RUB_BASE * (1 + USD_FEE_RATE)
 const TOKEN_RUB = 5
 type ApiImageModel = {
   id: string; name: string; provider: string; input: string; output: string; params: string; pricing: string
@@ -213,6 +215,11 @@ const usageModelMap = (models?: Array<Record<string, unknown>>) => new Map((mode
 const usageModeMap = (modes?: Array<Record<string, unknown>>) => new Map((modes || []).map((item) => [String(item.mode || ''), item]))
 const modelStatText = (value: unknown, suffix = '') => typeof value === 'number' ? `${value}${suffix}` : '—'
 const moneyPair = (usdValue: unknown) => typeof usdValue === 'number' ? `${rub(usdValue)} - $${usdValue.toFixed(4)}` : '—'
+const projectTokensForUsd = (usdValue: unknown) => typeof usdValue === 'number' ? Math.ceil((usdValue * USD_RUB) / TOKEN_RUB) : null
+const tokensText = (usdValue: unknown) => {
+  const tokens = projectTokensForUsd(usdValue)
+  return tokens === null ? '—' : `${tokens} ток.`
+}
 const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState) => [...rows].sort((a, b) => {
   let result = 0
   if (sort.key === 'name') result = modelShortName(a).localeCompare(modelShortName(b), 'ru')
@@ -249,6 +256,10 @@ const CSS = `
 .amv2 .page-tabs{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto}
 .amv2 .page-tabs button{min-height:38px;border:1px solid var(--line-strong);border-radius:var(--radius);padding:0 14px;background:rgba(255,255,255,.04);color:var(--muted);font-weight:650;white-space:nowrap}
 .amv2 .page-tabs button.active{background:var(--lime);border-color:var(--lime);color:#080a07}
+.amv2 .tab-status{margin-left:auto;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.amv2 .status-dot{width:9px;height:9px;border-radius:50%;background:var(--red);box-shadow:0 0 0 3px rgba(255,116,121,.12)}
+.amv2 .status-dot.ok{background:var(--green);box-shadow:0 0 0 3px rgba(112,221,120,.12)}
+.amv2 .status-dot.warn{background:var(--yellow);box-shadow:0 0 0 3px rgba(216,187,97,.12)}
 .amv2 .status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:12px}
 .amv2 .status-card{border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.035);padding:12px;display:grid;gap:6px;align-content:start}
 .amv2 .status-card strong{font-size:13px}.amv2 .status-card span{font-size:22px;font-weight:700}.amv2 .status-card small{color:var(--muted);overflow-wrap:anywhere}
@@ -267,16 +278,19 @@ const CSS = `
 .amv2 .or-test{border:1px solid rgba(234,255,16,.18);border-radius:var(--radius);background:rgba(234,255,16,.04);padding:8px;display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;align-items:center}
 .amv2 .or-test img{width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
 .amv2 .or-test strong{font-size:12px}.amv2 .or-test span{display:block;margin-top:4px;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
-.amv2 .or-stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;padding:12px;border-bottom:1px solid var(--line)}
+.amv2 .or-stats{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;padding:0 0 12px;border-bottom:1px solid var(--line)}
 .amv2 .or-stat{border:1px solid var(--line);border-radius:var(--radius);padding:10px;background:rgba(255,255,255,.032)}
 .amv2 .or-stat span{display:block;color:var(--muted);font-size:11px;font-weight:650}.amv2 .or-stat strong{display:block;margin-top:5px;font-size:15px;color:var(--lime);font-weight:700}
 .amv2 .mode-board{padding:12px;display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:10px}
 .amv2 .mode-card{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.032);display:grid;gap:8px;align-content:start}
 .amv2 .mode-card strong{font-size:13px}.amv2 .mode-card span{color:var(--muted);font-size:12px;line-height:1.35}
-.amv2 .api-count{display:flex;align-items:center;gap:8px;white-space:nowrap}
-.amv2 .api-section-head{width:100%;border:0;background:transparent;color:inherit;text-align:left;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:14px}
+.amv2 .api-count{display:flex;align-items:center;gap:8px;white-space:nowrap;justify-content:flex-end}
+.amv2 .api-section-head{width:100%;border:0;background:transparent;color:inherit;text-align:left;display:grid;grid-template-columns:minmax(220px,1.3fr) repeat(5,minmax(100px,.7fr)) minmax(170px,1fr) minmax(170px,1fr);gap:10px;align-items:center;padding:10px 14px}
 .amv2 .api-section-head .card-title::before{content:"▾";display:inline-block;margin-right:8px;color:var(--lime)}
 .amv2 .api-section-head.collapsed .card-title::before{content:"▸"}
+.amv2 .section-cell{display:grid;gap:2px;min-width:0}
+.amv2 .section-cell span{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+.amv2 .section-cell strong{font-size:12px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .amv2 .api-table{min-width:980px}
 .amv2 .api-table td,.amv2 .api-table th{vertical-align:middle}
 .amv2 .api-table th{padding:6px 8px}
@@ -364,8 +378,8 @@ const CSS = `
 .amv2 .actions{display:flex;gap:8px}
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
-@media (max-width:1360px){.amv2 .dashboard{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats{grid-template-columns:1fr}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .mobile-models{display:grid}}
+@media (max-width:1360px){.amv2 .dashboard{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head{grid-template-columns:1fr}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .mobile-models{display:grid}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats{grid-template-columns:1fr}}
 `
 
@@ -533,6 +547,8 @@ export default function AdminModelsV2() {
 
   const orStatus = data.openrouter.status || {}
   const orData = orStatus.data || {}
+  const orCredits = orStatus.credits || {}
+  const orCreditsData = orCredits.data && typeof orCredits.data === 'object' ? orCredits.data as Record<string, unknown> : {}
   const orStatusClass = orStatus.ok ? 'key-ok' : orStatus.configured ? 'key-bad' : 'key-warn'
   const orStatusText = orStatus.ok ? 'работает' : orStatus.configured ? 'ключ есть, проверка не прошла' : 'ключ не сохранён'
   const orLimit = orData.limit === null || orData.limit === undefined ? 'без лимита / не задан' : moneyUsdText(orData.limit)
@@ -544,7 +560,14 @@ export default function AdminModelsV2() {
   const avgMpPair = typeof data.openrouter.usage?.avgCostPerMpUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostPerMpUsd) : '—'
   const favoriteOverall = (data.openrouter.usage?.models || [])[0]
   const favoriteOverallName = modelLabelById(favoriteOverall?.model)
-  const balanceText = orData.limit_remaining === null || orData.limit_remaining === undefined ? 'баланс API не отдаёт' : moneyUsdText(orData.limit_remaining)
+  const creditsBalance = typeof orCredits.balance === 'number' ? orCredits.balance : null
+  const balanceText = creditsBalance !== null
+    ? moneyPair(creditsBalance)
+    : orCredits.status_code === 403
+      ? 'нужен management key'
+      : orData.limit_remaining === null || orData.limit_remaining === undefined ? 'лимит не задан' : moneyUsdText(orData.limit_remaining)
+  const effectiveRateText = `$1 = ${USD_RUB_BASE} ₽ + ${Math.round(USD_FEE_RATE * 100)}% = ${USD_RUB.toFixed(0)} ₽`
+  const spentTokensText = tokensText(data.openrouter.usage?.totalCostUsd)
 
   return <div className="amv2">
     <style>{CSS}</style>
@@ -552,6 +575,11 @@ export default function AdminModelsV2() {
     <div className="page-tabs" aria-label="Разделы моделей">
       <button className={pageTab === 'api' ? 'active' : ''} onClick={() => setPageTab('api')}>OpenRouter</button>
       <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Config UI</button>
+      {pageTab === 'api' && <div className="tab-status">
+        <span className={`status-dot ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : ''}`} aria-hidden="true" />
+        <span className={`state ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{orStatus.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
+        <span className="state">{effectiveRateText}</span>
+      </div>}
     </div>
 
     {pageTab === 'config' && <>
@@ -657,17 +685,11 @@ export default function AdminModelsV2() {
     </>}
 
     {pageTab === 'api' && <>
-      <article className="card">
-        <div className="card-head">
-          <div><h2 className="card-title">OpenRouter</h2><p className="card-note">Себестоимость, токены проекта и включение моделей по режимам.</p></div>
-          <span className={`state ${data.openrouter.status?.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{data.openrouter.status?.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
-        </div>
-      </article>
-
       <div className="or-stats">
-        <div className="or-stat"><span>Баланс / лимит</span><strong>{balanceText}</strong></div>
+        <div className="or-stat"><span>Баланс OpenRouter</span><strong>{balanceText}</strong></div>
         <div className="or-stat"><span>Сгенерировано картинок</span><strong>{data.openrouter.usage?.pricedImages || 0}</strong></div>
         <div className="or-stat"><span>Потрачено всего</span><strong>{totalSpentPair}</strong></div>
+        <div className="or-stat"><span>Списано токенов</span><strong>{spentTokensText}</strong></div>
         <div className="or-stat"><span>Средняя за картинку</span><strong>{avgImagePair}</strong></div>
         <div className="or-stat"><span>Средняя за 1MP</span><strong>{avgMpPair}</strong></div>
         <div className="or-stat"><span>Фаворит по генерациям</span><strong>{favoriteOverallName}</strong></div>
@@ -686,6 +708,9 @@ export default function AdminModelsV2() {
         const sectionStats = orUsageModes.get(section.id)
         const sectionCount = typeof sectionStats?.count === 'number' ? sectionStats.count : 0
         const sectionSpent = typeof sectionStats?.costUsd === 'number' ? moneyPair(sectionStats.costUsd) : '—'
+        const sectionAvg = typeof sectionStats?.avgCostUsd === 'number' ? moneyPair(sectionStats.avgCostUsd) : '—'
+        const sectionAvgMp = typeof sectionStats?.avgCostPerMpUsd === 'number' ? moneyPair(sectionStats.avgCostPerMpUsd) : '—'
+        const sectionTokens = tokensText(sectionStats?.costUsd)
         const sectionFavorite = modelLabelById(sectionStats?.favoriteModel)
         const rows = OPENROUTER_IMAGE_MODELS
           .filter(section.filter)
@@ -696,10 +721,15 @@ export default function AdminModelsV2() {
         const sortedRows = sortedApiRows(rows, sort)
         return <article className="card" key={section.id}>
           <button className={`api-section-head ${sectionOpen ? '' : 'collapsed'}`} onClick={() => setApiSectionsOpen((prev) => ({ ...prev, [section.id]: !sectionOpen }))}>
-            <div>
+            <div className="section-cell">
               <h2 className="card-title">{section.title}</h2>
-              <p className="card-note">{sectionCount} картинок · {sectionSpent} · фаворит: {sectionFavorite}</p>
             </div>
+            <div className="section-cell"><span>Сген.</span><strong>{sectionCount}</strong></div>
+            <div className="section-cell"><span>Средняя</span><strong>{sectionAvg}</strong></div>
+            <div className="section-cell"><span>Средняя 1MP</span><strong>{sectionAvgMp}</strong></div>
+            <div className="section-cell"><span>Токены</span><strong>{sectionTokens}</strong></div>
+            <div className="section-cell"><span>Потрачено</span><strong>{sectionSpent}</strong></div>
+            <div className="section-cell"><span>Фаворит</span><strong>{sectionFavorite}</strong></div>
             <div className="api-count">
               <span className="state ok">{rows.length} моделей</span>
               <span className={`state ${enabledForSection.length ? 'ok' : 'warn'}`}>{enabledForSection.length ? `${enabledForSection.length} включено` : 'не включено'}</span>
@@ -802,7 +832,11 @@ export default function AdminModelsV2() {
                 <div className="key-status-row"><span>Метка ключа</span><strong>{valueText(orData.label)}</strong></div>
                 <div className="key-status-row"><span>Usage месяц</span><strong>{moneyUsdText(orData.usage_monthly)}</strong></div>
                 <div className="key-status-row"><span>Лимит / остаток</span><strong>{orLimit} / {orRemaining}</strong></div>
+                <div className={`key-status-row ${orCredits.ok ? 'key-ok' : 'key-warn'}`}><span>Credits API</span><strong>{orCredits.ok ? 'management key работает' : orCredits.status_code === 403 ? 'нужен management key' : valueText(orCredits.status_code)}</strong></div>
+                <div className="key-status-row"><span>Баланс credits</span><strong>{creditsBalance !== null ? moneyPair(creditsBalance) : '—'}</strong></div>
+                <div className="key-status-row"><span>Кредиты / usage</span><strong>{moneyUsdText(orCreditsData.total_credits)} / {moneyUsdText(orCreditsData.total_usage)}</strong></div>
                 {!orStatus.ok && orStatus.error ? <div className="key-status-row key-bad"><span>Ошибка</span><strong>{openrouterErrorText(orStatus.error)}</strong></div> : null}
+                {!orCredits.ok && orCredits.error ? <div className="key-status-row key-warn"><span>Credits ошибка</span><strong>{openrouterErrorText(orCredits.error)}</strong></div> : null}
               </div>
             </details>
             {openrouterTestResult?.image?.thumbnailUrl ? <div className="or-test">
