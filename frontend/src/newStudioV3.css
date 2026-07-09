@@ -1291,6 +1291,10 @@ display: grid;
 grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
 gap: 6px;
 }
+.iv3 .paint-tools-body {
+display: grid;
+gap: 6px;
+}
 .iv3 .paint-sidebar-tools {
 display: none;
 grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
@@ -1300,8 +1304,8 @@ gap: 6px;
 display: none;
 width: 100%;
 min-height: 38px;
+grid-template-columns: auto minmax(0, 1fr) auto;
 align-items: center;
-justify-content: space-between;
 gap: 10px;
 padding: 0 12px;
 border: 1px solid rgba(182, 207, 18, .28);
@@ -1970,13 +1974,28 @@ backdrop-filter: blur(12px);
 display: none;
 }
 .iv3 .paint-mode-tabs {
-display: flex;
+display: grid;
+grid-template-columns: repeat(4, minmax(0, 1fr));
+padding: 0 3px;
+overflow: visible;
 }
 .iv3 .paint-tab-label {
-font-size: 10.4px;
+font-size: 9.4px;
+line-height: 1.05;
 }
 .iv3 .paint-tab-state {
-font-size: 8px;
+font-size: 7.4px;
+line-height: 1.05;
+max-width: 100%;
+overflow: hidden;
+text-overflow: ellipsis;
+white-space: nowrap;
+}
+.iv3 .paint-mode-tabs button {
+min-width: 0;
+height: 45px;
+padding: 6px 3px 8px;
+border-radius: 8px 8px 0 0;
 }
 .iv3 .paint-mode-panel {
 padding: 8px 7px 7px;
@@ -1986,14 +2005,17 @@ gap: 6px;
 display: none;
 }
 .iv3 .paint-tools-toggle {
-display: inline-flex;
+display: grid;
+}
+.iv3 .paint-tools-body {
+display: none;
+}
+.iv3 .paint-tools-body.is-open {
+display: grid;
 }
 .iv3 .paint-sidebar-tools {
-display: none;
-grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-.iv3 .paint-sidebar-tools.is-open {
 display: grid;
+grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 .iv3 .paint-tool-color.paint-mobile-color {
 display: inline-grid;
@@ -4791,7 +4813,7 @@ font-size: 9px;
     display: none;
   }
   .iv3 .paint-mode-tabs {
-    display: flex;
+    display: grid;
   }
   .iv3 .paint-workbench.mode-sketch .paint-workbench-actions {
     top: 10px;

@@ -21,14 +21,15 @@ class DemoAuthor:
     internal_id: str
     username: str
     display_name: str
+    avatar_preset: str
 
 
 DEMO_AUTHORS = [
-    DemoAuthor("seed_author_mira", "seed_author_mira", "mira_izo", "Мира Соколова"),
-    DemoAuthor("seed_author_lev", "seed_author_lev", "lev_arch", "Лев Орлов"),
-    DemoAuthor("seed_author_alisa", "seed_author_alisa", "alisa_neon", "Алиса Ветрова"),
-    DemoAuthor("seed_author_tim", "seed_author_tim", "timur_frame", "Тимур Ким"),
-    DemoAuthor("seed_author_nika", "seed_author_nika", "nika_art", "Ника Ларина"),
+    DemoAuthor("seed_author_mira", "seed_author_mira", "mira_izo", "Мира Соколова", "avatar-012"),
+    DemoAuthor("seed_author_lev", "seed_author_lev", "lev_arch", "Лев Орлов", "avatar-027"),
+    DemoAuthor("seed_author_alisa", "seed_author_alisa", "alisa_neon", "Алиса Ветрова", "avatar-034"),
+    DemoAuthor("seed_author_tim", "seed_author_tim", "timur_frame", "Тимур Ким", "avatar-046"),
+    DemoAuthor("seed_author_nika", "seed_author_nika", "nika_art", "Ника Ларина", "avatar-063"),
 ]
 
 CHALLENGE_PUBLICATION_IDS = {
@@ -98,9 +99,10 @@ def migrate_seed_demo_feed(*, apply: bool = False) -> dict[str, Any]:
                     """
                     INSERT OR IGNORE INTO users (
                         id, username, first_name, display_name, language, role, plan,
-                        token_balance, gallery_enabled, internal_user_id, created_at, last_login_at
+                        token_balance, gallery_enabled, internal_user_id, avatar_url, avatar_preset,
+                        created_at, last_login_at
                     )
-                    VALUES (?, ?, ?, ?, 'ru', 'user', 'mini', 0, 0, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, 'ru', 'user', 'mini', 0, 0, ?, ?, ?, ?, ?)
                     """,
                     (
                         author.legacy_id,
@@ -108,9 +110,19 @@ def migrate_seed_demo_feed(*, apply: bool = False) -> dict[str, Any]:
                         author.display_name.split()[0],
                         author.display_name,
                         author.internal_id,
+                        f"/avatars/{author.avatar_preset}.webp",
+                        author.avatar_preset,
                         now,
                         now,
                     ),
+                )
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET avatar_url = ?, avatar_preset = ?
+                    WHERE internal_user_id = ?
+                    """,
+                    (f"/avatars/{author.avatar_preset}.webp", author.avatar_preset, author.internal_id),
                 )
             for item in plan:
                 conn.execute(

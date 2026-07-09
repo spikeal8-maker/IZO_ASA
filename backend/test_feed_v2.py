@@ -154,6 +154,8 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "modalDeleteBtn" in r.text
         assert "modalEditBtn" in r.text
         assert "detailOwnerActions" in r.text
+        assert "signalFilter" in r.text
+        assert "Лайкнутые" in r.text
         assert "authorNotifyBtn" in r.text
         assert "/api/me-v2" in r.text
         assert "arrangeModalForViewport" in r.text
@@ -185,6 +187,9 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "--more-ratio" in r.text
         assert "modalSaveBtn" in r.text
         assert "detail-icon save" in r.text
+        assert "detail-management" in r.text
+        assert "detail-secondary" not in r.text
+        assert "detail-owner-actions" not in r.text
         assert "избранных" in r.text
         assert "view_count" in r.text
         assert "/view" in r.text
@@ -193,6 +198,8 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "История создания" not in r.text
         assert "modalHistory" in r.text
         assert "function renderSourceHistory(item)" in r.text
+        assert "tab-explainer" not in r.text
+        assert "скрыт автором" not in r.text
         assert "Работы автора появятся во вкладке Подписки" in r.text
         assert "Снять вашу публикацию с публичной ленты" in r.text
         assert "feedbar.feedbar-hidden" in r.text
@@ -204,6 +211,9 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         asset = client.get("/static/feed/assets/mode_text.webp")
         assert asset.status_code == 200
         assert asset.headers["content-type"] == "image/webp"
+        avatar = client.get("/avatars/avatar-001.webp")
+        assert avatar.status_code == 200
+        assert avatar.headers["content-type"] == "image/webp"
 
 
 def test_publish_foreign_image_denied_and_logged(temp_db):
@@ -1279,6 +1289,14 @@ def test_seed_demo_migrate_assigns_demo_authors_and_reactions(temp_db):
         authors = conn.execute(
             "SELECT COUNT(*) AS c FROM users WHERE id LIKE 'seed_author_%'"
         ).fetchone()["c"]
+        author_avatars = conn.execute(
+            """
+            SELECT COUNT(*) AS c FROM users
+            WHERE id LIKE 'seed_author_%'
+              AND avatar_preset LIKE 'avatar-%'
+              AND avatar_url LIKE '/avatars/avatar-%.webp'
+            """
+        ).fetchone()["c"]
     assert seed["internal_user_id"].startswith("seed_author_")
     assert seed["legacy_user_id"].startswith("seed_author_")
     assert seed["category"] == "challenge_moscow_2120"
@@ -1287,3 +1305,4 @@ def test_seed_demo_migrate_assigns_demo_authors_and_reactions(temp_db):
     assert real["legacy_user_id"] == "web_real"
     assert reactions > 0
     assert authors == len(feed_seed_demo_migrate.DEMO_AUTHORS)
+    assert author_avatars == len(feed_seed_demo_migrate.DEMO_AUTHORS)

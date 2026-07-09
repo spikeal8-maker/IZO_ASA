@@ -115,10 +115,14 @@ export default function ProfilePage({
   const tokenBalance = Number(account?.token_balance ?? 0)
   const dailyLimit = Number(account?.daily_tokens_limit ?? account?.daily_tokens ?? currentTariff.daily_tokens)
   const dailyUsed = Math.max(0, Number(account?.daily_tokens_used ?? 0))
-  const dailyRemaining = Math.max(0, Number(account?.daily_tokens_remaining ?? dailyLimit - dailyUsed))
+  const dailyAvailable = Math.max(0, Number(account?.daily_tokens_remaining ?? dailyLimit - dailyUsed))
   const gallerySlots = Number(account?.gallery_slots ?? currentTariff.gallery_slots)
   const galleryUsed = Number(account?.gallery_used ?? galleryCount)
   const galleryFree = Math.max(0, Number(account?.gallery_free ?? gallerySlots - galleryUsed))
+  const videoEnabled = Boolean(account?.video_enabled ?? currentTariff.video_enabled)
+  const videoSlots = Number(account?.video_slots ?? currentTariff.video_slots)
+  const videoUsed = Math.max(0, Number(account?.video_used ?? 0))
+  const videoFree = Math.max(0, Number(account?.video_free ?? videoSlots - videoUsed))
   const feedLikes = Number((account as { feed_likes?: number | null; likes_received?: number | null } | undefined)?.feed_likes ?? (account as { likes_received?: number | null } | undefined)?.likes_received ?? 0)
   const displayEmail = me?.identities?.find((i) => i.provider_email)?.provider_email
   const telegramIdentity = me?.identities?.find((i) => i.provider === 'telegram')
@@ -144,14 +148,32 @@ export default function ProfilePage({
       setCodeCopied(false)
     }
   }
-  const planCards = tariffKeys.map((id) => ({
-    id,
-    title: id[0].toUpperCase() + id.slice(1),
-    note: id === 'free' ? 'Базовый доступ' : id === 'mini' ? 'Оптимальный старт' : id === 'plus' ? 'Больше возможностей' : 'Максимум мощности',
-    daily: tariffs[id].daily_tokens,
-    slots: tariffs[id].gallery_slots,
-    features: ['Галерея открыта', `${tariffs[id].gallery_slots} слот(ов) галереи`, `${tariffs[id].daily_tokens} токенов в сутки`],
-  }))
+  const planTitles: Record<TariffKey, string> = { free: 'Free', mini: 'Mini', plus: 'Plus', pro: 'Pro', business: 'Бизнес' }
+  const planNotes: Record<TariffKey, string> = {
+    free: 'Базовый доступ',
+    mini: 'Оптимальный старт',
+    plus: 'Больше возможностей',
+    pro: 'Видео и приоритет',
+    business: 'Для команды и видео',
+  }
+  const planCards = tariffKeys.map((id) => {
+    const tariff = tariffs[id] || DEFAULT_TARIFFS[id]
+    return {
+      id,
+      title: planTitles[id],
+      note: planNotes[id],
+      daily: tariff.daily_tokens,
+      slots: tariff.gallery_slots,
+      videoSlots: tariff.video_slots,
+      videoEnabled: tariff.video_enabled,
+      features: [
+        'Галерея открыта',
+        `${tariff.gallery_slots} слот(ов) галереи`,
+        `${tariff.daily_tokens} токенов в сутки`,
+        tariff.video_enabled ? `Видео открыто · ${tariff.video_slots} сохранений` : 'Видео недоступно',
+      ],
+    }
+  })
 
   return (
     <section className="profile-page">
@@ -212,7 +234,7 @@ export default function ProfilePage({
                   </div>
                 </div>
                 <div className="profile-metrics">
-                  <div><strong>{dailyUsed}/{dailyLimit}</strong><span>Токены</span><small>осталось {dailyRemaining}</small></div>
+                  <div><strong>{dailyAvailable}/{dailyLimit}</strong><span>Токены</span><small>потрачено {dailyUsed}</small></div>
                   <div><strong>{tokenBalance}</strong><span>Баланс</span><small>доступно</small></div>
                   <div><strong>{galleryUsed}/{gallerySlots}</strong><span>Галерея</span><small>свободно {galleryFree}</small></div>
                   <div><strong>{feedLikes}</strong><span>Лайки</span><small>в ленте</small></div>
@@ -274,8 +296,9 @@ export default function ProfilePage({
             <section className="profile-section">
               <div className="profile-tariff-summary profile-card">
                 <div><span>Текущий тариф</span><strong>{planLabel}</strong></div>
-                <div><span>Токены сегодня</span><strong>{dailyUsed} / {dailyLimit}</strong></div>
+                <div><span>Токены сегодня</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></div>
                 <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
+                <div><span>Видео</span><strong>{videoEnabled ? `${videoUsed}/${videoSlots}` : 'Закрыто'}</strong><small>{videoEnabled ? `свободно ${videoFree}` : 'доступно с Pro'}</small></div>
                 <button type="button" className="profile-primary" disabled>Управление тарифом скоро</button>
               </div>
               <div className="profile-plans">
@@ -283,13 +306,20 @@ export default function ProfilePage({
                   <article className={`${item.id === activePlan ? 'profile-card profile-plan active current' : 'profile-card profile-plan'}`} key={item.id}>
                     {item.id === activePlan && <span className="profile-chip current">Текущий</span>}
                     <h4>{item.title}</h4><p>{item.note}</p><strong>{item.daily}</strong><span>токенов в сутки · {item.slots} слот(ов)</span>
+                    <span>{item.videoEnabled ? `Видео: ${item.videoSlots} сохранений` : 'Видео закрыто'}</span>
                     <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
                     <button type="button" disabled>{item.id === activePlan ? 'Текущий тариф' : 'Смена тарифа скоро'}</button>
                   </article>
                 ))}
               </div>
             </section>
-            <section className="profile-card profile-compare"><div>Функции</div><div>FREE</div><div>MINI</div><div>PLUS</div><div>PRO</div><span>Токены в сутки</span><b>{tariffs.free.daily_tokens}</b><b>{tariffs.mini.daily_tokens}</b><b>{tariffs.plus.daily_tokens}</b><b>{tariffs.pro.daily_tokens}</b><span>Галерея</span><b>{tariffs.free.gallery_slots}</b><b>{tariffs.mini.gallery_slots}</b><b>{tariffs.plus.gallery_slots}</b><b>{tariffs.pro.gallery_slots}</b></section>
+            <section className="profile-card profile-compare">
+              <div>Функции</div>{tariffKeys.map((key) => <div key={key}>{planTitles[key]}</div>)}
+              <span>Токены в сутки</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].daily_tokens}</b>)}
+              <span>Галерея</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].gallery_slots}</b>)}
+              <span>Видео</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].video_enabled ? 'Открыто' : 'Нет'}</b>)}
+              <span>Хранение видео</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].video_slots}</b>)}
+            </section>
           </>}
 
           {profileTab === 'earn' && <>
@@ -305,7 +335,7 @@ export default function ProfilePage({
 
           {profileTab === 'models' && <>
             <section className="profile-section">
-              <div className="profile-model-summary"><article className="profile-card profile-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article><article className="profile-card profile-stat-card"><span>Дневной лимит</span><strong>{dailyUsed} / {dailyLimit}</strong><small>осталось {dailyRemaining}</small></article><article className="profile-card profile-stat-card"><span>Модель по умолчанию</span><strong>{quality === 'fast' ? 'Быстрая' : quality === 'standard' ? 'Стандарт' : 'Максимум'}</strong><small>рекомендуется</small></article><article className="profile-card profile-stat-card"><span>Стоимость</span><strong>{tokenPrice}</strong><small>{tokenPrice === 1 ? 'токен' : 'токена'}</small></article></div>
+              <div className="profile-model-summary"><article className="profile-card profile-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article><article className="profile-card profile-stat-card"><span>Дневной лимит</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></article><article className="profile-card profile-stat-card"><span>Модель по умолчанию</span><strong>{quality === 'fast' ? 'Быстрая' : quality === 'standard' ? 'Стандарт' : 'Максимум'}</strong><small>рекомендуется</small></article><article className="profile-card profile-stat-card"><span>Стоимость</span><strong>{tokenPrice}</strong><small>{tokenPrice === 1 ? 'токен' : 'токена'}</small></article></div>
               <div className="profile-section-head"><h3>Модели и стоимость</h3><span>Стоимость будет показана перед генерацией</span></div>
               <div className="profile-models">
                 <button type="button" className={quality === 'fast' ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality('fast')}><Sparkles size={26} /><b>Быстрая</b><span>1 токен</span></button>

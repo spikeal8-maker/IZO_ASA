@@ -2515,13 +2515,13 @@ button.profile-chip { cursor: pointer; }
 .profile-plan-tabs button { border-radius: 0; border-width: 0 1px 0 0; min-height: 48px; background: rgba(255,255,255,.04); color: #98a19a; }
 .profile-plan-tabs button:last-child { border-right: 0; }
 .profile-plan-tabs button.active { background: var(--n2-lime); color: #071006; }
-.profile-plans { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.profile-plans { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
 .profile-plan { position: relative; padding: 20px; display: grid; gap: 10px; align-content: start; }
 .profile-plan.active { border-color: rgba(236,255,47,.9); box-shadow: 0 0 0 1px rgba(236,255,47,.26), 0 20px 70px rgba(236,255,47,.1); }
 .profile-plan.current:not(.active) { border-color: rgba(236,255,47,.36); }
-.profile-plan h4 { margin: 0; color: #f2f5ee; font-size: 27px; text-transform: uppercase; }
+.profile-plan h4 { margin: 0; color: #f2f5ee; font-size: 24px; text-transform: uppercase; }
 .profile-plan p { margin: 0; min-height: 0; color: #98a19a; }
-.profile-plan > strong { color: var(--n2-lime); font-size: 48px; line-height: .9; }
+.profile-plan > strong { color: var(--n2-lime); font-size: 42px; line-height: .9; }
 .profile-plan > span:not(.profile-chip) { color: #98a19a; font-size: 13px; }
 .profile-plan ul { list-style: none; padding: 0; margin: 6px 0; display: grid; gap: 8px; color: #98a19a; font-size: 14px; }
 .profile-plan li { display: flex; align-items: center; gap: 8px; }
@@ -2559,9 +2559,9 @@ button.profile-chip { cursor: pointer; }
 .profile-stat-card { padding: 22px; display: grid; gap: 8px; align-content: center; min-height: 120px; }
 .profile-stat-card span, .profile-tariff-summary span, .profile-earn-hero span { color: #b4bbb8; font-size: 14px; }
 .profile-stat-card strong, .profile-tariff-summary strong, .profile-earn-hero strong { color: var(--n2-lime); font-size: 30px; line-height: 1; overflow-wrap: anywhere; }
-.profile-tariff-summary { padding: 18px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 18px; align-items: center; }
+.profile-tariff-summary { padding: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 18px; align-items: center; }
 .profile-tariff-summary div { display: grid; gap: 6px; padding-right: 18px; border-right: 1px solid rgba(255,255,255,.08); }
-.profile-compare { display: grid; grid-template-columns: minmax(140px, 1.1fr) repeat(4, minmax(100px, 1fr)); overflow-x: auto; }
+.profile-compare { display: grid; grid-template-columns: minmax(140px, 1.1fr) repeat(5, minmax(100px, 1fr)); overflow-x: auto; }
 .profile-compare > * { min-height: 42px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.07); color: #d9dfdc; }
 .profile-compare div { color: #f2f5ee; font-weight: 950; }
 .profile-compare b { color: var(--n2-lime); }

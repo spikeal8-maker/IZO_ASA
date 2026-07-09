@@ -41,6 +41,17 @@ GALLERY_PAGE_FILE = STATIC_DIR / "gallery" / "index.html"
 FEED_PAGE_FILE = STATIC_DIR / "feed" / "index.html"
 AVATAR_DIR = MEDIA / "avatars"
 AVATAR_DIR.mkdir(exist_ok=True)
+AVATAR_PRESET_DIR = next(
+    (
+        path
+        for path in (
+            ROOT.parent / "frontend" / "public" / "avatars",
+            ROOT.parent / "frontend" / "dist" / "avatars",
+        )
+        if path.exists()
+    ),
+    None,
+)
 COMFYUI_INPUT_MAX_SIDE = max(512, min(2048, int(os.getenv("COMFYUI_INPUT_MAX_SIDE", "1536"))))
 COMFYUI_FACE_INPUT_MAX_SIDE = max(512, min(COMFYUI_INPUT_MAX_SIDE, int(os.getenv("COMFYUI_FACE_INPUT_MAX_SIDE", "1024"))))
 COMFYUI_FACE_SOURCE_MEGAPIXELS = max(0.15, min(1.0, float(os.getenv("COMFYUI_FACE_SOURCE_MEGAPIXELS", "0.35"))))
@@ -223,6 +234,8 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/media", StaticFiles(directory=MEDIA), name="media")
+if AVATAR_PRESET_DIR is not None:
+    app.mount("/avatars", StaticFiles(directory=AVATAR_PRESET_DIR), name="avatars")
 
 
 @app.get("/", include_in_schema=False)
@@ -439,7 +452,7 @@ class AdminTokensV2Request(BaseModel):
 
 
 class AdminPlanV2Request(BaseModel):
-    plan: Literal["free", "mini", "plus", "pro"]
+    plan: Literal["free", "mini", "plus", "pro", "business"]
     reason: str = ""
 
 
@@ -603,14 +616,14 @@ class AdminUserRequest(BaseModel):
     country: str | None = None
     city: str | None = None
     role: Literal["user", "admin"] = "user"
-    plan: Literal["free", "mini", "plus", "pro"] = "mini"
+    plan: Literal["free", "mini", "plus", "pro", "business"] = "mini"
     tokenBalance: int = Field(default=50, ge=0, le=1_000_000)
     galleryEnabled: bool = True
 
 
 class AdminUserUpdateRequest(BaseModel):
     role: Literal["user", "admin"] | None = None
-    plan: Literal["free", "mini", "plus", "pro"] | None = None
+    plan: Literal["free", "mini", "plus", "pro", "business"] | None = None
     tokenBalance: int | None = Field(default=None, ge=0, le=1_000_000)
     galleryEnabled: bool | None = None
     banned: bool | None = None
@@ -641,12 +654,13 @@ class AdminSettingsRequest(BaseModel):
 
 rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
-PLAN_ORDER = ("free", "mini", "plus", "pro")
+PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
 DEFAULT_TARIFFS: dict[str, dict[str, int]] = {
-    "free": {"daily_tokens": 10, "gallery_slots": 1},
-    "mini": {"daily_tokens": 50, "gallery_slots": 10},
-    "plus": {"daily_tokens": 100, "gallery_slots": 50},
-    "pro": {"daily_tokens": 200, "gallery_slots": 100},
+    "free": {"daily_tokens": 10, "gallery_slots": 1, "video_enabled": 0, "video_slots": 0},
+    "mini": {"daily_tokens": 50, "gallery_slots": 10, "video_enabled": 0, "video_slots": 0},
+    "plus": {"daily_tokens": 100, "gallery_slots": 50, "video_enabled": 0, "video_slots": 0},
+    "pro": {"daily_tokens": 200, "gallery_slots": 100, "video_enabled": 1, "video_slots": 10},
+    "business": {"daily_tokens": 500, "gallery_slots": 500, "video_enabled": 1, "video_slots": 50},
 }
 
 
@@ -3176,6 +3190,12 @@ def _user_is_banned(conn: sqlite3.Connection, internal_user_id: str | None, lega
         return False
 
 
+def _boolish(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "да"}
+    return bool(value)
+
+
 def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[str, dict[str, int]]:
     if strict and (not isinstance(raw, dict) or not raw):
         raise HTTPException(400, "Tariff config must not be empty.")
@@ -3189,19 +3209,25 @@ def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[s
         source = data.get(plan) if isinstance(data.get(plan), dict) else {}
         daily = source.get("daily_tokens", source.get("dailyTokens", DEFAULT_TARIFFS[plan]["daily_tokens"]))
         slots = source.get("gallery_slots", source.get("gallerySlots", DEFAULT_TARIFFS[plan]["gallery_slots"]))
+        video_enabled = source.get("video_enabled", source.get("videoEnabled", DEFAULT_TARIFFS[plan]["video_enabled"]))
+        video_slots = source.get("video_slots", source.get("videoSlots", DEFAULT_TARIFFS[plan]["video_slots"]))
         try:
             daily_int = int(daily)
             slots_int = int(slots)
+            video_slots_int = int(video_slots)
         except (TypeError, ValueError):
             if strict:
                 raise HTTPException(400, f"Invalid tariff values for {plan}.")
             daily_int = DEFAULT_TARIFFS[plan]["daily_tokens"]
             slots_int = DEFAULT_TARIFFS[plan]["gallery_slots"]
-        if strict and (daily_int < 0 or slots_int < 0):
+            video_slots_int = DEFAULT_TARIFFS[plan]["video_slots"]
+        if strict and (daily_int < 0 or slots_int < 0 or video_slots_int < 0):
             raise HTTPException(400, f"Tariff values for {plan} must be non-negative.")
         result[plan] = {
             "daily_tokens": max(0, min(daily_int, 100_000)),
             "gallery_slots": max(0, min(slots_int, 100_000)),
+            "video_enabled": 1 if _boolish(video_enabled) else 0,
+            "video_slots": max(0, min(video_slots_int, 100_000)),
         }
     return result
 
@@ -3235,6 +3261,8 @@ def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | Non
         "plan": plan,
         "daily_tokens": int(tariff["daily_tokens"]),
         "gallery_slots": total,
+        "video_enabled": bool(tariff.get("video_enabled")),
+        "video_slots": int(tariff.get("video_slots") or 0),
         "gallery_used": used,
         "gallery_free": max(0, total - used),
         "gallery_full": used >= total,
@@ -8271,6 +8299,10 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "gallery_used": gallery_quota["gallery_used"],
             "gallery_free": gallery_quota["gallery_free"],
             "gallery_full": gallery_quota["gallery_full"],
+            "video_enabled": gallery_quota["video_enabled"],
+            "video_slots": gallery_quota["video_slots"],
+            "video_used": 0,
+            "video_free": gallery_quota["video_slots"],
         },
         "session": {
             "session_id": user["session_id"],
@@ -10288,6 +10320,10 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "gallery_used": gallery_quota["gallery_used"],
         "gallery_free": gallery_quota["gallery_free"],
         "gallery_full": gallery_quota["gallery_full"],
+        "video_enabled": gallery_quota["video_enabled"],
+        "video_slots": gallery_quota["video_slots"],
+        "video_used": 0,
+        "video_free": gallery_quota["video_slots"],
         "status": "banned" if _row_get(urow, "banned") else "active",
         "role": _row_get(urow, "role"),
     }

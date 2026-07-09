@@ -376,6 +376,8 @@ export interface MeV2 {
     daily_tokens_limit?: number | null; daily_tokens_remaining?: number | null
     gallery_slots?: number | null; gallery_used?: number | null
     gallery_free?: number | null; gallery_full?: boolean | null
+    video_enabled?: boolean | null; video_slots?: number | null
+    video_used?: number | null; video_free?: number | null
   } | null
   identities?: Array<{ provider?: string; provider_user_id?: string | null; provider_username?: string | null; provider_email?: string | null; provider_first_name?: string | null; provider_last_name?: string | null; provider_avatar_url?: string | null; verified_at?: string | null }>
 }

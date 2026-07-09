@@ -9,13 +9,13 @@
 export type V3Mode = 'text' | 'i2i' | 'edit' | 'paint' | 'face' | 'video'
 export type V3Section = V3Mode | 'feed' | 'gallery' | 'profile'
 
-const MODE_TABS: Array<{ id: V3Mode; label: string; disabled?: boolean }> = [
+const MODE_TABS: Array<{ id: V3Mode; label: string; gated?: boolean }> = [
   { id: 'text', label: 'Текст → Изо' },
   { id: 'i2i', label: 'Изо → Изо' },
   { id: 'edit', label: 'Редактор' },
   { id: 'face', label: 'Лицо' },
   { id: 'paint', label: 'Рисунок' },
-  { id: 'video', label: 'Видео', disabled: true },
+  { id: 'video', label: 'Видео', gated: true },
 ]
 
 function goto(path: string) {
@@ -33,6 +33,7 @@ export default function TopBarV3({
   avatarUrl,
   userLabel,
   initials,
+  videoEnabled,
 }: {
   active: V3Section
   onSelectMode?: (mode: V3Mode) => void
@@ -44,6 +45,7 @@ export default function TopBarV3({
   avatarUrl?: string | null
   userLabel?: string | null
   initials?: string | null
+  videoEnabled?: boolean
 }) {
   const selectMode = (mode: V3Mode) => {
     if (onSelectMode) onSelectMode(mode)
@@ -69,20 +71,23 @@ export default function TopBarV3({
       </div>
 
       <nav className="mode-tabs" aria-label="Режимы генератора">
-        {MODE_TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className={`tab${active === t.id ? ' active' : ''}${t.disabled ? ' disabled' : ''}`}
-            aria-disabled={t.disabled || undefined}
-            onClick={() => {
-              if (t.disabled) return
-              selectMode(t.id)
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
+        {MODE_TABS.map((t) => {
+          const disabled = Boolean(t.gated && !videoEnabled)
+          return (
+            <button
+              key={t.id}
+              type="button"
+              className={`tab${active === t.id ? ' active' : ''}${disabled ? ' disabled' : ''}`}
+              aria-disabled={disabled || undefined}
+              onClick={() => {
+                if (disabled) return
+                selectMode(t.id)
+              }}
+            >
+              {t.label}
+            </button>
+          )
+        })}
       </nav>
 
       <div className="top-actions">

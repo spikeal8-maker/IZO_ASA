@@ -11,7 +11,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Moon, PaintBucket, Palette, Slash, Sun } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun } from 'lucide-react'
 import {
   AuthV2Modal,
   getAuthCapabilitiesV2,
@@ -71,7 +71,7 @@ function apiFetch(path: string, init: RequestInit = {}) {
   return fetch(`${API}${path}`, { ...init, credentials: 'include' })
 }
 
-type N2Tab = 'feed' | 'text' | 'i2i' | 'edit' | 'paint' | 'face'
+type N2Tab = 'feed' | 'text' | 'i2i' | 'edit' | 'paint' | 'face' | 'video'
 // tabs — генератор/лента; gallery и profile — отдельные канонические страницы.
 type N2View = 'tabs' | 'profile'
 type StudioMode = 'text' | 'i2i' | 'edit' | 'face' | 'paint'
@@ -607,7 +607,6 @@ export default function NewStudio(): ReactElement {
   )
   const selectStudioMode = useCallback(
     (next: V3Mode) => {
-      if (next === 'video') return
       setTab(next)
     },
     [setTab],
@@ -635,6 +634,7 @@ export default function NewStudio(): ReactElement {
     return () => window.removeEventListener('popstate', onPop)
   }, [])
   const { status: authStatus, me } = useAuthV2()
+  const videoEnabled = Boolean(me?.account?.video_enabled)
   const [authOpen, setAuthOpen] = useState(false)
   const ensureAuthed = useCallback(async () => {
     if (authStatus === 'authed') return true
@@ -2611,52 +2611,65 @@ export default function NewStudio(): ReactElement {
                     aria-expanded={paintToolsOpen}
                     onClick={() => setPaintToolsOpen((open) => !open)}
                   >
+                    <SlidersHorizontal size={17} strokeWidth={2.2} aria-hidden="true" />
                     <span>{paintMode === 'sketch' ? 'Инструменты эскиза' : 'Инструменты маски'}</span>
                     <ChevronDown size={17} strokeWidth={2.2} aria-hidden="true" />
                   </button>
-                  <div className={`paint-sidebar-tools${paintToolsOpen ? ' is-open' : ''}`} aria-label="Инструменты рисования">
-                    <button className={`paint-tool-brush${paintTool === 'brush' && paintDrawMode === 'free' ? ' active' : ''}`} type="button" title="Кисть" aria-label="Кисть" onClick={() => { setPaintTool('brush'); setPaintDrawMode('free') }}><Brush size={18} strokeWidth={2.2} /></button>
+                  <div className={`paint-tools-body${paintToolsOpen ? ' is-open' : ''}`}>
+                    <div className="paint-sidebar-tools" aria-label="Инструменты рисования">
+                      <button className={`paint-tool-brush${paintTool === 'brush' && paintDrawMode === 'free' ? ' active' : ''}`} type="button" title="Кисть" aria-label="Кисть" onClick={() => { setPaintTool('brush'); setPaintDrawMode('free') }}><Brush size={18} strokeWidth={2.2} /></button>
+                      {paintMode === 'sketch' && (
+                        <label className="paint-tool-color paint-mobile-color" title="Цвет кисти" aria-label="Цвет кисти">
+                          <span className="paint-color-dot inline" style={{ '--paint-color': paintColor } as CSSProperties}><Palette size={14} strokeWidth={2.2} aria-hidden="true" /><input type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></span>
+                        </label>
+                      )}
+                      <button className={`paint-tool-eraser${paintTool === 'eraser' ? ' active' : ''}`} type="button" title="Ластик" aria-label="Ластик" onClick={() => { setPaintTool('eraser'); setPaintDrawMode('free') }}><Eraser size={18} strokeWidth={2.2} /></button>
+                      {paintMode === 'sketch' && (
+                        <>
+                          <button className={`paint-tool-line${paintDrawMode === 'line' ? ' active' : ''}`} type="button" title="Линия" aria-label="Линия" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}><Slash size={19} strokeWidth={2.6} /></button>
+                          <button className={`paint-tool-rect-fill${paintDrawMode === 'rect-fill' ? ' active' : ''}`} type="button" title="Залитый прямоугольник" aria-label="Залитый прямоугольник" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect-fill') }}><span className="paint-shape-icon rect filled" /></button>
+                          <button className={`paint-tool-rect-outline${paintDrawMode === 'rect-outline' ? ' active' : ''}`} type="button" title="Контурный прямоугольник" aria-label="Контурный прямоугольник" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect-outline') }}><span className="paint-shape-icon rect outline" /></button>
+                          <button className={`paint-tool-circle-fill${paintDrawMode === 'circle-fill' ? ' active' : ''}`} type="button" title="Залитый круг" aria-label="Залитый круг" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle-fill') }}><span className="paint-shape-icon circle filled" /></button>
+                          <button className={`paint-tool-circle-outline${paintDrawMode === 'circle-outline' ? ' active' : ''}`} type="button" title="Контурный круг" aria-label="Контурный круг" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle-outline') }}><span className="paint-shape-icon circle outline" /></button>
+                          <button className={`paint-tool-bucket${paintDrawMode === 'bucket' ? ' active' : ''}`} type="button" title="Заливка области" aria-label="Заливка области" onClick={() => { setPaintTool('brush'); setPaintDrawMode('bucket') }}><PaintBucket size={18} strokeWidth={2.2} /></button>
+                        </>
+                      )}
+                    </div>
+                    <label className="paint-control"><span className="paint-control-label">Размер</span><input type="range" min="1" max="64" value={paintBrushSize} onChange={(e) => setPaintBrushSize(Number(e.target.value))} /><span>{paintBrushSize}</span></label>
                     {paintMode === 'sketch' && (
-                      <label className="paint-tool-color paint-mobile-color" title="Цвет кисти" aria-label="Цвет кисти">
-                        <span className="paint-color-dot inline" style={{ '--paint-color': paintColor } as CSSProperties}><Palette size={14} strokeWidth={2.2} aria-hidden="true" /><input type="color" value={paintColor} onChange={(e) => setPaintColor(e.target.value)} /></span>
-                      </label>
-                    )}
-                    <button className={`paint-tool-eraser${paintTool === 'eraser' ? ' active' : ''}`} type="button" title="Ластик" aria-label="Ластик" onClick={() => { setPaintTool('eraser'); setPaintDrawMode('free') }}><Eraser size={18} strokeWidth={2.2} /></button>
-                    {paintMode === 'sketch' && (
-                      <>
-                        <button className={`paint-tool-line${paintDrawMode === 'line' ? ' active' : ''}`} type="button" title="Линия" aria-label="Линия" onClick={() => { setPaintTool('brush'); setPaintDrawMode('line') }}><Slash size={19} strokeWidth={2.6} /></button>
-                        <button className={`paint-tool-rect-fill${paintDrawMode === 'rect-fill' ? ' active' : ''}`} type="button" title="Залитый прямоугольник" aria-label="Залитый прямоугольник" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect-fill') }}><span className="paint-shape-icon rect filled" /></button>
-                        <button className={`paint-tool-rect-outline${paintDrawMode === 'rect-outline' ? ' active' : ''}`} type="button" title="Контурный прямоугольник" aria-label="Контурный прямоугольник" onClick={() => { setPaintTool('brush'); setPaintDrawMode('rect-outline') }}><span className="paint-shape-icon rect outline" /></button>
-                        <button className={`paint-tool-circle-fill${paintDrawMode === 'circle-fill' ? ' active' : ''}`} type="button" title="Залитый круг" aria-label="Залитый круг" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle-fill') }}><span className="paint-shape-icon circle filled" /></button>
-                        <button className={`paint-tool-circle-outline${paintDrawMode === 'circle-outline' ? ' active' : ''}`} type="button" title="Контурный круг" aria-label="Контурный круг" onClick={() => { setPaintTool('brush'); setPaintDrawMode('circle-outline') }}><span className="paint-shape-icon circle outline" /></button>
-                        <button className={`paint-tool-bucket${paintDrawMode === 'bucket' ? ' active' : ''}`} type="button" title="Заливка области" aria-label="Заливка области" onClick={() => { setPaintTool('brush'); setPaintDrawMode('bucket') }}><PaintBucket size={18} strokeWidth={2.2} /></button>
-                      </>
-                    )}
-                  </div>
-                  <label className="paint-control"><span className="paint-control-label">Размер</span><input type="range" min="1" max="64" value={paintBrushSize} onChange={(e) => setPaintBrushSize(Number(e.target.value))} /><span>{paintBrushSize}</span></label>
-                  {paintMode === 'sketch' && (
-                    <>
                       <div className="paint-segment paint-icon-segment">
                         <button className={paintCanvasBg === 'white' ? 'active' : ''} type="button" title="Белый холст" onClick={() => setPaintCanvasBg('white')}><Sun size={16} strokeWidth={2.2} /><span>Белый холст</span></button>
                         <button className={paintCanvasBg === 'gray' ? 'active' : ''} type="button" title="Серый холст" onClick={() => setPaintCanvasBg('gray')}><Moon size={16} strokeWidth={2.2} /><span>Серый холст</span></button>
                       </div>
-                    </>
-                  )}
+                    )}
+                  </div>
                 </div>
               )}
 
               {paintMode === 'outpaint' && (
                 <div className="paint-toolbox">
-                  {(['left', 'right', 'top', 'bottom'] as const).map((key) => (
-                    <label className="paint-control" key={key}>
-                      <span className="paint-control-label">
-                        {key === 'left' ? <ArrowLeft size={13} strokeWidth={2.4} /> : key === 'right' ? <ArrowRight size={13} strokeWidth={2.4} /> : key === 'top' ? <ArrowUp size={13} strokeWidth={2.4} /> : <ArrowDown size={13} strokeWidth={2.4} />}
-                        {key === 'left' ? 'Слева' : key === 'right' ? 'Справа' : key === 'top' ? 'Сверху' : 'Снизу'}
-                      </span>
-                      <input type="range" min="0" max="768" step="16" value={paintOutpaint[key]} onChange={(e) => updateOutpaintPadding(key, Number(e.target.value))} />
-                      <span>{paintOutpaint[key]}</span>
-                    </label>
-                  ))}
+                  <button
+                    className={`paint-tools-toggle${paintToolsOpen ? ' active' : ''}`}
+                    type="button"
+                    aria-expanded={paintToolsOpen}
+                    onClick={() => setPaintToolsOpen((open) => !open)}
+                  >
+                    <SlidersHorizontal size={17} strokeWidth={2.2} aria-hidden="true" />
+                    <span>Поля расширения</span>
+                    <ChevronDown size={17} strokeWidth={2.2} aria-hidden="true" />
+                  </button>
+                  <div className={`paint-tools-body${paintToolsOpen ? ' is-open' : ''}`}>
+                    {(['left', 'right', 'top', 'bottom'] as const).map((key) => (
+                      <label className="paint-control" key={key}>
+                        <span className="paint-control-label">
+                          {key === 'left' ? <ArrowLeft size={13} strokeWidth={2.4} /> : key === 'right' ? <ArrowRight size={13} strokeWidth={2.4} /> : key === 'top' ? <ArrowUp size={13} strokeWidth={2.4} /> : <ArrowDown size={13} strokeWidth={2.4} />}
+                          {key === 'left' ? 'Слева' : key === 'right' ? 'Справа' : key === 'top' ? 'Сверху' : 'Снизу'}
+                        </span>
+                        <input type="range" min="0" max="768" step="16" value={paintOutpaint[key]} onChange={(e) => updateOutpaintPadding(key, Number(e.target.value))} />
+                        <span>{paintOutpaint[key]}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -3367,6 +3380,7 @@ export default function NewStudio(): ReactElement {
             avatarUrl={authStatus === 'authed' ? topbarAvatarSrc : null}
             userLabel={authStatus === 'authed' ? acct.userLabel : null}
             initials={authStatus === 'authed' ? acct.initials : null}
+            videoEnabled={authStatus === 'authed' && videoEnabled}
             onSelectMode={selectStudioMode}
             onOpenFeed={() => setTab('feed')}
             onOpenGallery={goGallery}
@@ -3380,7 +3394,7 @@ export default function NewStudio(): ReactElement {
           ) : tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face' || tab === 'paint' ? (
             studio
           ) : (
-            placeholderStudio('Скоро', 'Раздел в разработке.')
+            placeholderStudio('Видео', 'Раздел видео открыт для тарифов Pro и Бизнес. Генерация видео будет подключена отдельным модулем.')
           )}
         </div>
         {view === 'tabs' && (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face' || tab === 'paint') && (

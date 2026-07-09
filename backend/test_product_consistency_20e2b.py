@@ -116,12 +116,14 @@ def test_tariff_defaults_and_admin_settings_normalize(temp_db):
         public = c.get("/api/tariffs")
         settings = c.get("/api/admin/settings", headers=bearer(token))
     assert public.status_code == 200
-    assert public.json()["tariffs"]["free"] == {"daily_tokens": 10, "gallery_slots": 1}
-    assert public.json()["tariffs"]["mini"] == {"daily_tokens": 50, "gallery_slots": 10}
-    assert public.json()["tariffs"]["plus"] == {"daily_tokens": 100, "gallery_slots": 50}
-    assert public.json()["tariffs"]["pro"] == {"daily_tokens": 200, "gallery_slots": 100}
+    assert public.json()["tariffs"]["free"] == {"daily_tokens": 10, "gallery_slots": 1, "video_enabled": 0, "video_slots": 0}
+    assert public.json()["tariffs"]["mini"] == {"daily_tokens": 50, "gallery_slots": 10, "video_enabled": 0, "video_slots": 0}
+    assert public.json()["tariffs"]["plus"] == {"daily_tokens": 100, "gallery_slots": 50, "video_enabled": 0, "video_slots": 0}
+    assert public.json()["tariffs"]["pro"] == {"daily_tokens": 200, "gallery_slots": 100, "video_enabled": 1, "video_slots": 10}
+    assert public.json()["tariffs"]["business"] == {"daily_tokens": 500, "gallery_slots": 500, "video_enabled": 1, "video_slots": 50}
     assert settings.status_code == 200
     assert settings.json()["tariffs"]["pro"]["gallery_slots"] == 100
+    assert settings.json()["tariffs"]["business"]["video_slots"] == 50
 
 
 def test_tariff_settings_persist_and_read_from_admin_settings(temp_db):
@@ -130,18 +132,20 @@ def test_tariff_settings_persist_and_read_from_admin_settings(temp_db):
         "free": {"daily_tokens": 11, "gallery_slots": 2},
         "mini": {"daily_tokens": 55, "gallery_slots": 12},
         "plus": {"daily_tokens": 110, "gallery_slots": 52},
-        "pro": {"daily_tokens": 220, "gallery_slots": 102},
+        "pro": {"daily_tokens": 220, "gallery_slots": 102, "video_enabled": 1, "video_slots": 10},
+        "business": {"daily_tokens": 500, "gallery_slots": 500, "video_enabled": 1, "video_slots": 50},
     }
+    expected = main.normalize_tariffs(payload)
     with TestClient(main.app) as c:
         saved = c.post("/api/admin/settings/tariffs", json={"settings": payload}, headers=bearer(token))
         public = c.get("/api/tariffs")
     assert saved.status_code == 200, saved.text
-    assert saved.json()["settings"] == payload
-    assert public.json()["tariffs"] == payload
+    assert saved.json()["settings"] == expected
+    assert public.json()["tariffs"] == expected
     with main.db() as conn:
         row = conn.execute("SELECT value_json FROM admin_settings WHERE key='tariffs'").fetchone()
         assert row is not None
-        assert main.get_tariff_config(conn) == payload
+        assert main.get_tariff_config(conn) == expected
 
 
 def test_tariff_settings_reject_invalid_and_unauthorized(temp_db):
