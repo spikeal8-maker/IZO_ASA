@@ -121,6 +121,47 @@ def test_admin_can_save_openrouter_key_without_exposing_secret(temp_db, monkeypa
     assert main.admin_secret_value("openrouter_api_key") == ""
 
 
+def test_admin_can_save_openrouter_model_config(temp_db):
+    sess = admin_session()
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/admin/openrouter/config",
+            json={"config": {"enabled": {"text_to_image": ["black-forest-labs/flux.2-klein-4b", "bad"]}, "defaults": {"text_to_image": "black-forest-labs/flux.2-klein-4b"}}},
+            cookies={"onenode_session": sess["session_token"]},
+        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["config"]["enabled"]["text_to_image"] == ["black-forest-labs/flux.2-klein-4b"]
+    assert payload["config"]["defaults"]["text_to_image"] == "black-forest-labs/flux.2-klein-4b"
+
+
+def test_admin_openrouter_test_generate_records_cost(temp_db, monkeypatch):
+    async def fake_send(payload, job):
+        image_path, thumb_path = main.mock_image(payload, f"{job['id']}_openrouter")
+        return main.OpenRouterResult(
+            image_path=image_path,
+            thumbnail_path=thumb_path,
+            response_id="or_admin_test",
+            model=payload.modelProfile,
+            usage={"images": 1},
+            cost_usd=0.014,
+            raw={},
+        )
+
+    monkeypatch.setattr(main, "send_to_openrouter", fake_send)
+    sess = admin_session()
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/admin/openrouter/test-generate",
+            json={"model": "black-forest-labs/flux.2-klein-4b", "width": 1024, "height": 1024},
+            cookies={"onenode_session": sess["session_token"]},
+        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["costUsd"] == 0.014
+    assert payload["stats"]["pricedImages"] == 1
+
+
 def test_web_login_requires_explicit_admin_code(temp_db, monkeypatch):
     monkeypatch.delenv("ADMIN_ONE_TIME_CODE", raising=False)
     with TestClient(main.app) as client:

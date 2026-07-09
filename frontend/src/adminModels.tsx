@@ -44,10 +44,13 @@ type PageData = {
     keyConfigured: boolean
     status?: { ok?: boolean; configured?: boolean; source?: string; status_code?: number; error?: unknown; data?: Record<string, unknown> }
     usage?: { pricedImages?: number; totalCostUsd?: number; avgCostUsd?: number | null; avgCostPerMpUsd?: number | null; lastCostUsd?: number | null; models?: Array<Record<string, unknown>> }
+    config?: OpenRouterConfig
   }
   comfyFiles: Record<string, unknown>
   profiles: ProfileOption[]
 }
+type OpenRouterConfig = { enabled?: Record<string, string[]>; defaults?: Record<string, string> }
+type OpenRouterTestResult = { image?: { url?: string; thumbnailUrl?: string }; costUsd?: number | null; model?: string; usage?: Record<string, unknown> }
 
 const USD_RUB = 90
 const TOKEN_RUB = 5
@@ -236,6 +239,9 @@ const CSS = `
 .amv2 .key-status-row:last-child{border-bottom:0;padding-bottom:0}
 .amv2 .key-status-row span{color:var(--muted)}.amv2 .key-status-row strong{color:var(--text);text-align:right;overflow-wrap:anywhere}
 .amv2 .key-ok strong{color:var(--green)}.amv2 .key-bad strong{color:var(--red)}.amv2 .key-warn strong{color:var(--yellow)}
+.amv2 .or-test{border:1px solid rgba(234,255,16,.18);border-radius:var(--radius);background:rgba(234,255,16,.04);padding:8px;display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;align-items:center}
+.amv2 .or-test img{width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+.amv2 .or-test strong{font-size:12px}.amv2 .or-test span{display:block;margin-top:4px;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
 .amv2 .or-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px;border-bottom:1px solid var(--line)}
 .amv2 .or-stat{border:1px solid var(--line);border-radius:var(--radius);padding:10px;background:rgba(255,255,255,.032)}
 .amv2 .or-stat span{display:block;color:var(--muted);font-size:11px;font-weight:800}.amv2 .or-stat strong{display:block;margin-top:5px;font-size:16px;color:var(--lime)}
@@ -347,9 +353,11 @@ export default function AdminModelsV2() {
   const [apiSorts, setApiSorts] = useState<Record<string, ApiSortState>>({})
   const [apiSectionsOpen, setApiSectionsOpen] = useState<Record<string, boolean>>({ text_to_image: true })
   const [apiExpandedRows, setApiExpandedRows] = useState<Record<string, boolean>>({})
-  const [apiEnabledModels, setApiEnabledModels] = useState<Record<string, boolean>>({})
   const [openrouterKeyInput, setOpenrouterKeyInput] = useState('')
   const [openrouterBusy, setOpenrouterBusy] = useState(false)
+  const [openrouterConfigBusy, setOpenrouterConfigBusy] = useState(false)
+  const [openrouterTestBusy, setOpenrouterTestBusy] = useState(false)
+  const [openrouterTestResult, setOpenrouterTestResult] = useState<OpenRouterTestResult | null>(null)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
   const [configErr, setConfigErr] = useState('')
@@ -429,6 +437,54 @@ export default function AdminModelsV2() {
     setOpenrouterBusy(false)
     await load()
     setMsg(r?.ok ? 'UI-ключ OpenRouter удалён' : 'Не удалось удалить ключ')
+  }
+
+  const saveOpenrouterConfig = async (config: OpenRouterConfig) => {
+    setOpenrouterConfigBusy(true)
+    const r = await amvFetch('/admin/openrouter/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config }),
+    }).then((x) => x.json()).catch(() => null) as { ok?: boolean; config?: OpenRouterConfig } | null
+    setOpenrouterConfigBusy(false)
+    if (r?.ok && r.config) {
+      setData((prev) => prev ? { ...prev, openrouter: { ...prev.openrouter, config: r.config } } : prev)
+      setMsg('Настройки API-моделей сохранены')
+    } else setMsg('Не удалось сохранить настройки API-моделей')
+  }
+
+  const toggleOpenrouterModel = (mode: string, modelId: string, checked: boolean) => {
+    if (!data) return
+    const current = data.openrouter.config || { enabled: {}, defaults: {} }
+    const enabled = { ...(current.enabled || {}) }
+    const defaults = { ...(current.defaults || {}) }
+    const list = new Set(enabled[mode] || [])
+    if (checked) list.add(modelId)
+    else list.delete(modelId)
+    const nextList = Array.from(list).sort()
+    if (nextList.length) enabled[mode] = nextList
+    else delete enabled[mode]
+    if (checked && !defaults[mode]) defaults[mode] = modelId
+    if (!checked && defaults[mode] === modelId) {
+      if (nextList.length) defaults[mode] = nextList[0]
+      else delete defaults[mode]
+    }
+    void saveOpenrouterConfig({ enabled, defaults })
+  }
+
+  const runOpenrouterTest = async () => {
+    setOpenrouterTestBusy(true); setMsg('Тестовая генерация OpenRouter запущена')
+    const r = await amvFetch('/admin/openrouter/test-generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'black-forest-labs/flux.2-klein-4b', width: 1024, height: 1024 }),
+    }).then((x) => x.json()).catch(() => null) as ({ ok?: boolean } & OpenRouterTestResult & { detail?: string }) | null
+    setOpenrouterTestBusy(false)
+    if (r?.ok) {
+      setOpenrouterTestResult(r)
+      setMsg(`OpenRouter test готов: ${typeof r.costUsd === 'number' ? `$${r.costUsd.toFixed(4)}` : 'cost не пришёл'}`)
+      await load()
+    } else setMsg(`OpenRouter test не выполнен: ${r?.detail || 'unknown error'}`)
   }
 
   const toggleApiSort = (sectionId: string, key: ApiSortKey) => {
@@ -586,6 +642,7 @@ export default function AdminModelsV2() {
             <div className="actions">
               <button className="primary" disabled={openrouterBusy || !openrouterKeyInput.trim()} onClick={saveOpenrouterKey}>Сохранить и проверить</button>
               <button className="ghost" disabled={openrouterBusy} onClick={() => { void load(); setMsg('Статус OpenRouter обновлён') }}>Проверить</button>
+              <button className="ghost" disabled={openrouterTestBusy || !data.openrouter.status?.ok} onClick={runOpenrouterTest}>Тест Klein 4B 1MP</button>
               <button className="danger" disabled={openrouterBusy || !data.openrouter.keyConfigured} onClick={deleteOpenrouterKey}>Удалить UI-ключ</button>
             </div>
             <div className="key-status">
@@ -597,6 +654,14 @@ export default function AdminModelsV2() {
               <div className="key-status-row"><span>Лимит / остаток</span><strong>{orLimit} / {orRemaining}</strong></div>
               {!orStatus.ok && orStatus.error ? <div className="key-status-row key-bad"><span>Ошибка</span><strong>{openrouterErrorText(orStatus.error)}</strong></div> : null}
             </div>
+            {openrouterTestResult?.image?.thumbnailUrl ? <div className="or-test">
+              <img src={openrouterTestResult.image.thumbnailUrl} alt="OpenRouter test" />
+              <div>
+                <strong>Последний тест OpenRouter</strong>
+                <span>Модель: {openrouterTestResult.model || '—'}</span>
+                <span>Стоимость: {typeof openrouterTestResult.costUsd === 'number' ? `${rub(openrouterTestResult.costUsd)} · $${openrouterTestResult.costUsd.toFixed(4)}` : 'cost не пришёл'}</span>
+              </div>
+            </div> : null}
             <small>Ключ сохраняется в отдельном backend-хранилище секретов и не возвращается обратно в браузер. Если ключ задан через переменную <b>OPENROUTER_API_KEY</b>, она имеет приоритет.</small>
           </div>
           <div className="api-key-box">
@@ -623,6 +688,8 @@ export default function AdminModelsV2() {
       {API_MODE_SECTIONS.map((section) => {
         const sort = apiSorts[section.id] || { key: 'price' as const, dir: 'asc' as const }
         const sectionOpen = apiSectionsOpen[section.id] ?? false
+        const enabledForSection = data.openrouter.config?.enabled?.[section.id] || []
+        const defaultForSection = data.openrouter.config?.defaults?.[section.id] || ''
         const rows = OPENROUTER_IMAGE_MODELS
           .filter(section.filter)
           .filter((m) => {
@@ -638,6 +705,8 @@ export default function AdminModelsV2() {
             </div>
             <div className="api-count">
               <span className="state ok">{rows.length} моделей</span>
+              <span className={`state ${enabledForSection.length ? 'ok' : 'warn'}`}>{enabledForSection.length ? `${enabledForSection.length} включено` : 'не включено'}</span>
+              {openrouterConfigBusy ? <span className="mini">сохраняю…</span> : null}
             </div>
           </button>
           {sectionOpen && <>
@@ -654,7 +723,7 @@ export default function AdminModelsV2() {
               </tr></thead>
               <tbody>{sortedRows.map((m) => {
                 const rowKey = `${section.id}-${m.id}`
-                const enabled = apiEnabledModels[rowKey] || false
+                const enabled = enabledForSection.includes(m.id)
                 const expanded = apiExpandedRows[rowKey] || false
                 return <Fragment key={rowKey}>
                   <tr className={`api-model-row ${expanded ? 'expanded' : ''}`} onClick={() => setApiExpandedRows((prev) => ({ ...prev, [rowKey]: !expanded }))}>
@@ -664,10 +733,10 @@ export default function AdminModelsV2() {
                         checked={enabled}
                         aria-label={`Включить ${modelShortName(m)} для ${section.title}`}
                         onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => setApiEnabledModels((prev) => ({ ...prev, [rowKey]: e.target.checked }))}
+                        onChange={(e) => toggleOpenrouterModel(section.id, m.id, e.target.checked)}
                       />
                     </td>
-                    <td><strong className="model-name">{modelShortName(m)}</strong></td>
+                    <td><strong className="model-name">{modelShortName(m)}</strong>{defaultForSection === m.id ? <span className="mini" style={{ marginLeft: 8 }}>default</span> : null}</td>
                     <td><span className="provider openrouter">{modelBrand(m)}</span></td>
                     <td><span className="money">{modelRubPrice(m)}</span></td>
                     <td><span className="money">{modelUsdPrice(m)}</span></td>

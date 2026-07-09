@@ -662,6 +662,17 @@ class AdminSecretKeyRequest(BaseModel):
     key: str = Field(min_length=12, max_length=512)
 
 
+class AdminOpenRouterConfigRequest(BaseModel):
+    config: dict[str, Any]
+
+
+class AdminOpenRouterTestRequest(BaseModel):
+    model: str = "black-forest-labs/flux.2-klein-4b"
+    prompt: str = "A small clean test image of a lime green cube on a white background."
+    width: int = Field(default=1024, ge=512, le=1536)
+    height: int = Field(default=1024, ge=512, le=1536)
+
+
 rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
@@ -12013,11 +12024,56 @@ def openrouter_usage_stats() -> dict[str, Any]:
     }
 
 
+OPENROUTER_ADMIN_MODES = {
+    "text_to_image", "image_to_image", "edit", "paint", "inpaint", "outpaint", "faceswap", "remove_background"
+}
+
+
+def normalize_openrouter_config(config: dict[str, Any]) -> dict[str, Any]:
+    raw_enabled = config.get("enabled") if isinstance(config.get("enabled"), dict) else {}
+    raw_defaults = config.get("defaults") if isinstance(config.get("defaults"), dict) else {}
+    enabled: dict[str, list[str]] = {}
+    defaults: dict[str, str] = {}
+    for mode in OPENROUTER_ADMIN_MODES:
+        values = raw_enabled.get(mode)
+        if isinstance(values, list):
+            clean = sorted({str(v).strip() for v in values if isinstance(v, str) and "/" in v and len(v.strip()) <= 160})
+            if clean:
+                enabled[mode] = clean
+        default = raw_defaults.get(mode)
+        if isinstance(default, str) and "/" in default and default.strip() in enabled.get(mode, []):
+            defaults[mode] = default.strip()
+    for mode, values in enabled.items():
+        if mode not in defaults and values:
+            defaults[mode] = values[0]
+    return {"enabled": enabled, "defaults": defaults}
+
+
+def get_openrouter_config() -> dict[str, Any]:
+    return normalize_openrouter_config(_saved_setting("openrouter_models"))
+
+
 @app.get("/api/admin/openrouter/status")
 async def admin_openrouter_status(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
     key_status = await fetch_openrouter_key_status()
-    return {"key": key_status, "usage": openrouter_usage_stats()}
+    return {"key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config()}
+
+
+@app.post("/api/admin/openrouter/config")
+async def admin_save_openrouter_config(req: AdminOpenRouterConfigRequest, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    config = normalize_openrouter_config(req.config)
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('openrouter_models', ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+            (json.dumps(config, ensure_ascii=False), now),
+        )
+    _admin_models_page_cache["ts"] = 0.0
+    _admin_models_page_cache["data"] = None
+    return {"ok": True, "config": config}
 
 
 @app.put("/api/admin/openrouter/key")
@@ -12028,7 +12084,7 @@ async def admin_save_openrouter_key(req: AdminSecretKeyRequest, request: Request
         raise HTTPException(400, "OpenRouter key должен начинаться с sk-or-")
     save_admin_secret("openrouter_api_key", key)
     key_status = await fetch_openrouter_key_status()
-    return {"ok": bool(key_status.get("ok")), "key": key_status, "usage": openrouter_usage_stats()}
+    return {"ok": bool(key_status.get("ok")), "key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config()}
 
 
 @app.delete("/api/admin/openrouter/key")
@@ -12036,7 +12092,79 @@ async def admin_delete_openrouter_key(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
     delete_admin_secret("openrouter_api_key")
     key_status = await fetch_openrouter_key_status()
-    return {"ok": True, "key": key_status, "usage": openrouter_usage_stats()}
+    return {"ok": True, "key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config()}
+
+
+@app.post("/api/admin/openrouter/test-generate")
+async def admin_openrouter_test_generate(req: AdminOpenRouterTestRequest, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    if "/" not in req.model:
+        raise HTTPException(400, "model должен быть OpenRouter id вида provider/model")
+    job_id = f"admin_or_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    gen_req = GenerateRequest(
+        mode="text_to_image",
+        provider="openrouter",
+        prompt=req.prompt,
+        width=req.width,
+        height=req.height,
+        steps=4,
+        modelProfile=req.model,
+    )
+    job = {
+        "id": job_id,
+        "userId": admin["legacy_user_id"],
+        "mode": gen_req.mode,
+        "provider": gen_req.provider,
+        "status": "queued",
+        "progress": 0,
+        "message": "Admin OpenRouter test",
+        "request": gen_req.model_dump(),
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    result = await send_to_openrouter(gen_req, job)
+    created_at = datetime.now(timezone.utc).isoformat()
+    with Image.open(result.image_path) as opened:
+        width, height = opened.size
+    image_id = f"img_{uuid.uuid4().hex[:12]}"
+    record = {
+        "id": image_id,
+        "userId": admin["legacy_user_id"],
+        "url": public_url(result.image_path, admin["legacy_user_id"]),
+        "thumbnailUrl": public_url(result.thumbnail_path, admin["legacy_user_id"]),
+        "mode": gen_req.mode,
+        "provider": gen_req.provider,
+        "promptOriginal": gen_req.prompt,
+        "promptTranslated": gen_req.prompt,
+        "seed": gen_req.seed,
+        "width": width,
+        "height": height,
+        "modelProfile": gen_req.modelProfile,
+        "loras": [],
+        "preset": "admin_openrouter_test",
+        "generationTimeMs": 0,
+        "isFavorite": False,
+        "createdAt": created_at,
+        "openrouterModel": result.model,
+        "openrouterResponseId": result.response_id,
+        "openrouterUsage": result.usage,
+        "openrouterCostUsd": result.cost_usd,
+    }
+    images[image_id] = record
+    persist_image(record, job_id)
+    job.update(
+        status="completed",
+        progress=100,
+        message="OpenRouter test completed",
+        resultImageId=image_id,
+        resultUrl=record["url"],
+        openrouterModel=result.model,
+        openrouterResponseId=result.response_id,
+        openrouterUsage=result.usage,
+        openrouterCostUsd=result.cost_usd,
+        completedAt=created_at,
+    )
+    persist_job(job, gen_req)
+    return {"ok": True, "image": record, "costUsd": result.cost_usd, "model": result.model, "usage": result.usage, "stats": openrouter_usage_stats()}
 
 
 def default_routes(model_status: dict[str, Any]) -> list[dict[str, Any]]:
@@ -12132,7 +12260,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
         "catalog": catalog,
         "loras": loras,
         "comfyuiAvailable": status.get("comfyuiAvailable"),
-        "openrouter": {"keyConfigured": openrouter_key, "status": openrouter_status, "usage": openrouter_usage},
+        "openrouter": {"keyConfigured": openrouter_key, "status": openrouter_status, "usage": openrouter_usage, "config": get_openrouter_config()},
         "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"},
         "profiles": status.get("profiles", []),
     }
