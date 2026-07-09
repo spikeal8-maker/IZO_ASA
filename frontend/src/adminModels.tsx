@@ -225,18 +225,37 @@ const tokensText = (usdValue: unknown, rate: number | null) => {
   return tokens === null ? '—' : `${tokens} ток.`
 }
 const fetchBrowserUsdRub = async (): Promise<PageData['openrouter']['exchange']> => {
-  const response = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store' })
-  if (!response.ok) throw new Error(`browser rate HTTP ${response.status}`)
-  const payload = await response.json() as { rates?: Record<string, number>; time_last_update_utc?: string }
-  const rate = payload.rates?.RUB
-  if (typeof rate !== 'number') throw new Error('browser rate: RUB не найден')
-  return {
-    rate,
-    source: 'open.er-api.com',
-    sourceDate: payload.time_last_update_utc || '',
-    fetchedAt: new Date().toISOString(),
-    cache: 'browser',
-    fallback: true,
+  try {
+    const response = await fetch('https://www.cbr-xml-daily.ru/daily_json.js', { cache: 'no-store' })
+    if (!response.ok) throw new Error(`CBR JSON HTTP ${response.status}`)
+    const payload = await response.json() as { Date?: string; Timestamp?: string; Valute?: { USD?: { Value?: number } } }
+    const rate = payload.Valute?.USD?.Value
+    if (typeof rate !== 'number') throw new Error('CBR JSON: USD не найден')
+    return {
+      rate,
+      source: 'ЦБ РФ',
+      sourceUrl: 'https://www.cbr-xml-daily.ru/daily_json.js',
+      sourceDate: payload.Date || payload.Timestamp || '',
+      fetchedAt: new Date().toISOString(),
+      cache: 'browser_cbr',
+      fallback: false,
+    }
+  } catch (cbrError) {
+    const response = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store' })
+    if (!response.ok) throw new Error(`market rate HTTP ${response.status}`)
+    const payload = await response.json() as { rates?: Record<string, number>; time_last_update_utc?: string }
+    const rate = payload.rates?.RUB
+    if (typeof rate !== 'number') throw new Error('market rate: RUB не найден')
+    return {
+      rate,
+      source: 'USD/RUB market',
+      sourceUrl: 'https://open.er-api.com/v6/latest/USD',
+      sourceDate: payload.time_last_update_utc || '',
+      fetchedAt: new Date().toISOString(),
+      cache: 'browser_market',
+      fallback: false,
+      warning: cbrError instanceof Error ? cbrError.message : String(cbrError),
+    }
   }
 }
 const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState) => [...rows].sort((a, b) => {
@@ -634,11 +653,11 @@ export default function AdminModelsV2() {
       : orData.limit_remaining === null || orData.limit_remaining === undefined ? 'лимит не задан' : moneyUsdText(orData.limit_remaining)
   const effectiveRateText = usdRubBase === null || usdRubEffective === null
     ? 'курс ЦБ не загрузился'
-    : `$1 ЦБ ${usdRubBase.toFixed(2)} ₽ + ${Math.round(USD_FEE_RATE * 100)}% = ${usdRubEffective.toFixed(2)} ₽`
+    : `$1 ${usdRubBase.toFixed(2)} ₽ + ${Math.round(USD_FEE_RATE * 100)}% = ${usdRubEffective.toFixed(2)} ₽`
   const spentTokensText = tokensText(data.openrouter.usage?.totalCostUsd, usdRubEffective)
   const exchangeCache = data.openrouter.exchange?.cache || ''
-  const exchangeStateClass = usdRubBase === null ? 'rate-bad' : exchangeCache === 'stale' || data.openrouter.exchange?.fallback ? 'rate-stale' : 'rate-ok'
-  const exchangeStateText = usdRubBase === null ? 'курс не загружен' : exchangeCache === 'stale' ? 'курс из последнего кэша' : data.openrouter.exchange?.fallback ? 'курс резервный' : 'курс свежий'
+  const exchangeStateClass = usdRubBase === null ? 'rate-bad' : exchangeCache === 'stale' ? 'rate-stale' : 'rate-ok'
+  const exchangeStateText = usdRubBase === null ? 'курс не загружен' : exchangeCache === 'stale' ? 'курс из последнего кэша' : 'курс загружен'
 
   return <div className="amv2">
     <style>{CSS}</style>
