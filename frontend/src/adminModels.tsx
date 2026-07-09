@@ -45,54 +45,86 @@ type PageData = {
   profiles: ProfileOption[]
 }
 
-type ProductMode = {
+const USD_RUB = 90
+const OPENROUTER_SNAPSHOT_DATE = '09.07.2026'
+type ApiImageModel = {
+  id: string; name: string; provider: string; input: string; output: string; params: string; pricing: string
+  mpUsd?: number; imageUsd?: number; token?: boolean; tiered?: boolean
+}
+type ApiModeSection = {
   id: string
   title: string
   local: string
-  apiNeed: string
   note: string
+  filter: (m: ApiImageModel) => boolean
 }
 
-type ApiCandidate = {
-  mode: string
-  tier: 'cheap' | 'balanced' | 'premium' | 'special'
-  model: string
-  modelId: string
-  capabilities: string
-  price: string
-  estimateUsd: number | null
-  estimateRub: number | null
-  risk: 'low' | 'mid' | 'high'
-  recommendation: string
+const OPENROUTER_IMAGE_MODELS: ApiImageModel[] = [
+  { id: 'google/gemini-3.1-flash-lite-image', name: 'Google: Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)', provider: 'Google Vertex', input: 'image+text', output: 'image+text', params: 'resolution, aspect_ratio, n, input_references', pricing: 'output_image: $0.00003/token', token: true },
+  { id: 'openai/gpt-image-2', name: 'OpenAI: GPT Image 2', provider: 'OpenAI', input: 'text+image', output: 'image', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.00003/token', token: true },
+  { id: 'openai/gpt-image-1-mini', name: 'OpenAI: GPT Image 1 Mini', provider: 'OpenAI', input: 'text+image', output: 'image', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.000008/token', token: true },
+  { id: 'openai/gpt-image-1', name: 'OpenAI: GPT Image 1', provider: 'OpenAI', input: 'text+image', output: 'image', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.00004/token', token: true },
+  { id: 'google/gemini-3.1-flash-image', name: 'Google: Nano Banana 2 (Gemini 3.1 Flash Image)', provider: 'Google Vertex', input: 'image+text', output: 'image+text', params: 'resolution, aspect_ratio, n, input_references', pricing: 'output_image: $0.00006/token', token: true },
+  { id: 'google/gemini-3-pro-image', name: 'Google: Nano Banana Pro (Gemini 3 Pro Image)', provider: 'Google Vertex', input: 'image+text', output: 'image+text', params: 'resolution, aspect_ratio, n, input_references', pricing: 'input_image: $0.000002/token + output_image: $0.00012/token', token: true },
+  { id: 'sourceful/riverflow-v2.5-pro', name: 'Sourceful: Riverflow V2.5 Pro', provider: 'Sourceful', input: 'text+image', output: 'image', params: 'resolution, output_format, background, n, input_references', pricing: 'output_image: $0.13/image + $0.15/image + $0.17/image', tiered: true },
+  { id: 'sourceful/riverflow-v2.5-fast', name: 'Sourceful: Riverflow V2.5 Fast', provider: 'Sourceful', input: 'text+image', output: 'image', params: 'resolution, output_format, background, n, input_references', pricing: 'output_image: $0.019/image + $0.021/image', tiered: true },
+  { id: 'microsoft/mai-image-2.5', name: 'Microsoft: MAI-Image-2.5', provider: 'Azure', input: 'text+image', output: 'image', params: 'aspect_ratio, n, input_references', pricing: 'input_text/image/output_image token pricing', token: true },
+  { id: 'x-ai/grok-imagine-image-quality', name: 'xAI: Grok Imagine Image Quality', provider: 'xAI', input: 'text+image', output: 'image', params: 'resolution, aspect_ratio, n, input_references', pricing: 'input_image: $0.01/image + output_image: $0.05/$0.07 image', tiered: true },
+  { id: 'recraft/recraft-v4.1-pro-vector', name: 'Recraft: Recraft V4.1 Pro Vector', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.3/image', imageUsd: 0.3 },
+  { id: 'recraft/recraft-v4.1-vector', name: 'Recraft: Recraft V4.1 Vector', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.08/image', imageUsd: 0.08 },
+  { id: 'recraft/recraft-v4.1-utility-pro', name: 'Recraft: Recraft V4.1 Utility Pro', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.21/image', imageUsd: 0.21 },
+  { id: 'recraft/recraft-v4.1-utility', name: 'Recraft: Recraft V4.1 Utility', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.035/image', imageUsd: 0.035 },
+  { id: 'recraft/recraft-v4.1-pro', name: 'Recraft: Recraft V4.1 Pro', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.21/image', imageUsd: 0.21 },
+  { id: 'recraft/recraft-v4.1', name: 'Recraft: Recraft V4.1', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.035/image', imageUsd: 0.035 },
+  { id: 'recraft/recraft-v4-pro-vector', name: 'Recraft: Recraft V4 Pro Vector', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.3/image', imageUsd: 0.3 },
+  { id: 'recraft/recraft-v4-vector', name: 'Recraft: Recraft V4 Vector', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.08/image', imageUsd: 0.08 },
+  { id: 'recraft/recraft-v4-pro', name: 'Recraft: Recraft V4 Pro', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.25/image', imageUsd: 0.25 },
+  { id: 'recraft/recraft-v4', name: 'Recraft: Recraft V4', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.04/image', imageUsd: 0.04 },
+  { id: 'recraft/recraft-v3', name: 'Recraft: Recraft V3', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.04/image', imageUsd: 0.04 },
+  { id: 'openai/gpt-5.4-image-2', name: 'OpenAI: GPT-5.4 Image 2', provider: 'OpenAI', input: 'image+text+file', output: 'image+text', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.00003/token', token: true },
+  { id: 'google/gemini-3.1-flash-image-preview', name: 'Google: Nano Banana 2 (Gemini 3.1 Flash Image Preview)', provider: 'Google Vertex', input: 'image+text', output: 'image+text', params: 'resolution, aspect_ratio, n, input_references', pricing: 'output_image: $0.00006/token', token: true },
+  { id: 'sourceful/riverflow-v2-pro', name: 'Sourceful: Riverflow V2 Pro', provider: 'Sourceful', input: 'text+image', output: 'image', params: 'resolution, n, input_references', pricing: 'tiered image pricing + input_reference fee', tiered: true },
+  { id: 'sourceful/riverflow-v2-fast', name: 'Sourceful: Riverflow V2 Fast', provider: 'Sourceful', input: 'text+image', output: 'image', params: 'resolution, n, input_references', pricing: 'tiered image pricing + input_reference fee', tiered: true },
+  { id: 'black-forest-labs/flux.2-klein-4b', name: 'Black Forest Labs: FLUX.2 Klein 4B', provider: 'Black Forest Labs', input: 'text+image', output: 'image', params: 'output_format, n, input_references, seed', pricing: 'output_image: $0.014/megapixel', mpUsd: 0.014 },
+  { id: 'bytedance-seed/seedream-4.5', name: 'ByteDance Seed: Seedream 4.5', provider: 'Seed', input: 'image+text', output: 'image', params: 'resolution, aspect_ratio, n, input_references, seed', pricing: 'output_image: $0.04/image', imageUsd: 0.04 },
+  { id: 'black-forest-labs/flux.2-max', name: 'Black Forest Labs: FLUX.2 Max', provider: 'Black Forest Labs', input: 'text+image', output: 'image', params: 'output_format, n, input_references, seed', pricing: 'output_image: $0.07/megapixel', mpUsd: 0.07 },
+  { id: 'sourceful/riverflow-v2-max-preview', name: 'Sourceful: Riverflow V2 Max Preview', provider: '-', input: 'text+image', output: 'image', params: '', pricing: 'нет endpoint pricing' },
+  { id: 'sourceful/riverflow-v2-standard-preview', name: 'Sourceful: Riverflow V2 Standard Preview', provider: '-', input: 'text+image', output: 'image', params: '', pricing: 'нет endpoint pricing' },
+  { id: 'sourceful/riverflow-v2-fast-preview', name: 'Sourceful: Riverflow V2 Fast Preview', provider: '-', input: 'text+image', output: 'image', params: '', pricing: 'нет endpoint pricing' },
+  { id: 'black-forest-labs/flux.2-flex', name: 'Black Forest Labs: FLUX.2 Flex', provider: 'Black Forest Labs', input: 'text+image', output: 'image', params: 'output_format, n, input_references, seed', pricing: 'input_image: $0.06/megapixel + output_image: $0.06/megapixel', mpUsd: 0.12 },
+  { id: 'black-forest-labs/flux.2-pro', name: 'Black Forest Labs: FLUX.2 Pro', provider: 'Black Forest Labs', input: 'text+image', output: 'image', params: 'output_format, n, input_references, seed', pricing: 'output_image: $0.03/megapixel', mpUsd: 0.03 },
+  { id: 'google/gemini-3-pro-image-preview', name: 'Google: Nano Banana Pro (Gemini 3 Pro Image Preview)', provider: 'Google Vertex', input: 'image+text', output: 'image+text', params: 'resolution, aspect_ratio, n, input_references', pricing: 'input_image/output_image token pricing', token: true },
+  { id: 'openai/gpt-5-image-mini', name: 'OpenAI: GPT-5 Image Mini', provider: 'OpenAI', input: 'file+image+text', output: 'image+text', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.000008/token', token: true },
+  { id: 'openai/gpt-5-image', name: 'OpenAI: GPT-5 Image', provider: 'OpenAI', input: 'image+text+file', output: 'image+text', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.00004/token', token: true },
+  { id: 'google/gemini-2.5-flash-image', name: 'Google: Nano Banana (Gemini 2.5 Flash Image)', provider: 'Google AI Studio', input: 'image+text', output: 'image+text', params: 'aspect_ratio, n, input_references', pricing: 'input_image/output_image token pricing', token: true },
+  { id: 'google/gemini-2.5-flash-image-preview', name: 'Google: Gemini 2.5 Flash Image Preview (Nano Banana)', provider: '-', input: 'image+text', output: 'image+text', params: '', pricing: 'нет endpoint pricing' },
+  { id: 'openrouter/auto', name: 'Auto Router', provider: '-', input: 'text+image+audio+file+video', output: 'text+image', params: '', pricing: 'нет endpoint pricing' },
+]
+
+const has = (m: ApiImageModel, value: string) => `${m.input} ${m.output} ${m.params} ${m.id} ${m.name}`.toLowerCase().includes(value)
+const textImageModels = () => OPENROUTER_IMAGE_MODELS.filter((m) => m.input.includes('text') && m.output.includes('image'))
+const imageInputModels = () => textImageModels().filter((m) => m.input.includes('image') || has(m, 'input_references'))
+const transparentModels = () => textImageModels().filter((m) => has(m, 'background') || has(m, 'transparent') || m.id.includes('gpt-image'))
+const API_MODE_SECTIONS: ApiModeSection[] = [
+  { id: 'text_to_image', title: 'Текст -> изображение', local: 'Flux 2 Klein 4B', note: 'Все OpenRouter image-модели, которые принимают text и возвращают image.', filter: (m) => m.input.includes('text') && m.output.includes('image') },
+  { id: 'image_to_image', title: 'Изображение -> изображение', local: 'Flux 2 Klein 4B', note: 'Модели с image input или input_references. Здесь допускаются дубли из txt2img.', filter: (m) => imageInputModels().includes(m) },
+  { id: 'edit', title: 'Редактор / multi-reference', local: 'Flux 2 Klein 9B', note: 'Модели, где явно есть input_references или OpenAI/Gemini image-edit capabilities.', filter: (m) => has(m, 'input_references') || m.id.includes('gpt-image') || m.id.includes('gemini') },
+  { id: 'paint', title: 'Рисунок / sketch', local: 'Flux 2 Klein edit workflow', note: 'То же семейство image-input моделей: скетч передается как reference/input image.', filter: (m) => imageInputModels().includes(m) },
+  { id: 'inpaint', title: 'Редактор - маска / inpaint', local: 'Flux 2 Klein inpaint workflow', note: 'OpenRouter image models не всегда явно обещают mask API; сначала тестируем OpenAI background/quality и image-reference модели.', filter: (m) => m.id.includes('gpt-image') || has(m, 'background') || has(m, 'quality') },
+  { id: 'outpaint', title: 'Редактор - расширение / outpaint', local: 'Flux 2 Klein outpaint workflow', note: 'Кандидаты с aspect_ratio/resolution/input_references. Нужен ручной тест расширения границ.', filter: (m) => has(m, 'aspect_ratio') || has(m, 'resolution') || has(m, 'input_references') },
+  { id: 'faceswap', title: 'Лицо / reference identity', local: 'Flux 2 Klein 9B + BFS LoRA', note: 'Все image-reference модели, но включать только после теста identity consistency и приватности.', filter: (m) => imageInputModels().includes(m) },
+  { id: 'remove_background', title: 'Удаление фона / прозрачность', local: 'локальный workflow/утилита', note: 'Только модели с background/transparent-like параметрами; это отдельный инструмент, не массовый txt2img.', filter: (m) => transparentModels().includes(m) },
+]
+
+const rub = (usd: number) => `${(usd * USD_RUB).toFixed(2)} ₽`
+const modelRubPrice = (m: ApiImageModel) => {
+  if (typeof m.mpUsd === 'number') return `${rub(m.mpUsd)} / MP`
+  if (typeof m.imageUsd === 'number') return `${rub(m.imageUsd)} / image`
+  if (m.token) return 'usage после теста'
+  if (m.tiered) return 'tiered, см. price'
+  return 'нет данных'
 }
-
-const USD_RUB = 90
-const moneyRub = (value: number | null) => value == null ? 'usage' : `~${value.toFixed(2)} ₽`
-const moneyUsd = (value: number | null) => value == null ? 'usage' : `$${value.toFixed(3)}`
-
-const PRODUCT_MODES: ProductMode[] = [
-  { id: 'text_to_image', title: 'Текст -> изображение', local: 'Flux 2 Klein 4B', apiNeed: 'дешевый txt2img, 1MP, быстрый fallback', note: 'Основной массовый режим, цена критична.' },
-  { id: 'image_to_image', title: 'Изображение -> изображение', local: 'Flux 2 Klein 4B', apiNeed: 'image input + prompt + output image', note: 'Нужны reference/input image и управляемая сила изменения.' },
-  { id: 'edit', title: 'Редактор / multi-reference', local: 'Flux 2 Klein 9B', apiNeed: 'несколько input_references, сохранение композиции', note: 'Самый сложный режим для API: важны референсы.' },
-  { id: 'paint', title: 'Рисунок / sketch', local: 'Flux 2 Klein edit workflow', apiNeed: 'image input + prompt, хорошо понимает скетч', note: 'Можно вести через image-to-image модели.' },
-  { id: 'inpaint', title: 'Inpaint', local: 'Flux 2 Klein inpaint workflow', apiNeed: 'маска/редактирование области', note: 'Нужна отдельная проверка: не все OpenRouter image-модели принимают маску.' },
-  { id: 'outpaint', title: 'Outpaint', local: 'Flux 2 Klein outpaint workflow', apiNeed: 'расширение кадра / aspect ratio', note: 'Кандидаты с aspect_ratio и reference image.' },
-  { id: 'faceswap', title: 'Лицо -> изображение', local: 'Flux 2 Klein 9B + BFS LoRA', apiNeed: 'identity/reference consistency', note: 'API-кандидаты только после ручного теста приватности и качества.' },
-  { id: 'remove_background', title: 'Удаление фона', local: 'локальный workflow/утилита', apiNeed: 'transparent/background параметр', note: 'Лучше держать отдельно от генеративных моделей.' },
-]
-
-const API_CANDIDATES: ApiCandidate[] = [
-  { mode: 'text_to_image', tier: 'cheap', model: 'FLUX.2 Klein 4B', modelId: 'black-forest-labs/flux.2-klein-4b', capabilities: 'text+image -> image, seed, input_references', price: '$0.014 / MP output', estimateUsd: 0.014, estimateRub: 0.014 * USD_RUB, risk: 'low', recommendation: 'Лучший первый платный baseline: похож на локальную модель, понятная цена за 1MP.' },
-  { mode: 'text_to_image', tier: 'balanced', model: 'FLUX.2 Pro', modelId: 'black-forest-labs/flux.2-pro', capabilities: 'text+image -> image, seed, input_references', price: '$0.030 / MP output', estimateUsd: 0.03, estimateRub: 0.03 * USD_RUB, risk: 'mid', recommendation: 'Качество выше, можно включать для Pro после теста.' },
-  { mode: 'image_to_image', tier: 'balanced', model: 'FLUX.2 Flex', modelId: 'black-forest-labs/flux.2-flex', capabilities: 'input_image + output_image, seed, input_references', price: '$0.060 / MP input + $0.060 / MP output', estimateUsd: 0.12, estimateRub: 0.12 * USD_RUB, risk: 'high', recommendation: 'Дорого для массового режима, но честный кандидат для i2i/edit.' },
-  { mode: 'edit', tier: 'premium', model: 'GPT Image 1 Mini', modelId: 'openai/gpt-image-1-mini', capabilities: 'quality, background, input_references, compression', price: '$0.000008 / output token', estimateUsd: null, estimateRub: null, risk: 'mid', recommendation: 'Кандидат для редактирования; фактическая цена берется из usage/cost после тестового запроса.' },
-  { mode: 'edit', tier: 'premium', model: 'GPT Image 2', modelId: 'openai/gpt-image-2', capabilities: 'quality, background, input_references, compression', price: '$0.000030 / output token', estimateUsd: null, estimateRub: null, risk: 'high', recommendation: 'Премиум-качество, но пока нельзя обещать цену 1MP без тестового usage.' },
-  { mode: 'paint', tier: 'cheap', model: 'Gemini 2.5 Flash Image', modelId: 'google/gemini-2.5-flash-image', capabilities: 'image+text -> image+text, aspect_ratio, input_references', price: '$0.0000003 input token + $0.0000025 output token', estimateUsd: null, estimateRub: null, risk: 'mid', recommendation: 'Хороший дешевый кандидат для sketch/i2i, но нужен тест цены по usage.' },
-  { mode: 'outpaint', tier: 'balanced', model: 'Gemini 3.1 Flash Lite Image', modelId: 'google/gemini-3.1-flash-lite-image', capabilities: 'resolution, aspect_ratio, input_references', price: '$0.000030 / output token', estimateUsd: null, estimateRub: null, risk: 'mid', recommendation: 'Подходит для экспериментов с aspect ratio и расширением кадра.' },
-  { mode: 'faceswap', tier: 'premium', model: 'Gemini 3 Pro Image', modelId: 'google/gemini-3-pro-image', capabilities: 'image+text -> image+text, resolution, input_references', price: '$0.000002 input token + $0.000120 output token', estimateUsd: null, estimateRub: null, risk: 'high', recommendation: 'Только после ручного теста identity consistency и стоимости.' },
-  { mode: 'text_to_image', tier: 'special', model: 'Recraft V4.1', modelId: 'recraft/recraft-v4.1', capabilities: 'text+image -> image, input_references', price: '$0.035 / image', estimateUsd: 0.035, estimateRub: 0.035 * USD_RUB, risk: 'mid', recommendation: 'Хорош для дизайна/постеров/текста, не основной универсальный генератор.' },
-  { mode: 'text_to_image', tier: 'special', model: 'Seedream 4.5', modelId: 'bytedance-seed/seedream-4.5', capabilities: 'resolution, aspect_ratio, input_references, seed', price: '$0.040 / image', estimateUsd: 0.04, estimateRub: 0.04 * USD_RUB, risk: 'mid', recommendation: 'Кандидат для красивого txt2img, дороже Flux Klein 4B.' },
-]
+const priceKind = (m: ApiImageModel) => typeof m.mpUsd === 'number' ? 'MP' : typeof m.imageUsd === 'number' ? 'image' : m.token ? 'token' : m.tiered ? 'tiered' : 'unknown'
 
 const CSS = `
 .amv2{--panel:#101310;--line:rgba(255,255,255,.10);--line-strong:rgba(255,255,255,.18);--text:#f5f7ef;--muted:#a6aea3;--dim:#727b70;--lime:#eaff10;--green:#43df62;--yellow:#ffd24a;--red:#ff5c62;--radius:8px;color:var(--text);}
@@ -399,59 +431,50 @@ export default function AdminModelsV2() {
           </div>
           <div className="api-key-box">
             <strong>Что уже понятно</strong>
-            <small>OpenRouter image API отдает список моделей через /api/v1/images/models. Для части моделей цена фиксирована за megapixel/image, для token-billed моделей точная стоимость должна браться из usage/cost после тестового запроса.</small>
+            <small>Snapshot цен: {OPENROUTER_SNAPSHOT_DATE}, источник: OpenRouter /api/v1/images/models + endpoints. MP-цена показана только там, где endpoint реально тарифицируется за megapixel.</small>
             <span className="mini">курс для планирования: $1 = {USD_RUB} ₽</span>
+            <span className="mini">всего image-моделей в snapshot: {OPENROUTER_IMAGE_MODELS.length}</span>
           </div>
         </div>
       </article>
 
-      <article className="card">
-        <div className="card-head"><div><h2 className="card-title">Режимы генератора - что нужно от API</h2><p className="card-note">Это карта продукта: сначала режимы, потом модели. Не наоборот.</p></div></div>
-        <div className="mode-board">
-          {PRODUCT_MODES.map((m) => <div className="mode-card" key={m.id}>
-            <strong>{m.title}</strong>
-            <span>Локально: {m.local}</span>
-            <span>API нужно: {m.apiNeed}</span>
-            <small>{m.note}</small>
-          </div>)}
-        </div>
-      </article>
+      <div className="toolbar">
+        <input type="search" placeholder="Фильтр по всем карточкам: модель, provider, price, параметр" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <button className="ghost" onClick={() => setQuery('')}>Сбросить</button>
+      </div>
 
-      <article className="card">
-        <div className="card-head">
-          <div><h2 className="card-title">Кандидаты OpenRouter по режимам</h2><p className="card-note">Таблица для следующего шага: включатели, лимиты и тестовые запросы. Пока ничего не включает пользователям автоматически.</p></div>
-        </div>
-        <div className="toolbar">
-          <input type="search" placeholder="Поиск по режиму, модели, цене" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <button className="ghost" onClick={() => setQuery('')}>Сбросить</button>
-        </div>
-        <div className="matrix-wrap">
-          <table className="api-table">
-            <thead><tr><th>Режим</th><th>Уровень</th><th>Модель</th><th>Capabilities</th><th>Цена OpenRouter</th><th>Оценка 1MP</th><th>Риск</th><th>Рекомендация</th></tr></thead>
-            <tbody>{API_CANDIDATES.filter((c) => {
-              const hay = `${c.mode} ${c.tier} ${c.model} ${c.modelId} ${c.price} ${c.recommendation}`.toLowerCase()
-              return !query || hay.includes(query.toLowerCase())
-            }).map((c) => <tr key={`${c.mode}-${c.modelId}`}>
-              <td><strong>{PRODUCT_MODES.find((m) => m.id === c.mode)?.title || c.mode}</strong><br /><span className="model-id">{c.mode}</span></td>
-              <td><span className="mini">{c.tier}</span></td>
-              <td><strong>{c.model}</strong><br /><span className="model-id">{c.modelId}</span></td>
-              <td>{c.capabilities}</td>
-              <td>{c.price}</td>
-              <td><span className="money">{moneyUsd(c.estimateUsd)}</span><br /><small>{moneyRub(c.estimateRub)}</small></td>
-              <td><strong className={`risk-${c.risk}`}>{c.risk}</strong></td>
-              <td>{c.recommendation}</td>
-            </tr>)}</tbody>
-          </table>
-        </div>
-      </article>
-
-      <article className="card">
-        <div className="card-head"><div><h2 className="card-title">Локальная база для сравнения</h2><p className="card-note">То, с чем сравниваем платные API-модели.</p></div></div>
-        <div className="mode-board">
-          <div className="mode-card"><strong>Локальный Flux 2 Klein 4B</strong><span>Массовый бесплатный txt2img/i2i.</span><span>OpenRouter аналог: black-forest-labs/flux.2-klein-4b = $0.014/MP (~{(0.014 * USD_RUB).toFixed(2)} ₽).</span><small>Локальная себестоимость у нас пока не посчитана: нужен расчет электричество/GPU/амортизация.</small></div>
-          <div className="mode-card"><strong>Локальный Flux 2 Klein 9B</strong><span>Редактор, лицо, pose через DWPose + LoRA.</span><span>API-кандидаты дороже и требуют тестов на reference consistency.</span><small>Этот локальный слой должен оставаться в Config UI, а не в API-моделях.</small></div>
-        </div>
-      </article>
+      {API_MODE_SECTIONS.map((section) => {
+        const rows = OPENROUTER_IMAGE_MODELS
+          .filter(section.filter)
+          .filter((m) => {
+            const hay = `${m.id} ${m.name} ${m.provider} ${m.input} ${m.output} ${m.params} ${m.pricing}`.toLowerCase()
+            return !query || hay.includes(query.toLowerCase())
+          })
+        return <article className="card" key={section.id}>
+          <div className="card-head">
+            <div>
+              <h2 className="card-title">{section.title}</h2>
+              <p className="card-note">{section.note}</p>
+            </div>
+            <span className="state ok">{rows.length} моделей</span>
+          </div>
+          <div className="hint" style={{ margin: '12px 12px 0' }}>Локальный аналог: {section.local}. Дубли между карточками нормальны: одна OpenRouter-модель может подходить сразу под несколько режимов.</div>
+          <div className="matrix-wrap">
+            <table className="api-table">
+              <thead><tr><th>Модель</th><th>Provider</th><th>Input / Output</th><th>Параметры</th><th>Цена OpenRouter</th><th>₽ за 1MP / image</th><th>Тип цены</th></tr></thead>
+              <tbody>{rows.map((m) => <tr key={`${section.id}-${m.id}`}>
+                <td><strong>{m.name}</strong><br /><span className="model-id">{m.id}</span></td>
+                <td><span className="provider openrouter">{m.provider}</span></td>
+                <td>{m.input} / {m.output}</td>
+                <td>{m.params || '—'}</td>
+                <td>{m.pricing}</td>
+                <td><span className="money">{modelRubPrice(m)}</span>{m.imageUsd ? <small>для 1MP как 1 image</small> : null}</td>
+                <td><span className="mini">{priceKind(m)}</span></td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </article>
+      })}
     </>}
   </div>
 }
