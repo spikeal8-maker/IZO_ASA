@@ -76,7 +76,7 @@ type Job = {
   galleryQuota?: GalleryQuota
 }
 
-type TariffKey = 'free' | 'mini' | 'plus' | 'pro'
+type TariffKey = 'free' | 'mini' | 'plus' | 'pro' | 'business'
 type TariffRule = { daily_tokens: number; gallery_slots: number }
 type TariffConfig = Record<TariffKey, TariffRule>
 type GalleryQuota = {
@@ -88,12 +88,13 @@ type GalleryQuota = {
   gallery_full: boolean
 }
 
-const tariffKeys: TariffKey[] = ['free', 'mini', 'plus', 'pro']
+const tariffKeys: TariffKey[] = ['free', 'mini', 'plus', 'pro', 'business']
 const DEFAULT_TARIFFS: TariffConfig = {
   free: { daily_tokens: 10, gallery_slots: 1 },
   mini: { daily_tokens: 50, gallery_slots: 10 },
   plus: { daily_tokens: 100, gallery_slots: 50 },
   pro: { daily_tokens: 200, gallery_slots: 100 },
+  business: { daily_tokens: 500, gallery_slots: 500 },
 }
 
 function normalizeTariffs(raw?: Partial<Record<string, Partial<TariffRule>>> | null): TariffConfig {
@@ -2737,6 +2738,7 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
     { id: 'mini' as TariffKey, title: 'Mini', note: 'Оптимальный старт', daily: tariffs.mini.daily_tokens, slots: tariffs.mini.gallery_slots, features: ['Стандартные модели', 'Галерея открыта', `${tariffs.mini.gallery_slots} слот(ов) галереи`], disabled: [] },
     { id: 'plus' as TariffKey, title: 'Plus', note: 'Больше возможностей', daily: tariffs.plus.daily_tokens, slots: tariffs.plus.gallery_slots, features: ['HD-модели', 'Ускоренная генерация', `${tariffs.plus.gallery_slots} слот(ов) галереи`], disabled: [] },
     { id: 'pro' as TariffKey, title: 'Pro', note: 'Максимум мощности', daily: tariffs.pro.daily_tokens, slots: tariffs.pro.gallery_slots, features: ['Продвинутые модели', 'Приоритетная очередь', `${tariffs.pro.gallery_slots} слот(ов) галереи`], disabled: [] },
+    { id: 'business' as TariffKey, title: 'Business', note: 'Команда и максимальные лимиты', daily: tariffs.business.daily_tokens, slots: tariffs.business.gallery_slots, features: ['Бизнес-модели', 'Приоритетная очередь', `${tariffs.business.gallery_slots} слот(ов) галереи`], disabled: [] },
   ]
   const setQuality = (value: string) => {
     if (value === 'fast') { setSteps(4); setCfg(1) }
@@ -3093,11 +3095,11 @@ function SettingsView({ copy, lang, onLanguageChange, tariffs, bootstrap, setBoo
         </div>
       </section>
       <section className="usr-card usr-compare">
-        <div>Функции</div><div>FREE</div><div>MINI</div><div>PLUS</div><div>PRO</div>
-        <span>Токены в сутки</span><b>10</b><b>50</b><b>100</b><b>200</b>
-        <span>Галерея</span><b>Закрыта</b><b>Открыта</b><b>Расширенная</b><b>Расширенная</b>
-        <span>Модели</span><b>Базовые</b><b>Стандартные</b><b>HD</b><b>Продвинутые</b>
-        <span>Очередь</span><b>Обычная</b><b>Обычная</b><b>Ускоренная</b><b>Приоритетная</b>
+        <div>Функции</div>{tariffKeys.map((key) => <div key={key}>{key.toUpperCase()}</div>)}
+        <span>Токены в сутки</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].daily_tokens}</b>)}
+        <span>Галерея</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].gallery_slots} слот.</b>)}
+        <span>Модели</span><b>Базовые</b><b>Стандартные</b><b>HD</b><b>Продвинутые</b><b>Бизнес</b>
+        <span>Очередь</span><b>Обычная</b><b>Обычная</b><b>Ускоренная</b><b>Приоритетная</b><b>Бизнес</b>
       </section>
       </>}
 
@@ -3374,7 +3376,7 @@ function AdminMailView() {
 }
 
 function AdminView({ copy, admin, setAdmin, tariffs, setTariffs, backToStudio, provider }: { copy: Copy; admin?: Record<string, unknown>; setAdmin: Dispatch<SetStateAction<Record<string, unknown> | undefined>>; tariffs: TariffConfig; setTariffs: Dispatch<SetStateAction<TariffConfig>>; backToStudio: () => void; provider: string }) {
-  const [tab, setTab] = useState<'dashboard' | 'mail' | 'models' | 'tokens' | 'users' | 'queue' | 'logs'>('dashboard')
+  const [tab, setTab] = useState<'dashboard' | 'mail' | 'models' | 'tariffs' | 'users' | 'queue' | 'logs'>('dashboard')
   const [limits, setLimits] = useState({ hourly: 0, daily: 0 })
   const [saved, setSaved] = useState('')
   const [promoDraft, setPromoDraft] = useState({ code: 'START50', tokens: 50, activations: 100 })
@@ -3406,7 +3408,7 @@ function AdminView({ copy, admin, setAdmin, tariffs, setTariffs, backToStudio, p
       setTariffs(normalized)
     }
   }, [setTariffs])
-  useEffect(() => { if (tab === 'tokens') queueMicrotask(() => { void refreshTokenAdminData() }) }, [tab, refreshTokenAdminData])
+  useEffect(() => { if (tab === 'tariffs') queueMicrotask(() => { void refreshTokenAdminData() }) }, [tab, refreshTokenAdminData])
   useEffect(() => {
     if (tab !== 'dashboard') return undefined
     let cancelled = false
@@ -3536,7 +3538,7 @@ function AdminView({ copy, admin, setAdmin, tariffs, setTariffs, backToStudio, p
       <span><b>{String(admin?.errors24h ?? '—')}</b> ошибок входа 24ч</span>
       <span><b>{String(admin?.errors ?? '—')}</b> ошибок генерации</span>
     </div>
-    <div className="admin-tabbar">{[['dashboard', 'Дашборд'], ['mail', 'Почта'], ['models', 'Модели'], ['tokens', 'Токены'], ['users', 'Пользователи'], ['queue', 'Очередь'], ['logs', 'Логи']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id as typeof tab)}>{label}</button>)}</div>
+    <div className="admin-tabbar">{[['dashboard', 'Дашборд'], ['mail', 'Почта'], ['models', 'Модели'], ['tariffs', 'Тарифы'], ['users', 'Пользователи'], ['queue', 'Очередь'], ['logs', 'Логи']].map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id as typeof tab)}>{label}</button>)}</div>
     {tab === 'dashboard' && <div className="admin-section admin-dashboard-v2">
       <div className="admin-grid admin-grid-compact">
         {kpi(copy.users, admin?.users, 'аккаунтов в базе')}
@@ -3575,8 +3577,8 @@ function AdminView({ copy, admin, setAdmin, tariffs, setTariffs, backToStudio, p
     </div>}
     {tab === 'mail' && <AdminMailView />}
     {tab === 'models' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем модели...</div>}><AdminModelsV2 /></Suspense></div>}
-    {tab === 'tokens' && <div className="admin-section"><h3>Токены, тарифы, финансы и акции</h3><div className="admin-two-col"><article><h3>{copy.limits}</h3><label>hourly<input type="number" value={limits.hourly} onChange={(e) => setLimits({ ...limits, hourly: Number(e.target.value) })} /></label><label>daily<input type="number" value={limits.daily} onChange={(e) => setLimits({ ...limits, daily: Number(e.target.value) })} /></label><button className="secondary" onClick={saveLimits}>{copy.save}</button><small>{saved}</small></article><article><h3>Финансы</h3><label>Доход от токенов<input type="number" value={finance.tokenRevenue} onChange={(e) => setFinance({ ...finance, tokenRevenue: Number(e.target.value) })} /></label><label>Себестоимость API<input type="number" value={finance.tokenCost} onChange={(e) => setFinance({ ...finance, tokenCost: Number(e.target.value) })} /></label><label>Свет<input type="number" value={finance.electricity} onChange={(e) => setFinance({ ...finance, electricity: Number(e.target.value) })} /></label><label>Акции<input type="number" value={finance.promoBudget} onChange={(e) => setFinance({ ...finance, promoBudget: Number(e.target.value) })} /></label><button className="secondary" onClick={saveFinance}>Сохранить финансы</button></article><article><h3>Промокод</h3><label>Код<input value={promoDraft.code} onChange={(e) => setPromoDraft({ ...promoDraft, code: e.target.value.toUpperCase() })} /></label><label>Токены<input type="number" value={promoDraft.tokens} onChange={(e) => setPromoDraft({ ...promoDraft, tokens: Number(e.target.value) })} /></label><label>Активации<input type="number" value={promoDraft.activations} onChange={(e) => setPromoDraft({ ...promoDraft, activations: Number(e.target.value) })} /></label><button className="secondary" onClick={createPromo}>Создать промокод</button></article><article><h3>Промокоды в базе</h3>{promoCodes.length ? promoCodes.map((item) => <p key={item.code}><b>{item.code}</b>: {item.tokens} ток. · {item.activation_count}/{item.activation_limit}</p>) : <p>Промокодов пока нет.</p>}</article></div><div className="admin-grid"><div><strong>Free</strong><span>{tariffConfig.free.daily_tokens} ток.</span><small>{tariffConfig.free.gallery_slots} слот(ов) галереи</small></div><div><strong>Mini</strong><span>{tariffConfig.mini.daily_tokens} ток.</span><small>{tariffConfig.mini.gallery_slots} слот(ов) галереи</small></div><div><strong>Plus</strong><span>{tariffConfig.plus.daily_tokens} ток.</span><small>{tariffConfig.plus.gallery_slots} слот(ов) галереи</small></div><div><strong>Pro</strong><span>{tariffConfig.pro.daily_tokens} ток.</span><small>{tariffConfig.pro.gallery_slots} слот(ов) галереи</small></div></div></div>}
-    {tab === 'tokens' && <div className="admin-section"><h3>Настройки тарифов</h3><p>Единый источник для Settings, Gallery и CRM: токены в сутки и слоты галереи.</p><div className="admin-grid">{tariffKeys.map((planKey) => <div key={planKey}><strong>{planKey.toUpperCase()}</strong><label>Токенов/день<input type="number" min="0" value={tariffConfig[planKey].daily_tokens} onChange={(e) => setTariffConfig((current) => ({ ...current, [planKey]: { ...current[planKey], daily_tokens: Number(e.target.value) } }))} /></label><label>Слоты галереи<input type="number" min="0" value={tariffConfig[planKey].gallery_slots} onChange={(e) => setTariffConfig((current) => ({ ...current, [planKey]: { ...current[planKey], gallery_slots: Number(e.target.value) } }))} /></label><small>{tariffConfig[planKey].daily_tokens} ток./день · {tariffConfig[planKey].gallery_slots} слот(ов)</small></div>)}</div><button className="secondary" onClick={() => void saveTariffs()}>Сохранить тарифы</button></div>}
+    {tab === 'tariffs' && <div className="admin-section"><h3>Тарифы, токены, финансы и акции</h3><div className="admin-two-col"><article><h3>{copy.limits}</h3><label>hourly<input type="number" value={limits.hourly} onChange={(e) => setLimits({ ...limits, hourly: Number(e.target.value) })} /></label><label>daily<input type="number" value={limits.daily} onChange={(e) => setLimits({ ...limits, daily: Number(e.target.value) })} /></label><button className="secondary" onClick={saveLimits}>{copy.save}</button><small>{saved}</small></article><article><h3>Финансы</h3><label>Доход от токенов<input type="number" value={finance.tokenRevenue} onChange={(e) => setFinance({ ...finance, tokenRevenue: Number(e.target.value) })} /></label><label>Себестоимость API<input type="number" value={finance.tokenCost} onChange={(e) => setFinance({ ...finance, tokenCost: Number(e.target.value) })} /></label><label>Свет<input type="number" value={finance.electricity} onChange={(e) => setFinance({ ...finance, electricity: Number(e.target.value) })} /></label><label>Акции<input type="number" value={finance.promoBudget} onChange={(e) => setFinance({ ...finance, promoBudget: Number(e.target.value) })} /></label><button className="secondary" onClick={saveFinance}>Сохранить финансы</button></article><article><h3>Промокод</h3><label>Код<input value={promoDraft.code} onChange={(e) => setPromoDraft({ ...promoDraft, code: e.target.value.toUpperCase() })} /></label><label>Токены<input type="number" value={promoDraft.tokens} onChange={(e) => setPromoDraft({ ...promoDraft, tokens: Number(e.target.value) })} /></label><label>Активации<input type="number" value={promoDraft.activations} onChange={(e) => setPromoDraft({ ...promoDraft, activations: Number(e.target.value) })} /></label><button className="secondary" onClick={createPromo}>Создать промокод</button></article><article><h3>Промокоды в базе</h3>{promoCodes.length ? promoCodes.map((item) => <p key={item.code}><b>{item.code}</b>: {item.tokens} ток. · {item.activation_count}/{item.activation_limit}</p>) : <p>Промокодов пока нет.</p>}</article></div><div className="admin-grid">{tariffKeys.map((planKey) => <div key={planKey}><strong>{planKey.toUpperCase()}</strong><span>{tariffConfig[planKey].daily_tokens} ток.</span><small>{tariffConfig[planKey].gallery_slots} слот(ов) галереи</small></div>)}</div></div>}
+    {tab === 'tariffs' && <div className="admin-section"><h3>Настройки тарифов</h3><p>Единый источник для Settings, Gallery и CRM: токены в сутки и слоты галереи.</p><div className="admin-grid">{tariffKeys.map((planKey) => <div key={planKey}><strong>{planKey.toUpperCase()}</strong><label>Токенов/день<input type="number" min="0" value={tariffConfig[planKey].daily_tokens} onChange={(e) => setTariffConfig((current) => ({ ...current, [planKey]: { ...current[planKey], daily_tokens: Number(e.target.value) } }))} /></label><label>Слоты галереи<input type="number" min="0" value={tariffConfig[planKey].gallery_slots} onChange={(e) => setTariffConfig((current) => ({ ...current, [planKey]: { ...current[planKey], gallery_slots: Number(e.target.value) } }))} /></label><small>{tariffConfig[planKey].daily_tokens} ток./день · {tariffConfig[planKey].gallery_slots} слот(ов)</small></div>)}</div><button className="secondary" onClick={() => void saveTariffs()}>Сохранить тарифы</button></div>}
     {tab === 'users' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем аналитику...</div>}><AdminAnalyticsV2 /></Suspense></div>}
     {tab === 'queue' && <div className="admin-section"><h3>Очередь генераций</h3><div className="admin-grid"><div><strong>В очереди</strong><span>{queue.length}</span><small>ожидают запуска</small></div><div><strong>Провайдер</strong><span>{provider}</span><small>текущий маршрут</small></div><div><strong>Сегодня</strong><span>{String(admin?.completedToday ?? 0)}</span><small>выполнено</small></div></div><pre>{JSON.stringify(queue, null, 2)}</pre></div>}
     {tab === 'logs' && <AdminLogsView data={logsData} provider={provider} admin={admin} />}

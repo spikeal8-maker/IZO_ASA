@@ -9,7 +9,7 @@ import {
 } from './authV2'
 import { DiagPanel } from './diag'
 import { isDiagMode } from './diagMeta'
-import { DEFAULT_TARIFFS, normalizeTariffs, type TariffConfig } from './profileSupport'
+import { DEFAULT_TARIFFS, normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 import './index.css'
 
 const AdminAnalyticsV2 = lazy(() => import('./adminAnalytics').then((module) => ({ default: module.AdminAnalyticsV2 })))
@@ -17,7 +17,7 @@ const AdminModelsV2 = lazy(() => import('./adminModels'))
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 
-type AdminTab = 'dashboard' | 'users' | 'models' | 'tokens' | 'mail' | 'logs'
+type AdminTab = 'dashboard' | 'users' | 'models' | 'tariffs' | 'mail' | 'logs'
 type AnyRec = Record<string, unknown>
 type SeriesPoint = { date: string; value: number }
 type DashboardRange = 1 | 6 | 12 | 24 | 7 | 30 | 90
@@ -259,7 +259,7 @@ function AdminTokens() {
       adminGet<AnyRec>('/admin/settings'),
       adminGet<PromoCode[]>('/admin/promos'),
     ])
-    if (settings?.tariffs) setTariffs(normalizeTariffs(settings.tariffs as Partial<Record<string, Partial<{ daily_tokens: number; gallery_slots: number }>>>))
+    if (settings?.tariffs) setTariffs(normalizeTariffs(settings.tariffs as Partial<Record<TariffKey, Partial<TariffConfig[TariffKey]>>>))
     if (settings?.finance) setFinance((current) => ({ ...current, ...(settings.finance as Partial<typeof finance>) }))
     setPromos(Array.isArray(promoRows) ? promoRows : [])
   }, [])
@@ -269,7 +269,7 @@ function AdminTokens() {
   }, [load])
 
   const saveTariffs = async () => {
-    const result = await adminPost<{ ok?: boolean; settings?: Partial<Record<string, Partial<{ daily_tokens: number; gallery_slots: number }>>> }>('/admin/settings/tariffs', { settings: tariffs })
+    const result = await adminPost<{ ok?: boolean; settings?: Partial<Record<TariffKey, Partial<TariffConfig[TariffKey]>>> }>('/admin/settings/tariffs', { settings: tariffs })
     if (result?.ok) {
       setTariffs(normalizeTariffs(result.settings))
       setMsg('Тарифы сохранены')
@@ -291,7 +291,7 @@ function AdminTokens() {
 
   return (
     <div className="admin-section">
-      <h3>Токены, тарифы, финансы и акции</h3>
+      <h3>Тарифы, токены, финансы и акции</h3>
       {msg && <small>{msg}</small>}
       <div className="admin-two-col">
         <article>
@@ -313,7 +313,7 @@ function AdminTokens() {
       <div className="admin-section">
         <h3>Настройки тарифов</h3>
         <div className="admin-grid">
-          {(['free', 'mini', 'plus', 'pro'] as const).map((plan) => (
+          {tariffKeys.map((plan) => (
             <div key={plan}>
               <strong>{plan.toUpperCase()}</strong>
               <label>Токенов/день<input type="number" min="0" value={tariffs[plan].daily_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], daily_tokens: Number(e.target.value) } }))} /></label>
@@ -463,7 +463,7 @@ export default function AdminApp() {
     ['dashboard', 'Дашборд'],
     ['users', 'Пользователи'],
     ['models', 'Модели'],
-    ['tokens', 'Токены'],
+    ['tariffs', 'Тарифы'],
     ['mail', 'Почта'],
     ['logs', 'Логи'],
   ]
@@ -492,7 +492,7 @@ export default function AdminApp() {
           {tab === 'dashboard' && <AdminDashboard summary={summary} />}
           {tab === 'users' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем пользователей...</div>}><AdminAnalyticsV2 /></Suspense></div>}
           {tab === 'models' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем модели...</div>}><AdminModelsV2 /></Suspense></div>}
-          {tab === 'tokens' && <AdminTokens />}
+          {tab === 'tariffs' && <AdminTokens />}
           {tab === 'mail' && <AdminMail />}
           {tab === 'logs' && <AdminLogs logsData={logsData} />}
         </section>

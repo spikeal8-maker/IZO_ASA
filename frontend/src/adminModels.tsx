@@ -515,15 +515,7 @@ export default function AdminModelsV2() {
   const [opsBusy, setOpsBusy] = useState(false)
 
   const load = useCallback(async () => {
-    const [d, status] = await Promise.all([
-      amvFetch('/admin/models-page').then((r) => (r.ok ? r.json() : null)).catch(() => null) as Promise<PageData | null>,
-      amvFetch('/admin/config-ui/status-v2').then(async (r) => {
-        if (r.ok) { setConfigErr(''); return await r.json() as ConfigStatus }
-        setConfigErr(`/api/admin/config-ui/status-v2 -> HTTP ${r.status}`)
-        return null
-      }).catch((e) => { setConfigErr(e instanceof Error ? e.message : 'config status недоступен'); return null }) as Promise<ConfigStatus | null>,
-    ])
-    if (status) setConfigStatus(status)
+    const d = await amvFetch('/admin/models-page').then((r) => (r.ok ? r.json() : null)).catch(() => null) as PageData | null
     // Принимаем ответ только полной формы. Иначе — сообщение об ошибке, а не падение:
     // живой backend мог не содержать /api/admin/models-page или вернуть 403/500 с JSON-телом.
     const ok = !!d && Array.isArray(d.matrix) && Array.isArray(d.routes) && !!d.economy
@@ -552,6 +544,23 @@ export default function AdminModelsV2() {
   }, [])
   useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
 
+  const loadConfigStatus = useCallback(async () => {
+    const status = await amvFetch('/admin/config-ui/status-v2').then(async (r) => {
+      if (r.ok) { setConfigErr(''); return await r.json() as ConfigStatus }
+      setConfigErr(`/api/admin/config-ui/status-v2 -> HTTP ${r.status}`)
+      return null
+    }).catch((e) => {
+      setConfigErr(e instanceof Error ? e.message : 'config status недоступен')
+      return null
+    }) as ConfigStatus | null
+    if (status) setConfigStatus(status)
+  }, [])
+
+  useEffect(() => {
+    if (pageTab !== 'config' || configStatus || configErr) return
+    queueMicrotask(() => { void loadConfigStatus() })
+  }, [configErr, configStatus, loadConfigStatus, pageTab])
+
   async function configAction(kind: 'reload' | 'interrupt') {
     const reason = opsReason.trim()
     if (!reason) { setMsg('Укажите причину операции'); return }
@@ -565,7 +574,7 @@ export default function AdminModelsV2() {
     if (r?.ok) {
       if (r.status) setConfigStatus(r.status)
       setMsg(kind === 'reload' ? 'Config UI перечитан и кэш сброшен' : 'ComfyUI interrupt отправлен')
-      await load()
+      await loadConfigStatus()
     } else setMsg(r?.detail || 'Операция не выполнена')
   }
 
@@ -855,7 +864,7 @@ export default function AdminModelsV2() {
       </div>
       <div className="ops-row">
         <input value={opsReason} onChange={(e) => setOpsReason(e.target.value)} placeholder="Причина операции для audit log" />
-        <button className="ghost" disabled={opsBusy} onClick={() => void load()}>Обновить статус</button>
+        <button className="ghost" disabled={opsBusy} onClick={() => void loadConfigStatus()}>Обновить статус</button>
         <button className="primary" disabled={opsBusy} onClick={() => void configAction('reload')}>Перезапустить config UI</button>
         <button className="danger" disabled={opsBusy} onClick={() => void configAction('interrupt')}>Interrupt Comfy</button>
       </div>
@@ -904,7 +913,7 @@ export default function AdminModelsV2() {
     <article className="card">
       <div className="card-head">
         <div><h2 className="card-title">Доступные LoRA из ComfyUI</h2><p className="card-note">Только локальные LoRA и совместимость с Flux 2 Klein 4B/9B. API-модели здесь больше не смешиваются.</p></div>
-        <div className="actions"><button className="ghost" onClick={() => void load()}>Сканировать ComfyUI</button></div>
+        <div className="actions"><button className="ghost" onClick={() => void loadConfigStatus()}>Сканировать ComfyUI</button></div>
       </div>
       <div className="lora-grid">{kleinLoras.map((l) => <article className="lora-card" key={l.fileName}>
         <span className={`provider ${l.installed === false ? 'openrouter' : 'local'}`}>{l.installed === false ? 'Нужно добавить' : 'Klein LoRA'}</span>
