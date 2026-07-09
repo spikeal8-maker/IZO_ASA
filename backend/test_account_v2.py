@@ -134,13 +134,32 @@ def test_patch_updates_allowed_fields(temp_db):
     make_user("iuid-1", "telegram_1", username="old")
     s = session_for("iuid-1", "telegram_1")
     with TestClient(main.app) as client:
-        r = client.patch("/api/me/profile-v2", json={"display_name": " New Name ", "city": "Berlin", "language_code": "en"},
+        r = client.patch(
+            "/api/me/profile-v2",
+            json={
+                "display_name": " New Name ",
+                "city": "Berlin",
+                "language_code": "en",
+                "public_about": " Создаю визуалы для брендов ",
+                "public_website": "example.com/portfolio",
+                "public_focus": "бренд-дизайн",
+            },
                          headers=bearer(s["session_token"]))
+        me = client.get("/api/me-v2", headers=bearer(s["session_token"]))
     assert r.status_code == 200
     p = r.json()["profile"]
     assert p["display_name"] == "New Name"  # trimmed
     assert p["city"] == "Berlin"
     assert p["language_code"] == "en"
+    assert p["public_about"] == "Создаю визуалы для брендов"
+    assert p["public_website"] == "https://example.com/portfolio"
+    assert p["public_focus"] == "бренд-дизайн"
+    assert me.json()["profile"]["public_website"] == "https://example.com/portfolio"
+    with main.db() as conn:
+        row = conn.execute("SELECT public_about, public_website, public_focus FROM users WHERE internal_user_id='iuid-1'").fetchone()
+    assert row["public_about"] == "Создаю визуалы для брендов"
+    assert row["public_website"] == "https://example.com/portfolio"
+    assert row["public_focus"] == "бренд-дизайн"
 
 
 # 9, 10, 11, 12
