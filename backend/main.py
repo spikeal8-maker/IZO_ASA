@@ -697,11 +697,11 @@ rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
 DEFAULT_TARIFFS: dict[str, dict[str, Any]] = {
-    "free": {"title": "Free", "note": "Базовый доступ", "daily_tokens": 10, "gallery_slots": 20, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024"], "video_enabled": 0, "video_slots": 0},
-    "mini": {"title": "Mini", "note": "Оптимальный старт", "daily_tokens": 50, "gallery_slots": 80, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024", "h-1280", "v-720"], "video_enabled": 0, "video_slots": 0},
-    "plus": {"title": "Plus", "note": "Больше возможностей", "daily_tokens": 100, "gallery_slots": 200, "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024"], "video_enabled": 0, "video_slots": 0},
-    "pro": {"title": "Pro", "note": "Видео и приоритет", "daily_tokens": 200, "gallery_slots": 500, "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 10},
-    "business": {"title": "Бизнес", "note": "Для команды и видео", "daily_tokens": 500, "gallery_slots": 500, "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 50},
+    "free": {"title": "Free", "note": "Базовый доступ", "price_rub_month": 0, "daily_tokens": 10, "gallery_slots": 20, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024"], "video_enabled": 0, "video_slots": 0},
+    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "gallery_slots": 80, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024", "h-1280", "v-720"], "video_enabled": 0, "video_slots": 0},
+    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "gallery_slots": 200, "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024"], "video_enabled": 0, "video_slots": 0},
+    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "gallery_slots": 500, "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 10},
+    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "gallery_slots": 500, "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 50},
 }
 
 
@@ -3286,25 +3286,29 @@ def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[s
     result: dict[str, dict[str, Any]] = {}
     for plan in PLAN_ORDER:
         source = data.get(plan) if isinstance(data.get(plan), dict) else {}
+        price = source.get("price_rub_month", source.get("priceRubMonth", DEFAULT_TARIFFS[plan]["price_rub_month"]))
         daily = source.get("daily_tokens", source.get("dailyTokens", DEFAULT_TARIFFS[plan]["daily_tokens"]))
         slots = source.get("gallery_slots", source.get("gallerySlots", DEFAULT_TARIFFS[plan]["gallery_slots"]))
         video_enabled = source.get("video_enabled", source.get("videoEnabled", DEFAULT_TARIFFS[plan]["video_enabled"]))
         video_slots = source.get("video_slots", source.get("videoSlots", DEFAULT_TARIFFS[plan]["video_slots"]))
         try:
+            price_int = int(price)
             daily_int = int(daily)
             slots_int = int(slots)
             video_slots_int = int(video_slots)
         except (TypeError, ValueError):
             if strict:
                 raise HTTPException(400, f"Invalid tariff values for {plan}.")
+            price_int = DEFAULT_TARIFFS[plan]["price_rub_month"]
             daily_int = DEFAULT_TARIFFS[plan]["daily_tokens"]
             slots_int = DEFAULT_TARIFFS[plan]["gallery_slots"]
             video_slots_int = DEFAULT_TARIFFS[plan]["video_slots"]
-        if strict and (daily_int < 0 or slots_int < 0 or video_slots_int < 0):
+        if strict and (price_int < 0 or daily_int < 0 or slots_int < 0 or video_slots_int < 0):
             raise HTTPException(400, f"Tariff values for {plan} must be non-negative.")
         result[plan] = {
             "title": _tariff_text(source, plan, "title", max_len=40),
             "note": _tariff_text(source, plan, "note", max_len=160),
+            "price_rub_month": max(0, min(price_int, 10_000_000)),
             "daily_tokens": max(0, min(daily_int, 100_000)),
             "gallery_slots": max(0, min(slots_int, 100_000)),
             "queue_label": _tariff_text(source, plan, "queue_label", max_len=80),

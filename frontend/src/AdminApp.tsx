@@ -320,13 +320,17 @@ function AdminTokens() {
         </article>
       </div>
       <div className="admin-section">
-        <h3>Настройки тарифов</h3>
+        <div className="admin-section-head">
+          <h3>Настройки тарифов</h3>
+          <button className="secondary" onClick={saveTariffs}>Сохранить тарифы</button>
+        </div>
         <div className="admin-grid">
           {tariffKeys.map((plan) => (
             <div key={plan}>
               <strong>{plan.toUpperCase()}</strong>
               <label>Название<input value={tariffs[plan].title} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], title: e.target.value } }))} /></label>
               <label>Описание<input value={tariffs[plan].note} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], note: e.target.value } }))} /></label>
+              <label>Цена, ₽/мес<input type="number" min="0" value={tariffs[plan].price_rub_month} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], price_rub_month: Number(e.target.value) } }))} /></label>
               <label>Токенов/день<input type="number" min="0" value={tariffs[plan].daily_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], daily_tokens: Number(e.target.value) } }))} /></label>
               <label>Слоты галереи<input type="number" min="0" value={tariffs[plan].gallery_slots} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], gallery_slots: Number(e.target.value) } }))} /></label>
               <label>Очередь<input value={tariffs[plan].queue_label} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], queue_label: e.target.value } }))} /></label>
@@ -346,7 +350,6 @@ function AdminTokens() {
             </div>
           ))}
         </div>
-        <button className="secondary" onClick={saveTariffs}>Сохранить тарифы</button>
       </div>
       <div className="admin-section">
         <h3>Промокоды в базе</h3>

@@ -171,15 +171,21 @@ export default function ProfilePage({
       id,
       title: tariff.title,
       note: tariff.note,
+      price: tariff.price_rub_month,
       daily: tariff.daily_tokens,
       slots: tariff.gallery_slots,
+      queue: tariff.queue_label,
+      proMode: tariff.pro_mode_enabled,
+      resolutions: tariff.allowed_resolutions.map((resolutionId) => resolutionOptions.find((option) => option.id === resolutionId)?.label || resolutionId),
       videoSlots: tariff.video_slots,
       videoEnabled: tariff.video_enabled,
       features: [
-        'Галерея открыта',
+        tariff.pro_mode_enabled ? 'Режим профи открыт' : 'Режим профи закрыт',
+        `Очередь: ${tariff.queue_label}`,
         `${tariff.gallery_slots} слот(ов) галереи`,
         `${tariff.daily_tokens} токенов в сутки`,
         tariff.video_enabled ? `Видео открыто · ${tariff.video_slots} сохранений` : 'Видео недоступно',
+        `Разрешения: ${tariff.allowed_resolutions.map((resolutionId) => resolutionOptions.find((option) => option.id === resolutionId)?.label || resolutionId).join(', ')}`,
       ],
     }
   })
@@ -363,23 +369,13 @@ export default function ProfilePage({
                 {planCards.map((item) => (
                   <article className={`${item.id === activePlan ? 'profile-card profile-plan active current' : 'profile-card profile-plan'}`} key={item.id}>
                     {item.id === activePlan && <span className="profile-chip current">Текущий</span>}
-                    <h4>{item.title}</h4><p>{item.note}</p><strong>{item.daily}</strong><span>токенов в сутки · {item.slots} слот(ов)</span>
-                    <span>{item.videoEnabled ? `Видео: ${item.videoSlots} сохранений` : 'Видео закрыто'}</span>
+                    <h4>{item.title}</h4><p>{item.note}</p><strong>{item.price ? `${item.price.toLocaleString('ru-RU')} ₽` : '0 ₽'}</strong><span>в месяц · {item.daily} токенов в сутки · {item.slots} слот(ов)</span>
+                    <span>{item.proMode ? 'Режим профи открыт' : 'Режим профи закрыт'} · {item.videoEnabled ? `Видео: ${item.videoSlots} сохранений` : 'Видео закрыто'}</span>
                     <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
                     <button type="button" disabled>{item.id === activePlan ? 'Текущий тариф' : 'Смена тарифа скоро'}</button>
                   </article>
                 ))}
               </div>
-            </section>
-            <section className="profile-card profile-compare">
-              <div>Функции</div>{tariffKeys.map((key) => <div key={key}>{tariffs[key].title}</div>)}
-              <span>Токены в сутки</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].daily_tokens}</b>)}
-              <span>Галерея</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].gallery_slots}</b>)}
-              <span>Режим профи</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].pro_mode_enabled ? 'Да' : 'Нет'}</b>)}
-              <span>Видео</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].video_enabled ? 'Открыто' : 'Нет'}</b>)}
-              <span>Видео, шт.</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].video_slots}</b>)}
-              <span>Разрешения</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].allowed_resolutions.map((id) => resolutionOptions.find((item) => item.id === id)?.label || id).join(', ')}</b>)}
-              <span>Очередь</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].queue_label}</b>)}
             </section>
           </>}
 
