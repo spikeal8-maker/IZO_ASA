@@ -61,11 +61,31 @@ type PageData = {
   comfyFiles: Record<string, unknown>
   profiles: ProfileOption[]
 }
-type OpenRouterConfig = { enabled?: Record<string, string[]>; defaults?: Record<string, string> }
+type OpenRouterTier = 'basic' | 'pro' | 'business' | 'admin'
+type OpenRouterQuality = 'fast' | 'standard' | 'max'
+type OpenRouterAccess = Record<string, Partial<Record<OpenRouterTier | 'free', string[]>>>
+type OpenRouterQualityDefaults = Record<string, Partial<Record<OpenRouterQuality, string>>>
+type OpenRouterConfig = {
+  enabled?: Record<string, string[]>
+  defaults?: Record<string, string>
+  access?: OpenRouterAccess
+  qualityDefaults?: OpenRouterQualityDefaults
+}
 type OpenRouterTestResult = { image?: { url?: string; thumbnailUrl?: string }; costUsd?: number | null; model?: string; usage?: Record<string, unknown> }
 
 const USD_FEE_RATE = 0.30
 const DEFAULT_TOKEN_RUB = 5
+const OPENROUTER_TIERS: Array<{ id: OpenRouterTier; label: string }> = [
+  { id: 'basic', label: 'B' },
+  { id: 'pro', label: 'Pro' },
+  { id: 'business', label: 'Bus' },
+  { id: 'admin', label: 'Adm' },
+]
+const OPENROUTER_QUALITY: Array<{ id: OpenRouterQuality; label: string }> = [
+  { id: 'fast', label: 'Быстро' },
+  { id: 'standard', label: 'Стандарт' },
+  { id: 'max', label: 'Максимум' },
+]
 type ApiImageModel = {
   id: string; name: string; provider: string; input: string; output: string; params: string; pricing: string
   mpUsd?: number; imageUsd?: number; token?: boolean; tiered?: boolean
@@ -370,7 +390,11 @@ const CSS = `
 .amv2 .section-cell{display:grid;gap:2px;min-width:0}
 .amv2 .section-cell span{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
 .amv2 .section-cell strong{font-size:12px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.amv2 .api-table{min-width:1250px}
+.amv2 .quality-row{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:8px;margin:0 12px 8px}
+.amv2 .quality-row label{display:grid;grid-template-columns:78px minmax(0,1fr);gap:8px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.026);padding:6px 8px}
+.amv2 .quality-row span{color:var(--muted);font-size:11px;font-weight:750}
+.amv2 .quality-row select{min-height:28px;font-size:12px;padding:0 8px}
+.amv2 .api-table{min-width:1420px}
 .amv2 .api-table td,.amv2 .api-table th{vertical-align:middle}
 .amv2 .api-table th{padding:6px 8px}
 .amv2 .api-table td{padding:2px 8px;height:26px;line-height:1.15}
@@ -385,6 +409,10 @@ const CSS = `
 .amv2 .api-table .model-name{white-space:nowrap;font-size:12px;font-weight:700}
 .amv2 .api-enabled{width:28px;text-align:center}
 .amv2 .api-enabled input{width:14px;height:14px;min-height:14px;padding:0;margin:0;vertical-align:middle}
+.amv2 .tier-checks{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.amv2 .tier-checks label{display:inline-flex;align-items:center;gap:3px;color:var(--muted);font-size:10px;font-weight:800}
+.amv2 .tier-checks input{width:13px;height:13px;min-height:13px;padding:0;margin:0}
+.amv2 .tier-checks input:checked + span{color:var(--lime)}
 .amv2 .api-table .provider{font-size:11px;padding:2px 6px}
 .amv2 .api-table .money{font-size:12px}
 .amv2 .money{font-weight:650;color:var(--lime);white-space:nowrap}
@@ -607,18 +635,65 @@ export default function AdminModelsV2() {
     const current = data.openrouter.config || { enabled: {}, defaults: {} }
     const enabled = { ...(current.enabled || {}) }
     const defaults = { ...(current.defaults || {}) }
+    const access: OpenRouterAccess = JSON.parse(JSON.stringify(current.access || {}))
+    const qualityDefaults: OpenRouterQualityDefaults = JSON.parse(JSON.stringify(current.qualityDefaults || {}))
     const list = new Set(enabled[mode] || [])
     if (checked) list.add(modelId)
     else list.delete(modelId)
     const nextList = Array.from(list).sort()
     if (nextList.length) enabled[mode] = nextList
     else delete enabled[mode]
+    access[mode] = access[mode] || {}
+    const adminList = new Set(access[mode].admin || [])
+    if (checked) adminList.add(modelId)
+    else {
+      for (const tier of [...OPENROUTER_TIERS.map((t) => t.id), 'free'] as const) {
+        const tierList = new Set(access[mode]?.[tier] || [])
+        tierList.delete(modelId)
+        if (tierList.size) access[mode]![tier] = Array.from(tierList).sort()
+        else delete access[mode]![tier]
+      }
+      for (const q of OPENROUTER_QUALITY) {
+        if (qualityDefaults[mode]?.[q.id] === modelId) delete qualityDefaults[mode]![q.id]
+      }
+    }
+    if (adminList.size) access[mode].admin = Array.from(adminList).sort()
+    else delete access[mode].admin
+    if (!Object.keys(access[mode]).length) delete access[mode]
     if (checked && !defaults[mode]) defaults[mode] = modelId
     if (!checked && defaults[mode] === modelId) {
       if (nextList.length) defaults[mode] = nextList[0]
       else delete defaults[mode]
     }
-    void saveOpenrouterConfig({ enabled, defaults })
+    void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
+  }
+
+  const toggleOpenrouterTier = (mode: string, tier: OpenRouterTier, modelId: string, checked: boolean) => {
+    if (!data) return
+    const current = data.openrouter.config || { enabled: {}, defaults: {}, access: {}, qualityDefaults: {} }
+    const enabled = { ...(current.enabled || {}) }
+    const defaults = { ...(current.defaults || {}) }
+    const access: OpenRouterAccess = JSON.parse(JSON.stringify(current.access || {}))
+    const qualityDefaults: OpenRouterQualityDefaults = JSON.parse(JSON.stringify(current.qualityDefaults || {}))
+    access[mode] = access[mode] || {}
+    const values = new Set(access[mode][tier] || [])
+    if (checked) values.add(modelId)
+    else values.delete(modelId)
+    if (values.size) access[mode][tier] = Array.from(values).sort()
+    else delete access[mode][tier]
+    if (!Object.keys(access[mode]).length) delete access[mode]
+    void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
+  }
+
+  const setOpenrouterQualityDefault = (mode: string, quality: OpenRouterQuality, modelId: string) => {
+    if (!data) return
+    const current = data.openrouter.config || { enabled: {}, defaults: {}, access: {}, qualityDefaults: {} }
+    const enabled = { ...(current.enabled || {}) }
+    const defaults = { ...(current.defaults || {}) }
+    const access: OpenRouterAccess = JSON.parse(JSON.stringify(current.access || {}))
+    const qualityDefaults: OpenRouterQualityDefaults = JSON.parse(JSON.stringify(current.qualityDefaults || {}))
+    qualityDefaults[mode] = { ...(qualityDefaults[mode] || {}), [quality]: modelId }
+    void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
   }
 
   const runOpenrouterTest = async () => {
@@ -880,6 +955,8 @@ export default function AdminModelsV2() {
         const sectionOpen = apiSectionsOpen[section.id] ?? false
         const enabledForSection = data.openrouter.config?.enabled?.[section.id] || []
         const defaultForSection = data.openrouter.config?.defaults?.[section.id] || ''
+        const accessForSection = data.openrouter.config?.access?.[section.id] || {}
+        const qualityForSection = data.openrouter.config?.qualityDefaults?.[section.id] || {}
         const sectionStats = orUsageModes.get(section.id)
         const sectionCount = typeof sectionStats?.count === 'number' ? sectionStats.count : 0
         const sectionSpent = typeof sectionStats?.costUsd === 'number' ? moneyPair(sectionStats.costUsd, usdRubEffective) : '—'
@@ -913,12 +990,25 @@ export default function AdminModelsV2() {
           </button>
           {sectionOpen && <>
           <div className="hint" style={{ margin: '8px 12px' }}>Локальный аналог: {section.local}. Клик по строке раскрывает технические детали и оценку подключения.</div>
+          <div className="quality-row">
+            {OPENROUTER_QUALITY.map((q) => <label key={q.id}>
+              <span>{q.label}</span>
+              <select
+                value={qualityForSection[q.id] || defaultForSection}
+                disabled={!enabledForSection.length}
+                onChange={(e) => setOpenrouterQualityDefault(section.id, q.id, e.target.value)}
+              >
+                {enabledForSection.map((modelId) => <option key={modelId} value={modelId}>{modelLabelById(modelId)}</option>)}
+              </select>
+            </label>)}
+          </div>
           <div className="matrix-wrap">
             <table className="api-table">
               <thead><tr>
                 <th className="api-enabled">Вкл.</th>
                 <th><button className={`sort-head ${sort.key === 'name' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'name')}>Модель {sortMark(sort, 'name')}</button></th>
                 <th><button className={`sort-head ${sort.key === 'provider' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'provider')}>Производитель {sortMark(sort, 'provider')}</button></th>
+                <th>Доступ</th>
                 <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена картинки, ₽ {sortMark(sort, 'price')}</button></th>
                 <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена картинки, $ {sortMark(sort, 'price')}</button></th>
                 <th><button className={`sort-head ${sort.key === 'tokens' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'tokens')}>Токены {sortMark(sort, 'tokens')}</button></th>
@@ -934,6 +1024,7 @@ export default function AdminModelsV2() {
                 const expanded = apiExpandedRows[rowKey] || false
                 const backendPrice = backendPricingMap.get(m.id)
                 const canBill = Boolean(backendPrice)
+                const tierAccess = (tier: OpenRouterTier) => Boolean(accessForSection[tier]?.includes(m.id))
                 const modelStats = orUsageModels.get(m.id)
                 const avgActualUsd = typeof modelStats?.avgCostUsd === 'number' ? modelStats.avgCostUsd : null
                 const generatedCount = modelStatText(modelStats?.count)
@@ -957,6 +1048,20 @@ export default function AdminModelsV2() {
                     </td>
                     <td><strong className="model-name">{modelShortName(m)}</strong>{defaultForSection === m.id ? <span className="mini" style={{ marginLeft: 8 }}>default</span> : null}{!canBill ? <span className="mini risk-high" style={{ marginLeft: 8 }}>нет backend цены</span> : null}</td>
                     <td><span className="provider openrouter">{modelBrand(m)}</span></td>
+                    <td>
+                      <div className="tier-checks">
+                        {OPENROUTER_TIERS.map((tier) => <label key={tier.id} title={tier.id}>
+                          <input
+                            type="checkbox"
+                            checked={tierAccess(tier.id)}
+                            disabled={!enabled}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => toggleOpenrouterTier(section.id, tier.id, m.id, e.target.checked)}
+                          />
+                          <span>{tier.label}</span>
+                        </label>)}
+                      </div>
+                    </td>
                     <td><span className="money">{modelRubPrice(m, usdRubEffective, avgActualUsd)}</span></td>
                     <td><span className="money">{modelUsdPrice(m, avgActualUsd)}</span></td>
                     <td><span className="money">{tokenCount ?? '—'}</span></td>
@@ -967,7 +1072,7 @@ export default function AdminModelsV2() {
                     <td><span className="money">{spentTotal}</span></td>
                   </tr>
                   {expanded && <tr>
-                    <td className="detail-cell" colSpan={11}>
+                    <td className="detail-cell" colSpan={12}>
                       <div className="detail-box">
                         <span><b>Полное имя:</b> {m.name}</span>
                         <span><b>OpenRouter id:</b> {m.id}</span>

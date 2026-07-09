@@ -12424,13 +12424,19 @@ def openrouter_usage_stats() -> dict[str, Any]:
 OPENROUTER_ADMIN_MODES = {
     "text_to_image", "image_to_image", "edit", "paint", "inpaint", "outpaint", "faceswap", "remove_background"
 }
+OPENROUTER_ACCESS_TIERS = {"free", "basic", "pro", "business", "admin"}
+OPENROUTER_QUALITY_PRESETS = {"fast", "standard", "max"}
 
 
 def normalize_openrouter_config(config: dict[str, Any]) -> dict[str, Any]:
     raw_enabled = config.get("enabled") if isinstance(config.get("enabled"), dict) else {}
     raw_defaults = config.get("defaults") if isinstance(config.get("defaults"), dict) else {}
+    raw_access = config.get("access") if isinstance(config.get("access"), dict) else {}
+    raw_quality = config.get("qualityDefaults") if isinstance(config.get("qualityDefaults"), dict) else {}
     enabled: dict[str, list[str]] = {}
     defaults: dict[str, str] = {}
+    access: dict[str, dict[str, list[str]]] = {}
+    quality_defaults: dict[str, dict[str, str]] = {}
     for mode in OPENROUTER_ADMIN_MODES:
         values = raw_enabled.get(mode)
         if isinstance(values, list):
@@ -12440,14 +12446,61 @@ def normalize_openrouter_config(config: dict[str, Any]) -> dict[str, Any]:
         default = raw_defaults.get(mode)
         if isinstance(default, str) and "/" in default and default.strip() in enabled.get(mode, []):
             defaults[mode] = default.strip()
+        mode_access_raw = raw_access.get(mode) if isinstance(raw_access.get(mode), dict) else {}
+        mode_access: dict[str, list[str]] = {}
+        for tier in OPENROUTER_ACCESS_TIERS:
+            tier_values = mode_access_raw.get(tier)
+            if isinstance(tier_values, list):
+                clean_tier = sorted({
+                    str(v).strip()
+                    for v in tier_values
+                    if isinstance(v, str) and str(v).strip() in enabled.get(mode, [])
+                })
+                if clean_tier:
+                    mode_access[tier] = clean_tier
+        if mode_access:
+            access[mode] = mode_access
+        mode_quality_raw = raw_quality.get(mode) if isinstance(raw_quality.get(mode), dict) else {}
+        mode_quality: dict[str, str] = {}
+        for preset in OPENROUTER_QUALITY_PRESETS:
+            preset_value = mode_quality_raw.get(preset)
+            if isinstance(preset_value, str) and preset_value.strip() in enabled.get(mode, []):
+                mode_quality[preset] = preset_value.strip()
+        if mode_quality:
+            quality_defaults[mode] = mode_quality
     for mode, values in enabled.items():
         if mode not in defaults and values:
             defaults[mode] = values[0]
-    return {"enabled": enabled, "defaults": defaults}
+        tier_defaults = access.setdefault(mode, {})
+        tier_defaults.setdefault("admin", list(values))
+        if defaults.get(mode):
+            quality_defaults.setdefault(mode, {})
+            quality_defaults[mode].setdefault("fast", defaults[mode])
+            quality_defaults[mode].setdefault("standard", defaults[mode])
+            quality_defaults[mode].setdefault("max", defaults[mode])
+    return {"enabled": enabled, "defaults": defaults, "access": access, "qualityDefaults": quality_defaults}
 
 
 def get_openrouter_config() -> dict[str, Any]:
     return normalize_openrouter_config(_saved_setting("openrouter_models"))
+
+
+def openrouter_model_allowed(config: dict[str, Any], mode: str, tier: str, model_id: str) -> bool:
+    access = config.get("access") if isinstance(config.get("access"), dict) else {}
+    mode_access = access.get(mode) if isinstance(access.get(mode), dict) else {}
+    values = mode_access.get(tier) if isinstance(mode_access.get(tier), list) else []
+    return model_id in values
+
+
+def openrouter_quality_model(config: dict[str, Any], mode: str, preset: str, tier: str = "admin") -> str | None:
+    quality = config.get("qualityDefaults") if isinstance(config.get("qualityDefaults"), dict) else {}
+    mode_quality = quality.get(mode) if isinstance(quality.get(mode), dict) else {}
+    model_id = mode_quality.get(preset)
+    if isinstance(model_id, str) and openrouter_model_allowed(config, mode, tier, model_id):
+        return model_id
+    defaults = config.get("defaults") if isinstance(config.get("defaults"), dict) else {}
+    fallback = defaults.get(mode)
+    return fallback if isinstance(fallback, str) and openrouter_model_allowed(config, mode, tier, fallback) else None
 
 
 @app.get("/api/admin/openrouter/status")
