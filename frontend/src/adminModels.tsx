@@ -668,6 +668,27 @@ export default function AdminModelsV2() {
     void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
   }
 
+  const toggleOpenrouterSection = (mode: string, modelIds: string[], checked: boolean) => {
+    if (!data) return
+    const current = data.openrouter.config || { enabled: {}, defaults: {}, access: {}, qualityDefaults: {} }
+    const enabled = { ...(current.enabled || {}) }
+    const defaults = { ...(current.defaults || {}) }
+    const access: OpenRouterAccess = JSON.parse(JSON.stringify(current.access || {}))
+    const qualityDefaults: OpenRouterQualityDefaults = JSON.parse(JSON.stringify(current.qualityDefaults || {}))
+    const ids = Array.from(new Set(modelIds)).sort()
+    if (checked) {
+      enabled[mode] = ids
+      defaults[mode] = defaults[mode] && ids.includes(defaults[mode]) ? defaults[mode] : ids[0]
+      access[mode] = { ...(access[mode] || {}), admin: ids }
+    } else {
+      delete enabled[mode]
+      delete defaults[mode]
+      delete access[mode]
+      delete qualityDefaults[mode]
+    }
+    void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
+  }
+
   const toggleOpenrouterTier = (mode: string, tier: OpenRouterTier, modelId: string, checked: boolean) => {
     if (!data) return
     const current = data.openrouter.config || { enabled: {}, defaults: {}, access: {}, qualityDefaults: {} }
@@ -682,17 +703,6 @@ export default function AdminModelsV2() {
     if (values.size) access[mode][tier] = Array.from(values).sort()
     else delete access[mode][tier]
     if (!Object.keys(access[mode]).length) delete access[mode]
-    void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
-  }
-
-  const setOpenrouterQualityDefault = (mode: string, quality: OpenRouterQuality, modelId: string) => {
-    if (!data) return
-    const current = data.openrouter.config || { enabled: {}, defaults: {}, access: {}, qualityDefaults: {} }
-    const enabled = { ...(current.enabled || {}) }
-    const defaults = { ...(current.defaults || {}) }
-    const access: OpenRouterAccess = JSON.parse(JSON.stringify(current.access || {}))
-    const qualityDefaults: OpenRouterQualityDefaults = JSON.parse(JSON.stringify(current.qualityDefaults || {}))
-    qualityDefaults[mode] = { ...(qualityDefaults[mode] || {}), [quality]: modelId }
     void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
   }
 
@@ -956,7 +966,6 @@ export default function AdminModelsV2() {
         const enabledForSection = data.openrouter.config?.enabled?.[section.id] || []
         const defaultForSection = data.openrouter.config?.defaults?.[section.id] || ''
         const accessForSection = data.openrouter.config?.access?.[section.id] || {}
-        const qualityForSection = data.openrouter.config?.qualityDefaults?.[section.id] || {}
         const sectionStats = orUsageModes.get(section.id)
         const sectionCount = typeof sectionStats?.count === 'number' ? sectionStats.count : 0
         const sectionSpent = typeof sectionStats?.costUsd === 'number' ? moneyPair(sectionStats.costUsd, usdRubEffective) : '—'
@@ -971,6 +980,9 @@ export default function AdminModelsV2() {
             return !query || hay.includes(query.toLowerCase())
           })
         const sortedRows = sortedApiRows(rows, sort, orUsageModels, usdRubEffective, minMarginPercent, tokenRub)
+        const billableIds = rows.filter((m) => backendPricingMap.has(m.id)).map((m) => m.id)
+        const enabledBillableCount = billableIds.filter((id) => enabledForSection.includes(id)).length
+        const allBillableEnabled = billableIds.length > 0 && enabledBillableCount === billableIds.length
         return <article className="card" key={section.id}>
           <button className={`api-section-head ${sectionOpen ? '' : 'collapsed'}`} onClick={() => setApiSectionsOpen((prev) => ({ ...prev, [section.id]: !sectionOpen }))}>
             <div className="section-cell">
@@ -989,23 +1001,18 @@ export default function AdminModelsV2() {
             </div>
           </button>
           {sectionOpen && <>
-          <div className="hint" style={{ margin: '8px 12px' }}>Локальный аналог: {section.local}. Клик по строке раскрывает технические детали и оценку подключения.</div>
-          <div className="quality-row">
-            {OPENROUTER_QUALITY.map((q) => <label key={q.id}>
-              <span>{q.label}</span>
-              <select
-                value={qualityForSection[q.id] || defaultForSection}
-                disabled={!enabledForSection.length}
-                onChange={(e) => setOpenrouterQualityDefault(section.id, q.id, e.target.value)}
-              >
-                {enabledForSection.map((modelId) => <option key={modelId} value={modelId}>{modelLabelById(modelId)}</option>)}
-              </select>
-            </label>)}
-          </div>
           <div className="matrix-wrap">
             <table className="api-table">
               <thead><tr>
-                <th className="api-enabled">Вкл.</th>
+                <th className="api-enabled">
+                  <input
+                    type="checkbox"
+                    checked={allBillableEnabled}
+                    disabled={!billableIds.length}
+                    aria-label={`Включить все модели ${section.title}`}
+                    onChange={(e) => toggleOpenrouterSection(section.id, billableIds, e.target.checked)}
+                  />
+                </th>
                 <th><button className={`sort-head ${sort.key === 'name' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'name')}>Модель {sortMark(sort, 'name')}</button></th>
                 <th><button className={`sort-head ${sort.key === 'provider' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'provider')}>Производитель {sortMark(sort, 'provider')}</button></th>
                 <th>Доступ</th>
