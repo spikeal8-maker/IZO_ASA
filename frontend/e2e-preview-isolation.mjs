@@ -22,19 +22,19 @@ async function run() {
     await page.goto(`${base}/new?preview_isolation=${Date.now()}`, { waitUntil: 'networkidle' })
     await page.locator('.preview-panel').waitFor()
 
-    await selectMode(page, 'Изо → Изо')
+    await selectMode(page, 'По фото')
     await page.getByRole('button', { name: /^Загрузить$/ }).first().click()
     await page.locator('input[type="file"]').setInputFiles({ name: 'source.png', mimeType: 'image/png', buffer: tinyPng })
     await page.locator('.iv3-inspect-image').waitFor()
     const i2iSrc = await page.locator('.iv3-inspect-image').first().getAttribute('src')
     assert(i2iSrc?.startsWith('data:image/'), `i2i source preview did not render uploaded data image: ${i2iSrc}`)
 
-    await selectMode(page, 'Текст → Изо')
+    await selectMode(page, 'По тексту')
     await page.waitForTimeout(100)
     const textInspectCount = await page.locator('.iv3-inspect-image').count()
     assert(textInspectCount === 0, 'text tab inherited i2i inspect preview')
 
-    await selectMode(page, 'Изо → Изо')
+    await selectMode(page, 'По фото')
     await page.locator('.iv3-inspect-image').waitFor()
     const restoredSrc = await page.locator('.iv3-inspect-image').first().getAttribute('src')
     assert(restoredSrc === i2iSrc, 'i2i preview was not restored after tab switch')

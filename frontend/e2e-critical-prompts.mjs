@@ -65,38 +65,38 @@ async function assertRandomFromCurrentSet(page, name, prompts) {
 async function desktopRun() {
   const { browser, page } = await openApp({ width: 1440, height: 900 })
   try {
-    await clickMode(page, 'Текст → Изо')
-    let prompts = await assertTemplates(page, 'Desktop Текст → Изо', 20)
-    await assertRandomFromCurrentSet(page, 'Desktop Текст → Изо', prompts)
+    await clickMode(page, 'По тексту')
+    let prompts = await assertTemplates(page, 'Desktop По тексту', 20)
+    await assertRandomFromCurrentSet(page, 'Desktop По тексту', prompts)
 
-    await clickMode(page, 'Изо → Изо')
-    prompts = await assertTemplates(page, 'Desktop Изо → Изо', 20)
-    await assertRandomFromCurrentSet(page, 'Desktop Изо → Изо', prompts)
+    await clickMode(page, 'По фото')
+    prompts = await assertTemplates(page, 'Desktop По фото', 20)
+    await assertRandomFromCurrentSet(page, 'Desktop По фото', prompts)
 
     await clickMode(page, 'Редактор')
     prompts = await assertTemplates(page, 'Desktop Редактор', 20)
     await assertRandomFromCurrentSet(page, 'Desktop Редактор', prompts)
 
-    await clickMode(page, 'Рисовать')
-    prompts = await assertTemplates(page, 'Desktop Рисовать / Эскиз', 20)
-    await assertRandomFromCurrentSet(page, 'Desktop Рисовать / Эскиз', prompts)
+    await clickMode(page, 'Редактор')
+    prompts = await assertTemplates(page, 'Desktop Редактор / Эскиз', 20)
+    await assertRandomFromCurrentSet(page, 'Desktop Редактор / Эскиз', prompts)
 
     await page.getByRole('button', { name: /Маска \/ Расширение/i }).first().click()
     await page.waitForTimeout(150)
     if (await page.locator('.mask-editor').count()) await page.locator('.mask-top button').filter({ hasText: 'Отмена' }).first().click({ force: true })
-    prompts = await assertTemplates(page, 'Desktop Рисовать / Маска', 20)
-    await assertRandomFromCurrentSet(page, 'Desktop Рисовать / Маска', prompts)
+    prompts = await assertTemplates(page, 'Desktop Редактор / Маска', 20)
+    await assertRandomFromCurrentSet(page, 'Desktop Редактор / Маска', prompts)
 
     await page.getByRole('button', { name: /Маска \/ Расширение/i }).first().click()
     await page.locator('.mask-editor').waitFor({ timeout: 5000 })
     await page.locator('.mask-top button').filter({ hasText: 'Расширить изображение' }).first().click({ force: true })
     await page.locator('.mask-top button').filter({ hasText: 'Отмена' }).first().click({ force: true })
-    prompts = await assertTemplates(page, 'Desktop Рисовать / Расширение', 20)
-    await assertRandomFromCurrentSet(page, 'Desktop Рисовать / Расширение', prompts)
+    prompts = await assertTemplates(page, 'Desktop Редактор / Расширение', 20)
+    await assertRandomFromCurrentSet(page, 'Desktop Редактор / Расширение', prompts)
 
-    await clickMode(page, 'Лицо → Изо')
-    prompts = await assertTemplates(page, 'Desktop Лицо → Изо', 20)
-    await assertRandomFromCurrentSet(page, 'Desktop Лицо → Изо', prompts)
+    await clickMode(page, 'Лицо')
+    prompts = await assertTemplates(page, 'Desktop Лицо', 20)
+    await assertRandomFromCurrentSet(page, 'Desktop Лицо', prompts)
   } finally {
     await browser.close()
   }
@@ -105,7 +105,7 @@ async function desktopRun() {
 async function mobileRun() {
   const { browser, page } = await openApp({ width: 390, height: 844 })
   try {
-    for (const [label, count] of [['Текст → Изо', 20], ['Изо → Изо', 20], ['Редактор', 20], ['Рисовать', 20], ['Лицо → Изо', 20]]) {
+    for (const [label, count] of [['По тексту', 20], ['По фото', 20], ['Редактор', 20], ['Редактор', 20], ['Лицо', 20]]) {
       await clickMode(page, label)
       const prompts = await assertTemplates(page, `Mobile ${label}`, count)
       await assertRandomFromCurrentSet(page, `Mobile ${label}`, prompts)

@@ -41,7 +41,7 @@ CHALLENGE_PUBLICATION_IDS = {
     "seed-pub-37",
 }
 
-SOURCE_LABELS = ["Текст -> Изо", "Изо -> Изо", "Рисунок -> Изо", "Лицо"]
+SOURCE_LABELS = ["По тексту", "По фото", "Редактор", "Лицо"]
 SOURCE_TYPES = ["text_to_image", "image_to_image", "drawing_to_image", "faceswap"]
 
 

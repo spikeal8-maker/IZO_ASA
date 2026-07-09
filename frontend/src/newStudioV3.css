@@ -2959,20 +2959,26 @@ height: 21px;
 .iv3 .mode-tabs {
 grid-column: 1 / -1;
 grid-row: 2;
+display: grid;
+grid-template-columns: repeat(6, minmax(0, 1fr));
 justify-content: flex-start;
 width: 100%;
 max-width: 100%;
 padding-top: 0;
 border-radius: 7px;
-overflow-x: auto;
+overflow-x: hidden;
 overflow-y: hidden;
 }
 .iv3 .tab {
-min-width: auto;
-flex: 0 0 auto;
+min-width: 0;
+width: 100%;
 min-height: clamp(32px, 9.2vw, 36px);
-padding: 0 clamp(8px, 2.8vw, 11px);
-font-size: clamp(11px, 3.25vw, 12.5px);
+padding: 0 3px;
+font-size: clamp(10.2px, 3.05vw, 12px);
+line-height: 1;
+white-space: nowrap;
+overflow: hidden;
+text-overflow: clip;
 }
 .iv3 .layout {
 width: 100%;
@@ -3602,7 +3608,7 @@ border-width: 1.6px;
 grid-column: 1 / -1;
 grid-row: 2;
 display: grid;
-grid-template-columns: 1.15fr 1.03fr .98fr .9fr .7fr .72fr;
+grid-template-columns: repeat(6, minmax(0, 1fr));
 width: 100%;
 max-width: 100%;
 overflow-x: hidden;
@@ -3617,8 +3623,11 @@ min-width: 0;
 width: 100%;
 min-height: 28px;
 padding: 0 2px;
-font-size: clamp(9.4px, 2.85vw, 10.4px);
+font-size: clamp(9.8px, 2.95vw, 10.8px);
 line-height: 1;
+white-space: nowrap;
+overflow: hidden;
+text-overflow: clip;
 justify-content: center;
 }
 .iv3 .preview-panel {
@@ -3828,12 +3837,15 @@ padding: 0 5px;
 gap: 6px;
 }
 .iv3 .mode-tabs {
-grid-template-columns: 1.15fr 1.03fr .98fr .9fr .7fr .72fr;
+grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 .iv3 .tab {
 min-height: 27px;
-font-size: clamp(9px, 2.75vw, 9.9px);
+font-size: clamp(9.2px, 2.82vw, 10.1px);
 padding: 0 2px;
+white-space: nowrap;
+overflow: hidden;
+text-overflow: clip;
 }
 .iv3 textarea {
 height: 50px;

@@ -43,7 +43,7 @@ async function run() {
     })
 
     if (!checks.bodyBg.includes('7, 7, 7')) throw new Error(`Wrong body background: ${checks.bodyBg}`)
-    if (checks.activeMode !== 'Текст → Изо') throw new Error(`Wrong active mode text: ${checks.activeMode}`)
+    if (checks.activeMode !== 'По тексту') throw new Error(`Wrong active mode text: ${checks.activeMode}`)
     if (!checks.generateBg.includes('236, 255, 47')) throw new Error(`Wrong Generate color: ${checks.generateBg}`)
     if (!checks.galleryBg.includes('gradient')) throw new Error('Gallery button is not gradient styled')
     if (!checks.previewRight || !checks.promptBelowControls || !checks.promptAboveFold || !checks.promptWide || !checks.instructionClickable || !checks.generateClickable) throw new Error(`Layout mismatch: ${JSON.stringify(checks)}`)

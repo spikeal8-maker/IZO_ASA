@@ -115,17 +115,17 @@ function normalizeItem(item){
 }
 function modeLabel(mode){
   return ({
-    text_to_image:'Из текста в изображение',
-    image_to_image:'Из изображения в изображение',
-    edit:'Редактор',
-    paint:'Рисунок',
+    text_to_image:'По тексту',
+    image_to_image:'По фото',
+    edit:'Сборка',
+    paint:'Редактор',
     inpaint:'Инпейнт',
     outpaint:'Аутпейнт',
     faceswap:'Лицо',
     try_on:'Примерка',
     texture_transfer:'Перенос текстуры',
     remove_background:'Удаление фона'
-  })[String(mode || '').trim()] || 'Из текста в изображение';
+  })[String(mode || '').trim()] || 'По тексту';
 }
 function formatDate(value){
   if(!value) return '';

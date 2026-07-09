@@ -60,7 +60,7 @@ async function run() {
     const t2i = await assertGalleryRecord(page, textPrompt, 'text_to_image')
 
     await openLatestGalleryItem(page, textPrompt)
-    await page.getByRole('button', { name: /Изо → Изо/ }).click()
+    await page.getByRole('button', { name: /По фото/ }).click()
     await page.locator('.studio-grid').waitFor()
     await page.getByRole('button', { name: 'Изо стрелка вправо Изо' }).waitFor()
     const i2iInput = await page.locator('.image-box img').first().getAttribute('src')

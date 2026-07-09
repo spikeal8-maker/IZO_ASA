@@ -49,7 +49,7 @@ async function drawOnCanvas(page, canvasSelector, label) {
 async function runViewport(name, viewport) {
   const { browser, page } = await openApp(viewport, name)
   try {
-    await clickMode(page, 'Изо → Изо')
+    await clickMode(page, 'По фото')
     await uploadByButton(page, page.getByRole('button', { name: /Загрузить изображение|Добавить изображение|Файл/ }).first(), `${name}: Изо→Изо загрузка файла`)
     record(`${name}: Изо→Изо изображение попало в предпросмотр`, (await page.locator('.preview-panel img, .mobile-thumb img').count()) > 0)
 
@@ -59,7 +59,7 @@ async function runViewport(name, viewport) {
 
     await page.goto(`${URL}?platform=web&userId=critical_tools_${name}_face_${Date.now()}`, { waitUntil: 'networkidle' })
     await page.locator('textarea[aria-label]').first().waitFor()
-    await clickMode(page, 'Лицо → Изо')
+    await clickMode(page, 'Лицо')
     let faceFileButtons = page.getByRole('button', { name: /^Файл$/ })
     if ((await faceFileButtons.count()) >= 2) {
       await uploadByButton(page, faceFileButtons.first(), `${name}: Лицо→Изо target`)
@@ -75,7 +75,7 @@ async function runViewport(name, viewport) {
 
     await page.goto(`${URL}?platform=web&userId=critical_tools_${name}_paint_${Date.now()}`, { waitUntil: 'networkidle' })
     await page.locator('textarea[aria-label]').first().waitFor()
-    await clickMode(page, 'Рисовать')
+    await clickMode(page, 'Редактор')
     await page.locator('.paint-choice:visible, .mobile-paint-actions button:visible').filter({ hasText: 'Эскиз' }).first().click()
     await page.locator('.sketch-editor').waitFor()
     await drawOnCanvas(page, '.sketch-editor canvas', `${name}: Эскиз canvas рисует`)

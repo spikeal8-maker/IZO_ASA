@@ -746,7 +746,7 @@ def test_gallery_page_returns_visual_shell_contract(temp_db):
         assert item["prompt"] == "город на рассвете"
         assert item["published"] is True
         assert item["feedPublicationId"] == pub["id"]
-        assert item["modeLabel"] == "Из текста в изображение"
+        assert item["modeLabel"] == "По тексту"
         assert item["aspectRatio"] == "3:2"
         assert item["src"].startswith("/api/media/")
 
