@@ -413,7 +413,7 @@ const CSS = `
 .amv2 .tier-checks label{display:inline-flex;align-items:center;gap:3px;color:var(--muted);font-size:10px;font-weight:800}
 .amv2 .tier-checks input{width:13px;height:13px;min-height:13px;padding:0;margin:0}
 .amv2 .tier-checks input:checked + span{color:var(--lime)}
-.amv2 .tier-checks .tier-all{padding-right:7px;margin-right:2px;border-right:1px solid rgba(255,255,255,.14)}
+.amv2 .tier-checks.tier-head label{font-size:10px;text-transform:none;letter-spacing:0}
 .amv2 .api-table .provider{font-size:11px;padding:2px 6px}
 .amv2 .api-table .money{font-size:12px}
 .amv2 .money{font-weight:650;color:var(--lime);white-space:nowrap}
@@ -694,21 +694,17 @@ export default function AdminModelsV2() {
     void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
   }
 
-  const toggleOpenrouterModelTiers = (mode: string, modelId: string, checked: boolean) => {
+  const toggleOpenrouterTierColumn = (mode: string, tier: OpenRouterTier, modelIds: string[], checked: boolean) => {
     if (!data) return
     const current = data.openrouter.config || { enabled: {}, defaults: {}, access: {}, qualityDefaults: {} }
     const enabled = { ...(current.enabled || {}) }
     const defaults = { ...(current.defaults || {}) }
     const access: OpenRouterAccess = JSON.parse(JSON.stringify(current.access || {}))
     const qualityDefaults: OpenRouterQualityDefaults = JSON.parse(JSON.stringify(current.qualityDefaults || {}))
+    const ids = Array.from(new Set(modelIds)).sort()
     access[mode] = access[mode] || {}
-    for (const tier of OPENROUTER_TIERS) {
-      const values = new Set(access[mode][tier.id] || [])
-      if (checked) values.add(modelId)
-      else values.delete(modelId)
-      if (values.size) access[mode][tier.id] = Array.from(values).sort()
-      else delete access[mode][tier.id]
-    }
+    if (checked) access[mode][tier] = ids
+    else delete access[mode][tier]
     if (!Object.keys(access[mode]).length) delete access[mode]
     void saveOpenrouterConfig({ enabled, defaults, access, qualityDefaults })
   }
@@ -990,6 +986,8 @@ export default function AdminModelsV2() {
         const billableIds = rows.filter((m) => backendPricingMap.has(m.id)).map((m) => m.id)
         const enabledBillableCount = billableIds.filter((id) => enabledForSection.includes(id)).length
         const allBillableEnabled = billableIds.length > 0 && enabledBillableCount === billableIds.length
+        const enabledIds = billableIds.filter((id) => enabledForSection.includes(id))
+        const allTierColumnChecked = (tier: OpenRouterTier) => enabledIds.length > 0 && enabledIds.every((id) => accessForSection[tier]?.includes(id))
         return <article className="card" key={section.id}>
           <button className={`api-section-head ${sectionOpen ? '' : 'collapsed'}`} onClick={() => setApiSectionsOpen((prev) => ({ ...prev, [section.id]: !sectionOpen }))}>
             <div className="section-cell">
@@ -1022,7 +1020,20 @@ export default function AdminModelsV2() {
                 </th>
                 <th><button className={`sort-head ${sort.key === 'name' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'name')}>Модель {sortMark(sort, 'name')}</button></th>
                 <th><button className={`sort-head ${sort.key === 'provider' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'provider')}>Производитель {sortMark(sort, 'provider')}</button></th>
-                <th>Доступ</th>
+                <th>
+                  <div className="tier-checks tier-head">
+                    {OPENROUTER_TIERS.map((tier) => <label key={tier.id} title={`Весь столбец ${tier.label}`}>
+                      <input
+                        type="checkbox"
+                        checked={allTierColumnChecked(tier.id)}
+                        disabled={!enabledIds.length}
+                        aria-label={`Включить ${tier.label} для всех моделей ${section.title}`}
+                        onChange={(e) => toggleOpenrouterTierColumn(section.id, tier.id, enabledIds, e.target.checked)}
+                      />
+                      <span>{tier.label}</span>
+                    </label>)}
+                  </div>
+                </th>
                 <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена картинки, ₽ {sortMark(sort, 'price')}</button></th>
                 <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена картинки, $ {sortMark(sort, 'price')}</button></th>
                 <th><button className={`sort-head ${sort.key === 'tokens' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'tokens')}>Токены {sortMark(sort, 'tokens')}</button></th>
@@ -1039,7 +1050,6 @@ export default function AdminModelsV2() {
                 const backendPrice = backendPricingMap.get(m.id)
                 const canBill = Boolean(backendPrice)
                 const tierAccess = (tier: OpenRouterTier) => Boolean(accessForSection[tier]?.includes(m.id))
-                const allRowTiersChecked = OPENROUTER_TIERS.every((tier) => tierAccess(tier.id))
                 const modelStats = orUsageModels.get(m.id)
                 const avgActualUsd = typeof modelStats?.avgCostUsd === 'number' ? modelStats.avgCostUsd : null
                 const generatedCount = modelStatText(modelStats?.count)
@@ -1065,16 +1075,6 @@ export default function AdminModelsV2() {
                     <td><span className="provider openrouter">{modelBrand(m)}</span></td>
                     <td>
                       <div className="tier-checks">
-                        <label className="tier-all" title="Все тарифы этой модели">
-                          <input
-                            type="checkbox"
-                            checked={allRowTiersChecked}
-                            disabled={!enabled}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => toggleOpenrouterModelTiers(section.id, m.id, e.target.checked)}
-                          />
-                          <span>Все</span>
-                        </label>
                         {OPENROUTER_TIERS.map((tier) => <label key={tier.id} title={tier.id}>
                           <input
                             type="checkbox"
