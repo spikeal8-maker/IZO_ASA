@@ -561,6 +561,9 @@ class ProfileUpdateV2Request(BaseModel):
     country_code: str | None = None
     avatar_url: str | None = None
     avatar_preset: str | None = None
+    public_about: str | None = None
+    public_website: str | None = None
+    public_focus: str | None = None
 
 
 class ConsentV2Request(BaseModel):
@@ -1410,6 +1413,9 @@ def init_db() -> None:
             "public_user_code": "TEXT",
             "avatar_url": "TEXT",
             "avatar_preset": "TEXT",
+            "public_about": "TEXT",
+            "public_website": "TEXT",
+            "public_focus": "TEXT",
             "gender": "TEXT",
             "age": "INTEGER",
             "daily_tokens_used": "INTEGER NOT NULL DEFAULT 0",
@@ -3773,6 +3779,9 @@ PROFILE_FIELD_COLUMNS = {
     "country_code": "country",
     "avatar_url": "avatar_url",
     "avatar_preset": "avatar_preset",
+    "public_about": "public_about",
+    "public_website": "public_website",
+    "public_focus": "public_focus",
     "gender": "gender",
     "age": "age",
 }
@@ -3783,6 +3792,26 @@ CONSENT_TYPES = {
 }
 
 PROFILE_FIELD_MAX_LEN = 200
+PROFILE_FIELD_MAX_LEN_BY_FIELD = {
+    "public_about": 700,
+    "public_website": 240,
+    "public_focus": 120,
+}
+
+
+def normalize_public_website(value: str | None) -> str | None:
+    if value is None:
+        return None
+    url = value.strip()
+    if not url:
+        return ""
+    if not re.match(r"^https?://", url, flags=re.IGNORECASE):
+        url = f"https://{url}"
+    if len(url) > PROFILE_FIELD_MAX_LEN_BY_FIELD["public_website"]:
+        url = url[:PROFILE_FIELD_MAX_LEN_BY_FIELD["public_website"]]
+    if not re.match(r"^https?://[^\s/$.?#].[^\s]*$", url, flags=re.IGNORECASE):
+        raise HTTPException(400, "Ссылка публичного профиля должна быть корректным URL.")
+    return url
 
 
 def build_profile(row: sqlite3.Row | None) -> dict[str, Any]:
@@ -8764,7 +8793,9 @@ async def me_profile_update_v2(req: ProfileUpdateV2Request, request: Request) ->
             if not col or col not in user_columns:
                 continue  # unsupported field is ignored, never an injection vector
             if isinstance(value, str):
-                value = value.strip()[:PROFILE_FIELD_MAX_LEN]
+                value = value.strip()[:PROFILE_FIELD_MAX_LEN_BY_FIELD.get(api_field, PROFILE_FIELD_MAX_LEN)]
+            if api_field == "public_website":
+                value = normalize_public_website(value)
             if api_field == "age" and value is not None:
                 try:
                     value = int(value)
