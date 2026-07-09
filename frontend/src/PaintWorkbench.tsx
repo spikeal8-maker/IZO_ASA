@@ -134,6 +134,23 @@ function PaintBitmapImage({ line, width, height }: { line: PaintLine; width: num
   return image ? <KonvaImage image={image} x={0} y={0} width={width} height={height} listening={false} /> : null
 }
 
+function PaintStageImage({ src, width, height }: { src?: string; width: number; height: number }) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null)
+  useEffect(() => {
+    if (!src) {
+      return undefined
+    }
+    let cancelled = false
+    void loadImage(src).then((loaded) => {
+      if (!cancelled) setImage(loaded)
+    }).catch(() => {
+      if (!cancelled) setImage(null)
+    })
+    return () => { cancelled = true }
+  }, [src])
+  return image ? <KonvaImage image={image} x={0} y={0} width={width} height={height} listening={false} /> : null
+}
+
 const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWorkbench({
   apiUrl,
   workbenchRef,
@@ -600,16 +617,16 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
         '--paint-view-y': `${view.y}px`,
       } as CSSProperties}
     >
-      {((paintMode === 'sketch' && paintSketchImage) || (paintMode === 'mask' && paintImage)) && (
+      {paintMode === 'mask' && paintImage && (
         <img
-          className={`paint-workbench-image${paintMode === 'sketch' ? ' sketch' : paintMode === 'mask' ? ' mask' : ''}`}
-          src={apiUrl(paintMode === 'sketch' ? paintSketchImage! : paintImage!)}
+          className="paint-workbench-image mask"
+          src={apiUrl(paintImage)}
           alt=""
           aria-hidden="true"
-          style={paintMode === 'sketch' || paintMode === 'mask' ? {
+          style={{
             '--paint-stage-w': `${paintStageSize.width}px`,
             '--paint-stage-h': `${paintStageSize.height}px`,
-          } as CSSProperties : undefined}
+          } as CSSProperties}
         />
       )}
       {(paintMode === 'sketch' || paintMode === 'mask') && (
@@ -694,6 +711,7 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
         >
           <Layer>
             <Rect width={paintStageSize.width} height={paintStageSize.height} fill={paintMode === 'mask' || paintSketchImage ? 'rgba(0,0,0,0)' : paintCanvasBg === 'white' ? '#ffffff' : '#2b2f2c'} />
+            {paintMode === 'sketch' && paintSketchImage && <PaintStageImage src={apiUrl(paintSketchImage)} width={paintStageSize.width} height={paintStageSize.height} />}
             {paintMode === 'sketch' && paintLines.length === 0 && !paintSketchImage && <Text text={sketchPlaceholderText} x={20} y={paintStageSize.height / 2 - 13} width={Math.max(1, paintStageSize.width - 40)} align="center" fill="#74806d" fontSize={Math.min(22, Math.max(13, paintStageSize.width / 38))} fontStyle="bold" />}
             {paintMode === 'mask' && paintLines.length === 0 && <Text text="Выделите область, которую нужно изменить" x={Math.max(20, paintStageSize.width / 2 - 210)} y={paintStageSize.height / 2 - 13} fill="#dfff22" fontSize={Math.min(20, Math.max(14, paintStageSize.width / 46))} fontStyle="bold" opacity={0.72} />}
             {paintLines.map((line, index) => line.fill ? renderPaintLine(line, `${index}-fill`) : null)}

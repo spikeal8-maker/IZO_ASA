@@ -61,6 +61,30 @@ async function testDesktop() {
     assert(Boolean(techBox), 'paint technical prompt toggle is missing')
     assert(techBox.height <= 28, `paint technical prompt toggle is too tall: ${techBox.height}`)
 
+    await page.getByRole('button', { name: /^Загрузить$/ }).first().click()
+    await page.locator('input[type="file"]').setInputFiles({ name: 'paint-sketch-base.png', mimeType: 'image/png', buffer: widePng })
+    await page.waitForTimeout(320)
+    const sketchPixel = await page.evaluate(() => {
+      const canvases = Array.from(document.querySelectorAll('.paint-stage canvas'))
+      for (const canvas of canvases) {
+        if (!(canvas instanceof HTMLCanvasElement)) continue
+        const ctx = canvas.getContext('2d')
+        if (!ctx) continue
+        const points = [
+          [Math.floor(canvas.width / 2), Math.floor(canvas.height / 2)],
+          [Math.floor(canvas.width / 3), Math.floor(canvas.height / 2)],
+          [Math.floor(canvas.width * 2 / 3), Math.floor(canvas.height / 2)],
+        ]
+        for (const [x, y] of points) {
+          const data = Array.from(ctx.getImageData(x, y, 1, 1).data)
+          if (data[3] > 0) return data
+        }
+      }
+      return null
+    })
+    assert(Boolean(sketchPixel), 'sketch canvas pixel could not be read after upload')
+    assert(sketchPixel[0] > 120 && sketchPixel[1] > 120 && sketchPixel[2] < 90, `uploaded sketch image should be visible on canvas, got pixel ${sketchPixel.join(',')}`)
+
     await page.getByRole('button', { name: /Расширение/ }).first().click()
     await page.getByRole('button', { name: /^Загрузить$/ }).first().click()
     await page.locator('input[type="file"]').setInputFiles({ name: 'paint-source.png', mimeType: 'image/png', buffer: widePng })

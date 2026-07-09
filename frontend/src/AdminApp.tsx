@@ -264,7 +264,9 @@ function AdminTokens() {
     setPromos(Array.isArray(promoRows) ? promoRows : [])
   }, [])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    queueMicrotask(() => { void load() })
+  }, [load])
 
   const saveTariffs = async () => {
     const result = await adminPost<{ ok?: boolean; settings?: Partial<Record<string, Partial<{ daily_tokens: number; gallery_slots: number }>>> }>('/admin/settings/tariffs', { settings: tariffs })
@@ -343,7 +345,9 @@ function AdminMail() {
   const [email, setEmail] = useState('')
   const [msg, setMsg] = useState('')
   const load = useCallback(async () => setData(await adminGet<AnyRec>('/admin/mail/status-v2')), [])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    queueMicrotask(() => { void load() })
+  }, [load])
   const sendTest = async () => {
     const result = await adminPost<AnyRec>('/admin/mail/test-v2', { email, template: 'verify_email' })
     setMsg(result?.ok ? `Тест отправлен на ${String(result.email || email)}` : 'Не удалось отправить тест')

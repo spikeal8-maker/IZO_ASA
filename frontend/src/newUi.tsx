@@ -973,6 +973,7 @@ export default function NewStudio(): ReactElement {
   const [paintWorkbenchVisible, setPaintWorkbenchVisible] = useState(true)
   const [paintToolsOpen, setPaintToolsOpen] = useState(false)
   const [compare, setCompare] = useState(50)
+  const [compareEnabled, setCompareEnabled] = useState(true)
   const [compareAuto, setCompareAuto] = useState(false)
   const compareTouchedRef = useRef(false)
 
@@ -2981,6 +2982,27 @@ export default function NewStudio(): ReactElement {
             {proMode ? 'Режим Стандарт' : 'Режим Профи'}
           </button>
         </div>
+        {isPaintStudio && !paintWorkbenchVisible && !previewJobActive && (
+          <div className="paint-preview-actions">
+            <button
+              className="paint-return-workbench"
+              type="button"
+              onClick={() => {
+                setPaintWorkbenchVisible(true)
+                setResultError(false)
+                setInspectPreview(null)
+                resetInspectView()
+              }}
+            >
+              {paintReturnLabel[paintMode]}
+            </button>
+            {(visibleInspectPreview?.url || visibleResultUrl) && (
+              <button className="paint-use-preview" type="button" onClick={useCurrentPreviewInPaint}>
+                Взять это
+              </button>
+            )}
+          </div>
+        )}
         <div className={`preview-image preview-shape-${visiblePreviewShape}`}>
           {isPaintStudio && paintWorkbenchVisible && !hoverStyle && !previewJobActive ? (
             paintWorkbench
@@ -3028,7 +3050,7 @@ export default function NewStudio(): ReactElement {
           ) : visibleResultUrl && !visibleResultError ? (
             <>
               <img className="iv3-preview-backdrop" src={apiUrl(visibleResultUrl)} alt="" aria-hidden="true" />
-              {visibleResultSource ? (
+              {visibleResultSource && compareEnabled ? (
                 <div
                   className={`iv3-compare${compareAuto ? ' is-auto' : ''}${inspectToolsVisible ? ' is-zoomed' : ''}`}
                   style={{ '--compare': `${compare}%`, ...inspectImageStyle } as CSSProperties}
@@ -3078,7 +3100,7 @@ export default function NewStudio(): ReactElement {
                   <img className="iv3-preview-main iv3-inspect-image" src={apiUrl(visibleResultUrl)} alt="Результат генерации" style={inspectImageStyle} draggable={false} onError={markVisiblePreviewError} />
                 </div>
               )}
-              {!visibleResultSource && inspectToolsVisible && (
+              {(!visibleResultSource || !compareEnabled) && inspectToolsVisible && (
                 <div className="iv3-inspect-tools">
                   <span>Предпросмотр · {Math.round(inspectZoom * 100)}%</span>
                   <button type="button" onClick={resetInspectView}>Сброс</button>
@@ -3098,6 +3120,14 @@ export default function NewStudio(): ReactElement {
                     </svg>
                     Скачать
                   </a>
+                )}
+                {visibleResultSource && (
+                  <button className={`image-action compare-toggle${compareEnabled ? ' active' : ''}`} type="button" aria-pressed={compareEnabled} onClick={() => setCompareEnabled((value) => !value)}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M12 4v16M5 6h14a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
+                    До/После
+                  </button>
                 )}
                 <button className="image-action" type="button" onClick={() => setShareOpen((v) => !v)}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -3119,27 +3149,6 @@ export default function NewStudio(): ReactElement {
               <span className="iv3-preview-placeholder-vignette" aria-hidden="true"></span>
               <span className="iv3-preview-empty-mark" aria-hidden="true">✦</span>
               <p>{visibleResultError ? 'Предыдущий результат не загрузился. Новый появится здесь.' : 'Опишите идею слева и нажмите «Сгенерировать»'}</p>
-            </div>
-          )}
-          {isPaintStudio && !paintWorkbenchVisible && !previewJobActive && (
-            <div className="paint-preview-actions">
-              <button
-                className="paint-return-workbench"
-                type="button"
-                onClick={() => {
-                  setPaintWorkbenchVisible(true)
-                  setResultError(false)
-                  setInspectPreview(null)
-                  resetInspectView()
-                }}
-              >
-                {paintReturnLabel[paintMode]}
-              </button>
-              {(visibleInspectPreview?.url || visibleResultUrl) && (
-                <button className="paint-use-preview" type="button" onClick={useCurrentPreviewInPaint}>
-                  Взять это
-                </button>
-              )}
             </div>
           )}
           {previewNoticeText && (
