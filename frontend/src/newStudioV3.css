@@ -251,7 +251,9 @@ box-shadow:
 .iv3 .mode-tabs {
 justify-content: center;
 min-width: 0;
-overflow-x: auto;
+padding-top: 3px;
+margin-top: -3px;
+overflow: visible;
 scrollbar-width: none;
 }
 .iv3 .mode-tabs::-webkit-scrollbar, .iv3 .style-row::-webkit-scrollbar, .iv3 .history-strip::-webkit-scrollbar {
@@ -1064,7 +1066,7 @@ padding-bottom: 12px;
 .iv3 .paint-mode-tabs {
 display: flex;
 gap: 4px;
-padding: 0 5px;
+padding: 6px 5px 0;
 overflow-x: auto;
 border: 1px solid rgba(182, 207, 18, .18);
 border-radius: 10px 10px 0 0;
@@ -1123,7 +1125,7 @@ display: grid;
 align-content: center;
 justify-items: center;
 gap: 2px;
-margin: 3px 0 -1px;
+margin: 0 0 -1px;
 padding: 7px 8px 9px;
 border: 1px solid rgba(182, 207, 18, .28);
 border-bottom-color: rgba(182, 207, 18, .38);
