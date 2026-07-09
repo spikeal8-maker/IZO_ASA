@@ -52,9 +52,8 @@ type PageData = {
 type OpenRouterConfig = { enabled?: Record<string, string[]>; defaults?: Record<string, string> }
 type OpenRouterTestResult = { image?: { url?: string; thumbnailUrl?: string }; costUsd?: number | null; model?: string; usage?: Record<string, unknown> }
 
-const USD_RUB = 90
+const USD_RUB = 100
 const TOKEN_RUB = 5
-const OPENROUTER_SNAPSHOT_DATE = '09.07.2026'
 type ApiImageModel = {
   id: string; name: string; provider: string; input: string; output: string; params: string; pricing: string
   mpUsd?: number; imageUsd?: number; token?: boolean; tiered?: boolean
@@ -178,6 +177,10 @@ const modelUsdPrice = (m: ApiImageModel) => {
   return value === null ? 'нет данных' : usd(value)
 }
 const tokenPriceForModel = (m: ApiImageModel) => {
+  if (m.id === 'black-forest-labs/flux.2-klein-4b') return 1
+  if (m.id === 'black-forest-labs/flux.2-pro') return 2
+  if (m.id === 'black-forest-labs/flux.2-max') return 3
+  if (m.id === 'black-forest-labs/flux.2-flex') return 4
   const value = estimatedUsdPerMp(m)
   if (value === null) return null
   return Math.max(1, Math.ceil((value * USD_RUB) / TOKEN_RUB))
@@ -189,6 +192,8 @@ const openrouterErrorText = (error: unknown) => {
   if (typeof error === 'string') return error
   try { return JSON.stringify(error) } catch { return String(error) }
 }
+const usageModelMap = (models?: Array<Record<string, unknown>>) => new Map((models || []).map((item) => [String(item.model || ''), item]))
+const modelStatText = (value: unknown, suffix = '') => typeof value === 'number' ? `${value}${suffix}` : '—'
 const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState) => [...rows].sort((a, b) => {
   let result = 0
   if (sort.key === 'name') result = modelShortName(a).localeCompare(modelShortName(b), 'ru')
@@ -231,9 +236,10 @@ const CSS = `
 .amv2 .ops-row{display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto;gap:10px;padding:12px;border-top:1px solid var(--line);align-items:center}
 .amv2 .job-list{padding:0 12px 12px;display:grid;gap:6px}
 .amv2 .job-row{display:grid;grid-template-columns:minmax(120px,1fr) 96px 90px minmax(140px,1.2fr);gap:8px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);padding:8px;background:rgba(255,255,255,.028);font-size:12px}
-.amv2 .api-key-panel{padding:12px;display:grid;grid-template-columns:1.1fr 1.4fr;gap:12px;border-bottom:1px solid var(--line)}
+.amv2 .api-key-panel{padding:12px;display:grid;grid-template-columns:minmax(0,1fr);gap:12px;border-bottom:1px solid var(--line)}
 .amv2 .api-key-box{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.032);display:grid;gap:8px;align-content:start}
 .amv2 .api-key-box input{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+.amv2 .api-key-main{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:10px;align-items:center}
 .amv2 .key-status{border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.028);padding:8px;display:grid;gap:6px}
 .amv2 .key-status-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:5px}
 .amv2 .key-status-row:last-child{border-bottom:0;padding-bottom:0}
@@ -242,7 +248,7 @@ const CSS = `
 .amv2 .or-test{border:1px solid rgba(234,255,16,.18);border-radius:var(--radius);background:rgba(234,255,16,.04);padding:8px;display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;align-items:center}
 .amv2 .or-test img{width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
 .amv2 .or-test strong{font-size:12px}.amv2 .or-test span{display:block;margin-top:4px;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
-.amv2 .or-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px;border-bottom:1px solid var(--line)}
+.amv2 .or-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;padding:12px;border-bottom:1px solid var(--line)}
 .amv2 .or-stat{border:1px solid var(--line);border-radius:var(--radius);padding:10px;background:rgba(255,255,255,.032)}
 .amv2 .or-stat span{display:block;color:var(--muted);font-size:11px;font-weight:800}.amv2 .or-stat strong{display:block;margin-top:5px;font-size:16px;color:var(--lime)}
 .amv2 .mode-board{padding:12px;display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:10px}
@@ -252,7 +258,7 @@ const CSS = `
 .amv2 .api-section-head{width:100%;border:0;background:transparent;color:inherit;text-align:left;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:14px}
 .amv2 .api-section-head .card-title::before{content:"▾";display:inline-block;margin-right:8px;color:var(--lime)}
 .amv2 .api-section-head.collapsed .card-title::before{content:"▸"}
-.amv2 .api-table{min-width:760px}
+.amv2 .api-table{min-width:980px}
 .amv2 .api-table td,.amv2 .api-table th{vertical-align:middle}
 .amv2 .api-table th{padding:6px 8px}
 .amv2 .api-table td{padding:2px 8px;height:26px;line-height:1.15}
@@ -346,7 +352,7 @@ const CSS = `
 
 export default function AdminModelsV2() {
   const [data, setData] = useState<PageData | null>(null)
-  const [pageTab, setPageTab] = useState<'config' | 'api'>('config')
+  const [pageTab, setPageTab] = useState<'config' | 'api'>('api')
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
   const [routes, setRoutes] = useState<Route[]>([])
   const [query, setQuery] = useState('')
@@ -512,13 +518,17 @@ export default function AdminModelsV2() {
   const orStatusText = orStatus.ok ? 'работает' : orStatus.configured ? 'ключ есть, проверка не прошла' : 'ключ не сохранён'
   const orLimit = orData.limit === null || orData.limit === undefined ? 'без лимита / не задан' : moneyUsdText(orData.limit)
   const orRemaining = orData.limit_remaining === null || orData.limit_remaining === undefined ? '—' : moneyUsdText(orData.limit_remaining)
+  const orUsageModels = usageModelMap(data.openrouter.usage?.models)
+  const totalSpentRub = typeof data.openrouter.usage?.totalCostUsd === 'number' ? rub(data.openrouter.usage.totalCostUsd) : '—'
+  const avgImageRub = typeof data.openrouter.usage?.avgCostUsd === 'number' ? rub(data.openrouter.usage.avgCostUsd) : '—'
+  const avgMpRub = typeof data.openrouter.usage?.avgCostPerMpUsd === 'number' ? `${rub(data.openrouter.usage.avgCostPerMpUsd)} / MP` : '—'
 
   return <div className="amv2">
     <style>{CSS}</style>
     {msg && <p style={{ color: 'var(--lime)', fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
     <div className="page-tabs" aria-label="Разделы моделей">
-      <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Config UI</button>
       <button className={pageTab === 'api' ? 'active' : ''} onClick={() => setPageTab('api')}>API модели</button>
+      <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Config UI</button>
     </div>
 
     {pageTab === 'config' && <>
@@ -626,34 +636,40 @@ export default function AdminModelsV2() {
     {pageTab === 'api' && <>
       <article className="card">
         <div className="card-head">
-          <div><h2 className="card-title">API модели: OpenRouter планирование</h2><p className="card-note">Первый рабочий слой: какие платные image-модели подходят под режимы генератора, сколько они примерно стоят, где нужен тест.</p></div>
-          <span className={`state ${data.openrouter.keyConfigured ? 'ok' : 'bad'}`}>{data.openrouter.keyConfigured ? 'OPENROUTER_API_KEY есть' : 'нет OPENROUTER_API_KEY'}</span>
+          <div><h2 className="card-title">API модели</h2><p className="card-note">OpenRouter, себестоимость, токены проекта и включение моделей по режимам.</p></div>
+          <span className={`state ${data.openrouter.status?.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{data.openrouter.status?.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
         </div>
         <div className="api-key-panel">
           <div className="api-key-box">
             <strong>Ключ OpenRouter</strong>
-            <input
-              type="password"
-              placeholder={data.openrouter.keyConfigured ? 'ключ сохранён, можно заменить новым' : 'sk-or-...'}
-              value={openrouterKeyInput}
-              onChange={(e) => setOpenrouterKeyInput(e.target.value)}
-              autoComplete="off"
-            />
+            <div className="api-key-main">
+              <input
+                type="password"
+                placeholder={data.openrouter.keyConfigured ? 'ключ сохранён, можно заменить новым' : 'sk-or-...'}
+                value={openrouterKeyInput}
+                onChange={(e) => setOpenrouterKeyInput(e.target.value)}
+                autoComplete="off"
+              />
+              <span className={`state ${orStatus.ok ? 'ok' : orStatus.configured ? 'warn' : 'bad'}`}>{orStatusText}</span>
+            </div>
             <div className="actions">
               <button className="primary" disabled={openrouterBusy || !openrouterKeyInput.trim()} onClick={saveOpenrouterKey}>Сохранить и проверить</button>
               <button className="ghost" disabled={openrouterBusy} onClick={() => { void load(); setMsg('Статус OpenRouter обновлён') }}>Проверить</button>
               <button className="ghost" disabled={openrouterTestBusy || !data.openrouter.status?.ok} onClick={runOpenrouterTest}>Тест Klein 4B 1MP</button>
               <button className="danger" disabled={openrouterBusy || !data.openrouter.keyConfigured} onClick={deleteOpenrouterKey}>Удалить UI-ключ</button>
             </div>
-            <div className="key-status">
-              <div className={`key-status-row ${orStatusClass}`}><span>Проверка</span><strong>{orStatusText}</strong></div>
-              <div className="key-status-row"><span>Источник</span><strong>{orStatus.source === 'admin_ui' ? 'ключ из админки' : orStatus.source === 'env' ? 'OPENROUTER_API_KEY env' : '—'}</strong></div>
-              <div className="key-status-row"><span>Ответ OpenRouter</span><strong>{orStatus.status_code || '—'}</strong></div>
-              <div className="key-status-row"><span>Метка ключа</span><strong>{valueText(orData.label)}</strong></div>
-              <div className="key-status-row"><span>Usage месяц</span><strong>{moneyUsdText(orData.usage_monthly)}</strong></div>
-              <div className="key-status-row"><span>Лимит / остаток</span><strong>{orLimit} / {orRemaining}</strong></div>
-              {!orStatus.ok && orStatus.error ? <div className="key-status-row key-bad"><span>Ошибка</span><strong>{openrouterErrorText(orStatus.error)}</strong></div> : null}
-            </div>
+            <details>
+              <summary>Детали ключа и лимитов</summary>
+              <div className="key-status">
+                <div className={`key-status-row ${orStatusClass}`}><span>Проверка</span><strong>{orStatusText}</strong></div>
+                <div className="key-status-row"><span>Источник</span><strong>{orStatus.source === 'admin_ui' ? 'ключ из админки' : orStatus.source === 'env' ? 'OPENROUTER_API_KEY env' : '—'}</strong></div>
+                <div className="key-status-row"><span>Ответ OpenRouter</span><strong>{orStatus.status_code || '—'}</strong></div>
+                <div className="key-status-row"><span>Метка ключа</span><strong>{valueText(orData.label)}</strong></div>
+                <div className="key-status-row"><span>Usage месяц</span><strong>{moneyUsdText(orData.usage_monthly)}</strong></div>
+                <div className="key-status-row"><span>Лимит / остаток</span><strong>{orLimit} / {orRemaining}</strong></div>
+                {!orStatus.ok && orStatus.error ? <div className="key-status-row key-bad"><span>Ошибка</span><strong>{openrouterErrorText(orStatus.error)}</strong></div> : null}
+              </div>
+            </details>
             {openrouterTestResult?.image?.thumbnailUrl ? <div className="or-test">
               <img src={openrouterTestResult.image.thumbnailUrl} alt="OpenRouter test" />
               <div>
@@ -662,22 +678,16 @@ export default function AdminModelsV2() {
                 <span>Стоимость: {typeof openrouterTestResult.costUsd === 'number' ? `${rub(openrouterTestResult.costUsd)} · $${openrouterTestResult.costUsd.toFixed(4)}` : 'cost не пришёл'}</span>
               </div>
             </div> : null}
-            <small>Ключ сохраняется в отдельном backend-хранилище секретов и не возвращается обратно в браузер. Если ключ задан через переменную <b>OPENROUTER_API_KEY</b>, она имеет приоритет.</small>
-          </div>
-          <div className="api-key-box">
-            <strong>Что уже понятно</strong>
-            <small>Snapshot цен: {OPENROUTER_SNAPSHOT_DATE}, источник: OpenRouter /api/v1/images/models + endpoints. Для token-моделей цена примерная: считаем 1MP image output и короткий промпт из ~10 слов.</small>
-            <span className="mini">курс для планирования: $1 = {USD_RUB} ₽</span>
-            <span className="mini">всего image-моделей в snapshot: {OPENROUTER_IMAGE_MODELS.length}</span>
           </div>
         </div>
       </article>
 
       <div className="or-stats">
-        <div className="or-stat"><span>OpenRouter ключ</span><strong>{data.openrouter.status?.ok ? 'подключен' : data.openrouter.keyConfigured ? 'ошибка' : 'нет ключа'}</strong></div>
-        <div className="or-stat"><span>Реальных API-картинок</span><strong>{data.openrouter.usage?.pricedImages || 0}</strong></div>
-        <div className="or-stat"><span>Средняя цена фактически</span><strong>{typeof data.openrouter.usage?.avgCostPerMpUsd === 'number' ? `${rub(data.openrouter.usage.avgCostPerMpUsd)} / MP` : 'нет истории'}</strong></div>
-        <div className="or-stat"><span>Токен проекта</span><strong>1 токен = {TOKEN_RUB} ₽</strong></div>
+        <div className="or-stat"><span>Остаток лимита OpenRouter</span><strong>{orRemaining}</strong></div>
+        <div className="or-stat"><span>Сгенерировано API</span><strong>{data.openrouter.usage?.pricedImages || 0}</strong></div>
+        <div className="or-stat"><span>Потрачено всего</span><strong>{totalSpentRub}</strong></div>
+        <div className="or-stat"><span>Средняя за картинку</span><strong>{avgImageRub}</strong></div>
+        <div className="or-stat"><span>Средняя за 1MP</span><strong>{avgMpRub}</strong></div>
       </div>
 
       <div className="toolbar">
@@ -720,11 +730,16 @@ export default function AdminModelsV2() {
                 <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, ₽ {sortMark(sort, 'price')}</button></th>
                 <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, $ {sortMark(sort, 'price')}</button></th>
                 <th>Токены</th>
+                <th>Факт ср.</th>
+                <th>Всего</th>
               </tr></thead>
               <tbody>{sortedRows.map((m) => {
                 const rowKey = `${section.id}-${m.id}`
                 const enabled = enabledForSection.includes(m.id)
                 const expanded = apiExpandedRows[rowKey] || false
+                const modelStats = orUsageModels.get(m.id)
+                const avgActual = typeof modelStats?.avgCostPerMpUsd === 'number' ? `${rub(modelStats.avgCostPerMpUsd)} / MP` : '—'
+                const generatedCount = modelStatText(modelStats?.count)
                 return <Fragment key={rowKey}>
                   <tr className={`api-model-row ${expanded ? 'expanded' : ''}`} onClick={() => setApiExpandedRows((prev) => ({ ...prev, [rowKey]: !expanded }))}>
                     <td className="api-enabled">
@@ -741,15 +756,18 @@ export default function AdminModelsV2() {
                     <td><span className="money">{modelRubPrice(m)}</span></td>
                     <td><span className="money">{modelUsdPrice(m)}</span></td>
                     <td><span className="money">{tokenPriceForModel(m) ?? '—'}</span></td>
+                    <td><span className="money">{avgActual}</span></td>
+                    <td>{generatedCount}</td>
                   </tr>
                   {expanded && <tr>
-                    <td className="detail-cell" colSpan={6}>
+                    <td className="detail-cell" colSpan={8}>
                       <div className="detail-box">
                         <span><b>Полное имя:</b> {m.name}</span>
                         <span><b>OpenRouter id:</b> {m.id}</span>
                         <span><b>Как посчитано:</b> {priceConfidence(m)}</span>
                         <span><b>Цена из OpenRouter:</b> {m.pricing}</span>
                         <span><b>Токены проекта:</b> {tokenPriceForModel(m) ?? 'нужно измерить'} при {TOKEN_RUB} ₽/токен</span>
+                        <span><b>Факт по проекту:</b> {generatedCount} шт · {avgActual}</span>
                         <span><b>Вход/выход API:</b> {m.input} {'->'} {m.output}</span>
                         <span><b>Параметры:</b> {m.params || 'нет в endpoint metadata'}</span>
                       </div>
