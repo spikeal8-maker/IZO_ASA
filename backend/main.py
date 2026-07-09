@@ -112,6 +112,7 @@ COMFYUI_FACE_TIMEOUT_SECONDS = max(60, min(COMFYUI_TIMEOUT_SECONDS, int(os.geten
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
 OPENROUTER_TIMEOUT_SECONDS = max(30, min(300, int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "120"))))
 CBR_DAILY_XML_URL = os.getenv("CBR_DAILY_XML_URL", "https://www.cbr.ru/scripts/XML_daily.asp")
+USD_RUB_FALLBACK_URL = os.getenv("USD_RUB_FALLBACK_URL", "https://open.er-api.com/v6/latest/USD")
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -11977,6 +11978,7 @@ async def fetch_usd_rub_rate(force: bool = False) -> dict[str, Any]:
     today = datetime.now(timezone.utc).date().isoformat()
     if not force and cached.get("fetched_date") == today and isinstance(cached.get("rate"), (int, float)):
         return {**cached, "cache": "hit"}
+    errors: list[str] = []
     try:
         async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
             response = await client.get(CBR_DAILY_XML_URL)
@@ -12005,9 +12007,32 @@ async def fetch_usd_rub_rate(force: bool = False) -> dict[str, Any]:
         _save_setting("exchange_usd_rub", item)
         return {**item, "cache": "refresh"}
     except Exception as exc:
-        if isinstance(cached.get("rate"), (int, float)):
-            return {**cached, "cache": "stale", "error": str(exc)}
-        return {"rate": None, "currency": "USD", "base": "RUB", "source": "ЦБ РФ", "sourceUrl": CBR_DAILY_XML_URL, "cache": "error", "error": str(exc)}
+        errors.append(f"ЦБ РФ: {exc}")
+    try:
+        async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+            response = await client.get(USD_RUB_FALLBACK_URL)
+        response.raise_for_status()
+        payload = response.json()
+        rate = float(((payload.get("rates") or {}).get("RUB")))
+        item = {
+            "rate": round(rate, 6),
+            "currency": "USD",
+            "base": "RUB",
+            "source": "open.er-api.com",
+            "sourceUrl": USD_RUB_FALLBACK_URL,
+            "sourceDate": payload.get("time_last_update_utc") or "",
+            "fetchedAt": datetime.now(timezone.utc).isoformat(),
+            "fetched_date": today,
+            "fallback": True,
+            "warning": "; ".join(errors),
+        }
+        _save_setting("exchange_usd_rub", item)
+        return {**item, "cache": "refresh_fallback"}
+    except Exception as exc:
+        errors.append(f"fallback: {exc}")
+    if isinstance(cached.get("rate"), (int, float)):
+        return {**cached, "cache": "stale", "error": "; ".join(errors)}
+    return {"rate": None, "currency": "USD", "base": "RUB", "source": "none", "sourceUrl": CBR_DAILY_XML_URL, "cache": "error", "error": "; ".join(errors)}
 
 
 def default_tariff_matrix() -> list[dict[str, Any]]:

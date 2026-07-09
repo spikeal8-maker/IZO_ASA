@@ -193,6 +193,46 @@ def test_admin_can_refresh_openrouter_exchange_rate(temp_db, monkeypatch):
     assert main._saved_setting("exchange_usd_rub")["rate"] == 78.4567
 
 
+def test_admin_exchange_rate_uses_fallback_when_cbr_fails(temp_db, monkeypatch):
+    class FakeResponse:
+        def __init__(self, payload=None, *, content=b"", fail=False):
+            self._payload = payload or {}
+            self.content = content
+            self.fail = fail
+
+        def raise_for_status(self):
+            if self.fail:
+                raise RuntimeError("cbr unavailable")
+
+        def json(self):
+            return self._payload
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url):
+            if "cbr.ru" in url:
+                return FakeResponse(fail=True)
+            return FakeResponse({"rates": {"RUB": 76.537079}, "time_last_update_utc": "Thu, 09 Jul 2026 00:02:32 +0000"})
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeClient)
+    sess = admin_session()
+    with TestClient(main.app) as client:
+        response = client.post("/api/admin/openrouter/exchange/refresh", cookies={"onenode_session": sess["session_token"]})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["exchange"]["rate"] == 76.537079
+    assert payload["exchange"]["fallback"] is True
+
+
 def test_web_login_requires_explicit_admin_code(temp_db, monkeypatch):
     monkeypatch.delenv("ADMIN_ONE_TIME_CODE", raising=False)
     with TestClient(main.app) as client:
