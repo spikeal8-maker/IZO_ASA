@@ -316,6 +316,16 @@ class GenerateRequest(BaseModel):
     outpaint: dict[str, int | bool] | None = None
 
 
+class OpenRouterPriceModel(BaseModel):
+    id: str
+    name: str
+    provider: str
+    pricing_type: Literal["mp", "image", "token_estimate"]
+    usd: float
+    min_tokens: int = 1
+    source: str = "admin_snapshot_2026-07-09"
+
+
 class TranslateRequest(BaseModel):
     text: str
     target: Literal["en", "ru"] = "en"
@@ -3752,6 +3762,14 @@ def require_trusted_admin(request: Request) -> dict[str, Any]:
     return user
 
 
+def trusted_user_is_admin(user: dict[str, Any]) -> bool:
+    with db() as conn:
+        row = conn.execute("SELECT role FROM users WHERE internal_user_id = ?", (user["internal_user_id"],)).fetchone()
+        if row is None and user.get("legacy_user_id"):
+            row = conn.execute("SELECT role FROM users WHERE id = ?", (user["legacy_user_id"],)).fetchone()
+    return bool(row and row["role"] == "admin")
+
+
 def _row_get(row: sqlite3.Row | None, key: str) -> Any:
     if row is None:
         return None
@@ -4364,7 +4382,7 @@ def load_db_state() -> None:
 
 def persist_job(job: dict[str, Any], request: GenerateRequest | None = None, conn: sqlite3.Connection | None = None) -> None:
     settings = request.model_dump() if request else job.get("request", {})
-    for key in ("openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd"):
+    for key in ("openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd", "openrouterBilling"):
         if key in job:
             settings[key] = job.get(key)
     def write(target_conn: sqlite3.Connection) -> None:
@@ -4418,6 +4436,7 @@ def persist_image(record: dict[str, Any], job_id: str) -> None:
         "openrouterResponseId": record.get("openrouterResponseId"),
         "openrouterUsage": record.get("openrouterUsage"),
         "openrouterCostUsd": record.get("openrouterCostUsd"),
+        "openrouterBilling": record.get("openrouterBilling"),
     }
     with db() as conn:
         conn.execute(
@@ -4866,7 +4885,7 @@ def estimate_token_cost(req: GenerateRequest) -> int:
     return 3
 
 
-def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost: int, job_id: str, req: GenerateRequest) -> dict[str, Any]:
+def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost: int, job_id: str, req: GenerateRequest, billing_snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     """Reserve tokens for a generation after request validation has passed.
 
     Daily tariff tokens are a daily included budget, not a balance top-up. The
@@ -4937,6 +4956,7 @@ def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost:
                     "mode": req.mode,
                     "provider": req.provider,
                     "token_cost": token_cost,
+                    "billing": billing_snapshot or None,
                     "used_daily_budget": used_daily,
                     "daily_tokens_used_before": daily_used_before,
                     "daily_tokens_used_after": daily_used_after,
@@ -6802,11 +6822,13 @@ async def worker() -> None:
                 openrouter_result = await send_to_openrouter(req, job)
                 image_path = openrouter_result.image_path
                 thumb_path = openrouter_result.thumbnail_path
+                openrouter_billing = finalize_openrouter_billing_snapshot(job.get("openrouterBilling") or {}, openrouter_result.cost_usd)
                 job.update(
                     openrouterModel=openrouter_result.model,
                     openrouterResponseId=openrouter_result.response_id,
                     openrouterUsage=openrouter_result.usage,
                     openrouterCostUsd=openrouter_result.cost_usd,
+                    openrouterBilling=openrouter_billing,
                 )
             if not image_path:
                 if req.provider == "comfyui" and not COMFYUI_MOCK_FALLBACK:
@@ -6857,6 +6879,7 @@ async def worker() -> None:
                 "openrouterResponseId": openrouter_result.response_id if openrouter_result else None,
                 "openrouterUsage": openrouter_result.usage if openrouter_result else None,
                 "openrouterCostUsd": openrouter_result.cost_usd if openrouter_result else None,
+                "openrouterBilling": job.get("openrouterBilling") if openrouter_result else None,
             }
             if gallery_quota["gallery_full"]:
                 with db() as conn:
@@ -7025,7 +7048,14 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     user_id = trusted["legacy_user_id"]
     internal_user_id = trusted["internal_user_id"]
     session_id = trusted.get("session_id")
-    token_cost = estimate_token_cost(req)
+    openrouter_billing: dict[str, Any] | None = None
+    if req.provider == "openrouter":
+        if not trusted_user_is_admin(trusted):
+            raise HTTPException(403, "OpenRouter generation is available for admins only.")
+        openrouter_billing = await estimate_openrouter_billing(req)
+        token_cost = int(openrouter_billing["chargedTokens"])
+    else:
+        token_cost = estimate_token_cost(req)
     with db() as conn:
         if conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is None:
             raise HTTPException(404, "User not found.")
@@ -7047,10 +7077,11 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         "progress": 0,
         "message": "В очереди",
         "request": req.model_dump(),
+        "openrouterBilling": openrouter_billing,
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
     with db() as conn:
-        token_charge = charge_generation_tokens(conn, user_id, token_cost, job_id, req)
+        token_charge = charge_generation_tokens(conn, user_id, token_cost, job_id, req, openrouter_billing)
         persist_job(job, req, conn=conn)
     jobs[job_id] = job
     await queue.put(job_id)
@@ -7061,7 +7092,7 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
             legacy_user_id=user_id,
             session_id=session_id,
             platform=trusted.get("platform", "web"),
-            properties={"mode": req.mode, "provider": req.provider, "size": f"{req.width}x{req.height}", "token_cost": token_cost},
+            properties={"mode": req.mode, "provider": req.provider, "size": f"{req.width}x{req.height}", "token_cost": token_cost, "openrouter_billing": openrouter_billing},
         )
     except Exception:
         pass
@@ -12069,6 +12100,144 @@ async def fetch_usd_rub_rate(force: bool = False) -> dict[str, Any]:
     return {"rate": None, "currency": "USD", "base": "RUB", "source": "none", "sourceUrl": CBR_DAILY_XML_URL, "cache": "error", "error": "; ".join(errors)}
 
 
+OPENROUTER_USD_FEE_RATE = 0.30
+OPENROUTER_DEFAULT_TOKEN_RUB = 5.0
+OPENROUTER_DEFAULT_MIN_MARGIN_PERCENT = 40.0
+OPENROUTER_SHORT_PROMPT_TEXT_TOKENS = 40
+OPENROUTER_OUTPUT_IMAGE_TOKENS_1MP = 1300
+
+OPENROUTER_PRICE_CATALOG: dict[str, OpenRouterPriceModel] = {
+    "black-forest-labs/flux.2-klein-4b": OpenRouterPriceModel(id="black-forest-labs/flux.2-klein-4b", name="FLUX.2 Klein 4B", provider="BFL", pricing_type="mp", usd=0.014, min_tokens=1),
+    "black-forest-labs/flux.2-pro": OpenRouterPriceModel(id="black-forest-labs/flux.2-pro", name="FLUX.2 Pro", provider="BFL", pricing_type="mp", usd=0.03, min_tokens=2),
+    "black-forest-labs/flux.2-max": OpenRouterPriceModel(id="black-forest-labs/flux.2-max", name="FLUX.2 Max", provider="BFL", pricing_type="mp", usd=0.07, min_tokens=3),
+    "black-forest-labs/flux.2-flex": OpenRouterPriceModel(id="black-forest-labs/flux.2-flex", name="FLUX.2 Flex", provider="BFL", pricing_type="mp", usd=0.12, min_tokens=4),
+    "openai/gpt-image-1-mini": OpenRouterPriceModel(id="openai/gpt-image-1-mini", name="GPT Image 1 Mini", provider="OpenAI", pricing_type="token_estimate", usd=0.000008, min_tokens=1),
+    "openai/gpt-5-image-mini": OpenRouterPriceModel(id="openai/gpt-5-image-mini", name="GPT-5 Image Mini", provider="OpenAI", pricing_type="token_estimate", usd=0.000008, min_tokens=1),
+    "openai/gpt-image-1": OpenRouterPriceModel(id="openai/gpt-image-1", name="GPT Image 1", provider="OpenAI", pricing_type="token_estimate", usd=0.00004, min_tokens=2),
+    "openai/gpt-5-image": OpenRouterPriceModel(id="openai/gpt-5-image", name="GPT-5 Image", provider="OpenAI", pricing_type="token_estimate", usd=0.00004, min_tokens=2),
+    "openai/gpt-image-2": OpenRouterPriceModel(id="openai/gpt-image-2", name="GPT Image 2", provider="OpenAI", pricing_type="token_estimate", usd=0.00003, min_tokens=1),
+    "openai/gpt-5.4-image-2": OpenRouterPriceModel(id="openai/gpt-5.4-image-2", name="GPT-5.4 Image 2", provider="OpenAI", pricing_type="token_estimate", usd=0.00003, min_tokens=1),
+    "recraft/recraft-v4.1": OpenRouterPriceModel(id="recraft/recraft-v4.1", name="Recraft V4.1", provider="Recraft", pricing_type="image", usd=0.035, min_tokens=1),
+    "recraft/recraft-v4.1-utility": OpenRouterPriceModel(id="recraft/recraft-v4.1-utility", name="Recraft V4.1 Utility", provider="Recraft", pricing_type="image", usd=0.035, min_tokens=1),
+    "recraft/recraft-v4": OpenRouterPriceModel(id="recraft/recraft-v4", name="Recraft V4", provider="Recraft", pricing_type="image", usd=0.04, min_tokens=1),
+    "recraft/recraft-v3": OpenRouterPriceModel(id="recraft/recraft-v3", name="Recraft V3", provider="Recraft", pricing_type="image", usd=0.04, min_tokens=1),
+    "sourceful/riverflow-v2.5-fast": OpenRouterPriceModel(id="sourceful/riverflow-v2.5-fast", name="Riverflow V2.5 Fast", provider="Sourceful", pricing_type="image", usd=0.019, min_tokens=1),
+    "sourceful/riverflow-v2.5-pro": OpenRouterPriceModel(id="sourceful/riverflow-v2.5-pro", name="Riverflow V2.5 Pro", provider="Sourceful", pricing_type="image", usd=0.13, min_tokens=3),
+    "bytedance-seed/seedream-4.5": OpenRouterPriceModel(id="bytedance-seed/seedream-4.5", name="Seedream 4.5", provider="ByteDance Seed", pricing_type="image", usd=0.04, min_tokens=1),
+}
+
+
+def openrouter_economy_settings() -> dict[str, float]:
+    raw = _saved_setting("openrouter_economy")
+    try:
+        min_margin = float(raw.get("minMarginPercent", OPENROUTER_DEFAULT_MIN_MARGIN_PERCENT))
+    except (TypeError, ValueError):
+        min_margin = OPENROUTER_DEFAULT_MIN_MARGIN_PERCENT
+    try:
+        token_rub = float(raw.get("tokenRub", OPENROUTER_DEFAULT_TOKEN_RUB))
+    except (TypeError, ValueError):
+        token_rub = OPENROUTER_DEFAULT_TOKEN_RUB
+    return {
+        "minMarginPercent": max(0.0, min(95.0, min_margin)),
+        "tokenRub": max(0.01, min(100000.0, token_rub)),
+        "usdFeePercent": OPENROUTER_USD_FEE_RATE * 100,
+    }
+
+
+def openrouter_requested_megapixels(req: GenerateRequest) -> float:
+    pixels = max(1, int(req.width or 0)) * max(1, int(req.height or 0))
+    return max(1.0, pixels / 1_000_000)
+
+
+def openrouter_estimated_usd(model: OpenRouterPriceModel, megapixels: float) -> float:
+    if model.pricing_type == "mp":
+        return model.usd * megapixels
+    if model.pricing_type == "token_estimate":
+        return model.usd * OPENROUTER_OUTPUT_IMAGE_TOKENS_1MP * megapixels
+    return model.usd
+
+
+def openrouter_tokens_for_cost(cost_rub: float, min_tokens: int, economy: dict[str, float]) -> int:
+    token_rub = float(economy["tokenRub"])
+    margin_factor = max(0.05, 1.0 - float(economy["minMarginPercent"]) / 100.0)
+    return max(min_tokens, math.ceil(cost_rub / token_rub), math.ceil(cost_rub / (token_rub * margin_factor)))
+
+
+async def estimate_openrouter_billing(req: GenerateRequest) -> dict[str, Any]:
+    model_id = resolve_openrouter_model(req)
+    model = OPENROUTER_PRICE_CATALOG.get(model_id)
+    if model is None:
+        raise HTTPException(400, f"OpenRouter model has no billing price: {model_id}")
+    exchange = await fetch_usd_rub_rate()
+    rate = exchange.get("rate")
+    if not isinstance(rate, (int, float)):
+        raise HTTPException(503, "USD/RUB rate is not available for OpenRouter billing.")
+    economy = openrouter_economy_settings()
+    effective_rate = float(rate) * (1 + OPENROUTER_USD_FEE_RATE)
+    megapixels = openrouter_requested_megapixels(req)
+    estimated_usd = openrouter_estimated_usd(model, megapixels)
+    estimated_rub = estimated_usd * effective_rate
+    tokens = openrouter_tokens_for_cost(estimated_rub, model.min_tokens, economy)
+    revenue_rub = tokens * float(economy["tokenRub"])
+    profit_rub = revenue_rub - estimated_rub
+    margin_percent = (profit_rub / revenue_rub * 100) if revenue_rub > 0 else None
+    return {
+        "provider": "openrouter",
+        "billingStatus": "estimated",
+        "modelId": model.id,
+        "modelName": model.name,
+        "modelProvider": model.provider,
+        "pricingType": model.pricing_type,
+        "pricingSource": model.source,
+        "megapixels": round(megapixels, 6),
+        "estimatedCostUsd": round(estimated_usd, 6),
+        "estimatedCostRub": round(estimated_rub, 4),
+        "exchangeRate": round(float(rate), 6),
+        "effectiveUsdRub": round(effective_rate, 6),
+        "exchangeSource": exchange.get("source"),
+        "exchangeSourceDate": exchange.get("sourceDate"),
+        "exchangeCache": exchange.get("cache"),
+        "usdFeePercent": economy["usdFeePercent"],
+        "tokenRub": economy["tokenRub"],
+        "minMarginPercent": economy["minMarginPercent"],
+        "estimatedTokens": tokens,
+        "chargedTokens": tokens,
+        "revenueRub": round(revenue_rub, 4),
+        "profitRub": round(profit_rub, 4),
+        "marginPercent": round(margin_percent, 2) if margin_percent is not None else None,
+    }
+
+
+def finalize_openrouter_billing_snapshot(snapshot: dict[str, Any], actual_cost_usd: float | None) -> dict[str, Any]:
+    result = dict(snapshot or {})
+    if actual_cost_usd is None:
+        result["billingStatus"] = "actual_cost_missing"
+        return result
+    effective_rate = result.get("effectiveUsdRub")
+    economy = {"tokenRub": result.get("tokenRub", OPENROUTER_DEFAULT_TOKEN_RUB), "minMarginPercent": result.get("minMarginPercent", OPENROUTER_DEFAULT_MIN_MARGIN_PERCENT)}
+    try:
+        actual_rub = float(actual_cost_usd) * float(effective_rate)
+        min_tokens = OPENROUTER_PRICE_CATALOG.get(str(result.get("modelId") or ""), OpenRouterPriceModel(id="unknown", name="unknown", provider="unknown", pricing_type="image", usd=0, min_tokens=1)).min_tokens
+        actual_tokens = openrouter_tokens_for_cost(actual_rub, min_tokens, economy)
+        charged_tokens = int(result.get("chargedTokens") or 0)
+        revenue_rub = charged_tokens * float(economy["tokenRub"])
+        profit_rub = revenue_rub - actual_rub
+        result.update({
+            "billingStatus": "actual",
+            "actualCostUsd": round(float(actual_cost_usd), 6),
+            "actualCostRub": round(actual_rub, 4),
+            "actualTokens": actual_tokens,
+            "chargedTokens": charged_tokens,
+            "tokenDelta": charged_tokens - actual_tokens,
+            "revenueRub": round(revenue_rub, 4),
+            "profitRub": round(profit_rub, 4),
+            "marginPercent": round((profit_rub / revenue_rub) * 100, 2) if revenue_rub > 0 else None,
+        })
+    except (TypeError, ValueError):
+        result["billingStatus"] = "actual_cost_unpriced"
+    return result
+
+
 def default_tariff_matrix() -> list[dict[str, Any]]:
     # Дефолтные правила доступности/цены (calculated). Переопределяются admin_settings 'tariff_matrix'.
     def cell(enabled, cost, default, formula):
@@ -12096,6 +12265,9 @@ def openrouter_usage_stats() -> dict[str, Any]:
             "SELECT width, height, mode, settings_json, created_at FROM images WHERE provider = 'openrouter' ORDER BY created_at DESC LIMIT 500"
         ).fetchall()
     total_cost = 0.0
+    total_revenue = 0.0
+    total_profit = 0.0
+    total_tokens = 0
     total_mp = 0.0
     priced = 0
     last_cost: float | None = None
@@ -12110,23 +12282,36 @@ def openrouter_usage_stats() -> dict[str, Any]:
             cost = float(settings.get("openrouterCostUsd"))
         except (TypeError, ValueError):
             continue
+        billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
+        charged_tokens = int(billing.get("chargedTokens") or 0)
+        revenue_rub = float(billing.get("revenueRub") or 0)
+        profit_rub = float(billing.get("profitRub") or 0)
         mp = max(0.0001, (int(row["width"] or 0) * int(row["height"] or 0)) / 1_000_000)
         model = str(settings.get("openrouterModel") or "unknown")
         mode = str(row["mode"] or "unknown")
         total_cost += cost
+        total_tokens += charged_tokens
+        total_revenue += revenue_rub
+        total_profit += profit_rub
         total_mp += mp
         priced += 1
         if last_cost is None:
             last_cost = cost
             last_at = row["created_at"]
-        bucket = models.setdefault(model, {"count": 0, "costUsd": 0.0, "megapixels": 0.0})
+        bucket = models.setdefault(model, {"count": 0, "costUsd": 0.0, "megapixels": 0.0, "tokens": 0, "revenueRub": 0.0, "profitRub": 0.0})
         bucket["count"] += 1
         bucket["costUsd"] += cost
         bucket["megapixels"] += mp
-        mode_bucket = modes.setdefault(mode, {"count": 0, "costUsd": 0.0, "megapixels": 0.0, "models": {}})
+        bucket["tokens"] += charged_tokens
+        bucket["revenueRub"] += revenue_rub
+        bucket["profitRub"] += profit_rub
+        mode_bucket = modes.setdefault(mode, {"count": 0, "costUsd": 0.0, "megapixels": 0.0, "tokens": 0, "revenueRub": 0.0, "profitRub": 0.0, "models": {}})
         mode_bucket["count"] += 1
         mode_bucket["costUsd"] += cost
         mode_bucket["megapixels"] += mp
+        mode_bucket["tokens"] += charged_tokens
+        mode_bucket["revenueRub"] += revenue_rub
+        mode_bucket["profitRub"] += profit_rub
         mode_models = mode_bucket["models"]
         model_mode_bucket = mode_models.setdefault(model, {"count": 0, "costUsd": 0.0})
         model_mode_bucket["count"] += 1
@@ -12141,6 +12326,10 @@ def openrouter_usage_stats() -> dict[str, Any]:
             "costUsd": round(cost, 6),
             "avgCostUsd": round(cost / item["count"], 6) if item["count"] else None,
             "avgCostPerMpUsd": round(cost / mp, 6) if mp else None,
+            "tokens": int(item.get("tokens") or 0),
+            "revenueRub": round(float(item.get("revenueRub") or 0), 4),
+            "profitRub": round(float(item.get("profitRub") or 0), 4),
+            "marginPercent": round((float(item.get("profitRub") or 0) / float(item.get("revenueRub") or 1)) * 100, 2) if float(item.get("revenueRub") or 0) > 0 else None,
         })
     model_rows.sort(key=lambda x: x["count"], reverse=True)
     mode_rows = []
@@ -12161,6 +12350,10 @@ def openrouter_usage_stats() -> dict[str, Any]:
             "costUsd": round(cost, 6),
             "avgCostUsd": round(cost / item["count"], 6) if item["count"] else None,
             "avgCostPerMpUsd": round(cost / mp, 6) if mp else None,
+            "tokens": int(item.get("tokens") or 0),
+            "revenueRub": round(float(item.get("revenueRub") or 0), 4),
+            "profitRub": round(float(item.get("profitRub") or 0), 4),
+            "marginPercent": round((float(item.get("profitRub") or 0) / float(item.get("revenueRub") or 1)) * 100, 2) if float(item.get("revenueRub") or 0) > 0 else None,
             "favoriteModel": favorite or None,
             "favoriteCount": favorite_count,
         })
@@ -12170,6 +12363,10 @@ def openrouter_usage_stats() -> dict[str, Any]:
         "totalCostUsd": round(total_cost, 6),
         "avgCostUsd": round(total_cost / priced, 6) if priced else None,
         "avgCostPerMpUsd": round(total_cost / total_mp, 6) if total_mp else None,
+        "tokens": total_tokens,
+        "revenueRub": round(total_revenue, 4),
+        "profitRub": round(total_profit, 4),
+        "marginPercent": round((total_profit / total_revenue) * 100, 2) if total_revenue > 0 else None,
         "lastCostUsd": last_cost,
         "lastAt": last_at,
         "models": model_rows[:20],
@@ -12211,6 +12408,20 @@ async def admin_openrouter_status(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
     key_status = await fetch_openrouter_key_status()
     return {"key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config(), "exchange": await fetch_usd_rub_rate()}
+
+
+@app.get("/api/admin/openrouter/pricing")
+async def admin_openrouter_pricing(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    exchange = await fetch_usd_rub_rate()
+    economy = openrouter_economy_settings()
+    return {
+        "ok": True,
+        "exchange": exchange,
+        "economy": economy,
+        "fee": {"usdFeePercent": economy["usdFeePercent"]},
+        "models": [model.model_dump() for model in OPENROUTER_PRICE_CATALOG.values()],
+    }
 
 
 @app.post("/api/admin/openrouter/exchange/refresh")
@@ -12424,7 +12635,15 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
         "catalog": catalog,
         "loras": loras,
         "comfyuiAvailable": status.get("comfyuiAvailable"),
-        "openrouter": {"keyConfigured": openrouter_key, "status": openrouter_status, "usage": openrouter_usage, "config": get_openrouter_config(), "exchange": exchange, "economy": openrouter_economy},
+        "openrouter": {
+            "keyConfigured": openrouter_key,
+            "status": openrouter_status,
+            "usage": openrouter_usage,
+            "config": get_openrouter_config(),
+            "exchange": exchange,
+            "economy": openrouter_economy,
+            "backendPricing": [model.model_dump() for model in OPENROUTER_PRICE_CATALOG.values()],
+        },
         "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"},
         "profiles": status.get("profiles", []),
     }
