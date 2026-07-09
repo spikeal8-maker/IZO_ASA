@@ -1963,7 +1963,7 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .admin-log-tabs button.active:hover,
   .canvas-size-bar button:hover,
   .save-sketch:hover {
-    color: #050505;
+    color: #050505 !important;
   }
 
   .mode.active:hover *,
@@ -1985,6 +1985,15 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .admin-log-tabs button.active:hover *,
   .canvas-size-bar button:hover *,
   .save-sketch:hover * {
-    color: #050505;
+    color: #050505 !important;
+  }
+
+  .generate:not(:disabled):hover,
+  .generate:not(:disabled):hover *,
+  .generate:not(:disabled):hover svg,
+  .generate:not(:disabled):hover svg * {
+    color: #050505 !important;
+    fill: currentColor;
+    stroke: currentColor;
   }
 }

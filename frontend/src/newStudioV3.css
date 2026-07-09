@@ -4157,7 +4157,7 @@ font-size: 10.5px;
 @media (hover: hover) {
   .iv3 .generate-button:not(:disabled):hover,
   .iv3 .mobile-bottom-cta:not(:disabled):hover {
-    color: #090d05;
+    color: #090d05 !important;
     background: linear-gradient(180deg, #d4e838, #bcd516 60%, #a6c00e);
     background-color: transparent;
     border-color: rgba(182, 207, 18, .95);
@@ -4980,7 +4980,7 @@ font-size: 9px;
   .iv3 .paint-sidebar-tools button.active:not(:disabled):hover,
   .iv3 .i2i-upload-action.primary:not(:disabled):hover,
   .iv3 .i2i-range-mark:not(:disabled):hover {
-    color: #071006;
+    color: #071006 !important;
   }
 
   .iv3 .tab.active:not(:disabled):not(.disabled):hover *,
@@ -4995,6 +4995,19 @@ font-size: 9px;
   .iv3 .paint-sidebar-tools button.active:not(:disabled):hover *,
   .iv3 .i2i-upload-action.primary:not(:disabled):hover *,
   .iv3 .i2i-range-mark:not(:disabled):hover * {
-    color: #071006;
+    color: #071006 !important;
+  }
+
+  .iv3 .generate-button:not(:disabled):hover,
+  .iv3 .generate-button:not(:disabled):hover *,
+  .iv3 .generate-button:not(:disabled):hover svg,
+  .iv3 .generate-button:not(:disabled):hover svg *,
+  .iv3 .mobile-bottom-cta:not(:disabled):hover,
+  .iv3 .mobile-bottom-cta:not(:disabled):hover *,
+  .iv3 .mobile-bottom-cta:not(:disabled):hover svg,
+  .iv3 .mobile-bottom-cta:not(:disabled):hover svg * {
+    color: #071006 !important;
+    fill: currentColor;
+    stroke: currentColor;
   }
 }
