@@ -12451,7 +12451,7 @@ def openrouter_usage_stats() -> dict[str, Any]:
 OPENROUTER_ADMIN_MODES = {
     "text_to_image", "image_to_image", "edit", "paint", "inpaint", "outpaint", "faceswap", "remove_background"
 }
-OPENROUTER_ACCESS_TIERS = {"free", "basic", "pro", "business", "admin"}
+OPENROUTER_ACCESS_TIERS = {"mini", "plus", "pro", "business"}
 OPENROUTER_QUALITY_PRESETS = {"fast", "standard", "max"}
 
 
@@ -12477,6 +12477,8 @@ def normalize_openrouter_config(config: dict[str, Any]) -> dict[str, Any]:
         mode_access: dict[str, list[str]] = {}
         for tier in OPENROUTER_ACCESS_TIERS:
             tier_values = mode_access_raw.get(tier)
+            if tier == "mini" and not isinstance(tier_values, list):
+                tier_values = mode_access_raw.get("basic")
             if isinstance(tier_values, list):
                 clean_tier = sorted({
                     str(v).strip()
@@ -12498,8 +12500,6 @@ def normalize_openrouter_config(config: dict[str, Any]) -> dict[str, Any]:
     for mode, values in enabled.items():
         if mode not in defaults and values:
             defaults[mode] = values[0]
-        tier_defaults = access.setdefault(mode, {})
-        tier_defaults.setdefault("admin", list(values))
         if defaults.get(mode):
             quality_defaults.setdefault(mode, {})
             quality_defaults[mode].setdefault("fast", defaults[mode])
@@ -12519,7 +12519,7 @@ def openrouter_model_allowed(config: dict[str, Any], mode: str, tier: str, model
     return model_id in values
 
 
-def openrouter_quality_model(config: dict[str, Any], mode: str, preset: str, tier: str = "admin") -> str | None:
+def openrouter_quality_model(config: dict[str, Any], mode: str, preset: str, tier: str = "mini") -> str | None:
     quality = config.get("qualityDefaults") if isinstance(config.get("qualityDefaults"), dict) else {}
     mode_quality = quality.get(mode) if isinstance(quality.get(mode), dict) else {}
     model_id = mode_quality.get(preset)

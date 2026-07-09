@@ -61,9 +61,9 @@ type PageData = {
   comfyFiles: Record<string, unknown>
   profiles: ProfileOption[]
 }
-type OpenRouterTier = 'basic' | 'pro' | 'business' | 'admin'
+type OpenRouterTier = 'mini' | 'plus' | 'pro' | 'business'
 type OpenRouterQuality = 'fast' | 'standard' | 'max'
-type OpenRouterAccess = Record<string, Partial<Record<OpenRouterTier | 'free', string[]>>>
+type OpenRouterAccess = Record<string, Partial<Record<OpenRouterTier, string[]>>>
 type OpenRouterQualityDefaults = Record<string, Partial<Record<OpenRouterQuality, string>>>
 type OpenRouterConfig = {
   enabled?: Record<string, string[]>
@@ -76,10 +76,10 @@ type OpenRouterTestResult = { image?: { url?: string; thumbnailUrl?: string }; c
 const USD_FEE_RATE = 0.30
 const DEFAULT_TOKEN_RUB = 5
 const OPENROUTER_TIERS: Array<{ id: OpenRouterTier; label: string }> = [
-  { id: 'basic', label: 'B' },
+  { id: 'mini', label: 'Mini' },
+  { id: 'plus', label: 'Plus' },
   { id: 'pro', label: 'Pro' },
-  { id: 'business', label: 'Bus' },
-  { id: 'admin', label: 'Adm' },
+  { id: 'business', label: 'Business' },
 ]
 const OPENROUTER_QUALITY: Array<{ id: OpenRouterQuality; label: string }> = [
   { id: 'fast', label: 'Быстро' },
@@ -644,10 +644,8 @@ export default function AdminModelsV2() {
     if (nextList.length) enabled[mode] = nextList
     else delete enabled[mode]
     access[mode] = access[mode] || {}
-    const adminList = new Set(access[mode].admin || [])
-    if (checked) adminList.add(modelId)
-    else {
-      for (const tier of [...OPENROUTER_TIERS.map((t) => t.id), 'free'] as const) {
+    if (!checked) {
+      for (const tier of OPENROUTER_TIERS.map((t) => t.id)) {
         const tierList = new Set(access[mode]?.[tier] || [])
         tierList.delete(modelId)
         if (tierList.size) access[mode]![tier] = Array.from(tierList).sort()
@@ -657,8 +655,6 @@ export default function AdminModelsV2() {
         if (qualityDefaults[mode]?.[q.id] === modelId) delete qualityDefaults[mode]![q.id]
       }
     }
-    if (adminList.size) access[mode].admin = Array.from(adminList).sort()
-    else delete access[mode].admin
     if (!Object.keys(access[mode]).length) delete access[mode]
     if (checked && !defaults[mode]) defaults[mode] = modelId
     if (!checked && defaults[mode] === modelId) {
@@ -679,7 +675,7 @@ export default function AdminModelsV2() {
     if (checked) {
       enabled[mode] = ids
       defaults[mode] = defaults[mode] && ids.includes(defaults[mode]) ? defaults[mode] : ids[0]
-      access[mode] = { ...(access[mode] || {}), admin: ids }
+      access[mode] = { ...(access[mode] || {}) }
     } else {
       delete enabled[mode]
       delete defaults[mode]
