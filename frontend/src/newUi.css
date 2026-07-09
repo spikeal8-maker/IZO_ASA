@@ -1845,6 +1845,30 @@
   color: var(--n2-text);
 }
 
+.n2-help-card {
+  width: min(760px, 100%);
+  gap: 10px;
+}
+
+.n2-help-card h3 {
+  margin-top: 6px;
+  color: var(--n2-text);
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.n2-help-card ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--n2-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.n2-help-card li + li {
+  margin-top: 4px;
+}
+
 .n2-overlay-close {
   position: absolute;
   right: 12px;
