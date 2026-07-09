@@ -12369,7 +12369,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
     loras = await scan_loras()
     routes = _saved_setting("generation_routes").get("routes") or default_routes(status)
     matrix = _saved_setting("tariff_matrix").get("matrix") or default_tariff_matrix()
-    openrouter_economy = _saved_setting("openrouter_economy") or {"minMarginPercent": 40}
+    openrouter_economy = {"minMarginPercent": 40, "tokenRub": 5, **(_saved_setting("openrouter_economy") or {})}
     openrouter_status = await fetch_openrouter_key_status()
     openrouter_key = bool(openrouter_status.get("configured"))
     openrouter_usage = openrouter_usage_stats()

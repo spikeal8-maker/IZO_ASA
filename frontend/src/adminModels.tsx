@@ -54,7 +54,7 @@ type PageData = {
     }
     config?: OpenRouterConfig
     exchange?: { rate?: number | null; source?: string; sourceUrl?: string; sourceDate?: string; fetchedAt?: string; cache?: string; error?: string; fallback?: boolean; warning?: string }
-    economy?: { minMarginPercent?: number }
+    economy?: { minMarginPercent?: number; tokenRub?: number }
   }
   comfyFiles: Record<string, unknown>
   profiles: ProfileOption[]
@@ -63,7 +63,7 @@ type OpenRouterConfig = { enabled?: Record<string, string[]>; defaults?: Record<
 type OpenRouterTestResult = { image?: { url?: string; thumbnailUrl?: string }; costUsd?: number | null; model?: string; usage?: Record<string, unknown> }
 
 const USD_FEE_RATE = 0.30
-const TOKEN_RUB = 5
+const DEFAULT_TOKEN_RUB = 5
 type ApiImageModel = {
   id: string; name: string; provider: string; input: string; output: string; params: string; pricing: string
   mpUsd?: number; imageUsd?: number; token?: boolean; tiered?: boolean
@@ -207,18 +207,22 @@ const clampMargin = (value: unknown) => {
   const n = typeof value === 'number' ? value : 40
   return Math.max(0, Math.min(95, n))
 }
+const clampTokenRub = (value: unknown) => {
+  const n = typeof value === 'number' ? value : DEFAULT_TOKEN_RUB
+  return Math.max(0.01, Math.min(100000, n))
+}
 const costRubForModel = (m: ApiImageModel, actualUsdPerMp: number | null | undefined, rate: number | null) => {
   const estimated = estimatedUsdPerMp(m)
   const value = typeof actualUsdPerMp === 'number' ? Math.max(estimated || 0, actualUsdPerMp) : estimated
   return value === null || rate === null ? null : value * rate
 }
-const tokenPriceForModel = (m: ApiImageModel, actualUsdPerMp: number | null | undefined, rate: number | null, minMarginPercent: number) => {
+const tokenPriceForModel = (m: ApiImageModel, actualUsdPerMp: number | null | undefined, rate: number | null, minMarginPercent: number, tokenRub: number) => {
   const costRub = costRubForModel(m, actualUsdPerMp, rate)
   if (costRub === null) return null
   const marginFactor = Math.max(0.05, 1 - clampMargin(minMarginPercent) / 100)
-  return Math.max(minTokenTier(m), Math.ceil(costRub / TOKEN_RUB), Math.ceil(costRub / (TOKEN_RUB * marginFactor)))
+  return Math.max(minTokenTier(m), Math.ceil(costRub / tokenRub), Math.ceil(costRub / (tokenRub * marginFactor)))
 }
-const revenueRub = (tokens: number | null) => tokens === null ? null : tokens * TOKEN_RUB
+const revenueRub = (tokens: number | null, tokenRub: number) => tokens === null ? null : tokens * tokenRub
 const profitRub = (revenue: number | null, cost: number | null) => revenue === null || cost === null ? null : revenue - cost
 const marginPercent = (revenue: number | null, profit: number | null) => revenue && profit !== null ? (profit / revenue) * 100 : null
 const rubText = (value: number | null) => value === null ? '—' : `${value.toFixed(2)} ₽`
@@ -234,9 +238,9 @@ const usageModelMap = (models?: Array<Record<string, unknown>>) => new Map((mode
 const usageModeMap = (modes?: Array<Record<string, unknown>>) => new Map((modes || []).map((item) => [String(item.mode || ''), item]))
 const modelStatText = (value: unknown, suffix = '') => typeof value === 'number' ? `${value}${suffix}` : '—'
 const moneyPair = (usdValue: unknown, rate: number | null) => typeof usdValue === 'number' ? `${rub(usdValue, rate)} - $${usdValue.toFixed(4)}` : '—'
-const projectTokensForUsd = (usdValue: unknown, rate: number | null) => typeof usdValue === 'number' && rate !== null ? Math.ceil((usdValue * rate) / TOKEN_RUB) : null
-const tokensText = (usdValue: unknown, rate: number | null) => {
-  const tokens = projectTokensForUsd(usdValue, rate)
+const projectTokensForUsd = (usdValue: unknown, rate: number | null, tokenRub: number) => typeof usdValue === 'number' && rate !== null ? Math.ceil((usdValue * rate) / tokenRub) : null
+const tokensText = (usdValue: unknown, rate: number | null, tokenRub: number) => {
+  const tokens = projectTokensForUsd(usdValue, rate, tokenRub)
   return tokens === null ? '—' : `${tokens} ток.`
 }
 const fetchBrowserUsdRub = async (): Promise<PageData['openrouter']['exchange']> => {
@@ -334,7 +338,7 @@ const CSS = `
 .amv2 .or-test{border:1px solid rgba(234,255,16,.18);border-radius:var(--radius);background:rgba(234,255,16,.04);padding:8px;display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;align-items:center}
 .amv2 .or-test img{width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
 .amv2 .or-test strong{font-size:12px}.amv2 .or-test span{display:block;margin-top:4px;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
-.amv2 .or-stats{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.amv2 .or-stats{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:8px;padding:0 0 12px;border-bottom:1px solid var(--line)}
 .amv2 .or-stat{border:1px solid var(--line);border-radius:var(--radius);padding:10px;background:rgba(255,255,255,.032)}
 .amv2 .or-stat span{display:block;color:var(--muted);font-size:11px;font-weight:650}.amv2 .or-stat strong{display:block;margin-top:5px;font-size:15px;color:var(--lime);font-weight:700}
 .amv2 .or-stat input{margin-top:5px;min-height:28px;padding:0 8px;font-size:13px;color:var(--lime);font-weight:700}
@@ -447,6 +451,7 @@ export default function AdminModelsV2() {
   const [routes, setRoutes] = useState<Route[]>([])
   const [query, setQuery] = useState('')
   const [marginDraft, setMarginDraft] = useState('40')
+  const [tokenRubDraft, setTokenRubDraft] = useState('5')
   const [apiSorts, setApiSorts] = useState<Record<string, ApiSortState>>({})
   const [apiSectionsOpen, setApiSectionsOpen] = useState<Record<string, boolean>>({ text_to_image: true })
   const [apiExpandedRows, setApiExpandedRows] = useState<Record<string, boolean>>({})
@@ -491,6 +496,7 @@ export default function AdminModelsV2() {
         }
       }
       setMarginDraft(String(clampMargin(d.openrouter.economy?.minMarginPercent)))
+      setTokenRubDraft(String(clampTokenRub(d.openrouter.economy?.tokenRub)))
       setErr(''); setData(d); setRoutes(d.routes)
     } else {
       setData(null)
@@ -523,9 +529,17 @@ export default function AdminModelsV2() {
   const saveRoutes = (next: Route[]) => { setRoutes(next); void saveSetting('generation_routes', { routes: next }, 'Маршруты') }
   const saveMinMargin = async () => {
     const minMarginPercent = clampMargin(Number(marginDraft))
+    const tokenRub = clampTokenRub(data?.openrouter.economy?.tokenRub)
     setMarginDraft(String(minMarginPercent))
-    setData((prev) => prev ? { ...prev, openrouter: { ...prev.openrouter, economy: { ...(prev.openrouter.economy || {}), minMarginPercent } } } : prev)
-    await saveSetting('openrouter_economy', { minMarginPercent }, 'Минимальная маржа OpenRouter')
+    setData((prev) => prev ? { ...prev, openrouter: { ...prev.openrouter, economy: { ...(prev.openrouter.economy || {}), minMarginPercent, tokenRub } } } : prev)
+    await saveSetting('openrouter_economy', { minMarginPercent, tokenRub }, 'Экономика OpenRouter')
+  }
+  const saveTokenRub = async () => {
+    const minMarginPercent = clampMargin(data?.openrouter.economy?.minMarginPercent)
+    const tokenRub = clampTokenRub(Number(tokenRubDraft))
+    setTokenRubDraft(String(tokenRub))
+    setData((prev) => prev ? { ...prev, openrouter: { ...prev.openrouter, economy: { ...(prev.openrouter.economy || {}), minMarginPercent, tokenRub } } } : prev)
+    await saveSetting('openrouter_economy', { minMarginPercent, tokenRub }, 'Экономика OpenRouter')
   }
 
   const setRouteModel = (ri: number, modelProfileId: string) => {
@@ -657,6 +671,7 @@ export default function AdminModelsV2() {
   const orCredits = orStatus.credits || {}
   const orCreditsData = orCredits.data && typeof orCredits.data === 'object' ? orCredits.data as Record<string, unknown> : {}
   const minMarginPercent = clampMargin(data.openrouter.economy?.minMarginPercent)
+  const tokenRub = clampTokenRub(data.openrouter.economy?.tokenRub)
   const usdRubBase = exchangeRate(data.openrouter.exchange)
   const usdRubEffective = effectiveUsdRub(data.openrouter.exchange)
   const orStatusClass = orStatus.ok ? 'key-ok' : orStatus.configured ? 'key-bad' : 'key-warn'
@@ -679,7 +694,7 @@ export default function AdminModelsV2() {
   const effectiveRateText = usdRubBase === null || usdRubEffective === null
     ? 'курс ЦБ не загрузился'
     : `$1 ${usdRubBase.toFixed(2)} ₽ + ${Math.round(USD_FEE_RATE * 100)}% = ${usdRubEffective.toFixed(2)} ₽`
-  const spentTokensText = tokensText(data.openrouter.usage?.totalCostUsd, usdRubEffective)
+  const spentTokensText = tokensText(data.openrouter.usage?.totalCostUsd, usdRubEffective, tokenRub)
   const exchangeCache = data.openrouter.exchange?.cache || ''
   const exchangeStateClass = usdRubBase === null ? 'rate-bad' : exchangeCache === 'stale' ? 'rate-stale' : 'rate-ok'
   const exchangeStateText = usdRubBase === null ? 'курс не загружен' : exchangeCache === 'stale' ? 'курс из последнего кэша' : 'курс загружен'
@@ -809,7 +824,7 @@ export default function AdminModelsV2() {
         <div className="or-stat"><span>Средняя за 1MP</span><strong>{avgMpPair}</strong></div>
         <div className="or-stat"><span>Фаворит по генерациям</span><strong>{favoriteOverallName}</strong></div>
         <div className="or-stat">
-          <span>Мин. маржа</span>
+          <span>Мин. маржа, %</span>
           <input
             type="number"
             min="0"
@@ -817,6 +832,18 @@ export default function AdminModelsV2() {
             value={marginDraft}
             onChange={(e) => setMarginDraft(e.target.value)}
             onBlur={() => void saveMinMargin()}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur() } }}
+          />
+        </div>
+        <div className="or-stat">
+          <span>Цена токена, ₽</span>
+          <input
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={tokenRubDraft}
+            onChange={(e) => setTokenRubDraft(e.target.value)}
+            onBlur={() => void saveTokenRub()}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur() } }}
           />
         </div>
@@ -837,7 +864,7 @@ export default function AdminModelsV2() {
         const sectionSpent = typeof sectionStats?.costUsd === 'number' ? moneyPair(sectionStats.costUsd, usdRubEffective) : '—'
         const sectionAvg = typeof sectionStats?.avgCostUsd === 'number' ? moneyPair(sectionStats.avgCostUsd, usdRubEffective) : '—'
         const sectionAvgMp = typeof sectionStats?.avgCostPerMpUsd === 'number' ? moneyPair(sectionStats.avgCostPerMpUsd, usdRubEffective) : '—'
-        const sectionTokens = tokensText(sectionStats?.costUsd, usdRubEffective)
+        const sectionTokens = tokensText(sectionStats?.costUsd, usdRubEffective, tokenRub)
         const sectionFavorite = modelLabelById(sectionStats?.favoriteModel)
         const rows = OPENROUTER_IMAGE_MODELS
           .filter(section.filter)
@@ -889,8 +916,8 @@ export default function AdminModelsV2() {
                 const generatedCount = modelStatText(modelStats?.count)
                 const spentTotal = typeof modelStats?.costUsd === 'number' ? moneyPair(modelStats.costUsd, usdRubEffective) : '—'
                 const costRub = costRubForModel(m, avgActualUsd, usdRubEffective)
-                const tokenCount = tokenPriceForModel(m, avgActualUsd, usdRubEffective, minMarginPercent)
-                const revenue = revenueRub(tokenCount)
+                const tokenCount = tokenPriceForModel(m, avgActualUsd, usdRubEffective, minMarginPercent, tokenRub)
+                const revenue = revenueRub(tokenCount, tokenRub)
                 const profit = profitRub(revenue, costRub)
                 const margin = marginPercent(revenue, profit)
                 return <Fragment key={rowKey}>
@@ -922,7 +949,7 @@ export default function AdminModelsV2() {
                         <span><b>OpenRouter id:</b> {m.id}</span>
                         <span><b>Как посчитано:</b> {priceConfidence(m)}</span>
                         <span><b>Цена из OpenRouter:</b> {m.pricing}</span>
-                        <span><b>Токены проекта:</b> {tokenCount ?? 'нужно измерить'} при {TOKEN_RUB} ₽/токен и марже от {minMarginPercent}%</span>
+                        <span><b>Токены проекта:</b> {tokenCount ?? 'нужно измерить'} при {tokenRub} ₽/токен и марже от {minMarginPercent}%</span>
                         <span><b>Экономика:</b> себестоимость {rubText(costRub)} · выручка {rubText(revenue)} · выгода {rubText(profit)} · маржа {percentText(margin)}</span>
                         <span><b>Факт по проекту:</b> {generatedCount} шт · {spentTotal}</span>
                         <span><b>Вход/выход API:</b> {m.input} {'->'} {m.output}</span>
