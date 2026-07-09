@@ -109,7 +109,7 @@ const OPENROUTER_IMAGE_MODELS: ApiImageModel[] = [
   { id: 'google/gemini-3-pro-image', name: 'Google: Nano Banana Pro (Gemini 3 Pro Image)', provider: 'Google Vertex', input: 'image+text', output: 'image+text', params: 'resolution, aspect_ratio, n, input_references', pricing: 'input_image: $0.000002/token + output_image: $0.00012/token', token: true },
   { id: 'sourceful/riverflow-v2.5-pro', name: 'Sourceful: Riverflow V2.5 Pro', provider: 'Sourceful', input: 'text+image', output: 'image', params: 'resolution, output_format, background, n, input_references', pricing: 'output_image: $0.13/image + $0.15/image + $0.17/image', tiered: true },
   { id: 'sourceful/riverflow-v2.5-fast', name: 'Sourceful: Riverflow V2.5 Fast', provider: 'Sourceful', input: 'text+image', output: 'image', params: 'resolution, output_format, background, n, input_references', pricing: 'output_image: $0.019/image + $0.021/image', tiered: true },
-  { id: 'microsoft/mai-image-2.5', name: 'Microsoft: MAI-Image-2.5', provider: 'Azure', input: 'text+image', output: 'image', params: 'aspect_ratio, n, input_references', pricing: 'input_text/image/output_image token pricing', token: true },
+  { id: 'microsoft/mai-image-2.5', name: 'Microsoft: MAI-Image-2.5', provider: 'Azure', input: 'text+image', output: 'image', params: 'aspect_ratio, n, input_references', pricing: 'оценка: output_image ~$0.00006/token', token: true },
   { id: 'x-ai/grok-imagine-image-quality', name: 'xAI: Grok Imagine Image Quality', provider: 'xAI', input: 'text+image', output: 'image', params: 'resolution, aspect_ratio, n, input_references', pricing: 'input_image: $0.01/image + output_image: $0.05/$0.07 image', tiered: true },
   { id: 'recraft/recraft-v4.1-pro-vector', name: 'Recraft: Recraft V4.1 Pro Vector', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.3/image', imageUsd: 0.3 },
   { id: 'recraft/recraft-v4.1-vector', name: 'Recraft: Recraft V4.1 Vector', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.08/image', imageUsd: 0.08 },
@@ -124,22 +124,22 @@ const OPENROUTER_IMAGE_MODELS: ApiImageModel[] = [
   { id: 'recraft/recraft-v3', name: 'Recraft: Recraft V3', provider: 'Recraft', input: 'text+image', output: 'image', params: 'n, input_references', pricing: 'output_image: $0.04/image', imageUsd: 0.04 },
   { id: 'openai/gpt-5.4-image-2', name: 'OpenAI: GPT-5.4 Image 2', provider: 'OpenAI', input: 'image+text+file', output: 'image+text', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.00003/token', token: true },
   { id: 'google/gemini-3.1-flash-image-preview', name: 'Google: Nano Banana 2 (Gemini 3.1 Flash Image Preview)', provider: 'Google Vertex', input: 'image+text', output: 'image+text', params: 'resolution, aspect_ratio, n, input_references', pricing: 'output_image: $0.00006/token', token: true },
-  { id: 'sourceful/riverflow-v2-pro', name: 'Sourceful: Riverflow V2 Pro', provider: 'Sourceful', input: 'text+image', output: 'image', params: 'resolution, n, input_references', pricing: 'tiered image pricing + input_reference fee', tiered: true },
-  { id: 'sourceful/riverflow-v2-fast', name: 'Sourceful: Riverflow V2 Fast', provider: 'Sourceful', input: 'text+image', output: 'image', params: 'resolution, n, input_references', pricing: 'tiered image pricing + input_reference fee', tiered: true },
+  { id: 'sourceful/riverflow-v2-pro', name: 'Sourceful: Riverflow V2 Pro', provider: 'Sourceful', input: 'text+image', output: 'image', params: 'resolution, n, input_references', pricing: 'оценка: output_image ~$0.13/image', imageUsd: 0.13 },
+  { id: 'sourceful/riverflow-v2-fast', name: 'Sourceful: Riverflow V2 Fast', provider: 'Sourceful', input: 'text+image', output: 'image', params: 'resolution, n, input_references', pricing: 'оценка: output_image ~$0.04/image', imageUsd: 0.04 },
   { id: 'black-forest-labs/flux.2-klein-4b', name: 'Black Forest Labs: FLUX.2 Klein 4B', provider: 'Black Forest Labs', input: 'text+image', output: 'image', params: 'output_format, n, input_references, seed', pricing: 'output_image: $0.014/megapixel', mpUsd: 0.014 },
   { id: 'bytedance-seed/seedream-4.5', name: 'ByteDance Seed: Seedream 4.5', provider: 'Seed', input: 'image+text', output: 'image', params: 'resolution, aspect_ratio, n, input_references, seed', pricing: 'output_image: $0.04/image', imageUsd: 0.04 },
   { id: 'black-forest-labs/flux.2-max', name: 'Black Forest Labs: FLUX.2 Max', provider: 'Black Forest Labs', input: 'text+image', output: 'image', params: 'output_format, n, input_references, seed', pricing: 'output_image: $0.07/megapixel', mpUsd: 0.07 },
-  { id: 'sourceful/riverflow-v2-max-preview', name: 'Sourceful: Riverflow V2 Max Preview', provider: '-', input: 'text+image', output: 'image', params: '', pricing: 'нет endpoint pricing' },
-  { id: 'sourceful/riverflow-v2-standard-preview', name: 'Sourceful: Riverflow V2 Standard Preview', provider: '-', input: 'text+image', output: 'image', params: '', pricing: 'нет endpoint pricing' },
-  { id: 'sourceful/riverflow-v2-fast-preview', name: 'Sourceful: Riverflow V2 Fast Preview', provider: '-', input: 'text+image', output: 'image', params: '', pricing: 'нет endpoint pricing' },
+  { id: 'sourceful/riverflow-v2-max-preview', name: 'Sourceful: Riverflow V2 Max Preview', provider: 'Sourceful', input: 'text+image', output: 'image', params: '', pricing: 'оценка: output_image ~$0.13/image', imageUsd: 0.13 },
+  { id: 'sourceful/riverflow-v2-standard-preview', name: 'Sourceful: Riverflow V2 Standard Preview', provider: 'Sourceful', input: 'text+image', output: 'image', params: '', pricing: 'оценка: output_image ~$0.08/image', imageUsd: 0.08 },
+  { id: 'sourceful/riverflow-v2-fast-preview', name: 'Sourceful: Riverflow V2 Fast Preview', provider: 'Sourceful', input: 'text+image', output: 'image', params: '', pricing: 'оценка: output_image ~$0.04/image', imageUsd: 0.04 },
   { id: 'black-forest-labs/flux.2-flex', name: 'Black Forest Labs: FLUX.2 Flex', provider: 'Black Forest Labs', input: 'text+image', output: 'image', params: 'output_format, n, input_references, seed', pricing: 'input_image: $0.06/megapixel + output_image: $0.06/megapixel', mpUsd: 0.12 },
   { id: 'black-forest-labs/flux.2-pro', name: 'Black Forest Labs: FLUX.2 Pro', provider: 'Black Forest Labs', input: 'text+image', output: 'image', params: 'output_format, n, input_references, seed', pricing: 'output_image: $0.03/megapixel', mpUsd: 0.03 },
-  { id: 'google/gemini-3-pro-image-preview', name: 'Google: Nano Banana Pro (Gemini 3 Pro Image Preview)', provider: 'Google Vertex', input: 'image+text', output: 'image+text', params: 'resolution, aspect_ratio, n, input_references', pricing: 'input_image/output_image token pricing', token: true },
+  { id: 'google/gemini-3-pro-image-preview', name: 'Google: Nano Banana Pro (Gemini 3 Pro Image Preview)', provider: 'Google Vertex', input: 'image+text', output: 'image+text', params: 'resolution, aspect_ratio, n, input_references', pricing: 'оценка: output_image ~$0.00012/token', token: true },
   { id: 'openai/gpt-5-image-mini', name: 'OpenAI: GPT-5 Image Mini', provider: 'OpenAI', input: 'file+image+text', output: 'image+text', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.000008/token', token: true },
   { id: 'openai/gpt-5-image', name: 'OpenAI: GPT-5 Image', provider: 'OpenAI', input: 'image+text+file', output: 'image+text', params: 'quality, background, n, input_references, output_compression', pricing: 'output_image: $0.00004/token', token: true },
-  { id: 'google/gemini-2.5-flash-image', name: 'Google: Nano Banana (Gemini 2.5 Flash Image)', provider: 'Google AI Studio', input: 'image+text', output: 'image+text', params: 'aspect_ratio, n, input_references', pricing: 'input_image/output_image token pricing', token: true },
-  { id: 'google/gemini-2.5-flash-image-preview', name: 'Google: Gemini 2.5 Flash Image Preview (Nano Banana)', provider: '-', input: 'image+text', output: 'image+text', params: '', pricing: 'нет endpoint pricing' },
-  { id: 'openrouter/auto', name: 'Auto Router', provider: '-', input: 'text+image+audio+file+video', output: 'text+image', params: '', pricing: 'нет endpoint pricing' },
+  { id: 'google/gemini-2.5-flash-image', name: 'Google: Nano Banana (Gemini 2.5 Flash Image)', provider: 'Google AI Studio', input: 'image+text', output: 'image+text', params: 'aspect_ratio, n, input_references', pricing: 'оценка: output_image ~$0.00006/token', token: true },
+  { id: 'google/gemini-2.5-flash-image-preview', name: 'Google: Gemini 2.5 Flash Image Preview (Nano Banana)', provider: 'Google', input: 'image+text', output: 'image+text', params: '', pricing: 'оценка: output_image ~$0.00006/token', token: true },
+  { id: 'openrouter/auto', name: 'Auto Router', provider: 'OpenRouter', input: 'text+image+audio+file+video', output: 'text+image', params: '', pricing: 'оценка: fallback до $0.15/image', imageUsd: 0.15 },
 ]
 
 const has = (m: ApiImageModel, value: string) => `${m.input} ${m.output} ${m.params} ${m.id} ${m.name}`.toLowerCase().includes(value)
@@ -208,7 +208,7 @@ const priceConfidence = (m: ApiImageModel) => {
   if (typeof m.imageUsd === 'number') return 'за image, считаем как 1MP'
   if (m.token) return `оценка: ${OUTPUT_IMAGE_TOKENS_1MP} image-токенов + ~${SHORT_PROMPT_TEXT_TOKENS} текстовых`
   if (m.tiered) return 'минимальный тариф из OpenRouter'
-  return 'нет endpoint pricing'
+  return 'стартовая оценка до фактических генераций'
 }
 const modelImageUsdPrice = (m: ApiImageModel, actualUsdPerImage?: number | null) => {
   const estimated = estimatedUsdPerMp(m)

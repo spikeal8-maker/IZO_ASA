@@ -4158,10 +4158,10 @@ def _gallery_aspect_ratio(width: int | None, height: int | None) -> str | None:
 
 def _gallery_mode_label(mode: str | None) -> str:
     return {
-        "text_to_image": "Из текста в изображение",
-        "image_to_image": "Из изображения в изображение",
-        "edit": "Редактор",
-        "paint": "Рисунок",
+        "text_to_image": "По тексту",
+        "image_to_image": "По фото",
+        "edit": "Сборка",
+        "paint": "Редактор",
         "inpaint": "Инпейнт",
         "outpaint": "Аутпейнт",
         "try_on": "Примерка",
@@ -4170,9 +4170,9 @@ def _gallery_mode_label(mode: str | None) -> str:
         "faceswap": "Лицо",
         "face": "Лицо",
         "face_swap": "Лицо",
-        "drawing": "Рисунок",
-        "editor": "Редактор",
-    }.get(str(mode or "").strip(), str(mode or "Из текста в изображение"))
+        "drawing": "Редактор",
+        "editor": "Сборка",
+    }.get(str(mode or "").strip(), str(mode or "По тексту"))
 
 
 def _gallery_source_ids(settings: dict[str, Any]) -> list[str]:
@@ -11992,11 +11992,11 @@ OPENROUTER_CATALOG = [
 ]
 
 ROUTE_DEFS = [
-    {"routeId": "text_to_image", "displayName": "Текст → Изо", "icon": "T"},
-    {"routeId": "image_to_image", "displayName": "Изо → Изо", "icon": "I"},
-    {"routeId": "edit", "displayName": "Редактор", "icon": "E"},
-    {"routeId": "edit_pose", "displayName": "Редактор - поза", "icon": "P"},
-    {"routeId": "face", "displayName": "Лицо → Изо", "icon": "F"},
+    {"routeId": "text_to_image", "displayName": "По тексту", "icon": "T"},
+    {"routeId": "image_to_image", "displayName": "По фото", "icon": "I"},
+    {"routeId": "edit", "displayName": "Сборка", "icon": "E"},
+    {"routeId": "edit_pose", "displayName": "Сборка - поза", "icon": "P"},
+    {"routeId": "face", "displayName": "Лицо", "icon": "F"},
 ]
 
 ADMIN_MODELS_PAGE_CACHE_TTL_SECONDS = 20
@@ -12169,13 +12169,35 @@ OPENROUTER_PRICE_CATALOG: dict[str, OpenRouterPriceModel] = {
     "openai/gpt-5-image": OpenRouterPriceModel(id="openai/gpt-5-image", name="GPT-5 Image", provider="OpenAI", pricing_type="token_estimate", usd=0.00004, min_tokens=2),
     "openai/gpt-image-2": OpenRouterPriceModel(id="openai/gpt-image-2", name="GPT Image 2", provider="OpenAI", pricing_type="token_estimate", usd=0.00003, min_tokens=1),
     "openai/gpt-5.4-image-2": OpenRouterPriceModel(id="openai/gpt-5.4-image-2", name="GPT-5.4 Image 2", provider="OpenAI", pricing_type="token_estimate", usd=0.00003, min_tokens=1),
+    "google/gemini-3.1-flash-lite-image": OpenRouterPriceModel(id="google/gemini-3.1-flash-lite-image", name="Nano Banana 2 Lite", provider="Google Vertex", pricing_type="token_estimate", usd=0.00003, min_tokens=1),
+    "google/gemini-3.1-flash-image": OpenRouterPriceModel(id="google/gemini-3.1-flash-image", name="Nano Banana 2", provider="Google Vertex", pricing_type="token_estimate", usd=0.00006, min_tokens=2),
+    "google/gemini-3.1-flash-image-preview": OpenRouterPriceModel(id="google/gemini-3.1-flash-image-preview", name="Nano Banana 2 Preview", provider="Google Vertex", pricing_type="token_estimate", usd=0.00006, min_tokens=2, source="market_estimate_2026-07-10"),
+    "google/gemini-3-pro-image": OpenRouterPriceModel(id="google/gemini-3-pro-image", name="Nano Banana Pro", provider="Google Vertex", pricing_type="token_estimate", usd=0.00012, min_tokens=4),
+    "google/gemini-3-pro-image-preview": OpenRouterPriceModel(id="google/gemini-3-pro-image-preview", name="Nano Banana Pro Preview", provider="Google Vertex", pricing_type="token_estimate", usd=0.00012, min_tokens=4, source="market_estimate_2026-07-10"),
+    "google/gemini-2.5-flash-image": OpenRouterPriceModel(id="google/gemini-2.5-flash-image", name="Gemini 2.5 Flash Image", provider="Google", pricing_type="token_estimate", usd=0.00006, min_tokens=2, source="market_estimate_2026-07-10"),
+    "google/gemini-2.5-flash-image-preview": OpenRouterPriceModel(id="google/gemini-2.5-flash-image-preview", name="Gemini 2.5 Flash Image Preview", provider="Google", pricing_type="token_estimate", usd=0.00006, min_tokens=2, source="market_estimate_2026-07-10"),
+    "microsoft/mai-image-2.5": OpenRouterPriceModel(id="microsoft/mai-image-2.5", name="MAI-Image-2.5", provider="Microsoft", pricing_type="token_estimate", usd=0.00006, min_tokens=2, source="market_estimate_2026-07-10"),
+    "x-ai/grok-imagine-image-quality": OpenRouterPriceModel(id="x-ai/grok-imagine-image-quality", name="Grok Imagine Image Quality", provider="xAI", pricing_type="image", usd=0.07, min_tokens=3, source="market_estimate_2026-07-10"),
     "recraft/recraft-v4.1": OpenRouterPriceModel(id="recraft/recraft-v4.1", name="Recraft V4.1", provider="Recraft", pricing_type="image", usd=0.035, min_tokens=1),
     "recraft/recraft-v4.1-utility": OpenRouterPriceModel(id="recraft/recraft-v4.1-utility", name="Recraft V4.1 Utility", provider="Recraft", pricing_type="image", usd=0.035, min_tokens=1),
+    "recraft/recraft-v4.1-pro": OpenRouterPriceModel(id="recraft/recraft-v4.1-pro", name="Recraft V4.1 Pro", provider="Recraft", pricing_type="image", usd=0.21, min_tokens=6),
+    "recraft/recraft-v4.1-utility-pro": OpenRouterPriceModel(id="recraft/recraft-v4.1-utility-pro", name="Recraft V4.1 Utility Pro", provider="Recraft", pricing_type="image", usd=0.21, min_tokens=6),
+    "recraft/recraft-v4.1-vector": OpenRouterPriceModel(id="recraft/recraft-v4.1-vector", name="Recraft V4.1 Vector", provider="Recraft", pricing_type="image", usd=0.08, min_tokens=3),
+    "recraft/recraft-v4.1-pro-vector": OpenRouterPriceModel(id="recraft/recraft-v4.1-pro-vector", name="Recraft V4.1 Pro Vector", provider="Recraft", pricing_type="image", usd=0.30, min_tokens=8),
     "recraft/recraft-v4": OpenRouterPriceModel(id="recraft/recraft-v4", name="Recraft V4", provider="Recraft", pricing_type="image", usd=0.04, min_tokens=1),
+    "recraft/recraft-v4-pro": OpenRouterPriceModel(id="recraft/recraft-v4-pro", name="Recraft V4 Pro", provider="Recraft", pricing_type="image", usd=0.25, min_tokens=7),
+    "recraft/recraft-v4-vector": OpenRouterPriceModel(id="recraft/recraft-v4-vector", name="Recraft V4 Vector", provider="Recraft", pricing_type="image", usd=0.08, min_tokens=3),
+    "recraft/recraft-v4-pro-vector": OpenRouterPriceModel(id="recraft/recraft-v4-pro-vector", name="Recraft V4 Pro Vector", provider="Recraft", pricing_type="image", usd=0.30, min_tokens=8),
     "recraft/recraft-v3": OpenRouterPriceModel(id="recraft/recraft-v3", name="Recraft V3", provider="Recraft", pricing_type="image", usd=0.04, min_tokens=1),
+    "sourceful/riverflow-v2-fast": OpenRouterPriceModel(id="sourceful/riverflow-v2-fast", name="Riverflow V2 Fast", provider="Sourceful", pricing_type="image", usd=0.04, min_tokens=1, source="market_estimate_2026-07-10"),
+    "sourceful/riverflow-v2-pro": OpenRouterPriceModel(id="sourceful/riverflow-v2-pro", name="Riverflow V2 Pro", provider="Sourceful", pricing_type="image", usd=0.13, min_tokens=3, source="market_estimate_2026-07-10"),
     "sourceful/riverflow-v2.5-fast": OpenRouterPriceModel(id="sourceful/riverflow-v2.5-fast", name="Riverflow V2.5 Fast", provider="Sourceful", pricing_type="image", usd=0.019, min_tokens=1),
     "sourceful/riverflow-v2.5-pro": OpenRouterPriceModel(id="sourceful/riverflow-v2.5-pro", name="Riverflow V2.5 Pro", provider="Sourceful", pricing_type="image", usd=0.13, min_tokens=3),
+    "sourceful/riverflow-v2-fast-preview": OpenRouterPriceModel(id="sourceful/riverflow-v2-fast-preview", name="Riverflow V2 Fast Preview", provider="Sourceful", pricing_type="image", usd=0.04, min_tokens=1, source="market_estimate_2026-07-10"),
+    "sourceful/riverflow-v2-standard-preview": OpenRouterPriceModel(id="sourceful/riverflow-v2-standard-preview", name="Riverflow V2 Standard Preview", provider="Sourceful", pricing_type="image", usd=0.08, min_tokens=2, source="market_estimate_2026-07-10"),
+    "sourceful/riverflow-v2-max-preview": OpenRouterPriceModel(id="sourceful/riverflow-v2-max-preview", name="Riverflow V2 Max Preview", provider="Sourceful", pricing_type="image", usd=0.13, min_tokens=3, source="market_estimate_2026-07-10"),
     "bytedance-seed/seedream-4.5": OpenRouterPriceModel(id="bytedance-seed/seedream-4.5", name="Seedream 4.5", provider="ByteDance Seed", pricing_type="image", usd=0.04, min_tokens=1),
+    "openrouter/auto": OpenRouterPriceModel(id="openrouter/auto", name="Auto Router", provider="OpenRouter", pricing_type="image", usd=0.15, min_tokens=4, source="market_estimate_2026-07-10"),
 }
 
 
@@ -12846,17 +12868,17 @@ def _feed_orientation(width: int, height: int) -> str:
 
 def _feed_source_label(source_type: str) -> str:
     return {
-        "text_to_image": "Текст -> Изо",
-        "image_to_image": "Изо -> Изо",
+        "text_to_image": "По тексту",
+        "image_to_image": "По фото",
         "multi_reference": "Несколько референсов",
-        "drawing_to_image": "Рисунок -> Изо",
+        "drawing_to_image": "Редактор",
         "edit": "Редактировано",
         "inpaint": "Маска",
         "outpaint": "Outpaint",
         "faceswap": "Лицо",
         "remix": "Remix",
         "seed": "Выбор редакции",
-    }.get(source_type or "", "Текст -> Изо")
+    }.get(source_type or "", "По тексту")
 
 
 def _feed_source_type(mode: str | None, *, is_seed: bool = False) -> str:
