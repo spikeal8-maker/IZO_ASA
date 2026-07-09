@@ -1666,6 +1666,24 @@ font-weight: 620;
 border-color: rgba(182, 207, 18, .62);
 color: var(--lime);
 }
+.iv3 .paint-mobile-history-actions {
+display: none;
+}
+.iv3 .paint-mobile-history-actions button {
+height: 28px;
+min-height: 28px;
+display: inline-flex;
+align-items: center;
+justify-content: center;
+gap: 5px;
+padding: 0 8px;
+border: 1px solid rgba(255, 255, 255, .16);
+border-radius: 8px;
+color: rgba(238, 244, 235, .86);
+background: rgba(5, 7, 6, .58);
+font-size: 10.5px;
+font-weight: 560;
+}
 .iv3 .paint-preview-actions {
 position: absolute;
 left: 18px;
@@ -1798,34 +1816,6 @@ border-radius: 7px;
 pointer-events: none;
 user-select: none;
 }
-.iv3 .paint-outpaint-handle {
-position: absolute;
-z-index: 2;
-border: 1px solid rgba(4, 6, 5, .82);
-border-radius: 999px;
-background: var(--lime);
-box-shadow: 0 0 0 2px rgba(223, 255, 34, .28), 0 8px 18px rgba(0, 0, 0, .36);
-}
-.iv3 .paint-outpaint-handle.left,
-.iv3 .paint-outpaint-handle.right {
-top: 50%;
-width: 11px;
-height: 44px;
-transform: translateY(-50%);
-cursor: ew-resize;
-}
-.iv3 .paint-outpaint-handle.left { left: -6px; }
-.iv3 .paint-outpaint-handle.right { right: -6px; }
-.iv3 .paint-outpaint-handle.top,
-.iv3 .paint-outpaint-handle.bottom {
-left: 50%;
-width: 44px;
-height: 11px;
-transform: translateX(-50%);
-cursor: ns-resize;
-}
-.iv3 .paint-outpaint-handle.top { top: -6px; }
-.iv3 .paint-outpaint-handle.bottom { bottom: -6px; }
 .iv3 .paint-outpaint-preview-ghost {
 position: absolute;
 right: 12px;
@@ -2065,24 +2055,20 @@ font-size: 11px;
 font-weight: 560;
 background: rgba(5, 7, 6, .52);
 }
+.iv3 .paint-mobile-history-actions {
+display: inline-flex;
+gap: 5px;
+margin-left: auto;
+}
 .iv3 .paint-workbench-actions {
-right: 10px;
-top: 10px;
+display: none;
 }
 .iv3 .paint-preview-actions {
 left: 10px;
 top: 48px;
 }
 .iv3 .paint-workbench.mode-sketch .paint-workbench-actions {
-top: 10px;
-right: 10px;
-bottom: auto;
-transform: none;
-padding: 5px;
-border: 1px solid rgba(255, 255, 255, .12);
-border-radius: 10px;
-background: rgba(4, 6, 5, .46);
-backdrop-filter: blur(10px);
+display: none;
 }
 .iv3 .paint-workbench.mode-sketch .paint-workbench-actions button {
 height: 28px;
@@ -3578,7 +3564,7 @@ font-size: 12px;
 .iv3 .mobile-title-row {
 min-height: 22px;
 display: grid;
-grid-template-columns: minmax(0, 1fr) auto;
+grid-template-columns: auto minmax(0, 1fr) auto;
 align-items: center;
 gap: 7px;
 }
@@ -4788,8 +4774,7 @@ font-size: 9px;
     height: 36px;
   }
   .iv3 .paint-workbench-actions {
-    right: 10px;
-    top: 10px;
+    display: none;
   }
 }
 
@@ -4816,9 +4801,6 @@ font-size: 9px;
     display: grid;
   }
   .iv3 .paint-workbench.mode-sketch .paint-workbench-actions {
-    top: 10px;
-    right: 10px;
-    bottom: auto;
-    transform: none;
+    display: none;
   }
 }

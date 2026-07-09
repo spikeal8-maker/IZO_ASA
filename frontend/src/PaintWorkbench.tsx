@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import type { CSSProperties, Dispatch, PointerEvent as ReactPointerEvent, RefObject, SetStateAction } from 'react'
+import type { CSSProperties, Dispatch, PointerEvent as ReactPointerEvent, RefObject, SetStateAction, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { Brush, Eraser, History, Images, PaintBucket, Palette, Slash, Trash2, Undo2, Upload } from 'lucide-react'
 import { Circle, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import type { Stage as KonvaStage } from 'konva/lib/Stage'
@@ -91,14 +91,16 @@ function colorDistance(data: Uint8ClampedArray, index: number, target: { r: numb
   return Math.abs(data[index] - target.r) + Math.abs(data[index + 1] - target.g) + Math.abs(data[index + 2] - target.b) + Math.abs(data[index + 3] - target.a)
 }
 
-function touchDistance(touches: TouchList) {
+type PaintTouchList = { length: number; [index: number]: { clientX: number; clientY: number } }
+
+function touchDistance(touches: PaintTouchList) {
   if (touches.length < 2) return 0
   const a = touches[0]
   const b = touches[1]
   return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
 }
 
-function touchCenter(touches: TouchList) {
+function touchCenter(touches: PaintTouchList) {
   const a = touches[0]
   const b = touches[1]
   return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 }
@@ -162,11 +164,11 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
   const outpaintFrameRef = useRef<HTMLDivElement | null>(null)
   const outpaintFitKeyRef = useRef('')
   const outpaintDragRef = useRef<null | {
-    kind: 'image' | 'left' | 'right' | 'top' | 'bottom'
     x: number
     y: number
     rect: { x: number; y: number; w: number; h: number }
   }>(null)
+  const outpaintTouchRef = useRef({ pinching: false, distance: 0, centerX: 0, centerY: 0, rect: { x: 0, y: 0, w: 0, h: 0 } })
   const [view, setView] = useState({ scale: 1, x: 0, y: 0 })
   const [outpaintFrameSize, setOutpaintFrameSize] = useState(paintStageSize)
   const [outpaintSourceSize, setOutpaintSourceSize] = useState({ width: paintStageSize.width, height: paintStageSize.height })
@@ -465,11 +467,73 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
     })
   }
 
-  function startOutpaintDrag(kind: NonNullable<typeof outpaintDragRef.current>['kind'], event: ReactPointerEvent) {
+  function scaleOutpaintRect(factor: number, center: { x: number; y: number }) {
+    const rect = currentOutpaintRect()
+    const nextW = rect.w * factor
+    const nextH = rect.h * factor
+    const px = rect.w ? (center.x - rect.x) / rect.w : 0.5
+    const py = rect.h ? (center.y - rect.y) / rect.h : 0.5
+    updateOutpaintRect({
+      x: center.x - nextW * px,
+      y: center.y - nextH * py,
+      w: nextW,
+      h: nextH,
+    })
+  }
+
+  function outpaintPoint(clientX: number, clientY: number) {
+    const box = outpaintFrameRef.current?.getBoundingClientRect()
+    return {
+      x: box?.width ? (clientX - box.left) * paintStageSize.width / box.width : paintStageSize.width / 2,
+      y: box?.height ? (clientY - box.top) * paintStageSize.height / box.height : paintStageSize.height / 2,
+    }
+  }
+
+  function wheelOutpaint(event: ReactWheelEvent<HTMLDivElement>) {
+    if (!paintImage) return
+    event.preventDefault()
+    const factor = Math.exp(-event.deltaY * 0.0016)
+    scaleOutpaintRect(factor, outpaintPoint(event.clientX, event.clientY))
+  }
+
+  function touchOutpaintStart(event: ReactTouchEvent<HTMLDivElement>) {
+    if (!paintImage || event.touches.length !== 2) return
+    event.preventDefault()
+    const distance = touchDistance(event.touches)
+    const center = touchCenter(event.touches)
+    const point = outpaintPoint(center.x, center.y)
+    outpaintTouchRef.current = { pinching: true, distance, centerX: point.x, centerY: point.y, rect: currentOutpaintRect() }
+  }
+
+  function touchOutpaintMove(event: ReactTouchEvent<HTMLDivElement>) {
+    const touch = outpaintTouchRef.current
+    if (!paintImage || event.touches.length !== 2 || !touch.pinching || !touch.distance) return
+    event.preventDefault()
+    const distance = touchDistance(event.touches)
+    const center = touchCenter(event.touches)
+    const point = outpaintPoint(center.x, center.y)
+    const factor = distance / touch.distance
+    const nextW = touch.rect.w * factor
+    const nextH = touch.rect.h * factor
+    const px = touch.rect.w ? (touch.centerX - touch.rect.x) / touch.rect.w : 0.5
+    const py = touch.rect.h ? (touch.centerY - touch.rect.y) / touch.rect.h : 0.5
+    updateOutpaintRect({
+      x: point.x - nextW * px,
+      y: point.y - nextH * py,
+      w: nextW,
+      h: nextH,
+    })
+  }
+
+  function touchOutpaintEnd(event: ReactTouchEvent<HTMLDivElement>) {
+    if (event.touches.length < 2) outpaintTouchRef.current.pinching = false
+  }
+
+  function startOutpaintDrag(event: ReactPointerEvent) {
     if (!paintImage) return
     event.preventDefault()
     event.stopPropagation()
-    outpaintDragRef.current = { kind, x: event.clientX, y: event.clientY, rect: currentOutpaintRect() }
+    outpaintDragRef.current = { x: event.clientX, y: event.clientY, rect: currentOutpaintRect() }
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
 
@@ -478,20 +542,7 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
     if (!drag) return
     event.preventDefault()
     const delta = outpaintUnits(event.clientX - drag.x, event.clientY - drag.y)
-    const minSize = 48
-    if (drag.kind === 'image') {
-      updateOutpaintRect({ ...drag.rect, x: drag.rect.x + delta.x, y: drag.rect.y + delta.y })
-    } else if (drag.kind === 'left') {
-      const nextX = drag.rect.x + delta.x
-      updateOutpaintRect({ x: nextX, y: drag.rect.y, w: Math.max(minSize, drag.rect.w - delta.x), h: drag.rect.h })
-    } else if (drag.kind === 'right') {
-      updateOutpaintRect({ ...drag.rect, w: Math.max(minSize, drag.rect.w + delta.x) })
-    } else if (drag.kind === 'top') {
-      const nextY = drag.rect.y + delta.y
-      updateOutpaintRect({ x: drag.rect.x, y: nextY, w: drag.rect.w, h: Math.max(minSize, drag.rect.h - delta.y) })
-    } else {
-      updateOutpaintRect({ ...drag.rect, h: Math.max(minSize, drag.rect.h + delta.y) })
-    }
+    updateOutpaintRect({ ...drag.rect, x: drag.rect.x + delta.x, y: drag.rect.y + delta.y })
   }
 
   function stopOutpaintDrag() {
@@ -594,17 +645,18 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
           onPointerUp={stopOutpaintDrag}
           onPointerCancel={stopOutpaintDrag}
           onPointerLeave={stopOutpaintDrag}
+          onWheel={wheelOutpaint}
+          onTouchStart={touchOutpaintStart}
+          onTouchMove={touchOutpaintMove}
+          onTouchEnd={touchOutpaintEnd}
+          onTouchCancel={touchOutpaintEnd}
         >
           {paintImage ? (
             <>
-              <div className="paint-outpaint-guidance">Потяните изображение или его края, чтобы задать пустые области для дорисовки</div>
+              <div className="paint-outpaint-guidance">Потяните изображение, колесом или двумя пальцами измените масштаб</div>
               <div className="paint-outpaint-empty-area" aria-hidden="true" />
-              <div className="paint-outpaint-source" style={outpaintImageStyle} onPointerDown={(event) => startOutpaintDrag('image', event)}>
+              <div className="paint-outpaint-source" style={outpaintImageStyle} onPointerDown={startOutpaintDrag}>
                 <img src={apiUrl(paintImage)} alt="Исходное изображение" draggable={false} />
-                <button className="paint-outpaint-handle left" type="button" aria-label="Изменить левое поле" onPointerDown={(event) => startOutpaintDrag('left', event)} />
-                <button className="paint-outpaint-handle right" type="button" aria-label="Изменить правое поле" onPointerDown={(event) => startOutpaintDrag('right', event)} />
-                <button className="paint-outpaint-handle top" type="button" aria-label="Изменить верхнее поле" onPointerDown={(event) => startOutpaintDrag('top', event)} />
-                <button className="paint-outpaint-handle bottom" type="button" aria-label="Изменить нижнее поле" onPointerDown={(event) => startOutpaintDrag('bottom', event)} />
               </div>
               {paintOutpaintPreview && <img className="paint-outpaint-preview-ghost" src={paintOutpaintPreview} alt="Последний предпросмотр расширения" />}
             </>

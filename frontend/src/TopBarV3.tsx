@@ -7,7 +7,7 @@
 // из newStudioV3.css (обёртка .iv3). Никаких legacy-auth: только колбэки.
 
 export type V3Mode = 'text' | 'i2i' | 'edit' | 'paint' | 'face' | 'video'
-export type V3Section = V3Mode | 'feed' | 'gallery' | 'profile'
+export type V3Section = V3Mode | 'feed' | 'gallery' | 'profile' | 'admin'
 
 const MODE_TABS: Array<{ id: V3Mode; label: string; gated?: boolean }> = [
   { id: 'text', label: 'Текст → Изо' },
@@ -28,8 +28,10 @@ export default function TopBarV3({
   onOpenFeed,
   onOpenGallery,
   onOpenHelp,
+  onOpenAdmin,
   onOpenProfile,
   authed,
+  isAdmin,
   avatarUrl,
   userLabel,
   initials,
@@ -40,8 +42,10 @@ export default function TopBarV3({
   onOpenFeed?: () => void
   onOpenGallery?: () => void
   onOpenHelp?: () => void
+  onOpenAdmin?: () => void
   onOpenProfile?: () => void
   authed?: boolean
+  isAdmin?: boolean
   avatarUrl?: string | null
   userLabel?: string | null
   initials?: string | null
@@ -104,13 +108,26 @@ export default function TopBarV3({
           </svg>
           Галерея
         </button>
-        <button className="top-button" type="button" aria-label="Помощь" onClick={onOpenHelp || (() => goto('/new'))}>
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle cx="12" cy="12" r="8.7" stroke="currentColor" strokeWidth="1.7" />
-            <path d="M9.6 9.2a2.55 2.55 0 1 1 4.7 1.45c-.95.9-2.05 1.42-2.05 3.05" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
-            <path d="M12.25 17.35h.01" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
-          </svg>
-          Помощь
+        <button
+          className={`top-button${active === 'admin' ? ' active' : ''}`}
+          type="button"
+          aria-label={isAdmin ? 'Админ' : 'Помощь'}
+          title={isAdmin ? 'Админ' : 'Помощь'}
+          onClick={isAdmin ? (onOpenAdmin || (() => goto('/admin'))) : (onOpenHelp || (() => goto('/new')))}
+        >
+          {isAdmin ? (
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 3.5 19 6v5.5c0 4.2-2.8 7.7-7 9-4.2-1.3-7-4.8-7-9V6l7-2.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              <path d="M9.2 12.1 11.1 14l3.9-4.2" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : (
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="8.7" stroke="currentColor" strokeWidth="1.7" />
+              <path d="M9.6 9.2a2.55 2.55 0 1 1 4.7 1.45c-.95.9-2.05 1.42-2.05 3.05" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+              <path d="M12.25 17.35h.01" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" />
+            </svg>
+          )}
+          {isAdmin ? 'Админ' : 'Помощь'}
         </button>
         <button
           className={`account-button${active === 'profile' ? ' active' : ''}`}

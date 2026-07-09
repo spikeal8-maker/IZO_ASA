@@ -866,12 +866,6 @@ function App() {
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
 
-  const navigateApp = useCallback((nextTab: Tab = 'studio') => {
-    if (window.location.pathname !== '/') window.history.pushState(null, '', '/')
-    setPathName(window.location.pathname)
-    setTab(nextTab)
-  }, [])
-
   const openAdminPage = useCallback(() => {
     if (window.location.pathname !== '/admin') window.history.pushState(null, '', '/admin')
     setPathName(window.location.pathname)
@@ -1491,6 +1485,7 @@ function App() {
   }
 
   if (adminRoute) {
+    const backToNewStudio = () => { window.location.href = '/' }
     return (
       <div className="app-shell admin-route-shell">
         {isDiagMode() && <DiagPanel />}
@@ -1498,14 +1493,14 @@ function App() {
         <main className="workspace admin-workspace">
           {authV2Status === 'loading' ? (
             <section className="admin-page admin-access-page">
-              <div className="view-actions in-panel"><button className="secondary" onClick={() => navigateApp('studio')}><WandSparkles size={16} />{copy.backToStudio}</button></div>
+              <div className="view-actions in-panel"><button className="secondary" onClick={backToNewStudio}><WandSparkles size={16} />{copy.backToStudio}</button></div>
               <div className="admin-head"><div><h2>{copy.admin}</h2><p>Проверяем trusted admin-сессию.</p></div><strong>loading</strong></div>
             </section>
           ) : isAdmin ? (
-            <AdminView copy={copy} admin={admin} setAdmin={setAdmin} tariffs={tariffs} setTariffs={setTariffs} backToStudio={() => navigateApp('studio')} provider={provider} />
+            <AdminView copy={copy} admin={admin} setAdmin={setAdmin} tariffs={tariffs} setTariffs={setTariffs} backToStudio={backToNewStudio} provider={provider} />
           ) : (
             <section className="admin-page admin-access-page">
-              <div className="view-actions in-panel"><button className="secondary" onClick={() => navigateApp('studio')}><WandSparkles size={16} />{copy.backToStudio}</button></div>
+              <div className="view-actions in-panel"><button className="secondary" onClick={backToNewStudio}><WandSparkles size={16} />{copy.backToStudio}</button></div>
               <div className="admin-head"><div><h2>{copy.admin}</h2><p>Админка вынесена на отдельную страницу и доступна только для trusted admin-сессии.</p></div><strong>403</strong></div>
               <div className="admin-note">
                 <strong>Доступ закрыт</strong>

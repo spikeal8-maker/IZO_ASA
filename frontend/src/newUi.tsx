@@ -11,7 +11,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun, Trash2, Undo2 } from 'lucide-react'
 import {
   AuthV2Modal,
   getAuthCapabilitiesV2,
@@ -635,6 +635,7 @@ export default function NewStudio(): ReactElement {
   }, [])
   const { status: authStatus, me } = useAuthV2()
   const videoEnabled = Boolean(me?.account?.video_enabled)
+  const isAdmin = authStatus === 'authed' && me?.account?.role === 'admin'
   const [authOpen, setAuthOpen] = useState(false)
   const ensureAuthed = useCallback(async () => {
     if (authStatus === 'authed') return true
@@ -2118,14 +2119,22 @@ export default function NewStudio(): ReactElement {
       const next = { ...cur, [key]: value }
       const frameW = Math.max(1, cur.frameW || paintStageSize.width)
       const frameH = Math.max(1, cur.frameH || paintStageSize.height)
+      const aspect = Math.max(0.05, (cur.sourceW && cur.sourceH) ? cur.sourceW / cur.sourceH : frameW / frameH)
+      const horizontalEdit = key === 'left' || key === 'right'
+      const sourceW = horizontalEdit
+        ? Math.max(48, frameW - Math.max(0, next.left) - Math.max(0, next.right))
+        : Math.max(48, Math.min(frameW * 4, Math.max(48, frameH - Math.max(0, next.top) - Math.max(0, next.bottom)) * aspect))
+      const sourceH = horizontalEdit
+        ? Math.max(48, Math.min(frameH * 4, sourceW / aspect))
+        : Math.max(48, frameH - Math.max(0, next.top) - Math.max(0, next.bottom))
       return {
         ...next,
         frameW,
         frameH,
-        sourceX: Math.max(0, next.left),
-        sourceY: Math.max(0, next.top),
-        sourceW: Math.max(48, frameW - Math.max(0, next.left) - Math.max(0, next.right)),
-        sourceH: Math.max(48, frameH - Math.max(0, next.top) - Math.max(0, next.bottom)),
+        sourceX: horizontalEdit ? Math.max(0, next.left) : Math.round((frameW - sourceW) / 2),
+        sourceY: horizontalEdit ? Math.round((frameH - sourceH) / 2) : Math.max(0, next.top),
+        sourceW: Math.round(sourceW),
+        sourceH: Math.round(sourceH),
       }
     })
   }
@@ -2844,6 +2853,12 @@ export default function NewStudio(): ReactElement {
       <section className="preview-panel">
         <div className="mobile-title-row">
           <h1>{studioTitle}</h1>
+          {isPaintStudio && paintWorkbenchVisible && (paintMode === 'sketch' || paintMode === 'mask') && (
+            <div className="paint-mobile-history-actions" aria-label="Действия рисунка">
+              <button type="button" onClick={() => setPaintLines((lines) => lines.slice(0, -1))}><Undo2 size={13} strokeWidth={2.2} />Назад</button>
+              <button type="button" onClick={() => setPaintLines([])}><Trash2 size={13} strokeWidth={2.2} />Очистить</button>
+            </div>
+          )}
           <button className={`pro-button${proMode ? ' active' : ''}`} type="button" onClick={() => setProMode((v) => !v)}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
@@ -3380,11 +3395,13 @@ export default function NewStudio(): ReactElement {
             avatarUrl={authStatus === 'authed' ? topbarAvatarSrc : null}
             userLabel={authStatus === 'authed' ? acct.userLabel : null}
             initials={authStatus === 'authed' ? acct.initials : null}
+            isAdmin={isAdmin}
             videoEnabled={authStatus === 'authed' && videoEnabled}
             onSelectMode={selectStudioMode}
             onOpenFeed={() => setTab('feed')}
             onOpenGallery={goGallery}
             onOpenHelp={() => setHelpOpen(true)}
+            onOpenAdmin={() => { window.location.href = '/admin' }}
             onOpenProfile={openProfilePage}
           />
           {view === 'profile' ? (

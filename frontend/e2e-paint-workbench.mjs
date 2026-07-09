@@ -71,7 +71,7 @@ async function testDesktop() {
     const controls = await page.locator('.mode-outpaint .paint-control').count()
     assert(controls === 4, `outpaint should render 4 compact controls, got ${controls}`)
     const handles = await page.locator('.paint-outpaint-handle').count()
-    assert(handles === 4, `outpaint should render 4 edge handles, got ${handles}`)
+    assert(handles === 0, `outpaint edge resize handles should be removed, got ${handles}`)
 
     const leftValue = Number(await page.locator('.mode-outpaint .paint-control').nth(0).locator('span').last().innerText())
     const topValue = Number(await page.locator('.mode-outpaint .paint-control').nth(2).locator('span').last().innerText())
@@ -93,6 +93,20 @@ async function testDesktop() {
     assert(Math.abs(squareMetrics.frameW - squareMetrics.frameH) <= 2, `square frame is not square: ${JSON.stringify(squareMetrics)}`)
     assert(Math.abs(squareMetrics.sourceW - squareMetrics.frameW) <= 3, `wide source should span square frame width: ${JSON.stringify(squareMetrics)}`)
     assert(squareMetrics.sourceY > 12 && squareMetrics.sourceH < squareMetrics.frameH, `wide source should leave top/bottom outpaint bands in square frame: ${JSON.stringify(squareMetrics)}`)
+    const sourceBoxBeforeWheel = await page.locator('.paint-outpaint-source').boundingBox()
+    assert(Boolean(sourceBoxBeforeWheel), 'outpaint source has no box before wheel zoom')
+    await page.mouse.move(sourceBoxBeforeWheel.x + sourceBoxBeforeWheel.width / 2, sourceBoxBeforeWheel.y + sourceBoxBeforeWheel.height / 2)
+    await page.mouse.wheel(0, 520)
+    await page.waitForTimeout(80)
+    const wheelMetrics = await page.evaluate(() => {
+      const source = document.querySelector('.paint-outpaint-source')?.getBoundingClientRect()
+      return source ? { sourceW: source.width, sourceH: source.height } : null
+    })
+    assert(Boolean(wheelMetrics), 'outpaint wheel metrics are missing')
+    assert(wheelMetrics.sourceW < squareMetrics.sourceW && wheelMetrics.sourceH < squareMetrics.sourceH, `wheel should uniformly shrink the source: before=${JSON.stringify(squareMetrics)}, after=${JSON.stringify(wheelMetrics)}`)
+    const beforeRatio = squareMetrics.sourceW / squareMetrics.sourceH
+    const afterRatio = wheelMetrics.sourceW / wheelMetrics.sourceH
+    assert(Math.abs(beforeRatio - afterRatio) < 0.035, `wheel zoom should preserve source aspect ratio: before=${beforeRatio}, after=${afterRatio}`)
 
     await page.getByRole('button', { name: '9:16' }).click()
     await page.waitForTimeout(80)
@@ -153,9 +167,11 @@ async function testMobile() {
     assert(brushSizeVisible, 'mobile sketch brush size should live inside opened tools')
 
     const stageBox = await page.locator('.paint-stage').first().boundingBox()
-    const actionsBox = await page.locator('.paint-workbench-actions').first().boundingBox()
-    assert(Boolean(stageBox) && Boolean(actionsBox), 'mobile sketch stage/actions are missing')
-    assert(actionsBox.y >= stageBox.y && actionsBox.y < stageBox.y + stageBox.height * 0.35, `sketch undo/clear actions should stay inside the top of the stage: stage=${stageBox.y},${stageBox.height}; actions=${actionsBox.y}`)
+    const floatingActionsVisible = await page.locator('.paint-workbench-actions').evaluate((el) => getComputedStyle(el).display !== 'none')
+    assert(!floatingActionsVisible, 'mobile floating sketch undo/clear actions should be hidden from the drawing stage')
+    const headerActionsBox = await page.locator('.paint-mobile-history-actions').boundingBox()
+    assert(Boolean(stageBox) && Boolean(headerActionsBox), 'mobile sketch stage/header actions are missing')
+    assert(headerActionsBox.y + headerActionsBox.height < stageBox.y, `mobile undo/clear actions should sit above the drawing stage: stageY=${stageBox.y}; actions=${headerActionsBox.y},${headerActionsBox.height}`)
 
     await page.getByRole('button', { name: 'Маска пусто' }).click()
     const maskToolsHidden = await page.locator('.mode-mask .paint-tools-body').evaluate((el) => getComputedStyle(el).display === 'none')
