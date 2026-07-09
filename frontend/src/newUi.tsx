@@ -2975,6 +2975,27 @@ export default function NewStudio(): ReactElement {
               <button type="button" onClick={() => setPaintLines([])}><Trash2 size={13} strokeWidth={2.2} />Очистить</button>
             </div>
           )}
+          {isPaintStudio && !paintWorkbenchVisible && !previewJobActive && (
+            <div className="paint-preview-actions">
+              <button
+                className="paint-return-workbench"
+                type="button"
+                onClick={() => {
+                  setPaintWorkbenchVisible(true)
+                  setResultError(false)
+                  setInspectPreview(null)
+                  resetInspectView()
+                }}
+              >
+                {paintReturnLabel[paintMode]}
+              </button>
+              {(visibleInspectPreview?.url || visibleResultUrl) && (
+                <button className="paint-use-preview" type="button" onClick={useCurrentPreviewInPaint}>
+                  Взять это
+                </button>
+              )}
+            </div>
+          )}
           <button className={`pro-button${proMode ? ' active' : ''}`} type="button" onClick={() => setProMode((v) => !v)}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
@@ -2982,27 +3003,6 @@ export default function NewStudio(): ReactElement {
             {proMode ? 'Режим Стандарт' : 'Режим Профи'}
           </button>
         </div>
-        {isPaintStudio && !paintWorkbenchVisible && !previewJobActive && (
-          <div className="paint-preview-actions">
-            <button
-              className="paint-return-workbench"
-              type="button"
-              onClick={() => {
-                setPaintWorkbenchVisible(true)
-                setResultError(false)
-                setInspectPreview(null)
-                resetInspectView()
-              }}
-            >
-              {paintReturnLabel[paintMode]}
-            </button>
-            {(visibleInspectPreview?.url || visibleResultUrl) && (
-              <button className="paint-use-preview" type="button" onClick={useCurrentPreviewInPaint}>
-                Взять это
-              </button>
-            )}
-          </div>
-        )}
         <div className={`preview-image preview-shape-${visiblePreviewShape}`}>
           {isPaintStudio && paintWorkbenchVisible && !hoverStyle && !previewJobActive ? (
             paintWorkbench

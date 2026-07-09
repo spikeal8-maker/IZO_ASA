@@ -56,6 +56,21 @@ async function testDesktop() {
     page.setDefaultTimeout(20000)
     await openPaint(page)
 
+    const previewLayout = await page.evaluate(() => {
+      const panel = document.querySelector('.preview-panel')?.getBoundingClientRect()
+      const toolbar = document.querySelector('.preview-panel > .mobile-title-row')?.getBoundingClientRect()
+      const preview = document.querySelector('.preview-image')?.getBoundingClientRect()
+      return panel && toolbar && preview ? {
+        panelH: panel.height,
+        toolbarH: toolbar.height,
+        previewH: preview.height,
+        previewW: preview.width,
+      } : null
+    })
+    assert(Boolean(previewLayout), 'paint preview layout is missing')
+    assert(previewLayout.toolbarH > 0 && previewLayout.toolbarH < 48, `paint preview toolbar should be compact on desktop: ${JSON.stringify(previewLayout)}`)
+    assert(previewLayout.previewH > 420 && previewLayout.previewW > 700, `paint preview image area collapsed on desktop: ${JSON.stringify(previewLayout)}`)
+
     const techToggle = page.locator('.paint-tech-toggle')
     const techBox = await techToggle.boundingBox()
     assert(Boolean(techBox), 'paint technical prompt toggle is missing')
