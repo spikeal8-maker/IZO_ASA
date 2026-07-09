@@ -697,11 +697,11 @@ rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
 DEFAULT_TARIFFS: dict[str, dict[str, Any]] = {
-    "free": {"title": "Free", "note": "Базовый доступ", "price_rub_month": 0, "daily_tokens": 10, "gallery_slots": 20, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024"], "video_enabled": 0, "video_slots": 0},
-    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "gallery_slots": 80, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024", "h-1280", "v-720"], "video_enabled": 0, "video_slots": 0},
-    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "gallery_slots": 200, "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024"], "video_enabled": 0, "video_slots": 0},
-    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "gallery_slots": 500, "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 10},
-    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "gallery_slots": 500, "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 50},
+    "free": {"title": "Free", "note": "Базовый доступ", "price_rub_month": 0, "daily_tokens": 10, "gallery_slots": 20, "quality_label": "Базовое качество", "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024"], "video_enabled": 0, "video_slots": 0},
+    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "gallery_slots": 80, "quality_label": "HD", "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024", "h-1280", "v-720"], "video_enabled": 0, "video_slots": 0},
+    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "gallery_slots": 200, "quality_label": "Full HD", "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024"], "video_enabled": 0, "video_slots": 0},
+    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "gallery_slots": 500, "quality_label": "4K", "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 10},
+    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "gallery_slots": 500, "quality_label": "4K", "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 50},
 }
 
 
@@ -3311,6 +3311,7 @@ def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[s
             "price_rub_month": max(0, min(price_int, 10_000_000)),
             "daily_tokens": max(0, min(daily_int, 100_000)),
             "gallery_slots": max(0, min(slots_int, 100_000)),
+            "quality_label": _tariff_text(source, plan, "quality_label", max_len=80),
             "queue_label": _tariff_text(source, plan, "queue_label", max_len=80),
             "pro_mode_enabled": 1 if _boolish(source.get("pro_mode_enabled", source.get("proModeEnabled", DEFAULT_TARIFFS[plan]["pro_mode_enabled"]))) else 0,
             "allowed_resolutions": _tariff_resolutions(source, plan),

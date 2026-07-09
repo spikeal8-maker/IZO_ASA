@@ -168,9 +168,12 @@ export default function ProfilePage({
   const planCards = tariffKeys.map((id) => {
     const tariff = tariffs[id] || DEFAULT_TARIFFS[id]
     const features = [
+      `${tariff.daily_tokens} кредитов в день`,
+      `${tariff.gallery_slots} работ в галерее`,
+      `Качество: ${tariff.quality_label}`,
       tariff.pro_mode_enabled ? 'Режим профи' : '',
       tariff.queue_label && tariff.queue_label.toLowerCase() !== 'обычная' ? `Очередь: ${tariff.queue_label}` : '',
-      tariff.video_enabled ? `Видео: ${tariff.video_slots} сохранений` : '',
+      tariff.video_enabled ? `${tariff.video_slots} видео-экспортов/мес` : '',
     ].filter(Boolean)
     return {
       id,
@@ -179,6 +182,7 @@ export default function ProfilePage({
       price: tariff.price_rub_month,
       daily: tariff.daily_tokens,
       slots: tariff.gallery_slots,
+      quality: tariff.quality_label,
       features,
     }
   })
@@ -362,7 +366,7 @@ export default function ProfilePage({
                 {planCards.map((item) => (
                   <article className={`${item.id === activePlan ? 'profile-card profile-plan active current' : 'profile-card profile-plan'}`} key={item.id}>
                     {item.id === activePlan && <span className="profile-chip current">Текущий</span>}
-                    <h4>{item.title}</h4><p>{item.note}</p><strong>{item.price ? `${item.price.toLocaleString('ru-RU')} ₽/мес` : 'Бесплатно'}</strong><span>{item.daily} токенов в сутки · {item.slots} слот(ов)</span>
+                    <h4>{item.title}</h4><p>{item.note}</p><strong>{item.price ? `${item.price.toLocaleString('ru-RU')} ₽/мес` : 'Бесплатно'}</strong><span>{item.daily} кредитов в день · {item.quality}</span>
                     {item.features.length ? <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null}
                     <button type="button" disabled>{item.id === activePlan ? 'Текущий тариф' : 'Смена тарифа скоро'}</button>
                   </article>
