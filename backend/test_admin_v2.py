@@ -98,6 +98,29 @@ def test_admin_openrouter_status_without_key(temp_db, monkeypatch):
     assert payload["usage"]["pricedImages"] == 0
 
 
+def test_admin_can_save_openrouter_key_without_exposing_secret(temp_db, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    async def fake_status():
+        return {"configured": True, "source": "admin_ui", "ok": True, "data": {"limit": 10, "usage": 1}}
+
+    monkeypatch.setattr(main, "fetch_openrouter_key_status", fake_status)
+    sess = admin_session()
+    with TestClient(main.app) as client:
+        cookies = {"onenode_session": sess["session_token"]}
+        saved = client.put("/api/admin/openrouter/key", json={"key": "sk-or-test-secret-123"}, cookies=cookies)
+        settings = client.get("/api/admin/settings", cookies=cookies)
+        deleted = client.delete("/api/admin/openrouter/key", cookies=cookies)
+
+    assert saved.status_code == 200
+    assert saved.json()["key"]["ok"] is True
+    assert "sk-or-test-secret-123" not in saved.text
+    assert settings.status_code == 200
+    assert "sk-or-test-secret-123" not in settings.text
+    assert deleted.status_code == 200
+    assert main.admin_secret_value("openrouter_api_key") == ""
+
+
 def test_web_login_requires_explicit_admin_code(temp_db, monkeypatch):
     monkeypatch.delenv("ADMIN_ONE_TIME_CODE", raising=False)
     with TestClient(main.app) as client:

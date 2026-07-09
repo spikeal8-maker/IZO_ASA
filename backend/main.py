@@ -658,6 +658,10 @@ class AdminSettingsRequest(BaseModel):
     settings: dict[str, Any]
 
 
+class AdminSecretKeyRequest(BaseModel):
+    key: str = Field(min_length=12, max_length=512)
+
+
 rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
@@ -1135,6 +1139,12 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS admin_settings (
                 key TEXT PRIMARY KEY,
                 value_json TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS admin_secrets (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
 
@@ -5646,8 +5656,40 @@ def save_gallery_original(image: Image.Image, job_id: str) -> Path:
     return out
 
 
+def admin_secret_value(key: str) -> str:
+    try:
+        with db() as conn:
+            row = conn.execute("SELECT value FROM admin_secrets WHERE key = ?", (key,)).fetchone()
+        return str(row["value"] or "").strip() if row else ""
+    except Exception:
+        return ""
+
+
+def save_admin_secret(key: str, value: str) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO admin_secrets (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            (key, value, now),
+        )
+
+
+def delete_admin_secret(key: str) -> None:
+    with db() as conn:
+        conn.execute("DELETE FROM admin_secrets WHERE key = ?", (key,))
+
+
+def openrouter_api_key_source() -> str:
+    if os.getenv("OPENROUTER_API_KEY", "").strip():
+        return "env"
+    if admin_secret_value("openrouter_api_key"):
+        return "admin_ui"
+    return "none"
+
+
 def openrouter_api_key() -> str:
-    return os.getenv("OPENROUTER_API_KEY", "").strip()
+    return os.getenv("OPENROUTER_API_KEY", "").strip() or admin_secret_value("openrouter_api_key")
 
 
 def openrouter_headers() -> dict[str, str]:
@@ -5743,11 +5785,11 @@ async def fetch_openrouter_key_status() -> dict[str, Any]:
             response = await client.get(f"{OPENROUTER_BASE_URL}/key", headers=openrouter_headers())
         data = response.json() if response.content else {}
         if response.status_code >= 400:
-            return {"configured": True, "ok": False, "status_code": response.status_code, "error": data.get("error") or data}
+            return {"configured": True, "source": openrouter_api_key_source(), "ok": False, "status_code": response.status_code, "error": data.get("error") or data}
         key_data = data.get("data") if isinstance(data.get("data"), dict) else data
-        return {"configured": True, "ok": True, "status_code": response.status_code, "data": key_data}
+        return {"configured": True, "source": openrouter_api_key_source(), "ok": True, "status_code": response.status_code, "data": key_data}
     except Exception as exc:
-        return {"configured": True, "ok": False, "error": str(exc)}
+        return {"configured": True, "source": openrouter_api_key_source(), "ok": False, "error": str(exc)}
 
 
 async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> OpenRouterResult:
@@ -11972,6 +12014,25 @@ async def admin_openrouter_status(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
     key_status = await fetch_openrouter_key_status()
     return {"key": key_status, "usage": openrouter_usage_stats()}
+
+
+@app.put("/api/admin/openrouter/key")
+async def admin_save_openrouter_key(req: AdminSecretKeyRequest, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    key = req.key.strip()
+    if not key.startswith("sk-or-"):
+        raise HTTPException(400, "OpenRouter key должен начинаться с sk-or-")
+    save_admin_secret("openrouter_api_key", key)
+    key_status = await fetch_openrouter_key_status()
+    return {"ok": bool(key_status.get("ok")), "key": key_status, "usage": openrouter_usage_stats()}
+
+
+@app.delete("/api/admin/openrouter/key")
+async def admin_delete_openrouter_key(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    delete_admin_secret("openrouter_api_key")
+    key_status = await fetch_openrouter_key_status()
+    return {"ok": True, "key": key_status, "usage": openrouter_usage_stats()}
 
 
 def default_routes(model_status: dict[str, Any]) -> list[dict[str, Any]]:

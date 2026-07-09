@@ -336,6 +336,8 @@ export default function AdminModelsV2() {
   const [apiSectionsOpen, setApiSectionsOpen] = useState<Record<string, boolean>>({ text_to_image: true })
   const [apiExpandedRows, setApiExpandedRows] = useState<Record<string, boolean>>({})
   const [apiEnabledModels, setApiEnabledModels] = useState<Record<string, boolean>>({})
+  const [openrouterKeyInput, setOpenrouterKeyInput] = useState('')
+  const [openrouterBusy, setOpenrouterBusy] = useState(false)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
   const [configErr, setConfigErr] = useState('')
@@ -392,6 +394,29 @@ export default function AdminModelsV2() {
   const setRouteModel = (ri: number, modelProfileId: string) => {
     const next = routes.map((r, i) => i === ri ? { ...r, modelProfileId } : r)
     saveRoutes(next)
+  }
+
+  const saveOpenrouterKey = async () => {
+    const key = openrouterKeyInput.trim()
+    if (!key) { setMsg('Вставьте ключ OpenRouter'); return }
+    setOpenrouterBusy(true); setMsg('')
+    const r = await amvFetch('/admin/openrouter/key', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    }).then((x) => x.json()).catch(() => null) as { ok?: boolean; key?: { ok?: boolean; error?: unknown } } | null
+    setOpenrouterBusy(false)
+    setOpenrouterKeyInput('')
+    await load()
+    setMsg(r?.key?.ok ? 'Ключ OpenRouter сохранён и проверен' : `Ключ сохранён, но проверка не прошла: ${String(r?.key?.error || 'unknown')}`)
+  }
+
+  const deleteOpenrouterKey = async () => {
+    setOpenrouterBusy(true); setMsg('')
+    const r = await amvFetch('/admin/openrouter/key', { method: 'DELETE' }).then((x) => x.json()).catch(() => null) as { ok?: boolean } | null
+    setOpenrouterBusy(false)
+    await load()
+    setMsg(r?.ok ? 'UI-ключ OpenRouter удалён' : 'Не удалось удалить ключ')
   }
 
   const toggleApiSort = (sectionId: string, key: ApiSortKey) => {
@@ -532,8 +557,19 @@ export default function AdminModelsV2() {
         <div className="api-key-panel">
           <div className="api-key-box">
             <strong>Ключ OpenRouter</strong>
-            <input type="password" placeholder="sk-or-... пока не сохраняется из UI" disabled />
-            <small>Безопасное сохранение ключа лучше делать отдельным backend-шагом: шифрование/secret storage/audit. Сейчас backend проверяет переменную окружения <b>OPENROUTER_API_KEY</b>.</small>
+            <input
+              type="password"
+              placeholder={data.openrouter.keyConfigured ? 'ключ сохранён, можно заменить новым' : 'sk-or-...'}
+              value={openrouterKeyInput}
+              onChange={(e) => setOpenrouterKeyInput(e.target.value)}
+              autoComplete="off"
+            />
+            <div className="actions">
+              <button className="primary" disabled={openrouterBusy || !openrouterKeyInput.trim()} onClick={saveOpenrouterKey}>Сохранить и проверить</button>
+              <button className="ghost" disabled={openrouterBusy} onClick={() => { void load(); setMsg('Статус OpenRouter обновлён') }}>Проверить</button>
+              <button className="danger" disabled={openrouterBusy || !data.openrouter.keyConfigured} onClick={deleteOpenrouterKey}>Удалить UI-ключ</button>
+            </div>
+            <small>Ключ сохраняется в отдельном backend-хранилище секретов и не возвращается обратно в браузер. Если ключ задан через переменную <b>OPENROUTER_API_KEY</b>, она имеет приоритет.</small>
           </div>
           <div className="api-key-box">
             <strong>Что уже понятно</strong>
