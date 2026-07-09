@@ -3144,7 +3144,14 @@ export default function NewStudio(): ReactElement {
               <img className="iv3-preview-placeholder-bg" src={previewPlaceholderUrl} alt="" aria-hidden="true" />
               <span className="iv3-preview-placeholder-vignette" aria-hidden="true"></span>
               <span className="iv3-preview-empty-mark" aria-hidden="true">✦</span>
-              <p>{visibleResultError ? 'Предыдущий результат не загрузился. Новый появится здесь.' : 'Опишите идею слева и нажмите «Сгенерировать»'}</p>
+              {visibleResultError ? (
+                <p>Предыдущий результат не загрузился. Новый появится здесь.</p>
+              ) : (
+                <p>
+                  <span className="iv3-preview-empty-desktop">Опишите идею слева и нажмите «Сгенерировать»</span>
+                  <span className="iv3-preview-empty-mobile">Опишите идею и нажмите «Сгенерировать»</span>
+                </p>
+              )}
             </div>
           )}
           {previewNoticeText && (
