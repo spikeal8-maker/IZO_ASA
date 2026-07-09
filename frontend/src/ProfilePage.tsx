@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
 import { Copy, Link as LinkIcon, Lock, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles, Zap } from 'lucide-react'
 import type { AuthStatusV2, MeV2 } from './authV2'
-import { DEFAULT_TARIFFS, avatarPresets, resolutionOptions, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
+import { DEFAULT_TARIFFS, avatarPresets, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 
 type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
 type Provider = 'comfyui' | 'openrouter'
@@ -167,6 +167,11 @@ export default function ProfilePage({
   }
   const planCards = tariffKeys.map((id) => {
     const tariff = tariffs[id] || DEFAULT_TARIFFS[id]
+    const features = [
+      tariff.pro_mode_enabled ? 'Режим профи' : '',
+      tariff.queue_label && tariff.queue_label.toLowerCase() !== 'обычная' ? `Очередь: ${tariff.queue_label}` : '',
+      tariff.video_enabled ? `Видео: ${tariff.video_slots} сохранений` : '',
+    ].filter(Boolean)
     return {
       id,
       title: tariff.title,
@@ -174,19 +179,7 @@ export default function ProfilePage({
       price: tariff.price_rub_month,
       daily: tariff.daily_tokens,
       slots: tariff.gallery_slots,
-      queue: tariff.queue_label,
-      proMode: tariff.pro_mode_enabled,
-      resolutions: tariff.allowed_resolutions.map((resolutionId) => resolutionOptions.find((option) => option.id === resolutionId)?.label || resolutionId),
-      videoSlots: tariff.video_slots,
-      videoEnabled: tariff.video_enabled,
-      features: [
-        tariff.pro_mode_enabled ? 'Режим профи открыт' : 'Режим профи закрыт',
-        `Очередь: ${tariff.queue_label}`,
-        `${tariff.gallery_slots} слот(ов) галереи`,
-        `${tariff.daily_tokens} токенов в сутки`,
-        tariff.video_enabled ? `Видео открыто · ${tariff.video_slots} сохранений` : 'Видео недоступно',
-        `Разрешения: ${tariff.allowed_resolutions.map((resolutionId) => resolutionOptions.find((option) => option.id === resolutionId)?.label || resolutionId).join(', ')}`,
-      ],
+      features,
     }
   })
 
@@ -369,9 +362,8 @@ export default function ProfilePage({
                 {planCards.map((item) => (
                   <article className={`${item.id === activePlan ? 'profile-card profile-plan active current' : 'profile-card profile-plan'}`} key={item.id}>
                     {item.id === activePlan && <span className="profile-chip current">Текущий</span>}
-                    <h4>{item.title}</h4><p>{item.note}</p><strong>{item.price ? `${item.price.toLocaleString('ru-RU')} ₽` : '0 ₽'}</strong><span>в месяц · {item.daily} токенов в сутки · {item.slots} слот(ов)</span>
-                    <span>{item.proMode ? 'Режим профи открыт' : 'Режим профи закрыт'} · {item.videoEnabled ? `Видео: ${item.videoSlots} сохранений` : 'Видео закрыто'}</span>
-                    <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul>
+                    <h4>{item.title}</h4><p>{item.note}</p><strong>{item.price ? `${item.price.toLocaleString('ru-RU')} ₽/мес` : 'Бесплатно'}</strong><span>{item.daily} токенов в сутки · {item.slots} слот(ов)</span>
+                    {item.features.length ? <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null}
                     <button type="button" disabled>{item.id === activePlan ? 'Текущий тариф' : 'Смена тарифа скоро'}</button>
                   </article>
                 ))}
