@@ -224,6 +224,21 @@ const tokensText = (usdValue: unknown, rate: number | null) => {
   const tokens = projectTokensForUsd(usdValue, rate)
   return tokens === null ? '—' : `${tokens} ток.`
 }
+const fetchBrowserUsdRub = async (): Promise<PageData['openrouter']['exchange']> => {
+  const response = await fetch('https://open.er-api.com/v6/latest/USD', { cache: 'no-store' })
+  if (!response.ok) throw new Error(`browser rate HTTP ${response.status}`)
+  const payload = await response.json() as { rates?: Record<string, number>; time_last_update_utc?: string }
+  const rate = payload.rates?.RUB
+  if (typeof rate !== 'number') throw new Error('browser rate: RUB не найден')
+  return {
+    rate,
+    source: 'open.er-api.com',
+    sourceDate: payload.time_last_update_utc || '',
+    fetchedAt: new Date().toISOString(),
+    cache: 'browser',
+    fallback: true,
+  }
+}
 const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState) => [...rows].sort((a, b) => {
   let result = 0
   if (sort.key === 'name') result = modelShortName(a).localeCompare(modelShortName(b), 'ru')
@@ -427,6 +442,18 @@ export default function AdminModelsV2() {
       && !!d.userChoice && Array.isArray(d.userChoice.simple) && Array.isArray(d.userChoice.pro)
       && Array.isArray(d.catalog) && Array.isArray(d.loras) && !!d.comfyFiles && !!d.openrouter
     if (ok && d) {
+      if (exchangeRate(d.openrouter.exchange) === null) {
+        try {
+          d.openrouter.exchange = await fetchBrowserUsdRub()
+        } catch (e) {
+          d.openrouter.exchange = {
+            ...(d.openrouter.exchange || {}),
+            rate: null,
+            cache: 'error',
+            error: e instanceof Error ? e.message : String(e),
+          }
+        }
+      }
       setErr(''); setData(d); setRoutes(d.routes)
     } else {
       setData(null)
@@ -535,7 +562,7 @@ export default function AdminModelsV2() {
   }
 
   const refreshExchange = async () => {
-    setExchangeBusy(true); setMsg('Обновляю курс ЦБ')
+    setExchangeBusy(true); setMsg('Обновляю курс')
     let status = 0
     let raw = ''
     const r = await amvFetch('/admin/openrouter/exchange/refresh', { method: 'POST' })
@@ -545,13 +572,22 @@ export default function AdminModelsV2() {
         try { return JSON.parse(raw) } catch { return null }
       })
       .catch((e) => ({ ok: false, exchange: { error: e instanceof Error ? e.message : String(e) } })) as { ok?: boolean; exchange?: PageData['openrouter']['exchange'] } | null
-    setExchangeBusy(false)
-    if (r?.exchange) {
-      setData((prev) => prev ? { ...prev, openrouter: { ...prev.openrouter, exchange: r.exchange } } : prev)
-      await load()
+    let exchange = r?.exchange
+    let usedBrowserFallback = false
+    if (!r?.ok || exchangeRate(exchange) === null) {
+      try {
+        exchange = await fetchBrowserUsdRub()
+        usedBrowserFallback = true
+      } catch (e) {
+        exchange = { ...(exchange || {}), rate: null, cache: 'error', error: e instanceof Error ? e.message : String(e) }
+      }
     }
-    const detail = r?.exchange?.error || (status ? `HTTP ${status}: ${raw.slice(0, 120)}` : 'нет ответа backend')
-    setMsg(r?.ok ? 'Курс обновлён' : `Курс не обновился: ${detail}`)
+    setExchangeBusy(false)
+    if (exchange) {
+      setData((prev) => prev ? { ...prev, openrouter: { ...prev.openrouter, exchange } } : prev)
+    }
+    const detail = exchange?.error || r?.exchange?.error || (status ? `HTTP ${status}: ${raw.slice(0, 120)}` : 'нет ответа backend')
+    setMsg(exchangeRate(exchange) !== null ? (usedBrowserFallback ? 'Курс обновлён из браузера' : 'Курс обновлён') : `Курс не обновился: ${detail}`)
   }
 
   const toggleApiSort = (sectionId: string, key: ApiSortKey) => {
