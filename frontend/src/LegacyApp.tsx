@@ -867,8 +867,7 @@ function App() {
   }, [])
 
   const openAdminPage = useCallback(() => {
-    if (window.location.pathname !== '/admin') window.history.pushState(null, '', '/admin')
-    setPathName(window.location.pathname)
+    window.location.href = '/admin'
   }, [])
 
   useEffect(() => {

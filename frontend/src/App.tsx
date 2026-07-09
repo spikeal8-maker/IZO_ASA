@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 
 const NewStudio = lazy(() => import('./newUi'))
 const LegacyApp = lazy(() => import('./LegacyApp'))
+const AdminApp = lazy(() => import('./AdminApp'))
 
 function isNewStudioRoute(path: string) {
   if (path === '/' || path === '/new' || path === '/new/') return true
@@ -40,7 +41,7 @@ function App() {
     return <div className="app-loading">Загружаем галерею...</div>
   }
 
-  const Target = isNewStudioRoute(path) ? NewStudio : (isLegacyRoute(path) || isAdminRoute(path) ? LegacyApp : null)
+  const Target = isNewStudioRoute(path) ? NewStudio : isAdminRoute(path) ? AdminApp : (isLegacyRoute(path) ? LegacyApp : null)
 
   if (!Target) {
     return <NotFound />

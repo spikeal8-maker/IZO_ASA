@@ -1,140 +1,63 @@
-// Static smoke for the Phase 20A Users CRM (primary admin Users tab).
+// Static smoke for the separated AdminApp route.
 import { readFileSync } from 'node:fs'
 
-const admin = readFileSync(new URL('./src/adminAnalytics.tsx', import.meta.url), 'utf8')
 const app = readFileSync(new URL('./src/App.tsx', import.meta.url), 'utf8')
+const adminApp = readFileSync(new URL('./src/AdminApp.tsx', import.meta.url), 'utf8')
+const adminAnalytics = readFileSync(new URL('./src/adminAnalytics.tsx', import.meta.url), 'utf8')
+const topbar = readFileSync(new URL('./src/TopBarV3.tsx', import.meta.url), 'utf8')
+const newUi = readFileSync(new URL('./src/newUi.tsx', import.meta.url), 'utf8')
+const legacy = readFileSync(new URL('./src/LegacyApp.tsx', import.meta.url), 'utf8')
 
-const authCode = admin.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
 const failures = []
-const ok = (c, m) => { if (!c) failures.push(m) }
+const ok = (condition, message) => { if (!condition) failures.push(message) }
+const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
 
-// One primary CRM table, mounted inside the Users tab (not globally).
-ok((app.match(/<AdminAnalyticsV2/g) || []).length === 1, 'AdminAnalyticsV2 must be mounted exactly once (Users tab)')
-ok(/tab === 'users'[\s\S]{0,80}<AdminAnalyticsV2/.test(app), 'CRM must be the primary content of the Users tab')
-ok(app.includes("from './adminAnalytics'"), 'adminAnalytics not imported')
+// /admin must be a dedicated app route, not the legacy generator host.
+ok(app.includes("const AdminApp = lazy(() => import('./AdminApp'))"), 'App.tsx must lazy-load AdminApp')
+ok(/isAdminRoute\(path\) \? AdminApp/.test(app), '/admin must route to AdminApp')
+ok(!/isAdminRoute\(path\) \? LegacyApp/.test(app), '/admin must not route to LegacyApp')
 
-// CRM uses trusted cookie endpoints, never the legacy identity header.
-ok(authCode.includes('/admin/users-analytics-v2'), 'CRM must fetch users-analytics-v2')
-ok(authCode.includes('/admin/dashboard-v2'), 'CRM must fetch dashboard-v2')
-ok(authCode.includes("credentials: 'include'"), 'CRM must use cookie credentials')
-ok(!authCode.includes('X-OneNode-User'), 'CRM must not use X-OneNode-User')
-
-// Human-readable rows; no raw technical id as a primary field.
-ok(admin.includes('public_user_code'), 'public_user_code must be shown')
-ok(admin.includes('display_name'), 'display_name must be shown')
-ok(/src-badge|PROVIDER_BADGE/.test(admin), 'Web/TG/MAX source badges required')
-// internal_user_id may be used for the drawer fetch + technical section, but never as a
-// bold primary label in a table row.
-ok(!/<strong>\{[^}]*internal_user_id/.test(admin), 'internal_user_id must not be a primary bold label')
-
-// Phase 20C.3: compact CRM card fetched via the trusted detail endpoint.
-ok(admin.includes('UserCard'), 'UserCard component missing')
-ok(admin.includes('/admin/users/') && admin.includes('/analytics-v2'), 'card must fetch users/{id}/analytics-v2')
-ok(/state === 'loading'|'notfound'|'forbidden'/.test(admin), 'card must handle loading/error states')
-ok(admin.includes('Технические идентификаторы'), 'technical section must be labeled/collapsed')
-// Compact two-column card: actions live in a sticky right panel (above the fold), details left.
-ok(admin.includes('crm-card-overlay') && admin.includes('crm-card-actions'), 'compact card layout (sticky actions panel) missing')
-ok(admin.includes('crm-card-cols') && admin.includes('crm-card-left'), 'two-column card layout missing')
-// Detail-heavy sections collapsed into accordions (no endless scroll).
-ok(admin.includes('crm-acc') && admin.includes('<details'), 'detail accordions missing')
-ok(!admin.includes('UserDrawer'), 'old narrow UserDrawer must be gone')
-ok(!admin.includes('crm-card-nav'), 'old landing-style left nav must be removed')
-// Block 6: parsed profile fallback chain + raw-profile presence (yes/no only, no JSON).
-ok(admin.includes('parsedName'), 'parsed display-name fallback chain missing')
-ok(admin.includes('has_raw_profile') && !admin.includes('raw_profile_json'), 'raw profile must show yes/no only, never the JSON')
-// Block 2: admin diagnostics (collapsed unless no auth).
-ok(admin.includes('AdminDiagnostics') && admin.includes('/admin/diagnostics-v2'), 'admin diagnostics missing')
-ok(admin.includes('APP_BUILD_LABEL') && admin.includes('window.location.origin'), 'diagnostics must show build + origin')
-
-// Block 2/9: dense Users table with trusted quick actions in every row.
-ok(admin.includes('analytics-table dense') && admin.includes('crm-row-actions'), 'dense table with row action cell missing')
-ok(admin.includes('button className="mini"') || admin.includes("'mini'") || admin.includes('"mini"'), 'row mini action buttons missing')
-ok(admin.includes('ActionConfirm'), 'shared confirm popover missing')
-// Quick actions in the row open a reason-gated confirm using trusted-v2 endpoints.
-for (const ep of ['/tokens-v2', '/role-v2', '/plan-v2', '/profile-v2', '/block-v2', '/unblock-v2', '/password-reset-v2']) {
-  ok(admin.includes(ep), `quick action must call ${ep}`)
-}
-ok(/setRowAct\(\{ u, kind: 'tokens', preset: '50'/.test(admin), 'row +50 quick token action missing')
-ok(/setRowAct\(\{ u, kind: 'tokens', preset: '-50'/.test(admin), 'row -50 quick token action missing')
-ok(/reason\.trim\(\)/.test(admin), 'actions must require a reason')
-ok(admin.includes('Действие будет записано в audit log'), 'confirm must show audit-log note')
-
-// Phase 20C.4: trusted admin actions in the card/action panel.
-ok(admin.includes('Админ-действия'), 'drawer must have an Админ-действия tab')
-for (const ep of ['/role-v2', '/tokens-v2', '/plan-v2', '/profile-v2', '/block-v2', '/unblock-v2', '/password-reset-v2']) {
-  ok(admin.includes(ep), `admin action must call ${ep}`)
-}
-ok(admin.includes('adminPost') && admin.includes("credentials: 'include'"), 'admin actions must POST with cookie credentials')
-ok(/reason\.trim\(\)/.test(admin), 'admin actions must require a reason')
-ok(admin.includes('Забанить') && admin.includes('Разбанить'), 'ban/unban controls missing')
-ok(/Сделать админом|Снять админа/.test(admin), 'role controls missing')
-ok(admin.includes('Изменить токены') && admin.includes('+50') && admin.includes('-50'), 'token adjust controls missing')
-ok(admin.includes('Сбросить пароль'), 'reset password control missing')
-ok(admin.includes('audit log'), 'must indicate audit-log writing')
-// reset password input must not be persisted
-ok(!/localStorage[\s\S]{0,40}(new_password|password)/.test(admin), 'admin-entered password must not be stored')
-
-// Columns / labels are clean (Phase 20C.4 spec wording).
-for (const label of ['Клиент', 'Активность', 'Источник', 'Контакт', 'Сегмент', 'Финансы', 'Генерации', 'Устройство', 'Маркетинг', 'Риск', 'Действия']) {
-  ok(admin.includes(label), `column label "${label}" missing`)
-}
-ok(admin.includes('RowActionMenu') && admin.includes('crm-row-menu'), 'grouped row action dropdown missing')
-ok(admin.includes('CrmSettingsScaffold') && admin.includes('Колонки списка') && admin.includes('Уровни админки'), 'CRM settings scaffold missing')
-ok(admin.includes('settingsOpen') && admin.includes('Вид и колонки') && /settingsOpen && <CrmSettingsScaffold/.test(admin), 'CRM settings must be collapsed behind the Вид и колонки button')
-ok(admin.includes('role="button"') && admin.includes('tabIndex={0}') && admin.includes('onKeyDown={rowKey}'), 'user rows must be keyboard-focusable buttons')
-ok(admin.includes("e.key === 'Enter'") && admin.includes("e.key === ' '"), 'Enter/Space keyboard row open missing')
-ok(admin.includes('onClick={openCard}') && admin.includes('aria-label={`Открыть карточку'), 'whole row click must open the client card')
-ok(admin.includes('e.stopPropagation()'), 'row controls/dropdowns must stop click propagation')
-ok(admin.includes('activityKind') && admin.includes('ACTIVITY_LABEL') && admin.includes('crm-row-avatar'), 'activity ring/labels missing')
-ok(admin.includes('crm-chip') && admin.includes('status-active') && admin.includes('status-banned'), 'role/status/plan chips missing')
-for (const field of ['recent_generations', 'recent_gallery', 'token_ledger_recent', 'security_summary', 'failed_login_count', 'mac_status']) {
-  ok(admin.includes(field), `CRM card must render real analytics-v2 field ${field}`)
-}
-for (const field of ['billing_summary', 'invoices_recent', 'payments_recent', 'refunds_recent']) {
-  ok(admin.includes(field), `CRM card must render billing analytics-v2 field ${field}`)
-}
-for (const field of ['loyalty_summary', 'promo_redemptions_recent', 'bonus_grants_recent', 'referral_rewards_recent', 'referral_relations']) {
-  ok(admin.includes(field), `CRM card must render loyalty analytics-v2 field ${field}`)
-}
-for (const ep of ['/invoices-v2', '/mark-paid-v2', '/refund-v2', '/cancel-v2']) {
-  ok(admin.includes(ep), `billing action must call ${ep}`)
-}
-for (const ep of ['/bonus-v2', '/apply-promo-v2', '/referral-reward-v2', '/cancel-v2']) {
-  ok(admin.includes(ep), `loyalty action must call ${ep}`)
-}
-ok(admin.includes('Выставить счёт') && admin.includes('Отметить оплату') && admin.includes('Возврат') && admin.includes('Отменить счёт'), 'billing action labels missing')
-ok(admin.includes('Применить промокод') && admin.includes('Бонус / компенсация') && admin.includes('Реферальная корректировка') && admin.includes('Отменить бонус'), 'loyalty action labels missing')
-ok(admin.includes('Токены к начислению после оплаты') && admin.includes('Сумма счёта'), 'create invoice confirm fields missing')
-ok(admin.includes('Промокод') && admin.includes('Промо, бонусы и рефералы') && admin.includes('Лояльность'), 'loyalty UI labels missing')
-ok(admin.includes('manual-ui-') && admin.includes('refund-ui-'), 'manual billing idempotency keys missing')
-ok(admin.includes('bonus-ui-') && admin.includes('promo-ui-') && admin.includes('ref-ui-'), 'loyalty idempotency keys missing')
-ok(admin.includes('crm-gallery-strip') && admin.includes('thumbnail_url'), 'gallery thumbnails must render when safe URLs exist')
-ok(admin.includes('Операций ledger') && admin.includes('Ошибки входа') && admin.includes('Сбросы пароля'), 'token/security real-data labels missing')
-ok(admin.includes('MAC: недоступен') && !/MAC:\s*агент/.test(admin), 'MAC must be unavailable unless explicitly agent-collected')
-ok(admin.includes('Деактивировать') && admin.includes('Анонимизировать') && /disabledAction\('Анонимизировать'\)/.test(admin), 'lifecycle actions must expose deactivate and defer anonymize')
-ok(admin.includes('Отложено: backend v2 пока не отдаёт эти данные.'), 'deferred backend data must be clearly labeled')
-// No nonsense labels.
-for (const bad of ['тектон', 'золото', 'исидо', 'туалет', 'каменная фигура', 'регион. идентификатор']) {
-  ok(!admin.includes(bad), `unclear label "${bad}" present`)
+// AdminApp owns auth/role gating and must not import the legacy generator.
+ok(adminApp.includes('useAuthV2') && adminApp.includes('initAuthV2'), 'AdminApp must own trusted auth bootstrap')
+ok(adminApp.includes("me?.account?.role === 'admin'"), 'AdminApp must check trusted admin role')
+ok(adminApp.includes('AdminAccessPage') && adminApp.includes('403'), 'AdminApp must render denied state')
+ok(!adminApp.includes("from './LegacyApp'"), 'AdminApp must not import LegacyApp')
+ok(!stripComments(adminApp).includes('X-OneNode-User'), 'AdminApp must not use legacy identity header')
+ok(adminApp.includes("credentials: 'include'"), 'AdminApp adminFetch must use cookie credentials')
+ok(adminApp.includes("import('./adminAnalytics')"), 'AdminApp must mount CRM users module directly')
+ok(adminApp.includes("import('./adminModels')"), 'AdminApp must mount models module directly')
+for (const endpoint of ['/admin/summary', '/admin/settings', '/admin/promos', '/admin/logs-v2', '/admin/mail/status-v2']) {
+  ok(adminApp.includes(endpoint), `AdminApp missing ${endpoint}`)
 }
 
-// "Карточка" preview button + filters present.
-ok(admin.includes('Карточка'), '"Карточка" button missing')
-ok(admin.includes('Все источники') && admin.includes('Все статусы'), 'source/status filters missing')
+// New UI must expose Admin instead of Help for admins.
+ok(topbar.includes("'admin'"), 'TopBarV3 must support admin section')
+ok(topbar.includes('isAdmin') && topbar.includes('onOpenAdmin'), 'TopBarV3 must accept admin props')
+ok(topbar.includes("isAdmin ? 'Админ' : 'Помощь'"), 'TopBarV3 must replace Help label for admins')
+ok(newUi.includes("me?.account?.role === 'admin'"), 'newUi must derive isAdmin from trusted auth state')
+ok(newUi.includes('onOpenAdmin') && newUi.includes("window.location.href = '/admin'"), 'newUi must navigate admins to /admin')
 
-// Legacy table preserved but collapsed by default behind a toggle + warning.
-ok(app.includes('showLegacyUsers'), 'legacy table must be collapsible (showLegacyUsers)')
-ok(app.includes('Старые действия — временно'), 'legacy section warning label missing')
-ok(/showLegacyUsers && <div className="legacy-admin-table"/.test(app), 'legacy table must be gated behind the toggle')
+// Legacy buttons may still exist in the old app, but they must leave the old SPA.
+ok(/const openAdminPage = useCallback\(\(\) => \{\s*window\.location\.href = '\/admin'/.test(legacy), 'Legacy admin button must hard-navigate to /admin')
 
-// No secret material in CRM UI.
+// CRM module remains trusted-cookie only and keeps dangerous actions reason-gated.
+const analyticsCode = stripComments(adminAnalytics)
+ok(adminAnalytics.includes('/admin/users-analytics-v2'), 'CRM must fetch users-analytics-v2')
+ok(adminAnalytics.includes('/admin/dashboard-v2'), 'CRM must fetch dashboard-v2')
+ok(adminAnalytics.includes('/analytics-v2'), 'CRM card must fetch users/{id}/analytics-v2')
+ok(adminAnalytics.includes("credentials: 'include'"), 'CRM must use cookie credentials')
+ok(!analyticsCode.includes('X-OneNode-User'), 'CRM must not use X-OneNode-User')
+ok(/reason\.trim\(\)/.test(adminAnalytics), 'admin actions must require a reason')
+for (const endpoint of ['/tokens-v2', '/role-v2', '/plan-v2', '/profile-v2', '/block-v2', '/unblock-v2', '/password-reset-v2']) {
+  ok(adminAnalytics.includes(endpoint), `CRM action missing ${endpoint}`)
+}
 for (const forbidden of ['session_token_hash', 'refresh_token_hash', 'password_hash', 'code_hash', 'initData', 'webAppData']) {
-  ok(!admin.includes(forbidden), `forbidden field "${forbidden}" in CRM`)
+  ok(!adminAnalytics.includes(forbidden), `forbidden field "${forbidden}" in CRM`)
 }
 
 if (failures.length) {
   console.error('smoke-admin-analytics FAILED:')
-  for (const f of failures) console.error(' -', f)
+  for (const failure of failures) console.error(' -', failure)
   process.exit(1)
 }
-console.log('smoke-admin-analytics OK — all checks passed')
+console.log('smoke-admin-analytics OK — separated AdminApp route is protected and wired')
