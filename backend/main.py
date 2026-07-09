@@ -12962,12 +12962,22 @@ def _feed_author_name(conn: sqlite3.Connection, internal_user_id: str, legacy_us
 
 def _feed_author_profile(conn: sqlite3.Connection, internal_user_id: str, legacy_user_id: str | None) -> dict[str, Any]:
     row = conn.execute(
-        "SELECT display_name, username, first_name, avatar_url, avatar_preset FROM users WHERE internal_user_id = ?",
+        """
+        SELECT display_name, username, first_name, avatar_url, avatar_preset,
+               public_about, public_website, public_focus, public_phone,
+               public_links_json, gender, age, city, country
+        FROM users WHERE internal_user_id = ?
+        """,
         (internal_user_id,),
     ).fetchone()
     if row is None and legacy_user_id:
         row = conn.execute(
-            "SELECT display_name, username, first_name, avatar_url, avatar_preset FROM users WHERE id = ?",
+            """
+            SELECT display_name, username, first_name, avatar_url, avatar_preset,
+                   public_about, public_website, public_focus, public_phone,
+                   public_links_json, gender, age, city, country
+            FROM users WHERE id = ?
+            """,
             (legacy_user_id,),
         ).fetchone()
     identity = conn.execute(
@@ -12984,8 +12994,18 @@ def _feed_author_profile(conn: sqlite3.Connection, internal_user_id: str, legacy
     return {
         "id": internal_user_id,
         "displayName": name,
+        "username": _row_get(row, "username"),
         "avatarUrl": avatar_url,
         "avatarPreset": _row_get(row, "avatar_preset"),
+        "publicAbout": _row_get(row, "public_about"),
+        "publicWebsite": _row_get(row, "public_website"),
+        "publicFocus": _row_get(row, "public_focus"),
+        "publicPhone": _row_get(row, "public_phone"),
+        "publicLinks": parse_public_links(_row_get(row, "public_links_json")),
+        "gender": _row_get(row, "gender"),
+        "age": _row_get(row, "age"),
+        "city": _row_get(row, "city"),
+        "country": _row_get(row, "country"),
     }
 
 

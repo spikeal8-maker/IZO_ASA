@@ -157,6 +157,9 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "signalFilter" in r.text
         assert "Лайкнутые" in r.text
         assert "authorNotifyBtn" in r.text
+        assert "authorModal" in r.text
+        assert "renderAuthorPublicProfile" in r.text
+        assert "detailAuthor.addEventListener('click'" in r.text
         assert "/api/me-v2" in r.text
         assert "arrangeModalForViewport" in r.text
         assert "avatarHtml(item.author, item.avatarUrl)" in r.text
@@ -242,6 +245,23 @@ def test_publish_foreign_image_denied_and_logged(temp_db):
 def test_feed_public_read_and_prompt_visibility(temp_db):
     with TestClient(main.app) as client:
         token = make_user("iuid-a", "web_a")
+        with main.db() as conn:
+            conn.execute(
+                """
+                UPDATE users
+                SET username = 'public_artist',
+                    public_about = 'Создаю сказочные города и персонажей.',
+                    public_website = 'https://artist.example',
+                    public_focus = 'Фэнтези и архитектура',
+                    public_phone = '+79990001122',
+                    public_links_json = ?,
+                    city = 'Москва',
+                    country = 'RU',
+                    age = 31
+                WHERE internal_user_id = 'iuid-a'
+                """,
+                (json.dumps([{"label": "Портфолио", "url": "https://portfolio.example"}], ensure_ascii=False),),
+            )
         make_image("img-open", "web_a", prompt="открытый промпт")
         make_image("img-hidden", "web_a", prompt="секрет")
         publish(client, token, "img-open", visibility="open", title="Открытая")
@@ -261,6 +281,16 @@ def test_feed_public_read_and_prompt_visibility(temp_db):
         assert items["Открытая"]["native_aspect_ratio"] == "3:2"
         assert items["Открытая"]["orientation"] == "landscape"
         assert items["Открытая"]["view_count"] == 0
+        author = items["Открытая"]["author"]
+        assert author["username"] == "public_artist"
+        assert author["publicAbout"] == "Создаю сказочные города и персонажей."
+        assert author["publicWebsite"] == "https://artist.example"
+        assert author["publicFocus"] == "Фэнтези и архитектура"
+        assert author["publicPhone"] == "+79990001122"
+        assert author["publicLinks"] == [{"label": "Портфолио", "url": "https://portfolio.example"}]
+        assert author["city"] == "Москва"
+        assert author["country"] == "RU"
+        assert author["age"] == 31
 
 
 def test_reactions_require_session_and_toggle(temp_db):
