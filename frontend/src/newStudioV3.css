@@ -4965,3 +4965,36 @@ font-size: 9px;
     padding: 8px 9px;
   }
 }
+
+/* Yellow active controls must keep dark text on hover. */
+@media (hover: hover) {
+  .iv3 .tab.active:not(:disabled):not(.disabled):hover,
+  .iv3 .generate-button:not(:disabled):hover,
+  .iv3 .mobile-bottom-cta:not(:disabled):hover,
+  .iv3 .quality-button.active:not(:disabled):hover,
+  .iv3 .ratio-button.active:not(:disabled):hover,
+  .iv3 .paint-mode-tabs button.active:not(:disabled):hover,
+  .iv3 .paint-segment button.active:not(:disabled):hover,
+  .iv3 .paint-tools-toggle.active:not(:disabled):hover,
+  .iv3 .paint-canvas-toolbar button.active:not(:disabled):hover,
+  .iv3 .paint-sidebar-tools button.active:not(:disabled):hover,
+  .iv3 .i2i-upload-action.primary:not(:disabled):hover,
+  .iv3 .i2i-range-mark:not(:disabled):hover {
+    color: #071006;
+  }
+
+  .iv3 .tab.active:not(:disabled):not(.disabled):hover *,
+  .iv3 .generate-button:not(:disabled):hover *,
+  .iv3 .mobile-bottom-cta:not(:disabled):hover *,
+  .iv3 .quality-button.active:not(:disabled):hover *,
+  .iv3 .ratio-button.active:not(:disabled):hover *,
+  .iv3 .paint-mode-tabs button.active:not(:disabled):hover *,
+  .iv3 .paint-segment button.active:not(:disabled):hover *,
+  .iv3 .paint-tools-toggle.active:not(:disabled):hover *,
+  .iv3 .paint-canvas-toolbar button.active:not(:disabled):hover *,
+  .iv3 .paint-sidebar-tools button.active:not(:disabled):hover *,
+  .iv3 .i2i-upload-action.primary:not(:disabled):hover *,
+  .iv3 .i2i-range-mark:not(:disabled):hover * {
+    color: #071006;
+  }
+}

@@ -1430,6 +1430,11 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-grid.admin-grid-compact span { font-size: 19px; }
 .admin-grid span { color: #f0f0f0; font-size: 24px; font-weight: 900; overflow-wrap: anywhere; }
 .admin-grid small { color: #777; line-height: 1.35; }
+.admin-checkline { display: flex; align-items: center; gap: 8px; min-height: 28px; color: #8f8f8f; font-weight: 900; text-transform: uppercase; letter-spacing: .8px; }
+.admin-checkline input[type="checkbox"] { width: 16px; height: 16px; min-width: 16px; accent-color: var(--acid); flex: 0 0 auto; }
+.admin-resolution-picker { border: 1px solid #303030; border-radius: 10px; padding: 8px 10px; background: #121212; }
+.admin-resolution-picker summary { cursor: pointer; color: var(--acid); font-weight: 950; }
+.admin-resolution-picker div { display: grid; gap: 6px; padding: 8px 0 0; background: transparent; border: 0; border-radius: 0; min-height: 0; }
 .admin-dashboard-v2 { gap: 12px; }
 .admin-dashboard-toolbar { display: flex; align-items: center; gap: 8px; border: 1px solid #2c2c2c; background: #111; border-radius: 12px; padding: 8px 10px; }
 .admin-dashboard-toolbar strong { color: var(--acid); margin-right: auto; }
@@ -1935,4 +1940,51 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .new-sub-links { gap: 6px; }
   .new-sub-links button { padding: 6px 10px; font-size: 12px; }
   .new-sub-main { height: auto; min-height: 0; overflow: visible; padding: 12px 12px 40px; }
+}
+
+/* Yellow active controls must keep dark text on hover. */
+@media (hover: hover) and (pointer: fine) {
+  .mode.active:hover,
+  .chip.active:hover,
+  .generate:not(:disabled):hover,
+  .preset-create button:not(:disabled):hover,
+  .discover-button:hover,
+  .auth-modal-tab.active:hover,
+  .size-source button.active:hover,
+  .canvas-toolbar button.active:hover,
+  .secondary.active:hover,
+  .segmented button.active:hover,
+  .speed-toggle.active:hover,
+  .usr-primary:not(:disabled):hover,
+  .usr-plan-tabs button.active:hover,
+  .usr-size-options button.active:hover,
+  .admin-tabbar button.active:hover,
+  .admin-dashboard-toolbar button.active:hover,
+  .admin-log-tabs button.active:hover,
+  .canvas-size-bar button:hover,
+  .save-sketch:hover {
+    color: #050505;
+  }
+
+  .mode.active:hover *,
+  .chip.active:hover *,
+  .generate:not(:disabled):hover *,
+  .preset-create button:not(:disabled):hover *,
+  .discover-button:hover *,
+  .auth-modal-tab.active:hover *,
+  .size-source button.active:hover *,
+  .canvas-toolbar button.active:hover *,
+  .secondary.active:hover *,
+  .segmented button.active:hover *,
+  .speed-toggle.active:hover *,
+  .usr-primary:not(:disabled):hover *,
+  .usr-plan-tabs button.active:hover *,
+  .usr-size-options button.active:hover *,
+  .admin-tabbar button.active:hover *,
+  .admin-dashboard-toolbar button.active:hover *,
+  .admin-log-tabs button.active:hover *,
+  .canvas-size-bar button:hover *,
+  .save-sketch:hover * {
+    color: #050505;
+  }
 }

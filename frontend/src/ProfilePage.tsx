@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
 import { Copy, Link as LinkIcon, Lock, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles, Zap } from 'lucide-react'
 import type { AuthStatusV2, MeV2 } from './authV2'
-import { DEFAULT_TARIFFS, avatarPresets, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
+import { DEFAULT_TARIFFS, avatarPresets, resolutionOptions, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 
 type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
 type Provider = 'comfyui' | 'openrouter'
@@ -375,9 +375,10 @@ export default function ProfilePage({
               <div>Функции</div>{tariffKeys.map((key) => <div key={key}>{tariffs[key].title}</div>)}
               <span>Токены в сутки</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].daily_tokens}</b>)}
               <span>Галерея</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].gallery_slots}</b>)}
+              <span>Режим профи</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].pro_mode_enabled ? 'Да' : 'Нет'}</b>)}
               <span>Видео</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].video_enabled ? 'Открыто' : 'Нет'}</b>)}
-              <span>Хранение видео</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].video_slots}</b>)}
-              <span>Модели</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].models_label}</b>)}
+              <span>Видео, шт.</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].video_slots}</b>)}
+              <span>Разрешения</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].allowed_resolutions.map((id) => resolutionOptions.find((item) => item.id === id)?.label || id).join(', ')}</b>)}
               <span>Очередь</span>{tariffKeys.map((key) => <b key={key}>{tariffs[key].queue_label}</b>)}
             </section>
           </>}

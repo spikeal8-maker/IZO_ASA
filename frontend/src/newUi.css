@@ -2792,3 +2792,28 @@ button.profile-chip { cursor: pointer; }
 
 }
 
+/* Yellow active controls must keep dark text on hover. */
+@media (hover: hover) {
+  .n2-tab.active:hover,
+  .n2-generate:not(:disabled):hover,
+  .n2-source-button:hover,
+  .n2-quality-button.active:hover,
+  .n2-segmented button.active:hover,
+  .profile-primary:not(:disabled):hover,
+  .profile-plan-tabs button.active:hover,
+  .profile-size-options button.active:hover {
+    color: #071006;
+  }
+
+  .n2-tab.active:hover *,
+  .n2-generate:not(:disabled):hover *,
+  .n2-source-button:hover *,
+  .n2-quality-button.active:hover *,
+  .n2-segmented button.active:hover *,
+  .profile-primary:not(:disabled):hover *,
+  .profile-plan-tabs button.active:hover *,
+  .profile-size-options button.active:hover * {
+    color: #071006;
+  }
+}
+

@@ -697,11 +697,11 @@ rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
 DEFAULT_TARIFFS: dict[str, dict[str, Any]] = {
-    "free": {"title": "Free", "note": "Базовый доступ", "daily_tokens": 10, "gallery_slots": 20, "models_label": "Базовые", "queue_label": "Обычная", "video_enabled": 0, "video_slots": 0},
-    "mini": {"title": "Mini", "note": "Оптимальный старт", "daily_tokens": 50, "gallery_slots": 80, "models_label": "Стандартные", "queue_label": "Обычная", "video_enabled": 0, "video_slots": 0},
-    "plus": {"title": "Plus", "note": "Больше возможностей", "daily_tokens": 100, "gallery_slots": 200, "models_label": "HD", "queue_label": "Ускоренная", "video_enabled": 0, "video_slots": 0},
-    "pro": {"title": "Pro", "note": "Видео и приоритет", "daily_tokens": 200, "gallery_slots": 500, "models_label": "Продвинутые", "queue_label": "Приоритетная", "video_enabled": 1, "video_slots": 10},
-    "business": {"title": "Бизнес", "note": "Для команды и видео", "daily_tokens": 500, "gallery_slots": 500, "models_label": "Бизнес", "queue_label": "Бизнес", "video_enabled": 1, "video_slots": 50},
+    "free": {"title": "Free", "note": "Базовый доступ", "daily_tokens": 10, "gallery_slots": 20, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024"], "video_enabled": 0, "video_slots": 0},
+    "mini": {"title": "Mini", "note": "Оптимальный старт", "daily_tokens": 50, "gallery_slots": 80, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024", "h-1280", "v-720"], "video_enabled": 0, "video_slots": 0},
+    "plus": {"title": "Plus", "note": "Больше возможностей", "daily_tokens": 100, "gallery_slots": 200, "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024"], "video_enabled": 0, "video_slots": 0},
+    "pro": {"title": "Pro", "note": "Видео и приоритет", "daily_tokens": 200, "gallery_slots": 500, "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 10},
+    "business": {"title": "Бизнес", "note": "Для команды и видео", "daily_tokens": 500, "gallery_slots": 500, "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 50},
 }
 
 
@@ -3265,6 +3265,16 @@ def _tariff_text(source: dict[str, Any], plan: str, key: str, *, max_len: int = 
     return (text or str(DEFAULT_TARIFFS[plan][key]))[:max_len]
 
 
+ALLOWED_RESOLUTION_IDS = {"sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"}
+
+
+def _tariff_resolutions(source: dict[str, Any], plan: str) -> list[str]:
+    raw = source.get("allowed_resolutions", source.get("allowedResolutions", DEFAULT_TARIFFS[plan]["allowed_resolutions"]))
+    values = raw if isinstance(raw, list) else []
+    result = [str(item) for item in values if str(item) in ALLOWED_RESOLUTION_IDS]
+    return result or list(DEFAULT_TARIFFS[plan]["allowed_resolutions"])
+
+
 def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[str, dict[str, Any]]:
     if strict and (not isinstance(raw, dict) or not raw):
         raise HTTPException(400, "Tariff config must not be empty.")
@@ -3297,8 +3307,9 @@ def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[s
             "note": _tariff_text(source, plan, "note", max_len=160),
             "daily_tokens": max(0, min(daily_int, 100_000)),
             "gallery_slots": max(0, min(slots_int, 100_000)),
-            "models_label": _tariff_text(source, plan, "models_label", max_len=80),
             "queue_label": _tariff_text(source, plan, "queue_label", max_len=80),
+            "pro_mode_enabled": 1 if _boolish(source.get("pro_mode_enabled", source.get("proModeEnabled", DEFAULT_TARIFFS[plan]["pro_mode_enabled"]))) else 0,
+            "allowed_resolutions": _tariff_resolutions(source, plan),
             "video_enabled": 1 if _boolish(video_enabled) else 0,
             "video_slots": max(0, min(video_slots_int, 100_000)),
         }

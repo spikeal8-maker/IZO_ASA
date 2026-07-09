@@ -442,6 +442,7 @@ const CSS = `
 .amv2 .segmented{display:flex;border:1px solid var(--line-strong);border-radius:var(--radius);overflow:hidden;min-height:34px}
 .amv2 .segmented button{border:0;border-right:1px solid var(--line);color:var(--muted);background:rgba(255,255,255,.035);padding:0 12px;font-weight:800;white-space:nowrap}
 .amv2 .segmented button.active{color:#080a07;background:var(--lime)}
+@media (hover:hover){.amv2 .primary:hover,.amv2 .page-tabs button.active:hover,.amv2 .segmented button.active:hover{color:#080a07}.amv2 .primary:hover *,.amv2 .page-tabs button.active:hover *,.amv2 .segmented button.active:hover *{color:#080a07}}
 .amv2 .matrix-wrap{overflow-x:auto}
 .amv2 table{width:100%;border-collapse:collapse;min-width:820px}
 .amv2 th,.amv2 td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:12px}

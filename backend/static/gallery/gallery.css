@@ -124,6 +124,14 @@ h2{margin:0;font-size:22px;line-height:1.1;font-weight:950;letter-spacing:-.03em
 .action.active{background:var(--green);border-color:var(--green);color:#001508}
 .action.feedOn{background:rgba(255,233,113,.95);border-color:#ffe971;color:#171306}
 .action.danger:hover{border-color:var(--danger);color:#fff;background:rgba(255,103,103,.22)}
+
+@media (hover:hover){
+  .iv3.topbar-scope .tab.active:hover,
+  .btn.acid:hover,
+  .filterGrid button.active:hover{
+    color:#070a04;
+  }
+}
 .promptPeek{position:absolute;left:8px;right:8px;bottom:50px;z-index:4;opacity:0;transform:translateY(6px);transition:.16s ease;background:rgba(7,9,8,.9);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:9px 10px;font-size:12px;line-height:1.25;color:#ecf4e9;box-shadow:0 10px 28px rgba(0,0,0,.36);pointer-events:none;max-height:72px;overflow:hidden}
 .card:hover .promptPeek{opacity:1;transform:none}
 .promptPeek.empty{color:#aeb8ac;font-style:italic}

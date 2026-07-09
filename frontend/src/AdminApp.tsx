@@ -9,7 +9,7 @@ import {
 } from './authV2'
 import { DiagPanel } from './diag'
 import { isDiagMode } from './diagMeta'
-import { DEFAULT_TARIFFS, normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
+import { DEFAULT_TARIFFS, normalizeTariffs, resolutionOptions, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 import './index.css'
 
 const AdminAnalyticsV2 = lazy(() => import('./adminAnalytics').then((module) => ({ default: module.AdminAnalyticsV2 })))
@@ -279,6 +279,15 @@ function AdminTokens() {
     const result = await adminPost<{ ok?: boolean }>('/admin/settings/finance', { settings: finance })
     setMsg(result?.ok ? 'Финансы сохранены' : 'Ошибка сохранения финансов')
   }
+  const toggleResolution = (plan: TariffKey, resolutionId: string, checked: boolean) => {
+    setTariffs((current) => {
+      const currentIds = current[plan].allowed_resolutions || []
+      const nextIds = checked
+        ? Array.from(new Set([...currentIds, resolutionId]))
+        : currentIds.filter((id) => id !== resolutionId)
+      return { ...current, [plan]: { ...current[plan], allowed_resolutions: nextIds } }
+    })
+  }
   const createPromo = async () => {
     const result = await adminPost<{ ok?: boolean; promo?: PromoCode }>('/admin/promos', {
       code: promoDraft.code,
@@ -320,11 +329,20 @@ function AdminTokens() {
               <label>Описание<input value={tariffs[plan].note} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], note: e.target.value } }))} /></label>
               <label>Токенов/день<input type="number" min="0" value={tariffs[plan].daily_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], daily_tokens: Number(e.target.value) } }))} /></label>
               <label>Слоты галереи<input type="number" min="0" value={tariffs[plan].gallery_slots} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], gallery_slots: Number(e.target.value) } }))} /></label>
-              <label>Модели<input value={tariffs[plan].models_label} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], models_label: e.target.value } }))} /></label>
               <label>Очередь<input value={tariffs[plan].queue_label} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], queue_label: e.target.value } }))} /></label>
-              <label><input type="checkbox" checked={tariffs[plan].video_enabled} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], video_enabled: e.target.checked } }))} /> Видео доступно</label>
-              <label>Хранение видео<input type="number" min="0" value={tariffs[plan].video_slots} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], video_slots: Number(e.target.value) } }))} /></label>
-              <small>{tariffs[plan].title}: {tariffs[plan].daily_tokens} ток./день · {tariffs[plan].gallery_slots} слот(ов) · видео {tariffs[plan].video_enabled ? tariffs[plan].video_slots : 'нет'}</small>
+              <label className="admin-checkline"><input type="checkbox" checked={tariffs[plan].pro_mode_enabled} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], pro_mode_enabled: e.target.checked } }))} /> Режим профи</label>
+              <label className="admin-checkline"><input type="checkbox" checked={tariffs[plan].video_enabled} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], video_enabled: e.target.checked } }))} /> Видео</label>
+              <label>Видео, шт.<input type="number" min="0" value={tariffs[plan].video_slots} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], video_slots: Number(e.target.value) } }))} /></label>
+              <details className="admin-resolution-picker">
+                <summary>Разрешения: {tariffs[plan].allowed_resolutions.length}</summary>
+                <div>
+                  {resolutionOptions.map((item) => <label className="admin-checkline" key={item.id}>
+                    <input type="checkbox" checked={tariffs[plan].allowed_resolutions.includes(item.id)} onChange={(e) => toggleResolution(plan, item.id, e.target.checked)} />
+                    {item.label}
+                  </label>)}
+                </div>
+              </details>
+              <small>{tariffs[plan].title}: {tariffs[plan].daily_tokens} ток./день · {tariffs[plan].gallery_slots} слот(ов) · профи {tariffs[plan].pro_mode_enabled ? 'да' : 'нет'} · видео {tariffs[plan].video_enabled ? tariffs[plan].video_slots : 'нет'}</small>
             </div>
           ))}
         </div>
