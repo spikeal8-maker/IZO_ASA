@@ -11,7 +11,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, Eraser, Moon, PaintBucket, Palette, Slash, Sun } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Moon, PaintBucket, Palette, Slash, Sun } from 'lucide-react'
 import {
   AuthV2Modal,
   getAuthCapabilitiesV2,
@@ -855,6 +855,7 @@ export default function NewStudio(): ReactElement {
   const [paintOutpaintPreview, setPaintOutpaintPreview] = useState<string>()
   const [paintStageSize, setPaintStageSize] = useState(() => paintStageForResolution(RESOLUTION_PRESETS[0]))
   const [paintWorkbenchVisible, setPaintWorkbenchVisible] = useState(true)
+  const [paintToolsOpen, setPaintToolsOpen] = useState(false)
   const [compare, setCompare] = useState(50)
   const [compareAuto, setCompareAuto] = useState(false)
   const compareTouchedRef = useRef(false)
@@ -2096,6 +2097,7 @@ export default function NewStudio(): ReactElement {
 
   function choosePaintMode(id: PaintSubMode) {
     setPaintMode(id)
+    setPaintToolsOpen(false)
     if (id === 'sketch') {
       setPaintTool('brush')
       setPaintBrushSize(3)
@@ -2603,7 +2605,16 @@ export default function NewStudio(): ReactElement {
 
               {(paintMode === 'sketch' || paintMode === 'mask') && (
                 <div className="paint-toolbox">
-                  <div className="paint-sidebar-tools" aria-label="Инструменты рисования">
+                  <button
+                    className={`paint-tools-toggle${paintToolsOpen ? ' active' : ''}`}
+                    type="button"
+                    aria-expanded={paintToolsOpen}
+                    onClick={() => setPaintToolsOpen((open) => !open)}
+                  >
+                    <span>{paintMode === 'sketch' ? 'Инструменты эскиза' : 'Инструменты маски'}</span>
+                    <ChevronDown size={17} strokeWidth={2.2} aria-hidden="true" />
+                  </button>
+                  <div className={`paint-sidebar-tools${paintToolsOpen ? ' is-open' : ''}`} aria-label="Инструменты рисования">
                     <button className={`paint-tool-brush${paintTool === 'brush' && paintDrawMode === 'free' ? ' active' : ''}`} type="button" title="Кисть" aria-label="Кисть" onClick={() => { setPaintTool('brush'); setPaintDrawMode('free') }}><Brush size={18} strokeWidth={2.2} /></button>
                     {paintMode === 'sketch' && (
                       <label className="paint-tool-color paint-mobile-color" title="Цвет кисти" aria-label="Цвет кисти">

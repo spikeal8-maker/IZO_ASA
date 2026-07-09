@@ -108,12 +108,15 @@ def test_max_login_captures_profile_and_caches_avatar(temp_db, monkeypatch):
     assert ident["provider_first_name"] == "Макс"
     assert urow["first_name"] == "Макс"
 
-    # Avatar caching runs in the background in production; invoke it directly here.
+    # New accounts receive an in-app preset immediately; provider caching must
+    # not overwrite that default avatar.
     cached = asyncio.run(main.ensure_user_avatar_cached("max", "mx-7"))
-    assert (cached or "").startswith("/media/avatars/")
     with main.db() as conn:
-        urow2 = conn.execute("SELECT avatar_url FROM users WHERE max_id = 'mx-7'").fetchone()
-    assert (urow2["avatar_url"] or "").startswith("/media/avatars/")
+        urow2 = conn.execute("SELECT avatar_url, avatar_preset FROM users WHERE max_id = 'mx-7'").fetchone()
+    assert (urow2["avatar_url"] or "").startswith("/avatars/avatar-")
+    assert (urow2["avatar_url"] or "").endswith(".webp")
+    assert (urow2["avatar_preset"] or "").startswith("avatar-")
+    assert cached == urow2["avatar_url"]
 
 
 def test_avatar_cache_does_not_overwrite_custom_avatar(temp_db, monkeypatch):

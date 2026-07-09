@@ -529,6 +529,9 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
         ? 'Загрузите изображение, затем потяните исходник или его края в нужную сторону.'
         : 'Загрузите изображение, результат появится после генерации.'
   const outpaintRect = currentOutpaintRect()
+  const sketchPlaceholderText = paintStageSize.width < 520
+    ? 'Нарисуйте эскиз'
+    : 'Нарисуйте эскиз и получите реалистичное изображение'
   const outpaintImageStyle = {
     left: `${outpaintRect.x / Math.max(1, paintStageSize.width) * 100}%`,
     top: `${outpaintRect.y / Math.max(1, paintStageSize.height) * 100}%`,
@@ -639,7 +642,7 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
         >
           <Layer>
             <Rect width={paintStageSize.width} height={paintStageSize.height} fill={paintMode === 'mask' || paintSketchImage ? 'rgba(0,0,0,0)' : paintCanvasBg === 'white' ? '#ffffff' : '#2b2f2c'} />
-            {paintMode === 'sketch' && paintLines.length === 0 && !paintSketchImage && <Text text="Нарисуйте эскиз и получите реалистичное изображение" x={Math.max(20, paintStageSize.width / 2 - 255)} y={paintStageSize.height / 2 - 13} fill="#74806d" fontSize={Math.min(22, Math.max(14, paintStageSize.width / 44))} fontStyle="bold" />}
+            {paintMode === 'sketch' && paintLines.length === 0 && !paintSketchImage && <Text text={sketchPlaceholderText} x={20} y={paintStageSize.height / 2 - 13} width={Math.max(1, paintStageSize.width - 40)} align="center" fill="#74806d" fontSize={Math.min(22, Math.max(13, paintStageSize.width / 38))} fontStyle="bold" />}
             {paintMode === 'mask' && paintLines.length === 0 && <Text text="Выделите область, которую нужно изменить" x={Math.max(20, paintStageSize.width / 2 - 210)} y={paintStageSize.height / 2 - 13} fill="#dfff22" fontSize={Math.min(20, Math.max(14, paintStageSize.width / 46))} fontStyle="bold" opacity={0.72} />}
             {paintLines.map((line, index) => line.fill ? renderPaintLine(line, `${index}-fill`) : null)}
             {paintLines.map((line, index) => line.fill ? null : renderPaintLine(line, `${index}-stroke`))}

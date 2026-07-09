@@ -2314,14 +2314,15 @@ def telegram_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now
         # Create a new user using the project's legacy-safe id format (never altered).
         legacy_user_id = f"telegram_{pid}"
         internal_user_id = uuid.uuid4().hex
+        avatar_url, avatar_preset = random_avatar_choice()
         conn.execute(
             """
             INSERT OR IGNORE INTO users
                 (id, telegram_id, username, first_name, last_name, language, role, plan, gallery_enabled,
-                 created_at, last_login_at, internal_user_id)
-            VALUES (?, ?, ?, ?, ?, ?, 'user', 'mini', 1, ?, ?, ?)
+                 avatar_url, avatar_preset, created_at, last_login_at, internal_user_id)
+            VALUES (?, ?, ?, ?, ?, ?, 'user', 'mini', 1, ?, ?, ?, ?, ?)
             """,
-            (legacy_user_id, pid, username, first, last, lang or "ru", now, now, internal_user_id),
+            (legacy_user_id, pid, username, first, last, lang or "ru", avatar_url, avatar_preset, now, now, internal_user_id),
         )
         row = conn.execute("SELECT id, internal_user_id FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
         if row:
@@ -2394,14 +2395,15 @@ def max_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now: str
     if internal_user_id is None:
         legacy_user_id = f"max_{pid}"
         internal_user_id = uuid.uuid4().hex
+        avatar_url, avatar_preset = random_avatar_choice()
         conn.execute(
             """
             INSERT OR IGNORE INTO users
                 (id, max_id, username, first_name, last_name, language, role, plan, gallery_enabled,
-                 created_at, last_login_at, internal_user_id)
-            VALUES (?, ?, ?, ?, ?, ?, 'user', 'mini', 1, ?, ?, ?)
+                 avatar_url, avatar_preset, created_at, last_login_at, internal_user_id)
+            VALUES (?, ?, ?, ?, ?, ?, 'user', 'mini', 1, ?, ?, ?, ?, ?)
             """,
-            (legacy_user_id, pid, username, first, last, lang or "ru", now, now, internal_user_id),
+            (legacy_user_id, pid, username, first, last, lang or "ru", avatar_url, avatar_preset, now, now, internal_user_id),
         )
         row = conn.execute("SELECT id, internal_user_id FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
         if row:
@@ -3124,23 +3126,24 @@ def email_otp_upsert_identity(conn: sqlite3.Connection, email_norm: str, now: st
     internal_user_id = uuid.uuid4().hex
     user_columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
     has_email_col = "email" in user_columns
+    avatar_url, avatar_preset = random_avatar_choice()
     if has_email_col:
         conn.execute(
             """
             INSERT OR IGNORE INTO users
-                (id, email, language, role, plan, gallery_enabled, created_at, last_login_at, internal_user_id)
-            VALUES (?, ?, 'ru', 'user', 'mini', 1, ?, ?, ?)
+                (id, email, language, role, plan, gallery_enabled, avatar_url, avatar_preset, created_at, last_login_at, internal_user_id)
+            VALUES (?, ?, 'ru', 'user', 'mini', 1, ?, ?, ?, ?, ?)
             """,
-            (legacy_user_id, email_norm, now, now, internal_user_id),
+            (legacy_user_id, email_norm, avatar_url, avatar_preset, now, now, internal_user_id),
         )
     else:
         conn.execute(
             """
             INSERT OR IGNORE INTO users
-                (id, language, role, created_at, last_login_at, internal_user_id)
-            VALUES (?, 'ru', 'user', ?, ?, ?)
+                (id, language, role, avatar_url, avatar_preset, created_at, last_login_at, internal_user_id)
+            VALUES (?, 'ru', 'user', ?, ?, ?, ?, ?)
             """,
-            (legacy_user_id, now, now, internal_user_id),
+            (legacy_user_id, avatar_url, avatar_preset, now, now, internal_user_id),
         )
     row = conn.execute("SELECT id, internal_user_id FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
     if row and row["internal_user_id"]:
@@ -3725,6 +3728,11 @@ AVATAR_MAX_BYTES = 8 * 1024 * 1024
 AVATAR_OUTPUT_SIZE = 512
 AVATAR_WEBP_QUALITY = 86
 AVATAR_ALLOWED_CONTENT_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+
+
+def random_avatar_choice() -> tuple[str, str]:
+    preset = f"avatar-{secrets.randbelow(AVATAR_PRESET_COUNT) + 1:03d}"
+    return f"/avatars/{preset}.webp", preset
 
 
 def validate_avatar_choice(avatar_url: str | None, avatar_preset: str | None) -> tuple[str | None, str | None]:
@@ -4651,11 +4659,12 @@ def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
         raw_id = stripped
     user_id = f"{auth.platform}_{raw_id}" if raw_id else "demo_user"
     with db() as conn:
+        avatar_url, avatar_preset = random_avatar_choice()
         conn.execute(
             """
             INSERT INTO users (id, telegram_id, max_id, username, first_name, last_name, middle_name, phone, email, language, role, plan, gallery_enabled, created_at, last_login_at,
-                               country, city, timezone, ref_code, last_user_agent, last_screen, last_seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 'mini', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               country, city, timezone, ref_code, last_user_agent, last_screen, last_seen_at, avatar_url, avatar_preset)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 'mini', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 username=COALESCE(excluded.username, users.username),
                 first_name=COALESCE(excluded.first_name, users.first_name),
@@ -4693,6 +4702,8 @@ def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
                 auth.userAgent,
                 auth.screen,
                 now,
+                avatar_url,
+                avatar_preset,
             ),
         )
         row = conn.execute(
@@ -11135,10 +11146,11 @@ async def admin_create_user(req: AdminUserRequest, request: Request) -> dict[str
     require_trusted_admin(request)
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
+        avatar_url, avatar_preset = random_avatar_choice()
         conn.execute(
             """
-            INSERT INTO users (id, username, first_name, last_name, middle_name, phone, email, country, city, language, role, plan, token_balance, gallery_enabled, created_at, last_login_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ru', ?, ?, ?, ?, ?, ?)
+            INSERT INTO users (id, username, first_name, last_name, middle_name, phone, email, country, city, language, role, plan, token_balance, gallery_enabled, avatar_url, avatar_preset, created_at, last_login_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ru', ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 username=COALESCE(excluded.username, users.username),
                 first_name=COALESCE(excluded.first_name, users.first_name),
@@ -11154,7 +11166,7 @@ async def admin_create_user(req: AdminUserRequest, request: Request) -> dict[str
                 gallery_enabled=excluded.gallery_enabled,
                 last_login_at=excluded.last_login_at
             """,
-            (req.userId, req.username, req.firstName, req.lastName, req.middleName, req.phone, req.email, req.country, req.city, req.role, req.plan, req.tokenBalance, int(req.galleryEnabled), now, now),
+            (req.userId, req.username, req.firstName, req.lastName, req.middleName, req.phone, req.email, req.country, req.city, req.role, req.plan, req.tokenBalance, int(req.galleryEnabled), avatar_url, avatar_preset, now, now),
         )
         conn.execute(
             "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'admin_register', '{}', ?)",

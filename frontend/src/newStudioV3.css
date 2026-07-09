@@ -1296,6 +1296,33 @@ display: none;
 grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
 gap: 6px;
 }
+.iv3 .paint-tools-toggle {
+display: none;
+width: 100%;
+min-height: 38px;
+align-items: center;
+justify-content: space-between;
+gap: 10px;
+padding: 0 12px;
+border: 1px solid rgba(182, 207, 18, .28);
+border-radius: 9px;
+color: rgba(238, 244, 235, .86);
+background:
+        linear-gradient(180deg, rgba(255, 255, 255, .045), rgba(0, 0, 0, .12)),
+        rgba(18, 22, 20, .84);
+font-size: 12px;
+font-weight: 620;
+}
+.iv3 .paint-tools-toggle svg {
+transition: transform .16s ease;
+}
+.iv3 .paint-tools-toggle.active {
+border-color: rgba(182, 207, 18, .64);
+color: var(--lime);
+}
+.iv3 .paint-tools-toggle.active svg {
+transform: rotate(180deg);
+}
 .iv3 .paint-sidebar-tools button,
 .iv3 .paint-tool-color {
 height: 36px;
@@ -1940,10 +1967,10 @@ backdrop-filter: blur(12px);
 }
 @media (max-width: 820px) {
 .iv3 .paint-mode-select {
-display: grid;
+display: none;
 }
 .iv3 .paint-mode-tabs {
-display: none;
+display: flex;
 }
 .iv3 .paint-tab-label {
 font-size: 10.4px;
@@ -1958,9 +1985,15 @@ gap: 6px;
 .iv3 .paint-canvas-toolbar {
 display: none;
 }
+.iv3 .paint-tools-toggle {
+display: inline-flex;
+}
 .iv3 .paint-sidebar-tools {
-display: grid;
+display: none;
 grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.iv3 .paint-sidebar-tools.is-open {
+display: grid;
 }
 .iv3 .paint-tool-color.paint-mobile-color {
 display: inline-grid;
@@ -2019,10 +2052,10 @@ left: 10px;
 top: 48px;
 }
 .iv3 .paint-workbench.mode-sketch .paint-workbench-actions {
-top: auto;
-right: 50%;
-bottom: 10px;
-transform: translateX(50%);
+top: 10px;
+right: 10px;
+bottom: auto;
+transform: none;
 padding: 5px;
 border: 1px solid rgba(255, 255, 255, .12);
 border-radius: 10px;
@@ -4755,15 +4788,15 @@ font-size: 9px;
     line-height: 1.28;
   }
   .iv3 .paint-mode-select {
-    display: grid;
-  }
-  .iv3 .paint-mode-tabs {
     display: none;
   }
+  .iv3 .paint-mode-tabs {
+    display: flex;
+  }
   .iv3 .paint-workbench.mode-sketch .paint-workbench-actions {
-    top: auto;
-    right: 50%;
-    bottom: 10px;
-    transform: translateX(50%);
+    top: 10px;
+    right: 10px;
+    bottom: auto;
+    transform: none;
   }
 }
