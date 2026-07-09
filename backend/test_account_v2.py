@@ -140,6 +140,8 @@ def test_patch_updates_allowed_fields(temp_db):
                 "display_name": " New Name ",
                 "city": "Berlin",
                 "language_code": "en",
+                "gender": "male",
+                "age": "34",
                 "public_about": " Создаю визуалы для брендов ",
                 "public_website": "example.com/portfolio",
                 "public_focus": "бренд-дизайн",
@@ -156,6 +158,8 @@ def test_patch_updates_allowed_fields(temp_db):
     assert p["display_name"] == "New Name"  # trimmed
     assert p["city"] == "Berlin"
     assert p["language_code"] == "en"
+    assert p["gender"] == "male"
+    assert p["age"] == 34
     assert p["public_about"] == "Создаю визуалы для брендов"
     assert p["public_website"] == "https://example.com/portfolio"
     assert p["public_focus"] == "бренд-дизайн"
@@ -164,10 +168,14 @@ def test_patch_updates_allowed_fields(temp_db):
         {"label": "Telegram", "url": "https://t.me/brand"},
         {"label": "Портфолио", "url": "https://portfolio.example"},
     ]
+    assert me.json()["profile"]["age"] == 34
+    assert me.json()["profile"]["gender"] == "male"
     assert me.json()["profile"]["public_website"] == "https://example.com/portfolio"
     assert me.json()["profile"]["public_links"][0]["url"] == "https://t.me/brand"
     with main.db() as conn:
-        row = conn.execute("SELECT public_about, public_website, public_focus, public_phone, public_links_json FROM users WHERE internal_user_id='iuid-1'").fetchone()
+        row = conn.execute("SELECT gender, age, public_about, public_website, public_focus, public_phone, public_links_json FROM users WHERE internal_user_id='iuid-1'").fetchone()
+    assert row["gender"] == "male"
+    assert row["age"] == 34
     assert row["public_about"] == "Создаю визуалы для брендов"
     assert row["public_website"] == "https://example.com/portfolio"
     assert row["public_focus"] == "бренд-дизайн"

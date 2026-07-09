@@ -571,6 +571,8 @@ class ProfileUpdateV2Request(BaseModel):
     country_code: str | None = None
     avatar_url: str | None = None
     avatar_preset: str | None = None
+    gender: str | None = None
+    age: int | str | None = None
     public_about: str | None = None
     public_website: str | None = None
     public_focus: str | None = None

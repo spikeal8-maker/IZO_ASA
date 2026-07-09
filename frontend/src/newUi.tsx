@@ -760,11 +760,12 @@ export default function NewStudio(): ReactElement {
     if (!trimmed) { setSaveMsg('Введите имя'); return }
     const age = profileAge.trim()
     if (age && (Number(age) < 13 || Number(age) > 120)) { setSaveMsg('Возраст должен быть от 13 до 120'); return }
+    const normalizedAge = age ? Number(age) : null
     setSaveMsg('')
     const result = await updateProfileV2({
       display_name: trimmed,
       gender: profileGender,
-      age,
+      age: normalizedAge,
       public_about: publicAbout.trim(),
       public_website: publicWebsite.trim(),
       public_focus: publicFocus.trim(),
@@ -1158,7 +1159,7 @@ export default function NewStudio(): ReactElement {
     queueMicrotask(() => {
       setDisplayName(me?.profile?.display_name || '')
       setProfileGender(me?.profile?.gender === 'male' ? 'male' : 'female')
-      setProfileAge(me?.profile?.age ? String(me.profile.age) : '')
+      setProfileAge(me?.profile?.age === null || me?.profile?.age === undefined ? '' : String(me.profile.age))
       setPublicAbout(me?.profile?.public_about || '')
       setPublicWebsite(me?.profile?.public_website || '')
       setPublicFocus(me?.profile?.public_focus || '')
