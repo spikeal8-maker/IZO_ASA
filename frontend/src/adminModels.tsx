@@ -51,6 +51,7 @@ type ApiImageModel = {
   id: string; name: string; provider: string; input: string; output: string; params: string; pricing: string
   mpUsd?: number; imageUsd?: number; token?: boolean; tiered?: boolean
 }
+type ApiSortKey = 'price' | 'name' | 'provider'
 type ApiModeSection = {
   id: string
   title: string
@@ -117,14 +118,66 @@ const API_MODE_SECTIONS: ApiModeSection[] = [
 ]
 
 const rub = (usd: number) => `${(usd * USD_RUB).toFixed(2)} ₽`
-const modelRubPrice = (m: ApiImageModel) => {
-  if (typeof m.mpUsd === 'number') return `${rub(m.mpUsd)} / MP`
-  if (typeof m.imageUsd === 'number') return `${rub(m.imageUsd)} / image`
-  if (m.token) return 'usage после теста'
-  if (m.tiered) return 'tiered, см. price'
-  return 'нет данных'
+const SHORT_PROMPT_TEXT_TOKENS = 40
+const OUTPUT_IMAGE_TOKENS_1MP = 1300
+const usd = (value: number) => `$${value.toFixed(value < 0.01 ? 4 : 3)}`
+const modelBrand = (m: ApiImageModel) => {
+  const fromName = m.name.includes(':') ? m.name.split(':')[0].trim() : ''
+  const fromId = m.id.split('/')[0] || ''
+  return (fromName || m.provider || fromId || 'Unknown').replace('Black Forest Labs', 'BFL')
 }
-const priceKind = (m: ApiImageModel) => typeof m.mpUsd === 'number' ? 'MP' : typeof m.imageUsd === 'number' ? 'image' : m.token ? 'token' : m.tiered ? 'tiered' : 'unknown'
+const modelShortName = (m: ApiImageModel) => {
+  const withoutBrand = m.name.includes(':') ? m.name.split(':').slice(1).join(':').trim() : m.name
+  return withoutBrand.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
+}
+const extractTokenRate = (pricing: string, key: string) => {
+  const match = pricing.match(new RegExp(`${key}: \\$(\\d+(?:\\.\\d+)?)/token`))
+  return match ? Number(match[1]) : null
+}
+const extractDollarValues = (pricing: string) => Array.from(pricing.matchAll(/\$(\d+(?:\.\d+)?)/g)).map((m) => Number(m[1])).filter(Number.isFinite)
+const extractOutputImageDollars = (pricing: string) => {
+  const outputIndex = pricing.indexOf('output_image')
+  return outputIndex >= 0 ? extractDollarValues(pricing.slice(outputIndex)) : []
+}
+const estimatedUsdPerMp = (m: ApiImageModel) => {
+  if (typeof m.mpUsd === 'number') return m.mpUsd
+  if (typeof m.imageUsd === 'number') return m.imageUsd
+  if (m.token) {
+    const outputRate = extractTokenRate(m.pricing, 'output_image')
+    const inputTextRate = extractTokenRate(m.pricing, 'input_text') || 0
+    if (outputRate !== null) return outputRate * OUTPUT_IMAGE_TOKENS_1MP + inputTextRate * SHORT_PROMPT_TEXT_TOKENS
+  }
+  if (m.tiered) {
+    const values = extractOutputImageDollars(m.pricing)
+    if (values.length) return Math.min(...values)
+  }
+  return null
+}
+const priceConfidence = (m: ApiImageModel) => {
+  if (typeof m.mpUsd === 'number') return 'точно за MP'
+  if (typeof m.imageUsd === 'number') return 'за image, считаем как 1MP'
+  if (m.token) return `оценка: ${OUTPUT_IMAGE_TOKENS_1MP} image-токенов + ~${SHORT_PROMPT_TEXT_TOKENS} текстовых`
+  if (m.tiered) return 'минимальный тариф из OpenRouter'
+  return 'нет endpoint pricing'
+}
+const modelRubPrice = (m: ApiImageModel) => {
+  const value = estimatedUsdPerMp(m)
+  return value === null ? 'нет данных' : `${rub(value)}`
+}
+const modelUsdPrice = (m: ApiImageModel) => {
+  const value = estimatedUsdPerMp(m)
+  return value === null ? 'нет данных' : usd(value)
+}
+const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortKey) => [...rows].sort((a, b) => {
+  if (sort === 'name') return modelShortName(a).localeCompare(modelShortName(b), 'ru')
+  if (sort === 'provider') return modelBrand(a).localeCompare(modelBrand(b), 'ru') || modelShortName(a).localeCompare(modelShortName(b), 'ru')
+  const ap = estimatedUsdPerMp(a)
+  const bp = estimatedUsdPerMp(b)
+  if (ap === null && bp === null) return modelShortName(a).localeCompare(modelShortName(b), 'ru')
+  if (ap === null) return 1
+  if (bp === null) return -1
+  return ap - bp || modelShortName(a).localeCompare(modelShortName(b), 'ru')
+})
 
 const CSS = `
 .amv2{--panel:#101310;--line:rgba(255,255,255,.10);--line-strong:rgba(255,255,255,.18);--text:#f5f7ef;--muted:#a6aea3;--dim:#727b70;--lime:#eaff10;--green:#43df62;--yellow:#ffd24a;--red:#ff5c62;--radius:8px;color:var(--text);}
@@ -156,7 +209,15 @@ const CSS = `
 .amv2 .mode-board{padding:12px;display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:10px}
 .amv2 .mode-card{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.032);display:grid;gap:8px;align-content:start}
 .amv2 .mode-card strong{font-size:13px}.amv2 .mode-card span{color:var(--muted);font-size:12px;line-height:1.35}
-.amv2 .api-table td,.amv2 .api-table th{vertical-align:top}
+.amv2 .api-sort{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.amv2 .api-sort label{letter-spacing:0;text-transform:none;color:var(--muted)}
+.amv2 .api-sort select{width:auto;min-width:142px}
+.amv2 .api-table{min-width:760px}
+.amv2 .api-table td,.amv2 .api-table th{vertical-align:middle}
+.amv2 .api-table details{margin:0;border:0;background:transparent}
+.amv2 .api-table summary{padding:0;color:var(--lime);font-size:12px}
+.amv2 .api-table .detail-box{margin-top:8px;display:grid;gap:5px;color:var(--muted);line-height:1.35}
+.amv2 .api-table .model-name{white-space:nowrap}
 .amv2 .money{font-weight:950;color:var(--lime);white-space:nowrap}
 .amv2 .risk-low{color:var(--green)}.amv2 .risk-mid{color:var(--yellow)}.amv2 .risk-high{color:var(--red)}
 .amv2 .dashboard{display:grid;grid-template-columns:1fr 1.18fr .82fr;gap:12px;margin-bottom:12px}
@@ -228,7 +289,7 @@ const CSS = `
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel{grid-template-columns:1fr}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .mobile-models{display:grid}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel{grid-template-columns:1fr}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .mobile-models{display:grid}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:1fr}}
 `
 
@@ -238,6 +299,7 @@ export default function AdminModelsV2() {
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
   const [routes, setRoutes] = useState<Route[]>([])
   const [query, setQuery] = useState('')
+  const [apiSorts, setApiSorts] = useState<Record<string, ApiSortKey>>({})
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
   const [configErr, setConfigErr] = useState('')
@@ -431,7 +493,7 @@ export default function AdminModelsV2() {
           </div>
           <div className="api-key-box">
             <strong>Что уже понятно</strong>
-            <small>Snapshot цен: {OPENROUTER_SNAPSHOT_DATE}, источник: OpenRouter /api/v1/images/models + endpoints. MP-цена показана только там, где endpoint реально тарифицируется за megapixel.</small>
+            <small>Snapshot цен: {OPENROUTER_SNAPSHOT_DATE}, источник: OpenRouter /api/v1/images/models + endpoints. Для token-моделей цена примерная: считаем 1MP image output и короткий промпт из ~10 слов.</small>
             <span className="mini">курс для планирования: $1 = {USD_RUB} ₽</span>
             <span className="mini">всего image-моделей в snapshot: {OPENROUTER_IMAGE_MODELS.length}</span>
           </div>
@@ -444,32 +506,52 @@ export default function AdminModelsV2() {
       </div>
 
       {API_MODE_SECTIONS.map((section) => {
+        const sort = apiSorts[section.id] || 'price'
         const rows = OPENROUTER_IMAGE_MODELS
           .filter(section.filter)
           .filter((m) => {
             const hay = `${m.id} ${m.name} ${m.provider} ${m.input} ${m.output} ${m.params} ${m.pricing}`.toLowerCase()
             return !query || hay.includes(query.toLowerCase())
           })
+        const sortedRows = sortedApiRows(rows, sort)
         return <article className="card" key={section.id}>
           <div className="card-head">
             <div>
               <h2 className="card-title">{section.title}</h2>
               <p className="card-note">{section.note}</p>
             </div>
-            <span className="state ok">{rows.length} моделей</span>
+            <div className="api-sort">
+              <span className="state ok">{rows.length} моделей</span>
+              <label htmlFor={`sort-${section.id}`}>Сортировка</label>
+              <select id={`sort-${section.id}`} value={sort} onChange={(e) => setApiSorts((prev) => ({ ...prev, [section.id]: e.target.value as ApiSortKey }))}>
+                <option value="price">по цене</option>
+                <option value="name">по названию</option>
+                <option value="provider">по производителю</option>
+              </select>
+            </div>
           </div>
           <div className="hint" style={{ margin: '12px 12px 0' }}>Локальный аналог: {section.local}. Дубли между карточками нормальны: одна OpenRouter-модель может подходить сразу под несколько режимов.</div>
           <div className="matrix-wrap">
             <table className="api-table">
-              <thead><tr><th>Модель</th><th>Provider</th><th>Input / Output</th><th>Параметры</th><th>Цена OpenRouter</th><th>₽ за 1MP / image</th><th>Тип цены</th></tr></thead>
-              <tbody>{rows.map((m) => <tr key={`${section.id}-${m.id}`}>
-                <td><strong>{m.name}</strong><br /><span className="model-id">{m.id}</span></td>
-                <td><span className="provider openrouter">{m.provider}</span></td>
-                <td>{m.input} / {m.output}</td>
-                <td>{m.params || '—'}</td>
-                <td>{m.pricing}</td>
-                <td><span className="money">{modelRubPrice(m)}</span>{m.imageUsd ? <small>для 1MP как 1 image</small> : null}</td>
-                <td><span className="mini">{priceKind(m)}</span></td>
+              <thead><tr><th>Модель</th><th>Производитель</th><th>Цена за 1MP, ₽</th><th>Цена за 1MP, $</th><th>Подробнее</th></tr></thead>
+              <tbody>{sortedRows.map((m) => <tr key={`${section.id}-${m.id}`}>
+                <td><strong className="model-name">{modelShortName(m)}</strong></td>
+                <td><span className="provider openrouter">{modelBrand(m)}</span></td>
+                <td><span className="money">{modelRubPrice(m)}</span></td>
+                <td><span className="money">{modelUsdPrice(m)}</span></td>
+                <td>
+                  <details>
+                    <summary>открыть</summary>
+                    <div className="detail-box">
+                      <span><b>Полное имя:</b> {m.name}</span>
+                      <span><b>OpenRouter id:</b> {m.id}</span>
+                      <span><b>Как посчитано:</b> {priceConfidence(m)}</span>
+                      <span><b>Цена из OpenRouter:</b> {m.pricing}</span>
+                      <span><b>Вход/выход API:</b> {m.input} {'->'} {m.output}</span>
+                      <span><b>Параметры:</b> {m.params || 'нет в endpoint metadata'}</span>
+                    </div>
+                  </details>
+                </td>
               </tr>)}</tbody>
             </table>
           </div>
