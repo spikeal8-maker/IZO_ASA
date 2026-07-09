@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Lock, Shield, WandSparkles } from 'lucide-react'
 import {
   AuthV2Modal,
@@ -19,12 +19,64 @@ const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } 
 
 type AdminTab = 'dashboard' | 'users' | 'models' | 'tokens' | 'mail' | 'logs'
 type AnyRec = Record<string, unknown>
+type SeriesPoint = { date: string; value: number }
 type PromoCode = {
   code: string
   tokens: number
   activation_limit: number
   activation_count: number
   enabled: number
+}
+
+function asSeries(value: unknown): SeriesPoint[] {
+  return Array.isArray(value)
+    ? value.map((item) => {
+      const row = item as Partial<SeriesPoint>
+      return { date: String(row.date || ''), value: Number(row.value || 0) }
+    })
+    : []
+}
+
+function shortTick(value: string): string {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value.slice(5, 10)
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
+}
+
+function AdminLineChart({ title, note, series, color = '#eaff10' }: { title: string; note: string; series: SeriesPoint[]; color?: string }) {
+  const data = series.length ? series : [{ date: '', value: 0 }]
+  const max = Math.max(1, ...data.map((p) => p.value))
+  const width = 360
+  const height = 190
+  const pad = 28
+  const points = data.map((p, i) => {
+    const x = pad + (data.length === 1 ? 0 : i * ((width - pad * 2) / (data.length - 1)))
+    const y = height - pad - (p.value / max) * (height - pad * 2)
+    return { ...p, x, y }
+  })
+  const poly = points.map((p) => `${p.x},${p.y}`).join(' ')
+  const total = data.reduce((sum, p) => sum + p.value, 0)
+  const last = data[data.length - 1]?.value ?? 0
+  return (
+    <article className="admin-line-chart">
+      <header><h3>{title}</h3><p className="admin-line-meta">{note}</p></header>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title}>
+        {[0, 1, 2, 3].map((i) => {
+          const y = pad + i * ((height - pad * 2) / 3)
+          return <line key={i} className="grid" x1={pad} y1={y} x2={width - pad} y2={y} />
+        })}
+        {points.filter((_, i) => i % Math.max(1, Math.floor(points.length / 5)) === 0).map((p) => <line key={p.date || p.x} className="grid vertical" x1={p.x} y1={pad} x2={p.x} y2={height - pad} />)}
+        <text className="axis value" x={4} y={pad + 4}>{max}</text>
+        <text className="axis value" x={4} y={height - pad}>{0}</text>
+        <polyline points={poly} stroke={color} />
+        {points.map((p, i) => <circle key={`${p.date}-${i}`} cx={p.x} cy={p.y} r={3.5} fill={color} />)}
+        {points[0] && <text className="axis date" x={points[0].x} y={height - 6}>{shortTick(points[0].date)}</text>}
+        {points.length > 1 && <text className="axis date" x={points[points.length - 1].x} y={height - 6}>{shortTick(points[points.length - 1].date)}</text>}
+      </svg>
+      <footer><small>Последнее: <b>{last}</b></small><small>Сумма: <b>{total}</b></small></footer>
+    </article>
+  )
 }
 
 async function adminFetch(path: string, init: RequestInit = {}): Promise<Response> {
@@ -85,6 +137,19 @@ function AdminAccessPage({ status, onOpenAuth }: { status: 'loading' | 'denied';
 
 function AdminDashboard({ summary }: { summary: AnyRec | null }) {
   const finance = (summary?.finance || {}) as AnyRec
+  const timeline = (summary?.timeline || {}) as AnyRec
+  const [range, setRange] = useState<'24h' | '90d'>('24h')
+  const charts = useMemo(() => {
+    const suffix = range === '24h' ? '_24h' : ''
+    return [
+      { title: 'Активность', note: range === '24h' ? 'активные пользователи за 24ч' : 'активные пользователи за 90 дней', key: range === '24h' ? 'active_users_24h' : 'active_users', color: '#eaff10' },
+      { title: 'Регистрации', note: range === '24h' ? 'новые аккаунты за 24ч' : 'новые аккаунты за 90 дней', key: range === '24h' ? 'registrations_24h' : 'registrations', color: '#43df62' },
+      { title: 'Логины', note: range === '24h' ? 'успешные входы за 24ч' : 'успешные входы за 90 дней', key: range === '24h' ? 'logins_24h' : 'logins', color: '#7bc3ff' },
+      { title: 'Генерации', note: range === '24h' ? 'созданные задачи за 24ч' : 'созданные задачи за 90 дней', key: range === '24h' ? 'generations_24h' : 'generations', color: '#ffd24a' },
+      { title: 'Ошибки входа', note: range === '24h' ? 'неуспешные входы за 24ч' : 'неуспешные входы за 90 дней', key: range === '24h' ? 'login_errors_24h' : 'login_errors', color: '#ff8a3d' },
+      { title: 'Ошибки генерации', note: range === '24h' ? 'failed jobs за 24ч' : 'failed jobs за 90 дней', key: range === '24h' ? 'generation_errors_24h' : 'generation_errors', color: '#ff5c62' },
+    ].map((chart) => ({ ...chart, series: asSeries(timeline[chart.key] || timeline[chart.key.replace(suffix, '_hourly')]) }))
+  }, [range, timeline])
   const kpi = (title: string, value: unknown, note: string) => (
     <div><strong>{title}</strong><span>{String(value ?? '—')}</span><small>{note}</small></div>
   )
@@ -106,6 +171,14 @@ function AdminDashboard({ summary }: { summary: AnyRec | null }) {
           {kpi('Акции', `${Number(finance.promoBudget ?? 0).toLocaleString('ru-RU')} ₽`, 'оценка')}
         </div>
       )}
+      <div className="admin-dashboard-toolbar">
+        <strong>Графики использования</strong>
+        <button className={range === '24h' ? 'active' : ''} onClick={() => setRange('24h')}>24 часа</button>
+        <button className={range === '90d' ? 'active' : ''} onClick={() => setRange('90d')}>90 дней</button>
+      </div>
+      <div className="admin-chart-grid">
+        {charts.map((chart) => <AdminLineChart key={chart.key} title={chart.title} note={chart.note} series={chart.series} color={chart.color} />)}
+      </div>
       <div className="admin-note">
         <strong>Статус страницы</strong>
         <p>Это отдельная админская оболочка. Она не рендерит старый генератор и использует только trusted cookie auth.</p>

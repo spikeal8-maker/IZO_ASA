@@ -11619,9 +11619,9 @@ async def admin_config_ui_interrupt_v2(req: AdminConfigUiActionV2Request, reques
 
 # Известные LoRA: назначение / совместимость / целевой workflow.
 KNOWN_LORAS: dict[str, dict[str, Any]] = {
-    "bfs_head_v1_flux-klein_4b": {"purpose": "face / head consistency", "compatible": ["flux_klein_4b"], "routes": ["face", "edit"], "requires": []},
-    "bfs_head_v1_flux-klein_9b": {"purpose": "face / identity", "compatible": ["flux_klein_9b"], "routes": ["face", "edit"], "requires": []},
-    "refcontrol_v2_poses": {"purpose": "pose ref-control", "compatible": ["flux_klein_9b"], "routes": ["edit_pose"], "requires": ["DWPreprocessor"]},
+    "bfs_head_v1_flux-klein_4b": {"purpose": "face / head consistency", "compatible": ["Flux 2 Klein 4B"], "routes": ["face", "edit"], "requires": [], "kind": "klein-face", "recommended": True},
+    "bfs_head_v1_flux-klein_9b": {"purpose": "face / identity", "compatible": ["Flux 2 Klein 9B"], "routes": ["face", "edit"], "requires": [], "kind": "klein-face", "recommended": True},
+    "refcontrol_v2_poses": {"purpose": "pose ref-control", "compatible": ["Flux 2 Klein 9B"], "routes": ["edit_pose"], "requires": ["DWPreprocessor"], "kind": "klein-pose", "recommended": True},
 }
 
 OPENROUTER_CATALOG = [
@@ -11650,26 +11650,56 @@ async def scan_loras() -> list[dict[str, Any]]:
     except Exception:
         models = {}
     files = models.get("loras", [])
-    nodes = await comfyui_node_names()
+    try:
+        nodes = await comfyui_node_names()
+    except Exception:
+        nodes = set()
     out: list[dict[str, Any]] = []
+    seen_known: set[str] = set()
     for f in files:
         base = f.lower()
         meta = None
+        matched_key = ""
         for key, m in KNOWN_LORAS.items():
             if key.lower() in base:
                 meta = m
+                matched_key = key
                 break
         if meta:
+            seen_known.add(matched_key)
             requires_ok = all(n in nodes for n in meta["requires"])
-            status = "active" if (meta["routes"] == ["edit_pose"] and requires_ok) else ("found" if requires_ok else "missing")
+            status = "active" if requires_ok else "missing"
             out.append({
                 "fileName": f, "purpose": meta["purpose"], "compatible": meta["compatible"],
                 "routes": meta["routes"], "requires": meta["requires"], "status": status,
+                "kind": meta.get("kind", "klein"), "recommended": bool(meta.get("recommended")),
+                "installed": True, "forKlein": True,
             })
         else:
-            # Не относится к klein (например wan/video LoRA) — показываем как untested style/other.
-            if any(k in base for k in ("klein", "flux", "style", "lora")):
-                out.append({"fileName": f, "purpose": "стиль / прочее (проверить)", "compatible": [], "routes": [], "requires": [], "status": "untested"})
+            is_video = any(k in base for k in ("wan", "i2v", "x2v", "video", "hunyuan"))
+            is_flux_candidate = any(k in base for k in ("klein", "flux", "style"))
+            if is_video:
+                out.append({
+                    "fileName": f, "purpose": "video / Wan, не используется Flux Klein",
+                    "compatible": ["Wan / video"], "routes": [], "requires": [],
+                    "status": "ignored", "kind": "video", "recommended": False,
+                    "installed": True, "forKlein": False,
+                })
+            elif is_flux_candidate:
+                out.append({
+                    "fileName": f, "purpose": "Flux/Klein кандидат, нужно протестировать",
+                    "compatible": ["Flux/Klein? активация неизвестна"], "routes": [], "requires": [],
+                    "status": "untested", "kind": "unknown-flux", "recommended": False,
+                    "installed": True, "forKlein": True,
+                })
+    for key, meta in KNOWN_LORAS.items():
+        if key not in seen_known:
+            out.append({
+                "fileName": key, "purpose": meta["purpose"], "compatible": meta["compatible"],
+                "routes": meta["routes"], "requires": meta["requires"], "status": "missing",
+                "kind": meta.get("kind", "klein"), "recommended": bool(meta.get("recommended")),
+                "installed": False, "forKlein": True,
+            })
     return out
 
 
@@ -11772,7 +11802,9 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
     routes_assigned = sum(1 for r in routes if r.get("modelProfileId"))
     expensive = sum(1 for m in matrix if m["provider"] == "openrouter" and m["tariffs"].get("pro", {}).get("enabled"))
     conflicts = 0
-    if any(l["status"] == "untested" for l in loras):
+    if any(l["status"] == "untested" and l.get("forKlein") for l in loras):
+        conflicts += 1
+    if any(l["status"] == "missing" and l.get("recommended") for l in loras):
         conflicts += 1
     if not openrouter_key and any(m["provider"] == "openrouter" and any(t.get("enabled") for t in m["tariffs"].values()) for m in matrix):
         conflicts += 1

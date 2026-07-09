@@ -15,7 +15,10 @@ const TARIFFS: Tariff[] = ['free', 'basic', 'pro', 'admin']
 type Cell = { enabled: boolean; tokenCost: number; isDefault: boolean; formula: string }
 type MatrixRow = { modelProfileId: string; provider: string; displayName: string; modelId: string; tariffs: Record<Tariff, Cell> }
 type Route = { routeId: string; displayName: string; icon: string; provider: string; modelProfileId: string; state: string; status: string; locked?: boolean; label?: string }
-type Lora = { fileName: string; purpose: string; compatible: string[]; routes: string[]; requires: string[]; status: string }
+type Lora = {
+  fileName: string; purpose: string; compatible: string[]; routes: string[]; requires: string[]; status: string
+  kind?: string; recommended?: boolean; installed?: boolean; forKlein?: boolean
+}
 type UserChoiceItem = { key?: string; label: string; model?: string; cost?: number | string; plan?: string; provider?: string }
 type CatalogItem = { provider: string; displayName: string; modelId: string; capabilities: string[]; cost: string; margin: string; status: string }
 type ProfileOption = { id: string; name: string; supportsPose?: boolean }
@@ -153,13 +156,18 @@ export default function AdminModelsV2() {
   const [selected, setSelected] = useState<string>('')
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
+  const [configErr, setConfigErr] = useState('')
   const [opsReason, setOpsReason] = useState('config api завис / ручная проверка')
   const [opsBusy, setOpsBusy] = useState(false)
 
   const load = useCallback(async () => {
     const [d, status] = await Promise.all([
       amvFetch('/admin/models-page').then((r) => (r.ok ? r.json() : null)).catch(() => null) as Promise<PageData | null>,
-      amvFetch('/admin/config-ui/status-v2').then((r) => (r.ok ? r.json() : null)).catch(() => null) as Promise<ConfigStatus | null>,
+      amvFetch('/admin/config-ui/status-v2').then(async (r) => {
+        if (r.ok) { setConfigErr(''); return await r.json() as ConfigStatus }
+        setConfigErr(`/api/admin/config-ui/status-v2 -> HTTP ${r.status}`)
+        return null
+      }).catch((e) => { setConfigErr(e instanceof Error ? e.message : 'config status недоступен'); return null }) as Promise<ConfigStatus | null>,
     ])
     if (status) setConfigStatus(status)
     // Принимаем ответ только полной формы. Иначе — сообщение об ошибке, а не падение:
@@ -217,11 +225,15 @@ export default function AdminModelsV2() {
   }), [matrix, filter, query])
   const apiMatrix = useMemo(() => matrix.filter((m) => m.provider === 'openrouter'), [matrix])
   const apiCatalog = useMemo(() => (data?.catalog || []).filter((c) => c.provider === 'openrouter'), [data?.catalog])
+  const kleinLoras = useMemo(() => (data?.loras || []).filter((l) => l.forKlein !== false), [data?.loras])
+  const otherLoras = useMemo(() => (data?.loras || []).filter((l) => l.forKlein === false), [data?.loras])
 
   const sel = matrix.find((m) => m.modelProfileId === selected) || null
   const profiles = data?.profiles || []
   const localOptions = profiles.map((p) => ({ id: p.id, name: p.name }))
   const fmtTime = (value?: string) => value ? new Date(value).toLocaleString('ru-RU') : '—'
+  const fmtState = (ok?: boolean) => configErr ? 'unknown' : ok ? 'ok' : 'fail'
+  const statusColor = (ok?: boolean) => configErr ? 'var(--yellow)' : ok ? 'var(--green)' : 'var(--red)'
 
   if (!data) return <div className="amv2"><style>{CSS}</style><div style={{ padding: 12, display: 'grid', gap: 10 }}><p style={{ color: err ? 'var(--red)' : 'var(--muted)' }}>{err || 'Загрузка страницы моделей…'}</p>{err && <button className="ghost" style={{ width: 'max-content' }} onClick={() => void load()}>Повторить</button>}</div></div>
 
@@ -240,22 +252,23 @@ export default function AdminModelsV2() {
           <h2 className="card-title">Config UI: состояние и операции</h2>
           <p className="card-note">Наблюдение за ComfyUI config API, моделями, нодами, кэшем и зависшими задачами.</p>
         </div>
-        <span className={`state ${configStatus?.status === 'ready' ? 'ok' : 'warn'}`}>{configStatus?.status || 'unknown'}</span>
+        <span className={`state ${configStatus?.status === 'ready' ? 'ok' : 'warn'}`}>{configErr ? 'status api fail' : configStatus?.status || 'unknown'}</span>
       </div>
+      {configErr && <p className="hint" style={{ margin: '12px 12px 0', color: 'var(--yellow)' }}>Статус Config UI не загрузился: {configErr}. Если ComfyUI открыт, перезапустите backend/dev-сервер, чтобы он подхватил новые endpoint'ы.</p>}
       <div className="status-grid">
         <div className="status-card">
           <strong>ComfyUI</strong>
-          <span style={{ color: configStatus?.comfyui?.available ? 'var(--green)' : 'var(--red)' }}>{configStatus?.comfyui?.available ? 'online' : 'offline'}</span>
+          <span style={{ color: statusColor(configStatus?.comfyui?.available) }}>{configErr ? 'unknown' : configStatus?.comfyui?.available ? 'online' : 'offline'}</span>
           <small>{configStatus?.comfyui?.base_url || '—'}</small>
         </div>
         <div className="status-card">
           <strong>Config API</strong>
-          <span style={{ color: configStatus?.config_api?.ok ? 'var(--green)' : 'var(--red)' }}>{configStatus?.config_api?.ok ? 'ok' : 'fail'}</span>
+          <span style={{ color: statusColor(configStatus?.config_api?.ok) }}>{fmtState(configStatus?.config_api?.ok)}</span>
           <small>{configStatus?.config_api?.error || Object.entries(configStatus?.config_api?.sections || {}).map(([k, v]) => `${k}: ${v}`).join(' · ') || '—'}</small>
         </div>
         <div className="status-card">
           <strong>Models API</strong>
-          <span style={{ color: configStatus?.models_api?.ok ? 'var(--green)' : 'var(--red)' }}>{configStatus?.models_api?.ok ? 'ok' : 'fail'}</span>
+          <span style={{ color: statusColor(configStatus?.models_api?.ok) }}>{fmtState(configStatus?.models_api?.ok)}</span>
           <small>{configStatus?.models_api?.error || Object.entries(configStatus?.models_api?.counts || {}).map(([k, v]) => `${k}: ${v}`).join(' · ') || '—'}</small>
         </div>
         <div className="status-card">
@@ -366,12 +379,13 @@ export default function AdminModelsV2() {
         {/* 9: LoRA из ComfyUI */}
         <article className="card">
           <div className="card-head"><div><h2 className="card-title">Доступные LoRA из ComfyUI</h2><p className="card-note">LoRA — слой поверх модели/workflow. Назначать только совместимым.</p></div><div className="actions"><button className="ghost" onClick={() => void load()}>Сканировать ComfyUI</button></div></div>
-          <div className="lora-grid">{data.loras.map((l) => <article className="lora-card" key={l.fileName}>
-            <span className="provider local">ComfyUI LoRA</span>
+          <div className="lora-grid">{kleinLoras.map((l) => <article className="lora-card" key={l.fileName}>
+            <span className={`provider ${l.installed === false ? 'openrouter' : 'local'}`}>{l.installed === false ? 'Нужно добавить' : 'Klein LoRA'}</span>
             <h3>{l.fileName}</h3>
             <p className="lora-meta">Назначение: {l.purpose}.{l.compatible.length ? ` Совместимость: ${l.compatible.join(', ')}.` : ''}{l.requires.length ? ` Требует: ${l.requires.join(', ')}.` : ''}</p>
             <div className="lora-actions"><select>{(l.routes.length ? l.routes : ['Не назначена']).map((r) => <option key={r}>{r}</option>)}</select><span className={`state ${l.status === 'active' || l.status === 'found' ? 'ok' : l.status === 'untested' ? 'warn' : 'bad'}`}>{l.status}</span></div>
           </article>)}</div>
+          {otherLoras.length > 0 && <div className="hint" style={{ margin: '0 12px 12px' }}>Не используются в Flux Klein: {otherLoras.map((l) => l.fileName).join(', ')}</div>}
         </article>
 
         {/* 11: Advanced ComfyUI files (collapsed) */}
@@ -410,7 +424,7 @@ export default function AdminModelsV2() {
           <div className="card-head"><div><h2 className="card-title">Проверки перед публикацией</h2><p className="card-note">Что нельзя отдавать пользователям.</p></div></div>
           <div className="conflict">
             {!data.openrouter.keyConfigured && <div className="conflict-item"><span className="mark">!</span><div><strong>OpenRouter API key не настроен</strong><span>Cloud-модели не будут работать у пользователей.</span></div></div>}
-            {data.loras.filter((l) => l.status === 'untested').map((l) => <div className="conflict-item" key={l.fileName}><span className="mark">!</span><div><strong>LoRA {l.fileName} не протестирована</strong><span>Проверьте перед включением в Pro выбор.</span></div></div>)}
+            {data.loras.filter((l) => l.forKlein !== false && (l.status === 'untested' || l.status === 'missing')).map((l) => <div className="conflict-item" key={l.fileName}><span className="mark">!</span><div><strong>LoRA {l.fileName} {l.status === 'missing' ? 'не установлена' : 'не протестирована'}</strong><span>Проверьте перед включением в Pro выбор.</span></div></div>)}
             {data.economy.priceConflicts === 0 && data.openrouter.keyConfigured && <div className="conflict-item" style={{ borderColor: 'rgba(67,223,98,.24)', background: 'rgba(67,223,98,.07)' }}><span className="mark" style={{ background: 'var(--green)' }}>✓</span><div><strong>Конфликтов не найдено</strong><span>Можно публиковать.</span></div></div>}
           </div>
         </article>
