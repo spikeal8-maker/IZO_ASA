@@ -11657,7 +11657,7 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
             """,
             (key, json.dumps(settings, ensure_ascii=False), now),
         )
-    if key in {"generation_routes", "tariff_matrix", "user_choice", "tariffs"}:
+    if key in {"generation_routes", "tariff_matrix", "user_choice", "tariffs", "openrouter_economy"}:
         _admin_models_page_cache["ts"] = 0.0
         _admin_models_page_cache["data"] = None
     return {"ok": True, "key": key, "settings": settings}
@@ -12369,6 +12369,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
     loras = await scan_loras()
     routes = _saved_setting("generation_routes").get("routes") or default_routes(status)
     matrix = _saved_setting("tariff_matrix").get("matrix") or default_tariff_matrix()
+    openrouter_economy = _saved_setting("openrouter_economy") or {"minMarginPercent": 40}
     openrouter_status = await fetch_openrouter_key_status()
     openrouter_key = bool(openrouter_status.get("configured"))
     openrouter_usage = openrouter_usage_stats()
@@ -12423,7 +12424,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
         "catalog": catalog,
         "loras": loras,
         "comfyuiAvailable": status.get("comfyuiAvailable"),
-        "openrouter": {"keyConfigured": openrouter_key, "status": openrouter_status, "usage": openrouter_usage, "config": get_openrouter_config(), "exchange": exchange},
+        "openrouter": {"keyConfigured": openrouter_key, "status": openrouter_status, "usage": openrouter_usage, "config": get_openrouter_config(), "exchange": exchange, "economy": openrouter_economy},
         "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"},
         "profiles": status.get("profiles", []),
     }

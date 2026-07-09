@@ -54,6 +54,7 @@ type PageData = {
     }
     config?: OpenRouterConfig
     exchange?: { rate?: number | null; source?: string; sourceUrl?: string; sourceDate?: string; fetchedAt?: string; cache?: string; error?: string; fallback?: boolean; warning?: string }
+    economy?: { minMarginPercent?: number }
   }
   comfyFiles: Record<string, unknown>
   profiles: ProfileOption[]
@@ -202,12 +203,26 @@ const minTokenTier = (m: ApiImageModel) => {
   if (m.id === 'black-forest-labs/flux.2-flex') return 4
   return 1
 }
-const tokenPriceForModel = (m: ApiImageModel, actualUsdPerMp: number | null | undefined, rate: number | null) => {
+const clampMargin = (value: unknown) => {
+  const n = typeof value === 'number' ? value : 40
+  return Math.max(0, Math.min(95, n))
+}
+const costRubForModel = (m: ApiImageModel, actualUsdPerMp: number | null | undefined, rate: number | null) => {
   const estimated = estimatedUsdPerMp(m)
   const value = typeof actualUsdPerMp === 'number' ? Math.max(estimated || 0, actualUsdPerMp) : estimated
-  if (value === null || rate === null) return null
-  return Math.max(minTokenTier(m), Math.ceil((value * rate) / TOKEN_RUB))
+  return value === null || rate === null ? null : value * rate
 }
+const tokenPriceForModel = (m: ApiImageModel, actualUsdPerMp: number | null | undefined, rate: number | null, minMarginPercent: number) => {
+  const costRub = costRubForModel(m, actualUsdPerMp, rate)
+  if (costRub === null) return null
+  const marginFactor = Math.max(0.05, 1 - clampMargin(minMarginPercent) / 100)
+  return Math.max(minTokenTier(m), Math.ceil(costRub / TOKEN_RUB), Math.ceil(costRub / (TOKEN_RUB * marginFactor)))
+}
+const revenueRub = (tokens: number | null) => tokens === null ? null : tokens * TOKEN_RUB
+const profitRub = (revenue: number | null, cost: number | null) => revenue === null || cost === null ? null : revenue - cost
+const marginPercent = (revenue: number | null, profit: number | null) => revenue && profit !== null ? (profit / revenue) * 100 : null
+const rubText = (value: number | null) => value === null ? '—' : `${value.toFixed(2)} ₽`
+const percentText = (value: number | null) => value === null ? '—' : `${value.toFixed(0)}%`
 const valueText = (value: unknown) => value === null || value === undefined || value === '' ? '—' : String(value)
 const moneyUsdText = (value: unknown) => typeof value === 'number' ? `$${value.toFixed(4)}` : valueText(value)
 const openrouterErrorText = (error: unknown) => {
@@ -319,9 +334,10 @@ const CSS = `
 .amv2 .or-test{border:1px solid rgba(234,255,16,.18);border-radius:var(--radius);background:rgba(234,255,16,.04);padding:8px;display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;align-items:center}
 .amv2 .or-test img{width:72px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
 .amv2 .or-test strong{font-size:12px}.amv2 .or-test span{display:block;margin-top:4px;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
-.amv2 .or-stats{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.amv2 .or-stats{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px;padding:0 0 12px;border-bottom:1px solid var(--line)}
 .amv2 .or-stat{border:1px solid var(--line);border-radius:var(--radius);padding:10px;background:rgba(255,255,255,.032)}
 .amv2 .or-stat span{display:block;color:var(--muted);font-size:11px;font-weight:650}.amv2 .or-stat strong{display:block;margin-top:5px;font-size:15px;color:var(--lime);font-weight:700}
+.amv2 .or-stat input{margin-top:5px;min-height:28px;padding:0 8px;font-size:13px;color:var(--lime);font-weight:700}
 .amv2 .mode-board{padding:12px;display:grid;grid-template-columns:repeat(4,minmax(180px,1fr));gap:10px}
 .amv2 .mode-card{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.032);display:grid;gap:8px;align-content:start}
 .amv2 .mode-card strong{font-size:13px}.amv2 .mode-card span{color:var(--muted);font-size:12px;line-height:1.35}
@@ -332,7 +348,7 @@ const CSS = `
 .amv2 .section-cell{display:grid;gap:2px;min-width:0}
 .amv2 .section-cell span{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
 .amv2 .section-cell strong{font-size:12px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.amv2 .api-table{min-width:980px}
+.amv2 .api-table{min-width:1250px}
 .amv2 .api-table td,.amv2 .api-table th{vertical-align:middle}
 .amv2 .api-table th{padding:6px 8px}
 .amv2 .api-table td{padding:2px 8px;height:26px;line-height:1.15}
@@ -430,6 +446,7 @@ export default function AdminModelsV2() {
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
   const [routes, setRoutes] = useState<Route[]>([])
   const [query, setQuery] = useState('')
+  const [marginDraft, setMarginDraft] = useState('40')
   const [apiSorts, setApiSorts] = useState<Record<string, ApiSortState>>({})
   const [apiSectionsOpen, setApiSectionsOpen] = useState<Record<string, boolean>>({ text_to_image: true })
   const [apiExpandedRows, setApiExpandedRows] = useState<Record<string, boolean>>({})
@@ -473,6 +490,7 @@ export default function AdminModelsV2() {
           }
         }
       }
+      setMarginDraft(String(clampMargin(d.openrouter.economy?.minMarginPercent)))
       setErr(''); setData(d); setRoutes(d.routes)
     } else {
       setData(null)
@@ -503,6 +521,12 @@ export default function AdminModelsV2() {
     setMsg(r?.ok ? `${label} сохранено` : `Ошибка сохранения: ${label}`)
   }
   const saveRoutes = (next: Route[]) => { setRoutes(next); void saveSetting('generation_routes', { routes: next }, 'Маршруты') }
+  const saveMinMargin = async () => {
+    const minMarginPercent = clampMargin(Number(marginDraft))
+    setMarginDraft(String(minMarginPercent))
+    setData((prev) => prev ? { ...prev, openrouter: { ...prev.openrouter, economy: { ...(prev.openrouter.economy || {}), minMarginPercent } } } : prev)
+    await saveSetting('openrouter_economy', { minMarginPercent }, 'Минимальная маржа OpenRouter')
+  }
 
   const setRouteModel = (ri: number, modelProfileId: string) => {
     const next = routes.map((r, i) => i === ri ? { ...r, modelProfileId } : r)
@@ -632,6 +656,7 @@ export default function AdminModelsV2() {
   const orData = orStatus.data || {}
   const orCredits = orStatus.credits || {}
   const orCreditsData = orCredits.data && typeof orCredits.data === 'object' ? orCredits.data as Record<string, unknown> : {}
+  const minMarginPercent = clampMargin(data.openrouter.economy?.minMarginPercent)
   const usdRubBase = exchangeRate(data.openrouter.exchange)
   const usdRubEffective = effectiveUsdRub(data.openrouter.exchange)
   const orStatusClass = orStatus.ok ? 'key-ok' : orStatus.configured ? 'key-bad' : 'key-warn'
@@ -783,6 +808,18 @@ export default function AdminModelsV2() {
         <div className="or-stat"><span>Средняя за картинку</span><strong>{avgImagePair}</strong></div>
         <div className="or-stat"><span>Средняя за 1MP</span><strong>{avgMpPair}</strong></div>
         <div className="or-stat"><span>Фаворит по генерациям</span><strong>{favoriteOverallName}</strong></div>
+        <div className="or-stat">
+          <span>Мин. маржа</span>
+          <input
+            type="number"
+            min="0"
+            max="95"
+            value={marginDraft}
+            onChange={(e) => setMarginDraft(e.target.value)}
+            onBlur={() => void saveMinMargin()}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur() } }}
+          />
+        </div>
       </div>
 
       <div className="toolbar">
@@ -837,6 +874,9 @@ export default function AdminModelsV2() {
                 <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, ₽ {sortMark(sort, 'price')}</button></th>
                 <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена за 1MP, $ {sortMark(sort, 'price')}</button></th>
                 <th>Токены</th>
+                <th>Выручка</th>
+                <th>Выгода</th>
+                <th>Маржа</th>
                 <th>Сген.</th>
                 <th>Потрачено</th>
               </tr></thead>
@@ -848,7 +888,11 @@ export default function AdminModelsV2() {
                 const avgActualUsd = typeof modelStats?.avgCostPerMpUsd === 'number' ? modelStats.avgCostPerMpUsd : null
                 const generatedCount = modelStatText(modelStats?.count)
                 const spentTotal = typeof modelStats?.costUsd === 'number' ? moneyPair(modelStats.costUsd, usdRubEffective) : '—'
-                const tokenCount = tokenPriceForModel(m, avgActualUsd, usdRubEffective)
+                const costRub = costRubForModel(m, avgActualUsd, usdRubEffective)
+                const tokenCount = tokenPriceForModel(m, avgActualUsd, usdRubEffective, minMarginPercent)
+                const revenue = revenueRub(tokenCount)
+                const profit = profitRub(revenue, costRub)
+                const margin = marginPercent(revenue, profit)
                 return <Fragment key={rowKey}>
                   <tr className={`api-model-row ${expanded ? 'expanded' : ''}`} onClick={() => setApiExpandedRows((prev) => ({ ...prev, [rowKey]: !expanded }))}>
                     <td className="api-enabled">
@@ -865,17 +909,21 @@ export default function AdminModelsV2() {
                     <td><span className="money">{modelRubPrice(m, usdRubEffective)}</span></td>
                     <td><span className="money">{modelUsdPrice(m)}</span></td>
                     <td><span className="money">{tokenCount ?? '—'}</span></td>
+                    <td><span className="money">{rubText(revenue)}</span></td>
+                    <td><span className="money">{rubText(profit)}</span></td>
+                    <td><span className={margin !== null && margin < minMarginPercent ? 'risk-high' : 'risk-low'}>{percentText(margin)}</span></td>
                     <td>{generatedCount}</td>
                     <td><span className="money">{spentTotal}</span></td>
                   </tr>
                   {expanded && <tr>
-                    <td className="detail-cell" colSpan={8}>
+                    <td className="detail-cell" colSpan={11}>
                       <div className="detail-box">
                         <span><b>Полное имя:</b> {m.name}</span>
                         <span><b>OpenRouter id:</b> {m.id}</span>
                         <span><b>Как посчитано:</b> {priceConfidence(m)}</span>
                         <span><b>Цена из OpenRouter:</b> {m.pricing}</span>
-                        <span><b>Токены проекта:</b> {tokenCount ?? 'нужно измерить'} при {TOKEN_RUB} ₽/токен</span>
+                        <span><b>Токены проекта:</b> {tokenCount ?? 'нужно измерить'} при {TOKEN_RUB} ₽/токен и марже от {minMarginPercent}%</span>
+                        <span><b>Экономика:</b> себестоимость {rubText(costRub)} · выручка {rubText(revenue)} · выгода {rubText(profit)} · маржа {percentText(margin)}</span>
                         <span><b>Факт по проекту:</b> {generatedCount} шт · {spentTotal}</span>
                         <span><b>Вход/выход API:</b> {m.input} {'->'} {m.output}</span>
                         <span><b>Параметры:</b> {m.params || 'нет в endpoint metadata'}</span>
