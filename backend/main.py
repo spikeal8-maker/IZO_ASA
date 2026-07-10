@@ -4308,7 +4308,6 @@ def _gallery_public_params(
         ("Время генерации", _format_public_duration(settings.get("generationTimeMs"))),
         ("Дата генерации", _format_public_datetime(created_at)),
         ("Режим", _gallery_mode_label(mode)),
-        ("ID", image_id),
         ("Полное наименование модели", model_info["fullName"]),
     ]
     return [{"label": label, "value": value} for label, value in params if value]

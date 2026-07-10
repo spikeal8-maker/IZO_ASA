@@ -515,9 +515,14 @@ function tokenValue(item){
   const charged = Number(billing.chargedTokens || billing.actualTokens || 0);
   return charged > 0 ? `${charged} ток.` : '';
 }
+function isUsefulPublicParam(label, value){
+  const text = String(label || '').trim().toLowerCase();
+  if(!text || value === undefined || value === null || !String(value).trim()) return false;
+  return !['seed', 'sid', 'id', 'source', 'источник'].includes(text);
+}
 function renderParams(item){
   const provided = Array.isArray(item.publicParams)
-    ? item.publicParams.map(p => [p.label, p.value]).filter(([, value]) => value !== undefined && value !== null && String(value).trim())
+    ? item.publicParams.map(p => [p.label, p.value]).filter(([label, value]) => isUsefulPublicParam(label, value))
     : [];
   const fallback = [
     ['Токены', tokenValue(item)],
@@ -527,9 +532,8 @@ function renderParams(item){
     ['Время генерации', formatDuration(item.generationTimeMs || item.genTime)],
     ['Дата генерации', formatFullDate(item.createdAt || item.date)],
     ['Режим', item.modeText],
-    ['ID', item.id],
     ['Полное наименование модели', modelFullName(item)],
-  ].filter(([, value]) => value !== undefined && value !== null && String(value).trim());
+  ].filter(([label, value]) => isUsefulPublicParam(label, value));
   const rows = provided.length ? provided : fallback;
   document.getElementById('paramsContent').innerHTML = rows
     .map(([k,v])=>`<div class="param"><span>${escapeHtml(k)}</span><b>${escapeHtml(v)}</b></div>`)

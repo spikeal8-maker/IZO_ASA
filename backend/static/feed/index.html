@@ -663,8 +663,26 @@ function normalizeFeedItem(item){
     followed:Boolean(item.is_followed_by_me),
     challenge:item.challenge || null,
     history:Array.isArray(item.source_history) ? item.source_history : [],
-    model:item.model || 'Flux2'
+    generationParams:Array.isArray(item.generation_params) ? item.generation_params : [],
+    model:item.model || item.model_info?.shortName || 'ИЗО Base'
   };
+}
+function isUsefulGenerationParam(label, value){
+  const text = String(label || '').trim().toLowerCase();
+  if(!text || value === undefined || value === null || !String(value).trim()) return false;
+  return !['seed', 'sid', 'id', 'source', 'источник'].includes(text);
+}
+function renderGenerationSpecs(item){
+  const clean = item.generationParams
+    .map(param => [param.label, param.value])
+    .filter(([label, value]) => isUsefulGenerationParam(label, value));
+  const fallback = [
+    ['Модель', item.model],
+    ['Формат', item.ratio],
+    ['Разрешение', `${item.w}×${item.h}`],
+  ].filter(([label, value]) => isUsefulGenerationParam(label, value));
+  const rows = clean.length ? clean : fallback;
+  return rows.map(([label, value]) => `<div class="spec"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></div>`).join('');
 }
 function setFeature(mode){
   const src = mode.img || works.find(w=>w.src)?.src;
@@ -1067,7 +1085,7 @@ function openModal(index){
   modalStats.innerHTML = renderModalStats(item);
   modalPromptState.textContent = item.promptVisibility === 'open' ? 'открыт' : item.promptVisibility === 'partial' ? 'частично' : 'скрыт';
   modalPrompt.textContent = item.challenge ? `${item.prompt}\n\nЧеллендж: ${item.challenge.title}. ${item.challenge.promptHint || item.challenge.description || ''}` : item.prompt;
-  modalSpecs.innerHTML = `<div class="spec"><span>Модель</span><b>${escapeHtml(item.model)}</b></div><div class="spec"><span>Стиль</span><b>${escapeHtml(item.style)}</b></div><div class="spec"><span>Формат</span><b>${escapeHtml(item.ratio)}</b></div><div class="spec"><span>Разрешение</span><b>${escapeHtml(item.w)}×${escapeHtml(item.h)}</b></div><div class="spec"><span>Seed</span><b>${escapeHtml(item.seed)}</b></div><div class="spec"><span>Источник</span><b>${escapeHtml(item.source)}</b></div>${item.challenge ? `<div class="spec"><span>Челлендж</span><b>${escapeHtml(item.challenge.title)}</b></div>` : ''}`;
+  modalSpecs.innerHTML = `${renderGenerationSpecs(item)}${item.challenge ? `<div class="spec"><span>Челлендж</span><b>${escapeHtml(item.challenge.title)}</b></div>` : ''}`;
   renderSourceHistory(item);
   setActivePanel('');
   let similar = works.filter((w,i)=>i!==index && w.authorId && w.authorId===item.authorId).slice(0,18);
