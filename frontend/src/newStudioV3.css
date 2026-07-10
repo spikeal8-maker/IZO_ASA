@@ -2373,9 +2373,9 @@ position: absolute;
 right: 8px;
 bottom: 4px;
 min-width: 34px;
-padding: 1px 6px;
-border-radius: 999px;
-background: rgba(182, 207, 18, .10);
+padding: 0;
+border-radius: 0;
+background: transparent;
 color: var(--lime);
 font-size: 10px;
 font-weight: 800;
@@ -2383,8 +2383,8 @@ line-height: 14px;
 text-align: center;
 }
 .iv3 .quality-button.active .quality-token-cost {
-background: rgba(0, 0, 0, .18);
-color: #111;
+background: transparent;
+color: var(--lime);
 }
 .iv3 .quality-button + .quality-button {
 border-left: 1px solid var(--line);

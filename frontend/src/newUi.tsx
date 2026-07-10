@@ -3651,6 +3651,7 @@ export default function NewStudio(): ReactElement {
       tariffs={tariffs}
       tariffsState={tariffsState}
       tokenRub={tokenRub}
+      openrouterPricing={openrouterPricing}
       authCapsState={authCapsState}
       authCaps={authCaps}
       quality={quality}

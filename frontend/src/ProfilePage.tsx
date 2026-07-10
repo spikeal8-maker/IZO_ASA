@@ -16,13 +16,20 @@ type TokenHistoryItem = {
   mode?: string | null
   provider?: string | null
   model?: string | null
-  costRub?: number | null
   createdAt: string
 }
 type TokenHistory = {
   summary?: { spentTokens?: number; balanceSpentTokens?: number; includedSpentTokens?: number; refundedTokens?: number; balance?: number }
   items?: TokenHistoryItem[]
 }
+type PublicModelFormatPricing = {
+  id: string
+  label: string
+  short: string
+  tokens?: number | null
+  supported?: boolean
+}
+type PublicModelPricing = { id: string; label: string; formats: PublicModelFormatPricing[] }
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 
@@ -35,6 +42,7 @@ type ProfilePageProps = {
   tariffs: TariffConfig
   tariffsState: 'loading' | 'ready' | 'fallback'
   tokenRub: number
+  openrouterPricing: Record<string, PublicModelPricing>
   authCapsState: 'loading' | 'ready' | 'fallback'
   authCaps: { telegram_bot_login_available: boolean; max_bot_login_available: boolean }
   quality: string
@@ -93,6 +101,7 @@ export default function ProfilePage({
   setProfileTab,
   tariffs,
   tokenRub,
+  openrouterPricing,
   authCaps,
   quality,
   setQuality,
@@ -203,6 +212,18 @@ export default function ProfilePage({
   }
   const toggleModelVisibility = (mode: ModelModeKey, modelId: string, visible: boolean) => {
     setUserModelVisibility((current) => ({ ...current, [mode]: { ...(current[mode] || {}), [modelId]: visible } }))
+  }
+  const modelFormatChips = (model: ModelOption) => {
+    if (model.provider !== 'openrouter') {
+      return [
+        { id: 'square', short: '1:1', tokens: model.tokenHint, supported: true },
+        { id: 'portrait', short: '9:16', tokens: model.tokenHint, supported: true },
+        { id: 'wide', short: '16:9', tokens: model.tokenHint, supported: true },
+        { id: 'soft_wide', short: '3:2', tokens: model.tokenHint, supported: true },
+      ]
+    }
+    const formats = openrouterPricing[model.id]?.formats || []
+    return formats.length ? formats : [{ id: 'default', short: '1:1', tokens: model.tokenHint, supported: true }]
   }
   useEffect(() => {
     if (authStatus !== 'authed') return
@@ -500,28 +521,6 @@ export default function ProfilePage({
           {profileTab === 'models' && <>
             <section className="profile-section">
               <div className="profile-model-summary"><article className="profile-card profile-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article><article className="profile-card profile-stat-card"><span>Дневной лимит</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></article><article className="profile-card profile-stat-card"><span>Выбрано качество</span><strong>{qualityPresetLabels[selectedQuality]}</strong><small>{selectedModel.label}</small></article><article className="profile-card profile-stat-card"><span>Списание</span><strong>{tokenPrice} ток.</strong><small>за выбранную модель</small></article></div>
-              <div className="profile-usage-panel profile-card">
-                <div className="profile-usage-head">
-                  <div><h3>История использования</h3><span>Баланс, дневной пакет и премиум-модели считаются отдельно.</span></div>
-                  <div className="profile-usage-filter">{[7, 30, 90].map((days) => <button type="button" key={days} className={tokenHistoryDays === days ? 'active' : ''} onClick={() => setTokenHistoryDays(days)}>{days} дн.</button>)}</div>
-                </div>
-                <div className="profile-usage-stats">
-                  <span>Премиум: <strong>{premiumMonthlyRemaining} / {premiumMonthlyTokens}</strong></span>
-                  <span>Потрачено за период: <strong>{tokenHistory?.summary?.spentTokens ?? 0}</strong></span>
-                  <span>Из баланса: <strong>{tokenHistory?.summary?.balanceSpentTokens ?? 0}</strong></span>
-                  <span>Из пакетов: <strong>{tokenHistory?.summary?.includedSpentTokens ?? 0}</strong></span>
-                </div>
-                <div className="profile-usage-list">
-                  {tokenHistoryItems.length ? tokenHistoryItems.slice(0, 8).map((item) => (
-                    <div key={item.id}>
-                      <strong>{tokenReasonLabel(item)}</strong>
-                      <span>{item.spentTokens ? `${item.spentTokens} ток.` : item.delta > 0 ? `+${item.delta} ток.` : `${item.delta} ток.`}</span>
-                      <small>{item.source}{item.model ? ` · ${item.model}` : ''}{item.costRub ? ` · ${Number(item.costRub).toFixed(2)} ₽` : ''}</small>
-                      <time>{tokenHistoryDate(item.createdAt)}</time>
-                    </div>
-                  )) : <p>За выбранный период списаний пока нет.</p>}
-                </div>
-              </div>
               <div className="profile-section-head"><h3>Модели по умолчанию</h3><span>Эти модели подставляются в генератор при выборе качества</span></div>
               <div className="profile-models">
                 {qualityPresets.map((preset) => {
@@ -589,6 +588,14 @@ export default function ProfilePage({
                           <div className="profile-model-info-body">
                             <p>{info.description}</p>
                             <div className="profile-model-info-meta"><span>Год: <b>{info.year}</b></span><span>Семейство: <b>{info.company}</b></span></div>
+                            <div className="profile-model-format-grid" aria-label="Стоимость по форматам">
+                              {modelFormatChips(model).map((fmt) => (
+                                <span key={`${model.id}-${fmt.id}`} className={fmt.supported === false ? 'disabled' : ''}>
+                                  <b>{fmt.short}</b>
+                                  <em>{fmt.supported === false ? 'недоступно' : `${fmt.tokens ?? model.tokenHint} ток.`}</em>
+                                </span>
+                              ))}
+                            </div>
                             <ul>{info.strengths.map((item) => <li key={item}>{item}</li>)}</ul>
                           </div>
                         </details>
@@ -596,6 +603,28 @@ export default function ProfilePage({
                     </div>
                   </details>
                 })}
+              </div>
+              <div className="profile-usage-panel profile-card">
+                <div className="profile-usage-head">
+                  <div><h3>История использования</h3><span>Здесь показываем только токены: сколько списано, возвращено или начислено.</span></div>
+                  <div className="profile-usage-filter">{[7, 30, 90].map((days) => <button type="button" key={days} className={tokenHistoryDays === days ? 'active' : ''} onClick={() => setTokenHistoryDays(days)}>{days} дн.</button>)}</div>
+                </div>
+                <div className="profile-usage-stats">
+                  <span>Премиум: <strong>{premiumMonthlyRemaining} / {premiumMonthlyTokens}</strong></span>
+                  <span>Потрачено за период: <strong>{tokenHistory?.summary?.spentTokens ?? 0}</strong></span>
+                  <span>Из баланса: <strong>{tokenHistory?.summary?.balanceSpentTokens ?? 0}</strong></span>
+                  <span>Из пакетов: <strong>{tokenHistory?.summary?.includedSpentTokens ?? 0}</strong></span>
+                </div>
+                <div className="profile-usage-list">
+                  {tokenHistoryItems.length ? tokenHistoryItems.slice(0, 8).map((item) => (
+                    <div key={item.id}>
+                      <strong>{tokenReasonLabel(item)}</strong>
+                      <span>{item.spentTokens ? `${item.spentTokens} ток.` : item.delta > 0 ? `+${item.delta} ток.` : `${item.delta} ток.`}</span>
+                      <small>{item.source}{item.model ? ` · ${item.model}` : ''}</small>
+                      <time>{tokenHistoryDate(item.createdAt)}</time>
+                    </div>
+                  )) : <p>За выбранный период списаний пока нет.</p>}
+                </div>
               </div>
             </section>
           </>}
