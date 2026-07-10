@@ -3271,12 +3271,6 @@ ALLOWED_RESOLUTION_IDS = {"sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1
 QUALITY_PRESETS = ("fast", "standard", "max")
 ALLOWED_TARIFF_MODEL_IDS = {
     "server:local_flux_klein",
-    "black-forest-labs/flux.2-klein-4b",
-    "black-forest-labs/flux.2-pro",
-    "black-forest-labs/flux.2-max",
-    "openai/gpt-image-1-mini",
-    "openai/gpt-image-1",
-    "recraft/recraft-v4.1",
 }
 
 
@@ -3293,7 +3287,8 @@ def _tariff_model_defaults(source: dict[str, Any], plan: str) -> dict[str, str]:
     result: dict[str, str] = {}
     for preset in QUALITY_PRESETS:
         value = values.get(preset, DEFAULT_TARIFFS[plan]["model_defaults"][preset])
-        result[preset] = str(value) if str(value) in ALLOWED_TARIFF_MODEL_IDS else DEFAULT_TARIFFS[plan]["model_defaults"][preset]
+        model_id = str(value).strip()
+        result[preset] = model_id if model_id in ALLOWED_TARIFF_MODEL_IDS or ("/" in model_id and len(model_id) <= 160) else DEFAULT_TARIFFS[plan]["model_defaults"][preset]
     return result
 
 
@@ -7207,10 +7202,9 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         plan = str(user_row["plan"] or "mini").lower()
         if plan not in PLAN_ORDER:
             plan = "mini"
-        tariff = get_tariff_config()[plan]
-        allowed_models = set((tariff.get("model_defaults") or {}).values())
-        if req.modelProfile not in allowed_models:
-            raise HTTPException(403, "This OpenRouter model is not available for your tariff.")
+        openrouter_config = get_openrouter_config()
+        if not openrouter_model_allowed(openrouter_config, req.mode, plan, req.modelProfile):
+            raise HTTPException(403, "This OpenRouter model is not available for this mode and tariff.")
         openrouter_billing = await estimate_openrouter_billing(req)
         token_cost = int(openrouter_billing["chargedTokens"])
     else:

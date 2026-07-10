@@ -9,7 +9,7 @@ import {
 } from './authV2'
 import { DiagPanel } from './diag'
 import { isDiagMode } from './diagMeta'
-import { DEFAULT_TARIFFS, modelOptions, normalizeTariffs, qualityPresetLabels, qualityPresets, resolutionOptions, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
+import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, modelOptionById, normalizeTariffs, qualityPresetLabels, qualityPresets, resolutionOptions, tariffKeys, type ModelOption, type TariffConfig, type TariffKey } from './profileSupport'
 import './index.css'
 
 const AdminAnalyticsV2 = lazy(() => import('./adminAnalytics').then((module) => ({ default: module.AdminAnalyticsV2 })))
@@ -27,6 +27,11 @@ type PromoCode = {
   activation_limit: number
   activation_count: number
   enabled: number
+}
+type OpenRouterTier = Exclude<TariffKey, 'free'>
+type OpenRouterConfig = {
+  enabled?: Record<string, string[]>
+  access?: Record<string, Partial<Record<OpenRouterTier, string[]>>>
 }
 
 const HOURLY_DASHBOARD_RANGES = new Set<DashboardRange>([1, 6, 12, 24])
@@ -249,6 +254,7 @@ function AdminDashboard({ summary }: { summary: AnyRec | null }) {
 
 function AdminTokens() {
   const [tariffs, setTariffs] = useState<TariffConfig>(DEFAULT_TARIFFS)
+  const [openrouterConfig, setOpenrouterConfig] = useState<OpenRouterConfig>({})
   const [finance, setFinance] = useState({ tokenRevenue: 0, tokenCost: 0, electricity: 0, promoBudget: 0 })
   const [promos, setPromos] = useState<PromoCode[]>([])
   const [promoDraft, setPromoDraft] = useState({ code: 'START50', tokens: 50, activations: 100 })
@@ -260,6 +266,7 @@ function AdminTokens() {
       adminGet<PromoCode[]>('/admin/promos'),
     ])
     if (settings?.tariffs) setTariffs(normalizeTariffs(settings.tariffs as Partial<Record<TariffKey, Partial<TariffConfig[TariffKey]>>>))
+    setOpenrouterConfig((settings?.openrouter_models || {}) as OpenRouterConfig)
     if (settings?.finance) setFinance((current) => ({ ...current, ...(settings.finance as Partial<typeof finance>) }))
     setPromos(Array.isArray(promoRows) ? promoRows : [])
   }, [])
@@ -288,6 +295,20 @@ function AdminTokens() {
       return { ...current, [plan]: { ...current[plan], allowed_resolutions: nextIds } }
     })
   }
+  const tariffModelOptions = useCallback((plan: TariffKey): ModelOption[] => {
+    const options = new Map<string, ModelOption>([[SERVER_MODEL_OPTION.id, SERVER_MODEL_OPTION]])
+    if (plan !== 'free') {
+      const access = openrouterConfig.access || {}
+      for (const modeAccess of Object.values(access)) {
+        const ids = modeAccess?.[plan] || []
+        for (const id of ids) {
+          const option = modelOptionById(id)
+          if (option.provider === 'openrouter') options.set(option.id, option)
+        }
+      }
+    }
+    return Array.from(options.values())
+  }, [openrouterConfig])
   const createPromo = async () => {
     const result = await adminPost<{ ok?: boolean; promo?: PromoCode }>('/admin/promos', {
       code: promoDraft.code,
@@ -338,11 +359,18 @@ function AdminTokens() {
               <details className="admin-resolution-picker" open>
                 <summary>Модели качества</summary>
                 <div>
-                  {qualityPresets.map((preset) => <label key={preset}>{qualityPresetLabels[preset]}
-                    <select value={tariffs[plan].model_defaults[preset]} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], model_defaults: { ...current[plan].model_defaults, [preset]: e.target.value } } }))}>
-                      {modelOptions.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.tokenHint} ток.</option>)}
-                    </select>
-                  </label>)}
+                  {qualityPresets.map((preset) => {
+                    const options = tariffModelOptions(plan)
+                    const currentValue = tariffs[plan].model_defaults[preset]
+                    const currentAllowed = options.some((item) => item.id === currentValue)
+                    const renderOptions = currentAllowed ? options : [{ ...modelOptionById(currentValue), label: `Недоступно в тарифе: ${modelOptionById(currentValue).label}` }, ...options]
+                    return <label key={preset}>{qualityPresetLabels[preset]}
+                      <select value={currentValue} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], model_defaults: { ...current[plan].model_defaults, [preset]: e.target.value } } }))}>
+                        {renderOptions.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.tokenHint} ток.</option>)}
+                      </select>
+                      {!currentAllowed && <small>Сначала включите модель этому тарифу во вкладке Модели → OpenRouter.</small>}
+                    </label>
+                  })}
                 </div>
               </details>
               <label>Очередь<input value={tariffs[plan].queue_label} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], queue_label: e.target.value } }))} /></label>

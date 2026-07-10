@@ -18,6 +18,7 @@ export type TariffRule = {
   video_slots: number
 }
 export type TariffConfig = Record<TariffKey, TariffRule>
+export type ModelOption = { id: string; label: string; provider: ModelProvider; modelProfile: string; tokenHint: number }
 
 export const tariffKeys: TariffKey[] = ['free', 'mini', 'plus', 'pro', 'business']
 export const qualityPresets: QualityPreset[] = ['fast', 'standard', 'max']
@@ -26,14 +27,48 @@ export const qualityPresetLabels: Record<QualityPreset, string> = {
   standard: 'Стандарт',
   max: 'Максимум',
 }
-export const modelOptions: Array<{ id: string; label: string; provider: ModelProvider; modelProfile: string; tokenHint: number }> = [
-  { id: 'server:local_flux_klein', label: 'Серверная модель ИЗО', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1 },
+export const SERVER_MODEL_OPTION: ModelOption = { id: 'server:local_flux_klein', label: 'Серверная модель ИЗО', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1 }
+export const modelOptions: ModelOption[] = [
+  SERVER_MODEL_OPTION,
   { id: 'black-forest-labs/flux.2-klein-4b', label: 'FLUX.2 Klein 4B', provider: 'openrouter', modelProfile: 'black-forest-labs/flux.2-klein-4b', tokenHint: 1 },
   { id: 'black-forest-labs/flux.2-pro', label: 'FLUX.2 Pro', provider: 'openrouter', modelProfile: 'black-forest-labs/flux.2-pro', tokenHint: 2 },
   { id: 'black-forest-labs/flux.2-max', label: 'FLUX.2 Max', provider: 'openrouter', modelProfile: 'black-forest-labs/flux.2-max', tokenHint: 3 },
+  { id: 'black-forest-labs/flux.2-flex', label: 'FLUX.2 Flex', provider: 'openrouter', modelProfile: 'black-forest-labs/flux.2-flex', tokenHint: 4 },
   { id: 'openai/gpt-image-1-mini', label: 'GPT Image Mini', provider: 'openrouter', modelProfile: 'openai/gpt-image-1-mini', tokenHint: 1 },
+  { id: 'openai/gpt-5-image-mini', label: 'GPT-5 Image Mini', provider: 'openrouter', modelProfile: 'openai/gpt-5-image-mini', tokenHint: 1 },
   { id: 'openai/gpt-image-1', label: 'GPT Image', provider: 'openrouter', modelProfile: 'openai/gpt-image-1', tokenHint: 2 },
+  { id: 'openai/gpt-5-image', label: 'GPT-5 Image', provider: 'openrouter', modelProfile: 'openai/gpt-5-image', tokenHint: 2 },
+  { id: 'openai/gpt-image-2', label: 'GPT Image 2', provider: 'openrouter', modelProfile: 'openai/gpt-image-2', tokenHint: 1 },
+  { id: 'openai/gpt-5.4-image-2', label: 'GPT-5.4 Image 2', provider: 'openrouter', modelProfile: 'openai/gpt-5.4-image-2', tokenHint: 1 },
+  { id: 'google/gemini-3.1-flash-lite-image', label: 'Nano Banana 2 Lite', provider: 'openrouter', modelProfile: 'google/gemini-3.1-flash-lite-image', tokenHint: 1 },
+  { id: 'google/gemini-3.1-flash-image', label: 'Nano Banana 2', provider: 'openrouter', modelProfile: 'google/gemini-3.1-flash-image', tokenHint: 2 },
+  { id: 'google/gemini-3.1-flash-image-preview', label: 'Nano Banana 2 Preview', provider: 'openrouter', modelProfile: 'google/gemini-3.1-flash-image-preview', tokenHint: 2 },
+  { id: 'google/gemini-3-pro-image', label: 'Nano Banana Pro', provider: 'openrouter', modelProfile: 'google/gemini-3-pro-image', tokenHint: 4 },
+  { id: 'google/gemini-3-pro-image-preview', label: 'Nano Banana Pro Preview', provider: 'openrouter', modelProfile: 'google/gemini-3-pro-image-preview', tokenHint: 4 },
+  { id: 'google/gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image', provider: 'openrouter', modelProfile: 'google/gemini-2.5-flash-image', tokenHint: 2 },
+  { id: 'google/gemini-2.5-flash-image-preview', label: 'Gemini 2.5 Flash Image Preview', provider: 'openrouter', modelProfile: 'google/gemini-2.5-flash-image-preview', tokenHint: 2 },
+  { id: 'microsoft/mai-image-2.5', label: 'MAI-Image-2.5', provider: 'openrouter', modelProfile: 'microsoft/mai-image-2.5', tokenHint: 2 },
+  { id: 'x-ai/grok-imagine-image-quality', label: 'Grok Imagine Image Quality', provider: 'openrouter', modelProfile: 'x-ai/grok-imagine-image-quality', tokenHint: 3 },
   { id: 'recraft/recraft-v4.1', label: 'Recraft V4.1', provider: 'openrouter', modelProfile: 'recraft/recraft-v4.1', tokenHint: 1 },
+  { id: 'recraft/recraft-v4.1-utility', label: 'Recraft V4.1 Utility', provider: 'openrouter', modelProfile: 'recraft/recraft-v4.1-utility', tokenHint: 1 },
+  { id: 'recraft/recraft-v4.1-pro', label: 'Recraft V4.1 Pro', provider: 'openrouter', modelProfile: 'recraft/recraft-v4.1-pro', tokenHint: 6 },
+  { id: 'recraft/recraft-v4.1-utility-pro', label: 'Recraft V4.1 Utility Pro', provider: 'openrouter', modelProfile: 'recraft/recraft-v4.1-utility-pro', tokenHint: 6 },
+  { id: 'recraft/recraft-v4.1-vector', label: 'Recraft V4.1 Vector', provider: 'openrouter', modelProfile: 'recraft/recraft-v4.1-vector', tokenHint: 3 },
+  { id: 'recraft/recraft-v4.1-pro-vector', label: 'Recraft V4.1 Pro Vector', provider: 'openrouter', modelProfile: 'recraft/recraft-v4.1-pro-vector', tokenHint: 8 },
+  { id: 'recraft/recraft-v4', label: 'Recraft V4', provider: 'openrouter', modelProfile: 'recraft/recraft-v4', tokenHint: 1 },
+  { id: 'recraft/recraft-v4-pro', label: 'Recraft V4 Pro', provider: 'openrouter', modelProfile: 'recraft/recraft-v4-pro', tokenHint: 7 },
+  { id: 'recraft/recraft-v4-vector', label: 'Recraft V4 Vector', provider: 'openrouter', modelProfile: 'recraft/recraft-v4-vector', tokenHint: 3 },
+  { id: 'recraft/recraft-v4-pro-vector', label: 'Recraft V4 Pro Vector', provider: 'openrouter', modelProfile: 'recraft/recraft-v4-pro-vector', tokenHint: 8 },
+  { id: 'recraft/recraft-v3', label: 'Recraft V3', provider: 'openrouter', modelProfile: 'recraft/recraft-v3', tokenHint: 1 },
+  { id: 'sourceful/riverflow-v2-fast', label: 'Riverflow V2 Fast', provider: 'openrouter', modelProfile: 'sourceful/riverflow-v2-fast', tokenHint: 1 },
+  { id: 'sourceful/riverflow-v2-pro', label: 'Riverflow V2 Pro', provider: 'openrouter', modelProfile: 'sourceful/riverflow-v2-pro', tokenHint: 3 },
+  { id: 'sourceful/riverflow-v2.5-fast', label: 'Riverflow V2.5 Fast', provider: 'openrouter', modelProfile: 'sourceful/riverflow-v2.5-fast', tokenHint: 1 },
+  { id: 'sourceful/riverflow-v2.5-pro', label: 'Riverflow V2.5 Pro', provider: 'openrouter', modelProfile: 'sourceful/riverflow-v2.5-pro', tokenHint: 3 },
+  { id: 'sourceful/riverflow-v2-fast-preview', label: 'Riverflow V2 Fast Preview', provider: 'openrouter', modelProfile: 'sourceful/riverflow-v2-fast-preview', tokenHint: 1 },
+  { id: 'sourceful/riverflow-v2-standard-preview', label: 'Riverflow V2 Standard Preview', provider: 'openrouter', modelProfile: 'sourceful/riverflow-v2-standard-preview', tokenHint: 2 },
+  { id: 'sourceful/riverflow-v2-max-preview', label: 'Riverflow V2 Max Preview', provider: 'openrouter', modelProfile: 'sourceful/riverflow-v2-max-preview', tokenHint: 3 },
+  { id: 'bytedance-seed/seedream-4.5', label: 'Seedream 4.5', provider: 'openrouter', modelProfile: 'bytedance-seed/seedream-4.5', tokenHint: 1 },
+  { id: 'openrouter/auto', label: 'Auto Router', provider: 'openrouter', modelProfile: 'openrouter/auto', tokenHint: 4 },
 ]
 export const resolutionOptions = [
   { id: 'sq-1024', label: '1024×1024' },
@@ -94,5 +129,11 @@ export function normalizeTariffs(input: unknown): TariffConfig {
 }
 
 export function modelOptionById(id: string) {
-  return modelOptions.find((item) => item.id === id) || modelOptions[0]
+  const known = modelOptions.find((item) => item.id === id)
+  if (known) return known
+  if (id.includes('/')) {
+    const short = id.split('/').pop() || id
+    return { id, label: short.replace(/[-_]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()), provider: 'openrouter' as const, modelProfile: id, tokenHint: 1 }
+  }
+  return SERVER_MODEL_OPTION
 }
