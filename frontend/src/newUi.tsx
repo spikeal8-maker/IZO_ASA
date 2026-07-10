@@ -2706,22 +2706,24 @@ export default function NewStudio(): ReactElement {
           </div>
           {!isBase && slot.image && (
             <div className={`editor-role-controls${slot.role === 'face' ? ' is-face-strength' : ''}`}>
-              <label>
-                <span>Что взять из картинки</span>
-                <select
-                  className="editor-role-select"
-                  value={slot.role}
-                  aria-label={`Роль для ${title.toLowerCase()}`}
-                  onChange={(e) => setEditSlotRole(index, e.target.value as EditReferenceRole | '')}
-                >
-                  <option value="">Выберите роль</option>
-                  {EDIT_SELECTABLE_REFERENCE_ROLES.map((role) => (
-                    <option key={role} value={role} disabled={EDIT_DISABLED_REFERENCE_ROLES.includes(role)}>
-                      {EDIT_REFERENCE_ROLE_LABELS[role]}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {slot.role !== 'face' && (
+                <label>
+                  <span>Что взять из картинки</span>
+                  <select
+                    className="editor-role-select"
+                    value={slot.role}
+                    aria-label={`Роль для ${title.toLowerCase()}`}
+                    onChange={(e) => setEditSlotRole(index, e.target.value as EditReferenceRole | '')}
+                  >
+                    <option value="">Выберите роль</option>
+                    {EDIT_SELECTABLE_REFERENCE_ROLES.map((role) => (
+                      <option key={role} value={role} disabled={EDIT_DISABLED_REFERENCE_ROLES.includes(role)}>
+                        {EDIT_REFERENCE_ROLE_LABELS[role]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               {slot.role === 'other' && (
                 <input
                   className="editor-role-note"
