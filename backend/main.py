@@ -11072,7 +11072,7 @@ async def admin_logs_v2(request: Request) -> dict[str, Any]:
     active_jobs = [
         {k: v for k, v in item.items() if k in ("id", "mode", "provider", "status", "progress", "message", "createdAt")}
         for item in jobs.values()
-        if item.get("status") in ("queued", "running", "uploading", "sent_to_comfyui")
+        if item.get("status") in ("queued", "running", "uploading", "sent_to_comfyui", "sent_to_openrouter")
     ]
     try:
         comfy_ok = await comfyui_available()
@@ -11849,7 +11849,7 @@ async def admin_summary(request: Request) -> dict[str, Any]:
         "availableModels": ["local_flux_klein", "server_flux_klein", "openrouter_cloud"],
         "loras": ["lora_arcane", "product_photo"],
         "recentErrors": [item.get("error") for item in failed[-5:]],
-        "queue": [{k: v for k, v in item.items() if k != "request"} for item in jobs.values() if item.get("status") in ("queued", "running", "uploading", "sent_to_comfyui")],
+        "queue": [{k: v for k, v in item.items() if k != "request"} for item in jobs.values() if item.get("status") in ("queued", "running", "uploading", "sent_to_comfyui", "sent_to_openrouter")],
         "rateLimits": rate_limits,
         "timeline": timeline,
     }
@@ -12178,7 +12178,7 @@ async def compute_config_ui_status() -> dict[str, Any]:
             "message": truncate_admin_text(item.get("message"), 120),
         }
         for item in jobs.values()
-        if item.get("status") in {"queued", "running", "uploading", "sent_to_comfyui"}
+        if item.get("status") in {"queued", "running", "uploading", "sent_to_comfyui", "sent_to_openrouter"}
     ]
 
     comfy_up = await comfyui_available()
@@ -12283,7 +12283,7 @@ async def admin_config_ui_interrupt_v2(req: AdminConfigUiActionV2Request, reques
     active_before = [
         item.get("id")
         for item in jobs.values()
-        if item.get("status") in {"queued", "running", "uploading", "sent_to_comfyui"}
+        if item.get("status") in {"queued", "running", "uploading", "sent_to_comfyui", "sent_to_openrouter"}
     ]
     await interrupt_comfyui_prompt()
     status = await compute_config_ui_status()

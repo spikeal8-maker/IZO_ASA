@@ -555,7 +555,7 @@ function feedShape(ratio: string): 'tall' | 'wide' | 'square' {
   return w > h ? 'wide' : 'tall'
 }
 
-const JOB_ACTIVE = ['queued', 'running', 'uploading', 'sent_to_comfyui']
+const JOB_ACTIVE = ['queued', 'running', 'uploading', 'sent_to_comfyui', 'sent_to_openrouter']
 
 // Приписка стиля в промпте (По тексту). Через маркер её можно заменить при
 // выборе другого стиля, не трогая пользовательский текст.
