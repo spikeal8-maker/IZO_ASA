@@ -18,6 +18,8 @@ Start here when you or another agent joins the project:
 - `docs/new-ui-v2-review.md` — current `/new` review state.
 - `docs/text-to-image-openrouter-contract-20260711.md` — current first-tab model,
   repeat, format and billing contract before OpenRouter expands to other modes.
+- `docs/editor-face-reference-contract-20260711.md` — assembly face-reference slider,
+  percentage reset and shared role-panel contract.
 - `docs/feed-media-architecture.md` — public feed image storage, compression and DB contract.
 - `docs/gallery-current-product-plan.md` — visible `/gallery` contract: slots,
   favorite protection, deletion, publish modal, viewer and grid order.

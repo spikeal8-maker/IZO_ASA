@@ -2774,12 +2774,12 @@ export default function NewStudio(): ReactElement {
                     onChange={(e) => setEditFaceStrength(Number(e.target.value))}
                   />
                   <button
-                    className="editor-face-thumb-value"
+                    className="editor-face-value"
                     type="button"
                     aria-label={`Сбросить силу лица до ${DEFAULT_FACE_STRENGTH}%`}
                     onClick={() => setEditFaceStrength(DEFAULT_FACE_STRENGTH)}
                   >
-                    {editFaceStrengthPct}
+                    {editFaceStrengthPct}%
                   </button>
                 </div>
               )}
