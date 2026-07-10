@@ -12754,6 +12754,12 @@ OPENROUTER_DEFAULT_TOKEN_RUB = 5.0
 OPENROUTER_DEFAULT_MIN_MARGIN_PERCENT = 40.0
 OPENROUTER_SHORT_PROMPT_TEXT_TOKENS = 40
 OPENROUTER_OUTPUT_IMAGE_TOKENS_1MP = 1300
+OPENROUTER_ADMIN_FORMATS: list[dict[str, Any]] = [
+    {"id": "square", "label": "Квадрат", "short": "1:1", "width": 1024, "height": 1024},
+    {"id": "portrait", "label": "Высокая", "short": "9:16", "width": 1024, "height": 1536},
+    {"id": "wide", "label": "Широкая", "short": "16:9", "width": 1280, "height": 720},
+    {"id": "soft_wide", "label": "Средняя", "short": "3:2", "width": 1536, "height": 1024},
+]
 
 OPENROUTER_PRICE_CATALOG: dict[str, OpenRouterPriceModel] = {
     "black-forest-labs/flux.2-klein-4b": OpenRouterPriceModel(id="black-forest-labs/flux.2-klein-4b", name="FLUX.2 Klein 4B", provider="BFL", pricing_type="mp", usd=0.014, min_tokens=1),
@@ -12834,6 +12840,59 @@ def openrouter_tokens_for_cost(cost_rub: float, min_tokens: int, economy: dict[s
     token_rub = float(economy["tokenRub"])
     margin_factor = max(0.05, 1.0 - float(economy["minMarginPercent"]) / 100.0)
     return max(min_tokens, math.ceil(cost_rub / token_rub), math.ceil(cost_rub / (token_rub * margin_factor)))
+
+
+def openrouter_format_economics(
+    model: OpenRouterPriceModel,
+    fmt: dict[str, Any],
+    effective_rate: float | None,
+    economy: dict[str, float],
+) -> dict[str, Any]:
+    width = int(fmt["width"])
+    height = int(fmt["height"])
+    plan = openrouter_image_request_plan(model.id, width, height)
+    billing_width = int(plan.get("billing_width") or width)
+    billing_height = int(plan.get("billing_height") or height)
+    megapixels = max(1.0, (billing_width * billing_height) / 1_000_000)
+    cost_usd = openrouter_estimated_usd(model, megapixels)
+    cost_rub = cost_usd * effective_rate if effective_rate is not None else None
+    tokens = openrouter_tokens_for_cost(cost_rub, model.min_tokens, economy) if cost_rub is not None else None
+    revenue_rub = tokens * float(economy["tokenRub"]) if tokens is not None else None
+    profit_rub = revenue_rub - cost_rub if revenue_rub is not None and cost_rub is not None else None
+    margin_percent = (profit_rub / revenue_rub * 100) if revenue_rub and profit_rub is not None else None
+    return {
+        "id": fmt["id"],
+        "label": fmt["label"],
+        "short": fmt["short"],
+        "inputWidth": width,
+        "inputHeight": height,
+        "requestSize": plan.get("size"),
+        "requestSizeStrategy": plan.get("strategy"),
+        "billingWidth": billing_width,
+        "billingHeight": billing_height,
+        "megapixels": round(megapixels, 6),
+        "costUsd": round(cost_usd, 6),
+        "costRub": round(cost_rub, 4) if cost_rub is not None else None,
+        "tokens": tokens,
+        "revenueRub": round(revenue_rub, 4) if revenue_rub is not None else None,
+        "profitRub": round(profit_rub, 4) if profit_rub is not None else None,
+        "marginPercent": round(margin_percent, 2) if margin_percent is not None else None,
+        "supported": True,
+    }
+
+
+def openrouter_admin_pricing_rows(exchange: dict[str, Any], economy: dict[str, float]) -> list[dict[str, Any]]:
+    rate = exchange.get("rate")
+    effective_rate = float(rate) * (1 + OPENROUTER_USD_FEE_RATE) if isinstance(rate, (int, float)) else None
+    rows: list[dict[str, Any]] = []
+    for model in OPENROUTER_PRICE_CATALOG.values():
+        item = model.model_dump()
+        item["formats"] = [
+            openrouter_format_economics(model, fmt, effective_rate, economy)
+            for fmt in OPENROUTER_ADMIN_FORMATS
+        ]
+        rows.append(item)
+    return rows
 
 
 async def estimate_openrouter_billing(req: GenerateRequest) -> dict[str, Any]:
@@ -13453,7 +13512,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
             "config": get_openrouter_config(),
             "exchange": exchange,
             "economy": openrouter_economy,
-            "backendPricing": [model.model_dump() for model in OPENROUTER_PRICE_CATALOG.values()],
+            "backendPricing": openrouter_admin_pricing_rows(exchange, openrouter_economy),
         },
         "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"} if include_local else {},
         "profiles": status.get("profiles", []),

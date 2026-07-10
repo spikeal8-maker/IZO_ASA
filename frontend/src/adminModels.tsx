@@ -21,7 +21,26 @@ type Lora = {
 type UserChoiceItem = { key?: string; label: string; model?: string; cost?: number | string; plan?: string; provider?: string }
 type CatalogItem = { provider: string; displayName: string; modelId: string; capabilities: string[]; cost: string; margin: string; status: string }
 type ProfileOption = { id: string; name: string; supportsPose?: boolean }
-type BackendOpenRouterPrice = { id: string; name: string; provider: string; pricing_type: string; usd: number; min_tokens: number; source: string }
+type OpenRouterFormatEconomics = {
+  id: string
+  label: string
+  short: string
+  inputWidth: number
+  inputHeight: number
+  requestSize?: string
+  requestSizeStrategy?: string
+  billingWidth?: number
+  billingHeight?: number
+  megapixels?: number
+  costUsd?: number | null
+  costRub?: number | null
+  tokens?: number | null
+  revenueRub?: number | null
+  profitRub?: number | null
+  marginPercent?: number | null
+  supported?: boolean
+}
+type BackendOpenRouterPrice = { id: string; name: string; provider: string; pricing_type: string; usd: number; min_tokens: number; source: string; formats?: OpenRouterFormatEconomics[] }
 type ConfigStatus = {
   status?: string
   checked_at?: string
@@ -86,6 +105,12 @@ const OPENROUTER_QUALITY: Array<{ id: OpenRouterQuality; label: string }> = [
   { id: 'standard', label: 'Стандарт' },
   { id: 'max', label: 'Максимум' },
 ]
+const OPENROUTER_FORMAT_COLUMNS = [
+  { id: 'square', label: '1:1' },
+  { id: 'portrait', label: '9:16' },
+  { id: 'wide', label: '16:9' },
+  { id: 'soft_wide', label: '3:2' },
+] as const
 type ApiImageModel = {
   id: string; name: string; provider: string; input: string; output: string; params: string; pricing: string
   mpUsd?: number; imageUsd?: number; token?: boolean; tiered?: boolean
@@ -165,7 +190,6 @@ const effectiveUsdRub = (exchange?: PageData['openrouter']['exchange']) => {
 const rub = (usd: number, rate: number | null) => rate === null ? 'курс не загружен' : `${(usd * rate).toFixed(2)} ₽`
 const SHORT_PROMPT_TEXT_TOKENS = 40
 const OUTPUT_IMAGE_TOKENS_1MP = 1300
-const usd = (value: number) => `$${value.toFixed(value < 0.01 ? 4 : 3)}`
 const modelBrand = (m: ApiImageModel) => {
   const fromName = m.name.includes(':') ? m.name.split(':')[0].trim() : ''
   const fromId = m.id.split('/')[0] || ''
@@ -215,14 +239,6 @@ const modelImageUsdPrice = (m: ApiImageModel, actualUsdPerImage?: number | null)
   if (typeof actualUsdPerImage === 'number') return Math.max(estimated || 0, actualUsdPerImage)
   return estimated
 }
-const modelRubPrice = (m: ApiImageModel, rate: number | null, actualUsdPerImage?: number | null) => {
-  const value = modelImageUsdPrice(m, actualUsdPerImage)
-  return value === null ? 'нет данных' : `${rub(value, rate)}`
-}
-const modelUsdPrice = (m: ApiImageModel, actualUsdPerImage?: number | null) => {
-  const value = modelImageUsdPrice(m, actualUsdPerImage)
-  return value === null ? 'нет данных' : usd(value)
-}
 const minTokenTier = (m: ApiImageModel) => {
   if (m.id === 'black-forest-labs/flux.2-klein-4b') return 1
   if (m.id === 'black-forest-labs/flux.2-pro') return 2
@@ -269,6 +285,20 @@ const tokensText = (usdValue: unknown, rate: number | null, tokenRub: number) =>
   const tokens = projectTokensForUsd(usdValue, rate, tokenRub)
   return tokens === null ? '—' : `${tokens} ток.`
 }
+const formatMoneyRub = (value: unknown) => typeof value === 'number' ? `${value.toFixed(2)} ₽` : '—'
+const formatMoneyUsd = (value: unknown) => typeof value === 'number' ? `$${value.toFixed(4)}` : '—'
+const formatCompactRub = (value: unknown) => typeof value === 'number' ? `${value.toFixed(value >= 10 ? 0 : 2)} ₽` : '—'
+const backendPrimaryFormat = (price?: BackendOpenRouterPrice) => price?.formats?.find((f) => f.id === 'square') || price?.formats?.[0]
+const formatEconomicsCell = (fmt: OpenRouterFormatEconomics | undefined, minMarginPercent: number) => {
+  if (!fmt || fmt.supported === false) return <span className="format-empty">—</span>
+  const margin = typeof fmt.marginPercent === 'number' ? fmt.marginPercent : null
+  const marginClass = margin !== null && margin < minMarginPercent ? 'risk-high' : 'risk-low'
+  return <div className="format-econ" title={`${fmt.label}: запрос ${fmt.requestSize || 'auto'}, биллинг ${fmt.billingWidth || '?'}x${fmt.billingHeight || '?'}`}>
+    <strong>{formatMoneyRub(fmt.costRub)} <em>{formatMoneyUsd(fmt.costUsd)}</em></strong>
+    <span>{fmt.tokens ?? '—'} ток. · выр. {formatCompactRub(fmt.revenueRub)}</span>
+    <span className={marginClass}>выг. {formatCompactRub(fmt.profitRub)} · {percentText(margin)}</span>
+  </div>
+}
 const fetchBrowserUsdRub = async (): Promise<PageData['openrouter']['exchange']> => {
   try {
     const response = await fetch('https://www.cbr-xml-daily.ru/daily_json.js', { cache: 'no-store' })
@@ -303,8 +333,18 @@ const fetchBrowserUsdRub = async (): Promise<PageData['openrouter']['exchange']>
     }
   }
 }
-const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState, stats: Map<string, Record<string, unknown>>, rate: number | null, minMarginPercent: number, tokenRub: number) => [...rows].sort((a, b) => {
+const sortedApiRows = (rows: ApiImageModel[], sort: ApiSortState, stats: Map<string, Record<string, unknown>>, rate: number | null, minMarginPercent: number, tokenRub: number, backendPricing: Map<string, BackendOpenRouterPrice>) => [...rows].sort((a, b) => {
   const economics = (m: ApiImageModel) => {
+    const backend = backendPrimaryFormat(backendPricing.get(m.id))
+    if (backend) {
+      return {
+        cost: typeof backend.costRub === 'number' ? backend.costRub : null,
+        tokens: typeof backend.tokens === 'number' ? backend.tokens : null,
+        revenue: typeof backend.revenueRub === 'number' ? backend.revenueRub : null,
+        profit: typeof backend.profitRub === 'number' ? backend.profitRub : null,
+        margin: typeof backend.marginPercent === 'number' ? backend.marginPercent : null,
+      }
+    }
     const modelStats = stats.get(m.id)
     const avgImageUsd = typeof modelStats?.avgCostUsd === 'number' ? modelStats.avgCostUsd : null
     const cost = costRubForModel(m, avgImageUsd, rate)
@@ -395,6 +435,7 @@ const CSS = `
 .amv2 .quality-row span{color:var(--muted);font-size:11px;font-weight:750}
 .amv2 .quality-row select{min-height:28px;font-size:12px;padding:0 8px}
 .amv2 .api-table{min-width:1420px}
+.amv2 .api-table.format-table{min-width:1680px}
 .amv2 .api-table td,.amv2 .api-table th{vertical-align:middle}
 .amv2 .api-table th{padding:6px 8px}
 .amv2 .api-table td{padding:2px 8px;height:26px;line-height:1.15}
@@ -417,6 +458,14 @@ const CSS = `
 .amv2 .api-table .provider{font-size:11px;padding:2px 6px}
 .amv2 .api-table .money{font-size:12px}
 .amv2 .money{font-weight:650;color:var(--lime);white-space:nowrap}
+.amv2 .format-head{min-width:160px}
+.amv2 .format-head span{display:block;margin-top:2px;color:var(--muted);font-size:9px;font-weight:650;text-transform:uppercase;letter-spacing:.03em}
+.amv2 .format-cell{min-width:160px}
+.amv2 .format-econ{display:grid;gap:2px;line-height:1.08;white-space:nowrap}
+.amv2 .format-econ strong{color:var(--lime);font-size:11px;font-weight:700}
+.amv2 .format-econ em{color:var(--text);font-style:normal;font-weight:650;margin-left:4px}
+.amv2 .format-econ span{font-size:10px;color:var(--muted)}
+.amv2 .format-empty{color:var(--muted);font-size:12px}
 .amv2 .risk-low{color:var(--green)}.amv2 .risk-mid{color:var(--yellow)}.amv2 .risk-high{color:var(--red)}
 .amv2 .dashboard{display:grid;grid-template-columns:1fr 1.18fr .82fr;gap:12px;margin-bottom:12px}
 .amv2 .metric-grid{padding:12px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
@@ -488,7 +537,7 @@ const CSS = `
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head{grid-template-columns:1fr}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .mobile-models{display:grid}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head{grid-template-columns:1fr}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats{grid-template-columns:1fr}}
 `
 
@@ -1000,7 +1049,7 @@ export default function AdminModelsV2() {
             const hay = `${m.id} ${m.name} ${m.provider} ${m.input} ${m.output} ${m.params} ${m.pricing}`.toLowerCase()
             return !query || hay.includes(query.toLowerCase())
           })
-        const sortedRows = sortedApiRows(rows, sort, orUsageModels, usdRubEffective, minMarginPercent, tokenRub)
+        const sortedRows = sortedApiRows(rows, sort, orUsageModels, usdRubEffective, minMarginPercent, tokenRub, backendPricingMap)
         const billableIds = rows.filter((m) => backendPricingMap.has(m.id)).map((m) => m.id)
         const enabledBillableCount = billableIds.filter((id) => enabledForSection.includes(id)).length
         const allBillableEnabled = billableIds.length > 0 && enabledBillableCount === billableIds.length
@@ -1025,7 +1074,7 @@ export default function AdminModelsV2() {
           </button>
           {sectionOpen && <>
           <div className="matrix-wrap">
-            <table className="api-table">
+            <table className="api-table format-table">
               <thead><tr>
                 <th className="api-enabled">
                   <input
@@ -1052,12 +1101,10 @@ export default function AdminModelsV2() {
                     </label>)}
                   </div>
                 </th>
-                <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена картинки, ₽ {sortMark(sort, 'price')}</button></th>
-                <th><button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>Цена картинки, $ {sortMark(sort, 'price')}</button></th>
-                <th><button className={`sort-head ${sort.key === 'tokens' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'tokens')}>Токены {sortMark(sort, 'tokens')}</button></th>
-                <th><button className={`sort-head ${sort.key === 'revenue' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'revenue')}>Выручка {sortMark(sort, 'revenue')}</button></th>
-                <th><button className={`sort-head ${sort.key === 'profit' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'profit')}>Выгода {sortMark(sort, 'profit')}</button></th>
-                <th><button className={`sort-head ${sort.key === 'margin' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'margin')}>Маржа {sortMark(sort, 'margin')}</button></th>
+                {OPENROUTER_FORMAT_COLUMNS.map((fmt) => <th key={fmt.id} className="format-head">
+                  <button className={`sort-head ${sort.key === 'price' ? 'active' : ''}`} onClick={() => toggleApiSort(section.id, 'price')}>{fmt.label} {sortMark(sort, 'price')}</button>
+                  <span>цена · токены · выгода</span>
+                </th>)}
                 <th>Сген.</th>
                 <th>Потрачено</th>
               </tr></thead>
@@ -1072,8 +1119,9 @@ export default function AdminModelsV2() {
                 const avgActualUsd = typeof modelStats?.avgCostUsd === 'number' ? modelStats.avgCostUsd : null
                 const generatedCount = modelStatText(modelStats?.count)
                 const spentTotal = typeof modelStats?.costUsd === 'number' ? moneyPair(modelStats.costUsd, usdRubEffective) : '—'
-                const costRub = costRubForModel(m, avgActualUsd, usdRubEffective)
-                const tokenCount = tokenPriceForModel(m, avgActualUsd, usdRubEffective, minMarginPercent, tokenRub)
+                const primaryFormat = backendPrimaryFormat(backendPrice)
+                const costRub = typeof primaryFormat?.costRub === 'number' ? primaryFormat.costRub : costRubForModel(m, avgActualUsd, usdRubEffective)
+                const tokenCount = typeof primaryFormat?.tokens === 'number' ? primaryFormat.tokens : tokenPriceForModel(m, avgActualUsd, usdRubEffective, minMarginPercent, tokenRub)
                 const revenue = revenueRub(tokenCount, tokenRub)
                 const profit = profitRub(revenue, costRub)
                 const margin = marginPercent(revenue, profit)
@@ -1105,17 +1153,14 @@ export default function AdminModelsV2() {
                         </label>)}
                       </div>
                     </td>
-                    <td><span className="money">{modelRubPrice(m, usdRubEffective, avgActualUsd)}</span></td>
-                    <td><span className="money">{modelUsdPrice(m, avgActualUsd)}</span></td>
-                    <td><span className="money">{tokenCount ?? '—'}</span></td>
-                    <td><span className="money">{rubText(revenue)}</span></td>
-                    <td><span className="money">{rubText(profit)}</span></td>
-                    <td><span className={margin !== null && margin < minMarginPercent ? 'risk-high' : 'risk-low'}>{percentText(margin)}</span></td>
+                    {OPENROUTER_FORMAT_COLUMNS.map((fmt) => <td key={fmt.id} className="format-cell">
+                      {formatEconomicsCell(backendPrice?.formats?.find((item) => item.id === fmt.id), minMarginPercent)}
+                    </td>)}
                     <td>{generatedCount}</td>
                     <td><span className="money">{spentTotal}</span></td>
                   </tr>
                   {expanded && <tr>
-                    <td className="detail-cell" colSpan={12}>
+                    <td className="detail-cell" colSpan={10}>
                       <div className="detail-box">
                         <span><b>Полное имя:</b> {m.name}</span>
                         <span><b>OpenRouter id:</b> {m.id}</span>
@@ -1124,6 +1169,7 @@ export default function AdminModelsV2() {
                         <span><b>Цена из OpenRouter:</b> {m.pricing}</span>
                         <span><b>Токены проекта:</b> {tokenCount ?? 'нужно измерить'} при {tokenRub} ₽/токен и марже от {minMarginPercent}%</span>
                         <span><b>Экономика:</b> себестоимость {rubText(costRub)} · выручка {rubText(revenue)} · выгода {rubText(profit)} · маржа {percentText(margin)}</span>
+                        <span><b>Форматы:</b> {(backendPrice?.formats || []).map((fmt) => `${fmt.short}: ${formatMoneyRub(fmt.costRub)} / ${formatMoneyUsd(fmt.costUsd)}, ${fmt.tokens ?? '—'} ток., ${fmt.requestSize || 'auto'}`).join(' · ') || 'нет данных'}</span>
                         <span><b>Факт по проекту:</b> {generatedCount} шт · {spentTotal}</span>
                         <span><b>Вход/выход API:</b> {m.input} {'->'} {m.output}</span>
                         <span><b>Параметры:</b> {m.params || 'нет в endpoint metadata'}</span>
