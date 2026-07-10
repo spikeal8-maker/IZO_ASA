@@ -2705,7 +2705,7 @@ export default function NewStudio(): ReactElement {
             )}
           </div>
           {!isBase && slot.image && (
-            <div className="editor-role-controls">
+            <div className={`editor-role-controls${slot.role === 'face' ? ' is-face-strength' : ''}`}>
               <label>
                 <span>Что взять из картинки</span>
                 <select
