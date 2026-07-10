@@ -98,6 +98,20 @@ def test_generate_with_valid_session_reaches_worker(temp_db, authed_user):
     assert jc >= 1
 
 
+def test_local_text_generation_is_normalized_to_four_steps(temp_db, authed_user):
+    sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
+    with TestClient(main.app) as c:
+        response = c.post(
+            "/api/generate",
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "four steps", "width": 512, "height": 512, "steps": 10},
+            cookies={"onenode_session": sess["session_token"]},
+        )
+
+    assert response.status_code == 200, response.text
+    job = main.jobs[response.json()["id"]]
+    assert job["request"]["steps"] == main.LOCAL_TEXT_TO_IMAGE_STEPS == 4
+
+
 # 6 — trusted session overrides any spoofed header
 def test_trusted_session_overrides_spoofed_header(temp_db, authed_user):
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])

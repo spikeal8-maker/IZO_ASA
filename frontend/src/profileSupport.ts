@@ -29,7 +29,19 @@ export type TariffRule = {
   video_slots: number
 }
 export type TariffConfig = Record<TariffKey, TariffRule>
-export type ModelOption = { id: string; label: string; provider: ModelProvider; modelProfile: string; tokenHint: number }
+export type ModelGenerationContract = {
+  fixedSteps: number | null
+  allowsExactRepeat: boolean
+  supportsSeed: boolean
+}
+export type ModelOption = {
+  id: string
+  label: string
+  provider: ModelProvider
+  modelProfile: string
+  tokenHint: number
+  generation?: ModelGenerationContract
+}
 
 export const tariffKeys: TariffKey[] = ['free', 'mini', 'plus', 'pro', 'business']
 export const qualityPresets: QualityPreset[] = ['fast', 'standard', 'max']
@@ -49,7 +61,14 @@ export const modelModeLabels: Record<ModelModeKey, string> = {
   faceswap: 'Лицо',
   remove_background: 'Удаление фона',
 }
-export const SERVER_MODEL_OPTION: ModelOption = { id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1 }
+export const SERVER_MODEL_OPTION: ModelOption = {
+  id: 'server:local_flux_klein',
+  label: 'ИЗО Base',
+  provider: 'comfyui',
+  modelProfile: 'local_flux_klein',
+  tokenHint: 1,
+  generation: { fixedSteps: 4, allowsExactRepeat: false, supportsSeed: true },
+}
 export const modelOptions: ModelOption[] = [
   SERVER_MODEL_OPTION,
   { id: 'black-forest-labs/flux.2-klein-4b', label: 'FLUX.2 Klein 4B', provider: 'openrouter', modelProfile: 'black-forest-labs/flux.2-klein-4b', tokenHint: 1 },
@@ -282,7 +301,24 @@ export function normalizeModelAccess(input: unknown, fallbackPlan: TariffKey = '
   const modes = modelModeOrder.reduce((acc, mode) => {
     const raw = source.modes?.[mode]
     const rawModels = Array.isArray(raw?.models) ? raw.models : [SERVER_MODEL_OPTION]
-    const models = rawModels.map((item) => modelOptionById(String(item.id || item.modelProfile || SERVER_MODEL_OPTION.id)))
+    const models = rawModels.map((item) => {
+      const fallback = modelOptionById(String(item.id || item.modelProfile || SERVER_MODEL_OPTION.id))
+      const generation = item.generation && typeof item.generation === 'object'
+        ? {
+            fixedSteps: typeof item.generation.fixedSteps === 'number' ? item.generation.fixedSteps : null,
+            allowsExactRepeat: Boolean(item.generation.allowsExactRepeat),
+            supportsSeed: Boolean(item.generation.supportsSeed),
+          }
+        : fallback.generation
+      return {
+        ...fallback,
+        label: typeof item.label === 'string' && item.label.trim() ? item.label.trim() : fallback.label,
+        provider: item.provider === 'openrouter' ? 'openrouter' as const : fallback.provider,
+        modelProfile: typeof item.modelProfile === 'string' && item.modelProfile ? item.modelProfile : fallback.modelProfile,
+        tokenHint: typeof item.tokenHint === 'number' && item.tokenHint > 0 ? item.tokenHint : fallback.tokenHint,
+        generation,
+      }
+    })
     const unique = Array.from(new Map([SERVER_MODEL_OPTION, ...models].map((item) => [item.id, item])).values())
     const rawPresets = (raw?.presets || {}) as Partial<TariffModelDefaults>
     const presets = qualityPresets.reduce((presetAcc, preset) => {

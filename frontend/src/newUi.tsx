@@ -94,6 +94,7 @@ type LoraOption = { id: string; label: string; triggerWord: string; strength: nu
 type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
 type StudioModelSort = 'name-asc' | 'name-desc' | 'tokens-asc' | 'tokens-desc'
 type LastTextSubmit = { prompt: string; model: string; width: number; height: number }
+type LastI2ISubmit = LastTextSubmit & { source: string }
 type PublicModelFormatPricing = {
   id: string
   label: string
@@ -1008,9 +1009,7 @@ export default function NewStudio(): ReactElement {
   const activeTariffKey = (String(me?.account?.plan || 'mini').toLowerCase() in tariffs ? String(me?.account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
   const activeTariff = tariffs[activeTariffKey] || DEFAULT_TARIFFS[activeTariffKey] || DEFAULT_TARIFFS.mini
   const proModeAllowed = Boolean(activeTariff.pro_mode_enabled)
-  useEffect(() => {
-    if (!proModeAllowed && proMode) setProMode(false)
-  }, [proModeAllowed, proMode])
+  const effectiveProMode = proModeAllowed && proMode
   const [userModelChoices, setUserModelChoices] = useState<UserModelChoices>(() => {
     try {
       const raw = window.localStorage.getItem('izo:user-model-choices')
@@ -1230,7 +1229,8 @@ export default function NewStudio(): ReactElement {
   const appliedStyleRef = useRef<{ id: string; text: string } | null>(null)
   // Текущая стилевая приписка в i2i-промпте — видна прямо в textarea.
   const appliedI2IStyleRef = useRef<{ id: string; text: string } | null>(null)
-  const lastSubmittedRef = useRef<{ text?: LastTextSubmit; i2i?: { prompt: string; source: string; width: number; height: number; model: string } }>({})
+  const lastTextSubmittedRef = useRef<LastTextSubmit | undefined>(undefined)
+  const lastI2ISubmittedRef = useRef<LastI2ISubmit | undefined>(undefined)
   const noticeClearRef = useRef<{ text: string; i2i: string; edit: string; face: string; paint: string; source: string; editSlots: string; faceSlots: string }>({ text: '', i2i: '', edit: '', face: '', paint: '', source: '', editSlots: '', faceSlots: '' })
   const resultSeededRef = useRef(false)
 
@@ -1257,7 +1257,6 @@ export default function NewStudio(): ReactElement {
         if (cancelled) return
         if (data?.tariffs) {
           setTariffs(normalizeTariffs(data.tariffs))
-          if (data.modelAccess) setModelAccess(normalizeModelAccess(data.modelAccess, (me?.account?.plan || 'mini') as TariffKey))
           if (data.openrouterPricing) setOpenrouterPricing(pricingMapFromPayload(data.openrouterPricing))
           if (typeof data.economy?.tokenRub === 'number' && data.economy.tokenRub > 0) setTokenRub(data.economy.tokenRub)
           setTariffsState('ready')
@@ -1722,21 +1721,20 @@ export default function NewStudio(): ReactElement {
     }
     const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
     const selectedModelMode = modelModeFromStudio(mode, paintMode)
-    const selectedModel = proMode ? studioProSelectedModel(selectedModelMode, selectedQuality) : studioSelectedModel(selectedModelMode, selectedQuality)
+    const selectedModel = effectiveProMode ? studioProSelectedModel(selectedModelMode, selectedQuality) : studioSelectedModel(selectedModelMode, selectedQuality)
     const presetRequestSize = selectedModel.provider === 'comfyui' ? comfySafeGenerationSize(size) : size
-    const lastText = lastSubmittedRef.current.text
-    if (mode === 'text' && lastText && lastText.prompt === textPrompt && lastText.model === selectedModel.id && lastText.width === presetRequestSize.width && lastText.height === presetRequestSize.height) {
-      showToast('Измените промпт перед новой генерацией')
-      setNotice('Измените промпт, модель или формат перед новой генерацией.')
+    const lastText = lastTextSubmittedRef.current
+    const allowsExactRepeat = selectedModel.generation?.allowsExactRepeat ?? selectedModel.provider === 'openrouter'
+    if (mode === 'text' && !allowsExactRepeat && lastText && lastText.prompt === textPrompt && lastText.model === selectedModel.id && lastText.width === presetRequestSize.width && lastText.height === presetRequestSize.height) {
+      showToast('Измените промпт перед новой локальной генерацией')
+      setNotice('Для повторного запуска ИЗО Base измените промпт, модель или формат.')
       return
     }
-    if (mode === 'i2i') {
-      const last = lastSubmittedRef.current.i2i
-      if (last && last.prompt === i2iPrompt && last.source === i2iSource && last.width === size.width && last.height === size.height && last.model === selectedModel.id) {
-        showToast('Измените промпт, модель, формат или изображение')
-        setNotice('Измените промпт, модель, формат или исходное изображение перед новой генерацией.')
-        return
-      }
+    const lastI2I = lastI2ISubmittedRef.current
+    if (mode === 'i2i' && lastI2I && lastI2I.prompt === i2iPrompt && lastI2I.source === i2iSource && lastI2I.width === size.width && lastI2I.height === size.height && lastI2I.model === selectedModel.id) {
+      showToast('Измените промпт, модель, формат или изображение')
+      setNotice('Измените промпт, модель, формат или исходное изображение перед новой генерацией.')
+      return
     }
     if (!(await ensureAuthed())) return
     inFlightRef.current = true
@@ -1744,7 +1742,11 @@ export default function NewStudio(): ReactElement {
     setNotice('')
     try {
       const style = I2I_STYLES.find((s) => s.id === styleId)
-      const steps = QUALITY.find((q) => q.id === quality)?.steps || 4
+      const steps = mode === 'text' && typeof selectedModel.generation?.fixedSteps === 'number'
+        ? selectedModel.generation.fixedSteps
+        : mode === 'text' && selectedModel.provider === 'comfyui'
+          ? 4
+        : QUALITY.find((q) => q.id === quality)?.steps || 4
       const effectiveSeed = seed || randomSeed()
       const rawRequestSize = mode === 'face'
         ? await imageRequestSizeFromSource(faceSlots[0]?.image, size)
@@ -1847,8 +1849,11 @@ export default function NewStudio(): ReactElement {
         return
       }
       const created: N2Job = await response.json()
-      if (mode === 'i2i') lastSubmittedRef.current.i2i = { prompt: i2iPrompt, source: i2iSource, width: requestSize.width, height: requestSize.height, model: selectedModel.id }
-      else lastSubmittedRef.current.text = { prompt: textPrompt, model: selectedModel.id, width: requestSize.width, height: requestSize.height }
+      if (mode === 'text') {
+        lastTextSubmittedRef.current = { prompt: textPrompt, model: selectedModel.id, width: requestSize.width, height: requestSize.height }
+      } else if (mode === 'i2i') {
+        lastI2ISubmittedRef.current = { prompt: i2iPrompt, source: i2iSource, model: selectedModel.id, width: requestSize.width, height: requestSize.height }
+      }
       if (mode === 'paint') setPaintWorkbenchVisible(false)
       pendingResultSourceRef.current[mode] = nextResultSource
       pendingResultShapeRef.current[mode] = nextResultShape
@@ -2256,6 +2261,18 @@ export default function NewStudio(): ReactElement {
       [currentModelMode]: model.id,
     }))
   }
+  function selectQualityPreset(nextQuality: QualityPreset) {
+    const nextModel = studioSelectedModel(currentModelMode, nextQuality)
+    const supported = supportedFormatIdsForModel(nextModel)
+    if (!supported.includes(currentFormatPricingId)) {
+      const nextFormat = supported[0] || 'square'
+      setResolutionId(resolutionIdForFormat(nextFormat))
+      setFormatAutoNotice(`Формат изменен: ${formatName(nextFormat)}`)
+    } else {
+      setFormatAutoNotice('')
+    }
+    setQuality(nextQuality)
+  }
   function studioSelectedModel(mode: ModelModeKey, preset: QualityPreset) {
     const access = modelAccess.modes[mode]
     const models = (access?.models || []).filter((model) => userModelVisibility[mode]?.[model.id] !== false)
@@ -2271,20 +2288,24 @@ export default function NewStudio(): ReactElement {
     const chosen = proModelChoices[mode]
     return (chosen ? allowed.find((model) => model.id === chosen) : undefined) || studioSelectedModel(mode, preset)
   }
-  const currentStudioModel = proMode ? studioProSelectedModel(currentModelMode, selectedQuality) : studioSelectedModel(currentModelMode, selectedQuality)
+  const currentStudioModel = effectiveProMode ? studioProSelectedModel(currentModelMode, selectedQuality) : studioSelectedModel(currentModelMode, selectedQuality)
   const currentStudioModelInfo = modelPublicInfo(currentStudioModel)
   const currentStudioTokenCost = tokenCostForModel(currentStudioModel)
+  const currentSupportedFormatIds = supportedFormatIdsForModel(currentStudioModel)
+  const currentSupportedFormatsKey = currentSupportedFormatIds.join('|')
   useEffect(() => {
-    if (!currentStudioModel) return
-    const supported = supportedFormatIdsForModel(currentStudioModel)
+    const supported = currentSupportedFormatsKey.split('|').filter(Boolean) as PublicFormatId[]
     if (supported.includes(currentFormatPricingId)) return
     const nextFormat = supported[0] || 'square'
     const nextResolutionId = resolutionIdForFormat(nextFormat)
-    if (resolutionId !== nextResolutionId) {
-      setResolutionId(nextResolutionId)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setResolutionId((current) => current === nextResolutionId ? current : nextResolutionId)
       setFormatAutoNotice(`Формат изменен: ${formatName(nextFormat)}`)
-    }
-  }, [currentStudioModel.id, currentFormatPricingId, openrouterPricing, resolutionId])
+    })
+    return () => { cancelled = true }
+  }, [currentFormatPricingId, currentSupportedFormatsKey])
   const generateLabel = isI2IStudio ? 'Преобразовать' : isEditStudio ? 'Создать изображение' : isFaceStudio ? 'Заменить лицо' : isPaintStudio ? paintMode === 'remove_bg' ? 'Удалить фон' : paintMode === 'outpaint' ? 'Расширить' : 'Создать по рисунку' : 'Сгенерировать'
   const generatingLabel = isI2IStudio ? 'Преобразуем...' : isEditStudio ? 'Создаём...' : isFaceStudio ? 'Заменяем...' : isPaintStudio ? 'Готовим рисунок...' : 'Генерируем...'
   const influenceStyle = { '--i2i-range-progress': `${strengthPct}%` } as CSSProperties
@@ -2334,6 +2355,10 @@ export default function NewStudio(): ReactElement {
   // v3-студия: выбрать формат (соотношение сторон) — переключает на конкретный
   // базовый пресет, чтобы 16:9 и 3:2 не смешивались в один horizontal.
   const selectRatio = (format: 'square' | 'portrait' | 'wide' | 'soft_wide') => {
+    if (!currentSupportedFormatIds.includes(format)) {
+      setFormatAutoNotice(`${formatName(format)} не поддерживается выбранной моделью`)
+      return
+    }
     const presetId = format === 'square'
       ? 'sq-1024'
       : format === 'portrait'
@@ -2342,7 +2367,10 @@ export default function NewStudio(): ReactElement {
           ? 'h-1536'
           : 'h-1280'
     const preset = RESOLUTION_PRESETS.find((p) => p.id === presetId)
-    if (preset) setResolutionId(preset.id)
+    if (preset) {
+      setResolutionId(preset.id)
+      setFormatAutoNotice('')
+    }
   }
 
   // Формат-дропдаун: класс shape-иконки и локализованный тип разрешения.
@@ -2513,7 +2541,7 @@ export default function NewStudio(): ReactElement {
   // Промпт выбранного изображения; у ленты без промпта — честный fallback.
   const dockPromptText = dockImage
     ? dockImage.promptOriginal || (dockIsFeed ? 'Промпт недоступен' : '')
-    : prompts.text
+    : ''
   const shareTarget = visibleGalleryImage
   const previewNoticeText = notice || toastText
   const paintModeMeta: Record<PaintSubMode, { label: string; hint: string }> = {
@@ -2832,7 +2860,7 @@ export default function NewStudio(): ReactElement {
         <div className="sidebar-head">
           <h1>{studioTitle}</h1>
           <button
-            className={`pro-button${proMode ? ' active' : ''}${!proModeAllowed ? ' locked' : ''}`}
+            className={`pro-button${effectiveProMode ? ' active' : ''}${!proModeAllowed ? ' locked' : ''}`}
             type="button"
             disabled={!proModeAllowed}
             title={proModeAllowed ? undefined : 'Режим Профи доступен в старших тарифах'}
@@ -2843,7 +2871,7 @@ export default function NewStudio(): ReactElement {
                 <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
               </svg>
             ) : <Lock size={16} strokeWidth={2.1} aria-hidden="true" />}
-            {proModeAllowed ? proMode ? 'Режим Стандарт' : 'Режим Профи' : 'Профи закрыт'}
+            {proModeAllowed ? effectiveProMode ? 'Режим Стандарт' : 'Режим Профи' : 'Профи закрыт'}
           </button>
         </div>
 
@@ -3264,8 +3292,9 @@ export default function NewStudio(): ReactElement {
                       type="button"
                       role="option"
                       aria-selected={p.id === resolutionId}
+                      disabled={!currentSupportedFormatIds.includes(formatPricingId(p))}
                       className={`iv3-format-option${p.id === resolutionId ? ' active' : ''}`}
-                      onClick={() => { setResolutionId(p.id); setFormatOpen(false) }}
+                      onClick={() => { setResolutionId(p.id); setFormatAutoNotice(''); setFormatOpen(false) }}
                     >
                       <span className={`ratio-icon ${ratioIconClass(p.kind, formatPricingId(p))}`.trim()} aria-hidden="true"></span>
                       <span className="iv3-format-res">{p.width}×{p.height}</span>
@@ -3275,16 +3304,16 @@ export default function NewStudio(): ReactElement {
                 </div>
               )}
             </div>
-            <button className={`ratio-button${currentFormatPricingId === 'square' ? ' active' : ''}`} type="button" onClick={() => selectRatio('square')}>
+            <button className={`ratio-button${currentFormatPricingId === 'square' ? ' active' : ''}`} type="button" disabled={!currentSupportedFormatIds.includes('square')} onClick={() => selectRatio('square')}>
               <span className="ratio-icon"></span>1:1
             </button>
-            <button className={`ratio-button${currentFormatPricingId === 'portrait' ? ' active' : ''}`} type="button" onClick={() => selectRatio('portrait')}>
+            <button className={`ratio-button${currentFormatPricingId === 'portrait' ? ' active' : ''}`} type="button" disabled={!currentSupportedFormatIds.includes('portrait')} onClick={() => selectRatio('portrait')}>
               <span className="ratio-icon tall"></span>9:16
             </button>
-            <button className={`ratio-button${currentFormatPricingId === 'wide' ? ' active' : ''}`} type="button" onClick={() => selectRatio('wide')}>
+            <button className={`ratio-button${currentFormatPricingId === 'wide' ? ' active' : ''}`} type="button" disabled={!currentSupportedFormatIds.includes('wide')} onClick={() => selectRatio('wide')}>
               <span className="ratio-icon wide"></span>16:9
             </button>
-            <button className={`ratio-button${currentFormatPricingId === 'soft_wide' ? ' active' : ''}`} type="button" onClick={() => selectRatio('soft_wide')}>
+            <button className={`ratio-button${currentFormatPricingId === 'soft_wide' ? ' active' : ''}`} type="button" disabled={!currentSupportedFormatIds.includes('soft_wide')} onClick={() => selectRatio('soft_wide')}>
               <span className="ratio-icon soft-wide"></span>3:2
             </button>
           </div>
@@ -3293,10 +3322,10 @@ export default function NewStudio(): ReactElement {
 
         <section className="form-section quality-section">
           <div className="section-title studio-model-title">
-            <h2>{proMode ? 'Модель' : 'Качество'}</h2>
-            {proMode && <span>{currentModeAccess?.label || studioTitle}</span>}
+            <h2>{effectiveProMode ? 'Модель' : 'Качество'}</h2>
+            {effectiveProMode && <span>{currentModeAccess?.label || studioTitle}</span>}
           </div>
-          {!proMode ? (
+          {!effectiveProMode ? (
             <div className="quality-row">
               {QUALITY.map((q) => {
                 const qualityId = q.id as QualityPreset
@@ -3307,9 +3336,10 @@ export default function NewStudio(): ReactElement {
                     key={q.id}
                     className={`quality-button${quality === q.id ? ' active' : ''}`}
                     type="button"
-                    onClick={() => setQuality(q.id)}
+                    onClick={() => selectQualityPreset(qualityId)}
                   >
                     <span className="quality-label">{q.label}</span>
+                    <span className="quality-model-name">{qualityModel.label}</span>
                     <span className="quality-token-cost">{qualityTokens} ток.</span>
                   </button>
                 )
@@ -3404,7 +3434,7 @@ export default function NewStudio(): ReactElement {
             </div>
           )}
           <button
-            className={`pro-button${proMode ? ' active' : ''}${!proModeAllowed ? ' locked' : ''}`}
+            className={`pro-button${effectiveProMode ? ' active' : ''}${!proModeAllowed ? ' locked' : ''}`}
             type="button"
             disabled={!proModeAllowed}
             title={proModeAllowed ? undefined : 'Режим Профи доступен в старших тарифах'}
@@ -3415,7 +3445,7 @@ export default function NewStudio(): ReactElement {
                 <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
               </svg>
             ) : <Lock size={16} strokeWidth={2.1} aria-hidden="true" />}
-            {proModeAllowed ? proMode ? 'Режим Стандарт' : 'Режим Профи' : 'Профи закрыт'}
+            {proModeAllowed ? effectiveProMode ? 'Режим Стандарт' : 'Режим Профи' : 'Профи закрыт'}
           </button>
         </div>
         <div className={`preview-image preview-shape-${visiblePreviewShape}`}>
@@ -3592,7 +3622,7 @@ export default function NewStudio(): ReactElement {
       <section className="result-dock">
         <div className="history">
           <div className="history-head">
-            <button className="history-prompt-chip" type="button" onClick={() => copyPrompt(dockPromptText)}>
+            <button className="history-prompt-chip" type="button" disabled={!dockImage} onClick={() => copyPrompt(dockPromptText)}>
               Промпт изображения ›
             </button>
           </div>
@@ -3652,7 +3682,7 @@ export default function NewStudio(): ReactElement {
           <div className="prompt-copy">
             <div className="prompt-copy-head">
               <h2>Промпт изображения</h2>
-              <button className="prompt-action prompt-copy-button" type="button" onClick={() => copyPrompt(dockPromptText)}>
+              <button className="prompt-action prompt-copy-button" type="button" disabled={!dockImage} onClick={() => copyPrompt(dockPromptText)}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="M8 8h10v12H8V8Z" stroke="currentColor" strokeWidth="1.7" />
                   <path d="M5 16V4h11" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
@@ -3663,8 +3693,8 @@ export default function NewStudio(): ReactElement {
             <div className="prompt-scroll">{dockPromptText || 'Здесь появится промпт выбранного изображения.'}</div>
           </div>
           <div className="prompt-actions">
-            <details className="prompt-menu">
-              <summary className="prompt-action">
+            <details className={`prompt-menu${!dockImage ? ' is-disabled' : ''}`}>
+              <summary className="prompt-action" aria-disabled={!dockImage} onClick={(event) => { if (!dockImage) event.preventDefault() }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /><path d="m13.5 8.5 3 3" stroke="currentColor" strokeWidth="1.7" /></svg>
                 <span className="prompt-action-label">Изменить в</span>
                 <svg className="menu-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m7 9 5 5 5-5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -3676,11 +3706,11 @@ export default function NewStudio(): ReactElement {
                 <button type="button" onClick={() => setTab('paint')}>Редактор</button>
               </div>
             </details>
-            <button className="prompt-action feed" type="button" onClick={() => (shareTarget ? openPublish(shareTarget) : showToast('Сначала сгенерируйте изображение'))}>
+            <button className="prompt-action feed" type="button" disabled={!shareTarget} onClick={() => { if (shareTarget) openPublish(shareTarget) }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5l1.6 4 4 1.6-4 1.6-1.6 4-1.6-4-4-1.6 4-1.6L12 3.5Z" fill="currentColor" /></svg>
               <span className="prompt-action-label">В ленту</span>
             </button>
-            <button className="prompt-action" type="button" onClick={() => { if (dockImage) setPrompt(dockImage.promptOriginal); showToast('Промпт подставлен — измените и сгенерируйте') }}>
+            <button className="prompt-action" type="button" disabled={!dockImage} onClick={() => { if (!dockImage) return; setPrompt(dockImage.promptOriginal); showToast('Промпт подставлен — измените и сгенерируйте') }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 7h10v10H7V7Z" stroke="currentColor" strokeWidth="1.6" /><path d="M4 4h10M10 20h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
               <span className="prompt-action-label">Вариации</span>
             </button>

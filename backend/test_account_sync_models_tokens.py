@@ -80,6 +80,10 @@ def test_user_tariffs_and_model_access_follow_admin_settings(temp_db):
     assert text_mode["label"] == "По тексту"
     assert text_mode["presets"]["standard"] == "black-forest-labs/flux.2-pro"
     assert "black-forest-labs/flux.2-max" in [item["id"] for item in text_mode["models"]]
+    local_model = next(item for item in text_mode["models"] if item["id"] == "server:local_flux_klein")
+    api_model = next(item for item in text_mode["models"] if item["id"] == "black-forest-labs/flux.2-pro")
+    assert local_model["generation"] == {"fixedSteps": 4, "allowsExactRepeat": False, "supportsSeed": True}
+    assert api_model["generation"] == {"fixedSteps": None, "allowsExactRepeat": True, "supportsSeed": False}
 
 
 def test_job_status_restores_completed_result_from_database(temp_db):

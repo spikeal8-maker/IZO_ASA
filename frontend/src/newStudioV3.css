@@ -2469,6 +2469,19 @@ font-weight: 620;
 .iv3 .quality-label {
 line-height: 1;
 }
+.iv3 .quality-model-name {
+max-width: 100%;
+overflow: hidden;
+color: rgba(220, 226, 217, .62);
+font-size: 9px;
+font-weight: 500;
+line-height: 1.1;
+text-overflow: ellipsis;
+white-space: nowrap;
+}
+.iv3 .quality-button.active .quality-model-name {
+color: rgba(7, 16, 6, .72);
+}
 .iv3 .quality-token-cost {
 position: absolute;
 right: 8px;
@@ -2489,6 +2502,10 @@ color: var(--lime);
 }
 .iv3 .quality-button + .quality-button {
 border-left: 1px solid var(--line);
+}
+.iv3 .prompt-menu.is-disabled {
+pointer-events: none;
+opacity: .45;
 }
 .iv3 .format-auto-note {
 width: fit-content;

@@ -316,6 +316,16 @@ class GenerateRequest(BaseModel):
     outpaint: dict[str, int | bool] | None = None
 
 
+LOCAL_TEXT_TO_IMAGE_STEPS = 4
+
+
+def normalize_generation_request(req: GenerateRequest) -> GenerateRequest:
+    """Apply server-owned generation invariants before pricing and queueing."""
+    if req.provider == "comfyui" and req.mode == "text_to_image" and req.steps != LOCAL_TEXT_TO_IMAGE_STEPS:
+        return req.model_copy(update={"steps": LOCAL_TEXT_TO_IMAGE_STEPS})
+    return req
+
+
 class OpenRouterPriceModel(BaseModel):
     id: str
     name: str
@@ -7536,6 +7546,7 @@ def ensure_rate_limit(user_id: str) -> None:
 
 @app.post("/api/generate")
 async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
+    req = normalize_generation_request(req)
     trusted = require_trusted_user(request)
     user_id = trusted["legacy_user_id"]
     internal_user_id = trusted["internal_user_id"]
@@ -13273,6 +13284,11 @@ def _public_model_option(model_id: str) -> dict[str, Any]:
             "provider": "comfyui",
             "modelProfile": "local_flux_klein",
             "tokenHint": 1,
+            "generation": {
+                "fixedSteps": LOCAL_TEXT_TO_IMAGE_STEPS,
+                "allowsExactRepeat": False,
+                "supportsSeed": True,
+            },
         }
     price = OPENROUTER_PRICE_CATALOG.get(model_id)
     return {
@@ -13281,6 +13297,11 @@ def _public_model_option(model_id: str) -> dict[str, Any]:
         "provider": "openrouter",
         "modelProfile": model_id,
         "tokenHint": price.min_tokens if price else 1,
+        "generation": {
+            "fixedSteps": None,
+            "allowsExactRepeat": True,
+            "supportsSeed": False,
+        },
     }
 
 
