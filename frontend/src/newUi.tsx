@@ -915,6 +915,7 @@ export default function NewStudio(): ReactElement {
   const [profileTab, setProfileTab] = useState<'profile' | 'tariffs' | 'earn' | 'models'>('profile')
   const [tariffs, setTariffs] = useState<TariffConfig>(DEFAULT_TARIFFS)
   const [tariffsState, setTariffsState] = useState<'loading' | 'ready' | 'fallback'>('loading')
+  const [tokenRub, setTokenRub] = useState(5)
   const [displayName, setDisplayName] = useState(me?.profile?.display_name || '')
   const [profileGender, setProfileGender] = useState<'female' | 'male'>(me?.profile?.gender === 'male' ? 'male' : 'female')
   const [profileAge, setProfileAge] = useState(me?.profile?.age ? String(me.profile.age) : '')
@@ -1144,6 +1145,7 @@ export default function NewStudio(): ReactElement {
         if (cancelled) return
         if (data?.tariffs) {
           setTariffs(normalizeTariffs(data.tariffs))
+          if (typeof data.economy?.tokenRub === 'number' && data.economy.tokenRub > 0) setTokenRub(data.economy.tokenRub)
           setTariffsState('ready')
         } else {
           setTariffsState('fallback')
@@ -3290,6 +3292,7 @@ export default function NewStudio(): ReactElement {
       setProfileTab={setProfileTab}
       tariffs={tariffs}
       tariffsState={tariffsState}
+      tokenRub={tokenRub}
       authCapsState={authCapsState}
       authCaps={authCaps}
       quality={quality}

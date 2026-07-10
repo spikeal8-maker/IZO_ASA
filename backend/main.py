@@ -7281,7 +7281,14 @@ async def flux_klein_lora_triggers(name: str) -> dict[str, Any]:
 
 @app.get("/api/tariffs")
 async def tariffs() -> dict[str, Any]:
-    return {"ok": True, "tariffs": get_tariff_config()}
+    economy = openrouter_economy_settings()
+    return {
+        "ok": True,
+        "tariffs": get_tariff_config(),
+        "economy": {
+            "tokenRub": economy["tokenRub"],
+        },
+    }
 
 
 @app.get("/api/gallery")

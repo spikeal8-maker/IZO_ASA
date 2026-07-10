@@ -15,6 +15,7 @@ type ProfilePageProps = {
   setProfileTab: Dispatch<SetStateAction<ProfileTab>>
   tariffs: TariffConfig
   tariffsState: 'loading' | 'ready' | 'fallback'
+  tokenRub: number
   authCapsState: 'loading' | 'ready' | 'fallback'
   authCaps: { telegram_bot_login_available: boolean; max_bot_login_available: boolean }
   quality: string
@@ -69,6 +70,7 @@ export default function ProfilePage({
   profileTab,
   setProfileTab,
   tariffs,
+  tokenRub,
   authCaps,
   quality,
   setQuality,
@@ -122,6 +124,7 @@ export default function ProfilePage({
   const tokenBalance = Number(account?.token_balance ?? 0)
   const dailyLimit = Number(account?.daily_tokens_limit ?? account?.daily_tokens ?? currentTariff.daily_tokens)
   const premiumMonthlyTokens = Number(account?.openrouter_monthly_tokens ?? currentTariff.openrouter_monthly_tokens)
+  const safeTokenRub = Number.isFinite(tokenRub) && tokenRub > 0 ? tokenRub : 5
   const dailyUsed = Math.max(0, Number(account?.daily_tokens_used ?? 0))
   const dailyAvailable = Math.max(0, Number(account?.daily_tokens_remaining ?? dailyLimit - dailyUsed))
   const gallerySlots = Number(account?.gallery_slots ?? currentTariff.gallery_slots)
@@ -184,6 +187,8 @@ export default function ProfilePage({
       price: tariff.price_rub_month,
       daily: tariff.daily_tokens,
       premium: tariff.openrouter_monthly_tokens,
+      premiumValue: tariff.openrouter_monthly_tokens * safeTokenRub,
+      benefit: Math.max(0, tariff.openrouter_monthly_tokens * safeTokenRub - tariff.price_rub_month),
       slots: tariff.gallery_slots,
       quality: tariff.quality_label,
       features,
@@ -372,11 +377,20 @@ export default function ProfilePage({
                     {item.id === activePlan && <span className="profile-chip current">Текущий</span>}
                     <h4>{item.title}</h4><p>{item.note}</p><strong>{item.price ? `${item.price.toLocaleString('ru-RU')} ₽/мес` : 'Бесплатно'}</strong><span>{item.daily} серверных токенов/день · {item.quality}</span>
                     {item.premium > 0 ? <em>{item.premium} токенов/мес на премиум-модели</em> : null}
+                    {item.benefit > 0 ? <small>Выгода по токенам: {item.benefit.toLocaleString('ru-RU')} ₽</small> : null}
                     {item.features.length ? <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null}
                     <button type="button" disabled>{item.id === activePlan ? 'Текущий тариф' : 'Смена тарифа скоро'}</button>
                   </article>
                 ))}
               </div>
+              <article className="profile-card profile-token-buy">
+                <div>
+                  <h3>Купить токены</h3>
+                  <p>Дополнительные токены пригодятся для премиум API-моделей сверх месячного пакета тарифа.</p>
+                </div>
+                <strong>1 токен = {safeTokenRub.toLocaleString('ru-RU')} ₽</strong>
+                <button type="button" className="profile-primary" disabled>Купить токены скоро</button>
+              </article>
             </section>
           </>}
 
