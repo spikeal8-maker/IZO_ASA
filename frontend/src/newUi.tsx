@@ -93,6 +93,7 @@ type ModelsPayload = { loras?: string[] }
 type LoraOption = { id: string; label: string; triggerWord: string; strength: number }
 type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
 type StudioModelSort = 'name-asc' | 'name-desc' | 'tokens-asc' | 'tokens-desc'
+type LastTextSubmit = { prompt: string; model: string; width: number; height: number }
 
 function coreModeFromTab(tab: N2Tab): CoreStudioMode | null {
   if (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face') return tab
@@ -1148,7 +1149,7 @@ export default function NewStudio(): ReactElement {
   const appliedStyleRef = useRef<{ id: string; text: string } | null>(null)
   // Текущая стилевая приписка в i2i-промпте — видна прямо в textarea.
   const appliedI2IStyleRef = useRef<{ id: string; text: string } | null>(null)
-  const lastSubmittedRef = useRef<{ text?: string; i2i?: { prompt: string; source: string; width: number; height: number } }>({})
+  const lastSubmittedRef = useRef<{ text?: LastTextSubmit; i2i?: { prompt: string; source: string; width: number; height: number; model: string } }>({})
   const noticeClearRef = useRef<{ text: string; i2i: string; edit: string; face: string; paint: string; source: string; editSlots: string; faceSlots: string }>({ text: '', i2i: '', edit: '', face: '', paint: '', source: '', editSlots: '', faceSlots: '' })
   const resultSeededRef = useRef(false)
 
@@ -1585,16 +1586,20 @@ export default function NewStudio(): ReactElement {
         return
       }
     }
-    if (mode === 'text' && lastSubmittedRef.current.text === textPrompt) {
+    const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
+    const selectedModelMode = modelModeFromStudio(mode, paintMode)
+    const selectedModel = studioSelectedModel(selectedModelMode, selectedQuality)
+    const lastText = lastSubmittedRef.current.text
+    if (mode === 'text' && lastText && lastText.prompt === textPrompt && lastText.model === selectedModel.id && lastText.width === size.width && lastText.height === size.height) {
       showToast('Измените промпт перед новой генерацией')
-      setNotice('Измените промпт перед новой генерацией.')
+      setNotice('Измените промпт, модель или формат перед новой генерацией.')
       return
     }
     if (mode === 'i2i') {
       const last = lastSubmittedRef.current.i2i
-      if (last && last.prompt === i2iPrompt && last.source === i2iSource && last.width === size.width && last.height === size.height) {
-        showToast('Измените промпт, формат или изображение')
-        setNotice('Измените промпт, формат или исходное изображение перед новой генерацией.')
+      if (last && last.prompt === i2iPrompt && last.source === i2iSource && last.width === size.width && last.height === size.height && last.model === selectedModel.id) {
+        showToast('Измените промпт, модель, формат или изображение')
+        setNotice('Измените промпт, модель, формат или исходное изображение перед новой генерацией.')
         return
       }
     }
@@ -1605,9 +1610,6 @@ export default function NewStudio(): ReactElement {
     try {
       const style = I2I_STYLES.find((s) => s.id === styleId)
       const steps = QUALITY.find((q) => q.id === quality)?.steps || 4
-      const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
-      const selectedModelMode = modelModeFromStudio(mode, paintMode)
-      const selectedModel = studioSelectedModel(selectedModelMode, selectedQuality)
       const effectiveSeed = seed || randomSeed()
       const requestSize = mode === 'face'
         ? await imageRequestSizeFromSource(faceSlots[0]?.image, size)
@@ -1698,8 +1700,8 @@ export default function NewStudio(): ReactElement {
         return
       }
       const created: N2Job = await response.json()
-      if (mode === 'i2i') lastSubmittedRef.current.i2i = { prompt: i2iPrompt, source: i2iSource, width: size.width, height: size.height }
-      else lastSubmittedRef.current.text = textPrompt
+      if (mode === 'i2i') lastSubmittedRef.current.i2i = { prompt: i2iPrompt, source: i2iSource, width: size.width, height: size.height, model: selectedModel.id }
+      else lastSubmittedRef.current.text = { prompt: textPrompt, model: selectedModel.id, width: size.width, height: size.height }
       if (mode === 'paint') setPaintWorkbenchVisible(false)
       pendingResultSourceRef.current[mode] = nextResultSource
       pendingResultShapeRef.current[mode] = nextResultShape
@@ -3055,6 +3057,7 @@ export default function NewStudio(): ReactElement {
               <p>{currentStudioModelInfo.description}</p>
             </div>
             <div className="studio-model-sort" aria-label="Сортировка моделей">
+              <span>Сортировка</span>
               <button type="button" className={studioModelSort.startsWith('name') ? 'active' : ''} onClick={() => setStudioModelSort((cur) => cur === 'name-asc' ? 'name-desc' : 'name-asc')}>Имя {studioModelSort === 'name-desc' ? '↓' : '↑'}</button>
               <button type="button" className={studioModelSort.startsWith('tokens') ? 'active' : ''} onClick={() => setStudioModelSort((cur) => cur === 'tokens-asc' ? 'tokens-desc' : 'tokens-asc')}>Токены {studioModelSort === 'tokens-desc' ? '↓' : '↑'}</button>
             </div>
