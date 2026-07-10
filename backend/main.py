@@ -7254,6 +7254,9 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         "dailyTokensUsed": token_charge["daily_tokens_used"],
         "dailyTokensLimit": token_charge["daily_tokens_limit"],
         "dailyTokensRemaining": token_charge["daily_tokens_remaining"],
+        "openrouterMonthlyTokensUsed": token_charge["openrouter_monthly_tokens_used"],
+        "openrouterMonthlyTokensLimit": token_charge["openrouter_monthly_tokens_limit"],
+        "openrouterMonthlyTokensRemaining": token_charge["openrouter_monthly_tokens_remaining"],
     }
 
 

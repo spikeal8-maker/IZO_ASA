@@ -14,6 +14,8 @@ def temp_db(tmp_path, monkeypatch):
     db_file = tmp_path / "account_sync_models_tokens.sqlite3"
     monkeypatch.setattr(main, "DB_PATH", db_file)
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
+    monkeypatch.setattr(main, "worker_started", True)
+    main.jobs.clear()
     main.init_db()
     return db_file
 
@@ -110,3 +112,99 @@ def test_account_token_history_counts_balance_and_included_usage(temp_db):
     assert data["summary"]["balanceSpentTokens"] == 2
     assert any(item["jobId"] == main.short_public_id("job_paid") and item["spentTokens"] == 2 for item in data["items"])
     assert any(item["source"] == "премиум-пакет" and item["model"] == "FLUX.2 Pro" for item in data["items"])
+
+
+def test_openrouter_generation_rejects_model_not_enabled_for_tariff(temp_db, monkeypatch):
+    make_user("iuid-user", "web_user", plan="pro", balance=25)
+    token = main.create_auth_session("iuid-user", "web_user", provider="web_email", platform="web")["session_token"]
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('openrouter_models', ?, '2026-01-01')",
+            (json.dumps({
+                "enabled": {"text_to_image": ["black-forest-labs/flux.2-pro"]},
+                "access": {"text_to_image": {"pro": ["black-forest-labs/flux.2-pro"]}},
+            }, ensure_ascii=False),),
+        )
+
+    async def fake_billing(_req):
+        return {"chargedTokens": 3, "modelName": "FLUX.2 Max", "estimatedCostRub": 7.0}
+
+    monkeypatch.setattr(main, "estimate_openrouter_billing", fake_billing)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/generate",
+            headers=bearer(token),
+            json={
+                "mode": "text_to_image",
+                "provider": "openrouter",
+                "prompt": "test",
+                "modelProfile": "black-forest-labs/flux.2-max",
+                "width": 1024,
+                "height": 1024,
+                "steps": 4,
+            },
+        )
+
+    assert response.status_code == 403
+    with main.db() as conn:
+        assert conn.execute("SELECT COUNT(*) AS c FROM token_ledger").fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"] == 0
+
+
+def test_openrouter_generation_uses_monthly_package_before_balance(temp_db, monkeypatch):
+    make_user("iuid-user", "web_user", plan="pro", balance=25)
+    token = main.create_auth_session("iuid-user", "web_user", provider="web_email", platform="web")["session_token"]
+    tariffs = main.normalize_tariffs({
+        **main.DEFAULT_TARIFFS,
+        "pro": {**main.DEFAULT_TARIFFS["pro"], "openrouter_monthly_tokens": 5},
+    })
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('tariffs', ?, '2026-01-01')",
+            (json.dumps(tariffs, ensure_ascii=False),),
+        )
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('openrouter_models', ?, '2026-01-01')",
+            (json.dumps({
+                "enabled": {"text_to_image": ["black-forest-labs/flux.2-pro"]},
+                "access": {"text_to_image": {"pro": ["black-forest-labs/flux.2-pro"]}},
+            }, ensure_ascii=False),),
+        )
+
+    async def fake_billing(_req):
+        return {"chargedTokens": 3, "modelName": "FLUX.2 Pro", "estimatedCostRub": 3.5}
+
+    monkeypatch.setattr(main, "estimate_openrouter_billing", fake_billing)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/generate",
+            headers=bearer(token),
+            json={
+                "mode": "text_to_image",
+                "provider": "openrouter",
+                "prompt": "test",
+                "modelProfile": "black-forest-labs/flux.2-pro",
+                "width": 1024,
+                "height": 1024,
+                "steps": 4,
+            },
+        )
+        history = client.get("/api/account/token-history-v2?days=365", headers=bearer(token))
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["tokenCost"] == 3
+    assert body["tokenBalance"] == 25
+    assert body["openrouterMonthlyTokensUsed"] == 3
+    assert body["openrouterMonthlyTokensRemaining"] == 2
+    assert history.status_code == 200
+    assert history.json()["summary"]["includedSpentTokens"] == 3
+    assert history.json()["summary"]["balanceSpentTokens"] == 0
+    with main.db() as conn:
+        user = conn.execute("SELECT token_balance, openrouter_monthly_tokens_used FROM users WHERE id = 'web_user'").fetchone()
+        ledger = conn.execute("SELECT delta, reason, meta_json FROM token_ledger").fetchone()
+    assert int(user["token_balance"]) == 25
+    assert int(user["openrouter_monthly_tokens_used"]) == 3
+    assert int(ledger["delta"]) == 0
+    assert ledger["reason"] == "openrouter_monthly_generation"
+    assert json.loads(ledger["meta_json"])["token_cost"] == 3
