@@ -5,6 +5,7 @@ import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelModeOrder, mode
 
 type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
 type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
+type UserModelVisibility = Partial<Record<ModelModeKey, Record<string, boolean>>>
 export type PublicProfileLink = { label: string; url: string }
 
 type ProfilePageProps = {
@@ -23,6 +24,8 @@ type ProfilePageProps = {
   modelAccess: UserModelAccess
   userModelChoices: UserModelChoices
   setUserModelChoices: Dispatch<SetStateAction<UserModelChoices>>
+  userModelVisibility: UserModelVisibility
+  setUserModelVisibility: Dispatch<SetStateAction<UserModelVisibility>>
   displayName: string
   setDisplayName: Dispatch<SetStateAction<string>>
   profileGender: 'female' | 'male'
@@ -78,6 +81,8 @@ export default function ProfilePage({
   modelAccess,
   userModelChoices,
   setUserModelChoices,
+  userModelVisibility,
+  setUserModelVisibility,
   displayName,
   setDisplayName,
   profileGender,
@@ -152,8 +157,19 @@ export default function ProfilePage({
   const selectedModel = modelAccessOption(modelAccess, 'text_to_image', selectedQuality, userModelChoices)
   const tokenPrice = selectedModel.tokenHint
   const accessRows = modelModeOrder.map((mode) => modelAccess.modes[mode]).filter(Boolean)
+  const isModelVisible = (mode: ModelModeKey, modelId: string) => userModelVisibility[mode]?.[modelId] !== false
+  const visibleModelsForSelect = (mode: ModelModeKey, preset: QualityPreset) => {
+    const access = modelAccess.modes[mode]
+    if (!access) return []
+    const selected = modelAccessOption(modelAccess, mode, preset, userModelChoices)
+    const visible = access.models.filter((item) => isModelVisible(mode, item.id))
+    return visible.some((item) => item.id === selected.id) ? visible : [selected, ...visible.filter((item) => item.id !== selected.id)]
+  }
   const setModeModelChoice = (mode: ModelModeKey, preset: QualityPreset, modelId: string) => {
     setUserModelChoices((current) => ({ ...current, [mode]: { ...(current[mode] || {}), [preset]: modelId } }))
+  }
+  const toggleModelVisibility = (mode: ModelModeKey, modelId: string, visible: boolean) => {
+    setUserModelVisibility((current) => ({ ...current, [mode]: { ...(current[mode] || {}), [modelId]: visible } }))
   }
   const copyPublicCode = async () => {
     const value = publicCode || 'GUEST'
@@ -446,7 +462,7 @@ export default function ProfilePage({
                         return <label key={preset}>
                           <span>{qualityPresetLabels[preset]}</span>
                           <select value={selected.id} onChange={(e) => setModeModelChoice(access.id, preset, e.target.value)}>
-                            {access.models.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.tokenHint} ток.</option>)}
+                            {visibleModelsForSelect(access.id, preset).map((item) => <option key={item.id} value={item.id}>{item.label} · {item.tokenHint} ток.</option>)}
                           </select>
                         </label>
                       })}
@@ -458,13 +474,22 @@ export default function ProfilePage({
               <div className="profile-model-catalog">
                 {accessRows.map((access) => {
                   if (!access) return null
+                  const visibleCount = access.models.filter((model) => isModelVisible(access.id, model.id)).length
                   return <details className="profile-model-group" key={`catalog-${access.id}`}>
-                    <summary><strong>{access.label}</strong><span>{access.models.length} моделей</span></summary>
+                    <summary><strong>{access.label}</strong><span>{visibleCount} из {access.models.length} показано</span></summary>
                     <div className="profile-model-info-list">
                       {access.models.map((model) => {
                         const info = modelPublicInfo(model)
-                        return <details className="profile-model-info-row" key={`${access.id}-${model.id}`}>
-                          <summary><strong>{model.label}</strong><span>{model.tokenHint} ток.</span></summary>
+                        const visible = isModelVisible(access.id, model.id)
+                        return <details className={visible ? 'profile-model-info-row' : 'profile-model-info-row muted'} key={`${access.id}-${model.id}`}>
+                          <summary>
+                            <label className="profile-model-visible" onClick={(event) => event.stopPropagation()}>
+                              <input type="checkbox" checked={visible} onChange={(event) => toggleModelVisibility(access.id, model.id, event.currentTarget.checked)} />
+                              <span>показывать</span>
+                            </label>
+                            <strong>{model.label}</strong>
+                            <span className="profile-model-token">{model.tokenHint} ток.</span>
+                          </summary>
                           <div className="profile-model-info-body">
                             <p>{info.description}</p>
                             <div className="profile-model-info-meta"><span>Год: <b>{info.year}</b></span><span>Семейство: <b>{info.company}</b></span></div>

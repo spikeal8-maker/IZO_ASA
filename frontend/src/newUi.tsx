@@ -936,6 +936,14 @@ export default function NewStudio(): ReactElement {
       return {}
     }
   })
+  const [userModelVisibility, setUserModelVisibility] = useState<Partial<Record<ModelModeKey, Record<string, boolean>>>>(() => {
+    try {
+      const raw = window.localStorage.getItem('izo:user-model-visibility')
+      return raw ? JSON.parse(raw) as Partial<Record<ModelModeKey, Record<string, boolean>>> : {}
+    } catch {
+      return {}
+    }
+  })
   const [displayName, setDisplayName] = useState(me?.profile?.display_name || '')
   const [profileGender, setProfileGender] = useState<'female' | 'male'>(me?.profile?.gender === 'male' ? 'male' : 'female')
   const [profileAge, setProfileAge] = useState(me?.profile?.age ? String(me.profile.age) : '')
@@ -1196,6 +1204,14 @@ export default function NewStudio(): ReactElement {
       // localStorage can be blocked; server-side access rules still apply.
     }
   }, [userModelChoices])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('izo:user-model-visibility', JSON.stringify(userModelVisibility))
+    } catch {
+      // localStorage can be blocked; tariff access rules still apply.
+    }
+  }, [userModelVisibility])
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -3343,6 +3359,8 @@ export default function NewStudio(): ReactElement {
       modelAccess={modelAccess}
       userModelChoices={userModelChoices}
       setUserModelChoices={setUserModelChoices}
+      userModelVisibility={userModelVisibility}
+      setUserModelVisibility={setUserModelVisibility}
       displayName={displayName}
       setDisplayName={setDisplayName}
       profileGender={profileGender}
