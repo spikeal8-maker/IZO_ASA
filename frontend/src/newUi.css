@@ -2726,7 +2726,7 @@ button.profile-chip { cursor: pointer; }
 .profile-mode-presets label span { color: #aeb7b0; font-size: 12px; font-weight: 800; }
 .profile-mode-presets select { width: 100%; min-width: 0; min-height: 36px; border: 1px solid #2c332e; border-radius: 8px; background: #101511; color: #eff3ed; padding: 0 10px; font-weight: 700; }
 .profile-model-catalog { border: 1px solid #2c332e; border-radius: 10px; overflow-x: auto; background: rgba(255,255,255,.025); }
-.profile-model-catalog-head, .profile-model-catalog-row { display: grid; grid-template-columns: minmax(220px, 1.2fr) 140px 110px minmax(260px, 1.4fr); gap: 12px; align-items: center; min-width: 820px; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.07); }
+.profile-model-catalog-head, .profile-model-catalog-row { display: grid; grid-template-columns: minmax(240px, 1.2fr) 110px minmax(280px, 1.5fr); gap: 12px; align-items: center; min-width: 700px; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.07); }
 .profile-model-catalog-head { background: rgba(255,255,255,.035); color: #9ea8a1; font-size: 11px; font-weight: 950; text-transform: uppercase; }
 .profile-model-catalog-row:last-child { border-bottom: 0; }
 .profile-model-catalog-row strong { color: #f2f5ee; font-size: 13px; }

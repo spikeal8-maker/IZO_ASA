@@ -161,7 +161,7 @@ export default function ProfilePage({
     }
     return map
   }, new Map<string, { model: ReturnType<typeof modelAccessOption>; modes: string[] }>()).values())
-    .sort((a, b) => a.model.provider === b.model.provider ? a.model.label.localeCompare(b.model.label, 'ru') : a.model.provider.localeCompare(b.model.provider))
+    .sort((a, b) => a.model.label.localeCompare(b.model.label, 'ru'))
   const setModeModelChoice = (mode: ModelModeKey, preset: QualityPreset, modelId: string) => {
     setUserModelChoices((current) => ({ ...current, [mode]: { ...(current[mode] || {}), [preset]: modelId } }))
   }
@@ -466,10 +466,9 @@ export default function ProfilePage({
               </div>
               <div className="profile-section-head"><h3>Полный список моделей</h3><span>{catalogRows.length} моделей в вашем тарифе</span></div>
               <div className="profile-model-catalog">
-                <div className="profile-model-catalog-head"><span>Модель</span><span>Источник</span><span>Стоимость</span><span>Доступна во вкладках</span></div>
+                <div className="profile-model-catalog-head"><span>Модель</span><span>Стоимость</span><span>Доступна во вкладках</span></div>
                 {catalogRows.map(({ model, modes }) => <div className="profile-model-catalog-row" key={model.id}>
                   <strong>{model.label}</strong>
-                  <span>{model.provider === 'comfyui' ? 'Серверная модель' : 'OpenRouter'}</span>
                   <span>{model.tokenHint} {model.tokenHint === 1 ? 'токен' : 'токена'}</span>
                   <small>{modes.join(' · ')}</small>
                 </div>)}
