@@ -11,7 +11,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun, Trash2, Undo2 } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Lock, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun, Trash2, Undo2 } from 'lucide-react'
 import {
   AuthV2Modal,
   getAuthCapabilitiesV2,
@@ -1004,6 +1004,12 @@ export default function NewStudio(): ReactElement {
   const [tokenRub, setTokenRub] = useState(5)
   const [modelAccess, setModelAccess] = useState<UserModelAccess>(() => normalizeModelAccess(null))
   const [openrouterPricing, setOpenrouterPricing] = useState<Record<string, PublicModelPricing>>({})
+  const activeTariffKey = (String(me?.account?.plan || 'mini').toLowerCase() in tariffs ? String(me?.account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
+  const activeTariff = tariffs[activeTariffKey] || DEFAULT_TARIFFS[activeTariffKey] || DEFAULT_TARIFFS.mini
+  const proModeAllowed = Boolean(activeTariff.pro_mode_enabled)
+  useEffect(() => {
+    if (!proModeAllowed && proMode) setProMode(false)
+  }, [proModeAllowed, proMode])
   const [userModelChoices, setUserModelChoices] = useState<UserModelChoices>(() => {
     try {
       const raw = window.localStorage.getItem('izo:user-model-choices')
@@ -2260,7 +2266,6 @@ export default function NewStudio(): ReactElement {
   const currentStudioModel = studioSelectedModel(currentModelMode, selectedQuality)
   const currentStudioModelInfo = modelPublicInfo(currentStudioModel)
   const currentStudioTokenCost = tokenCostForModel(currentStudioModel)
-  const currentStudioFormatPrice = pricingForModel(currentStudioModel)
   useEffect(() => {
     if (!currentStudioModel) return
     const supported = supportedFormatIdsForModel(currentStudioModel)
@@ -2826,11 +2831,19 @@ export default function NewStudio(): ReactElement {
       <aside className="sidebar">
         <div className="sidebar-head">
           <h1>{studioTitle}</h1>
-          <button className={`pro-button${proMode ? ' active' : ''}`} type="button" onClick={() => setProMode((v) => !v)}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-            </svg>
-            {proMode ? 'Режим Стандарт' : 'Режим Профи'}
+          <button
+            className={`pro-button${proMode ? ' active' : ''}${!proModeAllowed ? ' locked' : ''}`}
+            type="button"
+            disabled={!proModeAllowed}
+            title={proModeAllowed ? undefined : 'Режим Профи доступен в старших тарифах'}
+            onClick={() => { if (proModeAllowed) setProMode((v) => !v) }}
+          >
+            {proModeAllowed ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+            ) : <Lock size={16} strokeWidth={2.1} aria-hidden="true" />}
+            {proModeAllowed ? proMode ? 'Режим Стандарт' : 'Режим Профи' : 'Профи закрыт'}
           </button>
         </div>
 
@@ -3305,21 +3318,17 @@ export default function NewStudio(): ReactElement {
           ) : (
             <>
             <div className="studio-selected-model">
-              <div>
+              <div className="studio-selected-head">
                 <strong>{currentStudioModel.label}</strong>
                 <span>{currentStudioTokenCost} ток.</span>
               </div>
               <p>{currentStudioModelInfo.description}</p>
-              <div className="studio-model-meta">
-                <span>{currentStudioModelInfo.company} · {currentStudioModelInfo.year}</span>
-                <span>{selectedResolution.width}×{selectedResolution.height}{currentStudioFormatPrice?.requestSize ? ` → ${currentStudioFormatPrice.requestSize}` : ''}</span>
-              </div>
               <div className="studio-model-formats" aria-label="Стоимость по форматам">
                 {currentStudioModel.provider === 'openrouter'
                   ? (openrouterPricing[currentStudioModel.id]?.formats || []).map((fmt) => (
-                    <span key={fmt.id} className={fmt.id === currentFormatPricingId ? 'active' : ''}>{fmt.short}: {fmt.tokens ?? currentStudioModel.tokenHint}т</span>
+                    <span key={fmt.id} className={`${fmt.id === currentFormatPricingId ? 'active' : ''}${fmt.supported === false ? ' disabled' : ''}`.trim()}>{fmt.short}: {fmt.supported === false ? 'нет' : `${fmt.tokens ?? currentStudioModel.tokenHint}т`}</span>
                   ))
-                  : <span className="active">Серверная модель: {currentStudioModel.tokenHint}т</span>}
+                  : ['1:1', '9:16', '16:9', '3:2'].map((fmt) => <span key={fmt} className={fmt === formatName(currentFormatPricingId) ? 'active' : ''}>{fmt}: {currentStudioModel.tokenHint}т</span>)}
               </div>
             </div>
             <div className="studio-model-sort" aria-label="Сортировка моделей">
@@ -3390,11 +3399,19 @@ export default function NewStudio(): ReactElement {
               )}
             </div>
           )}
-          <button className={`pro-button${proMode ? ' active' : ''}`} type="button" onClick={() => setProMode((v) => !v)}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-            </svg>
-            {proMode ? 'Режим Стандарт' : 'Режим Профи'}
+          <button
+            className={`pro-button${proMode ? ' active' : ''}${!proModeAllowed ? ' locked' : ''}`}
+            type="button"
+            disabled={!proModeAllowed}
+            title={proModeAllowed ? undefined : 'Режим Профи доступен в старших тарифах'}
+            onClick={() => { if (proModeAllowed) setProMode((v) => !v) }}
+          >
+            {proModeAllowed ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+            ) : <Lock size={16} strokeWidth={2.1} aria-hidden="true" />}
+            {proModeAllowed ? proMode ? 'Режим Стандарт' : 'Режим Профи' : 'Профи закрыт'}
           </button>
         </div>
         <div className={`preview-image preview-shape-${visiblePreviewShape}`}>
