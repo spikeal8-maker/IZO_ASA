@@ -208,3 +208,41 @@ def test_openrouter_generation_uses_monthly_package_before_balance(temp_db, monk
     assert int(ledger["delta"]) == 0
     assert ledger["reason"] == "openrouter_monthly_generation"
     assert json.loads(ledger["meta_json"])["token_cost"] == 3
+
+
+def test_openrouter_non_text_modes_are_blocked_until_adapter_supports_inputs(temp_db, monkeypatch):
+    make_user("iuid-user", "web_user", plan="pro", balance=25)
+    token = main.create_auth_session("iuid-user", "web_user", provider="web_email", platform="web")["session_token"]
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('openrouter_models', ?, '2026-01-01')",
+            (json.dumps({
+                "enabled": {"image_to_image": ["black-forest-labs/flux.2-pro"]},
+                "access": {"image_to_image": {"pro": ["black-forest-labs/flux.2-pro"]}},
+            }, ensure_ascii=False),),
+        )
+
+    async def fake_billing(_req):
+        raise AssertionError("billing must not run for unsupported OpenRouter mode")
+
+    monkeypatch.setattr(main, "estimate_openrouter_billing", fake_billing)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/generate",
+            headers=bearer(token),
+            json={
+                "mode": "image_to_image",
+                "provider": "openrouter",
+                "prompt": "test",
+                "modelProfile": "black-forest-labs/flux.2-pro",
+                "inputImage1": "data:image/png;base64,iVBORw0KGgo=",
+                "width": 1024,
+                "height": 1024,
+                "steps": 4,
+            },
+        )
+
+    assert response.status_code == 501
+    with main.db() as conn:
+        assert conn.execute("SELECT COUNT(*) AS c FROM token_ledger").fetchone()["c"] == 0
+        assert conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"] == 0

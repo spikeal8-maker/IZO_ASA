@@ -40,7 +40,7 @@ import TopBarV3 from './TopBarV3'
 import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import ProfilePage, { type PublicProfileLink } from './ProfilePage'
-import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, normalizeModelAccess, normalizeTariffs, type ModelModeKey, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
+import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelPublicInfo, normalizeModelAccess, normalizeTariffs, qualityPresetLabels, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
 import { applyClientSeo, currentSeoLocale, type SeoMeta } from './seo'
@@ -1605,7 +1605,7 @@ export default function NewStudio(): ReactElement {
       const steps = QUALITY.find((q) => q.id === quality)?.steps || 4
       const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
       const selectedModelMode = modelModeFromStudio(mode, paintMode)
-      const selectedModel = modelAccessOption(modelAccess, selectedModelMode, selectedQuality, userModelChoices)
+      const selectedModel = studioSelectedModel(selectedModelMode, selectedQuality)
       const effectiveSeed = seed || randomSeed()
       const requestSize = mode === 'face'
         ? await imageRequestSizeFromSource(faceSlots[0]?.image, size)
@@ -2031,6 +2031,33 @@ export default function NewStudio(): ReactElement {
     const candidates = loraOptions.filter((item) => item.id !== 'none')
     return candidates.find((item) => /bfs|face|head/i.test(item.id)) || candidates[0]
   })()
+  const currentModelMode = modelModeFromStudio(studioMode, paintMode)
+  const currentModeAccess = modelAccess.modes[currentModelMode]
+  const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
+  const visibleStudioModels = (currentModeAccess?.models || [])
+    .filter((model) => userModelVisibility[currentModelMode]?.[model.id] !== false)
+  const selectableStudioModels = visibleStudioModels.length ? visibleStudioModels : currentModeAccess?.models || []
+  const studioModelEnabled = (model: ModelOption) => model.provider !== 'openrouter' || currentModelMode === 'text_to_image'
+  function selectStudioModel(model: ModelOption) {
+    if (!studioModelEnabled(model)) {
+      showToast('Эта премиум-модель для текущей вкладки будет подключена следующим этапом')
+      return
+    }
+    setUserModelChoices((current) => ({
+      ...current,
+      [currentModelMode]: { ...(current[currentModelMode] || {}), [selectedQuality]: model.id },
+    }))
+  }
+  function studioSelectedModel(mode: ModelModeKey, preset: QualityPreset) {
+    const access = modelAccess.modes[mode]
+    const models = (access?.models || []).filter((model) => userModelVisibility[mode]?.[model.id] !== false)
+    const allowed = models.filter((model) => model.provider !== 'openrouter' || mode === 'text_to_image')
+    const chosen = userModelChoices[mode]?.[preset]
+    const presetId = chosen && allowed.some((model) => model.id === chosen) ? chosen : access?.presets?.[preset]
+    return allowed.find((model) => model.id === presetId) || allowed[0] || models[0] || modelAccessOption(modelAccess, mode, preset, userModelChoices)
+  }
+  const currentStudioModel = studioSelectedModel(currentModelMode, selectedQuality)
+  const currentStudioModelInfo = modelPublicInfo(currentStudioModel)
   const generateLabel = isI2IStudio ? 'Преобразовать' : isEditStudio ? 'Создать изображение' : isFaceStudio ? 'Заменить лицо' : isPaintStudio ? paintMode === 'remove_bg' ? 'Удалить фон' : paintMode === 'outpaint' ? 'Расширить' : 'Создать по рисунку' : 'Сгенерировать'
   const generatingLabel = isI2IStudio ? 'Преобразуем...' : isEditStudio ? 'Создаём...' : isFaceStudio ? 'Заменяем...' : isPaintStudio ? 'Готовим рисунок...' : 'Генерируем...'
   const influenceStyle = { '--i2i-range-progress': `${strengthPct}%` } as CSSProperties
@@ -3012,6 +3039,43 @@ export default function NewStudio(): ReactElement {
             ))}
           </div>
         </section>
+
+        {proMode && (
+          <section className="form-section studio-model-section">
+            <div className="section-title studio-model-title">
+              <h2>Модель</h2>
+              <span>{currentModeAccess?.label || studioTitle}</span>
+            </div>
+            <div className="studio-selected-model">
+              <div>
+                <strong>{currentStudioModel.label}</strong>
+                <span>{qualityPresetLabels[selectedQuality]} · {currentStudioModel.tokenHint} ток.</span>
+              </div>
+              <p>{currentStudioModelInfo.description}</p>
+            </div>
+            <div className="studio-model-list" role="listbox" aria-label={`Модели для ${currentModeAccess?.label || studioTitle}`}>
+              {selectableStudioModels.map((model) => {
+                const active = currentStudioModel.id === model.id
+                const enabled = studioModelEnabled(model)
+                const info = modelPublicInfo(model)
+                return (
+                  <button
+                    type="button"
+                    key={`${currentModelMode}-${model.id}`}
+                    className={`studio-model-row${active ? ' active' : ''}${!enabled ? ' disabled' : ''}`}
+                    onClick={() => selectStudioModel(model)}
+                    aria-selected={active}
+                    role="option"
+                  >
+                    <span className="studio-model-main"><strong>{model.label}</strong><small>{info.strengths.slice(0, 2).join(' · ')}</small></span>
+                    <span className="studio-model-cost">{model.tokenHint} ток.</span>
+                    <span className={enabled ? 'studio-model-status available' : 'studio-model-status pending'}>{enabled ? 'доступно' : 'скоро'}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        )}
 
         {notice && <div className="iv3-notice" role="alert">{notice}</div>}
 

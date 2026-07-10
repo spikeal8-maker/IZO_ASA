@@ -5904,6 +5904,9 @@ def openrouter_api_key() -> str:
     return os.getenv("OPENROUTER_API_KEY", "").strip() or admin_secret_value("openrouter_api_key")
 
 
+OPENROUTER_GENERATION_MODES = {"text_to_image"}
+
+
 def openrouter_headers() -> dict[str, str]:
     headers = {"Authorization": f"Bearer {openrouter_api_key()}", "Content-Type": "application/json"}
     referer = os.getenv("OPENROUTER_SITE_URL", "").strip()
@@ -7199,6 +7202,8 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         if user_row is None:
             raise HTTPException(404, "User not found.")
     if req.provider == "openrouter":
+        if req.mode not in OPENROUTER_GENERATION_MODES:
+            raise HTTPException(501, "OpenRouter для этой вкладки подключается следующим этапом. Сейчас доступна генерация по тексту.")
         plan = str(user_row["plan"] or "mini").lower()
         if plan not in PLAN_ORDER:
             plan = "mini"
