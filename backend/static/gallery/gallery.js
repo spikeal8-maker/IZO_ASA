@@ -133,6 +133,12 @@ function formatDate(value){
   if(Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
+function modelShortName(item){
+  return item?.modelInfo?.shortName || item?.model || item?.modelProfile || 'ИЗО Base';
+}
+function modelFullName(item){
+  return item?.modelInfo?.fullName || modelShortName(item);
+}
 function filteredItems(base){
   const q = searchInput.value.trim().toLowerCase();
   return base.filter(raw => {
@@ -377,7 +383,16 @@ function updateViewer(){
   document.getElementById('viewerImg').alt = promptText;
   document.getElementById('viewerCounter').textContent = `${currentIndex+1} / ${currentCollection.length}`;
   document.getElementById('viewerMode').textContent = item.modeText;
-  document.getElementById('viewerDate').textContent = item.dateText;
+  let metaLine = document.getElementById('viewerMetaLine');
+  if(!metaLine){
+    metaLine = document.createElement('span');
+    metaLine.id = 'viewerMetaLine';
+    metaLine.className = 'infoMetaLine';
+    document.querySelector('.infoKicker')?.appendChild(metaLine);
+  }
+  metaLine.textContent = `${item.dateText} · ${modelShortName(item)}`;
+  metaLine.title = `${item.modeText} · ${item.dateText} · ${modelFullName(item)}`;
+  document.getElementById('viewerDate').textContent = '';
   document.getElementById('viewerPub').hidden = !item.published;
   const heartBtn = document.getElementById('heartBtn');
   heartBtn.textContent = item.favorite ? '♥' : '♡';
@@ -513,7 +528,7 @@ function renderParams(item){
     ['Дата генерации', formatFullDate(item.createdAt || item.date)],
     ['Режим', item.modeText],
     ['ID', item.id],
-    ['Полная модель', item.model || item.modelProfile || 'ИЗО Base'],
+    ['Полное наименование модели', modelFullName(item)],
   ].filter(([, value]) => value !== undefined && value !== null && String(value).trim());
   const rows = provided.length ? provided : fallback;
   document.getElementById('paramsContent').innerHTML = rows

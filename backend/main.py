@@ -4239,6 +4239,55 @@ def _public_token_cost(settings: dict[str, Any]) -> int | None:
     return None
 
 
+MODEL_RELEASE_YEAR_BY_ID = {
+    "local_flux_klein": "2026",
+    "black-forest-labs/flux.2-klein-4b": "2026",
+    "black-forest-labs/flux.2-pro": "2026",
+    "black-forest-labs/flux.2-max": "2026",
+    "black-forest-labs/flux.2-flex": "2026",
+    "openai/gpt-image-1-mini": "2026",
+    "openai/gpt-5-image-mini": "2026",
+    "openai/gpt-image-1": "2026",
+    "openai/gpt-5-image": "2026",
+    "openai/gpt-image-2": "2026",
+    "openai/gpt-5.4-image-2": "2026",
+    "google/gemini-3.1-flash-lite-image": "2026",
+    "google/gemini-3.1-flash-image": "2026",
+    "google/gemini-3.1-flash-image-preview": "2026",
+    "google/gemini-3-pro-image": "2026",
+    "google/gemini-3-pro-image-preview": "2026",
+    "google/gemini-2.5-flash-image": "2026",
+    "google/gemini-2.5-flash-image-preview": "2026",
+    "microsoft/mai-image-2.5": "2026",
+    "x-ai/grok-imagine-image-quality": "2026",
+}
+
+
+def _gallery_model_info(settings: dict[str, Any], provider: str | None = None) -> dict[str, str]:
+    raw = str(settings.get("modelProfile") or settings.get("openrouterModel") or provider or "").strip()
+    billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
+    catalog = globals().get("OPENROUTER_PRICE_CATALOG") or {}
+    catalog_item = catalog.get(raw)
+    short_name = str(billing.get("modelName") or getattr(catalog_item, "name", None) or _user_model_name(raw))
+    maker = str(billing.get("modelProvider") or getattr(catalog_item, "provider", None) or "")
+    release = MODEL_RELEASE_YEAR_BY_ID.get(raw) or ("2026" if raw else "")
+    if not raw or raw == "comfyui" or "local_flux" in raw.lower() or "klein" in raw.lower():
+        short_name = "ИЗО Base"
+        maker = "ИЗО / FLUX.2 Klein"
+        release = "2026"
+    full_parts = [short_name]
+    if maker:
+        full_parts.append(maker)
+    if release:
+        full_parts.append(f"выпуск: {release}")
+    return {
+        "shortName": short_name,
+        "fullName": " · ".join(full_parts),
+        "providerName": maker,
+        "release": release,
+    }
+
+
 def _gallery_public_params(
     *,
     image_id: str,
@@ -4250,7 +4299,7 @@ def _gallery_public_params(
     created_at: str | None,
     settings: dict[str, Any],
 ) -> list[dict[str, str]]:
-    model = _user_model_name(settings.get("modelProfile") or settings.get("openrouterModel") or provider)
+    model_info = _gallery_model_info(settings, provider)
     params: list[tuple[str, str | None]] = [
         ("Токены", f"{_public_token_cost(settings)} ток." if _public_token_cost(settings) is not None else None),
         ("Разрешение", f"{width}×{height}" if width and height else None),
@@ -4260,7 +4309,7 @@ def _gallery_public_params(
         ("Дата генерации", _format_public_datetime(created_at)),
         ("Режим", _gallery_mode_label(mode)),
         ("ID", image_id),
-        ("Полная модель", model),
+        ("Полное наименование модели", model_info["fullName"]),
     ]
     return [{"label": label, "value": value} for label, value in params if value]
 
@@ -4281,6 +4330,7 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
         "width": row["width"],
         "height": row["height"],
         "modelProfile": _user_model_name(settings.get("modelProfile")),
+        "modelInfo": _gallery_model_info(settings, row["provider"]),
         "loras": settings.get("loras", []),
         "preset": settings.get("preset"),
         "generationTimeMs": settings.get("generationTimeMs", 0),
@@ -4395,6 +4445,7 @@ def _gallery_page_item(
         "provider": row["provider"],
         "model": _user_model_name(settings.get("modelProfile") or row["provider"]),
         "modelProfile": _user_model_name(settings.get("modelProfile") or row["provider"]),
+        "modelInfo": _gallery_model_info(settings, row["provider"]),
         "preset": settings.get("preset") or settings.get("styleName"),
         "loras": settings.get("loras") if isinstance(settings.get("loras"), list) else [],
         "seed": settings.get("seed"),
@@ -13788,6 +13839,7 @@ def _feed_item_payload(
         "allow_recreate": bool(pub["allow_recreate"]),
         "style": settings.get("styleName") or None,
         "model": _user_model_name(settings.get("modelProfile") or _row_get(image, "provider")),
+        "model_info": _gallery_model_info(settings, _row_get(image, "provider")),
         "mode": _row_get(image, "mode"),
         "aspect_ratio": native_aspect_ratio,
         "native_aspect_ratio": native_aspect_ratio,
