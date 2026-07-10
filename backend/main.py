@@ -697,11 +697,11 @@ rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
 DEFAULT_TARIFFS: dict[str, dict[str, Any]] = {
-    "free": {"title": "Free", "note": "Базовый доступ", "price_rub_month": 0, "daily_tokens": 10, "openrouter_monthly_tokens": 0, "gallery_slots": 20, "quality_label": "Базовое качество", "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024"], "video_enabled": 0, "video_slots": 0},
-    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "openrouter_monthly_tokens": 100, "gallery_slots": 80, "quality_label": "HD", "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024", "h-1280", "v-720"], "video_enabled": 0, "video_slots": 0},
-    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "openrouter_monthly_tokens": 250, "gallery_slots": 200, "quality_label": "Full HD", "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024"], "video_enabled": 0, "video_slots": 0},
-    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "openrouter_monthly_tokens": 500, "gallery_slots": 500, "quality_label": "4K", "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 10},
-    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "openrouter_monthly_tokens": 1200, "gallery_slots": 500, "quality_label": "4K", "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 50},
+    "free": {"title": "Free", "note": "Базовый доступ", "price_rub_month": 0, "daily_tokens": 10, "openrouter_monthly_tokens": 0, "gallery_slots": 20, "quality_label": "Базовое качество", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024"], "video_enabled": 0, "video_slots": 0},
+    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "openrouter_monthly_tokens": 100, "gallery_slots": 80, "quality_label": "HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024", "h-1280", "v-720"], "video_enabled": 0, "video_slots": 0},
+    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "openrouter_monthly_tokens": 250, "gallery_slots": 200, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "openai/gpt-image-1-mini"}, "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024"], "video_enabled": 0, "video_slots": 0},
+    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "openrouter_monthly_tokens": 500, "gallery_slots": 500, "quality_label": "4K", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "black-forest-labs/flux.2-pro"}, "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 10},
+    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "openrouter_monthly_tokens": 1200, "gallery_slots": 500, "quality_label": "4K", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-pro", "max": "openai/gpt-image-1"}, "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 50},
 }
 
 
@@ -1436,6 +1436,8 @@ def init_db() -> None:
             "age": "INTEGER",
             "daily_tokens_used": "INTEGER NOT NULL DEFAULT 0",
             "last_daily_reset": "TEXT",
+            "openrouter_monthly_tokens_used": "INTEGER NOT NULL DEFAULT 0",
+            "last_openrouter_month_reset": "TEXT",
         }.items():
             if column not in existing_user_columns:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
@@ -3266,6 +3268,16 @@ def _tariff_text(source: dict[str, Any], plan: str, key: str, *, max_len: int = 
 
 
 ALLOWED_RESOLUTION_IDS = {"sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"}
+QUALITY_PRESETS = ("fast", "standard", "max")
+ALLOWED_TARIFF_MODEL_IDS = {
+    "server:local_flux_klein",
+    "black-forest-labs/flux.2-klein-4b",
+    "black-forest-labs/flux.2-pro",
+    "black-forest-labs/flux.2-max",
+    "openai/gpt-image-1-mini",
+    "openai/gpt-image-1",
+    "recraft/recraft-v4.1",
+}
 
 
 def _tariff_resolutions(source: dict[str, Any], plan: str) -> list[str]:
@@ -3273,6 +3285,16 @@ def _tariff_resolutions(source: dict[str, Any], plan: str) -> list[str]:
     values = raw if isinstance(raw, list) else []
     result = [str(item) for item in values if str(item) in ALLOWED_RESOLUTION_IDS]
     return result or list(DEFAULT_TARIFFS[plan]["allowed_resolutions"])
+
+
+def _tariff_model_defaults(source: dict[str, Any], plan: str) -> dict[str, str]:
+    raw = source.get("model_defaults", source.get("modelDefaults", DEFAULT_TARIFFS[plan]["model_defaults"]))
+    values = raw if isinstance(raw, dict) else {}
+    result: dict[str, str] = {}
+    for preset in QUALITY_PRESETS:
+        value = values.get(preset, DEFAULT_TARIFFS[plan]["model_defaults"][preset])
+        result[preset] = str(value) if str(value) in ALLOWED_TARIFF_MODEL_IDS else DEFAULT_TARIFFS[plan]["model_defaults"][preset]
+    return result
 
 
 def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[str, dict[str, Any]]:
@@ -3316,6 +3338,7 @@ def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[s
             "openrouter_monthly_tokens": max(0, min(openrouter_monthly_int, 100_000)),
             "gallery_slots": max(0, min(slots_int, 100_000)),
             "quality_label": _tariff_text(source, plan, "quality_label", max_len=80),
+            "model_defaults": _tariff_model_defaults(source, plan),
             "queue_label": _tariff_text(source, plan, "queue_label", max_len=80),
             "pro_mode_enabled": 1 if _boolish(source.get("pro_mode_enabled", source.get("proModeEnabled", DEFAULT_TARIFFS[plan]["pro_mode_enabled"]))) else 0,
             "allowed_resolutions": _tariff_resolutions(source, plan),
@@ -4982,8 +5005,9 @@ def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost:
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
     today = now.strftime("%Y-%m-%d")
+    month_key = now.strftime("%Y-%m")
     user_row = conn.execute(
-        "SELECT id, token_balance, plan, daily_tokens_used, last_daily_reset FROM users WHERE id = ?",
+        "SELECT id, token_balance, plan, daily_tokens_used, last_daily_reset, openrouter_monthly_tokens_used, last_openrouter_month_reset FROM users WHERE id = ?",
         (user_id,),
     ).fetchone()
     if user_row is None:
@@ -4993,6 +5017,10 @@ def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost:
     daily_limit = 0
     daily_used_before = 0
     daily_used_after = 0
+    openrouter_monthly_limit = 0
+    openrouter_monthly_used_before = 0
+    openrouter_monthly_used_after = 0
+    used_openrouter_monthly = False
     used_daily = False
     balance_delta = 0
     ledger_reason = "generation"
@@ -5003,7 +5031,22 @@ def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost:
             daily_used_before = 0
         tariff = get_tariff_config(conn)[str(user_row["plan"] or "mini").lower()]
         daily_limit = int(tariff["daily_tokens"])
-        if daily_used_before + token_cost <= daily_limit:
+        openrouter_monthly_limit = int(tariff.get("openrouter_monthly_tokens") or 0)
+        openrouter_monthly_used_before = int(user_row["openrouter_monthly_tokens_used"] or 0)
+        if user_row["last_openrouter_month_reset"] != month_key:
+            openrouter_monthly_used_before = 0
+        openrouter_monthly_used_after = openrouter_monthly_used_before
+        if req.provider == "openrouter":
+            remaining_monthly = max(0, openrouter_monthly_limit - openrouter_monthly_used_before)
+            monthly_part = min(token_cost, remaining_monthly)
+            balance_delta = max(0, token_cost - monthly_part)
+            openrouter_monthly_used_after = openrouter_monthly_used_before + monthly_part
+            daily_used_after = daily_used_before
+            used_openrouter_monthly = monthly_part > 0
+            ledger_reason = "openrouter_monthly_generation" if monthly_part > 0 else "generation"
+            if old_balance < balance_delta:
+                raise HTTPException(402, "Not enough tokens.")
+        elif daily_used_before + token_cost <= daily_limit:
             used_daily = True
             daily_used_after = daily_used_before + token_cost
             ledger_reason = "daily_generation"
@@ -5023,12 +5066,14 @@ def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost:
         SET token_balance = ?,
             daily_tokens_used = ?,
             last_daily_reset = ?,
+            openrouter_monthly_tokens_used = ?,
+            last_openrouter_month_reset = ?,
             tokens_used = tokens_used + ?,
             generation_count = generation_count + 1,
             last_seen_at = ?
         WHERE id = ?
         """,
-        (new_balance, daily_used_after, today, token_cost, now_iso, user_id),
+        (new_balance, daily_used_after, today, openrouter_monthly_used_after, month_key, token_cost, now_iso, user_id),
     )
     conn.execute(
         "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -5045,9 +5090,13 @@ def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost:
                     "token_cost": token_cost,
                     "billing": billing_snapshot or None,
                     "used_daily_budget": used_daily,
+                    "used_openrouter_monthly": used_openrouter_monthly,
                     "daily_tokens_used_before": daily_used_before,
                     "daily_tokens_used_after": daily_used_after,
                     "daily_tokens_limit": daily_limit,
+                    "openrouter_monthly_used_before": openrouter_monthly_used_before,
+                    "openrouter_monthly_used_after": openrouter_monthly_used_after,
+                    "openrouter_monthly_limit": openrouter_monthly_limit,
                     "balance_delta": -balance_delta,
                 },
                 ensure_ascii=False,
@@ -5063,13 +5112,16 @@ def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost:
         "daily_tokens_used": daily_used_after,
         "daily_tokens_limit": daily_limit,
         "daily_tokens_remaining": max(0, daily_limit - daily_used_after),
+        "openrouter_monthly_tokens_used": openrouter_monthly_used_after,
+        "openrouter_monthly_tokens_limit": openrouter_monthly_limit,
+        "openrouter_monthly_tokens_remaining": max(0, openrouter_monthly_limit - openrouter_monthly_used_after),
     }
 
 
 def refund_generation_tokens(conn: sqlite3.Connection, job_id: str, *, reason: str) -> bool:
     """Idempotently reverse a generation charge for failed/cancelled jobs."""
     existing_refund = conn.execute(
-        "SELECT 1 FROM token_ledger WHERE reason IN ('generation_refund', 'daily_generation_refund') AND meta_json LIKE ?",
+        "SELECT 1 FROM token_ledger WHERE reason IN ('generation_refund', 'daily_generation_refund', 'openrouter_monthly_generation_refund') AND meta_json LIKE ?",
         (f'%"jobId": "{job_id}"%',),
     ).fetchone()
     if existing_refund is not None:
@@ -5077,7 +5129,7 @@ def refund_generation_tokens(conn: sqlite3.Connection, job_id: str, *, reason: s
     charge = conn.execute(
         """
         SELECT * FROM token_ledger
-        WHERE reason IN ('generation', 'daily_generation') AND meta_json LIKE ?
+        WHERE reason IN ('generation', 'daily_generation', 'openrouter_monthly_generation') AND meta_json LIKE ?
         ORDER BY created_at DESC LIMIT 1
         """,
         (f'%"jobId": "{job_id}"%',),
@@ -5090,6 +5142,7 @@ def refund_generation_tokens(conn: sqlite3.Connection, job_id: str, *, reason: s
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
     today = now.strftime("%Y-%m-%d")
+    month_key = now.strftime("%Y-%m")
     if charge["reason"] == "daily_generation":
         user_row = conn.execute("SELECT daily_tokens_used, last_daily_reset FROM users WHERE id = ?", (user_id,)).fetchone()
         if user_row is not None and user_row["last_daily_reset"] == today and token_cost > 0:
@@ -5097,6 +5150,16 @@ def refund_generation_tokens(conn: sqlite3.Connection, job_id: str, *, reason: s
             conn.execute("UPDATE users SET daily_tokens_used = ? WHERE id = ?", (new_daily, user_id))
         refund_delta = 0
         refund_reason = "daily_generation_refund"
+    elif charge["reason"] == "openrouter_monthly_generation":
+        monthly_part = max(0, int(meta.get("openrouter_monthly_used_after") or 0) - int(meta.get("openrouter_monthly_used_before") or 0))
+        user_row = conn.execute("SELECT openrouter_monthly_tokens_used, last_openrouter_month_reset FROM users WHERE id = ?", (user_id,)).fetchone()
+        if user_row is not None and user_row["last_openrouter_month_reset"] == month_key and monthly_part > 0:
+            new_monthly = max(0, int(user_row["openrouter_monthly_tokens_used"] or 0) - monthly_part)
+            conn.execute("UPDATE users SET openrouter_monthly_tokens_used = ? WHERE id = ?", (new_monthly, user_id))
+        refund_delta = abs(int(charge["delta"] or 0))
+        refund_reason = "openrouter_monthly_generation_refund"
+        if refund_delta > 0:
+            conn.execute("UPDATE users SET token_balance = token_balance + ? WHERE id = ?", (refund_delta, user_id))
     else:
         refund_delta = abs(int(charge["delta"] or 0))
         refund_reason = "generation_refund"
@@ -7136,16 +7199,22 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     internal_user_id = trusted["internal_user_id"]
     session_id = trusted.get("session_id")
     openrouter_billing: dict[str, Any] | None = None
+    with db() as conn:
+        user_row = conn.execute("SELECT id, plan FROM users WHERE id = ?", (user_id,)).fetchone()
+        if user_row is None:
+            raise HTTPException(404, "User not found.")
     if req.provider == "openrouter":
-        if not trusted_user_is_admin(trusted):
-            raise HTTPException(403, "OpenRouter generation is available for admins only.")
+        plan = str(user_row["plan"] or "mini").lower()
+        if plan not in PLAN_ORDER:
+            plan = "mini"
+        tariff = get_tariff_config()[plan]
+        allowed_models = set((tariff.get("model_defaults") or {}).values())
+        if req.modelProfile not in allowed_models:
+            raise HTTPException(403, "This OpenRouter model is not available for your tariff.")
         openrouter_billing = await estimate_openrouter_billing(req)
         token_cost = int(openrouter_billing["chargedTokens"])
     else:
         token_cost = estimate_token_cost(req)
-    with db() as conn:
-        if conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is None:
-            raise HTTPException(404, "User not found.")
     # FaceSwap lora auto-selection is handled by choose_faceswap_lora() inside
     # send_to_comfyui (worker). Early validation here is redundant and breaks
     # the flow when frontend sends an empty loras list — the worker always

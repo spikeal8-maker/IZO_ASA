@@ -9,7 +9,7 @@ import {
 } from './authV2'
 import { DiagPanel } from './diag'
 import { isDiagMode } from './diagMeta'
-import { DEFAULT_TARIFFS, normalizeTariffs, resolutionOptions, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
+import { DEFAULT_TARIFFS, modelOptions, normalizeTariffs, qualityPresetLabels, qualityPresets, resolutionOptions, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 import './index.css'
 
 const AdminAnalyticsV2 = lazy(() => import('./adminAnalytics').then((module) => ({ default: module.AdminAnalyticsV2 })))
@@ -335,6 +335,16 @@ function AdminTokens() {
               <label>OpenRouter токенов/мес<input type="number" min="0" value={tariffs[plan].openrouter_monthly_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], openrouter_monthly_tokens: Number(e.target.value) } }))} /></label>
               <label>Слоты галереи<input type="number" min="0" value={tariffs[plan].gallery_slots} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], gallery_slots: Number(e.target.value) } }))} /></label>
               <label>Качество в карточке<input value={tariffs[plan].quality_label} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], quality_label: e.target.value } }))} /></label>
+              <details className="admin-resolution-picker" open>
+                <summary>Модели качества</summary>
+                <div>
+                  {qualityPresets.map((preset) => <label key={preset}>{qualityPresetLabels[preset]}
+                    <select value={tariffs[plan].model_defaults[preset]} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], model_defaults: { ...current[plan].model_defaults, [preset]: e.target.value } } }))}>
+                      {modelOptions.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.tokenHint} ток.</option>)}
+                    </select>
+                  </label>)}
+                </div>
+              </details>
               <label>Очередь<input value={tariffs[plan].queue_label} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], queue_label: e.target.value } }))} /></label>
               <label className="admin-checkline"><input type="checkbox" checked={tariffs[plan].pro_mode_enabled} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], pro_mode_enabled: e.target.checked } }))} /> Режим профи</label>
               <label className="admin-checkline"><input type="checkbox" checked={tariffs[plan].video_enabled} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], video_enabled: e.target.checked } }))} /> Видео</label>

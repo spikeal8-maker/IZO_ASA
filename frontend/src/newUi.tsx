@@ -40,7 +40,7 @@ import TopBarV3 from './TopBarV3'
 import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import ProfilePage, { type PublicProfileLink } from './ProfilePage'
-import { DEFAULT_TARIFFS, avatarPresets, normalizeTariffs, type TariffConfig } from './profileSupport'
+import { DEFAULT_TARIFFS, avatarPresets, modelOptionById, normalizeTariffs, type QualityPreset, type TariffConfig, type TariffKey } from './profileSupport'
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
 import { applyClientSeo, currentSeoLocale, type SeoMeta } from './seo'
@@ -902,7 +902,6 @@ export default function NewStudio(): ReactElement {
   const [formatOpen, setFormatOpen] = useState(false)
   const formatRef = useRef<HTMLDivElement>(null)
   const [quality, setQuality] = useState('fast')
-  const [provider, setProvider] = useState<'comfyui' | 'openrouter'>('comfyui')
   const [proMode, setProMode] = useState(false)
   const [seed, setSeed] = useState(0)
   const [guidance] = useState(3.5)
@@ -1547,6 +1546,10 @@ export default function NewStudio(): ReactElement {
     try {
       const style = I2I_STYLES.find((s) => s.id === styleId)
       const steps = QUALITY.find((q) => q.id === quality)?.steps || 4
+      const accountPlan = (me?.account?.plan || 'mini').toLowerCase() as TariffKey
+      const activeTariff = tariffs[accountPlan] || DEFAULT_TARIFFS.mini
+      const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
+      const selectedModel = modelOptionById(activeTariff.model_defaults[selectedQuality])
       const effectiveSeed = seed || randomSeed()
       const requestSize = mode === 'face'
         ? await imageRequestSizeFromSource(faceSlots[0]?.image, size)
@@ -1591,7 +1594,7 @@ export default function NewStudio(): ReactElement {
                       ? 'outpaint'
                       : 'remove_background'
                 : 'text_to_image',
-        provider,
+        provider: selectedModel.provider,
         prompt: mode === 'edit' ? editComposer.finalPrompt : mode === 'face' ? faceFinalPrompt : mode === 'paint' ? paintPrompt : fullPrompt,
         negativePrompt: isEditLikeMode || mode === 'paint' ? '' : '',
         seed: effectiveSeed,
@@ -1601,7 +1604,7 @@ export default function NewStudio(): ReactElement {
         cfg: 1,
         guidance,
         strength: mode === 'edit' ? DEFAULT_EDIT_STRENGTH : mode === 'face' ? faceStrengthPct / 100 : strengthPct / 100,
-        modelProfile: provider === 'comfyui' ? 'local_flux_klein' : 'openrouter_cloud',
+        modelProfile: selectedModel.modelProfile,
         loras: mode === 'face' && faceLora ? [{ id: faceLora.id, strength: faceStrengthPct / 100, triggerWord: faceLora.triggerWord }] : [],
         inputImage1: mode === 'i2i' ? sourceImage : isEditLikeMode ? activeEditSlots[0]?.image : mode === 'paint' && paintMode !== 'sketch' ? paintImage : undefined,
         inputImage2: mode === 'face' ? activeEditSlots[1]?.image : undefined,
@@ -3297,8 +3300,6 @@ export default function NewStudio(): ReactElement {
       authCaps={authCaps}
       quality={quality}
       setQuality={setQuality}
-      provider={provider}
-      setProvider={setProvider}
       displayName={displayName}
       setDisplayName={setDisplayName}
       profileGender={profileGender}

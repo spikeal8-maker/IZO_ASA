@@ -1,10 +1,9 @@
 import { useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
-import { Copy, Link as LinkIcon, Lock, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles, Zap } from 'lucide-react'
+import { Copy, Link as LinkIcon, Lock, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles } from 'lucide-react'
 import type { AuthStatusV2, MeV2 } from './authV2'
-import { DEFAULT_TARIFFS, avatarPresets, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
+import { DEFAULT_TARIFFS, avatarPresets, modelOptionById, qualityPresetLabels, tariffKeys, type QualityPreset, type TariffConfig, type TariffKey } from './profileSupport'
 
 type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
-type Provider = 'comfyui' | 'openrouter'
 export type PublicProfileLink = { label: string; url: string }
 
 type ProfilePageProps = {
@@ -20,8 +19,6 @@ type ProfilePageProps = {
   authCaps: { telegram_bot_login_available: boolean; max_bot_login_available: boolean }
   quality: string
   setQuality: Dispatch<SetStateAction<string>>
-  provider: Provider
-  setProvider: Dispatch<SetStateAction<Provider>>
   displayName: string
   setDisplayName: Dispatch<SetStateAction<string>>
   profileGender: 'female' | 'male'
@@ -74,8 +71,6 @@ export default function ProfilePage({
   authCaps,
   quality,
   setQuality,
-  provider,
-  setProvider,
   displayName,
   setDisplayName,
   profileGender,
@@ -146,7 +141,9 @@ export default function ProfilePage({
   const publicCode = String(me?.profile?.public_user_code || me?.internal_user_id || '').replace(/^web_/, '').toUpperCase()
   const friendPromoCode = `FRIEND-${String(me?.profile?.public_user_code || me?.internal_user_id || 'GUEST').replace(/^web_/, '').toUpperCase().slice(0, 12)}`
   const referralLink = `${window.location.origin}?ref=${me?.profile?.public_user_code || me?.internal_user_id || 'guest'}`
-  const tokenPrice = (quality === 'fast' ? 1 : quality === 'standard' ? 2 : 4) * (provider === 'openrouter' ? 2 : 1)
+  const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
+  const selectedModel = modelOptionById(currentTariff.model_defaults[selectedQuality])
+  const tokenPrice = selectedModel.tokenHint
   const copyPublicCode = async () => {
     const value = publicCode || 'GUEST'
     try {
@@ -413,15 +410,16 @@ export default function ProfilePage({
 
           {profileTab === 'models' && <>
             <section className="profile-section">
-              <div className="profile-model-summary"><article className="profile-card profile-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article><article className="profile-card profile-stat-card"><span>Дневной лимит</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></article><article className="profile-card profile-stat-card"><span>Модель по умолчанию</span><strong>{quality === 'fast' ? 'Быстрая' : quality === 'standard' ? 'Стандарт' : 'Максимум'}</strong><small>рекомендуется</small></article><article className="profile-card profile-stat-card"><span>Стоимость</span><strong>{tokenPrice}</strong><small>{tokenPrice === 1 ? 'токен' : 'токена'}</small></article></div>
+              <div className="profile-model-summary"><article className="profile-card profile-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article><article className="profile-card profile-stat-card"><span>Дневной лимит</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></article><article className="profile-card profile-stat-card"><span>Выбрано качество</span><strong>{qualityPresetLabels[selectedQuality]}</strong><small>{selectedModel.label}</small></article><article className="profile-card profile-stat-card"><span>Стоимость</span><strong>{tokenPrice}</strong><small>{tokenPrice === 1 ? 'токен' : 'токена'}</small></article></div>
               <div className="profile-section-head"><h3>Модели и стоимость</h3><span>Стоимость будет показана перед генерацией</span></div>
               <div className="profile-models">
-                <button type="button" className={quality === 'fast' ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality('fast')}><Sparkles size={26} /><b>Быстрая</b><span>1 токен</span></button>
-                <button type="button" className={quality === 'standard' ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality('standard')}><WandSparkles size={26} /><b>Стандарт</b><span>2 токена</span></button>
-                <button type="button" className={quality === 'max' ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality('max')}><SlidersHorizontal size={26} /><b>Максимум</b><span>4 токена</span></button>
-                <button type="button" className={provider === 'openrouter' ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setProvider(provider === 'openrouter' ? 'comfyui' : 'openrouter')}><Zap size={26} /><b>Мегаскорость</b><span>{provider === 'openrouter' ? 'Включена' : 'Выключена'}</span></button>
+                {(['fast', 'standard', 'max'] as QualityPreset[]).map((preset) => {
+                  const option = modelOptionById(currentTariff.model_defaults[preset])
+                  const Icon = preset === 'fast' ? Sparkles : preset === 'standard' ? WandSparkles : SlidersHorizontal
+                  return <button type="button" key={preset} className={selectedQuality === preset ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality(preset)}><Icon size={26} /><b>{qualityPresetLabels[preset]}</b><span>{option.tokenHint} {option.tokenHint === 1 ? 'токен' : 'токена'}</span><small>{option.label}</small></button>
+                })}
               </div>
-              <div className="profile-estimate"><span>Выбрано: <strong>{quality === 'fast' ? 'Быстрая' : quality === 'standard' ? 'Стандарт' : 'Максимум'}</strong></span><span>Провайдер: <strong>{provider === 'openrouter' ? 'Премиум API-модели' : 'Серверная модель'}</strong></span><span>Примерная стоимость: <strong>{tokenPrice} {tokenPrice === 1 ? 'токен' : 'токена'}</strong></span></div>
+              <div className="profile-estimate"><span>Выбрано: <strong>{qualityPresetLabels[selectedQuality]}</strong></span><span>Модель: <strong>{selectedModel.label}</strong></span><span>Примерная стоимость: <strong>{tokenPrice} {tokenPrice === 1 ? 'токен' : 'токена'}</strong></span></div>
             </section>
           </>}
         </>
