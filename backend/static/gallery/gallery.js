@@ -160,7 +160,6 @@ function cardTemplate(raw, context){
   return `<article class="card" data-id="${escapeHtml(item.id)}" data-context="${context}" title="${escapeHtml(promptText)}">
     <img src="${escapeHtml(item.src)}" alt="${escapeHtml(promptText)}" loading="lazy" decoding="async"${imgAttrs}>
     <div class="cardTop"><span class="pill" title="Режим генерации">${escapeHtml(item.modeText)}</span>${pubPill}</div>
-    <div class="promptPeek ${item.prompt ? '' : 'empty'}">${escapeHtml(promptText)}</div>
     <div class="cardBottom"><time class="cardDate">${escapeHtml(item.dateText)}</time><div class="cardActions">
       <button class="action heart ${item.favorite?'active':''}" data-action="heart" title="${heartTitle}" aria-label="${heartTitle}">${item.favorite ? heartFilled : heartOutline}</button>
       <button class="action feedAct ${item.published?'feedOn':''}" data-action="feed" title="${feedTitle}" aria-label="${feedTitle}">${feedIcon}</button>
