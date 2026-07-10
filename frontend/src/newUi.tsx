@@ -106,6 +106,7 @@ type PublicModelFormatPricing = {
 }
 type PublicModelPricing = { id: string; label: string; formats: PublicModelFormatPricing[] }
 type PublicOpenRouterPricing = { models?: PublicModelPricing[] }
+type PublicFormatId = 'square' | 'portrait' | 'wide' | 'soft_wide'
 
 function coreModeFromTab(tab: N2Tab): CoreStudioMode | null {
   if (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face') return tab
@@ -149,6 +150,25 @@ function formatPricingId(resolution: ResolutionPreset) {
   if (resolution.kind === 'vertical') return 'portrait'
   const ratio = resolution.width / Math.max(1, resolution.height)
   return ratio < 1.65 ? 'soft_wide' : 'wide'
+}
+
+function resolutionIdForFormat(formatId: string) {
+  if (formatId === 'portrait') return 'v-720'
+  if (formatId === 'wide') return 'h-1280'
+  if (formatId === 'soft_wide') return 'h-1536'
+  return 'sq-1024'
+}
+
+function formatName(formatId: string) {
+  if (formatId === 'portrait') return '9:16'
+  if (formatId === 'wide') return '16:9'
+  if (formatId === 'soft_wide') return '3:2'
+  return '1:1'
+}
+
+function isRasterOpenRouterModel(model: ModelOption) {
+  if (model.provider !== 'openrouter') return true
+  return !/vector/i.test(model.id)
 }
 
 function loadImageShape(url: string): Promise<PreviewShape> {
@@ -963,6 +983,7 @@ export default function NewStudio(): ReactElement {
   const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
   // Разрешение = конкретный системный пресет; формат-кнопки переключают тип.
   const [resolutionId, setResolutionId] = useState('sq-1024')
+  const [formatAutoNotice, setFormatAutoNotice] = useState('')
   const [formatOpen, setFormatOpen] = useState(false)
   const formatRef = useRef<HTMLDivElement>(null)
   const [quality, setQuality] = useState('fast')
@@ -2165,9 +2186,20 @@ export default function NewStudio(): ReactElement {
   const currentModeAccess = modelAccess.modes[currentModelMode]
   const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
   const currentFormatPricingId = formatPricingId(selectedResolution)
-  const pricingForModel = (model: ModelOption) => model.provider === 'openrouter'
-    ? openrouterPricing[model.id]?.formats.find((fmt) => fmt.id === currentFormatPricingId && fmt.supported !== false)
-    : undefined
+  const modelFormats = (model: ModelOption) => {
+    if (model.provider !== 'openrouter') return []
+    return (openrouterPricing[model.id]?.formats || []).filter((fmt) => fmt.supported !== false)
+  }
+  const supportedFormatIdsForModel = (model: ModelOption) => {
+    if (model.provider !== 'openrouter') return ['square', 'portrait', 'wide', 'soft_wide'] as PublicFormatId[]
+    const ids = modelFormats(model).map((fmt) => fmt.id).filter(Boolean)
+    return ids.length ? ids : ['square']
+  }
+  const pricingForModel = (model: ModelOption) => {
+    if (model.provider !== 'openrouter') return undefined
+    const formats = modelFormats(model)
+    return formats.find((fmt) => fmt.id === currentFormatPricingId) || formats[0]
+  }
   const tokenCostForModel = (model: ModelOption) => {
     const priced = pricingForModel(model)
     return typeof priced?.tokens === 'number' && priced.tokens > 0 ? priced.tokens : model.tokenHint
@@ -2180,9 +2212,9 @@ export default function NewStudio(): ReactElement {
   }
   const visibleStudioModels = (currentModeAccess?.models || [])
     .filter((model) => userModelVisibility[currentModelMode]?.[model.id] !== false)
-  const studioModelEnabled = (model: ModelOption) => model.provider !== 'openrouter' || currentModelMode === 'text_to_image'
+  const studioModelEnabled = (model: ModelOption, mode: ModelModeKey = currentModelMode) => isRasterOpenRouterModel(model) && (model.provider !== 'openrouter' || mode === 'text_to_image')
   const selectableStudioModels = (visibleStudioModels.length ? visibleStudioModels : currentModeAccess?.models || [])
-    .filter(studioModelEnabled)
+    .filter((model) => studioModelEnabled(model))
     .sort((a, b) => {
       if (studioModelSort === 'name-asc') return a.label.localeCompare(b.label, 'ru')
       if (studioModelSort === 'name-desc') return b.label.localeCompare(a.label, 'ru')
@@ -2190,6 +2222,14 @@ export default function NewStudio(): ReactElement {
       return tokenCostForModel(a) - tokenCostForModel(b) || a.label.localeCompare(b.label, 'ru')
     })
   function selectStudioModel(model: ModelOption) {
+    const supported = supportedFormatIdsForModel(model)
+    if (!supported.includes(currentFormatPricingId)) {
+      const nextFormat = supported[0] || 'square'
+      setResolutionId(resolutionIdForFormat(nextFormat))
+      setFormatAutoNotice(`Формат изменен: ${formatName(nextFormat)}`)
+    } else {
+      setFormatAutoNotice('')
+    }
     setUserModelChoices((current) => ({
       ...current,
       [currentModelMode]: { ...(current[currentModelMode] || {}), [selectedQuality]: model.id },
@@ -2198,7 +2238,7 @@ export default function NewStudio(): ReactElement {
   function studioSelectedModel(mode: ModelModeKey, preset: QualityPreset) {
     const access = modelAccess.modes[mode]
     const models = (access?.models || []).filter((model) => userModelVisibility[mode]?.[model.id] !== false)
-    const allowed = models.filter((model) => model.provider !== 'openrouter' || mode === 'text_to_image')
+    const allowed = models.filter((model) => studioModelEnabled(model, mode))
     const chosen = userModelChoices[mode]?.[preset]
     const presetId = chosen && allowed.some((model) => model.id === chosen) ? chosen : access?.presets?.[preset]
     return allowed.find((model) => model.id === presetId) || allowed[0] || models[0] || modelAccessOption(modelAccess, mode, preset, userModelChoices)
@@ -2207,6 +2247,17 @@ export default function NewStudio(): ReactElement {
   const currentStudioModelInfo = modelPublicInfo(currentStudioModel)
   const currentStudioTokenCost = tokenCostForModel(currentStudioModel)
   const currentStudioFormatPrice = pricingForModel(currentStudioModel)
+  useEffect(() => {
+    if (!currentStudioModel) return
+    const supported = supportedFormatIdsForModel(currentStudioModel)
+    if (supported.includes(currentFormatPricingId)) return
+    const nextFormat = supported[0] || 'square'
+    const nextResolutionId = resolutionIdForFormat(nextFormat)
+    if (resolutionId !== nextResolutionId) {
+      setResolutionId(nextResolutionId)
+      setFormatAutoNotice(`Формат изменен: ${formatName(nextFormat)}`)
+    }
+  }, [currentStudioModel.id, currentFormatPricingId, openrouterPricing, resolutionId])
   const generateLabel = isI2IStudio ? 'Преобразовать' : isEditStudio ? 'Создать изображение' : isFaceStudio ? 'Заменить лицо' : isPaintStudio ? paintMode === 'remove_bg' ? 'Удалить фон' : paintMode === 'outpaint' ? 'Расширить' : 'Создать по рисунку' : 'Сгенерировать'
   const generatingLabel = isI2IStudio ? 'Преобразуем...' : isEditStudio ? 'Создаём...' : isFaceStudio ? 'Заменяем...' : isPaintStudio ? 'Готовим рисунок...' : 'Генерируем...'
   const influenceStyle = { '--i2i-range-progress': `${strengthPct}%` } as CSSProperties
@@ -3179,6 +3230,7 @@ export default function NewStudio(): ReactElement {
               <span className="ratio-icon soft-wide"></span>3:2
             </button>
           </div>
+          {formatAutoNotice && <div className="format-auto-note">{formatAutoNotice}</div>}
         </section>
 
         <section className="form-section quality-section">
@@ -3188,16 +3240,22 @@ export default function NewStudio(): ReactElement {
           </div>
           {!proMode ? (
             <div className="quality-row">
-              {QUALITY.map((q) => (
-                <button
-                  key={q.id}
-                  className={`quality-button${quality === q.id ? ' active' : ''}`}
-                  type="button"
-                  onClick={() => setQuality(q.id)}
-                >
-                  {q.label}
-                </button>
-              ))}
+              {QUALITY.map((q) => {
+                const qualityId = q.id as QualityPreset
+                const qualityModel = studioSelectedModel(currentModelMode, qualityId)
+                const qualityTokens = tokenCostForModel(qualityModel)
+                return (
+                  <button
+                    key={q.id}
+                    className={`quality-button${quality === q.id ? ' active' : ''}`}
+                    type="button"
+                    onClick={() => setQuality(q.id)}
+                  >
+                    <span className="quality-label">{q.label}</span>
+                    <span className="quality-token-cost">{qualityTokens} ток.</span>
+                  </button>
+                )
+              })}
             </div>
           ) : (
             <>

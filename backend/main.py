@@ -12762,6 +12762,16 @@ OPENROUTER_ADMIN_FORMATS: list[dict[str, Any]] = [
     {"id": "soft_wide", "label": "Средняя", "short": "3:2", "width": 1536, "height": 1024},
 ]
 
+
+def openrouter_format_supported(model_id: str, fmt: dict[str, Any]) -> bool:
+    lower = model_id.lower()
+    if "vector" in lower:
+        return False
+    if lower.startswith("recraft/"):
+        return fmt.get("id") == "square"
+    return True
+
+
 OPENROUTER_PRICE_CATALOG: dict[str, OpenRouterPriceModel] = {
     "black-forest-labs/flux.2-klein-4b": OpenRouterPriceModel(id="black-forest-labs/flux.2-klein-4b", name="FLUX.2 Klein 4B", provider="BFL", pricing_type="mp", usd=0.014, min_tokens=1),
     "black-forest-labs/flux.2-pro": OpenRouterPriceModel(id="black-forest-labs/flux.2-pro", name="FLUX.2 Pro", provider="BFL", pricing_type="mp", usd=0.03, min_tokens=2),
@@ -12861,6 +12871,7 @@ def openrouter_format_economics(
     revenue_rub = tokens * float(economy["tokenRub"]) if tokens is not None else None
     profit_rub = revenue_rub - cost_rub if revenue_rub is not None and cost_rub is not None else None
     margin_percent = (profit_rub / revenue_rub * 100) if revenue_rub and profit_rub is not None else None
+    supported = openrouter_format_supported(model.id, fmt)
     return {
         "id": fmt["id"],
         "label": fmt["label"],
@@ -12878,7 +12889,7 @@ def openrouter_format_economics(
         "revenueRub": round(revenue_rub, 4) if revenue_rub is not None else None,
         "profitRub": round(profit_rub, 4) if profit_rub is not None else None,
         "marginPercent": round(margin_percent, 2) if margin_percent is not None else None,
-        "supported": True,
+        "supported": supported,
     }
 
 
