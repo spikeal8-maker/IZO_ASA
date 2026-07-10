@@ -1165,6 +1165,7 @@ export default function NewStudio(): ReactElement {
         if (cancelled) return
         if (data?.tariffs) {
           setTariffs(normalizeTariffs(data.tariffs))
+          if (data.modelAccess) setModelAccess(normalizeModelAccess(data.modelAccess, (me?.account?.plan || 'mini') as TariffKey))
           if (typeof data.economy?.tokenRub === 'number' && data.economy.tokenRub > 0) setTokenRub(data.economy.tokenRub)
           setTariffsState('ready')
         } else {

@@ -7342,12 +7342,29 @@ async def flux_klein_lora_triggers(name: str) -> dict[str, Any]:
         return {"ok": False, "error": str(exc), "triggers": [], "name": name}
 
 
+def _request_plan_or_default(request: Request | None, default: str = "mini") -> str:
+    if request is None:
+        return default
+    try:
+        trusted = resolve_trusted_user(request)
+    except HTTPException:
+        return default
+    with db() as conn:
+        row = conn.execute("SELECT plan FROM users WHERE internal_user_id = ?", (trusted["internal_user_id"],)).fetchone()
+        if row is None and trusted["legacy_user_id"]:
+            row = conn.execute("SELECT plan FROM users WHERE id = ?", (trusted["legacy_user_id"],)).fetchone()
+    plan = str(row["plan"] if row else default).lower()
+    return plan if plan in PLAN_ORDER else default
+
+
 @app.get("/api/tariffs")
-async def tariffs() -> dict[str, Any]:
+async def tariffs(request: Request) -> dict[str, Any]:
     economy = openrouter_economy_settings()
+    plan = _request_plan_or_default(request)
     return {
         "ok": True,
         "tariffs": get_tariff_config(),
+        "modelAccess": public_model_access_for_plan(plan),
         "economy": {
             "tokenRub": economy["tokenRub"],
         },
@@ -12708,9 +12725,10 @@ def public_model_access_for_plan(plan: str) -> dict[str, Any]:
 @app.get("/api/model-access")
 async def model_access(request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
-    user_id = trusted["legacy_user_id"]
     with db() as conn:
-        row = conn.execute("SELECT plan FROM users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT plan FROM users WHERE internal_user_id = ?", (trusted["internal_user_id"],)).fetchone()
+        if row is None and trusted["legacy_user_id"]:
+            row = conn.execute("SELECT plan FROM users WHERE id = ?", (trusted["legacy_user_id"],)).fetchone()
     plan = str(row["plan"] if row else "mini").lower()
     return {"ok": True, **public_model_access_for_plan(plan)}
 
