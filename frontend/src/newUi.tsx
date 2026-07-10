@@ -248,19 +248,20 @@ type FormatId = 'square' | 'vertical' | 'horizontal'
 interface ResolutionPreset {
   id: string
   name: string
+  quality: string
   width: number
   height: number
   kind: FormatId
 }
 
 const RESOLUTION_PRESETS: ResolutionPreset[] = [
-  { id: 'sq-1024', name: 'Квадратное', width: 1024, height: 1024, kind: 'square' },
-  { id: 'h-1280', name: 'Горизонтальное HD', width: 1280, height: 720, kind: 'horizontal' },
-  { id: 'v-720', name: 'Вертикальное HD', width: 720, height: 1280, kind: 'vertical' },
-  { id: 'h-1536', name: 'Горизонтальное среднее', width: 1536, height: 1024, kind: 'horizontal' },
-  { id: 'v-1024', name: 'Вертикальное среднее', width: 1024, height: 1536, kind: 'vertical' },
-  { id: 'h-1920', name: 'Горизонтальное Full HD', width: 1920, height: 1088, kind: 'horizontal' },
-  { id: 'v-1088', name: 'Вертикальное Full HD', width: 1088, height: 1920, kind: 'vertical' },
+  { id: 'sq-1024', name: 'Квадрат', quality: 'HD', width: 1024, height: 1024, kind: 'square' },
+  { id: 'h-1280', name: 'Широкий', quality: 'HD', width: 1280, height: 720, kind: 'horizontal' },
+  { id: 'v-720', name: 'Высокий', quality: 'HD', width: 720, height: 1280, kind: 'vertical' },
+  { id: 'h-1536', name: 'Средний широкий', quality: '2K', width: 1536, height: 1024, kind: 'horizontal' },
+  { id: 'v-1024', name: 'Средний высокий', quality: '2K', width: 1024, height: 1536, kind: 'vertical' },
+  { id: 'h-1920', name: 'Широкий', quality: 'Full HD', width: 1920, height: 1088, kind: 'horizontal' },
+  { id: 'v-1088', name: 'Высокий', quality: 'Full HD', width: 1088, height: 1920, kind: 'vertical' },
 ]
 
 const DEFAULT_FACE_STRENGTH = 75
@@ -2231,16 +2232,23 @@ export default function NewStudio(): ReactElement {
         ? apiUrl(gallery[0].url)
         : undefined
 
-  // v3-студия: выбрать формат (соотношение сторон) — переключает разрешение на
-  // первый пресет нужной ориентации.
-  const selectRatio = (kind: 'square' | 'vertical' | 'horizontal') => {
-    const preset = RESOLUTION_PRESETS.find((p) => p.kind === kind)
+  // v3-студия: выбрать формат (соотношение сторон) — переключает на конкретный
+  // базовый пресет, чтобы 16:9 и 3:2 не смешивались в один horizontal.
+  const selectRatio = (format: 'square' | 'portrait' | 'wide' | 'soft_wide') => {
+    const presetId = format === 'square'
+      ? 'sq-1024'
+      : format === 'portrait'
+        ? 'v-720'
+        : format === 'soft_wide'
+          ? 'h-1536'
+          : 'h-1280'
+    const preset = RESOLUTION_PRESETS.find((p) => p.id === presetId)
     if (preset) setResolutionId(preset.id)
   }
 
   // Формат-дропдаун: класс shape-иконки и локализованный тип разрешения.
-  const ratioIconClass = (kind: 'square' | 'vertical' | 'horizontal') =>
-    kind === 'vertical' ? 'tall' : kind === 'horizontal' ? 'wide' : ''
+  const ratioIconClass = (kind: 'square' | 'vertical' | 'horizontal', formatId?: string) =>
+    kind === 'vertical' ? 'tall' : formatId === 'soft_wide' ? 'soft-wide' : kind === 'horizontal' ? 'wide' : ''
 
   // Закрытие формат-дропдауна по клику вне него.
   useEffect(() => {
@@ -2407,7 +2415,6 @@ export default function NewStudio(): ReactElement {
   const dockPromptText = dockImage
     ? dockImage.promptOriginal || (dockIsFeed ? 'Промпт недоступен' : '')
     : prompts.text
-  const ratioKind = selectedResolution.kind
   const shareTarget = visibleGalleryImage
   const previewNoticeText = notice || toastText
   const paintModeMeta: Record<PaintSubMode, { label: string; hint: string }> = {
@@ -3130,21 +3137,25 @@ export default function NewStudio(): ReactElement {
                       className={`iv3-format-option${p.id === resolutionId ? ' active' : ''}`}
                       onClick={() => { setResolutionId(p.id); setFormatOpen(false) }}
                     >
-                      <span className={`ratio-icon ${ratioIconClass(p.kind)}`.trim()} aria-hidden="true"></span>
+                      <span className={`ratio-icon ${ratioIconClass(p.kind, formatPricingId(p))}`.trim()} aria-hidden="true"></span>
                       <span className="iv3-format-res">{p.width}×{p.height}</span>
+                      <span className="iv3-format-type">{p.quality}</span>
                     </button>
                   ))}
                 </div>
               )}
             </div>
-            <button className={`ratio-button${ratioKind === 'square' ? ' active' : ''}`} type="button" onClick={() => selectRatio('square')}>
+            <button className={`ratio-button${currentFormatPricingId === 'square' ? ' active' : ''}`} type="button" onClick={() => selectRatio('square')}>
               <span className="ratio-icon"></span>1:1
             </button>
-            <button className={`ratio-button${ratioKind === 'vertical' ? ' active' : ''}`} type="button" onClick={() => selectRatio('vertical')}>
+            <button className={`ratio-button${currentFormatPricingId === 'portrait' ? ' active' : ''}`} type="button" onClick={() => selectRatio('portrait')}>
               <span className="ratio-icon tall"></span>9:16
             </button>
-            <button className={`ratio-button${ratioKind === 'horizontal' ? ' active' : ''}`} type="button" onClick={() => selectRatio('horizontal')}>
+            <button className={`ratio-button${currentFormatPricingId === 'wide' ? ' active' : ''}`} type="button" onClick={() => selectRatio('wide')}>
               <span className="ratio-icon wide"></span>16:9
+            </button>
+            <button className={`ratio-button${currentFormatPricingId === 'soft_wide' ? ' active' : ''}`} type="button" onClick={() => selectRatio('soft_wide')}>
+              <span className="ratio-icon soft-wide"></span>3:2
             </button>
           </div>
         </section>

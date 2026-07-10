@@ -2307,11 +2307,11 @@ font-weight: 620;
 }
 .iv3 .ratio-button {
 justify-content: center;
-gap: 10px;
-min-width: 92px;
-padding: 0 12px;
+gap: 7px;
+min-width: 74px;
+padding: 0 8px;
 color: #d9ded8;
-font-size: 14px;
+font-size: 13px;
 font-weight: 620;
 }
 .iv3 .ratio-button.active, .iv3 .quality-button.active {
@@ -2336,6 +2336,10 @@ height: 25px;
 .iv3 .ratio-icon.wide {
 width: 30px;
 height: 16px;
+}
+.iv3 .ratio-icon.soft-wide {
+width: 26px;
+height: 18px;
 }
 .iv3 .quality-row {
 display: grid;
@@ -4793,7 +4797,8 @@ font-size: 10.5px;
 .iv3 .format-section .control-row { overflow: visible; }
 .iv3 .format-section .control-row {
   display: grid;
-  grid-template-columns: minmax(112px, 1fr) repeat(3, minmax(64px, .72fr));
+  grid-template-columns: minmax(108px, 1fr) repeat(4, minmax(58px, .62fr));
+  gap: 8px;
 }
 .iv3 .format-section .iv3-format-select,
 .iv3 .format-section .iv3-format-trigger {
@@ -4802,8 +4807,8 @@ font-size: 10.5px;
 }
 .iv3 .format-section .ratio-button {
   min-width: 0;
-  padding-left: 6px;
-  padding-right: 6px;
+  padding-left: 4px;
+  padding-right: 4px;
 }
 
 /* ============ Stage 5.3 регрессии ============ */
