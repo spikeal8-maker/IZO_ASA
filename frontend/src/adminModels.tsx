@@ -1,5 +1,5 @@
 // Админ → Модели v2. Provider-aware страница управления моделями/маршрутами/тарифами,
-// OpenRouter и LoRA из ComfyUI. Структура по референсу admin-models-v2.html.
+// OpenRouter и серверной моделью. Структура по референсу admin-models-v2.html.
 // Реальные данные приходят из GET /api/admin/models-page (см. backend). Тарифная матрица,
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
@@ -516,7 +516,7 @@ export default function AdminModelsV2() {
   const [opsBusy, setOpsBusy] = useState(false)
 
   const load = useCallback(async () => {
-    const d = await amvFetch('/admin/models-page').then((r) => (r.ok ? r.json() : null)).catch(() => null) as PageData | null
+    const d = await amvFetch('/admin/models-page?local=0').then((r) => (r.ok ? r.json() : null)).catch(() => null) as PageData | null
     // Принимаем ответ только полной формы. Иначе — сообщение об ошибке, а не падение:
     // живой backend мог не содержать /api/admin/models-page или вернуть 403/500 с JSON-телом.
     const ok = !!d && Array.isArray(d.matrix) && Array.isArray(d.routes) && !!d.economy
@@ -537,13 +537,20 @@ export default function AdminModelsV2() {
       }
       setMarginDraft(String(clampMargin(d.openrouter.economy?.minMarginPercent)))
       setTokenRubDraft(String(clampTokenRub(d.openrouter.economy?.tokenRub)))
-      setErr(''); setData(d); setRoutes(d.routes)
+      setErr(''); setData(d); setRoutes(d.routes || [])
     } else {
       setData(null)
       setErr('Не удалось загрузить страницу моделей. Нужен доступ администратора и обновлённый backend (/api/admin/models-page).')
     }
   }, [])
   useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
+
+  const loadLocalModelData = useCallback(async () => {
+    const d = await amvFetch('/admin/models-page?local=1').then((r) => (r.ok ? r.json() : null)).catch(() => null) as PageData | null
+    if (!d) return
+    setData((current) => current ? { ...current, routes: d.routes, catalog: d.catalog, loras: d.loras, comfyuiAvailable: d.comfyuiAvailable, comfyFiles: d.comfyFiles, profiles: d.profiles, economy: d.economy } : d)
+    setRoutes(d.routes || [])
+  }, [])
 
   const loadConfigStatus = useCallback(async () => {
     const status = await amvFetch('/admin/config-ui/status-v2').then(async (r) => {
@@ -559,8 +566,9 @@ export default function AdminModelsV2() {
 
   useEffect(() => {
     if (pageTab !== 'config' || configStatus || configErr) return
+    void loadLocalModelData()
     queueMicrotask(() => { void loadConfigStatus() })
-  }, [configErr, configStatus, loadConfigStatus, pageTab])
+  }, [configErr, configStatus, loadConfigStatus, loadLocalModelData, pageTab])
 
   async function configAction(kind: 'reload' | 'interrupt') {
     const reason = opsReason.trim()
@@ -574,7 +582,7 @@ export default function AdminModelsV2() {
     setOpsBusy(false)
     if (r?.ok) {
       if (r.status) setConfigStatus(r.status)
-      setMsg(kind === 'reload' ? 'Config UI перечитан и кэш сброшен' : 'ComfyUI interrupt отправлен')
+      setMsg(kind === 'reload' ? 'Серверная модель перечитана и кэш сброшен' : 'Interrupt локального генератора отправлен')
       await loadConfigStatus()
     } else setMsg(r?.detail || 'Операция не выполнена')
   }
@@ -822,7 +830,7 @@ export default function AdminModelsV2() {
     {msg && <p style={{ color: 'var(--lime)', fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
     <div className="page-tabs" aria-label="Разделы моделей">
       <button className={pageTab === 'api' ? 'active' : ''} onClick={() => setPageTab('api')}>OpenRouter</button>
-      <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Config UI</button>
+      <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Серверная модель</button>
       {pageTab === 'api' && <div className="tab-status">
         <span className={`status-dot ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : ''}`} aria-hidden="true" />
         <span className={`state ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{orStatus.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
@@ -835,15 +843,15 @@ export default function AdminModelsV2() {
     <article className="card">
       <div className="card-head">
         <div>
-          <h2 className="card-title">Config UI: состояние и операции</h2>
-          <p className="card-note">Наблюдение за ComfyUI config API, моделями, нодами, кэшем и зависшими задачами.</p>
+          <h2 className="card-title">Серверная модель: состояние и операции</h2>
+          <p className="card-note">Наш локальный генератор для включенных в тариф ежедневных токенов: модели, ноды, кэш и зависшие задачи.</p>
         </div>
         <span className={`state ${configStatus?.status === 'ready' ? 'ok' : 'warn'}`}>{configErr ? 'status api fail' : configStatus?.status || 'unknown'}</span>
       </div>
-      {configErr && <p className="hint" style={{ margin: '12px 12px 0', color: 'var(--yellow)' }}>Статус Config UI не загрузился: {configErr}. Если ComfyUI открыт, перезапустите backend/dev-сервер, чтобы он подхватил новые endpoint'ы.</p>}
+      {configErr && <p className="hint" style={{ margin: '12px 12px 0', color: 'var(--yellow)' }}>Статус серверной модели не загрузился: {configErr}. Если локальный генератор открыт, перезапустите backend/dev-сервер, чтобы он подхватил новые endpoint'ы.</p>}
       <div className="status-grid">
         <div className="status-card">
-          <strong>ComfyUI</strong>
+          <strong>Локальный генератор</strong>
           <span style={{ color: statusColor(configStatus?.comfyui?.available) }}>{configErr ? 'unknown' : configStatus?.comfyui?.available ? 'online' : 'offline'}</span>
           <small>{configStatus?.comfyui?.base_url || '—'}</small>
         </div>
@@ -866,8 +874,8 @@ export default function AdminModelsV2() {
       <div className="ops-row">
         <input value={opsReason} onChange={(e) => setOpsReason(e.target.value)} placeholder="Причина операции для audit log" />
         <button className="ghost" disabled={opsBusy} onClick={() => void loadConfigStatus()}>Обновить статус</button>
-        <button className="primary" disabled={opsBusy} onClick={() => void configAction('reload')}>Перезапустить config UI</button>
-        <button className="danger" disabled={opsBusy} onClick={() => void configAction('interrupt')}>Interrupt Comfy</button>
+        <button className="primary" disabled={opsBusy} onClick={() => void configAction('reload')}>Перезапустить серверную модель</button>
+        <button className="danger" disabled={opsBusy} onClick={() => void configAction('interrupt')}>Остановить локальную задачу</button>
       </div>
       <div className="job-list">
         {(configStatus?.active_jobs || []).length ? (configStatus?.active_jobs || []).map((job) => (
@@ -894,7 +902,7 @@ export default function AdminModelsV2() {
         <div className="card-head"><div><h2 className="card-title">Маршруты по умолчанию</h2><p className="card-note">Модель по умолчанию, если пользователь не выбрал вручную.</p></div></div>
         <div className="route-list">{routes.map((r, ri) => <div className="route-row" key={r.routeId}>
           <div className="route-name"><span className="route-icon">{r.icon}</span>{r.displayName}</div>
-          <span className={`provider ${r.provider === 'local' ? 'local' : 'openrouter'}`}>{r.provider === 'local' ? 'Local ComfyUI' : 'OpenRouter'}</span>
+          <span className={`provider ${r.provider === 'local' ? 'local' : 'openrouter'}`}>{r.provider === 'local' ? 'Серверная модель' : 'OpenRouter'}</span>
           {r.routeId === 'edit_pose'
             ? <select value="flux_klein_9b" disabled title="Pose: только 9B + DWPose"><option value="flux_klein_9b">Flux 2 Klein 9B + DWPose</option><option disabled>Flux 2 Klein 4B — не поддерживает</option></select>
             : <select value={r.modelProfileId} onChange={(e) => setRouteModel(ri, e.target.value)}>{localOptions.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select>}
@@ -913,8 +921,8 @@ export default function AdminModelsV2() {
 
     <article className="card">
       <div className="card-head">
-        <div><h2 className="card-title">Доступные LoRA из ComfyUI</h2><p className="card-note">Только локальные LoRA и совместимость с Flux 2 Klein 4B/9B. API-модели здесь больше не смешиваются.</p></div>
-        <div className="actions"><button className="ghost" onClick={() => void loadConfigStatus()}>Сканировать ComfyUI</button></div>
+        <div><h2 className="card-title">Доступные LoRA серверной модели</h2><p className="card-note">Только локальные LoRA и совместимость с Flux 2 Klein 4B/9B. API-модели здесь больше не смешиваются.</p></div>
+        <div className="actions"><button className="ghost" onClick={() => { void loadLocalModelData(); void loadConfigStatus() }}>Сканировать серверную модель</button></div>
       </div>
       <div className="lora-grid">{kleinLoras.map((l) => <article className="lora-card" key={l.fileName}>
         <span className={`provider ${l.installed === false ? 'openrouter' : 'local'}`}>{l.installed === false ? 'Нужно добавить' : 'Klein LoRA'}</span>
@@ -926,7 +934,7 @@ export default function AdminModelsV2() {
     </article>
 
     <details>
-      <summary>Расширенные файлы ComfyUI</summary>
+      <summary>Расширенные файлы серверной модели</summary>
       <div className="advanced-grid">
         {Object.entries(data.comfyFiles).map(([k, v]) => <div className="field" key={k}><label>{k}</label><input defaultValue={String(v)} /></div>)}
       </div>

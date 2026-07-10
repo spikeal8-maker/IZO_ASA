@@ -331,7 +331,8 @@ function AdminTokens() {
               <label>Название<input value={tariffs[plan].title} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], title: e.target.value } }))} /></label>
               <label>Описание<input value={tariffs[plan].note} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], note: e.target.value } }))} /></label>
               <label>Цена, ₽/мес<input type="number" min="0" value={tariffs[plan].price_rub_month} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], price_rub_month: Number(e.target.value) } }))} /></label>
-              <label>Токенов/день<input type="number" min="0" value={tariffs[plan].daily_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], daily_tokens: Number(e.target.value) } }))} /></label>
+              <label>Серверных токенов/день<input type="number" min="0" value={tariffs[plan].daily_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], daily_tokens: Number(e.target.value) } }))} /></label>
+              <label>OpenRouter токенов/мес<input type="number" min="0" value={tariffs[plan].openrouter_monthly_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], openrouter_monthly_tokens: Number(e.target.value) } }))} /></label>
               <label>Слоты галереи<input type="number" min="0" value={tariffs[plan].gallery_slots} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], gallery_slots: Number(e.target.value) } }))} /></label>
               <label>Качество в карточке<input value={tariffs[plan].quality_label} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], quality_label: e.target.value } }))} /></label>
               <label>Очередь<input value={tariffs[plan].queue_label} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], queue_label: e.target.value } }))} /></label>
@@ -347,7 +348,7 @@ function AdminTokens() {
                   </label>)}
                 </div>
               </details>
-              <small>{tariffs[plan].title}: {tariffs[plan].daily_tokens} ток./день · {tariffs[plan].gallery_slots} слот(ов) · профи {tariffs[plan].pro_mode_enabled ? 'да' : 'нет'} · видео {tariffs[plan].video_enabled ? tariffs[plan].video_slots : 'нет'}</small>
+              <small>{tariffs[plan].title}: {tariffs[plan].daily_tokens} серверных/день · {tariffs[plan].openrouter_monthly_tokens} OpenRouter/мес · {tariffs[plan].gallery_slots} работ · профи {tariffs[plan].pro_mode_enabled ? 'да' : 'нет'} · видео {tariffs[plan].video_enabled ? tariffs[plan].video_slots : 'нет'}</small>
             </div>
           ))}
         </div>

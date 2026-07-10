@@ -121,6 +121,7 @@ export default function ProfilePage({
   const planLabel = activePlan.toUpperCase()
   const tokenBalance = Number(account?.token_balance ?? 0)
   const dailyLimit = Number(account?.daily_tokens_limit ?? account?.daily_tokens ?? currentTariff.daily_tokens)
+  const premiumMonthlyTokens = Number(account?.openrouter_monthly_tokens ?? currentTariff.openrouter_monthly_tokens)
   const dailyUsed = Math.max(0, Number(account?.daily_tokens_used ?? 0))
   const dailyAvailable = Math.max(0, Number(account?.daily_tokens_remaining ?? dailyLimit - dailyUsed))
   const gallerySlots = Number(account?.gallery_slots ?? currentTariff.gallery_slots)
@@ -168,7 +169,8 @@ export default function ProfilePage({
   const planCards = tariffKeys.map((id) => {
     const tariff = tariffs[id] || DEFAULT_TARIFFS[id]
     const features = [
-      `${tariff.daily_tokens} кредитов в день`,
+      `${tariff.daily_tokens} серверных токенов в день`,
+      tariff.openrouter_monthly_tokens > 0 ? `${tariff.openrouter_monthly_tokens} токенов премиум-моделей в месяц` : '',
       `${tariff.gallery_slots} работ в галерее`,
       `Качество: ${tariff.quality_label}`,
       tariff.pro_mode_enabled ? 'Режим профи' : '',
@@ -181,6 +183,7 @@ export default function ProfilePage({
       note: tariff.note,
       price: tariff.price_rub_month,
       daily: tariff.daily_tokens,
+      premium: tariff.openrouter_monthly_tokens,
       slots: tariff.gallery_slots,
       quality: tariff.quality_label,
       features,
@@ -358,6 +361,7 @@ export default function ProfilePage({
               <div className="profile-tariff-summary profile-card">
                 <div><span>Текущий тариф</span><strong>{planLabel}</strong></div>
                 <div><span>Токены сегодня</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></div>
+                <div><span>Премиум-модели</span><strong>{premiumMonthlyTokens}</strong><small>токенов в месяц</small></div>
                 <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
                 <div><span>Видео</span><strong>{videoEnabled ? `${videoUsed}/${videoSlots}` : 'Закрыто'}</strong><small>{videoEnabled ? `свободно ${videoFree}` : 'доступно с Pro'}</small></div>
                 <button type="button" className="profile-primary" disabled>Управление тарифом скоро</button>
@@ -366,7 +370,8 @@ export default function ProfilePage({
                 {planCards.map((item) => (
                   <article className={`${item.id === activePlan ? 'profile-card profile-plan active current' : 'profile-card profile-plan'}`} key={item.id}>
                     {item.id === activePlan && <span className="profile-chip current">Текущий</span>}
-                    <h4>{item.title}</h4><p>{item.note}</p><strong>{item.price ? `${item.price.toLocaleString('ru-RU')} ₽/мес` : 'Бесплатно'}</strong><span>{item.daily} кредитов в день · {item.quality}</span>
+                    <h4>{item.title}</h4><p>{item.note}</p><strong>{item.price ? `${item.price.toLocaleString('ru-RU')} ₽/мес` : 'Бесплатно'}</strong><span>{item.daily} серверных токенов/день · {item.quality}</span>
+                    {item.premium > 0 ? <em>{item.premium} токенов/мес на премиум-модели</em> : null}
                     {item.features.length ? <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null}
                     <button type="button" disabled>{item.id === activePlan ? 'Текущий тариф' : 'Смена тарифа скоро'}</button>
                   </article>
@@ -396,7 +401,7 @@ export default function ProfilePage({
                 <button type="button" className={quality === 'max' ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality('max')}><SlidersHorizontal size={26} /><b>Максимум</b><span>4 токена</span></button>
                 <button type="button" className={provider === 'openrouter' ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setProvider(provider === 'openrouter' ? 'comfyui' : 'openrouter')}><Zap size={26} /><b>Мегаскорость</b><span>{provider === 'openrouter' ? 'Включена' : 'Выключена'}</span></button>
               </div>
-              <div className="profile-estimate"><span>Выбрано: <strong>{quality === 'fast' ? 'Быстрая' : quality === 'standard' ? 'Стандарт' : 'Максимум'}</strong></span><span>Провайдер: <strong>{provider === 'openrouter' ? 'OpenRouter Cloud' : 'ComfyUI локально'}</strong></span><span>Примерная стоимость: <strong>{tokenPrice} {tokenPrice === 1 ? 'токен' : 'токена'}</strong></span></div>
+              <div className="profile-estimate"><span>Выбрано: <strong>{quality === 'fast' ? 'Быстрая' : quality === 'standard' ? 'Стандарт' : 'Максимум'}</strong></span><span>Провайдер: <strong>{provider === 'openrouter' ? 'Премиум API-модели' : 'Серверная модель'}</strong></span><span>Примерная стоимость: <strong>{tokenPrice} {tokenPrice === 1 ? 'токен' : 'токена'}</strong></span></div>
             </section>
           </>}
         </>

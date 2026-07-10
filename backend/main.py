@@ -697,11 +697,11 @@ rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
 DEFAULT_TARIFFS: dict[str, dict[str, Any]] = {
-    "free": {"title": "Free", "note": "Базовый доступ", "price_rub_month": 0, "daily_tokens": 10, "gallery_slots": 20, "quality_label": "Базовое качество", "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024"], "video_enabled": 0, "video_slots": 0},
-    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "gallery_slots": 80, "quality_label": "HD", "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024", "h-1280", "v-720"], "video_enabled": 0, "video_slots": 0},
-    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "gallery_slots": 200, "quality_label": "Full HD", "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024"], "video_enabled": 0, "video_slots": 0},
-    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "gallery_slots": 500, "quality_label": "4K", "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 10},
-    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "gallery_slots": 500, "quality_label": "4K", "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 50},
+    "free": {"title": "Free", "note": "Базовый доступ", "price_rub_month": 0, "daily_tokens": 10, "openrouter_monthly_tokens": 0, "gallery_slots": 20, "quality_label": "Базовое качество", "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024"], "video_enabled": 0, "video_slots": 0},
+    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "openrouter_monthly_tokens": 100, "gallery_slots": 80, "quality_label": "HD", "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024", "h-1280", "v-720"], "video_enabled": 0, "video_slots": 0},
+    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "openrouter_monthly_tokens": 250, "gallery_slots": 200, "quality_label": "Full HD", "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024"], "video_enabled": 0, "video_slots": 0},
+    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "openrouter_monthly_tokens": 500, "gallery_slots": 500, "quality_label": "4K", "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 10},
+    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "openrouter_monthly_tokens": 1200, "gallery_slots": 500, "quality_label": "4K", "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 50},
 }
 
 
@@ -3288,12 +3288,14 @@ def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[s
         source = data.get(plan) if isinstance(data.get(plan), dict) else {}
         price = source.get("price_rub_month", source.get("priceRubMonth", DEFAULT_TARIFFS[plan]["price_rub_month"]))
         daily = source.get("daily_tokens", source.get("dailyTokens", DEFAULT_TARIFFS[plan]["daily_tokens"]))
+        openrouter_monthly = source.get("openrouter_monthly_tokens", source.get("openrouterMonthlyTokens", DEFAULT_TARIFFS[plan]["openrouter_monthly_tokens"]))
         slots = source.get("gallery_slots", source.get("gallerySlots", DEFAULT_TARIFFS[plan]["gallery_slots"]))
         video_enabled = source.get("video_enabled", source.get("videoEnabled", DEFAULT_TARIFFS[plan]["video_enabled"]))
         video_slots = source.get("video_slots", source.get("videoSlots", DEFAULT_TARIFFS[plan]["video_slots"]))
         try:
             price_int = int(price)
             daily_int = int(daily)
+            openrouter_monthly_int = int(openrouter_monthly)
             slots_int = int(slots)
             video_slots_int = int(video_slots)
         except (TypeError, ValueError):
@@ -3301,15 +3303,17 @@ def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[s
                 raise HTTPException(400, f"Invalid tariff values for {plan}.")
             price_int = DEFAULT_TARIFFS[plan]["price_rub_month"]
             daily_int = DEFAULT_TARIFFS[plan]["daily_tokens"]
+            openrouter_monthly_int = DEFAULT_TARIFFS[plan]["openrouter_monthly_tokens"]
             slots_int = DEFAULT_TARIFFS[plan]["gallery_slots"]
             video_slots_int = DEFAULT_TARIFFS[plan]["video_slots"]
-        if strict and (price_int < 0 or daily_int < 0 or slots_int < 0 or video_slots_int < 0):
+        if strict and (price_int < 0 or daily_int < 0 or openrouter_monthly_int < 0 or slots_int < 0 or video_slots_int < 0):
             raise HTTPException(400, f"Tariff values for {plan} must be non-negative.")
         result[plan] = {
             "title": _tariff_text(source, plan, "title", max_len=40),
             "note": _tariff_text(source, plan, "note", max_len=160),
             "price_rub_month": max(0, min(price_int, 10_000_000)),
             "daily_tokens": max(0, min(daily_int, 100_000)),
+            "openrouter_monthly_tokens": max(0, min(openrouter_monthly_int, 100_000)),
             "gallery_slots": max(0, min(slots_int, 100_000)),
             "quality_label": _tariff_text(source, plan, "quality_label", max_len=80),
             "queue_label": _tariff_text(source, plan, "queue_label", max_len=80),
@@ -3349,6 +3353,7 @@ def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | Non
     return {
         "plan": plan,
         "daily_tokens": int(tariff["daily_tokens"]),
+        "openrouter_monthly_tokens": int(tariff.get("openrouter_monthly_tokens") or 0),
         "gallery_slots": total,
         "video_enabled": bool(tariff.get("video_enabled")),
         "video_slots": int(tariff.get("video_slots") or 0),
@@ -4185,6 +4190,12 @@ def _gallery_aspect_ratio(width: int | None, height: int | None) -> str | None:
 
 
 def _gallery_mode_label(mode: str | None) -> str:
+    models_cache_data = _admin_models_page_cache.get("data")
+    models_cache_ts = _admin_models_page_cache.get("ts")
+    if isinstance(models_cache_ts, dict):
+        newest_cache_ts = max((float(v or 0) for v in models_cache_ts.values()), default=0.0)
+    else:
+        newest_cache_ts = float(models_cache_ts or 0)
     return {
         "text_to_image": "По тексту",
         "image_to_image": "По фото",
@@ -8684,6 +8695,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
             "gallery_access": gallery_access,
             "daily_tokens": daily_tokens_limit,
+            "openrouter_monthly_tokens": gallery_quota.get("openrouter_monthly_tokens", 0),
             "gallery_slots": gallery_quota["gallery_slots"],
             "gallery_used": gallery_quota["gallery_used"],
             "gallery_free": gallery_quota["gallery_free"],
@@ -10709,6 +10721,7 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
         "gallery_access": bool(user_gallery_allowed(conn, iuid, legacy)),
         "daily_tokens": gallery_quota["daily_tokens"],
+        "openrouter_monthly_tokens": gallery_quota.get("openrouter_monthly_tokens", 0),
         "gallery_slots": gallery_quota["gallery_slots"],
         "gallery_used": gallery_quota["gallery_used"],
         "gallery_free": gallery_quota["gallery_free"],
@@ -11940,8 +11953,8 @@ async def compute_config_ui_status() -> dict[str, Any]:
         "active_jobs": active_jobs,
         "cache": {
             "models_page_ttl_seconds": ADMIN_MODELS_PAGE_CACHE_TTL_SECONDS,
-            "models_page_cached": bool(_admin_models_page_cache.get("data")),
-            "models_page_cached_age_seconds": int(time.monotonic() - float(_admin_models_page_cache.get("ts") or 0)) if _admin_models_page_cache.get("data") else None,
+            "models_page_cached": bool(models_cache_data),
+            "models_page_cached_age_seconds": int(time.monotonic() - newest_cache_ts) if models_cache_data and newest_cache_ts else None,
         },
     }
 
@@ -12727,13 +12740,18 @@ def default_routes(model_status: dict[str, Any]) -> list[dict[str, Any]]:
 @app.get("/api/admin/models-page")
 async def admin_models_page(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
+    include_local = str(request.query_params.get("local", "1")).lower() not in {"0", "false", "no", "api"}
+    cache_key = "local" if include_local else "api"
     now_mono = time.monotonic()
-    cached = _admin_models_page_cache.get("data")
-    if cached and now_mono - float(_admin_models_page_cache.get("ts") or 0) < ADMIN_MODELS_PAGE_CACHE_TTL_SECONDS:
+    cache_data = _admin_models_page_cache.get("data")
+    cache_ts = _admin_models_page_cache.get("ts")
+    cached = cache_data.get(cache_key) if isinstance(cache_data, dict) else None
+    cached_ts = cache_ts.get(cache_key, 0.0) if isinstance(cache_ts, dict) else 0.0
+    if cached and now_mono - float(cached_ts or 0) < ADMIN_MODELS_PAGE_CACHE_TTL_SECONDS:
         return {**cached, "cache": {"hit": True, "ttl_seconds": ADMIN_MODELS_PAGE_CACHE_TTL_SECONDS}}
-    status = await compute_model_status()
-    loras = await scan_loras()
-    routes = _saved_setting("generation_routes").get("routes") or default_routes(status)
+    status = await compute_model_status() if include_local else {"profiles": [], "comfyuiAvailable": None}
+    loras = await scan_loras() if include_local else []
+    routes = (_saved_setting("generation_routes").get("routes") or default_routes(status)) if include_local else []
     matrix = _saved_setting("tariff_matrix").get("matrix") or default_tariff_matrix()
     openrouter_economy = {"minMarginPercent": 40, "tokenRub": 5, **(_saved_setting("openrouter_economy") or {})}
     openrouter_status = await fetch_openrouter_key_status()
@@ -12799,11 +12817,15 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
             "economy": openrouter_economy,
             "backendPricing": [model.model_dump() for model in OPENROUTER_PRICE_CATALOG.values()],
         },
-        "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"},
+        "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"} if include_local else {},
         "profiles": status.get("profiles", []),
     }
-    _admin_models_page_cache["ts"] = now_mono
-    _admin_models_page_cache["data"] = payload
+    next_data = cache_data if isinstance(cache_data, dict) else {}
+    next_ts = cache_ts if isinstance(cache_ts, dict) else {}
+    next_data[cache_key] = payload
+    next_ts[cache_key] = now_mono
+    _admin_models_page_cache["ts"] = next_ts
+    _admin_models_page_cache["data"] = next_data
     return {**payload, "cache": {"hit": False, "ttl_seconds": ADMIN_MODELS_PAGE_CACHE_TTL_SECONDS}}
 
 

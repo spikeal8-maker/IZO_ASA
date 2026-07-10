@@ -4,6 +4,7 @@ export type TariffRule = {
   note: string
   price_rub_month: number
   daily_tokens: number
+  openrouter_monthly_tokens: number
   gallery_slots: number
   quality_label: string
   queue_label: string
@@ -29,11 +30,11 @@ const baseResolutions = ['sq-1024', 'h-1280', 'v-720']
 const fullResolutions = resolutionOptions.map((item) => item.id)
 
 export const DEFAULT_TARIFFS: TariffConfig = {
-  free: { title: 'Free', note: 'Базовый доступ', price_rub_month: 0, daily_tokens: 10, gallery_slots: 20, quality_label: 'Базовое качество', queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: ['sq-1024'], video_enabled: false, video_slots: 0 },
-  mini: { title: 'Mini', note: 'Оптимальный старт', price_rub_month: 490, daily_tokens: 50, gallery_slots: 80, quality_label: 'HD', queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: baseResolutions, video_enabled: false, video_slots: 0 },
-  plus: { title: 'Plus', note: 'Больше возможностей', price_rub_month: 990, daily_tokens: 100, gallery_slots: 200, quality_label: 'Full HD', queue_label: 'Ускоренная', pro_mode_enabled: true, allowed_resolutions: [...baseResolutions, 'h-1536', 'v-1024'], video_enabled: false, video_slots: 0 },
-  pro: { title: 'Pro', note: 'Видео и приоритет', price_rub_month: 1990, daily_tokens: 200, gallery_slots: 500, quality_label: '4K', queue_label: 'Приоритетная', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 10 },
-  business: { title: 'Бизнес', note: 'Для команды и видео', price_rub_month: 4990, daily_tokens: 500, gallery_slots: 500, quality_label: '4K', queue_label: 'Бизнес', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 50 },
+  free: { title: 'Free', note: 'Базовый доступ', price_rub_month: 0, daily_tokens: 10, openrouter_monthly_tokens: 0, gallery_slots: 20, quality_label: 'Базовое качество', queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: ['sq-1024'], video_enabled: false, video_slots: 0 },
+  mini: { title: 'Mini', note: 'Оптимальный старт', price_rub_month: 490, daily_tokens: 50, openrouter_monthly_tokens: 100, gallery_slots: 80, quality_label: 'HD', queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: baseResolutions, video_enabled: false, video_slots: 0 },
+  plus: { title: 'Plus', note: 'Больше возможностей', price_rub_month: 990, daily_tokens: 100, openrouter_monthly_tokens: 250, gallery_slots: 200, quality_label: 'Full HD', queue_label: 'Ускоренная', pro_mode_enabled: true, allowed_resolutions: [...baseResolutions, 'h-1536', 'v-1024'], video_enabled: false, video_slots: 0 },
+  pro: { title: 'Pro', note: 'Видео и приоритет', price_rub_month: 1990, daily_tokens: 200, openrouter_monthly_tokens: 500, gallery_slots: 500, quality_label: '4K', queue_label: 'Приоритетная', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 10 },
+  business: { title: 'Бизнес', note: 'Для команды и видео', price_rub_month: 4990, daily_tokens: 500, openrouter_monthly_tokens: 1200, gallery_slots: 500, quality_label: '4K', queue_label: 'Бизнес', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 50 },
 }
 
 export const AVATAR_PRESET_COUNT = 71
@@ -52,6 +53,7 @@ export function normalizeTariffs(input: unknown): TariffConfig {
       note: String(source[key]?.note ?? DEFAULT_TARIFFS[key].note),
       price_rub_month: Number(source[key]?.price_rub_month ?? DEFAULT_TARIFFS[key].price_rub_month),
       daily_tokens: Number(source[key]?.daily_tokens ?? DEFAULT_TARIFFS[key].daily_tokens),
+      openrouter_monthly_tokens: Number(source[key]?.openrouter_monthly_tokens ?? DEFAULT_TARIFFS[key].openrouter_monthly_tokens),
       gallery_slots: Number(source[key]?.gallery_slots ?? DEFAULT_TARIFFS[key].gallery_slots),
       quality_label: String(source[key]?.quality_label ?? DEFAULT_TARIFFS[key].quality_label),
       queue_label: String(source[key]?.queue_label ?? DEFAULT_TARIFFS[key].queue_label),
