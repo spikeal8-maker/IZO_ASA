@@ -784,7 +784,7 @@ export default function NewStudio(): ReactElement {
       }
       setView('tabs')
       setTabState(next)
-      navTo(next === 'paint' ? '/paint' : '/new')
+      navTo(next === 'paint' ? '/paint' : '/')
     },
     [navTo],
   )

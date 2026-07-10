@@ -809,16 +809,14 @@ box-shadow: none;
 backdrop-filter: none;
 }
 .iv3 .editor-role-controls.is-face-strength {
-bottom: clamp(6px, 3.2cqw, 8px);
-gap: 2px;
+bottom: clamp(8px, 4.5cqw, 11px);
+display: block;
+gap: 0;
 padding: 0;
 border: 0;
 background: transparent;
 box-shadow: none;
 backdrop-filter: none;
-}
-.iv3 .editor-role-controls.is-face-strength label > span {
-display: none;
 }
 .iv3 .editor-role-controls label > span {
 color: #fff;
