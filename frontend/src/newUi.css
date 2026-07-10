@@ -2677,6 +2677,15 @@ button.profile-chip { cursor: pointer; }
 .profile-plan li { display: flex; align-items: center; gap: 8px; }
 .profile-plan li::before { content: "✓"; color: var(--n2-lime); font-weight: 950; }
 .profile-plan li.no::before { content: "×"; color: #ff5d61; }
+.profile-token-buy { padding: 18px; display: grid; grid-template-columns: minmax(280px, 1.3fr) minmax(150px, .55fr) minmax(260px, .95fr) auto; gap: 16px; align-items: center; }
+.profile-token-buy h3 { margin: 0; color: #f2f5ee; font-size: 22px; line-height: 1.05; }
+.profile-token-buy p { margin-top: 6px; max-width: 680px; font-size: 13px; line-height: 1.35; }
+.profile-token-rate { display: grid; gap: 5px; min-width: 0; }
+.profile-token-rate span { color: #98a19a; font-size: 12px; }
+.profile-token-rate strong { color: var(--n2-lime); font-size: 22px; line-height: 1; white-space: nowrap; }
+.profile-token-packs { display: flex; flex-wrap: wrap; gap: 7px; min-width: 0; }
+.profile-token-packs span { min-height: 30px; display: inline-flex; align-items: center; border: 1px solid rgba(236,255,47,.22); border-radius: 999px; background: rgba(236,255,47,.055); color: #dbe6dd; padding: 5px 10px; font-size: 12px; font-weight: 760; white-space: nowrap; }
+.profile-token-buy .profile-primary { min-width: 190px; justify-self: end; }
 .profile-earn { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .profile-earn-card, .profile-small-card { padding: 20px; display: grid; gap: 10px; align-content: start; }
 .profile-card h4 { margin: 0; color: #f2f5ee; font-size: 18px; }
@@ -2692,6 +2701,11 @@ button.profile-chip { cursor: pointer; }
 .profile-link-email { display: grid; gap: 8px; }
 .profile-link-email input { min-width: 0; }
 @media (max-width: 900px) { .profile-login-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1100px) {
+  .profile-token-buy { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+  .profile-token-packs { grid-column: 1 / -1; }
+  .profile-token-buy .profile-primary { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+}
 @media (max-width: 560px) { .profile-login-grid { grid-template-columns: 1fr; } }
 .profile-token-balance { color: var(--n2-lime); font-size: 28px; line-height: 1; }
 .profile-models { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
@@ -2755,6 +2769,10 @@ button.profile-chip { cursor: pointer; }
   .profile-avatar-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 82px; gap: 9px; padding-right: 3px; }
   .profile-avatar-tile { height: 82px; min-height: 82px; border-radius: 11px; }
   .profile-plans, .profile-earn, .profile-models, .profile-generation, .profile-profile-dashboard, .profile-model-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .profile-token-buy { grid-template-columns: 1fr; gap: 12px; padding: 14px; }
+  .profile-token-buy .profile-primary { grid-column: auto; grid-row: auto; justify-self: stretch; width: 100%; }
+  .profile-token-rate strong { font-size: 20px; }
+  .profile-token-packs span { flex: 1 1 136px; justify-content: center; }
   .profile-tariff-summary, .profile-earn-hero { grid-template-columns: 1fr 1fr; }
   .profile-tariff-summary .profile-primary, .profile-earn-hero h3 { grid-column: 1 / -1; }
   .profile-profile { grid-template-columns: 1fr; }
@@ -2779,6 +2797,9 @@ button.profile-chip { cursor: pointer; }
 }
 @media (max-width: 520px) {
   .profile-plans, .profile-earn, .profile-models, .profile-generation, .profile-plan-tabs, .profile-profile-dashboard, .profile-model-summary, .profile-tariff-summary, .profile-earn-hero { grid-template-columns: 1fr; }
+  .profile-token-buy h3 { font-size: 20px; }
+  .profile-token-buy p { font-size: 12px; }
+  .profile-token-packs { display: grid; grid-template-columns: 1fr; }
   .profile-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .profile-tabs button { min-height: 34px; font-size: 11px; }
   .profile-stat-card { min-height: 96px; padding: 16px; }

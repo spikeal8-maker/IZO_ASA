@@ -388,7 +388,13 @@ export default function ProfilePage({
                   <h3>Купить токены</h3>
                   <p>Дополнительные токены пригодятся для премиум API-моделей сверх месячного пакета тарифа.</p>
                 </div>
-                <strong>1 токен = {safeTokenRub.toLocaleString('ru-RU')} ₽</strong>
+                <div className="profile-token-rate">
+                  <span>Стоимость</span>
+                  <strong>1 токен = {safeTokenRub.toLocaleString('ru-RU')} ₽</strong>
+                </div>
+                <div className="profile-token-packs" aria-label="Примеры пакетов токенов">
+                  {[50, 100, 250].map((count) => <span key={count}>{count} ток. · {(count * safeTokenRub).toLocaleString('ru-RU')} ₽</span>)}
+                </div>
                 <button type="button" className="profile-primary" disabled>Купить токены скоро</button>
               </article>
             </section>
