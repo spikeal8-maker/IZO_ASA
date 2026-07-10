@@ -375,6 +375,7 @@ export interface MeV2 {
     role?: string | null; plan?: string | null; token_balance?: number | null
     gallery_enabled?: boolean | null; gallery_access?: boolean | null
     daily_tokens?: number | null; daily_tokens_used?: number | null; openrouter_monthly_tokens?: number | null
+    openrouter_monthly_tokens_used?: number | null; openrouter_monthly_tokens_remaining?: number | null
     daily_tokens_limit?: number | null; daily_tokens_remaining?: number | null
     gallery_slots?: number | null; gallery_used?: number | null
     gallery_free?: number | null; gallery_full?: boolean | null

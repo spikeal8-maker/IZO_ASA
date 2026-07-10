@@ -8720,11 +8720,17 @@ async def me_v2(request: Request) -> dict[str, Any]:
         gallery_access = bool(user_gallery_allowed(conn, iuid, legacy))
         gallery_quota = gallery_quota_for_user(conn, urow, legacy)
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        month_key = datetime.now(timezone.utc).strftime("%Y-%m")
         daily_tokens_used = int(_row_get(urow, "daily_tokens_used") or 0)
         if _row_get(urow, "last_daily_reset") != today:
             daily_tokens_used = 0
         daily_tokens_limit = int(gallery_quota["daily_tokens"])
         daily_tokens_remaining = max(0, daily_tokens_limit - daily_tokens_used)
+        openrouter_monthly_limit = int(gallery_quota.get("openrouter_monthly_tokens", 0) or 0)
+        openrouter_monthly_used = int(_row_get(urow, "openrouter_monthly_tokens_used") or 0)
+        if _row_get(urow, "last_openrouter_month_reset") != month_key:
+            openrouter_monthly_used = 0
+        openrouter_monthly_remaining = max(0, openrouter_monthly_limit - openrouter_monthly_used)
 
     primary_identity = identities[0] if identities else None
     # Fall back to a provider avatar URL when the user has no local avatar yet.
@@ -8782,7 +8788,9 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
             "gallery_access": gallery_access,
             "daily_tokens": daily_tokens_limit,
-            "openrouter_monthly_tokens": gallery_quota.get("openrouter_monthly_tokens", 0),
+            "openrouter_monthly_tokens": openrouter_monthly_limit,
+            "openrouter_monthly_tokens_used": openrouter_monthly_used,
+            "openrouter_monthly_tokens_remaining": openrouter_monthly_remaining,
             "gallery_slots": gallery_quota["gallery_slots"],
             "gallery_used": gallery_quota["gallery_used"],
             "gallery_free": gallery_quota["gallery_free"],
@@ -8817,6 +8825,117 @@ async def me_v2(request: Request) -> dict[str, Any]:
         "profile": profile,
         "created_at": _row_get(urow, "created_at"),
         "last_seen_at": _row_get(urow, "last_seen_at"),
+    }
+
+
+TOKEN_HISTORY_REASONS = {
+    "generation",
+    "daily_generation",
+    "openrouter_monthly_generation",
+    "generation_refund",
+    "daily_generation_refund",
+    "openrouter_monthly_generation_refund",
+    "admin_adjust",
+    "admin_register",
+    "payment_grant",
+    "bonus_grant",
+    "promo_apply",
+    "referral_reward",
+}
+
+
+def _token_history_spent(row: sqlite3.Row, meta: dict[str, Any]) -> int:
+    delta = int(row["delta"] or 0)
+    reason = str(row["reason"] or "")
+    if reason in {"daily_generation", "openrouter_monthly_generation"}:
+        return max(0, int(meta.get("token_cost") or 0))
+    if delta < 0:
+        return abs(delta)
+    return 0
+
+
+def _token_history_source(row: sqlite3.Row, meta: dict[str, Any]) -> str:
+    reason = str(row["reason"] or "")
+    provider = str(meta.get("provider") or "")
+    if reason == "daily_generation":
+        return "дневной пакет"
+    if reason == "openrouter_monthly_generation":
+        return "премиум-пакет"
+    if provider == "openrouter":
+        return "баланс токенов"
+    if reason.endswith("_refund"):
+        return "возврат"
+    if reason in {"payment_grant", "bonus_grant", "promo_apply", "referral_reward", "admin_register", "admin_adjust"}:
+        return "начисление"
+    return "баланс токенов"
+
+
+@app.get("/api/account/token-history-v2")
+async def account_token_history_v2(request: Request, days: int = 30, limit: int = 80) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    legacy_user_id = user["legacy_user_id"]
+    days = max(1, min(int(days or 30), 365))
+    limit = max(1, min(int(limit or 80), 200))
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    with db() as conn:
+        urow = conn.execute("SELECT * FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
+        if urow is None:
+            raise HTTPException(404, "User not found.")
+        rows = conn.execute(
+            """
+            SELECT id, delta, reason, meta_json, created_at
+            FROM token_ledger
+            WHERE user_id = ? AND created_at >= ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (legacy_user_id, since, limit),
+        ).fetchall()
+    items: list[dict[str, Any]] = []
+    spent_total = 0
+    balance_spent = 0
+    included_spent = 0
+    refunded = 0
+    for row in rows:
+        raw_meta = safe_json_load(row["meta_json"]) or {}
+        meta = raw_meta if isinstance(raw_meta, dict) else {}
+        spent = _token_history_spent(row, meta)
+        delta = int(row["delta"] or 0)
+        reason = str(row["reason"] or "")
+        if spent > 0:
+            spent_total += spent
+            if delta < 0:
+                balance_spent += abs(delta)
+            else:
+                included_spent += spent
+        if delta > 0 and reason.endswith("_refund"):
+            refunded += delta
+        billing = meta.get("billing") if isinstance(meta.get("billing"), dict) else {}
+        items.append({
+            "id": short_public_id(row["id"], 10),
+            "delta": delta,
+            "spentTokens": spent,
+            "reason": reason,
+            "source": _token_history_source(row, meta),
+            "mode": meta.get("mode"),
+            "provider": meta.get("provider"),
+            "jobId": short_public_id(meta.get("jobId") or meta.get("job_id")),
+            "model": billing.get("modelName") or billing.get("modelId"),
+            "costRub": billing.get("actualCostRub") or billing.get("estimatedCostRub"),
+            "createdAt": row["created_at"],
+        })
+    return {
+        "ok": True,
+        "days": days,
+        "limit": limit,
+        "summary": {
+            "spentTokens": spent_total,
+            "balanceSpentTokens": balance_spent,
+            "includedSpentTokens": included_spent,
+            "refundedTokens": refunded,
+            "balance": int(_row_get(urow, "token_balance") or 0),
+        },
+        "items": items,
     }
 
 
@@ -11075,10 +11194,13 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
     image_by_job = {r["job_id"]: r for r in image_rows if r["job_id"]}
     spent_by_job: dict[str, int] = {}
     for r in ledger_rows:
-        meta = safe_ledger_metadata(r["meta_json"])
-        job_id = meta.get("job_id")
+        raw_meta = safe_json_load(r["meta_json"]) or {}
+        meta = raw_meta if isinstance(raw_meta, dict) else {}
+        job_id = meta.get("jobId") or meta.get("job_id")
         if job_id and int(r["delta"]) < 0:
             spent_by_job[str(job_id)] = abs(int(r["delta"]))
+        elif job_id and r["reason"] in {"daily_generation", "openrouter_monthly_generation"}:
+            spent_by_job[str(job_id)] = int(meta.get("token_cost") or 0)
     return {
         "ok": True,
         "summary": summary,
@@ -11138,7 +11260,7 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
             "delta": int(r["delta"]),
             "reason": r["reason"],
             "source": (safe_ledger_metadata(r["meta_json"]).get("provider") or r["reason"]),
-            "job_id": short_public_id(safe_ledger_metadata(r["meta_json"]).get("job_id")),
+            "job_id": short_public_id(safe_ledger_metadata(r["meta_json"]).get("jobId") or safe_ledger_metadata(r["meta_json"]).get("job_id")),
             "admin_action": "admin_adjust_tokens" if r["reason"] == "admin_adjust" else None,
             "created_at": r["created_at"],
             "metadata": safe_ledger_metadata(r["meta_json"]),
@@ -12659,13 +12781,13 @@ def openrouter_quality_model(config: dict[str, Any], mode: str, preset: str, tie
 
 
 PUBLIC_MODEL_MODE_LABELS = {
-    "text_to_image": "Текст -> изображение",
-    "image_to_image": "Изображение -> изображение",
-    "edit": "Сборка / multi-reference",
-    "paint": "Рисунок / sketch",
-    "inpaint": "Редактор - маска / inpaint",
-    "outpaint": "Редактор - расширение / outpaint",
-    "faceswap": "Лицо / reference identity",
+    "text_to_image": "По тексту",
+    "image_to_image": "По фото",
+    "edit": "Сборка",
+    "paint": "Редактор - рисунок",
+    "inpaint": "Редактор - маска",
+    "outpaint": "Редактор - расширение",
+    "faceswap": "Лицо",
     "remove_background": "Удаление фона",
 }
 

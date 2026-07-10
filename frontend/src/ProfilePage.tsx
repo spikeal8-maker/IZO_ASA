@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
 import { Copy, Link as LinkIcon, Lock, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles } from 'lucide-react'
 import type { AuthStatusV2, MeV2 } from './authV2'
 import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, avatarPresets, modelAccessOption, modelModeOrder, modelOptions, modelPublicInfo, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
@@ -7,6 +7,24 @@ type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
 type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
 type UserModelVisibility = Partial<Record<ModelModeKey, Record<string, boolean>>>
 export type PublicProfileLink = { label: string; url: string }
+type TokenHistoryItem = {
+  id: string
+  delta: number
+  spentTokens: number
+  reason: string
+  source: string
+  mode?: string | null
+  provider?: string | null
+  model?: string | null
+  costRub?: number | null
+  createdAt: string
+}
+type TokenHistory = {
+  summary?: { spentTokens?: number; balanceSpentTokens?: number; includedSpentTokens?: number; refundedTokens?: number; balance?: number }
+  items?: TokenHistoryItem[]
+}
+
+const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 
 type ProfilePageProps = {
   authStatus: AuthStatusV2
@@ -124,6 +142,8 @@ export default function ProfilePage({
 }: ProfilePageProps) {
   const [avatarChooserOpen, setAvatarChooserOpen] = useState(false)
   const [codeCopied, setCodeCopied] = useState(false)
+  const [tokenHistoryDays, setTokenHistoryDays] = useState(30)
+  const [tokenHistory, setTokenHistory] = useState<TokenHistory | null>(null)
   const account = me?.account
   const activePlan = (tariffKeys.includes(String(account?.plan || 'mini').toLowerCase() as TariffKey) ? String(account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
   const currentTariff = tariffs[activePlan] || DEFAULT_TARIFFS[activePlan]
@@ -134,6 +154,8 @@ export default function ProfilePage({
   const safeTokenRub = Number.isFinite(tokenRub) && tokenRub > 0 ? tokenRub : 5
   const dailyUsed = Math.max(0, Number(account?.daily_tokens_used ?? 0))
   const dailyAvailable = Math.max(0, Number(account?.daily_tokens_remaining ?? dailyLimit - dailyUsed))
+  const premiumMonthlyUsed = Math.max(0, Number(account?.openrouter_monthly_tokens_used ?? 0))
+  const premiumMonthlyRemaining = Math.max(0, Number(account?.openrouter_monthly_tokens_remaining ?? premiumMonthlyTokens - premiumMonthlyUsed))
   const gallerySlots = Number(account?.gallery_slots ?? currentTariff.gallery_slots)
   const galleryUsed = Number(account?.gallery_used ?? galleryCount)
   const galleryFree = Math.max(0, Number(account?.gallery_free ?? gallerySlots - galleryUsed))
@@ -182,6 +204,19 @@ export default function ProfilePage({
   const toggleModelVisibility = (mode: ModelModeKey, modelId: string, visible: boolean) => {
     setUserModelVisibility((current) => ({ ...current, [mode]: { ...(current[mode] || {}), [modelId]: visible } }))
   }
+  useEffect(() => {
+    if (authStatus !== 'authed') return
+    let cancelled = false
+    fetch(`${API}/account/token-history-v2?days=${tokenHistoryDays}&limit=80`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled) setTokenHistory(data?.ok ? data : null)
+      })
+      .catch(() => {
+        if (!cancelled) setTokenHistory(null)
+      })
+    return () => { cancelled = true }
+  }, [authStatus, tokenHistoryDays])
   const copyPublicCode = async () => {
     const value = publicCode || 'GUEST'
     try {
@@ -229,6 +264,22 @@ export default function ProfilePage({
       features,
     }
   })
+  const tokenHistoryItems = tokenHistory?.items || []
+  const tokenReasonLabel = (item: TokenHistoryItem) => {
+    if (item.reason === 'daily_generation') return 'Серверная генерация'
+    if (item.reason === 'openrouter_monthly_generation') return 'Премиум-модель'
+    if (item.reason === 'generation') return 'Генерация с баланса'
+    if (item.reason.endsWith('_refund')) return 'Возврат токенов'
+    if (item.delta > 0) return 'Начисление токенов'
+    return item.reason
+  }
+  const tokenHistoryDate = (value: string) => {
+    try {
+      return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+    } catch {
+      return value
+    }
+  }
 
   return (
     <section className="profile-page">
@@ -449,6 +500,28 @@ export default function ProfilePage({
           {profileTab === 'models' && <>
             <section className="profile-section">
               <div className="profile-model-summary"><article className="profile-card profile-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article><article className="profile-card profile-stat-card"><span>Дневной лимит</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></article><article className="profile-card profile-stat-card"><span>Выбрано качество</span><strong>{qualityPresetLabels[selectedQuality]}</strong><small>{selectedModel.label}</small></article><article className="profile-card profile-stat-card"><span>Списание</span><strong>{tokenPrice} ток.</strong><small>за выбранную модель</small></article></div>
+              <div className="profile-usage-panel profile-card">
+                <div className="profile-usage-head">
+                  <div><h3>История использования</h3><span>Баланс, дневной пакет и премиум-модели считаются отдельно.</span></div>
+                  <div className="profile-usage-filter">{[7, 30, 90].map((days) => <button type="button" key={days} className={tokenHistoryDays === days ? 'active' : ''} onClick={() => setTokenHistoryDays(days)}>{days} дн.</button>)}</div>
+                </div>
+                <div className="profile-usage-stats">
+                  <span>Премиум: <strong>{premiumMonthlyRemaining} / {premiumMonthlyTokens}</strong></span>
+                  <span>Потрачено за период: <strong>{tokenHistory?.summary?.spentTokens ?? 0}</strong></span>
+                  <span>Из баланса: <strong>{tokenHistory?.summary?.balanceSpentTokens ?? 0}</strong></span>
+                  <span>Из пакетов: <strong>{tokenHistory?.summary?.includedSpentTokens ?? 0}</strong></span>
+                </div>
+                <div className="profile-usage-list">
+                  {tokenHistoryItems.length ? tokenHistoryItems.slice(0, 8).map((item) => (
+                    <div key={item.id}>
+                      <strong>{tokenReasonLabel(item)}</strong>
+                      <span>{item.spentTokens ? `${item.spentTokens} ток.` : item.delta > 0 ? `+${item.delta} ток.` : `${item.delta} ток.`}</span>
+                      <small>{item.source}{item.model ? ` · ${item.model}` : ''}{item.costRub ? ` · ${Number(item.costRub).toFixed(2)} ₽` : ''}</small>
+                      <time>{tokenHistoryDate(item.createdAt)}</time>
+                    </div>
+                  )) : <p>За выбранный период списаний пока нет.</p>}
+                </div>
+              </div>
               <div className="profile-section-head"><h3>Модели по умолчанию</h3><span>Эти модели подставляются в генератор при выборе качества</span></div>
               <div className="profile-models">
                 {qualityPresets.map((preset) => {
