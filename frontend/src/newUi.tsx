@@ -282,6 +282,22 @@ function fitGenerationDimension(value: number) {
   return Math.max(512, Math.min(1536, Math.round(value / 16) * 16))
 }
 
+function comfySafeGenerationSize(size: { width: number; height: number }) {
+  const width = Math.max(512, size.width)
+  const height = Math.max(512, size.height)
+  const maxPixels = 1_050_000
+  const maxSide = 1280
+  const scale = Math.min(1, maxSide / Math.max(width, height), Math.sqrt(maxPixels / Math.max(1, width * height)))
+  return {
+    width: Math.max(512, Math.round((width * scale) / 16) * 16),
+    height: Math.max(512, Math.round((height * scale) / 16) * 16),
+  }
+}
+
+function sameGenerationSize(a: { width: number; height: number }, b: { width: number; height: number }) {
+  return a.width === b.width && a.height === b.height
+}
+
 async function resizeUploadImage(file: File): Promise<string> {
   const sourceUrl = URL.createObjectURL(file)
   try {
@@ -1678,8 +1694,9 @@ export default function NewStudio(): ReactElement {
     const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
     const selectedModelMode = modelModeFromStudio(mode, paintMode)
     const selectedModel = studioSelectedModel(selectedModelMode, selectedQuality)
+    const presetRequestSize = selectedModel.provider === 'comfyui' ? comfySafeGenerationSize(size) : size
     const lastText = lastSubmittedRef.current.text
-    if (mode === 'text' && lastText && lastText.prompt === textPrompt && lastText.model === selectedModel.id && lastText.width === size.width && lastText.height === size.height) {
+    if (mode === 'text' && lastText && lastText.prompt === textPrompt && lastText.model === selectedModel.id && lastText.width === presetRequestSize.width && lastText.height === presetRequestSize.height) {
       showToast('Измените промпт перед новой генерацией')
       setNotice('Измените промпт, модель или формат перед новой генерацией.')
       return
@@ -1700,13 +1717,17 @@ export default function NewStudio(): ReactElement {
       const style = I2I_STYLES.find((s) => s.id === styleId)
       const steps = QUALITY.find((q) => q.id === quality)?.steps || 4
       const effectiveSeed = seed || randomSeed()
-      const requestSize = mode === 'face'
+      const rawRequestSize = mode === 'face'
         ? await imageRequestSizeFromSource(faceSlots[0]?.image, size)
         : mode === 'paint' && paintMode === 'outpaint'
           ? size
         : mode === 'paint' && paintMode !== 'sketch'
           ? await imageRequestSizeFromSource(paintImage, size)
           : size
+      const requestSize = selectedModel.provider === 'comfyui' ? comfySafeGenerationSize(rawRequestSize) : rawRequestSize
+      if (selectedModel.provider === 'comfyui' && !sameGenerationSize(rawRequestSize, requestSize)) {
+        showToast(`ИЗО Base использует безопасный размер ${requestSize.width}×${requestSize.height}`)
+      }
       const userText = mode === 'i2i' ? i2iPrompt : textPrompt
       // В обоих режимах пользователь видит финальный prompt в textarea:
       // text/i2i-стиль дописывается туда при выборе и может быть отредактирован.
@@ -1789,8 +1810,8 @@ export default function NewStudio(): ReactElement {
         return
       }
       const created: N2Job = await response.json()
-      if (mode === 'i2i') lastSubmittedRef.current.i2i = { prompt: i2iPrompt, source: i2iSource, width: size.width, height: size.height, model: selectedModel.id }
-      else lastSubmittedRef.current.text = { prompt: textPrompt, model: selectedModel.id, width: size.width, height: size.height }
+      if (mode === 'i2i') lastSubmittedRef.current.i2i = { prompt: i2iPrompt, source: i2iSource, width: requestSize.width, height: requestSize.height, model: selectedModel.id }
+      else lastSubmittedRef.current.text = { prompt: textPrompt, model: selectedModel.id, width: requestSize.width, height: requestSize.height }
       if (mode === 'paint') setPaintWorkbenchVisible(false)
       pendingResultSourceRef.current[mode] = nextResultSource
       pendingResultShapeRef.current[mode] = nextResultShape

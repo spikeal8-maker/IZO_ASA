@@ -6080,12 +6080,12 @@ def create_thumbnail(image_path: Path) -> Path:
 
 
 def save_gallery_original(image: Image.Image, job_id: str) -> Path:
-    out = MEDIA / f"{job_id}.webp"
+    out = MEDIA / f"{job_id}.png"
     prepared = ImageOps.exif_transpose(image)
     if prepared.mode not in {"RGB", "RGBA"}:
         prepared = prepared.convert("RGB")
     prepared.thumbnail((GALLERY_IMAGE_MAX_SIDE, GALLERY_IMAGE_MAX_SIDE), Image.Resampling.LANCZOS)
-    prepared.save(out, "WEBP", quality=GALLERY_IMAGE_WEBP_QUALITY, method=6)
+    prepared.save(out, "PNG", optimize=True)
     return out
 
 
