@@ -165,9 +165,10 @@ h2{margin:0;font-size:22px;line-height:1.1;font-weight:950;letter-spacing:-.03em
 .viewerClose:hover{border-color:var(--acid);color:var(--acid)}
 .viewerCounter{position:absolute;left:16px;top:16px;z-index:4;display:flex;align-items:center;gap:7px;color:#fff;font-weight:850;font-size:13px;background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.16);border-radius:99px;padding:7px 11px;backdrop-filter:blur(10px)}
 .viewerTools{display:none}
-.viewerTools .btn{height:40px;min-width:40px;padding:0 9px;border-radius:12px;font-size:12px}
+.viewerTools .btn{height:40px;min-width:40px;padding:0 9px;border-radius:12px;font-size:12px;color:#fff;text-decoration:none}
+.viewerTools a.btn,.viewerTools a.btn:visited{color:#fff;text-decoration:none}
 .viewerTools .btn.iconOnly{width:40px;padding:0}
-.viewerTools .btn svg{width:20px;height:20px;display:block}
+.viewerTools .btn svg{width:20px;height:20px;display:block;color:currentColor}
 .viewerTools .zoomBtn{font-size:25px;font-weight:800;line-height:1}
 .viewerTools .btn.danger{color:#ffdada;border-color:rgba(255,103,103,.42)}
 .viewerZoomText{min-width:46px;text-align:center;color:#eaf2e7;font-size:12px;font-weight:850}
