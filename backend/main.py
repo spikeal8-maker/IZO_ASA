@@ -4212,6 +4212,19 @@ def _format_public_duration(ms: Any) -> str | None:
     return f"{value / 1000:.1f} с".replace(".", ",")
 
 
+def _format_public_datetime(value: Any) -> str | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(timezone(timedelta(hours=3)))
+        return dt.strftime("%d.%m.%Y, %H:%M:%S")
+    except Exception:
+        return str(value)
+
+
 def _public_token_cost(settings: dict[str, Any]) -> int | None:
     for value in (
         settings.get("tokenCost"),
@@ -4234,18 +4247,20 @@ def _gallery_public_params(
     width: int | None,
     height: int | None,
     url: str | None,
+    created_at: str | None,
     settings: dict[str, Any],
 ) -> list[dict[str, str]]:
     model = _user_model_name(settings.get("modelProfile") or settings.get("openrouterModel") or provider)
     params: list[tuple[str, str | None]] = [
-        ("Модель", model),
         ("Токены", f"{_public_token_cost(settings)} ток." if _public_token_cost(settings) is not None else None),
         ("Разрешение", f"{width}×{height}" if width and height else None),
         ("Формат", _gallery_aspect_ratio(width, height)),
-        ("Вес", _format_public_bytes(_media_file_size_from_url(url))),
-        ("Время", _format_public_duration(settings.get("generationTimeMs"))),
+        ("Вес файла", _format_public_bytes(_media_file_size_from_url(url))),
+        ("Время генерации", _format_public_duration(settings.get("generationTimeMs"))),
+        ("Дата генерации", _format_public_datetime(created_at)),
         ("Режим", _gallery_mode_label(mode)),
         ("ID", image_id),
+        ("Полная модель", model),
     ]
     return [{"label": label, "value": value} for label, value in params if value]
 
@@ -4279,6 +4294,7 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
             width=row["width"],
             height=row["height"],
             url=row["url"],
+            created_at=row["created_at"],
             settings=settings,
         ),
         "isFavorite": bool(row["is_favorite"]),
@@ -4400,6 +4416,7 @@ def _gallery_page_item(
             width=width,
             height=height,
             url=row["url"],
+            created_at=row["created_at"],
             settings=settings,
         ),
         "favorite": bool(row["is_favorite"]),
@@ -13700,7 +13717,7 @@ def _feed_item_payload(
     viewer_internal_user_id: str | None,
 ) -> dict[str, Any]:
     image = conn.execute(
-        "SELECT id, url, thumbnail_url, width, height, prompt_original, settings_json, provider, mode "
+        "SELECT id, url, thumbnail_url, width, height, prompt_original, settings_json, provider, mode, created_at "
         "FROM images WHERE id = ?",
         (pub["image_id"],),
     ).fetchone()
@@ -13790,6 +13807,7 @@ def _feed_item_payload(
             width=width,
             height=height,
             url=_row_get(image, "url"),
+            created_at=_row_get(image, "created_at"),
             settings=settings,
         ),
         "token_cost": _public_token_cost(settings),

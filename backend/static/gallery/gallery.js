@@ -487,6 +487,12 @@ function formatDuration(ms){
   if(!value) return '';
   return value < 1000 ? `${Math.round(value)} мс` : `${(value / 1000).toFixed(1).replace('.', ',')} с`;
 }
+function formatFullDate(value){
+  if(!value) return '';
+  const date = new Date(value);
+  if(Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
 function tokenValue(item){
   const direct = Number(item.tokenCost);
   if(Number.isFinite(direct) && direct > 0) return `${direct} ток.`;
@@ -499,14 +505,15 @@ function renderParams(item){
     ? item.publicParams.map(p => [p.label, p.value]).filter(([, value]) => value !== undefined && value !== null && String(value).trim())
     : [];
   const fallback = [
-    ['Модель', item.model || item.modelProfile || 'ИЗО Base'],
     ['Токены', tokenValue(item)],
     ['Разрешение', item.width && item.height ? `${item.width}×${item.height}` : ''],
     ['Формат', item.aspectRatio || item.aspect || ''],
-    ['Вес', formatBytes(item.fileSizeBytes)],
-    ['Время', formatDuration(item.generationTimeMs || item.genTime)],
+    ['Вес файла', formatBytes(item.fileSizeBytes)],
+    ['Время генерации', formatDuration(item.generationTimeMs || item.genTime)],
+    ['Дата генерации', formatFullDate(item.createdAt || item.date)],
     ['Режим', item.modeText],
     ['ID', item.id],
+    ['Полная модель', item.model || item.modelProfile || 'ИЗО Base'],
   ].filter(([, value]) => value !== undefined && value !== null && String(value).trim());
   const rows = provided.length ? provided : fallback;
   document.getElementById('paramsContent').innerHTML = rows
