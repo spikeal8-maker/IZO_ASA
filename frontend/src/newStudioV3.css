@@ -2413,25 +2413,25 @@ align-items: center;
 justify-content: center;
 width: fit-content;
 max-width: 100%;
-margin: -2px auto 0;
+margin: 1px auto 4px;
 }
 .iv3 .studio-model-sort span {
 color: var(--muted);
 font-size: 10px;
 font-weight: 650;
-line-height: 1;
+line-height: 20px;
 margin-right: 2px;
 }
 .iv3 .studio-model-sort button {
-min-height: 19px;
+min-height: 22px;
 border: 1px solid rgba(255,255,255,.14);
 border-radius: 999px;
 background: rgba(255,255,255,.025);
 color: var(--muted);
-padding: 0 8px;
+padding: 2px 9px;
 font-size: 10.5px;
 font-weight: 650;
-line-height: 18px;
+line-height: 16px;
 }
 .iv3 .studio-model-sort button.active {
 border-color: rgba(182, 207, 18, .45);
@@ -4876,6 +4876,22 @@ font-size: 10.5px;
 .iv3 .iv3-loading-bar { width: 190px; max-width: 62%; height: 5px; border-radius: 999px; background: rgba(255, 255, 255, .16); overflow: hidden; }
 .iv3 .iv3-loading-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #b6cf12, #eaff5a); width: 40%; }
 .iv3 .iv3-loading-bar-fill:not([style]) { animation: iv3-loading-indet 1.3s ease-in-out infinite; }
+.iv3 .iv3-loading-inline {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  width: min(320px, 70%);
+  color: rgba(240, 247, 232, .9);
+  font-size: 14px;
+  font-weight: 620;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, .72);
+}
+.iv3 .iv3-loading-inline .iv3-loading-bar {
+  width: 100%;
+  max-width: none;
+}
 @keyframes iv3-loading-indet {
   0% { margin-left: -42%; width: 42%; }
   55% { width: 62%; }

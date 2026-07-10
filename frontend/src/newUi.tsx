@@ -167,6 +167,7 @@ interface N2Job {
   resultUrl?: string
   resultImageId?: string
   error?: string
+  createdAt?: string
 }
 
 interface N2GalleryImage {
@@ -1096,6 +1097,7 @@ export default function NewStudio(): ReactElement {
 
   const [job, setJob] = useState<N2Job>()
   const [jobMode, setJobMode] = useState<StudioMode>('text')
+  const [progressNow, setProgressNow] = useState(() => Date.now())
   const [resultUrl, setResultUrl] = useState<string>()
   // URL результата не загрузился (битая ссылка/удалённый файл) — error-state.
   const [resultError, setResultError] = useState(false)
@@ -1333,10 +1335,8 @@ export default function NewStudio(): ReactElement {
         const next: N2Job = await response.json()
         setJob(next)
         if (next.status === 'completed') {
-          const freshGallery = await fetchGallery()
-          const fallbackImage = freshGallery.find((item) => item.resultImageId === next.resultImageId || item.id === next.resultImageId) || freshGallery[0]
-          const completedUrl = next.resultUrl || fallbackImage?.url
-          const completedImageId = next.resultImageId || fallbackImage?.id
+          const completedUrl = next.resultUrl
+          const completedImageId = next.resultImageId
           if (completedUrl) {
             setResultError(false)
             if (jobMode === 'paint') {
@@ -1353,14 +1353,46 @@ export default function NewStudio(): ReactElement {
                   title: 'Результат генерации',
                   resultImageId: completedImageId,
                   galleryId: completedImageId,
-                  promptOriginal: fallbackImage?.promptOriginal,
                   error: false,
                 },
               }))
             }
           }
           if (completedImageId) setDockImageId(completedImageId)
-          if (!completedUrl) setNotice('Генерация завершилась, но результат ещё сохраняется. Обновляю историю...')
+          const freshGallery = await fetchGallery()
+          const fallbackImage = freshGallery.find((item) => item.resultImageId === next.resultImageId || item.id === next.resultImageId) || freshGallery[0]
+          if (!completedUrl && fallbackImage?.url) {
+            const fallbackImageId = next.resultImageId || fallbackImage.id
+            setResultError(false)
+            if (jobMode === 'paint') {
+              setResultUrl(fallbackImage.url)
+            } else {
+              const coreMode = jobMode as CoreStudioMode
+              setPreviewByMode((cur) => ({
+                ...cur,
+                [coreMode]: {
+                  kind: 'result',
+                  url: fallbackImage.url,
+                  sourceUrl: pendingResultSourceRef.current[jobMode],
+                  shape: pendingResultShapeRef.current[jobMode],
+                  title: 'Результат генерации',
+                  resultImageId: fallbackImageId,
+                  galleryId: fallbackImageId,
+                  promptOriginal: fallbackImage.promptOriginal,
+                  error: false,
+                },
+              }))
+            }
+            setDockImageId(fallbackImageId)
+          } else if (!completedUrl) {
+            setNotice('Генерация завершилась, но результат ещё сохраняется. Обновляю историю...')
+          } else if (fallbackImage?.promptOriginal && completedImageId) {
+            setPreviewByMode((cur) => {
+              const coreMode = jobMode as CoreStudioMode
+              if (jobMode === 'paint' || cur[coreMode]?.resultImageId !== completedImageId) return cur
+              return { ...cur, [coreMode]: { ...cur[coreMode], promptOriginal: fallbackImage.promptOriginal } }
+            })
+          }
           void refreshAuthStateV2()
         } else if (next.status === 'failed') {
           setNotice(next.error || 'Генерация не удалась. Попробуйте ещё раз.')
@@ -1907,7 +1939,23 @@ export default function NewStudio(): ReactElement {
   }
 
   const jobActive = !!job && JOB_ACTIVE.includes(job.status)
-  const jobProgress = Math.max(0, Math.min(100, Math.round(job?.progress || 0)))
+  useEffect(() => {
+    if (!jobActive) return undefined
+    const timer = window.setInterval(() => setProgressNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [jobActive])
+  const rawJobProgress = Math.max(0, Math.min(100, Math.round(job?.progress || 0)))
+  const jobStartedAt = job?.createdAt ? Date.parse(job.createdAt) : 0
+  const jobElapsedSeconds = jobStartedAt ? Math.max(0, Math.floor((progressNow - jobStartedAt) / 1000)) : 0
+  const estimatedOpenRouterProgress = job?.status === 'sent_to_openrouter'
+    ? Math.min(92, Math.max(rawJobProgress, 24 + Math.floor(Math.min(68, Math.log1p(jobElapsedSeconds) * 18))))
+    : rawJobProgress
+  const jobProgress = Math.max(rawJobProgress, estimatedOpenRouterProgress)
+  const jobProgressText = job?.status === 'sent_to_openrouter'
+    ? `Ожидаем модель · ${jobProgress}%`
+    : jobProgress > 0
+      ? `Генерируем · ${jobProgress}%`
+      : 'Генерируем…'
 
   const ownHistory = gallery.slice(0, 12)
   // Своя история приоритетна; при её отсутствии показываем работы из Ленты.
@@ -3169,8 +3217,8 @@ export default function NewStudio(): ReactElement {
               <div className="iv3-loading-shimmer" aria-hidden="true"></div>
               <div className="iv3-loading-inner">
                 <span className="iv3-spinner" aria-hidden="true"></span>
-                <span className="iv3-loading-text">Генерируем{jobProgress > 0 ? ` · ${jobProgress}%` : '…'}</span>
-                <div className="iv3-loading-bar" aria-hidden="true">
+                <span className="iv3-loading-text">{jobProgressText}</span>
+                <div className="iv3-loading-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={jobProgress}>
                   <div className="iv3-loading-bar-fill" style={jobProgress > 0 ? { width: `${jobProgress}%` } : undefined}></div>
                 </div>
               </div>
@@ -3302,7 +3350,12 @@ export default function NewStudio(): ReactElement {
               {visibleResultError ? (
                 <p>Предыдущий результат не загрузился. Новый появится здесь.</p>
               ) : previewJobActive ? (
-                <p>Генерация идёт. Результат появится здесь автоматически.</p>
+                <div className="iv3-loading-inline" role="status">
+                  <span>{jobProgressText}</span>
+                  <div className="iv3-loading-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={jobProgress}>
+                    <div className="iv3-loading-bar-fill" style={jobProgress > 0 ? { width: `${jobProgress}%` } : undefined}></div>
+                  </div>
+                </div>
               ) : (
                 <p>
                   <span className="iv3-preview-empty-desktop">Опишите идею слева и нажмите «Сгенерировать»</span>
