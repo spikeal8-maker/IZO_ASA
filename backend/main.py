@@ -6830,6 +6830,21 @@ def patch_shared_flux_nodes(prompt: dict[str, Any], req: GenerateRequest, model:
     set_input(prompt, "FK:86", "filename_prefix", "one-node-flux-2-klein/FK")
 
 
+def patch_optional_lora(prompt: dict[str, Any], lora: Lora | None) -> None:
+    if not lora or not lora.id or lora.id == "none":
+        return
+    for node in prompt.values():
+        inputs = node.get("inputs") if isinstance(node, dict) else None
+        if not isinstance(inputs, dict) or "lora_name" not in inputs:
+            continue
+        inputs["lora_name"] = lora.id
+        if "strength_model" in inputs:
+            inputs["strength_model"] = lora.strength
+        if "strength_clip" in inputs:
+            inputs["strength_clip"] = lora.strength
+        return
+
+
 # FLUX.2 Klein multi-reference edit: каждое изображение подаётся как ReferenceLatent в
 # цепочку conditioning. Сэмплер денойзит пустой латент (размер = изображение 1), поэтому
 # denoise обязан быть 1.0 — иначе пустой латент денойзится частично и даёт «мусорное полотно».
@@ -6920,6 +6935,8 @@ def patch_mode_nodes(prompt: dict[str, Any], req: GenerateRequest, uploads: dict
     elif req.mode in {"edit", "paint", "faceswap", "try_on", "texture_transfer"}:
         # 1..4 изображения в порядке слотов; цепочка ReferenceLatent + denoise=1.
         image_files = [uploads.get(f"input{i}") for i in range(1, 5)]
+        if req.mode == "edit":
+            patch_optional_lora(prompt, req.loras[0] if req.loras else None)
         patch_edit_reference_chain(prompt, image_files)
     elif req.mode == "inpaint":
         set_input(prompt, "FKI:194", "unet_name", model)

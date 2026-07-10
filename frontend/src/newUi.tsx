@@ -995,6 +995,7 @@ export default function NewStudio(): ReactElement {
   const [sourceImage, setSourceImage] = useState<string>()
   const [editSlots, setEditSlots] = useState<EditSlot[]>(() => EMPTY_EDIT_SLOTS.map((slot) => ({ ...slot })))
   const [editExtraOpen, setEditExtraOpen] = useState(false)
+  const [editFaceStrengthPct, setEditFaceStrengthPct] = useState(DEFAULT_FACE_STRENGTH)
   const [faceSlots, setFaceSlots] = useState<EditSlot[]>(() => EMPTY_FACE_SLOTS.map((slot) => ({ ...slot })))
   const [faceStrengthPct, setFaceStrengthPct] = useState(DEFAULT_FACE_STRENGTH)
   const [profileTab, setProfileTab] = useState<'profile' | 'tariffs' | 'earn' | 'models'>('profile')
@@ -1764,6 +1765,10 @@ export default function NewStudio(): ReactElement {
       const paintUserPrompt = prompts.paint.trim()
       const paintBasePrompt = paintTechPrompts[paintMode]
       const paintPrompt = composePaintPrompt(paintBasePrompt, paintUserPrompt)
+      const editHasFaceReference = editSlots.some((slot, index) => index > 0 && slot.image && slot.role === 'face')
+      const editFaceStrengthInstruction = editHasFaceReference
+        ? `\n\nFace reference control for Edit mode:\n${faceStrengthPrompt(editFaceStrengthPct)}\nUse this strength only for references whose role is FACE. Do not let the face reference change clothing, pose, body, background, style, or objects.`
+        : ''
       const faceFinalPrompt = [
         facePrompt,
         'Use Image 1 as the target scene. Use Image 2 only as the source face. Preserve the target body, clothing, pose, background, camera angle, lighting, and style.',
@@ -1786,7 +1791,7 @@ export default function NewStudio(): ReactElement {
                       : 'remove_background'
                 : 'text_to_image',
         provider: selectedModel.provider,
-        prompt: mode === 'edit' ? editComposer.finalPrompt : mode === 'face' ? faceFinalPrompt : mode === 'paint' ? paintPrompt : fullPrompt,
+        prompt: mode === 'edit' ? `${editComposer.finalPrompt}${editFaceStrengthInstruction}` : mode === 'face' ? faceFinalPrompt : mode === 'paint' ? paintPrompt : fullPrompt,
         negativePrompt: isEditLikeMode || mode === 'paint' ? '' : '',
         seed: effectiveSeed,
         width: requestSize.width,
@@ -1796,7 +1801,11 @@ export default function NewStudio(): ReactElement {
         guidance,
         strength: mode === 'edit' ? DEFAULT_EDIT_STRENGTH : mode === 'face' ? faceStrengthPct / 100 : strengthPct / 100,
         modelProfile: selectedModel.modelProfile,
-        loras: mode === 'face' && faceLora ? [{ id: faceLora.id, strength: faceStrengthPct / 100, triggerWord: faceLora.triggerWord }] : [],
+        loras: mode === 'face' && faceLora
+          ? [{ id: faceLora.id, strength: faceStrengthPct / 100, triggerWord: faceLora.triggerWord }]
+          : mode === 'edit' && editHasFaceReference && faceLora
+            ? [{ id: faceLora.id, strength: editFaceStrengthPct / 100, triggerWord: faceLora.triggerWord }]
+            : [],
         inputImage1: mode === 'i2i' ? sourceImage : isEditLikeMode ? activeEditSlots[0]?.image : mode === 'paint' && paintMode !== 'sketch' ? paintImage : undefined,
         inputImage2: mode === 'face' ? activeEditSlots[1]?.image : undefined,
         inputImages: mode === 'edit'
@@ -1881,6 +1890,11 @@ export default function NewStudio(): ReactElement {
   function setFaceStrength(value: number) {
     const next = Math.max(0, Math.min(100, Math.round(value)))
     setFaceStrengthPct(Math.abs(next - DEFAULT_FACE_STRENGTH) <= 3 ? DEFAULT_FACE_STRENGTH : next)
+  }
+
+  function setEditFaceStrength(value: number) {
+    const next = Math.max(0, Math.min(100, Math.round(value)))
+    setEditFaceStrengthPct(Math.abs(next - DEFAULT_FACE_STRENGTH) <= 3 ? DEFAULT_FACE_STRENGTH : next)
   }
 
   function applyLastSourceImage() {
@@ -2704,6 +2718,37 @@ export default function NewStudio(): ReactElement {
                   value={slot.takeNote || ''}
                   onChange={(e) => setEditSlotTakeNote(index, e.target.value)}
                 />
+              )}
+              {slot.role === 'face' && (
+                <div className="editor-face-strength" style={{ '--i2i-range-progress': `${editFaceStrengthPct}%` } as CSSProperties}>
+                  <span className="editor-face-side">мягче</span>
+                  <input
+                    className="editor-face-range"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={editFaceStrengthPct}
+                    aria-label={`Сила переноса лица для ${title.toLowerCase()}`}
+                    aria-valuetext={`${editFaceStrengthPct}%`}
+                    onChange={(e) => setEditFaceStrength(Number(e.target.value))}
+                  />
+                  <label className="editor-face-value" title="Рекомендуем 75%">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={editFaceStrengthPct}
+                      aria-label={`Сила лица для ${title.toLowerCase()}`}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => setEditFaceStrength(Number(e.target.value))}
+                      onDoubleClick={() => setEditFaceStrength(DEFAULT_FACE_STRENGTH)}
+                    />
+                    %
+                  </label>
+                  <span className="editor-face-side">сильнее</span>
+                </div>
               )}
             </div>
           )}

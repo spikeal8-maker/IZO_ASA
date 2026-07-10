@@ -85,7 +85,6 @@ export function appShellSeo(path: string): SeoMeta {
       : { title: 'ИЗО АСА — старая версия 1.0', description: 'Старая версия интерфейса ИЗО АСА сохранена для совместимости, пока UI 2.0 доводится до полного релиза.', canonical, robots: 'noindex, follow' }
   }
   return locale === 'en'
-    ? { title: 'IZO ASA — AI image generation and editing', description: 'Create images from text, transform references, swap faces, edit images, draw sketches, use masks, outpaint canvases, save work to gallery and publish to feed.', canonical: 'https://izo.alikinas.ru/' }
-    : { title: 'ИЗО АСА — нейросеть для генерации и редактирования изображений', description: 'Создавайте изображения по тексту, преобразуйте фото, объединяйте референсы, меняйте лицо, рисуйте эскизы, работайте с масками, сохраняйте в галерею и публикуйте в ленту.', canonical: 'https://izo.alikinas.ru/' }
+    ? { title: 'IZO ASA — AI generator and editor', description: 'Create visual content with By Text, By Photo, Assembly, Face, Editor, gallery, feed, and the upcoming Video mode.', canonical: 'https://izo.alikinas.ru/' }
+    : { title: 'ИЗО АСА — генератор и редактор', description: 'Создавайте визуальный контент: По тексту, По фото, Сборка, Лицо, Редактор, галерея, лента и будущий режим Видео.', canonical: 'https://izo.alikinas.ru/' }
 }
-
