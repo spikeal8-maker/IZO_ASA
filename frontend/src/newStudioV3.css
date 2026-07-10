@@ -2512,8 +2512,8 @@ background: rgba(182, 207, 18, .055);
 .iv3 .studio-selected-head {
 display: flex;
 justify-content: space-between;
-gap: 10px;
-align-items: baseline;
+gap: 8px;
+align-items: flex-start;
 }
 .iv3 .studio-selected-model strong {
 color: var(--text);
@@ -2521,11 +2521,33 @@ font-size: 14px;
 font-weight: 780;
 line-height: 1.15;
 }
-.iv3 .studio-selected-model span {
-color: var(--lime);
-font-size: 11px;
-font-weight: 820;
+.iv3 .studio-selected-specs {
+display: inline-flex;
+align-items: center;
+justify-content: flex-end;
+gap: 4px;
+flex-wrap: wrap;
+max-width: 58%;
+color: var(--muted);
+font-size: 9.5px;
+font-weight: 760;
+line-height: 1.1;
 white-space: nowrap;
+}
+.iv3 .studio-selected-specs b,
+.iv3 .studio-selected-specs em {
+display: inline-flex;
+align-items: center;
+min-height: 16px;
+padding: 0 6px;
+border: 1px solid rgba(255,255,255,.10);
+border-radius: 999px;
+background: rgba(0,0,0,.14);
+font-style: normal;
+}
+.iv3 .studio-selected-specs b {
+color: var(--lime);
+border-color: rgba(182,207,18,.24);
 }
 .iv3 .studio-selected-model p {
 margin: 0;
@@ -2533,7 +2555,7 @@ color: var(--muted);
 font-size: 11px;
 line-height: 1.25;
 display: -webkit-box;
--webkit-line-clamp: 1;
+-webkit-line-clamp: 3;
 -webkit-box-orient: vertical;
 overflow: hidden;
 }

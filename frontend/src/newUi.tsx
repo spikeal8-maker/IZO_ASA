@@ -988,6 +988,7 @@ export default function NewStudio(): ReactElement {
   const formatRef = useRef<HTMLDivElement>(null)
   const [quality, setQuality] = useState('fast')
   const [proMode, setProMode] = useState(false)
+  const [proModelChoices, setProModelChoices] = useState<Partial<Record<ModelModeKey, string>>>({})
   const [studioModelSort, setStudioModelSort] = useState<StudioModelSort>('tokens-asc')
   const [seed, setSeed] = useState(0)
   const [guidance] = useState(3.5)
@@ -1721,7 +1722,7 @@ export default function NewStudio(): ReactElement {
     }
     const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
     const selectedModelMode = modelModeFromStudio(mode, paintMode)
-    const selectedModel = studioSelectedModel(selectedModelMode, selectedQuality)
+    const selectedModel = proMode ? studioProSelectedModel(selectedModelMode, selectedQuality) : studioSelectedModel(selectedModelMode, selectedQuality)
     const presetRequestSize = selectedModel.provider === 'comfyui' ? comfySafeGenerationSize(size) : size
     const lastText = lastSubmittedRef.current.text
     if (mode === 'text' && lastText && lastText.prompt === textPrompt && lastText.model === selectedModel.id && lastText.width === presetRequestSize.width && lastText.height === presetRequestSize.height) {
@@ -2250,9 +2251,9 @@ export default function NewStudio(): ReactElement {
     } else {
       setFormatAutoNotice('')
     }
-    setUserModelChoices((current) => ({
+    setProModelChoices((current) => ({
       ...current,
-      [currentModelMode]: { ...(current[currentModelMode] || {}), [selectedQuality]: model.id },
+      [currentModelMode]: model.id,
     }))
   }
   function studioSelectedModel(mode: ModelModeKey, preset: QualityPreset) {
@@ -2263,7 +2264,14 @@ export default function NewStudio(): ReactElement {
     const presetId = chosen && allowed.some((model) => model.id === chosen) ? chosen : access?.presets?.[preset]
     return allowed.find((model) => model.id === presetId) || allowed[0] || models[0] || modelAccessOption(modelAccess, mode, preset, userModelChoices)
   }
-  const currentStudioModel = studioSelectedModel(currentModelMode, selectedQuality)
+  function studioProSelectedModel(mode: ModelModeKey, preset: QualityPreset) {
+    const access = modelAccess.modes[mode]
+    const models = (access?.models || []).filter((model) => userModelVisibility[mode]?.[model.id] !== false)
+    const allowed = models.filter((model) => studioModelEnabled(model, mode))
+    const chosen = proModelChoices[mode]
+    return (chosen ? allowed.find((model) => model.id === chosen) : undefined) || studioSelectedModel(mode, preset)
+  }
+  const currentStudioModel = proMode ? studioProSelectedModel(currentModelMode, selectedQuality) : studioSelectedModel(currentModelMode, selectedQuality)
   const currentStudioModelInfo = modelPublicInfo(currentStudioModel)
   const currentStudioTokenCost = tokenCostForModel(currentStudioModel)
   useEffect(() => {
@@ -3312,7 +3320,11 @@ export default function NewStudio(): ReactElement {
             <div className="studio-selected-model">
               <div className="studio-selected-head">
                 <strong>{currentStudioModel.label}</strong>
-                <span>{currentStudioTokenCost} ток.</span>
+                <span className="studio-selected-specs">
+                  <b>{currentStudioModelInfo.company}</b>
+                  <em>{currentStudioModelInfo.year}</em>
+                  <em>{openrouterPricing[currentStudioModel.id]?.formats?.find((fmt) => fmt.id === currentFormatPricingId)?.requestSize || `${selectedResolution.width}×${selectedResolution.height}`}</em>
+                </span>
               </div>
               <p>{currentStudioModelInfo.description}</p>
               <div className="studio-model-formats" aria-label="Стоимость по форматам">
