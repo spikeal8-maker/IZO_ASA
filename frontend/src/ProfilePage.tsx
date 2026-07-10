@@ -151,6 +151,17 @@ export default function ProfilePage({
   const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
   const selectedModel = modelAccessOption(modelAccess, 'text_to_image', selectedQuality, userModelChoices)
   const tokenPrice = selectedModel.tokenHint
+  const accessRows = modelModeOrder.map((mode) => modelAccess.modes[mode]).filter(Boolean)
+  const catalogRows = Array.from(accessRows.reduce((map, access) => {
+    if (!access) return map
+    for (const model of access.models) {
+      const current = map.get(model.id) || { model, modes: [] as string[] }
+      current.modes.push(access.label)
+      map.set(model.id, current)
+    }
+    return map
+  }, new Map<string, { model: ReturnType<typeof modelAccessOption>; modes: string[] }>()).values())
+    .sort((a, b) => a.model.provider === b.model.provider ? a.model.label.localeCompare(b.model.label, 'ru') : a.model.provider.localeCompare(b.model.provider))
   const setModeModelChoice = (mode: ModelModeKey, preset: QualityPreset, modelId: string) => {
     setUserModelChoices((current) => ({ ...current, [mode]: { ...(current[mode] || {}), [preset]: modelId } }))
   }
@@ -432,30 +443,36 @@ export default function ProfilePage({
               <div className="profile-estimate"><span>Выбрано: <strong>{qualityPresetLabels[selectedQuality]}</strong></span><span>Модель: <strong>{selectedModel.label}</strong></span><span>Примерная стоимость: <strong>{tokenPrice} {tokenPrice === 1 ? 'токен' : 'токена'}</strong></span></div>
               <div className="profile-section-head"><h3>Доступные модели по вкладкам</h3><span>Можно выбрать модель для каждого качества</span></div>
               <div className="profile-mode-models">
-                {modelModeOrder.map((mode) => {
-                  const access = modelAccess.modes[mode]
+                {accessRows.map((access) => {
                   if (!access) return null
-                  return <article className="profile-card profile-mode-card" key={mode}>
+                  return <article className="profile-card profile-mode-card" key={access.id}>
                     <div className="profile-mode-head">
                       <strong>{access.label}</strong>
                       <span>{access.models.length} моделей</span>
                     </div>
                     <div className="profile-mode-presets">
                       {qualityPresets.map((preset) => {
-                        const selected = modelAccessOption(modelAccess, mode, preset, userModelChoices)
+                        const selected = modelAccessOption(modelAccess, access.id, preset, userModelChoices)
                         return <label key={preset}>
                           <span>{qualityPresetLabels[preset]}</span>
-                          <select value={selected.id} onChange={(e) => setModeModelChoice(mode, preset, e.target.value)}>
+                          <select value={selected.id} onChange={(e) => setModeModelChoice(access.id, preset, e.target.value)}>
                             {access.models.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.tokenHint} ток.</option>)}
                           </select>
                         </label>
                       })}
                     </div>
-                    <div className="profile-mode-list">
-                      {access.models.map((item) => <span key={item.id}>{item.label}</span>)}
-                    </div>
                   </article>
                 })}
+              </div>
+              <div className="profile-section-head"><h3>Полный список моделей</h3><span>{catalogRows.length} моделей в вашем тарифе</span></div>
+              <div className="profile-model-catalog">
+                <div className="profile-model-catalog-head"><span>Модель</span><span>Источник</span><span>Стоимость</span><span>Доступна во вкладках</span></div>
+                {catalogRows.map(({ model, modes }) => <div className="profile-model-catalog-row" key={model.id}>
+                  <strong>{model.label}</strong>
+                  <span>{model.provider === 'comfyui' ? 'Серверная модель' : 'OpenRouter'}</span>
+                  <span>{model.tokenHint} {model.tokenHint === 1 ? 'токен' : 'токена'}</span>
+                  <small>{modes.join(' · ')}</small>
+                </div>)}
               </div>
             </section>
           </>}
