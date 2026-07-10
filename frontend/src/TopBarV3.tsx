@@ -53,7 +53,7 @@ export default function TopBarV3({
 }) {
   const selectMode = (mode: V3Mode) => {
     if (onSelectMode) onSelectMode(mode)
-    else goto(mode === 'paint' ? '/paint' : '/new')
+    else goto(mode === 'paint' ? '/paint' : '/')
   }
   return (
     <header className="topbar">
@@ -115,7 +115,7 @@ export default function TopBarV3({
           type="button"
           aria-label={isAdmin ? 'Админ' : 'Помощь'}
           title={isAdmin ? 'Админ' : 'Помощь'}
-          onClick={isAdmin ? (onOpenAdmin || (() => goto('/admin'))) : (onOpenHelp || (() => goto('/new')))}
+          onClick={isAdmin ? (onOpenAdmin || (() => goto('/admin'))) : (onOpenHelp || (() => goto('/')))}
         >
           {isAdmin ? (
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">

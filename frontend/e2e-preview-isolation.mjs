@@ -19,7 +19,7 @@ async function run() {
   try {
     const page = await browser.newPage({ viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true })
     page.setDefaultTimeout(20000)
-    await page.goto(`${base}/new?preview_isolation=${Date.now()}`, { waitUntil: 'networkidle' })
+    await page.goto(`${base}/?preview_isolation=${Date.now()}`, { waitUntil: 'networkidle' })
     await page.locator('.preview-panel').waitFor()
 
     await selectMode(page, 'По фото')

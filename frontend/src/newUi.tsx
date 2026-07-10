@@ -772,7 +772,7 @@ export default function NewStudio(): ReactElement {
 
   // Навигация страниц нового UI с синхронизацией URL. Каноничные маршруты:
   // Лента /feed, Галерея /gallery, Профиль /profile, Редактор /paint,
-  // остальные режимы генератора /new.
+  // остальные режимы генератора живут на главной странице.
   const navTo = useCallback((path: string) => {
     if (window.location.pathname !== path) window.history.pushState(null, '', path)
   }, [])
@@ -784,7 +784,7 @@ export default function NewStudio(): ReactElement {
       }
       setView('tabs')
       setTabState(next)
-      navTo(next === 'paint' ? '/paint' : '/new')
+      navTo(next === 'paint' ? '/paint' : '/')
     },
     [navTo],
   )

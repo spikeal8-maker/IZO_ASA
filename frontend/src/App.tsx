@@ -6,11 +6,18 @@ const LegacyApp = lazy(() => import('./LegacyApp'))
 const AdminApp = lazy(() => import('./AdminApp'))
 
 function isNewStudioRoute(path: string) {
-  if (path === '/' || path === '/new' || path === '/new/') return true
+  if (path === '/') return true
   if (path === '/paint' || path.startsWith('/paint/')) return true
   if (path === '/profile' || path.startsWith('/profile/')) return true
-  if (path === '/new/profile' || path.startsWith('/new/profile/')) return true
   return false
+}
+
+function canonicalNewPath(path: string) {
+  if (path === '/new' || path === '/new/') return '/'
+  if (path === '/new/profile' || path.startsWith('/new/profile/')) return path.replace(/^\/new/, '')
+  if (path === '/new/paint' || path.startsWith('/new/paint/')) return path.replace(/^\/new/, '')
+  if (path === '/new/gallery' || path.startsWith('/new/gallery/')) return path.replace(/^\/new/, '')
+  return '/'
 }
 
 function isLegacyRoute(path: string) {
@@ -35,9 +42,18 @@ function NotFound() {
 
 function App() {
   const path = window.location.pathname
+  const legacyNewRoute = path === '/new' || path.startsWith('/new/')
   useEffect(() => {
+    if (legacyNewRoute) {
+      window.location.replace(`${canonicalNewPath(path)}${window.location.search}${window.location.hash}`)
+      return
+    }
     applyClientSeo(appShellSeo(path))
-  }, [path])
+  }, [legacyNewRoute, path])
+
+  if (legacyNewRoute) {
+    return <div className="app-loading">Открываем генератор...</div>
+  }
 
   if (isStaticFeedRoute(path)) {
     return <div className="app-loading">Загружаем ленту...</div>

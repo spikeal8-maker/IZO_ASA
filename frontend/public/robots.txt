@@ -5,7 +5,6 @@ Disallow: /admin
 Disallow: /admin/
 Disallow: /profile
 Disallow: /profile/
-Disallow: /new/profile
 Disallow: /old
 Disallow: /legacy
 Disallow: /v1
