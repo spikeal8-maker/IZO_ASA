@@ -470,11 +470,49 @@ function renderPublication(item){
   if(!item.published){ wrap.innerHTML = `<p>Это изображение пока не опубликовано. При публикации будет создана отдельная WebP-копия для ленты, оригинал останется в галерее.</p><p style="margin-top:10px"><button class="btn acid" id="publishSelectedBtnInline">Опубликовать в ленту</button></p>`; return; }
   wrap.innerHTML = `<p>Опубликовано: <b>${escapeHtml(formatDate(item.publishedAt || item.createdAt))}</b>. В ленте хранится отдельная WebP-копия.</p><div class="stats"><div class="stat"><strong>${escapeHtml(item.views || 0)}</strong><span>Просмотры</span></div><div class="stat"><strong>${item.likes || 0}</strong><span>Лайки</span></div><div class="stat"><strong>${item.saves || 0}</strong><span>Сохранения</span></div><div class="stat"><strong>${item.remixes || 0}</strong><span>Ремиксы</span></div></div>`;
 }
+function formatBytes(value){
+  const bytes = Number(value || 0);
+  if(!bytes) return '';
+  const units = ['Б','КБ','МБ','ГБ'];
+  let size = bytes;
+  let unit = units[0];
+  for(const next of units){
+    unit = next;
+    if(size < 1024 || next === units[units.length - 1]) break;
+    size = size / 1024;
+  }
+  return unit === 'Б' ? `${Math.round(size)} ${unit}` : `${size.toFixed(1).replace('.', ',')} ${unit}`;
+}
+function formatDuration(ms){
+  const value = Number(ms || 0);
+  if(!value) return '';
+  return value < 1000 ? `${Math.round(value)} мс` : `${(value / 1000).toFixed(1).replace('.', ',')} с`;
+}
+function tokenValue(item){
+  const direct = Number(item.tokenCost);
+  if(Number.isFinite(direct) && direct > 0) return `${direct} ток.`;
+  const billing = item.openrouterBilling || {};
+  const charged = Number(billing.chargedTokens || billing.actualTokens || 0);
+  return charged > 0 ? `${charged} ток.` : '';
+}
 function renderParams(item){
-  const lora = Array.isArray(item.loras) && item.loras.length ? item.loras.map(l=>l.name || l.id || l).join(', ') : '—';
-  document.getElementById('paramsContent').innerHTML = [
-    ['Модель', item.model || item.modelProfile || 'Flux2'], ['Пресет', item.preset || '—'], ['LoRA', lora], ['Seed', item.seed ?? '—'], ['Размер', `${item.width || 0}×${item.height || 0}`], ['Время', item.generationTimeMs ? `${Math.round(item.generationTimeMs/100)/10} c` : '—'], ['ID', item.id], ['Режим', item.modeText]
-  ].map(([k,v])=>`<div class="param"><span>${escapeHtml(k)}</span><b>${escapeHtml(v)}</b></div>`).join('');
+  const provided = Array.isArray(item.publicParams)
+    ? item.publicParams.map(p => [p.label, p.value]).filter(([, value]) => value !== undefined && value !== null && String(value).trim())
+    : [];
+  const fallback = [
+    ['Модель', item.model || item.modelProfile || 'ИЗО Base'],
+    ['Токены', tokenValue(item)],
+    ['Разрешение', item.width && item.height ? `${item.width}×${item.height}` : ''],
+    ['Формат', item.aspectRatio || item.aspect || ''],
+    ['Вес', formatBytes(item.fileSizeBytes)],
+    ['Время', formatDuration(item.generationTimeMs || item.genTime)],
+    ['Режим', item.modeText],
+    ['ID', item.id],
+  ].filter(([, value]) => value !== undefined && value !== null && String(value).trim());
+  const rows = provided.length ? provided : fallback;
+  document.getElementById('paramsContent').innerHTML = rows
+    .map(([k,v])=>`<div class="param"><span>${escapeHtml(k)}</span><b>${escapeHtml(v)}</b></div>`)
+    .join('');
 }
 function renderThumbs(){
   const radius = 12;

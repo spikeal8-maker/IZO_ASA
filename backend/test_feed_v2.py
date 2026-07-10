@@ -763,6 +763,19 @@ def test_gallery_page_returns_visual_shell_contract(temp_db):
     with TestClient(main.app) as client:
         token = make_user("iuid-gallery-page", "web_gallery_page")
         make_image("img-gallery-page", "web_gallery_page", prompt="город на рассвете")
+        with main.db() as conn:
+            conn.execute(
+                "UPDATE images SET provider = 'openrouter', settings_json = ? WHERE id = 'img-gallery-page'",
+                (json.dumps({
+                    "seed": 42,
+                    "modelProfile": "black-forest-labs/flux.2-pro",
+                    "tokenCost": 2,
+                    "generationTimeMs": 12450,
+                    "openrouterBilling": {"chargedTokens": 2, "modelName": "FLUX.2 Pro"},
+                    "loras": ["internal-lora"],
+                    "preset": "internal-preset",
+                }, ensure_ascii=False),),
+            )
         pub = publish(client, token, "img-gallery-page", title="Рассвет")
         client.post(f"/api/feed/publications/{pub['id']}/like", headers=bearer(token))
 
@@ -782,12 +795,34 @@ def test_gallery_page_returns_visual_shell_contract(temp_db):
         assert item["modeLabel"] == "По тексту"
         assert item["aspectRatio"] == "3:2"
         assert item["src"].startswith("/api/media/")
+        assert item["fileSizeBytes"] > 0
+        params = {row["label"]: row["value"] for row in item["publicParams"]}
+        assert params["Модель"] == "FLUX.2 Pro"
+        assert params["Токены"] == "2 ток."
+        assert params["Разрешение"] == "1200×800"
+        assert params["Формат"] == "3:2"
+        assert params["Вес"].endswith(("КБ", "МБ"))
+        assert params["Время"] == "12,4 с"
+        assert params["Режим"] == "По тексту"
+        assert "Seed" not in params
+        assert "LoRA" not in params
+        assert "Пресет" not in params
 
         feed_item = data["feedItems"][0]
         assert feed_item["id"] == "img-gallery-page"
         assert feed_item["src"].endswith(f"/api/feed/media/{pub['id']}?variant=thumb")
         assert feed_item["viewerSrc"].endswith(f"/api/feed/media/{pub['id']}?variant=large")
         assert feed_item["likes"] == 1
+        feed_params = {row["label"]: row["value"] for row in feed_item["publicParams"]}
+        assert feed_params["Модель"] == "FLUX.2 Pro"
+        assert feed_params["Токены"] == "2 ток."
+
+        feed_payload = client.get("/api/feed?type=new", headers=bearer(token)).json()["items"][0]
+        generation_params = {row["label"]: row["value"] for row in feed_payload["generation_params"]}
+        assert generation_params["Модель"] == "FLUX.2 Pro"
+        assert generation_params["Токены"] == "2 ток."
+        assert feed_payload["token_cost"] == 2
+        assert feed_payload["file_size_bytes"] > 0
 
 
 def test_gallery_page_feed_items_are_not_limited_to_visible_original_page(temp_db):

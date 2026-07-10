@@ -4173,8 +4173,84 @@ def _user_model_name(raw: str | None) -> str:
     return "ИЗО Base"
 
 
+def _media_file_size_from_url(url: str | None) -> int | None:
+    try:
+        path = local_media_path_from_url(url or "")
+        if path and path.exists() and path.is_file():
+            return int(path.stat().st_size)
+    except Exception:
+        return None
+    return None
+
+
+def _format_public_bytes(value: int | None) -> str | None:
+    if not value or value <= 0:
+        return None
+    units = ("Б", "КБ", "МБ", "ГБ")
+    size = float(value)
+    unit = units[0]
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            break
+        size /= 1024
+    if unit == "Б":
+        return f"{int(size)} {unit}"
+    return f"{size:.1f} {unit}".replace(".", ",")
+
+
+def _format_public_duration(ms: Any) -> str | None:
+    try:
+        value = int(ms or 0)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    if value < 1000:
+        return f"{value} мс"
+    return f"{value / 1000:.1f} с".replace(".", ",")
+
+
+def _public_token_cost(settings: dict[str, Any]) -> int | None:
+    for value in (
+        settings.get("tokenCost"),
+        (settings.get("openrouterBilling") or {}).get("chargedTokens") if isinstance(settings.get("openrouterBilling"), dict) else None,
+        (settings.get("openrouterBilling") or {}).get("actualTokens") if isinstance(settings.get("openrouterBilling"), dict) else None,
+    ):
+        try:
+            if value is not None:
+                return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _gallery_public_params(
+    *,
+    image_id: str,
+    mode: str | None,
+    provider: str | None,
+    width: int | None,
+    height: int | None,
+    url: str | None,
+    settings: dict[str, Any],
+) -> list[dict[str, str]]:
+    model = _user_model_name(settings.get("modelProfile") or settings.get("openrouterModel") or provider)
+    params: list[tuple[str, str | None]] = [
+        ("Модель", model),
+        ("Токены", f"{_public_token_cost(settings)} ток." if _public_token_cost(settings) is not None else None),
+        ("Разрешение", f"{width}×{height}" if width and height else None),
+        ("Формат", _gallery_aspect_ratio(width, height)),
+        ("Вес", _format_public_bytes(_media_file_size_from_url(url))),
+        ("Время", _format_public_duration(settings.get("generationTimeMs"))),
+        ("Режим", _gallery_mode_label(mode)),
+        ("ID", image_id),
+    ]
+    return [{"label": label, "value": value} for label, value in params if value]
+
+
 def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
     settings = json.loads(row["settings_json"] or "{}")
+    file_size = _media_file_size_from_url(row["url"])
     return {
         "id": row["id"],
         "userId": row["user_id"],
@@ -4193,6 +4269,16 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
         "generationTimeMs": settings.get("generationTimeMs", 0),
         "tokenCost": settings.get("tokenCost"),
         "openrouterBilling": settings.get("openrouterBilling"),
+        "fileSizeBytes": file_size,
+        "publicParams": _gallery_public_params(
+            image_id=row["id"],
+            mode=row["mode"],
+            provider=row["provider"],
+            width=row["width"],
+            height=row["height"],
+            url=row["url"],
+            settings=settings,
+        ),
         "isFavorite": bool(row["is_favorite"]),
         "createdAt": row["created_at"],
         "comfyuiPromptId": settings.get("comfyuiPromptId"),
@@ -4275,6 +4361,7 @@ def _gallery_page_item(
     prompt = row["prompt_original"] or row["prompt_translated"] or ""
     width = int(row["width"] or 0)
     height = int(row["height"] or 0)
+    file_size = _media_file_size_from_url(row["url"])
     return {
         "id": row["id"],
         "imageId": row["id"],
@@ -4303,6 +4390,16 @@ def _gallery_page_item(
         "genTime": settings.get("generationTimeMs", 0),
         "tokenCost": settings.get("tokenCost"),
         "openrouterBilling": settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else None,
+        "fileSizeBytes": file_size,
+        "publicParams": _gallery_public_params(
+            image_id=row["id"],
+            mode=row["mode"],
+            provider=row["provider"],
+            width=width,
+            height=height,
+            url=row["url"],
+            settings=settings,
+        ),
         "favorite": bool(row["is_favorite"]),
         "isFavorite": bool(row["is_favorite"]),
         "published": published,
@@ -13575,6 +13672,18 @@ def _feed_item_payload(
         "challenge": _feed_challenge_payload(conn, _row_get(pub, "category")),
         "source_history": _feed_source_history_payload(conn, pub["image_id"]),
         "resolution": f"{width}×{height}" if width and height else None,
+        "generation_params": _gallery_public_params(
+            image_id=pub["image_id"],
+            mode=_row_get(image, "mode"),
+            provider=_row_get(image, "provider"),
+            width=width,
+            height=height,
+            url=_row_get(image, "url"),
+            settings=settings,
+        ),
+        "token_cost": _public_token_cost(settings),
+        "generation_time_ms": settings.get("generationTimeMs"),
+        "file_size_bytes": _media_file_size_from_url(_row_get(image, "url")),
         "seed": settings.get("seed"),
         "created_at": pub["created_at"],
         "view_count": int(_row_get(pub, "view_count") or 0),

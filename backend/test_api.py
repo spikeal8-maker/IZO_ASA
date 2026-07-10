@@ -648,6 +648,7 @@ def test_stage3_gallery_detail_favorite_use_as_and_delete(monkeypatch) -> None:
 
 def test_favorite_image_is_not_auto_evicted_when_gallery_quota_is_full(monkeypatch) -> None:
     monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    monkeypatch.setitem(main.DEFAULT_TARIFFS["free"], "gallery_slots", 1)
     with main.db() as conn:
         conn.execute("UPDATE users SET plan = 'free' WHERE id = ?", (_SESSION["legacy_user_id"],))
     with authed_client() as client:
