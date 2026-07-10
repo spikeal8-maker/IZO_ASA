@@ -2406,6 +2406,48 @@ display: -webkit-box;
 -webkit-box-orient: vertical;
 overflow: hidden;
 }
+.iv3 .studio-model-meta {
+display: flex;
+flex-wrap: wrap;
+gap: 6px;
+align-items: center;
+}
+.iv3 .studio-model-meta span {
+display: inline-flex;
+align-items: center;
+min-height: 20px;
+padding: 2px 7px;
+border: 1px solid rgba(255,255,255,.10);
+border-radius: 999px;
+background: rgba(255,255,255,.025);
+color: var(--muted);
+font-size: 10px;
+font-weight: 680;
+}
+.iv3 .studio-model-formats {
+display: grid;
+grid-template-columns: repeat(4, minmax(0, 1fr));
+gap: 4px;
+}
+.iv3 .studio-model-formats span {
+display: inline-flex;
+justify-content: center;
+align-items: center;
+min-height: 22px;
+padding: 2px 4px;
+border: 1px solid rgba(255,255,255,.10);
+border-radius: 7px;
+background: rgba(0,0,0,.16);
+color: var(--muted);
+font-size: 10px;
+font-weight: 760;
+white-space: nowrap;
+}
+.iv3 .studio-model-formats span.active {
+border-color: rgba(182,207,18,.52);
+background: rgba(182,207,18,.10);
+color: var(--lime);
+}
 .iv3 .studio-model-sort {
 display: flex;
 gap: 4px;
@@ -2492,6 +2534,25 @@ color: var(--lime);
 font-size: 12px;
 font-weight: 820;
 white-space: nowrap;
+display: grid;
+justify-items: end;
+gap: 2px;
+line-height: 1.1;
+max-width: 132px;
+text-align: right;
+}
+.iv3 .studio-model-cost b {
+font: inherit;
+color: inherit;
+}
+.iv3 .studio-model-cost small {
+max-width: 132px;
+overflow: hidden;
+text-overflow: ellipsis;
+white-space: nowrap;
+color: var(--muted);
+font-size: 9px;
+font-weight: 650;
 }
 .iv3 .generate-button, .iv3 .mobile-bottom-cta {
 border: 1px solid rgba(182, 207, 18, .78);
@@ -4887,6 +4948,18 @@ font-size: 10.5px;
   font-size: 14px;
   font-weight: 620;
   text-shadow: 0 2px 16px rgba(0, 0, 0, .72);
+}
+.iv3 .generate-token-cost {
+display: inline-flex;
+align-items: center;
+min-height: 24px;
+margin-left: 8px;
+padding: 2px 8px;
+border-radius: 999px;
+background: rgba(9, 13, 5, .16);
+color: #111604;
+font-size: 13px;
+font-weight: 850;
 }
 .iv3 .iv3-loading-inline .iv3-loading-bar {
   width: 100%;

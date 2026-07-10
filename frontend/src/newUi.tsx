@@ -94,6 +94,18 @@ type LoraOption = { id: string; label: string; triggerWord: string; strength: nu
 type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
 type StudioModelSort = 'name-asc' | 'name-desc' | 'tokens-asc' | 'tokens-desc'
 type LastTextSubmit = { prompt: string; model: string; width: number; height: number }
+type PublicModelFormatPricing = {
+  id: string
+  label: string
+  short: string
+  tokens?: number | null
+  requestSize?: string
+  billingWidth?: number
+  billingHeight?: number
+  supported?: boolean
+}
+type PublicModelPricing = { id: string; label: string; formats: PublicModelFormatPricing[] }
+type PublicOpenRouterPricing = { models?: PublicModelPricing[] }
 
 function coreModeFromTab(tab: N2Tab): CoreStudioMode | null {
   if (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face') return tab
@@ -121,6 +133,22 @@ function shapeFromSize(width?: number, height?: number): PreviewShape {
   if (ratio > 1.18) return 'wide'
   if (ratio < 0.82) return 'tall'
   return 'square'
+}
+
+function pricingMapFromPayload(payload: unknown): Record<string, PublicModelPricing> {
+  const source = payload && typeof payload === 'object' ? payload as PublicOpenRouterPricing : {}
+  const models = Array.isArray(source.models) ? source.models : []
+  return models.reduce((acc, model) => {
+    if (model?.id) acc[model.id] = { ...model, formats: Array.isArray(model.formats) ? model.formats : [] }
+    return acc
+  }, {} as Record<string, PublicModelPricing>)
+}
+
+function formatPricingId(resolution: ResolutionPreset) {
+  if (resolution.kind === 'square') return 'square'
+  if (resolution.kind === 'vertical') return 'portrait'
+  const ratio = resolution.width / Math.max(1, resolution.height)
+  return ratio < 1.65 ? 'soft_wide' : 'wide'
 }
 
 function loadImageShape(url: string): Promise<PreviewShape> {
@@ -936,6 +964,7 @@ export default function NewStudio(): ReactElement {
   const [tariffsState, setTariffsState] = useState<'loading' | 'ready' | 'fallback'>('loading')
   const [tokenRub, setTokenRub] = useState(5)
   const [modelAccess, setModelAccess] = useState<UserModelAccess>(() => normalizeModelAccess(null))
+  const [openrouterPricing, setOpenrouterPricing] = useState<Record<string, PublicModelPricing>>({})
   const [userModelChoices, setUserModelChoices] = useState<UserModelChoices>(() => {
     try {
       const raw = window.localStorage.getItem('izo:user-model-choices')
@@ -1183,6 +1212,7 @@ export default function NewStudio(): ReactElement {
         if (data?.tariffs) {
           setTariffs(normalizeTariffs(data.tariffs))
           if (data.modelAccess) setModelAccess(normalizeModelAccess(data.modelAccess, (me?.account?.plan || 'mini') as TariffKey))
+          if (data.openrouterPricing) setOpenrouterPricing(pricingMapFromPayload(data.openrouterPricing))
           if (typeof data.economy?.tokenRub === 'number' && data.economy.tokenRub > 0) setTokenRub(data.economy.tokenRub)
           setTariffsState('ready')
         } else {
@@ -1200,7 +1230,10 @@ export default function NewStudio(): ReactElement {
     apiFetch('/model-access')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (!cancelled && data?.ok) setModelAccess(normalizeModelAccess(data, (me?.account?.plan || 'mini') as TariffKey))
+        if (!cancelled && data?.ok) {
+          setModelAccess(normalizeModelAccess(data, (me?.account?.plan || 'mini') as TariffKey))
+          if (data.openrouterPricing) setOpenrouterPricing(pricingMapFromPayload(data.openrouterPricing))
+        }
       })
       .catch(() => undefined)
     return () => { cancelled = true }
@@ -2109,6 +2142,20 @@ export default function NewStudio(): ReactElement {
   const currentModelMode = modelModeFromStudio(studioMode, paintMode)
   const currentModeAccess = modelAccess.modes[currentModelMode]
   const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
+  const currentFormatPricingId = formatPricingId(selectedResolution)
+  const pricingForModel = (model: ModelOption) => model.provider === 'openrouter'
+    ? openrouterPricing[model.id]?.formats.find((fmt) => fmt.id === currentFormatPricingId && fmt.supported !== false)
+    : undefined
+  const tokenCostForModel = (model: ModelOption) => {
+    const priced = pricingForModel(model)
+    return typeof priced?.tokens === 'number' && priced.tokens > 0 ? priced.tokens : model.tokenHint
+  }
+  const formatSummaryForModel = (model: ModelOption) => {
+    if (model.provider !== 'openrouter') return '1:1 · 9:16 · 16:9 · 3:2'
+    const formats = openrouterPricing[model.id]?.formats || []
+    const available = formats.filter((fmt) => fmt.supported !== false).map((fmt) => `${fmt.short} ${fmt.tokens ?? model.tokenHint}т`)
+    return available.length ? available.join(' · ') : 'форматы уточняются'
+  }
   const visibleStudioModels = (currentModeAccess?.models || [])
     .filter((model) => userModelVisibility[currentModelMode]?.[model.id] !== false)
   const studioModelEnabled = (model: ModelOption) => model.provider !== 'openrouter' || currentModelMode === 'text_to_image'
@@ -2117,8 +2164,8 @@ export default function NewStudio(): ReactElement {
     .sort((a, b) => {
       if (studioModelSort === 'name-asc') return a.label.localeCompare(b.label, 'ru')
       if (studioModelSort === 'name-desc') return b.label.localeCompare(a.label, 'ru')
-      if (studioModelSort === 'tokens-desc') return b.tokenHint - a.tokenHint || a.label.localeCompare(b.label, 'ru')
-      return a.tokenHint - b.tokenHint || a.label.localeCompare(b.label, 'ru')
+      if (studioModelSort === 'tokens-desc') return tokenCostForModel(b) - tokenCostForModel(a) || a.label.localeCompare(b.label, 'ru')
+      return tokenCostForModel(a) - tokenCostForModel(b) || a.label.localeCompare(b.label, 'ru')
     })
   function selectStudioModel(model: ModelOption) {
     setUserModelChoices((current) => ({
@@ -2136,6 +2183,8 @@ export default function NewStudio(): ReactElement {
   }
   const currentStudioModel = studioSelectedModel(currentModelMode, selectedQuality)
   const currentStudioModelInfo = modelPublicInfo(currentStudioModel)
+  const currentStudioTokenCost = tokenCostForModel(currentStudioModel)
+  const currentStudioFormatPrice = pricingForModel(currentStudioModel)
   const generateLabel = isI2IStudio ? 'Преобразовать' : isEditStudio ? 'Создать изображение' : isFaceStudio ? 'Заменить лицо' : isPaintStudio ? paintMode === 'remove_bg' ? 'Удалить фон' : paintMode === 'outpaint' ? 'Расширить' : 'Создать по рисунку' : 'Сгенерировать'
   const generatingLabel = isI2IStudio ? 'Преобразуем...' : isEditStudio ? 'Создаём...' : isFaceStudio ? 'Заменяем...' : isPaintStudio ? 'Готовим рисунок...' : 'Генерируем...'
   const influenceStyle = { '--i2i-range-progress': `${strengthPct}%` } as CSSProperties
@@ -3123,9 +3172,20 @@ export default function NewStudio(): ReactElement {
             <div className="studio-selected-model">
               <div>
                 <strong>{currentStudioModel.label}</strong>
-                <span>{currentStudioModel.tokenHint} ток.</span>
+                <span>{currentStudioTokenCost} ток.</span>
               </div>
               <p>{currentStudioModelInfo.description}</p>
+              <div className="studio-model-meta">
+                <span>{currentStudioModelInfo.company} · {currentStudioModelInfo.year}</span>
+                <span>{selectedResolution.width}×{selectedResolution.height}{currentStudioFormatPrice?.requestSize ? ` → ${currentStudioFormatPrice.requestSize}` : ''}</span>
+              </div>
+              <div className="studio-model-formats" aria-label="Стоимость по форматам">
+                {currentStudioModel.provider === 'openrouter'
+                  ? (openrouterPricing[currentStudioModel.id]?.formats || []).map((fmt) => (
+                    <span key={fmt.id} className={fmt.id === currentFormatPricingId ? 'active' : ''}>{fmt.short}: {fmt.tokens ?? currentStudioModel.tokenHint}т</span>
+                  ))
+                  : <span className="active">Серверная модель: {currentStudioModel.tokenHint}т</span>}
+              </div>
             </div>
             <div className="studio-model-sort" aria-label="Сортировка моделей">
               <span>Сортировка</span>
@@ -3146,7 +3206,7 @@ export default function NewStudio(): ReactElement {
                     role="option"
                   >
                     <span className="studio-model-main"><strong>{model.label}</strong><small>{info.strengths.slice(0, 2).join(' · ')}</small></span>
-                    <span className="studio-model-cost">{model.tokenHint} ток.</span>
+                    <span className="studio-model-cost"><b>{tokenCostForModel(model)} ток.</b><small>{formatSummaryForModel(model)}</small></span>
                   </button>
                 )
               })}
@@ -3161,7 +3221,7 @@ export default function NewStudio(): ReactElement {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />
           </svg>
-          {jobActive || isSubmitting ? generatingLabel : generateLabel}
+          {jobActive || isSubmitting ? generatingLabel : <>{generateLabel}<span className="generate-token-cost">{currentStudioTokenCost} ток.</span></>}
         </button>
       </aside>
 

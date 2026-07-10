@@ -7708,10 +7708,12 @@ def _request_plan_or_default(request: Request | None, default: str = "mini") -> 
 async def tariffs(request: Request) -> dict[str, Any]:
     economy = openrouter_economy_settings()
     plan = _request_plan_or_default(request)
+    exchange = await fetch_usd_rub_rate()
     return {
         "ok": True,
         "tariffs": get_tariff_config(),
         "modelAccess": public_model_access_for_plan(plan),
+        "openrouterPricing": public_openrouter_pricing(exchange),
         "economy": {
             "tokenRub": economy["tokenRub"],
         },
@@ -12895,6 +12897,37 @@ def openrouter_admin_pricing_rows(exchange: dict[str, Any], economy: dict[str, f
     return rows
 
 
+def public_openrouter_pricing(exchange: dict[str, Any]) -> dict[str, Any]:
+    economy = openrouter_economy_settings()
+    rows = openrouter_admin_pricing_rows(exchange, economy)
+    return {
+        "formats": [
+            {"id": fmt["id"], "label": fmt["label"], "short": fmt["short"]}
+            for fmt in OPENROUTER_ADMIN_FORMATS
+        ],
+        "models": [
+            {
+                "id": row["id"],
+                "label": row["name"],
+                "formats": [
+                    {
+                        "id": fmt["id"],
+                        "label": fmt["label"],
+                        "short": fmt["short"],
+                        "tokens": fmt.get("tokens"),
+                        "requestSize": fmt.get("requestSize"),
+                        "billingWidth": fmt.get("billingWidth"),
+                        "billingHeight": fmt.get("billingHeight"),
+                        "supported": fmt.get("supported", True),
+                    }
+                    for fmt in row.get("formats", [])
+                ],
+            }
+            for row in rows
+        ],
+    }
+
+
 async def estimate_openrouter_billing(req: GenerateRequest) -> dict[str, Any]:
     model_id = resolve_openrouter_model(req)
     model = OPENROUTER_PRICE_CATALOG.get(model_id)
@@ -13265,7 +13298,7 @@ async def model_access(request: Request) -> dict[str, Any]:
         if row is None and trusted["legacy_user_id"]:
             row = conn.execute("SELECT plan FROM users WHERE id = ?", (trusted["legacy_user_id"],)).fetchone()
     plan = str(row["plan"] if row else "mini").lower()
-    return {"ok": True, **public_model_access_for_plan(plan)}
+    return {"ok": True, **public_model_access_for_plan(plan), "openrouterPricing": public_openrouter_pricing(await fetch_usd_rub_rate())}
 
 
 @app.get("/api/admin/openrouter/status")
