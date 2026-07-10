@@ -40,7 +40,7 @@ import TopBarV3 from './TopBarV3'
 import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import ProfilePage, { type PublicProfileLink } from './ProfilePage'
-import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelPublicInfo, normalizeModelAccess, normalizeTariffs, qualityPresetLabels, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
+import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelPublicInfo, normalizeModelAccess, normalizeTariffs, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
 import { applyClientSeo, currentSeoLocale, type SeoMeta } from './seo'
@@ -92,6 +92,7 @@ type StudioPreviewState = {
 type ModelsPayload = { loras?: string[] }
 type LoraOption = { id: string; label: string; triggerWord: string; strength: number }
 type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
+type StudioModelSort = 'name-asc' | 'name-desc' | 'tokens-asc' | 'tokens-desc'
 
 function coreModeFromTab(tab: N2Tab): CoreStudioMode | null {
   if (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face') return tab
@@ -915,6 +916,7 @@ export default function NewStudio(): ReactElement {
   const formatRef = useRef<HTMLDivElement>(null)
   const [quality, setQuality] = useState('fast')
   const [proMode, setProMode] = useState(false)
+  const [studioModelSort, setStudioModelSort] = useState<StudioModelSort>('tokens-asc')
   const [seed, setSeed] = useState(0)
   const [guidance] = useState(3.5)
   const [strengthPct, setStrengthPct] = useState(75)
@@ -2036,13 +2038,16 @@ export default function NewStudio(): ReactElement {
   const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
   const visibleStudioModels = (currentModeAccess?.models || [])
     .filter((model) => userModelVisibility[currentModelMode]?.[model.id] !== false)
-  const selectableStudioModels = visibleStudioModels.length ? visibleStudioModels : currentModeAccess?.models || []
   const studioModelEnabled = (model: ModelOption) => model.provider !== 'openrouter' || currentModelMode === 'text_to_image'
+  const selectableStudioModels = (visibleStudioModels.length ? visibleStudioModels : currentModeAccess?.models || [])
+    .filter(studioModelEnabled)
+    .sort((a, b) => {
+      if (studioModelSort === 'name-asc') return a.label.localeCompare(b.label, 'ru')
+      if (studioModelSort === 'name-desc') return b.label.localeCompare(a.label, 'ru')
+      if (studioModelSort === 'tokens-desc') return b.tokenHint - a.tokenHint || a.label.localeCompare(b.label, 'ru')
+      return a.tokenHint - b.tokenHint || a.label.localeCompare(b.label, 'ru')
+    })
   function selectStudioModel(model: ModelOption) {
-    if (!studioModelEnabled(model)) {
-      showToast('Эта премиум-модель для текущей вкладки будет подключена следующим этапом')
-      return
-    }
     setUserModelChoices((current) => ({
       ...current,
       [currentModelMode]: { ...(current[currentModelMode] || {}), [selectedQuality]: model.id },
@@ -3023,59 +3028,58 @@ export default function NewStudio(): ReactElement {
         </section>
 
         <section className="form-section quality-section">
-          <div className="section-title">
-            <h2>Качество</h2>
+          <div className="section-title studio-model-title">
+            <h2>{proMode ? 'Модель' : 'Качество'}</h2>
+            {proMode && <span>{currentModeAccess?.label || studioTitle}</span>}
           </div>
-          <div className="quality-row">
-            {QUALITY.map((q) => (
-              <button
-                key={q.id}
-                className={`quality-button${quality === q.id ? ' active' : ''}`}
-                type="button"
-                onClick={() => setQuality(q.id)}
-              >
-                {q.label}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {proMode && (
-          <section className="form-section studio-model-section">
-            <div className="section-title studio-model-title">
-              <h2>Модель</h2>
-              <span>{currentModeAccess?.label || studioTitle}</span>
+          {!proMode ? (
+            <div className="quality-row">
+              {QUALITY.map((q) => (
+                <button
+                  key={q.id}
+                  className={`quality-button${quality === q.id ? ' active' : ''}`}
+                  type="button"
+                  onClick={() => setQuality(q.id)}
+                >
+                  {q.label}
+                </button>
+              ))}
             </div>
+          ) : (
+            <>
             <div className="studio-selected-model">
               <div>
                 <strong>{currentStudioModel.label}</strong>
-                <span>{qualityPresetLabels[selectedQuality]} · {currentStudioModel.tokenHint} ток.</span>
+                <span>{currentStudioModel.tokenHint} ток.</span>
               </div>
               <p>{currentStudioModelInfo.description}</p>
+            </div>
+            <div className="studio-model-sort" aria-label="Сортировка моделей">
+              <button type="button" className={studioModelSort.startsWith('name') ? 'active' : ''} onClick={() => setStudioModelSort((cur) => cur === 'name-asc' ? 'name-desc' : 'name-asc')}>Имя {studioModelSort === 'name-desc' ? '↓' : '↑'}</button>
+              <button type="button" className={studioModelSort.startsWith('tokens') ? 'active' : ''} onClick={() => setStudioModelSort((cur) => cur === 'tokens-asc' ? 'tokens-desc' : 'tokens-asc')}>Токены {studioModelSort === 'tokens-desc' ? '↓' : '↑'}</button>
             </div>
             <div className="studio-model-list" role="listbox" aria-label={`Модели для ${currentModeAccess?.label || studioTitle}`}>
               {selectableStudioModels.map((model) => {
                 const active = currentStudioModel.id === model.id
-                const enabled = studioModelEnabled(model)
                 const info = modelPublicInfo(model)
                 return (
                   <button
                     type="button"
                     key={`${currentModelMode}-${model.id}`}
-                    className={`studio-model-row${active ? ' active' : ''}${!enabled ? ' disabled' : ''}`}
+                    className={`studio-model-row${active ? ' active' : ''}`}
                     onClick={() => selectStudioModel(model)}
                     aria-selected={active}
                     role="option"
                   >
                     <span className="studio-model-main"><strong>{model.label}</strong><small>{info.strengths.slice(0, 2).join(' · ')}</small></span>
                     <span className="studio-model-cost">{model.tokenHint} ток.</span>
-                    <span className={enabled ? 'studio-model-status available' : 'studio-model-status pending'}>{enabled ? 'доступно' : 'скоро'}</span>
                   </button>
                 )
               })}
             </div>
-          </section>
-        )}
+            </>
+          )}
+        </section>
 
         {notice && <div className="iv3-notice" role="alert">{notice}</div>}
 
