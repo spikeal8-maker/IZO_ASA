@@ -58,6 +58,12 @@ the primary product catalog.
 - Backend: local text requests are stored with `steps = 4`.
 - Backend: public model access exposes Local and OpenRouter generation contracts.
 - Frontend: `smoke:text-contract` protects repeat, steps, isolation and result-dock rules.
+- The obsolete `smoke:generation-lock` test for the retired `App.tsx` generator was
+  removed; the active root studio is covered by the new contract smoke instead.
+- Legacy `smoke-ui` and duplicate `smoke-auth-modal` checks were removed. The retained
+  `smoke:auth-v2` now validates the active `newUi.tsx` root and cookie-auth module.
+- The generation-protection suite now reflects FaceSwap worker-side LoRA selection instead
+  of requiring the retired client-side explicit LoRA contract.
 - Frontend: production TypeScript/Vite build passes.
 - Desktop 1440x900 and mobile 390x844 have no quality-button overflow or browser errors.
 

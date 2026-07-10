@@ -145,6 +145,8 @@ def test_admin_openrouter_test_generate_records_cost(temp_db, monkeypatch):
             model=payload.modelProfile,
             usage={"images": 1},
             cost_usd=0.014,
+            width=payload.width,
+            height=payload.height,
             raw={},
         )
 

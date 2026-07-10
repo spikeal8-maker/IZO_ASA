@@ -292,20 +292,20 @@ def test_default_hourly_job_counter_does_not_block_generation(temp_db, authed_us
     assert r.status_code == 200
 
 
-def test_invalid_faceswap_does_not_spend_daily_budget(temp_db, authed_user):
+def test_faceswap_without_explicit_lora_uses_worker_autoselection(temp_db, authed_user):
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
     before_jobs = count("jobs")
     before_ledger = count("token_ledger")
     with TestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "faceswap", "prompt": "a cat", "width": 512, "height": 512, "steps": 1, "loras": []}, cookies={"onenode_session": sess["session_token"]})
-    assert r.status_code == 422
-    assert count("jobs") == before_jobs
-    assert count("token_ledger") == before_ledger
+    assert r.status_code == 200
+    assert count("jobs") == before_jobs + 1
+    assert count("token_ledger") == before_ledger + 1
     with main.db() as conn:
         user = conn.execute("SELECT token_balance, daily_tokens_used, tokens_used FROM users WHERE id=?", (authed_user["legacy_user_id"],)).fetchone()
     assert user["token_balance"] == 100
-    assert user["daily_tokens_used"] == 0
-    assert user["tokens_used"] == 0
+    assert user["daily_tokens_used"] == 1
+    assert user["tokens_used"] == 1
 
 
 def test_insufficient_balance_after_daily_budget_creates_no_job_or_ledger(temp_db, authed_user):

@@ -615,8 +615,10 @@ export default function AdminModelsV2() {
 
   useEffect(() => {
     if (pageTab !== 'config' || configStatus || configErr) return
-    void loadLocalModelData()
-    queueMicrotask(() => { void loadConfigStatus() })
+    queueMicrotask(() => {
+      void loadLocalModelData()
+      void loadConfigStatus()
+    })
   }, [configErr, configStatus, loadConfigStatus, loadLocalModelData, pageTab])
 
   async function configAction(kind: 'reload' | 'interrupt') {
