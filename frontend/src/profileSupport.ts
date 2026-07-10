@@ -49,7 +49,7 @@ export const modelModeLabels: Record<ModelModeKey, string> = {
   faceswap: 'Лицо / reference identity',
   remove_background: 'Удаление фона',
 }
-export const SERVER_MODEL_OPTION: ModelOption = { id: 'server:local_flux_klein', label: 'Серверная модель ИЗО', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1 }
+export const SERVER_MODEL_OPTION: ModelOption = { id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1 }
 export const modelOptions: ModelOption[] = [
   SERVER_MODEL_OPTION,
   { id: 'black-forest-labs/flux.2-klein-4b', label: 'FLUX.2 Klein 4B', provider: 'openrouter', modelProfile: 'black-forest-labs/flux.2-klein-4b', tokenHint: 1 },
@@ -90,8 +90,124 @@ export const modelOptions: ModelOption[] = [
   { id: 'sourceful/riverflow-v2-standard-preview', label: 'Riverflow V2 Standard Preview', provider: 'openrouter', modelProfile: 'sourceful/riverflow-v2-standard-preview', tokenHint: 2 },
   { id: 'sourceful/riverflow-v2-max-preview', label: 'Riverflow V2 Max Preview', provider: 'openrouter', modelProfile: 'sourceful/riverflow-v2-max-preview', tokenHint: 3 },
   { id: 'bytedance-seed/seedream-4.5', label: 'Seedream 4.5', provider: 'openrouter', modelProfile: 'bytedance-seed/seedream-4.5', tokenHint: 1 },
-  { id: 'openrouter/auto', label: 'Auto Router', provider: 'openrouter', modelProfile: 'openrouter/auto', tokenHint: 4 },
+  { id: 'openrouter/auto', label: 'ИЗО Auto Select', provider: 'openrouter', modelProfile: 'openrouter/auto', tokenHint: 4 },
 ]
+
+export type ModelPublicInfo = {
+  company: string
+  year: string
+  description: string
+  strengths: string[]
+}
+
+const modelPublicInfoById: Record<string, ModelPublicInfo> = {
+  'server:local_flux_klein': {
+    company: 'ИЗО',
+    year: '2026',
+    description: 'Базовая модель проекта для быстрых ежедневных генераций. Хорошо подходит для первых вариантов, черновиков и стабильного результата без лишних настроек.',
+    strengths: ['быстрый старт', 'стабильная генерация', 'экономное списание'],
+  },
+  'black-forest-labs/flux.2-klein-4b': {
+    company: 'FLUX',
+    year: '2026',
+    description: 'Легкая современная модель для быстрых изображений с хорошим балансом качества и стоимости.',
+    strengths: ['быстрая работа', 'хорошая детализация', 'подходит для большинства промптов'],
+  },
+  'black-forest-labs/flux.2-pro': {
+    company: 'FLUX',
+    year: '2026',
+    description: 'Более сильная модель для аккуратной композиции, лучшей детализации и сложных визуальных задач.',
+    strengths: ['выше качество', 'лучше сложные сцены', 'хороша для финальных вариантов'],
+  },
+  'black-forest-labs/flux.2-max': {
+    company: 'FLUX',
+    year: '2026',
+    description: 'Модель для максимального качества, когда важны детали, свет, материалы и более точное следование задаче.',
+    strengths: ['максимальная детализация', 'сложные промпты', 'премиальный результат'],
+  },
+  'black-forest-labs/flux.2-flex': {
+    company: 'FLUX',
+    year: '2026',
+    description: 'Гибкая модель для задач, где важны вариативность, художественная стилистика и тонкая настройка результата.',
+    strengths: ['гибкий стиль', 'качественная композиция', 'творческие варианты'],
+  },
+  'openrouter/auto': {
+    company: 'ИЗО Select',
+    year: '2026',
+    description: 'Автоматический выбор подходящей модели под задачу. Удобно, когда важен результат без ручного подбора.',
+    strengths: ['автовыбор', 'меньше настроек', 'универсальный режим'],
+  },
+}
+
+function familyInfo(model: ModelOption): ModelPublicInfo {
+  const id = model.id.toLowerCase()
+  if (id.includes('gpt')) {
+    return {
+      company: 'OpenAI',
+      year: '2026',
+      description: 'Сильная генеративная модель для точного понимания текстового задания, аккуратных деталей и понятной визуальной логики.',
+      strengths: ['хорошо понимает промпт', 'аккуратные детали', 'универсальный стиль'],
+    }
+  }
+  if (id.includes('gemini') || id.includes('nano-banana') || id.includes('google')) {
+    return {
+      company: 'Google',
+      year: '2026',
+      description: 'Модель для быстрых визуальных вариантов, хорошо подходит для идей, референсов и задач с понятной композицией.',
+      strengths: ['быстрые варианты', 'хорошая композиция', 'подходит для экспериментов'],
+    }
+  }
+  if (id.includes('recraft')) {
+    return {
+      company: 'Recraft',
+      year: '2026',
+      description: 'Модель с сильной стороной в графике, дизайне, чистых формах, иллюстрациях и визуалах для интерфейсов или бренда.',
+      strengths: ['дизайн и графика', 'чистые формы', 'иллюстративный стиль'],
+    }
+  }
+  if (id.includes('riverflow') || id.includes('sourceful')) {
+    return {
+      company: 'Riverflow',
+      year: '2026',
+      description: 'Модель для быстрых и выразительных изображений, хорошо подходит для визуальных набросков и серийных вариантов.',
+      strengths: ['быстрый рендер', 'серийные варианты', 'выразительная картинка'],
+    }
+  }
+  if (id.includes('seedream') || id.includes('bytedance')) {
+    return {
+      company: 'Seedream',
+      year: '2026',
+      description: 'Современная модель для ярких изображений, стилизованных сцен и творческих вариантов.',
+      strengths: ['яркая картинка', 'стилизация', 'творческие задачи'],
+    }
+  }
+  if (id.includes('grok') || id.includes('x-ai')) {
+    return {
+      company: 'xAI',
+      year: '2026',
+      description: 'Модель для выразительных сцен и смелых визуальных решений, когда нужен более характерный результат.',
+      strengths: ['выразительный стиль', 'сильные сцены', 'нестандартные варианты'],
+    }
+  }
+  if (id.includes('mai-image') || id.includes('microsoft')) {
+    return {
+      company: 'Microsoft',
+      year: '2026',
+      description: 'Универсальная модель для понятных изображений, концептов и рабочих визуальных задач.',
+      strengths: ['универсальность', 'понятная композиция', 'рабочие концепты'],
+    }
+  }
+  return {
+    company: 'Премиум-модель',
+    year: '2026',
+    description: 'Модель доступна в вашем тарифе и подходит для генерации изображений в выбранной вкладке.',
+    strengths: ['генерация изображений', 'работа с промптом', 'доступна в тарифе'],
+  }
+}
+
+export function modelPublicInfo(model: ModelOption): ModelPublicInfo {
+  return modelPublicInfoById[model.id] || familyInfo(model)
+}
 export const resolutionOptions = [
   { id: 'sq-1024', label: '1024×1024' },
   { id: 'h-1280', label: '1280×720' },

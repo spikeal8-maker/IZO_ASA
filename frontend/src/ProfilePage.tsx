@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
 import { Copy, Link as LinkIcon, Lock, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles } from 'lucide-react'
 import type { AuthStatusV2, MeV2 } from './authV2'
-import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelModeOrder, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
+import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelModeOrder, modelPublicInfo, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
 
 type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
 type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
@@ -152,16 +152,6 @@ export default function ProfilePage({
   const selectedModel = modelAccessOption(modelAccess, 'text_to_image', selectedQuality, userModelChoices)
   const tokenPrice = selectedModel.tokenHint
   const accessRows = modelModeOrder.map((mode) => modelAccess.modes[mode]).filter(Boolean)
-  const catalogRows = Array.from(accessRows.reduce((map, access) => {
-    if (!access) return map
-    for (const model of access.models) {
-      const current = map.get(model.id) || { model, modes: [] as string[] }
-      current.modes.push(access.label)
-      map.set(model.id, current)
-    }
-    return map
-  }, new Map<string, { model: ReturnType<typeof modelAccessOption>; modes: string[] }>()).values())
-    .sort((a, b) => a.model.label.localeCompare(b.model.label, 'ru'))
   const setModeModelChoice = (mode: ModelModeKey, preset: QualityPreset, modelId: string) => {
     setUserModelChoices((current) => ({ ...current, [mode]: { ...(current[mode] || {}), [preset]: modelId } }))
   }
@@ -431,16 +421,16 @@ export default function ProfilePage({
 
           {profileTab === 'models' && <>
             <section className="profile-section">
-              <div className="profile-model-summary"><article className="profile-card profile-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article><article className="profile-card profile-stat-card"><span>Дневной лимит</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></article><article className="profile-card profile-stat-card"><span>Выбрано качество</span><strong>{qualityPresetLabels[selectedQuality]}</strong><small>{selectedModel.label}</small></article><article className="profile-card profile-stat-card"><span>Стоимость</span><strong>{tokenPrice}</strong><small>{tokenPrice === 1 ? 'токен' : 'токена'}</small></article></div>
-              <div className="profile-section-head"><h3>Модели и стоимость</h3><span>Стоимость будет показана перед генерацией</span></div>
+              <div className="profile-model-summary"><article className="profile-card profile-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article><article className="profile-card profile-stat-card"><span>Дневной лимит</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></article><article className="profile-card profile-stat-card"><span>Выбрано качество</span><strong>{qualityPresetLabels[selectedQuality]}</strong><small>{selectedModel.label}</small></article><article className="profile-card profile-stat-card"><span>Списание</span><strong>{tokenPrice} ток.</strong><small>за выбранную модель</small></article></div>
+              <div className="profile-section-head"><h3>Модели по умолчанию</h3><span>Эти модели подставляются в генератор при выборе качества</span></div>
               <div className="profile-models">
                 {qualityPresets.map((preset) => {
                   const option = modelAccessOption(modelAccess, 'text_to_image', preset, userModelChoices)
                   const Icon = preset === 'fast' ? Sparkles : preset === 'standard' ? WandSparkles : SlidersHorizontal
-                  return <button type="button" key={preset} className={selectedQuality === preset ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality(preset)}><Icon size={26} /><b>{qualityPresetLabels[preset]}</b><span>{option.tokenHint} {option.tokenHint === 1 ? 'токен' : 'токена'}</span><small>{option.label}</small></button>
+                  return <button type="button" key={preset} className={selectedQuality === preset ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality(preset)}><Icon size={26} /><b>{qualityPresetLabels[preset]}</b><span>{option.label} · {option.tokenHint} ток.</span><small>будет списано при генерации</small></button>
                 })}
               </div>
-              <div className="profile-estimate"><span>Выбрано: <strong>{qualityPresetLabels[selectedQuality]}</strong></span><span>Модель: <strong>{selectedModel.label}</strong></span><span>Примерная стоимость: <strong>{tokenPrice} {tokenPrice === 1 ? 'токен' : 'токена'}</strong></span></div>
+              <div className="profile-estimate"><span>По умолчанию: <strong>{qualityPresetLabels[selectedQuality]}</strong></span><span><strong>{selectedModel.label}</strong> · {tokenPrice} ток.</span><span>Перед генерацией списание будет показано еще раз</span></div>
               <div className="profile-section-head"><h3>Доступные модели по вкладкам</h3><span>Можно выбрать модель для каждого качества</span></div>
               <div className="profile-mode-models">
                 {accessRows.map((access) => {
@@ -464,14 +454,27 @@ export default function ProfilePage({
                   </article>
                 })}
               </div>
-              <div className="profile-section-head"><h3>Полный список моделей</h3><span>{catalogRows.length} моделей в вашем тарифе</span></div>
+              <div className="profile-section-head"><h3>Каталог моделей</h3><span>Откройте вкладку, чтобы посмотреть модели и описание</span></div>
               <div className="profile-model-catalog">
-                <div className="profile-model-catalog-head"><span>Модель</span><span>Стоимость</span><span>Доступна во вкладках</span></div>
-                {catalogRows.map(({ model, modes }) => <div className="profile-model-catalog-row" key={model.id}>
-                  <strong>{model.label}</strong>
-                  <span>{model.tokenHint} {model.tokenHint === 1 ? 'токен' : 'токена'}</span>
-                  <small>{modes.join(' · ')}</small>
-                </div>)}
+                {accessRows.map((access) => {
+                  if (!access) return null
+                  return <details className="profile-model-group" key={`catalog-${access.id}`}>
+                    <summary><strong>{access.label}</strong><span>{access.models.length} моделей</span></summary>
+                    <div className="profile-model-info-list">
+                      {access.models.map((model) => {
+                        const info = modelPublicInfo(model)
+                        return <details className="profile-model-info-row" key={`${access.id}-${model.id}`}>
+                          <summary><strong>{model.label}</strong><span>{model.tokenHint} ток.</span></summary>
+                          <div className="profile-model-info-body">
+                            <p>{info.description}</p>
+                            <div className="profile-model-info-meta"><span>Год: <b>{info.year}</b></span><span>Семейство: <b>{info.company}</b></span></div>
+                            <ul>{info.strengths.map((item) => <li key={item}>{item}</li>)}</ul>
+                          </div>
+                        </details>
+                      })}
+                    </div>
+                  </details>
+                })}
               </div>
             </section>
           </>}

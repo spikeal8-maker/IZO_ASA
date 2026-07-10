@@ -12674,7 +12674,7 @@ def _public_model_option(model_id: str) -> dict[str, Any]:
     if model_id == "server:local_flux_klein":
         return {
             "id": "server:local_flux_klein",
-            "label": "Серверная модель ИЗО",
+            "label": "ИЗО Base",
             "provider": "comfyui",
             "modelProfile": "local_flux_klein",
             "tokenHint": 1,
