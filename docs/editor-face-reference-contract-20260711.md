@@ -9,6 +9,7 @@ This contract covers the `Сборка` reference card when its role is `Лиц�
   user chooses `Лицо`, so the role can always be changed back.
 - Face strength is a normal horizontal range below the role select.
 - The range has one small native thumb. No percentage badge follows the thumb.
+- The range resets global form-field chrome: no outer border, padding, minimum height or shadow.
 - A separate percentage button is placed in a stable 34 px column at the right edge.
 - The button displays the current value with `%` and resets the value to `75%` on click.
 

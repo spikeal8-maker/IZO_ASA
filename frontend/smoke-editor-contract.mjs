@@ -15,6 +15,9 @@ ok(!css.includes('.editor-role-controls:has(.editor-face-strength)'), 'face role
 ok(!css.includes('.editor-face-thumb-value'), 'obsolete moving percentage thumb CSS must be removed')
 ok(/\.editor-face-strength\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 34px/s.test(css), 'face range and percentage must use stable columns')
 ok(/\.editor-face-value\s*\{[^}]*position:\s*static/s.test(css), 'face percentage must not follow the range thumb')
+ok(/\.editor-face-range\s*\{[^}]*min-height:\s*0/s.test(css), 'face range must reset the global input minimum height')
+ok(/\.editor-face-range\s*\{[^}]*border:\s*0/s.test(css), 'face range must not inherit the global input border')
+ok(/\.editor-face-range\s*\{[^}]*box-shadow:\s*none/s.test(css), 'face range must not inherit form-field shadow')
 
 if (failures.length) {
   console.error('smoke-editor-contract FAILED:')
