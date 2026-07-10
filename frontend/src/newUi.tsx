@@ -1325,7 +1325,12 @@ export default function NewStudio(): ReactElement {
     if (!job || !JOB_ACTIVE.includes(job.status)) return
     const timer = window.setInterval(async () => {
       try {
-        const next: N2Job = await apiFetch(`/jobs/${job.id}`).then((r) => r.json())
+        const response = await apiFetch(`/jobs/${job.id}`)
+        if (!response.ok) {
+          if (response.status === 404) setNotice('Задача не найдена. Обновите историю, если результат уже сохранился.')
+          return
+        }
+        const next: N2Job = await response.json()
         setJob(next)
         if (next.status === 'completed') {
           const freshGallery = await fetchGallery()
@@ -1355,9 +1360,16 @@ export default function NewStudio(): ReactElement {
             }
           }
           if (completedImageId) setDockImageId(completedImageId)
+          if (!completedUrl) setNotice('Генерация завершилась, но результат ещё сохраняется. Обновляю историю...')
           void refreshAuthStateV2()
         } else if (next.status === 'failed') {
           setNotice(next.error || 'Генерация не удалась. Попробуйте ещё раз.')
+          if (jobMode === 'paint') {
+            setResultError(true)
+          } else {
+            const coreMode = jobMode as CoreStudioMode
+            setPreviewByMode((cur) => ({ ...cur, [coreMode]: { ...cur[coreMode], error: true } }))
+          }
         }
       } catch {
         /* сеть мигнула — следующий тик */
@@ -3289,6 +3301,8 @@ export default function NewStudio(): ReactElement {
               <span className="iv3-preview-empty-mark" aria-hidden="true">✦</span>
               {visibleResultError ? (
                 <p>Предыдущий результат не загрузился. Новый появится здесь.</p>
+              ) : previewJobActive ? (
+                <p>Генерация идёт. Результат появится здесь автоматически.</p>
               ) : (
                 <p>
                   <span className="iv3-preview-empty-desktop">Опишите идею слева и нажмите «Сгенерировать»</span>

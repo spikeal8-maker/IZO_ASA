@@ -82,6 +82,35 @@ def test_user_tariffs_and_model_access_follow_admin_settings(temp_db):
     assert "black-forest-labs/flux.2-max" in [item["id"] for item in text_mode["models"]]
 
 
+def test_job_status_restores_completed_result_from_database(temp_db):
+    make_user("iuid-user", "web_user", plan="pro")
+    token = main.create_auth_session("iuid-user", "web_user", provider="web_email", platform="web")["session_token"]
+    now = datetime.now(timezone.utc).isoformat()
+    settings = {"modelProfile": "openai/gpt-image-2", "tokenCost": 1, "generationTimeMs": 1234}
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id, user_id, mode, provider, status, progress, prompt_original, prompt_translated, result_image_id, error_message, settings_json, created_at, started_at, completed_at) "
+            "VALUES ('job_db_result', 'web_user', 'text_to_image', 'openrouter', 'completed', 100, 'test prompt', '', 'img_db_result', NULL, ?, ?, ?, ?)",
+            (json.dumps(settings, ensure_ascii=False), now, now, now),
+        )
+        conn.execute(
+            "INSERT INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider, prompt_original, prompt_translated, settings_json, is_favorite, created_at) "
+            "VALUES ('img_db_result', 'web_user', 'job_db_result', '/api/media/web_user/result.png', '/api/media/web_user/thumb.png', 1024, 1024, 'text_to_image', 'openrouter', 'test prompt', '', ?, 0, ?)",
+            (json.dumps(settings, ensure_ascii=False), now),
+        )
+    main.jobs.clear()
+
+    with TestClient(main.app) as client:
+        response = client.get("/api/jobs/job_db_result", headers=bearer(token))
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "completed"
+    assert body["resultImageId"] == "img_db_result"
+    assert body["resultUrl"] == "/api/media/web_user/result.png"
+    assert body["tokenCost"] == 1
+
+
 def test_account_token_history_counts_balance_and_included_usage(temp_db):
     make_user("iuid-user", "web_user", plan="pro", balance=25)
     token = main.create_auth_session("iuid-user", "web_user", provider="web_email", platform="web")["session_token"]

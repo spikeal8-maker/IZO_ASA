@@ -2407,31 +2407,36 @@ display: -webkit-box;
 overflow: hidden;
 }
 .iv3 .studio-model-sort {
-display: grid;
-grid-template-columns: auto auto auto;
-gap: 6px;
+display: flex;
+gap: 4px;
 align-items: center;
 justify-content: center;
+width: fit-content;
+max-width: 100%;
+margin: -2px auto 0;
 }
 .iv3 .studio-model-sort span {
 color: var(--muted);
-font-size: 11px;
-font-weight: 720;
+font-size: 10px;
+font-weight: 650;
+line-height: 1;
+margin-right: 2px;
 }
 .iv3 .studio-model-sort button {
-min-height: 24px;
-border: 1px solid var(--line-strong);
-border-radius: 7px;
-background: rgba(255,255,255,.035);
+min-height: 19px;
+border: 1px solid rgba(255,255,255,.14);
+border-radius: 999px;
+background: rgba(255,255,255,.025);
 color: var(--muted);
-padding: 0 12px;
-font-size: 12px;
-font-weight: 720;
+padding: 0 8px;
+font-size: 10.5px;
+font-weight: 650;
+line-height: 18px;
 }
 .iv3 .studio-model-sort button.active {
-border-color: rgba(182, 207, 18, .55);
+border-color: rgba(182, 207, 18, .45);
 color: var(--lime);
-background: rgba(182, 207, 18, .08);
+background: rgba(182, 207, 18, .06);
 }
 .iv3 .studio-model-list {
 display: grid;

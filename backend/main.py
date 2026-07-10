@@ -4490,9 +4490,61 @@ def load_db_state() -> None:
             }
 
 
+def job_response_from_row(row: sqlite3.Row, image_row: sqlite3.Row | None = None) -> dict[str, Any]:
+    settings = safe_json_load(row["settings_json"]) or {}
+    result_url = _row_get(image_row, "url") or settings.get("resultUrl")
+    thumb_url = _row_get(image_row, "thumbnail_url")
+    response: dict[str, Any] = {
+        "id": row["id"],
+        "userId": row["user_id"],
+        "mode": row["mode"],
+        "provider": row["provider"],
+        "status": row["status"],
+        "progress": row["progress"],
+        "message": row["error_message"] or ("Готово" if row["status"] == "completed" else row["status"]),
+        "resultImageId": row["result_image_id"],
+        "resultUrl": result_url,
+        "thumbnailUrl": thumb_url,
+        "createdAt": row["created_at"],
+        "completedAt": row["completed_at"],
+        "tokenCost": settings.get("tokenCost"),
+        "openrouterBilling": settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else None,
+    }
+    if row["error_message"]:
+        response["error"] = row["error_message"]
+    if image_row is not None:
+        image_settings = safe_json_load(_row_get(image_row, "settings_json")) or {}
+        response.update({
+            "width": _row_get(image_row, "width"),
+            "height": _row_get(image_row, "height"),
+            "modelProfile": _user_model_name(image_settings.get("modelProfile") or settings.get("modelProfile") or row["provider"]),
+            "generationTimeMs": image_settings.get("generationTimeMs"),
+        })
+    return response
+
+
+def get_persisted_job_response(job_id: str, user_id: str) -> dict[str, Any] | None:
+    with db() as conn:
+        row = conn.execute("SELECT * FROM jobs WHERE id = ? AND user_id = ?", (job_id, user_id)).fetchone()
+        if row is None:
+            return None
+        image_row = None
+        if row["result_image_id"]:
+            image_row = conn.execute(
+                f"SELECT * FROM images WHERE id = ? AND user_id = ? AND {ACTIVE_IMAGE_WHERE}",
+                (row["result_image_id"], user_id),
+            ).fetchone()
+        if image_row is None:
+            image_row = conn.execute(
+                f"SELECT * FROM images WHERE job_id = ? AND user_id = ? AND {ACTIVE_IMAGE_WHERE} ORDER BY created_at DESC LIMIT 1",
+                (job_id, user_id),
+            ).fetchone()
+        return job_response_from_row(row, image_row)
+
+
 def persist_job(job: dict[str, Any], request: GenerateRequest | None = None, conn: sqlite3.Connection | None = None) -> None:
     settings = request.model_dump() if request else job.get("request", {})
-    for key in ("tokenCost", "openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd", "openrouterBilling"):
+    for key in ("tokenCost", "resultUrl", "gallerySaveStatus", "galleryQuota", "openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd", "openrouterBilling"):
         if key in job:
             settings[key] = job.get(key)
     def write(target_conn: sqlite3.Connection) -> None:
@@ -7275,13 +7327,23 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
 
 @app.get("/api/jobs/{job_id}")
 async def get_job(job_id: str, request: Request) -> dict[str, Any]:
-    if job_id not in jobs:
-        raise HTTPException(404, "Job not found")
     trusted = require_trusted_user(request)
     user_id = trusted["legacy_user_id"]
-    if jobs[job_id].get("userId") != user_id:
+    job = jobs.get(job_id)
+    if job is not None:
+        if job.get("userId") != user_id:
+            raise HTTPException(404, "Job not found")
+        response = {k: v for k, v in job.items() if k != "request"}
+        if response.get("status") == "completed" and not response.get("resultUrl"):
+            persisted = get_persisted_job_response(job_id, user_id)
+            if persisted:
+                response.update({k: v for k, v in persisted.items() if v is not None})
+                job.update({k: v for k, v in response.items() if k != "request"})
+        return response
+    persisted = get_persisted_job_response(job_id, user_id)
+    if persisted is None:
         raise HTTPException(404, "Job not found")
-    return {k: v for k, v in jobs[job_id].items() if k != "request"}
+    return persisted
 
 
 @app.post("/api/jobs/{job_id}/cancel")
