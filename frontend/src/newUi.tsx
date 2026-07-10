@@ -40,7 +40,7 @@ import TopBarV3 from './TopBarV3'
 import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import ProfilePage, { type PublicProfileLink } from './ProfilePage'
-import { DEFAULT_TARIFFS, avatarPresets, modelOptionById, normalizeTariffs, type QualityPreset, type TariffConfig, type TariffKey } from './profileSupport'
+import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, normalizeModelAccess, normalizeTariffs, type ModelModeKey, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
 import { applyClientSeo, currentSeoLocale, type SeoMeta } from './seo'
@@ -91,10 +91,22 @@ type StudioPreviewState = {
 }
 type ModelsPayload = { loras?: string[] }
 type LoraOption = { id: string; label: string; triggerWord: string; strength: number }
+type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
 
 function coreModeFromTab(tab: N2Tab): CoreStudioMode | null {
   if (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face') return tab
   return null
+}
+
+function modelModeFromStudio(mode: StudioMode, paintMode: PaintSubMode): ModelModeKey {
+  if (mode === 'text') return 'text_to_image'
+  if (mode === 'i2i') return 'image_to_image'
+  if (mode === 'edit') return 'edit'
+  if (mode === 'face') return 'faceswap'
+  if (paintMode === 'mask') return 'inpaint'
+  if (paintMode === 'outpaint') return 'outpaint'
+  if (paintMode === 'remove_bg') return 'remove_background'
+  return 'paint'
 }
 
 function emptyPreview(): StudioPreviewState {
@@ -915,6 +927,15 @@ export default function NewStudio(): ReactElement {
   const [tariffs, setTariffs] = useState<TariffConfig>(DEFAULT_TARIFFS)
   const [tariffsState, setTariffsState] = useState<'loading' | 'ready' | 'fallback'>('loading')
   const [tokenRub, setTokenRub] = useState(5)
+  const [modelAccess, setModelAccess] = useState<UserModelAccess>(() => normalizeModelAccess(null))
+  const [userModelChoices, setUserModelChoices] = useState<UserModelChoices>(() => {
+    try {
+      const raw = window.localStorage.getItem('izo:user-model-choices')
+      return raw ? JSON.parse(raw) as UserModelChoices : {}
+    } catch {
+      return {}
+    }
+  })
   const [displayName, setDisplayName] = useState(me?.profile?.display_name || '')
   const [profileGender, setProfileGender] = useState<'female' | 'male'>(me?.profile?.gender === 'male' ? 'male' : 'female')
   const [profileAge, setProfileAge] = useState(me?.profile?.age ? String(me.profile.age) : '')
@@ -1155,6 +1176,25 @@ export default function NewStudio(): ReactElement {
       })
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    apiFetch('/model-access')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.ok) setModelAccess(normalizeModelAccess(data, (me?.account?.plan || 'mini') as TariffKey))
+      })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [me?.account?.plan])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('izo:user-model-choices', JSON.stringify(userModelChoices))
+    } catch {
+      // localStorage can be blocked; server-side access rules still apply.
+    }
+  }, [userModelChoices])
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -1546,10 +1586,9 @@ export default function NewStudio(): ReactElement {
     try {
       const style = I2I_STYLES.find((s) => s.id === styleId)
       const steps = QUALITY.find((q) => q.id === quality)?.steps || 4
-      const accountPlan = (me?.account?.plan || 'mini').toLowerCase() as TariffKey
-      const activeTariff = tariffs[accountPlan] || DEFAULT_TARIFFS.mini
       const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
-      const selectedModel = modelOptionById(activeTariff.model_defaults[selectedQuality])
+      const selectedModelMode = modelModeFromStudio(mode, paintMode)
+      const selectedModel = modelAccessOption(modelAccess, selectedModelMode, selectedQuality, userModelChoices)
       const effectiveSeed = seed || randomSeed()
       const requestSize = mode === 'face'
         ? await imageRequestSizeFromSource(faceSlots[0]?.image, size)
@@ -3300,6 +3339,9 @@ export default function NewStudio(): ReactElement {
       authCaps={authCaps}
       quality={quality}
       setQuality={setQuality}
+      modelAccess={modelAccess}
+      userModelChoices={userModelChoices}
+      setUserModelChoices={setUserModelChoices}
       displayName={displayName}
       setDisplayName={setDisplayName}
       profileGender={profileGender}

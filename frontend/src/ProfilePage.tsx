@@ -1,9 +1,10 @@
 import { useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
 import { Copy, Link as LinkIcon, Lock, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles } from 'lucide-react'
 import type { AuthStatusV2, MeV2 } from './authV2'
-import { DEFAULT_TARIFFS, avatarPresets, modelOptionById, qualityPresetLabels, tariffKeys, type QualityPreset, type TariffConfig, type TariffKey } from './profileSupport'
+import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelModeOrder, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
 
 type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
+type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
 export type PublicProfileLink = { label: string; url: string }
 
 type ProfilePageProps = {
@@ -19,6 +20,9 @@ type ProfilePageProps = {
   authCaps: { telegram_bot_login_available: boolean; max_bot_login_available: boolean }
   quality: string
   setQuality: Dispatch<SetStateAction<string>>
+  modelAccess: UserModelAccess
+  userModelChoices: UserModelChoices
+  setUserModelChoices: Dispatch<SetStateAction<UserModelChoices>>
   displayName: string
   setDisplayName: Dispatch<SetStateAction<string>>
   profileGender: 'female' | 'male'
@@ -71,6 +75,9 @@ export default function ProfilePage({
   authCaps,
   quality,
   setQuality,
+  modelAccess,
+  userModelChoices,
+  setUserModelChoices,
   displayName,
   setDisplayName,
   profileGender,
@@ -142,8 +149,11 @@ export default function ProfilePage({
   const friendPromoCode = `FRIEND-${String(me?.profile?.public_user_code || me?.internal_user_id || 'GUEST').replace(/^web_/, '').toUpperCase().slice(0, 12)}`
   const referralLink = `${window.location.origin}?ref=${me?.profile?.public_user_code || me?.internal_user_id || 'guest'}`
   const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
-  const selectedModel = modelOptionById(currentTariff.model_defaults[selectedQuality])
+  const selectedModel = modelAccessOption(modelAccess, 'text_to_image', selectedQuality, userModelChoices)
   const tokenPrice = selectedModel.tokenHint
+  const setModeModelChoice = (mode: ModelModeKey, preset: QualityPreset, modelId: string) => {
+    setUserModelChoices((current) => ({ ...current, [mode]: { ...(current[mode] || {}), [preset]: modelId } }))
+  }
   const copyPublicCode = async () => {
     const value = publicCode || 'GUEST'
     try {
@@ -413,13 +423,40 @@ export default function ProfilePage({
               <div className="profile-model-summary"><article className="profile-card profile-stat-card"><span>Баланс токенов</span><strong>{tokenBalance}</strong><small>токенов</small></article><article className="profile-card profile-stat-card"><span>Дневной лимит</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></article><article className="profile-card profile-stat-card"><span>Выбрано качество</span><strong>{qualityPresetLabels[selectedQuality]}</strong><small>{selectedModel.label}</small></article><article className="profile-card profile-stat-card"><span>Стоимость</span><strong>{tokenPrice}</strong><small>{tokenPrice === 1 ? 'токен' : 'токена'}</small></article></div>
               <div className="profile-section-head"><h3>Модели и стоимость</h3><span>Стоимость будет показана перед генерацией</span></div>
               <div className="profile-models">
-                {(['fast', 'standard', 'max'] as QualityPreset[]).map((preset) => {
-                  const option = modelOptionById(currentTariff.model_defaults[preset])
+                {qualityPresets.map((preset) => {
+                  const option = modelAccessOption(modelAccess, 'text_to_image', preset, userModelChoices)
                   const Icon = preset === 'fast' ? Sparkles : preset === 'standard' ? WandSparkles : SlidersHorizontal
                   return <button type="button" key={preset} className={selectedQuality === preset ? 'profile-card profile-model active' : 'profile-card profile-model'} onClick={() => setQuality(preset)}><Icon size={26} /><b>{qualityPresetLabels[preset]}</b><span>{option.tokenHint} {option.tokenHint === 1 ? 'токен' : 'токена'}</span><small>{option.label}</small></button>
                 })}
               </div>
               <div className="profile-estimate"><span>Выбрано: <strong>{qualityPresetLabels[selectedQuality]}</strong></span><span>Модель: <strong>{selectedModel.label}</strong></span><span>Примерная стоимость: <strong>{tokenPrice} {tokenPrice === 1 ? 'токен' : 'токена'}</strong></span></div>
+              <div className="profile-section-head"><h3>Доступные модели по вкладкам</h3><span>Можно выбрать модель для каждого качества</span></div>
+              <div className="profile-mode-models">
+                {modelModeOrder.map((mode) => {
+                  const access = modelAccess.modes[mode]
+                  if (!access) return null
+                  return <article className="profile-card profile-mode-card" key={mode}>
+                    <div className="profile-mode-head">
+                      <strong>{access.label}</strong>
+                      <span>{access.models.length} моделей</span>
+                    </div>
+                    <div className="profile-mode-presets">
+                      {qualityPresets.map((preset) => {
+                        const selected = modelAccessOption(modelAccess, mode, preset, userModelChoices)
+                        return <label key={preset}>
+                          <span>{qualityPresetLabels[preset]}</span>
+                          <select value={selected.id} onChange={(e) => setModeModelChoice(mode, preset, e.target.value)}>
+                            {access.models.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.tokenHint} ток.</option>)}
+                          </select>
+                        </label>
+                      })}
+                    </div>
+                    <div className="profile-mode-list">
+                      {access.models.map((item) => <span key={item.id}>{item.label}</span>)}
+                    </div>
+                  </article>
+                })}
+              </div>
             </section>
           </>}
         </>

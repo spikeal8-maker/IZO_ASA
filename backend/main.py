@@ -12641,6 +12641,80 @@ def openrouter_quality_model(config: dict[str, Any], mode: str, preset: str, tie
     return fallback if isinstance(fallback, str) and openrouter_model_allowed(config, mode, tier, fallback) else None
 
 
+PUBLIC_MODEL_MODE_LABELS = {
+    "text_to_image": "Текст -> изображение",
+    "image_to_image": "Изображение -> изображение",
+    "edit": "Сборка / multi-reference",
+    "paint": "Рисунок / sketch",
+    "inpaint": "Редактор - маска / inpaint",
+    "outpaint": "Редактор - расширение / outpaint",
+    "faceswap": "Лицо / reference identity",
+    "remove_background": "Удаление фона",
+}
+
+
+def _public_model_option(model_id: str) -> dict[str, Any]:
+    if model_id == "server:local_flux_klein":
+        return {
+            "id": "server:local_flux_klein",
+            "label": "Серверная модель ИЗО",
+            "provider": "comfyui",
+            "modelProfile": "local_flux_klein",
+            "tokenHint": 1,
+        }
+    price = OPENROUTER_PRICE_CATALOG.get(model_id)
+    return {
+        "id": model_id,
+        "label": price.name if price else model_id.split("/")[-1].replace("-", " ").title(),
+        "provider": "openrouter",
+        "modelProfile": model_id,
+        "tokenHint": price.min_tokens if price else 1,
+    }
+
+
+def public_model_access_for_plan(plan: str) -> dict[str, Any]:
+    if plan not in PLAN_ORDER:
+        plan = "mini"
+    tariff = get_tariff_config()[plan]
+    config = get_openrouter_config()
+    access = config.get("access") if isinstance(config.get("access"), dict) else {}
+    modes: dict[str, Any] = {}
+    for mode in sorted(PUBLIC_MODEL_MODE_LABELS.keys()):
+        ids = ["server:local_flux_klein"]
+        mode_access = access.get(mode) if isinstance(access.get(mode), dict) else {}
+        tier_ids = mode_access.get(plan) if isinstance(mode_access.get(plan), list) else []
+        for model_id in tier_ids:
+            if isinstance(model_id, str) and model_id not in ids:
+                ids.append(model_id)
+        models = [_public_model_option(model_id) for model_id in ids]
+        presets: dict[str, str] = {}
+        tariff_defaults = tariff.get("model_defaults") if isinstance(tariff.get("model_defaults"), dict) else {}
+        for preset in QUALITY_PRESETS:
+            default_id = str(tariff_defaults.get(preset) or "server:local_flux_klein")
+            if default_id == "server:local_flux_klein" or default_id in ids:
+                presets[preset] = default_id
+                continue
+            mode_default = openrouter_quality_model(config, mode, preset, plan)
+            presets[preset] = mode_default if mode_default in ids else "server:local_flux_klein"
+        modes[mode] = {
+            "id": mode,
+            "label": PUBLIC_MODEL_MODE_LABELS[mode],
+            "models": models,
+            "presets": presets,
+        }
+    return {"plan": plan, "modes": modes}
+
+
+@app.get("/api/model-access")
+async def model_access(request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    with db() as conn:
+        row = conn.execute("SELECT plan FROM users WHERE id = ?", (user_id,)).fetchone()
+    plan = str(row["plan"] if row else "mini").lower()
+    return {"ok": True, **public_model_access_for_plan(plan)}
+
+
 @app.get("/api/admin/openrouter/status")
 async def admin_openrouter_status(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)

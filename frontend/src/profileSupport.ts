@@ -2,6 +2,17 @@ export type TariffKey = 'free' | 'mini' | 'plus' | 'pro' | 'business'
 export type QualityPreset = 'fast' | 'standard' | 'max'
 export type ModelProvider = 'comfyui' | 'openrouter'
 export type TariffModelDefaults = Record<QualityPreset, string>
+export type ModelModeKey = 'text_to_image' | 'image_to_image' | 'edit' | 'paint' | 'inpaint' | 'outpaint' | 'faceswap' | 'remove_background'
+export type UserModelMode = {
+  id: ModelModeKey
+  label: string
+  models: ModelOption[]
+  presets: TariffModelDefaults
+}
+export type UserModelAccess = {
+  plan: TariffKey
+  modes: Partial<Record<ModelModeKey, UserModelMode>>
+}
 export type TariffRule = {
   title: string
   note: string
@@ -26,6 +37,17 @@ export const qualityPresetLabels: Record<QualityPreset, string> = {
   fast: 'Быстро',
   standard: 'Стандарт',
   max: 'Максимум',
+}
+export const modelModeOrder: ModelModeKey[] = ['text_to_image', 'image_to_image', 'edit', 'paint', 'inpaint', 'outpaint', 'faceswap', 'remove_background']
+export const modelModeLabels: Record<ModelModeKey, string> = {
+  text_to_image: 'Текст -> изображение',
+  image_to_image: 'Изображение -> изображение',
+  edit: 'Сборка / multi-reference',
+  paint: 'Рисунок / sketch',
+  inpaint: 'Редактор - маска / inpaint',
+  outpaint: 'Редактор - расширение / outpaint',
+  faceswap: 'Лицо / reference identity',
+  remove_background: 'Удаление фона',
 }
 export const SERVER_MODEL_OPTION: ModelOption = { id: 'server:local_flux_klein', label: 'Серверная модель ИЗО', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1 }
 export const modelOptions: ModelOption[] = [
@@ -136,4 +158,32 @@ export function modelOptionById(id: string) {
     return { id, label: short.replace(/[-_]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()), provider: 'openrouter' as const, modelProfile: id, tokenHint: 1 }
   }
   return SERVER_MODEL_OPTION
+}
+
+export function normalizeModelAccess(input: unknown, fallbackPlan: TariffKey = 'mini'): UserModelAccess {
+  const source = (input && typeof input === 'object' ? input : {}) as Partial<UserModelAccess>
+  const plan = tariffKeys.includes(source.plan as TariffKey) ? source.plan as TariffKey : fallbackPlan
+  const modes = modelModeOrder.reduce((acc, mode) => {
+    const raw = source.modes?.[mode]
+    const rawModels = Array.isArray(raw?.models) ? raw.models : [SERVER_MODEL_OPTION]
+    const models = rawModels.map((item) => modelOptionById(String(item.id || item.modelProfile || SERVER_MODEL_OPTION.id)))
+    const unique = Array.from(new Map([SERVER_MODEL_OPTION, ...models].map((item) => [item.id, item])).values())
+    const rawPresets = (raw?.presets || {}) as Partial<TariffModelDefaults>
+    const presets = qualityPresets.reduce((presetAcc, preset) => {
+      const value = String(rawPresets[preset] || SERVER_MODEL_OPTION.id)
+      presetAcc[preset] = unique.some((item) => item.id === value) ? value : SERVER_MODEL_OPTION.id
+      return presetAcc
+    }, { ...serverDefaults } as TariffModelDefaults)
+    acc[mode] = { id: mode, label: raw?.label || modelModeLabels[mode], models: unique, presets }
+    return acc
+  }, {} as Record<ModelModeKey, UserModelMode>)
+  return { plan, modes }
+}
+
+export function modelAccessOption(access: UserModelAccess | null | undefined, mode: ModelModeKey, preset: QualityPreset, userChoices?: Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>) {
+  const modeAccess = access?.modes?.[mode]
+  const models = modeAccess?.models?.length ? modeAccess.models : [SERVER_MODEL_OPTION]
+  const chosen = userChoices?.[mode]?.[preset]
+  const presetId = chosen && models.some((item) => item.id === chosen) ? chosen : modeAccess?.presets?.[preset]
+  return models.find((item) => item.id === presetId) || models[0] || SERVER_MODEL_OPTION
 }
