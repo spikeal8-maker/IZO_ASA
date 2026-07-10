@@ -721,6 +721,8 @@ class OpenRouterResult:
     model: str
     usage: dict[str, Any]
     cost_usd: float | None
+    width: int
+    height: int
     raw: dict[str, Any]
 
 
@@ -4641,7 +4643,7 @@ def get_persisted_job_response(job_id: str, user_id: str) -> dict[str, Any] | No
 
 def persist_job(job: dict[str, Any], request: GenerateRequest | None = None, conn: sqlite3.Connection | None = None) -> None:
     settings = request.model_dump() if request else job.get("request", {})
-    for key in ("tokenCost", "resultUrl", "gallerySaveStatus", "galleryQuota", "openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd", "openrouterBilling"):
+    for key in ("tokenCost", "resultUrl", "gallerySaveStatus", "galleryQuota", "openrouterRequest", "openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd", "openrouterBilling"):
         if key in job:
             settings[key] = job.get(key)
     def write(target_conn: sqlite3.Connection) -> None:
@@ -4697,6 +4699,7 @@ def persist_image(record: dict[str, Any], job_id: str) -> None:
         "openrouterUsage": record.get("openrouterUsage"),
         "openrouterCostUsd": record.get("openrouterCostUsd"),
         "openrouterBilling": record.get("openrouterBilling"),
+        "openrouterRequest": record.get("openrouterRequest"),
     }
     with db() as conn:
         conn.execute(
@@ -6086,6 +6089,62 @@ def resolve_openrouter_model(req: GenerateRequest) -> str:
     return aliases.get(raw, raw if "/" in raw else "black-forest-labs/flux.2-klein-4b")
 
 
+def _requested_orientation(width: int, height: int) -> str:
+    if width > height:
+        return "horizontal"
+    if height > width:
+        return "vertical"
+    return "square"
+
+
+def _openrouter_ratio_size(width: int, height: int) -> str:
+    if not width or not height:
+        return "auto"
+    g = math.gcd(int(width), int(height)) or 1
+    return f"{int(width) // g}:{int(height) // g}"
+
+
+def openrouter_image_request_plan(model_id: str, width: int, height: int) -> dict[str, Any]:
+    orientation = _requested_orientation(int(width or 1024), int(height or 1024))
+    if model_id.startswith("openai/"):
+        mapped = {
+            "square": (1024, 1024, "1024x1024"),
+            "horizontal": (1536, 1024, "1536x1024"),
+            "vertical": (1024, 1536, "1024x1536"),
+        }[orientation]
+        return {"size": mapped[2], "billing_width": mapped[0], "billing_height": mapped[1], "strategy": "openai_supported_size"}
+    if model_id.startswith("recraft/"):
+        mapped = {
+            "square": (1024, 1024, "1024x1024"),
+            "horizontal": (1536, 1024, "1536x1024"),
+            "vertical": (1024, 1536, "1024x1536"),
+        }[orientation]
+        return {"size": mapped[2], "billing_width": mapped[0], "billing_height": mapped[1], "strategy": "recraft_safe_size"}
+    if model_id.startswith("sourceful/"):
+        ratio = _openrouter_ratio_size(width, height)
+        return {"size": ratio, "billing_width": max(1024, int(width or 1024)), "billing_height": max(1024, int(height or 1024)), "strategy": "sourceful_aspect_ratio"}
+    if model_id.startswith("bytedance-seed/"):
+        mapped = {
+            "square": (2048, 2048),
+            "horizontal": (2560, 1440),
+            "vertical": (1440, 2560),
+        }[orientation]
+        return {"size": f"{mapped[0]}x{mapped[1]}", "billing_width": mapped[0], "billing_height": mapped[1], "strategy": "seed_min_pixels"}
+    if model_id.startswith("google/"):
+        mapped = {
+            "square": (1024, 1024, "1024x1024"),
+            "horizontal": (1024, 1024, "1024x1024"),
+            "vertical": (1024, 1024, "1024x1024"),
+        }[orientation]
+        return {"size": mapped[2], "billing_width": mapped[0], "billing_height": mapped[1], "strategy": "google_1k_safe_size"}
+    return {
+        "size": f"{int(width or 1024)}x{int(height or 1024)}",
+        "billing_width": int(width or 1024),
+        "billing_height": int(height or 1024),
+        "strategy": "requested_size",
+    }
+
+
 def _openrouter_generation_cost(payload: dict[str, Any]) -> float | None:
     candidates = [
         payload.get("cost"),
@@ -6146,6 +6205,39 @@ async def _openrouter_image_to_pil(image_payload: dict[str, Any]) -> Image.Image
     raise RuntimeError("OpenRouter response не содержит b64_json или url изображения.")
 
 
+def _openrouter_error_payload(data: dict[str, Any]) -> Any:
+    return data.get("error") if isinstance(data, dict) else data
+
+
+def _openrouter_error_message(data: dict[str, Any]) -> str:
+    payload = _openrouter_error_payload(data)
+    if isinstance(payload, dict):
+        message = payload.get("message") or payload.get("error")
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        provider = metadata.get("provider_name")
+        if isinstance(message, str) and message.strip():
+            return f"{provider}: {message}" if provider else message
+    if isinstance(payload, str):
+        return payload
+    return str(payload or data or "")
+
+
+def _openrouter_is_size_error(data: dict[str, Any]) -> bool:
+    message = _openrouter_error_message(data).lower()
+    return any(marker in message for marker in ("invalid size", "image size", "size ", "aspect", "invalid_value", "pixels"))
+
+
+def _openrouter_public_error(status_code: int, data: dict[str, Any]) -> str:
+    message = _openrouter_error_message(data)
+    if _openrouter_is_size_error(data):
+        return "Модель не приняла выбранный формат изображения. Попробуйте квадратный формат или другую модель."
+    if status_code in {401, 403}:
+        return "OpenRouter не принял API-ключ или доступ к модели закрыт."
+    if status_code == 429:
+        return "OpenRouter временно ограничил запросы. Подождите немного и попробуйте снова."
+    return f"OpenRouter вернул ошибку {status_code}: {truncate_admin_text(message, 220)}"
+
+
 async def fetch_openrouter_key_status() -> dict[str, Any]:
     key = openrouter_api_key()
     if not key:
@@ -6178,22 +6270,31 @@ async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> O
     if not openrouter_api_key():
         raise RuntimeError("OPENROUTER_API_KEY не задан. Добавьте ключ перед включением OpenRouter.")
     model = resolve_openrouter_model(payload)
+    request_plan = openrouter_image_request_plan(model, payload.width, payload.height)
     body: dict[str, Any] = {
         "model": model,
         "prompt": payload.prompt,
         "n": 1,
-        "size": f"{payload.width}x{payload.height}",
+        "size": request_plan["size"],
     }
-    job.update(status="sent_to_openrouter", progress=24, message="Отправляем в OpenRouter")
+    job.update(status="sent_to_openrouter", progress=24, message="Отправляем в OpenRouter", openrouterRequest=request_plan)
     persist_job(job, payload)
     async with httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT_SECONDS) as client:
         response = await client.post(f"{OPENROUTER_BASE_URL}/images", headers=openrouter_headers(), json=body)
-    data = response.json() if response.content else {}
+        data = response.json() if response.content else {}
+        if response.status_code >= 400 and body.get("size") != "auto" and _openrouter_is_size_error(data):
+            fallback_body = {**body, "size": "auto"}
+            job.update(message="OpenRouter подбирает безопасный формат", openrouterRequest={**request_plan, "fallbackSize": "auto"})
+            persist_job(job, payload)
+            response = await client.post(f"{OPENROUTER_BASE_URL}/images", headers=openrouter_headers(), json=fallback_body)
+            data = response.json() if response.content else {}
     if response.status_code >= 400:
-        raise RuntimeError(f"OpenRouter API error {response.status_code}: {data.get('error') or data}")
+        raise RuntimeError(_openrouter_public_error(response.status_code, data))
     image_payload = _openrouter_first_image(data)
     with await _openrouter_image_to_pil(image_payload) as opened:
         image_path = save_gallery_original(opened, f"{job['id']}_openrouter")
+    with Image.open(image_path) as saved:
+        saved_width, saved_height = saved.size
     return OpenRouterResult(
         image_path=image_path,
         thumbnail_path=create_thumbnail(image_path),
@@ -6201,6 +6302,8 @@ async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> O
         model=model,
         usage=data.get("usage") if isinstance(data.get("usage"), dict) else {},
         cost_usd=_openrouter_generation_cost(data),
+        width=saved_width,
+        height=saved_height,
         raw={k: v for k, v in data.items() if k not in {"data", "images", "output"}},
     )
 
@@ -7168,8 +7271,8 @@ async def worker() -> None:
                 "promptOriginal": req.prompt,
                 "promptTranslated": req.prompt if req.prompt.isascii() else "",
                 "seed": req.seed,
-                "width": req.width,
-                "height": req.height,
+                "width": openrouter_result.width if openrouter_result else req.width,
+                "height": openrouter_result.height if openrouter_result else req.height,
                 "modelProfile": req.modelProfile,
                 "loras": [item.id for item in req.loras],
                 "preset": None,
@@ -7184,6 +7287,7 @@ async def worker() -> None:
                 "openrouterUsage": openrouter_result.usage if openrouter_result else None,
                 "openrouterCostUsd": openrouter_result.cost_usd if openrouter_result else None,
                 "openrouterBilling": job.get("openrouterBilling") if openrouter_result else None,
+                "openrouterRequest": job.get("openrouterRequest") if openrouter_result else None,
             }
             if gallery_quota["gallery_full"]:
                 with db() as conn:
@@ -12644,7 +12748,9 @@ def openrouter_economy_settings() -> dict[str, float]:
 
 
 def openrouter_requested_megapixels(req: GenerateRequest) -> float:
-    pixels = max(1, int(req.width or 0)) * max(1, int(req.height or 0))
+    model_id = resolve_openrouter_model(req)
+    plan = openrouter_image_request_plan(model_id, req.width, req.height)
+    pixels = max(1, int(plan.get("billing_width") or req.width or 0)) * max(1, int(plan.get("billing_height") or req.height or 0))
     return max(1.0, pixels / 1_000_000)
 
 
@@ -12674,6 +12780,7 @@ async def estimate_openrouter_billing(req: GenerateRequest) -> dict[str, Any]:
     economy = openrouter_economy_settings()
     effective_rate = float(rate) * (1 + OPENROUTER_USD_FEE_RATE)
     megapixels = openrouter_requested_megapixels(req)
+    request_plan = openrouter_image_request_plan(model_id, req.width, req.height)
     estimated_usd = openrouter_estimated_usd(model, megapixels)
     estimated_rub = estimated_usd * effective_rate
     tokens = openrouter_tokens_for_cost(estimated_rub, model.min_tokens, economy)
@@ -12689,6 +12796,10 @@ async def estimate_openrouter_billing(req: GenerateRequest) -> dict[str, Any]:
         "pricingType": model.pricing_type,
         "pricingSource": model.source,
         "megapixels": round(megapixels, 6),
+        "requestSize": request_plan.get("size"),
+        "requestSizeStrategy": request_plan.get("strategy"),
+        "billingWidth": request_plan.get("billing_width"),
+        "billingHeight": request_plan.get("billing_height"),
         "estimatedCostUsd": round(estimated_usd, 6),
         "estimatedCostRub": round(estimated_rub, 4),
         "exchangeRate": round(float(rate), 6),

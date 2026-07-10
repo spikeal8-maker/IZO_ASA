@@ -111,6 +111,21 @@ def test_job_status_restores_completed_result_from_database(temp_db):
     assert body["tokenCost"] == 1
 
 
+def test_openrouter_provider_size_plan_avoids_known_rejections(temp_db):
+    openai_plan = main.openrouter_image_request_plan("openai/gpt-image-1-mini", 1280, 720)
+    recraft_plan = main.openrouter_image_request_plan("recraft/recraft-v4.1", 1280, 720)
+    sourceful_plan = main.openrouter_image_request_plan("sourceful/riverflow-v2.5-fast", 1280, 720)
+    seed_plan = main.openrouter_image_request_plan("bytedance-seed/seedream-4.5", 1280, 720)
+    google_plan = main.openrouter_image_request_plan("google/gemini-3.1-flash-lite-image", 1280, 720)
+
+    assert openai_plan["size"] == "1536x1024"
+    assert recraft_plan["size"] == "1536x1024"
+    assert sourceful_plan["size"] == "16:9"
+    assert seed_plan["size"] == "2560x1440"
+    assert int(seed_plan["billing_width"]) * int(seed_plan["billing_height"]) >= 3_686_400
+    assert google_plan["size"] == "1024x1024"
+
+
 def test_account_token_history_counts_balance_and_included_usage(temp_db):
     make_user("iuid-user", "web_user", plan="pro", balance=25)
     token = main.create_auth_session("iuid-user", "web_user", provider="web_email", platform="web")["session_token"]
