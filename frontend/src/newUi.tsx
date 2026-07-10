@@ -2726,7 +2726,6 @@ export default function NewStudio(): ReactElement {
               )}
               {slot.role === 'face' && (
                 <div className="editor-face-strength" style={{ '--i2i-range-progress': `${editFaceStrengthPct}%` } as CSSProperties}>
-                  <span className="editor-face-side">мягче</span>
                   <input
                     className="editor-face-range"
                     type="range"
@@ -2738,21 +2737,14 @@ export default function NewStudio(): ReactElement {
                     aria-valuetext={`${editFaceStrengthPct}%`}
                     onChange={(e) => setEditFaceStrength(Number(e.target.value))}
                   />
-                  <label className="editor-face-value" title="Рекомендуем 75%">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value={editFaceStrengthPct}
-                      aria-label={`Сила лица для ${title.toLowerCase()}`}
-                      onFocus={(e) => e.currentTarget.select()}
-                      onChange={(e) => setEditFaceStrength(Number(e.target.value))}
-                      onDoubleClick={() => setEditFaceStrength(DEFAULT_FACE_STRENGTH)}
-                    />
-                    %
-                  </label>
-                  <span className="editor-face-side">сильнее</span>
+                  <button
+                    className="editor-face-thumb-value"
+                    type="button"
+                    aria-label={`Сбросить силу лица до ${DEFAULT_FACE_STRENGTH}%`}
+                    onClick={() => setEditFaceStrength(DEFAULT_FACE_STRENGTH)}
+                  >
+                    {editFaceStrengthPct}
+                  </button>
                 </div>
               )}
             </div>
