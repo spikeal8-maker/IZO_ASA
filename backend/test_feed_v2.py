@@ -532,6 +532,43 @@ def test_gallery_delete_retires_feed_publication_and_variants(temp_db):
         assert row["media_error"] == "source_image_deleted"
 
 
+def test_gallery_quota_eviction_preserves_feed_publication_and_variants(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-quota-feed", "web_quota_feed")
+        make_image("img-quota-feed", "web_quota_feed")
+        pub = publish(client, token, "img-quota-feed", title="Остаётся в ленте")
+        with main.db() as conn:
+            media = conn.execute(
+                "SELECT feed_thumb_name, feed_large_name FROM feed_publications WHERE id = ?",
+                (pub["id"],),
+            ).fetchone()
+            evicted = main.evict_gallery_images_for_new_save(
+                conn,
+                "web_quota_feed",
+                {"gallery_slots": 1, "gallery_used": 1},
+                "2026-07-11T00:00:00+00:00",
+            )
+            image = conn.execute("SELECT deleted_at FROM images WHERE id = 'img-quota-feed'").fetchone()
+            publication = conn.execute(
+                "SELECT status, feed_thumb_name, feed_large_name, media_ready_at, media_error "
+                "FROM feed_publications WHERE id = ?",
+                (pub["id"],),
+            ).fetchone()
+
+        assert evicted == 1
+        assert image["deleted_at"] == "2026-07-11T00:00:00+00:00"
+        assert publication["status"] == "published"
+        assert publication["feed_thumb_name"] == media["feed_thumb_name"]
+        assert publication["feed_large_name"] == media["feed_large_name"]
+        assert publication["media_ready_at"] is not None
+        assert publication["media_error"] is None
+        assert (main.MEDIA / media["feed_thumb_name"]).exists()
+        assert (main.MEDIA / media["feed_large_name"]).exists()
+        assert client.get(f"/api/feed/media/{pub['id']}?variant=thumb").status_code == 200
+        feed = client.get("/api/feed?type=fresh")
+        assert any(item["id"] == pub["id"] for item in feed.json()["items"])
+
+
 def test_admin_can_delete_feed_publication_without_deleting_gallery_source(temp_db):
     with TestClient(main.app) as client:
         owner_token = make_user("iuid-admin-feed-owner", "web_admin_feed_owner")

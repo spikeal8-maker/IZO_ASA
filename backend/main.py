@@ -3426,7 +3426,8 @@ def evict_gallery_images_for_new_save(
     for row in rows:
         delete_image_source_files(conn, row["id"])
         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ?", (now_iso, row["id"]))
-        retire_feed_publications_for_image(conn, row["id"], now_iso)
+        # Public feed variants are independent from the private gallery source.
+        # Quota eviction must not silently unpublish an explicitly posted work.
         delete_image_files_from_disk(url=row["url"], thumbnail_url=row["thumbnail_url"])
         if row["id"] in images:
             images.pop(row["id"])

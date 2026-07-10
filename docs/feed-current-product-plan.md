@@ -28,7 +28,9 @@ preserving the existing feed-media backend contract:
 - no public fallback to private gallery originals;
 - feed cards use optimized public thumbnails;
 - detail views use optimized public large WebP files;
-- gallery deletion retires linked feed publications;
+- automatic gallery quota eviction preserves linked feed publications and their
+  independent public media;
+- explicit gallery deletion retires linked feed publications;
 - seed/demo publications stay as editorial starter content.
 
 ## Implementation Order
@@ -55,6 +57,12 @@ Cleanup tracking lives in `docs/feed-cleanup-optimization-plan-20260708.md`.
 
 ## Completed In This Pass
 
+- Gallery quota eviction no longer retires a linked feed publication or deletes
+  its independent public WebP variants. Explicit gallery deletion still retires
+  the linked publication according to the current product contract.
+- The 12 publications previously retired by quota eviction were recovered from
+  uniquely matched ComfyUI outputs. `backend/feed_hidden_recover.py` provides a
+  dry-run/apply workflow and creates a SQLite backup before recovery.
 - Personal `hide` now removes a publication from authenticated feed lists after
   reload while keeping the publication visible to guests and other users.
 - `backend/test_feed_v2.py` covers the personal hide behavior for following and

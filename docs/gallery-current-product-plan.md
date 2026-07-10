@@ -21,6 +21,9 @@ as reference material unless we explicitly decide to migrate the visible
 - A heart/favorite marks an original as protected from automatic eviction.
 - When a new generation completes and the gallery is full, the backend deletes
   the oldest active non-favorite original.
+- Automatic quota eviction affects only the private gallery original. If that
+  image was explicitly published, its independent public feed variants and
+  publication remain available.
 - Favorite originals are never auto-deleted. If the newest or last visible
   important image is favorite-protected, an older non-favorite image should be
   evicted instead.
