@@ -4159,17 +4159,18 @@ def _clamp_limit(limit: int, default: int = 50, maximum: int = 200) -> int:
 
 
 def _user_model_name(raw: str | None) -> str:
-    """Пользователь видит только «Flux2» — никогда точный идентификатор модели.
-    Flux Klein 4B/9B, local_flux_klein и другие flux-варианты → «Flux2».
-    OpenRouter → «OpenRouter». Всё остальное → «Flux2» (безопасное умолчание)."""
+    """Return a user-facing model label without exposing technical provider ids."""
     if not raw:
-        return "Flux2"
+        return "ИЗО Base"
+    catalog = globals().get("OPENROUTER_PRICE_CATALOG") or {}
+    if raw in catalog:
+        return catalog[raw].name
     lowered = raw.lower()
-    if any(kw in lowered for kw in ("flux", "klein", "local_flux")):
-        return "Flux2"
-    if "openrouter" in lowered:
-        return "OpenRouter"
-    return "Flux2"
+    if any(kw in lowered for kw in ("local_flux", "server_flux", "comfyui", "klein")):
+        return "ИЗО Base"
+    if "/" in raw:
+        return raw.split("/")[-1].replace("-", " ").replace("_", " ").title()
+    return "ИЗО Base"
 
 
 def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
@@ -4190,6 +4191,8 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
         "loras": settings.get("loras", []),
         "preset": settings.get("preset"),
         "generationTimeMs": settings.get("generationTimeMs", 0),
+        "tokenCost": settings.get("tokenCost"),
+        "openrouterBilling": settings.get("openrouterBilling"),
         "isFavorite": bool(row["is_favorite"]),
         "createdAt": row["created_at"],
         "comfyuiPromptId": settings.get("comfyuiPromptId"),
@@ -4298,6 +4301,8 @@ def _gallery_page_item(
         "date": row["created_at"],
         "generationTimeMs": settings.get("generationTimeMs", 0),
         "genTime": settings.get("generationTimeMs", 0),
+        "tokenCost": settings.get("tokenCost"),
+        "openrouterBilling": settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else None,
         "favorite": bool(row["is_favorite"]),
         "isFavorite": bool(row["is_favorite"]),
         "published": published,
@@ -4487,7 +4492,7 @@ def load_db_state() -> None:
 
 def persist_job(job: dict[str, Any], request: GenerateRequest | None = None, conn: sqlite3.Connection | None = None) -> None:
     settings = request.model_dump() if request else job.get("request", {})
-    for key in ("openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd", "openrouterBilling"):
+    for key in ("tokenCost", "openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd", "openrouterBilling"):
         if key in job:
             settings[key] = job.get(key)
     def write(target_conn: sqlite3.Connection) -> None:
@@ -4535,6 +4540,7 @@ def persist_image(record: dict[str, Any], job_id: str) -> None:
         "loras": record.get("loras", []),
         "preset": record.get("preset"),
         "generationTimeMs": record.get("generationTimeMs"),
+        "tokenCost": record.get("tokenCost"),
         "comfyuiPromptId": record.get("comfyuiPromptId"),
         "comfyuiHistory": record.get("comfyuiHistory"),
         "openrouterModel": record.get("openrouterModel"),
@@ -7018,6 +7024,7 @@ async def worker() -> None:
                 "modelProfile": req.modelProfile,
                 "loras": [item.id for item in req.loras],
                 "preset": None,
+                "tokenCost": job.get("tokenCost"),
                 "generationTimeMs": int((time.perf_counter() - started) * 1000),
                 "isFavorite": False,
                 "createdAt": created_at,
@@ -7232,6 +7239,7 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         "progress": 0,
         "message": "В очереди",
         "request": req.model_dump(),
+        "tokenCost": token_cost,
         "openrouterBilling": openrouter_billing,
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }

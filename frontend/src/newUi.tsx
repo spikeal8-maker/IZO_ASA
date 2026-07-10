@@ -176,6 +176,10 @@ interface N2GalleryImage {
   mode: string
   promptOriginal: string
   createdAt: string
+  resultImageId?: string
+  modelProfile?: string
+  tokenCost?: number | null
+  generationTimeMs?: number
   // Для формы миниатюр истории: у галереи есть width/height, у ленты — aspectRatio.
   width?: number
   height?: number
@@ -1251,16 +1255,17 @@ export default function NewStudio(): ReactElement {
   // пустой ответ (транзиентный 401 при refresh и т.п.) больше не затирает историю,
   // чтобы лента-фолбэк не «перебивал» уже показанную пользовательскую галерею.
   const ownGallerySeenRef = useRef(false)
-  const fetchGallery = useCallback(() => {
-    apiFetch('/gallery')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => {
-        const arr: N2GalleryImage[] = Array.isArray(data) ? data : []
-        if (arr.length === 0 && ownGallerySeenRef.current) return
-        if (arr.length > 0) ownGallerySeenRef.current = true
-        setGallery(arr)
-      })
-      .catch(() => undefined)
+  const fetchGallery = useCallback(async () => {
+    try {
+      const data = await apiFetch('/gallery').then((r) => (r.ok ? r.json() : []))
+      const arr: N2GalleryImage[] = Array.isArray(data) ? data : []
+      if (arr.length === 0 && ownGallerySeenRef.current) return []
+      if (arr.length > 0) ownGallerySeenRef.current = true
+      setGallery(arr)
+      return arr
+    } catch {
+      return []
+    }
   }, [])
 
   useEffect(() => {
@@ -1323,27 +1328,33 @@ export default function NewStudio(): ReactElement {
         const next: N2Job = await apiFetch(`/jobs/${job.id}`).then((r) => r.json())
         setJob(next)
         if (next.status === 'completed') {
-          if (next.resultUrl) {
+          const freshGallery = await fetchGallery()
+          const fallbackImage = freshGallery.find((item) => item.resultImageId === next.resultImageId || item.id === next.resultImageId) || freshGallery[0]
+          const completedUrl = next.resultUrl || fallbackImage?.url
+          const completedImageId = next.resultImageId || fallbackImage?.id
+          if (completedUrl) {
             setResultError(false)
             if (jobMode === 'paint') {
-              setResultUrl(next.resultUrl)
+              setResultUrl(completedUrl)
             } else {
               const coreMode = jobMode as CoreStudioMode
               setPreviewByMode((cur) => ({
                 ...cur,
                 [coreMode]: {
                   kind: 'result',
-                  url: next.resultUrl,
+                  url: completedUrl,
                   sourceUrl: pendingResultSourceRef.current[jobMode],
                   shape: pendingResultShapeRef.current[jobMode],
                   title: 'Результат генерации',
-                  resultImageId: next.resultImageId,
+                  resultImageId: completedImageId,
+                  galleryId: completedImageId,
+                  promptOriginal: fallbackImage?.promptOriginal,
                   error: false,
                 },
               }))
             }
           }
-          fetchGallery()
+          if (completedImageId) setDockImageId(completedImageId)
           void refreshAuthStateV2()
         } else if (next.status === 'failed') {
           setNotice(next.error || 'Генерация не удалась. Попробуйте ещё раз.')
