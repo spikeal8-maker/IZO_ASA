@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
 import { Copy, Link as LinkIcon, Lock, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles } from 'lucide-react'
 import type { AuthStatusV2, MeV2 } from './authV2'
-import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelModeOrder, modelPublicInfo, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
+import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, avatarPresets, modelAccessOption, modelModeOrder, modelOptions, modelPublicInfo, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
 
 type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
 type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
@@ -157,6 +157,17 @@ export default function ProfilePage({
   const selectedModel = modelAccessOption(modelAccess, 'text_to_image', selectedQuality, userModelChoices)
   const tokenPrice = selectedModel.tokenHint
   const accessRows = modelModeOrder.map((mode) => modelAccess.modes[mode]).filter(Boolean)
+  const availableModelIds = (mode: ModelModeKey) => new Set((modelAccess.modes[mode]?.models || []).map((item) => item.id))
+  const catalogModelsForMode = (mode: ModelModeKey): ModelOption[] => {
+    const accessModels = modelAccess.modes[mode]?.models || []
+    const map = new Map([...accessModels, ...modelOptions].map((item) => [item.id, item]))
+    const available = availableModelIds(mode)
+    return Array.from(map.values()).sort((a, b) => {
+      const accessDiff = Number(available.has(b.id)) - Number(available.has(a.id))
+      return accessDiff || a.label.localeCompare(b.label, 'ru')
+    })
+  }
+  const isModelAvailable = (mode: ModelModeKey, modelId: string) => availableModelIds(mode).has(modelId)
   const isModelVisible = (mode: ModelModeKey, modelId: string) => userModelVisibility[mode]?.[modelId] !== false
   const visibleModelsForSelect = (mode: ModelModeKey, preset: QualityPreset) => {
     const access = modelAccess.modes[mode]
@@ -451,10 +462,11 @@ export default function ProfilePage({
               <div className="profile-mode-models">
                 {accessRows.map((access) => {
                   if (!access) return null
+                  const visibleAvailableCount = access.models.filter((model) => isModelVisible(access.id, model.id)).length
                   return <article className="profile-card profile-mode-card" key={access.id}>
                     <div className="profile-mode-head">
                       <strong>{access.label}</strong>
-                      <span>{access.models.length} моделей</span>
+                      <span>{visibleAvailableCount} / {access.models.length} доступно</span>
                     </div>
                     <div className="profile-mode-presets">
                       {qualityPresets.map((preset) => {
@@ -470,25 +482,36 @@ export default function ProfilePage({
                   </article>
                 })}
               </div>
+              <article className="profile-card profile-base-note">
+                <div>
+                  <strong>{SERVER_MODEL_OPTION.label}</strong>
+                  <span>базовая модель ИЗО · {SERVER_MODEL_OPTION.tokenHint} ток.</span>
+                </div>
+                <p>{modelPublicInfo(SERVER_MODEL_OPTION).description}</p>
+                <ul>{modelPublicInfo(SERVER_MODEL_OPTION).strengths.map((item) => <li key={item}>{item}</li>)}</ul>
+              </article>
               <div className="profile-section-head"><h3>Каталог моделей</h3><span>Откройте вкладку, чтобы посмотреть модели и описание</span></div>
               <div className="profile-model-catalog">
                 {accessRows.map((access) => {
                   if (!access) return null
                   const visibleCount = access.models.filter((model) => isModelVisible(access.id, model.id)).length
+                  const catalogModels = catalogModelsForMode(access.id)
                   return <details className="profile-model-group" key={`catalog-${access.id}`}>
-                    <summary><strong>{access.label}</strong><span>{visibleCount} из {access.models.length} показано</span></summary>
+                    <summary><strong>{access.label}</strong><span>{access.models.length} доступно · {visibleCount} показано</span></summary>
                     <div className="profile-model-info-list">
-                      {access.models.map((model) => {
+                      {catalogModels.map((model) => {
                         const info = modelPublicInfo(model)
+                        const available = isModelAvailable(access.id, model.id)
                         const visible = isModelVisible(access.id, model.id)
-                        return <details className={visible ? 'profile-model-info-row' : 'profile-model-info-row muted'} key={`${access.id}-${model.id}`}>
+                        return <details className={available && visible ? 'profile-model-info-row' : 'profile-model-info-row muted'} key={`${access.id}-${model.id}`}>
                           <summary>
                             <label className="profile-model-visible" onClick={(event) => event.stopPropagation()}>
-                              <input type="checkbox" checked={visible} onChange={(event) => toggleModelVisibility(access.id, model.id, event.currentTarget.checked)} />
+                              <input type="checkbox" checked={available && visible} disabled={!available} onChange={(event) => toggleModelVisibility(access.id, model.id, event.currentTarget.checked)} />
                               <span>показывать</span>
                             </label>
                             <strong>{model.label}</strong>
                             <span className="profile-model-token">{model.tokenHint} ток.</span>
+                            <span className={available ? 'profile-model-status available' : 'profile-model-status unavailable'}>{available ? 'доступно' : 'недоступно'}</span>
                           </summary>
                           <div className="profile-model-info-body">
                             <p>{info.description}</p>

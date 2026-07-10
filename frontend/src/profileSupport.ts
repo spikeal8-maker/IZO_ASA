@@ -40,13 +40,13 @@ export const qualityPresetLabels: Record<QualityPreset, string> = {
 }
 export const modelModeOrder: ModelModeKey[] = ['text_to_image', 'image_to_image', 'edit', 'paint', 'inpaint', 'outpaint', 'faceswap', 'remove_background']
 export const modelModeLabels: Record<ModelModeKey, string> = {
-  text_to_image: 'Текст -> изображение',
-  image_to_image: 'Изображение -> изображение',
-  edit: 'Сборка / multi-reference',
-  paint: 'Рисунок / sketch',
-  inpaint: 'Редактор - маска / inpaint',
-  outpaint: 'Редактор - расширение / outpaint',
-  faceswap: 'Лицо / reference identity',
+  text_to_image: 'По тексту',
+  image_to_image: 'По фото',
+  edit: 'Сборка',
+  paint: 'Редактор - рисунок',
+  inpaint: 'Редактор - маска',
+  outpaint: 'Редактор - расширение',
+  faceswap: 'Лицо',
   remove_background: 'Удаление фона',
 }
 export const SERVER_MODEL_OPTION: ModelOption = { id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1 }
@@ -104,8 +104,8 @@ const modelPublicInfoById: Record<string, ModelPublicInfo> = {
   'server:local_flux_klein': {
     company: 'ИЗО',
     year: '2026',
-    description: 'Фирменная базовая модель ИЗО для быстрых ежедневных генераций. Ее удобно оставлять включенной для черновиков, первых вариантов и задач, где важна стабильность без ручного подбора модели.',
-    strengths: ['быстрый старт', 'стабильная генерация', 'минимальное списание'],
+    description: 'Фирменная базовая модель ИЗО построена на семействе FLUX 2 Klein 4B и усилена нашими серверными настройками, LoRA-профилями и сценариями под разные вкладки генератора. Это уже не просто чистая FLUX-модель: в ИЗО Base добавлены рабочие пресеты, донастройки промптов и специальные режимы для текста, фото, редактора, лица, маски и расширения изображения.',
+    strengths: ['FLUX 2 Klein 4B внутри', 'LoRA и пресеты ИЗО', 'усиление под вкладки'],
   },
   'black-forest-labs/flux.2-klein-4b': {
     company: 'FLUX',
