@@ -4,7 +4,7 @@
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
-import { IMAGE_RESOLUTIONS, resolutionLabel } from './resolutionPolicy'
+import { IMAGE_RESOLUTIONS, resolutionLabel, type ResolutionFormat, type ResolutionTier } from './resolutionPolicy'
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 function amvFetch(path: string, init: RequestInit = {}) {
@@ -26,6 +26,8 @@ type UserChoiceItem = { key?: string; label: string; model?: string; cost?: numb
 type CatalogItem = { provider: string; displayName: string; modelId: string; capabilities: string[]; cost: string; margin: string; status: string }
 type ProfileOption = { id: string; name: string; supportsPose?: boolean }
 type ServerModelProfileSettings = { width: number; height: number; steps: number; sampler: string; seedMode: 'random' | 'fixed'; seed: number }
+const CONFIG_RESOLUTION_FORMATS: ResolutionFormat[] = ['square', 'portrait', 'wide', 'photo']
+const CONFIG_RESOLUTION_TIERS: ResolutionTier[] = ['sd', 'hd', 'full_hd']
 type OpenRouterFormatEconomics = {
   id: string
   label: string
@@ -502,7 +504,7 @@ const CSS = `
 .amv2 .lora-row:first-child{border-top:0}.amv2 .lora-row h3{margin:0;font-size:12px;overflow-wrap:anywhere}.amv2 .lora-row p{margin:2px 0 0;color:var(--muted);font-size:10px}.amv2 .lora-compat{display:flex;flex-wrap:wrap;gap:4px}.amv2 .lora-compat span{padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--muted);font-size:9px}.amv2 .lora-row.incompatible{opacity:.48}.amv2 .lora-row input[type=checkbox]{width:17px;height:17px;accent-color:var(--lime)}
 .amv2 .lora-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}.amv2 .lora-column{min-width:0;border:1px solid var(--line);border-radius:7px;overflow:hidden}.amv2 .lora-column-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:rgba(255,255,255,.035);border-bottom:1px solid var(--line)}.amv2 .lora-column-head h3{margin:0;font-size:13px}.amv2 .lora-column .lora-row{grid-template-columns:28px minmax(160px,1fr) 88px;padding:0 10px}.amv2 .lora-column .lora-row>div:nth-child(3){grid-column:2 / -1;padding-bottom:8px}.amv2 .lora-empty{padding:18px 12px;color:var(--muted);font-size:11px}
 .amv2 .config-profiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}.amv2 .config-profile{border:1px solid var(--line);border-radius:7px;overflow:hidden}.amv2 .config-profile.active{border-color:rgba(218,255,47,.55)}.amv2 .config-profile-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.025)}.amv2 .config-profile-head h3{margin:0;font-size:13px}.amv2 .config-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px}.amv2 .config-field label{display:block;margin-bottom:4px;color:var(--muted);font-size:9px;text-transform:uppercase}.amv2 .config-field input,.amv2 .config-field select{width:100%;height:34px}.amv2 .dependency-note{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 12px 12px}.amv2 .dependency-note div{padding:9px;border:1px solid var(--line);border-radius:6px}.amv2 .dependency-note strong{display:block;font-size:11px}.amv2 .dependency-note span{display:block;margin-top:3px;color:var(--muted);font-size:10px;line-height:1.4}
-.amv2 .resolution-matrix{margin:12px 12px 0;border:1px solid var(--line);border-radius:7px;overflow:auto}.amv2 .resolution-matrix table{min-width:920px}.amv2 .resolution-matrix th,.amv2 .resolution-matrix td{height:auto;padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);font-size:11px}.amv2 .resolution-matrix tr:last-child td{border-bottom:0}.amv2 .resolution-matrix th{color:var(--muted);background:rgba(255,255,255,.035);font-size:9px;text-transform:uppercase}.amv2 .resolution-format{display:grid;gap:2px}.amv2 .resolution-format strong{font-size:12px}.amv2 .resolution-format span,.amv2 .resolution-value small{color:var(--muted);font-size:9px}.amv2 .resolution-value{display:grid;gap:2px;white-space:nowrap}.amv2 .resolution-value strong{font-size:11px;font-variant-numeric:tabular-nums}.amv2 .resolution-plan{text-align:center!important;width:72px}.amv2 .resolution-plan input{width:15px;height:15px;min-height:15px;margin:0;accent-color:var(--lime)}
+.amv2 .resolution-matrix{margin:12px 12px 0;border:1px solid var(--line);border-radius:7px;overflow:auto}.amv2 .resolution-matrix table{min-width:940px;table-layout:fixed}.amv2 .resolution-matrix th,.amv2 .resolution-matrix td{height:auto;padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);font-size:11px;vertical-align:top}.amv2 .resolution-matrix tr:last-child td{border-bottom:0}.amv2 .resolution-matrix th{color:var(--muted);background:rgba(255,255,255,.035);font-size:9px;text-transform:uppercase}.amv2 .resolution-matrix th:first-child{width:160px}.amv2 .resolution-format{display:grid;gap:3px}.amv2 .resolution-format strong{font-size:12px}.amv2 .resolution-format span,.amv2 .resolution-value small{color:var(--muted);font-size:9px}.amv2 .resolution-cell{display:grid;gap:8px;min-width:0}.amv2 .resolution-value{display:flex;align-items:baseline;justify-content:space-between;gap:8px;white-space:nowrap}.amv2 .resolution-value strong{font-size:11px;font-variant-numeric:tabular-nums}.amv2 .resolution-plans{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}.amv2 .resolution-plan{display:grid;justify-items:center;gap:3px;color:var(--muted);font-size:8px;text-transform:uppercase;cursor:pointer}.amv2 .resolution-plan input{width:15px;height:15px;min-height:15px;margin:0;accent-color:var(--lime)}
 .amv2 .server-tools{padding:10px 12px;border-top:1px solid var(--line)}.amv2 .server-tools summary{cursor:pointer;color:var(--muted);font-size:11px;font-weight:700}.amv2 .server-tools .ops-row{padding:10px 0 0;border:0;grid-template-columns:minmax(220px,1fr) auto auto}
 .amv2 .job-list{padding:0 12px 12px;display:grid;gap:6px}
 .amv2 .job-row{display:grid;grid-template-columns:minmax(120px,1fr) 96px 90px minmax(140px,1.2fr);gap:8px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);padding:8px;background:rgba(255,255,255,.028);font-size:12px}
@@ -739,7 +741,7 @@ export default function AdminModelsV2() {
   }, [])
 
   const loadTariffs = useCallback(async () => {
-    const result = await amvFetch('/tariffs').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown } | null
+    const result = await amvFetch('/admin/settings').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown } | null
     if (result?.tariffs) setTariffs(normalizeTariffs(result.tariffs))
   }, [])
 
@@ -811,8 +813,14 @@ export default function AdminModelsV2() {
   }
 
   async function saveSetting(key: string, payload: unknown, label: string) {
-    const r = await amvFetch(`/admin/settings/${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: payload }) }).then((x) => x.json()).catch(() => null)
-    setMsg(r?.ok ? `${label} сохранено` : `Ошибка сохранения: ${label}`)
+    const response = await amvFetch(`/admin/settings/${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: payload }) }).catch(() => null)
+    const result = response ? await response.json().catch(() => null) as { ok?: boolean; settings?: unknown; detail?: string } | null : null
+    if (!response?.ok || !result?.ok) {
+      setMsg(result?.detail || `Ошибка сохранения: ${label}`)
+      return null
+    }
+    setMsg(`${label} сохранено`)
+    return result.settings ?? payload
   }
   const globalLocalProfile = routes.find((route) => route.provider === 'local')?.modelProfileId || 'flux_klein_9b'
   const setGlobalLocalProfile = async (modelProfileId: string) => {
@@ -837,9 +845,16 @@ export default function AdminModelsV2() {
     return { ...current, [plan]: { ...current[plan], allowed_resolutions: next } }
   })
   const saveConfigUiSettings = async () => {
-    await saveSetting('server_model_profiles', { profiles: serverProfiles }, 'Параметры моделей Config UI')
-    await saveSetting('tariffs', tariffs, 'Доступность разрешений по тарифам')
-    await loadTariffs()
+    const profilesSaved = await saveSetting('server_model_profiles', { profiles: serverProfiles }, 'Параметры моделей Config UI')
+    if (!profilesSaved) return
+    const tariffsSaved = await saveSetting('tariffs', tariffs, 'Доступность разрешений по тарифам')
+    if (!tariffsSaved) return
+    const verified = await amvFetch('/admin/settings').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown } | null
+    if (!verified?.tariffs) { setMsg('Настройки сохранены, но контрольная проверка не выполнена'); return }
+    const normalized = normalizeTariffs(verified.tariffs)
+    setTariffs(normalized)
+    const expected = tariffKeys.every((plan) => [...tariffs[plan].allowed_resolutions].sort().join('|') === [...normalized[plan].allowed_resolutions].sort().join('|'))
+    setMsg(expected ? 'Разрешения и параметры Config UI сохранены и проверены' : 'Сервер вернул другие настройки разрешений — изменения не применены полностью')
   }
   const saveMinMargin = async () => {
     const minMarginPercent = clampMargin(Number(marginDraft))
@@ -1223,14 +1238,24 @@ export default function AdminModelsV2() {
       <div className="card-head"><div><h2 className="card-title">Разрешения и настройки Config UI</h2><p className="card-note">Единая матрица для Klein 9B и 4B. Галочки определяют доступность разрешения каждому тарифу.</p></div><button className="primary" onClick={() => void saveConfigUiSettings()}>Сохранить параметры</button></div>
       <div className="resolution-matrix">
         <table>
-          <thead><tr><th>Формат</th><th>Уровень</th><th>Размер</th><th>МП</th>{tariffKeys.map((plan) => <th className="resolution-plan" key={plan}>{plan}</th>)}</tr></thead>
-          <tbody>{IMAGE_RESOLUTIONS.map((resolution) => <tr key={resolution.id}>
-            <td><div className="resolution-format"><strong>{resolution.formatLabel} · {resolution.aspect}</strong><span>{resolution.id}</span></div></td>
-            <td><strong>{resolution.tierLabel}</strong></td>
-            <td><div className="resolution-value"><strong>{resolution.width}×{resolution.height}</strong></div></td>
-            <td>{resolution.megapixels.toFixed(2).replace('.', ',')}</td>
-            {tariffKeys.map((plan) => <td className="resolution-plan" key={plan}><input type="checkbox" checked={tariffs[plan].allowed_resolutions.includes(resolution.id)} onChange={(e) => toggleConfigResolution(plan, resolution.id, e.target.checked)} aria-label={`${resolutionLabel(resolution)} — ${tariffs[plan].title}`} /></td>)}
-          </tr>)}</tbody>
+          <thead><tr><th>Формат</th>{CONFIG_RESOLUTION_TIERS.map((tier) => <th key={tier}>{IMAGE_RESOLUTIONS.find((item) => item.tier === tier)?.tierLabel}</th>)}</tr></thead>
+          <tbody>{CONFIG_RESOLUTION_FORMATS.map((format) => {
+            const formatResolution = IMAGE_RESOLUTIONS.find((item) => item.format === format)
+            return <tr key={format}>
+              <td><div className="resolution-format"><strong>{formatResolution?.formatLabel} · {formatResolution?.aspect}</strong><span>{formatResolution?.format === 'square' ? 'Посты и карточки' : formatResolution?.format === 'portrait' ? 'Истории и клипы' : formatResolution?.format === 'wide' ? 'Обложки и баннеры' : 'Фото и портфолио'}</span></div></td>
+              {CONFIG_RESOLUTION_TIERS.map((tier) => {
+                const resolution = IMAGE_RESOLUTIONS.find((item) => item.format === format && item.tier === tier)
+                if (!resolution) return <td key={tier}>—</td>
+                return <td key={tier}><div className="resolution-cell">
+                  <div className="resolution-value"><strong>{resolution.width}×{resolution.height}</strong><small>{resolution.megapixels.toFixed(2).replace('.', ',')} МП</small></div>
+                  <div className="resolution-plans">{tariffKeys.map((plan) => <label className="resolution-plan" key={plan} title={tariffs[plan].title}>
+                    <input type="checkbox" checked={tariffs[plan].allowed_resolutions.includes(resolution.id)} onChange={(e) => toggleConfigResolution(plan, resolution.id, e.target.checked)} aria-label={`${resolutionLabel(resolution)} — ${tariffs[plan].title}`} />
+                    <span>{plan === 'business' ? 'Biz' : plan}</span>
+                  </label>)}</div>
+                </div></td>
+              })}
+            </tr>
+          })}</tbody>
         </table>
       </div>
       <div className="config-profiles">{(['9B', '4B'] as const).map((profileKey) => {
