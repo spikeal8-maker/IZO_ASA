@@ -133,3 +133,33 @@ def test_admin_assistant_catalog_contains_ollama_and_openrouter_prices(prompt_us
     body = response.json()
     assert body["ollama"]["models"][0]["name"] == "gemma4:31b-cloud"
     assert body["openrouterModels"][0]["inputPerMillionUsd"] == 0.077
+
+
+def test_voice_transcription_rejects_too_short_recording(prompt_user):
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/tools/transcribe?duration_ms=400&language=ru",
+            files={"file": ("voice.webm", b"audio", "audio/webm")},
+            cookies={"onenode_session": prompt_user["cookie"]},
+        )
+    assert response.status_code == 400
+    assert "не меньше" in response.text
+
+
+def test_voice_transcription_returns_provider_text(prompt_user, monkeypatch):
+    captured = {}
+
+    async def fake_transcribe(audio, audio_format, language, config=None):
+        captured.update({"audio": audio, "format": audio_format, "language": language})
+        return "девушка у вечернего окна", {"usage": {"cost": 0.0002}}
+
+    monkeypatch.setattr(main, "transcribe_audio_openrouter", fake_transcribe)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/tools/transcribe?duration_ms=1400&language=ru",
+            files={"file": ("voice.webm", b"not-real-audio", "audio/webm")},
+            cookies={"onenode_session": prompt_user["cookie"]},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["text"] == "девушка у вечернего окна"
+    assert captured == {"audio": b"not-real-audio", "format": "webm", "language": "русском"}

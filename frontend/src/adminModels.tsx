@@ -629,6 +629,9 @@ const CSS = `
 .amv2 .assistant-form .mode-prompt{min-height:86px}
 .amv2 .assistant-test{padding:14px;display:grid;gap:10px;align-content:start}
 .amv2 .assistant-test-result{padding:12px;border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.03);display:grid;gap:6px}
+.amv2 .request-preview{display:grid;gap:10px;padding:14px;border-top:1px solid var(--line)}
+.amv2 .request-preview pre{margin:0;max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--line);border-radius:var(--radius);background:#0b0d0b;color:#dfe5dc;font:400 12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}
+.amv2 .request-preview label{color:var(--muted);font-size:10px;text-transform:uppercase}
 .amv2 .assistant-test-result small{color:var(--muted)}
 .amv2 .ollama-list{display:grid;gap:7px}
 .amv2 .ollama-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:9px;border:1px solid var(--line);border-radius:var(--radius)}
@@ -1137,14 +1140,23 @@ export default function AdminModelsV2() {
       </div>}
     </div>
 
-    {pageTab === 'voice' && <>
+    {pageTab === 'voice' && assistantData && <>
       <section className="assistant-summary">
-        <div><span>Статус</span><strong>Проектируется</strong><small>Пользовательская кнопка пока не подключена к микрофону.</small></div>
+        <div><span>Статус</span><strong>API подключён</strong><small>Кнопка записывает микрофон и отправляет аудио через OpenRouter.</small></div>
         <div><span>Локальная цель</span><strong>Qwen3-ASR 1.7B</strong><small>RTX 4070 12 ГБ; до установки требуется русский benchmark.</small></div>
-        <div><span>API-резерв</span><strong>Gemini Audio</strong><small>OpenRouter включается при timeout или перегрузке local worker.</small></div>
+        <div><span>Текущий API</span><strong>{assistantData.config.voice.apiModel}</strong><small>OpenRouter; локальный ASR будет добавлен отдельным маршрутом.</small></div>
       </section>
       <article className="card">
-        <div className="card-head"><div><h2 className="card-title">Голосовой ввод</h2><p className="card-note">Реестр кандидатов и будущая маршрутизация. Здесь пока нет ложного статуса «работает».</p></div></div>
+        <div className="card-head"><div><h2 className="card-title">Голосовой ввод</h2><p className="card-note">Рабочий API-маршрут и ограничения пользовательской записи.</p></div></div>
+        <div className="assistant-form">
+          <div className="two-col">
+            <div className="field"><label>Маршрут сейчас</label><select value={assistantData.config.voice.route} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, route: e.target.value } })}><option value="api">OpenRouter API</option></select></div>
+            <div className="field"><label>Модель с аудиовходом</label><input value={assistantData.config.voice.apiModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, apiModel: e.target.value } })} /></div>
+            <div className="field"><label>Минимальная запись, секунд</label><input type="number" min="0.5" max="10" step="0.5" value={assistantData.config.voice.minRecordingSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, minRecordingSeconds: Number(e.target.value) } })} /></div>
+            <div className="field"><label>Timeout API, секунд</label><input type="number" min="3" max="60" value={assistantData.config.voice.requestTimeoutSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, requestTimeoutSeconds: Number(e.target.value) } })} /></div>
+          </div>
+          <button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить голосовой маршрут'}</button>
+        </div>
         <div className="matrix-wrap"><table className="assistant-table"><thead><tr><th>Задача</th><th>Роль и модель</th><th>Исполнение</th><th>Сильные стороны</th><th>Ограничения</th><th>Статус</th></tr></thead>
           <tbody>{ASSISTANT_MODEL_PLAN.filter((item) => item.task === 'Транскрибация').map((item) => <tr key={`${item.role}-${item.model}`}><td>{item.task}</td><td><strong>{item.model}</strong><small>{item.role}</small></td><td><strong>{item.runtime}</strong><small>{item.hardware}</small></td><td>{item.strengths}</td><td>{item.limitations}</td><td><span className={`assistant-status${item.status === 'Рекомендуется' ? ' recommended' : ''}`}>{item.status}</span></td></tr>)}</tbody>
         </table></div>
@@ -1170,6 +1182,14 @@ export default function AdminModelsV2() {
             <div className="field"><label>Главный системный промпт</label><textarea value={assistantData.config.improve.systemPrompt} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, systemPrompt: e.target.value } })} /></div>
             {Object.entries(assistantData.config.improve.modePrompts).map(([mode, value]) => <div className="field" key={mode}><label>{ASSISTANT_MODE_LABELS[mode] || mode}</label><textarea className="mode-prompt" value={value} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, modePrompts: { ...assistantData.config.improve.modePrompts, [mode]: e.target.value } } })} /></div>)}
             <button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить настройки'}</button>
+          </div>
+          <div className="request-preview">
+            <div className="field"><label>Режим для предпросмотра запроса</label><select value={assistantPreviewMode} onChange={(e) => setAssistantPreviewMode(e.target.value)}>{Object.keys(assistantData.config.improve.modePrompts).map((mode) => <option key={mode} value={mode}>{ASSISTANT_MODE_LABELS[mode] || mode}</option>)}</select></div>
+            <label>Сообщение system — итог после объединения всех инструкций</label>
+            <pre>{assistantPreviewSystem}</pre>
+            <label>Сообщение user — данные пользователя и технический контекст</label>
+            <pre>{assistantPreviewUser}</pre>
+            <small>Эти два сообщения в таком составе отправляются выбранной модели. Значение user берётся из поля «Проверка моделей» справа.</small>
           </div>
         </article>
         <aside className="card">

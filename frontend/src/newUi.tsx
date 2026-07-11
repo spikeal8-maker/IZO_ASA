@@ -1132,6 +1132,11 @@ export default function NewStudio(): ReactElement {
   const [paintWorkbenchVisible, setPaintWorkbenchVisible] = useState(true)
   const [promptImproveBusy, setPromptImproveBusy] = useState(false)
   const [lastImprovedPrompt, setLastImprovedPrompt] = useState<{ mode: StudioMode; text: string } | null>(null)
+  const [voiceRecording, setVoiceRecording] = useState(false)
+  const [voiceBusy, setVoiceBusy] = useState(false)
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null)
+  const voiceStreamRef = useRef<MediaStream | null>(null)
+  const voiceStartedAtRef = useRef(0)
 
   useEffect(() => {
     let cancelled = false
@@ -2263,6 +2268,66 @@ export default function NewStudio(): ReactElement {
     }
   }
 
+  async function toggleVoiceInput() {
+    if (voiceRecording) {
+      voiceRecorderRef.current?.stop()
+      return
+    }
+    if (!(await ensureAuthed())) return
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      showToast('Этот браузер не поддерживает запись голоса')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const preferredType = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'].find((type) => MediaRecorder.isTypeSupported(type)) || ''
+      const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined)
+      const chunks: BlobPart[] = []
+      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
+      recorder.onerror = () => showToast('Не удалось записать голос')
+      recorder.onstop = async () => {
+        const durationMs = Math.max(0, Date.now() - voiceStartedAtRef.current)
+        setVoiceRecording(false)
+        voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
+        voiceStreamRef.current = null
+        voiceRecorderRef.current = null
+        if (durationMs < 1000) {
+          showToast('Говорите не меньше 1 секунды')
+          return
+        }
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
+        const form = new FormData()
+        form.append('file', blob, `voice.${blob.type.includes('ogg') ? 'ogg' : 'webm'}`)
+        setVoiceBusy(true)
+        try {
+          const response = await apiFetch(`/tools/transcribe?duration_ms=${durationMs}&language=${encodeURIComponent(feedLang)}`, { method: 'POST', body: form })
+          const payload = await response.json().catch(() => ({})) as { text?: string; detail?: unknown }
+          if (!response.ok || !payload.text?.trim()) throw new Error(apiErrorText(payload.detail, 'Не удалось распознать речь'))
+          const spoken = payload.text.trim()
+          setPrompt(`${promptValue.trim()}${promptValue.trim() ? ' ' : ''}${spoken}`.slice(0, promptLimit))
+          showToast('Голос добавлен в промпт')
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : 'Не удалось распознать речь')
+        } finally {
+          setVoiceBusy(false)
+        }
+      }
+      voiceStreamRef.current = stream
+      voiceRecorderRef.current = recorder
+      voiceStartedAtRef.current = Date.now()
+      recorder.start(250)
+      setVoiceRecording(true)
+      showToast('Говорите. Нажмите ещё раз, чтобы закончить')
+    } catch {
+      showToast('Разрешите доступ к микрофону в браузере')
+    }
+  }
+
+  useEffect(() => () => {
+    voiceRecorderRef.current?.stop()
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
+  }, [])
+
   useEffect(() => {
     if (tab !== 'paint' || !paintWorkbenchVisible) return undefined
     let observedNode: HTMLDivElement | null = null
@@ -3217,12 +3282,12 @@ export default function NewStudio(): ReactElement {
             <div className="counter">{promptCounterValue} / {promptTextareaLimit}</div>
           </div>
           <div className="action-row">
-            <button className="tool-button" type="button" onClick={() => showToast('Голосовой ввод скоро')}>
+            <button className={`tool-button${voiceRecording ? ' primary' : ''}`} type="button" disabled={voiceBusy} onClick={() => void toggleVoiceInput()}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3Z" stroke="currentColor" strokeWidth="2" />
                 <path d="M19 11a7 7 0 0 1-14 0M12 18v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
-              Голос
+              {voiceBusy ? 'Распознаю…' : voiceRecording ? 'Остановить' : 'Голос'}
             </button>
             <button className="tool-button primary" type="button" disabled={promptImproveBusy || (lastImprovedPrompt?.mode === studioMode && lastImprovedPrompt.text === promptValue)} onClick={() => void improveCurrentPrompt()}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
