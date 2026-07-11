@@ -41,6 +41,7 @@ import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import ProfilePage, { type PublicProfileLink } from './ProfilePage'
 import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelPublicInfo, normalizeModelAccess, normalizeTariffs, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
+import { FORMAT_TO_PRICING_ID, IMAGE_RESOLUTIONS, normalizeResolutionId, type ImageResolution } from './resolutionPolicy'
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
 import { applyClientSeo, currentSeoLocale, type SeoMeta } from './seo'
@@ -208,17 +209,7 @@ function pricingMapFromPayload(payload: unknown): Record<string, PublicModelPric
 }
 
 function formatPricingId(resolution: ResolutionPreset) {
-  if (resolution.kind === 'square') return 'square'
-  if (resolution.kind === 'vertical') return 'portrait'
-  const ratio = resolution.width / Math.max(1, resolution.height)
-  return ratio < 1.65 ? 'soft_wide' : 'wide'
-}
-
-function resolutionIdForFormat(formatId: string) {
-  if (formatId === 'portrait') return 'v-720'
-  if (formatId === 'wide') return 'h-1280'
-  if (formatId === 'soft_wide') return 'h-1536'
-  return 'sq-1024'
+  return FORMAT_TO_PRICING_ID[resolution.format]
 }
 
 function formatName(formatId: string) {
@@ -336,24 +327,18 @@ const QUALITY: Array<{ id: string; label: string; steps: number }> = [
 // см. fitGenerationDimension). Перенесены данные, не вёрстка.
 type FormatId = 'square' | 'vertical' | 'horizontal'
 
-interface ResolutionPreset {
-  id: string
+interface ResolutionPreset extends ImageResolution {
   name: string
   quality: string
-  width: number
-  height: number
   kind: FormatId
 }
 
-const RESOLUTION_PRESETS: ResolutionPreset[] = [
-  { id: 'sq-1024', name: 'Квадрат', quality: 'HD', width: 1024, height: 1024, kind: 'square' },
-  { id: 'h-1280', name: 'Широкий', quality: 'HD', width: 1280, height: 720, kind: 'horizontal' },
-  { id: 'v-720', name: 'Высокий', quality: 'HD', width: 720, height: 1280, kind: 'vertical' },
-  { id: 'h-1536', name: 'Средний широкий', quality: '2K', width: 1536, height: 1024, kind: 'horizontal' },
-  { id: 'v-1024', name: 'Средний высокий', quality: '2K', width: 1024, height: 1536, kind: 'vertical' },
-  { id: 'h-1920', name: 'Широкий', quality: 'Full HD', width: 1920, height: 1088, kind: 'horizontal' },
-  { id: 'v-1088', name: 'Высокий', quality: 'Full HD', width: 1088, height: 1920, kind: 'vertical' },
-]
+const RESOLUTION_PRESETS: ResolutionPreset[] = IMAGE_RESOLUTIONS.map((item) => ({
+  ...item,
+  name: item.formatLabel,
+  quality: item.tierLabel,
+  kind: item.format === 'square' ? 'square' : item.format === 'portrait' ? 'vertical' : 'horizontal',
+}))
 
 const DEFAULT_FACE_STRENGTH = 75
 const FALLBACK_LORA_OPTIONS: LoraOption[] = [
@@ -1053,7 +1038,7 @@ export default function NewStudio(): ReactElement {
   // Временный предпросмотр стиля при наведении на карточку (не выбирает стиль).
   const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
   // Разрешение = конкретный системный пресет; формат-кнопки переключают тип.
-  const [resolutionId, setResolutionId] = useState(initialStudioDraft.resolutionId || 'sq-1024')
+  const [resolutionId, setResolutionId] = useState(() => normalizeResolutionId(initialStudioDraft.resolutionId || 'sq-hd'))
   const [formatAutoNotice, setFormatAutoNotice] = useState('')
   const [formatOpen, setFormatOpen] = useState(false)
   const formatRef = useRef<HTMLDivElement>(null)
@@ -2367,6 +2352,19 @@ export default function NewStudio(): ReactElement {
     const available = formats.filter((fmt) => fmt.supported !== false).map((fmt) => `${fmt.short} ${fmt.tokens ?? model.tokenHint}т`)
     return available.length ? available.join(' · ') : 'форматы уточняются'
   }
+  const tariffResolutionIds = new Set(activeTariff.allowed_resolutions)
+  const supportedResolutionIdsForModel = (model: ModelOption) => {
+    const modelIds = new Set(model.supportedResolutionIds?.length ? model.supportedResolutionIds : RESOLUTION_PRESETS.map((item) => item.id))
+    return RESOLUTION_PRESETS.filter((item) => modelIds.has(item.id) && tariffResolutionIds.has(item.id)).map((item) => item.id)
+  }
+  const preferredResolutionForModel = (model: ModelOption, formatId?: string) => {
+    const allowed = supportedResolutionIdsForModel(model)
+    const sameFormat = allowed.filter((id) => {
+      const preset = RESOLUTION_PRESETS.find((item) => item.id === id)
+      return preset && (!formatId || formatPricingId(preset) === formatId)
+    })
+    return sameFormat.includes(resolutionId) ? resolutionId : sameFormat[0] || allowed[0] || 'sq-sd'
+  }
   const visibleStudioModels = (currentModeAccess?.models || [])
     .filter((model) => userModelVisibility[currentModelMode]?.[model.id] !== false)
   const studioModelEnabled = (model: ModelOption, mode: ModelModeKey = currentModelMode) => isRasterOpenRouterModel(model) && (model.provider !== 'openrouter' || mode === 'text_to_image' || mode === 'image_to_image' || mode === 'edit')
@@ -2380,9 +2378,10 @@ export default function NewStudio(): ReactElement {
     })
   function selectStudioModel(model: ModelOption) {
     const supported = supportedFormatIdsForModel(model)
-    if (!supported.includes(currentFormatPricingId)) {
+    const supportedResolutions = supportedResolutionIdsForModel(model)
+    if (!supported.includes(currentFormatPricingId) || !supportedResolutions.includes(resolutionId)) {
       const nextFormat = supported[0] || 'square'
-      setResolutionId(resolutionIdForFormat(nextFormat))
+      setResolutionId(preferredResolutionForModel(model, supported.includes(currentFormatPricingId) ? currentFormatPricingId : nextFormat))
       setFormatAutoNotice(`Формат изменен: ${formatName(nextFormat)}`)
     } else {
       setFormatAutoNotice('')
@@ -2395,9 +2394,10 @@ export default function NewStudio(): ReactElement {
   function selectQualityPreset(nextQuality: QualityPreset) {
     const nextModel = studioSelectedModel(currentModelMode, nextQuality)
     const supported = supportedFormatIdsForModel(nextModel)
-    if (!supported.includes(currentFormatPricingId)) {
+    const supportedResolutions = supportedResolutionIdsForModel(nextModel)
+    if (!supported.includes(currentFormatPricingId) || !supportedResolutions.includes(resolutionId)) {
       const nextFormat = supported[0] || 'square'
-      setResolutionId(resolutionIdForFormat(nextFormat))
+      setResolutionId(preferredResolutionForModel(nextModel, supported.includes(currentFormatPricingId) ? currentFormatPricingId : nextFormat))
       setFormatAutoNotice(`Формат изменен: ${formatName(nextFormat)}`)
     } else {
       setFormatAutoNotice('')
@@ -2426,12 +2426,18 @@ export default function NewStudio(): ReactElement {
   const currentStudioModelInfo = modelPublicInfo(currentStudioModel)
   const currentStudioTokenCost = tokenCostForModel(currentStudioModel)
   const currentSupportedFormatIds = supportedFormatIdsForModel(currentStudioModel)
+  const currentSupportedResolutionIds = supportedResolutionIdsForModel(currentStudioModel)
+  const resolutionFormatAvailable = (formatId: PublicFormatId) => currentSupportedResolutionIds.some((id) => {
+    const preset = RESOLUTION_PRESETS.find((item) => item.id === id)
+    return preset && formatPricingId(preset) === formatId
+  })
   const currentSupportedFormatsKey = currentSupportedFormatIds.join('|')
+  const currentSupportedResolutionsKey = currentSupportedResolutionIds.join('|')
   useEffect(() => {
     const supported = currentSupportedFormatsKey.split('|').filter(Boolean) as PublicFormatId[]
-    if (supported.includes(currentFormatPricingId)) return
+    if (supported.includes(currentFormatPricingId) && currentSupportedResolutionIds.includes(resolutionId)) return
     const nextFormat = supported[0] || 'square'
-    const nextResolutionId = resolutionIdForFormat(nextFormat)
+    const nextResolutionId = preferredResolutionForModel(currentStudioModel, supported.includes(currentFormatPricingId) ? currentFormatPricingId : nextFormat)
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
@@ -2439,7 +2445,7 @@ export default function NewStudio(): ReactElement {
       setFormatAutoNotice(`Формат изменен: ${formatName(nextFormat)}`)
     })
     return () => { cancelled = true }
-  }, [currentFormatPricingId, currentSupportedFormatsKey])
+  }, [currentFormatPricingId, currentSupportedFormatsKey, currentSupportedResolutionsKey, resolutionId])
   const generateLabel = isI2IStudio ? 'Преобразовать' : isEditStudio ? 'Создать изображение' : isPaintStudio ? paintMode === 'remove_bg' ? 'Удалить фон' : paintMode === 'outpaint' ? 'Расширить' : 'Создать по рисунку' : 'Сгенерировать'
   const generatingLabel = isI2IStudio ? 'Преобразуем...' : isEditStudio ? 'Создаём...' : isPaintStudio ? 'Готовим рисунок...' : 'Генерируем...'
   const influenceStyle = { '--i2i-range-progress': `${strengthPct}%` } as CSSProperties
@@ -2494,13 +2500,7 @@ export default function NewStudio(): ReactElement {
       setFormatAutoNotice(`${formatName(format)} не поддерживается выбранной моделью`)
       return
     }
-    const presetId = format === 'square'
-      ? 'sq-1024'
-      : format === 'portrait'
-        ? 'v-720'
-        : format === 'soft_wide'
-          ? 'h-1536'
-          : 'h-1280'
+    const presetId = preferredResolutionForModel(currentStudioModel, format)
     const preset = RESOLUTION_PRESETS.find((p) => p.id === presetId)
     if (preset) {
       setResolutionId(preset.id)
@@ -3310,7 +3310,7 @@ export default function NewStudio(): ReactElement {
                       type="button"
                       role="option"
                       aria-selected={p.id === resolutionId}
-                      disabled={!currentSupportedFormatIds.includes(formatPricingId(p))}
+                      disabled={!currentSupportedFormatIds.includes(formatPricingId(p)) || !currentSupportedResolutionIds.includes(p.id)}
                       className={`iv3-format-option${p.id === resolutionId ? ' active' : ''}`}
                       onClick={() => { setResolutionId(p.id); setFormatAutoNotice(''); setFormatOpen(false) }}
                     >
@@ -3322,16 +3322,16 @@ export default function NewStudio(): ReactElement {
                 </div>
               )}
             </div>
-            <button className={`ratio-button${currentFormatPricingId === 'square' ? ' active' : ''}`} type="button" disabled={!currentSupportedFormatIds.includes('square')} onClick={() => selectRatio('square')}>
+            <button className={`ratio-button${currentFormatPricingId === 'square' ? ' active' : ''}`} type="button" disabled={!currentSupportedFormatIds.includes('square') || !resolutionFormatAvailable('square')} onClick={() => selectRatio('square')}>
               <span className="ratio-icon"></span>1:1
             </button>
-            <button className={`ratio-button${currentFormatPricingId === 'portrait' ? ' active' : ''}`} type="button" disabled={!currentSupportedFormatIds.includes('portrait')} onClick={() => selectRatio('portrait')}>
+            <button className={`ratio-button${currentFormatPricingId === 'portrait' ? ' active' : ''}`} type="button" disabled={!currentSupportedFormatIds.includes('portrait') || !resolutionFormatAvailable('portrait')} onClick={() => selectRatio('portrait')}>
               <span className="ratio-icon tall"></span>9:16
             </button>
-            <button className={`ratio-button${currentFormatPricingId === 'wide' ? ' active' : ''}`} type="button" disabled={!currentSupportedFormatIds.includes('wide')} onClick={() => selectRatio('wide')}>
+            <button className={`ratio-button${currentFormatPricingId === 'wide' ? ' active' : ''}`} type="button" disabled={!currentSupportedFormatIds.includes('wide') || !resolutionFormatAvailable('wide')} onClick={() => selectRatio('wide')}>
               <span className="ratio-icon wide"></span>16:9
             </button>
-            <button className={`ratio-button${currentFormatPricingId === 'soft_wide' ? ' active' : ''}`} type="button" disabled={!currentSupportedFormatIds.includes('soft_wide')} onClick={() => selectRatio('soft_wide')}>
+            <button className={`ratio-button${currentFormatPricingId === 'soft_wide' ? ' active' : ''}`} type="button" disabled={!currentSupportedFormatIds.includes('soft_wide') || !resolutionFormatAvailable('soft_wide')} onClick={() => selectRatio('soft_wide')}>
               <span className="ratio-icon soft-wide"></span>3:2
             </button>
           </div>

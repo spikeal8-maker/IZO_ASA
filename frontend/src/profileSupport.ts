@@ -43,6 +43,7 @@ export type ModelOption = {
   provider: ModelProvider
   modelProfile: string
   tokenHint: number
+  supportedResolutionIds?: string[]
   generation?: ModelGenerationContract
 }
 
@@ -70,6 +71,7 @@ export const SERVER_MODEL_OPTION: ModelOption = {
   provider: 'comfyui',
   modelProfile: 'local_flux_klein',
   tokenHint: 1,
+  supportedResolutionIds: IMAGE_RESOLUTIONS.map((item) => item.id),
   generation: { fixedSteps: 4, allowsExactRepeat: false, supportsSeed: true, maxInputReferences: 4 },
 }
 export const modelOptions: ModelOption[] = [
@@ -313,6 +315,7 @@ export function normalizeModelAccess(input: unknown, fallbackPlan: TariffKey = '
         provider: item.provider === 'openrouter' ? 'openrouter' as const : fallback.provider,
         modelProfile: typeof item.modelProfile === 'string' && item.modelProfile ? item.modelProfile : fallback.modelProfile,
         tokenHint: typeof item.tokenHint === 'number' && item.tokenHint > 0 ? item.tokenHint : fallback.tokenHint,
+        supportedResolutionIds: normalizeResolutionIds(item.supportedResolutionIds, fallback.supportedResolutionIds || fullResolutions),
         generation,
       }
     })
