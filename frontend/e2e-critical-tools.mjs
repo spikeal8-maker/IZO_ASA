@@ -57,22 +57,6 @@ async function runViewport(name, viewport) {
     await uploadByButton(page, page.getByRole('button', { name: /Загрузить изображение|Добавить изображение|Файл/ }).first(), `${name}: Редактор основное изображение`)
     record(`${name}: Редактор prompt подставлен`, (await page.locator('textarea[aria-label]').first().inputValue()).length > 30)
 
-    await page.goto(`${URL}?platform=web&userId=critical_tools_${name}_face_${Date.now()}`, { waitUntil: 'networkidle' })
-    await page.locator('textarea[aria-label]').first().waitFor()
-    await clickMode(page, 'Лицо')
-    let faceFileButtons = page.getByRole('button', { name: /^Файл$/ })
-    if ((await faceFileButtons.count()) >= 2) {
-      await uploadByButton(page, faceFileButtons.first(), `${name}: Лицо→Изо target`)
-      faceFileButtons = page.getByRole('button', { name: /^Файл$/ })
-      await uploadByButton(page, faceFileButtons.first(), `${name}: Лицо→Изо source`)
-    } else {
-      let uploadButtons = page.getByRole('button', { name: /^Загрузить изображение$/ })
-      await uploadByButton(page, uploadButtons.first(), `${name}: Лицо→Изо target`)
-      uploadButtons = page.getByRole('button', { name: /^Загрузить изображение$/ })
-      await uploadByButton(page, uploadButtons.first(), `${name}: Лицо→Изо source`)
-    }
-    record(`${name}: Лицо→Изо prompt подставлен`, (await page.locator('textarea[aria-label]').first().inputValue()).includes('лицо') || (await page.locator('textarea[aria-label]').first().inputValue()).includes('Замени'))
-
     await page.goto(`${URL}?platform=web&userId=critical_tools_${name}_paint_${Date.now()}`, { waitUntil: 'networkidle' })
     await page.locator('textarea[aria-label]').first().waitFor()
     await clickMode(page, 'Редактор')

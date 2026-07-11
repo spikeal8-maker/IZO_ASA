@@ -143,13 +143,8 @@ async function run() {
       }
       await generateAndWait(page, `paint_${paintMode}`, round)
 
-      await page.getByRole('button', { name: 'Лицо стрелка вправо Изо' }).click()
-      await uploadFirst(page, pngA)
-      await uploadSecond(page, pngB)
-      await setPrompt(page, 'Replace the head in image 1 with the head from image 2, adapting lighting and style.')
-      await generateAndWait(page, 'faceswap', round)
     }
-    log('25/25 браузерных генераций завершены')
+    log('20/20 браузерных генераций завершены')
   } finally {
     await browser.close()
   }

@@ -66,7 +66,7 @@ async function run() {
     await page.getByRole('button', { name: /К генерации/ }).click()
     await page.locator('.studio-grid').waitFor()
 
-    for (const modeName of ['Изо стрелка вправо Изо', 'Редактирование Изо', 'Рисование Изо', 'Лицо стрелка вправо Изо', 'Текст стрелка вправо Изо']) {
+    for (const modeName of ['Изо стрелка вправо Изо', 'Редактирование Изо', 'Рисование Изо', 'Текст стрелка вправо Изо']) {
       await click(page, page.getByRole('button', { name: modeName }), modeName)
       await page.locator('.preview-panel').waitFor()
       log(`Режим "${modeName}" открыл свой рабочий экран`)

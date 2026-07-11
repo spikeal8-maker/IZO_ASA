@@ -2,6 +2,9 @@
 
 This contract covers the `Сборка` reference card when its role is `Лицо`.
 
+The former standalone `Лицо` studio tab was removed on 2026-07-11. Face transfer is
+owned only by the `Лицо` reference role in `Сборка`; old `#face` links open `Сборка`.
+
 ## Visual contract
 
 - The shared reference control panel, border and background remain visible.

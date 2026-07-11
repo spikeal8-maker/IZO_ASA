@@ -253,7 +253,6 @@ button{user-select:none}
     <a class="tab" href="/#text-to-image" title="Изображение по тексту">По тексту</a>
     <a class="tab" href="/#image-to-image" title="Изменить изображение по фото">По фото</a>
     <a class="tab" href="/#editor" title="Собрать изображение из нескольких фото">Сборка</a>
-    <a class="tab" href="/#face">Лицо</a>
     <a class="tab" href="/paint" title="Правки изображения">Редактор</a>
     <span class="tab disabled" aria-disabled="true">Видео</span>
   </nav>
@@ -462,7 +461,6 @@ const tabTexts = {
 };
 const modes = [
   {id:'text', title:'По тексту', line:'Изображение по тексту', cta:'Открыть режим', img:'/static/feed/assets/mode_text.webp', href:'/#text-to-image', msg:'Открываем режим По тексту'},
-  {id:'face', title:'Лицо', line:'Образ, лицо, стиль и детали персонажа', cta:'Открыть режим', img:'/static/feed/assets/mode_face.webp', href:'/#face', msg:'Открываем Лицо'},
   {id:'clothes', title:'Сборка', line:'Собрать изображение из нескольких фото', cta:'Открыть режим', img:'/static/feed/assets/mode_clothes.webp', href:'/#editor', msg:'Открываем Сборку'},
   {id:'draw', title:'Редактор', line:'Правки изображения: эскиз, маска, расширение и фон', cta:'Открыть режим', img:'/static/feed/assets/mode_draw.webp', href:'/paint', msg:'Открываем Редактор'}
 ];
@@ -1380,4 +1378,3 @@ loadFeed('for_you');
 </script>
 </body>
 </html>
-

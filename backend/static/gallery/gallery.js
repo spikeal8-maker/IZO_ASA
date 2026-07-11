@@ -612,7 +612,7 @@ async function useCurrentAs(target){
   try{
     const data = await api(`/api/gallery/${encodeURIComponent(item.imageId || item.id)}/use-as`, { method:'POST', body:JSON.stringify({ target }) });
     sessionStorage.setItem('izoUseAsDraft', JSON.stringify({ ...data, source:'gallery', createdAt:new Date().toISOString() }));
-    const routes = { editor:'/#editor', image:'/#image-to-image', face:'/#face', draw:'/paint' };
+    const routes = { editor:'/#editor', image:'/#image-to-image', draw:'/paint' };
     window.location.href = routes[target] || '/';
   }catch(err){
     showToast('Не удалось подготовить изображение.');

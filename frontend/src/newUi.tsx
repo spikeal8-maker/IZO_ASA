@@ -70,12 +70,12 @@ function apiFetch(path: string, init: RequestInit = {}) {
   return fetch(`${API}${path}`, { ...init, credentials: 'include' })
 }
 
-type N2Tab = 'feed' | 'text' | 'i2i' | 'edit' | 'paint' | 'face' | 'video'
+type N2Tab = 'feed' | 'text' | 'i2i' | 'edit' | 'paint' | 'video'
 // tabs — генератор/лента; gallery и profile — отдельные канонические страницы.
 type N2View = 'tabs' | 'profile'
-type StudioMode = 'text' | 'i2i' | 'edit' | 'face' | 'paint'
+type StudioMode = 'text' | 'i2i' | 'edit' | 'paint'
 type CoreStudioMode = Exclude<StudioMode, 'paint'>
-type UploadTarget = { kind: 'i2i' } | { kind: 'edit'; index: number } | { kind: 'face'; index: number } | { kind: 'paint' } | { kind: 'paintSketch' }
+type UploadTarget = { kind: 'i2i' } | { kind: 'edit'; index: number } | { kind: 'paint' } | { kind: 'paintSketch' }
 type InspectPreview = { url: string; title: string }
 type PreviewShape = 'square' | 'wide' | 'tall'
 type StudioPreviewState = {
@@ -110,7 +110,7 @@ type PublicOpenRouterPricing = { models?: PublicModelPricing[] }
 type PublicFormatId = 'square' | 'portrait' | 'wide' | 'soft_wide'
 
 function coreModeFromTab(tab: N2Tab): CoreStudioMode | null {
-  if (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face') return tab
+  if (tab === 'text' || tab === 'i2i' || tab === 'edit') return tab
   return null
 }
 
@@ -118,7 +118,6 @@ function modelModeFromStudio(mode: StudioMode, paintMode: PaintSubMode): ModelMo
   if (mode === 'text') return 'text_to_image'
   if (mode === 'i2i') return 'image_to_image'
   if (mode === 'edit') return 'edit'
-  if (mode === 'face') return 'faceswap'
   if (paintMode === 'mask') return 'inpaint'
   if (paintMode === 'outpaint') return 'outpaint'
   if (paintMode === 'remove_bg') return 'remove_background'
@@ -182,10 +181,6 @@ function loadImageShape(url: string): Promise<PreviewShape> {
 }
 
 const EMPTY_EDIT_SLOTS: EditSlot[] = Array.from({ length: EDIT_SLOT_COUNT }, () => ({ image: undefined, role: '', takeNote: '' }))
-const EMPTY_FACE_SLOTS: EditSlot[] = [
-  { image: undefined, role: '', takeNote: '' },
-  { image: undefined, role: 'face', takeNote: '' },
-]
 const DEFAULT_PAINT_SKETCH_PROMPT = 'Transform this sketch into a hyper-realistic cinematic scene. Interpret the lines as real-world objects with high-quality textures, cinematic lighting, natural shadows, depth, realistic materials and clean composition. Preserve the exact composition, silhouettes, poses, proportions and spatial relationships from the sketch. Scene description:'
 const DEFAULT_PAINT_MASK_PROMPT = 'Edit only the masked area and follow the user instruction literally for that selected region. Seamlessly blend the change with the surrounding scene while preserving lighting, shadows, perspective, depth of field and photo grain. Do not change unmasked areas.'
 const DEFAULT_PAINT_OUTPAINT_PROMPT = 'Extend the composition of this image. Replace black or empty spaces with a logical continuation of the background and foreground. Match perspective, lighting, color palette and texture so the transition is invisible. Scene description:'
@@ -199,7 +194,7 @@ function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   if (p === '/profile' || p.startsWith('/profile') || p.startsWith('/new/profile')) return { view: 'profile', tab: 'feed' }
   if (h === '#image-to-image') return { view: 'tabs', tab: 'i2i' }
   if (h === '#editor') return { view: 'tabs', tab: 'edit' }
-  if (h === '#face' || h === '#face-to-image') return { view: 'tabs', tab: 'face' }
+  if (h === '#face' || h === '#face-to-image') return { view: 'tabs', tab: 'edit' }
   if (h === '#draw' || h === '#drawing' || h === '#paint') return { view: 'tabs', tab: 'paint' }
   if (h === '#text-to-image') return { view: 'tabs', tab: 'text' }
   if (p === '/paint' || p.startsWith('/paint/') || p === '/new/paint' || p.startsWith('/new/paint/')) return { view: 'tabs', tab: 'paint' }
@@ -706,11 +701,6 @@ function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
       description: 'Объединяйте несколько изображений, переносите одежду, фон, стиль и детали с референсов через AI-редактор ИЗО АСА.',
       canonical,
     },
-    face: {
-      title: 'Замена лица нейросетью — ИЗО АСА',
-      description: 'Переносите лицо с одного изображения на другое, настраивайте силу замены и сохраняйте естественный свет, позу и сцену.',
-      canonical,
-    },
     paint: {
       title: 'Редактор изображения — ИЗО АСА',
       description: 'Редактируйте изображения: рисуйте эскиз, работайте с маской, расширением холста и AI-дорисовкой.',
@@ -742,11 +732,6 @@ function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
     edit: {
       title: 'Image assembly — IZO ASA',
       description: 'Combine multiple images, transfer clothes, background, style and details from references with the IZO ASA editor.',
-      canonical,
-    },
-    face: {
-      title: 'AI face swap — IZO ASA',
-      description: 'Transfer a face from one image to another while preserving the target pose, lighting, clothing and scene.',
       canonical,
     },
     paint: {
@@ -978,7 +963,7 @@ export default function NewStudio(): ReactElement {
   const previewGender: 'female' | 'male' = me?.profile?.gender === 'male' ? 'male' : 'female'
   const acct = accountInfo(me)
 
-  const [prompts, setPrompts] = useState<Record<StudioMode, string>>({ text: '', i2i: '', edit: '', face: '', paint: '' })
+  const [prompts, setPrompts] = useState<Record<StudioMode, string>>({ text: '', i2i: '', edit: '', paint: '' })
   const [styleId, setStyleId] = useState<string>('')
   // Временный предпросмотр стиля при наведении на карточку (не выбирает стиль).
   const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
@@ -998,8 +983,6 @@ export default function NewStudio(): ReactElement {
   const [editSlots, setEditSlots] = useState<EditSlot[]>(() => EMPTY_EDIT_SLOTS.map((slot) => ({ ...slot })))
   const [editExtraOpen, setEditExtraOpen] = useState(false)
   const [editFaceStrengthPct, setEditFaceStrengthPct] = useState(DEFAULT_FACE_STRENGTH)
-  const [faceSlots, setFaceSlots] = useState<EditSlot[]>(() => EMPTY_FACE_SLOTS.map((slot) => ({ ...slot })))
-  const [faceStrengthPct, setFaceStrengthPct] = useState(DEFAULT_FACE_STRENGTH)
   const [profileTab, setProfileTab] = useState<'profile' | 'tariffs' | 'earn' | 'models'>('profile')
   const [tariffs, setTariffs] = useState<TariffConfig>(DEFAULT_TARIFFS)
   const [tariffsState, setTariffsState] = useState<'loading' | 'ready' | 'fallback'>('loading')
@@ -1181,7 +1164,6 @@ export default function NewStudio(): ReactElement {
     text: emptyPreview(),
     i2i: emptyPreview(),
     edit: emptyPreview(),
-    face: emptyPreview(),
   })
   const [inspectZoom, setInspectZoom] = useState(1)
   const [inspectPan, setInspectPan] = useState({ x: 0, y: 0 })
@@ -1204,8 +1186,8 @@ export default function NewStudio(): ReactElement {
   // true, если тянули историю мышью — тогда клик по миниатюре не выбирает её.
   const historyDraggedRef = useRef(false)
   const styleRowRef = useRef<HTMLDivElement>(null)
-  const pendingResultSourceRef = useRef<Record<StudioMode, string | undefined>>({ text: undefined, i2i: undefined, edit: undefined, face: undefined, paint: undefined })
-  const pendingResultShapeRef = useRef<Record<StudioMode, PreviewShape | undefined>>({ text: undefined, i2i: undefined, edit: undefined, face: undefined, paint: undefined })
+  const pendingResultSourceRef = useRef<Record<StudioMode, string | undefined>>({ text: undefined, i2i: undefined, edit: undefined, paint: undefined })
+  const pendingResultShapeRef = useRef<Record<StudioMode, PreviewShape | undefined>>({ text: undefined, i2i: undefined, edit: undefined, paint: undefined })
   // true, если пользователь тянул ряд стилей — тогда клик по карточке не выбирает.
   const styleDraggedRef = useRef(false)
   // true, пока зажата кнопка над рядом стилей — подавляет hover-preview при drag.
@@ -1231,7 +1213,7 @@ export default function NewStudio(): ReactElement {
   const appliedI2IStyleRef = useRef<{ id: string; text: string } | null>(null)
   const lastTextSubmittedRef = useRef<LastTextSubmit | undefined>(undefined)
   const lastI2ISubmittedRef = useRef<LastI2ISubmit | undefined>(undefined)
-  const noticeClearRef = useRef<{ text: string; i2i: string; edit: string; face: string; paint: string; source: string; editSlots: string; faceSlots: string }>({ text: '', i2i: '', edit: '', face: '', paint: '', source: '', editSlots: '', faceSlots: '' })
+  const noticeClearRef = useRef<{ text: string; i2i: string; edit: string; paint: string; source: string; editSlots: string }>({ text: '', i2i: '', edit: '', paint: '', source: '', editSlots: '' })
   const resultSeededRef = useRef(false)
 
   useEffect(() => {
@@ -1488,7 +1470,7 @@ export default function NewStudio(): ReactElement {
     return () => window.clearInterval(timer)
   }, [fetchGallery, job, jobMode])
 
-  const promptKey: StudioMode = tab === 'i2i' ? 'i2i' : tab === 'edit' ? 'edit' : tab === 'face' ? 'face' : tab === 'paint' ? 'paint' : 'text'
+  const promptKey: StudioMode = tab === 'i2i' ? 'i2i' : tab === 'edit' ? 'edit' : tab === 'paint' ? 'paint' : 'text'
   const setPrompt = useCallback(
     (value: string) => setPrompts((cur) => ({ ...cur, [promptKey]: value })),
     [promptKey],
@@ -1498,11 +1480,10 @@ export default function NewStudio(): ReactElement {
     const prev = noticeClearRef.current
     const source = sourceImage || ''
     const editSlotSignature = editSlots.map((slot) => `${slot.image || ''}:${slot.role}:${slot.takeNote || ''}`).join('|')
-    const faceSlotSignature = faceSlots.map((slot) => `${slot.image || ''}:${slot.role}:${slot.takeNote || ''}`).join('|')
-    const changed = prev.text !== prompts.text || prev.i2i !== prompts.i2i || prev.edit !== prompts.edit || prev.face !== prompts.face || prev.paint !== prompts.paint || prev.source !== source || prev.editSlots !== editSlotSignature || prev.faceSlots !== faceSlotSignature
-    noticeClearRef.current = { text: prompts.text, i2i: prompts.i2i, edit: prompts.edit, face: prompts.face, paint: prompts.paint, source, editSlots: editSlotSignature, faceSlots: faceSlotSignature }
+    const changed = prev.text !== prompts.text || prev.i2i !== prompts.i2i || prev.edit !== prompts.edit || prev.paint !== prompts.paint || prev.source !== source || prev.editSlots !== editSlotSignature
+    noticeClearRef.current = { text: prompts.text, i2i: prompts.i2i, edit: prompts.edit, paint: prompts.paint, source, editSlots: editSlotSignature }
     if (notice && changed) setNotice('')
-  }, [editSlots, faceSlots, notice, prompts.edit, prompts.face, prompts.i2i, prompts.paint, prompts.text, sourceImage])
+  }, [editSlots, notice, prompts.edit, prompts.i2i, prompts.paint, prompts.text, sourceImage])
 
   useEffect(() => {
     if (!notice) return undefined
@@ -1580,15 +1561,6 @@ export default function NewStudio(): ReactElement {
     setEditSlots((current) => current.map((slot, i) => (i === index ? { image: undefined, role: '', takeNote: '' } : slot)))
   }
 
-  function clearFaceSlot(index: number) {
-    if (inspectPreview && faceSlots[index]?.image === inspectPreview.url) setInspectPreview(null)
-    if (faceSlots[index]?.image) {
-      const removed = faceSlots[index].image
-      setPreviewByMode((cur) => cur.face.url === removed || cur.face.sourceUrl === removed ? { ...cur, face: emptyPreview() } : cur)
-    }
-    setFaceSlots((current) => current.map((slot, i) => (i === index ? { ...slot, image: undefined } : slot)))
-  }
-
   function setEditSlotRole(index: number, role: EditReferenceRole | '') {
     if (role === 'pose') {
       showToast('Поза временно недоступна')
@@ -1644,11 +1616,6 @@ export default function NewStudio(): ReactElement {
       resetInspectView()
       return
     }
-    if (target.kind === 'face') {
-      setFaceSlots((current) => current.map((slot, i) => (i === target.index ? { ...slot, image, role: target.index === 1 ? 'face' : slot.role } : slot)))
-      showInspectPreview(image, target.index === 0 ? 'Основа' : 'Лицо')
-      return
-    }
     if (target.kind === 'paint') {
       setPaintImage(image)
       setPaintOutpaintPreview(undefined)
@@ -1669,7 +1636,6 @@ export default function NewStudio(): ReactElement {
     const textPrompt = prompts.text.trim()
     const i2iPrompt = prompts.i2i.trim()
     const editPrompt = prompts.edit.trim()
-    const facePrompt = prompts.face.trim()
     const i2iSource = sourceImage || ''
     const size = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
     const editComposer = editComposerStatus({ slots: editSlots, userNote: editPrompt, manualMode: false, manualPrompt: '' })
@@ -1690,20 +1656,6 @@ export default function NewStudio(): ReactElement {
       showToast(editComposer.blockReason)
       setNotice(editComposer.blockReason)
       return
-    }
-    if (mode === 'face') {
-      const faceBlock = !faceSlots[0]?.image
-        ? 'Загрузите изображение, куда вставляем лицо.'
-        : !faceSlots[1]?.image
-          ? 'Загрузите изображение с лицом.'
-          : !faceLora?.id || faceLora.id === 'none'
-            ? 'Face LoRA не найдена. Откройте старую версию или проверьте /api/models.'
-            : null
-      if (faceBlock) {
-        showToast(faceBlock)
-        setNotice(faceBlock)
-        return
-      }
     }
     if (mode === 'paint') {
       const paintBlock = paintMode === 'sketch' && paintLines.length === 0
@@ -1748,9 +1700,7 @@ export default function NewStudio(): ReactElement {
           ? 4
         : QUALITY.find((q) => q.id === quality)?.steps || 4
       const effectiveSeed = seed || randomSeed()
-      const rawRequestSize = mode === 'face'
-        ? await imageRequestSizeFromSource(faceSlots[0]?.image, size)
-        : mode === 'paint' && paintMode === 'outpaint'
+      const rawRequestSize = mode === 'paint' && paintMode === 'outpaint'
           ? size
         : mode === 'paint' && paintMode !== 'sketch'
           ? await imageRequestSizeFromSource(paintImage, size)
@@ -1763,8 +1713,8 @@ export default function NewStudio(): ReactElement {
       // В обоих режимах пользователь видит финальный prompt в textarea:
       // text/i2i-стиль дописывается туда при выборе и может быть отредактирован.
       const fullPrompt = userText || (mode === 'i2i' ? style?.transformPrompt || '' : '')
-      const isEditLikeMode = mode === 'edit' || mode === 'face'
-      const activeEditSlots = mode === 'face' ? faceSlots : editSlots
+      const isEditLikeMode = mode === 'edit'
+      const activeEditSlots = editSlots
       const paintCanvas = mode === 'paint' && paintMode === 'sketch' ? await createPaintSketchCanvas() : undefined
       const paintMask = mode === 'paint' && paintMode === 'mask' ? await createPaintMask(paintImage, paintLines, paintStageSize) : undefined
       const nextOutpaintPreview = mode === 'paint' && paintMode === 'outpaint' ? await createOutpaintPreview(paintImage, paintOutpaint, requestSize) : undefined
@@ -1778,17 +1728,10 @@ export default function NewStudio(): ReactElement {
       const editFaceStrengthInstruction = editHasFaceReference
         ? `\n\nFace reference control for Edit mode:\n${faceStrengthPrompt(editFaceStrengthPct)}\nUse this strength only for references whose role is FACE. Do not let the face reference change clothing, pose, body, background, style, or objects.`
         : ''
-      const faceFinalPrompt = [
-        facePrompt,
-        'Use Image 1 as the target scene. Use Image 2 only as the source face. Preserve the target body, clothing, pose, background, camera angle, lighting, and style.',
-        faceStrengthPrompt(faceStrengthPct),
-      ].filter(Boolean).join('\n\n')
       const body = {
         mode: mode === 'i2i'
           ? 'image_to_image'
-          : mode === 'face'
-            ? 'faceswap'
-            : mode === 'edit'
+          : mode === 'edit'
               ? 'edit'
               : mode === 'paint'
                 ? paintMode === 'sketch'
@@ -1800,7 +1743,7 @@ export default function NewStudio(): ReactElement {
                       : 'remove_background'
                 : 'text_to_image',
         provider: selectedModel.provider,
-        prompt: mode === 'edit' ? `${editComposer.finalPrompt}${editFaceStrengthInstruction}` : mode === 'face' ? faceFinalPrompt : mode === 'paint' ? paintPrompt : fullPrompt,
+        prompt: mode === 'edit' ? `${editComposer.finalPrompt}${editFaceStrengthInstruction}` : mode === 'paint' ? paintPrompt : fullPrompt,
         negativePrompt: isEditLikeMode || mode === 'paint' ? '' : '',
         seed: effectiveSeed,
         width: requestSize.width,
@@ -1808,15 +1751,12 @@ export default function NewStudio(): ReactElement {
         steps,
         cfg: 1,
         guidance,
-        strength: mode === 'edit' ? DEFAULT_EDIT_STRENGTH : mode === 'face' ? faceStrengthPct / 100 : strengthPct / 100,
+        strength: mode === 'edit' ? DEFAULT_EDIT_STRENGTH : strengthPct / 100,
         modelProfile: selectedModel.modelProfile,
-        loras: mode === 'face' && faceLora
-          ? [{ id: faceLora.id, strength: faceStrengthPct / 100, triggerWord: faceLora.triggerWord }]
-          : mode === 'edit' && editHasFaceReference && faceLora
+        loras: mode === 'edit' && editHasFaceReference && faceLora
             ? [{ id: faceLora.id, strength: editFaceStrengthPct / 100, triggerWord: faceLora.triggerWord }]
             : [],
         inputImage1: mode === 'i2i' ? sourceImage : isEditLikeMode ? activeEditSlots[0]?.image : mode === 'paint' && paintMode !== 'sketch' ? paintImage : undefined,
-        inputImage2: mode === 'face' ? activeEditSlots[1]?.image : undefined,
         inputImages: mode === 'edit'
           ? activeEditSlots
               .map((slot, index) => ({ slot, index }))
@@ -1867,7 +1807,7 @@ export default function NewStudio(): ReactElement {
       resetInspectView()
       setResultSource(nextResultSource)
       setCompare(mode === 'i2i' || isEditLikeMode || mode === 'paint' ? 96 : 50)
-      if (!seed && mode !== 'face') setSeed(effectiveSeed)
+      if (!seed) setSeed(effectiveSeed)
     } catch {
       setNotice('Проблема соединения с сервером. Проверьте, что сервис запущен.')
     } finally {
@@ -1897,11 +1837,6 @@ export default function NewStudio(): ReactElement {
   function setPromptInfluence(value: number) {
     const next = Math.max(0, Math.min(100, Math.round(value)))
     setStrengthPct(Math.abs(next - 75) <= 3 ? 75 : next)
-  }
-
-  function setFaceStrength(value: number) {
-    const next = Math.max(0, Math.min(100, Math.round(value)))
-    setFaceStrengthPct(Math.abs(next - DEFAULT_FACE_STRENGTH) <= 3 ? DEFAULT_FACE_STRENGTH : next)
   }
 
   function setEditFaceStrength(value: number) {
@@ -2064,10 +1999,9 @@ export default function NewStudio(): ReactElement {
   const historyItems = ownHistory.length > 0 ? ownHistory : feedFallback
   const historyIsFeed = ownHistory.length === 0 && feedFallback.length > 0
   const selectedResolution = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
-  const studioMode: StudioMode = tab === 'i2i' ? 'i2i' : tab === 'edit' ? 'edit' : tab === 'face' ? 'face' : tab === 'paint' ? 'paint' : 'text'
+  const studioMode: StudioMode = tab === 'i2i' ? 'i2i' : tab === 'edit' ? 'edit' : tab === 'paint' ? 'paint' : 'text'
   const isI2IStudio = studioMode === 'i2i'
   const isEditStudio = studioMode === 'edit'
-  const isFaceStudio = studioMode === 'face'
   const isPaintStudio = studioMode === 'paint'
   const activeCoreMode = coreModeFromTab(tab)
   const activeCorePreview = activeCoreMode ? previewByMode[activeCoreMode] : null
@@ -2102,12 +2036,10 @@ export default function NewStudio(): ReactElement {
       window.clearTimeout(stopTimer)
     }
   }, [previewJobActive, visibleResultSource, visibleResultUrl])
-  const studioTitle = isI2IStudio ? 'По фото' : isEditStudio ? 'Сборка' : isFaceStudio ? 'Лицо' : isPaintStudio ? 'Редактор' : 'По тексту'
-  const promptTitle = isI2IStudio ? 'Как преобразовать?' : isPaintStudio ? 'Что визуализируем?' : isEditStudio || isFaceStudio ? 'Дополнительные пожелания' : 'Что хотите увидеть?'
+  const studioTitle = isI2IStudio ? 'По фото' : isEditStudio ? 'Сборка' : isPaintStudio ? 'Редактор' : 'По тексту'
+  const promptTitle = isI2IStudio ? 'Как преобразовать?' : isPaintStudio ? 'Что визуализируем?' : isEditStudio ? 'Дополнительные пожелания' : 'Что хотите увидеть?'
   const promptPlaceholder = isI2IStudio
     ? 'Опишите, как преобразовать исходное изображение...'
-    : isFaceStudio
-      ? 'Например: сохранить прическу и свет основы, взять только лицо...'
     : isPaintStudio
       ? paintMode === 'sketch'
         ? 'Опишите сцену, которую нужно получить из эскиза...'
@@ -2119,7 +2051,7 @@ export default function NewStudio(): ReactElement {
     : isEditStudio
       ? 'Например: сохранить лицо, заменить одежду, взять фон или цвет из референса...'
     : 'Опишите идею своими словами — получите изображение...'
-  const promptLimit = isI2IStudio || isEditStudio || isFaceStudio || isPaintStudio ? 1000 : 2000
+  const promptLimit = isI2IStudio || isEditStudio || isPaintStudio ? 1000 : 2000
   const promptValue = prompts[studioMode]
   const paintPromptDisplayValue = isPaintStudio && paintTechPromptOpen
     ? `${prompts.paint}${prompts.paint.trim() ? '\n\n' : ''}${paintTechPrompts[paintMode]}`
@@ -2306,17 +2238,15 @@ export default function NewStudio(): ReactElement {
     })
     return () => { cancelled = true }
   }, [currentFormatPricingId, currentSupportedFormatsKey])
-  const generateLabel = isI2IStudio ? 'Преобразовать' : isEditStudio ? 'Создать изображение' : isFaceStudio ? 'Заменить лицо' : isPaintStudio ? paintMode === 'remove_bg' ? 'Удалить фон' : paintMode === 'outpaint' ? 'Расширить' : 'Создать по рисунку' : 'Сгенерировать'
-  const generatingLabel = isI2IStudio ? 'Преобразуем...' : isEditStudio ? 'Создаём...' : isFaceStudio ? 'Заменяем...' : isPaintStudio ? 'Готовим рисунок...' : 'Генерируем...'
+  const generateLabel = isI2IStudio ? 'Преобразовать' : isEditStudio ? 'Создать изображение' : isPaintStudio ? paintMode === 'remove_bg' ? 'Удалить фон' : paintMode === 'outpaint' ? 'Расширить' : 'Создать по рисунку' : 'Сгенерировать'
+  const generatingLabel = isI2IStudio ? 'Преобразуем...' : isEditStudio ? 'Создаём...' : isPaintStudio ? 'Готовим рисунок...' : 'Генерируем...'
   const influenceStyle = { '--i2i-range-progress': `${strengthPct}%` } as CSSProperties
-  const faceStrengthStyle = { '--i2i-range-progress': `${faceStrengthPct}%` } as CSSProperties
   const inspectImageStyle = {
     transform: `translate(${inspectPan.x}px, ${inspectPan.y}px) scale(${inspectZoom})`,
   } as CSSProperties
   const inspectToolsVisible = Math.abs(inspectZoom - 1) > 0.02
   const visibleEditSlots = editExtraOpen ? editSlots : editSlots.slice(0, 2)
   const editFilledCount = editSlots.filter((slot) => slot.image).length
-  const faceFilledCount = faceSlots.filter((slot) => slot.image).length
 
   // Док «Промпт изображения»: если пользователь выбрал миниатюру — берём её из
   // видимой истории (своя или лента), чтобы клик по ленте синхронизировал промпт.
@@ -2483,7 +2413,7 @@ export default function NewStudio(): ReactElement {
     ta.style.height = 'auto'
     const max = Math.round(window.innerHeight * 0.34)
     ta.style.height = `${Math.min(ta.scrollHeight, max)}px`
-  }, [prompts.text, prompts.i2i, prompts.edit, prompts.face, prompts.paint, tab])
+  }, [prompts.text, prompts.i2i, prompts.edit, prompts.paint, tab])
 
   // Горизонтальный скролл ряда стилей: колесо мыши + drag (мышь/тач).
   // Если пользователь тянул ряд — клик по карточке не выбирает стиль (styleDraggedRef).
@@ -2790,70 +2720,6 @@ export default function NewStudio(): ReactElement {
     )
   }
 
-  const renderFaceSlot = (slot: EditSlot, index: number) => {
-    const isBase = index === 0
-    const target: UploadTarget = { kind: 'face', index }
-    const title = isBase ? 'Основа' : 'Лицо'
-    const subtitle = isBase ? 'Куда вставляем лицо' : 'Изображение с лицом'
-    return (
-      <article className={`editor-slot editor-ref-card face-slot${slot.image ? ' is-filled' : ''}`} key={index}>
-        <div className="editor-slot-title editor-ref-header">
-          <div>
-            <strong>{title}</strong>
-            <span>{subtitle}</span>
-          </div>
-        </div>
-        <article className={`i2i-upload-card editor-upload-card face-upload-card${slot.image ? ' is-filled' : ''} is-required`}>
-          {!slot.image && <span className="i2i-required-chip">{isBase ? 'Обязательно' : 'Лицо'}</span>}
-          {slot.image && (
-            <button className="i2i-remove" type="button" aria-label={`Удалить ${title.toLowerCase()}`} onClick={() => clearFaceSlot(index)}>
-              ×
-            </button>
-          )}
-          <div className="i2i-preview">
-            {slot.image ? (
-              <button className="editor-preview-open" type="button" aria-label={`Показать ${title.toLowerCase()} в предпросмотре`} onClick={() => showInspectPreview(slot.image!, title)}>
-                <img src={apiUrl(slot.image)} alt={title} />
-              </button>
-            ) : (
-              <div className="i2i-upload-empty">
-                <svg className="i2i-upload-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M7 18.5h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.4 8.7 4.8 4.8 0 0 0 7 18.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                  <path d="M12 15V9.5m0 0-2.3 2.3M12 9.5l2.3 2.3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <div className="i2i-upload-actions">
-                  <button className="i2i-upload-action primary" type="button" onClick={() => openUpload(target)}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path d="M12 16V6m0 0-4 4m4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                      <path d="M5 18.5h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    </svg>
-                    Загрузить
-                  </button>
-                  <button className="i2i-upload-action" type="button" onClick={() => openGalleryPick(target)}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path d="M4 5h16v14H4V5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-                      <path d="m7 15 3.2-3.2 2.4 2.4 2.2-2.7L20 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      <path d="M8.4 8.6h.1" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
-                    </svg>
-                    Галерея
-                  </button>
-                  <button className="i2i-upload-action" type="button" onClick={() => applyLastImageToTarget(target)}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path d="M5 7v5h5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
-                      <path d="M5.6 12a6.6 6.6 0 1 0 1.9-4.7L5 9.8" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
-                      <path d="M12 8.5V12l2.2 1.4" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    Последнее
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </article>
-      </article>
-    )
-  }
-
   const studio = (
     <main className="layout">
       <aside className="sidebar">
@@ -3005,63 +2871,6 @@ export default function NewStudio(): ReactElement {
           </section>
         )}
 
-        {isFaceStudio && (
-          <section className="form-section i2i-source-section editor-source-section face-source-section">
-            <div className="section-title">
-              <h2>Изображения</h2>
-              <span className={`i2i-source-status${faceFilledCount === 2 ? ' filled' : ' required'}`}>
-                {faceFilledCount} из 2
-              </span>
-            </div>
-            <div className="editor-source-grid face-source-grid">
-              {faceSlots.map(renderFaceSlot)}
-            </div>
-            <article className="face-strength-card">
-              <div className="i2i-influence-head">
-                <h3>Сила замены лица</h3>
-                <label className="i2i-strength-value">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value={faceStrengthPct}
-                    aria-label="Сила замены лица в процентах"
-                    onFocus={(e) => e.currentTarget.select()}
-                    onChange={(e) => setFaceStrength(Number(e.target.value))}
-                  />
-                  <span>%</span>
-                </label>
-              </div>
-              <div className="i2i-range-wrap" style={faceStrengthStyle}>
-                <div className="i2i-range-scale" aria-hidden="true">
-                  <span className="i2i-range-edge start">0</span>
-                  <span className="i2i-range-edge end">100</span>
-                </div>
-                <button className="i2i-range-mark face-range-mark" type="button" onClick={() => setFaceStrength(DEFAULT_FACE_STRENGTH)}>
-                  {faceStrengthPct}
-                </button>
-                <input
-                  className="i2i-range"
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={faceStrengthPct}
-                  aria-label="Сила замены лица"
-                  aria-valuetext={`${faceStrengthPct}%`}
-                  onChange={(e) => setFaceStrength(Number(e.target.value))}
-                />
-              </div>
-              <div className="i2i-range-legend">
-                <span><span className="i2i-range-arrow">←</span> мягче</span>
-                <span>сильнее лицо <span className="i2i-range-arrow">→</span></span>
-              </div>
-              <p>Рекомендуем 75%. Ниже мягче смешивает лицо, выше сильнее переносит черты.</p>
-            </article>
-          </section>
-        )}
-
         {isPaintStudio && (
           <section className="form-section paint-panel-section">
             <div className="section-title">
@@ -3177,7 +2986,7 @@ export default function NewStudio(): ReactElement {
           </section>
         )}
 
-        <section className={`form-section prompt-section${isEditStudio || isFaceStudio || isPaintStudio ? ' editor-prompt-section' : ''}`}>
+        <section className={`form-section prompt-section${isEditStudio || isPaintStudio ? ' editor-prompt-section' : ''}`}>
           <div className="section-title">
             <h2>{promptTitle}</h2>
             {isPaintStudio && (
@@ -3213,7 +3022,7 @@ export default function NewStudio(): ReactElement {
               </svg>
               Улучшить
             </button>
-            {!isEditStudio && !isFaceStudio && !isPaintStudio && (
+            {!isEditStudio && !isPaintStudio && (
               <>
                 <button className="tool-button" type="button" onClick={() => setTemplatesOpen(true)}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -3232,7 +3041,7 @@ export default function NewStudio(): ReactElement {
           </div>
         </section>
 
-        {!isEditStudio && !isFaceStudio && !isPaintStudio && <section className="form-section style-section">
+        {!isEditStudio && !isPaintStudio && <section className="form-section style-section">
           <div className="section-title">
             <h2>Стиль</h2>
             <span>{I2I_STYLES.length} стилей</span>
@@ -3702,7 +3511,6 @@ export default function NewStudio(): ReactElement {
               <div className="prompt-menu-list">
                 <button type="button" onClick={() => { if (dockImage) setSourceImage(apiUrl(dockImage.url)); setTab('i2i') }}>По фото</button>
                 <button type="button" onClick={() => setTab('edit')}>Сборка</button>
-                <button type="button" onClick={() => setTab('face')}>Лицо</button>
                 <button type="button" onClick={() => setTab('paint')}>Редактор</button>
               </div>
             </details>
@@ -3858,10 +3666,6 @@ export default function NewStudio(): ReactElement {
                   <p>Объединяет изображения и переносит детали с референсов: одежду, фон, объект, стиль, цвет, материал, позу или лицо.</p>
                 </article>
                 <article>
-                  <strong>Лицо</strong>
-                  <p>Переносит лицо из одного изображения в другое. Оптимальное значение силы замены по умолчанию — 75%.</p>
-                </article>
-                <article>
                   <strong>Редактор</strong>
                   <p>Превращает эскиз в сцену, работает с маской, дорисовывает область и расширяет холст вокруг изображения.</p>
                 </article>
@@ -3880,7 +3684,7 @@ export default function NewStudio(): ReactElement {
               </details>
               <details>
                 <summary>Можно ли использовать свои изображения?</summary>
-                <p>Да. В режимах По фото, Сборка, Лицо и Редактор можно загрузить изображение, взять работу из галереи или использовать последнее созданное изображение.</p>
+                <p>Да. В режимах По фото, Сборка и Редактор можно загрузить изображение, взять работу из галереи или использовать последнее созданное изображение.</p>
               </details>
               <details>
                 <summary>Где хранятся результаты?</summary>
@@ -4086,13 +3890,13 @@ export default function NewStudio(): ReactElement {
             <div className="iv3-content">{profilePage}</div>
           ) : tab === 'feed' ? (
             <div className="iv3-content"><div className="preview-empty">Открываем ленту...</div></div>
-          ) : tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face' || tab === 'paint' ? (
+          ) : tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'paint' ? (
             studio
           ) : (
             placeholderStudio('Видео', 'Раздел видео открыт для тарифов Pro и Бизнес. Генерация видео будет подключена отдельным модулем.')
           )}
         </div>
-        {view === 'tabs' && (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'face' || tab === 'paint') && (
+        {view === 'tabs' && (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'paint') && (
           <button className={`mobile-bottom-cta${isSubmitting || jobActive ? ' is-generating' : ''}`} type="button" disabled={isSubmitting || jobActive} onClick={() => generate(studioMode)}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M12 3.5l1.9 4.8 4.8 1.9-4.8 1.9-1.9 4.9-1.9-4.9-4.8-1.9 4.8-1.9L12 3.5Z" fill="currentColor" />

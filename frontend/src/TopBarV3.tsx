@@ -6,14 +6,13 @@
 // Разметка и классы намеренно совпадают с прототипом, чтобы работал scoped CSS
 // из newStudioV3.css (обёртка .iv3). Никаких legacy-auth: только колбэки.
 
-export type V3Mode = 'text' | 'i2i' | 'edit' | 'paint' | 'face' | 'video'
+export type V3Mode = 'text' | 'i2i' | 'edit' | 'paint' | 'video'
 export type V3Section = V3Mode | 'feed' | 'gallery' | 'profile' | 'admin'
 
 const MODE_TABS: Array<{ id: V3Mode; label: string; hint: string; gated?: boolean }> = [
   { id: 'text', label: 'По тексту', hint: 'Изображение по тексту' },
   { id: 'i2i', label: 'По фото', hint: 'Изменить изображение по фото' },
   { id: 'edit', label: 'Сборка', hint: 'Собрать изображение из нескольких фото' },
-  { id: 'face', label: 'Лицо', hint: 'Замена лица' },
   { id: 'paint', label: 'Редактор', hint: 'Правки изображения' },
   { id: 'video', label: 'Видео', hint: 'Генерация видео', gated: true },
 ]

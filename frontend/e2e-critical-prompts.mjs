@@ -94,9 +94,6 @@ async function desktopRun() {
     prompts = await assertTemplates(page, 'Desktop Редактор / Расширение', 20)
     await assertRandomFromCurrentSet(page, 'Desktop Редактор / Расширение', prompts)
 
-    await clickMode(page, 'Лицо')
-    prompts = await assertTemplates(page, 'Desktop Лицо', 20)
-    await assertRandomFromCurrentSet(page, 'Desktop Лицо', prompts)
   } finally {
     await browser.close()
   }
@@ -105,7 +102,7 @@ async function desktopRun() {
 async function mobileRun() {
   const { browser, page } = await openApp({ width: 390, height: 844 })
   try {
-    for (const [label, count] of [['По тексту', 20], ['По фото', 20], ['Редактор', 20], ['Редактор', 20], ['Лицо', 20]]) {
+    for (const [label, count] of [['По тексту', 20], ['По фото', 20], ['Редактор', 20], ['Редактор', 20]]) {
       await clickMode(page, label)
       const prompts = await assertTemplates(page, `Mobile ${label}`, count)
       await assertRandomFromCurrentSet(page, `Mobile ${label}`, prompts)

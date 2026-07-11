@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 
 const studio = readFileSync(new URL('./src/newUi.tsx', import.meta.url), 'utf8')
+const topBar = readFileSync(new URL('./src/TopBarV3.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('./src/newStudioV3.css', import.meta.url), 'utf8')
 const failures = []
 const ok = (condition, message) => { if (!condition) failures.push(message) }
@@ -18,6 +19,10 @@ ok(/\.editor-face-value\s*\{[^}]*position:\s*static/s.test(css), 'face percentag
 ok(/\.editor-face-range\s*\{[^}]*min-height:\s*0/s.test(css), 'face range must reset the global input minimum height')
 ok(/\.editor-face-range\s*\{[^}]*border:\s*0/s.test(css), 'face range must not inherit the global input border')
 ok(/\.editor-face-range\s*\{[^}]*box-shadow:\s*none/s.test(css), 'face range must not inherit form-field shadow')
+ok(!topBar.includes("{ id: 'face'"), 'standalone Face tab must not return to the top navigation')
+ok(!studio.includes("| 'face' |"), 'standalone Face studio mode must not return')
+ok(!studio.includes("? 'faceswap'"), 'standalone Face generation route must not return')
+ok(studio.includes("if (h === '#face' || h === '#face-to-image') return { view: 'tabs', tab: 'edit' }"), 'old Face links must redirect to Assembly')
 
 if (failures.length) {
   console.error('smoke-editor-contract FAILED:')

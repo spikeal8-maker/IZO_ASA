@@ -101,7 +101,7 @@ async function runViewport(browser, viewport) {
     assert(navState.visibleTopActions === 0, `${viewport.name}: duplicated Gallery/Help/Settings buttons are visible`)
   }
 
-  for (const name of ['Изо стрелка вправо Изо', 'Редактирование Изо', 'Рисование Изо', 'Лицо стрелка вправо Изо']) {
+  for (const name of ['Изо стрелка вправо Изо', 'Редактирование Изо', 'Рисование Изо']) {
     await page.getByRole('button', { name }).click()
     await page.locator('.preview-panel').waitFor()
     await assertNoBrokenLayout(page, `${viewport.name}: ${name}`)
