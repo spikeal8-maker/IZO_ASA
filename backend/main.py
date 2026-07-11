@@ -59,6 +59,9 @@ COMFYUI_FACE_SOURCE_MEGAPIXELS = max(0.15, min(1.0, float(os.getenv("COMFYUI_FAC
 COMFYUI_INPUT_MIN_SIDE = 256
 GALLERY_IMAGE_MAX_SIDE = max(1024, min(4096, int(os.getenv("GALLERY_IMAGE_MAX_SIDE", "2048"))))
 GALLERY_IMAGE_WEBP_QUALITY = max(70, min(95, int(os.getenv("GALLERY_IMAGE_WEBP_QUALITY", "90"))))
+GALLERY_FULL_QUALITY_COUNT = max(1, min(50, int(os.getenv("GALLERY_FULL_QUALITY_COUNT", "10"))))
+GALLERY_ARCHIVE_MAX_SIDE = max(768, min(GALLERY_IMAGE_MAX_SIDE, int(os.getenv("GALLERY_ARCHIVE_MAX_SIDE", "1536"))))
+GALLERY_ARCHIVE_WEBP_QUALITY = max(75, min(92, int(os.getenv("GALLERY_ARCHIVE_WEBP_QUALITY", "86"))))
 SOURCE_THUMB_MAX_SIDE = max(192, min(768, int(os.getenv("SOURCE_THUMB_MAX_SIDE", "384"))))
 SOURCE_THUMB_WEBP_QUALITY = max(55, min(90, int(os.getenv("SOURCE_THUMB_WEBP_QUALITY", "76"))))
 
@@ -1103,7 +1106,11 @@ def init_db() -> None:
                 prompt_translated TEXT,
                 settings_json TEXT NOT NULL DEFAULT '{}',
                 is_favorite INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                storage_tier TEXT NOT NULL DEFAULT 'original',
+                optimized_at TEXT,
+                original_bytes INTEGER,
+                stored_bytes INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS image_sources (
@@ -1458,6 +1465,14 @@ def init_db() -> None:
         existing_image_columns = {row["name"] for row in conn.execute("PRAGMA table_info(images)").fetchall()}
         if "deleted_at" not in existing_image_columns:
             conn.execute("ALTER TABLE images ADD COLUMN deleted_at TEXT")
+        for column, definition in {
+            "storage_tier": "TEXT NOT NULL DEFAULT 'original'",
+            "optimized_at": "TEXT",
+            "original_bytes": "INTEGER",
+            "stored_bytes": "INTEGER",
+        }.items():
+            if column not in existing_image_columns:
+                conn.execute(f"ALTER TABLE images ADD COLUMN {column} {definition}")
         now = datetime.now(timezone.utc).isoformat()
         conn.execute(
             """
@@ -4411,6 +4426,7 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
         "comfyuiPromptId": settings.get("comfyuiPromptId"),
         "comfyuiHistory": settings.get("comfyuiHistory"),
         "deletedAt": _row_get(row, "deleted_at"),
+        "storageTier": _row_get(row, "storage_tier") or "original",
     }
 
 
@@ -6180,6 +6196,184 @@ def save_gallery_original(image: Image.Image, job_id: str) -> Path:
     return out
 
 
+def optimize_gallery_storage_for_user(
+    user_id: str,
+    *,
+    keep_recent: int = GALLERY_FULL_QUALITY_COUNT,
+    limit: int | None = None,
+) -> dict[str, int]:
+    """Move older active gallery images to a compact, idempotent storage tier."""
+    stats = {"checked": 0, "optimized": 0, "bytes_before": 0, "bytes_after": 0, "errors": 0}
+    fetch_limit = max(1, int(limit)) if limit is not None else 1_000_000
+    with db() as conn:
+        ordered_rows = conn.execute(
+            f"""
+            SELECT id, url, storage_tier FROM images
+            WHERE user_id = ? AND {ACTIVE_IMAGE_WHERE}
+            ORDER BY created_at DESC, id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+    rows = [
+        row for row in ordered_rows[max(0, int(keep_recent)) :]
+        if str(row["storage_tier"] or "original") == "original"
+    ][:fetch_limit]
+
+    for row in rows:
+        stats["checked"] += 1
+        with db() as conn:
+            conn.execute(
+                "UPDATE images SET storage_tier = 'optimizing' "
+                "WHERE id = ? AND user_id = ? AND COALESCE(storage_tier, 'original') = 'original'",
+                (row["id"], user_id),
+            )
+            claimed = conn.execute("SELECT changes()").fetchone()[0]
+        if not claimed:
+            continue
+        source = local_media_path_from_url(str(row["url"] or ""))
+        if source is None or not source.is_file():
+            with db() as conn:
+                conn.execute("UPDATE images SET storage_tier = 'missing' WHERE id = ?", (row["id"],))
+            stats["errors"] += 1
+            continue
+        target = source.with_name(f"{source.stem}_archive.webp")
+        temporary = source.with_name(f".{source.stem}_{uuid.uuid4().hex}.tmp.webp")
+        try:
+            before = source.stat().st_size
+            with Image.open(source) as opened:
+                prepared = ImageOps.exif_transpose(opened)
+                if prepared.mode not in {"RGB", "RGBA"}:
+                    prepared = prepared.convert("RGB")
+                prepared.thumbnail((GALLERY_ARCHIVE_MAX_SIDE, GALLERY_ARCHIVE_MAX_SIDE), Image.Resampling.LANCZOS)
+                prepared.save(temporary, "WEBP", quality=GALLERY_ARCHIVE_WEBP_QUALITY, method=6)
+                optimized_width, optimized_height = prepared.size
+            with Image.open(temporary) as verification:
+                verification.verify()
+            after = temporary.stat().st_size
+            now = datetime.now(timezone.utc).isoformat()
+            stats["bytes_before"] += before
+            if after >= before:
+                temporary.unlink(missing_ok=True)
+                with db() as conn:
+                    conn.execute(
+                        "UPDATE images SET storage_tier = 'checked', optimized_at = ?, "
+                        "original_bytes = ?, stored_bytes = ? WHERE id = ? AND user_id = ?",
+                        (now, before, before, row["id"], user_id),
+                    )
+                stats["bytes_after"] += before
+                continue
+            temporary.replace(target)
+            new_url = public_url(target, user_id)
+            try:
+                with db() as conn:
+                    conn.execute(
+                        "UPDATE images SET url = ?, width = ?, height = ?, storage_tier = 'optimized', "
+                        "optimized_at = ?, original_bytes = ?, stored_bytes = ? "
+                        "WHERE id = ? AND user_id = ? AND storage_tier = 'optimizing'",
+                        (new_url, optimized_width, optimized_height, now, before, after, row["id"], user_id),
+                    )
+                    changed = conn.execute("SELECT changes()").fetchone()[0]
+                if not changed:
+                    target.unlink(missing_ok=True)
+                    continue
+            except Exception:
+                target.unlink(missing_ok=True)
+                raise
+            source.unlink(missing_ok=True)
+            cached = images.get(str(row["id"]))
+            if cached is not None:
+                cached.update(url=new_url, width=optimized_width, height=optimized_height, storageTier="optimized")
+            stats["optimized"] += 1
+            stats["bytes_after"] += after
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            with db() as conn:
+                conn.execute(
+                    "UPDATE images SET storage_tier = 'original' WHERE id = ? AND storage_tier = 'optimizing'",
+                    (row["id"],),
+                )
+            stats["errors"] += 1
+    return stats
+
+
+def recover_missing_optimized_gallery_files() -> dict[str, int]:
+    """Restore an unavailable gallery file from the best retained derivative."""
+    stats = {"checked": 0, "recovered_from_feed": 0, "recovered_from_thumbnail": 0, "unrecoverable": 0}
+    with db() as conn:
+        conn.execute("UPDATE images SET storage_tier = 'original' WHERE storage_tier = 'optimizing'")
+        rows = conn.execute(
+            f"SELECT id, user_id, url, thumbnail_url FROM images WHERE {ACTIVE_IMAGE_WHERE}"
+        ).fetchall()
+    for row in rows:
+        target = local_media_path_from_url(str(row["url"] or ""))
+        if target is not None:
+            continue
+        stats["checked"] += 1
+        filename = media_filename_from_url(row["url"])
+        if not filename:
+            stats["unrecoverable"] += 1
+            continue
+        target = MEDIA / filename
+        candidate = None
+        source_kind = ""
+        with db() as conn:
+            publication = conn.execute(
+                "SELECT feed_large_name FROM feed_publications WHERE image_id = ? "
+                "AND feed_large_name IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+                (row["id"],),
+            ).fetchone()
+        if publication:
+            feed_path = (MEDIA / str(publication["feed_large_name"])).resolve()
+            if feed_path.is_file():
+                candidate, source_kind = feed_path, "feed"
+        if candidate is None:
+            thumbnail = local_media_path_from_url(str(row["thumbnail_url"] or ""))
+            if thumbnail is not None:
+                candidate, source_kind = thumbnail, "thumbnail"
+        if candidate is None:
+            stats["unrecoverable"] += 1
+            continue
+        try:
+            with Image.open(candidate) as opened:
+                restored = ImageOps.exif_transpose(opened)
+                if restored.mode not in {"RGB", "RGBA"}:
+                    restored = restored.convert("RGB")
+                if target.suffix.lower() == ".webp":
+                    restored.save(target, "WEBP", quality=GALLERY_ARCHIVE_WEBP_QUALITY, method=6)
+                else:
+                    restored.save(target, "PNG", optimize=True)
+                width, height = restored.size
+            size = target.stat().st_size
+            with db() as conn:
+                conn.execute(
+                    "UPDATE images SET width = ?, height = ?, storage_tier = 'optimized', "
+                    "optimized_at = ?, stored_bytes = ? WHERE id = ?",
+                    (width, height, datetime.now(timezone.utc).isoformat(), size, row["id"]),
+                )
+            stats[f"recovered_from_{source_kind}"] += 1
+        except Exception:
+            target.unlink(missing_ok=True)
+            stats["unrecoverable"] += 1
+    return stats
+
+
+def optimize_existing_gallery_storage(limit_per_user: int = 250) -> dict[str, int]:
+    totals = {"users": 0, "checked": 0, "optimized": 0, "bytes_before": 0, "bytes_after": 0, "errors": 0}
+    with db() as conn:
+        user_ids = [
+            str(row["user_id"])
+            for row in conn.execute(
+                f"SELECT DISTINCT user_id FROM images WHERE user_id IS NOT NULL AND {ACTIVE_IMAGE_WHERE}"
+            ).fetchall()
+        ]
+    for user_id in user_ids:
+        result = optimize_gallery_storage_for_user(user_id, limit=limit_per_user)
+        totals["users"] += 1
+        for key in ("checked", "optimized", "bytes_before", "bytes_after", "errors"):
+            totals[key] += result[key]
+    return totals
+
+
 def admin_secret_value(key: str) -> str:
     try:
         with db() as conn:
@@ -7626,6 +7820,7 @@ async def worker() -> None:
                     sources = persist_image_sources(image_id, user_id, req, created_at)
                     if sources:
                         images[image_id]["sources"] = sources
+                    await asyncio.to_thread(optimize_gallery_storage_for_user, user_id, limit=2)
                     save_status = "saved"
                     result_image_id = image_id
                 else:
@@ -7656,6 +7851,7 @@ async def worker() -> None:
                 sources = persist_image_sources(image_id, user_id, req, created_at)
                 if sources:
                     images[image_id]["sources"] = sources
+                await asyncio.to_thread(optimize_gallery_storage_for_user, user_id, limit=2)
                 with db() as conn:
                     saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
                     gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
@@ -7688,6 +7884,9 @@ async def startup() -> None:
     validate_session_crypto_config()
     init_db()
     enforce_db_guard_after_migrations()
+    recovered_gallery = recover_missing_optimized_gallery_files()
+    if any(value for key, value in recovered_gallery.items() if key != "checked"):
+        print(f"gallery storage recovery: {recovered_gallery}")
     source_cleanup = cleanup_orphan_image_sources()
     if any(source_cleanup.values()):
         print(f"image source cleanup: {source_cleanup}")
@@ -7695,6 +7894,7 @@ async def startup() -> None:
     if backfilled_feed:
         print(f"feed generation snapshots backfilled: {backfilled_feed}")
     load_db_state()
+    asyncio.create_task(asyncio.to_thread(optimize_existing_gallery_storage))
     if not worker_started:
         asyncio.create_task(worker())
         worker_started = True
