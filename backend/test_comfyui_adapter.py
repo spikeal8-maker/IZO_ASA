@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from io import BytesIO
 
 from fastapi.testclient import TestClient
@@ -69,10 +70,10 @@ def test_choose_faceswap_lora_rejects_admin_disabled_lora() -> None:
         main.choose_faceswap_lora([file_name], None, "flux-2-klein-4b-fp8.safetensors")
 
 
-def test_server_model_profile_is_persisted_and_applied(monkeypatch) -> None:
+def test_server_model_profile_is_persisted_and_sampler_is_applied(monkeypatch) -> None:
     main._save_setting("server_model_profiles", {"profiles": {"flux_klein_4b": {"width": 1536, "height": 1024, "steps": 6, "sampler": "euler", "seedMode": "fixed", "seed": 777}}})
     req = main.GenerateRequest(mode="text_to_image", width=1024, height=1024, steps=28, seed=42)
-    settings = main.apply_server_model_profile(req, "flux_klein_4b")
+    settings = main.get_server_model_profiles()["flux_klein_4b"]
     assert settings["sampler"] == "euler"
     assert (req.width, req.height, req.steps, req.seed) == (1024, 1024, 28, 42)
 
@@ -83,6 +84,36 @@ def test_server_model_profile_is_persisted_and_applied(monkeypatch) -> None:
 
 def test_missing_admin_setting_returns_empty_mapping() -> None:
     assert main._saved_setting("setting-that-does-not-exist") == {}
+
+
+def test_editor_workflow_failure_is_not_replaced_with_mock(monkeypatch) -> None:
+    async def available() -> bool:
+        return True
+
+    async def models() -> dict[str, list[str]]:
+        return {"diffusion_models": ["flux-2-klein-4b-fp8.safetensors"], "text_encoders": ["qwen_3_4b.safetensors"], "vaes": ["flux2-vae.safetensors"], "loras": []}
+
+    async def workflow(_mode: str) -> dict:
+        return {}
+
+    async def upload(path) -> str:
+        return path.name
+
+    async def fail_submit(_workflow: dict, _job: dict):
+        raise RuntimeError("invalid editor graph")
+
+    image = Image.new("RGB", (512, 512), "white")
+    buffer = BytesIO(); image.save(buffer, "PNG")
+    data_url = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+    monkeypatch.setattr(main, "comfyui_available", available)
+    monkeypatch.setattr(main, "get_comfyui_models", models)
+    monkeypatch.setattr(main, "fetch_workflow", workflow)
+    monkeypatch.setattr(main, "upload_to_comfyui", upload)
+    monkeypatch.setattr(main, "submit_workflow", fail_submit)
+    monkeypatch.setattr(main, "COMFYUI_MOCK_FALLBACK", False)
+    req = main.GenerateRequest(mode="remove_background", inputImage1=data_url, modelProfile="flux_klein_4b")
+    with pytest.raises(RuntimeError, match="invalid editor graph"):
+        asyncio.run(main.send_to_comfyui(req, {"id": "editor-fail", "mode": "remove_background"}))
 
 
 def test_models_endpoint_reports_selected_models(monkeypatch) -> None:
@@ -347,6 +378,18 @@ def test_patch_upload_modes_wire_expected_input_nodes() -> None:
     assert faceswap["FK:171"]["inputs"]["negative"] == ["FK:231", 0]
     assert faceswap["FK:lora"]["inputs"]["lora_name"] == "face.safetensors"
     assert faceswap["FK:lora"]["inputs"]["strength_model"] == 0.75
+
+
+def test_faceswap_inserts_lora_loader_when_live_edit_workflow_has_none() -> None:
+    workflow = _edit_workflow_template()
+    workflow.pop("FK:lora")
+    workflow["FK:165"] = {"class_type": "UNETLoader", "inputs": {"unet_name": "model.safetensors"}}
+    workflow["FK:169"] = {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": ["FK:165", 0]}}
+    req = main.GenerateRequest(mode="faceswap", loras=[main.Lora(id="face-9b.safetensors", strength=0.8)])
+    main.patch_mode_nodes(workflow, req, {"input1": "body.png", "input2": "face.png"}, "model", "clip", "vae")
+    assert workflow["FK:admin_lora"]["class_type"] == "LoraLoaderModelOnly"
+    assert workflow["FK:admin_lora"]["inputs"]["lora_name"] == "face-9b.safetensors"
+    assert workflow["FK:169"]["inputs"]["model"] == ["FK:admin_lora", 0]
 
 
 def _edit_workflow_template() -> dict:

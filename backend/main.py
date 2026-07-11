@@ -7049,12 +7049,6 @@ def get_server_model_profiles() -> dict[str, dict[str, Any]]:
     return normalize_server_model_profiles(_saved_setting("server_model_profiles"))["profiles"]
 
 
-def apply_server_model_profile(req: GenerateRequest, profile_id: str) -> dict[str, Any]:
-    # GenerateRequest already contains the user's explicit quality, format and seed.
-    # Profile values are fallbacks/operational metadata; they must not overwrite those choices.
-    return get_server_model_profiles().get(profile_id, SERVER_MODEL_PROFILE_DEFAULTS["flux_klein_9b"])
-
-
 def get_profile_row(profile_id: str) -> dict[str, Any] | None:
     with db() as conn:
         row = conn.execute(
@@ -7388,6 +7382,15 @@ def patch_optional_lora(prompt: dict[str, Any], lora: Lora | None) -> None:
         if "strength_clip" in inputs:
             inputs["strength_clip"] = lora.strength
         return
+    # Живой workflow_edit не содержит LoRA loader. Вставляем model-only loader
+    # между UNETLoader и ModelSamplingAuraFlow, иначе выбранная face-LoRA не применяется.
+    if "FK:165" in prompt and "FK:169" in prompt:
+        prompt["FK:admin_lora"] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {"model": ["FK:165", 0], "lora_name": lora.id, "strength_model": lora.strength},
+            "_meta": {"title": "Config UI LoRA"},
+        }
+        set_input(prompt, "FK:169", "model", ["FK:admin_lora", 0])
 
 
 # FLUX.2 Klein multi-reference edit: каждое изображение подаётся как ReferenceLatent в
@@ -7515,29 +7518,6 @@ def patch_mode_nodes(prompt: dict[str, Any], req: GenerateRequest, uploads: dict
         set_input(prompt, "FKO:163", "cfg", req.cfg)
         set_input(prompt, "FKO:163", "denoise", 1)
         set_input(prompt, "FKO:203", "filename_prefix", "one-node-flux-2-klein/FK")
-    elif req.mode == "faceswap":
-        face_lora = req.loras[0] if req.loras else None
-        set_input(prompt, "FKF:225", "unet_name", model)
-        set_input(prompt, "FKF:223", "clip_name", text_encoder)
-        set_input(prompt, "FKF:235", "vae_name", vae)
-        if face_lora:
-            set_input(prompt, "FKF:226", "lora_name", face_lora.id)
-            set_input(prompt, "FKF:226", "strength_model", face_lora.strength)
-        set_input(prompt, "FKF:234", "image", uploads["input1"])
-        set_input(prompt, "FKF:236", "image", uploads["input2"])
-        set_input(prompt, "FKF:scaleSrc", "megapixels", COMFYUI_FACE_SOURCE_MEGAPIXELS)
-        if req.prompt.strip():
-            set_input(prompt, "FKF:227", "text", req.prompt)
-        set_input(prompt, "FKF:229", "text", "")
-        set_input(prompt, "FKF:228", "seed", req.seed)
-        set_input(prompt, "FKF:228", "steps", req.steps)
-        set_input(prompt, "FKF:228", "cfg", req.cfg)
-        set_input(prompt, "FKF:228", "denoise", 1)
-        profile_id = "flux_klein_4b" if "4b" in model.lower() else "flux_klein_9b"
-        set_input(prompt, "FKF:228", "sampler_name", get_server_model_profiles()[profile_id]["sampler"])
-        set_input(prompt, "FKF:228", "scheduler", "simple")
-        set_input(prompt, "FKF:239", "model", ["FKF:226", 0])
-        set_input(prompt, "FKF:232", "filename_prefix", "one-node-flux-2-klein/FK")
 
 
 async def submit_workflow(workflow: dict[str, Any], job: dict[str, Any]) -> tuple[str, dict[str, Any], list[dict[str, str]]]:
@@ -7621,7 +7601,6 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
         return None
 
     profile_id = effective_face_profile(payload.modelProfile) if payload.mode == "faceswap" else effective_edit_profile(payload.modelProfile)
-    apply_server_model_profile(payload, profile_id)
     models = await get_comfyui_models()
     model, text_encoder, vae = choose_model(models, profile_id)
     available_loras = models.get("loras", [])
@@ -7646,10 +7625,10 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
                      if target_lora_tag in item.lower() and server_lora_enabled(item) and any(kw in item.lower() for kw in ("bfs", "face", "head"))),
                     "",
                 )
-                if not fallback:
-                    fallback = next((item for item in available_loras if target_lora_tag in item.lower() and server_lora_enabled(item)), "")
                 if fallback:
                     lora.id = fallback
+                else:
+                    raise RuntimeError(f"LoRA {lora.id} несовместима с активной Klein {target_lora_tag.upper()} и безопасной замены нет.")
     workflow = await fetch_workflow(payload.mode)
     pose_graph: dict[str, Any] | None = None
 
@@ -7744,14 +7723,14 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
     except Exception as exc:
         if payload.mode == "faceswap":
             raise RuntimeError(f"FaceSwap workflow failed: {exc}") from exc
-        if payload.mode not in {"inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
+        if not COMFYUI_MOCK_FALLBACK or payload.mode not in {"inpaint", "outpaint", "remove_background", "try_on", "texture_transfer"}:
             raise
         prompt_id = "fallback_after_workflow_error"
         history = {"error": str(exc)}
         output_images = []
     if payload.mode == "faceswap" and not output_images:
         raise RuntimeError("FaceSwap workflow completed without output image.")
-    if not output_images and payload.mode in {"inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
+    if COMFYUI_MOCK_FALLBACK and not output_images and payload.mode in {"inpaint", "outpaint", "remove_background", "try_on", "texture_transfer"}:
         try:
             fallback = await fetch_workflow("edit")
             fallback_req = payload.model_copy(update={"mode": "edit"})
@@ -7760,7 +7739,7 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
         except Exception as exc:
             history = {"fallback": "edit_workflow_error", "error": str(exc)}
             output_images = []
-    if not output_images and payload.mode in {"inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
+    if COMFYUI_MOCK_FALLBACK and not output_images and payload.mode in {"inpaint", "outpaint", "remove_background", "try_on", "texture_transfer"}:
         try:
             fallback = await fetch_workflow("text_to_image")
             fallback_req = payload.model_copy(
@@ -7774,7 +7753,7 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
         except Exception as exc:
             history = {"fallback": "text_to_image_workflow_error", "error": str(exc)}
             output_images = []
-    if not output_images and payload.mode in {"inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
+    if COMFYUI_MOCK_FALLBACK and not output_images and payload.mode in {"inpaint", "outpaint", "remove_background", "try_on", "texture_transfer"}:
         image_path, thumb_path = mock_image(payload, job["id"])
         return ComfyUIResult(prompt_id=prompt_id, image_path=image_path, thumbnail_path=thumb_path, history={"fallback": "no_comfyui_output_image", **history})
     if not output_images:
@@ -8501,7 +8480,6 @@ async def gallery_page(
             "s.user_id = ?",
             "s.source_kind IN ('upload', 'media')",
             "(s.library_deleted_at IS NULL OR s.library_deleted_at = '')",
-            "s.availability_status = 'available'",
             ACTIVE_IMAGE_WHERE.replace("deleted_at", "images.deleted_at"),
         ]
         uploaded_params: list[Any] = [user_id]
@@ -13334,6 +13312,12 @@ KNOWN_LORAS: dict[str, dict[str, Any]] = {
     "bfs_head_v1_flux-klein_4b": {"purpose": "face / head consistency", "compatible": ["Flux 2 Klein 4B"], "routes": ["face", "edit"], "requires": [], "kind": "klein-face", "recommended": True},
     "bfs_head_v1_flux-klein_9b": {"purpose": "face / identity", "compatible": ["Flux 2 Klein 9B"], "routes": ["face", "edit"], "requires": [], "kind": "klein-face", "recommended": True},
     "refcontrol_v2_poses": {"purpose": "pose ref-control", "compatible": ["Flux 2 Klein 9B"], "routes": ["edit_pose"], "requires": ["DWPreprocessor"], "kind": "klein-pose", "recommended": True},
+    "flux2_klein_4b_refcontrol_depth": {"purpose": "depth / composition control", "compatible": ["Flux 2 Klein 4B Base"], "routes": ["edit_depth"], "requires": ["DepthAnythingV2Preprocessor"], "requiredModel": "klein-base-4b", "kind": "klein-depth", "recommended": True, "workflowReady": False},
+    "flux2_klein_4b_outpaint_comfy": {"purpose": "outpaint / image extension", "compatible": ["Flux 2 Klein 4B Base"], "routes": ["outpaint"], "requires": [], "requiredModel": "klein-base-4b", "kind": "klein-outpaint", "recommended": True, "workflowReady": False},
+    "flux2_klein_9b_refcontrol_depth": {"purpose": "depth / composition control", "compatible": ["Flux 2 Klein 9B Base"], "routes": ["edit_depth"], "requires": ["DepthAnythingV2Preprocessor"], "requiredModel": "klein-base-9b", "kind": "klein-depth", "recommended": True, "workflowReady": False},
+    "flux2_klein_9b_refcontrol_canny": {"purpose": "contours / structure control", "compatible": ["Flux 2 Klein 9B Base"], "routes": ["edit_canny"], "requires": ["CannyEdgePreprocessor"], "requiredModel": "klein-base-9b", "kind": "klein-canny", "recommended": True, "workflowReady": False},
+    "flux2_klein_9b_refcontrol_lineart": {"purpose": "line art / sketch control", "compatible": ["Flux 2 Klein 9B Base"], "routes": ["paint", "edit_lineart"], "requires": ["LineArtPreprocessor"], "requiredModel": "klein-base-9b", "kind": "klein-lineart", "recommended": True, "workflowReady": False},
+    "flux2_klein_9b_refcontrol_normal": {"purpose": "surface normals / volume control", "compatible": ["Flux 2 Klein 9B Base"], "routes": ["edit_normal"], "requires": ["DSINE-NormalMapPreprocessor"], "requiredModel": "klein-base-9b", "kind": "klein-normal", "recommended": True, "workflowReady": False},
 }
 
 OPENROUTER_CATALOG = [
@@ -13362,6 +13346,7 @@ async def scan_loras() -> list[dict[str, Any]]:
     except Exception:
         models = {}
     files = models.get("loras", [])
+    diffusion_models = models.get("diffusion_models", [])
     try:
         nodes = await comfyui_node_names()
     except Exception:
@@ -13380,12 +13365,15 @@ async def scan_loras() -> list[dict[str, Any]]:
         if meta:
             seen_known.add(matched_key)
             requires_ok = all(n in nodes for n in meta["requires"])
-            status = "active" if requires_ok else "missing"
+            required_model = str(meta.get("requiredModel") or "")
+            model_ok = not required_model or any(required_model in model.lower() for model in diffusion_models)
+            workflow_ready = meta.get("workflowReady", True)
+            status = "active" if requires_ok and model_ok and workflow_ready else "model_missing" if not model_ok else "workflow_pending" if requires_ok else "missing"
             out.append({
                 "fileName": f, "purpose": meta["purpose"], "compatible": meta["compatible"],
                 "routes": meta["routes"], "requires": meta["requires"], "status": status,
                 "kind": meta.get("kind", "klein"), "recommended": bool(meta.get("recommended")),
-                "installed": True, "forKlein": True,
+                "installed": True, "forKlein": True, "workflowReady": workflow_ready, "requiredModel": required_model,
             })
         else:
             is_video = any(k in base for k in ("wan", "i2v", "x2v", "video", "hunyuan"))
@@ -13410,7 +13398,7 @@ async def scan_loras() -> list[dict[str, Any]]:
                 "fileName": key, "purpose": meta["purpose"], "compatible": meta["compatible"],
                 "routes": meta["routes"], "requires": meta["requires"], "status": "missing",
                 "kind": meta.get("kind", "klein"), "recommended": bool(meta.get("recommended")),
-                "installed": False, "forKlein": True,
+                "installed": False, "forKlein": True, "workflowReady": bool(meta.get("workflowReady", True)),
             })
     return out
 

@@ -17,6 +17,8 @@ type Route = { routeId: string; displayName: string; icon: string; provider: str
 type Lora = {
   fileName: string; purpose: string; compatible: string[]; routes: string[]; requires: string[]; status: string
   kind?: string; recommended?: boolean; installed?: boolean; forKlein?: boolean
+  workflowReady?: boolean
+  requiredModel?: string
 }
 type UserChoiceItem = { key?: string; label: string; model?: string; cost?: number | string; plan?: string; provider?: string }
 type CatalogItem = { provider: string; displayName: string; modelId: string; capabilities: string[]; cost: string; margin: string; status: string }
@@ -1042,7 +1044,7 @@ export default function AdminModelsV2() {
             return <div className="lora-row" key={l.fileName}>
               <input type="checkbox" checked={enabled} disabled={l.installed === false || !dependencyReady} onChange={(e) => setLoraEnabled(l.fileName, e.target.checked)} aria-label={`Доступность ${l.fileName}`} />
               <div><h3>{l.fileName}</h3><p>{l.purpose}</p></div>
-              <span className={`state ${enabled ? 'ok' : 'warn'}`}>{l.installed === false ? 'не установлена' : !dependencyReady ? 'нет зависимости' : enabled ? 'доступна' : 'выключена'}</span>
+              <span className={`state ${enabled ? 'ok' : 'warn'}`}>{l.installed === false ? 'не установлена' : l.status === 'model_missing' ? 'нужна Base-модель' : l.status === 'workflow_pending' ? 'нужно подключить' : !dependencyReady ? 'нет зависимости' : enabled ? 'доступна' : 'выключена'}</span>
               <div><p>{l.routes.length ? `Функции: ${l.routes.join(', ')}` : 'Функция ещё не назначена'}{l.requires.length ? ` · Нужен модуль: ${l.requires.join(', ')}` : ''}</p></div>
             </div>
           }) : <p className="lora-empty">Совместимые LoRA пока не найдены.</p>}

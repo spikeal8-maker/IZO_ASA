@@ -1,0 +1,55 @@
+{
+  "snapshotDate": "2026-07-11",
+  "targetDirectory": "ComfyUI/models/loras",
+  "items": [
+    {
+      "profile": "4B Base",
+      "purpose": "depth",
+      "repo": "thedeoxen/refcontrol-FLUX.2-klein-4B-reference-depth-lora",
+      "revision": "0ae1ef7f9acc4e55ec2237360943c3c3032d3583",
+      "file": "flux2_klein_4b_refcontrol_depth.safetensors",
+      "workflowReady": false
+    },
+    {
+      "profile": "4B Base",
+      "purpose": "outpaint",
+      "repo": "fal/flux-2-klein-4B-outpaint-lora",
+      "revision": "b11770ac6a3cf9325dcf81742c12b1c4e257880f",
+      "sourceFile": "LyNiaZ53Tudg0J6sT8Xbx_pytorch_lora_weights_comfy_converted.safetensors",
+      "file": "flux2_klein_4b_outpaint_comfy.safetensors",
+      "workflowReady": false
+    },
+    {
+      "profile": "9B Base",
+      "purpose": "depth",
+      "repo": "thedeoxen/refcontrol-FLUX.2-klein-9B-reference-depth-lora",
+      "revision": "6a3cfaeac4125428486b10a2eabc103b0f119d40",
+      "file": "flux2_klein_9b_refcontrol_depth.safetensors",
+      "workflowReady": false
+    },
+    {
+      "profile": "9B Base",
+      "purpose": "canny",
+      "repo": "thedeoxen/refcontrol-FLUX.2-klein-9B-reference-canny-lora",
+      "revision": "be1fed28213ee9a176198b5d077727198e3cb4f4",
+      "file": "flux2_klein_9b_refcontrol_canny.safetensors",
+      "workflowReady": false
+    },
+    {
+      "profile": "9B Base",
+      "purpose": "lineart",
+      "repo": "thedeoxen/refcontrol-FLUX.2-klein-9B-reference-lineart-lora",
+      "revision": "140f26de5b6006f6d455ecee417be774a1c054e8",
+      "file": "flux2_klein_9b_refcontrol_lineart.safetensors",
+      "workflowReady": false
+    },
+    {
+      "profile": "9B Base",
+      "purpose": "normal",
+      "repo": "thedeoxen/refcontrol-FLUX.2-klein-9B-reference-normal-lora",
+      "revision": "3a1534674f8d6fc97412562acf93be0558f4f5fe",
+      "file": "flux2_klein_9b_refcontrol_normal.safetensors",
+      "workflowReady": false
+    }
+  ]
+}
