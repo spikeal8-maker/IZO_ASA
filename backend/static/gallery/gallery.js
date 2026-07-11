@@ -207,7 +207,11 @@ function layoutMasonry(){
     const gap = parseFloat(styles.rowGap) || parseFloat(styles.gap) || 0;
     const columns = Math.max(1, String(styles.gridTemplateColumns || '').split(' ').filter(Boolean).length);
     const cardWidth = Math.max(1, (grid.clientWidth - gap * (columns - 1)) / columns);
+    const layoutKey = `${columns}:${cardWidth.toFixed(2)}:${row}:${gap}`;
+    const widthChanged = grid.dataset.masonryLayoutKey !== layoutKey;
+    grid.dataset.masonryLayoutKey = layoutKey;
     grid.querySelectorAll('.card').forEach(card => {
+      if(!widthChanged && card.style.getPropertyValue('--masonry-span')) return;
       const width = Math.max(1, Number(card.dataset.width || 1));
       const sourceHeight = Math.max(1, Number(card.dataset.height || 1));
       const height = cardWidth * sourceHeight / width;
@@ -336,11 +340,12 @@ async function loadGallery({ append = false } = {}){
     if(!append && (feedSectionReady || uploadsSectionReady)) loadSecondarySections();
   }catch(err){
     if(err?.name === 'AbortError') return;
-    if(!append) galleryLoadError = String(err?.message || '').includes('Missing session token')
+    const missingSession = String(err?.message || '').includes('Missing session token');
+    if(!append) galleryLoadError = missingSession
       ? 'Войдите в аккаунт, чтобы открыть личную галерею.'
       : 'Проверьте авторизацию или попробуйте обновить страницу.';
     if(append) showToast('Галерея не загрузилась.');
-    console.error(err);
+    if(!missingSession) console.error(err);
     render({ preservePrimary:append, preserveSecondary:append });
     return;
   }finally{

@@ -56,7 +56,6 @@ img{max-width:100%}
 .iv3.topbar-scope .account-button .user-initials{font-size:14px;font-weight:700;color:#efe9ff}
 @media (max-width:1120px){.iv3.topbar-scope .account-button .user-label{display:none}}
 @media (max-width:820px){.iv3.topbar-scope .account-button{min-height:40px;padding:0 6px 0 8px;gap:6px}.iv3.topbar-scope .account-button .user-glyph{width:31px;height:31px}}
-.iv3.topbar-scope .topbar{position:relative;top:auto;z-index:auto}
 
 .page{max-width:1880px;margin:0 auto;padding:20px 16px 54px}
 .compactBar{display:grid;grid-template-columns:auto auto minmax(260px,560px) auto;gap:12px;align-items:center;margin-bottom:14px}
@@ -111,7 +110,7 @@ h2{margin:0;font-size:22px;line-height:1.1;font-weight:950;letter-spacing:-.03em
 @media (max-width:1020px){.masonry{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}}
 .masonry:not(.list) .card{grid-row-end:span var(--masonry-span,32)}
 .masonry:not(.list) .empty,.masonry:not(.list) .skeletonGrid{grid-column:1/-1;grid-row:auto}
-.card{position:relative;display:block;width:100%;margin:0;border:1px solid rgba(255,255,255,.15);border-radius:14px;background:#0b0f0d;overflow:hidden;box-shadow:0 8px 22px rgba(0,0,0,.18);transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease;isolation:isolate}
+.card{position:relative;display:block;width:100%;margin:0;border:1px solid rgba(255,255,255,.15);border-radius:14px;background:#0b0f0d;overflow:hidden;box-shadow:0 8px 22px rgba(0,0,0,.18);transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease;isolation:isolate;content-visibility:auto;contain-intrinsic-size:auto 320px}
 .card:hover{transform:translateY(-2px);border-color:rgba(221,255,0,.42);box-shadow:0 14px 34px rgba(0,0,0,.36)}
 .card img{display:block;width:100%;height:auto}
 .card::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.56) 0%,rgba(0,0,0,.18) 18%,rgba(0,0,0,0) 48%,rgba(0,0,0,.62) 100%)}

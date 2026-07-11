@@ -18,7 +18,16 @@ def test_gallery_shell_hydrates_avatar_with_initials_fallback():
     assert "profile.avatar_url" in script
     assert "showInitials" in script
     assert "addEventListener('error'" in script
-    assert "gallery-opt-phase1" in page
+    assert "gallery-opt-phase5" in page
+
+
+def test_gallery_cards_defer_offscreen_render_and_masonry_reuses_spans():
+    script = (GALLERY_DIR / "gallery.js").read_text(encoding="utf-8")
+    styles = (GALLERY_DIR / "gallery.css").read_text(encoding="utf-8")
+    assert 'loading="lazy" decoding="async"' in script
+    assert "masonryLayoutKey" in script
+    assert "if(!widthChanged && card.style.getPropertyValue('--masonry-span')) return" in script
+    assert "content-visibility:auto" in styles
 
 
 def test_gallery_defers_secondary_sections_and_uses_small_pages():
