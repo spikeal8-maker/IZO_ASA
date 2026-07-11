@@ -87,6 +87,8 @@ type StudioPreviewState = {
   galleryId?: string
   promptOriginal?: string
   resultImageId?: string
+  width?: number
+  height?: number
   error?: boolean
 }
 type ModelsPayload = { loras?: string[] }
@@ -210,6 +212,8 @@ interface N2Job {
   message?: string
   resultUrl?: string
   resultImageId?: string
+  width?: number
+  height?: number
   error?: string
   createdAt?: string
 }
@@ -1409,10 +1413,12 @@ export default function NewStudio(): ReactElement {
                   kind: 'result',
                   url: completedUrl,
                   sourceUrl: pendingResultSourceRef.current[jobMode],
-                  shape: pendingResultShapeRef.current[jobMode],
+                  shape: next.width && next.height ? shapeFromSize(next.width, next.height) : pendingResultShapeRef.current[jobMode],
                   title: 'Результат генерации',
                   resultImageId: completedImageId,
                   galleryId: completedImageId,
+                  width: next.width,
+                  height: next.height,
                   error: false,
                 },
               }))
@@ -1434,11 +1440,13 @@ export default function NewStudio(): ReactElement {
                   kind: 'result',
                   url: fallbackImage.url,
                   sourceUrl: pendingResultSourceRef.current[jobMode],
-                  shape: pendingResultShapeRef.current[jobMode],
+                  shape: fallbackImage.width && fallbackImage.height ? shapeFromSize(fallbackImage.width, fallbackImage.height) : pendingResultShapeRef.current[jobMode],
                   title: 'Результат генерации',
                   resultImageId: fallbackImageId,
                   galleryId: fallbackImageId,
                   promptOriginal: fallbackImage.promptOriginal,
+                  width: fallbackImage.width,
+                  height: fallbackImage.height,
                   error: false,
                 },
               }))
@@ -2257,6 +2265,8 @@ export default function NewStudio(): ReactElement {
   const visibleGalleryImage = visibleResultUrl
     ? gallery.find((item) => item.id === activeCorePreview?.galleryId || apiUrl(item.url) === apiUrl(visibleResultUrl) || apiUrl(item.thumbnailUrl) === apiUrl(visibleResultUrl))
     : undefined
+  const visibleResultWidth = activeCorePreview?.width || visibleGalleryImage?.width
+  const visibleResultHeight = activeCorePreview?.height || visibleGalleryImage?.height
   const visiblePreviewShape = isPaintStudio
     ? selectedResolution.kind === 'vertical'
       ? 'tall'
@@ -3306,6 +3316,11 @@ export default function NewStudio(): ReactElement {
           ) : visibleResultUrl && !visibleResultError ? (
             <>
               <img className="iv3-preview-backdrop" src={apiUrl(visibleResultUrl)} alt="" aria-hidden="true" />
+              {visibleResultWidth && visibleResultHeight && (
+                <span className="iv3-result-resolution" title="Фактическое разрешение результата">
+                  {visibleResultWidth}×{visibleResultHeight}
+                </span>
+              )}
               {visibleResultSource && compareEnabled ? (
                 <div
                   className={`iv3-compare${compareAuto ? ' is-auto' : ''}${inspectToolsVisible ? ' is-zoomed' : ''}`}

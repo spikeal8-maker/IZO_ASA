@@ -94,3 +94,48 @@ def test_text_only_model_is_rejected_for_image_to_image() -> None:
         assert "не поддерживает" in str(exc)
     else:
         raise AssertionError("text-only model must be rejected")
+
+
+def test_google_plan_preserves_requested_aspect_ratio_instead_of_forcing_square() -> None:
+    cases = [
+        ((1024, 1024), "1:1"),
+        ((1280, 720), "16:9"),
+        ((720, 1280), "9:16"),
+        ((1536, 1024), "3:2"),
+    ]
+    for (width, height), ratio in cases:
+        plan = main.openrouter_image_request_plan("google/gemini-3-pro-image", width, height)
+        assert plan["aspect_ratio"] == ratio
+        assert plan["resolution"] == "1K"
+        assert "size" not in plan
+
+
+def test_google_body_uses_normalized_aspect_ratio_for_text_and_photo() -> None:
+    capability = {
+        "modes": ["text_to_image", "image_to_image"],
+        "parameters": ["aspect_ratio", "resolution", "input_references"],
+    }
+    plan = main.openrouter_image_request_plan("google/gemini-3-pro-image", 1280, 720)
+    text_body = main.build_openrouter_image_body(
+        main.GenerateRequest(mode="text_to_image", provider="openrouter", prompt="Wide scene", width=1280, height=720),
+        "google/gemini-3-pro-image",
+        plan,
+        capability,
+    )
+    photo_body = main.build_openrouter_image_body(
+        main.GenerateRequest(
+            mode="image_to_image",
+            provider="openrouter",
+            prompt="Edit wide scene",
+            width=1280,
+            height=720,
+            inputImage1="data:image/png;base64,AA==",
+        ),
+        "google/gemini-3-pro-image",
+        plan,
+        capability,
+    )
+    for body in (text_body, photo_body):
+        assert body["aspect_ratio"] == "16:9"
+        assert body["resolution"] == "1K"
+        assert "size" not in body

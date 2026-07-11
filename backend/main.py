@@ -4682,6 +4682,8 @@ def job_response_from_row(row: sqlite3.Row, image_row: sqlite3.Row | None = None
         "resultImageId": row["result_image_id"],
         "resultUrl": result_url,
         "thumbnailUrl": thumb_url,
+        "width": _row_get(image_row, "width") or settings.get("width"),
+        "height": _row_get(image_row, "height") or settings.get("height"),
         "createdAt": row["created_at"],
         "completedAt": row["completed_at"],
         "tokenCost": settings.get("tokenCost"),
@@ -4721,7 +4723,7 @@ def get_persisted_job_response(job_id: str, user_id: str) -> dict[str, Any] | No
 
 def persist_job(job: dict[str, Any], request: GenerateRequest | None = None, conn: sqlite3.Connection | None = None) -> None:
     settings = request.model_dump() if request else job.get("request", {})
-    for key in ("tokenCost", "resultUrl", "gallerySaveStatus", "galleryQuota", "openrouterRequest", "openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd", "openrouterBilling"):
+    for key in ("tokenCost", "resultUrl", "width", "height", "gallerySaveStatus", "galleryQuota", "openrouterRequest", "openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd", "openrouterBilling"):
         if key in job:
             settings[key] = job.get(key)
     def write(target_conn: sqlite3.Connection) -> None:
@@ -6253,11 +6255,18 @@ def openrouter_reference_value(source: str | None) -> str:
 def build_openrouter_image_body(payload: GenerateRequest, model: str, request_plan: dict[str, Any], capability: dict[str, Any]) -> dict[str, Any]:
     if payload.mode not in (capability.get("modes") or []):
         raise RuntimeError(f"Модель {model} не поддерживает режим {payload.mode} по актуальным данным OpenRouter.")
-    body: dict[str, Any] = {"model": model, "prompt": payload.prompt, "n": 1, "size": request_plan["size"]}
+    parameters = set(capability.get("parameters") or [])
+    body: dict[str, Any] = {"model": model, "prompt": payload.prompt, "n": 1}
+    if request_plan.get("aspect_ratio") and "aspect_ratio" in parameters:
+        body["aspect_ratio"] = request_plan["aspect_ratio"]
+    if request_plan.get("resolution") and "resolution" in parameters:
+        body["resolution"] = request_plan["resolution"]
+    if "aspect_ratio" not in body and request_plan.get("size"):
+        body["size"] = request_plan["size"]
     if payload.mode == "image_to_image":
         body["prompt"] = f"{payload.prompt.strip()}\n\n{openrouter_prompt_influence_instruction(payload.strength)}".strip()
         body["input_references"] = [{"type": "image_url", "image_url": {"url": openrouter_reference_value(payload.inputImage1)}}]
-    if payload.seed > 0 and "seed" in (capability.get("parameters") or []):
+    if payload.seed > 0 and "seed" in parameters:
         body["seed"] = payload.seed
     return body
 
@@ -6303,6 +6312,7 @@ def _openrouter_ratio_size(width: int, height: int) -> str:
 
 def openrouter_image_request_plan(model_id: str, width: int, height: int) -> dict[str, Any]:
     orientation = _requested_orientation(int(width or 1024), int(height or 1024))
+    aspect_ratio = _openrouter_ratio_size(width, height)
     if model_id.startswith("openai/"):
         mapped = {
             "square": (1024, 1024, "1024x1024"),
@@ -6328,12 +6338,13 @@ def openrouter_image_request_plan(model_id: str, width: int, height: int) -> dic
         }[orientation]
         return {"size": f"{mapped[0]}x{mapped[1]}", "billing_width": mapped[0], "billing_height": mapped[1], "strategy": "seed_min_pixels"}
     if model_id.startswith("google/"):
-        mapped = {
-            "square": (1024, 1024, "1024x1024"),
-            "horizontal": (1024, 1024, "1024x1024"),
-            "vertical": (1024, 1024, "1024x1024"),
-        }[orientation]
-        return {"size": mapped[2], "billing_width": mapped[0], "billing_height": mapped[1], "strategy": "google_1k_safe_size"}
+        return {
+            "aspect_ratio": aspect_ratio,
+            "resolution": "1K",
+            "billing_width": int(width or 1024),
+            "billing_height": int(height or 1024),
+            "strategy": "google_normalized_aspect_ratio",
+        }
     return {
         "size": f"{int(width or 1024)}x{int(height or 1024)}",
         "billing_width": int(width or 1024),
@@ -6485,7 +6496,7 @@ async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> O
     async with httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT_SECONDS) as client:
         response = await client.post(f"{OPENROUTER_BASE_URL}/images", headers=openrouter_headers(), json=body)
         data = response.json() if response.content else {}
-        if response.status_code >= 400 and body.get("size") != "auto" and _openrouter_is_size_error(data):
+        if response.status_code >= 400 and body.get("size") not in {None, "auto"} and _openrouter_is_size_error(data):
             fallback_body = {**body, "size": "auto"}
             job.update(message="OpenRouter подбирает безопасный формат", openrouterRequest={**request_meta, "fallbackSize": "auto"})
             persist_job(job, payload)
@@ -7536,6 +7547,8 @@ async def worker() -> None:
                     message="Готово",
                     resultImageId=result_image_id,
                     resultUrl=record["url"],
+                    width=record["width"],
+                    height=record["height"],
                     gallerySaveStatus=save_status,
                     galleryQuota=gallery_quota,
                     completedAt=created_at,
@@ -7555,6 +7568,8 @@ async def worker() -> None:
                     message="Готово",
                     resultImageId=image_id,
                     resultUrl=record["url"],
+                    width=record["width"],
+                    height=record["height"],
                     gallerySaveStatus="saved",
                     galleryQuota=gallery_quota,
                     completedAt=created_at,

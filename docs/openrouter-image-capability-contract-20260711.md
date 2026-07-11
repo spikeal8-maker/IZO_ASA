@@ -57,3 +57,20 @@ the classification and stale-configuration cleanup contracts.
 
 The 2026-07-11 payload matrix built a valid one-reference request for all 34 models
 that advertised `image_to_image`; no paid provider calls were made by that matrix.
+
+## Aspect ratio and actual resolution
+
+- The format control expresses the target aspect ratio. It is not a promise that
+  every provider will return the UI preset's exact pixel dimensions.
+- When a model advertises `aspect_ratio`, the backend sends the normalized ratio
+  (`1:1`, `16:9`, `9:16`, or `3:2`). When it also advertises `resolution`, the
+  backend sends the model-appropriate tier separately. It must not send a
+  conflicting square `size`.
+- The former `google_1k_safe_size` branch forced every Google request to
+  `1024x1024`; it was removed because it silently broke non-square selections in
+  both `text_to_image` and `image_to_image`.
+- The gallery and job contract store the decoded output's real width and height.
+  The result preview displays those actual dimensions after generation.
+- Paid verification on 2026-07-11 used `google/gemini-3-pro-image` with a `16:9`
+  request. Both text-to-image and image-to-image returned valid `1376x768` files,
+  confirming provider-normalized wide output rather than the old square fallback.
