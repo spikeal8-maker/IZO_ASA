@@ -31,6 +31,7 @@ let sourceDeleteTargetId = null;
 let masonryFrame = 0;
 let feedSectionReady = false;
 let uploadsSectionReady = false;
+let userHasScrolled = false;
 const detailPromises = new Map();
 const API_BASE = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : '';
 
@@ -763,27 +764,39 @@ window.addEventListener('resize', scheduleMasonry);
 document.getElementById('loadMoreBtn').addEventListener('click', ()=>loadGallery({ append:true }));
 if('IntersectionObserver' in window){
   const moreObserver = new IntersectionObserver(entries => {
-    if(entries.some(entry => entry.isIntersecting) && hasMoreGallery && !galleryLoading && !galleryLoadError){
+    if(userHasScrolled && entries.some(entry => entry.isIntersecting) && hasMoreGallery && !galleryLoading && !galleryLoadError){
       loadGallery({ append:true });
     }
-  }, { rootMargin:'600px 0px' });
+  }, { rootMargin:'240px 0px' });
   moreObserver.observe(document.getElementById('loadMoreBtn'));
   const sectionObserver = new IntersectionObserver(entries => {
     let changed = false;
     entries.forEach(entry => {
-      if(!entry.isIntersecting) return;
+      if(!userHasScrolled || !entry.isIntersecting) return;
       if(entry.target === feedSection && !feedSectionReady){ feedSectionReady = true; changed = true; }
       if(entry.target === uploadsSection && !uploadsSectionReady){ uploadsSectionReady = true; changed = true; }
       sectionObserver.unobserve(entry.target);
     });
     if(changed) render();
-  }, { rootMargin:'500px 0px' });
+  }, { rootMargin:'300px 0px' });
   sectionObserver.observe(feedSection);
   sectionObserver.observe(uploadsSection);
 }else{
   feedSectionReady = true;
   uploadsSectionReady = true;
 }
+window.addEventListener('scroll', ()=>{
+  if(userHasScrolled || window.scrollY < 80) return;
+  userHasScrolled = true;
+  const more = document.getElementById('loadMoreBtn');
+  if(more && !more.hidden && more.getBoundingClientRect().top <= window.innerHeight + 240 && hasMoreGallery && !galleryLoading && !galleryLoadError){
+    loadGallery({ append:true });
+  }
+  let changed = false;
+  if(!feedSectionReady && feedSection.getBoundingClientRect().top <= window.innerHeight + 300){ feedSectionReady = true; changed = true; }
+  if(!uploadsSectionReady && uploadsSection.getBoundingClientRect().top <= window.innerHeight + 300){ uploadsSectionReady = true; changed = true; }
+  if(changed) render();
+}, { passive:true });
 document.getElementById('viewerClose').addEventListener('click', closeViewer);
 document.getElementById('prevBtn').addEventListener('click', ()=>stepViewer(-1));
 document.getElementById('nextBtn').addEventListener('click', ()=>stepViewer(1));
