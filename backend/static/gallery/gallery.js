@@ -174,7 +174,7 @@ function cardTemplate(raw, context){
   const heartTitle = item.favorite ? 'Убрать сердечко' : 'Поставить сердечко: оставить изображение и защитить от автоудаления';
   const feedTitle = item.published ? 'Открыть публикацию в общей ленте' : 'Опубликовать в ленту';
   const imgAttrs = item.width && item.height ? ` width="${Number(item.width)}" height="${Number(item.height)}"` : '';
-  return `<article class="card" data-id="${escapeHtml(item.id)}" data-context="${context}" title="${escapeHtml(promptText)}">
+  return `<article class="card" data-id="${escapeHtml(item.id)}" data-context="${context}" data-width="${Number(item.width || 1)}" data-height="${Number(item.height || 1)}" title="${escapeHtml(promptText)}">
     <img src="${escapeHtml(item.src)}" alt="${escapeHtml(promptText)}" loading="lazy" decoding="async"${imgAttrs}>
     <div class="cardTop"><span class="pill" title="Режим генерации">${escapeHtml(item.modeText)}</span>${pubPill}</div>
     <div class="cardBottom"><time class="cardDate">${escapeHtml(item.dateText)}</time><div class="cardActions">
@@ -191,7 +191,7 @@ function sourceLibraryTemplate(raw){
   const date = formatDate(raw.createdAt);
   const imgAttrs = raw.width && raw.height ? ` width="${Number(raw.width)}" height="${Number(raw.height)}"` : '';
   const heartTitle = raw.favorite ? 'Убрать сердечко' : 'Поставить сердечко и защитить исходник от автоудаления';
-  return `<article class="card sourceCard" data-source-id="${escapeHtml(raw.id)}" title="${escapeHtml(label)}">
+  return `<article class="card sourceCard" data-source-id="${escapeHtml(raw.id)}" data-width="${Number(raw.width || 1)}" data-height="${Number(raw.height || 1)}" title="${escapeHtml(label)}">
     <img src="${escapeHtml(src)}" alt="${escapeHtml(label)}" loading="lazy" decoding="async" data-action="open-source"${imgAttrs}>
     <div class="cardTop"><span class="pill">${escapeHtml(label)}</span></div>
     <div class="cardBottom"><time class="cardDate">${escapeHtml(date)}</time><div class="cardActions">
@@ -209,9 +209,12 @@ function layoutMasonry(){
     const styles = getComputedStyle(grid);
     const row = parseFloat(styles.getPropertyValue('--masonry-row')) || 8;
     const gap = parseFloat(styles.rowGap) || parseFloat(styles.gap) || 0;
+    const columns = Math.max(1, String(styles.gridTemplateColumns || '').split(' ').filter(Boolean).length);
+    const cardWidth = Math.max(1, (grid.clientWidth - gap * (columns - 1)) / columns);
     grid.querySelectorAll('.card').forEach(card => {
-      card.style.removeProperty('--masonry-span');
-      const height = card.getBoundingClientRect().height;
+      const width = Math.max(1, Number(card.dataset.width || 1));
+      const sourceHeight = Math.max(1, Number(card.dataset.height || 1));
+      const height = cardWidth * sourceHeight / width;
       const span = Math.max(1, Math.ceil((height + gap) / (row + gap)));
       card.style.setProperty('--masonry-span', String(span));
     });
@@ -221,16 +224,30 @@ function scheduleMasonry(){
   if(masonryFrame) return;
   masonryFrame = requestAnimationFrame(layoutMasonry);
 }
-function bindMasonryImages(){
-  if(listMode) return;
-  document.querySelectorAll('.masonry:not(.list) .card img').forEach(img => {
-    if(img.complete) return;
-    img.addEventListener('load', scheduleMasonry, { once:true });
-    img.addEventListener('error', scheduleMasonry, { once:true });
+function appendPrimaryCards(rawItems){
+  const cards = filteredItems(rawItems);
+  if(!cards.length) return;
+  galleryGrid.insertAdjacentHTML('beforeend', cards.map(item=>cardTemplate(item,'gallery')).join(''));
+  scheduleMasonry();
+}
+function refreshImageCards(id){
+  const galleryItem = images.find(raw=>String(raw.id) === String(id));
+  const feedItem = feedImages.find(raw=>String(raw.id) === String(id));
+  document.querySelectorAll('.card[data-id]').forEach(card => {
+    if(String(card.dataset.id) !== String(id)) return;
+    const context = card.dataset.context || 'gallery';
+    const raw = context === 'feed' ? feedItem : galleryItem;
+    if(raw) card.outerHTML = cardTemplate(raw, context);
   });
   scheduleMasonry();
 }
-function render(){
+function removeImageCards(id){
+  document.querySelectorAll('.card[data-id]').forEach(card => {
+    if(String(card.dataset.id) === String(id)) card.remove();
+  });
+  scheduleMasonry();
+}
+function render({ preservePrimary = false, preserveSecondary = false } = {}){
   const galleryItems = filteredItems(images);
   const feedItems = filteredItems(feedImages);
   galleryGrid.classList.toggle('list', listMode);
@@ -251,13 +268,15 @@ function render(){
     const resetAction = searchInput.value.trim() || currentFilter !== 'all'
       ? `<p style="margin-top:14px"><button class="btn" data-action="reset-gallery-filters">Сбросить поиск и фильтр</button></p>`
       : '';
-    galleryGrid.innerHTML = galleryItems.length ? galleryItems.map(i=>cardTemplate(i,'gallery')).join('') : `<div class="empty"><strong>Ничего не найдено</strong><p>${emptyText}</p>${resetAction}</div>`;
-    feedGrid.innerHTML = !feedSectionReady || secondaryLoading || !secondaryLoaded
-      ? `<div class="skeletonGrid secondarySkeleton"><div class="skeletonCard"></div><div class="skeletonCard"></div></div>`
-      : (feedItems.length ? feedItems.map(i=>cardTemplate(i,'feed')).join('') : `<div class="empty">Публикаций по выбранному фильтру нет.</div>`);
-    uploadsGrid.innerHTML = !uploadsSectionReady || secondaryLoading || !secondaryLoaded
-      ? `<div class="skeletonGrid secondarySkeleton"><div class="skeletonCard"></div><div class="skeletonCard"></div></div>`
-      : (uploadedImages.length ? uploadedImages.map(sourceLibraryTemplate).join('') : `<div class="empty">Загруженных исходников пока нет.</div>`);
+    if(!preservePrimary) galleryGrid.innerHTML = galleryItems.length ? galleryItems.map(i=>cardTemplate(i,'gallery')).join('') : `<div class="empty"><strong>Ничего не найдено</strong><p>${emptyText}</p>${resetAction}</div>`;
+    if(!preserveSecondary){
+      feedGrid.innerHTML = !feedSectionReady || secondaryLoading || !secondaryLoaded
+        ? `<div class="skeletonGrid secondarySkeleton"><div class="skeletonCard"></div><div class="skeletonCard"></div></div>`
+        : (feedItems.length ? feedItems.map(i=>cardTemplate(i,'feed')).join('') : `<div class="empty">Публикаций по выбранному фильтру нет.</div>`);
+      uploadsGrid.innerHTML = !uploadsSectionReady || secondaryLoading || !secondaryLoaded
+        ? `<div class="skeletonGrid secondarySkeleton"><div class="skeletonCard"></div><div class="skeletonCard"></div></div>`
+        : (uploadedImages.length ? uploadedImages.map(sourceLibraryTemplate).join('') : `<div class="empty">Загруженных исходников пока нет.</div>`);
+    }
   }
   const galleryCountEl = document.getElementById('galleryCount');
   galleryCountEl.textContent = `${limits.originals.used} / ${limits.originals.limit}`;
@@ -277,7 +296,7 @@ function render(){
   loadMoreBtn.hidden = !hasMoreGallery || Boolean(galleryLoadError);
   loadMoreBtn.textContent = galleryLoading ? 'Загружаем...' : 'Показать еще';
   loadMoreBtn.disabled = galleryLoading;
-  bindMasonryImages();
+  scheduleMasonry();
 }
 async function loadGallery({ append = false } = {}){
   if(galleryLoading) return;
@@ -289,7 +308,7 @@ async function loadGallery({ append = false } = {}){
     uploadedImages = [];
     uploadedUnavailableCount = 0;
   }
-  render();
+  render({ preservePrimary:append, preserveSecondary:append });
   try{
     const params = new URLSearchParams({ limit: String(galleryPageSize()) });
     if(append && nextCursor) params.set('cursor', nextCursor);
@@ -299,11 +318,14 @@ async function loadGallery({ append = false } = {}){
     const data = await api(`/api/gallery/items?${params.toString()}`);
     limits = data.limits || limits;
     const nextImages = (data.items || []).map(normalizeItem);
-    images = append ? [...images, ...nextImages] : nextImages;
+    const existingIds = new Set(images.map(item=>String(item.id)));
+    const uniqueNextImages = append ? nextImages.filter(item=>!existingIds.has(String(item.id))) : nextImages;
+    images = append ? [...images, ...uniqueNextImages] : uniqueNextImages;
     nextCursor = data.nextCursor || null;
     hasMoreGallery = Boolean(data.hasMore);
     currentCollection = images;
-    render();
+    if(append) appendPrimaryCards(uniqueNextImages);
+    render({ preservePrimary:append, preserveSecondary:append });
     if(!append && (feedSectionReady || uploadsSectionReady)) loadSecondarySections();
   }catch(err){
     if(!append) galleryLoadError = String(err?.message || '').includes('Missing session token')
@@ -312,18 +334,18 @@ async function loadGallery({ append = false } = {}){
     if(append) showToast('Галерея не загрузилась.');
     console.error(err);
     galleryLoading = false;
-    render();
+    render({ preservePrimary:append, preserveSecondary:append });
     return;
   }finally{
     galleryLoading = false;
-    render();
+    render({ preservePrimary:append, preserveSecondary:append });
   }
 }
 async function loadSecondarySections(){
   if(secondaryLoading) return;
   secondaryLoading = true;
   secondaryLoaded = false;
-  render();
+  render({ preservePrimary:true });
   try{
     const params = new URLSearchParams({ limit:String(galleryPageSize()) });
     const q = searchInput.value.trim();
@@ -340,7 +362,7 @@ async function loadSecondarySections(){
     showToast('Дополнительные разделы не загрузились.');
   }finally{
     secondaryLoading = false;
-    render();
+    render({ preservePrimary:true });
   }
 }
 async function hydrateProfileLabel(){
@@ -388,7 +410,8 @@ async function toggleFavorite(id){
     feedImages = feedImages.map(raw => String(raw.id) === String(id) ? { ...raw, favorite: next, isFavorite: next } : raw);
     limits = { ...limits, favorites: { ...limits.favorites, used: Math.max(0, Number(limits.favorites.used || 0) + (next ? 1 : -1)) } };
     showToast(next ? 'Сердечко поставлено. Изображение защищено.' : 'Сердечко убрано.');
-    render();
+    refreshImageCards(id);
+    render({ preservePrimary:true, preserveSecondary:true });
     if(document.getElementById('viewer').classList.contains('open')) updateViewer();
   }catch(err){ showToast('Не удалось изменить сердечко.'); console.error(err); }
 }
@@ -456,7 +479,8 @@ async function confirmDeleteImage(){
       favorites: { ...limits.favorites, used: item.favorite ? Math.max(0, Number(limits.favorites.used || 0) - 1) : Number(limits.favorites.used || 0) },
       feed: { ...limits.feed, used: item.published ? Math.max(0, Number(limits.feed.used || 0) - 1) : Number(limits.feed.used || 0) }
     };
-    render();
+    removeImageCards(id);
+    render({ preservePrimary:true, preserveSecondary:true });
     showToast('Изображение удалено. Место освобождено.');
   }catch(err){ showToast('Не удалось удалить изображение.'); console.error(err); }
   finally{
@@ -742,7 +766,7 @@ async function toggleSourceFavorite(sourceId){
   try{
     await api(`/api/gallery/sources/${encodeURIComponent(sourceId)}/favorite`, { method:'POST', body:JSON.stringify({ isFavorite:next }) });
     item.favorite = next;
-    render();
+    render({ preservePrimary:true });
     showToast(next ? 'Исходник защищен сердечком.' : 'Сердечко снято.');
   }catch(err){
     showToast('Не удалось изменить сердечко.');
@@ -761,7 +785,7 @@ async function confirmSourceDelete(){
     uploadedImages = uploadedImages.filter(source => String(source.id) !== String(sourceId));
     sourceDeleteTargetId = null;
     closeSmalls();
-    render();
+    render({ preservePrimary:true });
     showToast('Исходник убран из загруженных.');
   }catch(err){
     showToast('Не удалось удалить исходник.');
@@ -805,7 +829,7 @@ if('IntersectionObserver' in window){
       if(entry.target === uploadsSection && !uploadsSectionReady){ uploadsSectionReady = true; changed = true; }
       sectionObserver.unobserve(entry.target);
     });
-    if(changed){ render(); loadSecondarySections(); }
+    if(changed){ render({ preservePrimary:true }); loadSecondarySections(); }
   }, { rootMargin:'300px 0px' });
   sectionObserver.observe(feedSection);
   sectionObserver.observe(uploadsSection);
@@ -823,7 +847,7 @@ window.addEventListener('scroll', ()=>{
   let changed = false;
   if(!feedSectionReady && feedSection.getBoundingClientRect().top <= window.innerHeight + 300){ feedSectionReady = true; changed = true; }
   if(!uploadsSectionReady && uploadsSection.getBoundingClientRect().top <= window.innerHeight + 300){ uploadsSectionReady = true; changed = true; }
-  if(changed){ render(); loadSecondarySections(); }
+  if(changed){ render({ preservePrimary:true }); loadSecondarySections(); }
 }, { passive:true });
 document.getElementById('viewerClose').addEventListener('click', closeViewer);
 document.getElementById('prevBtn').addEventListener('click', ()=>stepViewer(-1));

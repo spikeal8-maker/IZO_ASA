@@ -65,3 +65,16 @@ Deployment requirement:
 - Configure a persistent Coolify volume and set `MEDIA_DIR` to its mounted absolute path.
 - The SQLite database and `MEDIA_DIR` must survive the same deployment lifecycle.
 - Do not remove missing `image_sources` rows until the production volume is mounted and reconciled.
+
+## Phase 3: incremental grid and deterministic masonry
+
+Implemented:
+
+- Masonry spans are calculated from persisted image `width`/`height` and one container measurement.
+- Removed per-card `getBoundingClientRect().height` layout reads.
+- Removed per-image masonry `load` and `error` listeners.
+- Cursor pages append only new, deduplicated card nodes.
+- Favorite changes replace only cards with the affected image ID.
+- Delete removes only cards with the affected image ID.
+- Loading secondary sections no longer rebuilds the primary grid.
+- Full grid rebuild remains only for a fresh search/filter and grid/list mode changes.

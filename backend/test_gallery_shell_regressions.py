@@ -33,3 +33,8 @@ def test_gallery_defers_secondary_sections_and_uses_small_pages():
     assert "/api/gallery/items?" in script
     assert "/api/gallery/secondary?" in script
     assert "loadSecondarySections" in script
+    assert "appendPrimaryCards" in script
+    assert "refreshImageCards" in script
+    assert "removeImageCards" in script
+    assert "getBoundingClientRect().height" not in script
+    assert "bindMasonryImages" not in script
