@@ -71,6 +71,7 @@ type PageData = {
   matrix: MatrixRow[]
   catalog: CatalogItem[]
   loras: Lora[]
+  loraSettings?: { enabled?: Record<string, boolean> }
   comfyuiAvailable: boolean
   openrouter: {
     keyConfigured: boolean
@@ -642,6 +643,7 @@ export default function AdminModelsV2() {
       setMarginDraft(String(clampMargin(d.openrouter.economy?.minMarginPercent)))
       setTokenRubDraft(String(clampTokenRub(d.openrouter.economy?.tokenRub)))
       setErr(''); setData(d); setRoutes(d.routes || [])
+      setLoraAccess(d.loraSettings?.enabled || {})
     } else {
       setData(null)
       setErr('Не удалось загрузить страницу моделей. Нужен доступ администратора и обновлённый backend (/api/admin/models-page).')
@@ -652,7 +654,8 @@ export default function AdminModelsV2() {
   const loadLocalModelData = useCallback(async () => {
     const d = await amvFetch('/admin/models-page?local=1').then((r) => (r.ok ? r.json() : null)).catch(() => null) as PageData | null
     if (!d) return
-    setData((current) => current ? { ...current, routes: d.routes, catalog: d.catalog, loras: d.loras, comfyuiAvailable: d.comfyuiAvailable, comfyFiles: d.comfyFiles, profiles: d.profiles, economy: d.economy } : d)
+    setData((current) => current ? { ...current, routes: d.routes, catalog: d.catalog, loras: d.loras, loraSettings: d.loraSettings, comfyuiAvailable: d.comfyuiAvailable, comfyFiles: d.comfyFiles, profiles: d.profiles, economy: d.economy } : d)
+    setLoraAccess(d.loraSettings?.enabled || {})
     setRoutes(d.routes || [])
   }, [])
 
@@ -702,6 +705,7 @@ export default function AdminModelsV2() {
   const setGlobalLocalProfile = (modelProfileId: string) => {
     const next = routes.map((route) => route.provider === 'local' ? { ...route, modelProfileId } : route)
     saveRoutes(next)
+    void saveSetting('models', { editModelProfile: modelProfileId, poseModelProfile: modelProfileId }, 'Глобальная модель Config UI')
   }
   const setLoraEnabled = (fileName: string, enabled: boolean) => {
     const next = { ...loraAccess, [fileName]: enabled }

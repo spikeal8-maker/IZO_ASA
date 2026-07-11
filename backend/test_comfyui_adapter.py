@@ -42,9 +42,10 @@ def test_choose_model_prefers_installed_flux_klein_9b_fp8() -> None:
     )
 
 
-def test_effective_face_profile_is_pinned_to_flux_klein_9b() -> None:
-    assert main.effective_face_profile("flux_klein_4b") == "flux_klein_9b"
-    assert main.effective_face_profile("local_flux_klein") == "flux_klein_9b"
+def test_effective_face_profile_follows_global_klein_profile() -> None:
+    main._save_setting("models", {"editModelProfile": "flux_klein_4b", "poseModelProfile": "flux_klein_4b"})
+    assert main.effective_face_profile("flux_klein_4b") == "flux_klein_4b"
+    assert main.effective_face_profile("local_flux_klein") == "flux_klein_4b"
 
 
 def test_choose_faceswap_lora_prefers_matching_9b_face_lora() -> None:
@@ -59,6 +60,13 @@ def test_choose_faceswap_lora_prefers_matching_9b_face_lora() -> None:
 
     assert selected.id == "bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors"
     assert selected.strength == 0.72
+
+
+def test_choose_faceswap_lora_rejects_admin_disabled_lora() -> None:
+    file_name = "bfs_head_v1_flux-klein_4b.safetensors"
+    main._save_setting("server_model_loras", {"enabled": {file_name: False}})
+    with pytest.raises(RuntimeError, match="выключена"):
+        main.choose_faceswap_lora([file_name], None, "flux-2-klein-4b-fp8.safetensors")
 
 
 def test_models_endpoint_reports_selected_models(monkeypatch) -> None:
@@ -321,6 +329,8 @@ def test_patch_upload_modes_wire_expected_input_nodes() -> None:
     assert faceswap["FK:156"]["inputs"]["text"] == ""
     assert faceswap["FK:171"]["inputs"]["positive"] == ["FK:233", 0]
     assert faceswap["FK:171"]["inputs"]["negative"] == ["FK:231", 0]
+    assert faceswap["FK:lora"]["inputs"]["lora_name"] == "face.safetensors"
+    assert faceswap["FK:lora"]["inputs"]["strength_model"] == 0.75
 
 
 def _edit_workflow_template() -> dict:
@@ -341,6 +351,7 @@ def _edit_workflow_template() -> dict:
         "FK:231": {"class_type": "ReferenceLatent", "inputs": {"conditioning": ["FK:131", 0], "latent": ["FK:232", 0]}},
         "FK:170": {"class_type": "EmptyFlux2LatentImage", "inputs": {}},
         "FK:171": {"class_type": "KSampler", "inputs": {"positive": ["FK:133", 0], "negative": ["FK:131", 0], "latent_image": ["FK:170", 0], "denoise": 0.45}},
+        "FK:lora": {"class_type": "LoraLoader", "inputs": {"lora_name": "none", "strength_model": 0, "strength_clip": 0}},
     }
 
 
