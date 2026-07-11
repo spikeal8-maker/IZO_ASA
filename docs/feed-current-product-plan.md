@@ -65,9 +65,12 @@ Cleanup tracking lives in `docs/feed-cleanup-optimization-plan-20260708.md`.
   collection. The star action saves or removes a publication, and saved works
   are available through the `Избранное` feed filter.
 - The publication detail view keeps four primary controls visible: remix, like,
-  favorite, and `Другие действия`. Follow, personal hide, download, report,
-  owner/admin management, prompt, parameters, and history are grouped in the
-  expandable secondary area.
+  favorite, and `Другие действия`. Follow remains permanently visible in the
+  author card because it acts on the author, not the publication. Personal hide,
+  download, report, owner/admin management, prompt, parameters, and history are
+  grouped in the expandable secondary area.
+- The public author profile keeps the complete feed summary: publications,
+  views, likes, remixes, favorites, followers, and following.
 - Gallery quota eviction no longer retires a linked feed publication or deletes
   its independent public WebP variants. Explicit gallery deletion still retires
   the linked publication according to the current product contract.

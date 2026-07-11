@@ -200,6 +200,9 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "authorSocialCounts" in r.text
         assert "followersCount" in r.text
         assert "followingCount" in r.text
+        assert '<div class="author-actions">' in r.text
+        assert "<small>просмотров</small>" in r.text
+        assert "<small>в избранном</small>" in r.text
         assert "detail-owner-actions" not in r.text
         assert "избранных" in r.text
         assert "view_count" in r.text
