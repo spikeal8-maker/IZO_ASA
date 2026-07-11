@@ -26,6 +26,7 @@ let galleryLoading = false;
 let galleryLoadError = '';
 let searchTimer = null;
 let deleteTargetId = null;
+let sourceDeleteTargetId = null;
 let masonryFrame = 0;
 const detailPromises = new Map();
 const API_BASE = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : '';
@@ -183,15 +184,17 @@ function sourceLibraryTemplate(raw){
   const label = raw.roleLabel || 'Загруженный исходник';
   const date = formatDate(raw.createdAt);
   const imgAttrs = raw.width && raw.height ? ` width="${Number(raw.width)}" height="${Number(raw.height)}"` : '';
-  return `<article class="sourceLibraryCard" data-source-id="${escapeHtml(raw.id)}">
-    <button class="sourceLibraryPreview" type="button" data-action="open-source" title="Открыть исходник">
-      <img src="${escapeHtml(src)}" alt="${escapeHtml(label)}" loading="lazy" decoding="async"${imgAttrs}>
-    </button>
-    <div class="sourceLibraryMeta"><div><strong>${escapeHtml(label)}</strong><time>${escapeHtml(date)}</time></div>
+  const heartTitle = raw.favorite ? 'Убрать сердечко' : 'Поставить сердечко и защитить исходник от автоудаления';
+  return `<article class="card sourceCard" data-source-id="${escapeHtml(raw.id)}" title="${escapeHtml(label)}">
+    <img src="${escapeHtml(src)}" alt="${escapeHtml(label)}" loading="lazy" decoding="async" data-action="open-source"${imgAttrs}>
+    <div class="cardTop"><span class="pill">${escapeHtml(label)}</span></div>
+    <div class="cardBottom"><time class="cardDate">${escapeHtml(date)}</time><div class="cardActions">
+      <button class="action heart ${raw.favorite?'active':''}" data-action="source-heart" title="${heartTitle}" aria-label="${heartTitle}">${raw.favorite ? heartFilled : heartOutline}</button>
       <div class="dropHost sourceUseDrop"><button class="action" type="button" data-action="source-menu" title="Использовать как" aria-label="Использовать как">${useIcon}</button>
-        <div class="dropMenu"><button data-source-target="image">Использовать в «По фото»</button><button data-source-target="editor">Добавить в «Сборку»</button><button data-source-target="draw">Открыть в «Редакторе»</button></div>
-      </div>
-    </div>
+        <div class="dropMenu"><button data-source-target="image">Использовать в «По фото»</button><button data-source-target="editor">Добавить в «Сборку»</button><button data-source-target="draw">Открыть в «Редакторе»</button></div></div>
+      <button class="action danger" data-action="source-delete" title="Удалить из загруженных" aria-label="Удалить из загруженных">${trashIcon}</button>
+    </div></div>
+    <div class="listContent"><div class="listPrompt">${escapeHtml(label)}</div><div class="listMeta">${escapeHtml(date)} · Загруженный исходник</div></div>
   </article>`;
 }
 function layoutMasonry(){
@@ -226,6 +229,7 @@ function render(){
   const feedItems = filteredItems(feedImages);
   galleryGrid.classList.toggle('list', listMode);
   feedGrid.classList.toggle('list', listMode);
+  uploadsGrid.classList.toggle('list', listMode);
   feedSection.hidden = Boolean(galleryLoadError);
   uploadsSection.hidden = Boolean(galleryLoadError);
   if(galleryLoadError){
@@ -665,11 +669,46 @@ async function useSourceAs(sourceId, target){
     console.error(err);
   }
 }
+async function toggleSourceFavorite(sourceId){
+  const item = uploadedImages.find(source => String(source.id) === String(sourceId));
+  if(!item) return;
+  const next = !Boolean(item.favorite);
+  try{
+    await api(`/api/gallery/sources/${encodeURIComponent(sourceId)}/favorite`, { method:'POST', body:JSON.stringify({ isFavorite:next }) });
+    item.favorite = next;
+    render();
+    showToast(next ? 'Исходник защищен сердечком.' : 'Сердечко снято.');
+  }catch(err){
+    showToast('Не удалось изменить сердечко.');
+    console.error(err);
+  }
+}
+function requestSourceDelete(sourceId){
+  sourceDeleteTargetId = sourceId;
+  openSmall('sourceDeleteModal');
+}
+async function confirmSourceDelete(){
+  const sourceId = sourceDeleteTargetId;
+  if(!sourceId) return;
+  try{
+    await api(`/api/gallery/sources/${encodeURIComponent(sourceId)}`, { method:'DELETE' });
+    uploadedImages = uploadedImages.filter(source => String(source.id) !== String(sourceId));
+    sourceDeleteTargetId = null;
+    closeSmalls();
+    render();
+    showToast('Исходник убран из загруженных.');
+  }catch(err){
+    showToast('Не удалось удалить исходник.');
+    console.error(err);
+  }
+}
 
 galleryGrid.addEventListener('click', e=>{ if(e.target.closest('[data-action="retry-gallery"]')) return loadGallery(); if(e.target.closest('[data-action="reset-gallery-filters"]')) return resetGalleryFilters(); const card=e.target.closest('.card'); if(!card) return; const id=card.dataset.id; if(e.target.closest('[data-action="heart"]')) return toggleFavorite(id); if(e.target.closest('[data-action="feed"]')) return feedAction(id); if(e.target.closest('[data-action="delete"]')) return deleteImage(id); openViewerById(id, filteredItems(images)); });
 feedGrid.addEventListener('click', e=>{ const card=e.target.closest('.card'); if(!card) return; const id=card.dataset.id; if(e.target.closest('[data-action="heart"]')) return toggleFavorite(id); if(e.target.closest('[data-action="feed"]')) return feedAction(id); if(e.target.closest('[data-action="delete"]')) return deleteImage(id); openViewerById(id, filteredItems(feedImages)); });
 uploadsGrid.addEventListener('click', e=>{
-  const card = e.target.closest('.sourceLibraryCard'); if(!card) return;
+  const card = e.target.closest('.sourceCard'); if(!card) return;
+  if(e.target.closest('[data-action="source-heart"]')) return toggleSourceFavorite(card.dataset.sourceId);
+  if(e.target.closest('[data-action="source-delete"]')) return requestSourceDelete(card.dataset.sourceId);
   const menuBtn = e.target.closest('[data-action="source-menu"]');
   if(menuBtn){ const menu=card.querySelector('.dropMenu'); closeMenus(menu); menu.classList.toggle('open'); return; }
   const targetBtn = e.target.closest('[data-source-target]');
@@ -709,6 +748,8 @@ document.getElementById('publishForm').addEventListener('submit', e=>{ e.prevent
 document.getElementById('publishCancelBtn').addEventListener('click', closeSmalls);
 document.getElementById('deleteCancelBtn').addEventListener('click', closeSmalls);
 document.getElementById('deleteConfirmBtn').addEventListener('click', confirmDeleteImage);
+document.getElementById('sourceDeleteCancelBtn').addEventListener('click', closeSmalls);
+document.getElementById('sourceDeleteConfirmBtn').addEventListener('click', confirmSourceDelete);
 document.getElementById('zoomOutBtn').addEventListener('click', ()=>changeViewerZoom(-0.25));
 document.getElementById('zoomInBtn').addEventListener('click', ()=>changeViewerZoom(0.25));
 document.getElementById('zoomResetBtn').addEventListener('click', resetViewerZoom);

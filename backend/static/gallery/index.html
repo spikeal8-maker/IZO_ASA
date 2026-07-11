@@ -46,7 +46,7 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/static/gallery/gallery.css?v=20260711-source-library">
+<link rel="stylesheet" href="/static/gallery/gallery.css?v=20260711-source-cards">
 </head>
 <body>
 <div class="iv3 topbar-scope">
@@ -127,7 +127,7 @@
 
   <section id="uploadsSection" class="section" aria-labelledby="uploadsTitle">
     <div class="sectionHead"><div class="sectionTitle"><h2 id="uploadsTitle">Загруженные изображения</h2><span class="sectionCount" id="uploadsSectionCount">0 исходников</span></div></div>
-    <div id="uploadsGrid" class="sourceLibrary"></div>
+    <div id="uploadsGrid" class="masonry sourceMasonry"></div>
   </section>
 </main>
 
@@ -186,9 +186,10 @@
   <div class="publishActions"><button type="button" class="btn" id="publishCancelBtn">Отмена</button><button type="submit" class="btn acid" id="publishSubmitBtn">Опубликовать</button></div>
 </form></div></div>
 <div id="deleteModal" class="smallModal"><div class="smallDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Удалить изображение?</h3><p id="deleteText">Изображение будет удалено из вашей галереи, связанные публикации в ленте будут сняты, а слот освободится.</p><div class="publishActions"><button type="button" class="btn" id="deleteCancelBtn">Отмена</button><button type="button" class="btn acid" id="deleteConfirmBtn">Удалить</button></div></div></div>
+<div id="sourceDeleteModal" class="smallModal"><div class="smallDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Убрать исходник?</h3><p>Изображение исчезнет из раздела загруженных. Сжатая копия останется только в истории результата, пока существует сам результат генерации.</p><div class="publishActions"><button type="button" class="btn" id="sourceDeleteCancelBtn">Отмена</button><button type="button" class="btn acid" id="sourceDeleteConfirmBtn">Убрать</button></div></div></div>
 <div id="toast" class="toast"></div>
 
 <script id="imageData" type="application/json">[]</script>
-<script src="/static/gallery/gallery.js?v=20260711-source-library"></script>
+<script src="/static/gallery/gallery.js?v=20260711-source-cards"></script>
 </body>
 </html>

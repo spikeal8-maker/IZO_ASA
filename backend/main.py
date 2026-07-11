@@ -1118,6 +1118,8 @@ def init_db() -> None:
                 thumb_width INTEGER NOT NULL DEFAULT 0,
                 thumb_height INTEGER NOT NULL DEFAULT 0,
                 thumb_bytes INTEGER NOT NULL DEFAULT 0,
+                is_favorite INTEGER NOT NULL DEFAULT 0,
+                library_deleted_at TEXT,
                 children_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL
             );
@@ -1902,6 +1904,10 @@ def init_db() -> None:
         }
         if "children_json" not in image_source_columns:
             conn.execute("ALTER TABLE image_sources ADD COLUMN children_json TEXT NOT NULL DEFAULT '[]'")
+        if "is_favorite" not in image_source_columns:
+            conn.execute("ALTER TABLE image_sources ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0")
+        if "library_deleted_at" not in image_source_columns:
+            conn.execute("ALTER TABLE image_sources ADD COLUMN library_deleted_at TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_user_created "
             "ON jobs(user_id, created_at)"
@@ -3418,6 +3424,10 @@ def evict_gallery_images_for_new_save(
         """
         SELECT id, url, thumbnail_url FROM images
         WHERE user_id = ? AND is_favorite = 0 AND (deleted_at IS NULL OR deleted_at = '')
+          AND NOT EXISTS (
+              SELECT 1 FROM image_sources s
+              WHERE s.image_id = images.id AND s.user_id = images.user_id AND s.is_favorite = 1
+          )
         ORDER BY created_at ASC, id ASC
         LIMIT ?
         """,
@@ -4982,12 +4992,18 @@ def persist_image_sources(image_id: str, user_id: str, req: GenerateRequest, cre
     saved: list[dict[str, Any]] = []
     new_paths: list[Path] = []
     old_urls: list[str] = []
+    old_states: dict[int, tuple[int, str | None]] = {}
     try:
         with db() as conn:
-            old_urls = [
-                str(row["thumb_url"] or "")
-                for row in conn.execute("SELECT thumb_url FROM image_sources WHERE image_id = ?", (image_id,)).fetchall()
-            ]
+            old_rows = conn.execute(
+                "SELECT slot_index, thumb_url, is_favorite, library_deleted_at FROM image_sources WHERE image_id = ?",
+                (image_id,),
+            ).fetchall()
+            old_urls = [str(row["thumb_url"] or "") for row in old_rows]
+            old_states = {
+                int(row["slot_index"] or 0): (int(row["is_favorite"] or 0), row["library_deleted_at"])
+                for row in old_rows
+            }
             conn.execute("DELETE FROM image_sources WHERE image_id = ?", (image_id,))
             for pos, source in enumerate(source_inputs, start=1):
                 slot = int(source.get("slot") or pos)
@@ -5005,6 +5021,7 @@ def persist_image_sources(image_id: str, user_id: str, req: GenerateRequest, cre
                     else []
                 )
                 kind = "gallery_image" if source_id else ("upload" if value.startswith("data:image") else "media")
+                old_favorite, old_deleted_at = old_states.get(slot, (0, None))
                 source_row = {
                     "id": uuid.uuid4().hex,
                     "imageId": image_id,
@@ -5023,8 +5040,9 @@ def persist_image_sources(image_id: str, user_id: str, req: GenerateRequest, cre
                     """
                     INSERT INTO image_sources
                         (id, image_id, user_id, source_image_id, source_kind, role, slot_index,
-                         thumb_url, thumb_width, thumb_height, thumb_bytes, children_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         thumb_url, thumb_width, thumb_height, thumb_bytes, is_favorite,
+                         library_deleted_at, children_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         source_row["id"],
@@ -5038,6 +5056,8 @@ def persist_image_sources(image_id: str, user_id: str, req: GenerateRequest, cre
                         width,
                         height,
                         byte_size,
+                        old_favorite,
+                        old_deleted_at,
                         json.dumps(children_snapshot, ensure_ascii=False),
                         created_at,
                     ),
@@ -6199,7 +6219,7 @@ def openrouter_api_key() -> str:
     return os.getenv("OPENROUTER_API_KEY", "").strip() or admin_secret_value("openrouter_api_key")
 
 
-OPENROUTER_GENERATION_MODES = {"text_to_image", "image_to_image"}
+OPENROUTER_GENERATION_MODES = {"text_to_image", "image_to_image", "edit"}
 OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS = 6 * 60 * 60
 _openrouter_capability_cache: dict[str, Any] = {"ts": 0.0, "models": []}
 
@@ -6323,6 +6343,20 @@ def build_openrouter_image_body(payload: GenerateRequest, model: str, request_pl
     if payload.mode == "image_to_image":
         body["prompt"] = f"{payload.prompt.strip()}\n\n{openrouter_prompt_influence_instruction(payload.strength)}".strip()
         body["input_references"] = [{"type": "image_url", "image_url": {"url": openrouter_reference_value(payload.inputImage1)}}]
+    elif payload.mode == "edit":
+        references = [
+            item for item in sorted(payload.inputImages, key=lambda value: value.index or 0)
+            if item.image
+        ]
+        max_references = min(4, int(capability.get("maxInputReferences") or 0))
+        if len(references) < 2:
+            raise RuntimeError("Для «Сборки» нужны основа и хотя бы один референс.")
+        if len(references) > max_references:
+            raise RuntimeError(f"Модель {model} принимает не больше {max_references} изображений для «Сборки».")
+        body["input_references"] = [
+            {"type": "image_url", "image_url": {"url": openrouter_reference_value(item.image)}}
+            for item in references
+        ]
     if payload.seed > 0 and "seed" in parameters:
         body["seed"] = payload.seed
     return body
@@ -8127,6 +8161,7 @@ async def gallery_page(
         uploaded_where = [
             "s.user_id = ?",
             "s.source_kind IN ('upload', 'media')",
+            "(s.library_deleted_at IS NULL OR s.library_deleted_at = '')",
             ACTIVE_IMAGE_WHERE.replace("deleted_at", "images.deleted_at"),
         ]
         uploaded_params: list[Any] = [user_id]
@@ -8158,6 +8193,7 @@ async def gallery_page(
                 "width": int(row["thumb_width"] or 0),
                 "height": int(row["thumb_height"] or 0),
                 "fileSizeBytes": int(row["thumb_bytes"] or 0),
+                "favorite": bool(row["is_favorite"]),
                 "createdAt": row["created_at"],
             }
             for row in uploaded_rows
@@ -8201,6 +8237,43 @@ async def gallery_source_use_as(source_id: str, req: UseAsRequest, request: Requ
         "height": int(row["thumb_height"] or 0),
         "role": row["role"],
     }
+
+
+@app.post("/api/gallery/sources/{source_id}/favorite")
+async def gallery_source_favorite(source_id: str, req: FavoriteRequest, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id FROM image_sources WHERE id = ? AND user_id = ?",
+            (source_id, user_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Source image not found")
+        conn.execute(
+            "UPDATE image_sources SET is_favorite = ? WHERE id = ? AND user_id = ?",
+            (1 if req.isFavorite else 0, source_id, user_id),
+        )
+    return {"ok": True, "sourceId": source_id, "favorite": req.isFavorite}
+
+
+@app.delete("/api/gallery/sources/{source_id}")
+async def gallery_source_delete(source_id: str, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id FROM image_sources WHERE id = ? AND user_id = ?",
+            (source_id, user_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Source image not found")
+        conn.execute(
+            "UPDATE image_sources SET library_deleted_at = ?, is_favorite = 0 WHERE id = ? AND user_id = ?",
+            (now, source_id, user_id),
+        )
+    return {"ok": True, "sourceId": source_id, "retainedForHistory": True}
 
 
 @app.get("/api/gallery/{image_id}")
