@@ -90,3 +90,30 @@ Implemented:
 - A new search aborts stale primary and secondary requests.
 - Version guards prevent late responses from replacing newer results.
 - Client-side prompt/aspect/model rescanning was removed; local filtering remains only for mutable favorite/publication state.
+
+## Phase 5: storage tiers and reversible cleanup
+
+Verified and retained:
+
+- The newest 10 active gallery images remain in the original storage tier.
+- Older active images are converted idempotently to bounded WebP archives only when the result is smaller.
+- The archive is decoded and verified before the database URL changes and the old file is removed.
+- Tariff eviction removes the oldest unprotected rows, skips image and source favorites, and shrinks an over-limit gallery by two slots per new generation.
+- Explicit feed publications keep independent feed media when a private gallery original is evicted.
+
+Added:
+
+- `media_cleanup_quarantine.py` moves reviewed cleanup candidates outside `MEDIA_DIR` before permanent deletion.
+- Dry-run is the default; `--apply` is required to move files.
+- Active-reference audit issues block the move.
+- Protected seed and feed variants, unsafe paths, and destination collisions are skipped.
+- The quarantine preserves relative paths and writes an atomic JSON manifest with sizes and SHA-256 hashes.
+
+Safe operational sequence:
+
+```text
+python backend/media_cleanup_quarantine.py --quarantine-dir ../media-quarantine
+python backend/media_cleanup_quarantine.py --apply --quarantine-dir ../media-quarantine
+```
+
+Review the generated manifest and run the media health checks before deleting the quarantine directory manually. Never place the quarantine below `MEDIA_DIR`.
