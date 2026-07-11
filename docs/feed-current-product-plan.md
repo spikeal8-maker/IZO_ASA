@@ -57,6 +57,17 @@ Cleanup tracking lives in `docs/feed-cleanup-optimization-plan-20260708.md`.
 
 ## Completed In This Pass
 
+- Feed author payloads now expose real `followersCount` and `followingCount`
+  values from `feed_author_follows`. The publication author card and public
+  profile display both counts and update the follower count immediately after
+  a follow or unfollow action.
+- `Избранное` is defined as the signed-in user's private saved-publication
+  collection. The star action saves or removes a publication, and saved works
+  are available through the `Избранное` feed filter.
+- The publication detail view keeps four primary controls visible: remix, like,
+  favorite, and `Другие действия`. Follow, personal hide, download, report,
+  owner/admin management, prompt, parameters, and history are grouped in the
+  expandable secondary area.
 - Gallery quota eviction no longer retires a linked feed publication or deletes
   its independent public WebP variants. Explicit gallery deletion still retires
   the linked publication according to the current product contract.

@@ -13818,6 +13818,14 @@ def _feed_author_profile(conn: sqlite3.Connection, internal_user_id: str, legacy
         or "Пользователь ИЗО"
     )
     avatar_url = _row_get(row, "avatar_url") or _row_get(identity, "provider_avatar_url")
+    followers_count = int(conn.execute(
+        "SELECT COUNT(*) AS c FROM feed_author_follows WHERE author_internal_user_id = ?",
+        (internal_user_id,),
+    ).fetchone()["c"])
+    following_count = int(conn.execute(
+        "SELECT COUNT(*) AS c FROM feed_author_follows WHERE follower_internal_user_id = ?",
+        (internal_user_id,),
+    ).fetchone()["c"])
     return {
         "id": internal_user_id,
         "displayName": name,
@@ -13833,6 +13841,8 @@ def _feed_author_profile(conn: sqlite3.Connection, internal_user_id: str, legacy
         "age": _row_get(row, "age"),
         "city": _row_get(row, "city"),
         "country": _row_get(row, "country"),
+        "followersCount": followers_count,
+        "followingCount": following_count,
     }
 
 

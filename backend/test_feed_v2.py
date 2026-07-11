@@ -194,7 +194,12 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "modalSaveBtn" in r.text
         assert "detail-icon save" in r.text
         assert "detail-management" in r.text
-        assert "detail-secondary" not in r.text
+        assert "detail-more" in r.text
+        assert "detail-secondary-actions" in r.text
+        assert "modalMoreBtn" in r.text
+        assert "authorSocialCounts" in r.text
+        assert "followersCount" in r.text
+        assert "followingCount" in r.text
         assert "detail-owner-actions" not in r.text
         assert "избранных" in r.text
         assert "view_count" in r.text
@@ -373,6 +378,10 @@ def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
             headers=bearer(viewer_token),
         )
         assert followed.status_code == 200
+        author_after_follow = client.get("/api/feed?type=fresh", headers=bearer(viewer_token)).json()
+        author_item = next(item for item in author_after_follow["items"] if item["id"] == pub_a["id"])
+        assert author_item["author"]["followersCount"] == 1
+        assert author_item["author"]["followingCount"] == 0
         following = client.get("/api/feed?type=following", headers=bearer(viewer_token)).json()
         assert {item["id"] for item in following["items"]} == {pub_a["id"], pub_b["id"], pub_c["id"]}
         assert all(item["is_followed_by_me"] for item in following["items"])
