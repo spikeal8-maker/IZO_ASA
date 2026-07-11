@@ -83,6 +83,21 @@ as reference material unless we explicitly decide to migrate the visible
   in-memory fallback exists only for a just-generated result that could not be
   persisted because every gallery slot is favorite-protected.
 
+## Generator Image Picker
+
+- The internal picker used by `По фото`, `Сборка`, and `Редактор` has two
+  explicit tabs: `Сгенерированные` and `Загруженные`.
+- Generated images come from the user's gallery. Previously uploaded source
+  images come from `uploadedItems` in `GET /api/gallery/page`; the picker must
+  not maintain a second source-image index.
+- Picker thumbnails preserve their stored width/height ratio. Do not force a
+  square crop: portrait and landscape sources must be recognizable before the
+  user selects them.
+- Selecting an item from either tab applies it to the exact upload target that
+  opened the picker, including a specific `Сборка` reference slot.
+- Loading, empty, and failure states are visible inside the uploaded tab and do
+  not erase the generated tab.
+
 ## Test Coverage To Keep
 
 - `test_favorite_image_is_not_auto_evicted_when_gallery_quota_is_full`

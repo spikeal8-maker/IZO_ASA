@@ -235,6 +235,17 @@ interface N2GalleryImage {
   aspectRatio?: string
 }
 
+type UploadedSourceImage = {
+  id: string
+  thumbnailUrl: string
+  width: number
+  height: number
+  roleLabel?: string
+  createdAt?: string
+}
+
+type GalleryPickerTab = 'generated' | 'uploaded'
+
 // Форма миниатюры истории по реальным размерам/соотношению; квадрат — фолбэк.
 function historyShape(item: N2GalleryImage): 'square' | 'tall' | 'wide' {
   if (item.width && item.height) {
@@ -959,6 +970,10 @@ export default function NewStudio(): ReactElement {
 
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [galleryPickTarget, setGalleryPickTarget] = useState<UploadTarget | null>(null)
+  const [galleryPickerTab, setGalleryPickerTab] = useState<GalleryPickerTab>('generated')
+  const [uploadedSources, setUploadedSources] = useState<UploadedSourceImage[]>([])
+  const [galleryPickerLoading, setGalleryPickerLoading] = useState(false)
+  const [galleryPickerError, setGalleryPickerError] = useState('')
   const [uploadTarget, setUploadTarget] = useState<UploadTarget | null>(null)
   const [modelsPayload, setModelsPayload] = useState<ModelsPayload>()
   const [loraTriggers] = useState<Record<string, string>>({})
@@ -1622,6 +1637,16 @@ export default function NewStudio(): ReactElement {
 
   function openGalleryPick(target: UploadTarget) {
     setGalleryPickTarget(target)
+    setGalleryPickerTab('generated')
+    setGalleryPickerLoading(true)
+    setGalleryPickerError('')
+    apiFetch('/gallery/page?limit=120')
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('gallery picker unavailable')))
+      .then((payload) => {
+        setUploadedSources(Array.isArray(payload?.uploadedItems) ? payload.uploadedItems : [])
+      })
+      .catch(() => setGalleryPickerError('Не удалось загрузить ранее загруженные изображения.'))
+      .finally(() => setGalleryPickerLoading(false))
   }
 
   function showInspectPreview(url: string, title: string) {
@@ -3842,22 +3867,66 @@ export default function NewStudio(): ReactElement {
               ×
             </button>
             <h2>{galleryPickTarget.kind === 'edit' ? 'Выберите изображение' : 'Выберите исходник из галереи'}</h2>
-            <div className="n2-templates-styles">
-              {gallery.map((item) => (
-                <button
-                  key={item.id}
-                  className="n2-template-style"
-                  type="button"
-                  title={item.promptOriginal}
-                  onClick={() => {
-                    applyImageToTarget(galleryPickTarget, apiUrl(item.url))
-                    setGalleryPickTarget(null)
-                  }}
-                >
-                  <img src={apiUrl(item.thumbnailUrl || item.url)} alt={item.promptOriginal.slice(0, 60)} loading="lazy" />
-                </button>
-              ))}
+            <div className="n2-gallery-picker-tabs" role="tablist" aria-label="Источник изображения">
+              <button className={galleryPickerTab === 'generated' ? 'active' : ''} type="button" role="tab" aria-selected={galleryPickerTab === 'generated'} onClick={() => setGalleryPickerTab('generated')}>
+                Сгенерированные <span>{gallery.length}</span>
+              </button>
+              <button className={galleryPickerTab === 'uploaded' ? 'active' : ''} type="button" role="tab" aria-selected={galleryPickerTab === 'uploaded'} onClick={() => setGalleryPickerTab('uploaded')}>
+                Загруженные <span>{uploadedSources.length}</span>
+              </button>
             </div>
+            {galleryPickerError && galleryPickerTab === 'uploaded' && <p className="n2-gallery-picker-message error">{galleryPickerError}</p>}
+            {galleryPickerLoading && galleryPickerTab === 'uploaded' ? (
+              <p className="n2-gallery-picker-message">Загружаем изображения…</p>
+            ) : galleryPickerTab === 'generated' ? (
+              gallery.length ? (
+                <div className="n2-templates-styles n2-gallery-picker-grid">
+                  {gallery.map((item) => (
+                    <button
+                      key={item.id}
+                      className="n2-template-style"
+                      type="button"
+                      title={item.promptOriginal}
+                      onClick={() => {
+                        applyImageToTarget(galleryPickTarget, apiUrl(item.url))
+                        setGalleryPickTarget(null)
+                      }}
+                    >
+                      <img
+                        src={apiUrl(item.thumbnailUrl || item.url)}
+                        alt={item.promptOriginal.slice(0, 60)}
+                        loading="lazy"
+                        style={item.width && item.height ? { aspectRatio: `${item.width} / ${item.height}` } : undefined}
+                      />
+                      {item.width && item.height && <span>{item.width}×{item.height}</span>}
+                    </button>
+                  ))}
+                </div>
+              ) : <p className="n2-gallery-picker-message">Сгенерированных изображений пока нет.</p>
+            ) : uploadedSources.length ? (
+              <div className="n2-templates-styles n2-gallery-picker-grid">
+                {uploadedSources.map((item) => (
+                  <button
+                    key={item.id}
+                    className="n2-template-style"
+                    type="button"
+                    title={item.roleLabel || 'Ранее загруженное изображение'}
+                    onClick={() => {
+                      applyImageToTarget(galleryPickTarget, apiUrl(item.thumbnailUrl))
+                      setGalleryPickTarget(null)
+                    }}
+                  >
+                    <img
+                      src={apiUrl(item.thumbnailUrl)}
+                      alt={item.roleLabel || 'Ранее загруженное изображение'}
+                      loading="lazy"
+                      style={item.width && item.height ? { aspectRatio: `${item.width} / ${item.height}` } : undefined}
+                    />
+                    <span>{item.width && item.height ? `${item.width}×${item.height}` : item.roleLabel || 'Загруженное'}</span>
+                  </button>
+                ))}
+              </div>
+            ) : <p className="n2-gallery-picker-message">Ранее загруженных изображений пока нет.</p>}
           </div>
         </div>
       )}
