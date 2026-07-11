@@ -307,15 +307,34 @@ async function loadGallery({ append = false } = {}){
 async function hydrateProfileLabel(){
   const label = document.querySelector('.user-label');
   const account = document.querySelector('.account-button');
+  const glyph = account?.querySelector('.user-glyph');
   if(!label) return;
+  const initials = name => {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    return (parts.length > 1 ? `${parts[0][0] || ''}${parts[1][0] || ''}` : (parts[0] || 'И').slice(0, 2)).toUpperCase();
+  };
+  const showInitials = name => {
+    if(glyph) glyph.innerHTML = `<span class="user-initials">${escapeHtml(initials(name))}</span>`;
+  };
   try{
     const me = await api('/api/me-v2');
-    const name = me?.profile?.display_name || me?.profile?.username || 'Профиль';
+    const profile = me?.profile || {};
+    const name = profile.display_name || [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username || 'Профиль';
     label.textContent = String(name).slice(0, 24);
+    const avatar = String(profile.avatar_url || '').trim();
+    if(glyph && avatar){
+      glyph.innerHTML = `<img src="${escapeHtml(apiUrl(avatar))}" alt="">`;
+      glyph.querySelector('img')?.addEventListener('error', ()=>showInitials(name), { once:true });
+    }else{
+      showInitials(name);
+    }
+    account?.classList.add('authed');
     account?.setAttribute('title', 'Профиль и настройки');
     account?.setAttribute('aria-label', 'Профиль и настройки');
   }catch{
     label.textContent = 'Войти';
+    showInitials('Войти');
+    account?.classList.remove('authed');
     account?.setAttribute('title', 'Войти в аккаунт');
     account?.setAttribute('aria-label', 'Войти в аккаунт');
   }
