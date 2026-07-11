@@ -32,6 +32,8 @@ let masonryFrame = 0;
 let feedSectionReady = false;
 let uploadsSectionReady = false;
 let userHasScrolled = false;
+let secondaryLoading = false;
+let secondaryLoaded = false;
 const detailPromises = new Map();
 const API_BASE = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : '';
 
@@ -250,10 +252,10 @@ function render(){
       ? `<p style="margin-top:14px"><button class="btn" data-action="reset-gallery-filters">Сбросить поиск и фильтр</button></p>`
       : '';
     galleryGrid.innerHTML = galleryItems.length ? galleryItems.map(i=>cardTemplate(i,'gallery')).join('') : `<div class="empty"><strong>Ничего не найдено</strong><p>${emptyText}</p>${resetAction}</div>`;
-    feedGrid.innerHTML = !feedSectionReady
+    feedGrid.innerHTML = !feedSectionReady || secondaryLoading || !secondaryLoaded
       ? `<div class="skeletonGrid secondarySkeleton"><div class="skeletonCard"></div><div class="skeletonCard"></div></div>`
       : (feedItems.length ? feedItems.map(i=>cardTemplate(i,'feed')).join('') : `<div class="empty">Публикаций по выбранному фильтру нет.</div>`);
-    uploadsGrid.innerHTML = !uploadsSectionReady
+    uploadsGrid.innerHTML = !uploadsSectionReady || secondaryLoading || !secondaryLoaded
       ? `<div class="skeletonGrid secondarySkeleton"><div class="skeletonCard"></div><div class="skeletonCard"></div></div>`
       : (uploadedImages.length ? uploadedImages.map(sourceLibraryTemplate).join('') : `<div class="empty">Загруженных исходников пока нет.</div>`);
   }
@@ -280,7 +282,13 @@ function render(){
 async function loadGallery({ append = false } = {}){
   if(galleryLoading) return;
   galleryLoading = true;
-  if(!append) galleryLoadError = '';
+  if(!append){
+    galleryLoadError = '';
+    secondaryLoaded = false;
+    feedImages = [];
+    uploadedImages = [];
+    uploadedUnavailableCount = 0;
+  }
   render();
   try{
     const params = new URLSearchParams({ limit: String(galleryPageSize()) });
@@ -288,19 +296,15 @@ async function loadGallery({ append = false } = {}){
     const q = searchInput.value.trim();
     if(q) params.set('q', q);
     if(currentFilter !== 'all') params.set('filter', currentFilter);
-    const data = await api(`/api/gallery/page?${params.toString()}`);
+    const data = await api(`/api/gallery/items?${params.toString()}`);
     limits = data.limits || limits;
     const nextImages = (data.items || []).map(normalizeItem);
-    const nextFeedImages = (data.feedItems || []).map(normalizeItem);
-    const nextUploadedImages = data.uploadedItems || [];
     images = append ? [...images, ...nextImages] : nextImages;
-    feedImages = append ? feedImages : nextFeedImages;
-    uploadedImages = nextUploadedImages;
-    uploadedUnavailableCount = Number(data.uploadedUnavailableCount || 0);
     nextCursor = data.nextCursor || null;
     hasMoreGallery = Boolean(data.hasMore);
     currentCollection = images;
     render();
+    if(!append && (feedSectionReady || uploadsSectionReady)) loadSecondarySections();
   }catch(err){
     if(!append) galleryLoadError = String(err?.message || '').includes('Missing session token')
       ? 'Войдите в аккаунт, чтобы открыть личную галерею.'
@@ -312,6 +316,30 @@ async function loadGallery({ append = false } = {}){
     return;
   }finally{
     galleryLoading = false;
+    render();
+  }
+}
+async function loadSecondarySections(){
+  if(secondaryLoading) return;
+  secondaryLoading = true;
+  secondaryLoaded = false;
+  render();
+  try{
+    const params = new URLSearchParams({ limit:String(galleryPageSize()) });
+    const q = searchInput.value.trim();
+    if(q) params.set('q', q);
+    if(currentFilter !== 'all') params.set('filter', currentFilter);
+    const data = await api(`/api/gallery/secondary?${params.toString()}`);
+    limits = data.limits || limits;
+    feedImages = (data.feedItems || []).map(normalizeItem);
+    uploadedImages = data.uploadedItems || [];
+    uploadedUnavailableCount = Number(data.uploadedUnavailableCount || 0);
+    secondaryLoaded = true;
+  }catch(err){
+    console.error(err);
+    showToast('Дополнительные разделы не загрузились.');
+  }finally{
+    secondaryLoading = false;
     render();
   }
 }
@@ -777,7 +805,7 @@ if('IntersectionObserver' in window){
       if(entry.target === uploadsSection && !uploadsSectionReady){ uploadsSectionReady = true; changed = true; }
       sectionObserver.unobserve(entry.target);
     });
-    if(changed) render();
+    if(changed){ render(); loadSecondarySections(); }
   }, { rootMargin:'300px 0px' });
   sectionObserver.observe(feedSection);
   sectionObserver.observe(uploadsSection);
@@ -795,7 +823,7 @@ window.addEventListener('scroll', ()=>{
   let changed = false;
   if(!feedSectionReady && feedSection.getBoundingClientRect().top <= window.innerHeight + 300){ feedSectionReady = true; changed = true; }
   if(!uploadsSectionReady && uploadsSection.getBoundingClientRect().top <= window.innerHeight + 300){ uploadsSectionReady = true; changed = true; }
-  if(changed) render();
+  if(changed){ render(); loadSecondarySections(); }
 }, { passive:true });
 document.getElementById('viewerClose').addEventListener('click', closeViewer);
 document.getElementById('prevBtn').addEventListener('click', ()=>stepViewer(-1));

@@ -27,6 +27,9 @@ def test_gallery_defers_secondary_sections_and_uses_small_pages():
     assert "feedSectionReady" in script
     assert "uploadsSectionReady" in script
     assert "sectionObserver.observe(feedSection)" in script
-    assert "feedImages = append ? feedImages : nextFeedImages" in script
+    assert "feedImages = (data.feedItems || []).map(normalizeItem)" in script
     assert "userHasScrolled" in script
     assert "window.scrollY < 80" in script
+    assert "/api/gallery/items?" in script
+    assert "/api/gallery/secondary?" in script
+    assert "loadSecondarySections" in script

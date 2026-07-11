@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PIL import Image
+from fastapi.testclient import TestClient
 
 import main
 
@@ -12,8 +13,8 @@ def setup_gallery_db(tmp_path, monkeypatch):
     main.init_db()
     with main.db() as conn:
         conn.execute(
-            "INSERT INTO users (id, language, role, created_at, last_login_at) "
-            "VALUES ('phase-user', 'ru', 'user', '2026-01-01', '2026-01-01')"
+            "INSERT INTO users (id, internal_user_id, language, role, gallery_enabled, created_at, last_login_at) "
+            "VALUES ('phase-user', 'phase-iuid', 'ru', 'user', 1, '2026-01-01', '2026-01-01')"
         )
         conn.execute(
             "INSERT INTO images (id, user_id, url, thumbnail_url, width, height, mode, provider, settings_json, created_at) "
@@ -56,3 +57,29 @@ def test_active_gallery_query_uses_ordered_partial_index(tmp_path, monkeypatch):
     details = " ".join(str(row["detail"]) for row in plan)
     assert "idx_images_active_user_created" in details
     assert "TEMP B-TREE" not in details
+
+
+def test_primary_items_endpoint_has_small_independent_contract(tmp_path, monkeypatch):
+    setup_gallery_db(tmp_path, monkeypatch)
+    with main.db() as conn:
+        for index in range(1, 15):
+            conn.execute(
+                "INSERT INTO images (id, user_id, url, thumbnail_url, width, height, mode, provider, settings_json, created_at) "
+                "VALUES (?, 'phase-user', ?, ?, 100, 100, 'text_to_image', 'test', '{}', ?)",
+                (
+                    f"phase-image-{index}",
+                    f"/api/media/result-{index}.webp?userId=phase-user",
+                    f"/api/media/result-{index}-thumb.webp?userId=phase-user",
+                    f"2026-01-{index + 1:02d}",
+                ),
+            )
+    token = main.create_auth_session("phase-iuid", "phase-user", provider="web", platform="web")["session_token"]
+    with TestClient(main.app) as client:
+        response = client.get("/api/gallery/items?limit=12", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 12
+    assert payload["hasMore"] is True
+    assert payload["nextCursor"]
+    assert "feedItems" not in payload
+    assert "uploadedItems" not in payload

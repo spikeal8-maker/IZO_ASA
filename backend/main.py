@@ -35,13 +35,9 @@ from pydantic import BaseModel, Field
 
 
 ROOT = Path(__file__).resolve().parent
-MEDIA = ROOT / "media"
-MEDIA.mkdir(exist_ok=True)
 STATIC_DIR = ROOT / "static"
 GALLERY_PAGE_FILE = STATIC_DIR / "gallery" / "index.html"
 FEED_PAGE_FILE = STATIC_DIR / "feed" / "index.html"
-AVATAR_DIR = MEDIA / "avatars"
-AVATAR_DIR.mkdir(exist_ok=True)
 AVATAR_PRESET_DIR = next(
     (
         path
@@ -83,6 +79,10 @@ def load_local_env() -> None:
 
 load_local_env()
 mimetypes.add_type("image/webp", ".webp")
+MEDIA = Path(os.getenv("MEDIA_DIR", str(ROOT / "media"))).expanduser().resolve()
+MEDIA.mkdir(parents=True, exist_ok=True)
+AVATAR_DIR = MEDIA / "avatars"
+AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 
 # Identity Core session service (Phase 4 + 4.1). Keying material for token hashing
 # comes from the environment when available. Only hashes are persisted — raw tokens
@@ -8316,6 +8316,106 @@ async def gallery(request: Request) -> list[dict[str, Any]]:
     for item in restored:
         images[item["id"]] = item
     return restored
+
+
+@app.get("/api/gallery/items")
+async def gallery_items_page(
+    request: Request,
+    limit: int = 24,
+    cursor: str | None = None,
+    q: str = "",
+    filter: str = "all",
+) -> dict[str, Any]:
+    """Small cursor page for the primary gallery grid; no secondary collections."""
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    limit = _clamp_limit(limit, default=24, maximum=60)
+    cursor_value = parse_gallery_cursor(cursor)
+    search = str(q or "").strip()[:120]
+    gallery_filter = str(filter or "all").strip().lower()
+    with db() as conn:
+        user_row = conn.execute(
+            "SELECT * FROM users WHERE internal_user_id = ? OR id = ?",
+            (trusted["internal_user_id"], user_id),
+        ).fetchone()
+        if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
+            raise HTTPException(403, "Gallery is not available for this plan.")
+        where_sql = ["user_id = ?", ACTIVE_IMAGE_WHERE]
+        params: list[Any] = [user_id]
+        if search:
+            like = f"%{search}%"
+            where_sql.append(
+                "(id LIKE ? OR prompt_original LIKE ? OR prompt_translated LIKE ? OR mode LIKE ? OR provider LIKE ? OR settings_json LIKE ?)"
+            )
+            params.extend([like, like, like, like, like, like])
+        if gallery_filter == "favorite":
+            where_sql.append("is_favorite = 1")
+        elif gallery_filter == "published":
+            where_sql.append("EXISTS (SELECT 1 FROM feed_publications p WHERE p.image_id = images.id AND p.legacy_user_id = ? AND p.status = 'published')")
+            params.append(user_id)
+        elif gallery_filter == "unpublished":
+            where_sql.append("NOT EXISTS (SELECT 1 FROM feed_publications p WHERE p.image_id = images.id AND p.legacy_user_id = ? AND p.status = 'published')")
+            params.append(user_id)
+        elif gallery_filter == "16:9":
+            where_sql.append("width > 0 AND height > 0 AND width * 9 = height * 16")
+        elif gallery_filter == "4:5":
+            where_sql.append("width > 0 AND height > 0 AND width * 5 = height * 4")
+        elif gallery_filter == "1:1":
+            where_sql.append("width > 0 AND height > 0 AND width = height")
+        elif gallery_filter == "face":
+            where_sql.append("mode IN ('face', 'face_swap', 'faceswap')")
+        where_clause = " AND ".join(f"({part})" for part in where_sql)
+        page_params = list(params)
+        cursor_clause = ""
+        if cursor_value:
+            cursor_created_at, cursor_id = cursor_value
+            cursor_clause = "AND (created_at < ? OR (created_at = ? AND id < ?))"
+            page_params.extend([cursor_created_at, cursor_created_at, cursor_id])
+        page_params.append(limit + 1)
+        image_rows = conn.execute(
+            f"""
+            SELECT * FROM images
+            WHERE {where_clause} {cursor_clause}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            page_params,
+        ).fetchall()
+        has_more = len(image_rows) > limit
+        page_rows = image_rows[:limit]
+        page_ids = [str(row["id"]) for row in page_rows]
+        publications: dict[str, sqlite3.Row] = {}
+        if page_ids:
+            placeholders = ",".join("?" for _ in page_ids)
+            publications = {
+                row["image_id"]: row
+                for row in conn.execute(
+                    f"SELECT * FROM feed_publications WHERE legacy_user_id = ? AND status = 'published' "
+                    f"AND image_id IN ({placeholders})",
+                    [user_id, *page_ids],
+                ).fetchall()
+            }
+        items = [_gallery_page_item(row, publications.get(row["id"])) for row in page_rows]
+        limits = _gallery_page_limits(conn, user_row, user_id)
+    return {
+        "ok": True,
+        "limits": limits,
+        "items": items,
+        "hasMore": has_more,
+        "nextCursor": gallery_cursor_from_row(page_rows[-1]) if has_more and page_rows else None,
+    }
+
+
+@app.get("/api/gallery/secondary")
+async def gallery_secondary(request: Request, limit: int = 24, q: str = "", filter: str = "all") -> dict[str, Any]:
+    payload = await gallery_page(request=request, limit=limit, cursor=None, q=q, filter=filter)
+    return {
+        "ok": True,
+        "limits": payload["limits"],
+        "feedItems": payload["feedItems"],
+        "uploadedItems": payload["uploadedItems"],
+        "uploadedUnavailableCount": payload["uploadedUnavailableCount"],
+    }
 
 
 @app.get("/api/gallery/page")

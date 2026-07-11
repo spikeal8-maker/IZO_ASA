@@ -47,3 +47,21 @@ Verification:
 6. Reconcile production source storage and recover or quarantine unavailable records.
 7. Produce a reviewed cleanup manifest, quarantine files, then remove confirmed residue.
 8. Run 10/100/500-item load tests on desktop and mobile.
+
+## Phase 2: primary API and persistent media path
+
+Implemented:
+
+- `MEDIA_DIR` selects the durable media root; local development falls back to `backend/media`.
+- `/api/gallery/items` returns only the primary cursor page and counters.
+- The primary endpoint limits pages to 60 and defaults to 24.
+- Publication lookup for primary cards is restricted to IDs in the current page.
+- `/api/gallery/secondary` is a compatibility endpoint loaded only near the lower sections.
+- Search/filter resets primary and secondary state independently.
+- Cursor pagination remains available without repeating feed/source collections.
+
+Deployment requirement:
+
+- Configure a persistent Coolify volume and set `MEDIA_DIR` to its mounted absolute path.
+- The SQLite database and `MEDIA_DIR` must survive the same deployment lifecycle.
+- Do not remove missing `image_sources` rows until the production volume is mounted and reconciled.
