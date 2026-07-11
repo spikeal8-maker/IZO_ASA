@@ -1,6 +1,7 @@
 ﻿let images = [];
 let feedImages = [];
 let uploadedImages = [];
+let uploadedUnavailableCount = 0;
 let limits = { originals:{used:0,limit:0}, feed:{used:0,limit:0}, favorites:{used:0,limit:0}, likes:{used:0}, plan:'mini' };
 const galleryGrid = document.getElementById('galleryGrid');
 const feedGrid = document.getElementById('feedGrid');
@@ -28,6 +29,8 @@ let searchTimer = null;
 let deleteTargetId = null;
 let sourceDeleteTargetId = null;
 let masonryFrame = 0;
+let feedSectionReady = false;
+let uploadsSectionReady = false;
 const detailPromises = new Map();
 const API_BASE = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : '';
 
@@ -107,7 +110,7 @@ async function api(path, options = {}){
 }
 function showToast(text){ toast.textContent = text; toast.classList.add('show'); clearTimeout(showToast.t); showToast.t = setTimeout(()=>toast.classList.remove('show'), 2400); }
 function escapeHtml(s){ return String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
-function allItems(){ return [...images, ...feedImages]; }
+function galleryPageSize(){ return window.matchMedia('(max-width: 820px)').matches ? 12 : 24; }
 function itemById(id){ return images.find(i => String(i.id) === String(id)) || feedImages.find(i => String(i.id) === String(id)); }
 function originalById(id){ return images.find(i => String(i.id) === String(id)); }
 function favoriteLimit(){ return Number(limits?.favorites?.limit || 0); }
@@ -246,8 +249,12 @@ function render(){
       ? `<p style="margin-top:14px"><button class="btn" data-action="reset-gallery-filters">Сбросить поиск и фильтр</button></p>`
       : '';
     galleryGrid.innerHTML = galleryItems.length ? galleryItems.map(i=>cardTemplate(i,'gallery')).join('') : `<div class="empty"><strong>Ничего не найдено</strong><p>${emptyText}</p>${resetAction}</div>`;
-    feedGrid.innerHTML = feedItems.length ? feedItems.map(i=>cardTemplate(i,'feed')).join('') : `<div class="empty">Публикаций по выбранному фильтру нет.</div>`;
-    uploadsGrid.innerHTML = uploadedImages.length ? uploadedImages.map(sourceLibraryTemplate).join('') : `<div class="empty">Загруженных исходников пока нет.</div>`;
+    feedGrid.innerHTML = !feedSectionReady
+      ? `<div class="skeletonGrid secondarySkeleton"><div class="skeletonCard"></div><div class="skeletonCard"></div></div>`
+      : (feedItems.length ? feedItems.map(i=>cardTemplate(i,'feed')).join('') : `<div class="empty">Публикаций по выбранному фильтру нет.</div>`);
+    uploadsGrid.innerHTML = !uploadsSectionReady
+      ? `<div class="skeletonGrid secondarySkeleton"><div class="skeletonCard"></div><div class="skeletonCard"></div></div>`
+      : (uploadedImages.length ? uploadedImages.map(sourceLibraryTemplate).join('') : `<div class="empty">Загруженных исходников пока нет.</div>`);
   }
   const galleryCountEl = document.getElementById('galleryCount');
   galleryCountEl.textContent = `${limits.originals.used} / ${limits.originals.limit}`;
@@ -260,7 +267,9 @@ function render(){
   const feedSectionCount = document.getElementById('feedSectionCount');
   if(feedSectionCount) feedSectionCount.textContent = `${feedItems.length} публикаций`;
   const uploadsSectionCount = document.getElementById('uploadsSectionCount');
-  if(uploadsSectionCount) uploadsSectionCount.textContent = `${uploadedImages.length} исходников`;
+  if(uploadsSectionCount) uploadsSectionCount.textContent = uploadedUnavailableCount
+    ? `${uploadedImages.length} доступно · ${uploadedUnavailableCount} недоступно`
+    : `${uploadedImages.length} исходников`;
   const loadMoreBtn = document.getElementById('loadMoreBtn');
   loadMoreBtn.hidden = !hasMoreGallery || Boolean(galleryLoadError);
   loadMoreBtn.textContent = galleryLoading ? 'Загружаем...' : 'Показать еще';
@@ -273,7 +282,7 @@ async function loadGallery({ append = false } = {}){
   if(!append) galleryLoadError = '';
   render();
   try{
-    const params = new URLSearchParams({ limit: '60' });
+    const params = new URLSearchParams({ limit: String(galleryPageSize()) });
     if(append && nextCursor) params.set('cursor', nextCursor);
     const q = searchInput.value.trim();
     if(q) params.set('q', q);
@@ -284,8 +293,9 @@ async function loadGallery({ append = false } = {}){
     const nextFeedImages = (data.feedItems || []).map(normalizeItem);
     const nextUploadedImages = data.uploadedItems || [];
     images = append ? [...images, ...nextImages] : nextImages;
-    feedImages = append ? [...feedImages, ...nextFeedImages] : nextFeedImages;
+    feedImages = append ? feedImages : nextFeedImages;
     uploadedImages = nextUploadedImages;
+    uploadedUnavailableCount = Number(data.uploadedUnavailableCount || 0);
     nextCursor = data.nextCursor || null;
     hasMoreGallery = Boolean(data.hasMore);
     currentCollection = images;
@@ -758,6 +768,21 @@ if('IntersectionObserver' in window){
     }
   }, { rootMargin:'600px 0px' });
   moreObserver.observe(document.getElementById('loadMoreBtn'));
+  const sectionObserver = new IntersectionObserver(entries => {
+    let changed = false;
+    entries.forEach(entry => {
+      if(!entry.isIntersecting) return;
+      if(entry.target === feedSection && !feedSectionReady){ feedSectionReady = true; changed = true; }
+      if(entry.target === uploadsSection && !uploadsSectionReady){ uploadsSectionReady = true; changed = true; }
+      sectionObserver.unobserve(entry.target);
+    });
+    if(changed) render();
+  }, { rootMargin:'500px 0px' });
+  sectionObserver.observe(feedSection);
+  sectionObserver.observe(uploadsSection);
+}else{
+  feedSectionReady = true;
+  uploadsSectionReady = true;
 }
 document.getElementById('viewerClose').addEventListener('click', closeViewer);
 document.getElementById('prevBtn').addEventListener('click', ()=>stepViewer(-1));

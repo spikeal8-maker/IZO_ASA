@@ -18,4 +18,13 @@ def test_gallery_shell_hydrates_avatar_with_initials_fallback():
     assert "profile.avatar_url" in script
     assert "showInitials" in script
     assert "addEventListener('error'" in script
-    assert "gallery-shell-fix" in page
+    assert "gallery-opt-phase1" in page
+
+
+def test_gallery_defers_secondary_sections_and_uses_small_pages():
+    script = (GALLERY_DIR / "gallery.js").read_text(encoding="utf-8")
+    assert "? 12 : 24" in script
+    assert "feedSectionReady" in script
+    assert "uploadsSectionReady" in script
+    assert "sectionObserver.observe(feedSection)" in script
+    assert "feedImages = append ? feedImages : nextFeedImages" in script

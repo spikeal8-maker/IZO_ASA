@@ -1132,6 +1132,9 @@ def init_db() -> None:
                 thumb_bytes INTEGER NOT NULL DEFAULT 0,
                 is_favorite INTEGER NOT NULL DEFAULT 0,
                 library_deleted_at TEXT,
+                availability_status TEXT NOT NULL DEFAULT 'unknown',
+                availability_checked_at TEXT,
+                unavailable_at TEXT,
                 children_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL
             );
@@ -1908,6 +1911,11 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_images_user_favorite_deleted_created "
             "ON images(user_id, is_favorite, deleted_at, created_at)"
         )
+        conn.execute("UPDATE images SET deleted_at = NULL WHERE deleted_at = ''")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_images_active_user_created "
+            "ON images(user_id, created_at DESC, id DESC) WHERE deleted_at IS NULL"
+        )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_images_job_id "
             "ON images(job_id)"
@@ -1929,6 +1937,17 @@ def init_db() -> None:
             conn.execute("ALTER TABLE image_sources ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0")
         if "library_deleted_at" not in image_source_columns:
             conn.execute("ALTER TABLE image_sources ADD COLUMN library_deleted_at TEXT")
+        if "availability_status" not in image_source_columns:
+            conn.execute("ALTER TABLE image_sources ADD COLUMN availability_status TEXT NOT NULL DEFAULT 'unknown'")
+        if "availability_checked_at" not in image_source_columns:
+            conn.execute("ALTER TABLE image_sources ADD COLUMN availability_checked_at TEXT")
+        if "unavailable_at" not in image_source_columns:
+            conn.execute("ALTER TABLE image_sources ADD COLUMN unavailable_at TEXT")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_image_sources_library_available "
+            "ON image_sources(user_id, availability_status, created_at DESC) "
+            "WHERE library_deleted_at IS NULL"
+        )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_user_created "
             "ON jobs(user_id, created_at)"
@@ -3420,7 +3439,7 @@ def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | Non
     }
 
 
-ACTIVE_IMAGE_WHERE = "(deleted_at IS NULL OR deleted_at = '')"
+ACTIVE_IMAGE_WHERE = "deleted_at IS NULL"
 
 
 def evict_gallery_images_for_new_save(
@@ -3570,6 +3589,43 @@ def cleanup_orphan_image_sources(*, grace_seconds: int = 3600) -> dict[str, int]
         except FileNotFoundError:
             pass
     return {"rows": len(orphan_urls), "rowFiles": removed_rows, "files": removed_files}
+
+
+def reconcile_image_source_availability(user_id: str | None = None) -> dict[str, int]:
+    """Synchronize source-library flags with files without deleting records or media."""
+    now = datetime.now(timezone.utc).isoformat()
+    params: list[Any] = []
+    where = ["(s.library_deleted_at IS NULL OR s.library_deleted_at = '')"]
+    if user_id:
+        where.append("s.user_id = ?")
+        params.append(user_id)
+    with db() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT s.id, s.thumb_url, s.availability_status
+            FROM image_sources s
+            JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id
+            WHERE {' AND '.join(where)} AND {ACTIVE_IMAGE_WHERE.replace('deleted_at', 'i.deleted_at')}
+            """,
+            params,
+        ).fetchall()
+    updates: list[tuple[str, str, str | None, str]] = []
+    available = missing = changed = 0
+    for row in rows:
+        path = local_media_path_from_url(str(row["thumb_url"] or ""))
+        is_available = bool(path and path.is_file() and path.stat().st_size > 0)
+        status = "available" if is_available else "missing"
+        available += int(is_available)
+        missing += int(not is_available)
+        changed += int(str(row["availability_status"] or "unknown") != status)
+        updates.append((status, now, None if is_available else now, str(row["id"])))
+    if updates:
+        with db() as conn:
+            conn.executemany(
+                "UPDATE image_sources SET availability_status = ?, availability_checked_at = ?, unavailable_at = ? WHERE id = ?",
+                updates,
+            )
+    return {"checked": len(rows), "available": available, "missing": missing, "changed": changed}
 
 
 def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None, legacy_user_id: str | None) -> bool:
@@ -5063,8 +5119,9 @@ def persist_image_sources(image_id: str, user_id: str, req: GenerateRequest, cre
                     INSERT INTO image_sources
                         (id, image_id, user_id, source_image_id, source_kind, role, slot_index,
                          thumb_url, thumb_width, thumb_height, thumb_bytes, is_favorite,
-                         library_deleted_at, children_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         library_deleted_at, availability_status, availability_checked_at,
+                         unavailable_at, children_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, NULL, ?, ?)
                     """,
                     (
                         source_row["id"],
@@ -5080,6 +5137,7 @@ def persist_image_sources(image_id: str, user_id: str, req: GenerateRequest, cre
                         byte_size,
                         old_favorite,
                         old_deleted_at,
+                        datetime.now(timezone.utc).isoformat(),
                         json.dumps(children_snapshot, ensure_ascii=False),
                         created_at,
                     ),
@@ -7942,6 +8000,9 @@ async def startup() -> None:
     source_cleanup = cleanup_orphan_image_sources()
     if any(source_cleanup.values()):
         print(f"image source cleanup: {source_cleanup}")
+    source_availability = reconcile_image_source_availability()
+    if source_availability["missing"]:
+        print(f"image source availability: {source_availability}")
     backfilled_feed = backfill_feed_generation_snapshots()
     if backfilled_feed:
         print(f"feed generation snapshots backfilled: {backfilled_feed}")
@@ -8297,6 +8358,7 @@ async def gallery_page(
     cursor_value = parse_gallery_cursor(cursor)
     search = str(q or "").strip()[:120]
     gallery_filter = str(filter or "all").strip().lower()
+    source_availability = await asyncio.to_thread(reconcile_image_source_availability, user_id)
     with db() as conn:
         user_row = conn.execute(
             "SELECT * FROM users WHERE internal_user_id = ? OR id = ?",
@@ -8439,6 +8501,7 @@ async def gallery_page(
             "s.user_id = ?",
             "s.source_kind IN ('upload', 'media')",
             "(s.library_deleted_at IS NULL OR s.library_deleted_at = '')",
+            "s.availability_status = 'available'",
             ACTIVE_IMAGE_WHERE.replace("deleted_at", "images.deleted_at"),
         ]
         uploaded_params: list[Any] = [user_id]
@@ -8482,6 +8545,7 @@ async def gallery_page(
         "items": items,
         "feedItems": feed_items,
         "uploadedItems": uploaded_items,
+        "uploadedUnavailableCount": source_availability["missing"],
         "hasMore": has_more,
         "nextCursor": gallery_cursor_from_row(page_rows[-1]) if has_more and page_rows else None,
     }
