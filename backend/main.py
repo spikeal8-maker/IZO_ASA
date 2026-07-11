@@ -5201,6 +5201,15 @@ def validate_generation_media_inputs(req: GenerateRequest, user_id: str) -> None
             ).fetchone()
             if active_image:
                 continue
+            active_source = conn.execute(
+                "SELECT 1 FROM image_sources s "
+                "JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id "
+                "WHERE s.user_id = ? AND (s.library_deleted_at IS NULL OR s.library_deleted_at = '') "
+                "AND (i.deleted_at IS NULL OR i.deleted_at = '') AND s.thumb_url LIKE ? LIMIT 1",
+                (user_id, like),
+            ).fetchone()
+            if active_source:
+                continue
             job_ref = conn.execute(
                 "SELECT 1 FROM jobs WHERE user_id = ? AND settings_json LIKE ? LIMIT 1",
                 (user_id, like),

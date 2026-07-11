@@ -112,6 +112,36 @@ def test_local_text_generation_is_normalized_to_four_steps(temp_db, authed_user)
     assert job["request"]["steps"] == main.LOCAL_TEXT_TO_IMAGE_STEPS == 4
 
 
+def test_saved_uploaded_source_is_allowed_as_generation_input(temp_db, authed_user, tmp_path, monkeypatch):
+    media = tmp_path / "media"
+    media.mkdir()
+    monkeypatch.setattr(main, "MEDIA", media)
+    source_name = "saved-upload-source.webp"
+    (media / source_name).write_bytes(b"owned-source")
+    now = datetime.now(timezone.utc).isoformat()
+    image_id = "img-saved-upload-owner"
+    source_url = f"/api/media/{source_name}"
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO images (id, user_id, url, thumbnail_url, width, height, mode, provider, created_at) "
+            "VALUES (?, ?, '/media/result.png', '/media/result-thumb.webp', 1024, 1024, 'image_to_image', 'comfyui', ?)",
+            (image_id, authed_user["legacy_user_id"], now),
+        )
+        conn.execute(
+            "INSERT INTO image_sources "
+            "(id, image_id, user_id, source_kind, role, slot_index, thumb_url, thumb_width, thumb_height, thumb_bytes, created_at) "
+            "VALUES ('source-owned', ?, ?, 'upload', 'base', 1, ?, 640, 360, 12, ?)",
+            (image_id, authed_user["legacy_user_id"], source_url, now),
+        )
+
+    request = main.GenerateRequest(mode="image_to_image", prompt="Edit", inputImage1=source_url)
+    main.validate_generation_media_inputs(request, authed_user["legacy_user_id"])
+
+    with pytest.raises(Exception) as exc_info:
+        main.validate_generation_media_inputs(request, "web_another_user")
+    assert getattr(exc_info.value, "status_code", None) == 400
+
+
 # 6 — trusted session overrides any spoofed header
 def test_trusted_session_overrides_spoofed_header(temp_db, authed_user):
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])

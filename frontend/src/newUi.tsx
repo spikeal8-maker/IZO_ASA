@@ -70,6 +70,24 @@ function apiFetch(path: string, init: RequestInit = {}) {
   return fetch(`${API}${path}`, { ...init, credentials: 'include' })
 }
 
+function apiErrorText(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string' && detail.trim()) return detail.trim()
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => item && typeof item === 'object' && 'msg' in item ? String(item.msg || '') : '')
+      .filter(Boolean)
+    if (messages.length) return messages.join('. ')
+  }
+  if (detail && typeof detail === 'object') {
+    const value = detail as { code?: unknown; field?: unknown; message?: unknown }
+    if (typeof value.message === 'string' && value.message.trim()) return value.message.trim()
+    const field = typeof value.field === 'string' ? value.field : 'изображение'
+    if (value.code === 'input_media_missing') return `Файл для поля «${field}» больше не найден. Выберите изображение заново.`
+    if (value.code === 'input_media_unavailable') return `Изображение для поля «${field}» недоступно. Выберите свой файл или изображение из галереи.`
+  }
+  return fallback
+}
+
 type N2Tab = 'feed' | 'text' | 'i2i' | 'edit' | 'paint' | 'video'
 // tabs — генератор/лента; gallery и profile — отдельные канонические страницы.
 type N2View = 'tabs' | 'profile'
@@ -1844,7 +1862,7 @@ export default function NewStudio(): ReactElement {
         body: JSON.stringify(body),
       })
       if (!response.ok) {
-        let detail = ''
+        let detail: unknown = ''
         try {
           detail = (await response.json())?.detail || ''
         } catch {
@@ -1854,8 +1872,8 @@ export default function NewStudio(): ReactElement {
         else if (response.status === 401 || response.status === 403) {
           setNotice('Сессия истекла. Войдите снова, чтобы генерировать.')
           setAuthOpen(true)
-        } else if (response.status === 429) setNotice(detail || 'Слишком много запросов подряд. Подождите немного.')
-        else setNotice(detail || `Сервер вернул ошибку (${response.status}). Попробуйте ещё раз.`)
+        } else if (response.status === 429) setNotice(apiErrorText(detail, 'Слишком много запросов подряд. Подождите немного.'))
+        else setNotice(apiErrorText(detail, `Сервер вернул ошибку (${response.status}). Попробуйте ещё раз.`))
         return
       }
       const created: N2Job = await response.json()
