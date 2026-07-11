@@ -160,6 +160,7 @@ button{user-select:none}
 .challenge-copy{min-width:0}.challenge-copy small{display:block;color:var(--acid);font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:850;margin-bottom:4px}.challenge-copy h2{margin:0;color:#fff;font-size:24px;line-height:1.04;letter-spacing:-.045em}.challenge-copy p{margin:6px 0 0;color:#dfe7d9;font-size:13px;line-height:1.32;max-width:760px}
 .challenge-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.challenge-pill{min-height:31px;display:inline-flex;align-items:center;border:1px solid rgba(255,255,255,.10);border-radius:999px;background:rgba(255,255,255,.045);padding:0 11px;color:#f7faef;font-size:12px;font-weight:720;white-space:nowrap}.challenge-pill.acid{background:var(--acid);border-color:var(--acid);color:#050705}
 .masonry{display:grid;grid-template-columns:repeat(var(--cols,5),minmax(0,1fr));gap:var(--gap);align-items:start;padding-bottom:44px;max-width:1580px;margin:0 auto}
+.feed-viewport{position:relative;min-height:max(520px,calc(100dvh - var(--top) - 84px));overflow:hidden;contain:layout paint}.feed-pane{min-height:inherit;will-change:transform,opacity;transform:translate3d(0,0,0);opacity:1}.feed-pane.dragging{transition:none}.feed-pane.settling{transition:transform .24s cubic-bezier(.2,.82,.2,1),opacity .2s ease}.feed-loading{position:absolute;inset:0;z-index:4;display:none;grid-template-columns:repeat(var(--cols,5),minmax(0,1fr));gap:var(--gap);align-items:start;padding:0;background:linear-gradient(180deg,rgba(6,9,7,.94),rgba(6,9,7,.78) 70%,transparent)}.feed-viewport.loading .feed-loading{display:grid}.feed-skeleton{height:clamp(180px,31vw,360px);border:1px solid rgba(255,255,255,.07);border-radius:var(--radius);background:linear-gradient(100deg,rgba(255,255,255,.025) 20%,rgba(255,255,255,.075) 38%,rgba(255,255,255,.025) 56%);background-size:220% 100%;animation:feed-skeleton 1.15s ease-in-out infinite}.feed-skeleton:nth-child(2n){height:clamp(240px,40vw,470px)}@keyframes feed-skeleton{to{background-position:-220% 0}}.feed-viewport.switching{pointer-events:none}
 .masonry-col{display:flex;flex-direction:column;gap:var(--gap);min-width:0}
 .masonry-col:nth-child(2){padding-top:28px}.masonry-col:nth-child(3){padding-top:8px}.masonry-col:nth-child(4){padding-top:36px}.masonry-col:nth-child(5){padding-top:16px}
 .work-card{
@@ -238,6 +239,8 @@ button{user-select:none}
 @media (hover:hover){.iv3.topbar-scope .tab.active:hover,.primary-cta:hover,.filter-btn.active:hover{color:#070a04}}
 .author-profile-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media (max-width:620px){.author-profile-stats{grid-template-columns:repeat(3,minmax(0,1fr))}.detail-secondary-actions{grid-template-columns:repeat(2,minmax(0,1fr))}.author-social-counts{gap:7px;font-size:10px}.detail-actions{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:620px){.feed-loading{grid-template-columns:repeat(2,minmax(0,1fr))}.feed-skeleton:nth-child(n+7){display:none}}
+@media (prefers-reduced-motion:reduce){.feed-pane.settling{transition:opacity .12s linear;transform:none!important}.feed-skeleton{animation:none}.filter-btn,.filter-btn::before{transition:none}}
 </style>
 </head>
 <body>
@@ -294,11 +297,11 @@ button{user-select:none}
   <main class="main" id="feed">
     <section class="feedbar" aria-label="Фильтры ленты">
       <div class="filters" id="filters" role="tablist" aria-label="Разделы ленты">
-        <button class="filter-btn active" type="button" role="tab" aria-selected="true" data-filter="all">Для вас</button>
-        <button class="filter-btn" type="button" role="tab" aria-selected="false" data-filter="fresh">Новое</button>
-        <button class="filter-btn" type="button" role="tab" aria-selected="false" data-filter="remix">Ремиксы</button>
-        <button class="filter-btn" type="button" role="tab" aria-selected="false" data-filter="challenge">Челленджи</button>
-        <button class="filter-btn" type="button" role="tab" aria-selected="false" data-filter="following">Подписки</button>
+        <button class="filter-btn active" id="feedTabAll" type="button" role="tab" aria-controls="feedPanel" aria-selected="true" data-filter="all">Для вас</button>
+        <button class="filter-btn" id="feedTabFresh" type="button" role="tab" aria-controls="feedPanel" aria-selected="false" data-filter="fresh">Новое</button>
+        <button class="filter-btn" id="feedTabRemix" type="button" role="tab" aria-controls="feedPanel" aria-selected="false" data-filter="remix">Ремиксы</button>
+        <button class="filter-btn" id="feedTabChallenge" type="button" role="tab" aria-controls="feedPanel" aria-selected="false" data-filter="challenge">Челленджи</button>
+        <button class="filter-btn" id="feedTabFollowing" type="button" role="tab" aria-controls="feedPanel" aria-selected="false" data-filter="following">Подписки</button>
       </div>
       <div class="search-wrap">
         <input class="search" id="search" type="search" placeholder="Найти автора, стиль, prompt…">
@@ -311,9 +314,14 @@ button{user-select:none}
         <div class="status">24 891 онлайн</div>
       </div>
     </section>
-    <section class="challenge-intro" id="challengeIntro" aria-label="Активный челлендж"></section>
-    <section class="masonry" id="masonry" aria-label="Лента изображений"></section>
-    <div class="empty-state" id="emptyState">Ничего не найдено. Попробуйте другой запрос.</div>
+    <div class="feed-viewport" id="feedViewport">
+      <div class="feed-pane" id="feedPanel" role="tabpanel" aria-labelledby="feedTabAll" tabindex="0">
+        <section class="challenge-intro" id="challengeIntro" aria-label="Активный челлендж"></section>
+        <section class="masonry" id="masonry" aria-label="Лента изображений"></section>
+        <div class="empty-state" id="emptyState">Ничего не найдено. Попробуйте другой запрос.</div>
+      </div>
+      <div class="feed-loading" id="feedLoading" aria-hidden="true"><i class="feed-skeleton"></i><i class="feed-skeleton"></i><i class="feed-skeleton"></i><i class="feed-skeleton"></i><i class="feed-skeleton"></i><i class="feed-skeleton"></i><i class="feed-skeleton"></i><i class="feed-skeleton"></i><i class="feed-skeleton"></i><i class="feed-skeleton"></i></div>
+    </div>
   </main>
 </div>
 <div class="toast" id="toast"></div>
@@ -409,6 +417,8 @@ const challengeIntro = document.querySelector('#challengeIntro');
 const feedbar = document.querySelector('.feedbar');
 const feedMain = document.querySelector('#feed');
 const filters = document.querySelector('#filters');
+const feedViewport = document.querySelector('#feedViewport');
+const feedPanel = document.querySelector('#feedPanel');
 const search = document.querySelector('#search');
 const signalFilter = document.querySelector('#signalFilter');
 const toast = document.querySelector('#toast');
@@ -475,6 +485,14 @@ const tabTexts = {
   following:{title:'Подписки', text:'Новые работы авторов, на которых вы подписались. Подписки помогают формировать вашу ленту Для вас.', cta:'Зачем подписки'}
 };
 const feedTabOrder = ['all', 'fresh', 'remix', 'challenge', 'following'];
+const feedTabIds = { all:'feedTabAll', fresh:'feedTabFresh', remix:'feedTabRemix', challenge:'feedTabChallenge', following:'feedTabFollowing' };
+const feedCache = new Map();
+const feedScrollPositions = new Map();
+const FEED_CACHE_TTL = 90 * 1000;
+let feedRequestController = null;
+let feedRequestSequence = 0;
+let feedSwitching = false;
+let pendingFeedSwitch = null;
 const modes = [
   {id:'text', title:'По тексту', line:'Изображение по тексту', cta:'Открыть режим', img:'/static/feed/assets/mode_text.webp', href:'/#text-to-image', msg:'Открываем режим По тексту'},
   {id:'clothes', title:'Сборка', line:'Собрать изображение из нескольких фото', cta:'Открыть режим', img:'/static/feed/assets/mode_clothes.webp', href:'/#editor', msg:'Открываем Сборку'},
@@ -635,19 +653,68 @@ function formatPublicGender(value){
 function feedTypeForFilter(filter){
   return ({all:'for_you', fresh:'fresh', remix:'remix', challenge:'challenge', following:'following'})[filter] || 'for_you';
 }
-function activateFeedTab(filter, options = {}){
-  if(!feedTabOrder.includes(filter)) return;
-  const changed = activeFilter !== filter;
-  activeFilter = filter;
+function syncFeedTabSelection(filter, options = {}){
   document.querySelectorAll('.filter-btn').forEach(btn=>{
     const selected = btn.dataset.filter === filter;
     btn.classList.toggle('active', selected);
     btn.setAttribute('aria-selected', selected ? 'true' : 'false');
     btn.tabIndex = selected ? 0 : -1;
     if(selected && options.focus) btn.focus();
-    if(selected && window.innerWidth <= 560) btn.scrollIntoView({ behavior:options.instant ? 'auto' : 'smooth', block:'nearest', inline:'center' });
+    if(selected && window.innerWidth <= 560) btn.scrollIntoView({ behavior:'auto', block:'nearest', inline:'center' });
   });
-  if(changed || options.force) loadFeed(feedTypeForFilter(filter));
+  feedPanel.setAttribute('aria-labelledby', feedTabIds[filter]);
+}
+function settleFeedPane(transform, opacity, duration = 240){
+  return new Promise(resolve=>{
+    feedPanel.classList.remove('dragging');
+    feedPanel.classList.add('settling');
+    feedPanel.style.transform = transform;
+    feedPanel.style.opacity = String(opacity);
+    window.setTimeout(resolve, duration + 30);
+  });
+}
+async function activateFeedTab(filter, options = {}){
+  if(!feedTabOrder.includes(filter)) return;
+  if(feedSwitching){
+    pendingFeedSwitch = { filter, options };
+    return;
+  }
+  const previous = activeFilter;
+  const changed = previous !== filter;
+  if(!changed && !options.force) return;
+  feedScrollPositions.set(previous, window.scrollY);
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const previousIndex = feedTabOrder.indexOf(previous);
+  const nextIndex = feedTabOrder.indexOf(filter);
+  const direction = options.gestureDirection || (nextIndex > previousIndex ? -1 : 1);
+  feedSwitching = true;
+  feedViewport.classList.add('switching');
+  if(changed && !options.instant && !reduced){
+    await settleFeedPane(`translate3d(${direction * 100}%,0,0)`, .18, 210);
+  }
+  activeFilter = filter;
+  syncFeedTabSelection(filter, options);
+  await loadFeed(feedTypeForFilter(filter), { filter, force:options.force });
+  if(changed && !options.instant && !reduced){
+    feedPanel.classList.remove('settling');
+    feedPanel.style.transition = 'none';
+    feedPanel.style.transform = `translate3d(${-direction * 18}%,0,0)`;
+    feedPanel.style.opacity = '.45';
+    feedPanel.getBoundingClientRect();
+    feedPanel.style.removeProperty('transition');
+    await settleFeedPane('translate3d(0,0,0)', 1, 240);
+  }else{
+    feedPanel.style.transform = 'translate3d(0,0,0)';
+    feedPanel.style.opacity = '1';
+  }
+  feedPanel.classList.remove('settling','dragging');
+  feedViewport.classList.remove('switching');
+  feedSwitching = false;
+  if(pendingFeedSwitch){
+    const pending = pendingFeedSwitch;
+    pendingFeedSwitch = null;
+    if(pending.filter !== activeFilter || pending.options.force) activateFeedTab(pending.filter, pending.options);
+  }
 }
 function normalizeFeedItem(item){
   const likes = Number(item.like_count || 0);
@@ -1161,33 +1228,81 @@ function closeModal(){
   document.body.style.overflow='';
   if(location.hash.startsWith('#work-')) history.replaceState(null,'',location.pathname+location.search);
 }
-async function loadFeed(type = 'for_you'){
+function emptyFeedMessage(filter){
+  if(filter === 'following') return 'В подписках пока нет публикаций. Подпишитесь на авторов в разделе «Для вас».';
+  if(filter === 'challenge') return 'В активном челлендже пока нет публикаций.';
+  return 'Ничего не найдено. Попробуйте другой запрос или фильтр.';
+}
+function applyFeedData(data, filter){
+  works = (data.items || [])
+    .filter(i=>i.media_status !== 'missing' && i.thumbnail_url && i.image_url)
+    .map(normalizeFeedItem);
+  const challengeMeta = works.find(w=>w.challenge)?.challenge || data.challengeMeta || null;
+  const challenge = document.querySelector('.rail-challenge');
+  if(challenge) challenge.style.setProperty('--challenge-bg', "url('/static/feed/assets/challenge_moscow_2120.webp')");
+  emptyState.textContent = emptyFeedMessage(filter);
+  renderModes();
+  renderChallengeIntro(data.type, challengeMeta);
+  renderFeed();
+  const savedScroll = feedScrollPositions.get(filter);
+  if(Number.isFinite(savedScroll)) requestAnimationFrame(()=>window.scrollTo({ top:savedScroll, behavior:'auto' }));
+  const hashId = location.hash.replace('#work-', '');
+  if(hashId){ const idx = works.findIndex(w=>String(w.id) === hashId); if(idx >= 0 && !modal.classList.contains('open')) openModal(idx); }
+}
+async function fetchFeedData(type, signal){
+  const data = await api(`/api/feed?type=${encodeURIComponent(type)}&limit=60`, { signal });
+  if(data.type === 'challenge' && !(data.items || []).some(item=>item.challenge)){
+    try{
+      const challenges = await api('/api/feed/challenges', { signal });
+      data.challengeMeta = (challenges.items || [])[0] || null;
+    }catch(err){ if(err.name === 'AbortError') throw err; }
+  }
+  return data;
+}
+async function prefetchAdjacentFeedTabs(){
+  const current = feedTabOrder.indexOf(activeFilter);
+  const adjacent = [feedTabOrder[current - 1], feedTabOrder[current + 1]].filter(Boolean);
+  await Promise.all(adjacent.map(async filter=>{
+    const cached = feedCache.get(filter);
+    if(cached && Date.now() - cached.at < FEED_CACHE_TTL) return;
+    try{
+      const data = await fetchFeedData(feedTypeForFilter(filter));
+      feedCache.set(filter, { data, at:Date.now() });
+    }catch(_err){}
+  }));
+}
+async function loadFeed(type = 'for_you', options = {}){
+  const filter = options.filter || activeFilter;
+  const cached = feedCache.get(filter);
+  const cacheFresh = cached && Date.now() - cached.at < FEED_CACHE_TTL;
+  if(cached) applyFeedData(cached.data, filter);
+  if(cacheFresh && !options.force){
+    feedViewport.classList.remove('loading');
+    if('requestIdleCallback' in window) requestIdleCallback(()=>prefetchAdjacentFeedTabs());
+    else setTimeout(()=>prefetchAdjacentFeedTabs(), 250);
+    return;
+  }
+  if(!cached) feedViewport.classList.add('loading');
+  feedRequestController?.abort();
+  feedRequestController = new AbortController();
+  const sequence = ++feedRequestSequence;
   try{
-    masonry.innerHTML = '';
-    emptyState.classList.remove('show');
-    const data = await api(`/api/feed?type=${encodeURIComponent(type)}&limit=60`);
-    works = (data.items || [])
-      .filter(i=>i.media_status !== 'missing' && i.thumbnail_url && i.image_url)
-      .map(normalizeFeedItem);
-    let challengeMeta = works.find(w=>w.challenge)?.challenge || null;
-    if(data.type === 'challenge' && !challengeMeta){
-      try{
-        const challenges = await api('/api/feed/challenges');
-        challengeMeta = (challenges.items || [])[0] || null;
-      }catch(_err){}
-    }
-    const challenge = document.querySelector('.rail-challenge');
-    if(challenge) challenge.style.setProperty('--challenge-bg', "url('/static/feed/assets/challenge_moscow_2120.webp')");
-    renderModes();
-    renderChallengeIntro(data.type, challengeMeta);
-    renderFeed();
-    const hashId = location.hash.replace('#work-', '');
-    if(hashId){ const idx = works.findIndex(w=>String(w.id) === hashId); if(idx >= 0) openModal(idx); }
+    const data = await fetchFeedData(type, feedRequestController.signal);
+    if(sequence !== feedRequestSequence || filter !== activeFilter) return;
+    feedCache.set(filter, { data, at:Date.now() });
+    applyFeedData(data, filter);
+    feedViewport.classList.remove('loading');
+    if('requestIdleCallback' in window) requestIdleCallback(()=>prefetchAdjacentFeedTabs());
+    else setTimeout(()=>prefetchAdjacentFeedTabs(), 250);
   }catch(err){
-    works = [];
-    renderModes();
-    renderChallengeIntro('', null);
-    renderFeed();
+    if(err.name === 'AbortError') return;
+    feedViewport.classList.remove('loading');
+    if(!cached){
+      works = [];
+      emptyState.textContent = 'Не удалось загрузить этот раздел. Проверьте соединение и попробуйте снова.';
+      renderChallengeIntro('', null);
+      renderFeed();
+    }
     showToast('Не удалось загрузить ленту');
     console.error(err);
   }
@@ -1203,6 +1318,7 @@ async function likeWork(id){
   syncPublicationUi(item);
   try{
     await api(`/api/feed/publications/${encodeURIComponent(id)}/like`, { method });
+    feedCache.delete(activeFilter);
     showToast(method === 'POST' ? 'Лайк поставлен' : 'Лайк снят');
   }
   catch(err){
@@ -1224,6 +1340,7 @@ async function saveWork(id){
   syncPublicationUi(item);
   try{
     await api(`/api/feed/publications/${encodeURIComponent(id)}/save`, { method });
+    feedCache.delete(activeFilter);
     showToast(method === 'POST' ? 'Добавлено в избранное. Найти можно через фильтр «Избранное».' : 'Удалено из избранного');
   }catch(err){
     item.saved = previous.saved;
@@ -1238,6 +1355,7 @@ async function hideWork(id){
   const method = item?.hidden ? 'DELETE' : 'POST';
   try{
     await api(`/api/feed/publications/${encodeURIComponent(id)}/hide`, { method });
+    feedCache.delete(activeFilter);
     showToast(method === 'POST' ? 'Скрыто из вашей ленты' : 'Работа возвращена');
     closeModal();
     await loadFeed(feedTypeForFilter(activeFilter));
@@ -1287,6 +1405,8 @@ async function followAuthor(authorId){
   const method = item?.followed ? 'DELETE' : 'POST';
   try{
     await api(`/api/feed/authors/${encodeURIComponent(authorId)}/follow`, { method });
+    feedCache.delete('all');
+    feedCache.delete('following');
     const followed = method === 'POST';
     const currentFollowers = Number(item?.authorProfile?.followersCount || 0);
     const followersCount = Math.max(0, currentFollowers + (followed ? 1 : -1));
@@ -1422,24 +1542,48 @@ filters.addEventListener('keydown', e=>{
 let feedTouchStart = null;
 let suppressFeedCardClickUntil = 0;
 feedMain.addEventListener('touchstart', e=>{
-  if(window.innerWidth > 980 || modal.classList.contains('open') || authorModal.classList.contains('open')) return;
+  if(window.innerWidth > 980 || feedSwitching || modal.classList.contains('open') || authorModal.classList.contains('open')) return;
   if(e.touches.length !== 1 || e.target.closest('button,a,input,select,textarea,.feedbar')) return;
   const touch = e.touches[0];
-  feedTouchStart = { x:touch.clientX, y:touch.clientY, at:Date.now() };
+  feedTouchStart = { x:touch.clientX, y:touch.clientY, at:Date.now(), dx:0, axis:'' };
 }, { passive:true });
+feedMain.addEventListener('touchmove', e=>{
+  if(!feedTouchStart || e.touches.length !== 1) return;
+  const touch = e.touches[0];
+  const dx = touch.clientX - feedTouchStart.x;
+  const dy = touch.clientY - feedTouchStart.y;
+  if(!feedTouchStart.axis && Math.max(Math.abs(dx), Math.abs(dy)) >= 10){
+    feedTouchStart.axis = Math.abs(dx) > Math.abs(dy) * 1.2 ? 'x' : 'y';
+  }
+  if(feedTouchStart.axis !== 'x') return;
+  e.preventDefault();
+  const current = feedTabOrder.indexOf(activeFilter);
+  const atBoundary = (dx < 0 && current === 0) || (dx > 0 && current === feedTabOrder.length - 1);
+  const translated = atBoundary ? dx * .22 : dx;
+  feedTouchStart.dx = translated;
+  feedPanel.classList.add('dragging');
+  feedPanel.style.transform = `translate3d(${translated}px,0,0)`;
+  feedPanel.style.opacity = String(Math.max(.72, 1 - Math.abs(translated) / (window.innerWidth * 2.2)));
+}, { passive:false });
 feedMain.addEventListener('touchend', e=>{
   if(!feedTouchStart || e.changedTouches.length !== 1) return;
   const touch = e.changedTouches[0];
   const dx = touch.clientX - feedTouchStart.x;
   const dy = touch.clientY - feedTouchStart.y;
   const duration = Date.now() - feedTouchStart.at;
+  const horizontal = feedTouchStart.axis === 'x';
   feedTouchStart = null;
-  if(duration > 700 || Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.35) return;
+  if(!horizontal){ return; }
   const current = feedTabOrder.indexOf(activeFilter);
   const next = Math.max(0, Math.min(feedTabOrder.length - 1, current + (dx > 0 ? 1 : -1)));
-  if(next === current) return;
+  const velocity = Math.abs(dx) / Math.max(duration, 1);
+  const commit = next !== current && (Math.abs(dx) >= window.innerWidth * .24 || velocity >= .48);
+  if(!commit){
+    settleFeedPane('translate3d(0,0,0)', 1, 180).then(()=>feedPanel.classList.remove('settling','dragging'));
+    return;
+  }
   suppressFeedCardClickUntil = Date.now() + 450;
-  activateFeedTab(feedTabOrder[next]);
+  activateFeedTab(feedTabOrder[next], { gestureDirection:dx > 0 ? 1 : -1 });
 }, { passive:true });
 document.addEventListener('click', e=>{
   if(Date.now() < suppressFeedCardClickUntil && e.target.closest('.work-card')){
@@ -1458,7 +1602,7 @@ document.addEventListener('click', e=>{
   if(t) showToast(t.dataset.toast);
 });
 loadTopbarUser();
-activateFeedTab('all', { instant:true });
+syncFeedTabSelection('all', { instant:true });
 loadFeed('for_you');
 </script>
 </body>

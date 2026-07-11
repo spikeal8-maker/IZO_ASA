@@ -190,3 +190,21 @@ right visual language for a content pager.
 - No horizontal page overflow at 360, 390, 430, 768, and desktop widths.
 - Reduced-motion mode has no large horizontal page movement.
 - Browser checks confirm stable geometry and no unexpected layout shifts.
+
+## Implemented After Audit
+
+- The feed no longer clears the masonry before a replacement response arrives.
+- A stable tab panel, loading skeleton, short-lived per-tab cache, adjacent-tab
+  prefetch, request cancellation, and stale-response guard are implemented.
+- Mobile drag now moves the feed panel with the finger, applies boundary
+  resistance, uses distance/velocity commit rules, and settles by transform and
+  opacity. Reduced-motion users receive an opacity-only change.
+- Rapid tab requests retain the latest requested destination instead of
+  allowing an obsolete response to win.
+- Tab and panel ARIA relationships and contextual empty/error messages exist.
+- `Для вас` now adds viewer-aware author-follow and content-preference signals
+  to the existing quality/recency ranking while retaining a guest fallback.
+
+Cursor pagination, a general multi-challenge selector, and a richer long-term
+interest model remain separate backend/product increments; they are not required
+for the corrected transition mechanics.

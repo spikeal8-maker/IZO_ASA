@@ -204,10 +204,15 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "<small>просмотров</small>" in r.text
         assert "<small>в избранном</small>" in r.text
         assert 'role="tablist" aria-label="Разделы ленты"' in r.text
-        assert 'role="tab" aria-selected="true"' in r.text
+        assert 'role="tab" aria-controls="feedPanel" aria-selected="true"' in r.text
         assert "function activateFeedTab(filter" in r.text
         assert "feedMain.addEventListener('touchstart'" in r.text
+        assert "feedMain.addEventListener('touchmove'" in r.text
         assert "feedMain.addEventListener('touchend'" in r.text
+        assert "const feedCache = new Map()" in r.text
+        assert "new AbortController()" in r.text
+        assert 'role="tabpanel"' in r.text
+        assert "prefers-reduced-motion:reduce" in r.text
         assert "detail-owner-actions" not in r.text
         assert "избранных" in r.text
         assert "view_count" in r.text
@@ -359,6 +364,9 @@ def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
         pub_a = publish(client, author_token, "img-tabs-a", title="Москва 2120")
         pub_b = publish(client, author_token, "img-tabs-b", title="Двор")
         pub_c = publish(client, author_token, "img-tabs-c", title="Башня")
+        other_token = make_user("iuid-other-tabs", "web_other_tabs", display_name="Другой автор")
+        make_image("img-tabs-other", "web_other_tabs", prompt="Новая публикация другого автора")
+        publish(client, other_token, "img-tabs-other", title="Свежая чужая работа")
         with main.db() as conn:
             conn.execute(
                 "UPDATE feed_publications SET category = 'challenge_moscow_2120' WHERE id = ?",
@@ -393,6 +401,8 @@ def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
         following = client.get("/api/feed?type=following", headers=bearer(viewer_token)).json()
         assert {item["id"] for item in following["items"]} == {pub_a["id"], pub_b["id"], pub_c["id"]}
         assert all(item["is_followed_by_me"] for item in following["items"])
+        personalized = client.get("/api/feed?type=for_you", headers=bearer(viewer_token)).json()
+        assert personalized["items"][0]["user_id"] == pub_a["user_id"]
 
         author_items = client.get(
             f"/api/feed/authors/{pub_a['user_id']}/publications",

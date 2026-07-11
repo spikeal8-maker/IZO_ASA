@@ -56,7 +56,8 @@ Cleanup tracking lives in `docs/feed-cleanup-optimization-plan-20260708.md`.
 - Continue visual QA on desktop/mobile cards after each CSS pass.
 - The interaction and motion audit for feed sections is documented in
   `docs/feed-tabs-motion-research-20260711.md`. Its pager architecture and P0
-  transition fixes supersede the current touchend-only swipe implementation.
+  transition fixes now replace the old touchend-only swipe implementation with
+  cached, cancellable, direct-manipulation transitions and stable loading space.
 
 ## Completed In This Pass
 

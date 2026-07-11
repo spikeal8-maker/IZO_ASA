@@ -14305,14 +14305,32 @@ async def feed_list(
                   {FEED_VIEWER_VISIBLE_SQL}
                 GROUP BY p.id
                 ORDER BY
-                    SUM(CASE WHEN r.kind = 'recreate' THEN 8 ELSE 0 END)
+                    CASE WHEN ? IS NOT NULL AND EXISTS (
+                      SELECT 1 FROM feed_author_follows preferred_author
+                      WHERE preferred_author.follower_internal_user_id = ?
+                        AND preferred_author.author_internal_user_id = p.internal_user_id
+                    ) THEN 18 ELSE 0 END
+                  + CASE WHEN ? IS NOT NULL AND EXISTS (
+                      SELECT 1
+                      FROM feed_reactions viewer_preference
+                      JOIN feed_publications preferred_publication
+                        ON preferred_publication.id = viewer_preference.publication_id
+                      WHERE viewer_preference.internal_user_id = ?
+                        AND viewer_preference.kind IN ('like', 'save', 'recreate')
+                        AND preferred_publication.id != p.id
+                        AND (
+                          (preferred_publication.category IS NOT NULL AND preferred_publication.category = p.category)
+                          OR (preferred_publication.source_type IS NOT NULL AND preferred_publication.source_type = p.source_type)
+                        )
+                    ) THEN 7 ELSE 0 END
+                  + SUM(CASE WHEN r.kind = 'recreate' THEN 8 ELSE 0 END)
                   + SUM(CASE WHEN r.kind = 'save' THEN 4 ELSE 0 END)
                   + SUM(CASE WHEN r.kind = 'like' THEN 1 ELSE 0 END) DESC,
                   CASE WHEN p.category = 'challenge_moscow_2120' THEN 1 ELSE 0 END DESC,
                   p.created_at DESC
                 LIMIT ?
                 """,
-                (viewer, viewer, limit),
+                (viewer, viewer, viewer, viewer, viewer, viewer, limit),
             ).fetchall()
         else:
             rows = conn.execute(
