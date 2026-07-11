@@ -74,11 +74,15 @@ def test_server_model_profile_is_persisted_and_applied(monkeypatch) -> None:
     req = main.GenerateRequest(mode="text_to_image", width=1024, height=1024, steps=28, seed=42)
     settings = main.apply_server_model_profile(req, "flux_klein_4b")
     assert settings["sampler"] == "euler"
-    assert (req.width, req.height, req.steps, req.seed) == (1536, 1024, 6, 777)
+    assert (req.width, req.height, req.steps, req.seed) == (1024, 1024, 28, 42)
 
     workflow = {"FK:171": {"inputs": {}}, "FK:170": {"inputs": {}}}
     main.patch_shared_flux_nodes(workflow, req, "flux-2-klein-4b-fp8.safetensors", "qwen", "vae")
     assert workflow["FK:171"]["inputs"]["sampler_name"] == "euler"
+
+
+def test_missing_admin_setting_returns_empty_mapping() -> None:
+    assert main._saved_setting("setting-that-does-not-exist") == {}
 
 
 def test_models_endpoint_reports_selected_models(monkeypatch) -> None:

@@ -6992,12 +6992,9 @@ def get_server_model_profiles() -> dict[str, dict[str, Any]]:
 
 
 def apply_server_model_profile(req: GenerateRequest, profile_id: str) -> dict[str, Any]:
-    settings = get_server_model_profiles().get(profile_id, SERVER_MODEL_PROFILE_DEFAULTS["flux_klein_9b"])
-    req.steps = settings["steps"]
-    req.seed = settings["seed"] if settings["seedMode"] == "fixed" else secrets.randbelow(2**31 - 1) + 1
-    if req.width == 1024 and req.height == 1024:
-        req.width, req.height = settings["width"], settings["height"]
-    return settings
+    # GenerateRequest already contains the user's explicit quality, format and seed.
+    # Profile values are fallbacks/operational metadata; they must not overwrite those choices.
+    return get_server_model_profiles().get(profile_id, SERVER_MODEL_PROFILE_DEFAULTS["flux_klein_9b"])
 
 
 def get_profile_row(profile_id: str) -> dict[str, Any] | None:
@@ -13357,6 +13354,7 @@ def _saved_setting(key: str) -> dict[str, Any]:
             return json.loads(row["value_json"] or "{}")
     except Exception:
         pass
+    return {}
 
 
 async def free_comfyui_models() -> bool:
@@ -13364,7 +13362,6 @@ async def free_comfyui_models() -> bool:
         response = await client.post(f"{COMFYUI_BASE_URL}/free", json={"unload_models": True, "free_memory": True})
         response.raise_for_status()
     return True
-    return {}
 
 
 def _save_setting(key: str, value: dict[str, Any]) -> None:
