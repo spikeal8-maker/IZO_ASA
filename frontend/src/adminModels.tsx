@@ -3,6 +3,8 @@
 // Реальные данные приходят из GET /api/admin/models-page (см. backend). Тарифная матрица,
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
+import { IMAGE_RESOLUTIONS, resolutionLabel } from './resolutionPolicy'
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 function amvFetch(path: string, init: RequestInit = {}) {
@@ -24,21 +26,6 @@ type UserChoiceItem = { key?: string; label: string; model?: string; cost?: numb
 type CatalogItem = { provider: string; displayName: string; modelId: string; capabilities: string[]; cost: string; margin: string; status: string }
 type ProfileOption = { id: string; name: string; supportsPose?: boolean }
 type ServerModelProfileSettings = { width: number; height: number; steps: number; sampler: string; seedMode: 'random' | 'fixed'; seed: number }
-type ConfigUiResolution = { width: number; height: number; megapixels: number }
-type ConfigUiResolutionRow = { aspect: string; title: string; use: string; sd: ConfigUiResolution; hd: ConfigUiResolution; fullHd: ConfigUiResolution }
-
-const CONFIG_UI_RESOLUTION_MATRIX: ConfigUiResolutionRow[] = [
-  { aspect: '1:1', title: 'Квадрат', use: 'Посты, карточки, аватары', sd: { width: 704, height: 704, megapixels: .50 }, hd: { width: 1024, height: 1024, megapixels: 1.05 }, fullHd: { width: 1408, height: 1408, megapixels: 1.98 } },
-  { aspect: '9:16', title: 'Вертикальное', use: 'Истории, клипы, мобильный экран', sd: { width: 512, height: 896, megapixels: .46 }, hd: { width: 768, height: 1344, megapixels: 1.03 }, fullHd: { width: 1024, height: 1792, megapixels: 1.84 } },
-  { aspect: '16:9', title: 'Широкое', use: 'Обложки, баннеры, превью', sd: { width: 896, height: 512, megapixels: .46 }, hd: { width: 1344, height: 768, megapixels: 1.03 }, fullHd: { width: 1792, height: 1024, megapixels: 1.84 } },
-  { aspect: '3:2', title: 'Фото', use: 'Фотография, печать, портфолио', sd: { width: 960, height: 640, megapixels: .61 }, hd: { width: 1152, height: 768, megapixels: .88 }, fullHd: { width: 1728, height: 1152, megapixels: 1.99 } },
-]
-
-const CONFIG_UI_RESOLUTION_OPTIONS = CONFIG_UI_RESOLUTION_MATRIX.flatMap((row) => ([
-  { ...row.sd, label: `SD · ${row.title} ${row.aspect}` },
-  { ...row.hd, label: `HD · ${row.title} ${row.aspect}` },
-  { ...row.fullHd, label: `Full HD · ${row.title} ${row.aspect}` },
-]))
 type OpenRouterFormatEconomics = {
   id: string
   label: string
@@ -249,6 +236,8 @@ type AssistantAdminData = {
   config: AssistantConfig
   ollama: { ok: boolean; baseUrl: string; error?: string; models: Array<{ name?: string; model?: string; size?: number; details?: { parameter_size?: string; quantization_level?: string } }> }
   openrouterConfigured: boolean
+  openrouterModels: Array<{ id: string; name: string; inputPerMillionUsd: number; outputPerMillionUsd: number; contextLength: number }>
+  openrouterModelsError?: string | null
 }
 type AssistantTestResult = { ok?: boolean; provider?: string; model?: string; improvedPrompt?: string; latencyMs?: number; costUsd?: number; detail?: string }
 
@@ -513,7 +502,7 @@ const CSS = `
 .amv2 .lora-row:first-child{border-top:0}.amv2 .lora-row h3{margin:0;font-size:12px;overflow-wrap:anywhere}.amv2 .lora-row p{margin:2px 0 0;color:var(--muted);font-size:10px}.amv2 .lora-compat{display:flex;flex-wrap:wrap;gap:4px}.amv2 .lora-compat span{padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--muted);font-size:9px}.amv2 .lora-row.incompatible{opacity:.48}.amv2 .lora-row input[type=checkbox]{width:17px;height:17px;accent-color:var(--lime)}
 .amv2 .lora-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}.amv2 .lora-column{min-width:0;border:1px solid var(--line);border-radius:7px;overflow:hidden}.amv2 .lora-column-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:rgba(255,255,255,.035);border-bottom:1px solid var(--line)}.amv2 .lora-column-head h3{margin:0;font-size:13px}.amv2 .lora-column .lora-row{grid-template-columns:28px minmax(160px,1fr) 88px;padding:0 10px}.amv2 .lora-column .lora-row>div:nth-child(3){grid-column:2 / -1;padding-bottom:8px}.amv2 .lora-empty{padding:18px 12px;color:var(--muted);font-size:11px}
 .amv2 .config-profiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}.amv2 .config-profile{border:1px solid var(--line);border-radius:7px;overflow:hidden}.amv2 .config-profile.active{border-color:rgba(218,255,47,.55)}.amv2 .config-profile-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.025)}.amv2 .config-profile-head h3{margin:0;font-size:13px}.amv2 .config-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px}.amv2 .config-field label{display:block;margin-bottom:4px;color:var(--muted);font-size:9px;text-transform:uppercase}.amv2 .config-field input,.amv2 .config-field select{width:100%;height:34px}.amv2 .dependency-note{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 12px 12px}.amv2 .dependency-note div{padding:9px;border:1px solid var(--line);border-radius:6px}.amv2 .dependency-note strong{display:block;font-size:11px}.amv2 .dependency-note span{display:block;margin-top:3px;color:var(--muted);font-size:10px;line-height:1.4}
-.amv2 .resolution-matrix{margin:12px 12px 0;border:1px solid var(--line);border-radius:7px;overflow:auto}.amv2 .resolution-matrix table{min-width:760px}.amv2 .resolution-matrix th,.amv2 .resolution-matrix td{height:auto;padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);font-size:11px}.amv2 .resolution-matrix tr:last-child td{border-bottom:0}.amv2 .resolution-matrix th{color:var(--muted);background:rgba(255,255,255,.035);font-size:9px;text-transform:uppercase}.amv2 .resolution-format{display:grid;gap:2px}.amv2 .resolution-format strong{font-size:12px}.amv2 .resolution-format span,.amv2 .resolution-value small{color:var(--muted);font-size:9px}.amv2 .resolution-value{display:grid;gap:2px;white-space:nowrap}.amv2 .resolution-value strong{font-size:11px;font-variant-numeric:tabular-nums}
+.amv2 .resolution-matrix{margin:12px 12px 0;border:1px solid var(--line);border-radius:7px;overflow:auto}.amv2 .resolution-matrix table{min-width:920px}.amv2 .resolution-matrix th,.amv2 .resolution-matrix td{height:auto;padding:7px 10px;text-align:left;border-bottom:1px solid var(--line);font-size:11px}.amv2 .resolution-matrix tr:last-child td{border-bottom:0}.amv2 .resolution-matrix th{color:var(--muted);background:rgba(255,255,255,.035);font-size:9px;text-transform:uppercase}.amv2 .resolution-format{display:grid;gap:2px}.amv2 .resolution-format strong{font-size:12px}.amv2 .resolution-format span,.amv2 .resolution-value small{color:var(--muted);font-size:9px}.amv2 .resolution-value{display:grid;gap:2px;white-space:nowrap}.amv2 .resolution-value strong{font-size:11px;font-variant-numeric:tabular-nums}.amv2 .resolution-plan{text-align:center!important;width:72px}.amv2 .resolution-plan input{width:15px;height:15px;min-height:15px;margin:0;accent-color:var(--lime)}
 .amv2 .server-tools{padding:10px 12px;border-top:1px solid var(--line)}.amv2 .server-tools summary{cursor:pointer;color:var(--muted);font-size:11px;font-weight:700}.amv2 .server-tools .ops-row{padding:10px 0 0;border:0;grid-template-columns:minmax(220px,1fr) auto auto}
 .amv2 .job-list{padding:0 12px 12px;display:grid;gap:6px}
 .amv2 .job-row{display:grid;grid-template-columns:minmax(120px,1fr) 96px 90px minmax(140px,1.2fr);gap:8px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);padding:8px;background:rgba(255,255,255,.028);font-size:12px}
@@ -620,7 +609,8 @@ const CSS = `
 .amv2 .assistant-status.recommended{color:var(--lime);border-color:rgba(234,255,16,.35)}
 .amv2 .assistant-config{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);gap:12px}
 .amv2 .assistant-form{padding:14px;display:grid;gap:12px}
-.amv2 .assistant-form textarea{min-height:126px;resize:vertical;line-height:1.45}
+.amv2 .assistant-form textarea,.amv2 .assistant-test textarea{font-size:13px;font-weight:400;letter-spacing:0;line-height:1.45}
+.amv2 .assistant-form textarea{min-height:108px;resize:vertical}
 .amv2 .assistant-form .mode-prompt{min-height:86px}
 .amv2 .assistant-test{padding:14px;display:grid;gap:10px;align-content:start}
 .amv2 .assistant-test-result{padding:12px;border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.03);display:grid;gap:6px}
@@ -699,6 +689,7 @@ export default function AdminModelsV2() {
   const [opsBusy, setOpsBusy] = useState(false)
   const [loraAccess, setLoraAccess] = useState<Record<string, boolean>>({})
   const [serverProfiles, setServerProfiles] = useState<Record<string, ServerModelProfileSettings>>({})
+  const [tariffs, setTariffs] = useState<TariffConfig>(() => normalizeTariffs(null))
   const [assistantData, setAssistantData] = useState<AssistantAdminData | null>(null)
   const [assistantBusy, setAssistantBusy] = useState(false)
   const [assistantTestPrompt, setAssistantTestPrompt] = useState('девушка стоит у окна вечером')
@@ -745,6 +736,11 @@ export default function AdminModelsV2() {
     setRoutes(d.routes || [])
   }, [])
 
+  const loadTariffs = useCallback(async () => {
+    const result = await amvFetch('/tariffs').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown } | null
+    if (result?.tariffs) setTariffs(normalizeTariffs(result.tariffs))
+  }, [])
+
   const loadConfigStatus = useCallback(async () => {
     const status = await amvFetch('/admin/config-ui/status-v2').then(async (r) => {
       if (r.ok) { setConfigErr(''); return await r.json() as ConfigStatus }
@@ -762,12 +758,13 @@ export default function AdminModelsV2() {
     queueMicrotask(() => {
       void loadLocalModelData()
       void loadConfigStatus()
+      void loadTariffs()
     })
-  }, [configErr, configStatus, loadConfigStatus, loadLocalModelData, pageTab])
+  }, [configErr, configStatus, loadConfigStatus, loadLocalModelData, loadTariffs, pageTab])
 
   const loadAssistants = useCallback(async () => {
     const result = await amvFetch('/admin/assistants').then((r) => r.ok ? r.json() : null).catch(() => null) as AssistantAdminData | null
-    if (result?.config) setAssistantData(result)
+    if (result?.config) setAssistantData({ ...result, openrouterModels: Array.isArray(result.openrouterModels) ? result.openrouterModels : [] })
     else setMsg('Не удалось загрузить настройки голосового ввода и улучшения')
   }, [])
 
@@ -787,7 +784,7 @@ export default function AdminModelsV2() {
     setAssistantBusy(true); setAssistantTestResult(null)
     const result = await amvFetch('/admin/assistants/test', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, prompt: assistantTestPrompt, mode: 'text' }),
+      body: JSON.stringify({ provider, prompt: assistantTestPrompt, mode: 'text', config: assistantData?.config.improve }),
     }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) })).catch(() => null)
     setAssistantBusy(false)
     if (result?.status === 200) setAssistantTestResult(result.body as AssistantTestResult)
@@ -832,7 +829,16 @@ export default function AdminModelsV2() {
     void saveSetting('server_model_loras', { enabled: next }, 'Доступность LoRA')
   }
   const updateServerProfile = (profileId: string, patch: Partial<ServerModelProfileSettings>) => setServerProfiles((current) => ({ ...current, [profileId]: { ...(current[profileId] || { width: 1024, height: 1024, steps: 4, sampler: 'er_sde', seedMode: 'random', seed: 42 }), ...patch } }))
-  const saveServerProfiles = () => void saveSetting('server_model_profiles', { profiles: serverProfiles }, 'Параметры моделей Config UI')
+  const toggleConfigResolution = (plan: TariffKey, resolutionId: string, enabled: boolean) => setTariffs((current) => {
+    const ids = current[plan].allowed_resolutions
+    const next = enabled ? Array.from(new Set([...ids, resolutionId])) : ids.filter((id) => id !== resolutionId)
+    return { ...current, [plan]: { ...current[plan], allowed_resolutions: next } }
+  })
+  const saveConfigUiSettings = async () => {
+    await saveSetting('server_model_profiles', { profiles: serverProfiles }, 'Параметры моделей Config UI')
+    await saveSetting('tariffs', tariffs, 'Доступность разрешений по тарифам')
+    await loadTariffs()
+  }
   const saveMinMargin = async () => {
     const minMarginPercent = clampMargin(Number(marginDraft))
     const tokenRub = clampTokenRub(data?.openrouter.economy?.tokenRub)
@@ -1076,6 +1082,7 @@ export default function AdminModelsV2() {
   const exchangeCache = data.openrouter.exchange?.cache || ''
   const exchangeStateClass = usdRubBase === null ? 'rate-bad' : exchangeCache === 'stale' ? 'rate-stale' : 'rate-ok'
   const exchangeStateText = usdRubBase === null ? 'курс не загружен' : exchangeCache === 'stale' ? 'курс из последнего кэша' : 'курс загружен'
+  const selectedAssistantApiModel = assistantData?.openrouterModels.find((model) => model.id === assistantData.config.improve.apiModel)
 
   return <div className="amv2">
     <style>{CSS}</style>
@@ -1119,8 +1126,8 @@ export default function AdminModelsV2() {
           <div className="assistant-form">
             <div className="two-col">
               <div className="field"><label>Основной маршрут</label><select value={assistantData.config.improve.route} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, route: e.target.value as AssistantConfig['improve']['route'] } })}><option value="api">OpenRouter API</option><option value="local">Локальная Ollama</option><option value="auto">Авто: Ollama → OpenRouter</option></select></div>
-              <div className="field"><label>Локальная модель Ollama</label><select value={assistantData.config.improve.localModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, localModel: e.target.value } })}>{assistantData.ollama.models.filter((m) => m.name && !m.name.endsWith(':cloud')).map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}</select></div>
-              <div className="field"><label>Модель OpenRouter</label><input value={assistantData.config.improve.apiModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, apiModel: e.target.value } })} /></div>
+              <div className="field"><label>Локальная или облачная модель Ollama</label><select value={assistantData.config.improve.localModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, localModel: e.target.value } })}>{assistantData.ollama.models.filter((m) => m.name).map((m) => <option key={m.name} value={m.name}>{m.name}{m.name?.endsWith(':cloud') ? ' · Ollama Cloud' : ''}</option>)}</select></div>
+              <div className="field"><label>Модель OpenRouter</label><select value={assistantData.config.improve.apiModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, apiModel: e.target.value } })}>{!selectedAssistantApiModel && <option value={assistantData.config.improve.apiModel}>{assistantData.config.improve.apiModel}</option>}{assistantData.openrouterModels.map((m) => <option key={m.id} value={m.id}>{m.name} · вход ${m.inputPerMillionUsd}/M · выход ${m.outputPerMillionUsd}/M</option>)}</select>{selectedAssistantApiModel && <small>Цена: вход ${selectedAssistantApiModel.inputPerMillionUsd} / 1M токенов · выход ${selectedAssistantApiModel.outputPerMillionUsd} / 1M токенов</small>}{assistantData.openrouterModelsError && <small>Каталог временно недоступен: {assistantData.openrouterModelsError}</small>}</div>
               <div className="field"><label>Timeout local / API, секунд</label><div className="two-col"><input type="number" min="3" max="120" value={assistantData.config.improve.localTimeoutSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, localTimeoutSeconds: Number(e.target.value) } })} /><input type="number" min="3" max="30" value={assistantData.config.improve.apiTimeoutSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, apiTimeoutSeconds: Number(e.target.value) } })} /></div></div>
             </div>
             <div className="field"><label>Главный системный промпт</label><textarea value={assistantData.config.improve.systemPrompt} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, systemPrompt: e.target.value } })} /></div>
@@ -1134,7 +1141,7 @@ export default function AdminModelsV2() {
             <textarea value={assistantTestPrompt} onChange={(e) => setAssistantTestPrompt(e.target.value)} />
             <div className="actions"><button className="ghost" disabled={assistantBusy} onClick={() => void testPromptAssistant('local')}>Тест Ollama</button><button className="ghost" disabled={assistantBusy} onClick={() => void testPromptAssistant('api')}>Тест OpenRouter</button></div>
             {assistantTestResult && <div className="assistant-test-result"><strong>{assistantTestResult.detail || assistantTestResult.improvedPrompt}</strong>{assistantTestResult.model && <small>{assistantTestResult.provider} · {assistantTestResult.model} · {assistantTestResult.latencyMs} мс · ${Number(assistantTestResult.costUsd || 0).toFixed(6)}</small>}</div>}
-            <div className="ollama-list">{assistantData.ollama.models.filter((m) => m.name && !m.name.endsWith(':cloud')).map((m) => <div className="ollama-row" key={m.name}><div><strong>{m.name}</strong><small>{m.details?.parameter_size || '—'} · {m.details?.quantization_level || '—'}</small></div><small>{m.size ? `${(m.size / 1024 ** 3).toFixed(1)} ГБ` : '—'}</small></div>)}</div>
+            <div className="ollama-list">{assistantData.ollama.models.filter((m) => m.name).map((m) => <div className="ollama-row" key={m.name}><div><strong>{m.name}</strong><small>{m.name?.endsWith(':cloud') ? 'Ollama Cloud' : `${m.details?.parameter_size || '—'} · ${m.details?.quantization_level || '—'}`}</small></div><small>{m.name?.endsWith(':cloud') ? 'облако' : m.size ? `${(m.size / 1024 ** 3).toFixed(1)} ГБ` : '—'}</small></div>)}</div>
           </div>
         </aside>
       </section>
@@ -1211,13 +1218,16 @@ export default function AdminModelsV2() {
     </article>
 
     <article className="card">
-      <div className="card-head"><div><h2 className="card-title">Разрешения и настройки Config UI</h2><p className="card-note">Единая матрица для Klein 9B и 4B. Точный размер применяется там, где выбранный workflow поддерживает изменение формата.</p></div><button className="primary" onClick={saveServerProfiles}>Сохранить параметры</button></div>
+      <div className="card-head"><div><h2 className="card-title">Разрешения и настройки Config UI</h2><p className="card-note">Единая матрица для Klein 9B и 4B. Галочки определяют доступность разрешения каждому тарифу.</p></div><button className="primary" onClick={() => void saveConfigUiSettings()}>Сохранить параметры</button></div>
       <div className="resolution-matrix">
         <table>
-          <thead><tr><th>Формат</th><th>SD · около 0,5 МП</th><th>HD · около 1 МП</th><th>Full HD · около 2 МП</th></tr></thead>
-          <tbody>{CONFIG_UI_RESOLUTION_MATRIX.map((row) => <tr key={row.aspect}>
-            <td><div className="resolution-format"><strong>{row.title} · {row.aspect}</strong><span>{row.use}</span></div></td>
-            {([row.sd, row.hd, row.fullHd] as const).map((resolution) => <td key={`${resolution.width}x${resolution.height}`}><div className="resolution-value"><strong>{resolution.width}×{resolution.height}</strong><small>{resolution.megapixels.toFixed(2).replace('.', ',')} МП</small></div></td>)}
+          <thead><tr><th>Формат</th><th>Уровень</th><th>Размер</th><th>МП</th>{tariffKeys.map((plan) => <th className="resolution-plan" key={plan}>{plan}</th>)}</tr></thead>
+          <tbody>{IMAGE_RESOLUTIONS.map((resolution) => <tr key={resolution.id}>
+            <td><div className="resolution-format"><strong>{resolution.formatLabel} · {resolution.aspect}</strong><span>{resolution.id}</span></div></td>
+            <td><strong>{resolution.tierLabel}</strong></td>
+            <td><div className="resolution-value"><strong>{resolution.width}×{resolution.height}</strong></div></td>
+            <td>{resolution.megapixels.toFixed(2).replace('.', ',')}</td>
+            {tariffKeys.map((plan) => <td className="resolution-plan" key={plan}><input type="checkbox" checked={tariffs[plan].allowed_resolutions.includes(resolution.id)} onChange={(e) => toggleConfigResolution(plan, resolution.id, e.target.checked)} aria-label={`${resolutionLabel(resolution)} — ${tariffs[plan].title}`} /></td>)}
           </tr>)}</tbody>
         </table>
       </div>
@@ -1228,7 +1238,7 @@ export default function AdminModelsV2() {
         return <section className={`config-profile ${active ? 'active' : ''}`} key={profileKey}>
           <div className="config-profile-head"><h3>FLUX.2 Klein {profileKey}</h3><span className={`state ${active ? 'ok' : ''}`}>{active ? 'используется' : 'не загружена'}</span></div>
           <div className="config-fields">
-            <div className="config-field"><label>Разрешение по умолчанию</label><select value={`${settings.width}x${settings.height}`} onChange={(e) => { const [width, height] = e.target.value.split('x').map(Number); updateServerProfile(profileId, { width, height }) }}>{CONFIG_UI_RESOLUTION_OPTIONS.map((option) => <option key={`${option.width}x${option.height}`} value={`${option.width}x${option.height}`}>{option.label} · {option.width}×{option.height}</option>)}</select></div>
+            <div className="config-field"><label>Разрешение по умолчанию</label><select value={`${settings.width}x${settings.height}`} onChange={(e) => { const [width, height] = e.target.value.split('x').map(Number); updateServerProfile(profileId, { width, height }) }}>{IMAGE_RESOLUTIONS.map((option) => <option key={option.id} value={`${option.width}x${option.height}`}>{resolutionLabel(option)}</option>)}</select></div>
             <div className="config-field"><label>Количество шагов</label><input type="number" min="1" max="80" value={settings.steps} onChange={(e) => updateServerProfile(profileId, { steps: Number(e.target.value) })} /></div>
             <div className="config-field"><label>Sampler</label><select value={settings.sampler} onChange={(e) => updateServerProfile(profileId, { sampler: e.target.value })}><option value="er_sde">ER-SDE</option><option value="euler">Euler</option><option value="dpmpp_2m">DPM++ 2M</option></select></div>
             <div className="config-field"><label>Seed</label><select value={settings.seedMode} onChange={(e) => updateServerProfile(profileId, { seedMode: e.target.value as 'random' | 'fixed' })}><option value="random">Случайный при каждой генерации</option><option value="fixed">Фиксированный</option></select></div>
