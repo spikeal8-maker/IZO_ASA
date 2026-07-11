@@ -6747,7 +6747,9 @@ async def improve_prompt_openrouter(req: ImprovePromptRequest) -> tuple[str, dic
                 "role": "system",
                 "content": (
                     "You improve prompts for an image generation studio. Preserve the user's intent, subjects, counts, identity, "
-                    "requested actions and language. Do not add unsupported facts, policies, explanations or markdown. "
+                    "requested actions and language. You may clarify composition, light and visual quality only when they do not "
+                    "change the request. Never invent a person's clothing, appearance, pose, location details, camera brand, lens, "
+                    "new objects or story facts. Do not add policies, explanations or markdown. "
                     f"{language_rule} {PROMPT_IMPROVE_MODE_RULES[req.mode]} "
                     "Return JSON with one string field named improved_prompt."
                 ),

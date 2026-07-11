@@ -1145,6 +1145,8 @@ export default function NewStudio(): ReactElement {
   const [paintOutpaintPreview, setPaintOutpaintPreview] = useState<string>()
   const [paintStageSize, setPaintStageSize] = useState(() => paintStageForResolution(RESOLUTION_PRESETS[0]))
   const [paintWorkbenchVisible, setPaintWorkbenchVisible] = useState(true)
+  const [promptImproveBusy, setPromptImproveBusy] = useState(false)
+  const [promptImproveUndo, setPromptImproveUndo] = useState<{ mode: StudioMode; text: string } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -2241,6 +2243,47 @@ export default function NewStudio(): ReactElement {
     setPrompt(value)
   }
 
+  async function improveCurrentPrompt() {
+    const original = promptValue.trim()
+    if (!original) {
+      showToast('Сначала напишите, что нужно изобразить или изменить')
+      return
+    }
+    if (!(await ensureAuthed())) return
+    const improveMode = isPaintStudio ? paintMode : studioMode
+    setPromptImproveBusy(true)
+    try {
+      const response = await apiFetch('/tools/improve-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: original,
+          mode: improveMode,
+          language: feedLang,
+          technicalPrompt: isPaintStudio ? paintTechPrompts[paintMode] : '',
+        }),
+      })
+      const payload = await response.json().catch(() => ({})) as { improvedPrompt?: string; detail?: unknown }
+      if (!response.ok || !payload.improvedPrompt?.trim()) {
+        throw new Error(apiErrorText(payload.detail, 'Не удалось улучшить промпт'))
+      }
+      setPromptImproveUndo({ mode: studioMode, text: promptValue })
+      setPrompt(payload.improvedPrompt.trim().slice(0, promptLimit))
+      showToast('Промпт улучшен')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Не удалось улучшить промпт')
+    } finally {
+      setPromptImproveBusy(false)
+    }
+  }
+
+  function undoPromptImprovement() {
+    if (!promptImproveUndo || promptImproveUndo.mode !== studioMode) return
+    setPrompt(promptImproveUndo.text)
+    setPromptImproveUndo(null)
+    showToast('Исходный промпт возвращён')
+  }
+
   useEffect(() => {
     if (tab !== 'paint' || !paintWorkbenchVisible) return undefined
     let observedNode: HTMLDivElement | null = null
@@ -3187,13 +3230,18 @@ export default function NewStudio(): ReactElement {
               </svg>
               Голос
             </button>
-            <button className="tool-button primary" type="button" onClick={() => showToast('Улучшение промпта скоро')}>
+            <button className="tool-button primary" type="button" disabled={promptImproveBusy} onClick={() => void improveCurrentPrompt()}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M12 3.5l1.6 4 4 1.6-4 1.6-1.6 4-1.6-4-4-1.6 4-1.6L12 3.5Z" fill="currentColor" />
                 <path d="M18.5 14.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z" fill="currentColor" opacity=".72" />
               </svg>
-              Улучшить
+              {promptImproveBusy ? 'Улучшаю…' : 'Улучшить'}
             </button>
+            {promptImproveUndo?.mode === studioMode && (
+              <button className="tool-button" type="button" disabled={promptImproveBusy} onClick={undoPromptImprovement}>
+                Вернуть
+              </button>
+            )}
             {!isEditStudio && !isPaintStudio && (
               <>
                 <button className="tool-button" type="button" onClick={() => setTemplatesOpen(true)}>
