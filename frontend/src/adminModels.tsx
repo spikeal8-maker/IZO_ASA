@@ -193,6 +193,31 @@ const API_MODE_SECTIONS: ApiModeSection[] = [
   { id: 'remove_background', title: 'Редактор — удалить фон', local: 'локальный workflow/утилита', note: 'Исходник плюс официальная поддержка прозрачного background.', filter: (m) => Boolean(m.modes?.includes('remove_background')) },
 ]
 
+const fallbackReferenceLimit = (model: ApiImageModel) => {
+  if (!model.params.includes('input_references')) return 0
+  if (model.id.startsWith('openai/')) return 16
+  if (model.id.includes('gemini-3')) return 14
+  if (model.id === 'google/gemini-2.5-flash-image') return 3
+  if (model.id === 'bytedance-seed/seedream-4.5') return 14
+  if (model.id === 'black-forest-labs/flux.2-klein-4b') return 4
+  if (model.id.startsWith('black-forest-labs/')) return 8
+  if (model.id === 'sourceful/riverflow-v2-pro' || model.id === 'sourceful/riverflow-v2.5-pro') return 10
+  if (model.id.startsWith('sourceful/riverflow-v2')) return 4
+  if (model.id.startsWith('recraft/')) return 1
+  if (model.id.startsWith('microsoft/')) return 1
+  if (model.id.startsWith('x-ai/')) return 3
+  return 0
+}
+
+const fallbackCapabilityModel = (model: ApiImageModel): ApiImageModel => {
+  const maxInputReferences = fallbackReferenceLimit(model)
+  const modes = ['text_to_image']
+  if (maxInputReferences >= 1) modes.push('image_to_image', 'paint')
+  if (maxInputReferences >= 2) modes.push('edit')
+  if (maxInputReferences >= 1 && model.params.includes('background')) modes.push('remove_background')
+  return { ...model, modes, maxInputReferences, description: 'Локальный резерв метаданных; обновится после подключения capability API.' }
+}
+
 const exchangeRate = (exchange?: PageData['openrouter']['exchange']) => typeof exchange?.rate === 'number' ? exchange.rate : null
 const effectiveUsdRub = (exchange?: PageData['openrouter']['exchange']) => {
   const rate = exchangeRate(exchange)
@@ -867,7 +892,8 @@ export default function AdminModelsV2() {
   const orUsageModels = usageModelMap(data.openrouter.usage?.models)
   const orUsageModes = usageModeMap(data.openrouter.usage?.modes)
   const backendPricingMap = new Map((data.openrouter.backendPricing || []).map((m) => [m.id, m]))
-  const capabilityModels: ApiImageModel[] = (data.openrouter.capabilityCatalog || []).map((model) => {
+  const liveCapabilityCatalog = data.openrouter.capabilityCatalog || []
+  const capabilityModels: ApiImageModel[] = liveCapabilityCatalog.length ? liveCapabilityCatalog.map((model) => {
     const price = backendPricingMap.get(model.id)
     const provider = model.name.includes(':') ? model.name.split(':', 1)[0] : model.id.split('/', 1)[0]
     return {
@@ -883,7 +909,7 @@ export default function AdminModelsV2() {
       description: model.description,
       supportsStreaming: model.supportsStreaming,
     }
-  })
+  }) : OPENROUTER_IMAGE_MODELS.map(fallbackCapabilityModel)
   const backendPricedCount = backendPricingMap.size
   const totalSpentPair = typeof data.openrouter.usage?.totalCostUsd === 'number' ? moneyPair(data.openrouter.usage.totalCostUsd, usdRubEffective) : '—'
   const avgImagePair = typeof data.openrouter.usage?.avgCostUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostUsd, usdRubEffective) : '—'
@@ -1059,6 +1085,7 @@ export default function AdminModelsV2() {
         <input type="search" placeholder="Фильтр по всем карточкам: модель, provider, price, параметр" value={query} onChange={(e) => setQuery(e.target.value)} />
         <button className="ghost" onClick={() => setQuery('')}>Сбросить</button>
       </div>
+      {!liveCapabilityCatalog.length ? <p className="hint" style={{ color: 'var(--yellow)' }}>Живой каталог возможностей пока не получен. Модели, цены и управление показаны из проверенного резервного каталога; перезапустите backend для автоматического обновления.</p> : null}
       {data.openrouter.capabilityError ? <p className="hint" style={{ color: 'var(--yellow)' }}>Каталог возможностей OpenRouter не загрузился: {data.openrouter.capabilityError}</p> : null}
 
       {API_MODE_SECTIONS.map((section) => {

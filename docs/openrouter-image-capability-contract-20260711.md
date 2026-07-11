@@ -1,7 +1,10 @@
 # OpenRouter image capability contract — 2026-07-11
 
-The admin model lists are built from `GET /api/v1/images/models`, not from model
-names or a duplicated frontend catalog. Capability metadata is cached for six hours.
+The admin model lists prefer capability data from `GET /api/v1/images/models`
+instead of inferring support from model names. Capability metadata is cached for six hours.
+If a running backend predates this response field or discovery is temporarily
+unavailable, the admin UI must show the verified local catalog with prices and
+controls. An absent live catalog must never render every mode as an empty list.
 
 ## Mode rules
 
