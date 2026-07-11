@@ -2420,7 +2420,7 @@ export default function NewStudio(): ReactElement {
   const tariffResolutionIds = new Set(activeTariff.allowed_resolutions)
   const supportedResolutionIdsForModel = (model: ModelOption) => {
     const modelIds = new Set(model.supportedResolutionIds?.length ? model.supportedResolutionIds : RESOLUTION_PRESETS.map((item) => item.id))
-    return RESOLUTION_PRESETS.filter((item) => modelIds.has(item.id) && tariffResolutionIds.has(item.id)).map((item) => item.id)
+    return RESOLUTION_PRESETS.filter((item) => modelIds.has(item.id) && (model.provider === 'openrouter' || tariffResolutionIds.has(item.id))).map((item) => item.id)
   }
   const preferredResolutionForModel = (model: ModelOption, formatId?: string) => {
     const allowed = supportedResolutionIdsForModel(model)

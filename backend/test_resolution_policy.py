@@ -49,3 +49,23 @@ def test_config_ui_access_is_loaded_from_dedicated_database_setting() -> None:
     config = get_tariff_config(connection)
     assert config["mini"]["allowed_resolutions"] == ["sq-sd", "p-hd"]
     assert config["pro"]["allowed_resolutions"] == ["sq-fhd"]
+
+
+def test_flux_catalog_without_descriptors_keeps_all_supported_sizes() -> None:
+    capability = {"id": "black-forest-labs/flux.2-pro", "parameterDescriptors": {}}
+    assert len(supported_resolution_ids_from_capability(capability)) == 12
+
+
+def test_openai_catalog_uses_adapter_safe_output_sizes() -> None:
+    capability = {"id": "openai/gpt-image-2", "parameterDescriptors": {}}
+    assert supported_resolution_ids_from_capability(capability) == ["sq-hd", "v-fhd", "p-fhd"]
+
+
+def test_resolution_only_provider_keeps_all_four_formats() -> None:
+    capability = {
+        "id": "sourceful/riverflow-v2.5-fast",
+        "parameterDescriptors": {"resolution": {"values": ["1K", "2K"]}},
+    }
+    assert supported_resolution_ids_from_capability(capability) == [
+        "sq-hd", "sq-fhd", "v-hd", "v-fhd", "h-hd", "h-fhd", "p-hd", "p-fhd",
+    ]

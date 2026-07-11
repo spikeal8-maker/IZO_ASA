@@ -58,6 +58,7 @@ def _descriptor_values(capability: dict[str, Any], parameter: str) -> list[str]:
 def supported_resolution_ids_from_capability(capability: dict[str, Any] | None) -> list[str]:
     if not capability:
         return []
+    model_id = str(capability.get("id") or "").lower()
     aspects = set(_descriptor_values(capability, "aspect_ratio"))
     sizes = set(_descriptor_values(capability, "size"))
     tiers = set(_descriptor_values(capability, "resolution"))
@@ -72,14 +73,26 @@ def supported_resolution_ids_from_capability(capability: dict[str, Any] | None) 
         if exact:
             return exact
 
+    # Several OpenRouter providers expose their accepted sizes through the
+    # generation endpoint but omit aspect/size descriptors from the catalog.
+    # Keep these rules aligned with openrouter_image_request_plan().
+    if not aspects:
+        if model_id.startswith("black-forest-labs/"):
+            return [item["id"] for item in IMAGE_RESOLUTIONS]
+        if model_id.startswith(("openai/", "recraft/")):
+            return ["sq-hd", "v-fhd", "p-fhd"]
+        if model_id.startswith("sourceful/"):
+            allowed_tiers = {"hd", "full_hd"} if tiers else {"hd"}
+            return [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] in allowed_tiers]
+
     format_aspects = {"square": "1:1", "portrait": "9:16", "wide": "16:9", "photo": "3:2"}
     tier_values = {"sd": {"512", "0.5K"}, "hd": {"1K", "1024"}, "full_hd": {"2K", "2048", "4K"}}
     has_aspect_control = "aspect_ratio" in supported_parameters or bool(aspects)
     has_resolution_control = "resolution" in supported_parameters or bool(tiers)
     result: list[str] = []
     for item in IMAGE_RESOLUTIONS:
-        aspect_ok = (not has_aspect_control and item["format"] == "square") or format_aspects[item["format"]] in aspects
+        aspect_ok = (not has_aspect_control) or format_aspects[item["format"]] in aspects
         tier_ok = (not has_resolution_control and item["tier"] == "hd") or bool(tier_values[item["tier"]] & tiers)
         if aspect_ok and tier_ok:
             result.append(item["id"])
-    return result or ["sq-hd"]
+    return result or [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] == "hd"]
