@@ -392,29 +392,6 @@ def test_faceswap_inserts_lora_loader_when_live_edit_workflow_has_none() -> None
     assert workflow["FK:169"]["inputs"]["model"] == ["FK:admin_lora", 0]
 
 
-def test_depth_refcontrol_uses_base_4b_and_long_schedule(monkeypatch) -> None:
-    monkeypatch.setattr(main, "server_lora_enabled", lambda _name: True)
-    models = {
-        "diffusion_models": ["flux-2-klein-4b-fp8.safetensors", "flux-2-klein-base-4b.safetensors"],
-        "text_encoders": ["qwen_3_4b.safetensors"],
-        "vaes": ["flux2-vae.safetensors"],
-        "loras": ["flux2_klein_4b_refcontrol_depth.safetensors"],
-    }
-    req = main.GenerateRequest(mode="edit", prompt="a glass house", seed=17)
-
-    graph = main.build_depth_workflow(models, "reference.png", "depth-source.png", req)
-
-    assert graph["FKP:unet"]["inputs"]["unet_name"] == "flux-2-klein-base-4b.safetensors"
-    assert graph["FKP:lora"]["inputs"]["lora_name"] == "flux2_klein_4b_refcontrol_depth.safetensors"
-    assert graph["FKP:dwpose"]["class_type"] == "DepthAnythingV2Preprocessor"
-    assert graph["FKP:poseimg"]["inputs"]["image"] == "depth-source.png"
-    assert graph["FKP:refimg"]["inputs"]["image"] == "reference.png"
-    assert graph["FKP:prompt"]["inputs"]["text"] == "refcontrol a glass house"
-    assert graph["FKP:guider"]["inputs"]["cfg"] == 5
-    assert graph["FKP:sched"]["inputs"]["steps"] == 20
-    assert graph["FKP:noise"]["inputs"]["noise_seed"] == 17
-
-
 def test_outpaint_uses_installed_4b_lora_without_missing_kv_model(monkeypatch) -> None:
     monkeypatch.setattr(main, "server_lora_enabled", lambda _name: True)
     models = {

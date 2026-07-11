@@ -114,6 +114,8 @@ COMFYUI_TIMEOUT_SECONDS = int(os.getenv("COMFYUI_TIMEOUT_SECONDS", "900"))
 COMFYUI_FACE_TIMEOUT_SECONDS = max(60, min(COMFYUI_TIMEOUT_SECONDS, int(os.getenv("COMFYUI_FACE_TIMEOUT_SECONDS", "240"))))
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
 OPENROUTER_TIMEOUT_SECONDS = max(30, min(300, int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "120"))))
+PROMPT_IMPROVE_MODEL = os.getenv("PROMPT_IMPROVE_MODEL", "deepseek/deepseek-v4-flash").strip()
+PROMPT_IMPROVE_TIMEOUT_SECONDS = max(3, min(30, int(os.getenv("PROMPT_IMPROVE_TIMEOUT_SECONDS", "10"))))
 CBR_DAILY_XML_URL = os.getenv("CBR_DAILY_XML_URL", "https://www.cbr.ru/scripts/XML_daily.asp")
 USD_RUB_FALLBACK_URL = os.getenv("USD_RUB_FALLBACK_URL", "https://open.er-api.com/v6/latest/USD")
 
@@ -342,6 +344,13 @@ class OpenRouterPriceModel(BaseModel):
 class TranslateRequest(BaseModel):
     text: str
     target: Literal["en", "ru"] = "en"
+
+
+class ImprovePromptRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=2000)
+    mode: Literal["text", "i2i", "edit", "sketch", "mask", "outpaint", "remove_bg"] = "text"
+    language: Literal["ru", "en"] = "ru"
+    technicalPrompt: str = Field(default="", max_length=4000)
 
 
 class MiniAppAuthRequest(BaseModel):
@@ -6685,6 +6694,99 @@ def openrouter_headers() -> dict[str, str]:
     return headers
 
 
+_prompt_improve_semaphore = asyncio.Semaphore(max(1, min(8, int(os.getenv("PROMPT_IMPROVE_CONCURRENCY", "2")))))
+
+PROMPT_IMPROVE_MODE_RULES = {
+    "text": "Create a precise image-generation prompt: subject, scene, composition, light, materials and camera only when useful.",
+    "i2i": "Describe the requested transformation and explicitly preserve source elements the user did not ask to change.",
+    "edit": "Clarify how the base image and references should be combined. Do not invent reference roles that the user did not specify.",
+    "sketch": "Explain how to turn the sketch into a finished image while preserving its layout and readable shapes.",
+    "mask": "Describe only the change inside the selected mask and require seamless blending with the untouched image.",
+    "outpaint": "Describe a logical continuation beyond the existing frame while preserving perspective, light and scene continuity.",
+    "remove_bg": "Describe edge preservation, hair and fine details. Do not request unrelated changes to the subject.",
+}
+
+
+def _openrouter_text_content(payload: dict[str, Any]) -> str:
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise RuntimeError("OpenRouter не вернул текст улучшенного промпта.")
+    message = choices[0].get("message") if isinstance(choices[0].get("message"), dict) else {}
+    content = message.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        return "".join(str(part.get("text") or "") for part in content if isinstance(part, dict)).strip()
+    raise RuntimeError("OpenRouter вернул неподдерживаемый формат текста.")
+
+
+def _parse_improved_prompt(content: str) -> str:
+    value = content.strip()
+    if value.startswith("```"):
+        value = re.sub(r"^```(?:json)?\s*|\s*```$", "", value, flags=re.IGNORECASE).strip()
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        value = str(parsed.get("improved_prompt") or "").strip()
+    if not value:
+        raise RuntimeError("Модель вернула пустой улучшенный промпт.")
+    return value[:2000]
+
+
+async def improve_prompt_openrouter(req: ImprovePromptRequest) -> tuple[str, dict[str, Any]]:
+    if not openrouter_api_key():
+        raise RuntimeError("OpenRouter API-ключ не настроен.")
+    language_rule = "Answer in Russian." if req.language == "ru" else "Answer in English."
+    technical_context = req.technicalPrompt.strip()
+    body = {
+        "model": PROMPT_IMPROVE_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You improve prompts for an image generation studio. Preserve the user's intent, subjects, counts, identity, "
+                    "requested actions and language. Do not add unsupported facts, policies, explanations or markdown. "
+                    f"{language_rule} {PROMPT_IMPROVE_MODE_RULES[req.mode]} "
+                    "Return JSON with one string field named improved_prompt."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {"prompt": req.prompt.strip(), "technical_context": technical_context or None},
+                    ensure_ascii=False,
+                ),
+            },
+        ],
+        "temperature": 0.25,
+        "max_tokens": 500,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "improved_image_prompt",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {"improved_prompt": {"type": "string"}},
+                    "required": ["improved_prompt"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+    }
+    async with _prompt_improve_semaphore:
+        async with httpx.AsyncClient(timeout=PROMPT_IMPROVE_TIMEOUT_SECONDS) as client:
+            response = await client.post(f"{OPENROUTER_BASE_URL}/chat/completions", headers=openrouter_headers(), json=body)
+    data = response.json() if response.content else {}
+    if response.status_code >= 400:
+        raise RuntimeError(_openrouter_public_error(response.status_code, data if isinstance(data, dict) else {}))
+    if not isinstance(data, dict):
+        raise RuntimeError("OpenRouter вернул некорректный ответ.")
+    return _parse_improved_prompt(_openrouter_text_content(data)), data
+
+
 def resolve_openrouter_model(req: GenerateRequest) -> str:
     raw = (req.modelProfile or "").strip()
     aliases = {
@@ -7130,46 +7232,6 @@ def build_pose_workflow(models: dict[str, list[str]], profile: dict[str, Any], r
     return graph
 
 
-def build_depth_workflow(models: dict[str, list[str]], ref_image_name: str, depth_image_name: str, req: GenerateRequest) -> dict[str, Any]:
-    """FLUX.2 Klein Base 4B RefControl graph.
-
-    The first image supplies appearance/reference information. The second image is
-    converted to a depth map by ComfyUI. This route is intentionally separate from
-    the distilled edit graph because the LoRA requires the undistilled Base model,
-    CFG guidance and a longer sampling schedule.
-    """
-    base_model = next((name for name in models.get("diffusion_models", []) if name.lower() == "flux-2-klein-base-4b.safetensors"), "")
-    text_encoder = next((name for name in models.get("text_encoders", []) if "qwen_3_4b" in name.lower()), "")
-    vae = "flux2-vae.safetensors" if "flux2-vae.safetensors" in models.get("vaes", []) else ""
-    depth_lora = next((name for name in models.get("loras", []) if "4b" in name.lower() and "refcontrol" in name.lower() and "depth" in name.lower()), "")
-    missing = [label for label, value in (("Base 4B", base_model), ("Qwen 3 4B", text_encoder), ("Flux2 VAE", vae), ("Depth LoRA", depth_lora)) if not value]
-    if missing:
-        raise RuntimeError(f"Depth RefControl 4B не готов: отсутствует {', '.join(missing)}.")
-    if not server_lora_enabled(depth_lora):
-        raise RuntimeError("Depth RefControl 4B выключена администратором.")
-
-    graph = json.loads(POSE_WORKFLOW_PATH.read_text(encoding="utf-8"))
-    graph["FKP:clip"]["inputs"]["clip_name"] = text_encoder
-    graph["FKP:vae"]["inputs"]["vae_name"] = vae
-    graph["FKP:unet"]["inputs"]["unet_name"] = base_model
-    graph["FKP:lora"]["inputs"].update({"lora_name": depth_lora, "strength_model": 1})
-    graph["FKP:lora"]["_meta"]["title"] = "RefControl Depth 4B LoRA"
-    graph["FKP:refimg"]["inputs"]["image"] = ref_image_name
-    graph["FKP:poseimg"]["inputs"]["image"] = depth_image_name
-    graph["FKP:poseimg"]["_meta"]["title"] = "Depth source"
-    graph["FKP:dwpose"] = {
-        "class_type": "DepthAnythingV2Preprocessor",
-        "inputs": {"ckpt_name": "depth_anything_v2_vitl.pth", "resolution": 512, "image": ["FKP:poseimg", 0]},
-        "_meta": {"title": "Depth Anything V2"},
-    }
-    graph["FKP:posescale"]["_meta"]["title"] = "Scale depth map"
-    graph["FKP:prompt"]["inputs"]["text"] = f"refcontrol {req.prompt}".strip()
-    graph["FKP:guider"]["inputs"]["cfg"] = 5
-    graph["FKP:sched"]["inputs"]["steps"] = 20
-    graph["FKP:noise"]["inputs"]["noise_seed"] = int(req.seed or 0)
-    return graph
-
-
 def build_outpaint_workflow(graph: dict[str, Any], models: dict[str, list[str]], req: GenerateRequest, uploads: dict[str, str]) -> dict[str, Any]:
     """Patch the stock outpaint graph to the installed 4B Outpaint LoRA.
 
@@ -7531,7 +7593,7 @@ def _ensure_edit_slot_nodes(prompt: dict[str, Any], slot: int) -> None:
     prompt.setdefault(s["neg"], {"class_type": "ReferenceLatent", "inputs": {"conditioning": ["FK:156", 0], "latent": [s["vae"], 0]}, "_meta": {"title": f"Reference Latent Negative Img{n}"}})
 
 
-EDIT_REFERENCE_ROLES = {"face", "clothing", "style", "object", "pose", "depth", "background", "color_material", "other"}
+EDIT_REFERENCE_ROLES = {"face", "clothing", "style", "object", "pose", "background", "color_material", "other"}
 
 
 def validate_edit_request(req: GenerateRequest) -> None:
@@ -7770,7 +7832,6 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
                 edit_sources.append(("", payload.inputImage2))
         edit_roles: list[str] = []
         pose_image_name: str | None = None
-        depth_image_name: str | None = None
         for i, (role, src) in enumerate(edit_sources[:4]):
             slot_path = local_media_path_from_url(src) or save_data_url(src, f"{job['id']}_edit{i + 1}")
             if not slot_path:
@@ -7780,8 +7841,6 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             edit_roles.append(role or ("base" if i == 0 else "?"))
             if role == "pose" and i > 0:
                 pose_image_name = uploads[f"input{i + 1}"]
-            if role == "depth" and i > 0:
-                depth_image_name = uploads[f"input{i + 1}"]
         if "input1" not in uploads:
             raise RuntimeError("Для редактирования нужна основа (изображение 1).")
         print(f"edit-generate job={job['id']} images={sum(1 for k in uploads if k.startswith('input'))} roles={edit_roles}")
@@ -7805,17 +7864,6 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             profile_row = get_profile_row(pose_profile_id)
             special_edit_graph = build_pose_workflow(models, profile_row, uploads["input1"], pose_image_name, payload)
             print(f"pose-generate job={job['id']} profile={pose_profile_id} ref=input1 pose={pose_image_name}")
-        elif "depth" in edit_roles:
-            other_roles = [r for r in edit_roles if r not in ("base", "depth", "?", "")]
-            if other_roles:
-                raise RuntimeError("Depth пока поддерживается только отдельно — без сочетания с другими ролями (" + ", ".join(other_roles) + ") в одном запросе.")
-            if not depth_image_name:
-                raise RuntimeError("Для роли Глубина нужен управляющий референс (изображение 2).")
-            nodes = await comfyui_node_names()
-            if "DepthAnythingV2Preprocessor" not in nodes:
-                raise RuntimeError("Depth RefControl недоступен: в ComfyUI отсутствует DepthAnythingV2Preprocessor.")
-            special_edit_graph = build_depth_workflow(models, uploads["input1"], depth_image_name, payload)
-            print(f"depth-generate job={job['id']} profile=flux_klein_base_4b ref=input1 depth={depth_image_name}")
     elif payload.mode in {"image_to_image", "paint", "inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
         if not primary_input:
             raise RuntimeError("Для выбранного режима нужно входное изображение.")
@@ -8210,6 +8258,49 @@ def ensure_rate_limit(user_id: str) -> None:
         raise HTTPException(429, f"Rate limit exceeded: {hourly_limit} generations per hour.")
     if daily_limit > 0 and day_count >= daily_limit:
         raise HTTPException(429, f"Rate limit exceeded: {daily_limit} generations per day.")
+
+
+@app.post("/api/tools/improve-prompt")
+async def improve_prompt(req: ImprovePromptRequest, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    original = req.prompt.strip()
+    if not original:
+        raise HTTPException(400, "Сначала напишите, что нужно изобразить или изменить.")
+    started = time.monotonic()
+    try:
+        improved, provider_payload = await asyncio.wait_for(
+            improve_prompt_openrouter(req.model_copy(update={"prompt": original})),
+            timeout=PROMPT_IMPROVE_TIMEOUT_SECONDS + 1,
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(504, "Улучшение заняло слишком много времени. Исходный текст сохранён.") from exc
+    except (httpx.HTTPError, RuntimeError) as exc:
+        raise HTTPException(502, str(exc)) from exc
+    usage = provider_payload.get("usage") if isinstance(provider_payload.get("usage"), dict) else {}
+    cost = _openrouter_generation_cost(provider_payload)
+    record_event_log(
+        "prompt_improved",
+        internal_user_id=trusted.get("internal_user_id"),
+        legacy_user_id=trusted.get("legacy_user_id"),
+        session_id=trusted.get("session_id"),
+        platform="web",
+        request=request,
+        properties={
+            "mode": req.mode,
+            "model": PROMPT_IMPROVE_MODEL,
+            "input_chars": len(original),
+            "output_chars": len(improved),
+            "latency_ms": round((time.monotonic() - started) * 1000),
+            "cost_usd": cost,
+        },
+    )
+    return {
+        "ok": True,
+        "improvedPrompt": improved,
+        "model": PROMPT_IMPROVE_MODEL,
+        "usage": usage,
+        "costUsd": cost,
+    }
 
 
 @app.post("/api/generate")
@@ -13545,12 +13636,7 @@ KNOWN_LORAS: dict[str, dict[str, Any]] = {
     "bfs_head_v1_flux-klein_4b": {"purpose": "face / head consistency", "compatible": ["Flux 2 Klein 4B"], "routes": ["face", "edit"], "requires": [], "kind": "klein-face", "recommended": True},
     "bfs_head_v1_flux-klein_9b": {"purpose": "face / identity", "compatible": ["Flux 2 Klein 9B"], "routes": ["face", "edit"], "requires": [], "kind": "klein-face", "recommended": True},
     "refcontrol_v2_poses": {"purpose": "pose ref-control", "compatible": ["Flux 2 Klein 9B"], "routes": ["edit_pose"], "requires": ["DWPreprocessor"], "kind": "klein-pose", "recommended": True},
-    "flux2_klein_4b_refcontrol_depth": {"purpose": "depth / composition control", "compatible": ["Flux 2 Klein 4B Base"], "routes": ["edit_depth"], "requires": ["DepthAnythingV2Preprocessor"], "requiredModel": "klein-base-4b", "kind": "klein-depth", "recommended": True, "workflowReady": True},
     "flux2_klein_4b_outpaint_comfy": {"purpose": "outpaint / image extension", "compatible": ["Flux 2 Klein 4B"], "routes": ["outpaint"], "requires": [], "requiredModel": "klein-4b", "kind": "klein-outpaint", "recommended": True, "workflowReady": True},
-    "flux2_klein_9b_refcontrol_depth": {"purpose": "depth / composition control", "compatible": ["Flux 2 Klein 9B Base"], "routes": ["edit_depth"], "requires": ["DepthAnythingV2Preprocessor"], "requiredModel": "klein-base-9b", "kind": "klein-depth", "recommended": True, "workflowReady": False},
-    "flux2_klein_9b_refcontrol_canny": {"purpose": "contours / structure control", "compatible": ["Flux 2 Klein 9B Base"], "routes": ["edit_canny"], "requires": ["CannyEdgePreprocessor"], "requiredModel": "klein-base-9b", "kind": "klein-canny", "recommended": True, "workflowReady": False},
-    "flux2_klein_9b_refcontrol_lineart": {"purpose": "line art / sketch control", "compatible": ["Flux 2 Klein 9B Base"], "routes": ["paint", "edit_lineart"], "requires": ["LineArtPreprocessor"], "requiredModel": "klein-base-9b", "kind": "klein-lineart", "recommended": True, "workflowReady": False},
-    "flux2_klein_9b_refcontrol_normal": {"purpose": "surface normals / volume control", "compatible": ["Flux 2 Klein 9B Base"], "routes": ["edit_normal"], "requires": ["DSINE-NormalMapPreprocessor"], "requiredModel": "klein-base-9b", "kind": "klein-normal", "recommended": True, "workflowReady": False},
 }
 
 OPENROUTER_CATALOG = [
