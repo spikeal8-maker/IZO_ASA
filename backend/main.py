@@ -3503,6 +3503,44 @@ def delete_image_source_files(conn: sqlite3.Connection, image_id: str) -> None:
     conn.execute("DELETE FROM image_sources WHERE image_id = ?", (image_id,))
 
 
+def cleanup_orphan_image_sources(*, grace_seconds: int = 3600) -> dict[str, int]:
+    """Remove source previews that no longer belong to an active gallery image."""
+    orphan_urls: list[str] = []
+    with db() as conn:
+        orphan_rows = conn.execute(
+            """
+            SELECT s.id, s.thumb_url
+            FROM image_sources s
+            LEFT JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id
+            WHERE i.id IS NULL OR NOT (i.deleted_at IS NULL OR i.deleted_at = '')
+            """
+        ).fetchall()
+        orphan_urls = [str(row["thumb_url"] or "") for row in orphan_rows]
+        if orphan_rows:
+            conn.executemany("DELETE FROM image_sources WHERE id = ?", [(row["id"],) for row in orphan_rows])
+        referenced = {
+            media_filename_from_url(row["thumb_url"])
+            for row in conn.execute("SELECT thumb_url FROM image_sources").fetchall()
+        }
+    removed_rows = 0
+    for url in orphan_urls:
+        name = media_filename_from_url(url)
+        if name:
+            _delete_media_rel(name)
+            removed_rows += 1
+    removed_files = 0
+    cutoff = time.time() - max(60, int(grace_seconds))
+    for path in MEDIA.glob("*_source*_*.webp"):
+        if path.name in referenced or path.stat().st_mtime > cutoff:
+            continue
+        try:
+            path.unlink()
+            removed_files += 1
+        except FileNotFoundError:
+            pass
+    return {"rows": len(orphan_urls), "rowFiles": removed_rows, "files": removed_files}
+
+
 def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None, legacy_user_id: str | None) -> bool:
     row = None
     if internal_user_id:
@@ -4942,61 +4980,80 @@ def persist_image_sources(image_id: str, user_id: str, req: GenerateRequest, cre
     if not source_inputs:
         return []
     saved: list[dict[str, Any]] = []
-    with db() as conn:
-        conn.execute("DELETE FROM image_sources WHERE image_id = ?", (image_id,))
-        for pos, source in enumerate(source_inputs, start=1):
-            slot = int(source.get("slot") or pos)
-            value = str(source.get("value") or "")
-            thumb = _save_source_thumb(value, image_id, slot)
-            if thumb is None:
-                continue
-            thumb_path, width, height, byte_size = thumb
-            role = str(source.get("role") or "")
-            source_id = gallery_image_id_from_media_url(conn, value, user_id)
-            children_snapshot = (
-                gallery_sources_for_image(conn, source_id, user_id, depth=2, visited={image_id})
-                if source_id
-                else []
-            )
-            kind = "gallery_image" if source_id else ("upload" if value.startswith("data:image") else "media")
-            source_row = {
-                "id": uuid.uuid4().hex,
-                "imageId": image_id,
-                "sourceImageId": source_id,
-                "sourceKind": kind,
-                "role": role,
-                "roleLabel": _source_role_label(role, slot, req.mode),
-                "slotIndex": slot,
-                "thumbUrl": public_url(thumb_path, user_id),
-                "width": width,
-                "height": height,
-                "bytes": byte_size,
-                "children": children_snapshot,
-            }
-            conn.execute(
-                """
-                INSERT INTO image_sources
-                    (id, image_id, user_id, source_image_id, source_kind, role, slot_index,
-                     thumb_url, thumb_width, thumb_height, thumb_bytes, children_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    source_row["id"],
-                    image_id,
-                    user_id,
-                    source_id,
-                    kind,
-                    role,
-                    slot,
-                    source_row["thumbUrl"],
-                    width,
-                    height,
-                    byte_size,
-                    json.dumps(children_snapshot, ensure_ascii=False),
-                    created_at,
-                ),
-            )
-            saved.append(source_row)
+    new_paths: list[Path] = []
+    old_urls: list[str] = []
+    try:
+        with db() as conn:
+            old_urls = [
+                str(row["thumb_url"] or "")
+                for row in conn.execute("SELECT thumb_url FROM image_sources WHERE image_id = ?", (image_id,)).fetchall()
+            ]
+            conn.execute("DELETE FROM image_sources WHERE image_id = ?", (image_id,))
+            for pos, source in enumerate(source_inputs, start=1):
+                slot = int(source.get("slot") or pos)
+                value = str(source.get("value") or "")
+                thumb = _save_source_thumb(value, image_id, slot)
+                if thumb is None:
+                    continue
+                thumb_path, width, height, byte_size = thumb
+                new_paths.append(thumb_path)
+                role = str(source.get("role") or "")
+                source_id = gallery_image_id_from_media_url(conn, value, user_id)
+                children_snapshot = (
+                    gallery_sources_for_image(conn, source_id, user_id, depth=2, visited={image_id})
+                    if source_id
+                    else []
+                )
+                kind = "gallery_image" if source_id else ("upload" if value.startswith("data:image") else "media")
+                source_row = {
+                    "id": uuid.uuid4().hex,
+                    "imageId": image_id,
+                    "sourceImageId": source_id,
+                    "sourceKind": kind,
+                    "role": role,
+                    "roleLabel": _source_role_label(role, slot, req.mode),
+                    "slotIndex": slot,
+                    "thumbUrl": public_url(thumb_path, user_id),
+                    "width": width,
+                    "height": height,
+                    "bytes": byte_size,
+                    "children": children_snapshot,
+                }
+                conn.execute(
+                    """
+                    INSERT INTO image_sources
+                        (id, image_id, user_id, source_image_id, source_kind, role, slot_index,
+                         thumb_url, thumb_width, thumb_height, thumb_bytes, children_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        source_row["id"],
+                        image_id,
+                        user_id,
+                        source_id,
+                        kind,
+                        role,
+                        slot,
+                        source_row["thumbUrl"],
+                        width,
+                        height,
+                        byte_size,
+                        json.dumps(children_snapshot, ensure_ascii=False),
+                        created_at,
+                    ),
+                )
+                saved.append(source_row)
+    except Exception:
+        for path in new_paths:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+        raise
+    for url in old_urls:
+        name = media_filename_from_url(url)
+        if name:
+            _delete_media_rel(name)
     return saved
 
 
@@ -7591,6 +7648,9 @@ async def startup() -> None:
     validate_session_crypto_config()
     init_db()
     enforce_db_guard_after_migrations()
+    source_cleanup = cleanup_orphan_image_sources()
+    if any(source_cleanup.values()):
+        print(f"image source cleanup: {source_cleanup}")
     load_db_state()
     if not worker_started:
         asyncio.create_task(worker())
@@ -11889,6 +11949,7 @@ async def admin_delete_user_gallery_image_v2(
         ).fetchone()
         if row is None:
             raise HTTPException(404, "Image not found.")
+        delete_image_source_files(conn, row["id"])
         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ? AND user_id = ?", (now, row["id"], target["id"]))
         record_audit_log(
             conn,
