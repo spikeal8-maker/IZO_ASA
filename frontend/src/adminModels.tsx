@@ -24,6 +24,21 @@ type UserChoiceItem = { key?: string; label: string; model?: string; cost?: numb
 type CatalogItem = { provider: string; displayName: string; modelId: string; capabilities: string[]; cost: string; margin: string; status: string }
 type ProfileOption = { id: string; name: string; supportsPose?: boolean }
 type ServerModelProfileSettings = { width: number; height: number; steps: number; sampler: string; seedMode: 'random' | 'fixed'; seed: number }
+type ConfigUiResolution = { width: number; height: number; megapixels: number }
+type ConfigUiResolutionRow = { aspect: string; title: string; use: string; sd: ConfigUiResolution; hd: ConfigUiResolution; fullHd: ConfigUiResolution }
+
+const CONFIG_UI_RESOLUTION_MATRIX: ConfigUiResolutionRow[] = [
+  { aspect: '1:1', title: 'Квадрат', use: 'Посты, карточки, аватары', sd: { width: 704, height: 704, megapixels: .50 }, hd: { width: 1024, height: 1024, megapixels: 1.05 }, fullHd: { width: 1408, height: 1408, megapixels: 1.98 } },
+  { aspect: '9:16', title: 'Вертикальное', use: 'Истории, клипы, мобильный экран', sd: { width: 512, height: 896, megapixels: .46 }, hd: { width: 768, height: 1344, megapixels: 1.03 }, fullHd: { width: 1024, height: 1792, megapixels: 1.84 } },
+  { aspect: '16:9', title: 'Широкое', use: 'Обложки, баннеры, превью', sd: { width: 896, height: 512, megapixels: .46 }, hd: { width: 1344, height: 768, megapixels: 1.03 }, fullHd: { width: 1792, height: 1024, megapixels: 1.84 } },
+  { aspect: '3:2', title: 'Фото', use: 'Фотография, печать, портфолио', sd: { width: 960, height: 640, megapixels: .61 }, hd: { width: 1152, height: 768, megapixels: .88 }, fullHd: { width: 1728, height: 1152, megapixels: 1.99 } },
+]
+
+const CONFIG_UI_RESOLUTION_OPTIONS = CONFIG_UI_RESOLUTION_MATRIX.flatMap((row) => ([
+  { ...row.sd, label: `SD · ${row.title} ${row.aspect}` },
+  { ...row.hd, label: `HD · ${row.title} ${row.aspect}` },
+  { ...row.fullHd, label: `Full HD · ${row.title} ${row.aspect}` },
+]))
 type OpenRouterFormatEconomics = {
   id: string
   label: string
@@ -498,6 +513,7 @@ const CSS = `
 .amv2 .lora-row:first-child{border-top:0}.amv2 .lora-row h3{margin:0;font-size:12px;overflow-wrap:anywhere}.amv2 .lora-row p{margin:2px 0 0;color:var(--muted);font-size:10px}.amv2 .lora-compat{display:flex;flex-wrap:wrap;gap:4px}.amv2 .lora-compat span{padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--muted);font-size:9px}.amv2 .lora-row.incompatible{opacity:.48}.amv2 .lora-row input[type=checkbox]{width:17px;height:17px;accent-color:var(--lime)}
 .amv2 .lora-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}.amv2 .lora-column{min-width:0;border:1px solid var(--line);border-radius:7px;overflow:hidden}.amv2 .lora-column-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:rgba(255,255,255,.035);border-bottom:1px solid var(--line)}.amv2 .lora-column-head h3{margin:0;font-size:13px}.amv2 .lora-column .lora-row{grid-template-columns:28px minmax(160px,1fr) 88px;padding:0 10px}.amv2 .lora-column .lora-row>div:nth-child(3){grid-column:2 / -1;padding-bottom:8px}.amv2 .lora-empty{padding:18px 12px;color:var(--muted);font-size:11px}
 .amv2 .config-profiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}.amv2 .config-profile{border:1px solid var(--line);border-radius:7px;overflow:hidden}.amv2 .config-profile.active{border-color:rgba(218,255,47,.55)}.amv2 .config-profile-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.025)}.amv2 .config-profile-head h3{margin:0;font-size:13px}.amv2 .config-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px}.amv2 .config-field label{display:block;margin-bottom:4px;color:var(--muted);font-size:9px;text-transform:uppercase}.amv2 .config-field input,.amv2 .config-field select{width:100%;height:34px}.amv2 .dependency-note{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 12px 12px}.amv2 .dependency-note div{padding:9px;border:1px solid var(--line);border-radius:6px}.amv2 .dependency-note strong{display:block;font-size:11px}.amv2 .dependency-note span{display:block;margin-top:3px;color:var(--muted);font-size:10px;line-height:1.4}
+.amv2 .resolution-matrix{margin:12px 12px 0;border:1px solid var(--line);border-radius:7px;overflow:auto}.amv2 .resolution-matrix table{min-width:760px}.amv2 .resolution-matrix th,.amv2 .resolution-matrix td{height:auto;padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);font-size:11px}.amv2 .resolution-matrix tr:last-child td{border-bottom:0}.amv2 .resolution-matrix th{color:var(--muted);background:rgba(255,255,255,.035);font-size:9px;text-transform:uppercase}.amv2 .resolution-format{display:grid;gap:2px}.amv2 .resolution-format strong{font-size:12px}.amv2 .resolution-format span,.amv2 .resolution-value small{color:var(--muted);font-size:9px}.amv2 .resolution-value{display:grid;gap:2px;white-space:nowrap}.amv2 .resolution-value strong{font-size:11px;font-variant-numeric:tabular-nums}
 .amv2 .server-tools{padding:10px 12px;border-top:1px solid var(--line)}.amv2 .server-tools summary{cursor:pointer;color:var(--muted);font-size:11px;font-weight:700}.amv2 .server-tools .ops-row{padding:10px 0 0;border:0;grid-template-columns:minmax(220px,1fr) auto auto}
 .amv2 .job-list{padding:0 12px 12px;display:grid;gap:6px}
 .amv2 .job-row{display:grid;grid-template-columns:minmax(120px,1fr) 96px 90px minmax(140px,1.2fr);gap:8px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);padding:8px;background:rgba(255,255,255,.028);font-size:12px}
@@ -1195,7 +1211,16 @@ export default function AdminModelsV2() {
     </article>
 
     <article className="card">
-      <div className="card-head"><div><h2 className="card-title">Настройки моделей Config UI</h2><p className="card-note">Параметры применяются backend-ом к каждой локальной генерации выбранного профиля.</p></div><button className="primary" onClick={saveServerProfiles}>Сохранить параметры</button></div>
+      <div className="card-head"><div><h2 className="card-title">Разрешения и настройки Config UI</h2><p className="card-note">Единая матрица для Klein 9B и 4B. Точный размер применяется там, где выбранный workflow поддерживает изменение формата.</p></div><button className="primary" onClick={saveServerProfiles}>Сохранить параметры</button></div>
+      <div className="resolution-matrix">
+        <table>
+          <thead><tr><th>Формат</th><th>SD · около 0,5 МП</th><th>HD · около 1 МП</th><th>Full HD · около 2 МП</th></tr></thead>
+          <tbody>{CONFIG_UI_RESOLUTION_MATRIX.map((row) => <tr key={row.aspect}>
+            <td><div className="resolution-format"><strong>{row.title} · {row.aspect}</strong><span>{row.use}</span></div></td>
+            {([row.sd, row.hd, row.fullHd] as const).map((resolution) => <td key={`${resolution.width}x${resolution.height}`}><div className="resolution-value"><strong>{resolution.width}×{resolution.height}</strong><small>{resolution.megapixels.toFixed(2).replace('.', ',')} МП</small></div></td>)}
+          </tr>)}</tbody>
+        </table>
+      </div>
       <div className="config-profiles">{(['9B', '4B'] as const).map((profileKey) => {
         const active = globalLocalProfile.toLowerCase().endsWith(profileKey.toLowerCase())
         const profileId = profileKey === '9B' ? 'flux_klein_9b' : 'flux_klein_4b'
@@ -1203,7 +1228,7 @@ export default function AdminModelsV2() {
         return <section className={`config-profile ${active ? 'active' : ''}`} key={profileKey}>
           <div className="config-profile-head"><h3>FLUX.2 Klein {profileKey}</h3><span className={`state ${active ? 'ok' : ''}`}>{active ? 'используется' : 'не загружена'}</span></div>
           <div className="config-fields">
-            <div className="config-field"><label>Разрешение по умолчанию</label><select value={`${settings.width}x${settings.height}`} onChange={(e) => { const [width, height] = e.target.value.split('x').map(Number); updateServerProfile(profileId, { width, height }) }}><option>1024x1024</option><option>1536x1024</option><option>1024x1536</option></select></div>
+            <div className="config-field"><label>Разрешение по умолчанию</label><select value={`${settings.width}x${settings.height}`} onChange={(e) => { const [width, height] = e.target.value.split('x').map(Number); updateServerProfile(profileId, { width, height }) }}>{CONFIG_UI_RESOLUTION_OPTIONS.map((option) => <option key={`${option.width}x${option.height}`} value={`${option.width}x${option.height}`}>{option.label} · {option.width}×{option.height}</option>)}</select></div>
             <div className="config-field"><label>Количество шагов</label><input type="number" min="1" max="80" value={settings.steps} onChange={(e) => updateServerProfile(profileId, { steps: Number(e.target.value) })} /></div>
             <div className="config-field"><label>Sampler</label><select value={settings.sampler} onChange={(e) => updateServerProfile(profileId, { sampler: e.target.value })}><option value="er_sde">ER-SDE</option><option value="euler">Euler</option><option value="dpmpp_2m">DPM++ 2M</option></select></div>
             <div className="config-field"><label>Seed</label><select value={settings.seedMode} onChange={(e) => updateServerProfile(profileId, { seedMode: e.target.value as 'random' | 'fixed' })}><option value="random">Случайный при каждой генерации</option><option value="fixed">Фиксированный</option></select></div>
