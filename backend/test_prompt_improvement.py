@@ -40,7 +40,7 @@ def test_prompt_improvement_requires_trusted_session(prompt_user):
 def test_prompt_improvement_replaces_text_and_records_sanitized_usage(prompt_user, monkeypatch):
     captured = {}
 
-    async def fake_improve(req):
+    async def fake_improve(req, _config=None):
         captured["request"] = req
         return "Красный спортивный автомобиль на городской улице, мягкий вечерний свет.", {
             "usage": {"prompt_tokens": 80, "completion_tokens": 22, "cost": 0.00001}
@@ -66,7 +66,7 @@ def test_prompt_improvement_replaces_text_and_records_sanitized_usage(prompt_use
 
 
 def test_prompt_improvement_provider_error_does_not_echo_or_replace_prompt(prompt_user, monkeypatch):
-    async def failed_improve(_req):
+    async def failed_improve(_req, _config=None):
         raise RuntimeError("OpenRouter временно недоступен")
 
     monkeypatch.setattr(main, "improve_prompt_openrouter", failed_improve)
@@ -84,3 +84,15 @@ def test_prompt_parser_accepts_strict_json_and_rejects_empty_value():
     assert main._parse_improved_prompt('{"improved_prompt":"готовый промпт"}') == "готовый промпт"
     with pytest.raises(RuntimeError):
         main._parse_improved_prompt('{"improved_prompt":""}')
+
+
+def test_assistant_config_merges_saved_values_with_mode_defaults(prompt_user):
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('assistant_models', ?, '2026-07-11T00:00:00+00:00')",
+            ('{"improve":{"route":"local","localModel":"gemma4:12b","modePrompts":{"text":"custom text rule"}}}',),
+        )
+    config = main.assistant_models_config()
+    assert config["improve"]["route"] == "local"
+    assert config["improve"]["modePrompts"]["text"] == "custom text rule"
+    assert config["improve"]["modePrompts"]["mask"]

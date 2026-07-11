@@ -720,6 +720,12 @@ class AdminOpenRouterTestRequest(BaseModel):
     height: int = Field(default=1024, ge=512, le=1536)
 
 
+class AdminAssistantTestRequest(BaseModel):
+    provider: Literal["local", "api"]
+    prompt: str = Field(default="девушка стоит у окна вечером", min_length=1, max_length=1000)
+    mode: Literal["text", "i2i", "edit", "sketch", "mask", "outpaint", "remove_bg"] = "text"
+
+
 rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
@@ -6706,6 +6712,58 @@ PROMPT_IMPROVE_MODE_RULES = {
     "remove_bg": "Describe edge preservation, hair and fine details. Do not request unrelated changes to the subject.",
 }
 
+DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
+    "voice": {
+        "localModel": "qwen3-asr:1.7b",
+        "apiModel": "google/gemini-3.1-flash-lite",
+        "route": "local_first",
+        "queueTimeoutSeconds": 1,
+        "requestTimeoutSeconds": 8,
+    },
+    "improve": {
+        "route": "api",
+        "localModel": "gemma4:12b",
+        "apiModel": "deepseek/deepseek-v4-flash",
+        "localTimeoutSeconds": 10,
+        "apiTimeoutSeconds": 10,
+        "systemPrompt": (
+            "You improve prompts for an image generation studio. Preserve the user's intent, subjects, counts, identity, "
+            "requested actions and language. You may clarify composition, light and visual quality only when they do not "
+            "change the request. Never invent a person's clothing, appearance, pose, location details, camera brand, lens, "
+            "new objects or story facts. Do not add policies, explanations or markdown."
+        ),
+        "modePrompts": dict(PROMPT_IMPROVE_MODE_RULES),
+    },
+}
+
+
+def assistant_models_config() -> dict[str, Any]:
+    with db() as conn:
+        row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'assistant_models'").fetchone()
+    stored = safe_json_load(row["value_json"]) if row else {}
+    stored = stored if isinstance(stored, dict) else {}
+    voice = {**DEFAULT_ASSISTANT_MODELS_CONFIG["voice"], **(stored.get("voice") if isinstance(stored.get("voice"), dict) else {})}
+    improve = {**DEFAULT_ASSISTANT_MODELS_CONFIG["improve"], **(stored.get("improve") if isinstance(stored.get("improve"), dict) else {})}
+    improve["modePrompts"] = {
+        **DEFAULT_ASSISTANT_MODELS_CONFIG["improve"]["modePrompts"],
+        **(improve.get("modePrompts") if isinstance(improve.get("modePrompts"), dict) else {}),
+    }
+    improve["route"] = improve["route"] if improve.get("route") in {"local", "api", "auto"} else "api"
+    return {"voice": voice, "improve": improve}
+
+
+async def ollama_models_status() -> dict[str, Any]:
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            response = await client.get(f"{base_url}/api/tags")
+        response.raise_for_status()
+        payload = response.json() if response.content else {}
+        models = payload.get("models") if isinstance(payload, dict) and isinstance(payload.get("models"), list) else []
+        return {"ok": True, "baseUrl": base_url, "models": models}
+    except Exception as exc:
+        return {"ok": False, "baseUrl": base_url, "models": [], "error": type(exc).__name__}
+
 
 def _openrouter_text_content(payload: dict[str, Any]) -> str:
     choices = payload.get("choices") if isinstance(payload, dict) else None
@@ -6735,24 +6793,25 @@ def _parse_improved_prompt(content: str) -> str:
     return value[:2000]
 
 
-async def improve_prompt_openrouter(req: ImprovePromptRequest) -> tuple[str, dict[str, Any]]:
+def _improve_system_message(req: ImprovePromptRequest, config: dict[str, Any]) -> str:
+    language_rule = "Answer in Russian." if req.language == "ru" else "Answer in English."
+    system_prompt = str(config.get("systemPrompt") or DEFAULT_ASSISTANT_MODELS_CONFIG["improve"]["systemPrompt"]).strip()
+    mode_prompts = config.get("modePrompts") if isinstance(config.get("modePrompts"), dict) else {}
+    mode_rule = str(mode_prompts.get(req.mode) or PROMPT_IMPROVE_MODE_RULES[req.mode]).strip()
+    return f"{system_prompt} {language_rule} {mode_rule} Return JSON with one string field named improved_prompt."
+
+
+async def improve_prompt_openrouter(req: ImprovePromptRequest, config: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
     if not openrouter_api_key():
         raise RuntimeError("OpenRouter API-ключ не настроен.")
-    language_rule = "Answer in Russian." if req.language == "ru" else "Answer in English."
+    config = config or assistant_models_config()["improve"]
     technical_context = req.technicalPrompt.strip()
     body = {
-        "model": PROMPT_IMPROVE_MODEL,
+        "model": str(config.get("apiModel") or PROMPT_IMPROVE_MODEL),
         "messages": [
             {
                 "role": "system",
-                "content": (
-                    "You improve prompts for an image generation studio. Preserve the user's intent, subjects, counts, identity, "
-                    "requested actions and language. You may clarify composition, light and visual quality only when they do not "
-                    "change the request. Never invent a person's clothing, appearance, pose, location details, camera brand, lens, "
-                    "new objects or story facts. Do not add policies, explanations or markdown. "
-                    f"{language_rule} {PROMPT_IMPROVE_MODE_RULES[req.mode]} "
-                    "Return JSON with one string field named improved_prompt."
-                ),
+                "content": _improve_system_message(req, config),
             },
             {
                 "role": "user",
@@ -6779,7 +6838,8 @@ async def improve_prompt_openrouter(req: ImprovePromptRequest) -> tuple[str, dic
         },
     }
     async with _prompt_improve_semaphore:
-        async with httpx.AsyncClient(timeout=PROMPT_IMPROVE_TIMEOUT_SECONDS) as client:
+        timeout = max(3, min(30, int(config.get("apiTimeoutSeconds") or PROMPT_IMPROVE_TIMEOUT_SECONDS)))
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(f"{OPENROUTER_BASE_URL}/chat/completions", headers=openrouter_headers(), json=body)
     data = response.json() if response.content else {}
     if response.status_code >= 400:
@@ -6787,6 +6847,52 @@ async def improve_prompt_openrouter(req: ImprovePromptRequest) -> tuple[str, dic
     if not isinstance(data, dict):
         raise RuntimeError("OpenRouter вернул некорректный ответ.")
     return _parse_improved_prompt(_openrouter_text_content(data)), data
+
+
+async def improve_prompt_ollama(req: ImprovePromptRequest, config: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+    config = config or assistant_models_config()["improve"]
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+    body = {
+        "model": str(config.get("localModel") or "gemma4:12b"),
+        "stream": False,
+        "think": False,
+        "keep_alive": "5m",
+        "format": {
+            "type": "object",
+            "properties": {"improved_prompt": {"type": "string"}},
+            "required": ["improved_prompt"],
+        },
+        "messages": [
+            {"role": "system", "content": _improve_system_message(req, config)},
+            {"role": "user", "content": json.dumps({"prompt": req.prompt.strip(), "technical_context": req.technicalPrompt.strip() or None}, ensure_ascii=False)},
+        ],
+        "options": {"temperature": 0.25, "num_predict": 500},
+    }
+    timeout = max(3, min(120, int(config.get("localTimeoutSeconds") or 10)))
+    async with _prompt_improve_semaphore:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(f"{base_url}/api/chat", json=body)
+    data = response.json() if response.content else {}
+    if response.status_code >= 400:
+        raise RuntimeError(f"Ollama вернула ошибку {response.status_code}.")
+    message = data.get("message") if isinstance(data, dict) and isinstance(data.get("message"), dict) else {}
+    return _parse_improved_prompt(str(message.get("content") or "")), data
+
+
+async def improve_prompt_routed(req: ImprovePromptRequest, force_provider: str | None = None) -> tuple[str, dict[str, Any], str, str]:
+    config = assistant_models_config()["improve"]
+    route = force_provider or str(config.get("route") or "api")
+    if route == "local":
+        improved, payload = await improve_prompt_ollama(req, config)
+        return improved, payload, "local", str(config.get("localModel") or "gemma4:12b")
+    if route == "auto":
+        try:
+            improved, payload = await improve_prompt_ollama(req, config)
+            return improved, payload, "local", str(config.get("localModel") or "gemma4:12b")
+        except Exception:
+            pass
+    improved, payload = await improve_prompt_openrouter(req, config)
+    return improved, payload, "api", str(config.get("apiModel") or PROMPT_IMPROVE_MODEL)
 
 
 def resolve_openrouter_model(req: GenerateRequest) -> str:
@@ -8270,16 +8376,16 @@ async def improve_prompt(req: ImprovePromptRequest, request: Request) -> dict[st
         raise HTTPException(400, "Сначала напишите, что нужно изобразить или изменить.")
     started = time.monotonic()
     try:
-        improved, provider_payload = await asyncio.wait_for(
-            improve_prompt_openrouter(req.model_copy(update={"prompt": original})),
-            timeout=PROMPT_IMPROVE_TIMEOUT_SECONDS + 1,
+        improved, provider_payload, provider, model = await asyncio.wait_for(
+            improve_prompt_routed(req.model_copy(update={"prompt": original})),
+            timeout=122,
         )
     except asyncio.TimeoutError as exc:
         raise HTTPException(504, "Улучшение заняло слишком много времени. Исходный текст сохранён.") from exc
     except (httpx.HTTPError, RuntimeError) as exc:
         raise HTTPException(502, str(exc)) from exc
     usage = provider_payload.get("usage") if isinstance(provider_payload.get("usage"), dict) else {}
-    cost = _openrouter_generation_cost(provider_payload)
+    cost = _openrouter_generation_cost(provider_payload) if provider == "api" else 0
     record_event_log(
         "prompt_improved",
         internal_user_id=trusted.get("internal_user_id"),
@@ -8289,7 +8395,8 @@ async def improve_prompt(req: ImprovePromptRequest, request: Request) -> dict[st
         request=request,
         properties={
             "mode": req.mode,
-            "model": PROMPT_IMPROVE_MODEL,
+            "model": model,
+            "provider": provider,
             "input_chars": len(original),
             "output_chars": len(improved),
             "latency_ms": round((time.monotonic() - started) * 1000),
@@ -8299,7 +8406,8 @@ async def improve_prompt(req: ImprovePromptRequest, request: Request) -> dict[st
     return {
         "ok": True,
         "improvedPrompt": improved,
-        "model": PROMPT_IMPROVE_MODEL,
+        "model": model,
+        "provider": provider,
         "usage": usage,
         "costUsd": cost,
     }
@@ -13373,6 +13481,36 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
         _admin_models_page_cache["ts"] = 0.0
         _admin_models_page_cache["data"] = None
     return {"ok": True, "key": key, "settings": settings}
+
+
+@app.get("/api/admin/assistants")
+async def admin_assistants(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    return {
+        "ok": True,
+        "config": assistant_models_config(),
+        "ollama": await ollama_models_status(),
+        "openrouterConfigured": bool(openrouter_api_key()),
+    }
+
+
+@app.post("/api/admin/assistants/test")
+async def admin_test_assistant(req: AdminAssistantTestRequest, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    started = time.monotonic()
+    improve_req = ImprovePromptRequest(prompt=req.prompt.strip(), mode=req.mode, language="ru")
+    try:
+        improved, payload, provider, model = await improve_prompt_routed(improve_req, force_provider=req.provider)
+    except (httpx.HTTPError, RuntimeError) as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {
+        "ok": True,
+        "provider": provider,
+        "model": model,
+        "improvedPrompt": improved,
+        "latencyMs": round((time.monotonic() - started) * 1000),
+        "costUsd": _openrouter_generation_cost(payload) if provider == "api" else 0,
+    }
 
 
 async def compute_model_status() -> dict[str, Any]:

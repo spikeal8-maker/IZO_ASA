@@ -1146,7 +1146,7 @@ export default function NewStudio(): ReactElement {
   const [paintStageSize, setPaintStageSize] = useState(() => paintStageForResolution(RESOLUTION_PRESETS[0]))
   const [paintWorkbenchVisible, setPaintWorkbenchVisible] = useState(true)
   const [promptImproveBusy, setPromptImproveBusy] = useState(false)
-  const [promptImproveUndo, setPromptImproveUndo] = useState<{ mode: StudioMode; text: string } | null>(null)
+  const [lastImprovedPrompt, setLastImprovedPrompt] = useState<{ mode: StudioMode; text: string } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -2267,21 +2267,15 @@ export default function NewStudio(): ReactElement {
       if (!response.ok || !payload.improvedPrompt?.trim()) {
         throw new Error(apiErrorText(payload.detail, 'Не удалось улучшить промпт'))
       }
-      setPromptImproveUndo({ mode: studioMode, text: promptValue })
-      setPrompt(payload.improvedPrompt.trim().slice(0, promptLimit))
+      const improved = payload.improvedPrompt.trim().slice(0, promptLimit)
+      setPrompt(improved)
+      setLastImprovedPrompt({ mode: studioMode, text: improved })
       showToast('Промпт улучшен')
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Не удалось улучшить промпт')
     } finally {
       setPromptImproveBusy(false)
     }
-  }
-
-  function undoPromptImprovement() {
-    if (!promptImproveUndo || promptImproveUndo.mode !== studioMode) return
-    setPrompt(promptImproveUndo.text)
-    setPromptImproveUndo(null)
-    showToast('Исходный промпт возвращён')
   }
 
   useEffect(() => {
@@ -3230,18 +3224,13 @@ export default function NewStudio(): ReactElement {
               </svg>
               Голос
             </button>
-            <button className="tool-button primary" type="button" disabled={promptImproveBusy} onClick={() => void improveCurrentPrompt()}>
+            <button className="tool-button primary" type="button" disabled={promptImproveBusy || (lastImprovedPrompt?.mode === studioMode && lastImprovedPrompt.text === promptValue)} onClick={() => void improveCurrentPrompt()}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M12 3.5l1.6 4 4 1.6-4 1.6-1.6 4-1.6-4-4-1.6 4-1.6L12 3.5Z" fill="currentColor" />
                 <path d="M18.5 14.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z" fill="currentColor" opacity=".72" />
               </svg>
-              {promptImproveBusy ? 'Улучшаю…' : 'Улучшить'}
+              {promptImproveBusy ? 'Улучшаю…' : lastImprovedPrompt?.mode === studioMode && lastImprovedPrompt.text === promptValue ? 'Улучшено' : 'Улучшить'}
             </button>
-            {promptImproveUndo?.mode === studioMode && (
-              <button className="tool-button" type="button" disabled={promptImproveBusy} onClick={undoPromptImprovement}>
-                Вернуть
-              </button>
-            )}
             {!isEditStudio && !isPaintStudio && (
               <>
                 <button className="tool-button" type="button" onClick={() => setTemplatesOpen(true)}>

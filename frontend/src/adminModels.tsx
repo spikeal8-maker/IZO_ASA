@@ -225,6 +225,22 @@ type AssistantModelPlan = {
   status: 'Рекомендуется' | 'Проверить' | 'Планируется'
 }
 
+type AssistantConfig = {
+  voice: { localModel: string; apiModel: string; route: string; queueTimeoutSeconds: number; requestTimeoutSeconds: number }
+  improve: { route: 'local' | 'api' | 'auto'; localModel: string; apiModel: string; localTimeoutSeconds: number; apiTimeoutSeconds: number; systemPrompt: string; modePrompts: Record<string, string> }
+}
+type AssistantAdminData = {
+  ok?: boolean
+  config: AssistantConfig
+  ollama: { ok: boolean; baseUrl: string; error?: string; models: Array<{ name?: string; model?: string; size?: number; details?: { parameter_size?: string; quantization_level?: string } }> }
+  openrouterConfigured: boolean
+}
+type AssistantTestResult = { ok?: boolean; provider?: string; model?: string; improvedPrompt?: string; latencyMs?: number; costUsd?: number; detail?: string }
+
+const ASSISTANT_MODE_LABELS: Record<string, string> = {
+  text: 'По тексту', i2i: 'По фото', edit: 'Сборка', sketch: 'Эскиз', mask: 'Маска', outpaint: 'Расширение', remove_bg: 'Удалить фон',
+}
+
 const ASSISTANT_MODEL_PLAN: AssistantModelPlan[] = [
   { task: 'Транскрибация', role: 'Основная', model: 'Qwen3-ASR 1.7B', runtime: 'Локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Лёгкая современная ASR, высокая скорость, русский язык', limitations: 'До запуска нужен собственный тест речи, шума и пауз', status: 'Проверить' },
   { task: 'Транскрибация', role: 'Кандидат', model: 'Faster Whisper Large V3 Turbo', runtime: 'Локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Зрелый production-стек, VAD, предсказуемая интеграция', limitations: 'Тяжелее Qwen3-ASR; нужна защита от текста на тишине', status: 'Рекомендуется' },
@@ -586,6 +602,16 @@ const CSS = `
 .amv2 .assistant-table td small{color:var(--muted)}
 .amv2 .assistant-status{display:inline-flex;padding:3px 7px;border:1px solid var(--line-strong);border-radius:999px;white-space:nowrap;color:var(--muted)}
 .amv2 .assistant-status.recommended{color:var(--lime);border-color:rgba(234,255,16,.35)}
+.amv2 .assistant-config{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);gap:12px}
+.amv2 .assistant-form{padding:14px;display:grid;gap:12px}
+.amv2 .assistant-form textarea{min-height:126px;resize:vertical;line-height:1.45}
+.amv2 .assistant-form .mode-prompt{min-height:86px}
+.amv2 .assistant-test{padding:14px;display:grid;gap:10px;align-content:start}
+.amv2 .assistant-test-result{padding:12px;border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.03);display:grid;gap:6px}
+.amv2 .assistant-test-result small{color:var(--muted)}
+.amv2 .ollama-list{display:grid;gap:7px}
+.amv2 .ollama-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:9px;border:1px solid var(--line);border-radius:var(--radius)}
+.amv2 .ollama-row small{color:var(--muted)}
 .amv2 th,.amv2 td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:12px}
 .amv2 th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.025)}
 .amv2 tr.selected td{background:rgba(234,255,16,.055)}
@@ -629,13 +655,13 @@ const CSS = `
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head{grid-template-columns:1fr}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview,.amv2 .assistant-summary{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
 `
 
 export default function AdminModelsV2() {
   const [data, setData] = useState<PageData | null>(null)
-  const [pageTab, setPageTab] = useState<'config' | 'api' | 'assistants'>('api')
+  const [pageTab, setPageTab] = useState<'config' | 'api' | 'voice' | 'improve'>('api')
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
   const [routes, setRoutes] = useState<Route[]>([])
   const [query, setQuery] = useState('')
@@ -657,6 +683,10 @@ export default function AdminModelsV2() {
   const [opsBusy, setOpsBusy] = useState(false)
   const [loraAccess, setLoraAccess] = useState<Record<string, boolean>>({})
   const [serverProfiles, setServerProfiles] = useState<Record<string, ServerModelProfileSettings>>({})
+  const [assistantData, setAssistantData] = useState<AssistantAdminData | null>(null)
+  const [assistantBusy, setAssistantBusy] = useState(false)
+  const [assistantTestPrompt, setAssistantTestPrompt] = useState('девушка стоит у окна вечером')
+  const [assistantTestResult, setAssistantTestResult] = useState<AssistantTestResult | null>(null)
 
   const load = useCallback(async () => {
     const d = await amvFetch('/admin/models-page?local=0').then((r) => (r.ok ? r.json() : null)).catch(() => null) as PageData | null
@@ -718,6 +748,35 @@ export default function AdminModelsV2() {
       void loadConfigStatus()
     })
   }, [configErr, configStatus, loadConfigStatus, loadLocalModelData, pageTab])
+
+  const loadAssistants = useCallback(async () => {
+    const result = await amvFetch('/admin/assistants').then((r) => r.ok ? r.json() : null).catch(() => null) as AssistantAdminData | null
+    if (result?.config) setAssistantData(result)
+    else setMsg('Не удалось загрузить настройки голосового ввода и улучшения')
+  }, [])
+
+  useEffect(() => {
+    if ((pageTab === 'voice' || pageTab === 'improve') && !assistantData) queueMicrotask(() => { void loadAssistants() })
+  }, [assistantData, loadAssistants, pageTab])
+
+  const updateAssistantConfig = (next: AssistantConfig) => setAssistantData((current) => current ? { ...current, config: next } : current)
+  const saveAssistantConfig = async () => {
+    if (!assistantData) return
+    setAssistantBusy(true)
+    await saveSetting('assistant_models', assistantData.config, 'Настройки помощников')
+    setAssistantBusy(false)
+    await loadAssistants()
+  }
+  const testPromptAssistant = async (provider: 'local' | 'api') => {
+    setAssistantBusy(true); setAssistantTestResult(null)
+    const result = await amvFetch('/admin/assistants/test', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, prompt: assistantTestPrompt, mode: 'text' }),
+    }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) })).catch(() => null)
+    setAssistantBusy(false)
+    if (result?.status === 200) setAssistantTestResult(result.body as AssistantTestResult)
+    else setAssistantTestResult({ detail: String((result?.body as { detail?: unknown } | undefined)?.detail || 'Тест не выполнен') })
+  }
 
   async function configAction(kind: 'reload' | 'interrupt') {
     const reason = opsReason.trim()
@@ -1008,7 +1067,8 @@ export default function AdminModelsV2() {
     <div className="page-tabs" aria-label="Разделы моделей">
       <button className={pageTab === 'api' ? 'active' : ''} onClick={() => setPageTab('api')}>OpenRouter</button>
       <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Config UI</button>
-      <button className={pageTab === 'assistants' ? 'active' : ''} onClick={() => setPageTab('assistants')}>Голос и промпты</button>
+      <button className={pageTab === 'voice' ? 'active' : ''} onClick={() => setPageTab('voice')}>Голосовой ввод</button>
+      <button className={pageTab === 'improve' ? 'active' : ''} onClick={() => setPageTab('improve')}>Улучшение промпта</button>
       {pageTab === 'api' && <div className="tab-status">
         <span className={`status-dot ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : ''}`} aria-hidden="true" />
         <span className={`state ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{orStatus.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
@@ -1017,30 +1077,51 @@ export default function AdminModelsV2() {
       </div>}
     </div>
 
-    {pageTab === 'assistants' && <>
-      <section className="assistant-summary" aria-label="План вычислительного контура помощников">
-        <div><span>Изображения</span><strong>RTX 3090</strong><small>Изолированный контур генерации; помощники эту карту не занимают.</small></div>
-        <div><span>Голос и промпты</span><strong>RTX 4070 · 12 ГБ</strong><small>Qwen/Whisper и Gemma выполняются через общую очередь GPU.</small></div>
-        <div><span>До установки RTX 4070</span><strong>CPU · i5 / 30 ГБ RAM</strong><small>Только ограниченный тестовый режим; при нагрузке используется API-резерв.</small></div>
+    {pageTab === 'voice' && <>
+      <section className="assistant-summary">
+        <div><span>Статус</span><strong>Проектируется</strong><small>Пользовательская кнопка пока не подключена к микрофону.</small></div>
+        <div><span>Локальная цель</span><strong>Qwen3-ASR 1.7B</strong><small>RTX 4070 12 ГБ; до установки требуется русский benchmark.</small></div>
+        <div><span>API-резерв</span><strong>Gemini Audio</strong><small>OpenRouter включается при timeout или перегрузке local worker.</small></div>
       </section>
-
       <article className="card">
-        <div className="card-head"><div><h2 className="card-title">Голос и улучшение промптов</h2><p className="card-note">План моделей. Статус не означает, что runtime уже установлен или подключён.</p></div></div>
-        <p className="hint" style={{ margin: '12px' }}>Целевая цепочка: голос сначала расшифровывает специализированная ASR-модель; Gemma улучшает только готовый текст. При ошибке, перегрузке или длинной очереди диспетчер переключает конкретную операцию на OpenRouter.</p>
-        <div className="matrix-wrap">
-          <table className="assistant-table">
-            <thead><tr><th>Задача</th><th>Роль и модель</th><th>Исполнение</th><th>Сильные стороны</th><th>Ограничения</th><th>Статус</th></tr></thead>
-            <tbody>{ASSISTANT_MODEL_PLAN.map((item) => <tr key={`${item.task}-${item.role}-${item.model}`}>
-              <td><strong>{item.task}</strong></td>
-              <td><strong>{item.model}</strong><small>{item.role}</small></td>
-              <td><strong>{item.runtime}</strong><small>{item.hardware}</small></td>
-              <td>{item.strengths}</td>
-              <td>{item.limitations}</td>
-              <td><span className={`assistant-status${item.status === 'Рекомендуется' ? ' recommended' : ''}`}>{item.status}</span></td>
-            </tr>)}</tbody>
-          </table>
-        </div>
+        <div className="card-head"><div><h2 className="card-title">Голосовой ввод</h2><p className="card-note">Реестр кандидатов и будущая маршрутизация. Здесь пока нет ложного статуса «работает».</p></div></div>
+        <div className="matrix-wrap"><table className="assistant-table"><thead><tr><th>Задача</th><th>Роль и модель</th><th>Исполнение</th><th>Сильные стороны</th><th>Ограничения</th><th>Статус</th></tr></thead>
+          <tbody>{ASSISTANT_MODEL_PLAN.filter((item) => item.task === 'Транскрибация').map((item) => <tr key={`${item.role}-${item.model}`}><td>{item.task}</td><td><strong>{item.model}</strong><small>{item.role}</small></td><td><strong>{item.runtime}</strong><small>{item.hardware}</small></td><td>{item.strengths}</td><td>{item.limitations}</td><td><span className={`assistant-status${item.status === 'Рекомендуется' ? ' recommended' : ''}`}>{item.status}</span></td></tr>)}</tbody>
+        </table></div>
       </article>
+    </>}
+
+    {pageTab === 'improve' && assistantData && <>
+      <section className="assistant-summary">
+        <div><span>Текущий маршрут</span><strong>{assistantData.config.improve.route === 'api' ? 'OpenRouter API' : assistantData.config.improve.route === 'local' ? 'Локальная Ollama' : 'Авто: local → API'}</strong><small>Изменение применяется ко всем вкладкам студии.</small></div>
+        <div><span>Ollama</span><strong>{assistantData.ollama.ok ? 'В сети' : 'Не отвечает'}</strong><small>{assistantData.ollama.baseUrl}</small></div>
+        <div><span>OpenRouter</span><strong>{assistantData.openrouterConfigured ? 'Ключ настроен' : 'Нет ключа'}</strong><small>Ключ управляется в существующей вкладке OpenRouter.</small></div>
+      </section>
+      <section className="assistant-config">
+        <article className="card">
+          <div className="card-head"><div><h2 className="card-title">Маршрут и инструкции</h2><p className="card-note">Настройки хранятся в базе и используются пользовательской кнопкой «Улучшить».</p></div></div>
+          <div className="assistant-form">
+            <div className="two-col">
+              <div className="field"><label>Основной маршрут</label><select value={assistantData.config.improve.route} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, route: e.target.value as AssistantConfig['improve']['route'] } })}><option value="api">OpenRouter API</option><option value="local">Локальная Ollama</option><option value="auto">Авто: Ollama → OpenRouter</option></select></div>
+              <div className="field"><label>Локальная модель Ollama</label><select value={assistantData.config.improve.localModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, localModel: e.target.value } })}>{assistantData.ollama.models.filter((m) => m.name && !m.name.endsWith(':cloud')).map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}</select></div>
+              <div className="field"><label>Модель OpenRouter</label><input value={assistantData.config.improve.apiModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, apiModel: e.target.value } })} /></div>
+              <div className="field"><label>Timeout local / API, секунд</label><div className="two-col"><input type="number" min="3" max="120" value={assistantData.config.improve.localTimeoutSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, localTimeoutSeconds: Number(e.target.value) } })} /><input type="number" min="3" max="30" value={assistantData.config.improve.apiTimeoutSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, apiTimeoutSeconds: Number(e.target.value) } })} /></div></div>
+            </div>
+            <div className="field"><label>Главный системный промпт</label><textarea value={assistantData.config.improve.systemPrompt} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, systemPrompt: e.target.value } })} /></div>
+            {Object.entries(assistantData.config.improve.modePrompts).map(([mode, value]) => <div className="field" key={mode}><label>{ASSISTANT_MODE_LABELS[mode] || mode}</label><textarea className="mode-prompt" value={value} onChange={(e) => updateAssistantConfig({ ...assistantData.config, improve: { ...assistantData.config.improve, modePrompts: { ...assistantData.config.improve.modePrompts, [mode]: e.target.value } } })} /></div>)}
+            <button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить настройки'}</button>
+          </div>
+        </article>
+        <aside className="card">
+          <div className="card-head"><div><h2 className="card-title">Проверка моделей</h2><p className="card-note">Тест не меняет пользовательские промпты.</p></div></div>
+          <div className="assistant-test">
+            <textarea value={assistantTestPrompt} onChange={(e) => setAssistantTestPrompt(e.target.value)} />
+            <div className="actions"><button className="ghost" disabled={assistantBusy} onClick={() => void testPromptAssistant('local')}>Тест Ollama</button><button className="ghost" disabled={assistantBusy} onClick={() => void testPromptAssistant('api')}>Тест OpenRouter</button></div>
+            {assistantTestResult && <div className="assistant-test-result"><strong>{assistantTestResult.detail || assistantTestResult.improvedPrompt}</strong>{assistantTestResult.model && <small>{assistantTestResult.provider} · {assistantTestResult.model} · {assistantTestResult.latencyMs} мс · ${Number(assistantTestResult.costUsd || 0).toFixed(6)}</small>}</div>}
+            <div className="ollama-list">{assistantData.ollama.models.filter((m) => m.name && !m.name.endsWith(':cloud')).map((m) => <div className="ollama-row" key={m.name}><div><strong>{m.name}</strong><small>{m.details?.parameter_size || '—'} · {m.details?.quantization_level || '—'}</small></div><small>{m.size ? `${(m.size / 1024 ** 3).toFixed(1)} ГБ` : '—'}</small></div>)}</div>
+          </div>
+        </aside>
+      </section>
     </>}
 
     {pageTab === 'config' && <>
