@@ -33,6 +33,14 @@ from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, Field
 
+from resolution_policy import (
+    IMAGE_RESOLUTIONS,
+    RESOLUTION_BY_ID,
+    normalize_resolution_ids,
+    resolution_id_for_size,
+    supported_resolution_ids_from_capability,
+)
+
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
@@ -731,11 +739,11 @@ rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
 DEFAULT_TARIFFS: dict[str, dict[str, Any]] = {
-    "free": {"title": "Free", "note": "Базовый доступ", "price_rub_month": 0, "daily_tokens": 10, "openrouter_monthly_tokens": 0, "gallery_slots": 20, "quality_label": "Базовое качество", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024"], "video_enabled": 0, "video_slots": 0},
-    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "openrouter_monthly_tokens": 100, "gallery_slots": 80, "quality_label": "HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-1024", "h-1280", "v-720"], "video_enabled": 0, "video_slots": 0},
-    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "openrouter_monthly_tokens": 250, "gallery_slots": 200, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "openai/gpt-image-1-mini"}, "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024"], "video_enabled": 0, "video_slots": 0},
-    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "openrouter_monthly_tokens": 500, "gallery_slots": 500, "quality_label": "4K", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "black-forest-labs/flux.2-pro"}, "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 10},
-    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "openrouter_monthly_tokens": 1200, "gallery_slots": 500, "quality_label": "4K", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-pro", "max": "openai/gpt-image-1"}, "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": ["sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"], "video_enabled": 1, "video_slots": 50},
+    "free": {"title": "Free", "note": "Базовый доступ", "price_rub_month": 0, "daily_tokens": 10, "openrouter_monthly_tokens": 0, "gallery_slots": 20, "quality_label": "SD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-sd", "v-sd", "h-sd", "p-sd"], "video_enabled": 0, "video_slots": 0},
+    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "openrouter_monthly_tokens": 100, "gallery_slots": 80, "quality_label": "HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "full_hd"], "video_enabled": 0, "video_slots": 0},
+    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "openrouter_monthly_tokens": 250, "gallery_slots": 200, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "openai/gpt-image-1-mini"}, "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 0, "video_slots": 0},
+    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "openrouter_monthly_tokens": 500, "gallery_slots": 500, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "black-forest-labs/flux.2-pro"}, "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 10},
+    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "openrouter_monthly_tokens": 1200, "gallery_slots": 500, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-pro", "max": "openai/gpt-image-1"}, "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 50},
 }
 
 
@@ -3381,7 +3389,7 @@ def _tariff_text(source: dict[str, Any], plan: str, key: str, *, max_len: int = 
     return (text or str(DEFAULT_TARIFFS[plan][key]))[:max_len]
 
 
-ALLOWED_RESOLUTION_IDS = {"sq-1024", "h-1280", "v-720", "h-1536", "v-1024", "h-1920", "v-1088"}
+ALLOWED_RESOLUTION_IDS = set(RESOLUTION_BY_ID)
 QUALITY_PRESETS = ("fast", "standard", "max")
 ALLOWED_TARIFF_MODEL_IDS = {
     "server:local_flux_klein",
@@ -3391,7 +3399,7 @@ ALLOWED_TARIFF_MODEL_IDS = {
 def _tariff_resolutions(source: dict[str, Any], plan: str) -> list[str]:
     raw = source.get("allowed_resolutions", source.get("allowedResolutions", DEFAULT_TARIFFS[plan]["allowed_resolutions"]))
     values = raw if isinstance(raw, list) else []
-    result = [str(item) for item in values if str(item) in ALLOWED_RESOLUTION_IDS]
+    result = normalize_resolution_ids(values)
     return result or list(DEFAULT_TARIFFS[plan]["allowed_resolutions"])
 
 
@@ -8569,6 +8577,14 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         user_row = conn.execute("SELECT id, plan FROM users WHERE id = ?", (user_id,)).fetchone()
         if user_row is None:
             raise HTTPException(404, "User not found.")
+    plan = str(user_row["plan"] or "mini").lower()
+    if plan not in PLAN_ORDER:
+        plan = "mini"
+    requested_resolution_id = resolution_id_for_size(req.width, req.height)
+    if requested_resolution_id is None:
+        raise HTTPException(422, "Выбран нестандартный размер изображения. Выберите доступное разрешение в интерфейсе.")
+    if req.provider == "comfyui" and requested_resolution_id not in get_tariff_config()[plan]["allowed_resolutions"]:
+        raise HTTPException(403, "Это разрешение недоступно на вашем тарифе.")
     if req.provider == "openrouter":
         if req.mode not in OPENROUTER_GENERATION_MODES:
             raise HTTPException(501, "OpenRouter для этой вкладки пока не подключён.")
@@ -8586,12 +8602,14 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
                 raise HTTPException(400, "Для «Сборки» нужны основа и хотя бы один референс.")
             if len(references) > reference_limit:
                 raise HTTPException(400, f"Выбранная модель принимает не больше {reference_limit} изображений.")
-        plan = str(user_row["plan"] or "mini").lower()
-        if plan not in PLAN_ORDER:
-            plan = "mini"
         openrouter_config = get_openrouter_config()
         if not openrouter_model_allowed(openrouter_config, req.mode, plan, req.modelProfile):
             raise HTTPException(403, "This OpenRouter model is not available for this mode and tariff.")
+        capabilities = await fetch_openrouter_image_capabilities()
+        resolved_model = resolve_openrouter_model(req)
+        capability = next((item for item in capabilities if item.get("id") == resolved_model), None)
+        if requested_resolution_id not in supported_resolution_ids_from_capability(capability):
+            raise HTTPException(422, "Выбранное разрешение не поддерживается этой моделью.")
         openrouter_billing = await estimate_openrouter_billing(req)
         token_cost = int(openrouter_billing["chargedTokens"])
     else:
@@ -14678,6 +14696,7 @@ def _public_model_option(model_id: str, capability: dict[str, Any] | None = None
             "provider": "comfyui",
             "modelProfile": "local_flux_klein",
             "tokenHint": 1,
+            "supportedResolutionIds": list(RESOLUTION_BY_ID),
             "generation": {
                 "fixedSteps": LOCAL_TEXT_TO_IMAGE_STEPS,
                 "allowsExactRepeat": False,
@@ -14692,6 +14711,7 @@ def _public_model_option(model_id: str, capability: dict[str, Any] | None = None
         "provider": "openrouter",
         "modelProfile": model_id,
         "tokenHint": price.min_tokens if price else 1,
+        "supportedResolutionIds": supported_resolution_ids_from_capability(capability),
         "generation": {
             "fixedSteps": None,
             "allowsExactRepeat": True,
