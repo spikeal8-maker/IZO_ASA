@@ -78,3 +78,15 @@ Implemented:
 - Delete removes only cards with the affected image ID.
 - Loading secondary sections no longer rebuilds the primary grid.
 - Full grid rebuild remains only for a fresh search/filter and grid/list mode changes.
+
+## Phase 4: indexed search and request cancellation
+
+Implemented:
+
+- SQLite FTS5 index covers image ID, original/translated prompt, mode, provider, model/settings metadata.
+- Insert/update/delete triggers keep the search index synchronized.
+- Existing images are backfilled idempotently during schema initialization.
+- Primary gallery search uses FTS prefix terms instead of six `%LIKE%` scans.
+- A new search aborts stale primary and secondary requests.
+- Version guards prevent late responses from replacing newer results.
+- Client-side prompt/aspect/model rescanning was removed; local filtering remains only for mutable favorite/publication state.

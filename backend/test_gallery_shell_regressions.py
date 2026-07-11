@@ -38,3 +38,7 @@ def test_gallery_defers_secondary_sections_and_uses_small_pages():
     assert "removeImageCards" in script
     assert "getBoundingClientRect().height" not in script
     assert "bindMasonryImages" not in script
+    assert "new AbortController()" in script
+    assert "primaryRequestVersion" in script
+    assert "secondaryRequestVersion" in script
+    assert "err?.name === 'AbortError'" in script

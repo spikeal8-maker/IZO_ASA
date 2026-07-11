@@ -1920,6 +1920,46 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_images_job_id "
             "ON images(job_id)"
         )
+        conn.executescript(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS images_search USING fts5(
+                image_id UNINDEXED,
+                user_id UNINDEXED,
+                search_text,
+                tokenize='unicode61'
+            );
+            CREATE TRIGGER IF NOT EXISTS images_search_insert AFTER INSERT ON images BEGIN
+                INSERT INTO images_search(rowid, image_id, user_id, search_text)
+                VALUES (new.rowid, new.id, new.user_id,
+                    COALESCE(new.id, '') || ' ' || COALESCE(new.prompt_original, '') || ' ' ||
+                    COALESCE(new.prompt_translated, '') || ' ' || COALESCE(new.mode, '') || ' ' ||
+                    COALESCE(new.provider, '') || ' ' || COALESCE(new.settings_json, ''));
+            END;
+            CREATE TRIGGER IF NOT EXISTS images_search_delete AFTER DELETE ON images BEGIN
+                DELETE FROM images_search WHERE rowid = old.rowid;
+            END;
+            CREATE TRIGGER IF NOT EXISTS images_search_update AFTER UPDATE OF
+                id, user_id, prompt_original, prompt_translated, mode, provider, settings_json ON images BEGIN
+                DELETE FROM images_search WHERE rowid = old.rowid;
+                INSERT INTO images_search(rowid, image_id, user_id, search_text)
+                VALUES (new.rowid, new.id, new.user_id,
+                    COALESCE(new.id, '') || ' ' || COALESCE(new.prompt_original, '') || ' ' ||
+                    COALESCE(new.prompt_translated, '') || ' ' || COALESCE(new.mode, '') || ' ' ||
+                    COALESCE(new.provider, '') || ' ' || COALESCE(new.settings_json, ''));
+            END;
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO images_search(rowid, image_id, user_id, search_text)
+            SELECT images.rowid, images.id, images.user_id,
+                   COALESCE(images.id, '') || ' ' || COALESCE(images.prompt_original, '') || ' ' ||
+                   COALESCE(images.prompt_translated, '') || ' ' || COALESCE(images.mode, '') || ' ' ||
+                   COALESCE(images.provider, '') || ' ' || COALESCE(images.settings_json, '')
+            FROM images
+            WHERE NOT EXISTS (SELECT 1 FROM images_search WHERE images_search.rowid = images.rowid)
+            """
+        )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_image_sources_image "
             "ON image_sources(image_id, slot_index)"
@@ -3503,6 +3543,11 @@ def parse_gallery_cursor(cursor: str | None) -> tuple[str, str] | None:
     if not created_at or not image_id:
         raise HTTPException(400, "invalid gallery cursor")
     return created_at, image_id
+
+
+def gallery_fts_query(value: str) -> str:
+    terms = [term for term in re.split(r"[^\w]+", str(value or "").lower(), flags=re.UNICODE) if term]
+    return " AND ".join(f'"{term}"*' for term in terms[:12])
 
 
 def gallery_media_owner_row(conn: sqlite3.Connection, filename: str, legacy_user_id: str) -> sqlite3.Row | None:
@@ -8343,11 +8388,12 @@ async def gallery_items_page(
         where_sql = ["user_id = ?", ACTIVE_IMAGE_WHERE]
         params: list[Any] = [user_id]
         if search:
-            like = f"%{search}%"
-            where_sql.append(
-                "(id LIKE ? OR prompt_original LIKE ? OR prompt_translated LIKE ? OR mode LIKE ? OR provider LIKE ? OR settings_json LIKE ?)"
-            )
-            params.extend([like, like, like, like, like, like])
+            fts_query = gallery_fts_query(search)
+            if fts_query:
+                where_sql.append(
+                    "images.rowid IN (SELECT rowid FROM images_search WHERE images_search MATCH ? AND user_id = ?)"
+                )
+                params.extend([fts_query, user_id])
         if gallery_filter == "favorite":
             where_sql.append("is_favorite = 1")
         elif gallery_filter == "published":

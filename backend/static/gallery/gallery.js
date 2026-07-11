@@ -34,6 +34,10 @@ let uploadsSectionReady = false;
 let userHasScrolled = false;
 let secondaryLoading = false;
 let secondaryLoaded = false;
+let primaryRequestController = null;
+let secondaryRequestController = null;
+let primaryRequestVersion = 0;
+let secondaryRequestVersion = 0;
 const detailPromises = new Map();
 const API_BASE = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : '';
 
@@ -151,19 +155,11 @@ function modelFullName(item){
   return item?.modelInfo?.fullName || modelShortName(item);
 }
 function filteredItems(base){
-  const q = searchInput.value.trim().toLowerCase();
   return base.filter(raw => {
     const item = normalizeItem(raw);
-    if(q){
-      const loras = Array.isArray(item.loras) ? item.loras.join(' ') : '';
-      const hay = `${item.id} ${item.prompt} ${item.modeText} ${item.model} ${item.preset} ${loras}`.toLowerCase();
-      if(!hay.includes(q)) return false;
-    }
     if(currentFilter === 'favorite' && !item.favorite) return false;
     if(currentFilter === 'published' && !item.published) return false;
     if(currentFilter === 'unpublished' && item.published) return false;
-    if(['16:9','4:5','1:1'].includes(currentFilter) && item.aspectRatio !== currentFilter && item.aspect !== currentFilter) return false;
-    if(currentFilter === 'face' && item.modeText !== 'Лицо') return false;
     return true;
   });
 }
@@ -299,7 +295,17 @@ function render({ preservePrimary = false, preserveSecondary = false } = {}){
   scheduleMasonry();
 }
 async function loadGallery({ append = false } = {}){
-  if(galleryLoading) return;
+  if(galleryLoading && append) return;
+  if(!append){
+    primaryRequestController?.abort();
+    secondaryRequestController?.abort();
+    secondaryRequestController = null;
+    secondaryLoading = false;
+    secondaryRequestVersion += 1;
+  }
+  const requestVersion = ++primaryRequestVersion;
+  const requestController = new AbortController();
+  primaryRequestController = requestController;
   galleryLoading = true;
   if(!append){
     galleryLoadError = '';
@@ -315,7 +321,8 @@ async function loadGallery({ append = false } = {}){
     const q = searchInput.value.trim();
     if(q) params.set('q', q);
     if(currentFilter !== 'all') params.set('filter', currentFilter);
-    const data = await api(`/api/gallery/items?${params.toString()}`);
+    const data = await api(`/api/gallery/items?${params.toString()}`, { signal:requestController.signal });
+    if(requestVersion !== primaryRequestVersion) return;
     limits = data.limits || limits;
     const nextImages = (data.items || []).map(normalizeItem);
     const existingIds = new Set(images.map(item=>String(item.id)));
@@ -328,21 +335,27 @@ async function loadGallery({ append = false } = {}){
     render({ preservePrimary:append, preserveSecondary:append });
     if(!append && (feedSectionReady || uploadsSectionReady)) loadSecondarySections();
   }catch(err){
+    if(err?.name === 'AbortError') return;
     if(!append) galleryLoadError = String(err?.message || '').includes('Missing session token')
       ? 'Войдите в аккаунт, чтобы открыть личную галерею.'
       : 'Проверьте авторизацию или попробуйте обновить страницу.';
     if(append) showToast('Галерея не загрузилась.');
     console.error(err);
-    galleryLoading = false;
     render({ preservePrimary:append, preserveSecondary:append });
     return;
   }finally{
-    galleryLoading = false;
-    render({ preservePrimary:append, preserveSecondary:append });
+    if(requestVersion === primaryRequestVersion){
+      galleryLoading = false;
+      primaryRequestController = null;
+      render({ preservePrimary:append, preserveSecondary:append });
+    }
   }
 }
 async function loadSecondarySections(){
-  if(secondaryLoading) return;
+  secondaryRequestController?.abort();
+  const requestVersion = ++secondaryRequestVersion;
+  const requestController = new AbortController();
+  secondaryRequestController = requestController;
   secondaryLoading = true;
   secondaryLoaded = false;
   render({ preservePrimary:true });
@@ -351,18 +364,23 @@ async function loadSecondarySections(){
     const q = searchInput.value.trim();
     if(q) params.set('q', q);
     if(currentFilter !== 'all') params.set('filter', currentFilter);
-    const data = await api(`/api/gallery/secondary?${params.toString()}`);
+    const data = await api(`/api/gallery/secondary?${params.toString()}`, { signal:requestController.signal });
+    if(requestVersion !== secondaryRequestVersion) return;
     limits = data.limits || limits;
     feedImages = (data.feedItems || []).map(normalizeItem);
     uploadedImages = data.uploadedItems || [];
     uploadedUnavailableCount = Number(data.uploadedUnavailableCount || 0);
     secondaryLoaded = true;
   }catch(err){
+    if(err?.name === 'AbortError') return;
     console.error(err);
     showToast('Дополнительные разделы не загрузились.');
   }finally{
-    secondaryLoading = false;
-    render({ preservePrimary:true });
+    if(requestVersion === secondaryRequestVersion){
+      secondaryLoading = false;
+      secondaryRequestController = null;
+      render({ preservePrimary:true });
+    }
   }
 }
 async function hydrateProfileLabel(){

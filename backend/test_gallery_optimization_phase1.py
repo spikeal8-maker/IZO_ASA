@@ -83,3 +83,20 @@ def test_primary_items_endpoint_has_small_independent_contract(tmp_path, monkeyp
     assert payload["nextCursor"]
     assert "feedItems" not in payload
     assert "uploadedItems" not in payload
+
+
+def test_primary_items_search_uses_fts_index(tmp_path, monkeypatch):
+    setup_gallery_db(tmp_path, monkeypatch)
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE images SET prompt_original = 'космический маяк над морем', settings_json = '{\"modelProfile\":\"gpt-image-2\"}' "
+            "WHERE id = 'phase-image'"
+        )
+    token = main.create_auth_session("phase-iuid", "phase-user", provider="web", platform="web")["session_token"]
+    with TestClient(main.app) as client:
+        response = client.get("/api/gallery/items?limit=12&q=маяк", headers={"Authorization": f"Bearer {token}"})
+        model_response = client.get("/api/gallery/items?limit=12&q=gpt-image", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == ["phase-image"]
+    assert model_response.status_code == 200
+    assert [item["id"] for item in model_response.json()["items"]] == ["phase-image"]
