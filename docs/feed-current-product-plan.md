@@ -44,6 +44,8 @@ preserving the existing feed-media backend contract:
 6. Update tests and release checks after each backend/frontend contract change.
 
 Cleanup tracking lives in `docs/feed-cleanup-optimization-plan-20260708.md`.
+The current product, content, database, and UX audit lives in
+`docs/feed-product-ux-audit-20260712.md`.
 
 ## Immediate Backend Gaps
 
