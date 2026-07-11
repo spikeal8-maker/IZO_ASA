@@ -7796,6 +7796,18 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
             raise HTTPException(501, "OpenRouter для этой вкладки пока не подключён.")
         if req.mode == "image_to_image" and not req.inputImage1:
             raise HTTPException(400, "Для режима «По фото» требуется исходное изображение.")
+        if req.mode == "edit":
+            references = [item for item in req.inputImages if item.image]
+            capabilities = await fetch_openrouter_image_capabilities()
+            resolved_model = resolve_openrouter_model(req)
+            capability = next((item for item in capabilities if item.get("id") == resolved_model), None)
+            if capability is None or "edit" not in (capability.get("modes") or []):
+                raise HTTPException(400, "Выбранная модель не поддерживает «Сборку» из нескольких изображений.")
+            reference_limit = min(4, int(capability.get("maxInputReferences") or 0))
+            if len(references) < 2:
+                raise HTTPException(400, "Для «Сборки» нужны основа и хотя бы один референс.")
+            if len(references) > reference_limit:
+                raise HTTPException(400, f"Выбранная модель принимает не больше {reference_limit} изображений.")
         plan = str(user_row["plan"] or "mini").lower()
         if plan not in PLAN_ORDER:
             plan = "mini"
@@ -7973,10 +7985,14 @@ async def tariffs(request: Request) -> dict[str, Any]:
     economy = openrouter_economy_settings()
     plan = _request_plan_or_default(request)
     exchange = await fetch_usd_rub_rate()
+    try:
+        capability_catalog = await fetch_openrouter_image_capabilities()
+    except Exception:
+        capability_catalog = []
     return {
         "ok": True,
         "tariffs": get_tariff_config(),
-        "modelAccess": public_model_access_for_plan(plan),
+        "modelAccess": public_model_access_for_plan(plan, capability_catalog),
         "openrouterPricing": public_openrouter_pricing(exchange),
         "economy": {
             "tokenRub": economy["tokenRub"],
@@ -13651,7 +13667,7 @@ PUBLIC_MODEL_MODE_LABELS = {
 }
 
 
-def _public_model_option(model_id: str) -> dict[str, Any]:
+def _public_model_option(model_id: str, capability: dict[str, Any] | None = None) -> dict[str, Any]:
     if model_id == "server:local_flux_klein":
         return {
             "id": "server:local_flux_klein",
@@ -13663,6 +13679,7 @@ def _public_model_option(model_id: str) -> dict[str, Any]:
                 "fixedSteps": LOCAL_TEXT_TO_IMAGE_STEPS,
                 "allowsExactRepeat": False,
                 "supportsSeed": True,
+                "maxInputReferences": 4,
             },
         }
     price = OPENROUTER_PRICE_CATALOG.get(model_id)
@@ -13676,15 +13693,17 @@ def _public_model_option(model_id: str) -> dict[str, Any]:
             "fixedSteps": None,
             "allowsExactRepeat": True,
             "supportsSeed": False,
+            "maxInputReferences": min(4, int((capability or {}).get("maxInputReferences") or 2)),
         },
     }
 
 
-def public_model_access_for_plan(plan: str) -> dict[str, Any]:
+def public_model_access_for_plan(plan: str, capability_catalog: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     if plan not in PLAN_ORDER:
         plan = "mini"
     tariff = get_tariff_config()[plan]
     config = get_openrouter_config()
+    capabilities = {item.get("id"): item for item in (capability_catalog or []) if item.get("id")}
     access = config.get("access") if isinstance(config.get("access"), dict) else {}
     modes: dict[str, Any] = {}
     for mode in sorted(PUBLIC_MODEL_MODE_LABELS.keys()):
@@ -13694,7 +13713,7 @@ def public_model_access_for_plan(plan: str) -> dict[str, Any]:
         for model_id in tier_ids:
             if isinstance(model_id, str) and model_id not in ids:
                 ids.append(model_id)
-        models = [_public_model_option(model_id) for model_id in ids]
+        models = [_public_model_option(model_id, capabilities.get(model_id)) for model_id in ids]
         presets: dict[str, str] = {}
         tariff_defaults = tariff.get("model_defaults") if isinstance(tariff.get("model_defaults"), dict) else {}
         for preset in QUALITY_PRESETS:
@@ -13721,7 +13740,11 @@ async def model_access(request: Request) -> dict[str, Any]:
         if row is None and trusted["legacy_user_id"]:
             row = conn.execute("SELECT plan FROM users WHERE id = ?", (trusted["legacy_user_id"],)).fetchone()
     plan = str(row["plan"] if row else "mini").lower()
-    return {"ok": True, **public_model_access_for_plan(plan), "openrouterPricing": public_openrouter_pricing(await fetch_usd_rub_rate())}
+    try:
+        capability_catalog = await fetch_openrouter_image_capabilities()
+    except Exception:
+        capability_catalog = []
+    return {"ok": True, **public_model_access_for_plan(plan, capability_catalog), "openrouterPricing": public_openrouter_pricing(await fetch_usd_rub_rate())}
 
 
 @app.get("/api/admin/openrouter/status")

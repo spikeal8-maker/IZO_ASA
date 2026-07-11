@@ -74,3 +74,22 @@ that advertised `image_to_image`; no paid provider calls were made by that matri
 - Paid verification on 2026-07-11 used `google/gemini-3-pro-image` with a `16:9`
   request. Both text-to-image and image-to-image returned valid `1376x768` files,
   confirming provider-normalized wide output rather than the old square fallback.
+
+## Сборка request contract
+
+- `edit` is enabled for OpenRouter only when the live capability catalog reports
+  `input_references.max >= 2` for the selected model.
+- The first filled slot is the base image. Remaining filled slots are sent in slot
+  order; their roles and per-slot notes are already represented in the composed
+  prompt shown to the user.
+- The UI exposes at most four slots. A model with a smaller live limit exposes only
+  that many slots; hidden higher slots are preserved locally but are not submitted.
+- The backend enforces the same limit before charging and again while constructing
+  the provider payload. A manual request cannot exceed the selected model limit.
+- The user model-access contract publishes `generation.maxInputReferences` so the
+  editor does not infer limits from model names.
+- Live audit on 2026-07-11 found 22 assembly-capable models: 20 expose at least four
+  references and two expose three. The payload matrix passed for all 22.
+- Paid verification combined three references with
+  `black-forest-labs/flux.2-klein-4b`; OpenRouter returned a coherent `1280x720`
+  result and reported a `$0.017` generation cost.

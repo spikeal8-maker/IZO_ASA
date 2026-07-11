@@ -139,3 +139,63 @@ def test_google_body_uses_normalized_aspect_ratio_for_text_and_photo() -> None:
         assert body["aspect_ratio"] == "16:9"
         assert body["resolution"] == "1K"
         assert "size" not in body
+
+
+def test_assembly_body_preserves_four_reference_order() -> None:
+    req = main.GenerateRequest(
+        mode="edit",
+        provider="openrouter",
+        prompt="Combine references by their described roles",
+        inputImages=[
+            main.EditImage(index=3, role="background", image="data:image/png;base64,Aw=="),
+            main.EditImage(index=1, role="base", image="data:image/png;base64,AQ=="),
+            main.EditImage(index=4, role="style", image="data:image/png;base64,BA=="),
+            main.EditImage(index=2, role="clothing", image="data:image/png;base64,Ag=="),
+        ],
+    )
+    body = main.build_openrouter_image_body(
+        req,
+        "provider/four-reference-editor",
+        {"size": "1024x1024"},
+        {
+            "modes": ["edit"],
+            "parameters": ["input_references"],
+            "maxInputReferences": 4,
+        },
+    )
+    assert [item["image_url"]["url"] for item in body["input_references"]] == [
+        "data:image/png;base64,AQ==",
+        "data:image/png;base64,Ag==",
+        "data:image/png;base64,Aw==",
+        "data:image/png;base64,BA==",
+    ]
+
+
+def test_assembly_body_rejects_more_images_than_model_limit() -> None:
+    req = main.GenerateRequest(
+        mode="edit",
+        provider="openrouter",
+        prompt="Combine",
+        inputImages=[
+            main.EditImage(index=1, role="base", image="data:image/png;base64,AQ=="),
+            main.EditImage(index=2, role="style", image="data:image/png;base64,Ag=="),
+            main.EditImage(index=3, role="object", image="data:image/png;base64,Aw=="),
+        ],
+    )
+    try:
+        main.build_openrouter_image_body(
+            req,
+            "provider/two-reference-editor",
+            {"size": "1024x1024"},
+            {"modes": ["edit"], "parameters": ["input_references"], "maxInputReferences": 2},
+        )
+    except RuntimeError as exc:
+        assert "не больше 2" in str(exc)
+    else:
+        raise AssertionError("assembly must enforce the selected model reference limit")
+
+
+def test_public_model_option_exposes_reference_limit() -> None:
+    option = main._public_model_option("provider/editor", {"maxInputReferences": 8})
+    assert option["generation"]["maxInputReferences"] == 4
+    assert main._public_model_option("server:local_flux_klein")["generation"]["maxInputReferences"] == 4

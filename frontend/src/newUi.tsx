@@ -1062,31 +1062,36 @@ export default function NewStudio(): ReactElement {
   const [paintWorkbenchVisible, setPaintWorkbenchVisible] = useState(true)
 
   useEffect(() => {
+    let cancelled = false
     const raw = window.sessionStorage.getItem('izoUseAsDraft')
-    if (!raw) return
+    if (!raw) return undefined
     window.sessionStorage.removeItem('izoUseAsDraft')
     try {
       const draft = JSON.parse(raw) as { target?: string; inputImage?: string; prompt?: string }
-      if (!draft.inputImage) return
+      if (!draft.inputImage) return undefined
       const image = apiUrl(draft.inputImage)
       const target = draft.target || 'image'
-      if (target === 'editor') {
-        setTab('edit')
-        setEditSlots((current) => current.map((slot, index) => index === 0 ? { ...slot, image } : slot))
-        if (draft.prompt) setPrompts((current) => ({ ...current, edit: draft.prompt || '' }))
-      } else if (target === 'draw') {
-        setTab('paint')
-        setPaintImage(image)
-        setPaintWorkbenchVisible(true)
-        if (draft.prompt) setPrompts((current) => ({ ...current, paint: draft.prompt || '' }))
-      } else {
-        setTab('i2i')
-        setSourceImage(image)
-        if (draft.prompt) setPrompts((current) => ({ ...current, i2i: draft.prompt || '' }))
-      }
+      queueMicrotask(() => {
+        if (cancelled) return
+        if (target === 'editor') {
+          setTab('edit')
+          setEditSlots((current) => current.map((slot, index) => index === 0 ? { ...slot, image } : slot))
+          if (draft.prompt) setPrompts((current) => ({ ...current, edit: draft.prompt || '' }))
+        } else if (target === 'draw') {
+          setTab('paint')
+          setPaintImage(image)
+          setPaintWorkbenchVisible(true)
+          if (draft.prompt) setPrompts((current) => ({ ...current, paint: draft.prompt || '' }))
+        } else {
+          setTab('i2i')
+          setSourceImage(image)
+          if (draft.prompt) setPrompts((current) => ({ ...current, i2i: draft.prompt || '' }))
+        }
+      })
     } catch {
       // Ignore stale drafts from older gallery builds.
     }
+    return () => { cancelled = true }
   }, [setTab])
   const [paintToolsOpen, setPaintToolsOpen] = useState(false)
   const [compare, setCompare] = useState(50)
@@ -1674,7 +1679,14 @@ export default function NewStudio(): ReactElement {
     const editPrompt = prompts.edit.trim()
     const i2iSource = sourceImage || ''
     const size = RESOLUTION_PRESETS.find((p) => p.id === resolutionId) || RESOLUTION_PRESETS[0]
-    const editComposer = editComposerStatus({ slots: editSlots, userNote: editPrompt, manualMode: false, manualPrompt: '' })
+    const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
+    const selectedModelMode = modelModeFromStudio(mode, paintMode)
+    const selectedModel = effectiveProMode ? studioProSelectedModel(selectedModelMode, selectedQuality) : studioSelectedModel(selectedModelMode, selectedQuality)
+    const requestEditReferenceLimit = selectedModel.provider === 'openrouter'
+      ? Math.max(2, Math.min(EDIT_SLOT_COUNT, selectedModel.generation?.maxInputReferences || 2))
+      : EDIT_SLOT_COUNT
+    const requestEditSlots = editSlots.slice(0, requestEditReferenceLimit)
+    const editComposer = editComposerStatus({ slots: requestEditSlots, userNote: editPrompt, manualMode: false, manualPrompt: '' })
     // Пустой запрос не запускает генерацию — показываем понятную подсказку.
     if (mode === 'text' && !textPrompt) {
       showToast('Опишите идею — что вы хотите увидеть')
@@ -1707,9 +1719,6 @@ export default function NewStudio(): ReactElement {
         return
       }
     }
-    const selectedQuality = (['fast', 'standard', 'max'].includes(quality) ? quality : 'fast') as QualityPreset
-    const selectedModelMode = modelModeFromStudio(mode, paintMode)
-    const selectedModel = effectiveProMode ? studioProSelectedModel(selectedModelMode, selectedQuality) : studioSelectedModel(selectedModelMode, selectedQuality)
     const presetRequestSize = selectedModel.provider === 'comfyui' ? comfySafeGenerationSize(size) : size
     const lastText = lastTextSubmittedRef.current
     const allowsExactRepeat = selectedModel.generation?.allowsExactRepeat ?? selectedModel.provider === 'openrouter'
@@ -1750,7 +1759,7 @@ export default function NewStudio(): ReactElement {
       // text/i2i-стиль дописывается туда при выборе и может быть отредактирован.
       const fullPrompt = userText || (mode === 'i2i' ? style?.transformPrompt || '' : '')
       const isEditLikeMode = mode === 'edit'
-      const activeEditSlots = editSlots
+      const activeEditSlots = requestEditSlots
       const paintCanvas = mode === 'paint' && paintMode === 'sketch' ? await createPaintSketchCanvas() : undefined
       const paintMask = mode === 'paint' && paintMode === 'mask' ? await createPaintMask(paintImage, paintLines, paintStageSize) : undefined
       const nextOutpaintPreview = mode === 'paint' && paintMode === 'outpaint' ? await createOutpaintPreview(paintImage, paintOutpaint, requestSize) : undefined
@@ -1760,7 +1769,7 @@ export default function NewStudio(): ReactElement {
       const paintUserPrompt = prompts.paint.trim()
       const paintBasePrompt = paintTechPrompts[paintMode]
       const paintPrompt = composePaintPrompt(paintBasePrompt, paintUserPrompt)
-      const editHasFaceReference = editSlots.some((slot, index) => index > 0 && slot.image && slot.role === 'face')
+      const editHasFaceReference = requestEditSlots.some((slot, index) => index > 0 && slot.image && slot.role === 'face')
       const editFaceStrengthInstruction = editHasFaceReference
         ? `\n\nFace reference control for Edit mode:\n${faceStrengthPrompt(editFaceStrengthPct)}\nUse this strength only for references whose role is FACE. Do not let the face reference change clothing, pose, body, background, style, or objects.`
         : ''
@@ -2206,7 +2215,7 @@ export default function NewStudio(): ReactElement {
   }
   const visibleStudioModels = (currentModeAccess?.models || [])
     .filter((model) => userModelVisibility[currentModelMode]?.[model.id] !== false)
-  const studioModelEnabled = (model: ModelOption, mode: ModelModeKey = currentModelMode) => isRasterOpenRouterModel(model) && (model.provider !== 'openrouter' || mode === 'text_to_image' || mode === 'image_to_image')
+  const studioModelEnabled = (model: ModelOption, mode: ModelModeKey = currentModelMode) => isRasterOpenRouterModel(model) && (model.provider !== 'openrouter' || mode === 'text_to_image' || mode === 'image_to_image' || mode === 'edit')
   const selectableStudioModels = (visibleStudioModels.length ? visibleStudioModels : currentModeAccess?.models || [])
     .filter((model) => studioModelEnabled(model))
     .sort((a, b) => {
@@ -2257,6 +2266,9 @@ export default function NewStudio(): ReactElement {
     return (chosen ? allowed.find((model) => model.id === chosen) : undefined) || studioSelectedModel(mode, preset)
   }
   const currentStudioModel = effectiveProMode ? studioProSelectedModel(currentModelMode, selectedQuality) : studioSelectedModel(currentModelMode, selectedQuality)
+  const editReferenceLimit = currentStudioModel.provider === 'openrouter'
+    ? Math.max(2, Math.min(EDIT_SLOT_COUNT, currentStudioModel.generation?.maxInputReferences || 2))
+    : EDIT_SLOT_COUNT
   const currentStudioModelInfo = modelPublicInfo(currentStudioModel)
   const currentStudioTokenCost = tokenCostForModel(currentStudioModel)
   const currentSupportedFormatIds = supportedFormatIdsForModel(currentStudioModel)
@@ -2281,8 +2293,9 @@ export default function NewStudio(): ReactElement {
     transform: `translate(${inspectPan.x}px, ${inspectPan.y}px) scale(${inspectZoom})`,
   } as CSSProperties
   const inspectToolsVisible = Math.abs(inspectZoom - 1) > 0.02
-  const visibleEditSlots = editExtraOpen ? editSlots : editSlots.slice(0, 2)
-  const editFilledCount = editSlots.filter((slot) => slot.image).length
+  const availableEditSlots = editSlots.slice(0, editReferenceLimit)
+  const visibleEditSlots = editExtraOpen ? availableEditSlots : availableEditSlots.slice(0, 2)
+  const editFilledCount = availableEditSlots.filter((slot) => slot.image).length
 
   // Док «Промпт изображения»: если пользователь выбрал миниатюру — берём её из
   // видимой истории (своя или лента), чтобы клик по ленте синхронизировал промпт.
@@ -2899,15 +2912,17 @@ export default function NewStudio(): ReactElement {
             <div className="section-title">
               <h2>Изображения</h2>
               <span className={`i2i-source-status${editSlots[0]?.image ? ' filled' : ' required'}`}>
-                {editSlots[0]?.image ? `${editFilledCount} из ${EDIT_SLOT_COUNT}` : `${visibleEditSlots.length} из ${EDIT_SLOT_COUNT}`}
+                {editFilledCount} из {editReferenceLimit}
               </span>
             </div>
             <div className="editor-source-grid">
               {visibleEditSlots.map(renderEditorSlot)}
             </div>
-            <button className="editor-extra-toggle" type="button" onClick={() => setEditExtraOpen((open) => !open)}>
-              {editExtraOpen ? 'Скрыть референсы' : 'Еще референсы'}
-            </button>
+            {editReferenceLimit > 2 && (
+              <button className="editor-extra-toggle" type="button" onClick={() => setEditExtraOpen((open) => !open)}>
+                {editExtraOpen ? 'Скрыть референсы' : `Еще референсы · до ${editReferenceLimit}`}
+              </button>
+            )}
           </section>
         )}
 
@@ -3203,6 +3218,7 @@ export default function NewStudio(): ReactElement {
                   <b>{currentStudioModelInfo.company}</b>
                   <em>{currentStudioModelInfo.year}</em>
                   <em>{openrouterPricing[currentStudioModel.id]?.formats?.find((fmt) => fmt.id === currentFormatPricingId)?.requestSize || `${selectedResolution.width}×${selectedResolution.height}`}</em>
+                  {isEditStudio && <em>до {editReferenceLimit} изображений</em>}
                 </span>
               </div>
               <p>{currentStudioModelInfo.description}</p>

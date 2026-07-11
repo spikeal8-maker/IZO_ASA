@@ -33,6 +33,7 @@ export type ModelGenerationContract = {
   fixedSteps: number | null
   allowsExactRepeat: boolean
   supportsSeed: boolean
+  maxInputReferences?: number
 }
 export type ModelOption = {
   id: string
@@ -67,7 +68,7 @@ export const SERVER_MODEL_OPTION: ModelOption = {
   provider: 'comfyui',
   modelProfile: 'local_flux_klein',
   tokenHint: 1,
-  generation: { fixedSteps: 4, allowsExactRepeat: false, supportsSeed: true },
+  generation: { fixedSteps: 4, allowsExactRepeat: false, supportsSeed: true, maxInputReferences: 4 },
 }
 export const modelOptions: ModelOption[] = [
   SERVER_MODEL_OPTION,
@@ -308,6 +309,9 @@ export function normalizeModelAccess(input: unknown, fallbackPlan: TariffKey = '
             fixedSteps: typeof item.generation.fixedSteps === 'number' ? item.generation.fixedSteps : null,
             allowsExactRepeat: Boolean(item.generation.allowsExactRepeat),
             supportsSeed: Boolean(item.generation.supportsSeed),
+            maxInputReferences: typeof item.generation.maxInputReferences === 'number'
+              ? Math.max(0, Math.min(4, item.generation.maxInputReferences))
+              : fallback.generation?.maxInputReferences,
           }
         : fallback.generation
       return {
