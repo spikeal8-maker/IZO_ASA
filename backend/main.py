@@ -6739,15 +6739,19 @@ def effective_pose_profile(requested: str) -> str:
     return get_model_settings().get("poseModelProfile") or effective_edit_profile(requested)
 
 
-def effective_face_profile(_: str = "") -> str:
-    """Face mode is pinned to Flux 2 Klein 9B.
+def effective_face_profile(requested: str = "") -> str:
+    """Face follows the single global Klein profile selected by the administrator."""
+    return effective_edit_profile(requested)
 
-    The face/head LoRA we ship and validate is the 9B variant, so this route must
-    not follow the generic edit model if an operator temporarily switches edit to
-    4B. Keeping the same 9B UNET name lets ComfyUI reuse the already loaded base
-    model instead of drifting into a different workflow/model pair.
-    """
-    return "flux_klein_9b"
+
+def server_lora_enabled(file_name: str) -> bool:
+    """An omitted LoRA is enabled by default; explicit admin switches win."""
+    enabled = (_saved_setting("server_model_loras").get("enabled") or {})
+    value = enabled.get(file_name)
+    if value is None:
+        lowered = file_name.lower()
+        value = next((flag for name, flag in enabled.items() if str(name).lower() in lowered), True)
+    return bool(value)
 
 
 def get_profile_row(profile_id: str) -> dict[str, Any] | None:
@@ -6819,17 +6823,17 @@ def choose_faceswap_lora(available_loras: list[str], requested: Lora | None, mod
     target_tag = "4b" if "4b" in model.lower() else "9b"
     requested_strength = requested.strength if requested else 1.0
     requested_id = (requested.id if requested else "").strip()
-    if requested_id and requested_id != "none" and target_tag in requested_id.lower() and requested_id in available_loras:
+    if requested_id and requested_id != "none" and target_tag in requested_id.lower() and requested_id in available_loras and server_lora_enabled(requested_id):
         return Lora(id=requested_id, strength=requested_strength)
     match = next(
         (
             item for item in available_loras
-            if target_tag in item.lower() and any(kw in item.lower() for kw in ("bfs", "face", "head"))
+            if target_tag in item.lower() and server_lora_enabled(item) and any(kw in item.lower() for kw in ("bfs", "face", "head"))
         ),
         "",
     )
     if not match:
-        raise RuntimeError(f"FaceSwap LoRA for Flux Klein {target_tag.upper()} not found in ComfyUI.")
+        raise RuntimeError(f"Face LoRA для Flux Klein {target_tag.upper()} не установлена или выключена в Config UI.")
     return Lora(id=match, strength=requested_strength)
 
 
@@ -7174,7 +7178,7 @@ def patch_mode_nodes(prompt: dict[str, Any], req: GenerateRequest, uploads: dict
     elif req.mode in {"edit", "paint", "faceswap", "try_on", "texture_transfer"}:
         # 1..4 изображения в порядке слотов; цепочка ReferenceLatent + denoise=1.
         image_files = [uploads.get(f"input{i}") for i in range(1, 5)]
-        if req.mode == "edit":
+        if req.mode in {"edit", "faceswap"}:
             patch_optional_lora(prompt, req.loras[0] if req.loras else None)
         patch_edit_reference_chain(prompt, image_files)
     elif req.mode == "inpaint":
@@ -7328,17 +7332,18 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
     else:
         is_4b = "4b" in model.lower()
         target_lora_tag = "4b" if is_4b else "9b"
+        payload.loras = [lora for lora in payload.loras if lora.id in {"", "none"} or server_lora_enabled(lora.id)]
         for lora in payload.loras:
             if lora.id == "none" or not lora.id:
                 continue
             if target_lora_tag not in lora.id.lower():
                 fallback = next(
                     (item for item in available_loras
-                     if target_lora_tag in item.lower() and any(kw in item.lower() for kw in ("bfs", "face", "head"))),
+                     if target_lora_tag in item.lower() and server_lora_enabled(item) and any(kw in item.lower() for kw in ("bfs", "face", "head"))),
                     "",
                 )
                 if not fallback:
-                    fallback = next((item for item in available_loras if target_lora_tag in item.lower()), "")
+                    fallback = next((item for item in available_loras if target_lora_tag in item.lower() and server_lora_enabled(item)), "")
                 if fallback:
                     lora.id = fallback
     workflow = await fetch_workflow(payload.mode)
@@ -7686,6 +7691,9 @@ async def startup() -> None:
     source_cleanup = cleanup_orphan_image_sources()
     if any(source_cleanup.values()):
         print(f"image source cleanup: {source_cleanup}")
+    backfilled_feed = backfill_feed_generation_snapshots()
+    if backfilled_feed:
+        print(f"feed generation snapshots backfilled: {backfilled_feed}")
     load_db_state()
     if not worker_started:
         asyncio.create_task(worker())
@@ -12728,7 +12736,7 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
             """,
             (key, json.dumps(settings, ensure_ascii=False), now),
         )
-    if key in {"generation_routes", "tariff_matrix", "user_choice", "tariffs", "openrouter_economy"}:
+    if key in {"generation_routes", "server_model_loras", "models", "tariff_matrix", "user_choice", "tariffs", "openrouter_economy"}:
         _admin_models_page_cache["ts"] = 0.0
         _admin_models_page_cache["data"] = None
     return {"ok": True, "key": key, "settings": settings}
@@ -13993,6 +14001,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
         "matrix": matrix,
         "catalog": catalog,
         "loras": loras,
+        "loraSettings": _saved_setting("server_model_loras") or {"enabled": {}},
         "comfyuiAvailable": status.get("comfyuiAvailable"),
         "openrouter": {
             "keyConfigured": openrouter_key,
@@ -14349,6 +14358,30 @@ def _feed_generation_snapshot(conn: sqlite3.Connection, image: sqlite3.Row) -> d
         "seed": settings.get("seed"),
         "generatedAt": _row_get(image, "created_at"),
     }
+
+
+def backfill_feed_generation_snapshots() -> int:
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT p.id AS publication_id, i.*
+            FROM feed_publications p
+            JOIN images i ON i.id = p.image_id
+            WHERE p.generation_snapshot_json IS NULL OR p.generation_snapshot_json = ''
+            """
+        ).fetchall()
+        for row in rows:
+            snapshot = _feed_generation_snapshot(conn, row)
+            conn.execute(
+                """
+                UPDATE feed_publications
+                SET generation_snapshot_json = ?, category = COALESCE(NULLIF(category, ''), 'other'),
+                    tags_json = COALESCE(NULLIF(tags_json, ''), '[]')
+                WHERE id = ?
+                """,
+                (json.dumps(snapshot, ensure_ascii=False), row["publication_id"]),
+            )
+    return len(rows)
 
 
 def _feed_aspect_ratio(width: int, height: int) -> str:

@@ -343,7 +343,11 @@ function openPublishModal(id){
   const item = originalById(id); if(!item) return;
   publishTargetId = id;
   document.getElementById('publishTitle').value = '';
-  document.getElementById('publishPromptOpen').checked = true;
+  document.getElementById('publishDescription').value = '';
+  document.getElementById('publishPromptVisibility').value = 'open';
+  document.getElementById('publishCategory').value = 'other';
+  document.getElementById('publishTags').value = '';
+  document.getElementById('publishAllowRecreate').checked = true;
   openSmall('publishModal');
   setTimeout(()=>document.getElementById('publishTitle').focus(), 0);
 }
@@ -352,11 +356,15 @@ async function submitPublish(){
   const item = originalById(id); if(!item) return;
   const title = document.getElementById('publishTitle').value.trim();
   if(!title){ showToast('Нужно название публикации.'); return; }
-  const promptVisibility = document.getElementById('publishPromptOpen').checked ? 'open' : 'hidden';
+  const description = document.getElementById('publishDescription').value.trim();
+  const promptVisibility = document.getElementById('publishPromptVisibility').value;
+  const category = document.getElementById('publishCategory').value;
+  const tags = document.getElementById('publishTags').value.split(',').map(tag=>tag.trim()).filter(Boolean).slice(0,8);
+  const allowRecreate = document.getElementById('publishAllowRecreate').checked;
   const submitBtn = document.getElementById('publishSubmitBtn');
   submitBtn.disabled = true;
   try{
-    await api('/api/feed/publications', { method:'POST', body:JSON.stringify({ imageId:id, title, promptVisibility, allowRecreate:true }) });
+    await api('/api/feed/publications', { method:'POST', body:JSON.stringify({ imageId:id, title, description, promptVisibility, allowRecreate, category, tags }) });
     closeSmalls();
     await loadGallery();
     showToast('Изображение опубликовано в ленту.');

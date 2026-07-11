@@ -263,6 +263,52 @@ def test_publish_foreign_image_denied_and_logged(temp_db):
         assert pub["author_name"] == "Автор Теста"
 
 
+def test_publish_keeps_generation_snapshot_and_public_controls(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-snapshot", "web_snapshot")
+        make_image("img-snapshot", "web_snapshot", prompt="исходный промпт для снимка")
+        response = client.post(
+            "/api/feed/publications",
+            json={
+                "imageId": "img-snapshot",
+                "title": "Зафиксированная работа",
+                "description": "Описание публикации",
+                "promptVisibility": "partial",
+                "allowRecreate": False,
+                "category": "design",
+                "tags": ["неон", "город", "неон"],
+            },
+            headers=bearer(token),
+        )
+        assert response.status_code == 200, response.text
+        publication = response.json()["publication"]
+        assert publication["description"] == "Описание публикации"
+        assert publication["prompt_visibility"] == "partial"
+        assert publication["allow_recreate"] is False
+        assert publication["category"] == "design"
+        assert publication["tags"] == ["неон", "город"]
+        assert publication["prompt"] == "исходный промпт для снимка"
+        assert publication["generation_params"]
+
+        with main.db() as conn:
+            row = conn.execute(
+                "SELECT generation_snapshot_json FROM feed_publications WHERE image_id = 'img-snapshot'"
+            ).fetchone()
+            snapshot = json.loads(row["generation_snapshot_json"])
+            assert snapshot["prompt"] == "исходный промпт для снимка"
+            conn.execute(
+                "UPDATE images SET prompt_original = 'измененный промпт', settings_json = '{\"seed\": 999}' WHERE id = 'img-snapshot'"
+            )
+
+        feed = client.get("/api/feed?type=fresh&limit=10")
+        assert feed.status_code == 200
+        restored = next(item for item in feed.json()["items"] if item["id"] == publication["id"])
+        assert restored["prompt"] == "исходный промпт для снимка"
+        assert restored["seed"] == 42
+        assert restored["category"] == "design"
+        assert restored["tags"] == ["неон", "город"]
+
+
 def test_feed_public_read_and_prompt_visibility(temp_db):
     with TestClient(main.app) as client:
         token = make_user("iuid-a", "web_a")

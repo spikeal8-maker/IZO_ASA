@@ -46,7 +46,7 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/static/gallery/gallery.css?v=20260711-source-cards">
+<link rel="stylesheet" href="/static/gallery/gallery.css?v=20260711-feed-publish">
 </head>
 <body>
 <div class="iv3 topbar-scope">
@@ -180,9 +180,15 @@
 
 <div id="helpModal" class="smallModal"><div class="smallDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Как устроена галерея</h3><p>Сверху находятся результаты генерации, ниже — публикации и сжатые копии загруженных исходников.</p><ul><li>Сердечко оставляет изображение в галерее и защищает от автоудаления.</li><li>В ленту отправляется отдельная WebP-копия, оригинал остается здесь.</li><li>Загруженный исходник хранится вместе с историей результата и не занимает слот основной галереи.</li><li>При переполнении удаляется самый старый незащищенный результат, два последних не трогаются.</li></ul></div></div>
 <div id="spaceModal" class="smallModal"><div class="smallDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Место в галерее</h3><div id="spaceText"></div></div></div>
-<div id="publishModal" class="smallModal"><div class="smallDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Публикация в ленту</h3><p>Добавьте название и выберите, показывать ли промпт в публикации.</p><form id="publishForm" class="publishForm">
+<div id="publishModal" class="smallModal"><div class="smallDialog publishDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Публикация в ленту</h3><p>Настройте публичную карточку. Параметры генерации будут зафиксированы в момент публикации.</p><form id="publishForm" class="publishForm">
   <label class="fieldLabel">Название публикации<input id="publishTitle" maxlength="120" required autocomplete="off"></label>
-  <label class="publishToggle"><input id="publishPromptOpen" type="checkbox" checked> Показывать промпт</label>
+  <label class="fieldLabel">Описание<textarea id="publishDescription" maxlength="700" rows="3" placeholder="Коротко расскажите о работе"></textarea></label>
+  <div class="publishGrid">
+    <label class="fieldLabel">Промпт<select id="publishPromptVisibility"><option value="open">Показывать полностью</option><option value="partial">Показывать частично</option><option value="hidden">Скрыть</option></select></label>
+    <label class="fieldLabel">Категория<select id="publishCategory"><option value="art">Искусство</option><option value="photo">Фото</option><option value="design">Дизайн</option><option value="character">Персонаж</option><option value="product">Продукт</option><option value="architecture">Архитектура</option><option value="other" selected>Другое</option></select></label>
+  </div>
+  <label class="fieldLabel">Теги<input id="publishTags" maxlength="200" placeholder="портрет, кино, неон"></label>
+  <label class="publishToggle"><input id="publishAllowRecreate" type="checkbox" checked> Разрешить другим создавать свою версию</label>
   <div class="publishActions"><button type="button" class="btn" id="publishCancelBtn">Отмена</button><button type="submit" class="btn acid" id="publishSubmitBtn">Опубликовать</button></div>
 </form></div></div>
 <div id="deleteModal" class="smallModal"><div class="smallDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Удалить изображение?</h3><p id="deleteText">Изображение будет удалено из вашей галереи, связанные публикации в ленте будут сняты, а слот освободится.</p><div class="publishActions"><button type="button" class="btn" id="deleteCancelBtn">Отмена</button><button type="button" class="btn acid" id="deleteConfirmBtn">Удалить</button></div></div></div>
@@ -190,6 +196,6 @@
 <div id="toast" class="toast"></div>
 
 <script id="imageData" type="application/json">[]</script>
-<script src="/static/gallery/gallery.js?v=20260711-source-cards"></script>
+<script src="/static/gallery/gallery.js?v=20260711-feed-publish"></script>
 </body>
 </html>
