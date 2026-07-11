@@ -1060,6 +1060,34 @@ export default function NewStudio(): ReactElement {
   const [paintOutpaintPreview, setPaintOutpaintPreview] = useState<string>()
   const [paintStageSize, setPaintStageSize] = useState(() => paintStageForResolution(RESOLUTION_PRESETS[0]))
   const [paintWorkbenchVisible, setPaintWorkbenchVisible] = useState(true)
+
+  useEffect(() => {
+    const raw = window.sessionStorage.getItem('izoUseAsDraft')
+    if (!raw) return
+    window.sessionStorage.removeItem('izoUseAsDraft')
+    try {
+      const draft = JSON.parse(raw) as { target?: string; inputImage?: string; prompt?: string }
+      if (!draft.inputImage) return
+      const image = apiUrl(draft.inputImage)
+      const target = draft.target || 'image'
+      if (target === 'editor') {
+        setTab('edit')
+        setEditSlots((current) => current.map((slot, index) => index === 0 ? { ...slot, image } : slot))
+        if (draft.prompt) setPrompts((current) => ({ ...current, edit: draft.prompt || '' }))
+      } else if (target === 'draw') {
+        setTab('paint')
+        setPaintImage(image)
+        setPaintWorkbenchVisible(true)
+        if (draft.prompt) setPrompts((current) => ({ ...current, paint: draft.prompt || '' }))
+      } else {
+        setTab('i2i')
+        setSourceImage(image)
+        if (draft.prompt) setPrompts((current) => ({ ...current, i2i: draft.prompt || '' }))
+      }
+    } catch {
+      // Ignore stale drafts from older gallery builds.
+    }
+  }, [setTab])
   const [paintToolsOpen, setPaintToolsOpen] = useState(false)
   const [compare, setCompare] = useState(50)
   const [compareEnabled, setCompareEnabled] = useState(true)

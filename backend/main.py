@@ -8064,14 +8064,82 @@ async def gallery_page(
             item["likes"] = int(_row_get(counts, "likes") or 0)
             item["saves"] = int(_row_get(counts, "saves") or 0)
             item["remixes"] = int(_row_get(counts, "remixes") or 0)
+        uploaded_where = [
+            "s.user_id = ?",
+            "s.source_kind IN ('upload', 'media')",
+            ACTIVE_IMAGE_WHERE.replace("deleted_at", "images.deleted_at"),
+        ]
+        uploaded_params: list[Any] = [user_id]
+        if search:
+            like = f"%{search}%"
+            uploaded_where.append("(s.role LIKE ? OR s.source_kind LIKE ? OR images.prompt_original LIKE ?)")
+            uploaded_params.extend([like, like, like])
+        uploaded_rows = conn.execute(
+            f"""
+            SELECT s.*, images.mode AS owner_mode
+            FROM image_sources s
+            JOIN images ON images.id = s.image_id AND images.user_id = s.user_id
+            WHERE {' AND '.join(f'({part})' for part in uploaded_where)}
+            ORDER BY s.created_at DESC, s.slot_index ASC
+            LIMIT ?
+            """,
+            [*uploaded_params, min(limit * 2, 120)],
+        ).fetchall()
+        uploaded_items = [
+            {
+                "id": row["id"],
+                "imageId": row["image_id"],
+                "sourceImageId": row["source_image_id"],
+                "sourceKind": row["source_kind"],
+                "role": row["role"],
+                "roleLabel": _source_role_label(row["role"], int(row["slot_index"] or 0), row["owner_mode"]),
+                "slotIndex": int(row["slot_index"] or 0),
+                "thumbnailUrl": row["thumb_url"],
+                "width": int(row["thumb_width"] or 0),
+                "height": int(row["thumb_height"] or 0),
+                "fileSizeBytes": int(row["thumb_bytes"] or 0),
+                "createdAt": row["created_at"],
+            }
+            for row in uploaded_rows
+        ]
         limits = _gallery_page_limits(conn, user_row, user_id)
     return {
         "ok": True,
         "limits": limits,
         "items": items,
         "feedItems": feed_items,
+        "uploadedItems": uploaded_items,
         "hasMore": has_more,
         "nextCursor": gallery_cursor_from_row(page_rows[-1]) if has_more and page_rows else None,
+    }
+
+
+@app.post("/api/gallery/sources/{source_id}/use-as")
+async def gallery_source_use_as(source_id: str, req: UseAsRequest, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    with db() as conn:
+        if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
+            raise HTTPException(403, "Gallery is not available for this plan.")
+        row = conn.execute(
+            """
+            SELECT s.* FROM image_sources s
+            JOIN images ON images.id = s.image_id AND images.user_id = s.user_id
+            WHERE s.id = ? AND s.user_id = ? AND images.deleted_at IS NULL
+            LIMIT 1
+            """,
+            (source_id, user_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Source image not found")
+    return {
+        "ok": True,
+        "sourceId": source_id,
+        "target": req.target,
+        "inputImage": row["thumb_url"],
+        "width": int(row["thumb_width"] or 0),
+        "height": int(row["thumb_height"] or 0),
+        "role": row["role"],
     }
 
 

@@ -1,9 +1,12 @@
 ﻿let images = [];
 let feedImages = [];
+let uploadedImages = [];
 let limits = { originals:{used:0,limit:0}, feed:{used:0,limit:0}, favorites:{used:0,limit:0}, likes:{used:0}, plan:'mini' };
 const galleryGrid = document.getElementById('galleryGrid');
 const feedGrid = document.getElementById('feedGrid');
 const feedSection = document.getElementById('feedSection');
+const uploadsSection = document.getElementById('uploadsSection');
+const uploadsGrid = document.getElementById('uploadsGrid');
 const searchInput = document.getElementById('searchInput');
 const filterBtn = document.getElementById('filterBtn');
 const filterPopover = document.getElementById('filterPopover');
@@ -32,6 +35,7 @@ const heartFilled = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="t
 const feedIcon = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l1.7 5.1L19 10l-5.3 1.9L12 17l-1.7-5.1L5 10l5.3-1.9L12 3Z" fill="currentColor"/><path d="M5 15l.8 2.2L8 18l-2.2.8L5 21l-.8-2.2L2 18l2.2-.8L5 15Zm14 1 .7 1.8 1.8.7-1.8.7L19 21l-.7-1.8-1.8-.7 1.8-.7L19 16Z" fill="currentColor"/></svg>`;
 const trashIcon = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 7h14M10 11v6m4-6v6M8 7l.7 12.2c.1 1 1 1.8 2 1.8h2.6c1.1 0 1.9-.8 2-1.8L16 7M9.5 7l.6-2h3.8l.6 2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const openPostIcon = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="5" width="10" height="14" rx="2" stroke="currentColor" stroke-width="1.9"/><path d="M13 5h6v6M19 5l-8 8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const useIcon = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 19 19 5M11 5h8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 15v4H5V5h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 function apiUrl(path){ return `${API_BASE}${path}`; }
 let refreshSessionPromise = null;
@@ -174,6 +178,22 @@ function cardTemplate(raw, context){
     <div class="listContent"><div class="listPrompt">${escapeHtml(promptText)}</div><div class="listMeta">${escapeHtml(item.dateText)} · ${escapeHtml(item.modeText)}${item.published?' · В ленте':''}</div></div>
   </article>`;
 }
+function sourceLibraryTemplate(raw){
+  const src = apiUrl(raw.thumbnailUrl || raw.thumbUrl || '');
+  const label = raw.roleLabel || 'Загруженный исходник';
+  const date = formatDate(raw.createdAt);
+  const imgAttrs = raw.width && raw.height ? ` width="${Number(raw.width)}" height="${Number(raw.height)}"` : '';
+  return `<article class="sourceLibraryCard" data-source-id="${escapeHtml(raw.id)}">
+    <button class="sourceLibraryPreview" type="button" data-action="open-source" title="Открыть исходник">
+      <img src="${escapeHtml(src)}" alt="${escapeHtml(label)}" loading="lazy" decoding="async"${imgAttrs}>
+    </button>
+    <div class="sourceLibraryMeta"><div><strong>${escapeHtml(label)}</strong><time>${escapeHtml(date)}</time></div>
+      <div class="dropHost sourceUseDrop"><button class="action" type="button" data-action="source-menu" title="Использовать как" aria-label="Использовать как">${useIcon}</button>
+        <div class="dropMenu"><button data-source-target="image">Использовать в «По фото»</button><button data-source-target="editor">Добавить в «Сборку»</button><button data-source-target="draw">Открыть в «Редакторе»</button></div>
+      </div>
+    </div>
+  </article>`;
+}
 function layoutMasonry(){
   masonryFrame = 0;
   document.querySelectorAll('.masonry:not(.list)').forEach(grid => {
@@ -207,12 +227,15 @@ function render(){
   galleryGrid.classList.toggle('list', listMode);
   feedGrid.classList.toggle('list', listMode);
   feedSection.hidden = Boolean(galleryLoadError);
+  uploadsSection.hidden = Boolean(galleryLoadError);
   if(galleryLoadError){
     galleryGrid.innerHTML = `<div class="empty errorState"><strong>Галерея не загрузилась</strong><p>${escapeHtml(galleryLoadError)}</p><p style="margin-top:14px"><button class="btn acid" data-action="retry-gallery">Повторить</button></p></div>`;
     feedGrid.innerHTML = '';
+    uploadsGrid.innerHTML = '';
   }else if(galleryLoading && images.length === 0){
     galleryGrid.innerHTML = `<div class="skeletonGrid">${Array.from({length:8}).map(()=>'<div class="skeletonCard"></div>').join('')}</div>`;
     feedGrid.innerHTML = `<div class="skeletonGrid">${Array.from({length:4}).map(()=>'<div class="skeletonCard"></div>').join('')}</div>`;
+    uploadsGrid.innerHTML = '';
   }else{
     const emptyText = searchInput.value.trim() || currentFilter !== 'all' ? 'По выбранному поиску и фильтру ничего не найдено.' : 'Галерея пока пуста.';
     const resetAction = searchInput.value.trim() || currentFilter !== 'all'
@@ -220,6 +243,7 @@ function render(){
       : '';
     galleryGrid.innerHTML = galleryItems.length ? galleryItems.map(i=>cardTemplate(i,'gallery')).join('') : `<div class="empty"><strong>Ничего не найдено</strong><p>${emptyText}</p>${resetAction}</div>`;
     feedGrid.innerHTML = feedItems.length ? feedItems.map(i=>cardTemplate(i,'feed')).join('') : `<div class="empty">Публикаций по выбранному фильтру нет.</div>`;
+    uploadsGrid.innerHTML = uploadedImages.length ? uploadedImages.map(sourceLibraryTemplate).join('') : `<div class="empty">Загруженных исходников пока нет.</div>`;
   }
   const galleryCountEl = document.getElementById('galleryCount');
   galleryCountEl.textContent = `${limits.originals.used} / ${limits.originals.limit}`;
@@ -231,6 +255,8 @@ function render(){
   document.getElementById('likesCount').textContent = String(Number(limits.likes?.used || 0));
   const feedSectionCount = document.getElementById('feedSectionCount');
   if(feedSectionCount) feedSectionCount.textContent = `${feedItems.length} публикаций`;
+  const uploadsSectionCount = document.getElementById('uploadsSectionCount');
+  if(uploadsSectionCount) uploadsSectionCount.textContent = `${uploadedImages.length} исходников`;
   const loadMoreBtn = document.getElementById('loadMoreBtn');
   loadMoreBtn.hidden = !hasMoreGallery || Boolean(galleryLoadError);
   loadMoreBtn.textContent = galleryLoading ? 'Загружаем...' : 'Показать еще';
@@ -252,8 +278,10 @@ async function loadGallery({ append = false } = {}){
     limits = data.limits || limits;
     const nextImages = (data.items || []).map(normalizeItem);
     const nextFeedImages = (data.feedItems || []).map(normalizeItem);
+    const nextUploadedImages = data.uploadedItems || [];
     images = append ? [...images, ...nextImages] : nextImages;
     feedImages = append ? [...feedImages, ...nextFeedImages] : nextFeedImages;
+    uploadedImages = nextUploadedImages;
     nextCursor = data.nextCursor || null;
     hasMoreGallery = Boolean(data.hasMore);
     currentCollection = images;
@@ -626,9 +654,28 @@ function resetGalleryFilters(){
   filterPopover.querySelectorAll('button').forEach(b=>b.classList.toggle('active', b.dataset.filter === 'all'));
   loadGallery();
 }
+async function useSourceAs(sourceId, target){
+  try{
+    const data = await api(`/api/gallery/sources/${encodeURIComponent(sourceId)}/use-as`, { method:'POST', body:JSON.stringify({ target }) });
+    sessionStorage.setItem('izoUseAsDraft', JSON.stringify({ ...data, source:'uploaded', createdAt:new Date().toISOString() }));
+    const routes = { editor:'/#editor', image:'/#image-to-image', draw:'/paint' };
+    window.location.href = routes[target] || '/';
+  }catch(err){
+    showToast('Не удалось подготовить исходник.');
+    console.error(err);
+  }
+}
 
 galleryGrid.addEventListener('click', e=>{ if(e.target.closest('[data-action="retry-gallery"]')) return loadGallery(); if(e.target.closest('[data-action="reset-gallery-filters"]')) return resetGalleryFilters(); const card=e.target.closest('.card'); if(!card) return; const id=card.dataset.id; if(e.target.closest('[data-action="heart"]')) return toggleFavorite(id); if(e.target.closest('[data-action="feed"]')) return feedAction(id); if(e.target.closest('[data-action="delete"]')) return deleteImage(id); openViewerById(id, filteredItems(images)); });
 feedGrid.addEventListener('click', e=>{ const card=e.target.closest('.card'); if(!card) return; const id=card.dataset.id; if(e.target.closest('[data-action="heart"]')) return toggleFavorite(id); if(e.target.closest('[data-action="feed"]')) return feedAction(id); if(e.target.closest('[data-action="delete"]')) return deleteImage(id); openViewerById(id, filteredItems(feedImages)); });
+uploadsGrid.addEventListener('click', e=>{
+  const card = e.target.closest('.sourceLibraryCard'); if(!card) return;
+  const menuBtn = e.target.closest('[data-action="source-menu"]');
+  if(menuBtn){ const menu=card.querySelector('.dropMenu'); closeMenus(menu); menu.classList.toggle('open'); return; }
+  const targetBtn = e.target.closest('[data-source-target]');
+  if(targetBtn){ closeMenus(); return useSourceAs(card.dataset.sourceId, targetBtn.dataset.sourceTarget); }
+  if(e.target.closest('[data-action="open-source"]')) window.open(e.target.closest('button').querySelector('img').src, '_blank', 'noopener');
+});
 searchInput.addEventListener('input', ()=>{
   clearTimeout(searchTimer);
   searchTimer = setTimeout(()=>loadGallery(), 260);
