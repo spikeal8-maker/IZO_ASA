@@ -438,6 +438,21 @@ const CSS = `
 .amv2 .status-card{border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.035);padding:12px;display:grid;gap:6px;align-content:start}
 .amv2 .status-card strong{font-size:13px}.amv2 .status-card span{font-size:22px;font-weight:700}.amv2 .status-card small{color:var(--muted);overflow-wrap:anywhere}
 .amv2 .ops-row{display:grid;grid-template-columns:minmax(220px,1fr) auto auto auto;gap:10px;padding:12px;border-top:1px solid var(--line);align-items:center}
+.amv2 .server-command{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
+.amv2 .server-command .server-title{min-width:0;margin-right:auto}.amv2 .server-command h2{margin:0;font-size:16px}.amv2 .server-command p{margin:2px 0 0;color:var(--muted);font-size:11px}
+.amv2 .profile-switch{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:3px;border:1px solid var(--line-strong);border-radius:7px;background:#0b0e0b}
+.amv2 .profile-switch button{min-width:86px;height:32px;border:0;border-radius:5px;background:transparent;color:var(--muted);font-weight:750}.amv2 .profile-switch button.active{background:var(--lime);color:#080a07}
+.amv2 .server-restart{height:38px;white-space:nowrap}
+.amv2 .server-layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(320px,.75fr);gap:12px;margin-bottom:12px}
+.amv2 .server-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px}
+.amv2 .server-metric{min-height:76px;padding:10px;border:1px solid var(--line);border-radius:7px;background:rgba(255,255,255,.025)}
+.amv2 .server-metric span{display:block;color:var(--muted);font-size:10px;text-transform:uppercase}.amv2 .server-metric strong{display:block;margin-top:8px;font-size:17px}.amv2 .server-metric small{display:block;margin-top:3px;color:var(--muted);font-size:10px}
+.amv2 .profile-summary{padding:12px}.amv2 .profile-summary h3{margin:0 0 6px;font-size:17px}.amv2 .profile-summary p{margin:0 0 12px;color:var(--muted);font-size:12px;line-height:1.45}
+.amv2 .profile-facts{display:grid;grid-template-columns:1fr 1fr;gap:7px}.amv2 .profile-facts div{padding:8px;border:1px solid var(--line);border-radius:6px}.amv2 .profile-facts span{display:block;color:var(--muted);font-size:9px;text-transform:uppercase}.amv2 .profile-facts strong{font-size:12px}
+.amv2 .route-strip{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 12px}.amv2 .route-chip{display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:10px}.amv2 .route-chip b{color:var(--lime)}
+.amv2 .lora-table{padding:0 12px 12px}.amv2 .lora-row{display:grid;grid-template-columns:34px minmax(190px,1.2fr) minmax(160px,.75fr) minmax(200px,1fr) 92px;align-items:center;gap:10px;min-height:54px;border-top:1px solid var(--line)}
+.amv2 .lora-row:first-child{border-top:0}.amv2 .lora-row h3{margin:0;font-size:12px;overflow-wrap:anywhere}.amv2 .lora-row p{margin:2px 0 0;color:var(--muted);font-size:10px}.amv2 .lora-compat{display:flex;flex-wrap:wrap;gap:4px}.amv2 .lora-compat span{padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--muted);font-size:9px}.amv2 .lora-row.incompatible{opacity:.48}.amv2 .lora-row input[type=checkbox]{width:17px;height:17px;accent-color:var(--lime)}
+.amv2 .server-tools{padding:10px 12px;border-top:1px solid var(--line)}.amv2 .server-tools summary{cursor:pointer;color:var(--muted);font-size:11px;font-weight:700}.amv2 .server-tools .ops-row{padding:10px 0 0;border:0;grid-template-columns:minmax(220px,1fr) auto auto}
 .amv2 .job-list{padding:0 12px 12px;display:grid;gap:6px}
 .amv2 .job-row{display:grid;grid-template-columns:minmax(120px,1fr) 96px 90px minmax(140px,1.2fr);gap:8px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);padding:8px;background:rgba(255,255,255,.028);font-size:12px}
 .amv2 .api-key-panel{padding:12px;display:grid;grid-template-columns:minmax(0,1fr);gap:12px;border-bottom:1px solid var(--line)}
@@ -572,9 +587,9 @@ const CSS = `
 .amv2 .actions{display:flex;gap:8px}
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
-@media (max-width:1360px){.amv2 .dashboard{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head{grid-template-columns:1fr}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
-@media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats{grid-template-columns:1fr}}
+@media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head{grid-template-columns:1fr}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
+@media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
 `
 
 export default function AdminModelsV2() {
@@ -599,6 +614,7 @@ export default function AdminModelsV2() {
   const [configErr, setConfigErr] = useState('')
   const [opsReason, setOpsReason] = useState('config api завис / ручная проверка')
   const [opsBusy, setOpsBusy] = useState(false)
+  const [loraAccess, setLoraAccess] = useState<Record<string, boolean>>({})
 
   const load = useCallback(async () => {
     const d = await amvFetch('/admin/models-page?local=0').then((r) => (r.ok ? r.json() : null)).catch(() => null) as PageData | null
@@ -679,6 +695,16 @@ export default function AdminModelsV2() {
     setMsg(r?.ok ? `${label} сохранено` : `Ошибка сохранения: ${label}`)
   }
   const saveRoutes = (next: Route[]) => { setRoutes(next); void saveSetting('generation_routes', { routes: next }, 'Маршруты') }
+  const globalLocalProfile = routes.find((route) => route.provider === 'local')?.modelProfileId || 'flux_klein_9b'
+  const setGlobalLocalProfile = (modelProfileId: string) => {
+    const next = routes.map((route) => route.provider === 'local' ? { ...route, modelProfileId } : route)
+    saveRoutes(next)
+  }
+  const setLoraEnabled = (fileName: string, enabled: boolean) => {
+    const next = { ...loraAccess, [fileName]: enabled }
+    setLoraAccess(next)
+    void saveSetting('server_model_loras', { enabled: next }, 'Доступность LoRA')
+  }
   const saveMinMargin = async () => {
     const minMarginPercent = clampMargin(Number(marginDraft))
     const tokenRub = clampTokenRub(data?.openrouter.economy?.tokenRub)
@@ -692,11 +718,6 @@ export default function AdminModelsV2() {
     setTokenRubDraft(String(tokenRub))
     setData((prev) => prev ? { ...prev, openrouter: { ...prev.openrouter, economy: { ...(prev.openrouter.economy || {}), minMarginPercent, tokenRub } } } : prev)
     await saveSetting('openrouter_economy', { minMarginPercent, tokenRub }, 'Экономика OpenRouter')
-  }
-
-  const setRouteModel = (ri: number, modelProfileId: string) => {
-    const next = routes.map((r, i) => i === ri ? { ...r, modelProfileId } : r)
-    saveRoutes(next)
   }
 
   const saveOpenrouterKey = async () => {
@@ -869,8 +890,6 @@ export default function AdminModelsV2() {
   const kleinLoras = useMemo(() => (data?.loras || []).filter((l) => l.forKlein !== false), [data?.loras])
   const otherLoras = useMemo(() => (data?.loras || []).filter((l) => l.forKlein === false), [data?.loras])
 
-  const profiles = data?.profiles || []
-  const localOptions = profiles.map((p) => ({ id: p.id, name: p.name }))
   const fmtTime = (value?: string) => value ? new Date(value).toLocaleString('ru-RU') : '—'
   const fmtState = (ok?: boolean) => configErr ? 'unknown' : ok ? 'ok' : 'fail'
   const statusColor = (ok?: boolean) => configErr ? 'var(--yellow)' : ok ? 'var(--green)' : 'var(--red)'
@@ -945,104 +964,83 @@ export default function AdminModelsV2() {
     </div>
 
     {pageTab === 'config' && <>
-    <article className="card">
-      <div className="card-head">
-        <div>
-          <h2 className="card-title">Серверная модель: состояние и операции</h2>
-          <p className="card-note">Наш локальный генератор для включенных в тариф ежедневных токенов: модели, ноды, кэш и зависшие задачи.</p>
-        </div>
-        <span className={`state ${configStatus?.status === 'ready' ? 'ok' : 'warn'}`}>{configErr ? 'status api fail' : configStatus?.status || 'unknown'}</span>
+    <section className="server-command">
+      <div className="server-title">
+        <h2>Серверная модель</h2>
+        <p>Единый профиль для одной видеокарты и всех локальных маршрутов</p>
       </div>
-      {configErr && <p className="hint" style={{ margin: '12px 12px 0', color: 'var(--yellow)' }}>Статус серверной модели не загрузился: {configErr}. Если локальный генератор открыт, перезапустите backend/dev-сервер, чтобы он подхватил новые endpoint'ы.</p>}
-      <div className="status-grid">
-        <div className="status-card">
-          <strong>Локальный генератор</strong>
-          <span style={{ color: statusColor(configStatus?.comfyui?.available) }}>{configErr ? 'unknown' : configStatus?.comfyui?.available ? 'online' : 'offline'}</span>
-          <small>{configStatus?.comfyui?.base_url || '—'}</small>
-        </div>
-        <div className="status-card">
-          <strong>Config API</strong>
-          <span style={{ color: statusColor(configStatus?.config_api?.ok) }}>{fmtState(configStatus?.config_api?.ok)}</span>
-          <small>{configStatus?.config_api?.error || Object.entries(configStatus?.config_api?.sections || {}).map(([k, v]) => `${k}: ${v}`).join(' · ') || '—'}</small>
-        </div>
-        <div className="status-card">
-          <strong>Models API</strong>
-          <span style={{ color: statusColor(configStatus?.models_api?.ok) }}>{fmtState(configStatus?.models_api?.ok)}</span>
-          <small>{configStatus?.models_api?.error || Object.entries(configStatus?.models_api?.counts || {}).map(([k, v]) => `${k}: ${v}`).join(' · ') || '—'}</small>
-        </div>
-        <div className="status-card">
-          <strong>Кэш / проверка</strong>
-          <span>{configStatus?.duration_ms ?? '—'} ms</span>
-          <small>{fmtTime(configStatus?.checked_at)} · cache {configStatus?.cache?.models_page_cached ? `${configStatus.cache.models_page_cached_age_seconds}s` : 'empty'}</small>
-        </div>
+      <span className={`state ${configStatus?.status === 'ready' ? 'ok' : 'warn'}`}>{configErr ? 'статус недоступен' : configStatus?.status === 'ready' ? 'сервер готов' : configStatus?.status || 'проверка'}</span>
+      <div className="profile-switch" aria-label="Глобальная серверная модель">
+        <button className={globalLocalProfile === 'flux_klein_9b' ? 'active' : ''} onClick={() => setGlobalLocalProfile('flux_klein_9b')}>Klein 9B</button>
+        <button className={globalLocalProfile === 'flux_klein_4b' ? 'active' : ''} onClick={() => setGlobalLocalProfile('flux_klein_4b')}>Klein 4B</button>
       </div>
-      <div className="ops-row">
-        <input value={opsReason} onChange={(e) => setOpsReason(e.target.value)} placeholder="Причина операции для audit log" />
-        <button className="ghost" disabled={opsBusy} onClick={() => void loadConfigStatus()}>Обновить статус</button>
-        <button className="primary" disabled={opsBusy} onClick={() => void configAction('reload')}>Перезапустить серверную модель</button>
-        <button className="danger" disabled={opsBusy} onClick={() => void configAction('interrupt')}>Остановить локальную задачу</button>
-      </div>
-      <div className="job-list">
-        {(configStatus?.active_jobs || []).length ? (configStatus?.active_jobs || []).map((job) => (
-          <div className="job-row" key={job.id}>
-            <strong>{job.id}</strong><span>{job.status}</span><span>{job.progress ?? 0}%</span><small>{job.mode} · {job.provider} · {job.message || '—'}</small>
+      <button className="primary server-restart" disabled={opsBusy} onClick={() => void configAction('reload')}>Перезапустить модель</button>
+    </section>
+
+    {configErr && <p className="hint" style={{ margin: '0 0 12px', color: 'var(--red)' }}>Состояние сервера не загружено: {configErr}</p>}
+
+    <section className="server-layout">
+      <article className="card">
+        <div className="card-head"><div><h2 className="card-title">Состояние сервера</h2><p className="card-note">Проверка ComfyUI, API, очереди и зависимостей.</p></div><button className="ghost" disabled={opsBusy} onClick={() => void loadConfigStatus()}>Обновить</button></div>
+        <div className="server-overview">
+          <div className="server-metric"><span>ComfyUI</span><strong style={{ color: statusColor(configStatus?.comfyui?.available) }}>{configErr ? '—' : configStatus?.comfyui?.available ? 'В сети' : 'Не отвечает'}</strong><small>{configStatus?.comfyui?.base_url || 'адрес не получен'}</small></div>
+          <div className="server-metric"><span>Config API</span><strong style={{ color: statusColor(configStatus?.config_api?.ok) }}>{fmtState(configStatus?.config_api?.ok)}</strong><small>{configStatus?.config_api?.error || 'конфигурация workflow'}</small></div>
+          <div className="server-metric"><span>Models API</span><strong style={{ color: statusColor(configStatus?.models_api?.ok) }}>{fmtState(configStatus?.models_api?.ok)}</strong><small>{configStatus?.models_api?.error || 'модели и LoRA'}</small></div>
+          <div className="server-metric"><span>Активные задачи</span><strong>{configStatus?.active_jobs?.length ?? '—'}</strong><small>проверено {fmtTime(configStatus?.checked_at)}</small></div>
+        </div>
+        <div className="route-strip">{routes.filter((route) => route.provider === 'local').map((route) => <span className="route-chip" key={route.routeId}><b>{route.icon}</b>{route.displayName}<span>·</span><strong>{globalLocalProfile.endsWith('9b') ? '9B' : '4B'}</strong></span>)}</div>
+        {(configStatus?.active_jobs || []).length > 0 && <div className="job-list">{(configStatus?.active_jobs || []).map((job) => <div className="job-row" key={job.id}><strong>{job.id}</strong><span>{job.status}</span><span>{job.progress ?? 0}%</span><small>{job.mode} · {job.message || '—'}</small></div>)}</div>}
+        <details className="server-tools">
+          <summary>Аварийные операции и журнал причины</summary>
+          <div className="ops-row">
+            <input value={opsReason} onChange={(e) => setOpsReason(e.target.value)} placeholder="Причина операции для журнала" />
+            <button className="ghost" disabled={opsBusy} onClick={() => void configAction('reload')}>Перезапустить</button>
+            <button className="danger" disabled={opsBusy} onClick={() => void configAction('interrupt')}>Остановить задачу</button>
           </div>
-        )) : <p className="card-note">Активных задач в очереди backend сейчас нет.</p>}
-      </div>
-    </article>
-
-    {/* 1-3: Сводка экономики / Маршруты / Пользовательский выбор */}
-    <section className="dashboard">
-      <article className="card">
-        <div className="card-head"><div><h2 className="card-title">Сводка экономики</h2><p className="card-note">Где модели активны, где риск себестоимости и что проверить.</p></div><span className={`state ${data.economy.priceConflicts ? 'warn' : 'ok'}`}>{data.economy.priceConflicts ? `${data.economy.priceConflicts} внимания` : 'ок'}</span></div>
-        <div className="metric-grid">
-          <div className="metric"><span className="label">Активные модели</span><strong className="value">{data.economy.activeModels}</strong><span className="delta">в матрице</span></div>
-          <div className="metric"><span className="label">Маршруты назначены</span><strong className="value">{data.economy.routesAssigned}</strong><span className="delta">готово</span></div>
-          <div className="metric warn"><span className="label">Дорогие маршруты</span><strong className="value">{data.economy.expensiveRoutes}</strong><span className="delta">OpenRouter Pro</span></div>
-          <div className="metric bad"><span className="label">Конфликты цен</span><strong className="value">{data.economy.priceConflicts}</strong><span className="delta">проверить</span></div>
-        </div>
+        </details>
       </article>
 
       <article className="card">
-        <div className="card-head"><div><h2 className="card-title">Маршруты по умолчанию</h2><p className="card-note">Модель по умолчанию, если пользователь не выбрал вручную.</p></div></div>
-        <div className="route-list">{routes.map((r, ri) => <div className="route-row" key={r.routeId}>
-          <div className="route-name"><span className="route-icon">{r.icon}</span>{r.displayName}</div>
-          <span className={`provider ${r.provider === 'local' ? 'local' : 'openrouter'}`}>{r.provider === 'local' ? 'Серверная модель' : 'OpenRouter'}</span>
-          {r.routeId === 'edit_pose'
-            ? <select value="flux_klein_9b" disabled title="Pose: только 9B + DWPose"><option value="flux_klein_9b">Flux 2 Klein 9B + DWPose</option><option disabled>Flux 2 Klein 4B — не поддерживает</option></select>
-            : <select value={r.modelProfileId} onChange={(e) => setRouteModel(ri, e.target.value)}>{localOptions.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select>}
-          <span className={`state ${r.status}`}>{r.state}</span>
-        </div>)}</div>
-      </article>
-
-      <article className="card">
-        <div className="card-head"><div><h2 className="card-title">Ноды и зависимости</h2><p className="card-note">Ключевые custom nodes для локального workflow.</p></div></div>
-        <div className="user-preview">
-          {Object.entries(configStatus?.nodes?.required || {}).map(([key, ok]) => <div className="choice-card" key={key}><span className="choice-icon">{ok ? '✓' : '!'}</span><div><strong>{key}</strong><span>{ok ? 'доступна' : 'не найдена'}</span></div><span className={`state ${ok ? 'ok' : 'bad'}`}>{ok ? 'ok' : 'missing'}</span></div>)}
-          <p className="card-note">Всего нод: {configStatus?.nodes?.count ?? '—'}{configStatus?.nodes?.error ? ` · ${configStatus.nodes.error}` : ''}</p>
+        <div className="card-head"><div><h2 className="card-title">Активный профиль</h2><p className="card-note">Меняется глобально для всех локальных генераций.</p></div></div>
+        <div className="profile-summary">
+          <h3>FLUX.2 Klein {globalLocalProfile.endsWith('9b') ? '9B' : '4B'}</h3>
+          <p>{globalLocalProfile.endsWith('9b') ? 'Основной мощный профиль для качества, лица, сборки и управляемого редактирования.' : 'Облегчённый профиль для высокой скорости и снижения нагрузки на единственную видеокарту.'}</p>
+          <div className="profile-facts">
+            <div><span>Модель</span><strong>{String(data.comfyFiles.modelFile || '—')}</strong></div>
+            <div><span>Text encoder</span><strong>{String(data.comfyFiles.textEncoder || '—')}</strong></div>
+            <div><span>Sampler</span><strong>{String(data.comfyFiles.sampler || '—')}</strong></div>
+            <div><span>Шаги</span><strong>{String(data.comfyFiles.steps || '—')}</strong></div>
+          </div>
         </div>
       </article>
     </section>
 
     <article className="card">
       <div className="card-head">
-        <div><h2 className="card-title">Доступные LoRA серверной модели</h2><p className="card-note">Только локальные LoRA и совместимость с Flux 2 Klein 4B/9B. API-модели здесь больше не смешиваются.</p></div>
-        <div className="actions"><button className="ghost" onClick={() => { void loadLocalModelData(); void loadConfigStatus() }}>Сканировать серверную модель</button></div>
+        <div><h2 className="card-title">LoRA активного профиля</h2><p className="card-note">Доступность для режима Профи. При смене 9B/4B показывается совместимый набор.</p></div>
+        <div className="actions"><button className="ghost" onClick={() => { void loadLocalModelData(); void loadConfigStatus() }}>Пересканировать</button></div>
       </div>
-      <div className="lora-grid">{kleinLoras.map((l) => <article className="lora-card" key={l.fileName}>
-        <span className={`provider ${l.installed === false ? 'openrouter' : 'local'}`}>{l.installed === false ? 'Нужно добавить' : 'Klein LoRA'}</span>
-        <h3>{l.fileName}</h3>
-        <p className="lora-meta">Назначение: {l.purpose}.{l.compatible.length ? ` Совместимость: ${l.compatible.join(', ')}.` : ''}{l.requires.length ? ` Требует: ${l.requires.join(', ')}.` : ''}</p>
-        <div className="lora-actions"><select>{(l.routes.length ? l.routes : ['Не назначена']).map((r) => <option key={r}>{r}</option>)}</select><span className={`state ${l.status === 'active' || l.status === 'found' ? 'ok' : l.status === 'untested' ? 'warn' : 'bad'}`}>{l.status}</span></div>
-      </article>)}</div>
+      <div className="lora-table">{kleinLoras.map((l) => {
+        const profileKey = globalLocalProfile.endsWith('9b') ? '9B' : '4B'
+        const compatible = l.compatible.length === 0 || l.compatible.some((item) => item.toLowerCase().includes(profileKey.toLowerCase()))
+        const enabled = compatible && loraAccess[l.fileName] !== false && l.installed !== false
+        return <div className={`lora-row ${compatible ? '' : 'incompatible'}`} key={l.fileName}>
+          <input type="checkbox" checked={enabled} disabled={!compatible || l.installed === false} onChange={(e) => setLoraEnabled(l.fileName, e.target.checked)} aria-label={`Доступность ${l.fileName}`} />
+          <div><h3>{l.fileName}</h3><p>{l.purpose}</p></div>
+          <div className="lora-compat">{l.compatible.map((item) => <span key={item}>{item}</span>)}</div>
+          <div><p>{l.routes.length ? `Режимы: ${l.routes.join(', ')}` : 'Маршрут ещё не назначен'}{l.requires.length ? ` · Требуется: ${l.requires.join(', ')}` : ''}</p></div>
+          <span className={`state ${enabled ? 'ok' : compatible ? 'warn' : ''}`}>{!compatible ? `не для ${profileKey}` : enabled ? 'доступна' : 'выключена'}</span>
+        </div>
+      })}</div>
       {otherLoras.length > 0 && <div className="hint" style={{ margin: '0 12px 12px' }}>Не используются в Flux Klein: {otherLoras.map((l) => l.fileName).join(', ')}</div>}
     </article>
 
-    <details>
-      <summary>Расширенные файлы серверной модели</summary>
+    <details className="server-tools" style={{ marginBottom: 12 }}>
+      <summary>Техническая конфигурация и зависимости</summary>
       <div className="advanced-grid">
         {Object.entries(data.comfyFiles).map(([k, v]) => <div className="field" key={k}><label>{k}</label><input defaultValue={String(v)} /></div>)}
       </div>
+      <div className="user-preview">{Object.entries(configStatus?.nodes?.required || {}).map(([key, ok]) => <div className="choice-card" key={key}><span className="choice-icon">{ok ? '✓' : '!'}</span><div><strong>{key}</strong><span>{ok ? 'доступна' : 'не найдена'}</span></div><span className={`state ${ok ? 'ok' : 'bad'}`}>{ok ? 'ok' : 'missing'}</span></div>)}</div>
     </details>
     </>}
 
