@@ -2170,7 +2170,7 @@ export default function NewStudio(): ReactElement {
   }
   const visibleStudioModels = (currentModeAccess?.models || [])
     .filter((model) => userModelVisibility[currentModelMode]?.[model.id] !== false)
-  const studioModelEnabled = (model: ModelOption, mode: ModelModeKey = currentModelMode) => isRasterOpenRouterModel(model) && (model.provider !== 'openrouter' || mode === 'text_to_image')
+  const studioModelEnabled = (model: ModelOption, mode: ModelModeKey = currentModelMode) => isRasterOpenRouterModel(model) && (model.provider !== 'openrouter' || mode === 'text_to_image' || mode === 'image_to_image')
   const selectableStudioModels = (visibleStudioModels.length ? visibleStudioModels : currentModeAccess?.models || [])
     .filter((model) => studioModelEnabled(model))
     .sort((a, b) => {
@@ -2809,7 +2809,7 @@ export default function NewStudio(): ReactElement {
 
               <article className="i2i-influence-card">
                 <div className="i2i-influence-head">
-                  <h3>Влияние промпта</h3>
+                  <h3>{currentStudioModel.provider === 'openrouter' ? 'Степень изменений' : 'Влияние промпта'}</h3>
                   <label className="i2i-strength-value">
                     <input
                       type="number"
@@ -2848,7 +2848,9 @@ export default function NewStudio(): ReactElement {
                   <span><span className="i2i-range-arrow">←</span> ближе к фото</span>
                   <span>больше промпта <span className="i2i-range-arrow">→</span></span>
                 </div>
-                <p>Рекомендуем 75%. Ниже сохраняет исходник, выше сильнее следует описанию.</p>
+                <p>{currentStudioModel.provider === 'openrouter'
+                  ? 'Рекомендуем 75%. Для API-модели это смысловая инструкция: ниже точнее сохраняет фото, выше свободнее следует описанию.'
+                  : 'Рекомендуем 75%. Ниже сохраняет исходник, выше сильнее следует описанию.'}</p>
               </article>
             </div>
           </section>

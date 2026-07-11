@@ -58,3 +58,39 @@ def test_saved_config_drops_models_from_incompatible_modes() -> None:
     assert "edit" not in filtered["defaults"]
     assert filtered["access"]["edit"]["pro"] == ["provider/multi"]
     assert filtered["qualityDefaults"]["edit"] == {"max": "provider/multi"}
+
+
+def test_image_to_image_body_contains_reference_and_semantic_influence() -> None:
+    req = main.GenerateRequest(
+        mode="image_to_image",
+        provider="openrouter",
+        prompt="Make the jacket red",
+        strength=0.75,
+        seed=123,
+        inputImage1="data:image/png;base64,AA==",
+    )
+    body = main.build_openrouter_image_body(
+        req,
+        "provider/editor",
+        {"size": "1024x1024"},
+        {"modes": ["image_to_image"], "parameters": ["input_references", "seed"]},
+    )
+    assert body["input_references"][0]["image_url"]["url"] == req.inputImage1
+    assert "Image edit influence: 75%" in body["prompt"]
+    assert body["seed"] == 123
+
+
+def test_seed_is_omitted_when_model_does_not_support_it() -> None:
+    req = main.GenerateRequest(mode="image_to_image", prompt="Edit", seed=123, inputImage1="data:image/png;base64,AA==")
+    body = main.build_openrouter_image_body(req, "provider/editor", {"size": "auto"}, {"modes": ["image_to_image"], "parameters": ["input_references"]})
+    assert "seed" not in body
+
+
+def test_text_only_model_is_rejected_for_image_to_image() -> None:
+    req = main.GenerateRequest(mode="image_to_image", prompt="Edit", inputImage1="data:image/png;base64,AA==")
+    try:
+        main.build_openrouter_image_body(req, "provider/text-only", {"size": "auto"}, {"modes": ["text_to_image"], "parameters": []})
+    except RuntimeError as exc:
+        assert "не поддерживает" in str(exc)
+    else:
+        raise AssertionError("text-only model must be rejected")

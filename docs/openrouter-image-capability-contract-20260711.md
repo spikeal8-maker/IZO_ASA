@@ -42,3 +42,18 @@ and quality defaults are removed. Historical OpenRouter jobs remain readable.
 
 Run `python -m pytest test_openrouter_capabilities.py -q` from `backend` to verify
 the classification and stale-configuration cleanup contracts.
+
+## По фото request contract
+
+- OpenRouter is allowed for `image_to_image` only when live metadata reports that mode.
+- The source is sent as one `input_references` image URL; private project media is
+  converted to an inline data URL before leaving the backend.
+- The UI percentage remains native `denoise` for ComfyUI. For OpenRouter it is a
+  semantic edit-influence instruction and is described as such in the UI.
+- Seed is sent only when the selected endpoint advertises `seed`.
+- Job metadata records reference count, influence percent and whether seed was sent,
+  but never records the inline image bytes.
+- An obsolete admin assignment cannot bypass the live capability check.
+
+The 2026-07-11 payload matrix built a valid one-reference request for all 34 models
+that advertised `image_to_image`; no paid provider calls were made by that matrix.

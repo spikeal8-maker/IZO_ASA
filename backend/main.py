@@ -6140,7 +6140,7 @@ def openrouter_api_key() -> str:
     return os.getenv("OPENROUTER_API_KEY", "").strip() or admin_secret_value("openrouter_api_key")
 
 
-OPENROUTER_GENERATION_MODES = {"text_to_image"}
+OPENROUTER_GENERATION_MODES = {"text_to_image", "image_to_image"}
 OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS = 6 * 60 * 60
 _openrouter_capability_cache: dict[str, Any] = {"ts": 0.0, "models": []}
 
@@ -6219,6 +6219,47 @@ async def fetch_openrouter_image_capabilities(force: bool = False) -> list[dict[
     models.sort(key=lambda item: (item["name"].lower(), item["id"]))
     _openrouter_capability_cache.update({"ts": now, "models": models})
     return models
+
+
+def openrouter_prompt_influence_instruction(strength: float) -> str:
+    percent = max(0, min(100, round(float(strength) * 100)))
+    if percent <= 24:
+        behavior = "Make only minimal, local changes. Preserve composition, identity, geometry, colors, lighting, camera, and nearly all source details."
+    elif percent <= 49:
+        behavior = "Edit conservatively. Preserve the composition and recognizability of the source while applying the requested change clearly."
+    elif percent <= 74:
+        behavior = "Apply a noticeable transformation, but keep the main subjects, layout, perspective, and important source details recognizable."
+    elif percent <= 89:
+        behavior = "Follow the edit prompt strongly. Preserve only the source elements that the prompt does not ask to change."
+    else:
+        behavior = "Freely reinterpret the source according to the edit prompt while retaining it as the visual reference."
+    return f"Image edit influence: {percent}%. {behavior} Do not ignore the supplied reference image."
+
+
+def openrouter_reference_value(source: str | None) -> str:
+    value = (source or "").strip()
+    if not value:
+        raise RuntimeError("Для режима «По фото» требуется исходное изображение.")
+    if value.startswith("data:image/") or value.startswith("https://") or value.startswith("http://"):
+        return value
+    local_path = local_media_path_from_url(value)
+    if local_path is None:
+        raise RuntimeError("Исходное изображение недоступно для OpenRouter.")
+    mime = mimetypes.guess_type(local_path.name)[0] or "image/png"
+    encoded = base64.b64encode(local_path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def build_openrouter_image_body(payload: GenerateRequest, model: str, request_plan: dict[str, Any], capability: dict[str, Any]) -> dict[str, Any]:
+    if payload.mode not in (capability.get("modes") or []):
+        raise RuntimeError(f"Модель {model} не поддерживает режим {payload.mode} по актуальным данным OpenRouter.")
+    body: dict[str, Any] = {"model": model, "prompt": payload.prompt, "n": 1, "size": request_plan["size"]}
+    if payload.mode == "image_to_image":
+        body["prompt"] = f"{payload.prompt.strip()}\n\n{openrouter_prompt_influence_instruction(payload.strength)}".strip()
+        body["input_references"] = [{"type": "image_url", "image_url": {"url": openrouter_reference_value(payload.inputImage1)}}]
+    if payload.seed > 0 and "seed" in (capability.get("parameters") or []):
+        body["seed"] = payload.seed
+    return body
 
 
 def openrouter_headers() -> dict[str, str]:
@@ -6427,20 +6468,26 @@ async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> O
         raise RuntimeError("OPENROUTER_API_KEY не задан. Добавьте ключ перед включением OpenRouter.")
     model = resolve_openrouter_model(payload)
     request_plan = openrouter_image_request_plan(model, payload.width, payload.height)
-    body: dict[str, Any] = {
-        "model": model,
-        "prompt": payload.prompt,
-        "n": 1,
-        "size": request_plan["size"],
+    capabilities = await fetch_openrouter_image_capabilities()
+    capability = next((item for item in capabilities if item.get("id") == model), None)
+    if capability is None:
+        raise RuntimeError(f"Модель {model} отсутствует в актуальном каталоге OpenRouter.")
+    body = build_openrouter_image_body(payload, model, request_plan, capability)
+    request_meta = {
+        **request_plan,
+        "mode": payload.mode,
+        "inputReferences": len(body.get("input_references") or []),
+        "influencePercent": round(payload.strength * 100) if payload.mode == "image_to_image" else None,
+        "seedSent": "seed" in body,
     }
-    job.update(status="sent_to_openrouter", progress=24, message="Отправляем в OpenRouter", openrouterRequest=request_plan)
+    job.update(status="sent_to_openrouter", progress=24, message="Отправляем в OpenRouter", openrouterRequest=request_meta)
     persist_job(job, payload)
     async with httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT_SECONDS) as client:
         response = await client.post(f"{OPENROUTER_BASE_URL}/images", headers=openrouter_headers(), json=body)
         data = response.json() if response.content else {}
         if response.status_code >= 400 and body.get("size") != "auto" and _openrouter_is_size_error(data):
             fallback_body = {**body, "size": "auto"}
-            job.update(message="OpenRouter подбирает безопасный формат", openrouterRequest={**request_plan, "fallbackSize": "auto"})
+            job.update(message="OpenRouter подбирает безопасный формат", openrouterRequest={**request_meta, "fallbackSize": "auto"})
             persist_job(job, payload)
             response = await client.post(f"{OPENROUTER_BASE_URL}/images", headers=openrouter_headers(), json=fallback_body)
             data = response.json() if response.content else {}
@@ -7637,7 +7684,9 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
             raise HTTPException(404, "User not found.")
     if req.provider == "openrouter":
         if req.mode not in OPENROUTER_GENERATION_MODES:
-            raise HTTPException(501, "OpenRouter для этой вкладки подключается следующим этапом. Сейчас доступна генерация по тексту.")
+            raise HTTPException(501, "OpenRouter для этой вкладки пока не подключён.")
+        if req.mode == "image_to_image" and not req.inputImage1:
+            raise HTTPException(400, "Для режима «По фото» требуется исходное изображение.")
         plan = str(user_row["plan"] or "mini").lower()
         if plan not in PLAN_ORDER:
             plan = "mini"
