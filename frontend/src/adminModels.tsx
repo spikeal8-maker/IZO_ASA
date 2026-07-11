@@ -443,6 +443,7 @@ const CSS = `
 .amv2 .profile-switch{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:3px;border:1px solid var(--line-strong);border-radius:7px;background:#0b0e0b}
 .amv2 .profile-switch button{min-width:86px;height:32px;border:0;border-radius:5px;background:transparent;color:var(--muted);font-weight:750}.amv2 .profile-switch button.active{background:var(--lime);color:#080a07}
 .amv2 .server-restart{height:38px;white-space:nowrap}
+.amv2 .server-stop{height:38px;white-space:nowrap}
 .amv2 .server-layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(320px,.75fr);gap:12px;margin-bottom:12px}
 .amv2 .server-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px}
 .amv2 .server-metric{min-height:76px;padding:10px;border:1px solid var(--line);border-radius:7px;background:rgba(255,255,255,.025)}
@@ -452,6 +453,8 @@ const CSS = `
 .amv2 .route-strip{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 12px}.amv2 .route-chip{display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:10px}.amv2 .route-chip b{color:var(--lime)}
 .amv2 .lora-table{padding:0 12px 12px}.amv2 .lora-row{display:grid;grid-template-columns:34px minmax(190px,1.2fr) minmax(160px,.75fr) minmax(200px,1fr) 92px;align-items:center;gap:10px;min-height:54px;border-top:1px solid var(--line)}
 .amv2 .lora-row:first-child{border-top:0}.amv2 .lora-row h3{margin:0;font-size:12px;overflow-wrap:anywhere}.amv2 .lora-row p{margin:2px 0 0;color:var(--muted);font-size:10px}.amv2 .lora-compat{display:flex;flex-wrap:wrap;gap:4px}.amv2 .lora-compat span{padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--muted);font-size:9px}.amv2 .lora-row.incompatible{opacity:.48}.amv2 .lora-row input[type=checkbox]{width:17px;height:17px;accent-color:var(--lime)}
+.amv2 .lora-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}.amv2 .lora-column{min-width:0;border:1px solid var(--line);border-radius:7px;overflow:hidden}.amv2 .lora-column-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:rgba(255,255,255,.035);border-bottom:1px solid var(--line)}.amv2 .lora-column-head h3{margin:0;font-size:13px}.amv2 .lora-column .lora-row{grid-template-columns:28px minmax(160px,1fr) 88px;padding:0 10px}.amv2 .lora-column .lora-row>div:nth-child(3){grid-column:2 / -1;padding-bottom:8px}.amv2 .lora-empty{padding:18px 12px;color:var(--muted);font-size:11px}
+.amv2 .config-profiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}.amv2 .config-profile{border:1px solid var(--line);border-radius:7px;overflow:hidden}.amv2 .config-profile.active{border-color:rgba(218,255,47,.55)}.amv2 .config-profile-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.025)}.amv2 .config-profile-head h3{margin:0;font-size:13px}.amv2 .config-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px}.amv2 .config-field label{display:block;margin-bottom:4px;color:var(--muted);font-size:9px;text-transform:uppercase}.amv2 .config-field input,.amv2 .config-field select{width:100%;height:34px}.amv2 .dependency-note{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 12px 12px}.amv2 .dependency-note div{padding:9px;border:1px solid var(--line);border-radius:6px}.amv2 .dependency-note strong{display:block;font-size:11px}.amv2 .dependency-note span{display:block;margin-top:3px;color:var(--muted);font-size:10px;line-height:1.4}
 .amv2 .server-tools{padding:10px 12px;border-top:1px solid var(--line)}.amv2 .server-tools summary{cursor:pointer;color:var(--muted);font-size:11px;font-weight:700}.amv2 .server-tools .ops-row{padding:10px 0 0;border:0;grid-template-columns:minmax(220px,1fr) auto auto}
 .amv2 .job-list{padding:0 12px 12px;display:grid;gap:6px}
 .amv2 .job-row{display:grid;grid-template-columns:minmax(120px,1fr) 96px 90px minmax(140px,1.2fr);gap:8px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);padding:8px;background:rgba(255,255,255,.028);font-size:12px}
@@ -588,7 +591,7 @@ const CSS = `
 .amv2 .mobile-models{display:none;padding:12px;gap:10px}
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
-@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head{grid-template-columns:1fr}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
+@media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head{grid-template-columns:1fr}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
 `
 
@@ -612,7 +615,7 @@ export default function AdminModelsV2() {
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
   const [configErr, setConfigErr] = useState('')
-  const [opsReason, setOpsReason] = useState('config api завис / ручная проверка')
+  const opsReason = 'ручная операция в админке Config UI'
   const [opsBusy, setOpsBusy] = useState(false)
   const [loraAccess, setLoraAccess] = useState<Record<string, boolean>>({})
 
@@ -685,7 +688,7 @@ export default function AdminModelsV2() {
     setOpsBusy(false)
     if (r?.ok) {
       if (r.status) setConfigStatus(r.status)
-      setMsg(kind === 'reload' ? 'Серверная модель перечитана и кэш сброшен' : 'Interrupt локального генератора отправлен')
+      setMsg(kind === 'reload' ? 'Config UI перезапущен, конфигурация и кэш обновлены' : 'Текущая задача Config UI остановлена')
       await loadConfigStatus()
     } else setMsg(r?.detail || 'Операция не выполнена')
   }
@@ -954,7 +957,7 @@ export default function AdminModelsV2() {
     {msg && <p style={{ color: 'var(--lime)', fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
     <div className="page-tabs" aria-label="Разделы моделей">
       <button className={pageTab === 'api' ? 'active' : ''} onClick={() => setPageTab('api')}>OpenRouter</button>
-      <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Серверная модель</button>
+      <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Config UI</button>
       {pageTab === 'api' && <div className="tab-status">
         <span className={`status-dot ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : ''}`} aria-hidden="true" />
         <span className={`state ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{orStatus.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
@@ -966,15 +969,16 @@ export default function AdminModelsV2() {
     {pageTab === 'config' && <>
     <section className="server-command">
       <div className="server-title">
-        <h2>Серверная модель</h2>
-        <p>Единый профиль для одной видеокарты и всех локальных маршрутов</p>
+        <h2>Config UI</h2>
+        <p>Управление локальным генератором, глобальной моделью и LoRA</p>
       </div>
       <span className={`state ${configStatus?.status === 'ready' ? 'ok' : 'warn'}`}>{configErr ? 'статус недоступен' : configStatus?.status === 'ready' ? 'сервер готов' : configStatus?.status || 'проверка'}</span>
       <div className="profile-switch" aria-label="Глобальная серверная модель">
         <button className={globalLocalProfile === 'flux_klein_9b' ? 'active' : ''} onClick={() => setGlobalLocalProfile('flux_klein_9b')}>Klein 9B</button>
         <button className={globalLocalProfile === 'flux_klein_4b' ? 'active' : ''} onClick={() => setGlobalLocalProfile('flux_klein_4b')}>Klein 4B</button>
       </div>
-      <button className="primary server-restart" disabled={opsBusy} onClick={() => void configAction('reload')}>Перезапустить модель</button>
+      <button className="primary server-restart" disabled={opsBusy} onClick={() => void configAction('reload')}>Перезапустить Config UI</button>
+      <button className="danger server-stop" disabled={opsBusy || !(configStatus?.active_jobs || []).length} onClick={() => void configAction('interrupt')}>Остановить задачу{(configStatus?.active_jobs || []).length ? ` · ${configStatus?.active_jobs?.length}` : ''}</button>
     </section>
 
     {configErr && <p className="hint" style={{ margin: '0 0 12px', color: 'var(--red)' }}>Состояние сервера не загружено: {configErr}</p>}
@@ -990,14 +994,6 @@ export default function AdminModelsV2() {
         </div>
         <div className="route-strip">{routes.filter((route) => route.provider === 'local').map((route) => <span className="route-chip" key={route.routeId}><b>{route.icon}</b>{route.displayName}<span>·</span><strong>{globalLocalProfile.endsWith('9b') ? '9B' : '4B'}</strong></span>)}</div>
         {(configStatus?.active_jobs || []).length > 0 && <div className="job-list">{(configStatus?.active_jobs || []).map((job) => <div className="job-row" key={job.id}><strong>{job.id}</strong><span>{job.status}</span><span>{job.progress ?? 0}%</span><small>{job.mode} · {job.message || '—'}</small></div>)}</div>}
-        <details className="server-tools">
-          <summary>Аварийные операции и журнал причины</summary>
-          <div className="ops-row">
-            <input value={opsReason} onChange={(e) => setOpsReason(e.target.value)} placeholder="Причина операции для журнала" />
-            <button className="ghost" disabled={opsBusy} onClick={() => void configAction('reload')}>Перезапустить</button>
-            <button className="danger" disabled={opsBusy} onClick={() => void configAction('interrupt')}>Остановить задачу</button>
-          </div>
-        </details>
       </article>
 
       <article className="card">
@@ -1017,31 +1013,47 @@ export default function AdminModelsV2() {
 
     <article className="card">
       <div className="card-head">
-        <div><h2 className="card-title">LoRA активного профиля</h2><p className="card-note">Доступность для режима Профи. При смене 9B/4B показывается совместимый набор.</p></div>
+        <div><h2 className="card-title">LoRA Config UI</h2><p className="card-note">Оба набора видны одновременно. Галочка определяет доступность функции в режиме Профи.</p></div>
         <div className="actions"><button className="ghost" onClick={() => { void loadLocalModelData(); void loadConfigStatus() }}>Пересканировать</button></div>
       </div>
-      <div className="lora-table">{kleinLoras.map((l) => {
-        const profileKey = globalLocalProfile.endsWith('9b') ? '9B' : '4B'
-        const compatible = l.compatible.length === 0 || l.compatible.some((item) => item.toLowerCase().includes(profileKey.toLowerCase()))
-        const enabled = compatible && loraAccess[l.fileName] !== false && l.installed !== false
-        return <div className={`lora-row ${compatible ? '' : 'incompatible'}`} key={l.fileName}>
-          <input type="checkbox" checked={enabled} disabled={!compatible || l.installed === false} onChange={(e) => setLoraEnabled(l.fileName, e.target.checked)} aria-label={`Доступность ${l.fileName}`} />
-          <div><h3>{l.fileName}</h3><p>{l.purpose}</p></div>
-          <div className="lora-compat">{l.compatible.map((item) => <span key={item}>{item}</span>)}</div>
-          <div><p>{l.routes.length ? `Режимы: ${l.routes.join(', ')}` : 'Маршрут ещё не назначен'}{l.requires.length ? ` · Требуется: ${l.requires.join(', ')}` : ''}</p></div>
-          <span className={`state ${enabled ? 'ok' : compatible ? 'warn' : ''}`}>{!compatible ? `не для ${profileKey}` : enabled ? 'доступна' : 'выключена'}</span>
-        </div>
+      <div className="lora-columns">{(['9B', '4B'] as const).map((profileKey) => {
+        const items = kleinLoras.filter((l) => l.compatible.some((item) => item.toLowerCase().includes(profileKey.toLowerCase())))
+        const active = globalLocalProfile.toLowerCase().endsWith(profileKey.toLowerCase())
+        return <section className="lora-column" key={profileKey}>
+          <div className="lora-column-head"><h3>Klein {profileKey}</h3><span className={`state ${active ? 'ok' : ''}`}>{active ? 'активная модель' : 'резервный набор'}</span></div>
+          {items.length ? items.map((l) => {
+            const enabled = loraAccess[l.fileName] !== false && l.installed !== false
+            return <div className="lora-row" key={l.fileName}>
+              <input type="checkbox" checked={enabled} disabled={l.installed === false} onChange={(e) => setLoraEnabled(l.fileName, e.target.checked)} aria-label={`Доступность ${l.fileName}`} />
+              <div><h3>{l.fileName}</h3><p>{l.purpose}</p></div>
+              <span className={`state ${enabled ? 'ok' : 'warn'}`}>{l.installed === false ? 'не установлена' : enabled ? 'доступна' : 'выключена'}</span>
+              <div><p>{l.routes.length ? `Функции: ${l.routes.join(', ')}` : 'Функция ещё не назначена'}{l.requires.length ? ` · Нужен модуль: ${l.requires.join(', ')}` : ''}</p></div>
+            </div>
+          }) : <p className="lora-empty">Совместимые LoRA пока не найдены.</p>}
+        </section>
       })}</div>
       {otherLoras.length > 0 && <div className="hint" style={{ margin: '0 12px 12px' }}>Не используются в Flux Klein: {otherLoras.map((l) => l.fileName).join(', ')}</div>}
     </article>
 
-    <details className="server-tools" style={{ marginBottom: 12 }}>
-      <summary>Техническая конфигурация и зависимости</summary>
-      <div className="advanced-grid">
-        {Object.entries(data.comfyFiles).map(([k, v]) => <div className="field" key={k}><label>{k}</label><input defaultValue={String(v)} /></div>)}
+    <article className="card">
+      <div className="card-head"><div><h2 className="card-title">Настройки моделей Config UI</h2><p className="card-note">Базовые параметры, которые будут применяться после переключения профиля и перезапуска.</p></div></div>
+      <div className="config-profiles">{(['9B', '4B'] as const).map((profileKey) => {
+        const active = globalLocalProfile.toLowerCase().endsWith(profileKey.toLowerCase())
+        return <section className={`config-profile ${active ? 'active' : ''}`} key={profileKey}>
+          <div className="config-profile-head"><h3>FLUX.2 Klein {profileKey}</h3><span className={`state ${active ? 'ok' : ''}`}>{active ? 'используется' : 'не загружена'}</span></div>
+          <div className="config-fields">
+            <div className="config-field"><label>Разрешение по умолчанию</label><select defaultValue="1024x1024"><option>1024x1024</option><option>1536x1024</option><option>1024x1536</option></select></div>
+            <div className="config-field"><label>Количество шагов</label><input type="number" min="1" defaultValue={4} /></div>
+            <div className="config-field"><label>Sampler</label><select defaultValue="er_sde"><option value="er_sde">ER-SDE</option></select></div>
+            <div className="config-field"><label>Seed</label><select defaultValue="random"><option value="random">Случайный</option><option value="fixed">Фиксированный</option></select></div>
+          </div>
+        </section>
+      })}</div>
+      <div className="dependency-note">
+        <div><strong>FluxKleinOneNode</strong><span>Основной модуль Config UI: загружает Klein, encoder и VAE и запускает генерацию.</span></div>
+        <div><strong>DWPreprocessor</strong><span>Модуль распознавания позы. Нужен только функциям LoRA, которые управляют положением тела.</span></div>
       </div>
-      <div className="user-preview">{Object.entries(configStatus?.nodes?.required || {}).map(([key, ok]) => <div className="choice-card" key={key}><span className="choice-icon">{ok ? '✓' : '!'}</span><div><strong>{key}</strong><span>{ok ? 'доступна' : 'не найдена'}</span></div><span className={`state ${ok ? 'ok' : 'bad'}`}>{ok ? 'ok' : 'missing'}</span></div>)}</div>
-    </details>
+    </article>
     </>}
 
     {pageTab === 'api' && <>
