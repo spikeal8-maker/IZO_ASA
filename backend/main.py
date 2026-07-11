@@ -724,6 +724,7 @@ class AdminAssistantTestRequest(BaseModel):
     provider: Literal["local", "api"]
     prompt: str = Field(default="девушка стоит у окна вечером", min_length=1, max_length=1000)
     mode: Literal["text", "i2i", "edit", "sketch", "mask", "outpaint", "remove_bg"] = "text"
+    config: dict[str, Any] | None = None
 
 
 rate_limits = {"hourly": 0, "daily": 0}
@@ -6768,13 +6769,13 @@ def openrouter_headers() -> dict[str, str]:
 _prompt_improve_semaphore = asyncio.Semaphore(max(1, min(8, int(os.getenv("PROMPT_IMPROVE_CONCURRENCY", "2")))))
 
 PROMPT_IMPROVE_MODE_RULES = {
-    "text": "Create a precise image-generation prompt: subject, scene, composition, light, materials and camera only when useful.",
-    "i2i": "Describe the requested transformation and explicitly preserve source elements the user did not ask to change.",
-    "edit": "Clarify how the base image and references should be combined. Do not invent reference roles that the user did not specify.",
-    "sketch": "Explain how to turn the sketch into a finished image while preserving its layout and readable shapes.",
-    "mask": "Describe only the change inside the selected mask and require seamless blending with the untouched image.",
-    "outpaint": "Describe a logical continuation beyond the existing frame while preserving perspective, light and scene continuity.",
-    "remove_bg": "Describe edge preservation, hair and fine details. Do not request unrelated changes to the subject.",
+    "text": "Составь подробный промпт для генерации изображения: уточни главный объект, сцену, композицию, освещение, материалы и визуальное качество, не меняя исходную идею.",
+    "i2i": "Чётко опиши требуемое преобразование и обязательно сохрани элементы исходного изображения, которые пользователь не просил менять.",
+    "edit": "Уточни, как объединить основу и референсы. Не придумывай роли изображений, которые пользователь не указал.",
+    "sketch": "Опиши превращение эскиза в законченное изображение с сохранением композиции, линий и читаемых форм.",
+    "mask": "Опиши только изменение внутри выделенной маски и потребуй естественного соединения с нетронутой частью изображения.",
+    "outpaint": "Опиши логичное продолжение сцены за границами кадра с сохранением перспективы, света и целостности пространства.",
+    "remove_bg": "Опиши аккуратное сохранение краёв, волос и мелких деталей. Не добавляй посторонних изменений главного объекта.",
 }
 
 DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
@@ -6786,16 +6787,16 @@ DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
         "requestTimeoutSeconds": 8,
     },
     "improve": {
-        "route": "api",
-        "localModel": "gemma4:12b",
+        "route": "auto",
+        "localModel": "gemma4:31b-cloud",
         "apiModel": "deepseek/deepseek-v4-flash",
         "localTimeoutSeconds": 10,
         "apiTimeoutSeconds": 10,
         "systemPrompt": (
-            "You improve prompts for an image generation studio. Preserve the user's intent, subjects, counts, identity, "
-            "requested actions and language. You may clarify composition, light and visual quality only when they do not "
-            "change the request. Never invent a person's clothing, appearance, pose, location details, camera brand, lens, "
-            "new objects or story facts. Do not add policies, explanations or markdown."
+            "Ты улучшаешь пользовательские промпты для студии генерации изображений. Сохраняй исходный смысл, главные объекты, "
+            "их количество, идентичность персонажей, требуемые действия и язык пользователя. Можно уточнять композицию, свет и "
+            "визуальное качество, только если это не меняет запрос. Не придумывай одежду, внешность, позу, место, марки камер, "
+            "объективы, новые предметы или события. Не добавляй объяснения, служебный текст и Markdown."
         ),
         "modePrompts": dict(PROMPT_IMPROVE_MODE_RULES),
     },
@@ -6830,6 +6831,50 @@ async def ollama_models_status() -> dict[str, Any]:
         return {"ok": False, "baseUrl": base_url, "models": [], "error": type(exc).__name__}
 
 
+_openrouter_text_model_cache: dict[str, Any] = {"ts": 0.0, "models": []}
+
+
+async def openrouter_text_models(force: bool = False) -> list[dict[str, Any]]:
+    now = time.monotonic()
+    cached = _openrouter_text_model_cache.get("models")
+    if not force and isinstance(cached, list) and cached and now - float(_openrouter_text_model_cache.get("ts") or 0) < 3600:
+        return cached
+    headers = openrouter_headers() if openrouter_api_key() else {"Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get(f"{OPENROUTER_BASE_URL}/models?output_modalities=text", headers=headers)
+    response.raise_for_status()
+    payload = response.json() if response.content else {}
+    rows = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), list) else []
+    models: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        architecture = row.get("architecture") if isinstance(row.get("architecture"), dict) else {}
+        inputs = architecture.get("input_modalities") if isinstance(architecture.get("input_modalities"), list) else []
+        outputs = architecture.get("output_modalities") if isinstance(architecture.get("output_modalities"), list) else []
+        if "text" not in inputs or "text" not in outputs:
+            continue
+        pricing = row.get("pricing") if isinstance(row.get("pricing"), dict) else {}
+        try:
+            input_per_million = float(pricing.get("prompt") or 0) * 1_000_000
+            output_per_million = float(pricing.get("completion") or 0) * 1_000_000
+        except (TypeError, ValueError):
+            input_per_million = output_per_million = 0
+        model_id = str(row.get("id") or "").strip()
+        if not model_id:
+            continue
+        models.append({
+            "id": model_id,
+            "name": str(row.get("name") or model_id),
+            "inputPerMillionUsd": round(input_per_million, 6),
+            "outputPerMillionUsd": round(output_per_million, 6),
+            "contextLength": int(row.get("context_length") or 0),
+        })
+    models.sort(key=lambda item: (item["name"].lower(), item["id"]))
+    _openrouter_text_model_cache.update({"ts": now, "models": models})
+    return models
+
+
 def _openrouter_text_content(payload: dict[str, Any]) -> str:
     choices = payload.get("choices") if isinstance(payload, dict) else None
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
@@ -6838,8 +6883,36 @@ def _openrouter_text_content(payload: dict[str, Any]) -> str:
     content = message.get("content")
     if isinstance(content, str):
         return content.strip()
+    if isinstance(content, dict):
+        return json.dumps(content, ensure_ascii=False)
     if isinstance(content, list):
-        return "".join(str(part.get("text") or "") for part in content if isinstance(part, dict)).strip()
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                value = part.get("text") or part.get("content") or part.get("value")
+                if isinstance(value, str):
+                    parts.append(value)
+                elif isinstance(value, dict):
+                    parts.append(json.dumps(value, ensure_ascii=False))
+        if parts:
+            return "".join(parts).strip()
+    parsed = message.get("parsed")
+    if isinstance(parsed, dict):
+        return json.dumps(parsed, ensure_ascii=False)
+    tool_calls = message.get("tool_calls")
+    if isinstance(tool_calls, list):
+        for call in tool_calls:
+            function = call.get("function") if isinstance(call, dict) and isinstance(call.get("function"), dict) else {}
+            arguments = function.get("arguments")
+            if isinstance(arguments, str) and arguments.strip():
+                return arguments.strip()
+            if isinstance(arguments, dict):
+                return json.dumps(arguments, ensure_ascii=False)
+    choice_text = choices[0].get("text")
+    if isinstance(choice_text, str) and choice_text.strip():
+        return choice_text.strip()
     raise RuntimeError("OpenRouter вернул неподдерживаемый формат текста.")
 
 
@@ -6859,11 +6932,11 @@ def _parse_improved_prompt(content: str) -> str:
 
 
 def _improve_system_message(req: ImprovePromptRequest, config: dict[str, Any]) -> str:
-    language_rule = "Answer in Russian." if req.language == "ru" else "Answer in English."
+    language_rule = "Ответ верни на русском языке." if req.language == "ru" else "Return the answer in English."
     system_prompt = str(config.get("systemPrompt") or DEFAULT_ASSISTANT_MODELS_CONFIG["improve"]["systemPrompt"]).strip()
     mode_prompts = config.get("modePrompts") if isinstance(config.get("modePrompts"), dict) else {}
     mode_rule = str(mode_prompts.get(req.mode) or PROMPT_IMPROVE_MODE_RULES[req.mode]).strip()
-    return f"{system_prompt} {language_rule} {mode_rule} Return JSON with one string field named improved_prompt."
+    return f"{system_prompt} {language_rule} {mode_rule} Верни только JSON с одним строковым полем improved_prompt."
 
 
 async def improve_prompt_openrouter(req: ImprovePromptRequest, config: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
@@ -13557,11 +13630,19 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
 @app.get("/api/admin/assistants")
 async def admin_assistants(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
+    try:
+        text_models = await openrouter_text_models()
+        text_models_error = None
+    except Exception as exc:
+        text_models = []
+        text_models_error = type(exc).__name__
     return {
         "ok": True,
         "config": assistant_models_config(),
         "ollama": await ollama_models_status(),
         "openrouterConfigured": bool(openrouter_api_key()),
+        "openrouterModels": text_models,
+        "openrouterModelsError": text_models_error,
     }
 
 
@@ -13570,8 +13651,19 @@ async def admin_test_assistant(req: AdminAssistantTestRequest, request: Request)
     require_trusted_admin(request)
     started = time.monotonic()
     improve_req = ImprovePromptRequest(prompt=req.prompt.strip(), mode=req.mode, language="ru")
+    saved_config = assistant_models_config()["improve"]
+    test_config = {**saved_config, **(req.config if isinstance(req.config, dict) else {})}
+    test_config["modePrompts"] = {
+        **saved_config["modePrompts"],
+        **(test_config.get("modePrompts") if isinstance(test_config.get("modePrompts"), dict) else {}),
+    }
     try:
-        improved, payload, provider, model = await improve_prompt_routed(improve_req, force_provider=req.provider)
+        if req.provider == "local":
+            improved, payload = await improve_prompt_ollama(improve_req, test_config)
+            provider, model = "local", str(test_config.get("localModel") or "gemma4:31b-cloud")
+        else:
+            improved, payload = await improve_prompt_openrouter(improve_req, test_config)
+            provider, model = "api", str(test_config.get("apiModel") or PROMPT_IMPROVE_MODEL)
     except (httpx.HTTPError, RuntimeError) as exc:
         raise HTTPException(502, str(exc)) from exc
     return {

@@ -40,13 +40,16 @@ def test_prompt_improvement_requires_trusted_session(prompt_user):
 def test_prompt_improvement_replaces_text_and_records_sanitized_usage(prompt_user, monkeypatch):
     captured = {}
 
-    async def fake_improve(req, _config=None):
+    async def fake_improve(req, force_provider=None):
         captured["request"] = req
-        return "Красный спортивный автомобиль на городской улице, мягкий вечерний свет.", {
-            "usage": {"prompt_tokens": 80, "completion_tokens": 22, "cost": 0.00001}
-        }
+        return (
+            "Красный спортивный автомобиль на городской улице, мягкий вечерний свет.",
+            {"usage": {"prompt_tokens": 80, "completion_tokens": 22, "cost": 0.00001}},
+            "api",
+            "deepseek/deepseek-v4-flash",
+        )
 
-    monkeypatch.setattr(main, "improve_prompt_openrouter", fake_improve)
+    monkeypatch.setattr(main, "improve_prompt_routed", fake_improve)
     with TestClient(main.app) as client:
         response = client.post(
             "/api/tools/improve-prompt",
@@ -66,10 +69,10 @@ def test_prompt_improvement_replaces_text_and_records_sanitized_usage(prompt_use
 
 
 def test_prompt_improvement_provider_error_does_not_echo_or_replace_prompt(prompt_user, monkeypatch):
-    async def failed_improve(_req, _config=None):
+    async def failed_improve(_req, force_provider=None):
         raise RuntimeError("OpenRouter временно недоступен")
 
-    monkeypatch.setattr(main, "improve_prompt_openrouter", failed_improve)
+    monkeypatch.setattr(main, "improve_prompt_routed", failed_improve)
     with TestClient(main.app) as client:
         response = client.post(
             "/api/tools/improve-prompt",
@@ -82,6 +85,12 @@ def test_prompt_improvement_provider_error_does_not_echo_or_replace_prompt(promp
 
 def test_prompt_parser_accepts_strict_json_and_rejects_empty_value():
     assert main._parse_improved_prompt('{"improved_prompt":"готовый промпт"}') == "готовый промпт"
+    object_content = {"choices": [{"message": {"content": {"improved_prompt": "ответ объектом"}}}]}
+    assert main._parse_improved_prompt(main._openrouter_text_content(object_content)) == "ответ объектом"
+    parsed_content = {"choices": [{"message": {"content": None, "parsed": {"improved_prompt": "parsed ответ"}}}]}
+    assert main._parse_improved_prompt(main._openrouter_text_content(parsed_content)) == "parsed ответ"
+    tool_content = {"choices": [{"message": {"content": None, "tool_calls": [{"function": {"arguments": '{"improved_prompt":"tool ответ"}'}}]}}]}
+    assert main._parse_improved_prompt(main._openrouter_text_content(tool_content)) == "tool ответ"
     with pytest.raises(RuntimeError):
         main._parse_improved_prompt('{"improved_prompt":""}')
 
@@ -96,3 +105,31 @@ def test_assistant_config_merges_saved_values_with_mode_defaults(prompt_user):
     assert config["improve"]["route"] == "local"
     assert config["improve"]["modePrompts"]["text"] == "custom text rule"
     assert config["improve"]["modePrompts"]["mask"]
+
+
+def test_default_prompt_instructions_are_visible_in_russian(prompt_user):
+    config = main.assistant_models_config()["improve"]
+    message = main._improve_system_message(main.ImprovePromptRequest(prompt="дом", mode="text", language="ru"), config)
+    assert "Ты улучшаешь" in message
+    assert "Ответ верни на русском" in message
+    assert "Составь подробный промпт" in message
+
+
+def test_admin_assistant_catalog_contains_ollama_and_openrouter_prices(prompt_user, monkeypatch):
+    with main.db() as conn:
+        conn.execute("UPDATE users SET role = 'admin' WHERE internal_user_id = ?", (prompt_user["internal_user_id"],))
+
+    async def fake_ollama():
+        return {"ok": True, "baseUrl": "http://127.0.0.1:11434", "models": [{"name": "gemma4:31b-cloud"}]}
+
+    async def fake_openrouter_models(force=False):
+        return [{"id": "deepseek/deepseek-v4-flash", "name": "DeepSeek V4 Flash", "inputPerMillionUsd": 0.077, "outputPerMillionUsd": 0.154, "contextLength": 1048576}]
+
+    monkeypatch.setattr(main, "ollama_models_status", fake_ollama)
+    monkeypatch.setattr(main, "openrouter_text_models", fake_openrouter_models)
+    with TestClient(main.app) as client:
+        response = client.get("/api/admin/assistants", cookies={"onenode_session": prompt_user["cookie"]})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["ollama"]["models"][0]["name"] == "gemma4:31b-cloud"
+    assert body["openrouterModels"][0]["inputPerMillionUsd"] == 0.077
