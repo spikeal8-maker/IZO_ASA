@@ -12594,6 +12594,12 @@ async def admin_model_status(request: Request) -> dict[str, Any]:
 async def compute_config_ui_status() -> dict[str, Any]:
     started = time.monotonic()
     checked_at = datetime.now(timezone.utc).isoformat()
+    models_cache_data = _admin_models_page_cache.get("data")
+    models_cache_ts = _admin_models_page_cache.get("ts")
+    if isinstance(models_cache_ts, dict):
+        newest_cache_ts = max((float(value or 0) for value in models_cache_ts.values()), default=0.0)
+    else:
+        newest_cache_ts = float(models_cache_ts or 0)
     active_jobs = [
         {
             "id": item.get("id"),
