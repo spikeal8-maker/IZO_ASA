@@ -8358,7 +8358,7 @@ async def gallery_page(
     cursor_value = parse_gallery_cursor(cursor)
     search = str(q or "").strip()[:120]
     gallery_filter = str(filter or "all").strip().lower()
-    source_availability = await asyncio.to_thread(reconcile_image_source_availability, user_id)
+    await asyncio.to_thread(reconcile_image_source_availability, user_id)
     with db() as conn:
         user_row = conn.execute(
             "SELECT * FROM users WHERE internal_user_id = ? OR id = ?",
@@ -8509,6 +8509,17 @@ async def gallery_page(
             like = f"%{search}%"
             uploaded_where.append("(s.role LIKE ? OR s.source_kind LIKE ? OR images.prompt_original LIKE ?)")
             uploaded_params.extend([like, like, like])
+        unavailable_uploaded_count = int(conn.execute(
+            f"""
+            SELECT COUNT(*) AS count
+            FROM image_sources s
+            JOIN images ON images.id = s.image_id AND images.user_id = s.user_id
+            WHERE {' AND '.join(f'({part})' for part in uploaded_where)}
+              AND s.availability_status = 'missing'
+            """,
+            uploaded_params,
+        ).fetchone()["count"] or 0)
+        uploaded_where.append("s.availability_status = 'available'")
         uploaded_rows = conn.execute(
             f"""
             SELECT s.*, images.mode AS owner_mode
@@ -8545,7 +8556,7 @@ async def gallery_page(
         "items": items,
         "feedItems": feed_items,
         "uploadedItems": uploaded_items,
-        "uploadedUnavailableCount": source_availability["missing"],
+        "uploadedUnavailableCount": unavailable_uploaded_count,
         "hasMore": has_more,
         "nextCursor": gallery_cursor_from_row(page_rows[-1]) if has_more and page_rows else None,
     }
