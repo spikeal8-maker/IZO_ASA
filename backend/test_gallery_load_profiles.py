@@ -80,7 +80,18 @@ def test_gallery_cursor_load_profiles(tmp_path, monkeypatch, count, capsys):
     assert first_page_seconds < 1.0
     assert scan_seconds < 3.0
     assert search_seconds < 1.0
+    secondary_seconds = 0.0
+    if count == 500:
+        secondary_started = time.perf_counter()
+        secondary = client.get("/api/gallery/secondary?limit=24", headers=headers)
+        secondary_seconds = time.perf_counter() - secondary_started
+        assert secondary.status_code == 200
+        assert "items" not in secondary.json()
+        assert secondary_seconds < 1.0
+        compatibility = client.get("/api/gallery/page?limit=24", headers=headers)
+        assert compatibility.status_code == 200
+        assert len(compatibility.json()["items"]) == 24
     print(
         f"gallery-load count={count} pages={pages} first={first_page_seconds:.4f}s "
-        f"scan={scan_seconds:.4f}s search={search_seconds:.4f}s"
+        f"scan={scan_seconds:.4f}s search={search_seconds:.4f}s secondary={secondary_seconds:.4f}s"
     )

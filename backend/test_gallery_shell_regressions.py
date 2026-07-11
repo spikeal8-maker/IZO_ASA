@@ -51,3 +51,10 @@ def test_gallery_defers_secondary_sections_and_uses_small_pages():
     assert "primaryRequestVersion" in script
     assert "secondaryRequestVersion" in script
     assert "err?.name === 'AbortError'" in script
+
+
+def test_secondary_endpoint_skips_primary_gallery_query():
+    source = (GALLERY_DIR.parent.parent / "main.py").read_text(encoding="utf-8")
+    secondary_block = source.split("async def gallery_secondary", 1)[1].split("async def _gallery_page_payload", 1)[0]
+    assert "secondary_only=True" in secondary_block
+    assert "payload = await gallery_page" not in secondary_block

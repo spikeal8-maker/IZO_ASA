@@ -130,3 +130,10 @@ Review the generated manifest and run the media health checks before deleting th
 - `test_gallery_load_profiles.py` exercises 10, 100, and 500 records through the real cursor endpoint, validates deduplication and page bounds, and measures initial page, full scan, and FTS search latency.
 - Cards retain native lazy image decoding, use `content-visibility: auto` off screen, and reuse persisted masonry spans until the grid width changes.
 - Local 500-record profile: first page 0.032 s, 21-page cursor scan 0.761 s, FTS search 0.059 s.
+
+## Phase 7: final cleanup
+
+- Removed the unused embedded `imageData` payload from the gallery shell.
+- `/api/gallery/secondary` now uses an internal `secondary_only` mode that skips the primary image query and serialization.
+- `/api/gallery/page` remains an explicit compatibility aggregate, while canonical documentation points new clients to `/items` and `/secondary`.
+- On the 500-record profile, the secondary-only payload completes in about 0.013 s while the compatibility aggregate remains covered by the same test.

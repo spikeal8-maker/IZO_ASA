@@ -8886,7 +8886,14 @@ async def gallery_items_page(
 
 @app.get("/api/gallery/secondary")
 async def gallery_secondary(request: Request, limit: int = 24, q: str = "", filter: str = "all") -> dict[str, Any]:
-    payload = await gallery_page(request=request, limit=limit, cursor=None, q=q, filter=filter)
+    payload = await _gallery_page_payload(
+        request=request,
+        limit=limit,
+        cursor=None,
+        q=q,
+        filter=filter,
+        secondary_only=True,
+    )
     return {
         "ok": True,
         "limits": payload["limits"],
@@ -8896,13 +8903,14 @@ async def gallery_secondary(request: Request, limit: int = 24, q: str = "", filt
     }
 
 
-@app.get("/api/gallery/page")
-async def gallery_page(
+async def _gallery_page_payload(
     request: Request,
     limit: int = 60,
     cursor: str | None = None,
     q: str = "",
     filter: str = "all",
+    *,
+    secondary_only: bool = False,
 ) -> dict[str, Any]:
     """Structured gallery payload for the new visual shell.
 
@@ -8948,7 +8956,9 @@ async def gallery_page(
         elif gallery_filter == "face":
             where_sql.append("mode IN ('face', 'face_swap', 'faceswap')")
         where_clause = " AND ".join(f"({part})" for part in where_sql)
-        if cursor_value:
+        if secondary_only:
+            image_rows = []
+        elif cursor_value:
             cursor_created_at, cursor_id = cursor_value
             page_params = [*params, cursor_created_at, cursor_created_at, cursor_id, limit + 1]
             image_rows = conn.execute(
@@ -9116,6 +9126,24 @@ async def gallery_page(
         "hasMore": has_more,
         "nextCursor": gallery_cursor_from_row(page_rows[-1]) if has_more and page_rows else None,
     }
+
+
+@app.get("/api/gallery/page")
+async def gallery_page(
+    request: Request,
+    limit: int = 60,
+    cursor: str | None = None,
+    q: str = "",
+    filter: str = "all",
+) -> dict[str, Any]:
+    """Compatibility aggregate for clients that still consume every gallery section."""
+    return await _gallery_page_payload(
+        request=request,
+        limit=limit,
+        cursor=cursor,
+        q=q,
+        filter=filter,
+    )
 
 
 @app.post("/api/gallery/sources/{source_id}/use-as")

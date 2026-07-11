@@ -71,10 +71,14 @@ as reference material unless we explicitly decide to migrate the visible
 
 ## Backend/API Contract
 
-- `GET /api/gallery/page` is the structured payload for the visible gallery.
-  It is cursor-paginated and should be loaded in small batches, not as one large
-  all-history payload. Search (`q`) and filters (`filter`) are server-side so
-  they work beyond the currently loaded card batch.
+- `GET /api/gallery/items` is the cursor payload for the visible primary gallery.
+  It is loaded in small batches, not as one large all-history payload. Search
+  (`q`) and filters (`filter`) are server-side so they work beyond the currently
+  loaded card batch.
+- `GET /api/gallery/secondary` lazily returns feed copies and uploaded-source
+  cards without rerunning the primary query.
+- `GET /api/gallery/page` remains a compatibility aggregate for older clients
+  and tests.
 - `POST /api/gallery/{image_id}/favorite` toggles favorite protection only.
 - `DELETE /api/gallery/{image_id}` performs explicit deletion and slot release.
 - `POST /api/feed/publications` publishes an original to the feed using the
@@ -88,7 +92,8 @@ as reference material unless we explicitly decide to migrate the visible
 - The internal picker used by `По фото`, `Сборка`, and `Редактор` has two
   explicit tabs: `Сгенерированные` and `Загруженные`.
 - Generated images come from the user's gallery. Previously uploaded source
-  images come from `uploadedItems` in `GET /api/gallery/page`; the picker must
+  images come from `uploadedItems` in `GET /api/gallery/secondary` (or the
+  compatibility aggregate); the picker must
   not maintain a second source-image index.
 - Picker thumbnails preserve their stored width/height ratio. Do not force a
   square crop: portrait and landscape sources must be recognizable before the
