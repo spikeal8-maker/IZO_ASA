@@ -58,3 +58,50 @@ def test_older_gallery_images_are_compacted_once(tmp_path, monkeypatch):
     repeated = main.optimize_gallery_storage_for_user(user_id, keep_recent=10)
     assert repeated["checked"] == 0
     assert repeated["optimized"] == 0
+
+
+def test_missing_thumbnail_is_rebuilt_from_available_archive(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "DB_PATH", tmp_path / "gallery.sqlite3")
+    monkeypatch.setattr(main, "MEDIA", tmp_path / "media")
+    main.MEDIA.mkdir()
+    main.init_db()
+
+    source = main.MEDIA / "available_archive.webp"
+    Image.new("RGB", (900, 600), "navy").save(source, "WEBP", quality=86)
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO users (id, language, role, created_at, last_login_at) VALUES ('repair-user', 'ru', 'user', '2026-01-01', '2026-01-01')"
+        )
+        conn.execute(
+            "INSERT INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider, settings_json, created_at) "
+            "VALUES ('repair-image', 'repair-user', 'repair-job', ?, '/api/media/missing_thumb.webp?userId=repair-user', 900, 600, 'text_to_image', 'test', '{}', '2026-07-11')",
+            (main.public_url(source, "repair-user"),),
+        )
+
+    result = main.repair_missing_gallery_thumbnails()
+
+    assert result == {"checked": 1, "repaired": 1, "unrecoverable": 0, "errors": 0}
+    with main.db() as conn:
+        row = conn.execute("SELECT thumbnail_url FROM images WHERE id = 'repair-image'").fetchone()
+    assert row["thumbnail_url"].endswith("available_archive_thumb.webp?userId=repair-user")
+    assert (main.MEDIA / "available_archive_thumb.webp").is_file()
+
+
+def test_missing_custom_avatar_falls_back_to_preset(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "DB_PATH", tmp_path / "gallery.sqlite3")
+    monkeypatch.setattr(main, "MEDIA", tmp_path / "media")
+    main.MEDIA.mkdir()
+    main.init_db()
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO users (id, language, role, avatar_url, created_at, last_login_at) "
+            "VALUES ('avatar-user', 'ru', 'user', '/media/avatars/lost.jpg', '2026-01-01', '2026-01-01')"
+        )
+
+    result = main.repair_missing_user_avatars()
+
+    assert result == {"checked": 1, "repaired": 1}
+    with main.db() as conn:
+        row = conn.execute("SELECT avatar_url, avatar_preset FROM users WHERE id = 'avatar-user'").fetchone()
+    assert row["avatar_preset"] in main.AVATAR_PRESET_IDS
+    assert row["avatar_url"] == f"/avatars/{row['avatar_preset']}.webp"

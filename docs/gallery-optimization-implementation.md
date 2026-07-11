@@ -108,6 +108,10 @@ Added:
 - Active-reference audit issues block the move.
 - Protected seed and feed variants, unsafe paths, and destination collisions are skipped.
 - The quarantine preserves relative paths and writes an atomic JSON manifest with sizes and SHA-256 hashes.
+- Missing media referenced only by terminal jobs is reported as historical diagnostics and no longer blocks cleanup; queued and running jobs remain hard blockers.
+- Missing active thumbnails are rebuilt from an available original or archive during startup.
+- Broken local custom avatars fall back to a valid random preset; existing custom files and explicit presets are preserved.
+- Active `image_sources` thumbnails and local user/provider avatars are included in storage ownership accounting.
 
 Safe operational sequence:
 

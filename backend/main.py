@@ -4148,6 +4148,34 @@ def random_avatar_choice() -> tuple[str, str]:
     return f"/avatars/{preset}.webp", preset
 
 
+def repair_missing_user_avatars() -> dict[str, int]:
+    """Replace only broken local custom avatars with an available preset."""
+    stats = {"checked": 0, "repaired": 0}
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT id, avatar_url, avatar_preset FROM users "
+            "WHERE avatar_url LIKE '/media/avatars/%' AND (avatar_preset IS NULL OR avatar_preset = '')"
+        ).fetchall()
+        for row in rows:
+            stats["checked"] += 1
+            rel = str(row["avatar_url"] or "").removeprefix("/media/").split("?", 1)[0]
+            path = (MEDIA / rel).resolve()
+            try:
+                path.relative_to(MEDIA.resolve())
+            except ValueError:
+                path = MEDIA / "__invalid_avatar_path__"
+            if path.is_file():
+                continue
+            avatar_url, avatar_preset = random_avatar_choice()
+            conn.execute(
+                "UPDATE users SET avatar_url = ?, avatar_preset = ? WHERE id = ? AND avatar_url = ?",
+                (avatar_url, avatar_preset, row["id"], row["avatar_url"]),
+            )
+            if conn.execute("SELECT changes()").fetchone()[0]:
+                stats["repaired"] += 1
+    return stats
+
+
 def validate_avatar_choice(avatar_url: str | None, avatar_preset: str | None) -> tuple[str | None, str | None]:
     preset = (avatar_preset or "").strip()
     url = (avatar_url or "").strip()
@@ -6398,11 +6426,16 @@ def optimize_gallery_storage_for_user(
             new_url = public_url(target, user_id)
             try:
                 with db() as conn:
+                    current = conn.execute("SELECT thumbnail_url FROM images WHERE id = ?", (row["id"],)).fetchone()
+                    thumbnail_url = _row_get(current, "thumbnail_url") if current else None
+                    source_name = media_filename_from_url(str(row["url"] or ""))
+                    thumbnail_name = media_filename_from_url(thumbnail_url)
+                    new_thumbnail_url = new_url if source_name and thumbnail_name == source_name else thumbnail_url
                     conn.execute(
-                        "UPDATE images SET url = ?, width = ?, height = ?, storage_tier = 'optimized', "
+                        "UPDATE images SET url = ?, thumbnail_url = ?, width = ?, height = ?, storage_tier = 'optimized', "
                         "optimized_at = ?, original_bytes = ?, stored_bytes = ? "
                         "WHERE id = ? AND user_id = ? AND storage_tier = 'optimizing'",
-                        (new_url, optimized_width, optimized_height, now, before, after, row["id"], user_id),
+                        (new_url, new_thumbnail_url, optimized_width, optimized_height, now, before, after, row["id"], user_id),
                     )
                     changed = conn.execute("SELECT changes()").fetchone()[0]
                 if not changed:
@@ -6424,6 +6457,38 @@ def optimize_gallery_storage_for_user(
                     "UPDATE images SET storage_tier = 'original' WHERE id = ? AND storage_tier = 'optimizing'",
                     (row["id"],),
                 )
+            stats["errors"] += 1
+    return stats
+
+
+def repair_missing_gallery_thumbnails() -> dict[str, int]:
+    """Rebuild missing active thumbnails from an available gallery original."""
+    stats = {"checked": 0, "repaired": 0, "unrecoverable": 0, "errors": 0}
+    with db() as conn:
+        rows = conn.execute(
+            f"SELECT id, user_id, url, thumbnail_url FROM images WHERE {ACTIVE_IMAGE_WHERE}"
+        ).fetchall()
+    for row in rows:
+        if local_media_path_from_url(str(row["thumbnail_url"] or "")) is not None:
+            continue
+        stats["checked"] += 1
+        source = local_media_path_from_url(str(row["url"] or ""))
+        if source is None:
+            stats["unrecoverable"] += 1
+            continue
+        try:
+            thumbnail = create_thumbnail(source)
+            thumbnail_url = public_url(thumbnail, str(row["user_id"] or "demo_user"))
+            with db() as conn:
+                conn.execute(
+                    "UPDATE images SET thumbnail_url = ? WHERE id = ? AND user_id = ?",
+                    (thumbnail_url, row["id"], row["user_id"]),
+                )
+            cached = images.get(str(row["id"]))
+            if cached is not None:
+                cached["thumbnailUrl"] = thumbnail_url
+            stats["repaired"] += 1
+        except Exception:
             stats["errors"] += 1
     return stats
 
@@ -8264,6 +8329,12 @@ async def startup() -> None:
     recovered_gallery = recover_missing_optimized_gallery_files()
     if any(value for key, value in recovered_gallery.items() if key != "checked"):
         print(f"gallery storage recovery: {recovered_gallery}")
+    repaired_thumbnails = repair_missing_gallery_thumbnails()
+    if any(value for key, value in repaired_thumbnails.items() if key != "checked"):
+        print(f"gallery thumbnail repair: {repaired_thumbnails}")
+    repaired_avatars = repair_missing_user_avatars()
+    if repaired_avatars["repaired"]:
+        print(f"user avatar repair: {repaired_avatars}")
     source_cleanup = cleanup_orphan_image_sources()
     if any(source_cleanup.values()):
         print(f"image source cleanup: {source_cleanup}")

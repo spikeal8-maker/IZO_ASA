@@ -87,6 +87,8 @@ def audit_media_storage(*, item_limit: int = 50) -> dict[str, Any]:
     deleted_refs: dict[str, set[str]] = {}
     feed_refs: dict[str, set[str]] = {}
     job_refs: dict[str, set[str]] = {}
+    active_job_refs: dict[str, set[str]] = {}
+    known_missing_refs: dict[str, set[str]] = {}
 
     files: list[dict[str, Any]] = []
     for path in main.MEDIA.rglob("*") if main.MEDIA.exists() else []:
@@ -117,18 +119,51 @@ def audit_media_storage(*, item_limit: int = 50) -> dict[str, Any]:
                 settings = {}
             _add_text_media_refs(target, settings, f"images.settings_json:{row['id']}", known_by_name)
 
+        source_tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if "image_sources" in source_tables:
+            for row in conn.execute(
+                "SELECT s.id, s.thumb_url, s.availability_status, s.library_deleted_at, i.deleted_at FROM image_sources s "
+                "LEFT JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id"
+            ).fetchall():
+                target = deleted_refs if main._row_get(row, "deleted_at") else active_refs
+                rel = _media_rel_from_url(row["thumb_url"])
+                source = f"image_sources.thumb_url:{row['id']}"
+                known_unavailable = str(main._row_get(row, "availability_status") or "").lower() in {"missing", "unavailable"}
+                removed_from_library = bool(main._row_get(row, "library_deleted_at"))
+                if not main._row_get(row, "deleted_at") and (known_unavailable or removed_from_library):
+                    if rel and (main.MEDIA / rel).is_file():
+                        _add_ref(active_refs, rel, source)
+                    else:
+                        _add_ref(known_missing_refs, rel, source)
+                else:
+                    _add_ref(target, rel, source)
+
+        user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "avatar_url" in user_columns:
+            for row in conn.execute("SELECT id, avatar_url FROM users WHERE avatar_url IS NOT NULL AND avatar_url != ''").fetchall():
+                _add_ref(active_refs, _media_rel_from_url(row["avatar_url"]), f"users.avatar_url:{row['id']}")
+        identity_columns = {row["name"] for row in conn.execute("PRAGMA table_info(auth_identities)").fetchall()}
+        if "provider_avatar_url" in identity_columns:
+            for row in conn.execute(
+                "SELECT id, provider_avatar_url FROM auth_identities "
+                "WHERE provider_avatar_url IS NOT NULL AND provider_avatar_url != ''"
+            ).fetchall():
+                _add_ref(active_refs, _media_rel_from_url(row["provider_avatar_url"]), f"auth_identities.provider_avatar_url:{row['id']}")
+
         feed_columns = {row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()}
         if {"feed_thumb_name", "feed_large_name"} <= feed_columns:
             for row in conn.execute("SELECT id, feed_thumb_name, feed_large_name FROM feed_publications").fetchall():
                 _add_ref(feed_refs, main._row_get(row, "feed_thumb_name"), f"feed.thumb:{row['id']}")
                 _add_ref(feed_refs, main._row_get(row, "feed_large_name"), f"feed.large:{row['id']}")
         if "jobs" in {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}:
-            for row in conn.execute("SELECT id, settings_json FROM jobs").fetchall():
+            for row in conn.execute("SELECT id, status, settings_json FROM jobs").fetchall():
                 try:
                     settings = json.loads(main._row_get(row, "settings_json") or "{}")
                 except Exception:
                     settings = {}
                 _add_text_media_refs(job_refs, settings, f"jobs.settings_json:{row['id']}", known_by_name)
+                if str(main._row_get(row, "status") or "").lower() not in {"completed", "failed", "cancelled"}:
+                    _add_text_media_refs(active_job_refs, settings, f"jobs.settings_json:{row['id']}", known_by_name)
 
     all_active_refs = set(active_refs) | set(feed_refs) | set(job_refs)
     all_deleted_refs = set(deleted_refs)
@@ -155,8 +190,16 @@ def audit_media_storage(*, item_limit: int = 50) -> dict[str, Any]:
         elif rel not in all_db_refs:
             unreferenced.append(item)
 
-    for rel in sorted(all_active_refs - existing):
-        missing_active_refs.append({"file": rel, "sources": sorted(active_refs.get(rel, set()) | feed_refs.get(rel, set()) | job_refs.get(rel, set()))})
+    hard_active_refs = set(active_refs) | set(feed_refs) | set(active_job_refs)
+    for rel in sorted(hard_active_refs - existing):
+        missing_active_refs.append({"file": rel, "sources": sorted(active_refs.get(rel, set()) | feed_refs.get(rel, set()) | active_job_refs.get(rel, set()))})
+    missing_historical_job_refs = [
+        {"file": rel, "sources": sorted(job_refs.get(rel, set()))}
+        for rel in sorted((set(job_refs) - set(active_job_refs)) - existing)
+    ]
+    missing_known_unavailable_refs = [
+        {"file": rel, "sources": sorted(sources)} for rel, sources in sorted(known_missing_refs.items())
+    ]
 
     report: dict[str, Any] = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
@@ -169,6 +212,8 @@ def audit_media_storage(*, item_limit: int = 50) -> dict[str, Any]:
         "unreferenced": _summary(len(unreferenced), sum(int(item["bytes"]) for item in unreferenced)),
         "by_kind": {kind: _summary(data["count"], data["bytes"]) for kind, data in sorted(by_kind.items())},
         "missing_active_refs": missing_active_refs[:item_limit],
+        "missing_historical_job_refs": missing_historical_job_refs[:item_limit],
+        "missing_known_unavailable_refs": missing_known_unavailable_refs[:item_limit],
         "largest_deleted_image_residue": _summarize_files(deleted_residue, limit=item_limit),
         "largest_unreferenced": _summarize_files(unreferenced, limit=item_limit),
         "issues": [],
