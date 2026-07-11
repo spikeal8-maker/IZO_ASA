@@ -137,3 +137,5 @@ Review the generated manifest and run the media health checks before deleting th
 - `/api/gallery/secondary` now uses an internal `secondary_only` mode that skips the primary image query and serialization.
 - `/api/gallery/page` remains an explicit compatibility aggregate, while canonical documentation points new clients to `/items` and `/secondary`.
 - On the 500-record profile, the secondary-only payload completes in about 0.013 s while the compatibility aggregate remains covered by the same test.
+- Missing source previews are repaired per metadata row from retained job data, existing media, or a linked gallery image; the repair does not replace IDs or favorite/library state.
+- Local recovery on 2026-07-12 restored 123 of 125 missing source previews. The two remaining rows reference deleted gallery originals with no retained bytes or feed derivative.

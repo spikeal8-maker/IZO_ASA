@@ -102,6 +102,14 @@ as reference material unless we explicitly decide to migrate the visible
   opened the picker, including a specific `Сборка` reference slot.
 - Loading, empty, and failure states are visible inside the uploaded tab and do
   not erase the generated tab.
+- A source row marked `missing` is metadata for a lost physical preview, not a
+  consumed source-library slot. Startup repair recreates that preview from the
+  original job data, an existing media input, or a linked gallery image while
+  preserving the same row, favorite state, and library-deletion state.
+- New generations persist compressed source previews as `available` in the same
+  workflow. A newly uploaded source should therefore appear after generation;
+  recurring mass `missing` counts indicate a non-persistent `MEDIA_DIR` volume,
+  not normal tariff eviction.
 
 ## Test Coverage To Keep
 

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import base64
+import json
+from io import BytesIO
+
 from PIL import Image
 
 import main
@@ -105,3 +109,42 @@ def test_missing_custom_avatar_falls_back_to_preset(tmp_path, monkeypatch):
         row = conn.execute("SELECT avatar_url, avatar_preset FROM users WHERE id = 'avatar-user'").fetchone()
     assert row["avatar_preset"] in main.AVATAR_PRESET_IDS
     assert row["avatar_url"] == f"/avatars/{row['avatar_preset']}.webp"
+
+
+def test_missing_source_thumbnail_is_repaired_without_replacing_row(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "DB_PATH", tmp_path / "gallery.sqlite3")
+    monkeypatch.setattr(main, "MEDIA", tmp_path / "media")
+    main.MEDIA.mkdir()
+    main.init_db()
+    buffer = BytesIO()
+    Image.new("RGB", (40, 30), "purple").save(buffer, "PNG")
+    data_url = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+    settings = json.dumps({"mode": "image_to_image", "provider": "comfyui", "prompt": "repair", "inputImage1": data_url})
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO users (id, language, role, created_at, last_login_at) VALUES ('source-user', 'ru', 'user', '2026-01-01', '2026-01-01')"
+        )
+        conn.execute(
+            "INSERT INTO jobs (id, user_id, mode, provider, status, settings_json, created_at) "
+            "VALUES ('source-job', 'source-user', 'image_to_image', 'comfyui', 'completed', ?, '2026-01-01')",
+            (settings,),
+        )
+        conn.execute(
+            "INSERT INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider, settings_json, created_at) "
+            "VALUES ('source-image', 'source-user', 'source-job', '/api/media/result.webp', '/api/media/result-thumb.webp', 40, 30, 'image_to_image', 'comfyui', ?, '2026-01-01')",
+            (settings,),
+        )
+        conn.execute(
+            "INSERT INTO image_sources (id, image_id, user_id, source_kind, role, slot_index, thumb_url, is_favorite, availability_status, created_at) "
+            "VALUES ('stable-source-id', 'source-image', 'source-user', 'upload', 'base', 1, '/api/media/missing.webp', 1, 'missing', '2026-01-01')"
+        )
+
+    result = main.repair_unavailable_image_sources_from_jobs("source-user")
+
+    assert result == {"checked": 1, "repaired": 1, "unrecoverable": 0, "errors": 0}
+    with main.db() as conn:
+        row = conn.execute("SELECT * FROM image_sources WHERE id = 'stable-source-id'").fetchone()
+    assert row["availability_status"] == "available"
+    assert row["is_favorite"] == 1
+    assert row["thumb_url"].endswith(".webp?userId=source-user")
+    assert main.local_media_path_from_url(row["thumb_url"]).is_file()
