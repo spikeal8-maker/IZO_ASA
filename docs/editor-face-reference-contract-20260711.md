@@ -4,6 +4,8 @@ This contract covers the `Сборка` reference card when its role is `Лиц�
 
 The former standalone `Лицо` studio tab was removed on 2026-07-11. Face transfer is
 owned only by the `Лицо` reference role in `Сборка`; old `#face` links open `Сборка`.
+OpenRouter models may be offered for this role only through `Сборка` and only when
+their live capability metadata reports at least two `input_references`.
 
 ## Visual contract
 

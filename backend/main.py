@@ -6141,6 +6141,84 @@ def openrouter_api_key() -> str:
 
 
 OPENROUTER_GENERATION_MODES = {"text_to_image"}
+OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS = 6 * 60 * 60
+_openrouter_capability_cache: dict[str, Any] = {"ts": 0.0, "models": []}
+
+
+def _openrouter_parameter_names(parameters: Any) -> list[str]:
+    return sorted(str(key) for key in parameters.keys()) if isinstance(parameters, dict) else []
+
+
+def _openrouter_reference_limit(parameters: Any) -> int:
+    descriptor = parameters.get("input_references") if isinstance(parameters, dict) else None
+    if not isinstance(descriptor, dict):
+        return 0
+    try:
+        return max(0, int(descriptor.get("max") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def openrouter_model_capability(model: dict[str, Any]) -> dict[str, Any]:
+    architecture = model.get("architecture") if isinstance(model.get("architecture"), dict) else {}
+    inputs = sorted(str(value) for value in architecture.get("input_modalities", []) if isinstance(value, str))
+    outputs = sorted(str(value) for value in architecture.get("output_modalities", []) if isinstance(value, str))
+    parameters = model.get("supported_parameters") if isinstance(model.get("supported_parameters"), dict) else {}
+    parameter_names = _openrouter_parameter_names(parameters)
+    max_references = _openrouter_reference_limit(parameters)
+    background = parameters.get("background") if isinstance(parameters.get("background"), dict) else {}
+    background_values = [str(value) for value in background.get("values", []) if isinstance(value, str)]
+    image_output = "image" in outputs
+    modes: list[str] = []
+    if "text" in inputs and image_output:
+        modes.append("text_to_image")
+    if image_output and max_references >= 1:
+        modes.extend(["image_to_image", "paint"])
+    if image_output and max_references >= 2:
+        modes.append("edit")
+    if image_output and any(key in parameters for key in ("mask", "mask_image", "inpaint")):
+        modes.append("inpaint")
+    if image_output and any(key in parameters for key in ("outpaint", "outpaint_mask", "canvas")):
+        modes.append("outpaint")
+    if image_output and max_references >= 1 and "transparent" in background_values:
+        modes.append("remove_background")
+    return {
+        "id": str(model.get("id") or ""),
+        "name": str(model.get("name") or model.get("id") or ""),
+        "description": str(model.get("description") or ""),
+        "inputModalities": inputs,
+        "outputModalities": outputs,
+        "parameters": parameter_names,
+        "parameterDescriptors": parameters,
+        "maxInputReferences": max_references,
+        "supportsStreaming": bool(model.get("supports_streaming")),
+        "modes": sorted(set(modes)),
+        "features": {
+            "seed": "seed" in parameters,
+            "quality": "quality" in parameters,
+            "aspectRatio": "aspect_ratio" in parameters,
+            "resolution": "resolution" in parameters,
+            "transparentBackground": "transparent" in background_values,
+            "multipleOutputs": isinstance(parameters.get("n"), dict) and int(parameters["n"].get("max") or 1) > 1,
+        },
+    }
+
+
+async def fetch_openrouter_image_capabilities(force: bool = False) -> list[dict[str, Any]]:
+    now = time.monotonic()
+    cached = _openrouter_capability_cache.get("models")
+    if not force and isinstance(cached, list) and cached and now - float(_openrouter_capability_cache.get("ts") or 0) < OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS:
+        return cached
+    headers = openrouter_headers() if openrouter_api_key() else {"Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+        response = await client.get(f"{OPENROUTER_BASE_URL}/images/models", headers=headers)
+        response.raise_for_status()
+    payload = response.json() if response.content else {}
+    rows = payload.get("data") if isinstance(payload, dict) else []
+    models = [openrouter_model_capability(item) for item in rows if isinstance(item, dict) and item.get("id")]
+    models.sort(key=lambda item: (item["name"].lower(), item["id"]))
+    _openrouter_capability_cache.update({"ts": now, "models": models})
+    return models
 
 
 def openrouter_headers() -> dict[str, str]:
@@ -13184,7 +13262,7 @@ def openrouter_usage_stats() -> dict[str, Any]:
 
 
 OPENROUTER_ADMIN_MODES = {
-    "text_to_image", "image_to_image", "edit", "paint", "inpaint", "outpaint", "faceswap", "remove_background"
+    "text_to_image", "image_to_image", "edit", "paint", "inpaint", "outpaint", "remove_background"
 }
 OPENROUTER_ACCESS_TIERS = {"mini", "plus", "pro", "business"}
 OPENROUTER_QUALITY_PRESETS = {"fast", "standard", "max"}
@@ -13247,6 +13325,31 @@ def get_openrouter_config() -> dict[str, Any]:
     return normalize_openrouter_config(_saved_setting("openrouter_models"))
 
 
+def filter_openrouter_config_by_capabilities(config: dict[str, Any], catalog: list[dict[str, Any]]) -> dict[str, Any]:
+    normalized = normalize_openrouter_config(config)
+    allowed = {
+        mode: {str(model.get("id")) for model in catalog if mode in (model.get("modes") or [])}
+        for mode in OPENROUTER_ADMIN_MODES
+    }
+    enabled = normalized.get("enabled") if isinstance(normalized.get("enabled"), dict) else {}
+    access = normalized.get("access") if isinstance(normalized.get("access"), dict) else {}
+    quality = normalized.get("qualityDefaults") if isinstance(normalized.get("qualityDefaults"), dict) else {}
+    defaults = normalized.get("defaults") if isinstance(normalized.get("defaults"), dict) else {}
+    for mode in OPENROUTER_ADMIN_MODES:
+        valid = allowed.get(mode, set())
+        enabled[mode] = [model_id for model_id in enabled.get(mode, []) if model_id in valid]
+        if mode in defaults and defaults[mode] not in valid:
+            defaults.pop(mode, None)
+        mode_access = access.get(mode) if isinstance(access.get(mode), dict) else {}
+        for tier in list(mode_access):
+            mode_access[tier] = [model_id for model_id in mode_access.get(tier, []) if model_id in valid]
+        mode_quality = quality.get(mode) if isinstance(quality.get(mode), dict) else {}
+        for preset in list(mode_quality):
+            if mode_quality[preset] not in valid:
+                mode_quality.pop(preset, None)
+    return normalized
+
+
 def openrouter_model_allowed(config: dict[str, Any], mode: str, tier: str, model_id: str) -> bool:
     access = config.get("access") if isinstance(config.get("access"), dict) else {}
     mode_access = access.get(mode) if isinstance(access.get(mode), dict) else {}
@@ -13272,7 +13375,6 @@ PUBLIC_MODEL_MODE_LABELS = {
     "paint": "Редактор - рисунок",
     "inpaint": "Редактор - маска",
     "outpaint": "Редактор - расширение",
-    "faceswap": "Лицо",
     "remove_background": "Удаление фона",
 }
 
@@ -13383,7 +13485,8 @@ async def admin_openrouter_refresh_exchange(request: Request) -> dict[str, Any]:
 @app.post("/api/admin/openrouter/config")
 async def admin_save_openrouter_config(req: AdminOpenRouterConfigRequest, request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
-    config = normalize_openrouter_config(req.config)
+    capabilities = await fetch_openrouter_image_capabilities()
+    config = filter_openrouter_config_by_capabilities(req.config, capabilities)
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute(
@@ -13537,6 +13640,12 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
     openrouter_key = bool(openrouter_status.get("configured"))
     openrouter_usage = openrouter_usage_stats()
     exchange = await fetch_usd_rub_rate()
+    try:
+        openrouter_capabilities = await fetch_openrouter_image_capabilities()
+        openrouter_capability_error = None
+    except Exception as exc:
+        openrouter_capabilities = []
+        openrouter_capability_error = truncate_admin_text(str(exc), 240)
 
     # Каталог: local (из profiles) + openrouter.
     catalog: list[dict[str, Any]] = []
@@ -13591,10 +13700,13 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
             "keyConfigured": openrouter_key,
             "status": openrouter_status,
             "usage": openrouter_usage,
-            "config": get_openrouter_config(),
+            "config": filter_openrouter_config_by_capabilities(get_openrouter_config(), openrouter_capabilities) if openrouter_capabilities else get_openrouter_config(),
             "exchange": exchange,
             "economy": openrouter_economy,
             "backendPricing": openrouter_admin_pricing_rows(exchange, openrouter_economy),
+            "capabilityCatalog": openrouter_capabilities,
+            "capabilityError": openrouter_capability_error,
+            "capabilityCacheTtlSeconds": OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS,
         },
         "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"} if include_local else {},
         "profiles": status.get("profiles", []),

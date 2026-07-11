@@ -41,6 +41,18 @@ type OpenRouterFormatEconomics = {
   supported?: boolean
 }
 type BackendOpenRouterPrice = { id: string; name: string; provider: string; pricing_type: string; usd: number; min_tokens: number; source: string; formats?: OpenRouterFormatEconomics[] }
+type OpenRouterCapabilityModel = {
+  id: string
+  name: string
+  description: string
+  inputModalities: string[]
+  outputModalities: string[]
+  parameters: string[]
+  maxInputReferences: number
+  supportsStreaming: boolean
+  modes: string[]
+  features: { seed?: boolean; quality?: boolean; aspectRatio?: boolean; resolution?: boolean; transparentBackground?: boolean; multipleOutputs?: boolean }
+}
 type ConfigStatus = {
   status?: string
   checked_at?: string
@@ -76,6 +88,9 @@ type PageData = {
     exchange?: { rate?: number | null; source?: string; sourceUrl?: string; sourceDate?: string; fetchedAt?: string; cache?: string; error?: string; fallback?: boolean; warning?: string }
     economy?: { minMarginPercent?: number; tokenRub?: number }
     backendPricing?: BackendOpenRouterPrice[]
+    capabilityCatalog?: OpenRouterCapabilityModel[]
+    capabilityError?: string | null
+    capabilityCacheTtlSeconds?: number
   }
   comfyFiles: Record<string, unknown>
   profiles: ProfileOption[]
@@ -114,6 +129,7 @@ const OPENROUTER_FORMAT_COLUMNS = [
 type ApiImageModel = {
   id: string; name: string; provider: string; input: string; output: string; params: string; pricing: string
   mpUsd?: number; imageUsd?: number; token?: boolean; tiered?: boolean
+  modes?: string[]; maxInputReferences?: number; description?: string; supportsStreaming?: boolean
 }
 type ApiSortKey = 'price' | 'name' | 'provider' | 'tokens' | 'revenue' | 'profit' | 'margin'
 type ApiSortState = { key: ApiSortKey; dir: 'asc' | 'desc' }
@@ -167,19 +183,14 @@ const OPENROUTER_IMAGE_MODELS: ApiImageModel[] = [
   { id: 'openrouter/auto', name: 'Auto Router', provider: 'OpenRouter', input: 'text+image+audio+file+video', output: 'text+image', params: '', pricing: 'оценка: fallback до $0.15/image', imageUsd: 0.15 },
 ]
 
-const has = (m: ApiImageModel, value: string) => `${m.input} ${m.output} ${m.params} ${m.id} ${m.name}`.toLowerCase().includes(value)
-const textImageModels = () => OPENROUTER_IMAGE_MODELS.filter((m) => m.input.includes('text') && m.output.includes('image'))
-const imageInputModels = () => textImageModels().filter((m) => m.input.includes('image') || has(m, 'input_references'))
-const transparentModels = () => textImageModels().filter((m) => has(m, 'background') || has(m, 'transparent') || m.id.includes('gpt-image'))
 const API_MODE_SECTIONS: ApiModeSection[] = [
-  { id: 'text_to_image', title: 'Текст -> изображение', local: 'Flux 2 Klein 4B', note: 'Все OpenRouter image-модели, которые принимают text и возвращают image.', filter: (m) => m.input.includes('text') && m.output.includes('image') },
-  { id: 'image_to_image', title: 'Изображение -> изображение', local: 'Flux 2 Klein 4B', note: 'Модели с image input или input_references. Здесь допускаются дубли из txt2img.', filter: (m) => imageInputModels().includes(m) },
-  { id: 'edit', title: 'Сборка / multi-reference', local: 'Flux 2 Klein 9B', note: 'Модели, где явно есть input_references или OpenAI/Gemini image-edit capabilities.', filter: (m) => has(m, 'input_references') || m.id.includes('gpt-image') || m.id.includes('gemini') },
-  { id: 'paint', title: 'Редактор / правки изображения', local: 'Flux 2 Klein edit workflow', note: 'То же семейство image-input моделей: скетч передается как reference/input image.', filter: (m) => imageInputModels().includes(m) },
-  { id: 'inpaint', title: 'Редактор - маска / inpaint', local: 'Flux 2 Klein inpaint workflow', note: 'OpenRouter image models не всегда явно обещают mask API; сначала тестируем OpenAI background/quality и image-reference модели.', filter: (m) => m.id.includes('gpt-image') || has(m, 'background') || has(m, 'quality') },
-  { id: 'outpaint', title: 'Редактор - расширение / outpaint', local: 'Flux 2 Klein outpaint workflow', note: 'Кандидаты с aspect_ratio/resolution/input_references. Нужен ручной тест расширения границ.', filter: (m) => has(m, 'aspect_ratio') || has(m, 'resolution') || has(m, 'input_references') },
-  { id: 'faceswap', title: 'Лицо / reference identity', local: 'Flux 2 Klein 9B + BFS LoRA', note: 'Все image-reference модели, но включать только после теста identity consistency и приватности.', filter: (m) => imageInputModels().includes(m) },
-  { id: 'remove_background', title: 'Удаление фона / прозрачность', local: 'локальный workflow/утилита', note: 'Только модели с background/transparent-like параметрами; это отдельный инструмент, не массовый txt2img.', filter: (m) => transparentModels().includes(m) },
+  { id: 'text_to_image', title: 'По тексту', local: 'Flux 2 Klein 4B', note: 'Принимает текст и возвращает растровое изображение.', filter: (m) => Boolean(m.modes?.includes('text_to_image')) },
+  { id: 'image_to_image', title: 'По фото — одно изображение', local: 'Flux 2 Klein 4B', note: 'Только модели с input_references и лимитом не меньше одного изображения.', filter: (m) => Boolean(m.modes?.includes('image_to_image')) },
+  { id: 'edit', title: 'Сборка — несколько изображений', local: 'Flux 2 Klein 9B', note: 'Только модели, которые официально принимают два и более референса.', filter: (m) => Boolean(m.modes?.includes('edit')) },
+  { id: 'paint', title: 'Редактор — эскиз и правки', local: 'Flux 2 Klein edit workflow', note: 'Модель принимает нарисованный или загруженный исходник как референс.', filter: (m) => Boolean(m.modes?.includes('paint')) },
+  { id: 'inpaint', title: 'Редактор — маска', local: 'Flux 2 Klein inpaint workflow', note: 'Строгий список: только модели с явно заявленным mask/inpaint параметром.', filter: (m) => Boolean(m.modes?.includes('inpaint')) },
+  { id: 'outpaint', title: 'Редактор — расширение', local: 'Flux 2 Klein outpaint workflow', note: 'Строгий список: только модели с явно заявленным outpaint/canvas параметром.', filter: (m) => Boolean(m.modes?.includes('outpaint')) },
+  { id: 'remove_background', title: 'Редактор — удалить фон', local: 'локальный workflow/утилита', note: 'Исходник плюс официальная поддержка прозрачного background.', filter: (m) => Boolean(m.modes?.includes('remove_background')) },
 ]
 
 const exchangeRate = (exchange?: PageData['openrouter']['exchange']) => typeof exchange?.rate === 'number' ? exchange.rate : null
@@ -856,6 +867,23 @@ export default function AdminModelsV2() {
   const orUsageModels = usageModelMap(data.openrouter.usage?.models)
   const orUsageModes = usageModeMap(data.openrouter.usage?.modes)
   const backendPricingMap = new Map((data.openrouter.backendPricing || []).map((m) => [m.id, m]))
+  const capabilityModels: ApiImageModel[] = (data.openrouter.capabilityCatalog || []).map((model) => {
+    const price = backendPricingMap.get(model.id)
+    const provider = model.name.includes(':') ? model.name.split(':', 1)[0] : model.id.split('/', 1)[0]
+    return {
+      id: model.id,
+      name: model.name,
+      provider,
+      input: model.inputModalities.join('+'),
+      output: model.outputModalities.join('+'),
+      params: model.parameters.join(', '),
+      pricing: price ? `${price.pricing_type}: $${price.usd}` : 'нет проверенной backend-цены',
+      modes: model.modes,
+      maxInputReferences: model.maxInputReferences,
+      description: model.description,
+      supportsStreaming: model.supportsStreaming,
+    }
+  })
   const backendPricedCount = backendPricingMap.size
   const totalSpentPair = typeof data.openrouter.usage?.totalCostUsd === 'number' ? moneyPair(data.openrouter.usage.totalCostUsd, usdRubEffective) : '—'
   const avgImagePair = typeof data.openrouter.usage?.avgCostUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostUsd, usdRubEffective) : '—'
@@ -1031,6 +1059,7 @@ export default function AdminModelsV2() {
         <input type="search" placeholder="Фильтр по всем карточкам: модель, provider, price, параметр" value={query} onChange={(e) => setQuery(e.target.value)} />
         <button className="ghost" onClick={() => setQuery('')}>Сбросить</button>
       </div>
+      {data.openrouter.capabilityError ? <p className="hint" style={{ color: 'var(--yellow)' }}>Каталог возможностей OpenRouter не загрузился: {data.openrouter.capabilityError}</p> : null}
 
       {API_MODE_SECTIONS.map((section) => {
         const sort = apiSorts[section.id] || { key: 'price' as const, dir: 'asc' as const }
@@ -1045,7 +1074,7 @@ export default function AdminModelsV2() {
         const sectionAvgMp = typeof sectionStats?.avgCostPerMpUsd === 'number' ? moneyPair(sectionStats.avgCostPerMpUsd, usdRubEffective) : '—'
         const sectionTokens = tokensText(sectionStats?.costUsd, usdRubEffective, tokenRub)
         const sectionFavorite = modelLabelById(sectionStats?.favoriteModel)
-        const rows = OPENROUTER_IMAGE_MODELS
+        const rows = capabilityModels
           .filter(section.filter)
           .filter((m) => {
             const hay = `${m.id} ${m.name} ${m.provider} ${m.input} ${m.output} ${m.params} ${m.pricing}`.toLowerCase()
@@ -1174,7 +1203,11 @@ export default function AdminModelsV2() {
                         <span><b>Форматы:</b> {(backendPrice?.formats || []).map((fmt) => `${fmt.short}: ${formatMoneyRub(fmt.costRub)} / ${formatMoneyUsd(fmt.costUsd)}, ${fmt.tokens ?? '—'} ток., ${fmt.requestSize || 'auto'}`).join(' · ') || 'нет данных'}</span>
                         <span><b>Факт по проекту:</b> {generatedCount} шт · {spentTotal}</span>
                         <span><b>Вход/выход API:</b> {m.input} {'->'} {m.output}</span>
+                        <span><b>Референсы:</b> максимум {m.maxInputReferences ?? 0} изображений</span>
+                        <span><b>Подходит для:</b> {(m.modes || []).map((mode) => API_MODE_SECTIONS.find((item) => item.id === mode)?.title || mode).join(' · ') || 'только неподдерживаемые проектом операции'}</span>
+                        <span><b>Streaming:</b> {m.supportsStreaming ? 'да' : 'нет'}</span>
                         <span><b>Параметры:</b> {m.params || 'нет в endpoint metadata'}</span>
+                        {m.description ? <span><b>Описание OpenRouter:</b> {m.description}</span> : null}
                       </div>
                     </td>
                   </tr>}
