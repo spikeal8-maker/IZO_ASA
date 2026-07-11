@@ -4,7 +4,7 @@
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
-import { IMAGE_RESOLUTIONS, resolutionLabel, type ResolutionFormat, type ResolutionTier } from './resolutionPolicy'
+import { IMAGE_RESOLUTIONS, normalizeResolutionIds, resolutionLabel, type ResolutionFormat, type ResolutionTier } from './resolutionPolicy'
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 function amvFetch(path: string, init: RequestInit = {}) {
@@ -28,6 +28,17 @@ type ProfileOption = { id: string; name: string; supportsPose?: boolean }
 type ServerModelProfileSettings = { width: number; height: number; steps: number; sampler: string; seedMode: 'random' | 'fixed'; seed: number }
 const CONFIG_RESOLUTION_FORMATS: ResolutionFormat[] = ['square', 'portrait', 'wide', 'photo']
 const CONFIG_RESOLUTION_TIERS: ResolutionTier[] = ['sd', 'hd', 'full_hd']
+type ConfigUiResolutionAccess = { plans?: Partial<Record<TariffKey, string[]>> }
+
+function applyConfigUiResolutionAccess(config: TariffConfig, raw: unknown): TariffConfig {
+  const plans = raw && typeof raw === 'object' ? (raw as ConfigUiResolutionAccess).plans : undefined
+  if (!plans) return config
+  return tariffKeys.reduce((next, plan) => {
+    if (!Array.isArray(plans[plan])) return next
+    next[plan] = { ...next[plan], allowed_resolutions: normalizeResolutionIds(plans[plan], next[plan].allowed_resolutions) }
+    return next
+  }, { ...config })
+}
 type OpenRouterFormatEconomics = {
   id: string
   label: string
@@ -230,7 +241,7 @@ type AssistantModelPlan = {
 }
 
 type AssistantConfig = {
-  voice: { localModel: string; apiModel: string; route: string; queueTimeoutSeconds: number; requestTimeoutSeconds: number }
+  voice: { localModel: string; apiModel: string; route: string; queueTimeoutSeconds: number; requestTimeoutSeconds: number; minRecordingSeconds: number }
   improve: { route: 'local' | 'api' | 'auto'; localModel: string; apiModel: string; localTimeoutSeconds: number; apiTimeoutSeconds: number; systemPrompt: string; modePrompts: Record<string, string> }
 }
 type AssistantAdminData = {
@@ -504,7 +515,7 @@ const CSS = `
 .amv2 .lora-row:first-child{border-top:0}.amv2 .lora-row h3{margin:0;font-size:12px;overflow-wrap:anywhere}.amv2 .lora-row p{margin:2px 0 0;color:var(--muted);font-size:10px}.amv2 .lora-compat{display:flex;flex-wrap:wrap;gap:4px}.amv2 .lora-compat span{padding:3px 6px;border:1px solid var(--line);border-radius:5px;color:var(--muted);font-size:9px}.amv2 .lora-row.incompatible{opacity:.48}.amv2 .lora-row input[type=checkbox]{width:17px;height:17px;accent-color:var(--lime)}
 .amv2 .lora-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}.amv2 .lora-column{min-width:0;border:1px solid var(--line);border-radius:7px;overflow:hidden}.amv2 .lora-column-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:rgba(255,255,255,.035);border-bottom:1px solid var(--line)}.amv2 .lora-column-head h3{margin:0;font-size:13px}.amv2 .lora-column .lora-row{grid-template-columns:28px minmax(160px,1fr) 88px;padding:0 10px}.amv2 .lora-column .lora-row>div:nth-child(3){grid-column:2 / -1;padding-bottom:8px}.amv2 .lora-empty{padding:18px 12px;color:var(--muted);font-size:11px}
 .amv2 .config-profiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px}.amv2 .config-profile{border:1px solid var(--line);border-radius:7px;overflow:hidden}.amv2 .config-profile.active{border-color:rgba(218,255,47,.55)}.amv2 .config-profile-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.025)}.amv2 .config-profile-head h3{margin:0;font-size:13px}.amv2 .config-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px}.amv2 .config-field label{display:block;margin-bottom:4px;color:var(--muted);font-size:9px;text-transform:uppercase}.amv2 .config-field input,.amv2 .config-field select{width:100%;height:34px}.amv2 .dependency-note{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 12px 12px}.amv2 .dependency-note div{padding:9px;border:1px solid var(--line);border-radius:6px}.amv2 .dependency-note strong{display:block;font-size:11px}.amv2 .dependency-note span{display:block;margin-top:3px;color:var(--muted);font-size:10px;line-height:1.4}
-.amv2 .resolution-matrix{margin:12px 12px 0;border:1px solid var(--line);border-radius:7px;overflow:auto}.amv2 .resolution-matrix table{min-width:940px;table-layout:fixed}.amv2 .resolution-matrix th,.amv2 .resolution-matrix td{height:auto;padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);font-size:11px;vertical-align:top}.amv2 .resolution-matrix tr:last-child td{border-bottom:0}.amv2 .resolution-matrix th{color:var(--muted);background:rgba(255,255,255,.035);font-size:9px;text-transform:uppercase}.amv2 .resolution-matrix th:first-child{width:160px}.amv2 .resolution-format{display:grid;gap:3px}.amv2 .resolution-format strong{font-size:12px}.amv2 .resolution-format span,.amv2 .resolution-value small{color:var(--muted);font-size:9px}.amv2 .resolution-cell{display:grid;gap:8px;min-width:0}.amv2 .resolution-value{display:flex;align-items:baseline;justify-content:space-between;gap:8px;white-space:nowrap}.amv2 .resolution-value strong{font-size:11px;font-variant-numeric:tabular-nums}.amv2 .resolution-plans{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}.amv2 .resolution-plan{display:grid;justify-items:center;gap:3px;color:var(--muted);font-size:8px;text-transform:uppercase;cursor:pointer}.amv2 .resolution-plan input{width:15px;height:15px;min-height:15px;margin:0;accent-color:var(--lime)}
+.amv2 .resolution-matrix{margin:12px 12px 0;border:1px solid var(--line);border-radius:7px;overflow:auto}.amv2 .resolution-matrix table{min-width:940px;table-layout:fixed}.amv2 .resolution-matrix th,.amv2 .resolution-matrix td{height:auto;padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);font-size:11px;vertical-align:top}.amv2 .resolution-matrix tr:last-child td{border-bottom:0}.amv2 .resolution-matrix th{color:var(--muted);background:rgba(255,255,255,.035);font-size:9px;text-transform:uppercase}.amv2 .resolution-matrix th:first-child{width:160px}.amv2 .resolution-format{display:grid;gap:3px}.amv2 .resolution-format strong{font-size:12px}.amv2 .resolution-format span,.amv2 .resolution-value small{color:var(--muted);font-size:9px}.amv2 .resolution-cell{display:grid;gap:7px;min-width:0}.amv2 .resolution-value{display:flex;align-items:baseline;justify-content:flex-start;gap:12px;white-space:nowrap}.amv2 .resolution-value strong{font-size:11px;font-variant-numeric:tabular-nums}.amv2 .resolution-plans{display:flex;align-items:flex-start;justify-content:flex-start;gap:9px;width:max-content}.amv2 .resolution-plan{display:grid;grid-template-rows:15px auto;justify-items:center;gap:3px;width:28px;color:var(--muted);font-size:8px;text-transform:uppercase;cursor:pointer}.amv2 .resolution-plan input{width:15px;height:15px;min-height:15px;margin:0;accent-color:var(--lime)}
 .amv2 .server-tools{padding:10px 12px;border-top:1px solid var(--line)}.amv2 .server-tools summary{cursor:pointer;color:var(--muted);font-size:11px;font-weight:700}.amv2 .server-tools .ops-row{padding:10px 0 0;border:0;grid-template-columns:minmax(220px,1fr) auto auto}
 .amv2 .job-list{padding:0 12px 12px;display:grid;gap:6px}
 .amv2 .job-row{display:grid;grid-template-columns:minmax(120px,1fr) 96px 90px minmax(140px,1.2fr);gap:8px;align-items:center;border:1px solid var(--line);border-radius:var(--radius);padding:8px;background:rgba(255,255,255,.028);font-size:12px}
@@ -697,6 +708,7 @@ export default function AdminModelsV2() {
   const [assistantData, setAssistantData] = useState<AssistantAdminData | null>(null)
   const [assistantBusy, setAssistantBusy] = useState(false)
   const [assistantTestPrompt, setAssistantTestPrompt] = useState('девушка стоит у окна вечером')
+  const [assistantPreviewMode, setAssistantPreviewMode] = useState('text')
   const [assistantTestResult, setAssistantTestResult] = useState<AssistantTestResult | null>(null)
 
   const load = useCallback(async () => {
@@ -741,8 +753,8 @@ export default function AdminModelsV2() {
   }, [])
 
   const loadTariffs = useCallback(async () => {
-    const result = await amvFetch('/admin/settings').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown } | null
-    if (result?.tariffs) setTariffs(normalizeTariffs(result.tariffs))
+    const result = await amvFetch('/admin/settings').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown; config_ui_resolution_access?: unknown } | null
+    if (result?.tariffs) setTariffs(applyConfigUiResolutionAccess(normalizeTariffs(result.tariffs), result.config_ui_resolution_access))
   }, [])
 
   const loadConfigStatus = useCallback(async () => {
@@ -845,16 +857,17 @@ export default function AdminModelsV2() {
     return { ...current, [plan]: { ...current[plan], allowed_resolutions: next } }
   })
   const saveConfigUiSettings = async () => {
-    const profilesSaved = await saveSetting('server_model_profiles', { profiles: serverProfiles }, 'Параметры моделей Config UI')
-    if (!profilesSaved) return
-    const tariffsSaved = await saveSetting('tariffs', tariffs, 'Доступность разрешений по тарифам')
-    if (!tariffsSaved) return
-    const verified = await amvFetch('/admin/settings').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown } | null
-    if (!verified?.tariffs) { setMsg('Настройки сохранены, но контрольная проверка не выполнена'); return }
-    const normalized = normalizeTariffs(verified.tariffs)
+    const resolutionAccess = { plans: Object.fromEntries(tariffKeys.map((plan) => [plan, tariffs[plan].allowed_resolutions])) }
+    const accessSaved = await saveSetting('config_ui_resolution_access', resolutionAccess, 'Доступность разрешений по тарифам')
+    if (!accessSaved) return
+    const verified = await amvFetch('/admin/settings').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown; config_ui_resolution_access?: unknown } | null
+    if (!verified?.tariffs || !verified.config_ui_resolution_access) { setMsg('Настройки сохранены, но контрольная проверка не выполнена'); return }
+    const normalized = applyConfigUiResolutionAccess(normalizeTariffs(verified.tariffs), verified.config_ui_resolution_access)
     setTariffs(normalized)
     const expected = tariffKeys.every((plan) => [...tariffs[plan].allowed_resolutions].sort().join('|') === [...normalized[plan].allowed_resolutions].sort().join('|'))
-    setMsg(expected ? 'Разрешения и параметры Config UI сохранены и проверены' : 'Сервер вернул другие настройки разрешений — изменения не применены полностью')
+    if (!expected) { setMsg('Сервер вернул другие настройки разрешений — изменения не применены полностью'); return }
+    const profilesSaved = await saveSetting('server_model_profiles', { profiles: serverProfiles }, 'Параметры моделей Config UI')
+    setMsg(profilesSaved ? 'Разрешения и параметры Config UI сохранены и проверены' : 'Разрешения сохранены; параметры модели сохранить не удалось')
   }
   const saveMinMargin = async () => {
     const minMarginPercent = clampMargin(Number(marginDraft))
@@ -1100,6 +1113,13 @@ export default function AdminModelsV2() {
   const exchangeStateClass = usdRubBase === null ? 'rate-bad' : exchangeCache === 'stale' ? 'rate-stale' : 'rate-ok'
   const exchangeStateText = usdRubBase === null ? 'курс не загружен' : exchangeCache === 'stale' ? 'курс из последнего кэша' : 'курс загружен'
   const selectedAssistantApiModel = assistantData?.openrouterModels.find((model) => model.id === assistantData.config.improve.apiModel)
+  const assistantPreviewSystem = assistantData ? [
+    assistantData.config.improve.systemPrompt.trim(),
+    'Ответ верни на русском языке.',
+    (assistantData.config.improve.modePrompts[assistantPreviewMode] || '').trim(),
+    'Верни только JSON с одним строковым полем improved_prompt.',
+  ].filter(Boolean).join(' ') : ''
+  const assistantPreviewUser = JSON.stringify({ prompt: assistantTestPrompt.trim(), technical_context: null }, null, 2)
 
   return <div className="amv2">
     <style>{CSS}</style>

@@ -3475,13 +3475,22 @@ def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[s
 
 
 def get_tariff_config(conn: sqlite3.Connection | None = None) -> dict[str, dict[str, Any]]:
+    def load(current_conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
+        tariff_row = current_conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()
+        config = normalize_tariffs(json.loads(tariff_row["value_json"] or "{}") if tariff_row else None)
+        access_row = current_conn.execute("SELECT value_json FROM admin_settings WHERE key = 'config_ui_resolution_access'").fetchone()
+        access = json.loads(access_row["value_json"] or "{}") if access_row else {}
+        plans = access.get("plans") if isinstance(access, dict) and isinstance(access.get("plans"), dict) else {}
+        for plan in PLAN_ORDER:
+            values = plans.get(plan)
+            if isinstance(values, list):
+                config[plan]["allowed_resolutions"] = normalize_resolution_ids(values, config[plan]["allowed_resolutions"])
+        return config
     try:
         if conn is not None:
-            row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()
-            return normalize_tariffs(json.loads(row["value_json"] or "{}") if row else None)
+            return load(conn)
         with db() as local_conn:
-            row = local_conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()
-            return normalize_tariffs(json.loads(row["value_json"] or "{}") if row else None)
+            return load(local_conn)
     except Exception:
         return normalize_tariffs()
 
@@ -6877,9 +6886,10 @@ DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
     "voice": {
         "localModel": "qwen3-asr:1.7b",
         "apiModel": "google/gemini-3.1-flash-lite",
-        "route": "local_first",
+        "route": "api",
         "queueTimeoutSeconds": 1,
         "requestTimeoutSeconds": 8,
+        "minRecordingSeconds": 1,
     },
     "improve": {
         "route": "auto",
@@ -7126,6 +7136,37 @@ async def improve_prompt_routed(req: ImprovePromptRequest, force_provider: str |
             pass
     improved, payload = await improve_prompt_openrouter(req, config)
     return improved, payload, "api", str(config.get("apiModel") or PROMPT_IMPROVE_MODEL)
+
+
+async def transcribe_audio_openrouter(audio: bytes, audio_format: str, language: str, config: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+    if not openrouter_api_key():
+        raise RuntimeError("OpenRouter API-ключ не настроен.")
+    config = config or assistant_models_config()["voice"]
+    model = str(config.get("apiModel") or "google/gemini-3.1-flash-lite")
+    body = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": f"Точно расшифруй речь на языке {language}. Верни только произнесённый текст без пояснений и кавычек."},
+                {"type": "input_audio", "input_audio": {"data": base64.b64encode(audio).decode("ascii"), "format": audio_format}},
+            ],
+        }],
+        "temperature": 0,
+        "max_tokens": 1000,
+    }
+    timeout = max(3, min(60, int(config.get("requestTimeoutSeconds") or 8)))
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(f"{OPENROUTER_BASE_URL}/chat/completions", headers=openrouter_headers(), json=body)
+    payload = response.json() if response.content else {}
+    if response.status_code >= 400:
+        raise RuntimeError(_openrouter_public_error(response.status_code, payload if isinstance(payload, dict) else {}))
+    if not isinstance(payload, dict):
+        raise RuntimeError("OpenRouter вернул некорректный ответ транскрибации.")
+    text = _openrouter_text_content(payload).strip()
+    if not text:
+        raise RuntimeError("Модель не распознала речь.")
+    return text[:2000], payload
 
 
 def resolve_openrouter_model(req: GenerateRequest) -> str:
@@ -8653,6 +8694,49 @@ async def improve_prompt(req: ImprovePromptRequest, request: Request) -> dict[st
         "usage": usage,
         "costUsd": cost,
     }
+
+
+@app.post("/api/tools/transcribe")
+async def transcribe_audio(
+    request: Request,
+    file: UploadFile = File(...),
+    duration_ms: int = 0,
+    language: str = "ru",
+) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    config = assistant_models_config()["voice"]
+    minimum_ms = max(500, min(10_000, int(float(config.get("minRecordingSeconds") or 1) * 1000)))
+    if duration_ms < minimum_ms:
+        raise HTTPException(400, f"Говорите не меньше {minimum_ms / 1000:g} сек.")
+    audio = await file.read(8 * 1024 * 1024 + 1)
+    if not audio:
+        raise HTTPException(400, "Запись голоса пустая.")
+    if len(audio) > 8 * 1024 * 1024:
+        raise HTTPException(413, "Запись голоса слишком большая.")
+    content_type = (file.content_type or "").lower()
+    format_by_type = {
+        "audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a",
+        "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-wav": "wav",
+    }
+    audio_format = format_by_type.get(content_type)
+    if not audio_format:
+        suffix = Path(file.filename or "").suffix.lower().lstrip(".")
+        audio_format = {"webm": "webm", "ogg": "ogg", "m4a": "m4a", "mp3": "mp3", "wav": "wav"}.get(suffix)
+    if not audio_format:
+        raise HTTPException(415, "Формат записи голоса не поддерживается.")
+    started = time.monotonic()
+    try:
+        text, payload = await transcribe_audio_openrouter(audio, audio_format, "русском" if language == "ru" else "английском", config)
+    except (httpx.HTTPError, RuntimeError) as exc:
+        raise HTTPException(502, str(exc)) from exc
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    record_event_log(
+        "voice_transcribed",
+        internal_user_id=trusted.get("internal_user_id"), legacy_user_id=trusted.get("legacy_user_id"),
+        session_id=trusted.get("session_id"), platform="web", request=request,
+        properties={"model": config.get("apiModel"), "duration_ms": duration_ms, "bytes": len(audio), "latency_ms": round((time.monotonic() - started) * 1000)},
+    )
+    return {"ok": True, "text": text, "model": config.get("apiModel"), "provider": "api", "usage": usage}
 
 
 @app.post("/api/generate")
@@ -13742,6 +13826,9 @@ async def admin_get_settings(request: Request) -> dict[str, Any]:
 async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Request) -> dict[str, Any]:
     if key == "tariffs":
         settings = normalize_tariffs(req.settings, strict=True)
+    elif key == "config_ui_resolution_access":
+        raw_plans = req.settings.get("plans") if isinstance(req.settings.get("plans"), dict) else {}
+        settings = {"plans": {plan: normalize_resolution_ids(raw_plans.get(plan), DEFAULT_TARIFFS[plan]["allowed_resolutions"]) for plan in PLAN_ORDER}}
     elif key == "server_model_profiles":
         settings = normalize_server_model_profiles(req.settings)
     else:
@@ -13757,7 +13844,7 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
             """,
             (key, json.dumps(settings, ensure_ascii=False), now),
         )
-    if key in {"generation_routes", "server_model_loras", "server_model_profiles", "models", "tariff_matrix", "user_choice", "tariffs", "openrouter_economy"}:
+    if key in {"generation_routes", "server_model_loras", "server_model_profiles", "models", "tariff_matrix", "user_choice", "tariffs", "config_ui_resolution_access", "openrouter_economy"}:
         _admin_models_page_cache["ts"] = 0.0
         _admin_models_page_cache["data"] = None
     return {"ok": True, "key": key, "settings": settings}
