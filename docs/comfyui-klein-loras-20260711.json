@@ -1,6 +1,25 @@
 {
   "snapshotDate": "2026-07-11",
   "targetDirectory": "ComfyUI/models/loras",
+  "baseModels": [
+    {
+      "profile": "4B Base",
+      "repo": "black-forest-labs/FLUX.2-klein-base-4B",
+      "revision": "a3b4f4849157f664bdbc776fd7453c2783562f4d",
+      "file": "flux-2-klein-base-4b.safetensors",
+      "size": 7751105712,
+      "sha256": "9c5fed22b76baea749d88fc2abe3ad53245e7b21a0d353a762665eea00043b92",
+      "installed": true
+    },
+    {
+      "profile": "9B Base",
+      "repo": "black-forest-labs/FLUX.2-klein-base-9B",
+      "revision": "32773329fbe7e81a90ef971740e8ba4b0364ecf3",
+      "file": "flux-2-klein-base-9b.safetensors",
+      "installed": false,
+      "blockedBy": "Hugging Face authentication required"
+    }
+  ],
   "items": [
     {
       "profile": "4B Base",
@@ -8,7 +27,8 @@
       "repo": "thedeoxen/refcontrol-FLUX.2-klein-4B-reference-depth-lora",
       "revision": "0ae1ef7f9acc4e55ec2237360943c3c3032d3583",
       "file": "flux2_klein_4b_refcontrol_depth.safetensors",
-      "workflowReady": false
+      "workflowReady": true,
+      "workflowSource": "image_flux2_klein_image_edit_4b_refcontrol_depth.json"
     },
     {
       "profile": "4B Base",
@@ -17,7 +37,8 @@
       "revision": "b11770ac6a3cf9325dcf81742c12b1c4e257880f",
       "sourceFile": "LyNiaZ53Tudg0J6sT8Xbx_pytorch_lora_weights_comfy_converted.safetensors",
       "file": "flux2_klein_4b_outpaint_comfy.safetensors",
-      "workflowReady": false
+      "workflowReady": true,
+      "workflowSource": "backend outpaint graph patched for distilled Klein 4B"
     },
     {
       "profile": "9B Base",

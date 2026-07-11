@@ -7130,6 +7130,77 @@ def build_pose_workflow(models: dict[str, list[str]], profile: dict[str, Any], r
     return graph
 
 
+def build_depth_workflow(models: dict[str, list[str]], ref_image_name: str, depth_image_name: str, req: GenerateRequest) -> dict[str, Any]:
+    """FLUX.2 Klein Base 4B RefControl graph.
+
+    The first image supplies appearance/reference information. The second image is
+    converted to a depth map by ComfyUI. This route is intentionally separate from
+    the distilled edit graph because the LoRA requires the undistilled Base model,
+    CFG guidance and a longer sampling schedule.
+    """
+    base_model = next((name for name in models.get("diffusion_models", []) if name.lower() == "flux-2-klein-base-4b.safetensors"), "")
+    text_encoder = next((name for name in models.get("text_encoders", []) if "qwen_3_4b" in name.lower()), "")
+    vae = "flux2-vae.safetensors" if "flux2-vae.safetensors" in models.get("vaes", []) else ""
+    depth_lora = next((name for name in models.get("loras", []) if "4b" in name.lower() and "refcontrol" in name.lower() and "depth" in name.lower()), "")
+    missing = [label for label, value in (("Base 4B", base_model), ("Qwen 3 4B", text_encoder), ("Flux2 VAE", vae), ("Depth LoRA", depth_lora)) if not value]
+    if missing:
+        raise RuntimeError(f"Depth RefControl 4B не готов: отсутствует {', '.join(missing)}.")
+    if not server_lora_enabled(depth_lora):
+        raise RuntimeError("Depth RefControl 4B выключена администратором.")
+
+    graph = json.loads(POSE_WORKFLOW_PATH.read_text(encoding="utf-8"))
+    graph["FKP:clip"]["inputs"]["clip_name"] = text_encoder
+    graph["FKP:vae"]["inputs"]["vae_name"] = vae
+    graph["FKP:unet"]["inputs"]["unet_name"] = base_model
+    graph["FKP:lora"]["inputs"].update({"lora_name": depth_lora, "strength_model": 1})
+    graph["FKP:lora"]["_meta"]["title"] = "RefControl Depth 4B LoRA"
+    graph["FKP:refimg"]["inputs"]["image"] = ref_image_name
+    graph["FKP:poseimg"]["inputs"]["image"] = depth_image_name
+    graph["FKP:poseimg"]["_meta"]["title"] = "Depth source"
+    graph["FKP:dwpose"] = {
+        "class_type": "DepthAnythingV2Preprocessor",
+        "inputs": {"ckpt_name": "depth_anything_v2_vitl.pth", "resolution": 512, "image": ["FKP:poseimg", 0]},
+        "_meta": {"title": "Depth Anything V2"},
+    }
+    graph["FKP:posescale"]["_meta"]["title"] = "Scale depth map"
+    graph["FKP:prompt"]["inputs"]["text"] = f"refcontrol {req.prompt}".strip()
+    graph["FKP:guider"]["inputs"]["cfg"] = 5
+    graph["FKP:sched"]["inputs"]["steps"] = 20
+    graph["FKP:noise"]["inputs"]["noise_seed"] = int(req.seed or 0)
+    return graph
+
+
+def build_outpaint_workflow(graph: dict[str, Any], models: dict[str, list[str]], req: GenerateRequest, uploads: dict[str, str]) -> dict[str, Any]:
+    """Patch the stock outpaint graph to the installed 4B Outpaint LoRA.
+
+    The stock custom-node graph expects a separate 9B KV checkpoint that is not
+    installed. The published LoRA targets the distilled Klein 4B model, so this
+    graph removes the unavailable KV-cache node and wires the LoRA directly.
+    """
+    model = next((name for name in models.get("diffusion_models", []) if "klein-4b" in name.lower() and "base" not in name.lower()), "")
+    text_encoder = next((name for name in models.get("text_encoders", []) if "qwen_3_4b" in name.lower()), "")
+    vae = "flux2-vae.safetensors" if "flux2-vae.safetensors" in models.get("vaes", []) else ""
+    outpaint_lora = next((name for name in models.get("loras", []) if "4b" in name.lower() and "outpaint" in name.lower()), "")
+    missing = [label for label, value in (("Klein 4B", model), ("Qwen 3 4B", text_encoder), ("Flux2 VAE", vae), ("Outpaint LoRA", outpaint_lora)) if not value]
+    if missing:
+        raise RuntimeError(f"Outpaint 4B не готов: отсутствует {', '.join(missing)}.")
+    if not server_lora_enabled(outpaint_lora):
+        raise RuntimeError("Outpaint 4B LoRA выключена администратором.")
+
+    graph.pop("FKO:216", None)
+    graph["FKO:194"]["inputs"].update({"unet_name": model, "weight_dtype": "default"})
+    graph["FKO:195"]["inputs"]["clip_name"] = text_encoder
+    graph["FKO:196"]["inputs"]["vae_name"] = vae
+    graph["FKO:outpaint_lora"] = {
+        "class_type": "LoraLoaderModelOnly",
+        "inputs": {"model": ["FKO:194", 0], "lora_name": outpaint_lora, "strength_model": 1},
+        "_meta": {"title": "Klein 4B Outpaint LoRA"},
+    }
+    graph["FKO:163"]["inputs"]["model"] = ["FKO:outpaint_lora", 0]
+    patch_mode_nodes(graph, req, uploads, model, text_encoder, vae)
+    return graph
+
+
 def choose_model(models: dict[str, list[str]], requested: str) -> tuple[str, str, str]:
     diffusion = models.get("diffusion_models", [])
     text_encoders = models.get("text_encoders", [])
@@ -7460,7 +7531,7 @@ def _ensure_edit_slot_nodes(prompt: dict[str, Any], slot: int) -> None:
     prompt.setdefault(s["neg"], {"class_type": "ReferenceLatent", "inputs": {"conditioning": ["FK:156", 0], "latent": [s["vae"], 0]}, "_meta": {"title": f"Reference Latent Negative Img{n}"}})
 
 
-EDIT_REFERENCE_ROLES = {"face", "clothing", "style", "object", "pose", "background", "color_material", "other"}
+EDIT_REFERENCE_ROLES = {"face", "clothing", "style", "object", "pose", "depth", "background", "color_material", "other"}
 
 
 def validate_edit_request(req: GenerateRequest) -> None:
@@ -7675,7 +7746,7 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
                 else:
                     raise RuntimeError(f"LoRA {lora.id} несовместима с активной Klein {target_lora_tag.upper()} и безопасной замены нет.")
     workflow = await fetch_workflow(payload.mode)
-    pose_graph: dict[str, Any] | None = None
+    special_edit_graph: dict[str, Any] | None = None
 
     uploads: dict[str, str] = {}
     input1_path = local_media_path_from_url(payload.inputImage1 or "") or save_data_url(payload.inputImage1, f"{job['id']}_input1")
@@ -7699,6 +7770,7 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
                 edit_sources.append(("", payload.inputImage2))
         edit_roles: list[str] = []
         pose_image_name: str | None = None
+        depth_image_name: str | None = None
         for i, (role, src) in enumerate(edit_sources[:4]):
             slot_path = local_media_path_from_url(src) or save_data_url(src, f"{job['id']}_edit{i + 1}")
             if not slot_path:
@@ -7708,6 +7780,8 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             edit_roles.append(role or ("base" if i == 0 else "?"))
             if role == "pose" and i > 0:
                 pose_image_name = uploads[f"input{i + 1}"]
+            if role == "depth" and i > 0:
+                depth_image_name = uploads[f"input{i + 1}"]
         if "input1" not in uploads:
             raise RuntimeError("Для редактирования нужна основа (изображение 1).")
         print(f"edit-generate job={job['id']} images={sum(1 for k in uploads if k.startswith('input'))} roles={edit_roles}")
@@ -7729,8 +7803,19 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
                 miss = ", ".join(prof.get("poseMissing", [])) or "зависимости"
                 raise RuntimeError(f"Pose workflow is not available for selected pose model profile ({pose_profile_id}): отсутствует {miss}.")
             profile_row = get_profile_row(pose_profile_id)
-            pose_graph = build_pose_workflow(models, profile_row, uploads["input1"], pose_image_name, payload)
+            special_edit_graph = build_pose_workflow(models, profile_row, uploads["input1"], pose_image_name, payload)
             print(f"pose-generate job={job['id']} profile={pose_profile_id} ref=input1 pose={pose_image_name}")
+        elif "depth" in edit_roles:
+            other_roles = [r for r in edit_roles if r not in ("base", "depth", "?", "")]
+            if other_roles:
+                raise RuntimeError("Depth пока поддерживается только отдельно — без сочетания с другими ролями (" + ", ".join(other_roles) + ") в одном запросе.")
+            if not depth_image_name:
+                raise RuntimeError("Для роли Глубина нужен управляющий референс (изображение 2).")
+            nodes = await comfyui_node_names()
+            if "DepthAnythingV2Preprocessor" not in nodes:
+                raise RuntimeError("Depth RefControl недоступен: в ComfyUI отсутствует DepthAnythingV2Preprocessor.")
+            special_edit_graph = build_depth_workflow(models, uploads["input1"], depth_image_name, payload)
+            print(f"depth-generate job={job['id']} profile=flux_klein_base_4b ref=input1 depth={depth_image_name}")
     elif payload.mode in {"image_to_image", "paint", "inpaint", "outpaint", "faceswap", "remove_background", "try_on", "texture_transfer"}:
         if not primary_input:
             raise RuntimeError("Для выбранного режима нужно входное изображение.")
@@ -7759,8 +7844,10 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             mask_path = prepare_comfyui_input_image(mask_path, f"{job['id']}_mask", payload)
         uploads["mask"] = await upload_to_comfyui(mask_path)
 
-    if pose_graph is not None:
-        workflow = pose_graph
+    if special_edit_graph is not None:
+        workflow = special_edit_graph
+    elif payload.mode == "outpaint":
+        workflow = build_outpaint_workflow(workflow, models, payload, uploads)
     else:
         patch_mode_nodes(workflow, payload, uploads, model, text_encoder, vae)
     try:
@@ -13458,8 +13545,8 @@ KNOWN_LORAS: dict[str, dict[str, Any]] = {
     "bfs_head_v1_flux-klein_4b": {"purpose": "face / head consistency", "compatible": ["Flux 2 Klein 4B"], "routes": ["face", "edit"], "requires": [], "kind": "klein-face", "recommended": True},
     "bfs_head_v1_flux-klein_9b": {"purpose": "face / identity", "compatible": ["Flux 2 Klein 9B"], "routes": ["face", "edit"], "requires": [], "kind": "klein-face", "recommended": True},
     "refcontrol_v2_poses": {"purpose": "pose ref-control", "compatible": ["Flux 2 Klein 9B"], "routes": ["edit_pose"], "requires": ["DWPreprocessor"], "kind": "klein-pose", "recommended": True},
-    "flux2_klein_4b_refcontrol_depth": {"purpose": "depth / composition control", "compatible": ["Flux 2 Klein 4B Base"], "routes": ["edit_depth"], "requires": ["DepthAnythingV2Preprocessor"], "requiredModel": "klein-base-4b", "kind": "klein-depth", "recommended": True, "workflowReady": False},
-    "flux2_klein_4b_outpaint_comfy": {"purpose": "outpaint / image extension", "compatible": ["Flux 2 Klein 4B Base"], "routes": ["outpaint"], "requires": [], "requiredModel": "klein-base-4b", "kind": "klein-outpaint", "recommended": True, "workflowReady": False},
+    "flux2_klein_4b_refcontrol_depth": {"purpose": "depth / composition control", "compatible": ["Flux 2 Klein 4B Base"], "routes": ["edit_depth"], "requires": ["DepthAnythingV2Preprocessor"], "requiredModel": "klein-base-4b", "kind": "klein-depth", "recommended": True, "workflowReady": True},
+    "flux2_klein_4b_outpaint_comfy": {"purpose": "outpaint / image extension", "compatible": ["Flux 2 Klein 4B"], "routes": ["outpaint"], "requires": [], "requiredModel": "klein-4b", "kind": "klein-outpaint", "recommended": True, "workflowReady": True},
     "flux2_klein_9b_refcontrol_depth": {"purpose": "depth / composition control", "compatible": ["Flux 2 Klein 9B Base"], "routes": ["edit_depth"], "requires": ["DepthAnythingV2Preprocessor"], "requiredModel": "klein-base-9b", "kind": "klein-depth", "recommended": True, "workflowReady": False},
     "flux2_klein_9b_refcontrol_canny": {"purpose": "contours / structure control", "compatible": ["Flux 2 Klein 9B Base"], "routes": ["edit_canny"], "requires": ["CannyEdgePreprocessor"], "requiredModel": "klein-base-9b", "kind": "klein-canny", "recommended": True, "workflowReady": False},
     "flux2_klein_9b_refcontrol_lineart": {"purpose": "line art / sketch control", "compatible": ["Flux 2 Klein 9B Base"], "routes": ["paint", "edit_lineart"], "requires": ["LineArtPreprocessor"], "requiredModel": "klein-base-9b", "kind": "klein-lineart", "recommended": True, "workflowReady": False},
