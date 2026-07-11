@@ -69,6 +69,18 @@ def test_choose_faceswap_lora_rejects_admin_disabled_lora() -> None:
         main.choose_faceswap_lora([file_name], None, "flux-2-klein-4b-fp8.safetensors")
 
 
+def test_server_model_profile_is_persisted_and_applied(monkeypatch) -> None:
+    main._save_setting("server_model_profiles", {"profiles": {"flux_klein_4b": {"width": 1536, "height": 1024, "steps": 6, "sampler": "euler", "seedMode": "fixed", "seed": 777}}})
+    req = main.GenerateRequest(mode="text_to_image", width=1024, height=1024, steps=28, seed=42)
+    settings = main.apply_server_model_profile(req, "flux_klein_4b")
+    assert settings["sampler"] == "euler"
+    assert (req.width, req.height, req.steps, req.seed) == (1536, 1024, 6, 777)
+
+    workflow = {"FK:171": {"inputs": {}}, "FK:170": {"inputs": {}}}
+    main.patch_shared_flux_nodes(workflow, req, "flux-2-klein-4b-fp8.safetensors", "qwen", "vae")
+    assert workflow["FK:171"]["inputs"]["sampler_name"] == "euler"
+
+
 def test_models_endpoint_reports_selected_models(monkeypatch) -> None:
     async def fake_models() -> dict[str, list[str]]:
         return {

@@ -691,6 +691,11 @@ class AdminSettingsRequest(BaseModel):
     settings: dict[str, Any]
 
 
+class AdminConfigUiSwitchRequest(BaseModel):
+    profileId: Literal["flux_klein_9b", "flux_klein_4b"]
+    reason: str = Field(default="глобальное переключение Config UI", min_length=3, max_length=300)
+
+
 class AdminSecretKeyRequest(BaseModel):
     key: str = Field(min_length=12, max_length=512)
 
@@ -6940,12 +6945,50 @@ def effective_face_profile(requested: str = "") -> str:
 
 def server_lora_enabled(file_name: str) -> bool:
     """An omitted LoRA is enabled by default; explicit admin switches win."""
-    enabled = (_saved_setting("server_model_loras").get("enabled") or {})
+    enabled = ((_saved_setting("server_model_loras") or {}).get("enabled") or {})
     value = enabled.get(file_name)
     if value is None:
         lowered = file_name.lower()
         value = next((flag for name, flag in enabled.items() if str(name).lower() in lowered), True)
     return bool(value)
+
+
+SERVER_MODEL_PROFILE_DEFAULTS: dict[str, dict[str, Any]] = {
+    "flux_klein_9b": {"width": 1024, "height": 1024, "steps": 4, "sampler": "er_sde", "seedMode": "random", "seed": 42},
+    "flux_klein_4b": {"width": 1024, "height": 1024, "steps": 4, "sampler": "er_sde", "seedMode": "random", "seed": 42},
+}
+
+
+def normalize_server_model_profiles(value: dict[str, Any] | None) -> dict[str, Any]:
+    value = value or {}
+    source = value.get("profiles") or {}
+    profiles: dict[str, dict[str, Any]] = {}
+    allowed_samplers = {"er_sde", "euler", "dpmpp_2m"}
+    for profile_id, defaults in SERVER_MODEL_PROFILE_DEFAULTS.items():
+        raw = {**defaults, **(source.get(profile_id) or {})}
+        try:
+            width, height = int(raw.get("width")), int(raw.get("height"))
+            steps, seed = int(raw.get("steps")), int(raw.get("seed"))
+        except (TypeError, ValueError):
+            raise HTTPException(422, f"Некорректные числовые параметры {profile_id}.")
+        sampler = str(raw.get("sampler") or defaults["sampler"])
+        if sampler not in allowed_samplers:
+            raise HTTPException(422, f"Sampler {sampler} не разрешён для Config UI.")
+        profiles[profile_id] = {"width": max(512, min(2048, width)), "height": max(512, min(2048, height)), "steps": max(1, min(80, steps)), "sampler": sampler, "seedMode": "fixed" if raw.get("seedMode") == "fixed" else "random", "seed": max(0, seed)}
+    return {"profiles": profiles}
+
+
+def get_server_model_profiles() -> dict[str, dict[str, Any]]:
+    return normalize_server_model_profiles(_saved_setting("server_model_profiles"))["profiles"]
+
+
+def apply_server_model_profile(req: GenerateRequest, profile_id: str) -> dict[str, Any]:
+    settings = get_server_model_profiles().get(profile_id, SERVER_MODEL_PROFILE_DEFAULTS["flux_klein_9b"])
+    req.steps = settings["steps"]
+    req.seed = settings["seed"] if settings["seedMode"] == "fixed" else secrets.randbelow(2**31 - 1) + 1
+    if req.width == 1024 and req.height == 1024:
+        req.width, req.height = settings["width"], settings["height"]
+    return settings
 
 
 def get_profile_row(profile_id: str) -> dict[str, Any] | None:
@@ -7262,7 +7305,8 @@ def patch_shared_flux_nodes(prompt: dict[str, Any], req: GenerateRequest, model:
     set_input(prompt, "FK:171", "steps", req.steps)
     set_input(prompt, "FK:171", "cfg", req.cfg)
     set_input(prompt, "FK:171", "denoise", 1 if req.mode == "text_to_image" else req.strength)
-    set_input(prompt, "FK:171", "sampler_name", "er_sde")
+    profile_id = "flux_klein_4b" if "4b" in model.lower() else "flux_klein_9b"
+    set_input(prompt, "FK:171", "sampler_name", get_server_model_profiles()[profile_id]["sampler"])
     set_input(prompt, "FK:171", "scheduler", "simple")
     set_input(prompt, "FK:86", "filename_prefix", "one-node-flux-2-klein/FK")
 
@@ -7425,7 +7469,8 @@ def patch_mode_nodes(prompt: dict[str, Any], req: GenerateRequest, uploads: dict
         set_input(prompt, "FKF:228", "steps", req.steps)
         set_input(prompt, "FKF:228", "cfg", req.cfg)
         set_input(prompt, "FKF:228", "denoise", 1)
-        set_input(prompt, "FKF:228", "sampler_name", "er_sde")
+        profile_id = "flux_klein_4b" if "4b" in model.lower() else "flux_klein_9b"
+        set_input(prompt, "FKF:228", "sampler_name", get_server_model_profiles()[profile_id]["sampler"])
         set_input(prompt, "FKF:228", "scheduler", "simple")
         set_input(prompt, "FKF:239", "model", ["FKF:226", 0])
         set_input(prompt, "FKF:232", "filename_prefix", "one-node-flux-2-klein/FK")
@@ -7511,8 +7556,9 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             raise RuntimeError("ComfyUI недоступен. Проверьте, что сервер запущен.")
         return None
 
-    models = await get_comfyui_models()
     profile_id = effective_face_profile(payload.modelProfile) if payload.mode == "faceswap" else effective_edit_profile(payload.modelProfile)
+    apply_server_model_profile(payload, profile_id)
+    models = await get_comfyui_models()
     model, text_encoder, vae = choose_model(models, profile_id)
     available_loras = models.get("loras", [])
     if payload.mode == "faceswap":
@@ -12923,6 +12969,8 @@ async def admin_get_settings(request: Request) -> dict[str, Any]:
 async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Request) -> dict[str, Any]:
     if key == "tariffs":
         settings = normalize_tariffs(req.settings, strict=True)
+    elif key == "server_model_profiles":
+        settings = normalize_server_model_profiles(req.settings)
     else:
         settings = req.settings
     require_trusted_admin(request)
@@ -12936,7 +12984,7 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
             """,
             (key, json.dumps(settings, ensure_ascii=False), now),
         )
-    if key in {"generation_routes", "server_model_loras", "models", "tariff_matrix", "user_choice", "tariffs", "openrouter_economy"}:
+    if key in {"generation_routes", "server_model_loras", "server_model_profiles", "models", "tariff_matrix", "user_choice", "tariffs", "openrouter_economy"}:
         _admin_models_page_cache["ts"] = 0.0
         _admin_models_page_cache["data"] = None
     return {"ok": True, "key": key, "settings": settings}
@@ -13085,19 +13133,19 @@ async def compute_config_ui_status() -> dict[str, Any]:
 
     try:
         nodes = await comfyui_node_names()
+        dwpose_ready = any("dwpreprocessor" in name.lower() or "dwpose" in name.lower() for name in nodes)
         nodes_status = {
-            "ok": bool(nodes),
+            "ok": bool(nodes) or bool(models_status.get("ok")),
             "count": len(nodes),
             "required": {
-                "FluxKleinOneNode": "FluxKleinOneNode" in nodes,
-                "DWPreprocessor": "DWPreprocessor" in nodes,
+                "Flux Klein API": bool(models_status.get("ok")),
+                "DWPose (только для позы)": dwpose_ready,
             },
         }
     except Exception as exc:
         nodes_status = {"ok": False, "error": truncate_admin_text(str(exc), 180)}
 
-    required_nodes = nodes_status.get("required") or {}
-    nodes_ready = bool(nodes_status.get("ok")) and all(bool(value) for value in required_nodes.values())
+    nodes_ready = bool(nodes_status.get("ok")) and bool(models_status.get("ok"))
     status = "ready" if comfy_up and config_status["ok"] and models_status["ok"] and nodes_ready else "degraded"
     return {
         "ok": True,
@@ -13132,6 +13180,8 @@ async def admin_config_ui_reload_v2(req: AdminConfigUiActionV2Request, request: 
     reason = truncate_admin_text(req.reason, 300).strip()
     if not reason:
         raise HTTPException(400, "Укажите причину.")
+    await interrupt_comfyui_prompt()
+    freed = await free_comfyui_models()
     _admin_models_page_cache["ts"] = 0.0
     _admin_models_page_cache["data"] = None
     status = await compute_config_ui_status()
@@ -13142,10 +13192,28 @@ async def admin_config_ui_reload_v2(req: AdminConfigUiActionV2Request, request: 
             actor_internal_user_id=admin["internal_user_id"],
             entity_type="system",
             entity_id="config-ui",
-            after={"reason": reason, "status": status.get("status")},
+            after={"reason": reason, "status": status.get("status"), "memory_freed": freed},
             request=request,
         )
-    return {"ok": True, "reloaded": True, "status": status}
+    return {"ok": True, "reloaded": True, "memoryFreed": freed, "status": status}
+
+
+@app.post("/api/admin/config-ui/switch-v2")
+async def admin_config_ui_switch_v2(req: AdminConfigUiSwitchRequest, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    before = get_model_settings().get("editModelProfile") or "flux_klein_9b"
+    await interrupt_comfyui_prompt()
+    freed = await free_comfyui_models()
+    _save_setting("models", {"editModelProfile": req.profileId, "poseModelProfile": req.profileId})
+    current_routes = (_saved_setting("generation_routes") or {}).get("routes") or []
+    if current_routes:
+        _save_setting("generation_routes", {"routes": [{**route, "modelProfileId": req.profileId} if route.get("provider") == "local" else route for route in current_routes]})
+    _admin_models_page_cache["ts"] = 0.0
+    _admin_models_page_cache["data"] = None
+    status = await compute_config_ui_status()
+    with db() as conn:
+        record_audit_log(conn, "admin_config_ui_switch", actor_internal_user_id=admin["internal_user_id"], entity_type="system", entity_id="config-ui", before={"profileId": before}, after={"profileId": req.profileId, "reason": req.reason, "memory_freed": freed}, request=request)
+    return {"ok": True, "profileId": req.profileId, "memoryFreed": freed, "status": status}
 
 
 @app.post("/api/admin/config-ui/interrupt-v2")
@@ -13280,6 +13348,13 @@ def _saved_setting(key: str) -> dict[str, Any]:
             return json.loads(row["value_json"] or "{}")
     except Exception:
         pass
+
+
+async def free_comfyui_models() -> bool:
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.post(f"{COMFYUI_BASE_URL}/free", json={"unload_models": True, "free_memory": True})
+        response.raise_for_status()
+    return True
     return {}
 
 
@@ -14099,14 +14174,13 @@ async def admin_openrouter_test_generate(req: AdminOpenRouterTestRequest, reques
 def default_routes(model_status: dict[str, Any]) -> list[dict[str, Any]]:
     sel = get_model_settings()
     edit_model = sel.get("editModelProfile") or "flux_klein_9b"
-    pose_model = sel.get("poseModelProfile") or "flux_klein_9b"
+    pose_model = sel.get("poseModelProfile") or edit_model
     base = {
-        "text_to_image": {"provider": "local", "modelProfileId": "flux_klein_4b"},
-        "image_to_image": {"provider": "local", "modelProfileId": "flux_klein_4b"},
+        "text_to_image": {"provider": "local", "modelProfileId": edit_model},
+        "image_to_image": {"provider": "local", "modelProfileId": edit_model},
         "edit": {"provider": "local", "modelProfileId": edit_model},
-        # Pose ВСЕГДА Local ComfyUI → 9B + DWPose (не OpenRouter). 4B не поддерживается.
-        "edit_pose": {"provider": "local", "modelProfileId": "flux_klein_9b", "locked": True, "label": "Flux 2 Klein 9B + DWPose"},
-        "face": {"provider": "local", "modelProfileId": "flux_klein_9b"},
+        "edit_pose": {"provider": "local", "modelProfileId": pose_model, "locked": True, "label": f"Flux 2 Klein {'4B' if '4b' in pose_model else '9B'} + DWPose"},
+        "face": {"provider": "local", "modelProfileId": edit_model},
     }
     prof_by_id = {p["id"]: p for p in model_status.get("profiles", [])}
     out = []
@@ -14202,6 +14276,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
         "catalog": catalog,
         "loras": loras,
         "loraSettings": _saved_setting("server_model_loras") or {"enabled": {}},
+        "serverModelProfiles": {"profiles": get_server_model_profiles()},
         "comfyuiAvailable": status.get("comfyuiAvailable"),
         "openrouter": {
             "keyConfigured": openrouter_key,

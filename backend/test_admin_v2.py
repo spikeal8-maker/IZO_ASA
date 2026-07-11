@@ -489,11 +489,15 @@ def patch_config_ui_dependencies(monkeypatch, *, comfy_up=True, interrupted=None
             interrupted["called"] = True
         return None
 
+    async def fake_free_comfyui_models():
+        return True
+
     monkeypatch.setattr(main, "comfyui_available", fake_comfyui_available)
     monkeypatch.setattr(main, "get_flux_klein_config", fake_flux_klein_config)
     monkeypatch.setattr(main, "get_comfyui_models", fake_comfyui_models)
     monkeypatch.setattr(main, "comfyui_node_names", fake_comfyui_node_names)
     monkeypatch.setattr(main, "interrupt_comfyui_prompt", fake_interrupt_comfyui_prompt)
+    monkeypatch.setattr(main, "free_comfyui_models", fake_free_comfyui_models)
 
 
 def test_config_ui_status_requires_admin(temp_db):
@@ -540,7 +544,7 @@ def test_config_ui_status_reports_config_models_nodes_and_jobs(temp_db, monkeypa
     assert body["comfyui"]["available"] is True
     assert body["config_api"]["sections"]["autofill_prompts"] == 1
     assert body["models_api"]["counts"]["loras"] == 1
-    assert body["nodes"]["required"]["FluxKleinOneNode"] is True
+    assert body["nodes"]["required"]["Flux Klein API"] is True
     assert body["active_jobs"][0]["id"] == "job-1"
 
 
@@ -581,6 +585,20 @@ def test_config_ui_interrupt_requires_reason_calls_comfy_and_logs(temp_db, monke
     assert r.json()["active_jobs_before"] == ["job-2"]
     assert interrupted["called"] is True
     assert count("audit_logs", "WHERE action='admin_config_ui_interrupt'") == 1
+
+
+def test_config_ui_switch_updates_global_profile_and_routes(temp_db, monkeypatch):
+    patch_config_ui_dependencies(monkeypatch)
+    main._save_setting("generation_routes", {"routes": [{"routeId": "text_to_image", "provider": "local", "modelProfileId": "flux_klein_9b"}]})
+    s = admin_session()
+    with TestClient(main.app) as client:
+        response = client.post("/api/admin/config-ui/switch-v2", json={"profileId": "flux_klein_4b", "reason": "снижаю нагрузку"}, headers=bearer(s["session_token"]))
+
+    assert response.status_code == 200
+    assert response.json()["profileId"] == "flux_klein_4b"
+    assert main.get_model_settings()["editModelProfile"] == "flux_klein_4b"
+    assert main._saved_setting("generation_routes")["routes"][0]["modelProfileId"] == "flux_klein_4b"
+    assert count("audit_logs", "WHERE action='admin_config_ui_switch'") == 1
 
 
 # 25, 26

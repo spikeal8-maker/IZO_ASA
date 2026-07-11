@@ -21,6 +21,7 @@ type Lora = {
 type UserChoiceItem = { key?: string; label: string; model?: string; cost?: number | string; plan?: string; provider?: string }
 type CatalogItem = { provider: string; displayName: string; modelId: string; capabilities: string[]; cost: string; margin: string; status: string }
 type ProfileOption = { id: string; name: string; supportsPose?: boolean }
+type ServerModelProfileSettings = { width: number; height: number; steps: number; sampler: string; seedMode: 'random' | 'fixed'; seed: number }
 type OpenRouterFormatEconomics = {
   id: string
   label: string
@@ -72,6 +73,7 @@ type PageData = {
   catalog: CatalogItem[]
   loras: Lora[]
   loraSettings?: { enabled?: Record<string, boolean> }
+  serverModelProfiles?: { profiles?: Record<string, ServerModelProfileSettings> }
   comfyuiAvailable: boolean
   openrouter: {
     keyConfigured: boolean
@@ -619,6 +621,7 @@ export default function AdminModelsV2() {
   const opsReason = 'ручная операция в админке Config UI'
   const [opsBusy, setOpsBusy] = useState(false)
   const [loraAccess, setLoraAccess] = useState<Record<string, boolean>>({})
+  const [serverProfiles, setServerProfiles] = useState<Record<string, ServerModelProfileSettings>>({})
 
   const load = useCallback(async () => {
     const d = await amvFetch('/admin/models-page?local=0').then((r) => (r.ok ? r.json() : null)).catch(() => null) as PageData | null
@@ -644,6 +647,7 @@ export default function AdminModelsV2() {
       setTokenRubDraft(String(clampTokenRub(d.openrouter.economy?.tokenRub)))
       setErr(''); setData(d); setRoutes(d.routes || [])
       setLoraAccess(d.loraSettings?.enabled || {})
+      setServerProfiles(d.serverModelProfiles?.profiles || {})
     } else {
       setData(null)
       setErr('Не удалось загрузить страницу моделей. Нужен доступ администратора и обновлённый backend (/api/admin/models-page).')
@@ -654,8 +658,9 @@ export default function AdminModelsV2() {
   const loadLocalModelData = useCallback(async () => {
     const d = await amvFetch('/admin/models-page?local=1').then((r) => (r.ok ? r.json() : null)).catch(() => null) as PageData | null
     if (!d) return
-    setData((current) => current ? { ...current, routes: d.routes, catalog: d.catalog, loras: d.loras, loraSettings: d.loraSettings, comfyuiAvailable: d.comfyuiAvailable, comfyFiles: d.comfyFiles, profiles: d.profiles, economy: d.economy } : d)
+    setData((current) => current ? { ...current, routes: d.routes, catalog: d.catalog, loras: d.loras, loraSettings: d.loraSettings, serverModelProfiles: d.serverModelProfiles, comfyuiAvailable: d.comfyuiAvailable, comfyFiles: d.comfyFiles, profiles: d.profiles, economy: d.economy } : d)
     setLoraAccess(d.loraSettings?.enabled || {})
+    setServerProfiles(d.serverModelProfiles?.profiles || {})
     setRoutes(d.routes || [])
   }, [])
 
@@ -700,18 +705,24 @@ export default function AdminModelsV2() {
     const r = await amvFetch(`/admin/settings/${key}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: payload }) }).then((x) => x.json()).catch(() => null)
     setMsg(r?.ok ? `${label} сохранено` : `Ошибка сохранения: ${label}`)
   }
-  const saveRoutes = (next: Route[]) => { setRoutes(next); void saveSetting('generation_routes', { routes: next }, 'Маршруты') }
   const globalLocalProfile = routes.find((route) => route.provider === 'local')?.modelProfileId || 'flux_klein_9b'
-  const setGlobalLocalProfile = (modelProfileId: string) => {
-    const next = routes.map((route) => route.provider === 'local' ? { ...route, modelProfileId } : route)
-    saveRoutes(next)
-    void saveSetting('models', { editModelProfile: modelProfileId, poseModelProfile: modelProfileId }, 'Глобальная модель Config UI')
+  const setGlobalLocalProfile = async (modelProfileId: string) => {
+    setOpsBusy(true); setMsg('Переключаю модель и освобождаю память Config UI…')
+    const result = await amvFetch('/admin/config-ui/switch-v2', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId: modelProfileId, reason: 'глобальное переключение модели из админки' }) }).then((r) => r.json()).catch(() => null) as { ok?: boolean; status?: ConfigStatus; detail?: string } | null
+    setOpsBusy(false)
+    if (!result?.ok) { setMsg(result?.detail || 'Не удалось переключить модель Config UI'); return }
+    setRoutes((current) => current.map((route) => route.provider === 'local' ? { ...route, modelProfileId } : route))
+    if (result.status) setConfigStatus(result.status)
+    setMsg(`Config UI переключён на ${modelProfileId.endsWith('9b') ? 'Klein 9B' : 'Klein 4B'}; предыдущая модель выгружена из памяти`)
+    await loadLocalModelData()
   }
   const setLoraEnabled = (fileName: string, enabled: boolean) => {
     const next = { ...loraAccess, [fileName]: enabled }
     setLoraAccess(next)
     void saveSetting('server_model_loras', { enabled: next }, 'Доступность LoRA')
   }
+  const updateServerProfile = (profileId: string, patch: Partial<ServerModelProfileSettings>) => setServerProfiles((current) => ({ ...current, [profileId]: { ...(current[profileId] || { width: 1024, height: 1024, steps: 4, sampler: 'er_sde', seedMode: 'random', seed: 42 }), ...patch } }))
+  const saveServerProfiles = () => void saveSetting('server_model_profiles', { profiles: serverProfiles }, 'Параметры моделей Config UI')
   const saveMinMargin = async () => {
     const minMarginPercent = clampMargin(Number(marginDraft))
     const tokenRub = clampTokenRub(data?.openrouter.economy?.tokenRub)
@@ -978,8 +989,8 @@ export default function AdminModelsV2() {
       </div>
       <span className={`state ${configStatus?.status === 'ready' ? 'ok' : 'warn'}`}>{configErr ? 'статус недоступен' : configStatus?.status === 'ready' ? 'сервер готов' : configStatus?.status || 'проверка'}</span>
       <div className="profile-switch" aria-label="Глобальная серверная модель">
-        <button className={globalLocalProfile === 'flux_klein_9b' ? 'active' : ''} onClick={() => setGlobalLocalProfile('flux_klein_9b')}>Klein 9B</button>
-        <button className={globalLocalProfile === 'flux_klein_4b' ? 'active' : ''} onClick={() => setGlobalLocalProfile('flux_klein_4b')}>Klein 4B</button>
+        <button disabled={opsBusy} className={globalLocalProfile === 'flux_klein_9b' ? 'active' : ''} onClick={() => void setGlobalLocalProfile('flux_klein_9b')}>Klein 9B</button>
+        <button disabled={opsBusy} className={globalLocalProfile === 'flux_klein_4b' ? 'active' : ''} onClick={() => void setGlobalLocalProfile('flux_klein_4b')}>Klein 4B</button>
       </div>
       <button className="primary server-restart" disabled={opsBusy} onClick={() => void configAction('reload')}>Перезапустить Config UI</button>
       <button className="danger server-stop" disabled={opsBusy || !(configStatus?.active_jobs || []).length} onClick={() => void configAction('interrupt')}>Остановить задачу{(configStatus?.active_jobs || []).length ? ` · ${configStatus?.active_jobs?.length}` : ''}</button>
@@ -1026,11 +1037,12 @@ export default function AdminModelsV2() {
         return <section className="lora-column" key={profileKey}>
           <div className="lora-column-head"><h3>Klein {profileKey}</h3><span className={`state ${active ? 'ok' : ''}`}>{active ? 'активная модель' : 'резервный набор'}</span></div>
           {items.length ? items.map((l) => {
-            const enabled = loraAccess[l.fileName] !== false && l.installed !== false
+            const dependencyReady = l.status === 'active' || l.status === 'found'
+            const enabled = dependencyReady && loraAccess[l.fileName] !== false && l.installed !== false
             return <div className="lora-row" key={l.fileName}>
-              <input type="checkbox" checked={enabled} disabled={l.installed === false} onChange={(e) => setLoraEnabled(l.fileName, e.target.checked)} aria-label={`Доступность ${l.fileName}`} />
+              <input type="checkbox" checked={enabled} disabled={l.installed === false || !dependencyReady} onChange={(e) => setLoraEnabled(l.fileName, e.target.checked)} aria-label={`Доступность ${l.fileName}`} />
               <div><h3>{l.fileName}</h3><p>{l.purpose}</p></div>
-              <span className={`state ${enabled ? 'ok' : 'warn'}`}>{l.installed === false ? 'не установлена' : enabled ? 'доступна' : 'выключена'}</span>
+              <span className={`state ${enabled ? 'ok' : 'warn'}`}>{l.installed === false ? 'не установлена' : !dependencyReady ? 'нет зависимости' : enabled ? 'доступна' : 'выключена'}</span>
               <div><p>{l.routes.length ? `Функции: ${l.routes.join(', ')}` : 'Функция ещё не назначена'}{l.requires.length ? ` · Нужен модуль: ${l.requires.join(', ')}` : ''}</p></div>
             </div>
           }) : <p className="lora-empty">Совместимые LoRA пока не найдены.</p>}
@@ -1040,16 +1052,19 @@ export default function AdminModelsV2() {
     </article>
 
     <article className="card">
-      <div className="card-head"><div><h2 className="card-title">Настройки моделей Config UI</h2><p className="card-note">Базовые параметры, которые будут применяться после переключения профиля и перезапуска.</p></div></div>
+      <div className="card-head"><div><h2 className="card-title">Настройки моделей Config UI</h2><p className="card-note">Параметры применяются backend-ом к каждой локальной генерации выбранного профиля.</p></div><button className="primary" onClick={saveServerProfiles}>Сохранить параметры</button></div>
       <div className="config-profiles">{(['9B', '4B'] as const).map((profileKey) => {
         const active = globalLocalProfile.toLowerCase().endsWith(profileKey.toLowerCase())
+        const profileId = profileKey === '9B' ? 'flux_klein_9b' : 'flux_klein_4b'
+        const settings = serverProfiles[profileId] || { width: 1024, height: 1024, steps: 4, sampler: 'er_sde', seedMode: 'random', seed: 42 }
         return <section className={`config-profile ${active ? 'active' : ''}`} key={profileKey}>
           <div className="config-profile-head"><h3>FLUX.2 Klein {profileKey}</h3><span className={`state ${active ? 'ok' : ''}`}>{active ? 'используется' : 'не загружена'}</span></div>
           <div className="config-fields">
-            <div className="config-field"><label>Разрешение по умолчанию</label><select defaultValue="1024x1024"><option>1024x1024</option><option>1536x1024</option><option>1024x1536</option></select></div>
-            <div className="config-field"><label>Количество шагов</label><input type="number" min="1" defaultValue={4} /></div>
-            <div className="config-field"><label>Sampler</label><select defaultValue="er_sde"><option value="er_sde">ER-SDE</option></select></div>
-            <div className="config-field"><label>Seed</label><select defaultValue="random"><option value="random">Случайный</option><option value="fixed">Фиксированный</option></select></div>
+            <div className="config-field"><label>Разрешение по умолчанию</label><select value={`${settings.width}x${settings.height}`} onChange={(e) => { const [width, height] = e.target.value.split('x').map(Number); updateServerProfile(profileId, { width, height }) }}><option>1024x1024</option><option>1536x1024</option><option>1024x1536</option></select></div>
+            <div className="config-field"><label>Количество шагов</label><input type="number" min="1" max="80" value={settings.steps} onChange={(e) => updateServerProfile(profileId, { steps: Number(e.target.value) })} /></div>
+            <div className="config-field"><label>Sampler</label><select value={settings.sampler} onChange={(e) => updateServerProfile(profileId, { sampler: e.target.value })}><option value="er_sde">ER-SDE</option><option value="euler">Euler</option><option value="dpmpp_2m">DPM++ 2M</option></select></div>
+            <div className="config-field"><label>Seed</label><select value={settings.seedMode} onChange={(e) => updateServerProfile(profileId, { seedMode: e.target.value as 'random' | 'fixed' })}><option value="random">Случайный при каждой генерации</option><option value="fixed">Фиксированный</option></select></div>
+            {settings.seedMode === 'fixed' && <div className="config-field"><label>Фиксированный seed</label><input type="number" min="0" value={settings.seed} onChange={(e) => updateServerProfile(profileId, { seed: Number(e.target.value) })} /></div>}
           </div>
         </section>
       })}</div>
