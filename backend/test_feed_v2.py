@@ -203,6 +203,11 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert '<div class="author-actions">' in r.text
         assert "<small>просмотров</small>" in r.text
         assert "<small>в избранном</small>" in r.text
+        assert 'role="tablist" aria-label="Разделы ленты"' in r.text
+        assert 'role="tab" aria-selected="true"' in r.text
+        assert "function activateFeedTab(filter" in r.text
+        assert "feedMain.addEventListener('touchstart'" in r.text
+        assert "feedMain.addEventListener('touchend'" in r.text
         assert "detail-owner-actions" not in r.text
         assert "избранных" in r.text
         assert "view_count" in r.text

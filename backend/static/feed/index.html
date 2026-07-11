@@ -148,8 +148,8 @@ button{user-select:none}
 .primary-cta{height:34px;width:134px;border:0;border-radius:9px;background:var(--acid);color:#050705;font-size:12px;font-weight:820;cursor:pointer;box-shadow:0 12px 24px rgba(234,255,0,.15)}
 .main{min-width:0}
 .feedbar{position:sticky;top:var(--top);z-index:80;display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,440px);gap:10px;align-items:center;margin-bottom:10px;padding:8px;border:1px solid var(--line);border-radius:12px;background:rgba(7,10,8,.86);backdrop-filter:blur(18px)}
-.filters{display:flex;gap:7px;min-width:0;overflow:auto;scrollbar-width:none}.filters::-webkit-scrollbar{display:none}
-.filter-btn{min-height:32px;border:1px solid rgba(255,255,255,.105);border-radius:8px;background:rgba(18,21,18,.78);color:var(--text);padding:0 14px;font-size:14px;font-weight:850;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:7px;box-shadow:0 8px 22px rgba(0,0,0,.13);cursor:pointer}.filter-btn:hover{border-color:rgba(234,255,16,.45)}.filter-btn.active{background:var(--acid);border-color:var(--acid);color:#050705;font-weight:850}
+.filters{display:flex;align-items:stretch;gap:0;min-width:0;overflow-x:auto;overflow-y:hidden;border-bottom:1px solid rgba(255,255,255,.12);scrollbar-width:none}.filters::-webkit-scrollbar{display:none}
+.filter-btn{position:relative;flex:1 0 auto;min-height:40px;border:0;border-radius:0;background:transparent;color:#aeb8aa;padding:0 14px;font-size:14px;font-weight:760;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:none}.filter-btn::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:3px;border-radius:3px 3px 0 0;background:var(--acid);opacity:0;transform:scaleX(.35);transition:opacity .16s ease,transform .2s ease}.filter-btn:hover{color:#fff;background:rgba(255,255,255,.025)}.filter-btn.active{background:transparent;color:#fff;font-weight:850}.filter-btn.active::after{opacity:1;transform:scaleX(1)}.filter-btn:focus-visible{outline:2px solid var(--acid);outline-offset:-3px}
 .search-wrap{display:grid;grid-template-columns:1fr auto auto;gap:9px;align-items:center;min-width:0}
 .search{height:36px;min-width:0;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.045);color:#fff;padding:0 13px;outline:none;font-size:13px;font-weight:580}
 .search:focus{border-color:rgba(234,255,0,.5);box-shadow:0 0 0 3px rgba(234,255,0,.08)}
@@ -233,7 +233,7 @@ button{user-select:none}
 @media (max-width:980px){:root{--rail:1fr;--top:62px;--gap:7px}.app{display:block;padding:8px}.rail{position:relative;top:auto;height:auto;margin-bottom:8px;border-radius:12px;padding:8px;overflow:hidden}.rail-head{display:none}.mode-feature{height:104px;min-height:104px;margin-bottom:8px}.feature-title{font-size:18px}.feature-line,.feature-kicker{display:none}.feature-open{width:28px;height:28px}.mode-grid{display:flex;overflow-x:auto;gap:8px;margin-bottom:0;scrollbar-width:none}.mode-grid::-webkit-scrollbar{display:none}.mode-tile{min-width:152px;height:76px}.rail-challenge{display:none}.feedbar{top:var(--top);grid-template-columns:1fr;padding:8px;gap:8px;transition:transform .22s ease,opacity .18s ease}.feedbar.feedbar-hidden{transform:translateY(calc(-100% - 10px));opacity:0;pointer-events:none}.challenge-intro{display:none}.challenge-intro.show{display:block;padding:12px}.challenge-meta{justify-content:flex-start;margin-top:10px}.modal{padding:0;align-items:stretch;justify-content:stretch}.modal.open{display:block}.modal-shell{width:100%;height:auto;max-width:none;min-height:100vh;display:block;border:0;border-radius:0;padding:8px;background:rgba(0,0,0,.32);overflow:visible}.modal-media{height:auto;max-height:none;margin:0 0 12px;background:transparent}.modal-media img{width:100%;height:auto;max-height:none;border-radius:12px}.modal-info{width:100%;height:auto;max-height:none;border:1px solid rgba(255,255,255,.12);border-radius:14px}.info-scroll{padding:12px;display:block}.detail-author{margin-bottom:10px}.detail-title{font-size:22px}.detail-actions{grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}.download-btn,.remix-main,.detail-icon{height:42px}.download-btn{font-size:11px;padding:0 6px}.detail-icon{font-size:19px}.panel-tab{padding:0 9px;font-size:11px}.prompt-state{font-size:10px}.specs{grid-template-columns:1fr}.more-grid{max-height:none;overflow:visible}[data-tip]:hover::after{display:none!important}}
 @media (max-width:980px) and (hover:none){.card-actions{display:none}.persist-stats{right:7px;bottom:7px;gap:8px}.persist-stat{min-width:26px;min-height:24px;justify-content:center;padding:2px 0;gap:3px}.persist-stat .num{font-size:10px;font-weight:650}.persist-stat.heart .ico,.persist-stat.remix .ico{font-size:18px}}
 @media (max-width:820px){:root{--top:72px}}
-@media (max-width:560px){.filter-btn{min-height:31px;padding:0 12px}.search{height:34px}.signal-filter{height:34px;min-width:92px;font-size:11px;padding:0 7px}.challenge-copy h2{font-size:20px}.challenge-copy p{font-size:12px}.masonry{gap:7px}.masonry-col{gap:7px}.masonry-col:nth-child(n){padding-top:0}.mode-feature{height:96px}.mode-tile{min-width:146px;height:72px}.detail-author{grid-template-columns:74px minmax(0,1fr);grid-template-rows:auto auto;gap:7px 10px;align-items:start;padding:9px}.detail-avatar{grid-column:1;grid-row:1;width:72px;height:72px;font-size:24px}.author-card-main{grid-column:2;grid-row:1/3;gap:5px;align-self:start;min-width:0;padding-right:72px}.author-name-row b{display:block;white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word;font-size:17px;line-height:1.08}.author-work-count{font-size:11px;line-height:1.15}.author-top-actions{position:absolute;right:8px;top:6px;display:flex;gap:6px}.modal-close-inline,.author-notify{width:30px;height:30px}.author-actions{grid-column:1;grid-row:2;justify-content:flex-start;align-items:start;margin-top:0}.follow{width:72px;min-width:72px;height:26px;padding:0 3px;font-size:9px;border-radius:8px}.author-totals{grid-column:auto;grid-row:auto;margin-top:1px;padding-top:7px}.author-totals span{grid-template-columns:1fr;justify-items:center;gap:3px;padding:0 4px}.author-totals b{font-size:13px}.metric-ico{font-size:13px}.metric-row{font-size:12px;gap:8px;margin-bottom:10px}.detail-actions{grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}.remix-main{font-size:20px}.detail-icon small,.remix-main small{font-size:10px}.download-btn{font-size:0}.download-btn::before{content:'⇩';font-size:18px}.detail-management{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.panel-tabs{gap:6px}.panel-tab{height:42px;padding:0 8px;font-size:10px}.panel-tab .prompt-state{display:none}.detail-management button{font-size:11px}.more-grid{gap:7px}.more-col{gap:7px}}
+@media (max-width:560px){.filters{width:100%;scroll-snap-type:x proximity}.filter-btn{flex:1 0 auto;min-width:max-content;min-height:38px;padding:0 10px;font-size:12px;scroll-snap-align:center}.filter-btn::after{left:8px;right:8px}.search{height:34px}.signal-filter{height:34px;min-width:92px;font-size:11px;padding:0 7px}.challenge-copy h2{font-size:20px}.challenge-copy p{font-size:12px}.masonry{gap:7px}.masonry-col{gap:7px}.masonry-col:nth-child(n){padding-top:0}.mode-feature{height:96px}.mode-tile{min-width:146px;height:72px}.detail-author{grid-template-columns:74px minmax(0,1fr);grid-template-rows:auto auto;gap:7px 10px;align-items:start;padding:9px}.detail-avatar{grid-column:1;grid-row:1;width:72px;height:72px;font-size:24px}.author-card-main{grid-column:2;grid-row:1/3;gap:5px;align-self:start;min-width:0;padding-right:72px}.author-name-row b{display:block;white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word;font-size:17px;line-height:1.08}.author-work-count{font-size:11px;line-height:1.15}.author-top-actions{position:absolute;right:8px;top:6px;display:flex;gap:6px}.modal-close-inline,.author-notify{width:30px;height:30px}.author-actions{grid-column:1;grid-row:2;justify-content:flex-start;align-items:start;margin-top:0}.follow{width:72px;min-width:72px;height:26px;padding:0 3px;font-size:9px;border-radius:8px}.author-totals{grid-column:auto;grid-row:auto;margin-top:1px;padding-top:7px}.author-totals span{grid-template-columns:1fr;justify-items:center;gap:3px;padding:0 4px}.author-totals b{font-size:13px}.metric-ico{font-size:13px}.metric-row{font-size:12px;gap:8px;margin-bottom:10px}.detail-actions{grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}.remix-main{font-size:20px}.detail-icon small,.remix-main small{font-size:10px}.download-btn{font-size:0}.download-btn::before{content:'⇩';font-size:18px}.detail-management{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.panel-tabs{gap:6px}.panel-tab{height:42px;padding:0 8px;font-size:10px}.panel-tab .prompt-state{display:none}.detail-management button{font-size:11px}.more-grid{gap:7px}.more-col{gap:7px}}
 @media (max-width:620px){.author-modal{padding:8px;align-items:flex-start}.author-dialog{width:100%;max-height:calc(100vh - 16px);border-radius:14px;padding:12px}.author-dialog-head{margin-bottom:-36px}.author-profile{display:block}.author-profile-main{padding-right:0}.author-profile-avatar{width:100%;max-height:none;aspect-ratio:1;border-radius:14px;font-size:56px;margin:0 0 12px}.author-profile-title{padding-right:46px;margin-bottom:2px}.author-profile-title h2{font-size:26px}.author-profile-about{font-size:14px;padding:12px;margin-bottom:10px}.author-profile-info{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.author-profile-info span{min-height:46px}.author-profile-info b{white-space:normal}.author-profile-links{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:0}.author-profile-links a{width:auto;min-height:40px;justify-content:space-between}.author-profile-stats{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:10px}.author-profile-stats span{padding-top:8px}.author-profile-stats b{font-size:14px}.author-profile-stats small{font-size:8px}.author-modal.photo-zoom .author-profile-avatar{width:calc(100vw - 24px);max-height:none;aspect-ratio:1;inset:50%}}
 @media (hover:hover){.iv3.topbar-scope .tab.active:hover,.primary-cta:hover,.filter-btn.active:hover{color:#070a04}}
 .author-profile-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
@@ -293,12 +293,12 @@ button{user-select:none}
   </aside>
   <main class="main" id="feed">
     <section class="feedbar" aria-label="Фильтры ленты">
-      <div class="filters" id="filters">
-        <button class="filter-btn active" type="button" data-filter="all">Для вас</button>
-        <button class="filter-btn" type="button" data-filter="fresh">Новое</button>
-        <button class="filter-btn" type="button" data-filter="remix">Ремиксы</button>
-        <button class="filter-btn" type="button" data-filter="challenge">Челленджи</button>
-        <button class="filter-btn" type="button" data-filter="following">Подписки</button>
+      <div class="filters" id="filters" role="tablist" aria-label="Разделы ленты">
+        <button class="filter-btn active" type="button" role="tab" aria-selected="true" data-filter="all">Для вас</button>
+        <button class="filter-btn" type="button" role="tab" aria-selected="false" data-filter="fresh">Новое</button>
+        <button class="filter-btn" type="button" role="tab" aria-selected="false" data-filter="remix">Ремиксы</button>
+        <button class="filter-btn" type="button" role="tab" aria-selected="false" data-filter="challenge">Челленджи</button>
+        <button class="filter-btn" type="button" role="tab" aria-selected="false" data-filter="following">Подписки</button>
       </div>
       <div class="search-wrap">
         <input class="search" id="search" type="search" placeholder="Найти автора, стиль, prompt…">
@@ -407,6 +407,8 @@ const masonry = document.querySelector('#masonry');
 const emptyState = document.querySelector('#emptyState');
 const challengeIntro = document.querySelector('#challengeIntro');
 const feedbar = document.querySelector('.feedbar');
+const feedMain = document.querySelector('#feed');
+const filters = document.querySelector('#filters');
 const search = document.querySelector('#search');
 const signalFilter = document.querySelector('#signalFilter');
 const toast = document.querySelector('#toast');
@@ -472,6 +474,7 @@ const tabTexts = {
   challenge:{title:'Челленджи', text:'Творческие задания с темой, правилами, призовым фондом и работами участников. Сейчас активен челлендж Москва 2120.', cta:'Правила'},
   following:{title:'Подписки', text:'Новые работы авторов, на которых вы подписались. Подписки помогают формировать вашу ленту Для вас.', cta:'Зачем подписки'}
 };
+const feedTabOrder = ['all', 'fresh', 'remix', 'challenge', 'following'];
 const modes = [
   {id:'text', title:'По тексту', line:'Изображение по тексту', cta:'Открыть режим', img:'/static/feed/assets/mode_text.webp', href:'/#text-to-image', msg:'Открываем режим По тексту'},
   {id:'clothes', title:'Сборка', line:'Собрать изображение из нескольких фото', cta:'Открыть режим', img:'/static/feed/assets/mode_clothes.webp', href:'/#editor', msg:'Открываем Сборку'},
@@ -631,6 +634,20 @@ function formatPublicGender(value){
 }
 function feedTypeForFilter(filter){
   return ({all:'for_you', fresh:'fresh', remix:'remix', challenge:'challenge', following:'following'})[filter] || 'for_you';
+}
+function activateFeedTab(filter, options = {}){
+  if(!feedTabOrder.includes(filter)) return;
+  const changed = activeFilter !== filter;
+  activeFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(btn=>{
+    const selected = btn.dataset.filter === filter;
+    btn.classList.toggle('active', selected);
+    btn.setAttribute('aria-selected', selected ? 'true' : 'false');
+    btn.tabIndex = selected ? 0 : -1;
+    if(selected && options.focus) btn.focus();
+    if(selected && window.innerWidth <= 560) btn.scrollIntoView({ behavior:options.instant ? 'auto' : 'smooth', block:'nearest', inline:'center' });
+  });
+  if(changed || options.force) loadFeed(feedTypeForFilter(filter));
 }
 function normalizeFeedItem(item){
   const likes = Number(item.like_count || 0);
@@ -1121,10 +1138,8 @@ function openModal(index){
   markViewed(item);
 }
 function showChallenge(){
-  activeFilter = 'challenge';
-  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active', b.dataset.filter === 'challenge'));
   document.querySelector('#feed')?.scrollIntoView({behavior:'smooth', block:'start'});
-  loadFeed('challenge');
+  activateFeedTab('challenge', { force:true });
   showToast('Открыт челлендж Москва 2120');
 }
 function downloadCurrent(){
@@ -1392,24 +1407,58 @@ window.addEventListener('resize', ()=>{
     setModalMediaSize(works[currentIndex]);
   }
 });
-document.querySelector('#filters').addEventListener('click', e=>{
+filters.addEventListener('click', e=>{
   const btn = e.target.closest('[data-filter]');
   if(!btn) return;
-  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active', b===btn));
-  activeFilter = btn.dataset.filter;
-  loadFeed(feedTypeForFilter(activeFilter));
+  activateFeedTab(btn.dataset.filter);
 });
+filters.addEventListener('keydown', e=>{
+  if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) return;
+  e.preventDefault();
+  const current = feedTabOrder.indexOf(activeFilter);
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? feedTabOrder.length - 1 : Math.max(0, Math.min(feedTabOrder.length - 1, current + (e.key === 'ArrowRight' ? 1 : -1)));
+  activateFeedTab(feedTabOrder[next], { focus:true });
+});
+let feedTouchStart = null;
+let suppressFeedCardClickUntil = 0;
+feedMain.addEventListener('touchstart', e=>{
+  if(window.innerWidth > 980 || modal.classList.contains('open') || authorModal.classList.contains('open')) return;
+  if(e.touches.length !== 1 || e.target.closest('button,a,input,select,textarea,.feedbar')) return;
+  const touch = e.touches[0];
+  feedTouchStart = { x:touch.clientX, y:touch.clientY, at:Date.now() };
+}, { passive:true });
+feedMain.addEventListener('touchend', e=>{
+  if(!feedTouchStart || e.changedTouches.length !== 1) return;
+  const touch = e.changedTouches[0];
+  const dx = touch.clientX - feedTouchStart.x;
+  const dy = touch.clientY - feedTouchStart.y;
+  const duration = Date.now() - feedTouchStart.at;
+  feedTouchStart = null;
+  if(duration > 700 || Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.35) return;
+  const current = feedTabOrder.indexOf(activeFilter);
+  const next = Math.max(0, Math.min(feedTabOrder.length - 1, current + (dx > 0 ? 1 : -1)));
+  if(next === current) return;
+  suppressFeedCardClickUntil = Date.now() + 450;
+  activateFeedTab(feedTabOrder[next]);
+}, { passive:true });
+document.addEventListener('click', e=>{
+  if(Date.now() < suppressFeedCardClickUntil && e.target.closest('.work-card')){
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}, true);
 document.addEventListener('click', e=>{
   const action = e.target.closest('[data-action]');
   if(action?.dataset.action === 'challenge'){ showChallenge(); return; }
   if(action?.dataset.action === 'help'){ showToast('Помощь открывается в основном интерфейсе'); window.location.href = '/#help'; return; }
   if(action?.dataset.action === 'tab-help'){ showToast((tabTexts[activeFilter] || tabTexts.all).text); return; }
-  if(action?.dataset.action === 'back-feed'){ activeFilter = 'all'; document.querySelector('[data-filter="all"]')?.classList.add('active'); loadFeed('for_you'); return; }
+  if(action?.dataset.action === 'back-feed'){ activateFeedTab('all', { force:true }); return; }
   if(e.target.closest('.download-btn')){ downloadCurrent(); return; }
   const t = e.target.closest('[data-toast]');
   if(t) showToast(t.dataset.toast);
 });
 loadTopbarUser();
+activateFeedTab('all', { instant:true });
 loadFeed('for_you');
 </script>
 </body>

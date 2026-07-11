@@ -71,6 +71,10 @@ Cleanup tracking lives in `docs/feed-cleanup-optimization-plan-20260708.md`.
   grouped in the expandable secondary area.
 - The public author profile keeps the complete feed summary: publications,
   views, likes, remixes, favorites, followers, and following.
+- The five primary feed sections are rendered as an accessible tab list with a
+  persistent active indicator. On mobile, a horizontal swipe across feed
+  content moves to the adjacent section while vertical scrolling and controls
+  remain unaffected; keyboard arrow, Home, and End navigation is supported.
 - Gallery quota eviction no longer retires a linked feed publication or deletes
   its independent public WebP variants. Explicit gallery deletion still retires
   the linked publication according to the current product contract.
