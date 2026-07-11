@@ -2439,7 +2439,7 @@ text-overflow: ellipsis;
 white-space: nowrap;
 }
 .iv3 .quality-button.active .quality-model-name {
-color: rgba(7, 16, 6, .72);
+color: rgba(232, 238, 228, .82);
 }
 .iv3 .quality-token-cost {
 position: absolute;
@@ -5347,6 +5347,11 @@ font-size: 9px;
   .iv3 .i2i-upload-action.primary:not(:disabled):hover,
   .iv3 .i2i-range-mark:not(:disabled):hover {
     color: #071006 !important;
+  }
+
+  .iv3 .quality-button.active:not(:disabled):hover {
+    background: var(--lime) !important;
+    border-color: var(--lime) !important;
   }
 
   .iv3 .tab.active:not(:disabled):not(.disabled):hover *,

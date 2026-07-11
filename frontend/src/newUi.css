@@ -1551,6 +1551,19 @@
 
 .n2-gallery-picker-message.error { color: #ffaaaa; }
 
+.n2-gallery-picker-grid .n2-template-style.is-broken {
+  min-height: 96px;
+  place-items: center;
+  border-color: rgba(255, 116, 121, .42);
+}
+
+.n2-gallery-picker-grid .n2-template-style.is-broken::before {
+  content: "Файл недоступен";
+  color: #ffaaaa;
+  font-size: 11px;
+  font-weight: 500;
+}
+
 .n2-ghost.active-view {
   border-color: rgba(155, 124, 255, 0.92);
   background: var(--n2-purple);

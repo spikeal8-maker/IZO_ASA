@@ -115,6 +115,48 @@ type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults
 type StudioModelSort = 'name-asc' | 'name-desc' | 'tokens-asc' | 'tokens-desc'
 type LastTextSubmit = { prompt: string; model: string; width: number; height: number }
 type LastI2ISubmit = LastTextSubmit & { source: string }
+type StudioDraft = {
+  prompts?: Partial<Record<StudioMode, string>>
+  styleId?: string
+  resolutionId?: string
+  quality?: string
+  seed?: number
+  strengthPct?: number
+  sourceImage?: string
+  editSlots?: EditSlot[]
+  editFaceStrengthPct?: number
+}
+
+const STUDIO_DRAFT_KEY = 'izo:studio-draft-v1'
+
+function readStudioDraft(): StudioDraft {
+  try {
+    const value = window.sessionStorage.getItem(STUDIO_DRAFT_KEY)
+    return value ? JSON.parse(value) as StudioDraft : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeStudioDraft(draft: StudioDraft): void {
+  try {
+    window.sessionStorage.setItem(STUDIO_DRAFT_KEY, JSON.stringify(draft))
+  } catch {
+    const lightweight = {
+      ...draft,
+      sourceImage: draft.sourceImage?.startsWith('data:') ? undefined : draft.sourceImage,
+      editSlots: draft.editSlots?.map((slot) => ({
+        ...slot,
+        image: slot.image?.startsWith('data:') ? undefined : slot.image,
+      })),
+    }
+    try {
+      window.sessionStorage.setItem(STUDIO_DRAFT_KEY, JSON.stringify(lightweight))
+    } catch {
+      // Storage may be disabled; generation remains usable without recovery.
+    }
+  }
+}
 type PublicModelFormatPricing = {
   id: string
   label: string
@@ -1000,26 +1042,36 @@ export default function NewStudio(): ReactElement {
   const previewGender: 'female' | 'male' = me?.profile?.gender === 'male' ? 'male' : 'female'
   const acct = accountInfo(me)
 
-  const [prompts, setPrompts] = useState<Record<StudioMode, string>>({ text: '', i2i: '', edit: '', paint: '' })
-  const [styleId, setStyleId] = useState<string>('')
+  const [initialStudioDraft] = useState<StudioDraft>(readStudioDraft)
+  const [prompts, setPrompts] = useState<Record<StudioMode, string>>({
+    text: initialStudioDraft.prompts?.text || '',
+    i2i: initialStudioDraft.prompts?.i2i || '',
+    edit: initialStudioDraft.prompts?.edit || '',
+    paint: initialStudioDraft.prompts?.paint || '',
+  })
+  const [styleId, setStyleId] = useState<string>(initialStudioDraft.styleId || '')
   // Временный предпросмотр стиля при наведении на карточку (не выбирает стиль).
   const [hoverStyle, setHoverStyle] = useState<StylePreset | null>(null)
   // Разрешение = конкретный системный пресет; формат-кнопки переключают тип.
-  const [resolutionId, setResolutionId] = useState('sq-1024')
+  const [resolutionId, setResolutionId] = useState(initialStudioDraft.resolutionId || 'sq-1024')
   const [formatAutoNotice, setFormatAutoNotice] = useState('')
   const [formatOpen, setFormatOpen] = useState(false)
   const formatRef = useRef<HTMLDivElement>(null)
-  const [quality, setQuality] = useState('fast')
+  const [quality, setQuality] = useState(initialStudioDraft.quality || 'fast')
   const [proMode, setProMode] = useState(false)
   const [proModelChoices, setProModelChoices] = useState<Partial<Record<ModelModeKey, string>>>({})
   const [studioModelSort, setStudioModelSort] = useState<StudioModelSort>('tokens-asc')
-  const [seed, setSeed] = useState(0)
+  const [seed, setSeed] = useState(initialStudioDraft.seed || 0)
   const [guidance] = useState(3.5)
-  const [strengthPct, setStrengthPct] = useState(75)
-  const [sourceImage, setSourceImage] = useState<string>()
-  const [editSlots, setEditSlots] = useState<EditSlot[]>(() => EMPTY_EDIT_SLOTS.map((slot) => ({ ...slot })))
+  const [strengthPct, setStrengthPct] = useState(initialStudioDraft.strengthPct ?? 75)
+  const [sourceImage, setSourceImage] = useState<string | undefined>(initialStudioDraft.sourceImage)
+  const [editSlots, setEditSlots] = useState<EditSlot[]>(() => (
+    Array.isArray(initialStudioDraft.editSlots) && initialStudioDraft.editSlots.length === EDIT_SLOT_COUNT
+      ? initialStudioDraft.editSlots.map((slot) => ({ ...slot }))
+      : EMPTY_EDIT_SLOTS.map((slot) => ({ ...slot }))
+  ))
   const [editExtraOpen, setEditExtraOpen] = useState(false)
-  const [editFaceStrengthPct, setEditFaceStrengthPct] = useState(DEFAULT_FACE_STRENGTH)
+  const [editFaceStrengthPct, setEditFaceStrengthPct] = useState(initialStudioDraft.editFaceStrengthPct ?? DEFAULT_FACE_STRENGTH)
   const [profileTab, setProfileTab] = useState<'profile' | 'tariffs' | 'earn' | 'models'>('profile')
   const [tariffs, setTariffs] = useState<TariffConfig>(DEFAULT_TARIFFS)
   const [tariffsState, setTariffsState] = useState<'loading' | 'ready' | 'fallback'>('loading')
@@ -1353,6 +1405,23 @@ export default function NewStudio(): ReactElement {
   }, [userModelVisibility])
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      writeStudioDraft({
+        prompts,
+        styleId,
+        resolutionId,
+        quality,
+        seed,
+        strengthPct,
+        sourceImage,
+        editSlots,
+        editFaceStrengthPct,
+      })
+    }, 120)
+    return () => window.clearTimeout(timer)
+  }, [editFaceStrengthPct, editSlots, prompts, quality, resolutionId, seed, sourceImage, strengthPct, styleId])
+
+  useEffect(() => {
     queueMicrotask(() => {
       setDisplayName(me?.profile?.display_name || '')
       setProfileGender(me?.profile?.gender === 'male' ? 'male' : 'female')
@@ -1665,6 +1734,11 @@ export default function NewStudio(): ReactElement {
       })
       .catch(() => setGalleryPickerError('Не удалось загрузить ранее загруженные изображения.'))
       .finally(() => setGalleryPickerLoading(false))
+  }
+
+  function markPickerImageError(event: ChangeEvent<HTMLImageElement>) {
+    event.currentTarget.hidden = true
+    event.currentTarget.closest('.n2-template-style')?.classList.add('is-broken')
   }
 
   function showInspectPreview(url: string, title: string) {
@@ -3914,6 +3988,7 @@ export default function NewStudio(): ReactElement {
                         src={apiUrl(item.thumbnailUrl || item.url)}
                         alt={item.promptOriginal.slice(0, 60)}
                         loading="lazy"
+                        onError={markPickerImageError}
                         style={item.width && item.height ? { aspectRatio: `${item.width} / ${item.height}` } : undefined}
                       />
                       {item.width && item.height && <span>{item.width}×{item.height}</span>}
@@ -3938,6 +4013,7 @@ export default function NewStudio(): ReactElement {
                       src={apiUrl(item.thumbnailUrl)}
                       alt={item.roleLabel || 'Ранее загруженное изображение'}
                       loading="lazy"
+                      onError={markPickerImageError}
                       style={item.width && item.height ? { aspectRatio: `${item.width} / ${item.height}` } : undefined}
                     />
                     <span>{item.width && item.height ? `${item.width}×${item.height}` : item.roleLabel || 'Загруженное'}</span>

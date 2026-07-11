@@ -27,6 +27,7 @@
     "e2e:stage4": "node e2e-stage4.mjs",
     "e2e:result-layout": "node e2e-result-layout.mjs",
     "e2e:profile-auth": "node e2e-profile-auth.mjs",
+    "e2e:studio-resilience": "node e2e-studio-resilience.mjs",
     "e2e:paint-workbench": "node e2e-paint-workbench.mjs",
     "e2e:real25": "node e2e-real-generations-25.mjs",
     "preview": "vite preview"
