@@ -199,6 +199,9 @@ right visual language for a content pager.
 - Mobile drag now moves the feed panel with the finger, applies boundary
   resistance, uses distance/velocity commit rules, and settles by transform and
   opacity. Reduced-motion users receive an opacity-only change.
+- Swipe direction follows the conventional content pager: left reveals the next
+  section and right returns to the previous one. A prepared adjacent pane now
+  fills the revealed area during drag instead of exposing a blank background.
 - Rapid tab requests retain the latest requested destination instead of
   allowing an obsolete response to win.
 - Tab and panel ARIA relationships and contextual empty/error messages exist.

@@ -51,14 +51,15 @@ proof. The feature and API are present, but adoption/data are absent.
 
 ### P0: subscriptions have no visible adoption
 
-Before this audit, follower counts appeared only after opening publication or
-author details. General feed cards showed no follower count, and the live table
-contained no follows. This made the feature effectively invisible.
+The live table contained no follows, so all honest follower counts were zero.
+Follower data belongs to author context, not to the image-preview metrics.
 
 Implemented now:
 
-- every general feed card displays the author's real `followersCount`;
-- the author row remains visible on touch devices;
+- image previews keep only author identity, likes, and remixes;
+- the author row remains visible but compact on touch devices;
+- the opened author card and public profile display real `followersCount`;
+- `followingCount` is hidden from other viewers and shown only to the owner;
 - following/unfollowing immediately redraws card counts;
 - swipe direction now follows the conventional pager model: swipe left moves to
   the next section, swipe right returns to the previous section.
@@ -138,7 +139,8 @@ remain idempotent and must never alter publication ownership or gallery media.
 ### Phone
 
 - Keep two balanced masonry columns for visual browsing.
-- Keep author avatar, name, and follower count visible without opening a card.
+- Keep only the compact author avatar and name visible without opening a card.
+- Show follower count after opening the author context, not as an image metric.
 - Keep only remix and like as direct card actions.
 - Use left swipe for next tab and right swipe for previous tab.
 - Preserve each tab's position and cached content.

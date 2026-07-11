@@ -200,7 +200,8 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "authorSocialCounts" in r.text
         assert "followersCount" in r.text
         assert "followingCount" in r.text
-        assert "author-followers" in r.text
+        assert "author-followers" not in r.text
+        assert "item.mine ? `<span><b>${escapeHtml(compactCount(profile.followingCount || 0))}" in r.text
         assert '<div class="author-actions">' in r.text
         assert "<small>просмотров</small>" in r.text
         assert "<small>в избранном</small>" in r.text
@@ -212,6 +213,9 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "feedMain.addEventListener('touchend'" in r.text
         assert "current + (dx < 0 ? 1 : -1)" in r.text
         assert "dx > 0 && current === 0" in r.text
+        assert "prepareAdjacentFeed" in r.text
+        assert "settleAdjacentFeed" in r.text
+        assert 'id="feedAdjacent"' in r.text
         assert "const feedCache = new Map()" in r.text
         assert "new AbortController()" in r.text
         assert 'role="tabpanel"' in r.text
