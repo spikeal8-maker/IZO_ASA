@@ -33,13 +33,22 @@ from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, Field
 
-from resolution_policy import (
-    IMAGE_RESOLUTIONS,
-    RESOLUTION_BY_ID,
-    normalize_resolution_ids,
-    resolution_id_for_size,
-    supported_resolution_ids_from_capability,
-)
+try:
+    from .resolution_policy import (
+        IMAGE_RESOLUTIONS,
+        RESOLUTION_BY_ID,
+        normalize_resolution_ids,
+        resolution_id_for_size,
+        supported_resolution_ids_from_capability,
+    )
+except ImportError:  # Direct `python backend/main.py` execution.
+    from resolution_policy import (
+        IMAGE_RESOLUTIONS,
+        RESOLUTION_BY_ID,
+        normalize_resolution_ids,
+        resolution_id_for_size,
+        supported_resolution_ids_from_capability,
+    )
 
 
 ROOT = Path(__file__).resolve().parent
