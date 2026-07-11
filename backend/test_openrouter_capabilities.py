@@ -199,3 +199,23 @@ def test_public_model_option_exposes_reference_limit() -> None:
     option = main._public_model_option("provider/editor", {"maxInputReferences": 8})
     assert option["generation"]["maxInputReferences"] == 4
     assert main._public_model_option("server:local_flux_klein")["generation"]["maxInputReferences"] == 4
+
+
+def test_public_assembly_models_are_filtered_by_live_capability(monkeypatch) -> None:
+    compatible = "provider/multi"
+    incompatible = "provider/single"
+    monkeypatch.setattr(main, "get_openrouter_config", lambda: {
+        "access": {"edit": {"pro": [compatible, incompatible]}},
+        "qualityDefaults": {},
+        "defaults": {},
+    })
+    tariffs = main.get_tariff_config()
+    monkeypatch.setattr(main, "get_tariff_config", lambda: tariffs)
+    catalog = [
+        {"id": compatible, "modes": ["edit"], "maxInputReferences": 4},
+        {"id": incompatible, "modes": ["image_to_image"], "maxInputReferences": 1},
+    ]
+    access = main.public_model_access_for_plan("pro", catalog)
+    ids = [item["id"] for item in access["modes"]["edit"]["models"]]
+    assert compatible in ids
+    assert incompatible not in ids

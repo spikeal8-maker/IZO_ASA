@@ -1862,6 +1862,7 @@ def init_db() -> None:
             "category": "TEXT",
             "remix_policy": "TEXT",
             "tags_json": "TEXT",
+            "generation_snapshot_json": "TEXT",
             "updated_at": "TEXT",
             "view_count": "INTEGER NOT NULL DEFAULT 0",
         }.items():
@@ -13711,7 +13712,9 @@ def public_model_access_for_plan(plan: str, capability_catalog: list[dict[str, A
         mode_access = access.get(mode) if isinstance(access.get(mode), dict) else {}
         tier_ids = mode_access.get(plan) if isinstance(mode_access.get(plan), list) else []
         for model_id in tier_ids:
-            if isinstance(model_id, str) and model_id not in ids:
+            capability = capabilities.get(model_id)
+            compatible = not capability_catalog or (capability is not None and mode in (capability.get("modes") or []))
+            if isinstance(model_id, str) and model_id not in ids and compatible:
                 ids.append(model_id)
         models = [_public_model_option(model_id, capabilities.get(model_id)) for model_id in ids]
         presets: dict[str, str] = {}
@@ -14064,6 +14067,7 @@ async def max_webhook(payload: dict[str, Any], request: Request) -> dict[str, An
 # ---------------------------------------------------------------------------
 
 FEED_PROMPT_VISIBILITIES = {"open", "partial", "hidden"}
+FEED_PUBLICATION_CATEGORIES = {"art", "photo", "design", "character", "product", "architecture", "other"}
 FEED_PARTIAL_PROMPT_CHARS = 140
 FEED_THUMB_MAX_SIDE = 640
 FEED_LARGE_MAX_SIDE = 1536
@@ -14311,6 +14315,42 @@ def _feed_source_history_payload(conn: sqlite3.Connection, image_id: str | None)
     return items
 
 
+def _feed_generation_snapshot(conn: sqlite3.Connection, image: sqlite3.Row) -> dict[str, Any]:
+    settings = safe_json_load(_row_get(image, "settings_json")) or {}
+    if not isinstance(settings, dict):
+        settings = {}
+    width = int(_row_get(image, "width") or 0)
+    height = int(_row_get(image, "height") or 0)
+    model_info = _gallery_model_info(settings, _row_get(image, "provider"))
+    return {
+        "prompt": str(_row_get(image, "prompt_original") or "").strip(),
+        "mode": _row_get(image, "mode"),
+        "provider": _row_get(image, "provider"),
+        "style": settings.get("styleName") or None,
+        "model": _user_model_name(settings.get("modelProfile") or _row_get(image, "provider")),
+        "modelInfo": model_info,
+        "width": width,
+        "height": height,
+        "aspectRatio": _feed_aspect_ratio(width, height),
+        "generationParams": _gallery_public_params(
+            image_id=image["id"],
+            mode=_row_get(image, "mode"),
+            provider=_row_get(image, "provider"),
+            width=width,
+            height=height,
+            url=_row_get(image, "url"),
+            created_at=_row_get(image, "created_at"),
+            settings=settings,
+        ),
+        "sourceHistory": _feed_source_history_payload(conn, image["id"]),
+        "tokenCost": _public_token_cost(settings),
+        "generationTimeMs": settings.get("generationTimeMs"),
+        "fileSizeBytes": _media_file_size_from_url(_row_get(image, "url")),
+        "seed": settings.get("seed"),
+        "generatedAt": _row_get(image, "created_at"),
+    }
+
+
 def _feed_aspect_ratio(width: int, height: int) -> str:
     if not width or not height:
         return "1:1"
@@ -14336,8 +14376,11 @@ def _feed_item_payload(
             settings = json.loads(image["settings_json"] or "{}")
         except (TypeError, ValueError):
             settings = {}
+    snapshot = safe_json_load(_row_get(pub, "generation_snapshot_json")) or {}
+    if not isinstance(snapshot, dict):
+        snapshot = {}
     visibility = pub["prompt_visibility"]
-    raw_prompt = (_row_get(image, "prompt_original") or "").strip()
+    raw_prompt = str(snapshot.get("prompt") or _row_get(image, "prompt_original") or "").strip()
     if visibility == "open":
         prompt: str | None = raw_prompt or None
     elif visibility == "partial":
@@ -14374,11 +14417,11 @@ def _feed_item_payload(
             (viewer_internal_user_id,),
         ).fetchone()
         viewer_role = _row_get(viewer_row, "role")
-    width = int(_row_get(image, "width") or 0)
-    height = int(_row_get(image, "height") or 0)
+    width = int(snapshot.get("width") or _row_get(image, "width") or 0)
+    height = int(snapshot.get("height") or _row_get(image, "height") or 0)
     media_ready = bool(_row_get(pub, "feed_thumb_name") and _row_get(pub, "feed_large_name") and _row_get(pub, "media_ready_at"))
     native_aspect_ratio = _row_get(pub, "native_aspect_ratio") or _feed_aspect_ratio(width, height)
-    source_type = _row_get(pub, "source_type") or _feed_source_type(_row_get(image, "mode"))
+    source_type = _row_get(pub, "source_type") or _feed_source_type(snapshot.get("mode") or _row_get(image, "mode"))
     is_mine = viewer_internal_user_id == pub["internal_user_id"]
     viewer_is_admin = viewer_role == "admin"
     author_profile = _feed_author_profile(conn, pub["internal_user_id"], pub["legacy_user_id"])
@@ -14395,10 +14438,10 @@ def _feed_item_payload(
         "prompt": prompt,
         "prompt_visibility": visibility,
         "allow_recreate": bool(pub["allow_recreate"]),
-        "style": settings.get("styleName") or None,
-        "model": _user_model_name(settings.get("modelProfile") or _row_get(image, "provider")),
-        "model_info": _gallery_model_info(settings, _row_get(image, "provider")),
-        "mode": _row_get(image, "mode"),
+        "style": snapshot.get("style") or settings.get("styleName") or None,
+        "model": snapshot.get("model") or _user_model_name(settings.get("modelProfile") or _row_get(image, "provider")),
+        "model_info": snapshot.get("modelInfo") or _gallery_model_info(settings, _row_get(image, "provider")),
+        "mode": snapshot.get("mode") or _row_get(image, "mode"),
         "aspect_ratio": native_aspect_ratio,
         "native_aspect_ratio": native_aspect_ratio,
         "orientation": _row_get(pub, "orientation") or _feed_orientation(width, height),
@@ -14407,10 +14450,11 @@ def _feed_item_payload(
         "display_policy": _row_get(pub, "display_policy") or FEED_DISPLAY_POLICY,
         "remix_policy": _row_get(pub, "remix_policy") or ("allowed" if bool(pub["allow_recreate"]) else "disabled"),
         "category": _row_get(pub, "category"),
+        "tags": safe_json_load(_row_get(pub, "tags_json")) or [],
         "challenge": _feed_challenge_payload(conn, _row_get(pub, "category")),
-        "source_history": _feed_source_history_payload(conn, pub["image_id"]),
+        "source_history": snapshot.get("sourceHistory") or _feed_source_history_payload(conn, pub["image_id"]),
         "resolution": f"{width}×{height}" if width and height else None,
-        "generation_params": _gallery_public_params(
+        "generation_params": snapshot.get("generationParams") or _gallery_public_params(
             image_id=pub["image_id"],
             mode=_row_get(image, "mode"),
             provider=_row_get(image, "provider"),
@@ -14420,10 +14464,10 @@ def _feed_item_payload(
             created_at=_row_get(image, "created_at"),
             settings=settings,
         ),
-        "token_cost": _public_token_cost(settings),
-        "generation_time_ms": settings.get("generationTimeMs"),
-        "file_size_bytes": _media_file_size_from_url(_row_get(image, "url")),
-        "seed": settings.get("seed"),
+        "token_cost": snapshot.get("tokenCost") if "tokenCost" in snapshot else _public_token_cost(settings),
+        "generation_time_ms": snapshot.get("generationTimeMs") if "generationTimeMs" in snapshot else settings.get("generationTimeMs"),
+        "file_size_bytes": snapshot.get("fileSizeBytes") if "fileSizeBytes" in snapshot else _media_file_size_from_url(_row_get(image, "url")),
+        "seed": snapshot.get("seed") if "seed" in snapshot else settings.get("seed"),
         "created_at": pub["created_at"],
         "view_count": int(_row_get(pub, "view_count") or 0),
         "remix_count": counts.get("recreate", 0),
@@ -14604,16 +14648,28 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
     description = str(payload.get("description") or "").strip() or None
     visibility = str(payload.get("promptVisibility") or "open").strip()
     allow_recreate = bool(payload.get("allowRecreate", True))
+    category = str(payload.get("category") or "other").strip().lower()
+    raw_tags = payload.get("tags") or []
+    if isinstance(raw_tags, str):
+        raw_tags = raw_tags.split(",")
+    tags = list(dict.fromkeys(str(tag).strip().lstrip("#")[:24] for tag in raw_tags if str(tag).strip()))[:8]
     if not image_id:
         raise HTTPException(400, "imageId required")
     if not title:
         raise HTTPException(400, "title required")
     if len(title) > 120:
         raise HTTPException(400, "title too long")
+    if description and len(description) > 700:
+        raise HTTPException(400, "description too long")
     if visibility not in FEED_PROMPT_VISIBILITIES:
         raise HTTPException(400, "invalid promptVisibility")
+    if category not in FEED_PUBLICATION_CATEGORIES:
+        raise HTTPException(400, "invalid category")
     with db() as conn:
-        image = conn.execute("SELECT id, user_id, url, width, height, mode FROM images WHERE id = ?", (image_id,)).fetchone()
+        image = conn.execute(
+            "SELECT id, user_id, url, width, height, mode, provider, prompt_original, settings_json, created_at FROM images WHERE id = ?",
+            (image_id,),
+        ).fetchone()
     # Не раскрываем существование чужих изображений: и «нет», и «не твоё» → 404.
     # security_event пишем отдельным соединением ДО raise — with-блок с raise
     # внутри откатил бы запись (паттерн require_trusted_admin).
@@ -14642,6 +14698,9 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
         source_type = _feed_source_type(_row_get(image, "mode"))
         source_label = _feed_source_label(source_type)
         remix_policy = "allowed" if allow_recreate else "disabled"
+        generation_snapshot = _feed_generation_snapshot(conn, image)
+        tags_json = json.dumps(tags, ensure_ascii=False)
+        snapshot_json = json.dumps(generation_snapshot, ensure_ascii=False)
         if existing:
             conn.execute(
                 "UPDATE feed_publications SET title = ?, description = ?, prompt_visibility = ?, "
@@ -14649,7 +14708,8 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
                 "feed_thumb_width = ?, feed_thumb_height = ?, feed_thumb_bytes = ?, "
                 "feed_large_width = ?, feed_large_height = ?, feed_large_bytes = ?, "
                 "media_ready_at = ?, media_error = NULL, native_aspect_ratio = ?, orientation = ?, "
-                "source_type = ?, source_label = ?, display_policy = ?, remix_policy = ?, updated_at = ? "
+                "source_type = ?, source_label = ?, display_policy = ?, remix_policy = ?, category = ?, "
+                "tags_json = ?, generation_snapshot_json = ?, updated_at = ? "
                 "WHERE id = ?",
                 (
                     title,
@@ -14671,6 +14731,9 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
                     source_label,
                     FEED_DISPLAY_POLICY,
                     remix_policy,
+                    category,
+                    tags_json,
+                    snapshot_json,
                     now,
                     pub_id,
                 ),
@@ -14681,8 +14744,9 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
                 "description, prompt_visibility, allow_recreate, status, created_at, feed_thumb_name, "
                 "feed_large_name, feed_thumb_width, feed_thumb_height, feed_thumb_bytes, "
                 "feed_large_width, feed_large_height, feed_large_bytes, media_ready_at, media_error, "
-                "native_aspect_ratio, orientation, source_type, source_label, display_policy, remix_policy, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
+                "native_aspect_ratio, orientation, source_type, source_label, display_policy, remix_policy, category, "
+                "tags_json, generation_snapshot_json, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     pub_id,
                     image_id,
@@ -14708,6 +14772,9 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
                     source_label,
                     FEED_DISPLAY_POLICY,
                     remix_policy,
+                    category,
+                    tags_json,
+                    snapshot_json,
                     now,
                 ),
             )
