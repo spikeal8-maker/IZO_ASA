@@ -214,6 +214,28 @@ const fallbackReferenceLimit = (model: ApiImageModel) => {
   return 0
 }
 
+type AssistantModelPlan = {
+  task: 'Транскрибация' | 'Улучшение промпта'
+  role: 'Основная' | 'Резерв' | 'Кандидат' | 'Аварийная'
+  model: string
+  runtime: string
+  hardware: string
+  strengths: string
+  limitations: string
+  status: 'Рекомендуется' | 'Проверить' | 'Планируется'
+}
+
+const ASSISTANT_MODEL_PLAN: AssistantModelPlan[] = [
+  { task: 'Транскрибация', role: 'Основная', model: 'Qwen3-ASR 1.7B', runtime: 'Локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Лёгкая современная ASR, высокая скорость, русский язык', limitations: 'До запуска нужен собственный тест речи, шума и пауз', status: 'Проверить' },
+  { task: 'Транскрибация', role: 'Кандидат', model: 'Faster Whisper Large V3 Turbo', runtime: 'Локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Зрелый production-стек, VAD, предсказуемая интеграция', limitations: 'Тяжелее Qwen3-ASR; нужна защита от текста на тишине', status: 'Рекомендуется' },
+  { task: 'Транскрибация', role: 'Кандидат', model: 'Qwen3-ASR 0.6B', runtime: 'Локально', hardware: 'RTX 4070 или CPU', strengths: 'Минимальная нагрузка и быстрая короткая диктовка', limitations: 'Качество русского требуется сравнить с версией 1.7B', status: 'Проверить' },
+  { task: 'Транскрибация', role: 'Аварийная', model: 'Whisper Medium INT8', runtime: 'Локально', hardware: 'i5 10-го поколения / RAM', strengths: 'Работает без GPU и внешнего API', limitations: 'Высокая нагрузка CPU и очередь при параллельных запросах', status: 'Планируется' },
+  { task: 'Транскрибация', role: 'Резерв', model: 'Gemini 3.1 Flash Lite Audio', runtime: 'OpenRouter API', hardware: 'Облако', strengths: 'Аудиовход, дешёвый автоматический резерв', limitations: 'Платный вызов; форматы WebM/Opus нужно проверить живым тестом', status: 'Планируется' },
+  { task: 'Транскрибация', role: 'Резерв', model: 'GPT Audio Mini', runtime: 'OpenRouter API', hardware: 'Облако', strengths: 'Альтернативный провайдер аудиораспознавания', limitations: 'Использовать только при недоступности основного API-маршрута', status: 'Планируется' },
+  { task: 'Улучшение промпта', role: 'Основная', model: 'Gemma 4 12B Q4', runtime: 'Локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Быстрый локальный текстовый помощник без цены за вызов', limitations: 'Нужны короткий контекст и диспетчер VRAM; это не ASR-модель', status: 'Рекомендуется' },
+  { task: 'Улучшение промпта', role: 'Резерв', model: 'DeepSeek V4 Flash', runtime: 'OpenRouter API', hardware: 'Облако', strengths: 'Недорогой structured output и хороший русский текст', limitations: 'Только текст: аудио не принимает', status: 'Планируется' },
+]
+
 const fallbackCapabilityModel = (model: ApiImageModel): ApiImageModel => {
   const maxInputReferences = fallbackReferenceLimit(model)
   const modes = ['text_to_image']
@@ -553,6 +575,17 @@ const CSS = `
 @media (hover:hover){.amv2 .primary:hover,.amv2 .page-tabs button.active:hover,.amv2 .segmented button.active:hover{color:#080a07}.amv2 .primary:hover *,.amv2 .page-tabs button.active:hover *,.amv2 .segmented button.active:hover *{color:#080a07}}
 .amv2 .matrix-wrap{overflow-x:auto}
 .amv2 table{width:100%;border-collapse:collapse;min-width:820px}
+.amv2 .assistant-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.amv2 .assistant-summary>div{padding:13px;border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.032);display:grid;gap:5px}
+.amv2 .assistant-summary span{color:var(--muted);font-size:11px;font-weight:800;text-transform:uppercase}
+.amv2 .assistant-summary strong{font-size:14px;color:var(--lime)}
+.amv2 .assistant-summary small{color:var(--muted);line-height:1.35}
+.amv2 .assistant-table th,.amv2 .assistant-table td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px;line-height:1.35}
+.amv2 .assistant-table th{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:rgba(255,255,255,.025)}
+.amv2 .assistant-table td strong{display:block;color:var(--text);margin-bottom:3px}
+.amv2 .assistant-table td small{color:var(--muted)}
+.amv2 .assistant-status{display:inline-flex;padding:3px 7px;border:1px solid var(--line-strong);border-radius:999px;white-space:nowrap;color:var(--muted)}
+.amv2 .assistant-status.recommended{color:var(--lime);border-color:rgba(234,255,16,.35)}
 .amv2 th,.amv2 td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-size:12px}
 .amv2 th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.025)}
 .amv2 tr.selected td{background:rgba(234,255,16,.055)}
@@ -597,12 +630,12 @@ const CSS = `
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
 @media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head{grid-template-columns:1fr}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
-@media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
+@media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview,.amv2 .assistant-summary{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
 `
 
 export default function AdminModelsV2() {
   const [data, setData] = useState<PageData | null>(null)
-  const [pageTab, setPageTab] = useState<'config' | 'api'>('api')
+  const [pageTab, setPageTab] = useState<'config' | 'api' | 'assistants'>('api')
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
   const [routes, setRoutes] = useState<Route[]>([])
   const [query, setQuery] = useState('')
@@ -975,6 +1008,7 @@ export default function AdminModelsV2() {
     <div className="page-tabs" aria-label="Разделы моделей">
       <button className={pageTab === 'api' ? 'active' : ''} onClick={() => setPageTab('api')}>OpenRouter</button>
       <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Config UI</button>
+      <button className={pageTab === 'assistants' ? 'active' : ''} onClick={() => setPageTab('assistants')}>Голос и промпты</button>
       {pageTab === 'api' && <div className="tab-status">
         <span className={`status-dot ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : ''}`} aria-hidden="true" />
         <span className={`state ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{orStatus.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
@@ -982,6 +1016,32 @@ export default function AdminModelsV2() {
         <button className={`state ${exchangeStateClass}`} disabled={exchangeBusy} onClick={refreshExchange}>{exchangeBusy ? 'обновляю курс…' : `${exchangeStateText}: ${effectiveRateText}`}</button>
       </div>}
     </div>
+
+    {pageTab === 'assistants' && <>
+      <section className="assistant-summary" aria-label="План вычислительного контура помощников">
+        <div><span>Изображения</span><strong>RTX 3090</strong><small>Изолированный контур генерации; помощники эту карту не занимают.</small></div>
+        <div><span>Голос и промпты</span><strong>RTX 4070 · 12 ГБ</strong><small>Qwen/Whisper и Gemma выполняются через общую очередь GPU.</small></div>
+        <div><span>До установки RTX 4070</span><strong>CPU · i5 / 30 ГБ RAM</strong><small>Только ограниченный тестовый режим; при нагрузке используется API-резерв.</small></div>
+      </section>
+
+      <article className="card">
+        <div className="card-head"><div><h2 className="card-title">Голос и улучшение промптов</h2><p className="card-note">План моделей. Статус не означает, что runtime уже установлен или подключён.</p></div></div>
+        <p className="hint" style={{ margin: '12px' }}>Целевая цепочка: голос сначала расшифровывает специализированная ASR-модель; Gemma улучшает только готовый текст. При ошибке, перегрузке или длинной очереди диспетчер переключает конкретную операцию на OpenRouter.</p>
+        <div className="matrix-wrap">
+          <table className="assistant-table">
+            <thead><tr><th>Задача</th><th>Роль и модель</th><th>Исполнение</th><th>Сильные стороны</th><th>Ограничения</th><th>Статус</th></tr></thead>
+            <tbody>{ASSISTANT_MODEL_PLAN.map((item) => <tr key={`${item.task}-${item.role}-${item.model}`}>
+              <td><strong>{item.task}</strong></td>
+              <td><strong>{item.model}</strong><small>{item.role}</small></td>
+              <td><strong>{item.runtime}</strong><small>{item.hardware}</small></td>
+              <td>{item.strengths}</td>
+              <td>{item.limitations}</td>
+              <td><span className={`assistant-status${item.status === 'Рекомендуется' ? ' recommended' : ''}`}>{item.status}</span></td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </article>
+    </>}
 
     {pageTab === 'config' && <>
     <section className="server-command">
