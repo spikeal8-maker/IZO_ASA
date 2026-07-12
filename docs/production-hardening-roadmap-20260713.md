@@ -39,10 +39,10 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний runtime checkpoint | `A3` — Telegram webhook secret/body/replay enforcement; точный hash в Git history |
+| Последний runtime checkpoint | `A4` — MAX webhook secret/body/mode enforcement; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 913 passed, 0 failed, 0 deselected |
+| Последний полный test checkpoint | 924 passed, 0 failed, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 201 | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 233 | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -92,7 +92,7 @@
 | SEC-01 | `ГОТОВО` | Общий static mount private media удалён; private source требует trusted session + ownership |
 | SEC-02 | `ГОТОВО` | Telegram/MAX operational management endpoints требуют trusted admin |
 | SEC-03 | `ГОТОВО` | Webhook mode требует `TELEGRAM_WEBHOOK_SECRET`; официальный header проверяется constant-time, body ограничен, integer `update_id` защищён bounded replay guard |
-| SEC-04 | `НЕ НАЧАТО` | MAX webhook проверяет secret только если `MAX_WEBHOOK_SECRET` непустой; production-required validation отсутствует |
+| SEC-04 | `ГОТОВО` | MAX webhook mode требует official-format secret; header проверяется constant-time, body ограничен, polling receiver закрыт |
 | SEC-05 | `НЕ НАЧАТО` | OpenRouter key из admin UI всё ещё хранится plaintext в SQLite `admin_secrets` |
 | SEC-06 | `ЧАСТИЧНО` | Trusted Identity Core используется для protected routes, но legacy `X-OneNode-User` helpers и JS-readable `onenode_user` cookie остаются в коде |
 | SEC-07 | `НЕ НАЧАТО` | `allowedHosts: true` остаётся в Vite server и preview config |
@@ -140,6 +140,7 @@
 | OPS-06 | `НЕ НАЧАТО` | Нет encrypted offsite copy, checksum/quick_check pipeline и регулярного restore test |
 | OPS-07 | `ЧАСТИЧНО` | Есть health/logs и ручной storage audit, но нет единого monitoring/alerting контура |
 | OPS-08 | `ГОТОВО` | Внешний VPS/tunnel исключён из оптимизационных изменений |
+| OPS-09 | `НЕ НАЧАТО` | Срочно: `platform-api.max.ru` должен быть переведён на `platform-api2.max.ru` с trust-store/certificate rehearsal до 2026-07-19 |
 
 ### 5.6. Database, billing и масштабирование
 
@@ -175,7 +176,8 @@
 | A1 | P0 | `ГОТОВО` — единый read-only `tools/verify.ps1`: compile, focused/full backend, lint/build, map check, process/source checks; никаких restart/mutation |
 | A2 | P0 | GitHub Actions CI вызывает те же deterministic checks без production/real-provider tests |
 | A3 | P0 | `ГОТОВО` — Telegram webhook secret required-in-webhook-mode validation, constant-time header check, negative/replay/body-limit tests |
-| A4 | P0 | MAX secret: запрещён пустой secret в webhook production mode, constant-time comparison, negative tests |
+| A4 | P0 | `ГОТОВО` — MAX secret: запрещён пустой secret в webhook mode, constant-time comparison, body/mode/negative tests |
+| A4b | P0 | MAX API hostname/certificate migration: проверить `platform-api2.max.ru`, trust store, polling smoke и rollback до 2026-07-19 |
 | A5 | P0 | OpenRouter secret migration: DPAPI store вне repository, admin UI configured/source only, plaintext SQLite migration/delete, затем ручная rotation инструкция |
 | A6 | P0 | Backup tooling: SQLite Backup API, media manifest/incremental copy, second-disk destination через внешнюю config, `quick_check`, checksum и restore rehearsal |
 | A7 | P1 | Точный Vite host allowlist и automated loopback/proxy-header isolation check |
@@ -249,15 +251,16 @@
 1. `A1` — `ГОТОВО`: единая `tools/verify.ps1`.
 2. `B1` — `ГОТОВО`: OpenRouter aliases/request metadata extraction.
 3. `A3` — `ГОТОВО`: Telegram webhook secret/body/replay enforcement.
-4. `A4` — **СЛЕДУЮЩИЙ ПАКЕТ**: MAX webhook secret enforcement.
-5. `A5` — OpenRouter DPAPI secret store и удаление plaintext SQLite secret.
-6. `A6` — backup/restore tooling без автоматического schedule на первом PR.
-7. `A2` — GitHub Actions CI поверх стабильной verify command.
-8. `A7` — host allowlist и proxy-origin checks.
-9. `B2` — завершение config extraction.
-10. `B3` — migration ledger/schema groups.
-11. `B4`/`B5` — Telegram и MAX integrations.
-12. `B6` — ComfyUI decomposition.
+4. `A4` — `ГОТОВО`: MAX webhook secret/body/mode enforcement.
+5. `A4b` — **СЛЕДУЮЩИЙ ПАКЕТ (дедлайн 2026-07-19)**: MAX API2/certificate migration rehearsal.
+6. `A5` — OpenRouter DPAPI secret store и удаление plaintext SQLite secret.
+7. `A6` — backup/restore tooling без автоматического schedule на первом PR.
+8. `A2` — GitHub Actions CI поверх стабильной verify command.
+9. `A7` — host allowlist и proxy-origin checks.
+10. `B2` — завершение config extraction.
+11. `B3` — migration ledger/schema groups.
+12. `B4`/`B5` — Telegram и MAX integrations.
+13. `B6` — ComfyUI decomposition.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -327,6 +330,31 @@
 - controlled backend restart: PID 54256 → PID 55072, один listener `127.0.0.1:8000`, startup `changed=0`;
 - live smoke 5/5: health/database/models/feed HTTP 200, Telegram mode `polling`, Telegram token configured, webhook HTTP 404, private source HTTP 401;
 - production `.env` не менялся: текущему polling secret не нужен; Telegram API registration, VPS и tunnel не изменялись.
+
+### Checkpoint A4 — защита MAX webhook и mode safety
+
+Реализовано 2026-07-13:
+
+- MAX webhook mode fail-fast требует secret формата `^[A-Za-z0-9_-]{5,256}$` до DB preflight;
+- subscription body всегда содержит secret, receiver проверяет `X-Max-Bot-Api-Secret` через общий `hmac.compare_digest`;
+- polling mode закрывает public MAX webhook receiver HTTP 404 и не требует secret;
+- `Content-Length` и фактический body ограничены 256 KiB по умолчанию, malformed/non-object JSON отклоняется;
+- secret не логируется и не возвращается status API; status показывает только configured boolean;
+- `start-public.bat` больше не переключает MAX из работающего polling в webhook неявно;
+- официальный MAX API требует отдельного перехода на `platform-api2.max.ru` до 2026-07-19; риск добавлен как новый срочный пакет A4b, без опасного переключения в A4.
+
+Доказательства:
+
+- characterization test до реализации ожидаемо упал на отсутствии MAX webhook helpers;
+- оба webhook security modules + полный `test_api.py` + launcher tests: `74 passed`;
+- focused security/launcher suite: `33 passed` пять последовательных прогонов;
+- финальный `Full`: `924 passed, 72 warnings`, frontend lint `0 errors / 1 existing warning`, frontend build успешно;
+- `py_compile` и generated map check успешны: 114 Python-файлов, 608 symbols, 165 routes;
+- source snapshot до/после: 122 файла, 1 706 364 байта, SHA-256 `AC1A00934150E28C74BC1C4F319AFF24C84324FF8842AE8EEACD44D34A977850`, без изменений;
+- controlled backend restart: PID 55072 → PID 12508, один listener `127.0.0.1:8000`, startup `changed=0`;
+- реальный MAX long polling после restart: marker 9301, status 200, no error;
+- live smoke 5/5: health/database/models/feed HTTP 200, MAX mode `polling`, MAX polling status 200, MAX webhook HTTP 404, private source HTTP 401;
+- production `.env`, MAX subscription, VPS и tunnel не изменялись.
 
 ## 9. Обязательный gate каждого пакета
 

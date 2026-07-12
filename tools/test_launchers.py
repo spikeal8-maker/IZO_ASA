@@ -23,3 +23,10 @@ def test_public_launcher_builds_before_restarting_ports() -> None:
 
     assert launcher.index("call npx tsc -b") < launcher.index("call npx vite build")
     assert launcher.index("call npx vite build") < launcher.index("Freeing ports 8000 and 5173")
+
+
+def test_public_launcher_keeps_max_polling_unless_webhook_is_explicit() -> None:
+    launcher = (ROOT / "start-public.bat").read_text(encoding="utf-8")
+
+    assert 'if "%MAX_UPDATES_MODE%"=="" set "MAX_UPDATES_MODE=polling"' in launcher
+    assert 'if "%MAX_UPDATES_MODE%"=="" set "MAX_UPDATES_MODE=webhook"' not in launcher

@@ -35,8 +35,9 @@ REM platform-api.max.ru passes Python/certifi TLS verification; platform-api2 do
 if "%MAX_API_BASE_URL%"=="" set "MAX_API_BASE_URL=https://platform-api.max.ru"
 REM Telegram keeps its own mode via BOT_UPDATES_MODE (polling). Do NOT change Telegram.
 if "%BOT_UPDATES_MODE%"=="" set "BOT_UPDATES_MODE=polling"
-REM MAX is pinned to webhook in production (independent of BOT_UPDATES_MODE).
-if "%MAX_UPDATES_MODE%"=="" set "MAX_UPDATES_MODE=webhook"
+REM Keep the currently proven MAX polling path unless webhook mode is set explicitly
+REM together with MAX_WEBHOOK_SECRET. Do not switch delivery modes implicitly.
+if "%MAX_UPDATES_MODE%"=="" set "MAX_UPDATES_MODE=polling"
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "LAUNCH_TS=%%I"

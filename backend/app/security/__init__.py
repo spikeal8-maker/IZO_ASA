@@ -53,8 +53,10 @@ from .otp import (
 from .webhooks import (
     WebhookPayloadError,
     WebhookReplayGuard,
+    build_max_subscription_payload,
     build_telegram_set_webhook_payload,
     parse_webhook_json_object,
+    validate_max_webhook_secret,
     validate_telegram_webhook_secret,
     webhook_secret_matches,
 )
@@ -75,6 +77,7 @@ __all__ = [
     "SessionRuntime",
     "WebhookPayloadError",
     "WebhookReplayGuard",
+    "build_max_subscription_payload",
     "build_telegram_set_webhook_payload",
     "create_session",
     "cleanup_expired_otp_challenges",
@@ -100,6 +103,7 @@ __all__ = [
     "validate_email_otp_config",
     "validate_password_policy",
     "validate_session_crypto_config",
+    "validate_max_webhook_secret",
     "validate_telegram_webhook_secret",
     "verify_password",
     "webhook_secret_matches",

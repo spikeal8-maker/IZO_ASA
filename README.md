@@ -104,7 +104,11 @@ TELEGRAM_WEBHOOK_MAX_BODY_BYTES=262144
 TELEGRAM_WEBHOOK_REPLAY_CACHE_SIZE=4096
 MAX_BOT_TOKEN=...
 MAX_API_BASE_URL=https://platform-api.max.ru
+# Keep polling until webhook mode is switched explicitly with a configured secret.
+MAX_UPDATES_MODE=polling
+# Required only when MAX_UPDATES_MODE=webhook.
 MAX_WEBHOOK_SECRET=...
+MAX_WEBHOOK_MAX_BODY_BYTES=262144
 APP_PUBLIC_URL=https://your-domain/app
 BACKEND_PUBLIC_URL=https://your-domain
 ```
@@ -126,6 +130,19 @@ $rng.GetBytes($bytes)
 $rng.Dispose()
 ([Convert]::ToBase64String($bytes)).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 ```
+
+MAX polling likewise does not need `MAX_WEBHOOK_SECRET`; polling disables its
+public webhook receiver. Webhook mode requires a distinct secret matching
+`^[A-Za-z0-9_-]{5,256}$`, sends it in the subscription body, and validates
+`X-Max-Bot-Api-Secret` in constant time. The launcher never changes MAX from
+polling to webhook implicitly. The format and header follow the official
+[MAX subscription API](https://dev.max.ru/docs-api/methods/POST/subscriptions).
+
+The same MAX documentation announces migration from `platform-api.max.ru` to
+`platform-api2.max.ru` by 2026-07-19 together with trust-store changes. This
+repository keeps the currently working hostname until the separate documented
+certificate/migration rehearsal is completed; do not flip it during an unrelated
+deployment.
 
 Useful local checks:
 

@@ -10,6 +10,7 @@ from typing import Any
 
 
 TELEGRAM_SECRET_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+MAX_SECRET_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class WebhookPayloadError(ValueError):
@@ -56,6 +57,18 @@ def validate_telegram_webhook_secret(mode: str, secret: str | None) -> None:
         raise RuntimeError("TELEGRAM_WEBHOOK_SECRET may contain only letters, digits, underscore and hyphen.")
 
 
+def validate_max_webhook_secret(mode: str, secret: str | None) -> None:
+    if str(mode or "").strip().lower() != "webhook":
+        return
+    value = str(secret or "").strip()
+    if not value:
+        raise RuntimeError("MAX_WEBHOOK_SECRET is required in MAX webhook mode.")
+    if not 5 <= len(value) <= 256:
+        raise RuntimeError("MAX_WEBHOOK_SECRET must contain between 5 and 256 characters.")
+    if not MAX_SECRET_PATTERN.fullmatch(value):
+        raise RuntimeError("MAX_WEBHOOK_SECRET may contain only letters, digits, underscore and hyphen.")
+
+
 def webhook_secret_matches(expected: str, provided: str | None) -> bool:
     if not expected or not provided:
         return False
@@ -74,13 +87,31 @@ def build_telegram_set_webhook_payload(public_url: str, secret: str) -> dict[str
     }
 
 
-def parse_webhook_json_object(body: bytes, max_body_bytes: int) -> dict[str, Any]:
+def build_max_subscription_payload(
+    webhook_url: str,
+    secret: str,
+    update_types: list[str],
+) -> dict[str, Any]:
+    return {
+        "url": webhook_url,
+        "update_types": list(update_types),
+        "secret": secret,
+    }
+
+
+def parse_webhook_json_object(
+    body: bytes,
+    max_body_bytes: int,
+    *,
+    provider_name: str,
+) -> dict[str, Any]:
+    label = provider_name.strip() or "Webhook"
     if len(body) > max_body_bytes:
-        raise WebhookPayloadError(413, "Telegram webhook body is too large.")
+        raise WebhookPayloadError(413, f"{label} webhook body is too large.")
     try:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise WebhookPayloadError(400, "Telegram webhook body must be valid JSON.") from exc
+        raise WebhookPayloadError(400, f"{label} webhook body must be valid JSON.") from exc
     if not isinstance(payload, dict):
-        raise WebhookPayloadError(400, "Telegram webhook body must be a JSON object.")
+        raise WebhookPayloadError(400, f"{label} webhook body must be a JSON object.")
     return payload

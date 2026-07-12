@@ -172,6 +172,7 @@ try:
         SessionRuntime,
         WebhookPayloadError,
         WebhookReplayGuard,
+        build_max_subscription_payload,
         build_telegram_set_webhook_payload,
         create_session as security_create_session,
         cleanup_expired_otp_challenges as security_cleanup_expired_otp_challenges,
@@ -197,6 +198,7 @@ try:
         validate_email_otp_config as security_validate_email_otp_config,
         validate_password_policy as security_validate_password_policy,
         validate_session_crypto_config as security_validate_session_crypto_config,
+        validate_max_webhook_secret,
         validate_telegram_webhook_secret,
         verify_password as security_verify_password,
         webhook_secret_matches,
@@ -219,6 +221,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         SessionRuntime,
         WebhookPayloadError,
         WebhookReplayGuard,
+        build_max_subscription_payload,
         build_telegram_set_webhook_payload,
         create_session as security_create_session,
         cleanup_expired_otp_challenges as security_cleanup_expired_otp_challenges,
@@ -244,6 +247,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         validate_email_otp_config as security_validate_email_otp_config,
         validate_password_policy as security_validate_password_policy,
         validate_session_crypto_config as security_validate_session_crypto_config,
+        validate_max_webhook_secret,
         validate_telegram_webhook_secret,
         verify_password as security_verify_password,
         webhook_secret_matches,
@@ -411,7 +415,8 @@ if MAX_UPDATES_MODE not in {"webhook", "polling", "disabled"}:
     MAX_UPDATES_MODE = BOT_UPDATES_MODE
 MAX_API_BASE_URL = os.getenv("MAX_API_BASE_URL", "https://platform-api2.max.ru")
 MAX_WEBHOOK_URL = os.getenv("MAX_WEBHOOK_URL", "")
-MAX_WEBHOOK_SECRET = os.getenv("MAX_WEBHOOK_SECRET", "")
+MAX_WEBHOOK_SECRET = os.getenv("MAX_WEBHOOK_SECRET", "").strip()
+MAX_WEBHOOK_MAX_BODY_BYTES = max(1024, min(1024 * 1024, int(os.getenv("MAX_WEBHOOK_MAX_BODY_BYTES", str(256 * 1024)))))
 _MAX_BOT_DEEP_LINK_CACHE: dict[str, Any] = {
     "attempted": False,
     "base": None,
@@ -4623,7 +4628,8 @@ def bot_status_payload() -> dict[str, Any]:
             "mode": MAX_UPDATES_MODE,
             "apiBaseUrl": MAX_API_BASE_URL,
             "pollingReady": bool(MAX_BOT_TOKEN and MAX_API_BASE_URL),
-            "webhookReady": bool(MAX_BOT_TOKEN and MAX_API_BASE_URL and backend_public.startswith("https://")),
+            "webhookReady": bool(MAX_BOT_TOKEN and MAX_WEBHOOK_SECRET and MAX_API_BASE_URL and backend_public.startswith("https://")),
+            "webhookSecretConfigured": bool(MAX_WEBHOOK_SECRET),
             "botNicknameResolved": bool(max_deep_link_base),
             "deepLinkBaseSource": _MAX_BOT_DEEP_LINK_CACHE.get("source"),
             "apiMeStatus": _MAX_BOT_DEEP_LINK_CACHE.get("api_status"),
@@ -4791,6 +4797,7 @@ def max_webhook_url() -> str:
 
 
 async def configure_max_webhook_subscription() -> dict[str, Any]:
+    validate_max_webhook_secret("webhook", MAX_WEBHOOK_SECRET)
     wh_url = max_webhook_url()
     if not wh_url.startswith("https://"):
         MAX_POLLING_DIAG.update({
@@ -4800,12 +4807,11 @@ async def configure_max_webhook_subscription() -> dict[str, Any]:
             "updateTypes": ["bot_started", "message_callback", "message_created"],
         })
         raise HTTPException(400, "MAX_WEBHOOK_URL or BACKEND_PUBLIC_URL must be an HTTPS URL.")
-    body: dict[str, Any] = {
-        "url": wh_url,
-        "update_types": ["bot_started", "message_callback", "message_created"],
-    }
-    if MAX_WEBHOOK_SECRET:
-        body["secret"] = MAX_WEBHOOK_SECRET
+    body = build_max_subscription_payload(
+        wh_url,
+        MAX_WEBHOOK_SECRET,
+        ["bot_started", "message_callback", "message_created"],
+    )
     try:
         result = await max_api("POST", "/subscriptions", body)
         MAX_POLLING_DIAG.update({
@@ -7141,6 +7147,7 @@ async def worker() -> None:
 async def startup() -> None:
     global worker_started, bot_polling_started
     validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
+    validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
     db_guard_preflight()
     validate_session_crypto_config()
     init_db()
@@ -12048,6 +12055,7 @@ async def admin_max_status(request: Request) -> dict[str, Any]:
         "apiBaseUrl": MAX_API_BASE_URL,
         "mode": MAX_UPDATES_MODE,
         "pollingReady": bool(MAX_BOT_TOKEN and MAX_API_BASE_URL),
+        "webhookSecretConfigured": bool(MAX_WEBHOOK_SECRET),
         "webhookConfigured": bool(MAX_POLLING_DIAG.get("webhookConfigured")),
         "webhookUrlSet": bool(MAX_POLLING_DIAG.get("webhookUrlSet")),
         "subscriptionStatus": MAX_POLLING_DIAG.get("subscriptionStatus"),
@@ -12192,7 +12200,10 @@ async def max_poll_once(request: Request) -> dict[str, Any]:
 @app.post("/api/max/set-webhook")
 async def max_set_webhook(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
-    return await configure_max_webhook_subscription()
+    try:
+        return await configure_max_webhook_subscription()
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.post("/api/translate")
@@ -13994,7 +14005,11 @@ async def telegram_webhook(request: Request) -> dict[str, Any]:
         except ValueError:
             pass
     try:
-        payload = parse_webhook_json_object(await request.body(), TELEGRAM_WEBHOOK_MAX_BODY_BYTES)
+        payload = parse_webhook_json_object(
+            await request.body(),
+            TELEGRAM_WEBHOOK_MAX_BODY_BYTES,
+            provider_name="Telegram",
+        )
     except WebhookPayloadError as exc:
         raise HTTPException(exc.status_code, exc.message) from exc
     if not _telegram_webhook_replay_guard.claim(payload.get("update_id")):
@@ -14007,13 +14022,30 @@ async def telegram_webhook(request: Request) -> dict[str, Any]:
 
 
 @app.post("/api/max/webhook")
-async def max_webhook(payload: dict[str, Any], request: Request) -> dict[str, Any]:
-    print(f"MAX_WEBHOOK_RECEIVED before secret check type={max_update_type(payload)}")
-    if MAX_WEBHOOK_SECRET:
-        secret_ok = request.headers.get("X-Max-Bot-Api-Secret") == MAX_WEBHOOK_SECRET
-        print(f"MAX_WEBHOOK_SECRET_OK {str(secret_ok).lower()}")
-        if not secret_ok:
-            raise HTTPException(403, "Invalid MAX webhook secret.")
+async def max_webhook(request: Request) -> dict[str, Any]:
+    if MAX_UPDATES_MODE != "webhook":
+        raise HTTPException(404, "MAX webhook receiver is disabled.")
+    try:
+        validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
+    except RuntimeError as exc:
+        raise HTTPException(503, "MAX webhook is not configured.") from exc
+    if not webhook_secret_matches(MAX_WEBHOOK_SECRET, request.headers.get("X-Max-Bot-Api-Secret")):
+        raise HTTPException(403, "Invalid MAX webhook secret.")
+    content_length = request.headers.get("Content-Length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_WEBHOOK_MAX_BODY_BYTES:
+                raise HTTPException(413, "MAX webhook body is too large.")
+        except ValueError:
+            pass
+    try:
+        payload = parse_webhook_json_object(
+            await request.body(),
+            MAX_WEBHOOK_MAX_BODY_BYTES,
+            provider_name="MAX",
+        )
+    except WebhookPayloadError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
     MAX_POLLING_DIAG["lastWebhookAt"] = datetime.now(timezone.utc).isoformat()
     MAX_POLLING_DIAG["lastWebhookError"] = None
     print(f"MAX webhook update received type={max_update_type(payload)}")
