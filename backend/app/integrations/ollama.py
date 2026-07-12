@@ -43,3 +43,25 @@ async def fetch_ollama_models_status(
             "models": [],
             "error": type(exc).__name__,
         }
+
+
+async def request_ollama_chat_message(
+    *,
+    body: dict[str, Any],
+    timeout_seconds: float,
+    base_url: str | None = None,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> tuple[str, Any]:
+    """POST an Ollama chat body and return legacy message content plus payload."""
+
+    resolved_base_url = ollama_base_url(base_url)
+    client_options: dict[str, Any] = {"timeout": timeout_seconds}
+    if transport is not None:
+        client_options["transport"] = transport
+    async with httpx.AsyncClient(**client_options) as client:
+        response = await client.post(f"{resolved_base_url}/api/chat", json=body)
+    payload = response.json() if response.content else {}
+    if response.status_code >= 400:
+        raise RuntimeError(f"Ollama вернула ошибку {response.status_code}.")
+    message = payload.get("message") if isinstance(payload, dict) and isinstance(payload.get("message"), dict) else {}
+    return str(message.get("content") or ""), payload

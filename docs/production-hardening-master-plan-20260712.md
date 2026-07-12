@@ -102,7 +102,13 @@
 - controlled restart первого Ollama package поднял единственный backend PID 45108 на `127.0.0.1:8000`; startup reconciliation: checked 127, available 125, missing 2, changed 0;
 - live smoke прошёл 5/5: health/capabilities/frontend/feed/public feed media — 200, private source без trusted session — 401; реальный локальный Ollama discovery вернул `ok=true` и 14 моделей без изменения его процесса или настроек;
 - source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
-- все завершённые checkpoint-коммиты до `70195da` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
+- Ollama prompt-improvement переведён на общий `request_ollama_chat_message`: integration владеет POST `/api/chat`, JSON response parsing, извлечением `message.content` и прежним public HTTP error; `main.py` сохраняет body/prompt, semaphore, timeout cap и `_parse_improved_prompt`;
+- characterization tests фиксируют неизменный request body/path, model/stream/think/keep-alive/options/format/messages, trimming технического контекста, Russian instruction, timeout cap 120, success/empty/HTTP 429/invalid JSON contracts; focused package прошёл 5 циклов по 22 теста;
+- полный backend checkpoint после prompt HTTP extraction: 709 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 известный hooks warning), TypeScript/Vite production build — успешно; активных pytest-процессов после проверки нет;
+- controlled restart prompt HTTP package поднял единственный backend PID 27692 на `127.0.0.1:8000`; startup reconciliation: checked 127, available 125, missing 2, changed 0;
+- live smoke прошёл 5/5: health/capabilities/frontend/feed/public feed media — 200, private source без trusted session — 401; Ollama discovery остался `ok=true` и 14 models, реальный prompt при deployment намеренно не создавался;
+- source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
+- все завершённые checkpoint-коммиты до `bb1807c` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
 
 Частично выполнено:
 
@@ -110,7 +116,7 @@
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
 - deploy gate: TypeScript блокирует запуск, но единая `tools/verify.ps1` и CI gate ещё не созданы.
 
-Следующий пакет: вынести bounded Ollama prompt-improvement request/response block в `app/integrations/ollama.py` с characterization tests, сохранив текущие model/body/prompt/timeout/error contracts и compatibility wrapper в `main.py`. Voice transcription остаётся отдельным последующим пакетом. Production restart каждого пакета выполняется только после полного checkpoint.
+Следующий пакет: перевести Ollama voice transcription на уже проверенную `/api/chat` integration boundary с characterization tests, сохранив audio model guard, WAV normalization, base64 body, language instruction, timeout cap, 2000-character limit и текущие ошибки. Production restart каждого пакета выполняется только после полного checkpoint.
 
 Storage-аудит завершён: startup availability теперь стабилен (`changed=0` при неизменном filesystem), автоматическое физическое удаление файлов запрещено, тесты изолированы от production DB/media. Любая будущая очистка файлов выполняется только через manifest/quarantine.
 
@@ -120,7 +126,7 @@ Storage-аудит завершён: startup availability теперь стаб�
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 364 строки | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 358 строк | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |

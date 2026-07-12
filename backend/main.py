@@ -57,9 +57,9 @@ except ImportError:  # Direct `python backend/main.py` execution.
     from app.config import env_bool, load_local_env, sqlite_path_from_database_url
 
 try:
-    from .app.integrations import fetch_ollama_models_status
+    from .app.integrations import fetch_ollama_models_status, request_ollama_chat_message
 except ImportError:  # Direct `python backend/main.py` execution.
-    from app.integrations import fetch_ollama_models_status
+    from app.integrations import fetch_ollama_models_status, request_ollama_chat_message
 
 try:
     from .app.database import (
@@ -5825,7 +5825,6 @@ async def improve_prompt_openrouter(req: ImprovePromptRequest, config: dict[str,
 
 async def improve_prompt_ollama(req: ImprovePromptRequest, config: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
     config = config or assistant_models_config()["improve"]
-    base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
     body = {
         "model": str(config.get("localModel") or "gemma4:12b"),
         "stream": False,
@@ -5844,13 +5843,8 @@ async def improve_prompt_ollama(req: ImprovePromptRequest, config: dict[str, Any
     }
     timeout = max(3, min(120, int(config.get("localTimeoutSeconds") or 10)))
     async with _prompt_improve_semaphore:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(f"{base_url}/api/chat", json=body)
-    data = response.json() if response.content else {}
-    if response.status_code >= 400:
-        raise RuntimeError(f"Ollama вернула ошибку {response.status_code}.")
-    message = data.get("message") if isinstance(data, dict) and isinstance(data.get("message"), dict) else {}
-    return _parse_improved_prompt(str(message.get("content") or "")), data
+        content, data = await request_ollama_chat_message(body=body, timeout_seconds=timeout)
+    return _parse_improved_prompt(content), data
 
 
 async def improve_prompt_routed(req: ImprovePromptRequest, force_provider: str | None = None) -> tuple[str, dict[str, Any], str, str]:
