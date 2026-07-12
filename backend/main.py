@@ -58,6 +58,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.integrations import (
+        build_openrouter_image_request_body,
         build_openrouter_image_request_plan,
         extract_openrouter_generation_cost,
         extract_openrouter_error_payload,
@@ -66,6 +67,7 @@ try:
         fetch_openrouter_key_details,
         fetch_openrouter_text_models,
         is_openrouter_size_error,
+        image_edit_influence_instruction,
         normalize_openrouter_endpoint_capability,
         normalize_openrouter_model_capability,
         openrouter_descriptor_values,
@@ -78,6 +80,7 @@ try:
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations import (
+        build_openrouter_image_request_body,
         build_openrouter_image_request_plan,
         extract_openrouter_generation_cost,
         extract_openrouter_error_payload,
@@ -86,6 +89,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         fetch_openrouter_key_details,
         fetch_openrouter_text_models,
         is_openrouter_size_error,
+        image_edit_influence_instruction,
         normalize_openrouter_endpoint_capability,
         normalize_openrouter_model_capability,
         openrouter_descriptor_values,
@@ -5496,18 +5500,7 @@ async def fetch_openrouter_image_capabilities(force: bool = False) -> list[dict[
 
 
 def openrouter_prompt_influence_instruction(strength: float) -> str:
-    percent = max(0, min(100, round(float(strength) * 100)))
-    if percent <= 24:
-        behavior = "Make only minimal, local changes. Preserve composition, identity, geometry, colors, lighting, camera, and nearly all source details."
-    elif percent <= 49:
-        behavior = "Edit conservatively. Preserve the composition and recognizability of the source while applying the requested change clearly."
-    elif percent <= 74:
-        behavior = "Apply a noticeable transformation, but keep the main subjects, layout, perspective, and important source details recognizable."
-    elif percent <= 89:
-        behavior = "Follow the edit prompt strongly. Preserve only the source elements that the prompt does not ask to change."
-    else:
-        behavior = "Freely reinterpret the source according to the edit prompt while retaining it as the visual reference."
-    return f"Image edit influence: {percent}%. {behavior} Do not ignore the supplied reference image."
+    return image_edit_influence_instruction(strength)
 
 
 def openrouter_reference_value(source: str | None) -> str:
@@ -5525,39 +5518,13 @@ def openrouter_reference_value(source: str | None) -> str:
 
 
 def build_openrouter_image_body(payload: GenerateRequest, model: str, request_plan: dict[str, Any], capability: dict[str, Any]) -> dict[str, Any]:
-    if payload.mode not in (capability.get("modes") or []):
-        raise RuntimeError(f"Модель {model} не поддерживает режим {payload.mode} по актуальным данным OpenRouter.")
-    parameters = set(capability.get("parameters") or [])
-    body: dict[str, Any] = {"model": model, "prompt": payload.prompt, "n": 1}
-    provider_tag = str(capability.get("providerTag") or "").strip()
-    if provider_tag:
-        body["provider"] = {"only": [provider_tag], "allow_fallbacks": False}
-    if request_plan.get("aspect_ratio") and "aspect_ratio" in parameters:
-        body["aspect_ratio"] = request_plan["aspect_ratio"]
-    if request_plan.get("resolution") and "resolution" in parameters:
-        body["resolution"] = request_plan["resolution"]
-    if "aspect_ratio" not in body and request_plan.get("size"):
-        body["size"] = request_plan["size"]
-    if payload.mode == "image_to_image":
-        body["prompt"] = f"{payload.prompt.strip()}\n\n{openrouter_prompt_influence_instruction(payload.strength)}".strip()
-        body["input_references"] = [{"type": "image_url", "image_url": {"url": openrouter_reference_value(payload.inputImage1)}}]
-    elif payload.mode == "edit":
-        references = [
-            item for item in sorted(payload.inputImages, key=lambda value: value.index or 0)
-            if item.image
-        ]
-        max_references = min(4, int(capability.get("maxInputReferences") or 0))
-        if len(references) < 2:
-            raise RuntimeError("Для «Сборки» нужны основа и хотя бы один референс.")
-        if len(references) > max_references:
-            raise RuntimeError(f"Модель {model} принимает не больше {max_references} изображений для «Сборки».")
-        body["input_references"] = [
-            {"type": "image_url", "image_url": {"url": openrouter_reference_value(item.image)}}
-            for item in references
-        ]
-    if payload.seed > 0 and "seed" in parameters:
-        body["seed"] = payload.seed
-    return body
+    return build_openrouter_image_request_body(
+        payload,
+        model,
+        request_plan,
+        capability,
+        reference_resolver=openrouter_reference_value,
+    )
 
 
 def openrouter_headers() -> dict[str, str]:

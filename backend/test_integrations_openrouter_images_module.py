@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 import main
 from app.integrations.openrouter_images import (
+    build_openrouter_image_request_body,
     build_openrouter_image_request_plan,
+    image_edit_influence_instruction,
     openrouter_descriptor_values,
     openrouter_ratio_size,
     requested_orientation,
@@ -218,3 +222,184 @@ def test_main_private_planning_wrappers_delegate(monkeypatch):
         ("ratio", 1, 1),
         ("descriptors", capability, "resolution"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("strength", "percent", "phrase"),
+    [
+        (-1, 0, "Make only minimal"),
+        (0.24, 24, "Make only minimal"),
+        (0.25, 25, "Edit conservatively"),
+        (0.49, 49, "Edit conservatively"),
+        (0.50, 50, "Apply a noticeable transformation"),
+        (0.74, 74, "Apply a noticeable transformation"),
+        (0.75, 75, "Follow the edit prompt strongly"),
+        (0.89, 89, "Follow the edit prompt strongly"),
+        (0.90, 90, "Freely reinterpret"),
+        (2, 100, "Freely reinterpret"),
+    ],
+)
+def test_influence_instruction_preserves_thresholds_and_clamping(strength, percent, phrase):
+    instruction = image_edit_influence_instruction(strength)
+
+    assert instruction.startswith(f"Image edit influence: {percent}%.")
+    assert phrase in instruction
+    assert instruction.endswith("Do not ignore the supplied reference image.")
+
+
+def request_payload(**overrides):
+    values = {
+        "mode": "text_to_image",
+        "prompt": "Create an image",
+        "strength": 0.75,
+        "inputImage1": None,
+        "inputImages": [],
+        "seed": 0,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_request_body_preserves_provider_parameters_and_seed():
+    body = build_openrouter_image_request_body(
+        request_payload(seed=17),
+        "provider/image",
+        {"aspect_ratio": "16:9", "resolution": "2K", "size": "1280x720"},
+        {
+            "modes": ["text_to_image"],
+            "parameters": ["aspect_ratio", "resolution", "seed"],
+            "providerTag": " pinned-provider ",
+        },
+        reference_resolver=lambda value: str(value),
+    )
+
+    assert body == {
+        "model": "provider/image",
+        "prompt": "Create an image",
+        "n": 1,
+        "provider": {"only": ["pinned-provider"], "allow_fallbacks": False},
+        "aspect_ratio": "16:9",
+        "resolution": "2K",
+        "seed": 17,
+    }
+
+
+def test_request_body_uses_size_when_aspect_ratio_is_not_sent():
+    body = build_openrouter_image_request_body(
+        request_payload(),
+        "provider/image",
+        {"aspect_ratio": "16:9", "size": "1280x720"},
+        {"modes": ["text_to_image"], "parameters": []},
+        reference_resolver=lambda value: str(value),
+    )
+
+    assert body["size"] == "1280x720"
+    assert "aspect_ratio" not in body
+    assert "seed" not in body
+
+
+def test_image_to_image_body_uses_injected_reference_resolver_and_influence():
+    seen: list[str | None] = []
+
+    body = build_openrouter_image_request_body(
+        request_payload(
+            mode="image_to_image",
+            prompt="  Change jacket color  ",
+            strength=0.25,
+            inputImage1="private-source",
+        ),
+        "provider/editor",
+        {"size": "1024x1024"},
+        {"modes": ["image_to_image"], "parameters": ["input_references"]},
+        reference_resolver=lambda value: seen.append(value) or f"resolved:{value}",
+    )
+
+    assert seen == ["private-source"]
+    assert body["prompt"].startswith("Change jacket color\n\nImage edit influence: 25%.")
+    assert body["input_references"] == [{
+        "type": "image_url",
+        "image_url": {"url": "resolved:private-source"},
+    }]
+
+
+def test_edit_body_sorts_references_filters_empty_and_caps_model_limit():
+    references = [
+        SimpleNamespace(index=3, image="third"),
+        SimpleNamespace(index=1, image="first"),
+        SimpleNamespace(index=2, image=""),
+        SimpleNamespace(index=2, image="second"),
+    ]
+
+    body = build_openrouter_image_request_body(
+        request_payload(mode="edit", inputImages=references),
+        "provider/editor",
+        {"size": "1024x1024"},
+        {"modes": ["edit"], "parameters": ["input_references"], "maxInputReferences": 8},
+        reference_resolver=lambda value: f"resolved:{value}",
+    )
+
+    assert [item["image_url"]["url"] for item in body["input_references"]] == [
+        "resolved:first",
+        "resolved:second",
+        "resolved:third",
+    ]
+
+
+def test_request_body_preserves_incompatible_mode_error():
+    with pytest.raises(RuntimeError, match="Модель provider/text не поддерживает режим image_to_image"):
+        build_openrouter_image_request_body(
+            request_payload(mode="image_to_image"),
+            "provider/text",
+            {"size": "1024x1024"},
+            {"modes": ["text_to_image"]},
+            reference_resolver=lambda value: str(value),
+        )
+
+
+def test_edit_body_preserves_minimum_and_maximum_reference_errors():
+    with pytest.raises(RuntimeError, match="нужны основа и хотя бы один референс"):
+        build_openrouter_image_request_body(
+            request_payload(mode="edit", inputImages=[SimpleNamespace(index=1, image="first")]),
+            "provider/editor",
+            {},
+            {"modes": ["edit"], "maxInputReferences": 4},
+            reference_resolver=lambda value: str(value),
+        )
+
+    with pytest.raises(RuntimeError, match="принимает не больше 2 изображений"):
+        build_openrouter_image_request_body(
+            request_payload(mode="edit", inputImages=[
+                SimpleNamespace(index=1, image="first"),
+                SimpleNamespace(index=2, image="second"),
+                SimpleNamespace(index=3, image="third"),
+            ]),
+            "provider/editor",
+            {},
+            {"modes": ["edit"], "maxInputReferences": 2},
+            reference_resolver=lambda value: str(value),
+        )
+
+
+def test_main_body_compatibility_wrappers_delegate_and_keep_reference_resolver(monkeypatch):
+    payload = request_payload()
+    request_plan = {"size": "1024x1024"}
+    capability = {"modes": ["text_to_image"]}
+    expected = {"body": "sentinel"}
+    seen: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(main, "image_edit_influence_instruction", lambda strength: f"delegated:{strength}")
+    assert main.openrouter_prompt_influence_instruction(0.5) == "delegated:0.5"
+
+    def fake_builder(payload_value, model, plan, capability_value, *, reference_resolver):
+        seen.append((payload_value, model, plan, capability_value, reference_resolver))
+        return expected
+
+    monkeypatch.setattr(main, "build_openrouter_image_request_body", fake_builder)
+    assert main.build_openrouter_image_body(payload, "provider/image", request_plan, capability) is expected
+    assert seen == [(
+        payload,
+        "provider/image",
+        request_plan,
+        capability,
+        main.openrouter_reference_value,
+    )]
