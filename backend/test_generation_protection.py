@@ -142,6 +142,33 @@ def test_saved_uploaded_source_is_allowed_as_generation_input(temp_db, authed_us
     assert getattr(exc_info.value, "status_code", None) == 400
 
 
+def test_similar_filename_does_not_cross_generation_ownership_boundary(temp_db, authed_user, tmp_path, monkeypatch):
+    media = tmp_path / "media"
+    media.mkdir()
+    monkeypatch.setattr(main, "MEDIA", media)
+    (media / "foo.png").write_bytes(b"foreign")
+    (media / "xfoo.png").write_bytes(b"owned")
+    now = datetime.now(timezone.utc).isoformat()
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO images (id, user_id, url, thumbnail_url, width, height, mode, provider, created_at) "
+            "VALUES ('owned-collision', ?, '/api/media/xfoo.png', '', 16, 16, 'image_to_image', 'comfyui', ?)",
+            (authed_user["legacy_user_id"], now),
+        )
+        assert main.gallery_image_id_from_media_url(
+            conn, "/api/media/foo.png", authed_user["legacy_user_id"]
+        ) is None
+        assert main.gallery_image_id_from_media_url(
+            conn, "/api/media/xfoo.png", authed_user["legacy_user_id"]
+        ) == "owned-collision"
+
+    request = main.GenerateRequest(mode="image_to_image", prompt="Edit", inputImage1="/api/media/foo.png")
+    with pytest.raises(Exception) as exc_info:
+        main.validate_generation_media_inputs(request, authed_user["legacy_user_id"])
+    assert getattr(exc_info.value, "status_code", None) == 400
+    assert getattr(exc_info.value, "detail", {}).get("code") == "input_media_unavailable"
+
+
 # 6 — trusted session overrides any spoofed header
 def test_trusted_session_overrides_spoofed_header(temp_db, authed_user):
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])

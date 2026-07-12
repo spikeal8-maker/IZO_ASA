@@ -42,6 +42,12 @@ from .source_thumbnails import (
     save_source_thumbnail,
 )
 from .source_inputs import generation_source_inputs, source_role_label
+from .media_references import (
+    exact_media_url_params,
+    find_owned_active_image,
+    owned_active_source_exists,
+    owned_job_media_reference_exists,
+)
 
 __all__ = [
     "StoragePathError",
@@ -74,6 +80,10 @@ __all__ = [
     "save_source_thumbnail",
     "generation_source_inputs",
     "source_role_label",
+    "exact_media_url_params",
+    "find_owned_active_image",
+    "owned_active_source_exists",
+    "owned_job_media_reference_exists",
     "startup_storage_maintenance_allowed",
     "resolve_under_root",
 ]

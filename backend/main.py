@@ -209,6 +209,9 @@ try:
         save_source_thumbnail as storage_save_source_thumbnail,
         generation_source_inputs as storage_generation_source_inputs,
         source_role_label as storage_source_role_label,
+        find_owned_active_image as storage_find_owned_active_image,
+        owned_active_source_exists as storage_owned_active_source_exists,
+        owned_job_media_reference_exists as storage_owned_job_media_reference_exists,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -242,6 +245,9 @@ except ImportError:  # Direct `python backend/main.py` execution.
         save_source_thumbnail as storage_save_source_thumbnail,
         generation_source_inputs as storage_generation_source_inputs,
         source_role_label as storage_source_role_label,
+        find_owned_active_image as storage_find_owned_active_image,
+        owned_active_source_exists as storage_owned_active_source_exists,
+        owned_job_media_reference_exists as storage_owned_job_media_reference_exists,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -2802,15 +2808,12 @@ def gallery_image_id_from_media_url(conn: sqlite3.Connection, url: str | None, l
     filename = media_filename_from_url(url)
     if not filename:
         return None
-    row = conn.execute(
-        f"""
-        SELECT id FROM images
-        WHERE user_id = ? AND {ACTIVE_IMAGE_WHERE}
-          AND (url LIKE ? OR thumbnail_url LIKE ?)
-        LIMIT 1
-        """,
-        (legacy_user_id, f"/api/media/{filename}%", f"/api/media/{filename}%"),
-    ).fetchone()
+    row = storage_find_owned_active_image(
+        conn,
+        filename,
+        legacy_user_id,
+        active_image_where=ACTIVE_IMAGE_WHERE,
+    )
     return row["id"] if row is not None else None
 
 
@@ -4157,28 +4160,22 @@ def validate_generation_media_inputs(req: GenerateRequest, user_id: str) -> None
             path = local_media_path_from_url(value)
             if not path:
                 raise HTTPException(400, {"code": "input_media_missing", "field": field})
-            like = f"%{filename}%"
-            active_image = conn.execute(
-                "SELECT 1 FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') "
-                "AND (url LIKE ? OR thumbnail_url LIKE ?) LIMIT 1",
-                (user_id, like, like),
-            ).fetchone()
+            active_image = storage_find_owned_active_image(
+                conn,
+                filename,
+                user_id,
+                active_image_where=ACTIVE_IMAGE_WHERE,
+            )
             if active_image:
                 continue
-            active_source = conn.execute(
-                "SELECT 1 FROM image_sources s "
-                "JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id "
-                "WHERE s.user_id = ? AND (s.library_deleted_at IS NULL OR s.library_deleted_at = '') "
-                "AND (i.deleted_at IS NULL OR i.deleted_at = '') AND s.thumb_url LIKE ? LIMIT 1",
-                (user_id, like),
-            ).fetchone()
-            if active_source:
+            if storage_owned_active_source_exists(
+                conn,
+                filename,
+                user_id,
+                active_image_where=ACTIVE_IMAGE_WHERE,
+            ):
                 continue
-            job_ref = conn.execute(
-                "SELECT 1 FROM jobs WHERE user_id = ? AND settings_json LIKE ? LIMIT 1",
-                (user_id, like),
-            ).fetchone()
-            if job_ref:
+            if storage_owned_job_media_reference_exists(conn, filename, user_id):
                 continue
             raise HTTPException(400, {"code": "input_media_unavailable", "field": field})
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .paths import StoragePathError
+from .media_references import exact_media_url_params, find_owned_active_image
 
 
 @dataclass(frozen=True)
@@ -32,11 +33,6 @@ def media_url_matches_filename(value: Any, filename: str) -> bool:
     return path in {f"/api/media/{filename}", f"/media/{filename}"}
 
 
-def _query_pattern(prefix: str) -> str:
-    escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"{escaped}?%"
-
-
 def find_gallery_media_owner(
     conn: sqlite3.Connection,
     filename: str,
@@ -45,34 +41,15 @@ def find_gallery_media_owner(
     active_image_where: str,
 ):
     """Return an owner row using an exact path plus optional query string."""
-    canonical = f"/api/media/{filename}"
-    legacy = f"/media/{filename}"
-    image_row = conn.execute(
-        f"""
-        SELECT id, user_id, url, thumbnail_url FROM images
-        WHERE user_id = ? AND {active_image_where}
-          AND (
-            url = ? OR url LIKE ? ESCAPE '\\'
-            OR thumbnail_url = ? OR thumbnail_url LIKE ? ESCAPE '\\'
-            OR url = ? OR url LIKE ? ESCAPE '\\'
-            OR thumbnail_url = ? OR thumbnail_url LIKE ? ESCAPE '\\'
-          )
-        LIMIT 1
-        """,
-        (
-            legacy_user_id,
-            canonical,
-            _query_pattern(canonical),
-            canonical,
-            _query_pattern(canonical),
-            legacy,
-            _query_pattern(legacy),
-            legacy,
-            _query_pattern(legacy),
-        ),
-    ).fetchone()
+    image_row = find_owned_active_image(
+        conn,
+        filename,
+        legacy_user_id,
+        active_image_where=active_image_where,
+    )
     if image_row is not None:
         return image_row
+    canonical, canonical_query, legacy, legacy_query = exact_media_url_params(filename)
     return conn.execute(
         """
         SELECT id, user_id, image_id, thumb_url FROM image_sources
@@ -86,9 +63,9 @@ def find_gallery_media_owner(
         (
             legacy_user_id,
             canonical,
-            _query_pattern(canonical),
+            canonical_query,
             legacy,
-            _query_pattern(legacy),
+            legacy_query,
         ),
     ).fetchone()
 
