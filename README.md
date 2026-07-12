@@ -7,9 +7,10 @@ Prototype web / Telegram Mini App / MAX Mini App interface for `FluxKleinOneNode
 Start here when you or another agent joins the project:
 
 - `docs/public-launch.md` — public/live launch flow with `start-public.bat` (запуск и deploy).
-- `docs/production-hardening-master-plan-20260712.md` — executable optimization plan for
-  the running project: security fixes, safe backend/frontend decomposition, tests and
-  local production hardening.
+- `docs/production-hardening-roadmap-20260713.md` — authoritative current status and
+  execution order for security, decomposition, tests and local production hardening.
+- `docs/production-hardening-master-plan-20260712.md` — historical checkpoint journal
+  and original requirements; it is no longer the current backlog.
 - `docs/main-merge-handoff-20260707.md` — current merge/deploy handoff for `/new`, `/feed`,
   `/gallery`, and the rule that this project folder is the only deploy source.
 - `docs/identity-core-plan.md` — auth architecture (identity core migration plan).
