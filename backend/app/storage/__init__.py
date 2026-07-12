@@ -48,6 +48,11 @@ from .media_references import (
     owned_active_source_exists,
     owned_job_media_reference_exists,
 )
+from .input_validation import (
+    MediaInputValidationError,
+    MediaInputValidationRuntime,
+    validate_owned_media_inputs,
+)
 
 __all__ = [
     "StoragePathError",
@@ -84,6 +89,9 @@ __all__ = [
     "find_owned_active_image",
     "owned_active_source_exists",
     "owned_job_media_reference_exists",
+    "MediaInputValidationError",
+    "MediaInputValidationRuntime",
+    "validate_owned_media_inputs",
     "startup_storage_maintenance_allowed",
     "resolve_under_root",
 ]

@@ -63,6 +63,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/storage/source_thumbnails.py` owns data-URL/local-media decoding, EXIF normalization and bounded WEBP source-thumbnail creation; the legacy persistence/recovery callers keep a thin `_save_source_thumb()` adapter.
 - `backend/app/storage/source_inputs.py` owns deterministic source-role labels and generation source normalization, including edit ordering, mode-specific roles, slot assignment, the eight-input cap and legacy deduplication semantics.
 - `backend/app/storage/media_references.py` owns exact canonical/legacy media-reference matching for active images, active source rows and URL strings inside valid job JSON; filename substrings never establish ownership.
+- `backend/app/storage/input_validation.py` owns owner-scoped generation media validation and typed `missing`/`unavailable` errors; `main.py` only collects request fields and maps typed errors to HTTP 400.
 - `backend/conftest.py` redirects every backend test to a temporary SQLite database, media root and avatar root even when a test forgot its own fixture.
 - Keep it independent of FastAPI, SQLite and provider network calls.
 

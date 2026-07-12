@@ -210,8 +210,9 @@ try:
         generation_source_inputs as storage_generation_source_inputs,
         source_role_label as storage_source_role_label,
         find_owned_active_image as storage_find_owned_active_image,
-        owned_active_source_exists as storage_owned_active_source_exists,
-        owned_job_media_reference_exists as storage_owned_job_media_reference_exists,
+        MediaInputValidationError,
+        MediaInputValidationRuntime,
+        validate_owned_media_inputs as storage_validate_owned_media_inputs,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -246,8 +247,9 @@ except ImportError:  # Direct `python backend/main.py` execution.
         generation_source_inputs as storage_generation_source_inputs,
         source_role_label as storage_source_role_label,
         find_owned_active_image as storage_find_owned_active_image,
-        owned_active_source_exists as storage_owned_active_source_exists,
-        owned_job_media_reference_exists as storage_owned_job_media_reference_exists,
+        MediaInputValidationError,
+        MediaInputValidationRuntime,
+        validate_owned_media_inputs as storage_validate_owned_media_inputs,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -4152,32 +4154,16 @@ def validate_generation_media_inputs(req: GenerateRequest, user_id: str) -> None
         if item.image:
             candidates.append((f"inputImages[{item.index or 0}]", item.image))
 
-    with db() as conn:
-        for field, value in candidates:
-            filename = media_filename_from_url(value)
-            if not filename:
-                continue
-            path = local_media_path_from_url(value)
-            if not path:
-                raise HTTPException(400, {"code": "input_media_missing", "field": field})
-            active_image = storage_find_owned_active_image(
-                conn,
-                filename,
-                user_id,
-                active_image_where=ACTIVE_IMAGE_WHERE,
-            )
-            if active_image:
-                continue
-            if storage_owned_active_source_exists(
-                conn,
-                filename,
-                user_id,
-                active_image_where=ACTIVE_IMAGE_WHERE,
-            ):
-                continue
-            if storage_owned_job_media_reference_exists(conn, filename, user_id):
-                continue
-            raise HTTPException(400, {"code": "input_media_unavailable", "field": field})
+    runtime = MediaInputValidationRuntime(
+        connect=db,
+        filename_from_url=media_filename_from_url,
+        resolve_local_media=local_media_path_from_url,
+        active_image_where=ACTIVE_IMAGE_WHERE,
+    )
+    try:
+        storage_validate_owned_media_inputs(runtime, candidates, user_id)
+    except MediaInputValidationError as exc:
+        raise HTTPException(400, {"code": exc.code, "field": exc.field}) from exc
 
 
 def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
