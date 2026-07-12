@@ -142,7 +142,13 @@
 - scripted restart заменил backend PID 27196 на PID 4604, создал logs `backend_restart_20260712_224519_088.{out,err}.log`, подтвердил единственный listener `127.0.0.1:8000`, health 200 и startup reconciliation checked 127 / available 125 / missing 2 / changed 0;
 - live smoke прошёл 5/5; read-only OpenRouter account status остался configured через `admin_ui`, `/key` 200 и `/credits` 200, реальный prompt при deployment намеренно не создавался;
 - source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
-- все завершённые checkpoint-коммиты до `f578720` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
+- OpenRouter voice transcription переведён на общий `request_openrouter_chat_completion`; из `main.py` удалён второй дублирующий POST/JSON block, но сохранены key gate, audio base64/format/language body, timeout 3–60, public error mapping, text parser и 2000-character limit;
+- characterization package прошёл 5 циклов по 37 тестов: exact audio body/base64/format/language, timeout min/max, trim/limit, no-key bypass, 429 public error, invalid success payload и empty transcription;
+- полный backend+tools checkpoint после OpenRouter voice transport reuse: 750 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 известный hooks warning), TypeScript/Vite production build — успешно; pytest-процессов нет;
+- scripted restart заменил backend PID 4604 на PID 43516, создал logs `backend_restart_20260712_225812_439.{out,err}.log`, подтвердил единственный listener `127.0.0.1:8000`, health 200 и startup reconciliation checked 127 / available 125 / missing 2 / changed 0;
+- live smoke прошёл 5/5; read-only OpenRouter account status остался configured через `admin_ui`, `/key` 200 и `/credits` 200, реальная voice-транскрибация при deployment намеренно не создавалась;
+- source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
+- все завершённые checkpoint-коммиты до `0e4ff60` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
 
 Частично выполнено:
 
@@ -150,7 +156,7 @@
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
 - deploy gate: TypeScript блокирует запуск и безопасный backend-only restart helper создан; единая `tools/verify.ps1` и CI gate ещё не созданы.
 
-Следующий пакет: перевести OpenRouter voice transcription на проверенный `request_openrouter_chat_completion` с characterization tests; API-key gate, audio base64/body/format/language, timeout cap, public errors, text parser, 2000-character limit, generation и billing не менять. Deployment выполняется только через `tools/restart-backend.ps1`.
+Следующий пакет: инвентаризировать и вынести read-only OpenRouter image-capability catalog HTTP/parsing в `app/integrations/openrouter.py` по bounded этапам; cache TTL, capability policy, generation validation/routing, billing и production-настройки не менять. Deployment выполняется только через `tools/restart-backend.ps1`.
 
 Storage-аудит завершён: startup availability теперь стабилен (`changed=0` при неизменном filesystem), автоматическое физическое удаление файлов запрещено, тесты изолированы от production DB/media. Любая будущая очистка файлов выполняется только через manifest/quarantine.
 
@@ -160,7 +166,7 @@ Storage-аудит завершён: startup availability теперь стаб�
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 329 строк | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 332 строки | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |

@@ -5870,11 +5870,14 @@ async def transcribe_audio_openrouter(audio: bytes, audio_format: str, language:
         "max_tokens": 1000,
     }
     timeout = max(3, min(60, int(config.get("requestTimeoutSeconds") or 8)))
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(f"{OPENROUTER_BASE_URL}/chat/completions", headers=openrouter_headers(), json=body)
-    payload = response.json() if response.content else {}
-    if response.status_code >= 400:
-        raise RuntimeError(_openrouter_public_error(response.status_code, payload if isinstance(payload, dict) else {}))
+    status_code, payload = await request_openrouter_chat_completion(
+        base_url=OPENROUTER_BASE_URL,
+        headers=openrouter_headers(),
+        body=body,
+        timeout_seconds=timeout,
+    )
+    if status_code >= 400:
+        raise RuntimeError(_openrouter_public_error(status_code, payload if isinstance(payload, dict) else {}))
     if not isinstance(payload, dict):
         raise RuntimeError("OpenRouter вернул некорректный ответ транскрибации.")
     text = _openrouter_text_content(payload).strip()

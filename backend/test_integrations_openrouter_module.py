@@ -492,3 +492,131 @@ def test_prompt_improvement_preserves_invalid_success_payload_error(monkeypatch)
             main.ImprovePromptRequest(prompt="test"),
             main.DEFAULT_ASSISTANT_MODELS_CONFIG["improve"],
         ))
+
+
+def test_voice_transcription_keeps_openrouter_audio_body_timeout_and_limit(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_chat(**kwargs):
+        captured.update(kwargs)
+        return 200, {"choices": [{"message": {"content": f"  {'x' * 2105}  "}}]}
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "configured-secret")
+    monkeypatch.setattr(main, "openrouter_headers", lambda: {"Authorization": "not-returned"})
+    monkeypatch.setattr(main, "request_openrouter_chat_completion", fake_chat)
+    config = {"apiModel": "google/gemini-3.1-flash-lite", "requestTimeoutSeconds": 999}
+
+    text, payload = asyncio.run(main.transcribe_audio_openrouter(
+        b"audio-bytes",
+        "webm",
+        "русском",
+        config,
+    ))
+
+    assert text == "x" * 2000
+    assert payload == {"choices": [{"message": {"content": f"  {'x' * 2105}  "}}]}
+    assert captured["base_url"] == main.OPENROUTER_BASE_URL
+    assert captured["headers"] == {"Authorization": "not-returned"}
+    assert captured["timeout_seconds"] == 60
+    assert captured["body"] == {
+        "model": "google/gemini-3.1-flash-lite",
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Точно расшифруй речь на языке русском. Верни только произнесённый текст без пояснений и кавычек.",
+                },
+                {
+                    "type": "input_audio",
+                    "input_audio": {"data": "YXVkaW8tYnl0ZXM=", "format": "webm"},
+                },
+            ],
+        }],
+        "temperature": 0,
+        "max_tokens": 1000,
+    }
+
+
+def test_voice_transcription_preserves_minimum_timeout_and_trim(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_chat(**kwargs):
+        captured.update(kwargs)
+        return 200, {"choices": [{"message": {"content": "  распознанный API текст  "}}]}
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "configured-secret")
+    monkeypatch.setattr(main, "openrouter_headers", lambda: {})
+    monkeypatch.setattr(main, "request_openrouter_chat_completion", fake_chat)
+
+    text, _payload = asyncio.run(main.transcribe_audio_openrouter(
+        b"wav",
+        "wav",
+        "английском",
+        {"apiModel": "test/audio", "requestTimeoutSeconds": 1},
+    ))
+
+    assert text == "распознанный API текст"
+    assert captured["timeout_seconds"] == 3
+
+
+def test_voice_transcription_without_key_skips_transport(monkeypatch):
+    async def unexpected_chat(**_kwargs):
+        raise AssertionError("OpenRouter HTTP must not run without a key")
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "")
+    monkeypatch.setattr(main, "request_openrouter_chat_completion", unexpected_chat)
+
+    with pytest.raises(RuntimeError, match=r"^OpenRouter API-ключ не настроен\.$"):
+        asyncio.run(main.transcribe_audio_openrouter(b"audio", "webm", "русском"))
+
+
+def test_voice_transcription_preserves_public_provider_error(monkeypatch):
+    async def failed_chat(**_kwargs):
+        return 429, {"error": {"message": "rate limited"}}
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "configured-secret")
+    monkeypatch.setattr(main, "openrouter_headers", lambda: {})
+    monkeypatch.setattr(main, "request_openrouter_chat_completion", failed_chat)
+
+    with pytest.raises(RuntimeError, match="^OpenRouter временно ограничил запросы"):
+        asyncio.run(main.transcribe_audio_openrouter(
+            b"audio",
+            "webm",
+            "русском",
+            main.DEFAULT_ASSISTANT_MODELS_CONFIG["voice"],
+        ))
+
+
+def test_voice_transcription_preserves_invalid_success_payload_error(monkeypatch):
+    async def invalid_chat(**_kwargs):
+        return 200, ["not", "a", "dict"]
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "configured-secret")
+    monkeypatch.setattr(main, "openrouter_headers", lambda: {})
+    monkeypatch.setattr(main, "request_openrouter_chat_completion", invalid_chat)
+
+    with pytest.raises(RuntimeError, match=r"^OpenRouter вернул некорректный ответ транскрибации\.$"):
+        asyncio.run(main.transcribe_audio_openrouter(
+            b"audio",
+            "webm",
+            "русском",
+            main.DEFAULT_ASSISTANT_MODELS_CONFIG["voice"],
+        ))
+
+
+def test_voice_transcription_preserves_empty_text_error(monkeypatch):
+    async def empty_chat(**_kwargs):
+        return 200, {"choices": [{"message": {"content": "   "}}]}
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "configured-secret")
+    monkeypatch.setattr(main, "openrouter_headers", lambda: {})
+    monkeypatch.setattr(main, "request_openrouter_chat_completion", empty_chat)
+
+    with pytest.raises(RuntimeError, match=r"^Модель не распознала речь\.$"):
+        asyncio.run(main.transcribe_audio_openrouter(
+            b"audio",
+            "webm",
+            "русском",
+            main.DEFAULT_ASSISTANT_MODELS_CONFIG["voice"],
+        ))
