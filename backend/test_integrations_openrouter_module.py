@@ -9,7 +9,11 @@ import httpx
 import pytest
 
 import main
-from app.integrations.openrouter import fetch_openrouter_text_models, parse_openrouter_text_models
+from app.integrations.openrouter import (
+    fetch_openrouter_key_details,
+    fetch_openrouter_text_models,
+    parse_openrouter_text_models,
+)
 
 
 TEXT_ARCHITECTURE = {"input_modalities": ["text"], "output_modalities": ["text"]}
@@ -175,3 +179,163 @@ def test_main_text_model_wrapper_uses_fresh_cache_without_http(monkeypatch):
     monkeypatch.setattr(main, "_openrouter_text_model_cache", {"ts": 999.0, "models": expected})
 
     assert asyncio.run(main.openrouter_text_models()) == expected
+
+
+def test_key_details_preserve_paths_headers_data_and_balance():
+    seen: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.endswith("/key"):
+            return httpx.Response(200, json={"data": {"limit": 10, "usage": 2}})
+        return httpx.Response(200, json={"data": {"total_credits": 10.125, "total_usage": 2.1}})
+
+    result = asyncio.run(fetch_openrouter_key_details(
+        base_url="https://openrouter.test/api/v1/",
+        key_headers={"Authorization": "Bearer key-request"},
+        credits_headers={"Authorization": "Bearer credits-request"},
+        timeout_seconds=15,
+        transport=httpx.MockTransport(handler),
+    ))
+
+    assert result == {
+        "ok": True,
+        "status_code": 200,
+        "data": {"limit": 10, "usage": 2},
+        "credits": {
+            "ok": True,
+            "status_code": 200,
+            "data": {"total_credits": 10.125, "total_usage": 2.1},
+            "balance": 8.025,
+        },
+    }
+    assert [request.url.path for request in seen] == ["/api/v1/key", "/api/v1/credits"]
+    assert seen[0].headers["Authorization"] == "Bearer key-request"
+    assert seen[1].headers["Authorization"] == "Bearer credits-request"
+
+
+def test_key_details_preserve_key_error_after_both_requests():
+    seen: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path.endswith("/key"):
+            return httpx.Response(401, json={"error": {"message": "invalid key"}})
+        return httpx.Response(200, json={"data": {"total_credits": 100, "total_usage": 1}})
+
+    result = asyncio.run(fetch_openrouter_key_details(
+        base_url="https://openrouter.test/api/v1",
+        key_headers={},
+        credits_headers={},
+        transport=httpx.MockTransport(handler),
+    ))
+
+    assert seen == ["/api/v1/key", "/api/v1/credits"]
+    assert result == {
+        "ok": False,
+        "status_code": 401,
+        "error": {"message": "invalid key"},
+    }
+
+
+def test_key_details_preserve_nested_credits_error():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/key"):
+            return httpx.Response(200, json={"data": {"limit": 10}})
+        return httpx.Response(503, json={"error": "credits unavailable"})
+
+    result = asyncio.run(fetch_openrouter_key_details(
+        base_url="https://openrouter.test/api/v1",
+        key_headers={},
+        credits_headers={},
+        transport=httpx.MockTransport(handler),
+    ))
+
+    assert result["ok"] is True
+    assert result["credits"] == {
+        "ok": False,
+        "status_code": 503,
+        "error": "credits unavailable",
+    }
+
+
+def test_key_details_preserve_invalid_json_exception():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/key"):
+            return httpx.Response(200, content=b"not-json")
+        return httpx.Response(200, json={})
+
+    with pytest.raises(json.JSONDecodeError):
+        asyncio.run(fetch_openrouter_key_details(
+            base_url="https://openrouter.test/api/v1",
+            key_headers={},
+            credits_headers={},
+            transport=httpx.MockTransport(handler),
+        ))
+
+
+def test_main_key_status_without_key_skips_integration(monkeypatch):
+    async def unexpected_fetch(**_kwargs):
+        raise AssertionError("OpenRouter HTTP must not run without a key")
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "")
+    monkeypatch.setattr(main, "fetch_openrouter_key_details", unexpected_fetch)
+
+    assert asyncio.run(main.fetch_openrouter_key_status()) == {
+        "configured": False,
+        "ok": False,
+        "error": "OPENROUTER_API_KEY не задан",
+    }
+
+
+def test_main_key_status_preserves_header_calls_source_and_shape(monkeypatch):
+    captured: dict[str, object] = {}
+    header_calls = 0
+
+    def fake_headers():
+        nonlocal header_calls
+        header_calls += 1
+        return {"X-Request": str(header_calls)}
+
+    async def fake_fetch(**kwargs):
+        captured.update(kwargs)
+        return {"ok": True, "status_code": 200, "data": {"limit": 10}, "credits": {"ok": True}}
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "configured-secret")
+    monkeypatch.setattr(main, "openrouter_api_key_source", lambda: "admin_ui")
+    monkeypatch.setattr(main, "openrouter_headers", fake_headers)
+    monkeypatch.setattr(main, "fetch_openrouter_key_details", fake_fetch)
+
+    result = asyncio.run(main.fetch_openrouter_key_status())
+
+    assert result == {
+        "configured": True,
+        "source": "admin_ui",
+        "ok": True,
+        "status_code": 200,
+        "data": {"limit": 10},
+        "credits": {"ok": True},
+    }
+    assert captured == {
+        "base_url": main.OPENROUTER_BASE_URL,
+        "key_headers": {"X-Request": "1"},
+        "credits_headers": {"X-Request": "2"},
+        "timeout_seconds": 15,
+    }
+
+
+def test_main_key_status_preserves_safe_exception_wrapper(monkeypatch):
+    async def failed_fetch(**_kwargs):
+        raise httpx.ConnectError("provider unavailable")
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "configured-secret")
+    monkeypatch.setattr(main, "openrouter_api_key_source", lambda: "env")
+    monkeypatch.setattr(main, "openrouter_headers", lambda: {"Authorization": "not-returned"})
+    monkeypatch.setattr(main, "fetch_openrouter_key_details", failed_fetch)
+
+    assert asyncio.run(main.fetch_openrouter_key_status()) == {
+        "configured": True,
+        "source": "env",
+        "ok": False,
+        "error": "provider unavailable",
+    }

@@ -60,3 +60,50 @@ async def fetch_openrouter_text_models(
     response.raise_for_status()
     payload = response.json() if response.content else {}
     return parse_openrouter_text_models(payload)
+
+
+async def fetch_openrouter_key_details(
+    *,
+    base_url: str,
+    key_headers: dict[str, str],
+    credits_headers: dict[str, str],
+    timeout_seconds: float = 15,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict[str, Any]:
+    """Fetch the legacy read-only key and credits status payload."""
+
+    client_options: dict[str, Any] = {"timeout": timeout_seconds}
+    if transport is not None:
+        client_options["transport"] = transport
+    resolved_base_url = base_url.rstrip("/")
+    async with httpx.AsyncClient(**client_options) as client:
+        response = await client.get(f"{resolved_base_url}/key", headers=key_headers)
+        credits_response = await client.get(f"{resolved_base_url}/credits", headers=credits_headers)
+    data = response.json() if response.content else {}
+    if response.status_code >= 400:
+        return {
+            "ok": False,
+            "status_code": response.status_code,
+            "error": data.get("error") or data,
+        }
+    key_data = data.get("data") if isinstance(data.get("data"), dict) else data
+    credits_payload = credits_response.json() if credits_response.content else {}
+    credits_data = credits_payload.get("data") if isinstance(credits_payload.get("data"), dict) else credits_payload
+    credits: dict[str, Any] = {
+        "ok": credits_response.status_code < 400,
+        "status_code": credits_response.status_code,
+    }
+    if credits["ok"] and isinstance(credits_data, dict):
+        total_credits = credits_data.get("total_credits")
+        total_usage = credits_data.get("total_usage")
+        credits.update({"data": credits_data})
+        if isinstance(total_credits, (int, float)) and isinstance(total_usage, (int, float)):
+            credits["balance"] = round(float(total_credits) - float(total_usage), 6)
+    else:
+        credits["error"] = credits_payload.get("error") if isinstance(credits_payload, dict) else credits_payload
+    return {
+        "ok": True,
+        "status_code": response.status_code,
+        "data": key_data,
+        "credits": credits,
+    }
