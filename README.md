@@ -88,9 +88,9 @@ Invoke-RestMethod http://127.0.0.1:8000/api/models
 
 ## Bots: domain and token modes
 
-The bot layer supports three modes:
+The bot update layer supports three modes:
 
-- `BOT_MODE=local`: no bot tokens and no public domain required. Use `/api/bots/local-command` to test Telegram/MAX commands locally.
+- `BOT_MODE=disabled`: no background polling/webhook updates. `/api/bots/local-command` remains available for local adapter tests.
 - `BOT_MODE=polling`: bot token required, public domain not required. Telegram can poll via `/api/telegram/poll-once`.
 - `BOT_MODE=webhook`: bot token and public HTTPS URL required. Use `BACKEND_PUBLIC_URL` and `APP_PUBLIC_URL`.
 
@@ -98,6 +98,10 @@ Environment variables for real bots:
 
 ```powershell
 TELEGRAM_BOT_TOKEN=...
+# Required only when BOT_MODE/BOT_UPDATES_MODE is webhook.
+TELEGRAM_WEBHOOK_SECRET=...
+TELEGRAM_WEBHOOK_MAX_BODY_BYTES=262144
+TELEGRAM_WEBHOOK_REPLAY_CACHE_SIZE=4096
 MAX_BOT_TOKEN=...
 MAX_API_BASE_URL=https://platform-api.max.ru
 MAX_WEBHOOK_SECRET=...
@@ -106,6 +110,22 @@ BACKEND_PUBLIC_URL=https://your-domain
 ```
 
 Do not commit real bot tokens to the repository. Set them in the process environment or a local `.env` that is excluded from version control.
+
+Telegram polling does not need `TELEGRAM_WEBHOOK_SECRET`, and the public webhook
+receiver is disabled in polling mode. Before switching Telegram to webhook mode,
+generate a 32-byte URL-safe secret and place it only in the local `.env`/service
+environment. Startup then requires that secret, passes it to Telegram as
+`secret_token`, validates `X-Telegram-Bot-Api-Secret-Token` in constant time,
+limits request bodies to 256 KiB by default, and suppresses repeated `update_id`
+values in a bounded single-process cache.
+
+```powershell
+$bytes = New-Object byte[] 32
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes)
+$rng.Dispose()
+([Convert]::ToBase64String($bytes)).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+```
 
 Useful local checks:
 
@@ -121,7 +141,8 @@ Invoke-RestMethod http://127.0.0.1:8000/api/telegram/poll-once -Method Post
 Invoke-RestMethod http://127.0.0.1:8000/api/max/poll-once -Method Post
 ```
 
-Webhook setup requires `BACKEND_PUBLIC_URL` with HTTPS:
+Webhook setup requires `BACKEND_PUBLIC_URL` with HTTPS, the corresponding webhook
+secret, and a trusted admin session. Do not run it while Telegram stays in polling:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/api/telegram/set-webhook -Method Post

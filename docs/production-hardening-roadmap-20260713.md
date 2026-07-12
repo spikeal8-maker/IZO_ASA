@@ -39,10 +39,10 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний runtime checkpoint | `B1` — OpenRouter aliases/request metadata extraction; точный hash в Git history |
+| Последний runtime checkpoint | `A3` — Telegram webhook secret/body/replay enforcement; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 899 passed, 0 failed, 0 deselected |
+| Последний полный test checkpoint | 913 passed, 0 failed, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 151 | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 201 | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -91,7 +91,7 @@
 |---|---|---|
 | SEC-01 | `ГОТОВО` | Общий static mount private media удалён; private source требует trusted session + ownership |
 | SEC-02 | `ГОТОВО` | Telegram/MAX operational management endpoints требуют trusted admin |
-| SEC-03 | `НЕ НАЧАТО` | Telegram webhook receiver не проверяет обязательный platform secret header |
+| SEC-03 | `ГОТОВО` | Webhook mode требует `TELEGRAM_WEBHOOK_SECRET`; официальный header проверяется constant-time, body ограничен, integer `update_id` защищён bounded replay guard |
 | SEC-04 | `НЕ НАЧАТО` | MAX webhook проверяет secret только если `MAX_WEBHOOK_SECRET` непустой; production-required validation отсутствует |
 | SEC-05 | `НЕ НАЧАТО` | OpenRouter key из admin UI всё ещё хранится plaintext в SQLite `admin_secrets` |
 | SEC-06 | `ЧАСТИЧНО` | Trusted Identity Core используется для protected routes, но legacy `X-OneNode-User` helpers и JS-readable `onenode_user` cookie остаются в коде |
@@ -174,7 +174,7 @@
 |---|---|---|
 | A1 | P0 | `ГОТОВО` — единый read-only `tools/verify.ps1`: compile, focused/full backend, lint/build, map check, process/source checks; никаких restart/mutation |
 | A2 | P0 | GitHub Actions CI вызывает те же deterministic checks без production/real-provider tests |
-| A3 | P0 | Telegram webhook secret: required-in-webhook-mode validation, constant-time header check, negative/replay/body-limit tests |
+| A3 | P0 | `ГОТОВО` — Telegram webhook secret required-in-webhook-mode validation, constant-time header check, negative/replay/body-limit tests |
 | A4 | P0 | MAX secret: запрещён пустой secret в webhook production mode, constant-time comparison, negative tests |
 | A5 | P0 | OpenRouter secret migration: DPAPI store вне repository, admin UI configured/source only, plaintext SQLite migration/delete, затем ручная rotation инструкция |
 | A6 | P0 | Backup tooling: SQLite Backup API, media manifest/incremental copy, second-disk destination через внешнюю config, `quick_check`, checksum и restore rehearsal |
@@ -248,8 +248,8 @@
 
 1. `A1` — `ГОТОВО`: единая `tools/verify.ps1`.
 2. `B1` — `ГОТОВО`: OpenRouter aliases/request metadata extraction.
-3. `A3` — **СЛЕДУЮЩИЙ ПАКЕТ**: Telegram webhook secret enforcement.
-4. `A4` — MAX webhook secret enforcement.
+3. `A3` — `ГОТОВО`: Telegram webhook secret/body/replay enforcement.
+4. `A4` — **СЛЕДУЮЩИЙ ПАКЕТ**: MAX webhook secret enforcement.
 5. `A5` — OpenRouter DPAPI secret store и удаление plaintext SQLite secret.
 6. `A6` — backup/restore tooling без автоматического schedule на первом PR.
 7. `A2` — GitHub Actions CI поверх стабильной verify command.
@@ -303,6 +303,30 @@
 - controlled backend restart: PID 51140 → PID 54256, один listener `127.0.0.1:8000`, startup `changed=0`;
 - live smoke 5/5: health/database/models/tariffs/feed HTTP 200, private source без trusted session HTTP 401;
 - реальная платная OpenRouter generation не запускалась; VPS и tunnel не изменялись.
+
+### Checkpoint A3 — защита Telegram webhook
+
+Реализовано 2026-07-13:
+
+- в Telegram webhook mode `TELEGRAM_WEBHOOK_SECRET` обязателен и проверяется fail-fast до DB preflight;
+- допустимый secret соответствует Telegram `secret_token`: 1–256 символов `A-Z`, `a-z`, `0-9`, `_`, `-`;
+- startup и admin set-webhook передают `secret_token`, но secret не логируется и не возвращается API;
+- receiver сверяет `X-Telegram-Bot-Api-Secret-Token` через `hmac.compare_digest`;
+- polling mode закрывает public webhook receiver HTTP 404 и не требует нового secret;
+- `Content-Length` и фактический body ограничены 256 KiB по умолчанию, malformed/non-object JSON отклоняется;
+- повторный integer `update_id` подтверждается без повторного handler call; cache ограничен 4096 entries по умолчанию и остаётся single-process до будущего queue/multi-worker проекта.
+
+Доказательства:
+
+- characterization test до реализации ожидаемо упал на отсутствии `app.security.webhooks`;
+- новый security module + полный `test_api.py`: `61 passed`;
+- focused security/webhook suite: `20 passed` пять последовательных прогонов;
+- финальный `Full`: `913 passed, 72 warnings`, frontend lint `0 errors / 1 existing warning`, frontend build успешно;
+- `py_compile` и generated map check успешны: 113 Python-файлов, 608 symbols, 165 routes;
+- source snapshot до/после: 122 файла, 1 706 364 байта, SHA-256 `AC1A00934150E28C74BC1C4F319AFF24C84324FF8842AE8EEACD44D34A977850`, без изменений;
+- controlled backend restart: PID 54256 → PID 55072, один listener `127.0.0.1:8000`, startup `changed=0`;
+- live smoke 5/5: health/database/models/feed HTTP 200, Telegram mode `polling`, Telegram token configured, webhook HTTP 404, private source HTTP 401;
+- production `.env` не менялся: текущему polling secret не нужен; Telegram API registration, VPS и tunnel не изменялись.
 
 ## 9. Обязательный gate каждого пакета
 

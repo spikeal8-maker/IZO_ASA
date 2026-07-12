@@ -170,6 +170,9 @@ try:
         PermissionRuntime,
         SessionAccessError,
         SessionRuntime,
+        WebhookPayloadError,
+        WebhookReplayGuard,
+        build_telegram_set_webhook_payload,
         create_session as security_create_session,
         cleanup_expired_otp_challenges as security_cleanup_expired_otp_challenges,
         enforce_email_otp_rate_limits as security_enforce_email_otp_rate_limits,
@@ -180,6 +183,7 @@ try:
         hash_token as security_hash_token,
         hash_otp as security_hash_otp,
         password_hash_needs_rehash as security_password_hash_needs_rehash,
+        parse_webhook_json_object,
         refresh_session as security_refresh_session,
         record_login_attempt as security_record_login_attempt,
         record_product_event as security_record_product_event,
@@ -193,7 +197,9 @@ try:
         validate_email_otp_config as security_validate_email_otp_config,
         validate_password_policy as security_validate_password_policy,
         validate_session_crypto_config as security_validate_session_crypto_config,
+        validate_telegram_webhook_secret,
         verify_password as security_verify_password,
+        webhook_secret_matches,
         user_is_admin as security_user_is_admin,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
@@ -211,6 +217,9 @@ except ImportError:  # Direct `python backend/main.py` execution.
         PermissionRuntime,
         SessionAccessError,
         SessionRuntime,
+        WebhookPayloadError,
+        WebhookReplayGuard,
+        build_telegram_set_webhook_payload,
         create_session as security_create_session,
         cleanup_expired_otp_challenges as security_cleanup_expired_otp_challenges,
         enforce_email_otp_rate_limits as security_enforce_email_otp_rate_limits,
@@ -221,6 +230,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         hash_token as security_hash_token,
         hash_otp as security_hash_otp,
         password_hash_needs_rehash as security_password_hash_needs_rehash,
+        parse_webhook_json_object,
         refresh_session as security_refresh_session,
         record_login_attempt as security_record_login_attempt,
         record_product_event as security_record_product_event,
@@ -234,7 +244,9 @@ except ImportError:  # Direct `python backend/main.py` execution.
         validate_email_otp_config as security_validate_email_otp_config,
         validate_password_policy as security_validate_password_policy,
         validate_session_crypto_config as security_validate_session_crypto_config,
+        validate_telegram_webhook_secret,
         verify_password as security_verify_password,
+        webhook_secret_matches,
         user_is_admin as security_user_is_admin,
     )
 
@@ -387,6 +399,10 @@ BOT_MODE = BOT_UPDATES_MODE
 TELEGRAM_POLLING_ENABLED = env_bool("TELEGRAM_POLLING_ENABLED", True)
 MAX_POLLING_ENABLED = env_bool("MAX_POLLING_ENABLED", True)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
+TELEGRAM_WEBHOOK_MAX_BODY_BYTES = max(1024, min(1024 * 1024, int(os.getenv("TELEGRAM_WEBHOOK_MAX_BODY_BYTES", str(256 * 1024)))))
+TELEGRAM_WEBHOOK_REPLAY_CACHE_SIZE = max(128, min(100_000, int(os.getenv("TELEGRAM_WEBHOOK_REPLAY_CACHE_SIZE", "4096"))))
+_telegram_webhook_replay_guard = WebhookReplayGuard(TELEGRAM_WEBHOOK_REPLAY_CACHE_SIZE)
 TELEGRAM_INIT_DATA_TTL_SECONDS = int(os.getenv("TELEGRAM_INIT_DATA_TTL_SECONDS", str(60 * 60 * 24)))
 MAX_BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
 MAX_WEB_APP_DATA_TTL_SECONDS = int(os.getenv("MAX_WEB_APP_DATA_TTL_SECONDS", str(60 * 60 * 24)))
@@ -4598,7 +4614,8 @@ def bot_status_payload() -> dict[str, Any]:
         "telegram": {
             "local": True,
             "pollingReady": bool(TELEGRAM_BOT_TOKEN),
-            "webhookReady": bool(TELEGRAM_BOT_TOKEN and backend_public.startswith("https://")),
+            "webhookReady": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET and backend_public.startswith("https://")),
+            "webhookSecretConfigured": bool(TELEGRAM_WEBHOOK_SECRET),
             "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
         },
         "max": {
@@ -7123,6 +7140,7 @@ async def worker() -> None:
 @app.on_event("startup")
 async def startup() -> None:
     global worker_started, bot_polling_started
+    validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
     db_guard_preflight()
     validate_session_crypto_config()
     init_db()
@@ -7164,7 +7182,10 @@ async def startup() -> None:
         if TELEGRAM_BOT_TOKEN and backend_public.startswith("https://"):
             try:
                 wh_url = f"{backend_public}/api/telegram/webhook"
-                await telegram_api("setWebhook", {"url": wh_url})
+                await telegram_api(
+                    "setWebhook",
+                    build_telegram_set_webhook_payload(backend_public, TELEGRAM_WEBHOOK_SECRET),
+                )
                 print(f"Telegram webhook set to {wh_url}")
             except Exception as exc:
                 print(f"Failed to set Telegram webhook: {exc}")
@@ -12076,7 +12097,14 @@ async def telegram_set_webhook(request: Request) -> dict[str, Any]:
     public_url = os.getenv("BACKEND_PUBLIC_URL", "")
     if not public_url.startswith("https://"):
         raise HTTPException(400, "BACKEND_PUBLIC_URL must be an HTTPS URL for Telegram webhook mode.")
-    return await telegram_api("setWebhook", {"url": f"{public_url.rstrip('/')}/api/telegram/webhook"})
+    try:
+        validate_telegram_webhook_secret("webhook", TELEGRAM_WEBHOOK_SECRET)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return await telegram_api(
+        "setWebhook",
+        build_telegram_set_webhook_payload(public_url, TELEGRAM_WEBHOOK_SECRET),
+    )
 
 
 @app.post("/api/telegram/configure-bot")
@@ -13948,7 +13976,29 @@ async def admin_limits(req: AdminLimitRequest, request: Request) -> dict[str, An
 
 
 @app.post("/api/telegram/webhook")
-async def telegram_webhook(payload: dict[str, Any]) -> dict[str, Any]:
+async def telegram_webhook(request: Request) -> dict[str, Any]:
+    if BOT_UPDATES_MODE != "webhook":
+        raise HTTPException(404, "Telegram webhook receiver is disabled.")
+    try:
+        validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
+    except RuntimeError as exc:
+        raise HTTPException(503, "Telegram webhook is not configured.") from exc
+    provided_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    if not webhook_secret_matches(TELEGRAM_WEBHOOK_SECRET, provided_secret):
+        raise HTTPException(403, "Invalid Telegram webhook secret.")
+    content_length = request.headers.get("Content-Length")
+    if content_length:
+        try:
+            if int(content_length) > TELEGRAM_WEBHOOK_MAX_BODY_BYTES:
+                raise HTTPException(413, "Telegram webhook body is too large.")
+        except ValueError:
+            pass
+    try:
+        payload = parse_webhook_json_object(await request.body(), TELEGRAM_WEBHOOK_MAX_BODY_BYTES)
+    except WebhookPayloadError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+    if not _telegram_webhook_replay_guard.claim(payload.get("update_id")):
+        return {"ok": True, "duplicate": True}
     try:
         await handle_telegram_update(payload, send_replies=True)
     except Exception as exc:

@@ -85,6 +85,7 @@ def isolated_db(tmp_path, monkeypatch):
     # Never inherit real provider credentials or update modes from backend/.env.
     # Provider tests opt in with explicit fake tokens and mocked HTTP clients.
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "")
+    monkeypatch.setattr(main, "TELEGRAM_WEBHOOK_SECRET", "")
     monkeypatch.setattr(main, "MAX_BOT_TOKEN", "")
     monkeypatch.setattr(main, "BOT_UPDATES_MODE", "disabled")
     monkeypatch.setattr(main, "BOT_MODE", "disabled")
@@ -96,6 +97,7 @@ def isolated_db(tmp_path, monkeypatch):
     main.worker_started = False
     main.bot_polling_started = False
     main.bot_polling_tasks.clear()
+    main._telegram_webhook_replay_guard.clear()
 
     iuid = "iuid-api-test"
     legacy = "web_apitest"
@@ -308,6 +310,9 @@ def test_validation_and_not_found_errors() -> None:
 
 def test_translate_presets_webhooks_and_admin(monkeypatch) -> None:
     monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    monkeypatch.setattr(main, "BOT_UPDATES_MODE", "webhook")
+    monkeypatch.setattr(main, "BOT_MODE", "webhook")
+    monkeypatch.setattr(main, "TELEGRAM_WEBHOOK_SECRET", "api_test-secret")
     with authed_client() as client:
         ru_to_en = client.post("/api/translate", json={"text": "уютная студия", "target": "en"}).json()
         en_to_ru = client.post("/api/translate", json={"text": "cozy studio", "target": "ru"}).json()
@@ -316,7 +321,11 @@ def test_translate_presets_webhooks_and_admin(monkeypatch) -> None:
         # object) and only acknowledge with {"ok": True}; replies are pushed via
         # the bot APIs, not returned inline. Omit chat/sender so no outbound send
         # is attempted. Button payloads are covered by the bot-adapter tests.
-        telegram = client.post("/api/telegram/webhook", json={"message": {"text": "/start"}}).json()
+        telegram = client.post(
+            "/api/telegram/webhook",
+            json={"message": {"text": "/start"}},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "api_test-secret"},
+        ).json()
         max_hook = client.post("/api/max/webhook", json={"message": {"text": "/app"}}).json()
         client.post(
             "/api/generate",
@@ -666,9 +675,16 @@ def test_bot_webhook_endpoints_still_handle_commands(monkeypatch) -> None:
 
     monkeypatch.setattr(main, "telegram_api", fake_telegram_api)
     monkeypatch.setattr(main, "max_api", fake_max_api)
+    monkeypatch.setattr(main, "BOT_UPDATES_MODE", "webhook")
+    monkeypatch.setattr(main, "BOT_MODE", "webhook")
+    monkeypatch.setattr(main, "TELEGRAM_WEBHOOK_SECRET", "api_test-secret")
 
     client = TestClient(main.app)
-    tg = client.post("/api/telegram/webhook", json={"update_id": 1, "message": {"text": "/app", "chat": {"id": 777}}})
+    tg = client.post(
+        "/api/telegram/webhook",
+        json={"update_id": 1, "message": {"text": "/app", "chat": {"id": 777}}},
+        headers={"X-Telegram-Bot-Api-Secret-Token": "api_test-secret"},
+    )
     mx = client.post("/api/max/webhook", json={"message": {"body": {"text": "/app"}, "sender": {"user_id": "u1"}}})
 
     assert tg.status_code == 200

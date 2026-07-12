@@ -5,7 +5,8 @@
 - Stage 1 shell: Web/Telegram/MAX bootstrap endpoints, platform readiness endpoint, SQLite database presence.
 - Database persistence: jobs and images are written to SQLite and survive outside in-memory state.
 - Bot commands: Telegram/MAX webhook handlers return Mini App buttons for `/start`, `/app`, `/help`, `/gallery`, `/settings`.
-- Bot modes: local mode works without tokens/domain; Telegram send/polling endpoints require `TELEGRAM_BOT_TOKEN`; webhook mode reports HTTPS readiness.
+- Bot modes: disabled mode keeps local adapter tests without background updates; Telegram send/polling endpoints require `TELEGRAM_BOT_TOKEN`; polling disables the public Telegram webhook receiver.
+- Telegram webhook security: webhook mode requires a valid `TELEGRAM_WEBHOOK_SECRET`, registration sends `secret_token`, the official header is compared in constant time, oversized/malformed bodies are rejected, and repeated integer `update_id` values are acknowledged without reprocessing.
 - Health: API responds and reports ComfyUI/FluxKleinOneNode availability fields.
 - Generation modes: `text_to_image`, `image_to_image`, `edit`, `paint`, `inpaint`, `outpaint`, `faceswap`.
 - Providers: ComfyUI path calls the ComfyUI adapter, OpenRouter path does not.
@@ -61,9 +62,9 @@ The experimental `/new` page must be checked separately from the current `/` UI.
 ## Current Automated Commands
 
 ```powershell
-cd backend
-python -m pytest -q
-python -m py_compile main.py
+.\tools\verify.ps1 -Mode Quick
+.\tools\verify.ps1 -Mode Full
+.\tools\verify.ps1 -Mode CI
 ```
 
 ```powershell

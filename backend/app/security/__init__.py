@@ -50,6 +50,14 @@ from .otp import (
     send_email_otp,
     validate_email_otp_config,
 )
+from .webhooks import (
+    WebhookPayloadError,
+    WebhookReplayGuard,
+    build_telegram_set_webhook_payload,
+    parse_webhook_json_object,
+    validate_telegram_webhook_secret,
+    webhook_secret_matches,
+)
 
 __all__ = [
     "DUMMY_PASSWORD_HASH",
@@ -65,6 +73,9 @@ __all__ = [
     "PermissionRuntime",
     "SessionAccessError",
     "SessionRuntime",
+    "WebhookPayloadError",
+    "WebhookReplayGuard",
+    "build_telegram_set_webhook_payload",
     "create_session",
     "cleanup_expired_otp_challenges",
     "enforce_email_otp_rate_limits",
@@ -75,6 +86,7 @@ __all__ = [
     "hash_token",
     "hash_otp",
     "password_hash_needs_rehash",
+    "parse_webhook_json_object",
     "refresh_session",
     "record_login_attempt",
     "record_product_event",
@@ -88,6 +100,8 @@ __all__ = [
     "validate_email_otp_config",
     "validate_password_policy",
     "validate_session_crypto_config",
+    "validate_telegram_webhook_secret",
     "verify_password",
+    "webhook_secret_matches",
     "user_is_admin",
 ]
