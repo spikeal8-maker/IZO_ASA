@@ -13,6 +13,7 @@ from app.integrations.openrouter import (
     fetch_openrouter_key_details,
     fetch_openrouter_text_models,
     parse_openrouter_text_models,
+    request_openrouter_chat_completion,
 )
 
 
@@ -339,3 +340,155 @@ def test_main_key_status_preserves_safe_exception_wrapper(monkeypatch):
         "ok": False,
         "error": "provider unavailable",
     }
+
+
+def test_chat_completion_transport_preserves_path_headers_body_status_and_payload():
+    body = {"model": "deepseek/test", "messages": [{"role": "user", "content": "test"}]}
+    seen: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(202, json={"id": "response-1", "choices": []})
+
+    status_code, payload = asyncio.run(request_openrouter_chat_completion(
+        base_url="https://openrouter.test/api/v1/",
+        headers={"Authorization": "Bearer test", "X-Title": "IZO ASA"},
+        body=body,
+        timeout_seconds=17,
+        transport=httpx.MockTransport(handler),
+    ))
+
+    assert status_code == 202
+    assert payload == {"id": "response-1", "choices": []}
+    assert len(seen) == 1
+    assert seen[0].method == "POST"
+    assert seen[0].url.path == "/api/v1/chat/completions"
+    assert seen[0].headers["Authorization"] == "Bearer test"
+    assert seen[0].headers["X-Title"] == "IZO ASA"
+    assert seen[0].read() == httpx.Request("POST", "https://example.test", json=body).read()
+
+
+def test_chat_completion_transport_preserves_empty_payload():
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(204, content=b"")
+
+    assert asyncio.run(request_openrouter_chat_completion(
+        base_url="https://openrouter.test/api/v1",
+        headers={},
+        body={},
+        timeout_seconds=3,
+        transport=httpx.MockTransport(handler),
+    )) == (204, {})
+
+
+def test_chat_completion_transport_preserves_json_and_network_errors():
+    async def invalid_json(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"not-json")
+
+    with pytest.raises(json.JSONDecodeError):
+        asyncio.run(request_openrouter_chat_completion(
+            base_url="https://openrouter.test/api/v1",
+            headers={},
+            body={},
+            timeout_seconds=3,
+            transport=httpx.MockTransport(invalid_json),
+        ))
+
+    async def network_error(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("unavailable", request=request)
+
+    with pytest.raises(httpx.ConnectError, match="unavailable"):
+        asyncio.run(request_openrouter_chat_completion(
+            base_url="https://openrouter.test/api/v1",
+            headers={},
+            body={},
+            timeout_seconds=3,
+            transport=httpx.MockTransport(network_error),
+        ))
+
+
+def test_prompt_improvement_keeps_openrouter_body_timeout_and_parser(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_chat(**kwargs):
+        captured.update(kwargs)
+        return 200, {
+            "choices": [{"message": {"content": '{"improved_prompt":"улучшенный API результат"}'}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 4},
+        }
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "configured-secret")
+    monkeypatch.setattr(main, "openrouter_headers", lambda: {"Authorization": "not-returned"})
+    monkeypatch.setattr(main, "request_openrouter_chat_completion", fake_chat)
+    request = main.ImprovePromptRequest(
+        prompt="  исходный API запрос  ",
+        technicalPrompt="  технический API контекст  ",
+        mode="text",
+        language="ru",
+    )
+    config = {
+        **main.DEFAULT_ASSISTANT_MODELS_CONFIG["improve"],
+        "apiModel": "deepseek/deepseek-v4-flash",
+        "apiTimeoutSeconds": 999,
+    }
+
+    improved, payload = asyncio.run(main.improve_prompt_openrouter(request, config))
+
+    assert improved == "улучшенный API результат"
+    assert payload["usage"] == {"prompt_tokens": 10, "completion_tokens": 4}
+    assert captured["base_url"] == main.OPENROUTER_BASE_URL
+    assert captured["headers"] == {"Authorization": "not-returned"}
+    assert captured["timeout_seconds"] == 30
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["model"] == "deepseek/deepseek-v4-flash"
+    assert body["temperature"] == 0.25
+    assert body["max_tokens"] == 500
+    assert body["response_format"]["json_schema"]["strict"] is True
+    assert body["response_format"]["json_schema"]["schema"]["additionalProperties"] is False
+    assert "Ответ верни на русском" in body["messages"][0]["content"]
+    assert body["messages"][1] == {
+        "role": "user",
+        "content": '{"prompt": "исходный API запрос", "technical_context": "технический API контекст"}',
+    }
+
+
+def test_prompt_improvement_without_key_skips_transport(monkeypatch):
+    async def unexpected_chat(**_kwargs):
+        raise AssertionError("OpenRouter HTTP must not run without a key")
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "")
+    monkeypatch.setattr(main, "request_openrouter_chat_completion", unexpected_chat)
+
+    with pytest.raises(RuntimeError, match=r"^OpenRouter API-ключ не настроен\.$"):
+        asyncio.run(main.improve_prompt_openrouter(main.ImprovePromptRequest(prompt="test")))
+
+
+def test_prompt_improvement_preserves_public_provider_error(monkeypatch):
+    async def failed_chat(**_kwargs):
+        return 429, {"error": {"message": "rate limited"}}
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "configured-secret")
+    monkeypatch.setattr(main, "openrouter_headers", lambda: {})
+    monkeypatch.setattr(main, "request_openrouter_chat_completion", failed_chat)
+
+    with pytest.raises(RuntimeError, match="^OpenRouter временно ограничил запросы"):
+        asyncio.run(main.improve_prompt_openrouter(
+            main.ImprovePromptRequest(prompt="test"),
+            main.DEFAULT_ASSISTANT_MODELS_CONFIG["improve"],
+        ))
+
+
+def test_prompt_improvement_preserves_invalid_success_payload_error(monkeypatch):
+    async def invalid_chat(**_kwargs):
+        return 200, ["not", "a", "dict"]
+
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "configured-secret")
+    monkeypatch.setattr(main, "openrouter_headers", lambda: {})
+    monkeypatch.setattr(main, "request_openrouter_chat_completion", invalid_chat)
+
+    with pytest.raises(RuntimeError, match=r"^OpenRouter вернул некорректный ответ\.$"):
+        asyncio.run(main.improve_prompt_openrouter(
+            main.ImprovePromptRequest(prompt="test"),
+            main.DEFAULT_ASSISTANT_MODELS_CONFIG["improve"],
+        ))

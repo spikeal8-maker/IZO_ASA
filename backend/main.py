@@ -62,6 +62,7 @@ try:
         fetch_openrouter_key_details,
         fetch_openrouter_text_models,
         request_ollama_chat_message,
+        request_openrouter_chat_completion,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations import (
@@ -69,6 +70,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         fetch_openrouter_key_details,
         fetch_openrouter_text_models,
         request_ollama_chat_message,
+        request_openrouter_chat_completion,
     )
 
 try:
@@ -5797,11 +5799,14 @@ async def improve_prompt_openrouter(req: ImprovePromptRequest, config: dict[str,
     }
     async with _prompt_improve_semaphore:
         timeout = max(3, min(30, int(config.get("apiTimeoutSeconds") or PROMPT_IMPROVE_TIMEOUT_SECONDS)))
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(f"{OPENROUTER_BASE_URL}/chat/completions", headers=openrouter_headers(), json=body)
-    data = response.json() if response.content else {}
-    if response.status_code >= 400:
-        raise RuntimeError(_openrouter_public_error(response.status_code, data if isinstance(data, dict) else {}))
+        status_code, data = await request_openrouter_chat_completion(
+            base_url=OPENROUTER_BASE_URL,
+            headers=openrouter_headers(),
+            body=body,
+            timeout_seconds=timeout,
+        )
+    if status_code >= 400:
+        raise RuntimeError(_openrouter_public_error(status_code, data if isinstance(data, dict) else {}))
     if not isinstance(data, dict):
         raise RuntimeError("OpenRouter вернул некорректный ответ.")
     return _parse_improved_prompt(_openrouter_text_content(data)), data

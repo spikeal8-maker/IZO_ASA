@@ -5,6 +5,7 @@ from .openrouter import (
     fetch_openrouter_key_details,
     fetch_openrouter_text_models,
     parse_openrouter_text_models,
+    request_openrouter_chat_completion,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "fetch_openrouter_key_details",
     "fetch_openrouter_text_models",
     "parse_openrouter_text_models",
+    "request_openrouter_chat_completion",
 ]

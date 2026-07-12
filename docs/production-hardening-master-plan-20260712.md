@@ -135,7 +135,14 @@
 - scripted restart заменил backend PID 25664 на PID 27196, создал logs `backend_restart_20260712_223101_081.{out,err}.log`, подтвердил единственный listener `127.0.0.1:8000`, health 200 и startup reconciliation checked 127 / available 125 / missing 2 / changed 0;
 - live smoke прошёл 5/5; реальный read-only OpenRouter status подтвердил configured source `admin_ui`, `/key` 200 и `/credits` 200 без вывода secret/data/usage/balance;
 - source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
-- все завершённые checkpoint-коммиты до `5cdce7e` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
+- generic OpenRouter POST `/chat/completions` transport вынесен в `request_openrouter_chat_completion`, который возвращает только HTTP status и parsed JSON; application/public error policy и content parsing в integration не перенесены;
+- prompt improvement сохраняет key gate, body/schema/messages, semaphore, timeout cap 30, `_openrouter_public_error`, `_openrouter_text_content`, `_parse_improved_prompt` и provider routing;
+- characterization package прошёл 5 циклов по 31 тесту: exact path/headers/body/status, empty/invalid/network responses, prompt body/parser/timeout, no-key bypass, 429 public error и invalid success payload;
+- полный backend+tools checkpoint после prompt chat transport extraction: 744 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 известный hooks warning), TypeScript/Vite production build — успешно; pytest-процессов нет;
+- scripted restart заменил backend PID 27196 на PID 4604, создал logs `backend_restart_20260712_224519_088.{out,err}.log`, подтвердил единственный listener `127.0.0.1:8000`, health 200 и startup reconciliation checked 127 / available 125 / missing 2 / changed 0;
+- live smoke прошёл 5/5; read-only OpenRouter account status остался configured через `admin_ui`, `/key` 200 и `/credits` 200, реальный prompt при deployment намеренно не создавался;
+- source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
+- все завершённые checkpoint-коммиты до `f578720` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
 
 Частично выполнено:
 
@@ -143,7 +150,7 @@
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
 - deploy gate: TypeScript блокирует запуск и безопасный backend-only restart helper создан; единая `tools/verify.ps1` и CI gate ещё не созданы.
 
-Следующий пакет: вынести bounded OpenRouter prompt-improvement `/chat/completions` HTTP/response block в `app/integrations/openrouter.py` с characterization tests; API-key policy, prompt/body, semaphore, timeout cap, public errors, provider routing, voice, generation и billing не менять. Deployment выполняется только через `tools/restart-backend.ps1`.
+Следующий пакет: перевести OpenRouter voice transcription на проверенный `request_openrouter_chat_completion` с characterization tests; API-key gate, audio base64/body/format/language, timeout cap, public errors, text parser, 2000-character limit, generation и billing не менять. Deployment выполняется только через `tools/restart-backend.ps1`.
 
 Storage-аудит завершён: startup availability теперь стабилен (`changed=0` при неизменном filesystem), автоматическое физическое удаление файлов запрещено, тесты изолированы от production DB/media. Любая будущая очистка файлов выполняется только через manifest/quarantine.
 
@@ -153,7 +160,7 @@ Storage-аудит завершён: startup availability теперь стаб�
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 324 строки | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 329 строк | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |

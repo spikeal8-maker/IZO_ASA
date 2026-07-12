@@ -107,3 +107,26 @@ async def fetch_openrouter_key_details(
         "data": key_data,
         "credits": credits,
     }
+
+
+async def request_openrouter_chat_completion(
+    *,
+    base_url: str,
+    headers: dict[str, str],
+    body: dict[str, Any],
+    timeout_seconds: float,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> tuple[int, Any]:
+    """POST a chat completion and return its status plus parsed JSON payload."""
+
+    client_options: dict[str, Any] = {"timeout": timeout_seconds}
+    if transport is not None:
+        client_options["transport"] = transport
+    async with httpx.AsyncClient(**client_options) as client:
+        response = await client.post(
+            f"{base_url.rstrip('/')}/chat/completions",
+            headers=headers,
+            json=body,
+        )
+    payload = response.json() if response.content else {}
+    return response.status_code, payload

@@ -65,7 +65,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/storage/media_references.py` owns exact canonical/legacy media-reference matching for active images, active source rows and URL strings inside valid job JSON; filename substrings never establish ownership.
 - `backend/app/storage/input_validation.py` owns owner-scoped generation media validation and typed `missing`/`unavailable` errors; `main.py` only collects request fields and maps typed errors to HTTP 400.
 - `backend/app/integrations/ollama.py` owns Ollama base-URL normalization, bounded `/api/tags` discovery and the shared `/api/chat` HTTP/response parsing boundary used by prompt improvement and voice transcription; `main.py` still owns request bodies, timeout policy, concurrency, application parsing, audio-model guards and voice preprocessing.
-- `backend/app/integrations/openrouter.py` owns read-only text-model catalog and key/credits HTTP/parsing boundaries, including modality filtering, pricing conversion, deterministic sorting and credits balance calculation; `main.py` retains API-key/header/source policy, the one-hour catalog cache and admin response wrapping.
+- `backend/app/integrations/openrouter.py` owns text-model catalog, key/credits and generic `/chat/completions` HTTP/JSON boundaries; `main.py` retains API-key/header/source policy, catalog cache, prompt/voice bodies, timeout policy, public error mapping, content parsing and admin wrapping.
 - `backend/conftest.py` redirects every backend test to a temporary SQLite database, media root and avatar root even when a test forgot its own fixture.
 - Keep it independent of FastAPI, SQLite and provider network calls.
 
