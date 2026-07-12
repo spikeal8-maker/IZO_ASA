@@ -38,6 +38,16 @@
 - trusted private-media resolution вынесен в `storage/private_media.py`, public avatar/feed resolution — в `storage/public_media.py`;
 - private/public media package проверен пятью циклами по 81 тесту; общий backend checkpoint: 657 passed, 2 известных feed-теста deselected;
 - production smoke 5/5 подтвердил private 401, traversal/orphan/unpublished 404 и опубликованный feed asset 200 локально и через домен;
+- установлена причина нестабильного source availability: некоторые `TestClient`-тесты запускали startup maintenance с временной БД, но настоящим `backend/media`, а прямые media helpers создавали там тестовые source-файлы;
+- `backend/conftest.py` теперь принудительно изолирует `DB_PATH`, `MEDIA` и `AVATAR_DIR` для каждого backend-теста;
+- startup storage maintenance и background optimization блокируются под pytest через `storage/maintenance.py`;
+- quarantine tool получил точный repeatable allowlist `--only-file`; 46 подтверждённых test artifacts перемещены в `D:\IZO_ASA_quarantine\pytest-media-20260712-1600` с SHA-256 manifest;
+- test-isolation package проверен 5 циклами; полный backend checkpoint: 661 passed, 2 известных feed-теста deselected; live source snapshot остался 194/194 без added/removed/changed;
+- при контрольном production restart старый startup cleanup удалил ещё 46 unreferenced source-файлов напрямую; availability остался стабильным 125/2 и changed=0, но необратимое удаление признано недопустимым;
+- `storage/cleanup.py` теперь удаляет только orphan metadata rows и возвращает количество file candidates; физические файлы не удаляются;
+- non-destructive cleanup package проверен 5 циклами; общий backend checkpoint: 662 passed, 2 известных feed-теста deselected; live source snapshot 148/148 без added/removed/changed;
+- production restart подтвердил `fileCandidates=23`, `rowFiles=0`, `files=0`, availability 125/2 и changed=0; все 23 aged unreferenced candidates перемещены в `D:\IZO_ASA_quarantine\startup-source-candidates-20260712-1647`;
+- итоговый read-only storage audit: blocking issues 0, missing active refs 0, source files 125, aged unreferenced source candidates 0; известные unavailable refs остаются diagnostic-only;
 - после рестарта удалён дублирующий Uvicorn-процесс, ошибочно слушавший `0.0.0.0:8000`; штатный backend подтверждён единственным listener на `127.0.0.1:8000`.
 
 Частично выполнено:
@@ -56,7 +66,7 @@
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 639 строк | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 621 строк | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |

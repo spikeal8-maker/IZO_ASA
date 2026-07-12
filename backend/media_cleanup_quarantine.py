@@ -31,6 +31,7 @@ def quarantine_cleanup(
     include_deleted_residue: bool = True,
     include_unreferenced: bool = True,
     item_limit: int = 5000,
+    only_files: set[str] | None = None,
 ) -> dict[str, Any]:
     plan = media_cleanup_plan.build_cleanup_plan(
         kinds=kinds,
@@ -45,12 +46,25 @@ def quarantine_cleanup(
         raise ValueError("Quarantine directory must be outside MEDIA_DIR")
 
     issues = list(plan.get("source_audit", {}).get("issues") or [])
+    requested_files = {Path(value.replace("\\", "/")).as_posix() for value in (only_files or set()) if value}
+    candidates = list(plan["candidates"])
+    if requested_files:
+        candidates = [item for item in candidates if str(item.get("file") or "") in requested_files]
+    matched_files = {str(item.get("file") or "") for item in candidates}
+    unmatched_requested_files = sorted(requested_files - matched_files)
+    candidate_bytes = sum(int(item.get("bytes") or 0) for item in candidates)
+    candidate_summary = {
+        "count": len(candidates),
+        "bytes": candidate_bytes,
+        "human": media_storage_audit._bytes_fmt(candidate_bytes),
+        "truncated_to": len(candidates),
+    }
     moved: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     if apply and issues:
-        skipped = [{**item, "skip_reason": "blocked_by_source_issues"} for item in plan["candidates"]]
+        skipped = [{**item, "skip_reason": "blocked_by_source_issues"} for item in candidates]
     else:
-        for item in plan["candidates"]:
+        for item in candidates:
             rel = str(item.get("file") or "")
             kind = str(item.get("kind") or "")
             if kind in media_cleanup_plan.PROTECTED_KINDS:
@@ -90,10 +104,12 @@ def quarantine_cleanup(
         "quarantine_dir": str(quarantine_root),
         "source_plan": {
             "created_at": plan["created_at"],
-            "candidate_summary": plan["candidate_summary"],
+            "candidate_summary": candidate_summary,
             "source_audit": plan["source_audit"],
             "selected_kinds": plan["selected_kinds"],
             "protected_kinds": plan["protected_kinds"],
+            "requested_files": sorted(requested_files),
+            "unmatched_requested_files": unmatched_requested_files,
         },
         "moved_summary": {
             "count": len(moved),
@@ -124,6 +140,7 @@ def main_cli() -> None:
     parser.add_argument("--limit", type=int, default=5000)
     parser.add_argument("--no-deleted-residue", action="store_true")
     parser.add_argument("--no-unreferenced", action="store_true")
+    parser.add_argument("--only-file", action="append", default=[], help="Move only this exact audited relative file; repeatable.")
     args = parser.parse_args()
     result = quarantine_cleanup(
         Path(args.quarantine_dir),
@@ -133,6 +150,7 @@ def main_cli() -> None:
         include_deleted_residue=not args.no_deleted_residue,
         include_unreferenced=not args.no_unreferenced,
         item_limit=max(1, int(args.limit or 5000)),
+        only_files=set(args.only_file) if args.only_file else None,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

@@ -89,3 +89,40 @@ def test_quarantine_must_be_outside_media(tmp_path, monkeypatch):
         assert "outside MEDIA_DIR" in str(exc)
     else:
         raise AssertionError("Expected quarantine path validation")
+
+
+def test_quarantine_only_file_allowlist_moves_exact_audited_candidate(tmp_path, monkeypatch):
+    media = tmp_path / "media"
+    media.mkdir()
+    monkeypatch.setattr(main, "MEDIA", media)
+    selected = media / "selected.webp"
+    untouched = media / "untouched.webp"
+    selected.write_bytes(b"selected")
+    untouched.write_bytes(b"untouched")
+    monkeypatch.setattr(
+        media_cleanup_plan,
+        "build_cleanup_plan",
+        lambda **_kwargs: {
+            "created_at": "2026-07-12T00:00:00+00:00",
+            "candidate_summary": {"count": 2, "bytes": 17, "human": "17 B", "truncated_to": 2},
+            "source_audit": {"issues": []},
+            "selected_kinds": ["original_or_input"],
+            "protected_kinds": [],
+            "candidates": [
+                {"file": "selected.webp", "bytes": 8, "kind": "original_or_input", "reason": "unreferenced"},
+                {"file": "untouched.webp", "bytes": 9, "kind": "original_or_input", "reason": "unreferenced"},
+            ],
+        },
+    )
+
+    result = media_cleanup_quarantine.quarantine_cleanup(
+        tmp_path / "quarantine",
+        apply=True,
+        only_files={"selected.webp", "not-a-candidate.webp"},
+    )
+
+    assert result["moved_summary"]["count"] == 1
+    assert result["source_plan"]["candidate_summary"]["count"] == 1
+    assert result["source_plan"]["unmatched_requested_files"] == ["not-a-candidate.webp"]
+    assert not selected.exists()
+    assert untouched.exists()

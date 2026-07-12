@@ -185,6 +185,7 @@ try:
         PrivateMediaRuntime,
         PublicMediaAccessError,
         PublicMediaRuntime,
+        SourceCleanupRuntime,
         StoragePathError,
         find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
@@ -193,6 +194,8 @@ try:
         resolve_feed_media as storage_resolve_feed_media,
         resolve_private_media as storage_resolve_private_media,
         resolve_public_avatar as storage_resolve_public_avatar,
+        reconcile_orphan_source_rows as storage_reconcile_orphan_source_rows,
+        startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
@@ -201,6 +204,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         PrivateMediaRuntime,
         PublicMediaAccessError,
         PublicMediaRuntime,
+        SourceCleanupRuntime,
         StoragePathError,
         find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
@@ -209,6 +213,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         resolve_feed_media as storage_resolve_feed_media,
         resolve_private_media as storage_resolve_private_media,
         resolve_public_avatar as storage_resolve_public_avatar,
+        reconcile_orphan_source_rows as storage_reconcile_orphan_source_rows,
+        startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
 
@@ -2790,41 +2796,12 @@ def delete_image_source_files(conn: sqlite3.Connection, image_id: str) -> None:
 
 
 def cleanup_orphan_image_sources(*, grace_seconds: int = 3600) -> dict[str, int]:
-    """Remove source previews that no longer belong to an active gallery image."""
-    orphan_urls: list[str] = []
-    with db() as conn:
-        orphan_rows = conn.execute(
-            """
-            SELECT s.id, s.thumb_url
-            FROM image_sources s
-            LEFT JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id
-            WHERE i.id IS NULL OR NOT (i.deleted_at IS NULL OR i.deleted_at = '')
-            """
-        ).fetchall()
-        orphan_urls = [str(row["thumb_url"] or "") for row in orphan_rows]
-        if orphan_rows:
-            conn.executemany("DELETE FROM image_sources WHERE id = ?", [(row["id"],) for row in orphan_rows])
-        referenced = {
-            media_filename_from_url(row["thumb_url"])
-            for row in conn.execute("SELECT thumb_url FROM image_sources").fetchall()
-        }
-    removed_rows = 0
-    for url in orphan_urls:
-        name = media_filename_from_url(url)
-        if name:
-            _delete_media_rel(name)
-            removed_rows += 1
-    removed_files = 0
-    cutoff = time.time() - max(60, int(grace_seconds))
-    for path in MEDIA.glob("*_source*_*.webp"):
-        if path.name in referenced or path.stat().st_mtime > cutoff:
-            continue
-        try:
-            path.unlink()
-            removed_files += 1
-        except FileNotFoundError:
-            pass
-    return {"rows": len(orphan_urls), "rowFiles": removed_rows, "files": removed_files}
+    runtime = SourceCleanupRuntime(connect=db, filename_from_url=media_filename_from_url)
+    return storage_reconcile_orphan_source_rows(
+        runtime,
+        MEDIA,
+        grace_seconds=grace_seconds,
+    )
 
 
 def reconcile_image_source_availability(user_id: str | None = None) -> dict[str, int]:
@@ -7620,29 +7597,34 @@ async def startup() -> None:
     validate_session_crypto_config()
     init_db()
     enforce_db_guard_after_migrations()
-    recovered_gallery = recover_missing_optimized_gallery_files()
-    if any(value for key, value in recovered_gallery.items() if key != "checked"):
-        print(f"gallery storage recovery: {recovered_gallery}")
-    repaired_thumbnails = repair_missing_gallery_thumbnails()
-    if any(value for key, value in repaired_thumbnails.items() if key != "checked"):
-        print(f"gallery thumbnail repair: {repaired_thumbnails}")
-    repaired_avatars = repair_missing_user_avatars()
-    if repaired_avatars["repaired"]:
-        print(f"user avatar repair: {repaired_avatars}")
-    source_cleanup = cleanup_orphan_image_sources()
-    if any(source_cleanup.values()):
-        print(f"image source cleanup: {source_cleanup}")
-    source_availability = reconcile_image_source_availability()
-    if source_availability["missing"]:
-        print(f"image source availability: {source_availability}")
-    repaired_sources = repair_unavailable_image_sources_from_jobs()
-    if repaired_sources["repaired"] or repaired_sources["errors"]:
-        print(f"image source repair: {repaired_sources}")
+    storage_maintenance_enabled = startup_storage_maintenance_allowed(os.environ)
+    if storage_maintenance_enabled:
+        recovered_gallery = recover_missing_optimized_gallery_files()
+        if any(value for key, value in recovered_gallery.items() if key != "checked"):
+            print(f"gallery storage recovery: {recovered_gallery}")
+        repaired_thumbnails = repair_missing_gallery_thumbnails()
+        if any(value for key, value in repaired_thumbnails.items() if key != "checked"):
+            print(f"gallery thumbnail repair: {repaired_thumbnails}")
+        repaired_avatars = repair_missing_user_avatars()
+        if repaired_avatars["repaired"]:
+            print(f"user avatar repair: {repaired_avatars}")
+        source_cleanup = cleanup_orphan_image_sources()
+        if any(source_cleanup.values()):
+            print(f"image source cleanup: {source_cleanup}")
+        source_availability = reconcile_image_source_availability()
+        if source_availability["missing"]:
+            print(f"image source availability: {source_availability}")
+        repaired_sources = repair_unavailable_image_sources_from_jobs()
+        if repaired_sources["repaired"] or repaired_sources["errors"]:
+            print(f"image source repair: {repaired_sources}")
+    else:
+        print("startup storage maintenance skipped by runtime safety policy")
     backfilled_feed = backfill_feed_generation_snapshots()
     if backfilled_feed:
         print(f"feed generation snapshots backfilled: {backfilled_feed}")
     load_db_state()
-    asyncio.create_task(asyncio.to_thread(optimize_existing_gallery_storage))
+    if storage_maintenance_enabled:
+        asyncio.create_task(asyncio.to_thread(optimize_existing_gallery_storage))
     if not worker_started:
         asyncio.create_task(worker())
         worker_started = True

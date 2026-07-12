@@ -56,6 +56,9 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/storage/paths.py` owns canonical root containment, private-media URL parsing and compatibility URL creation; filesystem deletion, cleanup and recovery remain separate follow-up packages.
 - `backend/app/storage/private_media.py` owns trusted-owner resolution for canonical and legacy private media URLs; filename matching is exact apart from an optional query string.
 - `backend/app/storage/public_media.py` owns the narrow public surfaces for referenced custom avatars and ready assets belonging to published feed rows.
+- `backend/app/storage/maintenance.py` blocks startup cleanup/repair/optimization inside pytest and supports an explicit operational disable flag.
+- `backend/app/storage/cleanup.py` removes orphan source metadata rows but never deletes files; file candidates must go through audited quarantine.
+- `backend/conftest.py` redirects every backend test to a temporary SQLite database, media root and avatar root even when a test forgot its own fixture.
 - Keep it independent of FastAPI, SQLite and provider network calls.
 
 ## Security boundaries
