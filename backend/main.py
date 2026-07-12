@@ -68,6 +68,7 @@ try:
         fetch_openrouter_text_models,
         is_openrouter_size_error,
         image_edit_influence_instruction,
+        load_openrouter_response_image,
         normalize_openrouter_endpoint_capability,
         normalize_openrouter_model_capability,
         openrouter_descriptor_values,
@@ -76,6 +77,7 @@ try:
         request_ollama_chat_message,
         request_openrouter_chat_completion,
         requested_orientation,
+        resolve_openrouter_reference_value,
         select_openrouter_first_image,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
@@ -90,6 +92,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         fetch_openrouter_text_models,
         is_openrouter_size_error,
         image_edit_influence_instruction,
+        load_openrouter_response_image,
         normalize_openrouter_endpoint_capability,
         normalize_openrouter_model_capability,
         openrouter_descriptor_values,
@@ -98,6 +101,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         request_ollama_chat_message,
         request_openrouter_chat_completion,
         requested_orientation,
+        resolve_openrouter_reference_value,
         select_openrouter_first_image,
     )
 
@@ -5504,17 +5508,10 @@ def openrouter_prompt_influence_instruction(strength: float) -> str:
 
 
 def openrouter_reference_value(source: str | None) -> str:
-    value = (source or "").strip()
-    if not value:
-        raise RuntimeError("Для режима «По фото» требуется исходное изображение.")
-    if value.startswith("data:image/") or value.startswith("https://") or value.startswith("http://"):
-        return value
-    local_path = local_media_path_from_url(value)
-    if local_path is None:
-        raise RuntimeError("Исходное изображение недоступно для OpenRouter.")
-    mime = mimetypes.guess_type(local_path.name)[0] or "image/png"
-    encoded = base64.b64encode(local_path.read_bytes()).decode("ascii")
-    return f"data:{mime};base64,{encoded}"
+    return resolve_openrouter_reference_value(
+        source,
+        local_path_resolver=local_media_path_from_url,
+    )
 
 
 def build_openrouter_image_body(payload: GenerateRequest, model: str, request_plan: dict[str, Any], capability: dict[str, Any]) -> dict[str, Any]:
@@ -5898,18 +5895,10 @@ def _openrouter_first_image(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _openrouter_image_to_pil(image_payload: dict[str, Any]) -> Image.Image:
-    b64_value = image_payload.get("b64_json") or image_payload.get("base64") or image_payload.get("image_base64")
-    if isinstance(b64_value, str) and b64_value:
-        if "," in b64_value and b64_value.split(",", 1)[0].startswith("data:"):
-            b64_value = b64_value.split(",", 1)[1]
-        return Image.open(io.BytesIO(base64.b64decode(b64_value)))
-    url = image_payload.get("url")
-    if isinstance(url, str) and url:
-        async with httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT_SECONDS, follow_redirects=True) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-        return Image.open(io.BytesIO(response.content))
-    raise RuntimeError("OpenRouter response не содержит b64_json или url изображения.")
+    return await load_openrouter_response_image(
+        image_payload,
+        timeout_seconds=OPENROUTER_TIMEOUT_SECONDS,
+    )
 
 
 def _openrouter_error_payload(data: dict[str, Any]) -> Any:
