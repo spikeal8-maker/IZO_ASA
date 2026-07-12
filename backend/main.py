@@ -6782,6 +6782,19 @@ def openrouter_model_capability(model: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def openrouter_endpoint_capability(model: dict[str, Any], endpoint: dict[str, Any]) -> dict[str, Any]:
+    capability = openrouter_model_capability({**model, "supported_parameters": endpoint.get("supported_parameters") or {}})
+    capability.update({
+        "endpointVerified": True,
+        "providerName": str(endpoint.get("provider_name") or ""),
+        "providerSlug": str(endpoint.get("provider_slug") or ""),
+        "providerTag": str(endpoint.get("provider_tag") or ""),
+        "pricing": endpoint.get("pricing") if isinstance(endpoint.get("pricing"), list) else [],
+        "allowedPassthroughParameters": endpoint.get("allowed_passthrough_parameters") if isinstance(endpoint.get("allowed_passthrough_parameters"), list) else [],
+    })
+    return capability
+
+
 async def fetch_openrouter_image_capabilities(force: bool = False) -> list[dict[str, Any]]:
     now = time.monotonic()
     cached = _openrouter_capability_cache.get("models")
@@ -6791,9 +6804,30 @@ async def fetch_openrouter_image_capabilities(force: bool = False) -> list[dict[
     async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
         response = await client.get(f"{OPENROUTER_BASE_URL}/images/models", headers=headers)
         response.raise_for_status()
-    payload = response.json() if response.content else {}
-    rows = payload.get("data") if isinstance(payload, dict) else []
-    models = [openrouter_model_capability(item) for item in rows if isinstance(item, dict) and item.get("id")]
+        payload = response.json() if response.content else {}
+        rows = payload.get("data") if isinstance(payload, dict) else []
+        semaphore = asyncio.Semaphore(8)
+
+        async def load_capability(item: dict[str, Any]) -> dict[str, Any]:
+            base = openrouter_model_capability(item)
+            endpoint_path = str(item.get("endpoints") or "").strip()
+            if not endpoint_path:
+                return {**base, "endpointVerified": False}
+            endpoint_url = endpoint_path if endpoint_path.startswith("http") else f"https://openrouter.ai{endpoint_path}"
+            try:
+                async with semaphore:
+                    endpoint_response = await client.get(endpoint_url, headers=headers)
+                endpoint_payload = endpoint_response.json() if endpoint_response.content else {}
+                endpoints = endpoint_payload.get("endpoints") if isinstance(endpoint_payload, dict) else []
+                candidates = [entry for entry in endpoints if isinstance(entry, dict)]
+                if endpoint_response.status_code < 400 and candidates:
+                    selected = max(candidates, key=lambda entry: len(entry.get("supported_parameters") or {}))
+                    return openrouter_endpoint_capability(item, selected)
+            except Exception:
+                pass
+            return {**base, "endpointVerified": False}
+
+        models = await asyncio.gather(*(load_capability(item) for item in rows if isinstance(item, dict) and item.get("id")))
     models.sort(key=lambda item: (item["name"].lower(), item["id"]))
     _openrouter_capability_cache.update({"ts": now, "models": models})
     return models
@@ -6833,6 +6867,9 @@ def build_openrouter_image_body(payload: GenerateRequest, model: str, request_pl
         raise RuntimeError(f"Модель {model} не поддерживает режим {payload.mode} по актуальным данным OpenRouter.")
     parameters = set(capability.get("parameters") or [])
     body: dict[str, Any] = {"model": model, "prompt": payload.prompt, "n": 1}
+    provider_tag = str(capability.get("providerTag") or "").strip()
+    if provider_tag:
+        body["provider"] = {"only": [provider_tag], "allow_fallbacks": False}
     if request_plan.get("aspect_ratio") and "aspect_ratio" in parameters:
         body["aspect_ratio"] = request_plan["aspect_ratio"]
     if request_plan.get("resolution") and "resolution" in parameters:

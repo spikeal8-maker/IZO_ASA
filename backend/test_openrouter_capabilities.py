@@ -167,6 +167,32 @@ def test_sourceful_plan_sends_tier_and_ratio() -> None:
     assert plan["size"] == "16:9"
 
 
+def test_endpoint_capability_replaces_union_and_pins_provider() -> None:
+    model = {
+        "id": "example/image",
+        "name": "Example",
+        "architecture": {"input_modalities": ["text"], "output_modalities": ["image"]},
+        "supported_parameters": {"resolution": {"type": "enum", "values": ["1K", "2K"]}},
+    }
+    endpoint = {
+        "provider_name": "Example Provider",
+        "provider_slug": "example-provider",
+        "provider_tag": "example-provider",
+        "supported_parameters": {"resolution": {"type": "enum", "values": ["1K"]}},
+        "pricing": [{"billable": "output_image", "unit": "image", "cost_usd": 0.01}],
+    }
+    capability = main.openrouter_endpoint_capability(model, endpoint)
+    assert capability["endpointVerified"] is True
+    assert capability["parameterDescriptors"]["resolution"]["values"] == ["1K"]
+    body = main.build_openrouter_image_body(
+        main.GenerateRequest(mode="text_to_image", provider="openrouter", prompt="test"),
+        model["id"],
+        {"resolution": "1K"},
+        capability,
+    )
+    assert body["provider"] == {"only": ["example-provider"], "allow_fallbacks": False}
+
+
 def test_assembly_body_preserves_four_reference_order() -> None:
     req = main.GenerateRequest(
         mode="edit",
