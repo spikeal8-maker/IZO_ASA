@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -130,3 +131,54 @@ async def request_openrouter_chat_completion(
         )
     payload = response.json() if response.content else {}
     return response.status_code, payload
+
+
+async def fetch_openrouter_image_model_documents(
+    *,
+    base_url: str,
+    headers: dict[str, str],
+    timeout_seconds: float = 20,
+    max_concurrency: int = 8,
+    endpoint_base_url: str = "https://openrouter.ai",
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> list[dict[str, Any]]:
+    """Collect image-model rows and optional endpoint metadata documents."""
+
+    client_options: dict[str, Any] = {
+        "timeout": timeout_seconds,
+        "follow_redirects": True,
+    }
+    if transport is not None:
+        client_options["transport"] = transport
+    async with httpx.AsyncClient(**client_options) as client:
+        response = await client.get(f"{base_url.rstrip('/')}/images/models", headers=headers)
+        response.raise_for_status()
+        payload = response.json() if response.content else {}
+        rows = payload.get("data") if isinstance(payload, dict) else []
+        semaphore = asyncio.Semaphore(max(1, max_concurrency))
+
+        async def load_document(item: dict[str, Any]) -> dict[str, Any]:
+            endpoint_path = str(item.get("endpoints") or "").strip()
+            document = {"model": item, "endpoint_status": None, "endpoints": []}
+            if not endpoint_path:
+                return document
+            endpoint_url = endpoint_path if endpoint_path.startswith("http") else f"{endpoint_base_url.rstrip('/')}{endpoint_path}"
+            try:
+                async with semaphore:
+                    endpoint_response = await client.get(endpoint_url, headers=headers)
+                endpoint_payload = endpoint_response.json() if endpoint_response.content else {}
+                endpoints = endpoint_payload.get("endpoints") if isinstance(endpoint_payload, dict) else []
+                candidates = [entry for entry in endpoints if isinstance(entry, dict)]
+                return {
+                    "model": item,
+                    "endpoint_status": endpoint_response.status_code,
+                    "endpoints": candidates,
+                }
+            except Exception:
+                return document
+
+        return await asyncio.gather(*(
+            load_document(item)
+            for item in rows
+            if isinstance(item, dict) and item.get("id")
+        ))

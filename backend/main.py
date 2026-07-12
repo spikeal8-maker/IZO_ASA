@@ -59,6 +59,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
 try:
     from .app.integrations import (
         fetch_ollama_models_status,
+        fetch_openrouter_image_model_documents,
         fetch_openrouter_key_details,
         fetch_openrouter_text_models,
         request_ollama_chat_message,
@@ -67,6 +68,7 @@ try:
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations import (
         fetch_ollama_models_status,
+        fetch_openrouter_image_model_documents,
         fetch_openrouter_key_details,
         fetch_openrouter_text_models,
         request_ollama_chat_message,
@@ -5514,33 +5516,22 @@ async def fetch_openrouter_image_capabilities(force: bool = False) -> list[dict[
     if not force and isinstance(cached, list) and cached and now - float(_openrouter_capability_cache.get("ts") or 0) < OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS:
         return cached
     headers = openrouter_headers() if openrouter_api_key() else {"Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-        response = await client.get(f"{OPENROUTER_BASE_URL}/images/models", headers=headers)
-        response.raise_for_status()
-        payload = response.json() if response.content else {}
-        rows = payload.get("data") if isinstance(payload, dict) else []
-        semaphore = asyncio.Semaphore(8)
-
-        async def load_capability(item: dict[str, Any]) -> dict[str, Any]:
-            base = openrouter_model_capability(item)
-            endpoint_path = str(item.get("endpoints") or "").strip()
-            if not endpoint_path:
-                return {**base, "endpointVerified": False}
-            endpoint_url = endpoint_path if endpoint_path.startswith("http") else f"https://openrouter.ai{endpoint_path}"
-            try:
-                async with semaphore:
-                    endpoint_response = await client.get(endpoint_url, headers=headers)
-                endpoint_payload = endpoint_response.json() if endpoint_response.content else {}
-                endpoints = endpoint_payload.get("endpoints") if isinstance(endpoint_payload, dict) else []
-                candidates = [entry for entry in endpoints if isinstance(entry, dict)]
-                if endpoint_response.status_code < 400 and candidates:
-                    selected = max(candidates, key=lambda entry: len(entry.get("supported_parameters") or {}))
-                    return openrouter_endpoint_capability(item, selected)
-            except Exception:
-                pass
-            return {**base, "endpointVerified": False}
-
-        models = await asyncio.gather(*(load_capability(item) for item in rows if isinstance(item, dict) and item.get("id")))
+    documents = await fetch_openrouter_image_model_documents(
+        base_url=OPENROUTER_BASE_URL,
+        headers=headers,
+        timeout_seconds=20,
+        max_concurrency=8,
+    )
+    models: list[dict[str, Any]] = []
+    for document in documents:
+        item = document["model"]
+        base = openrouter_model_capability(item)
+        candidates = document.get("endpoints") if isinstance(document.get("endpoints"), list) else []
+        if document.get("endpoint_status", 500) is not None and document.get("endpoint_status", 500) < 400 and candidates:
+            selected = max(candidates, key=lambda entry: len(entry.get("supported_parameters") or {}))
+            models.append(openrouter_endpoint_capability(item, selected))
+        else:
+            models.append({**base, "endpointVerified": False})
     models.sort(key=lambda item: (item["name"].lower(), item["id"]))
     _openrouter_capability_cache.update({"ts": now, "models": models})
     return models

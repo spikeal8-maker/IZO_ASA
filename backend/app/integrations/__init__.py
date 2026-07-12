@@ -3,6 +3,7 @@
 from .ollama import fetch_ollama_models_status, ollama_base_url, request_ollama_chat_message
 from .openrouter import (
     fetch_openrouter_key_details,
+    fetch_openrouter_image_model_documents,
     fetch_openrouter_text_models,
     parse_openrouter_text_models,
     request_openrouter_chat_completion,
@@ -13,6 +14,7 @@ __all__ = [
     "ollama_base_url",
     "request_ollama_chat_message",
     "fetch_openrouter_key_details",
+    "fetch_openrouter_image_model_documents",
     "fetch_openrouter_text_models",
     "parse_openrouter_text_models",
     "request_openrouter_chat_completion",

@@ -11,6 +11,7 @@ import pytest
 import main
 from app.integrations.openrouter import (
     fetch_openrouter_key_details,
+    fetch_openrouter_image_model_documents,
     fetch_openrouter_text_models,
     parse_openrouter_text_models,
     request_openrouter_chat_completion,
@@ -620,3 +621,172 @@ def test_voice_transcription_preserves_empty_text_error(monkeypatch):
             "русском",
             main.DEFAULT_ASSISTANT_MODELS_CONFIG["voice"],
         ))
+
+
+def test_image_model_documents_collect_primary_relative_absolute_and_missing_endpoints():
+    seen: list[httpx.Request] = []
+    model_a = {"id": "provider/a", "name": "A", "endpoints": "/api/v1/provider/a/endpoints"}
+    model_b = {"id": "provider/b", "name": "B", "endpoints": "https://metadata.test/provider/b"}
+    model_c = {"id": "provider/c", "name": "C"}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/api/v1/images/models":
+            return httpx.Response(200, json={"data": [model_a, model_b, model_c, {"name": "missing id"}, "invalid"]})
+        if request.url.path.endswith("/provider/a/endpoints"):
+            return httpx.Response(200, json={"endpoints": [{"provider_tag": "a"}, "invalid"]})
+        return httpx.Response(202, json={"endpoints": [{"provider_tag": "b"}]})
+
+    documents = asyncio.run(fetch_openrouter_image_model_documents(
+        base_url="https://openrouter.test/api/v1/",
+        headers={"Authorization": "Bearer test"},
+        timeout_seconds=20,
+        max_concurrency=8,
+        endpoint_base_url="https://openrouter.test",
+        transport=httpx.MockTransport(handler),
+    ))
+
+    assert documents == [
+        {"model": model_a, "endpoint_status": 200, "endpoints": [{"provider_tag": "a"}]},
+        {"model": model_b, "endpoint_status": 202, "endpoints": [{"provider_tag": "b"}]},
+        {"model": model_c, "endpoint_status": None, "endpoints": []},
+    ]
+    assert {request.url.host for request in seen} == {"openrouter.test", "metadata.test"}
+    assert all(request.headers["Authorization"] == "Bearer test" for request in seen)
+
+
+def test_image_model_documents_swallow_only_endpoint_failures():
+    models = [
+        {"id": "provider/http-error", "endpoints": "/http-error"},
+        {"id": "provider/json-error", "endpoints": "/json-error"},
+        {"id": "provider/network-error", "endpoints": "/network-error"},
+    ]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/images/models"):
+            return httpx.Response(200, json={"data": models})
+        if request.url.path.endswith("/http-error"):
+            return httpx.Response(503, json={"endpoints": [{"provider_tag": "unusable"}]})
+        if request.url.path.endswith("/json-error"):
+            return httpx.Response(200, content=b"not-json")
+        raise httpx.ConnectError("endpoint unavailable", request=request)
+
+    documents = asyncio.run(fetch_openrouter_image_model_documents(
+        base_url="https://openrouter.test/api/v1",
+        headers={},
+        transport=httpx.MockTransport(handler),
+    ))
+
+    assert documents[0] == {
+        "model": models[0],
+        "endpoint_status": 503,
+        "endpoints": [{"provider_tag": "unusable"}],
+    }
+    assert documents[1] == {"model": models[1], "endpoint_status": None, "endpoints": []}
+    assert documents[2] == {"model": models[2], "endpoint_status": None, "endpoints": []}
+
+
+def test_image_model_documents_preserve_primary_http_and_json_errors():
+    async def http_error(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"error": "unavailable"})
+
+    with pytest.raises(httpx.HTTPStatusError):
+        asyncio.run(fetch_openrouter_image_model_documents(
+            base_url="https://openrouter.test/api/v1",
+            headers={},
+            transport=httpx.MockTransport(http_error),
+        ))
+
+    async def invalid_json(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"not-json")
+
+    with pytest.raises(json.JSONDecodeError):
+        asyncio.run(fetch_openrouter_image_model_documents(
+            base_url="https://openrouter.test/api/v1",
+            headers={},
+            transport=httpx.MockTransport(invalid_json),
+        ))
+
+
+def test_image_model_documents_enforce_concurrency_limit():
+    active = 0
+    peak = 0
+    rows = [{"id": f"provider/{index}", "endpoints": f"/endpoint/{index}"} for index in range(6)]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal active, peak
+        if request.url.path.endswith("/images/models"):
+            return httpx.Response(200, json={"data": rows})
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.02)
+        active -= 1
+        return httpx.Response(200, json={"endpoints": []})
+
+    asyncio.run(fetch_openrouter_image_model_documents(
+        base_url="https://openrouter.test/api/v1",
+        headers={},
+        max_concurrency=2,
+        transport=httpx.MockTransport(handler),
+    ))
+
+    assert peak == 2
+
+
+def test_main_image_capability_wrapper_preserves_policy_sort_and_cache(monkeypatch):
+    captured: dict[str, object] = {}
+    endpoint_small = {"provider_tag": "small", "supported_parameters": {"resolution": {}}}
+    endpoint_large = {
+        "provider_name": "Large Provider",
+        "provider_tag": "large",
+        "supported_parameters": {"resolution": {}, "seed": {}, "input_references": {"max": 2}},
+    }
+    documents = [
+        {
+            "model": {"id": "z/unverified", "name": "Zulu", "architecture": {"output_modalities": ["image"]}},
+            "endpoint_status": None,
+            "endpoints": [],
+        },
+        {
+            "model": {"id": "a/verified", "name": "Alpha", "architecture": {"input_modalities": ["text"], "output_modalities": ["image"]}},
+            "endpoint_status": 200,
+            "endpoints": [endpoint_small, endpoint_large],
+        },
+    ]
+
+    async def fake_fetch(**kwargs):
+        captured.update(kwargs)
+        return documents
+
+    monkeypatch.setattr(main, "fetch_openrouter_image_model_documents", fake_fetch)
+    monkeypatch.setattr(main, "openrouter_api_key", lambda: "")
+    monkeypatch.setattr(main.time, "monotonic", lambda: 750.0)
+    monkeypatch.setattr(main, "_openrouter_capability_cache", {"ts": 0.0, "models": []})
+
+    models = asyncio.run(main.fetch_openrouter_image_capabilities(force=True))
+
+    assert [model["id"] for model in models] == ["a/verified", "z/unverified"]
+    assert models[0]["endpointVerified"] is True
+    assert models[0]["providerTag"] == "large"
+    assert models[0]["parameters"] == ["input_references", "resolution", "seed"]
+    assert models[1]["endpointVerified"] is False
+    assert captured == {
+        "base_url": main.OPENROUTER_BASE_URL,
+        "headers": {"Content-Type": "application/json"},
+        "timeout_seconds": 20,
+        "max_concurrency": 8,
+    }
+    assert main._openrouter_capability_cache == {"ts": 750.0, "models": models}
+
+
+def test_main_image_capability_wrapper_uses_fresh_cache_without_http(monkeypatch):
+    expected = [{"id": "cached/image", "name": "Cached"}]
+
+    async def unexpected_fetch(**_kwargs):
+        raise AssertionError("fresh capability cache must avoid OpenRouter HTTP")
+
+    monkeypatch.setattr(main, "fetch_openrouter_image_model_documents", unexpected_fetch)
+    monkeypatch.setattr(main.time, "monotonic", lambda: 1_000.0)
+    monkeypatch.setattr(main, "_openrouter_capability_cache", {"ts": 999.0, "models": expected})
+
+    assert asyncio.run(main.fetch_openrouter_image_capabilities()) == expected

@@ -148,7 +148,15 @@
 - scripted restart заменил backend PID 4604 на PID 43516, создал logs `backend_restart_20260712_225812_439.{out,err}.log`, подтвердил единственный listener `127.0.0.1:8000`, health 200 и startup reconciliation checked 127 / available 125 / missing 2 / changed 0;
 - live smoke прошёл 5/5; read-only OpenRouter account status остался configured через `admin_ui`, `/key` 200 и `/credits` 200, реальная voice-транскрибация при deployment намеренно не создавалась;
 - source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
-- все завершённые checkpoint-коммиты до `0e4ff60` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
+- read-only OpenRouter image catalog HTTP collection вынесен в `fetch_openrouter_image_model_documents`: primary `/images/models`, relative/absolute endpoint metadata, timeout 20, redirects и concurrency cap 8;
+- primary HTTP/JSON failures продолжают блокировать refresh, а endpoint-level HTTP/JSON/network failures остаются изолированными; `main.py` сохраняет capability normalization, best-endpoint selection, sorting и six-hour cache;
+- capability package прошёл 5 циклов по 50 тестов: primary/relative/absolute/missing endpoints, endpoint failure isolation, primary failures, concurrency, policy selection, sorting и cache bypass/update;
+- полный backend+tools checkpoint после image document extraction: 756 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 известный hooks warning), TypeScript/Vite production build — успешно; pytest-процессов нет;
+- scripted restart заменил backend PID 43516 на PID 52092, создал logs `backend_restart_20260712_231614_161.{out,err}.log`, подтвердил единственный listener `127.0.0.1:8000`, health 200 и startup reconciliation checked 127 / available 125 / missing 2 / changed 0;
+- live smoke прошёл 5/5: health/capabilities/frontend/feed/public feed media — 200, private source без trusted session — 401;
+- реальный read-only refresh нового OpenRouter image catalog path успешно вернул 39 моделей, из них 34 с подтверждёнными endpoint metadata; ключи, названия моделей, цены и финансовые данные в проверке не выводились;
+- source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
+- все перечисленные завершённые checkpoint-пакеты, включая текущий OpenRouter image document extraction, синхронизируются с `origin/main`; каждый следующий пакет также документируется, коммитится и отправляется в GitHub только после обязательных gates и controlled restart.
 
 Частично выполнено:
 
@@ -156,7 +164,7 @@
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
 - deploy gate: TypeScript блокирует запуск и безопасный backend-only restart helper создан; единая `tools/verify.ps1` и CI gate ещё не созданы.
 
-Следующий пакет: инвентаризировать и вынести read-only OpenRouter image-capability catalog HTTP/parsing в `app/integrations/openrouter.py` по bounded этапам; cache TTL, capability policy, generation validation/routing, billing и production-настройки не менять. Deployment выполняется только через `tools/restart-backend.ps1`.
+Следующий пакет: вынести чистую OpenRouter model/endpoint capability normalization из `main.py` в `app/integrations/openrouter.py` с compatibility wrappers и characterization tests; endpoint selection, cache TTL, generation validation/routing, billing и production-настройки не менять. Deployment выполняется только через `tools/restart-backend.ps1`.
 
 Storage-аудит завершён: startup availability теперь стабилен (`changed=0` при неизменном filesystem), автоматическое физическое удаление файлов запрещено, тесты изолированы от production DB/media. Любая будущая очистка файлов выполняется только через manifest/quarantine.
 
@@ -166,7 +174,7 @@ Storage-аудит завершён: startup availability теперь стаб�
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 332 строки | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 323 строки | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |
