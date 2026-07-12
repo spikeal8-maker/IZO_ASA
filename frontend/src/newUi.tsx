@@ -361,8 +361,8 @@ function fitGenerationDimension(value: number) {
 function comfySafeGenerationSize(size: { width: number; height: number }) {
   const width = Math.max(512, size.width)
   const height = Math.max(512, size.height)
-  const maxPixels = 1_050_000
-  const maxSide = 1536
+  const maxPixels = 2_050_000
+  const maxSide = 1792
   const scale = Math.min(1, maxSide / Math.max(width, height), Math.sqrt(maxPixels / Math.max(1, width * height)))
   return {
     width: Math.max(512, Math.round((width * scale) / 16) * 16),

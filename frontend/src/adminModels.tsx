@@ -28,7 +28,7 @@ type ProfileOption = { id: string; name: string; supportsPose?: boolean }
 type ServerModelProfileSettings = { width: number; height: number; steps: number; sampler: string; seedMode: 'random' | 'fixed'; seed: number }
 const CONFIG_RESOLUTION_FORMATS: ResolutionFormat[] = ['square', 'portrait', 'wide', 'photo']
 const CONFIG_RESOLUTION_TIERS: ResolutionTier[] = ['sd', 'hd', 'full_hd']
-const CONFIG_UI_RUNTIME_RESOLUTION_IDS = new Set(IMAGE_RESOLUTIONS.filter((item) => item.tier !== 'full_hd').map((item) => item.id))
+const CONFIG_UI_RUNTIME_RESOLUTION_IDS = new Set(IMAGE_RESOLUTIONS.map((item) => item.id))
 type ConfigUiResolutionAccess = { plans?: Partial<Record<TariffKey, string[]>> }
 
 function applyConfigUiResolutionAccess(config: TariffConfig, raw: unknown): TariffConfig {
@@ -1276,7 +1276,7 @@ export default function AdminModelsV2() {
     </article>
 
     <article className="card">
-      <div className="card-head"><div><h2 className="card-title">Разрешения и настройки Config UI</h2><p className="card-note">SD и HD подтверждены для Klein 9B/4B. Full HD заблокирован до отдельного GPU-теста без скрытого уменьшения.</p></div><button className="primary" onClick={() => void saveConfigUiSettings()}>Сохранить параметры</button></div>
+      <div className="card-head"><div><h2 className="card-title">Разрешения и настройки Config UI</h2><p className="card-note">SD, HD и Full HD доступны для Klein 9B/4B. Галочки определяют доступность разрешений по тарифам.</p></div><button className="primary" onClick={() => void saveConfigUiSettings()}>Сохранить параметры</button></div>
       <div className="resolution-matrix">
         <table>
           <thead><tr><th>Формат</th>{CONFIG_RESOLUTION_TIERS.map((tier) => <th key={tier}>{IMAGE_RESOLUTIONS.find((item) => item.tier === tier)?.tierLabel}</th>)}</tr></thead>
@@ -1290,7 +1290,7 @@ export default function AdminModelsV2() {
                 return <td key={tier}><div className="resolution-cell">
                   <div className="resolution-value"><strong>{resolution.width}×{resolution.height}</strong><small>{resolution.megapixels.toFixed(2).replace('.', ',')} МП</small></div>
                   <div className="resolution-plans">{tariffKeys.map((plan) => <label className="resolution-plan" key={plan} title={tariffs[plan].title}>
-                    <input type="checkbox" disabled={!CONFIG_UI_RUNTIME_RESOLUTION_IDS.has(resolution.id)} checked={CONFIG_UI_RUNTIME_RESOLUTION_IDS.has(resolution.id) && tariffs[plan].allowed_resolutions.includes(resolution.id)} onChange={(e) => toggleConfigResolution(plan, resolution.id, e.target.checked)} aria-label={`${resolutionLabel(resolution)} — ${tariffs[plan].title}`} />
+                    <input type="checkbox" checked={tariffs[plan].allowed_resolutions.includes(resolution.id)} onChange={(e) => toggleConfigResolution(plan, resolution.id, e.target.checked)} aria-label={`${resolutionLabel(resolution)} — ${tariffs[plan].title}`} />
                     <span>{plan === 'business' ? 'Biz' : plan}</span>
                   </label>)}</div>
                 </div></td>

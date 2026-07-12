@@ -71,7 +71,7 @@ export const SERVER_MODEL_OPTION: ModelOption = {
   provider: 'comfyui',
   modelProfile: 'local_flux_klein',
   tokenHint: 1,
-  supportedResolutionIds: IMAGE_RESOLUTIONS.filter((item) => item.tier !== 'full_hd').map((item) => item.id),
+  supportedResolutionIds: IMAGE_RESOLUTIONS.map((item) => item.id),
   generation: { fixedSteps: 4, allowsExactRepeat: false, supportsSeed: true, maxInputReferences: 4 },
 }
 export const modelOptions: ModelOption[] = [

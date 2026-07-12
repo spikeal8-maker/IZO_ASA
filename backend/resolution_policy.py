@@ -20,7 +20,7 @@ IMAGE_RESOLUTIONS: tuple[dict[str, Any], ...] = (
 
 RESOLUTION_BY_ID = {item["id"]: item for item in IMAGE_RESOLUTIONS}
 RESOLUTION_ID_BY_SIZE = {(item["width"], item["height"]): item["id"] for item in IMAGE_RESOLUTIONS}
-CONFIG_UI_RESOLUTION_IDS = tuple(item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "full_hd")
+CONFIG_UI_RESOLUTION_IDS = tuple(item["id"] for item in IMAGE_RESOLUTIONS)
 LEGACY_RESOLUTION_IDS = {
     "sq-1024": "sq-hd", "h-1280": "h-hd", "v-720": "v-hd", "h-1536": "p-hd",
     "v-1024": "v-fhd", "h-1920": "h-fhd", "v-1088": "v-fhd",

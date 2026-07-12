@@ -73,7 +73,10 @@ def test_resolution_only_provider_keeps_all_four_formats() -> None:
     ]
 
 
-def test_config_ui_only_advertises_verified_sd_and_hd_sizes() -> None:
+def test_config_ui_advertises_all_canonical_sizes() -> None:
     assert CONFIG_UI_RESOLUTION_IDS == (
-        "sq-sd", "sq-hd", "v-sd", "v-hd", "h-sd", "h-hd", "p-sd", "p-hd",
+        "sq-sd", "sq-hd", "sq-fhd",
+        "v-sd", "v-hd", "v-fhd",
+        "h-sd", "h-hd", "h-fhd",
+        "p-sd", "p-hd", "p-fhd",
     )
