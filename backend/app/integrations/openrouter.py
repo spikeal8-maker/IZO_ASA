@@ -8,6 +8,88 @@ from typing import Any
 import httpx
 
 
+def _parameter_names(parameters: Any) -> list[str]:
+    return sorted(str(key) for key in parameters.keys()) if isinstance(parameters, dict) else []
+
+
+def _reference_limit(parameters: Any) -> int:
+    descriptor = parameters.get("input_references") if isinstance(parameters, dict) else None
+    if not isinstance(descriptor, dict):
+        return 0
+    try:
+        return max(0, int(descriptor.get("max") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def normalize_openrouter_model_capability(model: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one OpenRouter image-model document for application policy."""
+
+    architecture = model.get("architecture") if isinstance(model.get("architecture"), dict) else {}
+    inputs = sorted(str(value) for value in architecture.get("input_modalities", []) if isinstance(value, str))
+    outputs = sorted(str(value) for value in architecture.get("output_modalities", []) if isinstance(value, str))
+    parameters = model.get("supported_parameters") if isinstance(model.get("supported_parameters"), dict) else {}
+    parameter_names = _parameter_names(parameters)
+    max_references = _reference_limit(parameters)
+    background = parameters.get("background") if isinstance(parameters.get("background"), dict) else {}
+    background_values = [str(value) for value in background.get("values", []) if isinstance(value, str)]
+    image_output = "image" in outputs
+    modes: list[str] = []
+    if "text" in inputs and image_output:
+        modes.append("text_to_image")
+    if image_output and max_references >= 1:
+        modes.extend(["image_to_image", "paint"])
+    if image_output and max_references >= 2:
+        modes.append("edit")
+    if image_output and any(key in parameters for key in ("mask", "mask_image", "inpaint")):
+        modes.append("inpaint")
+    if image_output and any(key in parameters for key in ("outpaint", "outpaint_mask", "canvas")):
+        modes.append("outpaint")
+    if image_output and max_references >= 1 and "transparent" in background_values:
+        modes.append("remove_background")
+    return {
+        "id": str(model.get("id") or ""),
+        "name": str(model.get("name") or model.get("id") or ""),
+        "description": str(model.get("description") or ""),
+        "inputModalities": inputs,
+        "outputModalities": outputs,
+        "parameters": parameter_names,
+        "parameterDescriptors": parameters,
+        "maxInputReferences": max_references,
+        "supportsStreaming": bool(model.get("supports_streaming")),
+        "modes": sorted(set(modes)),
+        "features": {
+            "seed": "seed" in parameters,
+            "quality": "quality" in parameters,
+            "aspectRatio": "aspect_ratio" in parameters,
+            "resolution": "resolution" in parameters,
+            "transparentBackground": "transparent" in background_values,
+            "multipleOutputs": isinstance(parameters.get("n"), dict) and int(parameters["n"].get("max") or 1) > 1,
+        },
+    }
+
+
+def normalize_openrouter_endpoint_capability(
+    model: dict[str, Any],
+    endpoint: dict[str, Any],
+) -> dict[str, Any]:
+    """Normalize one endpoint while preserving its provider pinning metadata."""
+
+    capability = normalize_openrouter_model_capability({
+        **model,
+        "supported_parameters": endpoint.get("supported_parameters") or {},
+    })
+    capability.update({
+        "endpointVerified": True,
+        "providerName": str(endpoint.get("provider_name") or ""),
+        "providerSlug": str(endpoint.get("provider_slug") or ""),
+        "providerTag": str(endpoint.get("provider_tag") or ""),
+        "pricing": endpoint.get("pricing") if isinstance(endpoint.get("pricing"), list) else [],
+        "allowedPassthroughParameters": endpoint.get("allowed_passthrough_parameters") if isinstance(endpoint.get("allowed_passthrough_parameters"), list) else [],
+    })
+    return capability
+
+
 def parse_openrouter_text_models(payload: Any) -> list[dict[str, Any]]:
     """Convert the text-model catalog into the legacy admin payload."""
 

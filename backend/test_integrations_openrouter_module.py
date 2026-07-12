@@ -13,6 +13,8 @@ from app.integrations.openrouter import (
     fetch_openrouter_key_details,
     fetch_openrouter_image_model_documents,
     fetch_openrouter_text_models,
+    normalize_openrouter_endpoint_capability,
+    normalize_openrouter_model_capability,
     parse_openrouter_text_models,
     request_openrouter_chat_completion,
 )
@@ -790,3 +792,137 @@ def test_main_image_capability_wrapper_uses_fresh_cache_without_http(monkeypatch
     monkeypatch.setattr(main, "_openrouter_capability_cache", {"ts": 999.0, "models": expected})
 
     assert asyncio.run(main.fetch_openrouter_image_capabilities()) == expected
+
+
+def test_image_model_capability_normalization_preserves_exact_legacy_shape():
+    parameters = {
+        "input_references": {"type": "range", "max": "4"},
+        "background": {"values": ["auto", "transparent", 123]},
+        "seed": {"type": "integer"},
+        "quality": {"type": "enum"},
+        "aspect_ratio": {"type": "enum"},
+        "resolution": {"type": "enum"},
+        "mask": {"type": "image"},
+        "canvas": {"type": "image"},
+        "n": {"max": 2},
+    }
+
+    capability = normalize_openrouter_model_capability({
+        "id": "provider/editor",
+        "description": "Editor",
+        "architecture": {
+            "input_modalities": ["image", 7, "text"],
+            "output_modalities": ["image", None],
+        },
+        "supported_parameters": parameters,
+        "supports_streaming": 1,
+    })
+
+    assert capability == {
+        "id": "provider/editor",
+        "name": "provider/editor",
+        "description": "Editor",
+        "inputModalities": ["image", "text"],
+        "outputModalities": ["image"],
+        "parameters": sorted(parameters),
+        "parameterDescriptors": parameters,
+        "maxInputReferences": 4,
+        "supportsStreaming": True,
+        "modes": [
+            "edit",
+            "image_to_image",
+            "inpaint",
+            "outpaint",
+            "paint",
+            "remove_background",
+            "text_to_image",
+        ],
+        "features": {
+            "seed": True,
+            "quality": True,
+            "aspectRatio": True,
+            "resolution": True,
+            "transparentBackground": True,
+            "multipleOutputs": True,
+        },
+    }
+
+
+@pytest.mark.parametrize("maximum", [-3, "invalid", None, []])
+def test_image_model_capability_normalization_sanitizes_reference_limit(maximum):
+    capability = normalize_openrouter_model_capability({
+        "id": "provider/basic",
+        "architecture": {"input_modalities": ["text"], "output_modalities": ["image"]},
+        "supported_parameters": {"input_references": {"max": maximum}},
+    })
+
+    assert capability["maxInputReferences"] == 0
+    assert capability["modes"] == ["text_to_image"]
+
+
+def test_image_model_capability_requires_image_output_for_generation_modes():
+    capability = normalize_openrouter_model_capability({
+        "id": "provider/text",
+        "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]},
+        "supported_parameters": {
+            "input_references": {"max": 4},
+            "mask": {},
+            "outpaint": {},
+            "background": {"values": ["transparent"]},
+        },
+    })
+
+    assert capability["modes"] == []
+    assert capability["maxInputReferences"] == 4
+    assert capability["features"]["transparentBackground"] is True
+
+
+def test_image_endpoint_capability_uses_endpoint_parameters_and_safe_metadata_lists():
+    capability = normalize_openrouter_endpoint_capability(
+        {
+            "id": "provider/image",
+            "architecture": {"input_modalities": ["text"], "output_modalities": ["image"]},
+            "supported_parameters": {"resolution": {"values": ["2K"]}},
+        },
+        {
+            "provider_name": "Pinned",
+            "provider_slug": "pinned",
+            "provider_tag": "pinned-tag",
+            "supported_parameters": {"seed": {"type": "integer"}},
+            "pricing": {"invalid": True},
+            "allowed_passthrough_parameters": "invalid",
+        },
+    )
+
+    assert capability["parameters"] == ["seed"]
+    assert capability["features"]["resolution"] is False
+    assert capability["features"]["seed"] is True
+    assert capability["endpointVerified"] is True
+    assert capability["providerName"] == "Pinned"
+    assert capability["providerSlug"] == "pinned"
+    assert capability["providerTag"] == "pinned-tag"
+    assert capability["pricing"] == []
+    assert capability["allowedPassthroughParameters"] == []
+
+
+def test_main_capability_compatibility_wrappers_delegate(monkeypatch):
+    model = {"id": "provider/model"}
+    endpoint = {"provider_tag": "tag"}
+    model_result = {"kind": "model"}
+    endpoint_result = {"kind": "endpoint"}
+    seen: list[tuple[object, ...]] = []
+
+    def fake_model(value):
+        seen.append(("model", value))
+        return model_result
+
+    def fake_endpoint(model_value, endpoint_value):
+        seen.append(("endpoint", model_value, endpoint_value))
+        return endpoint_result
+
+    monkeypatch.setattr(main, "normalize_openrouter_model_capability", fake_model)
+    monkeypatch.setattr(main, "normalize_openrouter_endpoint_capability", fake_endpoint)
+
+    assert main.openrouter_model_capability(model) is model_result
+    assert main.openrouter_endpoint_capability(model, endpoint) is endpoint_result
+    assert seen == [("model", model), ("endpoint", model, endpoint)]
