@@ -1,5 +1,12 @@
 """External provider HTTP boundaries."""
 
 from .ollama import fetch_ollama_models_status, ollama_base_url, request_ollama_chat_message
+from .openrouter import fetch_openrouter_text_models, parse_openrouter_text_models
 
-__all__ = ["fetch_ollama_models_status", "ollama_base_url", "request_ollama_chat_message"]
+__all__ = [
+    "fetch_ollama_models_status",
+    "ollama_base_url",
+    "request_ollama_chat_message",
+    "fetch_openrouter_text_models",
+    "parse_openrouter_text_models",
+]

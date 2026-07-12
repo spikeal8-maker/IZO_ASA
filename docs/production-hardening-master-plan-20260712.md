@@ -114,15 +114,23 @@
 - controlled restart voice transport package поднял единственный backend PID 51864 на `127.0.0.1:8000`; startup reconciliation: checked 127, available 125, missing 2, changed 0;
 - live smoke прошёл 5/5: health/capabilities/frontend/feed/public feed media — 200, private source без trusted session — 401; Ollama discovery остался `ok=true` и 14 models, реальная транскрибация при deployment намеренно не создавалась;
 - source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
-- все завершённые checkpoint-коммиты до `152aeae` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
+- OpenRouter inventory локализовал image capabilities, text-model catalog, prompt/voice chat, key/credits status и платную image generation; первым вынесен только read-only text catalog;
+- новый import-safe `app/integrations/openrouter.py` владеет GET `/models?output_modalities=text`, JSON parsing, text/text modality filtering, pricing-per-million conversion и sorting; `main.py` сохраняет key/header policy и one-hour cache;
+- characterization tests фиксируют path/query/headers, filtering/sorting, valid и malformed pricing, empty/HTTP 503/invalid JSON responses, cache update и fresh-cache HTTP bypass; focused package прошёл 5 циклов по 17 тестов;
+- полный backend checkpoint после OpenRouter text-catalog extraction: 720 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 известный hooks warning), TypeScript/Vite production build — успешно; активных pytest-процессов после проверки нет;
+- при controlled restart первая ручная relaunch-команда остановилась на ошибочно слитых аргументах PowerShell `Join-Path`; backend немедленно поднят повторной явной командой как единственный PID 19888 на `127.0.0.1:8000`, health 200, startup reconciliation checked 127 / available 125 / missing 2 / changed 0;
+- инцидент подтвердил отдельный operational risk ручных restart-команд: в план добавлен проверяемый `tools/restart-backend.ps1` с точной проверкой PID/command/bind, обязательным health wait и выводом startup logs при rollback/failure;
+- live smoke прошёл 5/5: health/capabilities/frontend/feed/public feed media — 200, private source без trusted session — 401; реальный public OpenRouter text catalog без API-key успешно разобран, 345 моделей, generation/billing не вызывались;
+- source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
+- все завершённые checkpoint-коммиты до `a913643` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
 
 Частично выполнено:
 
 - конфигурация: чистые helpers вынесены, остальные runtime-настройки ещё находятся в `main.py`;
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
-- deploy gate: TypeScript блокирует запуск, но единая `tools/verify.ps1` и CI gate ещё не созданы.
+- deploy gate: TypeScript блокирует запуск, но единая `tools/verify.ps1`, CI gate и безопасный `tools/restart-backend.ps1` ещё не созданы.
 
-Следующий пакет: инвентаризировать OpenRouter integration и вынести первый низкорисковый read-only HTTP/parsing block в `app/integrations/openrouter.py` с characterization tests; generation, billing, prompts, model routing, cache и production-настройки не менять. Production restart каждого пакета выполняется только после полного checkpoint.
+Следующий пакет: создать и проверить `tools/restart-backend.ps1`, устраняющий ручные PowerShell-ошибки при deployment; после этого продолжить read-only OpenRouter `/key` + `/credits` extraction. Скрипт обязан проверять единственный ожидаемый PID/command/bind, ждать health, сохранять logs и завершаться с явной ошибкой при неподтверждённом запуске.
 
 Storage-аудит завершён: startup availability теперь стабилен (`changed=0` при неизменном filesystem), автоматическое физическое удаление файлов запрещено, тесты изолированы от production DB/media. Любая будущая очистка файлов выполняется только через manifest/quarantine.
 
@@ -132,7 +140,7 @@ Storage-аудит завершён: startup availability теперь стаб�
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 352 строки | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 334 строки | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |
