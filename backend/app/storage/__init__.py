@@ -36,6 +36,11 @@ from .source_graph import (
     read_image_source_tree,
     repair_image_source_rows_from_job,
 )
+from .source_thumbnails import (
+    SourceThumbnailRuntime,
+    open_source_image,
+    save_source_thumbnail,
+)
 
 __all__ = [
     "StoragePathError",
@@ -49,6 +54,7 @@ __all__ = [
     "SourcePersistenceRuntime",
     "SourceRowRepairRuntime",
     "SourceTreeRuntime",
+    "SourceThumbnailRuntime",
     "local_media_path_from_url",
     "media_filename_from_url",
     "public_media_url",
@@ -63,6 +69,8 @@ __all__ = [
     "read_image_source_tree",
     "repair_image_source_rows_from_job",
     "persist_image_source_rows",
+    "open_source_image",
+    "save_source_thumbnail",
     "startup_storage_maintenance_allowed",
     "resolve_under_root",
 ]

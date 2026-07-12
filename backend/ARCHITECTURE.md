@@ -60,6 +60,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/storage/cleanup.py` removes orphan source metadata rows but never deletes files; file candidates must go through audited quarantine.
 - `backend/app/storage/recovery.py` owns scoped, idempotent source availability reconciliation and unavailable-thumbnail repair through injected parsing, thumbnail and URL adapters.
 - `backend/app/storage/source_graph.py` owns recursive gallery source-tree reads, owner-scoped repair decisions and transactional source metadata persistence; request parsing, thumbnail creation and path operations stay injected from `main.py`.
+- `backend/app/storage/source_thumbnails.py` owns data-URL/local-media decoding, EXIF normalization and bounded WEBP source-thumbnail creation; the legacy persistence/recovery callers keep a thin `_save_source_thumb()` adapter.
 - `backend/conftest.py` redirects every backend test to a temporary SQLite database, media root and avatar root even when a test forgot its own fixture.
 - Keep it independent of FastAPI, SQLite and provider network calls.
 

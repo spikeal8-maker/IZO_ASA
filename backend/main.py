@@ -191,6 +191,7 @@ try:
         SourcePersistenceRuntime,
         SourceRowRepairRuntime,
         SourceTreeRuntime,
+        SourceThumbnailRuntime,
         StoragePathError,
         find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
@@ -205,6 +206,7 @@ try:
         read_image_source_tree as storage_read_image_source_tree,
         repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
         persist_image_source_rows as storage_persist_image_source_rows,
+        save_source_thumbnail as storage_save_source_thumbnail,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -220,6 +222,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         SourcePersistenceRuntime,
         SourceRowRepairRuntime,
         SourceTreeRuntime,
+        SourceThumbnailRuntime,
         StoragePathError,
         find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
@@ -234,6 +237,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         read_image_source_tree as storage_read_image_source_tree,
         repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
         persist_image_source_rows as storage_persist_image_source_rows,
+        save_source_thumbnail as storage_save_source_thumbnail,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -4089,37 +4093,14 @@ def _generation_source_inputs(req: GenerateRequest) -> list[dict[str, Any]]:
     return deduped
 
 
-def _open_source_image(source_value: str | None) -> Image.Image | None:
-    if not source_value:
-        return None
-    if source_value.startswith("data:image"):
-        try:
-            _header, encoded = source_value.split(",", 1)
-            return Image.open(io.BytesIO(base64.b64decode(encoded)))
-        except Exception:
-            return None
-    path = local_media_path_from_url(source_value)
-    if path and path.exists():
-        try:
-            return Image.open(path)
-        except Exception:
-            return None
-    return None
-
-
 def _save_source_thumb(source_value: str | None, image_id: str, slot_index: int) -> tuple[Path, int, int, int] | None:
-    opened = _open_source_image(source_value)
-    if opened is None:
-        return None
-    try:
-        with opened:
-            image = ImageOps.exif_transpose(opened).convert("RGB")
-            image.thumbnail((SOURCE_THUMB_MAX_SIDE, SOURCE_THUMB_MAX_SIDE), Image.Resampling.LANCZOS)
-            target = MEDIA / f"{image_id}_source{slot_index}_{uuid.uuid4().hex[:10]}.webp"
-            image.save(target, "WEBP", quality=SOURCE_THUMB_WEBP_QUALITY, method=6)
-            return target, image.width, image.height, target.stat().st_size
-    except Exception:
-        return None
+    runtime = SourceThumbnailRuntime(
+        media_dir=MEDIA,
+        resolve_local_media=local_media_path_from_url,
+        max_side=SOURCE_THUMB_MAX_SIDE,
+        webp_quality=SOURCE_THUMB_WEBP_QUALITY,
+    )
+    return storage_save_source_thumbnail(runtime, source_value, image_id, slot_index)
 
 
 def persist_image_sources(image_id: str, user_id: str, req: GenerateRequest, created_at: str) -> list[dict[str, Any]]:
