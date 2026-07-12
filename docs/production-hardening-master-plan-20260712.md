@@ -75,7 +75,13 @@
 - полный backend checkpoint после thumbnail extraction: 672 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 известный hooks warning), production build — успешно;
 - controlled restart thumbnail package поднял единственный backend на `127.0.0.1:8000`; startup reconciliation остался changed 0, live smoke прошёл 5/5;
 - source snapshot до/после thumbnail deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
-- все завершённые checkpoint-коммиты до `5907a8f` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
+- source role labels и generation source normalization вынесены в новый `storage/source_inputs.py`; `main.py` сохраняет compatibility wrappers;
+- прямые тесты фиксируют все labels, edit sorting/default roles, faceswap/try-on roles, canvas/mask slots, cap первых восьми inputs и dedup по первым 500 символам; focused package прошёл 5 циклов по 25 тестов;
+- полный backend checkpoint после source-input extraction: 689 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 известный hooks warning), production build — успешно;
+- обнаружен оставшийся substring filename match через `LIKE '%filename%'` в `gallery_image_id_from_media_url` и `validate_generation_media_inputs`; исправление точного canonical URL ownership выделено в следующий security package;
+- controlled restart source-input package поднял единственный backend на `127.0.0.1:8000`; startup reconciliation остался changed 0, live smoke прошёл 5/5;
+- source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
+- все завершённые checkpoint-коммиты до `b90258c` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
 
 Частично выполнено:
 
@@ -83,7 +89,7 @@
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
 - deploy gate: TypeScript блокирует запуск, но единая `tools/verify.ps1` и CI gate ещё не созданы.
 
-Следующий пакет декомпозиции: вынести чистую нормализацию generation source inputs и role labels (`_generation_source_inputs`, `_source_role_label`) из `main.py`, сохранив порядок slots, deduplication и режимы edit/faceswap/try-on. Production restart выполняется отдельно только после полного checkpoint.
+Следующий пакет: добавить regression tests и заменить оставшийся substring filename ownership match в `gallery_image_id_from_media_url`/`validate_generation_media_inputs` точным canonical URL matching; только после этого выносить validation в отдельный storage/service модуль. Production restart выполняется отдельно после полного checkpoint.
 
 Storage-аудит завершён: startup availability теперь стабилен (`changed=0` при неизменном filesystem), автоматическое физическое удаление файлов запрещено, тесты изолированы от production DB/media. Любая будущая очистка файлов выполняется только через manifest/quarantine.
 
@@ -93,7 +99,7 @@ Storage-аудит завершён: startup availability теперь стаб�
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 435 строк | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 382 строки | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |
@@ -120,6 +126,7 @@ Storage-аудит завершён: startup availability теперь стаб�
 13. `allowedHosts: true` слишком широк для production.
 14. `TRUST_CLOUDFLARE_HEADERS` требует подтверждённой изоляции origin.
 15. Billing/token ledger требуют конкурентных и idempotency-тестов.
+16. `gallery_image_id_from_media_url` и `validate_generation_media_inputs` используют substring `LIKE '%filename%'`; нужен точный canonical URL/path match, чтобы похожие имена файлов не пересекали ownership boundary.
 
 ## 2. Жёсткие правила оптимизации
 

@@ -207,6 +207,8 @@ try:
         repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
         persist_image_source_rows as storage_persist_image_source_rows,
         save_source_thumbnail as storage_save_source_thumbnail,
+        generation_source_inputs as storage_generation_source_inputs,
+        source_role_label as storage_source_role_label,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -238,6 +240,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
         persist_image_source_rows as storage_persist_image_source_rows,
         save_source_thumbnail as storage_save_source_thumbnail,
+        generation_source_inputs as storage_generation_source_inputs,
+        source_role_label as storage_source_role_label,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -4029,68 +4033,11 @@ def media_filename_from_url(url: str | None) -> str | None:
 
 
 def _source_role_label(role: str | None, slot_index: int, mode: str | None = None) -> str:
-    key = str(role or "").strip().lower()
-    labels = {
-        "base": "Основа",
-        "image": "Изображение",
-        "reference": "Референс",
-        "ref": "Референс",
-        "pose": "Поза",
-        "face": "Лицо",
-        "target": "Основа",
-        "source": "Источник",
-        "style": "Стиль",
-        "clothes": "Одежда",
-        "clothing": "Одежда",
-        "background": "Фон",
-        "mask": "Маска",
-        "canvas": "Холст",
-    }
-    if key in labels:
-        return labels[key]
-    if slot_index == 1:
-        return "Основа"
-    if mode == "faceswap" and slot_index == 2:
-        return "Лицо"
-    if mode == "try_on" and slot_index == 2:
-        return "Одежда"
-    return f"Исходник {slot_index}"
+    return storage_source_role_label(role, slot_index, mode)
 
 
 def _generation_source_inputs(req: GenerateRequest) -> list[dict[str, Any]]:
-    sources: list[dict[str, Any]] = []
-    if req.mode == "edit" and req.inputImages:
-        for item in sorted(req.inputImages, key=lambda x: x.index or 0):
-            if item.image:
-                index = int(item.index or len(sources) + 1)
-                sources.append({"slot": index, "role": item.role or ("base" if index == 1 else "reference"), "value": item.image})
-    else:
-        if req.inputImage1:
-            role = "base"
-            if req.mode == "faceswap":
-                role = "target"
-            sources.append({"slot": 1, "role": role, "value": req.inputImage1})
-        if req.inputImage2:
-            role = "reference"
-            if req.mode == "faceswap":
-                role = "face"
-            elif req.mode == "try_on":
-                role = "clothes"
-            sources.append({"slot": 2, "role": role, "value": req.inputImage2})
-    if req.canvas:
-        sources.append({"slot": max([int(s["slot"]) for s in sources] or [0]) + 1, "role": "canvas", "value": req.canvas})
-    mask_value = req.maskImage or req.outpaintMask
-    if mask_value:
-        sources.append({"slot": max([int(s["slot"]) for s in sources] or [0]) + 1, "role": "mask", "value": mask_value})
-    deduped: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    for source in sources[:8]:
-        key = (str(source.get("role") or ""), str(source.get("value") or "")[:500])
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(source)
-    return deduped
+    return storage_generation_source_inputs(req)
 
 
 def _save_source_thumb(source_value: str | None, image_id: str, slot_index: int) -> tuple[Path, int, int, int] | None:

@@ -41,6 +41,7 @@ from .source_thumbnails import (
     open_source_image,
     save_source_thumbnail,
 )
+from .source_inputs import generation_source_inputs, source_role_label
 
 __all__ = [
     "StoragePathError",
@@ -71,6 +72,8 @@ __all__ = [
     "persist_image_source_rows",
     "open_source_image",
     "save_source_thumbnail",
+    "generation_source_inputs",
+    "source_role_label",
     "startup_storage_maintenance_allowed",
     "resolve_under_root",
 ]
