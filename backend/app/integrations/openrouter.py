@@ -90,6 +90,81 @@ def normalize_openrouter_endpoint_capability(
     return capability
 
 
+def extract_openrouter_generation_cost(payload: dict[str, Any]) -> float | None:
+    """Return the first numeric cost reported by an OpenRouter response."""
+
+    candidates = [
+        payload.get("cost"),
+        payload.get("total_cost"),
+        payload.get("total_cost_usd"),
+        (payload.get("usage") or {}).get("cost"),
+        (payload.get("usage") or {}).get("total_cost"),
+        (payload.get("usage") or {}).get("total_cost_usd"),
+    ]
+    for value in candidates:
+        try:
+            if value is not None:
+                return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def select_openrouter_first_image(payload: dict[str, Any]) -> dict[str, Any]:
+    """Select the first supported image shape from an OpenRouter response."""
+
+    data = payload.get("data")
+    if isinstance(data, list) and data:
+        first = data[0]
+        if isinstance(first, dict):
+            return first
+    images_data = payload.get("images")
+    if isinstance(images_data, list) and images_data:
+        first = images_data[0]
+        if isinstance(first, dict):
+            return first
+        if isinstance(first, str):
+            return {"url": first}
+    output = payload.get("output")
+    if isinstance(output, list):
+        for item in output:
+            if isinstance(item, dict):
+                if item.get("b64_json") or item.get("url"):
+                    return item
+                content = item.get("content")
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and (part.get("b64_json") or part.get("url")):
+                            return part
+    raise RuntimeError("OpenRouter не вернул изображение в ответе.")
+
+
+def extract_openrouter_error_payload(data: dict[str, Any]) -> Any:
+    return data.get("error") if isinstance(data, dict) else data
+
+
+def openrouter_error_message(data: dict[str, Any]) -> str:
+    """Normalize provider and top-level OpenRouter error payloads to text."""
+
+    payload = extract_openrouter_error_payload(data)
+    if isinstance(payload, dict):
+        message = payload.get("message") or payload.get("error")
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        provider = metadata.get("provider_name")
+        if isinstance(message, str) and message.strip():
+            return f"{provider}: {message}" if provider else message
+    if isinstance(payload, str):
+        return payload
+    return str(payload or data or "")
+
+
+def is_openrouter_size_error(data: dict[str, Any]) -> bool:
+    """Classify size/aspect validation failures without application wording."""
+
+    message = openrouter_error_message(data).lower()
+    return any(marker in message for marker in ("invalid size", "image size", "size ", "aspect", "invalid_value", "pixels"))
+
+
 def parse_openrouter_text_models(payload: Any) -> list[dict[str, Any]]:
     """Convert the text-model catalog into the legacy admin payload."""
 

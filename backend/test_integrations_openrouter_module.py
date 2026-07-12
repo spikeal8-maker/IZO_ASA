@@ -10,13 +10,18 @@ import pytest
 
 import main
 from app.integrations.openrouter import (
+    extract_openrouter_error_payload,
+    extract_openrouter_generation_cost,
     fetch_openrouter_key_details,
     fetch_openrouter_image_model_documents,
     fetch_openrouter_text_models,
+    is_openrouter_size_error,
     normalize_openrouter_endpoint_capability,
     normalize_openrouter_model_capability,
+    openrouter_error_message,
     parse_openrouter_text_models,
     request_openrouter_chat_completion,
+    select_openrouter_first_image,
 )
 
 
@@ -926,3 +931,105 @@ def test_main_capability_compatibility_wrappers_delegate(monkeypatch):
     assert main.openrouter_model_capability(model) is model_result
     assert main.openrouter_endpoint_capability(model, endpoint) is endpoint_result
     assert seen == [("model", model), ("endpoint", model, endpoint)]
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"cost": 0, "total_cost": 5}, 0.0),
+        ({"cost": "invalid", "total_cost": "1.25"}, 1.25),
+        ({"total_cost_usd": 2}, 2.0),
+        ({"usage": {"cost": "0.75"}}, 0.75),
+        ({"usage": {"cost": "invalid", "total_cost": 3}}, 3.0),
+        ({"usage": {"total_cost_usd": "4.5"}}, 4.5),
+        ({"usage": {}}, None),
+    ],
+)
+def test_generation_cost_parser_preserves_precedence_and_numeric_conversion(payload, expected):
+    assert extract_openrouter_generation_cost(payload) == expected
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"data": [{"b64_json": "data-value"}, {"url": "second"}]}, {"b64_json": "data-value"}),
+        ({"data": ["invalid"], "images": [{"url": "image-dict"}]}, {"url": "image-dict"}),
+        ({"images": ["https://images.test/one.png"]}, {"url": "https://images.test/one.png"}),
+        ({"output": [{"url": "output-url"}]}, {"url": "output-url"}),
+        ({"output": [{"b64_json": "output-b64"}]}, {"b64_json": "output-b64"}),
+        ({"output": [{"content": [{"type": "text"}, {"url": "nested-url"}]}]}, {"url": "nested-url"}),
+    ],
+)
+def test_first_image_parser_preserves_supported_response_shapes(payload, expected):
+    assert select_openrouter_first_image(payload) == expected
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"data": []},
+        {"images": [7]},
+        {"output": [{"content": [{"type": "text", "text": "none"}]}]},
+    ],
+)
+def test_first_image_parser_preserves_missing_image_error(payload):
+    with pytest.raises(RuntimeError, match="OpenRouter не вернул изображение в ответе"):
+        select_openrouter_first_image(payload)
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"error": "plain error"}, "plain error"),
+        ({"error": {"message": "bad request"}}, "bad request"),
+        ({"error": {"message": "bad request", "metadata": {"provider_name": "Provider"}}}, "Provider: bad request"),
+        ({"error": {"error": "nested error"}}, "nested error"),
+        ({"error": {"code": 500}}, "{'code': 500}"),
+        ({"message": "top-level only"}, "{'message': 'top-level only'}"),
+        ({}, ""),
+    ],
+)
+def test_error_parser_preserves_provider_and_fallback_shapes(payload, expected):
+    assert extract_openrouter_error_payload(payload) == payload.get("error")
+    assert openrouter_error_message(payload) == expected
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("invalid size requested", True),
+        ("IMAGE SIZE rejected", True),
+        ("unsupported aspect_ratio", True),
+        ("invalid_value for width", True),
+        ("too many pixels", True),
+        ("authentication failed", False),
+    ],
+)
+def test_size_error_classifier_preserves_markers(message, expected):
+    assert is_openrouter_size_error({"error": {"message": message}}) is expected
+
+
+def test_main_response_parser_compatibility_wrappers_delegate(monkeypatch):
+    payload = {"value": "sentinel"}
+    image_result = {"url": "sentinel"}
+    seen: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(main, "extract_openrouter_generation_cost", lambda value: seen.append(("cost", value)) or 1.5)
+    monkeypatch.setattr(main, "select_openrouter_first_image", lambda value: seen.append(("image", value)) or image_result)
+    monkeypatch.setattr(main, "extract_openrouter_error_payload", lambda value: seen.append(("payload", value)) or "error-payload")
+    monkeypatch.setattr(main, "openrouter_error_message", lambda value: seen.append(("message", value)) or "error-message")
+    monkeypatch.setattr(main, "is_openrouter_size_error", lambda value: seen.append(("size", value)) or True)
+
+    assert main._openrouter_generation_cost(payload) == 1.5
+    assert main._openrouter_first_image(payload) is image_result
+    assert main._openrouter_error_payload(payload) == "error-payload"
+    assert main._openrouter_error_message(payload) == "error-message"
+    assert main._openrouter_is_size_error(payload) is True
+    assert seen == [
+        ("cost", payload),
+        ("image", payload),
+        ("payload", payload),
+        ("message", payload),
+        ("size", payload),
+    ]
