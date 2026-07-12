@@ -3,13 +3,17 @@
 // Реальные данные приходят из GET /api/admin/models-page (см. backend). Тарифная матрица,
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { ensureSessionRefreshedV2 } from './authV2'
 import { normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 import { IMAGE_RESOLUTIONS, normalizeResolutionIds, resolutionLabel, type ResolutionFormat, type ResolutionTier } from './resolutionPolicy'
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
-function amvFetch(path: string, init: RequestInit = {}) {
+async function amvFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers)
-  return fetch(`${API}${path}`, { ...init, headers, credentials: 'include' })
+  const request = () => fetch(`${API}${path}`, { ...init, headers, credentials: 'include' })
+  let response = await request()
+  if (response.status === 401 && await ensureSessionRefreshedV2()) response = await request()
+  return response
 }
 
 type Tariff = 'free' | 'basic' | 'pro' | 'admin'
