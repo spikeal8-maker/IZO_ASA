@@ -11,6 +11,7 @@ import re
 import secrets
 import sqlite3
 import subprocess
+import tempfile
 import time
 import uuid
 import xml.etree.ElementTree as ET
@@ -6927,7 +6928,7 @@ DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
         "apiModel": "google/gemini-3.1-flash-lite",
         "route": "api",
         "queueTimeoutSeconds": 1,
-        "requestTimeoutSeconds": 8,
+        "requestTimeoutSeconds": 45,
         "minRecordingSeconds": 1,
     },
     "improve": {
@@ -7205,6 +7206,62 @@ async def transcribe_audio_openrouter(audio: bytes, audio_format: str, language:
     text = _openrouter_text_content(payload).strip()
     if not text:
         raise RuntimeError("Модель не распознала речь.")
+    return text[:2000], payload
+
+
+def normalize_audio_to_wav(audio: bytes, suffix: str) -> bytes:
+    try:
+        import imageio_ffmpeg
+    except ImportError as exc:
+        raise RuntimeError("На сервере не установлен аудиоконвертер imageio-ffmpeg.") from exc
+    input_path = output_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(suffix=f".{suffix}", delete=False) as source:
+            source.write(audio)
+            input_path = source.name
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as target:
+            output_path = target.name
+        process = subprocess.run(
+            [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-i", input_path, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", output_path],
+            capture_output=True, timeout=20, check=False,
+        )
+        if process.returncode != 0 or not Path(output_path).exists():
+            raise RuntimeError("Не удалось подготовить запись для локального распознавания.")
+        return Path(output_path).read_bytes()
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Подготовка голосовой записи заняла слишком много времени.") from exc
+    finally:
+        for path in (input_path, output_path):
+            if path:
+                Path(path).unlink(missing_ok=True)
+
+
+async def transcribe_audio_ollama(audio: bytes, audio_format: str, language: str, config: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+    config = config or assistant_models_config()["voice"]
+    model = str(config.get("localModel") or "gemma4:12b")
+    if model.startswith("gemma4:31b") or model.startswith("gemma4:26b"):
+        raise RuntimeError(f"Модель {model} не имеет аудиоэнкодера.")
+    wav = audio if audio_format == "wav" else await asyncio.to_thread(normalize_audio_to_wav, audio, audio_format)
+    body = {
+        "model": model, "stream": False, "think": False, "keep_alive": "5m",
+        "messages": [{
+            "role": "user",
+            "images": [base64.b64encode(wav).decode("ascii")],
+            "content": f"Транскрибируй речь на {language} языке. Верни только произнесённый текст без пояснений, кавычек и переносов строк.",
+        }],
+        "options": {"temperature": 0, "num_predict": 256, "num_ctx": 8192},
+    }
+    timeout = max(10, min(180, int(config.get("requestTimeoutSeconds") or 45)))
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(f"{base_url}/api/chat", json=body)
+    payload = response.json() if response.content else {}
+    if response.status_code >= 400:
+        raise RuntimeError(f"Ollama вернула ошибку {response.status_code}.")
+    message = payload.get("message") if isinstance(payload, dict) and isinstance(payload.get("message"), dict) else {}
+    text = str(message.get("content") or "").strip()
+    if not text:
+        raise RuntimeError("Локальная модель не распознала речь.")
     return text[:2000], payload
 
 
@@ -8784,8 +8841,22 @@ async def transcribe_audio(
     if not audio_format:
         raise HTTPException(415, "Формат записи голоса не поддерживается.")
     started = time.monotonic()
+    route = str(config.get("route") or "api")
+    provider = "api"
     try:
-        text, payload = await transcribe_audio_openrouter(audio, audio_format, "русском" if language == "ru" else "английском", config)
+        spoken_language = "русском" if language == "ru" else "английском"
+        if route == "local":
+            text, payload = await transcribe_audio_ollama(audio, audio_format, spoken_language, config)
+            provider = "local"
+        elif route == "auto":
+            try:
+                text, payload = await transcribe_audio_ollama(audio, audio_format, spoken_language, config)
+                provider = "local"
+            except (httpx.HTTPError, RuntimeError):
+                text, payload = await transcribe_audio_openrouter(audio, audio_format, spoken_language, config)
+                provider = "api"
+        else:
+            text, payload = await transcribe_audio_openrouter(audio, audio_format, spoken_language, config)
     except (httpx.HTTPError, RuntimeError) as exc:
         raise HTTPException(502, str(exc)) from exc
     usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
@@ -8793,9 +8864,9 @@ async def transcribe_audio(
         "voice_transcribed",
         internal_user_id=trusted.get("internal_user_id"), legacy_user_id=trusted.get("legacy_user_id"),
         session_id=trusted.get("session_id"), platform="web", request=request,
-        properties={"model": config.get("apiModel"), "duration_ms": duration_ms, "bytes": len(audio), "latency_ms": round((time.monotonic() - started) * 1000)},
+        properties={"model": config.get("localModel") if provider == "local" else config.get("apiModel"), "provider": provider, "duration_ms": duration_ms, "bytes": len(audio), "latency_ms": round((time.monotonic() - started) * 1000)},
     )
-    return {"ok": True, "text": text, "model": config.get("apiModel"), "provider": "api", "usage": usage}
+    return {"ok": True, "text": text, "model": config.get("localModel") if provider == "local" else config.get("apiModel"), "provider": provider, "usage": usage}
 
 
 @app.post("/api/generate")

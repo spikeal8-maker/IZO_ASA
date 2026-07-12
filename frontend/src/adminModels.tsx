@@ -264,13 +264,16 @@ const ASSISTANT_MODE_LABELS: Record<string, string> = {
 }
 
 const ASSISTANT_MODEL_PLAN: AssistantModelPlan[] = [
+  { task: 'Транскрибация', role: 'Основная', model: 'Gemma 4 12B Unified', runtime: 'Ollama локально', hardware: 'текущий сервер / RTX 4070', strengths: 'Русский ASR уже проверен; одна модель для голоса и улучшения', limitations: 'Холодный старт около 27 сек.; максимум аудио 30 сек.', status: 'Рекомендуется' },
+  { task: 'Транскрибация', role: 'Кандидат', model: 'Gemma 4 E4B', runtime: 'Ollama локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Аудиоэнкодер, меньше активных параметров', limitations: 'Нужен сравнительный русский тест с 12B', status: 'Проверить' },
+  { task: 'Транскрибация', role: 'Кандидат', model: 'Gemma 4 E2B', runtime: 'Ollama локально', hardware: 'RTX 4070 или CPU', strengths: 'Самый лёгкий вариант Gemma 4 с аудиовходом', limitations: 'Пока не установлена; требуется проверка точности', status: 'Проверить' },
   { task: 'Транскрибация', role: 'Основная', model: 'Qwen3-ASR 1.7B', runtime: 'Локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Лёгкая современная ASR, высокая скорость, русский язык', limitations: 'До запуска нужен собственный тест речи, шума и пауз', status: 'Проверить' },
   { task: 'Транскрибация', role: 'Кандидат', model: 'Faster Whisper Large V3 Turbo', runtime: 'Локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Зрелый production-стек, VAD, предсказуемая интеграция', limitations: 'Тяжелее Qwen3-ASR; нужна защита от текста на тишине', status: 'Рекомендуется' },
   { task: 'Транскрибация', role: 'Кандидат', model: 'Qwen3-ASR 0.6B', runtime: 'Локально', hardware: 'RTX 4070 или CPU', strengths: 'Минимальная нагрузка и быстрая короткая диктовка', limitations: 'Качество русского требуется сравнить с версией 1.7B', status: 'Проверить' },
   { task: 'Транскрибация', role: 'Аварийная', model: 'Whisper Medium INT8', runtime: 'Локально', hardware: 'i5 10-го поколения / RAM', strengths: 'Работает без GPU и внешнего API', limitations: 'Высокая нагрузка CPU и очередь при параллельных запросах', status: 'Планируется' },
   { task: 'Транскрибация', role: 'Резерв', model: 'Gemini 3.1 Flash Lite Audio', runtime: 'OpenRouter API', hardware: 'Облако', strengths: 'Аудиовход, дешёвый автоматический резерв', limitations: 'Платный вызов; форматы WebM/Opus нужно проверить живым тестом', status: 'Планируется' },
   { task: 'Транскрибация', role: 'Резерв', model: 'GPT Audio Mini', runtime: 'OpenRouter API', hardware: 'Облако', strengths: 'Альтернативный провайдер аудиораспознавания', limitations: 'Использовать только при недоступности основного API-маршрута', status: 'Планируется' },
-  { task: 'Улучшение промпта', role: 'Основная', model: 'Gemma 4 12B Q4', runtime: 'Локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Быстрый локальный текстовый помощник без цены за вызов', limitations: 'Нужны короткий контекст и диспетчер VRAM; это не ASR-модель', status: 'Рекомендуется' },
+  { task: 'Улучшение промпта', role: 'Основная', model: 'Gemma 4 12B Q4', runtime: 'Локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Локальный текстовый помощник и аудиораспознавание без цены за вызов', limitations: 'Нужны короткий контекст и диспетчер VRAM', status: 'Рекомендуется' },
   { task: 'Улучшение промпта', role: 'Резерв', model: 'DeepSeek V4 Flash', runtime: 'OpenRouter API', hardware: 'Облако', strengths: 'Недорогой structured output и хороший русский текст', limitations: 'Только текст: аудио не принимает', status: 'Планируется' },
 ]
 
@@ -1128,6 +1131,10 @@ export default function AdminModelsV2() {
     'Верни только JSON с одним строковым полем improved_prompt.',
   ].filter(Boolean).join(' ') : ''
   const assistantPreviewUser = JSON.stringify({ prompt: assistantTestPrompt.trim(), technical_context: null }, null, 2)
+  const voiceOllamaModels = assistantData?.ollama.models.filter((model) => {
+    const name = model.name || ''
+    return /^gemma4:(12b|e2b|e4b|latest)/.test(name) && !name.endsWith(':cloud')
+  }) || []
 
   return <div className="amv2">
     <style>{CSS}</style>
@@ -1147,18 +1154,19 @@ export default function AdminModelsV2() {
 
     {pageTab === 'voice' && assistantData && <>
       <section className="assistant-summary">
-        <div><span>Статус</span><strong>API подключён</strong><small>Кнопка записывает микрофон и отправляет аудио через OpenRouter.</small></div>
-        <div><span>Локальная цель</span><strong>Qwen3-ASR 1.7B</strong><small>RTX 4070 12 ГБ; до установки требуется русский benchmark.</small></div>
-        <div><span>Текущий API</span><strong>{assistantData.config.voice.apiModel}</strong><small>OpenRouter; локальный ASR будет добавлен отдельным маршрутом.</small></div>
+        <div><span>Текущий маршрут</span><strong>{assistantData.config.voice.route === 'local' ? 'Ollama локально' : assistantData.config.voice.route === 'auto' ? 'Ollama → OpenRouter' : 'OpenRouter API'}</strong><small>При auto API используется только после ошибки локальной модели.</small></div>
+        <div><span>Локальная модель</span><strong>{assistantData.config.voice.localModel}</strong><small>{assistantData.ollama.ok ? 'Ollama в сети' : 'Ollama не отвечает'}</small></div>
+        <div><span>API-резерв</span><strong>{assistantData.config.voice.apiModel}</strong><small>Модель OpenRouter с аудиовходом.</small></div>
       </section>
       <article className="card">
         <div className="card-head"><div><h2 className="card-title">Голосовой ввод</h2><p className="card-note">Рабочий API-маршрут и ограничения пользовательской записи.</p></div></div>
         <div className="assistant-form">
           <div className="two-col">
-            <div className="field"><label>Маршрут сейчас</label><select value={assistantData.config.voice.route} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, route: e.target.value } })}><option value="api">OpenRouter API</option></select></div>
-            <div className="field"><label>Модель с аудиовходом</label><input value={assistantData.config.voice.apiModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, apiModel: e.target.value } })} /></div>
+            <div className="field"><label>Маршрут сейчас</label><select value={assistantData.config.voice.route} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, route: e.target.value } })}><option value="local">Ollama локально</option><option value="api">OpenRouter API</option><option value="auto">Авто: Ollama → OpenRouter</option></select></div>
+            <div className="field"><label>Локальная аудиомодель Ollama</label><select value={assistantData.config.voice.localModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, localModel: e.target.value } })}>{!voiceOllamaModels.some((m) => m.name === assistantData.config.voice.localModel) && <option value={assistantData.config.voice.localModel}>{assistantData.config.voice.localModel}</option>}{voiceOllamaModels.map((model) => <option key={model.name} value={model.name}>{model.name} · установлена</option>)}</select><small>Подходят Gemma 4 12B, E4B и E2B. 26B и 31B аудио не принимают.</small></div>
+            <div className="field"><label>API-модель с аудиовходом</label><input value={assistantData.config.voice.apiModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, apiModel: e.target.value } })} /></div>
             <div className="field"><label>Минимальная запись, секунд</label><input type="number" min="0.5" max="10" step="0.5" value={assistantData.config.voice.minRecordingSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, minRecordingSeconds: Number(e.target.value) } })} /></div>
-            <div className="field"><label>Timeout API, секунд</label><input type="number" min="3" max="60" value={assistantData.config.voice.requestTimeoutSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, requestTimeoutSeconds: Number(e.target.value) } })} /></div>
+            <div className="field"><label>Timeout распознавания, секунд</label><input type="number" min="10" max="180" value={assistantData.config.voice.requestTimeoutSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, requestTimeoutSeconds: Number(e.target.value) } })} /></div>
           </div>
           <button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить голосовой маршрут'}</button>
         </div>

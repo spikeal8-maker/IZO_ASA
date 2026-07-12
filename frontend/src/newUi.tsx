@@ -3287,12 +3287,13 @@ export default function NewStudio(): ReactElement {
             <div className="counter">{promptCounterValue} / {promptTextareaLimit}</div>
           </div>
           <div className="action-row">
-            <button className={`tool-button${voiceRecording ? ' primary' : ''}`} type="button" disabled={voiceBusy} onClick={() => void toggleVoiceInput()}>
+            <button className={`tool-button${voiceRecording ? ' voice-recording' : ''}`} type="button" disabled={voiceBusy} aria-pressed={voiceRecording} onClick={() => void toggleVoiceInput()}>
+              {voiceRecording && <span className="voice-recording-dot" aria-hidden="true" />}
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3Z" stroke="currentColor" strokeWidth="2" />
                 <path d="M19 11a7 7 0 0 1-14 0M12 18v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
-              {voiceBusy ? 'Распознаю…' : voiceRecording ? 'Остановить' : 'Голос'}
+              {voiceBusy ? 'Распознаю…' : voiceRecording ? 'Стоп' : 'Голос'}
             </button>
             <button className="tool-button primary" type="button" disabled={promptImproveBusy || (lastImprovedPrompt?.mode === studioMode && lastImprovedPrompt.text === promptValue)} onClick={() => void improveCurrentPrompt()}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">

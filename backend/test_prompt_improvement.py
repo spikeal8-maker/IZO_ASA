@@ -163,3 +163,26 @@ def test_voice_transcription_returns_provider_text(prompt_user, monkeypatch):
     assert response.status_code == 200, response.text
     assert response.json()["text"] == "девушка у вечернего окна"
     assert captured == {"audio": b"not-real-audio", "format": "webm", "language": "русском"}
+
+
+def test_voice_transcription_uses_local_ollama_route(prompt_user, monkeypatch):
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('assistant_models', ?, '2026-07-12T00:00:00+00:00')",
+            ('{"voice":{"route":"local","localModel":"gemma4:12b","minRecordingSeconds":1}}',),
+        )
+
+    async def fake_local(audio, audio_format, language, config=None):
+        assert config["localModel"] == "gemma4:12b"
+        return "локальная расшифровка", {"message": {"content": "локальная расшифровка"}}
+
+    monkeypatch.setattr(main, "transcribe_audio_ollama", fake_local)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/tools/transcribe?duration_ms=1600&language=ru",
+            files={"file": ("voice.webm", b"not-real-audio", "audio/webm")},
+            cookies={"onenode_session": prompt_user["cookie"]},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["provider"] == "local"
+    assert response.json()["model"] == "gemma4:12b"
