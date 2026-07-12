@@ -36,7 +36,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 8. Media ownership, gallery storage and cleanup/recovery.
 9. Generation queue and job lifecycle.
 10. ComfyUI workflow construction and result handling.
-11. OpenRouter/Ollama/Telegram/MAX integration.
+11. Remaining OpenRouter/Ollama/Telegram/MAX integration orchestration.
 12. Gallery, feed, admin and bot routes.
 
 ## Existing extracted module
@@ -64,6 +64,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/storage/source_inputs.py` owns deterministic source-role labels and generation source normalization, including edit ordering, mode-specific roles, slot assignment, the eight-input cap and legacy deduplication semantics.
 - `backend/app/storage/media_references.py` owns exact canonical/legacy media-reference matching for active images, active source rows and URL strings inside valid job JSON; filename substrings never establish ownership.
 - `backend/app/storage/input_validation.py` owns owner-scoped generation media validation and typed `missing`/`unavailable` errors; `main.py` only collects request fields and maps typed errors to HTTP 400.
+- `backend/app/integrations/ollama.py` owns Ollama base-URL normalization and the bounded `/api/tags` HTTP/parsing boundary; `main.ollama_models_status()` remains a compatibility wrapper while prompt improvement and transcription are extracted separately.
 - `backend/conftest.py` redirects every backend test to a temporary SQLite database, media root and avatar root even when a test forgot its own fixture.
 - Keep it independent of FastAPI, SQLite and provider network calls.
 

@@ -57,6 +57,11 @@ except ImportError:  # Direct `python backend/main.py` execution.
     from app.config import env_bool, load_local_env, sqlite_path_from_database_url
 
 try:
+    from .app.integrations import fetch_ollama_models_status
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.integrations import fetch_ollama_models_status
+
+try:
     from .app.database import (
         BASE_SCHEMA_SQL,
         IDENTITY_SCHEMA_SQL,
@@ -5659,16 +5664,7 @@ def assistant_models_config() -> dict[str, Any]:
 
 
 async def ollama_models_status() -> dict[str, Any]:
-    base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
-    try:
-        async with httpx.AsyncClient(timeout=3) as client:
-            response = await client.get(f"{base_url}/api/tags")
-        response.raise_for_status()
-        payload = response.json() if response.content else {}
-        models = payload.get("models") if isinstance(payload, dict) and isinstance(payload.get("models"), list) else []
-        return {"ok": True, "baseUrl": base_url, "models": models}
-    except Exception as exc:
-        return {"ok": False, "baseUrl": base_url, "models": [], "error": type(exc).__name__}
+    return await fetch_ollama_models_status()
 
 
 _openrouter_text_model_cache: dict[str, Any] = {"ts": 0.0, "models": []}
