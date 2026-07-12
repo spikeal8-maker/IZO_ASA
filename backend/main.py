@@ -58,6 +58,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.integrations import (
+        build_openrouter_image_request_plan,
         extract_openrouter_generation_cost,
         extract_openrouter_error_payload,
         fetch_ollama_models_status,
@@ -67,13 +68,17 @@ try:
         is_openrouter_size_error,
         normalize_openrouter_endpoint_capability,
         normalize_openrouter_model_capability,
+        openrouter_descriptor_values,
         openrouter_error_message,
+        openrouter_ratio_size,
         request_ollama_chat_message,
         request_openrouter_chat_completion,
+        requested_orientation,
         select_openrouter_first_image,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations import (
+        build_openrouter_image_request_plan,
         extract_openrouter_generation_cost,
         extract_openrouter_error_payload,
         fetch_ollama_models_status,
@@ -83,9 +88,12 @@ except ImportError:  # Direct `python backend/main.py` execution.
         is_openrouter_size_error,
         normalize_openrouter_endpoint_capability,
         normalize_openrouter_model_capability,
+        openrouter_descriptor_values,
         openrouter_error_message,
+        openrouter_ratio_size,
         request_ollama_chat_message,
         request_openrouter_chat_completion,
+        requested_orientation,
         select_openrouter_first_image,
     )
 
@@ -5891,76 +5899,27 @@ def resolve_openrouter_model(req: GenerateRequest) -> str:
 
 
 def _requested_orientation(width: int, height: int) -> str:
-    if width > height:
-        return "horizontal"
-    if height > width:
-        return "vertical"
-    return "square"
+    return requested_orientation(width, height)
 
 
 def _openrouter_ratio_size(width: int, height: int) -> str:
-    if not width or not height:
-        return "auto"
-    g = math.gcd(int(width), int(height)) or 1
-    return f"{int(width) // g}:{int(height) // g}"
+    return openrouter_ratio_size(width, height)
 
 
 def _openrouter_descriptor_values(capability: dict[str, Any] | None, key: str) -> list[str]:
-    descriptors = (capability or {}).get("parameterDescriptors")
-    descriptor = descriptors.get(key) if isinstance(descriptors, dict) else None
-    values = descriptor.get("values") if isinstance(descriptor, dict) else None
-    return [str(value) for value in values] if isinstance(values, list) else []
+    return openrouter_descriptor_values(capability, key)
 
 
 def openrouter_image_request_plan(model_id: str, width: int, height: int, capability: dict[str, Any] | None = None) -> dict[str, Any]:
-    orientation = _requested_orientation(int(width or 1024), int(height or 1024))
-    aspect_ratio = _openrouter_ratio_size(width, height)
     resolution_id = resolution_id_for_size(width, height)
     resolution_tier = RESOLUTION_BY_ID.get(resolution_id or "", {}).get("tier", "hd")
-    supported_resolutions = _openrouter_descriptor_values(capability, "resolution")
-    supported_aspects = _openrouter_descriptor_values(capability, "aspect_ratio")
-    normalized_resolution = {"sd": "512", "hd": "1K", "full_hd": "2K"}.get(str(resolution_tier), "1K")
-    if supported_resolutions and normalized_resolution not in supported_resolutions:
-        normalized_resolution = ""
-    if model_id.startswith("openai/"):
-        mapped = {
-            "square": (1024, 1024, "1024x1024"),
-            "horizontal": (1536, 1024, "1536x1024"),
-            "vertical": (1024, 1536, "1024x1536"),
-        }[orientation]
-        return {"size": mapped[2], "billing_width": mapped[0], "billing_height": mapped[1], "strategy": "openai_supported_size"}
-    if model_id.startswith("recraft/"):
-        mapped = {
-            "square": (1024, 1024, "1024x1024"),
-            "horizontal": (1536, 1024, "1536x1024"),
-            "vertical": (1024, 1536, "1024x1536"),
-        }[orientation]
-        return {"size": mapped[2], "billing_width": mapped[0], "billing_height": mapped[1], "strategy": "recraft_safe_size"}
-    if model_id.startswith("sourceful/"):
-        ratio = _openrouter_ratio_size(width, height)
-        return {"size": ratio, "resolution": normalized_resolution or None, "billing_width": int(width or 1024), "billing_height": int(height or 1024), "strategy": "sourceful_resolution_ratio"}
-    if model_id.startswith("google/") and capability is None:
-        return {
-            "aspect_ratio": aspect_ratio,
-            "resolution": normalized_resolution or "1K",
-            "billing_width": int(width or 1024),
-            "billing_height": int(height or 1024),
-            "strategy": "google_normalized_aspect_ratio",
-        }
-    if supported_aspects or supported_resolutions:
-        return {
-            "aspect_ratio": aspect_ratio if not supported_aspects or aspect_ratio in supported_aspects else None,
-            "resolution": normalized_resolution or None,
-            "billing_width": int(width or 1024),
-            "billing_height": int(height or 1024),
-            "strategy": "openrouter_capability_descriptors",
-        }
-    return {
-        "size": f"{int(width or 1024)}x{int(height or 1024)}",
-        "billing_width": int(width or 1024),
-        "billing_height": int(height or 1024),
-        "strategy": "requested_size",
-    }
+    return build_openrouter_image_request_plan(
+        model_id,
+        width,
+        height,
+        capability,
+        resolution_tier=resolution_tier,
+    )
 
 
 def _openrouter_generation_cost(payload: dict[str, Any]) -> float | None:

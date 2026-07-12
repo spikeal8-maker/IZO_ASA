@@ -1,6 +1,12 @@
 """External provider HTTP boundaries."""
 
 from .ollama import fetch_ollama_models_status, ollama_base_url, request_ollama_chat_message
+from .openrouter_images import (
+    build_openrouter_image_request_plan,
+    openrouter_descriptor_values,
+    openrouter_ratio_size,
+    requested_orientation,
+)
 from .openrouter import (
     extract_openrouter_generation_cost,
     extract_openrouter_error_payload,
@@ -17,6 +23,7 @@ from .openrouter import (
 )
 
 __all__ = [
+    "build_openrouter_image_request_plan",
     "fetch_ollama_models_status",
     "ollama_base_url",
     "request_ollama_chat_message",
@@ -28,8 +35,11 @@ __all__ = [
     "is_openrouter_size_error",
     "normalize_openrouter_endpoint_capability",
     "normalize_openrouter_model_capability",
+    "openrouter_descriptor_values",
     "openrouter_error_message",
+    "openrouter_ratio_size",
     "parse_openrouter_text_models",
     "request_openrouter_chat_completion",
+    "requested_orientation",
     "select_openrouter_first_image",
 ]
