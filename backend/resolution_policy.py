@@ -7,12 +7,12 @@ IMAGE_RESOLUTIONS: tuple[dict[str, Any], ...] = (
     {"id": "sq-sd", "format": "square", "tier": "sd", "width": 704, "height": 704},
     {"id": "sq-hd", "format": "square", "tier": "hd", "width": 1024, "height": 1024},
     {"id": "sq-fhd", "format": "square", "tier": "full_hd", "width": 1408, "height": 1408},
-    {"id": "v-sd", "format": "portrait", "tier": "sd", "width": 512, "height": 896},
-    {"id": "v-hd", "format": "portrait", "tier": "hd", "width": 768, "height": 1344},
-    {"id": "v-fhd", "format": "portrait", "tier": "full_hd", "width": 1024, "height": 1792},
-    {"id": "h-sd", "format": "wide", "tier": "sd", "width": 896, "height": 512},
-    {"id": "h-hd", "format": "wide", "tier": "hd", "width": 1344, "height": 768},
-    {"id": "h-fhd", "format": "wide", "tier": "full_hd", "width": 1792, "height": 1024},
+    {"id": "v-sd", "format": "portrait", "tier": "sd", "width": 576, "height": 1024},
+    {"id": "v-hd", "format": "portrait", "tier": "hd", "width": 720, "height": 1280},
+    {"id": "v-fhd", "format": "portrait", "tier": "full_hd", "width": 1008, "height": 1792},
+    {"id": "h-sd", "format": "wide", "tier": "sd", "width": 1024, "height": 576},
+    {"id": "h-hd", "format": "wide", "tier": "hd", "width": 1280, "height": 720},
+    {"id": "h-fhd", "format": "wide", "tier": "full_hd", "width": 1792, "height": 1008},
     {"id": "p-sd", "format": "photo", "tier": "sd", "width": 960, "height": 640},
     {"id": "p-hd", "format": "photo", "tier": "hd", "width": 1152, "height": 768},
     {"id": "p-fhd", "format": "photo", "tier": "full_hd", "width": 1728, "height": 1152},
@@ -20,6 +20,7 @@ IMAGE_RESOLUTIONS: tuple[dict[str, Any], ...] = (
 
 RESOLUTION_BY_ID = {item["id"]: item for item in IMAGE_RESOLUTIONS}
 RESOLUTION_ID_BY_SIZE = {(item["width"], item["height"]): item["id"] for item in IMAGE_RESOLUTIONS}
+CONFIG_UI_RESOLUTION_IDS = tuple(item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "full_hd")
 LEGACY_RESOLUTION_IDS = {
     "sq-1024": "sq-hd", "h-1280": "h-hd", "v-720": "v-hd", "h-1536": "p-hd",
     "v-1024": "v-fhd", "h-1920": "h-fhd", "v-1088": "v-fhd",
@@ -86,7 +87,7 @@ def supported_resolution_ids_from_capability(capability: dict[str, Any] | None) 
             return [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] in allowed_tiers]
 
     format_aspects = {"square": "1:1", "portrait": "9:16", "wide": "16:9", "photo": "3:2"}
-    tier_values = {"sd": {"512", "0.5K"}, "hd": {"1K", "1024"}, "full_hd": {"2K", "2048", "4K"}}
+    tier_values = {"sd": {"512", "0.5K"}, "hd": {"1K", "1024"}, "full_hd": {"2K", "2048"}}
     has_aspect_control = "aspect_ratio" in supported_parameters or bool(aspects)
     has_resolution_control = "resolution" in supported_parameters or bool(tiers)
     result: list[str] = []

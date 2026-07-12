@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field
 try:
     from .resolution_policy import (
         IMAGE_RESOLUTIONS,
+        CONFIG_UI_RESOLUTION_IDS,
         RESOLUTION_BY_ID,
         normalize_resolution_ids,
         resolution_id_for_size,
@@ -44,6 +45,7 @@ try:
 except ImportError:  # Direct `python backend/main.py` execution.
     from resolution_policy import (
         IMAGE_RESOLUTIONS,
+        CONFIG_UI_RESOLUTION_IDS,
         RESOLUTION_BY_ID,
         normalize_resolution_ids,
         resolution_id_for_size,
@@ -7197,9 +7199,23 @@ def _openrouter_ratio_size(width: int, height: int) -> str:
     return f"{int(width) // g}:{int(height) // g}"
 
 
-def openrouter_image_request_plan(model_id: str, width: int, height: int) -> dict[str, Any]:
+def _openrouter_descriptor_values(capability: dict[str, Any] | None, key: str) -> list[str]:
+    descriptors = (capability or {}).get("parameterDescriptors")
+    descriptor = descriptors.get(key) if isinstance(descriptors, dict) else None
+    values = descriptor.get("values") if isinstance(descriptor, dict) else None
+    return [str(value) for value in values] if isinstance(values, list) else []
+
+
+def openrouter_image_request_plan(model_id: str, width: int, height: int, capability: dict[str, Any] | None = None) -> dict[str, Any]:
     orientation = _requested_orientation(int(width or 1024), int(height or 1024))
     aspect_ratio = _openrouter_ratio_size(width, height)
+    resolution_id = resolution_id_for_size(width, height)
+    resolution_tier = RESOLUTION_BY_ID.get(resolution_id or "", {}).get("tier", "hd")
+    supported_resolutions = _openrouter_descriptor_values(capability, "resolution")
+    supported_aspects = _openrouter_descriptor_values(capability, "aspect_ratio")
+    normalized_resolution = {"sd": "512", "hd": "1K", "full_hd": "2K"}.get(str(resolution_tier), "1K")
+    if supported_resolutions and normalized_resolution not in supported_resolutions:
+        normalized_resolution = ""
     if model_id.startswith("openai/"):
         mapped = {
             "square": (1024, 1024, "1024x1024"),
@@ -7216,21 +7232,22 @@ def openrouter_image_request_plan(model_id: str, width: int, height: int) -> dic
         return {"size": mapped[2], "billing_width": mapped[0], "billing_height": mapped[1], "strategy": "recraft_safe_size"}
     if model_id.startswith("sourceful/"):
         ratio = _openrouter_ratio_size(width, height)
-        return {"size": ratio, "billing_width": max(1024, int(width or 1024)), "billing_height": max(1024, int(height or 1024)), "strategy": "sourceful_aspect_ratio"}
-    if model_id.startswith("bytedance-seed/"):
-        mapped = {
-            "square": (2048, 2048),
-            "horizontal": (2560, 1440),
-            "vertical": (1440, 2560),
-        }[orientation]
-        return {"size": f"{mapped[0]}x{mapped[1]}", "billing_width": mapped[0], "billing_height": mapped[1], "strategy": "seed_min_pixels"}
-    if model_id.startswith("google/"):
+        return {"size": ratio, "resolution": normalized_resolution or None, "billing_width": int(width or 1024), "billing_height": int(height or 1024), "strategy": "sourceful_resolution_ratio"}
+    if model_id.startswith("google/") and capability is None:
         return {
             "aspect_ratio": aspect_ratio,
-            "resolution": "1K",
+            "resolution": normalized_resolution or "1K",
             "billing_width": int(width or 1024),
             "billing_height": int(height or 1024),
             "strategy": "google_normalized_aspect_ratio",
+        }
+    if supported_aspects or supported_resolutions:
+        return {
+            "aspect_ratio": aspect_ratio if not supported_aspects or aspect_ratio in supported_aspects else None,
+            "resolution": normalized_resolution or None,
+            "billing_width": int(width or 1024),
+            "billing_height": int(height or 1024),
+            "strategy": "openrouter_capability_descriptors",
         }
     return {
         "size": f"{int(width or 1024)}x{int(height or 1024)}",
@@ -7365,11 +7382,11 @@ async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> O
     if not openrouter_api_key():
         raise RuntimeError("OPENROUTER_API_KEY не задан. Добавьте ключ перед включением OpenRouter.")
     model = resolve_openrouter_model(payload)
-    request_plan = openrouter_image_request_plan(model, payload.width, payload.height)
     capabilities = await fetch_openrouter_image_capabilities()
     capability = next((item for item in capabilities if item.get("id") == model), None)
     if capability is None:
         raise RuntimeError(f"Модель {model} отсутствует в актуальном каталоге OpenRouter.")
+    request_plan = openrouter_image_request_plan(model, payload.width, payload.height, capability)
     body = build_openrouter_image_body(payload, model, request_plan, capability)
     request_meta = {
         **request_plan,
@@ -8757,8 +8774,11 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     requested_resolution_id = resolution_id_for_size(req.width, req.height)
     if requested_resolution_id is None:
         raise HTTPException(422, "Выбран нестандартный размер изображения. Выберите доступное разрешение в интерфейсе.")
-    if req.provider == "comfyui" and requested_resolution_id not in get_tariff_config()[plan]["allowed_resolutions"]:
-        raise HTTPException(403, "Это разрешение недоступно на вашем тарифе.")
+    if req.provider == "comfyui":
+        if requested_resolution_id not in CONFIG_UI_RESOLUTION_IDS:
+            raise HTTPException(422, "Это разрешение ещё не подтверждено для серверной модели.")
+        if requested_resolution_id not in get_tariff_config()[plan]["allowed_resolutions"]:
+            raise HTTPException(403, "Это разрешение недоступно на вашем тарифе.")
     if req.provider == "openrouter":
         if req.mode not in OPENROUTER_GENERATION_MODES:
             raise HTTPException(501, "OpenRouter для этой вкладки пока не подключён.")
@@ -14354,15 +14374,16 @@ OPENROUTER_ADMIN_FORMATS: list[dict[str, Any]] = [
     {"id": "wide", "label": "Широкая", "short": "16:9", "width": 1280, "height": 720},
     {"id": "soft_wide", "label": "Средняя", "short": "3:2", "width": 1536, "height": 1024},
 ]
-
-
-def openrouter_format_supported(model_id: str, fmt: dict[str, Any]) -> bool:
-    lower = model_id.lower()
-    if "vector" in lower:
-        return False
-    if lower.startswith("recraft/"):
-        return fmt.get("id") == "square"
-    return True
+OPENROUTER_RESOLUTION_FORMATS: list[dict[str, Any]] = [
+    {
+        "id": item["id"],
+        "label": f"{item['tier'].upper()} {item['width']}×{item['height']}",
+        "short": {"square": "1:1", "portrait": "9:16", "wide": "16:9", "photo": "3:2"}[item["format"]],
+        "width": item["width"],
+        "height": item["height"],
+    }
+    for item in IMAGE_RESOLUTIONS
+]
 
 
 OPENROUTER_PRICE_CATALOG: dict[str, OpenRouterPriceModel] = {
@@ -14464,7 +14485,6 @@ def openrouter_format_economics(
     revenue_rub = tokens * float(economy["tokenRub"]) if tokens is not None else None
     profit_rub = revenue_rub - cost_rub if revenue_rub is not None and cost_rub is not None else None
     margin_percent = (profit_rub / revenue_rub * 100) if revenue_rub and profit_rub is not None else None
-    supported = openrouter_format_supported(model.id, fmt)
     return {
         "id": fmt["id"],
         "label": fmt["label"],
@@ -14482,7 +14502,7 @@ def openrouter_format_economics(
         "revenueRub": round(revenue_rub, 4) if revenue_rub is not None else None,
         "profitRub": round(profit_rub, 4) if profit_rub is not None else None,
         "marginPercent": round(margin_percent, 2) if margin_percent is not None else None,
-        "supported": supported,
+        "supported": "vector" not in model.id.lower(),
     }
 
 
@@ -14495,6 +14515,10 @@ def openrouter_admin_pricing_rows(exchange: dict[str, Any], economy: dict[str, f
         item["formats"] = [
             openrouter_format_economics(model, fmt, effective_rate, economy)
             for fmt in OPENROUTER_ADMIN_FORMATS
+        ]
+        item["resolutions"] = [
+            openrouter_format_economics(model, fmt, effective_rate, economy)
+            for fmt in OPENROUTER_RESOLUTION_FORMATS
         ]
         rows.append(item)
     return rows
@@ -14524,6 +14548,18 @@ def public_openrouter_pricing(exchange: dict[str, Any]) -> dict[str, Any]:
                         "supported": fmt.get("supported", True),
                     }
                     for fmt in row.get("formats", [])
+                ],
+                "resolutions": [
+                    {
+                        "id": item["id"],
+                        "label": item["label"],
+                        "short": item["short"],
+                        "tokens": item.get("tokens"),
+                        "requestSize": item.get("requestSize"),
+                        "billingWidth": item.get("billingWidth"),
+                        "billingHeight": item.get("billingHeight"),
+                    }
+                    for item in row.get("resolutions", [])
                 ],
             }
             for row in rows
@@ -14873,7 +14909,7 @@ def _public_model_option(model_id: str, capability: dict[str, Any] | None = None
             "provider": "comfyui",
             "modelProfile": "local_flux_klein",
             "tokenHint": 1,
-            "supportedResolutionIds": list(RESOLUTION_BY_ID),
+            "supportedResolutionIds": list(CONFIG_UI_RESOLUTION_IDS),
             "generation": {
                 "fixedSteps": LOCAL_TEXT_TO_IMAGE_STEPS,
                 "allowsExactRepeat": False,

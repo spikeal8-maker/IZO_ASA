@@ -3,6 +3,7 @@ import sqlite3
 
 from backend.main import get_tariff_config
 from backend.resolution_policy import (
+    CONFIG_UI_RESOLUTION_IDS,
     normalize_resolution_ids,
     resolution_id_for_size,
     supported_resolution_ids_from_capability,
@@ -15,7 +16,8 @@ def test_legacy_resolution_ids_are_migrated() -> None:
 
 def test_exact_size_lookup_does_not_guess() -> None:
     assert resolution_id_for_size(1024, 1024) == "sq-hd"
-    assert resolution_id_for_size(1280, 720) is None
+    assert resolution_id_for_size(1280, 720) == "h-hd"
+    assert resolution_id_for_size(1279, 720) is None
 
 
 def test_openrouter_descriptors_define_formats_and_tiers() -> None:
@@ -69,3 +71,9 @@ def test_resolution_only_provider_keeps_all_four_formats() -> None:
     assert supported_resolution_ids_from_capability(capability) == [
         "sq-hd", "sq-fhd", "v-hd", "v-fhd", "h-hd", "h-fhd", "p-hd", "p-fhd",
     ]
+
+
+def test_config_ui_only_advertises_verified_sd_and_hd_sizes() -> None:
+    assert CONFIG_UI_RESOLUTION_IDS == (
+        "sq-sd", "sq-hd", "v-sd", "v-hd", "h-sd", "h-hd", "p-sd", "p-hd",
+    )

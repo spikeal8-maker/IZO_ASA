@@ -141,6 +141,32 @@ def test_google_body_uses_normalized_aspect_ratio_for_text_and_photo() -> None:
         assert "size" not in body
 
 
+def test_descriptor_plan_preserves_selected_resolution_tier() -> None:
+    capability = {
+        "parameterDescriptors": {
+            "resolution": {"values": ["512", "1K", "2K", "4K"]},
+            "aspect_ratio": {"values": ["1:1", "9:16", "16:9", "3:2"]},
+        }
+    }
+    cases = [
+        ((704, 704), "512", "1:1"),
+        ((1024, 1024), "1K", "1:1"),
+        ((1792, 1008), "2K", "16:9"),
+        ((1728, 1152), "2K", "3:2"),
+    ]
+    for (width, height), tier, aspect in cases:
+        plan = main.openrouter_image_request_plan("x-ai/grok-imagine-image-quality", width, height, capability)
+        assert plan["resolution"] == tier
+        assert plan["aspect_ratio"] == aspect
+
+
+def test_sourceful_plan_sends_tier_and_ratio() -> None:
+    capability = {"parameterDescriptors": {"resolution": {"values": ["1K", "2K"]}}}
+    plan = main.openrouter_image_request_plan("sourceful/riverflow-v2.5-fast", 1792, 1008, capability)
+    assert plan["resolution"] == "2K"
+    assert plan["size"] == "16:9"
+
+
 def test_assembly_body_preserves_four_reference_order() -> None:
     req = main.GenerateRequest(
         mode="edit",

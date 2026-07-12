@@ -168,7 +168,7 @@ type PublicModelFormatPricing = {
   billingHeight?: number
   supported?: boolean
 }
-type PublicModelPricing = { id: string; label: string; formats: PublicModelFormatPricing[] }
+type PublicModelPricing = { id: string; label: string; formats: PublicModelFormatPricing[]; resolutions?: PublicModelFormatPricing[] }
 type PublicOpenRouterPricing = { models?: PublicModelPricing[] }
 type PublicFormatId = 'square' | 'portrait' | 'wide' | 'soft_wide'
 
@@ -362,7 +362,7 @@ function comfySafeGenerationSize(size: { width: number; height: number }) {
   const width = Math.max(512, size.width)
   const height = Math.max(512, size.height)
   const maxPixels = 1_050_000
-  const maxSide = 1280
+  const maxSide = 1536
   const scale = Math.min(1, maxSide / Math.max(width, height), Math.sqrt(maxPixels / Math.max(1, width * height)))
   return {
     width: Math.max(512, Math.round((width * scale) / 16) * 16),
@@ -2399,11 +2399,16 @@ export default function NewStudio(): ReactElement {
   }
   const supportedFormatIdsForModel = (model: ModelOption) => {
     if (model.provider !== 'openrouter') return ['square', 'portrait', 'wide', 'soft_wide'] as PublicFormatId[]
-    const ids = modelFormats(model).map((fmt) => fmt.id).filter(Boolean)
-    return ids.length ? ids : ['square']
+    const supportedIds = new Set(model.supportedResolutionIds || [])
+    const ids = RESOLUTION_PRESETS
+      .filter((resolution) => supportedIds.has(resolution.id))
+      .map((resolution) => formatPricingId(resolution))
+    return Array.from(new Set(ids.length ? ids : ['square'])) as PublicFormatId[]
   }
   const pricingForModel = (model: ModelOption) => {
     if (model.provider !== 'openrouter') return undefined
+    const resolutionPricing = openrouterPricing[model.id]?.resolutions?.find((item) => item.id === resolutionId)
+    if (resolutionPricing) return resolutionPricing
     const formats = modelFormats(model)
     return formats.find((fmt) => fmt.id === currentFormatPricingId) || formats[0]
   }
@@ -3436,7 +3441,7 @@ export default function NewStudio(): ReactElement {
                 <span className="studio-selected-specs">
                   <b>{currentStudioModelInfo.company}</b>
                   <em>{currentStudioModelInfo.year}</em>
-                  <em>{openrouterPricing[currentStudioModel.id]?.formats?.find((fmt) => fmt.id === currentFormatPricingId)?.requestSize || `${selectedResolution.width}×${selectedResolution.height}`}</em>
+                  <em>{pricingForModel(currentStudioModel)?.requestSize || `${selectedResolution.width}×${selectedResolution.height}`}</em>
                   {isEditStudio && <em>до {editReferenceLimit} изображений</em>}
                 </span>
               </div>

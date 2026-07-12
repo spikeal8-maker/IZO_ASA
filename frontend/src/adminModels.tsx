@@ -28,6 +28,7 @@ type ProfileOption = { id: string; name: string; supportsPose?: boolean }
 type ServerModelProfileSettings = { width: number; height: number; steps: number; sampler: string; seedMode: 'random' | 'fixed'; seed: number }
 const CONFIG_RESOLUTION_FORMATS: ResolutionFormat[] = ['square', 'portrait', 'wide', 'photo']
 const CONFIG_RESOLUTION_TIERS: ResolutionTier[] = ['sd', 'hd', 'full_hd']
+const CONFIG_UI_RUNTIME_RESOLUTION_IDS = new Set(IMAGE_RESOLUTIONS.filter((item) => item.tier !== 'full_hd').map((item) => item.id))
 type ConfigUiResolutionAccess = { plans?: Partial<Record<TariffKey, string[]>> }
 
 function applyConfigUiResolutionAccess(config: TariffConfig, raw: unknown): TariffConfig {
@@ -860,14 +861,14 @@ export default function AdminModelsV2() {
     return { ...current, [plan]: { ...current[plan], allowed_resolutions: next } }
   })
   const saveConfigUiSettings = async () => {
-    const resolutionAccess = { plans: Object.fromEntries(tariffKeys.map((plan) => [plan, tariffs[plan].allowed_resolutions])) }
+    const resolutionAccess = { plans: Object.fromEntries(tariffKeys.map((plan) => [plan, tariffs[plan].allowed_resolutions.filter((id) => CONFIG_UI_RUNTIME_RESOLUTION_IDS.has(id))])) }
     const accessSaved = await saveSetting('config_ui_resolution_access', resolutionAccess, 'Доступность разрешений по тарифам')
     if (!accessSaved) return
     const verified = await amvFetch('/admin/settings').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown; config_ui_resolution_access?: unknown } | null
     if (!verified?.tariffs || !verified.config_ui_resolution_access) { setMsg('Настройки сохранены, но контрольная проверка не выполнена'); return }
     const normalized = applyConfigUiResolutionAccess(normalizeTariffs(verified.tariffs), verified.config_ui_resolution_access)
     setTariffs(normalized)
-    const expected = tariffKeys.every((plan) => [...tariffs[plan].allowed_resolutions].sort().join('|') === [...normalized[plan].allowed_resolutions].sort().join('|'))
+    const expected = tariffKeys.every((plan) => tariffs[plan].allowed_resolutions.filter((id) => CONFIG_UI_RUNTIME_RESOLUTION_IDS.has(id)).sort().join('|') === [...normalized[plan].allowed_resolutions].sort().join('|'))
     if (!expected) { setMsg('Сервер вернул другие настройки разрешений — изменения не применены полностью'); return }
     const profilesSaved = await saveSetting('server_model_profiles', { profiles: serverProfiles }, 'Параметры моделей Config UI')
     setMsg(profilesSaved ? 'Разрешения и параметры Config UI сохранены и проверены' : 'Разрешения сохранены; параметры модели сохранить не удалось')
@@ -1275,7 +1276,7 @@ export default function AdminModelsV2() {
     </article>
 
     <article className="card">
-      <div className="card-head"><div><h2 className="card-title">Разрешения и настройки Config UI</h2><p className="card-note">Единая матрица для Klein 9B и 4B. Галочки определяют доступность разрешения каждому тарифу.</p></div><button className="primary" onClick={() => void saveConfigUiSettings()}>Сохранить параметры</button></div>
+      <div className="card-head"><div><h2 className="card-title">Разрешения и настройки Config UI</h2><p className="card-note">SD и HD подтверждены для Klein 9B/4B. Full HD заблокирован до отдельного GPU-теста без скрытого уменьшения.</p></div><button className="primary" onClick={() => void saveConfigUiSettings()}>Сохранить параметры</button></div>
       <div className="resolution-matrix">
         <table>
           <thead><tr><th>Формат</th>{CONFIG_RESOLUTION_TIERS.map((tier) => <th key={tier}>{IMAGE_RESOLUTIONS.find((item) => item.tier === tier)?.tierLabel}</th>)}</tr></thead>
@@ -1289,7 +1290,7 @@ export default function AdminModelsV2() {
                 return <td key={tier}><div className="resolution-cell">
                   <div className="resolution-value"><strong>{resolution.width}×{resolution.height}</strong><small>{resolution.megapixels.toFixed(2).replace('.', ',')} МП</small></div>
                   <div className="resolution-plans">{tariffKeys.map((plan) => <label className="resolution-plan" key={plan} title={tariffs[plan].title}>
-                    <input type="checkbox" checked={tariffs[plan].allowed_resolutions.includes(resolution.id)} onChange={(e) => toggleConfigResolution(plan, resolution.id, e.target.checked)} aria-label={`${resolutionLabel(resolution)} — ${tariffs[plan].title}`} />
+                    <input type="checkbox" disabled={!CONFIG_UI_RUNTIME_RESOLUTION_IDS.has(resolution.id)} checked={CONFIG_UI_RUNTIME_RESOLUTION_IDS.has(resolution.id) && tariffs[plan].allowed_resolutions.includes(resolution.id)} onChange={(e) => toggleConfigResolution(plan, resolution.id, e.target.checked)} aria-label={`${resolutionLabel(resolution)} — ${tariffs[plan].title}`} />
                     <span>{plan === 'business' ? 'Biz' : plan}</span>
                   </label>)}</div>
                 </div></td>
