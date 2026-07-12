@@ -58,6 +58,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.integrations import (
+        build_openrouter_image_request_metadata,
         build_openrouter_image_request_body,
         build_openrouter_image_request_plan,
         extract_openrouter_generation_cost,
@@ -80,11 +81,13 @@ try:
         request_openrouter_chat_completion,
         request_openrouter_image,
         requested_orientation,
+        resolve_openrouter_image_model,
         resolve_openrouter_reference_value,
         select_openrouter_first_image,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations import (
+        build_openrouter_image_request_metadata,
         build_openrouter_image_request_body,
         build_openrouter_image_request_plan,
         extract_openrouter_generation_cost,
@@ -107,6 +110,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         request_openrouter_chat_completion,
         request_openrouter_image,
         requested_orientation,
+        resolve_openrouter_image_model,
         resolve_openrouter_reference_value,
         select_openrouter_first_image,
     )
@@ -5856,16 +5860,20 @@ async def transcribe_audio_ollama(audio: bytes, audio_format: str, language: str
 
 
 def resolve_openrouter_model(req: GenerateRequest) -> str:
-    raw = (req.modelProfile or "").strip()
-    aliases = {
-        "": "black-forest-labs/flux.2-klein-4b",
-        "openrouter_cloud": "black-forest-labs/flux.2-klein-4b",
-        "openrouter_gpt_image": "openai/gpt-image-1",
-        "openrouter_recraft": "recraft/recraft-v3",
-        "openrouter_gemini_image": "google/gemini-2.5-flash-image",
-        "local_flux_klein": "black-forest-labs/flux.2-klein-4b",
-    }
-    return aliases.get(raw, raw if "/" in raw else "black-forest-labs/flux.2-klein-4b")
+    return resolve_openrouter_image_model(req.modelProfile)
+
+
+def openrouter_image_request_metadata(
+    payload: GenerateRequest,
+    request_plan: dict[str, Any],
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    return build_openrouter_image_request_metadata(
+        request_plan,
+        mode=payload.mode,
+        strength=payload.strength,
+        body=body,
+    )
 
 
 def _requested_orientation(width: int, height: int) -> str:
@@ -5953,13 +5961,7 @@ async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> O
         raise RuntimeError(f"Модель {model} отсутствует в актуальном каталоге OpenRouter.")
     request_plan = openrouter_image_request_plan(model, payload.width, payload.height, capability)
     body = build_openrouter_image_body(payload, model, request_plan, capability)
-    request_meta = {
-        **request_plan,
-        "mode": payload.mode,
-        "inputReferences": len(body.get("input_references") or []),
-        "influencePercent": round(payload.strength * 100) if payload.mode == "image_to_image" else None,
-        "seedSent": "seed" in body,
-    }
+    request_meta = openrouter_image_request_metadata(payload, request_plan, body)
     job.update(status="sent_to_openrouter", progress=24, message="Отправляем в OpenRouter", openrouterRequest=request_meta)
     persist_job(job, payload)
 

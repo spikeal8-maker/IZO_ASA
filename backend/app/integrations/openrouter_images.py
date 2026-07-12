@@ -6,6 +6,45 @@ import math
 from typing import Any, Callable
 
 
+_DEFAULT_OPENROUTER_IMAGE_MODEL = "black-forest-labs/flux.2-klein-4b"
+_OPENROUTER_IMAGE_MODEL_ALIASES = {
+    "": _DEFAULT_OPENROUTER_IMAGE_MODEL,
+    "openrouter_cloud": _DEFAULT_OPENROUTER_IMAGE_MODEL,
+    "openrouter_gpt_image": "openai/gpt-image-1",
+    "openrouter_recraft": "recraft/recraft-v3",
+    "openrouter_gemini_image": "google/gemini-2.5-flash-image",
+    "local_flux_klein": _DEFAULT_OPENROUTER_IMAGE_MODEL,
+}
+
+
+def resolve_openrouter_image_model(model_profile: str | None) -> str:
+    """Resolve legacy UI aliases while preserving explicit provider/model IDs."""
+
+    raw = str(model_profile or "").strip()
+    return _OPENROUTER_IMAGE_MODEL_ALIASES.get(
+        raw,
+        raw if "/" in raw else _DEFAULT_OPENROUTER_IMAGE_MODEL,
+    )
+
+
+def build_openrouter_image_request_metadata(
+    request_plan: dict[str, Any],
+    *,
+    mode: str,
+    strength: float,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the non-secret OpenRouter request metadata persisted with a job."""
+
+    return {
+        **request_plan,
+        "mode": mode,
+        "inputReferences": len(body.get("input_references") or []),
+        "influencePercent": round(strength * 100) if mode == "image_to_image" else None,
+        "seedSent": "seed" in body,
+    }
+
+
 def requested_orientation(width: int, height: int) -> str:
     if width > height:
         return "horizontal"

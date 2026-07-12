@@ -4,12 +4,14 @@ from .ollama import fetch_ollama_models_status, ollama_base_url, request_ollama_
 from .openrouter_image_client import request_openrouter_image
 from .openrouter_image_io import load_openrouter_response_image, resolve_openrouter_reference_value
 from .openrouter_images import (
+    build_openrouter_image_request_metadata,
     build_openrouter_image_request_body,
     build_openrouter_image_request_plan,
     image_edit_influence_instruction,
     openrouter_descriptor_values,
     openrouter_ratio_size,
     requested_orientation,
+    resolve_openrouter_image_model,
 )
 from .openrouter import (
     extract_openrouter_generation_cost,
@@ -29,6 +31,7 @@ from .openrouter import (
 )
 
 __all__ = [
+    "build_openrouter_image_request_metadata",
     "build_openrouter_image_request_body",
     "build_openrouter_image_request_plan",
     "fetch_ollama_models_status",
@@ -53,6 +56,7 @@ __all__ = [
     "parse_openrouter_text_models",
     "request_openrouter_chat_completion",
     "requested_orientation",
+    "resolve_openrouter_image_model",
     "resolve_openrouter_reference_value",
     "select_openrouter_first_image",
 ]

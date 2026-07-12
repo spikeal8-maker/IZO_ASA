@@ -39,10 +39,10 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний runtime checkpoint | `5154083` — OpenRouter image response normalization |
+| Последний runtime checkpoint | `B1` — OpenRouter aliases/request metadata extraction; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 887 passed, 0 failed, 0 deselected |
+| Последний полный test checkpoint | 899 passed, 0 failed, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 149 | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 151 | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -108,7 +108,7 @@
 | BE-03 | `ЧАСТИЧНО` | Tokens/passwords/sessions/permissions/OTP/events вынесены; legacy auth removal и routers не завершены |
 | BE-04 | `ЧАСТИЧНО` | Storage paths/private/public/recovery/source graph/thumbnails/validation/cleanup вынесены; оставшиеся gallery/media orchestration blocks ещё в `main.py` |
 | BE-05 | `ГОТОВО` | Текущий ограниченный scope Ollama: URL, discovery и общий chat transport вынесены |
-| BE-06 | `ЧАСТИЧНО` | Большая часть OpenRouter HTTP/parsing/image planning/I/O вынесена; model aliases, request metadata и orchestration ещё частично в `main.py` |
+| BE-06 | `ГОТОВО` | Ограниченный integration scope завершён: HTTP/parsing/planning/I/O/model aliases/request metadata вынесены; application caches, policy, persistence, billing и orchestration остаются в соответствующих будущих services |
 | BE-07 | `НЕ НАЧАТО` | Telegram integration client/typed errors/health не выделены |
 | BE-08 | `НЕ НАЧАТО` | MAX integration client/typed errors/health не выделены |
 | BE-09 | `НЕ НАЧАТО` | ComfyUI client/workflow/result adapter не выделены |
@@ -186,7 +186,7 @@
 
 | Пакет | Результат |
 |---|---|
-| B1 | Завершить OpenRouter: model aliases и request metadata; затем остановить мелкое дробление этой интеграции |
+| B1 | `ГОТОВО` — model aliases и request metadata вынесены; дальнейшее мелкое дробление этой integration boundary остановлено |
 | B2 | Завершить `app/config.py`: paths, URLs, modes, limits, cookie/proxy policy и production validation |
 | B3 | Завершить migrations: ledger/version, idempotent schema groups, billing/feed/auth migration tests |
 | B4 | Выделить Telegram client и затем handlers/service |
@@ -247,8 +247,8 @@
 Это точная очередь, а не список всего проекта:
 
 1. `A1` — `ГОТОВО`: единая `tools/verify.ps1`.
-2. `B1` — **СЛЕДУЮЩИЙ ПАКЕТ**: завершить OpenRouter aliases/request metadata и прекратить дальнейшее мелкое дробление интеграции.
-3. `A3` — Telegram webhook secret enforcement.
+2. `B1` — `ГОТОВО`: OpenRouter aliases/request metadata extraction.
+3. `A3` — **СЛЕДУЮЩИЙ ПАКЕТ**: Telegram webhook secret enforcement.
 4. `A4` — MAX webhook secret enforcement.
 5. `A5` — OpenRouter DPAPI secret store и удаление plaintext SQLite secret.
 6. `A6` — backup/restore tooling без автоматического schedule на первом PR.
@@ -282,6 +282,27 @@
 - backend preflight: один loopback listener, PID 51140; health HTTP 200;
 - исправлены две найденные ошибки самого verifier: ложное обнаружение родительского PowerShell как pytest-процесса и конфигурация UTF-8 для вывода;
 - controlled restart не выполнялся: A1 добавляет только verification tooling и документацию, runtime-код не менялся.
+
+### Checkpoint B1 — OpenRouter aliases и request metadata
+
+Реализовано 2026-07-13:
+
+- legacy alias resolution перенесён из `main.py` в pure helper `resolve_openrouter_image_model()`;
+- сборка сохраняемой не-секретной `openrouterRequest` metadata перенесена в `build_openrouter_image_request_metadata()`;
+- `main.py` сохраняет тонкие compatibility wrappers и application orchestration;
+- каталог capabilities, API key/header policy, HTTP transport, billing, job/gallery persistence и paid generation behavior не менялись;
+- дальнейшее мелкое дробление OpenRouter integration остановлено; следующие крупные границы выделяются только вместе с services/routers.
+
+Доказательства:
+
+- characterization test до реализации ожидаемо упал на отсутствии новых imports;
+- focused OpenRouter images/client suite: `67 passed` пять последовательных прогонов;
+- финальный `Full`: `899 passed, 72 warnings`, frontend lint `0 errors / 1 existing warning`, frontend build успешно;
+- `py_compile` и generated map check успешны: 111 Python-файлов, 608 symbols, 165 routes;
+- source snapshot до/после: 122 файла, 1 706 364 байта, SHA-256 `AC1A00934150E28C74BC1C4F319AFF24C84324FF8842AE8EEACD44D34A977850`, без изменений;
+- controlled backend restart: PID 51140 → PID 54256, один listener `127.0.0.1:8000`, startup `changed=0`;
+- live smoke 5/5: health/database/models/tariffs/feed HTTP 200, private source без trusted session HTTP 401;
+- реальная платная OpenRouter generation не запускалась; VPS и tunnel не изменялись.
 
 ## 9. Обязательный gate каждого пакета
 

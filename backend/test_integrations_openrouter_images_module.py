@@ -6,13 +6,97 @@ import pytest
 
 import main
 from app.integrations.openrouter_images import (
+    build_openrouter_image_request_metadata,
     build_openrouter_image_request_body,
     build_openrouter_image_request_plan,
     image_edit_influence_instruction,
     openrouter_descriptor_values,
     openrouter_ratio_size,
     requested_orientation,
+    resolve_openrouter_image_model,
 )
+
+
+@pytest.mark.parametrize(
+    ("model_profile", "expected"),
+    [
+        (None, "black-forest-labs/flux.2-klein-4b"),
+        ("", "black-forest-labs/flux.2-klein-4b"),
+        (" openrouter_cloud ", "black-forest-labs/flux.2-klein-4b"),
+        ("openrouter_gpt_image", "openai/gpt-image-1"),
+        ("openrouter_recraft", "recraft/recraft-v3"),
+        ("openrouter_gemini_image", "google/gemini-2.5-flash-image"),
+        ("local_flux_klein", "black-forest-labs/flux.2-klein-4b"),
+        (" provider/custom-image ", "provider/custom-image"),
+        ("unknown-alias", "black-forest-labs/flux.2-klein-4b"),
+    ],
+)
+def test_model_alias_resolution_preserves_legacy_contract(model_profile, expected):
+    assert resolve_openrouter_image_model(model_profile) == expected
+
+
+def test_request_metadata_preserves_plan_and_runtime_fields():
+    assert build_openrouter_image_request_metadata(
+        {
+            "size": "1024x1024",
+            "billing_width": 1024,
+            "billing_height": 1024,
+            "strategy": "requested_size",
+            "mode": "must-be-overridden",
+        },
+        mode="image_to_image",
+        strength=0.755,
+        body={"input_references": [{"image": 1}, {"image": 2}], "seed": 17},
+    ) == {
+        "size": "1024x1024",
+        "billing_width": 1024,
+        "billing_height": 1024,
+        "strategy": "requested_size",
+        "mode": "image_to_image",
+        "inputReferences": 2,
+        "influencePercent": 76,
+        "seedSent": True,
+    }
+
+
+def test_request_metadata_preserves_non_i2i_none_and_absent_seed():
+    assert build_openrouter_image_request_metadata(
+        {"aspect_ratio": "16:9"},
+        mode="edit",
+        strength=0.9,
+        body={"input_references": []},
+    ) == {
+        "aspect_ratio": "16:9",
+        "mode": "edit",
+        "inputReferences": 0,
+        "influencePercent": None,
+        "seedSent": False,
+    }
+
+
+def test_main_alias_and_metadata_wrappers_delegate(monkeypatch):
+    payload = SimpleNamespace(modelProfile="legacy", mode="image_to_image", strength=0.5)
+    plan = {"size": "1024x1024"}
+    body = {"seed": 9}
+    seen: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(
+        main,
+        "resolve_openrouter_image_model",
+        lambda profile: seen.append(("model", profile)) or "provider/resolved",
+    )
+    monkeypatch.setattr(
+        main,
+        "build_openrouter_image_request_metadata",
+        lambda request_plan, **kwargs: seen.append(("metadata", request_plan, kwargs)) or {"metadata": True},
+    )
+
+    assert main.resolve_openrouter_model(payload) == "provider/resolved"
+    assert main.openrouter_image_request_metadata(payload, plan, body) == {"metadata": True}
+    assert seen == [
+        ("model", "legacy"),
+        ("metadata", plan, {"mode": "image_to_image", "strength": 0.5, "body": body}),
+    ]
 
 
 @pytest.mark.parametrize(
