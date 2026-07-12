@@ -27,12 +27,24 @@ def temp_db(tmp_path: Path, monkeypatch):
     db_file = tmp_path / "ownership_test.sqlite3"
     media_dir = tmp_path / "media"
     media_dir.mkdir()
+    avatar_dir = media_dir / "avatars"
+    avatar_dir.mkdir()
     monkeypatch.setattr(main, "DB_PATH", db_file)
     monkeypatch.setattr(main, "MEDIA", media_dir)
+    monkeypatch.setattr(main, "AVATAR_DIR", avatar_dir)
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
     monkeypatch.setattr(main, "COMFYUI_BASE_URL", "http://127.0.0.1:9999")
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "test")
     monkeypatch.setattr(main, "worker_started", True)
+    # Before the security fix, /media is a StaticFiles mount created at import
+    # time and therefore keeps the original live directory. Point that mount at
+    # the temporary test directory so the regression test exercises the actual
+    # route without ever touching live media. After the mount is removed this
+    # loop intentionally becomes a no-op.
+    for route in main.app.routes:
+        if getattr(route, "path", None) == "/media" and hasattr(getattr(route, "app", None), "all_directories"):
+            monkeypatch.setattr(route.app, "directory", str(media_dir))
+            monkeypatch.setattr(route.app, "all_directories", [str(media_dir)])
     main.init_db()
     return db_file
 
@@ -175,6 +187,47 @@ def test_media_own_session_200(temp_db, two_users):
         r = c.get("/api/media/a.png?userId=web_a", cookies={"onenode_session": sa["session_token"]})
     assert r.status_code == 200
     assert r.content == b"fake-png"
+
+
+def test_legacy_media_path_without_session_401(temp_db, two_users):
+    with TestClient(main.app) as c:
+        r = c.get("/media/a.png")
+    assert r.status_code == 401
+
+
+def test_legacy_media_path_with_other_session_404(temp_db, two_users):
+    sb = sess_b(two_users)
+    with TestClient(main.app) as c:
+        r = c.get("/media/a.png", cookies={"onenode_session": sb["session_token"]})
+    assert r.status_code == 404
+
+
+def test_legacy_media_path_with_owner_session_200(temp_db, two_users):
+    sa = sess_a(two_users)
+    with TestClient(main.app) as c:
+        r = c.get("/media/a.png", cookies={"onenode_session": sa["session_token"]})
+    assert r.status_code == 200
+    assert r.content == b"fake-png"
+
+
+def test_referenced_custom_avatar_stays_public(temp_db, two_users):
+    avatar = main.AVATAR_DIR / "public-avatar.webp"
+    avatar.write_bytes(b"fake-avatar")
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE users SET avatar_url = '/media/avatars/public-avatar.webp' WHERE id = 'web_a'"
+        )
+    with TestClient(main.app) as c:
+        r = c.get("/media/avatars/public-avatar.webp")
+    assert r.status_code == 200
+    assert r.content == b"fake-avatar"
+
+
+def test_unreferenced_custom_avatar_is_not_public(temp_db, two_users):
+    (main.AVATAR_DIR / "orphan-avatar.webp").write_bytes(b"orphan")
+    with TestClient(main.app) as c:
+        r = c.get("/media/avatars/orphan-avatar.webp")
+    assert r.status_code == 404
 
 
 # --- 10. Gallery list returns only own images ---

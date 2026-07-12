@@ -73,8 +73,10 @@ if not exist "node_modules" (
 )
 call npx tsc -b
 if errorlevel 1 (
-  echo [WARN] tsc -b had type errors ^(likely WIP code^). Vite build will still run.
-  echo        Fix uncommitted TypeScript errors in newUi.tsx before final deploy.
+  echo [ERROR] TypeScript compile failed. Public site NOT changed.
+  popd >nul
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
+  exit /b 1
 )
 call npx vite build
 if errorlevel 1 (echo [ERROR] vite build failed. Public site NOT changed. & popd >nul & pause & exit /b 1)

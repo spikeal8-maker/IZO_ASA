@@ -20,6 +20,7 @@ def count(table, where="", params=()):
 
 
 PW = "S3cret-Password!"
+_ADMIN_SESSION: dict[str, str] = {}
 
 
 @pytest.fixture
@@ -28,12 +29,22 @@ def temp_db(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(main, "DB_PATH", db_file)
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
     main.init_db()
-    # Create web_admin for legacy require_admin checks
+    # Create a real trusted admin session. Legacy identity headers must never
+    # authorize protected lifecycle operations.
     now = "2026-01-01T00:00:00+00:00"
     with main.db() as conn:
         conn.execute("INSERT INTO users (id, internal_user_id, language, role, created_at, last_login_at) VALUES (?, ?, 'ru', 'admin', ?, ?)",
                      ("web_admin", "iuid-admin", now, now))
-    return db_file
+    session = main.create_auth_session("iuid-admin", "web_admin", provider="web_email", platform="web_desktop")
+    _ADMIN_SESSION["token"] = session["session_token"]
+    yield db_file
+    _ADMIN_SESSION.clear()
+
+
+def admin_client() -> TestClient:
+    client = TestClient(main.app)
+    client.cookies.set(main.TRUSTED_SESSION_COOKIE_NAME, _ADMIN_SESSION["token"])
+    return client
 
 
 def register(client, email, password=PW, repeat=None):
@@ -96,8 +107,8 @@ def test_admin_disable_revokes_sessions(temp_db):
     # Verify session is active
     assert count("auth_sessions", "WHERE internal_user_id=? AND revoked_at IS NULL", (iuid,)) >= 1
     # Admin disable
-    with TestClient(main.app) as c2:
-        r = c2.delete(f"/api/admin/users/{legacy}", headers={"X-OneNode-User": "web_admin"})
+    with admin_client() as c2:
+        r = c2.delete(f"/api/admin/users/{legacy}")
     assert r.status_code == 200
     # Sessions revoked
     assert count("auth_sessions", "WHERE internal_user_id=? AND revoked_at IS NULL", (iuid,)) == 0
@@ -110,8 +121,9 @@ def test_admin_disable_disables_password(temp_db):
         legacy = r.json()["legacy_user_id"]
         iuid = r.json()["internal_user_id"]
     assert count("auth_passwords", "WHERE internal_user_id=? AND disabled_at IS NULL", (iuid,)) == 1
-    with TestClient(main.app) as c2:
-        c2.delete(f"/api/admin/users/{legacy}", headers={"X-OneNode-User": "web_admin"})
+    with admin_client() as c2:
+        response = c2.delete(f"/api/admin/users/{legacy}")
+    assert response.status_code == 200
     assert count("auth_passwords", "WHERE internal_user_id=? AND disabled_at IS NULL", (iuid,)) == 0
 
 
@@ -121,8 +133,9 @@ def test_register_disabled_email_409(temp_db):
         r = register(c, "disabled@test.local")
         legacy = r.json()["legacy_user_id"]
     # Admin disable
-    with TestClient(main.app) as c2:
-        c2.delete(f"/api/admin/users/{legacy}", headers={"X-OneNode-User": "web_admin"})
+    with admin_client() as c2:
+        response = c2.delete(f"/api/admin/users/{legacy}")
+    assert response.status_code == 200
     # Try re-register
     with TestClient(main.app) as c3:
         r = register(c3, "disabled@test.local")
@@ -212,9 +225,9 @@ def test_users_id_unchanged(temp_db):
 
 # --- 14. Admin disable: protected users cannot be disabled ---
 def test_admin_delete_protected_users_400(temp_db):
-    with TestClient(main.app) as c:
-        r = c.delete("/api/admin/users/web_admin", headers={"X-OneNode-User": "web_admin"})
+    with admin_client() as c:
+        r = c.delete("/api/admin/users/web_admin")
     assert r.status_code == 400
-    with TestClient(main.app) as c2:
-        r = c2.delete("/api/admin/users/demo_user", headers={"X-OneNode-User": "web_admin"})
+    with admin_client() as c2:
+        r = c2.delete("/api/admin/users/demo_user")
     assert r.status_code == 400

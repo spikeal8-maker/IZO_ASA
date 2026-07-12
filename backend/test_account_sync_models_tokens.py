@@ -82,8 +82,11 @@ def test_user_tariffs_and_model_access_follow_admin_settings(temp_db):
     assert "black-forest-labs/flux.2-max" in [item["id"] for item in text_mode["models"]]
     local_model = next(item for item in text_mode["models"] if item["id"] == "server:local_flux_klein")
     api_model = next(item for item in text_mode["models"] if item["id"] == "black-forest-labs/flux.2-pro")
-    assert local_model["generation"] == {"fixedSteps": 4, "allowsExactRepeat": False, "supportsSeed": True}
-    assert api_model["generation"] == {"fixedSteps": None, "allowsExactRepeat": True, "supportsSeed": False}
+    assert local_model["generation"] == {"fixedSteps": 4, "allowsExactRepeat": False, "supportsSeed": True, "maxInputReferences": 4}
+    assert api_model["generation"]["fixedSteps"] is None
+    assert api_model["generation"]["allowsExactRepeat"] is True
+    assert api_model["generation"]["supportsSeed"] is False
+    assert api_model["generation"]["maxInputReferences"] >= 1
 
 
 def test_job_status_restores_completed_result_from_database(temp_db):
@@ -125,9 +128,11 @@ def test_openrouter_provider_size_plan_avoids_known_rejections(temp_db):
     assert openai_plan["size"] == "1536x1024"
     assert recraft_plan["size"] == "1536x1024"
     assert sourceful_plan["size"] == "16:9"
-    assert seed_plan["size"] == "2560x1440"
-    assert int(seed_plan["billing_width"]) * int(seed_plan["billing_height"]) >= 3_686_400
-    assert google_plan["size"] == "1024x1024"
+    assert seed_plan["size"] == "1280x720"
+    assert seed_plan["strategy"] == "requested_size"
+    assert int(seed_plan["billing_width"]) * int(seed_plan["billing_height"]) == 921_600
+    assert google_plan["aspect_ratio"] == "16:9"
+    assert google_plan["resolution"] == "1K"
 
 
 def test_account_token_history_counts_balance_and_included_usage(temp_db):
@@ -258,7 +263,7 @@ def test_openrouter_generation_uses_monthly_package_before_balance(temp_db, monk
     assert json.loads(ledger["meta_json"])["token_cost"] == 3
 
 
-def test_openrouter_non_text_modes_are_blocked_until_adapter_supports_inputs(temp_db, monkeypatch):
+def test_openrouter_non_text_mode_requires_live_model_capability_before_billing(temp_db, monkeypatch):
     make_user("iuid-user", "web_user", plan="pro", balance=25)
     token = main.create_auth_session("iuid-user", "web_user", provider="web_email", platform="web")["session_token"]
     with main.db() as conn:
@@ -271,9 +276,17 @@ def test_openrouter_non_text_modes_are_blocked_until_adapter_supports_inputs(tem
         )
 
     async def fake_billing(_req):
-        raise AssertionError("billing must not run for unsupported OpenRouter mode")
+        raise AssertionError("billing must not run for a capability-rejected OpenRouter mode")
+
+    async def text_only_capabilities(*_args, **_kwargs):
+        return [{
+            "id": "black-forest-labs/flux.2-pro",
+            "modes": ["text_to_image"],
+            "supportedResolutionIds": ["sq-hd"],
+        }]
 
     monkeypatch.setattr(main, "estimate_openrouter_billing", fake_billing)
+    monkeypatch.setattr(main, "fetch_openrouter_image_capabilities", text_only_capabilities)
     with TestClient(main.app) as client:
         response = client.post(
             "/api/generate",
@@ -290,7 +303,7 @@ def test_openrouter_non_text_modes_are_blocked_until_adapter_supports_inputs(tem
             },
         )
 
-    assert response.status_code == 501
+    assert response.status_code == 400
     with main.db() as conn:
         assert conn.execute("SELECT COUNT(*) AS c FROM token_ledger").fetchone()["c"] == 0
         assert conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"] == 0

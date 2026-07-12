@@ -38,7 +38,7 @@ def wait_for_terminal_job(client: TestClient, job_id: str, timeout: float = 8) -
     deadline = time.time() + timeout
     while time.time() < deadline:
         response = client.get(f"/api/jobs/{job_id}")
-        assert response.status_code == 200
+        assert response.status_code == 200, response.text
         payload = response.json()
         if payload["status"] in {"completed", "failed", "cancelled"}:
             return payload
@@ -60,6 +60,8 @@ async def fake_send_to_openrouter(payload: main.GenerateRequest, job: dict) -> m
         model="black-forest-labs/flux.2-klein-4b",
         usage={"images": 1},
         cost_usd=0.014,
+        width=payload.width,
+        height=payload.height,
         raw={"id": "or_test_123"},
     )
 
@@ -74,13 +76,19 @@ def isolated_db(tmp_path, monkeypatch):
     """Run every test against a throwaway SQLite file — never the working DB.
 
     Also seeds one admin user plus a trusted server session so endpoints guarded
-    by require_trusted_user / require_admin can be exercised. POST /api/generate
-    now demands a trusted session (see test_generation_protection.py); admin
-    endpoints still use the legacy request_user_id path (X-OneNode-User header).
+    by require_trusted_user / require_trusted_admin can be exercised. POST
+    /api/generate demands a trusted session (see test_generation_protection.py).
     """
     db_file = tmp_path / "api_test.sqlite3"
     monkeypatch.setattr(main, "DB_PATH", db_file)
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
+    # Never inherit real provider credentials or update modes from backend/.env.
+    # Provider tests opt in with explicit fake tokens and mocked HTTP clients.
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "")
+    monkeypatch.setattr(main, "MAX_BOT_TOKEN", "")
+    monkeypatch.setattr(main, "BOT_UPDATES_MODE", "disabled")
+    monkeypatch.setattr(main, "BOT_MODE", "disabled")
+    monkeypatch.setattr(main, "MAX_UPDATES_MODE", "disabled")
     main.init_db()
     main.jobs.clear()
     main.images.clear()
@@ -118,6 +126,48 @@ def authed_client() -> TestClient:
     return client
 
 
+BOT_OPERATIONAL_CASES = [
+    ("POST", "/api/telegram/send-message", {"chatId": "1", "text": "hello"}),
+    ("GET", "/api/telegram/me", None),
+    ("POST", "/api/telegram/poll-once", None),
+    ("POST", "/api/telegram/set-webhook", None),
+    ("POST", "/api/telegram/configure-bot", None),
+    ("POST", "/api/telegram/delete-webhook", None),
+    ("POST", "/api/max/send-message", {"userId": "1", "text": "hello"}),
+    ("GET", "/api/max/me", None),
+    ("POST", "/api/max/poll-once", None),
+    ("POST", "/api/max/set-webhook", None),
+]
+
+
+@pytest.mark.parametrize(("method", "path", "payload"), BOT_OPERATIONAL_CASES)
+def test_bot_operational_endpoints_require_trusted_admin(method, path, payload) -> None:
+    with TestClient(main.app) as client:
+        response = client.request(method, path, json=payload)
+    assert response.status_code == 401
+
+
+def test_bot_operational_endpoints_reject_trusted_non_admin() -> None:
+    now = "2026-01-01T00:00:00+00:00"
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO users (id, internal_user_id, language, role, created_at, last_login_at) "
+            "VALUES ('web_bot_user', 'iuid-bot-user', 'ru', 'user', ?, ?)",
+            (now, now),
+        )
+        conn.execute(
+            "INSERT INTO auth_identities (id, internal_user_id, legacy_user_id, provider, provider_user_id, linked_at) "
+            "VALUES ('id-bot-user', 'iuid-bot-user', 'web_bot_user', 'web_email', 'bot-user@test.local', ?)",
+            (now,),
+        )
+    session = main.create_auth_session("iuid-bot-user", "web_bot_user", provider="web_email", platform="web_desktop")
+    with TestClient(main.app) as client:
+        client.cookies.set(main.TRUSTED_SESSION_COOKIE_NAME, session["session_token"])
+        for method, path, payload in BOT_OPERATIONAL_CASES:
+            response = client.request(method, path, json=payload)
+            assert response.status_code == 403, f"{method} {path}: {response.status_code}"
+
+
 def test_health_reports_core_fields(monkeypatch) -> None:
     async def fake_available() -> bool:
         return True
@@ -152,8 +202,8 @@ def test_all_generation_modes_complete_and_save_gallery_records(monkeypatch) -> 
                 "provider": "comfyui",
                 "prompt": f"automated test prompt for {mode}",
                 "seed": 100,
-                "width": 512,
-                "height": 512,
+                "width": 704,
+                "height": 704,
                 "inputImage1": data_url if mode != "text_to_image" else None,
                 "inputImage2": data_url if mode in {"faceswap", "try_on", "texture_transfer"} else None,
                 "canvas": "[]" if mode in {"paint", "inpaint"} else None,
@@ -167,7 +217,7 @@ def test_all_generation_modes_complete_and_save_gallery_records(monkeypatch) -> 
             assert final["status"] == "completed"
             assert final["progress"] == 100
             assert final["resultImageId"]
-            assert final["resultUrl"].split("?", 1)[0].endswith(".webp")
+            assert final["resultUrl"].split("?", 1)[0].endswith(".png")
             completed.append(final)
 
         gallery = client.get("/api/gallery").json()
@@ -179,11 +229,34 @@ def test_all_generation_modes_complete_and_save_gallery_records(monkeypatch) -> 
 
 
 def test_openrouter_generation_skips_comfyui(monkeypatch) -> None:
+    model_id = "black-forest-labs/flux.2-klein-4b"
+
     async def fail_if_called(_payload: main.GenerateRequest, _job: dict) -> str:
         raise AssertionError("OpenRouter path must not call ComfyUI adapter")
 
+    async def fake_capabilities(force: bool = False) -> list[dict]:
+        return [{"id": model_id, "modes": ["text_to_image"]}]
+
+    async def fake_exchange_rate() -> dict:
+        return {"rate": 100.0, "source": "test", "sourceDate": "2026-01-01", "cache": "test"}
+
     monkeypatch.setattr(main, "send_to_comfyui", fail_if_called)
     monkeypatch.setattr(main, "send_to_openrouter", fake_send_to_openrouter)
+    monkeypatch.setattr(main, "fetch_openrouter_image_capabilities", fake_capabilities)
+    monkeypatch.setattr(main, "fetch_usd_rub_rate", fake_exchange_rate)
+    monkeypatch.setattr(main, "openrouter_model_allowed", lambda *_args: True)
+    monkeypatch.setattr(
+        main,
+        "get_openrouter_config",
+        lambda: {
+            "enabled": {"text_to_image": [model_id]},
+            "defaults": {"text_to_image": model_id},
+            "access": {"text_to_image": {"mini": [model_id]}},
+            "qualityDefaults": {"text_to_image": {"standard": model_id}},
+        },
+    )
+    with main.db() as conn:
+        conn.execute("UPDATE users SET plan = 'mini' WHERE id = ?", (_SESSION["legacy_user_id"],))
     with authed_client() as client:
         response = client.post(
             "/api/generate",
@@ -191,15 +264,15 @@ def test_openrouter_generation_skips_comfyui(monkeypatch) -> None:
                 "mode": "text_to_image",
                 "provider": "openrouter",
                 "prompt": "cloud image test",
-                "width": 512,
-                "height": 512,
+                "width": 704,
+                "height": 704,
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 200, response.text
         final = wait_for_terminal_job(client, response.json()["id"])
 
-    assert final["status"] == "completed"
-    assert final["resultUrl"].split("?", 1)[0].endswith(".webp")
+    assert final["status"] == "completed", final
+    assert final["resultUrl"].split("?", 1)[0].endswith(".png")
     with main.db() as conn:
         row = conn.execute("SELECT settings_json FROM jobs WHERE id = ?", (response.json()["id"],)).fetchone()
     settings = main.safe_json_load(row["settings_json"])
@@ -212,7 +285,7 @@ def test_cancel_generation_sets_cancelled_status(monkeypatch) -> None:
     with authed_client() as client:
         created = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "cancel me", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "cancel me", "width": 704, "height": 704},
         ).json()
         cancelled = client.post(f"/api/jobs/{created['id']}/cancel").json()
         final = wait_for_terminal_job(client, created["id"])
@@ -225,16 +298,11 @@ def test_validation_and_not_found_errors() -> None:
     with authed_client() as client:
         bad_size = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "bad", "width": 128, "height": 512},
-        )
-        missing_faceswap_lora = client.post(
-            "/api/generate",
-            json={"mode": "faceswap", "provider": "comfyui", "prompt": "swap", "width": 512, "height": 512, "inputImage1": tiny_image_data_url(), "inputImage2": tiny_image_data_url()},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "bad", "width": 128, "height": 704},
         )
         missing = client.get("/api/jobs/missing")
 
     assert bad_size.status_code == 422
-    assert missing_faceswap_lora.status_code == 422
     assert missing.status_code == 404
 
 
@@ -252,7 +320,7 @@ def test_translate_presets_webhooks_and_admin(monkeypatch) -> None:
         max_hook = client.post("/api/max/webhook", json={"message": {"text": "/app"}}).json()
         client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "admin summary", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "admin summary", "width": 704, "height": 704},
         )
         summary = client.get("/api/admin/summary").json()
 
@@ -316,7 +384,9 @@ def test_bootstrap_includes_flux_klein_runtime_data(monkeypatch) -> None:
     assert payload["features"]["modes"] == ["text_to_image", "image_to_image", "edit", "paint", "faceswap"]
     assert payload["fluxKleinConfig"]["t2i_templates"][0]["name"] == "Foggy street deer"
     assert "faceswap" in payload["fluxKleinConfig"]["discover_prompts"]
-    assert payload["models"]["diffusion_models"] == ["flux-2-klein-4b-fp8.safetensors"]
+    assert payload["models"]["diffusion_models"] == ["ИЗО Base"]
+    assert payload["models"]["text_encoders"] == ["Flux2 CLIP"]
+    assert payload["models"]["vaes"] == ["Flux2 VAE"]
     assert payload["bgRemovalModels"]["models"] == ["BiRefNet"]
 
 
@@ -325,7 +395,7 @@ def test_bot_adapters_work_without_domain_in_local_mode(monkeypatch) -> None:
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "")
     monkeypatch.setattr(main, "MAX_BOT_TOKEN", "")
 
-    with TestClient(main.app) as client:
+    with authed_client() as client:
         status = client.get("/api/bots/status").json()
         telegram = client.post("/api/bots/local-command", json={"platform": "telegram", "text": "/app", "chatId": "1"}).json()
         max_app = client.post("/api/bots/local-command", json={"platform": "max", "text": "/settings", "chatId": "2"}).json()
@@ -346,7 +416,7 @@ def test_real_bot_endpoints_require_tokens_and_https(monkeypatch) -> None:
     monkeypatch.setattr(main, "MAX_BOT_TOKEN", "")
     monkeypatch.setenv("BACKEND_PUBLIC_URL", "http://127.0.0.1:8000")
 
-    with TestClient(main.app) as client:
+    with authed_client() as client:
         telegram_poll = client.post("/api/telegram/poll-once")
         max_send = client.post("/api/max/send-message", json={"userId": "1", "text": "hello"})
         telegram_webhook = client.post("/api/telegram/set-webhook")
@@ -385,7 +455,7 @@ def test_max_api_uses_authorization_header(monkeypatch) -> None:
     monkeypatch.setattr(main, "MAX_BOT_TOKEN", "max_secret")
     monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
 
-    with TestClient(main.app) as client:
+    with authed_client() as client:
         payload = client.post("/api/max/send-message", json={"userId": "100", "text": "hello"}).json()
 
     assert payload["message"]["id"] == "m1"
@@ -443,7 +513,7 @@ def test_max_poll_once_sends_command_reply(monkeypatch) -> None:
     assert calls[1]["method"] == "POST"
     assert calls[1]["path"] == "/messages"
     assert calls[1]["params"] == {"user_id": "u1"}
-    assert "Открыть настройки" in calls[1]["payload"]["text"]
+    assert calls[1]["payload"]["text"] == "Настройки приложения"
 
 
 def test_telegram_polling_persists_offset_and_uses_allowed_updates(monkeypatch) -> None:
@@ -567,12 +637,14 @@ def test_bot_polling_start_respects_mode_and_guard(monkeypatch) -> None:
 
     monkeypatch.setattr(main.asyncio, "create_task", fake_create_task)
     monkeypatch.setattr(main, "BOT_UPDATES_MODE", "webhook")
+    monkeypatch.setattr(main, "MAX_UPDATES_MODE", "webhook")
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "tg")
     monkeypatch.setattr(main, "MAX_BOT_TOKEN", "max")
     assert main.start_bot_polling_tasks() == []
     assert created == []
 
     monkeypatch.setattr(main, "BOT_UPDATES_MODE", "polling")
+    monkeypatch.setattr(main, "MAX_UPDATES_MODE", "polling")
     started = main.start_bot_polling_tasks()
     assert started == ["telegram", "max"]
     assert len(created) == 2
@@ -610,7 +682,7 @@ def test_completed_generation_is_persisted_to_sqlite(monkeypatch) -> None:
     with authed_client() as client:
         created = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "persist me", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "persist me", "width": 704, "height": 704},
         ).json()
         final = wait_for_terminal_job(client, created["id"])
 
@@ -628,7 +700,7 @@ def test_stage3_gallery_detail_favorite_use_as_and_delete(monkeypatch) -> None:
     with authed_client() as client:
         created = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "gallery item", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "gallery item", "width": 704, "height": 704},
         ).json()
         final = wait_for_terminal_job(client, created["id"])
         image_id = final["resultImageId"]
@@ -654,7 +726,7 @@ def test_favorite_image_is_not_auto_evicted_when_gallery_quota_is_full(monkeypat
     with authed_client() as client:
         first = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "keep favorite", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "keep favorite", "width": 704, "height": 704},
         ).json()
         first_final = wait_for_terminal_job(client, first["id"])
         first_id = first_final["resultImageId"]
@@ -664,7 +736,7 @@ def test_favorite_image_is_not_auto_evicted_when_gallery_quota_is_full(monkeypat
 
         second = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "do not save over favorite", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "do not save over favorite", "width": 704, "height": 704},
         ).json()
         second_final = wait_for_terminal_job(client, second["id"])
 
@@ -675,7 +747,7 @@ def test_favorite_image_is_not_auto_evicted_when_gallery_quota_is_full(monkeypat
         client.post(f"/api/gallery/{first_id}/favorite", json={"isFavorite": False})
         third = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "replace unprotected", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "replace unprotected", "width": 704, "height": 704},
         ).json()
         third_final = wait_for_terminal_job(client, third["id"])
 
@@ -702,14 +774,14 @@ def test_auto_eviction_skips_newer_favorite_and_removes_previous_unprotected(mon
     with authed_client() as client:
         first = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "older unprotected", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "older unprotected", "width": 704, "height": 704},
         ).json()
         first_final = wait_for_terminal_job(client, first["id"])
         first_id = first_final["resultImageId"]
 
         second = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "newer favorite", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "newer favorite", "width": 704, "height": 704},
         ).json()
         second_final = wait_for_terminal_job(client, second["id"])
         second_id = second_final["resultImageId"]
@@ -717,7 +789,7 @@ def test_auto_eviction_skips_newer_favorite_and_removes_previous_unprotected(mon
 
         third = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "replacement", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "replacement", "width": 704, "height": 704},
         ).json()
         third_final = wait_for_terminal_job(client, third["id"])
 
@@ -742,14 +814,14 @@ def test_over_limit_gallery_shrinks_gradually_on_new_generation(monkeypatch) -> 
         for prompt in ("old one", "old two", "old three"):
             created = client.post(
                 "/api/generate",
-                json={"mode": "text_to_image", "provider": "comfyui", "prompt": prompt, "width": 512, "height": 512},
+                json={"mode": "text_to_image", "provider": "comfyui", "prompt": prompt, "width": 704, "height": 704},
             ).json()
             created_ids.append(wait_for_terminal_job(client, created["id"])["resultImageId"])
 
         monkeypatch.setitem(main.DEFAULT_TARIFFS["free"], "gallery_slots", 2)
         replacement = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "new after downgrade", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "new after downgrade", "width": 704, "height": 704},
         ).json()
         replacement_final = wait_for_terminal_job(client, replacement["id"])
         gallery_after = client.get("/api/gallery").json()
@@ -766,7 +838,7 @@ def test_gallery_page_uses_cursor_pagination(monkeypatch) -> None:
         for prompt in prompts:
             created = client.post(
                 "/api/generate",
-                json={"mode": "text_to_image", "provider": "comfyui", "prompt": prompt, "width": 512, "height": 512},
+                json={"mode": "text_to_image", "provider": "comfyui", "prompt": prompt, "width": 704, "height": 704},
             ).json()
             created_ids.append(wait_for_terminal_job(client, created["id"])["resultImageId"])
 
@@ -786,12 +858,12 @@ def test_gallery_page_search_and_filter_are_server_side(monkeypatch) -> None:
     with authed_client() as client:
         first = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "red castle archive", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "red castle archive", "width": 704, "height": 704},
         ).json()
         first_id = wait_for_terminal_job(client, first["id"])["resultImageId"]
         second = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "blue forest favorite", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "blue forest favorite", "width": 704, "height": 704},
         ).json()
         second_id = wait_for_terminal_job(client, second["id"])["resultImageId"]
         client.post(f"/api/gallery/{second_id}/favorite", json={"isFavorite": True})
@@ -809,7 +881,7 @@ def test_gallery_media_access_is_db_backed_and_removed_after_delete(monkeypatch)
     with authed_client() as client:
         created = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "media db backed", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "media db backed", "width": 704, "height": 704},
         ).json()
         final = wait_for_terminal_job(client, created["id"])
         image_id = final["resultImageId"]
@@ -839,17 +911,17 @@ def test_stage3_media_url_inputs_work_for_i2i_and_edit(monkeypatch) -> None:
     with authed_client() as client:
         first = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "source", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "source", "width": 704, "height": 704},
         ).json()
         first_final = wait_for_terminal_job(client, first["id"])
         source_url = first_final["resultUrl"]
         i2i = client.post(
             "/api/generate",
-            json={"mode": "image_to_image", "provider": "comfyui", "prompt": "variation", "width": 512, "height": 512, "inputImage1": source_url},
+            json={"mode": "image_to_image", "provider": "comfyui", "prompt": "variation", "width": 704, "height": 704, "inputImage1": source_url},
         ).json()
         edit = client.post(
             "/api/generate",
-            json={"mode": "edit", "provider": "comfyui", "prompt": "edit it", "width": 512, "height": 512, "inputImage1": source_url},
+            json={"mode": "edit", "provider": "comfyui", "prompt": "edit it", "width": 704, "height": 704, "inputImage1": source_url},
         ).json()
         i2i_final = wait_for_terminal_job(client, i2i["id"])
         edit_final = wait_for_terminal_job(client, edit["id"])
@@ -868,7 +940,7 @@ def test_generation_persists_source_snapshots_for_gallery_history(monkeypatch) -
     with authed_client() as client:
         source = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "source for history", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "source for history", "width": 704, "height": 704},
         ).json()
         source_final = wait_for_terminal_job(client, source["id"])
         source_id = source_final["resultImageId"]
@@ -879,8 +951,8 @@ def test_generation_persists_source_snapshots_for_gallery_history(monkeypatch) -
                 "mode": "image_to_image",
                 "provider": "comfyui",
                 "prompt": "derived with visible history",
-                "width": 512,
-                "height": 512,
+                "width": 704,
+                "height": 704,
                 "inputImage1": source_final["resultUrl"],
             },
         ).json()
@@ -908,7 +980,7 @@ def test_gallery_source_history_includes_parent_chain(monkeypatch) -> None:
     with authed_client() as client:
         source = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "root source", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "root source", "width": 704, "height": 704},
         ).json()
         source_final = wait_for_terminal_job(client, source["id"])
 
@@ -918,8 +990,8 @@ def test_gallery_source_history_includes_parent_chain(monkeypatch) -> None:
                 "mode": "image_to_image",
                 "provider": "comfyui",
                 "prompt": "first branch",
-                "width": 512,
-                "height": 512,
+                "width": 704,
+                "height": 704,
                 "inputImage1": source_final["resultUrl"],
             },
         ).json()
@@ -931,8 +1003,8 @@ def test_gallery_source_history_includes_parent_chain(monkeypatch) -> None:
                 "mode": "image_to_image",
                 "provider": "comfyui",
                 "prompt": "second branch",
-                "width": 512,
-                "height": 512,
+                "width": 704,
+                "height": 704,
                 "inputImage1": first_final["resultUrl"],
             },
         ).json()
@@ -952,7 +1024,7 @@ def test_gallery_source_history_survives_deleted_intermediate(monkeypatch) -> No
     with authed_client() as client:
         source = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "root survives", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "root survives", "width": 704, "height": 704},
         ).json()
         source_final = wait_for_terminal_job(client, source["id"])
 
@@ -962,8 +1034,8 @@ def test_gallery_source_history_survives_deleted_intermediate(monkeypatch) -> No
                 "mode": "image_to_image",
                 "provider": "comfyui",
                 "prompt": "middle source",
-                "width": 512,
-                "height": 512,
+                "width": 704,
+                "height": 704,
                 "inputImage1": source_final["resultUrl"],
             },
         ).json()
@@ -975,8 +1047,8 @@ def test_gallery_source_history_survives_deleted_intermediate(monkeypatch) -> No
                 "mode": "image_to_image",
                 "provider": "comfyui",
                 "prompt": "result keeps snapshot tree",
-                "width": 512,
-                "height": 512,
+                "width": 704,
+                "height": 704,
                 "inputImage1": middle_final["resultUrl"],
             },
         ).json()
@@ -997,7 +1069,7 @@ def test_gallery_detail_repairs_missing_sources_from_job_settings(monkeypatch) -
     with authed_client() as client:
         source = client.post(
             "/api/generate",
-            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "repair source", "width": 512, "height": 512},
+            json={"mode": "text_to_image", "provider": "comfyui", "prompt": "repair source", "width": 704, "height": 704},
         ).json()
         source_final = wait_for_terminal_job(client, source["id"])
         derived = client.post(
@@ -1006,8 +1078,8 @@ def test_gallery_detail_repairs_missing_sources_from_job_settings(monkeypatch) -
                 "mode": "image_to_image",
                 "provider": "comfyui",
                 "prompt": "repair derived",
-                "width": 512,
-                "height": 512,
+                "width": 704,
+                "height": 704,
                 "inputImage1": source_final["resultUrl"],
             },
         ).json()
@@ -1034,8 +1106,8 @@ def test_edit_generation_persists_multiple_upload_source_snapshots(monkeypatch) 
                 "mode": "edit",
                 "provider": "comfyui",
                 "prompt": "compose multiple sources",
-                "width": 512,
-                "height": 512,
+                "width": 704,
+                "height": 704,
                 "inputImages": [
                     {"index": index + 1, "role": role, "image": tiny_image_data_url()}
                     for index, role in enumerate(roles)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 import asyncio
+import json
 from fastapi.testclient import TestClient
 
 import main
@@ -116,13 +117,14 @@ def test_tariff_defaults_and_admin_settings_normalize(temp_db):
         public = c.get("/api/tariffs")
         settings = c.get("/api/admin/settings", headers=bearer(token))
     assert public.status_code == 200
-    assert public.json()["tariffs"]["free"] == {"daily_tokens": 10, "gallery_slots": 1, "video_enabled": 0, "video_slots": 0}
-    assert public.json()["tariffs"]["mini"] == {"daily_tokens": 50, "gallery_slots": 10, "video_enabled": 0, "video_slots": 0}
-    assert public.json()["tariffs"]["plus"] == {"daily_tokens": 100, "gallery_slots": 50, "video_enabled": 0, "video_slots": 0}
-    assert public.json()["tariffs"]["pro"] == {"daily_tokens": 200, "gallery_slots": 100, "video_enabled": 1, "video_slots": 10}
-    assert public.json()["tariffs"]["business"] == {"daily_tokens": 500, "gallery_slots": 500, "video_enabled": 1, "video_slots": 50}
+    tariffs = public.json()["tariffs"]
+    assert [tariffs[plan]["gallery_slots"] for plan in main.PLAN_ORDER] == [20, 80, 200, 500, 500]
+    assert [tariffs[plan]["daily_tokens"] for plan in main.PLAN_ORDER] == [10, 50, 100, 200, 500]
+    assert tariffs["free"]["allowed_resolutions"] == ["sq-sd", "v-sd", "h-sd", "p-sd"]
+    assert tariffs["pro"]["video_enabled"] == 1 and tariffs["pro"]["video_slots"] == 10
+    assert tariffs["business"]["video_enabled"] == 1 and tariffs["business"]["video_slots"] == 50
     assert settings.status_code == 200
-    assert settings.json()["tariffs"]["pro"]["gallery_slots"] == 100
+    assert settings.json()["tariffs"]["pro"]["gallery_slots"] == 500
     assert settings.json()["tariffs"]["business"]["video_slots"] == 50
 
 
@@ -171,9 +173,9 @@ def test_gallery_quota_free_slot_and_soft_delete(temp_db):
         )
         row = conn.execute("SELECT * FROM users WHERE id='web_free_quota'").fetchone()
         quota = main.gallery_quota_for_user(conn, row, "web_free_quota")
-    assert quota["gallery_slots"] == 1
+    assert quota["gallery_slots"] == 20
     assert quota["gallery_used"] == 1
-    assert quota["gallery_full"] is True
+    assert quota["gallery_full"] is False
     main.load_db_state()
     with TestClient(main.app) as c:
         deleted = c.delete("/api/gallery/img-free-1", headers=bearer(token))
@@ -181,24 +183,33 @@ def test_gallery_quota_free_slot_and_soft_delete(temp_db):
     assert deleted.status_code == 200
     assert me.status_code == 200
     assert me.json()["account"]["gallery_used"] == 0
-    assert me.json()["account"]["gallery_free"] == 1
+    assert me.json()["account"]["gallery_free"] == 20
     assert me.json()["account"]["gallery_full"] is False
     with main.db() as conn:
         row = conn.execute("SELECT * FROM users WHERE id='web_free_quota'").fetchone()
         quota = main.gallery_quota_for_user(conn, row, "web_free_quota")
     assert quota["gallery_used"] == 0
-    assert quota["gallery_free"] == 1
+    assert quota["gallery_free"] == 20
 
 
 def test_generation_replaces_oldest_gallery_slot_when_full(temp_db):
     make_user("iuid-free-gen", "web_free_gen", plan="free", gallery_enabled=0, balance=100)
+    tariffs = main.normalize_tariffs({
+        **main.DEFAULT_TARIFFS,
+        "free": {**main.DEFAULT_TARIFFS["free"], "gallery_slots": 1},
+    })
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('tariffs', ?, '2026-01-01')",
+            (json.dumps(tariffs, ensure_ascii=False),),
+        )
     token = main.create_auth_session("iuid-free-gen", "web_free_gen", provider="web_email", platform="web")["session_token"]
     payload = {
         "mode": "text_to_image",
         "provider": "comfyui",
         "prompt": "safe prompt",
-        "width": 512,
-        "height": 512,
+        "width": 704,
+        "height": 704,
         "steps": 4,
         "cfg": 1,
         "loras": [],

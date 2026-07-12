@@ -1,0 +1,93 @@
+"""Import-safe cryptographic helpers for identity and authentication."""
+
+from .passwords import (
+    DUMMY_PASSWORD_HASH,
+    PASSWORD_ALGORITHM,
+    PASSWORD_HASHER,
+    PASSWORD_MAX_LENGTH,
+    PASSWORD_MIN_LENGTH,
+    hash_password,
+    password_hash_needs_rehash,
+    validate_password_policy,
+    verify_password,
+)
+from .tokens import (
+    generate_bot_login_token,
+    generate_secure_token,
+    hash_token,
+    validate_session_crypto_config,
+)
+from .sessions import (
+    SessionAccessError,
+    SessionRuntime,
+    create_session,
+    refresh_session,
+    resolve_session,
+    revoke_session,
+)
+from .permissions import (
+    PermissionAccessError,
+    PermissionRuntime,
+    require_admin,
+    resolve_trusted_identity,
+    user_is_admin,
+)
+from .events import (
+    EventRuntime,
+    record_login_attempt,
+    record_product_event,
+    record_security_event,
+    record_session_event,
+)
+from .otp import (
+    OtpAccessError,
+    OtpRateLimits,
+    OtpRuntime,
+    cleanup_expired_otp_challenges,
+    enforce_email_otp_rate_limits,
+    generate_otp_code,
+    hash_otp,
+    send_email_otp,
+    validate_email_otp_config,
+)
+
+__all__ = [
+    "DUMMY_PASSWORD_HASH",
+    "EventRuntime",
+    "OtpAccessError",
+    "OtpRateLimits",
+    "OtpRuntime",
+    "PASSWORD_ALGORITHM",
+    "PASSWORD_HASHER",
+    "PASSWORD_MAX_LENGTH",
+    "PASSWORD_MIN_LENGTH",
+    "PermissionAccessError",
+    "PermissionRuntime",
+    "SessionAccessError",
+    "SessionRuntime",
+    "create_session",
+    "cleanup_expired_otp_challenges",
+    "enforce_email_otp_rate_limits",
+    "generate_bot_login_token",
+    "generate_secure_token",
+    "generate_otp_code",
+    "hash_password",
+    "hash_token",
+    "hash_otp",
+    "password_hash_needs_rehash",
+    "refresh_session",
+    "record_login_attempt",
+    "record_product_event",
+    "record_security_event",
+    "record_session_event",
+    "require_admin",
+    "resolve_trusted_identity",
+    "resolve_session",
+    "revoke_session",
+    "send_email_otp",
+    "validate_email_otp_config",
+    "validate_password_policy",
+    "validate_session_crypto_config",
+    "verify_password",
+    "user_is_admin",
+]

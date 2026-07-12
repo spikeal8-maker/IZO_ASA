@@ -294,6 +294,10 @@ def test_device_installation_linked(temp_db):
 def test_production_debug_return_code_fails_config(temp_db, monkeypatch):
     monkeypatch.setattr(main, "APP_ENV", "production")
     monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", True)
+    # This test exercises OTP fail-closed behaviour with a temporary database;
+    # DB Guard production-path validation has its own dedicated test module.
+    monkeypatch.setattr(main, "db_guard_preflight", lambda: None)
+    monkeypatch.setattr(main, "enforce_db_guard_after_migrations", lambda: None)
     with pytest.raises(RuntimeError):
         main.validate_email_otp_config()
     with TestClient(main.app) as client:
@@ -307,6 +311,9 @@ def test_production_without_provider_fails_safely(temp_db, monkeypatch):
     monkeypatch.setattr(main, "APP_ENV", "production")
     monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", False)
     monkeypatch.setattr(main, "EMAIL_PROVIDER", "")
+    # Keep this focused on OTP provider validation, not DB Guard configuration.
+    monkeypatch.setattr(main, "db_guard_preflight", lambda: None)
+    monkeypatch.setattr(main, "enforce_db_guard_after_migrations", lambda: None)
     with pytest.raises(RuntimeError):
         main.validate_email_otp_config()
     main._mock_email_outbox.clear()

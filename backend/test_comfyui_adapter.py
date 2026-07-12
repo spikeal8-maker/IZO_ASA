@@ -130,10 +130,10 @@ def test_models_endpoint_reports_selected_models(monkeypatch) -> None:
         payload = client.get("/api/models").json()
 
     assert payload["ok"] is True
-    assert payload["selected"]["model"] == "Flux2"
+    assert payload["selected"]["model"] == "ИЗО Base"
     assert payload["selected"]["textEncoder"] == "Flux2 CLIP"
     assert payload["selected"]["vae"] == "Flux2 VAE"
-    assert payload["diffusion_models"] == ["Flux2"]
+    assert payload["diffusion_models"] == ["ИЗО Base"]
     assert payload["text_encoders"] == ["Flux2 CLIP"]
     assert payload["vaes"] == ["Flux2 VAE"]
     assert payload["loras"] == ["bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors"]
@@ -176,7 +176,7 @@ def test_extract_images_from_history_handles_standard_comfyui_outputs() -> None:
     ]
 
 
-def test_download_comfyui_image_saves_optimized_webp_and_thumbnail(monkeypatch) -> None:
+def test_download_comfyui_image_saves_png_original_and_webp_thumbnail(monkeypatch) -> None:
     image = Image.new("RGB", (3000, 1800), "#2f6fed")
     buffer = BytesIO()
     image.save(buffer, "PNG")
@@ -214,10 +214,10 @@ def test_download_comfyui_image_saves_optimized_webp_and_thumbnail(monkeypatch) 
 
     assert image_path.exists()
     assert thumb_path.exists()
-    assert image_path.name == "job_download_test_comfyui.webp"
+    assert image_path.name == "job_download_test_comfyui.png"
     assert thumb_path.name == "job_download_test_comfyui_thumb.webp"
     with Image.open(image_path) as saved:
-        assert saved.format == "WEBP"
+        assert saved.format == "PNG"
         assert max(saved.size) <= main.GALLERY_IMAGE_MAX_SIDE
 
 

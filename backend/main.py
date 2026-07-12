@@ -25,8 +25,6 @@ import hashlib
 from urllib.parse import parse_qs, quote
 
 import httpx
-from argon2 import PasswordHasher
-from argon2.exceptions import Argon2Error
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -51,6 +49,151 @@ except ImportError:  # Direct `python backend/main.py` execution.
         normalize_resolution_ids,
         resolution_id_for_size,
         supported_resolution_ids_from_capability,
+    )
+
+try:
+    from .app.config import env_bool, load_local_env, sqlite_path_from_database_url
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.config import env_bool, load_local_env, sqlite_path_from_database_url
+
+try:
+    from .app.database import (
+        BASE_SCHEMA_SQL,
+        IDENTITY_SCHEMA_SQL,
+        IMAGE_SEARCH_SCHEMA_SQL,
+        DbGuardError,
+        FEED_PUBLICATION_ADDITIVE_COLUMNS,
+        IMAGE_ADDITIVE_COLUMNS,
+        IMAGE_SOURCE_ADDITIVE_COLUMNS,
+        USER_EARLY_ADDITIVE_COLUMNS,
+        add_missing_columns,
+        collect_sqlite_guard_status,
+        database_size_mb,
+        mask_database_path,
+        open_sqlite,
+        parse_allowed_database_paths,
+        preflight_sqlite_database,
+        safe_guard_payload,
+    )
+
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.database import (
+        BASE_SCHEMA_SQL,
+        IDENTITY_SCHEMA_SQL,
+        IMAGE_SEARCH_SCHEMA_SQL,
+        DbGuardError,
+        FEED_PUBLICATION_ADDITIVE_COLUMNS,
+        IMAGE_ADDITIVE_COLUMNS,
+        IMAGE_SOURCE_ADDITIVE_COLUMNS,
+        USER_EARLY_ADDITIVE_COLUMNS,
+        add_missing_columns,
+        collect_sqlite_guard_status,
+        database_size_mb,
+        mask_database_path,
+        open_sqlite,
+        parse_allowed_database_paths,
+        preflight_sqlite_database,
+        safe_guard_payload,
+    )
+
+try:
+    from .app.security import (
+        DUMMY_PASSWORD_HASH as SECURITY_DUMMY_PASSWORD_HASH,
+        PASSWORD_ALGORITHM as SECURITY_PASSWORD_ALGORITHM,
+        PASSWORD_HASHER as SECURITY_PASSWORD_HASHER,
+        PASSWORD_MAX_LENGTH as SECURITY_PASSWORD_MAX_LENGTH,
+        PASSWORD_MIN_LENGTH as SECURITY_PASSWORD_MIN_LENGTH,
+        EventRuntime,
+        OtpAccessError,
+        OtpRateLimits,
+        OtpRuntime,
+        PermissionAccessError,
+        PermissionRuntime,
+        SessionAccessError,
+        SessionRuntime,
+        create_session as security_create_session,
+        cleanup_expired_otp_challenges as security_cleanup_expired_otp_challenges,
+        enforce_email_otp_rate_limits as security_enforce_email_otp_rate_limits,
+        generate_otp_code as security_generate_otp_code,
+        generate_bot_login_token as security_generate_bot_login_token,
+        generate_secure_token as security_generate_secure_token,
+        hash_password as security_hash_password,
+        hash_token as security_hash_token,
+        hash_otp as security_hash_otp,
+        password_hash_needs_rehash as security_password_hash_needs_rehash,
+        refresh_session as security_refresh_session,
+        record_login_attempt as security_record_login_attempt,
+        record_product_event as security_record_product_event,
+        record_security_event as security_record_security_event,
+        record_session_event as security_record_session_event,
+        require_admin as security_require_admin,
+        resolve_trusted_identity as security_resolve_trusted_identity,
+        resolve_session as security_resolve_session,
+        revoke_session as security_revoke_session,
+        send_email_otp as security_send_email_otp,
+        validate_email_otp_config as security_validate_email_otp_config,
+        validate_password_policy as security_validate_password_policy,
+        validate_session_crypto_config as security_validate_session_crypto_config,
+        verify_password as security_verify_password,
+        user_is_admin as security_user_is_admin,
+    )
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.security import (
+        DUMMY_PASSWORD_HASH as SECURITY_DUMMY_PASSWORD_HASH,
+        PASSWORD_ALGORITHM as SECURITY_PASSWORD_ALGORITHM,
+        PASSWORD_HASHER as SECURITY_PASSWORD_HASHER,
+        PASSWORD_MAX_LENGTH as SECURITY_PASSWORD_MAX_LENGTH,
+        PASSWORD_MIN_LENGTH as SECURITY_PASSWORD_MIN_LENGTH,
+        EventRuntime,
+        OtpAccessError,
+        OtpRateLimits,
+        OtpRuntime,
+        PermissionAccessError,
+        PermissionRuntime,
+        SessionAccessError,
+        SessionRuntime,
+        create_session as security_create_session,
+        cleanup_expired_otp_challenges as security_cleanup_expired_otp_challenges,
+        enforce_email_otp_rate_limits as security_enforce_email_otp_rate_limits,
+        generate_otp_code as security_generate_otp_code,
+        generate_bot_login_token as security_generate_bot_login_token,
+        generate_secure_token as security_generate_secure_token,
+        hash_password as security_hash_password,
+        hash_token as security_hash_token,
+        hash_otp as security_hash_otp,
+        password_hash_needs_rehash as security_password_hash_needs_rehash,
+        refresh_session as security_refresh_session,
+        record_login_attempt as security_record_login_attempt,
+        record_product_event as security_record_product_event,
+        record_security_event as security_record_security_event,
+        record_session_event as security_record_session_event,
+        require_admin as security_require_admin,
+        resolve_trusted_identity as security_resolve_trusted_identity,
+        resolve_session as security_resolve_session,
+        revoke_session as security_revoke_session,
+        send_email_otp as security_send_email_otp,
+        validate_email_otp_config as security_validate_email_otp_config,
+        validate_password_policy as security_validate_password_policy,
+        validate_session_crypto_config as security_validate_session_crypto_config,
+        verify_password as security_verify_password,
+        user_is_admin as security_user_is_admin,
+    )
+
+try:
+    from .app.storage import (
+        StoragePathError,
+        local_media_path_from_url as storage_local_media_path_from_url,
+        media_filename_from_url as storage_media_filename_from_url,
+        public_media_url as storage_public_media_url,
+        resolve_under_root as storage_resolve_under_root,
+    )
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.storage import (
+        StoragePathError,
+        local_media_path_from_url as storage_local_media_path_from_url,
+        media_filename_from_url as storage_media_filename_from_url,
+        public_media_url as storage_public_media_url,
+        resolve_under_root as storage_resolve_under_root,
     )
 
 
@@ -82,22 +225,7 @@ SOURCE_THUMB_MAX_SIDE = max(192, min(768, int(os.getenv("SOURCE_THUMB_MAX_SIDE",
 SOURCE_THUMB_WEBP_QUALITY = max(55, min(90, int(os.getenv("SOURCE_THUMB_WEBP_QUALITY", "76"))))
 
 
-def load_local_env() -> None:
-    env_path = ROOT / ".env"
-    if not env_path.exists():
-        return
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = value
-
-
-load_local_env()
+load_local_env(ROOT)
 mimetypes.add_type("image/webp", ".webp")
 MEDIA = Path(os.getenv("MEDIA_DIR", str(ROOT / "media"))).expanduser().resolve()
 MEDIA.mkdir(parents=True, exist_ok=True)
@@ -116,15 +244,6 @@ def is_production_like_env() -> bool:
     return any((value or "").strip().lower() in {"production", "prod", "live"} for value in (APP_ENV, ENV_NAME, MODE_NAME))
 
 
-def sqlite_path_from_database_url(value: str | None) -> Path:
-    raw = (value or "").strip()
-    if raw.startswith("sqlite:///"):
-        return Path(raw.replace("sqlite:///", "", 1))
-    if raw.startswith("sqlite:"):
-        return Path(raw.replace("sqlite:", "", 1))
-    return Path(raw) if raw else ROOT / "onenode.sqlite3"
-
-
 DB_PATH = sqlite_path_from_database_url(os.getenv("DATABASE_URL"))
 
 COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188")
@@ -138,13 +257,6 @@ PROMPT_IMPROVE_MODEL = os.getenv("PROMPT_IMPROVE_MODEL", "deepseek/deepseek-v4-f
 PROMPT_IMPROVE_TIMEOUT_SECONDS = max(3, min(30, int(os.getenv("PROMPT_IMPROVE_TIMEOUT_SECONDS", "10"))))
 CBR_DAILY_XML_URL = os.getenv("CBR_DAILY_XML_URL", "https://www.cbr.ru/scripts/XML_daily.asp")
 USD_RUB_FALLBACK_URL = os.getenv("USD_RUB_FALLBACK_URL", "https://open.er-api.com/v6/latest/USD")
-
-
-def env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 BOT_UPDATES_MODE = os.getenv("BOT_UPDATES_MODE", os.getenv("BOT_MODE", "disabled")).strip().lower()
@@ -263,7 +375,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-app.mount("/media", StaticFiles(directory=MEDIA), name="media")
 if AVATAR_PRESET_DIR is not None:
     app.mount("/avatars", StaticFiles(directory=AVATAR_PRESET_DIR), name="avatars")
 
@@ -937,10 +1048,6 @@ def validate_max_web_app_data_strict(web_app_data: str, ttl_seconds: int | None 
     return data
 
 
-class DbGuardError(RuntimeError):
-    pass
-
-
 DB_GUARD_MIN_SIZE_MB = float(os.getenv("DB_GUARD_MIN_SIZE_MB", "10"))
 DB_GUARD_MIN_USERS = int(os.getenv("DB_GUARD_MIN_USERS", "5"))
 DB_GUARD_MIN_ACTIVE_ADMINS = int(os.getenv("DB_GUARD_MIN_ACTIVE_ADMINS", "1"))
@@ -979,36 +1086,19 @@ def safe_backend_commit() -> str | None:
 
 
 def mask_db_path(path: Path | None = None) -> str:
-    p = path or DB_PATH
-    try:
-        resolved = p.resolve()
-        return f".../{resolved.parent.name}/{resolved.name}"
-    except Exception:
-        return f".../{p.name}"
+    return mask_database_path(path or DB_PATH)
 
 
 def db_size_mb(path: Path | None = None) -> float:
-    p = path or DB_PATH
-    try:
-        return round(p.stat().st_size / 1024 / 1024, 2)
-    except OSError:
-        return 0.0
+    return database_size_mb(path or DB_PATH)
 
 
 def allowed_db_paths() -> set[Path]:
-    raw = os.getenv("DB_GUARD_ALLOWED_PATHS", "")
-    parts = [p.strip() for p in re.split(r"[;|]", raw) if p.strip()]
-    return {sqlite_path_from_database_url(part).resolve() for part in parts}
+    return parse_allowed_database_paths(os.getenv("DB_GUARD_ALLOWED_PATHS", ""))
 
 
 def safe_db_guard_payload(status: dict[str, Any] | None = None) -> dict[str, Any]:
-    s = dict(status or DB_GUARD_STATUS)
-    return {
-        "ok": bool(s.get("ok")),
-        "status": str(s.get("status") or "unknown"),
-        "reason": truncate_admin_text(s.get("reason") or "", 160),
-        "migration_status": str(s.get("migration_status") or "unknown"),
-    }
+    return safe_guard_payload(status or DB_GUARD_STATUS)
 
 
 def db_guard_fail(reason: str, *, migration_status: str = "fail") -> None:
@@ -1018,64 +1108,28 @@ def db_guard_fail(reason: str, *, migration_status: str = "fail") -> None:
 
 
 def db_guard_preflight() -> None:
-    if not is_production_like_env():
-        return
-    if not (os.getenv("DATABASE_URL") or "").strip():
-        db_guard_fail("DATABASE_URL is required in production/live mode.", migration_status="not_started")
-    resolved = DB_PATH.resolve()
-    allowed = allowed_db_paths()
-    if allowed and resolved not in allowed:
-        db_guard_fail(f"DB path is not in production allowlist: {mask_db_path(resolved)}", migration_status="not_started")
-    if not DB_PATH.exists():
-        db_guard_fail(f"DB file does not exist: {mask_db_path(DB_PATH)}", migration_status="not_started")
-    min_bytes = int(DB_GUARD_MIN_SIZE_MB * 1024 * 1024)
     try:
-        size = DB_PATH.stat().st_size
-    except OSError:
-        size = 0
-    if size < min_bytes:
-        db_guard_fail(f"DB file is suspiciously small: {db_size_mb(DB_PATH)} MB", migration_status="not_started")
+        preflight_sqlite_database(
+            production_like=is_production_like_env(),
+            database_url=os.getenv("DATABASE_URL") or "",
+            path=DB_PATH,
+            allowed_paths=allowed_db_paths(),
+            min_size_mb=DB_GUARD_MIN_SIZE_MB,
+        )
+    except DbGuardError as exc:
+        db_guard_fail(str(exc), migration_status="not_started")
 
 
 def collect_db_guard_status() -> dict[str, Any]:
-    status: dict[str, Any] = {
-        "ok": False,
-        "status": "fail",
-        "reason": "",
-        "migration_status": "fail",
-        "db_type": "sqlite",
-        "db_path": mask_db_path(DB_PATH),
-        "db_size_mb": db_size_mb(DB_PATH),
-        "users_count": 0,
-        "active_admin_count": 0,
-    }
-    if not DB_PATH.exists():
-        status["reason"] = f"DB file does not exist: {mask_db_path(DB_PATH)}"
-        return status
-    with db() as conn:
-        tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-        missing_tables = sorted(DB_GUARD_REQUIRED_TABLES - tables)
-        if missing_tables:
-            status["reason"] = f"Missing required tables: {', '.join(missing_tables)}"
-            return status
-        for table, required in DB_GUARD_REQUIRED_COLUMNS.items():
-            columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-            missing_columns = sorted(required - columns)
-            if missing_columns:
-                status["reason"] = f"Missing required columns: {table}.{', '.join(missing_columns)}"
-                return status
-        users_count = int(conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"] or 0)
-        active_admin_count = int(conn.execute("SELECT COUNT(*) AS c FROM users WHERE role='admin' AND COALESCE(banned,0)=0").fetchone()["c"] or 0)
-        status["users_count"] = users_count
-        status["active_admin_count"] = active_admin_count
-        if is_production_like_env() and users_count < DB_GUARD_MIN_USERS:
-            status["reason"] = f"Users count below production minimum: {users_count}"
-            return status
-        if is_production_like_env() and active_admin_count < DB_GUARD_MIN_ACTIVE_ADMINS:
-            status["reason"] = f"Active admin count below production minimum: {active_admin_count}"
-            return status
-    status.update({"ok": True, "status": "ok", "reason": "ok", "migration_status": "ok"})
-    return status
+    return collect_sqlite_guard_status(
+        path=DB_PATH,
+        connection_factory=db,
+        required_tables=DB_GUARD_REQUIRED_TABLES,
+        required_columns=DB_GUARD_REQUIRED_COLUMNS,
+        production_like=is_production_like_env(),
+        min_users=DB_GUARD_MIN_USERS,
+        min_active_admins=DB_GUARD_MIN_ACTIVE_ADMINS,
+    )
 
 
 def enforce_db_guard_after_migrations() -> None:
@@ -1086,437 +1140,14 @@ def enforce_db_guard_after_migrations() -> None:
 
 
 def db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout = 10000")
-    conn.execute("PRAGMA foreign_keys = ON")
-    try:
-        conn.execute("PRAGMA journal_mode = WAL")
-    except sqlite3.DatabaseError:
-        # Some test/temp DBs may not support WAL; busy_timeout still protects
-        # the common concurrent writer case without weakening correctness.
-        pass
-    return conn
+    return open_sqlite(DB_PATH)
 
 
 def init_db() -> None:
     with db() as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                telegram_id TEXT,
-                max_id TEXT,
-                username TEXT,
-                first_name TEXT,
-                last_name TEXT,
-                language TEXT NOT NULL DEFAULT 'ru',
-                role TEXT NOT NULL DEFAULT 'user',
-                created_at TEXT NOT NULL,
-                last_login_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS jobs (
-                id TEXT PRIMARY KEY,
-                user_id TEXT,
-                mode TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                status TEXT NOT NULL,
-                progress INTEGER NOT NULL DEFAULT 0,
-                prompt_original TEXT,
-                prompt_translated TEXT,
-                result_image_id TEXT,
-                error_message TEXT,
-                settings_json TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL,
-                started_at TEXT,
-                completed_at TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS images (
-                id TEXT PRIMARY KEY,
-                user_id TEXT,
-                job_id TEXT,
-                url TEXT NOT NULL,
-                thumbnail_url TEXT NOT NULL,
-                width INTEGER NOT NULL,
-                height INTEGER NOT NULL,
-                mode TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                prompt_original TEXT,
-                prompt_translated TEXT,
-                settings_json TEXT NOT NULL DEFAULT '{}',
-                is_favorite INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                storage_tier TEXT NOT NULL DEFAULT 'original',
-                optimized_at TEXT,
-                original_bytes INTEGER,
-                stored_bytes INTEGER
-            );
-
-            CREATE TABLE IF NOT EXISTS image_sources (
-                id TEXT PRIMARY KEY,
-                image_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                source_image_id TEXT,
-                source_kind TEXT NOT NULL,
-                role TEXT,
-                slot_index INTEGER NOT NULL DEFAULT 0,
-                thumb_url TEXT NOT NULL,
-                thumb_width INTEGER NOT NULL DEFAULT 0,
-                thumb_height INTEGER NOT NULL DEFAULT 0,
-                thumb_bytes INTEGER NOT NULL DEFAULT 0,
-                is_favorite INTEGER NOT NULL DEFAULT 0,
-                library_deleted_at TEXT,
-                availability_status TEXT NOT NULL DEFAULT 'unknown',
-                availability_checked_at TEXT,
-                unavailable_at TEXT,
-                children_json TEXT NOT NULL DEFAULT '[]',
-                created_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_image_sources_image
-                ON image_sources(image_id, slot_index);
-            CREATE INDEX IF NOT EXISTS idx_image_sources_user
-                ON image_sources(user_id, created_at);
-
-            CREATE TABLE IF NOT EXISTS presets (
-                id TEXT PRIMARY KEY,
-                owner_user_id TEXT,
-                is_system INTEGER NOT NULL DEFAULT 1,
-                name_ru TEXT NOT NULL,
-                name_en TEXT NOT NULL,
-                description_ru TEXT,
-                description_en TEXT,
-                mode TEXT NOT NULL,
-                prompt_template_ru TEXT,
-                prompt_template_en TEXT,
-                required_inputs TEXT NOT NULL DEFAULT '[]',
-                settings_json TEXT NOT NULL DEFAULT '{}',
-                is_visible INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS loras (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                file_name TEXT NOT NULL,
-                file_path TEXT,
-                trigger_word TEXT,
-                default_strength REAL NOT NULL DEFAULT 1,
-                description TEXT,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                compatible_modes TEXT NOT NULL DEFAULT '[]',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS model_profiles (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                model_name TEXT NOT NULL,
-                default_width INTEGER NOT NULL DEFAULT 1024,
-                default_height INTEGER NOT NULL DEFAULT 1024,
-                default_steps INTEGER NOT NULL DEFAULT 28,
-                default_cfg REAL NOT NULL DEFAULT 3.5,
-                supports_text_to_image INTEGER NOT NULL DEFAULT 1,
-                supports_image_to_image INTEGER NOT NULL DEFAULT 1,
-                supports_edit INTEGER NOT NULL DEFAULT 1,
-                supports_paint INTEGER NOT NULL DEFAULT 1,
-                supports_inpaint INTEGER NOT NULL DEFAULT 1,
-                supports_outpaint INTEGER NOT NULL DEFAULT 1,
-                supports_faceswap INTEGER NOT NULL DEFAULT 1,
-                supports_lora INTEGER NOT NULL DEFAULT 1,
-                settings_json TEXT NOT NULL DEFAULT '{}',
-                enabled INTEGER NOT NULL DEFAULT 1
-            );
-
-            CREATE TABLE IF NOT EXISTS admin_settings (
-                key TEXT PRIMARY KEY,
-                value_json TEXT NOT NULL DEFAULT '{}',
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS admin_secrets (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS bot_polling_state (
-                provider TEXT PRIMARY KEY,
-                cursor TEXT,
-                updated_at TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS auth_login_challenges (
-                id TEXT PRIMARY KEY,
-                provider TEXT NOT NULL,
-                token_hash TEXT NOT NULL UNIQUE,
-                browser_nonce_hash TEXT NOT NULL UNIQUE,
-                status TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                internal_user_id TEXT,
-                provider_user_id TEXT,
-                provider_username TEXT,
-                approved_at TEXT,
-                consumed_at TEXT,
-                created_at TEXT NOT NULL,
-                created_ip TEXT,
-                user_agent TEXT
-            );
-            CREATE INDEX IF NOT EXISTS idx_auth_login_challenges_provider_status ON auth_login_challenges(provider, status);
-            CREATE INDEX IF NOT EXISTS idx_auth_login_challenges_expires ON auth_login_challenges(expires_at);
-
-            CREATE TABLE IF NOT EXISTS promo_codes (
-                code TEXT PRIMARY KEY,
-                tokens INTEGER NOT NULL DEFAULT 0,
-                activation_limit INTEGER NOT NULL DEFAULT 1,
-                activation_count INTEGER NOT NULL DEFAULT 0,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS token_ledger (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                delta INTEGER NOT NULL,
-                reason TEXT NOT NULL,
-                meta_json TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS billing_packages (
-                id TEXT PRIMARY KEY,
-                code TEXT NOT NULL UNIQUE,
-                name TEXT NOT NULL,
-                description TEXT,
-                price_amount INTEGER NOT NULL DEFAULT 0,
-                currency TEXT NOT NULL DEFAULT 'RUB',
-                token_amount INTEGER NOT NULL DEFAULT 0,
-                is_active INTEGER NOT NULL DEFAULT 1,
-                sort_order INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS invoices (
-                id TEXT PRIMARY KEY,
-                invoice_code TEXT NOT NULL UNIQUE,
-                internal_user_id TEXT NOT NULL,
-                user_id TEXT,
-                status TEXT NOT NULL,
-                currency TEXT NOT NULL DEFAULT 'RUB',
-                subtotal_amount INTEGER NOT NULL DEFAULT 0,
-                discount_amount INTEGER NOT NULL DEFAULT 0,
-                total_amount INTEGER NOT NULL DEFAULT 0,
-                tokens_total INTEGER NOT NULL DEFAULT 0,
-                due_at TEXT,
-                issued_at TEXT,
-                paid_at TEXT,
-                cancelled_at TEXT,
-                refunded_at TEXT,
-                created_by_admin_id TEXT,
-                updated_by_admin_id TEXT,
-                reason TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS invoice_items (
-                id TEXT PRIMARY KEY,
-                invoice_id TEXT NOT NULL,
-                package_code TEXT,
-                title TEXT NOT NULL,
-                description TEXT,
-                quantity INTEGER NOT NULL DEFAULT 1,
-                unit_amount INTEGER NOT NULL DEFAULT 0,
-                total_amount INTEGER NOT NULL DEFAULT 0,
-                token_amount INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS payments (
-                id TEXT PRIMARY KEY,
-                invoice_id TEXT NOT NULL,
-                internal_user_id TEXT NOT NULL,
-                user_id TEXT,
-                status TEXT NOT NULL,
-                amount INTEGER NOT NULL DEFAULT 0,
-                currency TEXT NOT NULL DEFAULT 'RUB',
-                method TEXT NOT NULL DEFAULT 'manual',
-                provider TEXT NOT NULL DEFAULT 'manual',
-                provider_payment_id TEXT,
-                paid_at TEXT,
-                created_by_admin_id TEXT,
-                reason TEXT,
-                token_ledger_id TEXT,
-                idempotency_key TEXT UNIQUE,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS refunds (
-                id TEXT PRIMARY KEY,
-                payment_id TEXT NOT NULL,
-                invoice_id TEXT NOT NULL,
-                internal_user_id TEXT NOT NULL,
-                amount INTEGER NOT NULL DEFAULT 0,
-                currency TEXT NOT NULL DEFAULT 'RUB',
-                status TEXT NOT NULL,
-                reason TEXT,
-                created_by_admin_id TEXT,
-                token_reversal_ledger_id TEXT,
-                idempotency_key TEXT UNIQUE,
-                created_at TEXT NOT NULL,
-                completed_at TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS promo_redemptions (
-                id TEXT PRIMARY KEY,
-                promo_code_id TEXT,
-                promo_code TEXT NOT NULL,
-                internal_user_id TEXT NOT NULL,
-                user_id TEXT,
-                status TEXT NOT NULL,
-                discount_amount INTEGER,
-                token_bonus INTEGER,
-                reason TEXT,
-                token_ledger_id TEXT,
-                created_by_admin_id TEXT,
-                idempotency_key TEXT UNIQUE,
-                created_at TEXT NOT NULL,
-                cancelled_at TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS bonus_grants (
-                id TEXT PRIMARY KEY,
-                internal_user_id TEXT NOT NULL,
-                user_id TEXT,
-                bonus_type TEXT NOT NULL,
-                token_amount INTEGER NOT NULL DEFAULT 0,
-                money_amount INTEGER,
-                currency TEXT,
-                status TEXT NOT NULL,
-                reason TEXT,
-                token_ledger_id TEXT,
-                cancelled_ledger_id TEXT,
-                created_by_admin_id TEXT,
-                idempotency_key TEXT UNIQUE,
-                created_at TEXT NOT NULL,
-                cancelled_at TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS referral_links (
-                id TEXT PRIMARY KEY,
-                internal_user_id TEXT NOT NULL,
-                user_id TEXT,
-                referral_code TEXT NOT NULL UNIQUE,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                disabled_at TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS referral_relations (
-                id TEXT PRIMARY KEY,
-                parent_internal_user_id TEXT NOT NULL,
-                child_internal_user_id TEXT NOT NULL,
-                referral_code TEXT,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                cancelled_at TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS referral_rewards (
-                id TEXT PRIMARY KEY,
-                referral_relation_id TEXT,
-                parent_internal_user_id TEXT NOT NULL,
-                child_internal_user_id TEXT,
-                reward_type TEXT NOT NULL,
-                token_amount INTEGER,
-                money_amount INTEGER,
-                currency TEXT,
-                status TEXT NOT NULL,
-                reason TEXT,
-                token_ledger_id TEXT,
-                created_by_admin_id TEXT,
-                idempotency_key TEXT UNIQUE,
-                created_at TEXT NOT NULL,
-                granted_at TEXT,
-                cancelled_at TEXT
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_invoices_user_created ON invoices(internal_user_id, created_at);
-            CREATE INDEX IF NOT EXISTS idx_invoices_status_created ON invoices(status, created_at);
-            CREATE INDEX IF NOT EXISTS idx_payments_user_created ON payments(internal_user_id, created_at);
-            CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
-            CREATE INDEX IF NOT EXISTS idx_refunds_user_created ON refunds(internal_user_id, created_at);
-            CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id);
-            CREATE INDEX IF NOT EXISTS idx_promo_redemptions_user_created ON promo_redemptions(internal_user_id, created_at);
-            CREATE INDEX IF NOT EXISTS idx_bonus_grants_user_created ON bonus_grants(internal_user_id, created_at);
-            CREATE INDEX IF NOT EXISTS idx_referral_links_code ON referral_links(referral_code);
-            CREATE INDEX IF NOT EXISTS idx_referral_relations_parent_created ON referral_relations(parent_internal_user_id, created_at);
-            CREATE INDEX IF NOT EXISTS idx_referral_relations_child_created ON referral_relations(child_internal_user_id, created_at);
-            CREATE INDEX IF NOT EXISTS idx_referral_rewards_parent_created ON referral_rewards(parent_internal_user_id, created_at);
-            """
-        )
-        existing_user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
-        if "plan" not in existing_user_columns:
-            conn.execute("ALTER TABLE users ADD COLUMN plan TEXT NOT NULL DEFAULT 'mini'")
-        if "token_balance" not in existing_user_columns:
-            conn.execute("ALTER TABLE users ADD COLUMN token_balance INTEGER NOT NULL DEFAULT 50")
-        if "gallery_enabled" not in existing_user_columns:
-            conn.execute("ALTER TABLE users ADD COLUMN gallery_enabled INTEGER NOT NULL DEFAULT 1")
-        for column, definition in {
-            "phone": "TEXT",
-            "email": "TEXT",
-            "middle_name": "TEXT",
-            "country": "TEXT",
-            "city": "TEXT",
-            "timezone": "TEXT",
-            "ref_code": "TEXT",
-            "last_user_agent": "TEXT",
-            "last_screen": "TEXT",
-            "last_seen_at": "TEXT",
-            "total_time_seconds": "INTEGER NOT NULL DEFAULT 0",
-            "generation_count": "INTEGER NOT NULL DEFAULT 0",
-            "tokens_used": "INTEGER NOT NULL DEFAULT 0",
-            "promo_used_count": "INTEGER NOT NULL DEFAULT 0",
-            "referrals_count": "INTEGER NOT NULL DEFAULT 0",
-            "banned": "INTEGER NOT NULL DEFAULT 0",
-            "display_name": "TEXT",
-            "email_verified_at": "TEXT",
-            "phone_verified_at": "TEXT",
-            "public_user_code": "TEXT",
-            "avatar_url": "TEXT",
-            "avatar_preset": "TEXT",
-            "public_about": "TEXT",
-            "public_website": "TEXT",
-            "public_focus": "TEXT",
-            "public_phone": "TEXT",
-            "public_links_json": "TEXT",
-            "gender": "TEXT",
-            "age": "INTEGER",
-            "daily_tokens_used": "INTEGER NOT NULL DEFAULT 0",
-            "last_daily_reset": "TEXT",
-            "openrouter_monthly_tokens_used": "INTEGER NOT NULL DEFAULT 0",
-            "last_openrouter_month_reset": "TEXT",
-        }.items():
-            if column not in existing_user_columns:
-                conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
-        existing_image_columns = {row["name"] for row in conn.execute("PRAGMA table_info(images)").fetchall()}
-        if "deleted_at" not in existing_image_columns:
-            conn.execute("ALTER TABLE images ADD COLUMN deleted_at TEXT")
-        for column, definition in {
-            "storage_tier": "TEXT NOT NULL DEFAULT 'original'",
-            "optimized_at": "TEXT",
-            "original_bytes": "INTEGER",
-            "stored_bytes": "INTEGER",
-        }.items():
-            if column not in existing_image_columns:
-                conn.execute(f"ALTER TABLE images ADD COLUMN {column} {definition}")
+        conn.executescript(BASE_SCHEMA_SQL)
+        add_missing_columns(conn, "users", USER_EARLY_ADDITIVE_COLUMNS)
+        add_missing_columns(conn, "images", IMAGE_ADDITIVE_COLUMNS)
         now = datetime.now(timezone.utc).isoformat()
         conn.execute(
             """
@@ -1535,9 +1166,7 @@ def init_db() -> None:
         # never hardcode a single one. supports_pose is additive (default 0). The exact
         # required-file fingerprints live in settings_json so the admin status endpoint can
         # cross-check them against the live ComfyUI install.
-        existing_profile_columns = {row["name"] for row in conn.execute("PRAGMA table_info(model_profiles)").fetchall()}
-        if "supports_pose" not in existing_profile_columns:
-            conn.execute("ALTER TABLE model_profiles ADD COLUMN supports_pose INTEGER NOT NULL DEFAULT 0")
+        add_missing_columns(conn, "model_profiles", {"supports_pose": "INTEGER NOT NULL DEFAULT 0"})
         seed_profiles = [
             (
                 "flux_klein_4b", "FLUX.2 [klein] 4B", "flux-2-klein-4b-fp8.safetensors", 0,
@@ -1594,8 +1223,7 @@ def init_db() -> None:
         # --- Identity Core: additive-only schema (Phase 3) ---------------------
         # Does NOT change auth behaviour. Adds canonical identity scaffolding
         # alongside the legacy provider-based users.id, plus idempotent backfill.
-        if "internal_user_id" not in existing_user_columns:
-            conn.execute("ALTER TABLE users ADD COLUMN internal_user_id TEXT")
+        add_missing_columns(conn, "users", {"internal_user_id": "TEXT"})
         conn.execute(
             """
             INSERT OR IGNORE INTO users (
@@ -1610,323 +1238,16 @@ def init_db() -> None:
             (now, now),
         )
 
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS auth_identities (
-                id TEXT PRIMARY KEY,
-                internal_user_id TEXT NOT NULL,
-                legacy_user_id TEXT,
-                provider TEXT NOT NULL,
-                provider_user_id TEXT NOT NULL,
-                provider_username TEXT,
-                provider_email TEXT,
-                provider_phone TEXT,
-                provider_first_name TEXT,
-                provider_last_name TEXT,
-                provider_avatar_url TEXT,
-                provider_language_code TEXT,
-                raw_profile_json TEXT,
-                verified_at TEXT,
-                linked_at TEXT NOT NULL,
-                last_login_at TEXT,
-                UNIQUE(provider, provider_user_id)
-            );
-
-            CREATE TABLE IF NOT EXISTS auth_sessions (
-                id TEXT PRIMARY KEY,
-                internal_user_id TEXT NOT NULL,
-                legacy_user_id TEXT,
-                session_token_hash TEXT NOT NULL UNIQUE,
-                refresh_token_hash TEXT UNIQUE,
-                provider TEXT,
-                platform TEXT,
-                ip_address TEXT,
-                user_agent_hash TEXT,
-                created_at TEXT NOT NULL,
-                last_seen_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                revoked_at TEXT,
-                revoke_reason TEXT,
-                metadata_json TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS session_events (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                internal_user_id TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                ip_address TEXT,
-                user_agent_hash TEXT,
-                metadata_json TEXT,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS auth_login_attempts (
-                id TEXT PRIMARY KEY,
-                internal_user_id TEXT,
-                provider TEXT NOT NULL,
-                identifier TEXT,
-                success INTEGER NOT NULL,
-                failure_reason TEXT,
-                ip_address TEXT,
-                user_agent_hash TEXT,
-                platform TEXT,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS device_installations (
-                id TEXT PRIMARY KEY,
-                internal_user_id TEXT,
-                legacy_user_id TEXT,
-                installation_id TEXT NOT NULL UNIQUE,
-                anonymous_id TEXT,
-                platform TEXT NOT NULL,
-                storage_type TEXT,
-                first_seen_at TEXT NOT NULL,
-                last_seen_at TEXT NOT NULL,
-                metadata_json TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS user_consents (
-                id TEXT PRIMARY KEY,
-                internal_user_id TEXT NOT NULL,
-                consent_type TEXT NOT NULL,
-                document_version TEXT NOT NULL,
-                accepted INTEGER NOT NULL,
-                accepted_at TEXT NOT NULL,
-                revoked_at TEXT,
-                ip_address TEXT,
-                user_agent_hash TEXT,
-                platform TEXT,
-                metadata_json TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS security_events (
-                id TEXT PRIMARY KEY,
-                internal_user_id TEXT,
-                session_id TEXT,
-                severity TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                ip_address TEXT,
-                user_agent_hash TEXT,
-                details_json TEXT,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS audit_logs (
-                id TEXT PRIMARY KEY,
-                actor_internal_user_id TEXT,
-                target_internal_user_id TEXT,
-                action TEXT NOT NULL,
-                entity_type TEXT NOT NULL,
-                entity_id TEXT,
-                before_json TEXT,
-                after_json TEXT,
-                ip_address TEXT,
-                user_agent_hash TEXT,
-                created_at TEXT NOT NULL
-            );
-
-            -- Preparatory table for future email OTP (Phase 6). No endpoints yet.
-            CREATE TABLE IF NOT EXISTS auth_otp_challenges (
-                id TEXT PRIMARY KEY,
-                channel TEXT NOT NULL,
-                destination TEXT NOT NULL,
-                code_hash TEXT NOT NULL,
-                purpose TEXT NOT NULL,
-                attempts_count INTEGER NOT NULL DEFAULT 0,
-                max_attempts INTEGER NOT NULL DEFAULT 5,
-                expires_at TEXT NOT NULL,
-                consumed_at TEXT,
-                ip_address TEXT,
-                user_agent_hash TEXT,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_users_internal_user_id ON users(internal_user_id);
-            CREATE INDEX IF NOT EXISTS idx_auth_identities_internal ON auth_identities(internal_user_id);
-            CREATE INDEX IF NOT EXISTS idx_auth_identities_legacy ON auth_identities(legacy_user_id);
-            CREATE INDEX IF NOT EXISTS idx_auth_sessions_internal ON auth_sessions(internal_user_id);
-            CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at);
-            CREATE INDEX IF NOT EXISTS idx_auth_sessions_revoked ON auth_sessions(revoked_at);
-            CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_id);
-            CREATE INDEX IF NOT EXISTS idx_session_events_internal ON session_events(internal_user_id);
-            CREATE INDEX IF NOT EXISTS idx_login_attempts_provider_ident ON auth_login_attempts(provider, identifier);
-            CREATE INDEX IF NOT EXISTS idx_login_attempts_created ON auth_login_attempts(created_at);
-            CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON auth_login_attempts(ip_address);
-            CREATE INDEX IF NOT EXISTS idx_device_internal ON device_installations(internal_user_id);
-            CREATE INDEX IF NOT EXISTS idx_consents_internal ON user_consents(internal_user_id);
-            CREATE INDEX IF NOT EXISTS idx_consents_type ON user_consents(internal_user_id, consent_type);
-            CREATE INDEX IF NOT EXISTS idx_security_events_internal ON security_events(internal_user_id);
-            CREATE INDEX IF NOT EXISTS idx_security_events_created ON security_events(created_at);
-            CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events(event_type);
-            CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_internal_user_id);
-            CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_logs(target_internal_user_id);
-            CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
-            CREATE INDEX IF NOT EXISTS idx_otp_destination ON auth_otp_challenges(channel, destination);
-            CREATE INDEX IF NOT EXISTS idx_otp_expires ON auth_otp_challenges(expires_at);
-
-            CREATE TABLE IF NOT EXISTS event_logs (
-                id TEXT PRIMARY KEY,
-                internal_user_id TEXT,
-                legacy_user_id TEXT,
-                anonymous_id TEXT,
-                installation_id TEXT,
-                session_id TEXT,
-                event_name TEXT NOT NULL,
-                platform TEXT,
-                device_type TEXT,
-                ip_address TEXT,
-                user_agent_hash TEXT,
-                properties_json TEXT,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_event_logs_internal ON event_logs(internal_user_id);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_anonymous ON event_logs(anonymous_id);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_installation ON event_logs(installation_id);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_event_name ON event_logs(event_name);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_created ON event_logs(created_at);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_platform ON event_logs(platform);
-
-            -- Phase 14.4: password auth foundation (schema only; no endpoints yet).
-            CREATE TABLE IF NOT EXISTS auth_passwords (
-                id TEXT PRIMARY KEY,
-                internal_user_id TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                algorithm TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                disabled_at TEXT,
-                password_updated_at TEXT,
-                metadata_json TEXT
-            );
-            CREATE INDEX IF NOT EXISTS idx_auth_passwords_internal_user_id ON auth_passwords(internal_user_id);
-            CREATE UNIQUE INDEX IF NOT EXISTS ux_auth_passwords_active
-                ON auth_passwords(internal_user_id) WHERE disabled_at IS NULL;
-
-            -- Live Feed MVP: публикации из личной галереи + реакции (like/save).
-            -- Additive-only. Публикация ссылается на существующую строку images;
-            -- prompt_visibility: open | partial | hidden. status: published | hidden.
-            CREATE TABLE IF NOT EXISTS feed_publications (
-                id TEXT PRIMARY KEY,
-                image_id TEXT NOT NULL UNIQUE,
-                internal_user_id TEXT NOT NULL,
-                legacy_user_id TEXT,
-                title TEXT NOT NULL,
-                description TEXT,
-                prompt_visibility TEXT NOT NULL DEFAULT 'open',
-                allow_recreate INTEGER NOT NULL DEFAULT 1,
-                status TEXT NOT NULL DEFAULT 'published',
-                view_count INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_feed_publications_status_created
-                ON feed_publications(status, created_at);
-            CREATE INDEX IF NOT EXISTS idx_feed_publications_user
-                ON feed_publications(internal_user_id);
-
-            CREATE TABLE IF NOT EXISTS feed_reactions (
-                publication_id TEXT NOT NULL,
-                internal_user_id TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (publication_id, internal_user_id, kind)
-            );
-            CREATE INDEX IF NOT EXISTS idx_feed_reactions_publication
-                ON feed_reactions(publication_id, kind);
-
-            CREATE TABLE IF NOT EXISTS feed_author_follows (
-                follower_internal_user_id TEXT NOT NULL,
-                author_internal_user_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (follower_internal_user_id, author_internal_user_id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_feed_author_follows_author
-                ON feed_author_follows(author_internal_user_id);
-
-            CREATE TABLE IF NOT EXISTS challenges (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                description TEXT NOT NULL,
-                rules TEXT NOT NULL,
-                prompt_hint TEXT,
-                category TEXT NOT NULL,
-                status TEXT NOT NULL,
-                reward_pool INTEGER NOT NULL DEFAULT 0,
-                starts_at TEXT NOT NULL,
-                ends_at TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS challenge_entries (
-                id TEXT PRIMARY KEY,
-                challenge_id TEXT NOT NULL,
-                publication_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                status TEXT NOT NULL,
-                judge_score REAL,
-                final_score REAL,
-                created_at TEXT NOT NULL,
-                UNIQUE (challenge_id, publication_id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_challenge_entries_challenge
-                ON challenge_entries(challenge_id, status);
-
-            CREATE TABLE IF NOT EXISTS password_reset_challenges (
-                id TEXT PRIMARY KEY,
-                internal_user_id TEXT NOT NULL,
-                token_hash TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                consumed_at TEXT,
-                created_at TEXT NOT NULL,
-                ip_address TEXT,
-                user_agent_hash TEXT,
-                metadata_json TEXT
-            );
-            CREATE INDEX IF NOT EXISTS idx_password_reset_internal_user_id ON password_reset_challenges(internal_user_id);
-            CREATE INDEX IF NOT EXISTS idx_password_reset_token_hash ON password_reset_challenges(token_hash);
-            CREATE INDEX IF NOT EXISTS idx_password_reset_expires_at ON password_reset_challenges(expires_at);
-            """
-        )
+        conn.executescript(IDENTITY_SCHEMA_SQL)
 
         # Phase 4.1: refresh tokens get their own lifetime, tracked separately from
         # the access/session expires_at. Additive, safe ALTER for existing DBs.
-        auth_sessions_columns = {row["name"] for row in conn.execute("PRAGMA table_info(auth_sessions)").fetchall()}
-        if "refresh_expires_at" not in auth_sessions_columns:
-            conn.execute("ALTER TABLE auth_sessions ADD COLUMN refresh_expires_at TEXT")
+        add_missing_columns(conn, "auth_sessions", {"refresh_expires_at": "TEXT"})
 
         # Feed media architecture: additive-only public feed asset metadata.
         # Some live DBs already have early feed columns, so check every column
         # individually. Originals stay in images; public feed variants live here.
-        feed_publication_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()
-        }
-        for column, definition in {
-            "feed_thumb_name": "TEXT",
-            "feed_large_name": "TEXT",
-            "feed_thumb_width": "INTEGER",
-            "feed_thumb_height": "INTEGER",
-            "feed_thumb_bytes": "INTEGER",
-            "feed_large_width": "INTEGER",
-            "feed_large_height": "INTEGER",
-            "feed_large_bytes": "INTEGER",
-            "media_ready_at": "TEXT",
-            "media_error": "TEXT",
-            "native_aspect_ratio": "TEXT",
-            "orientation": "TEXT",
-            "source_type": "TEXT",
-            "source_label": "TEXT",
-            "display_policy": "TEXT",
-            "category": "TEXT",
-            "remix_policy": "TEXT",
-            "tags_json": "TEXT",
-            "generation_snapshot_json": "TEXT",
-            "updated_at": "TEXT",
-            "view_count": "INTEGER NOT NULL DEFAULT 0",
-        }.items():
-            if column not in feed_publication_columns:
-                conn.execute(f"ALTER TABLE feed_publications ADD COLUMN {column} {definition}")
+        add_missing_columns(conn, "feed_publications", FEED_PUBLICATION_ADDITIVE_COLUMNS)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_feed_publications_media_ready "
             "ON feed_publications(status, media_ready_at)"
@@ -1956,35 +1277,7 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_images_job_id "
             "ON images(job_id)"
         )
-        conn.executescript(
-            """
-            CREATE VIRTUAL TABLE IF NOT EXISTS images_search USING fts5(
-                image_id UNINDEXED,
-                user_id UNINDEXED,
-                search_text,
-                tokenize='unicode61'
-            );
-            CREATE TRIGGER IF NOT EXISTS images_search_insert AFTER INSERT ON images BEGIN
-                INSERT INTO images_search(rowid, image_id, user_id, search_text)
-                VALUES (new.rowid, new.id, new.user_id,
-                    COALESCE(new.id, '') || ' ' || COALESCE(new.prompt_original, '') || ' ' ||
-                    COALESCE(new.prompt_translated, '') || ' ' || COALESCE(new.mode, '') || ' ' ||
-                    COALESCE(new.provider, '') || ' ' || COALESCE(new.settings_json, ''));
-            END;
-            CREATE TRIGGER IF NOT EXISTS images_search_delete AFTER DELETE ON images BEGIN
-                DELETE FROM images_search WHERE rowid = old.rowid;
-            END;
-            CREATE TRIGGER IF NOT EXISTS images_search_update AFTER UPDATE OF
-                id, user_id, prompt_original, prompt_translated, mode, provider, settings_json ON images BEGIN
-                DELETE FROM images_search WHERE rowid = old.rowid;
-                INSERT INTO images_search(rowid, image_id, user_id, search_text)
-                VALUES (new.rowid, new.id, new.user_id,
-                    COALESCE(new.id, '') || ' ' || COALESCE(new.prompt_original, '') || ' ' ||
-                    COALESCE(new.prompt_translated, '') || ' ' || COALESCE(new.mode, '') || ' ' ||
-                    COALESCE(new.provider, '') || ' ' || COALESCE(new.settings_json, ''));
-            END;
-            """
-        )
+        conn.executescript(IMAGE_SEARCH_SCHEMA_SQL)
         conn.execute(
             """
             INSERT INTO images_search(rowid, image_id, user_id, search_text)
@@ -2004,21 +1297,7 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_image_sources_user "
             "ON image_sources(user_id, created_at)"
         )
-        image_source_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(image_sources)").fetchall()
-        }
-        if "children_json" not in image_source_columns:
-            conn.execute("ALTER TABLE image_sources ADD COLUMN children_json TEXT NOT NULL DEFAULT '[]'")
-        if "is_favorite" not in image_source_columns:
-            conn.execute("ALTER TABLE image_sources ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0")
-        if "library_deleted_at" not in image_source_columns:
-            conn.execute("ALTER TABLE image_sources ADD COLUMN library_deleted_at TEXT")
-        if "availability_status" not in image_source_columns:
-            conn.execute("ALTER TABLE image_sources ADD COLUMN availability_status TEXT NOT NULL DEFAULT 'unknown'")
-        if "availability_checked_at" not in image_source_columns:
-            conn.execute("ALTER TABLE image_sources ADD COLUMN availability_checked_at TEXT")
-        if "unavailable_at" not in image_source_columns:
-            conn.execute("ALTER TABLE image_sources ADD COLUMN unavailable_at TEXT")
+        add_missing_columns(conn, "image_sources", IMAGE_SOURCE_ADDITIVE_COLUMNS)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_image_sources_library_available "
             "ON image_sources(user_id, availability_status, created_at DESC) "
@@ -2203,19 +1482,17 @@ def backfill_identity_core(conn: sqlite3.Connection, now: str) -> None:
 
 def generate_secure_token() -> str:
     """Cryptographically secure, opaque token with no embedded PII."""
-    return secrets.token_urlsafe(48)
+    return security_generate_secure_token()
 
 
 def generate_bot_login_token() -> str:
     """Short opaque token that fits Telegram callback_data; DB stores only hash."""
-    return secrets.token_urlsafe(18)
+    return security_generate_bot_login_token()
 
 
 def hash_token(raw_token: str) -> str:
     """Deterministic hash of a raw token. Raw tokens are never stored or logged."""
-    if SESSION_HMAC_SECRET:
-        return hmac.new(SESSION_HMAC_SECRET.encode(), raw_token.encode(), hashlib.sha256).hexdigest()
-    return hashlib.sha256(raw_token.encode()).hexdigest()
+    return security_hash_token(raw_token, hmac_secret=SESSION_HMAC_SECRET)
 
 
 def validate_session_crypto_config() -> None:
@@ -2226,11 +1503,7 @@ def validate_session_crypto_config() -> None:
     silently weakening token hashing. The secret value is never included in the
     error message.
     """
-    if APP_ENV.lower() == "production" and not SESSION_HMAC_SECRET:
-        raise RuntimeError(
-            "SESSION_HMAC_SECRET is required when APP_ENV=production; "
-            "refusing to fall back to unkeyed session-token hashing."
-        )
+    security_validate_session_crypto_config(app_env=APP_ENV, hmac_secret=SESSION_HMAC_SECRET)
 
 
 def get_client_ip(request: Request | None) -> str | None:
@@ -2325,6 +1598,10 @@ def _extract_session_token(request: Request) -> str | None:
     return request.cookies.get(SESSION_COOKIE_NAME)
 
 
+def _event_runtime() -> EventRuntime:
+    return EventRuntime(connect=db, get_client_ip=_client_ip, hash_user_agent=_hash_user_agent)
+
+
 def record_session_event(
     conn: sqlite3.Connection,
     session_id: str,
@@ -2333,21 +1610,8 @@ def record_session_event(
     request: Request | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> None:
-    conn.execute(
-        """
-        INSERT INTO session_events (id, session_id, internal_user_id, event_type, ip_address, user_agent_hash, metadata_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            uuid.uuid4().hex,
-            session_id,
-            internal_user_id,
-            event_type,
-            _client_ip(request),
-            _hash_user_agent(request),
-            json.dumps(metadata, ensure_ascii=False) if metadata else None,
-            datetime.now(timezone.utc).isoformat(),
-        ),
+    security_record_session_event(
+        _event_runtime(), conn, session_id, internal_user_id, event_type, request, metadata
     )
 
 
@@ -2360,23 +1624,15 @@ def record_security_event(
     request: Request | None = None,
     details: dict[str, Any] | None = None,
 ) -> None:
-    # details must never contain raw tokens, cookies or Authorization headers.
-    conn.execute(
-        """
-        INSERT INTO security_events (id, internal_user_id, session_id, severity, event_type, ip_address, user_agent_hash, details_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            uuid.uuid4().hex,
-            internal_user_id,
-            session_id,
-            severity,
-            event_type,
-            _client_ip(request),
-            _hash_user_agent(request),
-            json.dumps(details, ensure_ascii=False) if details else None,
-            datetime.now(timezone.utc).isoformat(),
-        ),
+    security_record_security_event(
+        _event_runtime(),
+        conn,
+        event_type,
+        severity,
+        internal_user_id,
+        session_id,
+        request,
+        details,
     )
 
 
@@ -2392,38 +1648,19 @@ def record_event_log(
     request: Request | None = None,
     properties: dict[str, Any] | None = None,
 ) -> None:
-    """Product analytics event. Opens its own transaction so a failed write never
-    rolls back the caller's work.
-
-    Privacy: never stores cookies, Authorization headers, raw session/refresh
-    tokens, OTP, raw Telegram initData or raw MAX WebAppData. The user agent is
-    only ever persisted as a hash. The caller is responsible for passing an
-    already-sanitized `properties` dict.
-    """
-    with db() as conn:
-        conn.execute(
-            """
-            INSERT INTO event_logs
-                (id, internal_user_id, legacy_user_id, anonymous_id, installation_id, session_id,
-                 event_name, platform, device_type, ip_address, user_agent_hash, properties_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                uuid.uuid4().hex,
-                internal_user_id,
-                legacy_user_id,
-                anonymous_id,
-                installation_id,
-                session_id,
-                event_name,
-                platform,
-                device_type,
-                _client_ip(request),
-                _hash_user_agent(request),
-                json.dumps(properties, ensure_ascii=False) if properties else None,
-                datetime.now(timezone.utc).isoformat(),
-            ),
-        )
+    security_record_product_event(
+        _event_runtime(),
+        event_name,
+        internal_user_id,
+        legacy_user_id,
+        anonymous_id,
+        installation_id,
+        session_id,
+        platform,
+        device_type,
+        request,
+        properties,
+    )
 
 
 def record_login_attempt(
@@ -2436,24 +1673,16 @@ def record_login_attempt(
     platform: str | None = None,
     request: Request | None = None,
 ) -> None:
-    conn.execute(
-        """
-        INSERT INTO auth_login_attempts
-            (id, internal_user_id, provider, identifier, success, failure_reason, ip_address, user_agent_hash, platform, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            uuid.uuid4().hex,
-            internal_user_id,
-            provider,
-            identifier,
-            1 if success else 0,
-            failure_reason,
-            _client_ip(request),
-            _hash_user_agent(request),
-            platform,
-            datetime.now(timezone.utc).isoformat(),
-        ),
+    security_record_login_attempt(
+        _event_runtime(),
+        conn,
+        provider,
+        success,
+        identifier,
+        internal_user_id,
+        failure_reason,
+        platform,
+        request,
     )
 
 
@@ -3107,76 +2336,44 @@ def normalize_email(email: str | None) -> str | None:
 
 
 def generate_otp_code(length: int = EMAIL_OTP_LENGTH) -> str:
-    """Numeric OTP using cryptographically secure randomness (leading zeros kept)."""
-    return "".join(secrets.choice("0123456789") for _ in range(max(1, length)))
+    return security_generate_otp_code(length)
 
 
 def hash_otp(code: str) -> str:
-    """Hash an OTP for storage. HMAC-keyed when a secret is set, else SHA-256.
-    Domain-separated from session tokens. Raw OTP is never stored or logged."""
-    if SESSION_HMAC_SECRET:
-        return hmac.new(SESSION_HMAC_SECRET.encode(), f"otp:{code}".encode(), hashlib.sha256).hexdigest()
-    return hashlib.sha256(f"otp:{code}".encode()).hexdigest()
+    return security_hash_otp(code, hmac_secret=SESSION_HMAC_SECRET)
 
 
 # ---------------------------------------------------------------------------
 # Password hashing (Phase 14.4). Argon2id only. Raw passwords and password
 # hashes are NEVER logged. No endpoints in this phase — helpers + schema only.
 # ---------------------------------------------------------------------------
-PASSWORD_MIN_LENGTH = 8
-PASSWORD_MAX_LENGTH = 128
-PASSWORD_ALGORITHM = "argon2id"
-# argon2-cffi defaults to Argon2id; explicit, modern parameters.
-_password_hasher = PasswordHasher(time_cost=3, memory_cost=64 * 1024, parallelism=2)
-# Fixed Argon2id hash used to equalize verify timing when an account is not found,
-# so password login cannot be used to enumerate which emails exist.
-_DUMMY_PASSWORD_HASH = _password_hasher.hash("argon2-timing-equalizer-not-a-real-password")
+PASSWORD_MIN_LENGTH = SECURITY_PASSWORD_MIN_LENGTH
+PASSWORD_MAX_LENGTH = SECURITY_PASSWORD_MAX_LENGTH
+PASSWORD_ALGORITHM = SECURITY_PASSWORD_ALGORITHM
+_password_hasher = SECURITY_PASSWORD_HASHER
+_DUMMY_PASSWORD_HASH = SECURITY_DUMMY_PASSWORD_HASH
 
 
 def validate_password_policy(password: str) -> list[str]:
     """Return machine-readable error codes (empty list = OK). No complexity rules yet."""
-    errors: list[str] = []
-    length = len(password or "")
-    if length < PASSWORD_MIN_LENGTH:
-        errors.append("password_too_short")
-    if length > PASSWORD_MAX_LENGTH:
-        errors.append("password_too_long")
-    return errors
+    return security_validate_password_policy(password)
 
 
 def hash_password_argon2(password: str) -> str:
     """Hash a password with Argon2id. Rejects empty/too-short/too-long before hashing.
     Never logs the password or the resulting hash."""
-    if not password:
-        raise ValueError("password_required")
-    policy_errors = validate_password_policy(password)
-    if policy_errors:
-        raise ValueError(policy_errors[0])
-    return _password_hasher.hash(password)
+    return security_hash_password(password)
 
 
 def verify_password_argon2(password: str, password_hash: str) -> bool:
     """Constant-time verify via argon2. Returns False on mismatch or any invalid/
     malformed hash — never raises to the caller, never logs password/hash."""
-    if not password or not password_hash:
-        return False
-    try:
-        return _password_hasher.verify(password_hash, password)
-    except Argon2Error:
-        return False
-    except Exception:
-        # Defensive: malformed hash string, type errors, etc.
-        return False
+    return security_verify_password(password, password_hash)
 
 
 def password_hash_needs_rehash(password_hash: str) -> bool:
     """True if the stored hash should be re-hashed with current parameters."""
-    if not password_hash:
-        return False
-    try:
-        return _password_hasher.check_needs_rehash(password_hash)
-    except Exception:
-        return False
+    return security_password_hash_needs_rehash(password_hash)
 
 
 def email_provider_configured() -> bool:
@@ -3194,79 +2391,49 @@ def email_otp_available() -> bool:
 
 
 def validate_email_otp_config() -> None:
-    """Refuse unsafe email-OTP configuration in production.
-
-    - EMAIL_OTP_DEBUG_RETURN_CODE must never be on in production.
-    - A real email provider must be configured in production (no fake sending).
-    Dev/test may run with neither (mock sender, optional debug code).
-    """
-    if APP_ENV.lower() == "production":
-        if EMAIL_OTP_DEBUG_RETURN_CODE:
-            raise RuntimeError("EMAIL_OTP_DEBUG_RETURN_CODE must be disabled in production.")
-        if not email_provider_configured():
-            raise RuntimeError("No email provider configured for production email OTP.")
+    security_validate_email_otp_config(
+        app_env=APP_ENV,
+        debug_return_code=EMAIL_OTP_DEBUG_RETURN_CODE,
+        provider_configured=email_provider_configured(),
+    )
 
 
 def send_email_otp(destination: str, code: str) -> None:
-    """Deliver an OTP. In production a real provider would be called here. In
-    dev/test we use a mock outbox that stores ONLY the destination + timestamp —
-    never the code. Raw OTP is never logged."""
-    if APP_ENV.lower() == "production" and email_provider_configured():
-        # Real provider integration belongs here; not implemented in this phase.
-        raise RuntimeError("Email provider integration not implemented.")
-    _mock_email_outbox.append({"to": destination, "sent_at": datetime.now(timezone.utc).isoformat()})
+    security_send_email_otp(
+        destination,
+        code,
+        app_env=APP_ENV,
+        provider_configured=email_provider_configured(),
+        mock_outbox=_mock_email_outbox,
+    )
 
 
 def cleanup_expired_otp_challenges(now: str | None = None) -> int:
-    """Idempotently delete stale OTP challenges (consumed or expired) that are
-    older than EMAIL_OTP_CLEANUP_EXPIRED_AFTER_SECONDS. Active, unexpired
-    challenges are never touched. Failure evidence lives in security_events /
-    auth_login_attempts, so deleting old challenges loses no audit trail."""
-    now_dt = datetime.now(timezone.utc)
-    now_iso = now or now_dt.isoformat()
-    cutoff = (now_dt - timedelta(seconds=EMAIL_OTP_CLEANUP_EXPIRED_AFTER_SECONDS)).isoformat()
-    with db() as conn:
-        cur = conn.execute(
-            "DELETE FROM auth_otp_challenges WHERE created_at < ? AND (consumed_at IS NOT NULL OR expires_at < ?)",
-            (cutoff, now_iso),
-        )
-        return cur.rowcount
+    return security_cleanup_expired_otp_challenges(
+        db,
+        retention_seconds=EMAIL_OTP_CLEANUP_EXPIRED_AFTER_SECONDS,
+        now=now,
+    )
 
 
-def _email_hash(email_norm: str) -> str:
-    return hashlib.sha256(email_norm.encode()).hexdigest()
+def _otp_runtime() -> OtpRuntime:
+    return OtpRuntime(
+        connect=db,
+        get_client_ip=_client_ip,
+        record_security_event=record_security_event,
+        record_product_event=record_event_log,
+    )
 
 
-def _otp_rate_limited(
-    reason: str,
-    window_seconds: int,
-    email_norm: str,
-    request: Request,
-    anonymous_id: str | None,
-    installation_id: str | None,
-    platform: str | None,
-):
-    """Record a rate-limit hit and raise a generic 429 (no email-existence
-    disclosure, no OTP). Stores only the email HASH, not the raw address."""
-    with db() as conn:
-        record_security_event(
-            conn,
-            "otp_request_rate_limited",
-            internal_user_id=None,
-            request=request,
-            details={"reason": reason, "email_hash": _email_hash(email_norm), "window_seconds": window_seconds},
-        )
-    try:
-        record_event_log(
-            "login_rate_limited",
-            anonymous_id=anonymous_id,
-            installation_id=installation_id,
-            platform=platform,
-            properties={"provider": "web_email", "reason": reason},
-        )
-    except Exception as exc:  # pragma: no cover - defensive
-        print(f"email-otp: login_rate_limited event log error: {type(exc).__name__}")
-    raise HTTPException(429, "Too many requests")
+def _otp_rate_limits() -> OtpRateLimits:
+    return OtpRateLimits(
+        request_cooldown_seconds=EMAIL_OTP_REQUEST_COOLDOWN_SECONDS,
+        max_requests_per_email_window=EMAIL_OTP_MAX_REQUESTS_PER_EMAIL_WINDOW,
+        email_window_seconds=EMAIL_OTP_EMAIL_WINDOW_SECONDS,
+        max_requests_per_ip_window=EMAIL_OTP_MAX_REQUESTS_PER_IP_WINDOW,
+        ip_window_seconds=EMAIL_OTP_IP_WINDOW_SECONDS,
+        max_active_challenges_per_email=EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_EMAIL,
+    )
 
 
 def enforce_email_otp_rate_limits(
@@ -3276,41 +2443,18 @@ def enforce_email_otp_rate_limits(
     installation_id: str | None,
     platform: str | None,
 ) -> None:
-    """Reject abusive request-code traffic. Chosen policy for the active-challenge
-    cap: REJECT with 429 (we do not silently expire older challenges)."""
-    now_dt = datetime.now(timezone.utc)
-    now_iso = now_dt.isoformat()
-    ip = _client_ip(request)
-    cooldown_cut = (now_dt - timedelta(seconds=EMAIL_OTP_REQUEST_COOLDOWN_SECONDS)).isoformat()
-    email_cut = (now_dt - timedelta(seconds=EMAIL_OTP_EMAIL_WINDOW_SECONDS)).isoformat()
-    ip_cut = (now_dt - timedelta(seconds=EMAIL_OTP_IP_WINDOW_SECONDS)).isoformat()
-
-    with db() as conn:
-        cooldown_hits = conn.execute(
-            "SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE destination = ? AND created_at > ?",
-            (email_norm, cooldown_cut),
-        ).fetchone()["c"]
-        email_window_count = conn.execute(
-            "SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE destination = ? AND created_at > ?",
-            (email_norm, email_cut),
-        ).fetchone()["c"]
-        ip_window_count = conn.execute(
-            "SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE ip_address = ? AND created_at > ?",
-            (ip, ip_cut),
-        ).fetchone()["c"] if ip else 0
-        active_count = conn.execute(
-            "SELECT COUNT(*) AS c FROM auth_otp_challenges WHERE destination = ? AND consumed_at IS NULL AND expires_at > ?",
-            (email_norm, now_iso),
-        ).fetchone()["c"]
-
-    if EMAIL_OTP_REQUEST_COOLDOWN_SECONDS > 0 and cooldown_hits > 0:
-        _otp_rate_limited("cooldown", EMAIL_OTP_REQUEST_COOLDOWN_SECONDS, email_norm, request, anonymous_id, installation_id, platform)
-    if email_window_count >= EMAIL_OTP_MAX_REQUESTS_PER_EMAIL_WINDOW:
-        _otp_rate_limited("email_window", EMAIL_OTP_EMAIL_WINDOW_SECONDS, email_norm, request, anonymous_id, installation_id, platform)
-    if ip and ip_window_count >= EMAIL_OTP_MAX_REQUESTS_PER_IP_WINDOW:
-        _otp_rate_limited("ip_window", EMAIL_OTP_IP_WINDOW_SECONDS, email_norm, request, anonymous_id, installation_id, platform)
-    if active_count >= EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_EMAIL:
-        _otp_rate_limited("max_active_challenges", EMAIL_OTP_EMAIL_WINDOW_SECONDS, email_norm, request, anonymous_id, installation_id, platform)
+    try:
+        security_enforce_email_otp_rate_limits(
+            _otp_runtime(),
+            _otp_rate_limits(),
+            email_norm,
+            request,
+            anonymous_id,
+            installation_id,
+            platform,
+        )
+    except OtpAccessError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
 
 
 def email_otp_upsert_identity(conn: sqlite3.Connection, email_norm: str, now: str) -> tuple[str, str]:
@@ -3597,24 +2741,31 @@ def gallery_fts_query(value: str) -> str:
 
 def gallery_media_owner_row(conn: sqlite3.Connection, filename: str, legacy_user_id: str) -> sqlite3.Row | None:
     media_url_prefix = f"/api/media/{filename}"
+    legacy_media_url_prefix = f"/media/{filename}"
     image_row = conn.execute(
         f"""
         SELECT id, user_id, url, thumbnail_url FROM images
         WHERE user_id = ? AND {ACTIVE_IMAGE_WHERE}
-          AND (url LIKE ? OR thumbnail_url LIKE ?)
+          AND (url LIKE ? OR thumbnail_url LIKE ? OR url LIKE ? OR thumbnail_url LIKE ?)
         LIMIT 1
         """,
-        (legacy_user_id, f"{media_url_prefix}%", f"{media_url_prefix}%"),
+        (
+            legacy_user_id,
+            f"{media_url_prefix}%",
+            f"{media_url_prefix}%",
+            f"{legacy_media_url_prefix}%",
+            f"{legacy_media_url_prefix}%",
+        ),
     ).fetchone()
     if image_row is not None:
         return image_row
     return conn.execute(
         """
         SELECT id, user_id, image_id, thumb_url FROM image_sources
-        WHERE user_id = ? AND thumb_url LIKE ?
+        WHERE user_id = ? AND (thumb_url LIKE ? OR thumb_url LIKE ?)
         LIMIT 1
         """,
-        (legacy_user_id, f"{media_url_prefix}%"),
+        (legacy_user_id, f"{media_url_prefix}%", f"{legacy_media_url_prefix}%"),
     ).fetchone()
 
 
@@ -3729,6 +2880,22 @@ def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None,
     return True
 
 
+def _session_runtime() -> SessionRuntime:
+    return SessionRuntime(
+        connect=db,
+        validate_crypto=validate_session_crypto_config,
+        generate_token=generate_secure_token,
+        hash_token=hash_token,
+        record_session_event=record_session_event,
+        record_security_event=record_security_event,
+        user_is_banned=_user_is_banned,
+        ensure_public_user_code=ensure_public_user_code,
+        get_client_ip=get_client_ip,
+        hash_user_agent=_hash_user_agent,
+        parse_user_agent=parse_user_agent,
+    )
+
+
 def create_auth_session(
     internal_user_id: str,
     legacy_user_id: str | None = None,
@@ -3737,158 +2904,48 @@ def create_auth_session(
     request: Request | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    """Create a session, persist only token hashes, return raw tokens to caller."""
-    validate_session_crypto_config()
-    raw_session_token = generate_secure_token()
-    raw_refresh_token = generate_secure_token()
-    now = datetime.now(timezone.utc)
-    now_iso = now.isoformat()
-    # Access/session token lifetime drives auth_sessions.expires_at; the refresh
-    # token gets its own, longer lifetime tracked in refresh_expires_at.
-    expires_at = (now + timedelta(seconds=SESSION_ACCESS_TTL_SECONDS)).isoformat()
-    refresh_expires_at = (now + timedelta(seconds=SESSION_REFRESH_TTL_SECONDS)).isoformat()
-    session_id = uuid.uuid4().hex
-    # Analytics-only device classification (no raw UA stored).
-    session_meta = dict(metadata) if metadata else {}
-    if request is not None:
-        session_meta.setdefault("device", parse_user_agent(request.headers.get("user-agent")))
-    with db() as conn:
-        conn.execute(
-            """
-            INSERT INTO auth_sessions
-                (id, internal_user_id, legacy_user_id, session_token_hash, refresh_token_hash,
-                 provider, platform, ip_address, user_agent_hash, created_at, last_seen_at,
-                 expires_at, refresh_expires_at, metadata_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                session_id,
-                internal_user_id,
-                legacy_user_id,
-                hash_token(raw_session_token),
-                hash_token(raw_refresh_token),
-                provider,
-                platform,
-                get_client_ip(request),
-                _hash_user_agent(request),
-                now_iso,
-                now_iso,
-                expires_at,
-                refresh_expires_at,
-                json.dumps(session_meta, ensure_ascii=False) if session_meta else None,
-            ),
-        )
-        record_session_event(conn, session_id, internal_user_id, "created", request)
-        # Phase 18 analytics: stamp last activity + ensure a public code on every login.
-        conn.execute("UPDATE users SET last_seen_at = ? WHERE internal_user_id = ?", (now_iso, internal_user_id))
-        ensure_public_user_code(conn, internal_user_id)
-    return {
-        "session_id": session_id,
-        "session_token": raw_session_token,
-        "refresh_token": raw_refresh_token,
-        "expires_at": expires_at,
-        "refresh_expires_at": refresh_expires_at,
-    }
+    """Compatibility wrapper around the extracted trusted-session service."""
+    return security_create_session(
+        _session_runtime(),
+        internal_user_id,
+        legacy_user_id,
+        provider,
+        platform,
+        request,
+        metadata,
+        access_ttl_seconds=SESSION_ACCESS_TTL_SECONDS,
+        refresh_ttl_seconds=SESSION_REFRESH_TTL_SECONDS,
+    )
 
 
 def resolve_auth_session_from_request(
     request: Request, *, raise_on_failure: bool = True
 ) -> dict[str, Any] | None:
-    """Resolve the trusted session for a request, or fail/None.
-
-    Does NOT trust X-OneNode-User or the legacy onenode_user cookie.
-    Writes security_events on any invalid/expired/revoked/banned outcome.
-    """
-    token = _extract_session_token(request)
-    now_iso = datetime.now(timezone.utc).isoformat()
-
-    def fail(event_type: str, status: int, message: str, *, severity: str = "warning",
-             internal_user_id: str | None = None, session_id: str | None = None):
-        # Recorded in its own committed transaction, then we raise — so the
-        # security event survives even though the request fails.
-        with db() as conn:
-            record_security_event(conn, event_type, severity=severity, internal_user_id=internal_user_id, session_id=session_id, request=request)
-        if raise_on_failure:
-            raise HTTPException(status, message)
-        return None
-
-    if not token:
-        return fail("session_missing_token", 401, "Missing session token.")
-    with db() as conn:
-        row = conn.execute(
-            "SELECT * FROM auth_sessions WHERE session_token_hash = ?", (hash_token(token),)
-        ).fetchone()
-    if row is None:
-        return fail("session_invalid", 401, "Invalid session.")
-    if row["revoked_at"] is not None:
-        return fail("session_revoked", 401, "Session revoked.", internal_user_id=row["internal_user_id"], session_id=row["id"])
-    if row["expires_at"] <= now_iso:
-        return fail("session_expired", 401, "Session expired.", internal_user_id=row["internal_user_id"], session_id=row["id"])
-    with db() as conn:
-        banned = _user_is_banned(conn, row["internal_user_id"], row["legacy_user_id"])
-    if banned:
-        return fail("session_user_banned", 403, "User is banned.", severity="critical", internal_user_id=row["internal_user_id"], session_id=row["id"])
-    with db() as conn:
-        conn.execute("UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?", (now_iso, row["id"]))
-    return {
-        "session_id": row["id"],
-        "internal_user_id": row["internal_user_id"],
-        "legacy_user_id": row["legacy_user_id"],
-        "provider": row["provider"],
-        "platform": row["platform"],
-        "created_at": row["created_at"],
-        "last_seen_at": now_iso,
-        "expires_at": row["expires_at"],
-    }
+    """Resolve a trusted session without accepting legacy identity inputs."""
+    try:
+        return security_resolve_session(
+            _session_runtime(),
+            _extract_session_token(request),
+            request,
+            raise_on_failure=raise_on_failure,
+        )
+    except SessionAccessError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
 
 
 def refresh_auth_session(refresh_token: str, request: Request | None = None) -> dict[str, str]:
-    """Validate a refresh token, rotate it, and issue a fresh session.
-
-    Refresh validity is governed by refresh_expires_at (its own lifetime), NOT by
-    the access token's expires_at — so a refresh still works after the access
-    token has lapsed. Legacy rows predating refresh_expires_at (NULL) are treated
-    conservatively: rejected in production; in dev/test they fall back to
-    expires_at so older fixtures/sessions keep working.
-    """
-    validate_session_crypto_config()
-    now_iso = datetime.now(timezone.utc).isoformat()
-
-    def fail(event_type: str, status: int, message: str, *, severity: str = "warning",
-             internal_user_id: str | None = None, session_id: str | None = None):
-        with db() as conn:
-            record_security_event(conn, event_type, severity=severity, internal_user_id=internal_user_id, session_id=session_id, request=request)
-        raise HTTPException(status, message)
-
-    with db() as conn:
-        row = conn.execute(
-            "SELECT * FROM auth_sessions WHERE refresh_token_hash = ?", (hash_token(refresh_token),)
-        ).fetchone()
-    if row is None:
-        fail("refresh_invalid", 401, "Invalid refresh token.")
-    if row["revoked_at"] is not None:
-        fail("refresh_revoked", 401, "Refresh token revoked.", internal_user_id=row["internal_user_id"], session_id=row["id"])
-    refresh_expires_at = row["refresh_expires_at"] if "refresh_expires_at" in row.keys() else None
-    if refresh_expires_at is None:
-        if APP_ENV.lower() == "production":
-            fail("refresh_expired", 401, "Refresh token expired.", internal_user_id=row["internal_user_id"], session_id=row["id"])
-        refresh_expires_at = row["expires_at"]  # dev/test fallback for legacy rows
-    if refresh_expires_at is None or refresh_expires_at <= now_iso:
-        fail("refresh_expired", 401, "Refresh token expired.", internal_user_id=row["internal_user_id"], session_id=row["id"])
-    with db() as conn:
-        banned = _user_is_banned(conn, row["internal_user_id"], row["legacy_user_id"])
-    if banned:
-        fail("refresh_user_banned", 403, "User is banned.", severity="critical", internal_user_id=row["internal_user_id"], session_id=row["id"])
-    # Rotation: revoke the old session so the old refresh token cannot be reused.
-    with db() as conn:
-        conn.execute(
-            "UPDATE auth_sessions SET revoked_at = ?, revoke_reason = 'rotated' WHERE id = ?",
-            (now_iso, row["id"]),
+    """Rotate a trusted refresh token through the extracted session service."""
+    try:
+        return security_refresh_session(
+            _session_runtime(),
+            refresh_token,
+            request,
+            app_env=APP_ENV,
+            access_ttl_seconds=SESSION_ACCESS_TTL_SECONDS,
+            refresh_ttl_seconds=SESSION_REFRESH_TTL_SECONDS,
         )
-        record_session_event(conn, row["id"], row["internal_user_id"], "refreshed", request)
-    return create_auth_session(
-        row["internal_user_id"], row["legacy_user_id"], row["provider"], row["platform"], request
-    )
+    except SessionAccessError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
 
 
 def revoke_auth_session(
@@ -3897,26 +2954,7 @@ def revoke_auth_session(
     request: Request | None = None,
     event_type: str | None = None,
 ) -> bool:
-    now_iso = datetime.now(timezone.utc).isoformat()
-    with db() as conn:
-        row = conn.execute(
-            "SELECT internal_user_id, revoked_at FROM auth_sessions WHERE id = ?", (session_id,)
-        ).fetchone()
-        if row is None:
-            return False
-        if row["revoked_at"] is None:
-            conn.execute(
-                "UPDATE auth_sessions SET revoked_at = ?, revoke_reason = ? WHERE id = ?",
-                (now_iso, reason, session_id),
-            )
-        record_session_event(
-            conn,
-            session_id,
-            row["internal_user_id"],
-            event_type or ("logout" if reason == "logout" else "revoked"),
-            request,
-        )
-    return True
+    return security_revoke_session(_session_runtime(), session_id, reason, request, event_type)
 
 
 def trusted_cookie_common(request: Request | None = None) -> dict[str, Any]:
@@ -3980,49 +3018,20 @@ def _extract_refresh_token(request: Request) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _permission_runtime() -> PermissionRuntime:
+    return PermissionRuntime(
+        connect=db,
+        resolve_session=resolve_auth_session_from_request,
+        record_security_event=record_security_event,
+    )
+
+
 def resolve_trusted_user(request: Request) -> dict[str, Any]:
-    """Resolve the current user strictly from a trusted server session.
-
-    Never trusts X-OneNode-User, the onenode_user cookie, or any client-supplied
-    user id. 401 for invalid/expired/revoked session, 403 for banned/deleted user.
-    A mismatching X-OneNode-User header is logged as a spoof attempt but never
-    changes the resolved identity and never fails a request with a valid session.
-    """
-    session = resolve_auth_session_from_request(request)  # raises 401/403
-    internal_user_id = session["internal_user_id"]
-    legacy_user_id = session["legacy_user_id"]
-
-    with db() as conn:
-        urow = conn.execute("SELECT id FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
-        if urow is None and legacy_user_id:
-            urow = conn.execute("SELECT id FROM users WHERE id = ?", (legacy_user_id,)).fetchone()
-    if urow is None:
-        with db() as conn:
-            record_security_event(conn, "trusted_user_missing", severity="critical", internal_user_id=internal_user_id, session_id=session["session_id"], request=request)
-        raise HTTPException(403, "User not found.")
-
-    header_user = request.headers.get("x-onenode-user")
-    if header_user and header_user != legacy_user_id and header_user != "demo_user":
-        with db() as conn:
-            record_security_event(
-                conn,
-                "legacy_identity_spoof_attempt",
-                internal_user_id=internal_user_id,
-                session_id=session["session_id"],
-                request=request,
-                details={
-                    "trusted_legacy_user_id": legacy_user_id,
-                    "spoofed_header_hash": hashlib.sha256(header_user.encode()).hexdigest(),
-                },
-            )
-
-    return {
-        "internal_user_id": internal_user_id,
-        "legacy_user_id": legacy_user_id,
-        "session_id": session["session_id"],
-        "provider": session["provider"],
-        "platform": session["platform"],
-    }
+    """Resolve identity only from a trusted server-side session."""
+    try:
+        return security_resolve_trusted_identity(_permission_runtime(), request)
+    except PermissionAccessError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
 
 
 def require_trusted_user(request: Request) -> dict[str, Any]:
@@ -4031,26 +3040,15 @@ def require_trusted_user(request: Request) -> dict[str, Any]:
 
 
 def require_trusted_admin(request: Request) -> dict[str, Any]:
-    """Trusted admin gate. Uses the existing users.role model via the trusted
-    session only — never X-OneNode-User and never the static admin code."""
-    user = require_trusted_user(request)
-    with db() as conn:
-        row = conn.execute("SELECT role FROM users WHERE internal_user_id = ?", (user["internal_user_id"],)).fetchone()
-        if row is None and user["legacy_user_id"]:
-            row = conn.execute("SELECT role FROM users WHERE id = ?", (user["legacy_user_id"],)).fetchone()
-    if not row or row["role"] != "admin":
-        with db() as conn:
-            record_security_event(conn, "trusted_admin_denied", internal_user_id=user["internal_user_id"], session_id=user["session_id"], request=request)
-        raise HTTPException(403, "Admin access required")
-    return user
+    """Require an admin role resolved exclusively through the trusted session."""
+    try:
+        return security_require_admin(_permission_runtime(), request)
+    except PermissionAccessError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
 
 
 def trusted_user_is_admin(user: dict[str, Any]) -> bool:
-    with db() as conn:
-        row = conn.execute("SELECT role FROM users WHERE internal_user_id = ?", (user["internal_user_id"],)).fetchone()
-        if row is None and user.get("legacy_user_id"):
-            row = conn.execute("SELECT role FROM users WHERE id = ?", (user["legacy_user_id"],)).fetchone()
-    return bool(row and row["role"] == "admin")
+    return security_user_is_admin(_permission_runtime(), user)
 
 
 def _row_get(row: sqlite3.Row | None, key: str) -> Any:
@@ -5052,35 +4050,14 @@ def persist_image(record: dict[str, Any], job_id: str) -> None:
 
 
 def local_media_path_from_url(url: str) -> Path | None:
-    if url.startswith("/api/media/"):
-        filename = url.removeprefix("/api/media/").split("?", 1)[0]
-    elif url.startswith("/media/"):
-        filename = url.removeprefix("/media/").split("?", 1)[0]
-    else:
-        return None
-    path = (MEDIA / filename).resolve()
     try:
-        path.relative_to(MEDIA.resolve())
-    except ValueError:
-        raise RuntimeError("Недопустимый путь media-файла.")
-    return path if path.exists() else None
+        return storage_local_media_path_from_url(MEDIA, url)
+    except StoragePathError as exc:
+        raise RuntimeError("Недопустимый путь media-файла.") from exc
 
 
 def media_filename_from_url(url: str | None) -> str | None:
-    if not url:
-        return None
-    if url.startswith("/api/media/"):
-        filename = url.removeprefix("/api/media/").split("?", 1)[0]
-    elif url.startswith("/media/"):
-        filename = url.removeprefix("/media/").split("?", 1)[0]
-    else:
-        return None
-    path = (MEDIA / filename).resolve()
-    try:
-        path.relative_to(MEDIA.resolve())
-    except ValueError:
-        return None
-    return filename
+    return storage_media_filename_from_url(MEDIA, url)
 
 
 def _source_role_label(role: str | None, slot_index: int, mode: str | None = None) -> str:
@@ -6393,7 +5370,7 @@ def start_bot_polling_tasks() -> list[str]:
 
 
 def public_url(path: Path, user_id: str = "demo_user") -> str:
-    return f"/api/media/{path.name}?userId={user_id}"
+    return storage_public_media_url(path, user_id)
 
 
 def delete_image_files_from_disk(url: str | None = None, thumbnail_url: str | None = None) -> None:
@@ -6414,8 +5391,7 @@ def _delete_media_rel(rel: str | None) -> None:
     if not rel:
         return
     try:
-        target = (MEDIA / rel).resolve()
-        target.relative_to(MEDIA.resolve())
+        target = storage_resolve_under_root(MEDIA, rel)
         if target.exists() and target.is_file():
             target.unlink()
     except Exception:
@@ -7530,12 +6506,10 @@ def _media_file_path_from_url(url: str | None) -> Path | None:
     name = _feed_media_name(url)
     if not name:
         return None
-    path = (MEDIA / name).resolve()
     try:
-        path.relative_to(MEDIA.resolve())
-    except ValueError:
+        return storage_resolve_under_root(MEDIA, name)
+    except StoragePathError:
         return None
-    return path
 
 
 async def comfyui_available() -> bool:
@@ -8915,6 +7889,10 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         capabilities = await fetch_openrouter_image_capabilities()
         resolved_model = resolve_openrouter_model(req)
         capability = next((item for item in capabilities if item.get("id") == resolved_model), None)
+        if req.mode != "text_to_image" and (
+            capability is None or req.mode not in (capability.get("modes") or [])
+        ):
+            raise HTTPException(400, "Выбранная модель не поддерживает этот режим генерации.")
         if requested_resolution_id not in supported_resolution_ids_from_capability(capability):
             raise HTTPException(422, "Выбранное разрешение не поддерживается этой моделью.")
         openrouter_billing = await estimate_openrouter_billing(req)
@@ -9623,14 +8601,18 @@ async def gallery_use_as(image_id: str, req: UseAsRequest, request: Request) -> 
     }
 
 
-@app.get("/api/media/{filename}")
-async def secure_media(filename: str, request: Request) -> FileResponse:
+def private_media_response(filename: str, request: Request) -> FileResponse:
+    """Return private gallery/source media only to its trusted owner.
+
+    Both the canonical `/api/media/...` route and the compatibility `/media/...`
+    route use this single authorization path. Query-string `userId`, legacy
+    cookies and `X-OneNode-User` never participate in the decision.
+    """
     trusted = require_trusted_user(request)
     user_id = trusted["legacy_user_id"]
-    path = (MEDIA / filename).resolve()
     try:
-        path.relative_to(MEDIA.resolve())
-    except ValueError:
+        path = storage_resolve_under_root(MEDIA, filename)
+    except StoragePathError:
         raise HTTPException(404, "Image not found")
     if not path.exists():
         raise HTTPException(404, "Image not found")
@@ -9642,12 +8624,49 @@ async def secure_media(filename: str, request: Request) -> FileResponse:
             and (
                 item.get("url", "").startswith(f"/api/media/{filename}")
                 or item.get("thumbnailUrl", "").startswith(f"/api/media/{filename}")
+                or item.get("url", "").startswith(f"/media/{filename}")
+                or item.get("thumbnailUrl", "").startswith(f"/media/{filename}")
             )
             for item in images.values()
         )
     if not allowed:
         raise HTTPException(404, "Image not found")
     return FileResponse(path)
+
+
+@app.get("/api/media/{filename}")
+async def secure_media(filename: str, request: Request) -> FileResponse:
+    return private_media_response(filename, request)
+
+
+@app.get("/media/avatars/{filename}")
+async def public_custom_avatar(filename: str) -> FileResponse:
+    """Serve only custom avatars that are currently referenced by a user.
+
+    User avatars are part of public feed/profile payloads. Keeping this narrow
+    route preserves those public profiles without exposing the rest of MEDIA.
+    """
+    try:
+        path = storage_resolve_under_root(AVATAR_DIR, filename)
+    except StoragePathError:
+        raise HTTPException(404, "Avatar not found")
+    if not path.is_file():
+        raise HTTPException(404, "Avatar not found")
+    avatar_url = f"/media/avatars/{filename}"
+    with db() as conn:
+        referenced = conn.execute(
+            "SELECT 1 FROM users WHERE avatar_url = ? LIMIT 1",
+            (avatar_url,),
+        ).fetchone()
+    if referenced is None:
+        raise HTTPException(404, "Avatar not found")
+    return FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/media/{filename:path}")
+async def legacy_secure_media(filename: str, request: Request) -> FileResponse:
+    """Compatibility route for old database URLs, protected like `/api/media`."""
+    return private_media_response(filename, request)
 
 
 @app.post("/api/app/bootstrap")
@@ -13546,24 +12565,28 @@ async def bots_local_command(req: BotCommandRequest) -> dict[str, Any]:
 
 
 @app.post("/api/telegram/send-message")
-async def telegram_send_message(req: BotSendMessageRequest) -> dict[str, Any]:
+async def telegram_send_message(req: BotSendMessageRequest, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
     if not req.chatId:
         raise HTTPException(400, "chatId is required for Telegram sendMessage.")
     return await telegram_api("sendMessage", {"chat_id": req.chatId, "text": req.text})
 
 
 @app.get("/api/telegram/me")
-async def telegram_me() -> dict[str, Any]:
+async def telegram_me(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
     return await telegram_api("getMe")
 
 
 @app.post("/api/telegram/poll-once")
-async def telegram_poll_once() -> dict[str, Any]:
+async def telegram_poll_once(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
     return await telegram_poll_once_from_api(timeout=0, limit=10)
 
 
 @app.post("/api/telegram/set-webhook")
-async def telegram_set_webhook() -> dict[str, Any]:
+async def telegram_set_webhook(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
     public_url = os.getenv("BACKEND_PUBLIC_URL", "")
     if not public_url.startswith("https://"):
         raise HTTPException(400, "BACKEND_PUBLIC_URL must be an HTTPS URL for Telegram webhook mode.")
@@ -13571,7 +12594,8 @@ async def telegram_set_webhook() -> dict[str, Any]:
 
 
 @app.post("/api/telegram/configure-bot")
-async def telegram_configure_bot() -> dict[str, Any]:
+async def telegram_configure_bot(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
     commands = [
         {"command": "start", "description": "Открыть генератор"},
         {"command": "app", "description": "Открыть Mini App"},
@@ -13592,12 +12616,14 @@ async def telegram_configure_bot() -> dict[str, Any]:
 
 
 @app.post("/api/telegram/delete-webhook")
-async def telegram_delete_webhook() -> dict[str, Any]:
+async def telegram_delete_webhook(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
     return await telegram_api("deleteWebhook", {"drop_pending_updates": False})
 
 
 @app.post("/api/max/send-message")
-async def max_send_message(req: BotSendMessageRequest) -> dict[str, Any]:
+async def max_send_message(req: BotSendMessageRequest, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
     if not req.chatId and not req.userId:
         raise HTTPException(400, "chatId or userId is required for MAX messages.")
     params: dict[str, Any] = {}
@@ -13636,19 +12662,22 @@ async def send_gallery_image(image_id: str, req: SendImageRequest, request: Requ
 
 
 @app.get("/api/max/me")
-async def max_me() -> dict[str, Any]:
+async def max_me(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
     return await max_api("GET", "/me")
 
 
 @app.post("/api/max/poll-once")
-async def max_poll_once() -> dict[str, Any]:
+async def max_poll_once(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
     if pending_max_login_challenges_count() > 0:
         raise HTTPException(409, "active_max_login_challenge")
     return await max_poll_once_from_api(timeout=0, limit=10)
 
 
 @app.post("/api/max/set-webhook")
-async def max_set_webhook() -> dict[str, Any]:
+async def max_set_webhook(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
     return await configure_max_webhook_subscription()
 
 
@@ -16639,10 +15668,9 @@ async def feed_media(publication_id: str, request: Request, variant: str = "larg
     name = _row_get(pub, "feed_thumb_name") if selected == "thumb" else _row_get(pub, "feed_large_name")
     if not name:
         raise HTTPException(404, "Image file not found")
-    path = (MEDIA / name).resolve()
     try:
-        path.relative_to(MEDIA.resolve())
-    except ValueError:
+        path = storage_resolve_under_root(MEDIA, name)
+    except StoragePathError:
         raise HTTPException(404, "Image file not found")
     if not path.exists():
         raise HTTPException(404, "Image file not found")
