@@ -122,15 +122,21 @@
 - инцидент подтвердил отдельный operational risk ручных restart-команд: в план добавлен проверяемый `tools/restart-backend.ps1` с точной проверкой PID/command/bind, обязательным health wait и выводом startup logs при rollback/failure;
 - live smoke прошёл 5/5: health/capabilities/frontend/feed/public feed media — 200, private source без trusted session — 401; реальный public OpenRouter text catalog без API-key успешно разобран, 345 моделей, generation/billing не вызывались;
 - source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
-- все завершённые checkpoint-коммиты до `a913643` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
+- создан backend-only `tools/restart-backend.ps1`: import preflight, обязательный single listener, exact Python/uvicorn/host/port verification, current health gate, bounded stop/port wait, hidden start, timestamped stdout/stderr, startup health wait, new PID verification и diagnostic log tails при failure;
+- безопасные режимы `-ValidateOnly` и `-PreflightOnly` гарантированно завершаются до `Stop-Process`; явно неверный `-PythonPath`, public bind, отсутствующий entrypoint и несовместимые режимы являются блокирующими ошибками до restart;
+- launcher package прошёл 5 циклов по 8 тестов; реальные `ValidateOnly` и `PreflightOnly` прошли по 5 циклов на production listener; полный backend+tools checkpoint: 730 passed, 0 deselected, 0 excluded;
+- frontend lint после финальной executable-policy защиты — 0 errors (1 известный hooks warning), TypeScript/Vite production build — успешно; pytest и restart-test процессов после проверки нет;
+- первый реальный запуск helper заменил backend PID 19888 на PID 25664, сохранил logs `logs/backend_restart_20260712_220725_179.{out,err}.log`, подтвердил единственный listener `127.0.0.1:8000`, health 200 и startup reconciliation checked 127 / available 125 / missing 2 / changed 0;
+- live smoke после scripted restart прошёл 5/5: health/capabilities/frontend/feed/public feed media — 200, private source без trusted session — 401; source snapshot совпал (125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`);
+- все завершённые checkpoint-коммиты до `5e69675` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
 
 Частично выполнено:
 
 - конфигурация: чистые helpers вынесены, остальные runtime-настройки ещё находятся в `main.py`;
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
-- deploy gate: TypeScript блокирует запуск, но единая `tools/verify.ps1`, CI gate и безопасный `tools/restart-backend.ps1` ещё не созданы.
+- deploy gate: TypeScript блокирует запуск и безопасный backend-only restart helper создан; единая `tools/verify.ps1` и CI gate ещё не созданы.
 
-Следующий пакет: создать и проверить `tools/restart-backend.ps1`, устраняющий ручные PowerShell-ошибки при deployment; после этого продолжить read-only OpenRouter `/key` + `/credits` extraction. Скрипт обязан проверять единственный ожидаемый PID/command/bind, ждать health, сохранять logs и завершаться с явной ошибкой при неподтверждённом запуске.
+Следующий пакет: вынести read-only OpenRouter `/key` + `/credits` HTTP/parsing block в `app/integrations/openrouter.py` с characterization tests; API-key source, admin response shape, secrets, generation, billing и production-настройки не менять. Все следующие backend deployment выполняются только через `tools/restart-backend.ps1`.
 
 Storage-аудит завершён: startup availability теперь стабилен (`changed=0` при неизменном filesystem), автоматическое физическое удаление файлов запрещено, тесты изолированы от production DB/media. Любая будущая очистка файлов выполняется только через manifest/quarantine.
 

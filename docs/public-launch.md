@@ -31,6 +31,28 @@ dev` (:5173). Do **not** use while the tunnel is meant to serve the public site.
    generate/gallery/me (401 each).
 Cloudflared is NOT managed here — it must already point to :5173.
 
+## Safe backend-only restart
+
+After a backend-only change that has already passed the full test/build gate, use the
+checked PowerShell helper instead of assembling stop/start commands manually:
+
+```powershell
+.\tools\restart-backend.ps1 -PreflightOnly
+.\tools\restart-backend.ps1
+```
+
+The helper is intentionally restricted to `127.0.0.1`. It validates the Python import,
+requires exactly one existing `uvicorn main:app` listener with the expected command,
+checks current health before stopping it, writes separate timestamped stdout/stderr logs,
+waits for the new `/api/health` response, and verifies the new listener PID. It inherits
+the caller's environment and does not manage frontend, ComfyUI, Ollama or the tunnel.
+
+For a dependency/path check without inspecting or restarting a listener:
+
+```powershell
+.\tools\restart-backend.ps1 -ValidateOnly
+```
+
 `vite preview` is acceptable staging, not a hardened production server; for a final
 setup serve `dist/` via nginx/Caddy with caching.
 
