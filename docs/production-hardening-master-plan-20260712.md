@@ -54,6 +54,13 @@
 - оба ранее deselected feed-теста возвращены в обязательный suite: gallery shell синхронизирован с текущими routes, а gallery-original migration исправлена так, чтобы `delete_source=False` действительно сохранял исходный PNG/JPG;
 - текущий полный backend checkpoint: 665 passed, 0 deselected, 0 excluded; live source snapshot 125/125 без added/removed/changed;
 - после рестарта удалён дублирующий Uvicorn-процесс, ошибочно слушавший `0.0.0.0:8000`; штатный backend подтверждён единственным listener на `127.0.0.1:8000`.
+- восстановление unavailable source thumbnails из job settings вынесено из `main.py` в `storage/recovery.py` через явно внедряемые adapters; прежняя функция `repair_unavailable_image_sources_from_jobs()` сохранена как compatibility wrapper;
+- extraction проверен новым модульным тестом на сохранение metadata/избранного и идемпотентность, существующим integration/startup-safety набором в 5 циклах по 6 тестов;
+- текущий полный backend checkpoint после repair extraction: 666 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 ранее известный hooks warning), production build — успешно;
+- controlled production restart поднял единственный backend PID на `127.0.0.1:8000`; startup reconciliation: checked 127, available 125, missing 2, changed 0;
+- live smoke после repair extraction прошёл 5/5: health/capabilities/frontend/public feed media — 200, private source без trusted session — 401;
+- source snapshot до/после рестарта полностью совпал: 125 файлов, 1 871 474 bytes, общий SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; активных pytest-процессов после проверки нет;
+- пять предыдущих завершённых checkpoint-коммитов (`8d47037`…`27dc56a`) синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
 
 Частично выполнено:
 
@@ -61,9 +68,9 @@
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
 - deploy gate: TypeScript блокирует запуск, но единая `tools/verify.ps1` и CI gate ещё не созданы.
 
-Следующий пакет декомпозиции: storage cleanup/recovery, после отдельного аудита нестабильного source availability цикла. Production restart выполняется отдельно только после полного checkpoint.
+Следующий пакет декомпозиции: вынести чтение дерева gallery sources и восстановление source rows для одной конкретной image из `main.py`, сохранив compatibility wrappers. Production restart выполняется отдельно только после полного checkpoint.
 
-Отдельный storage-аудит: startup source availability/repair меняет статус более 100 source-записей между последовательными рестартами, затем восстанавливает их. Ошибок восстановления нет, но цикл статусов нужно сделать стабильным до переноса storage cleanup/recovery.
+Storage-аудит завершён: startup availability теперь стабилен (`changed=0` при неизменном filesystem), автоматическое физическое удаление файлов запрещено, тесты изолированы от production DB/media. Любая будущая очистка файлов выполняется только через manifest/quarantine.
 
 ## 1. Что именно исправляем
 
@@ -71,7 +78,7 @@
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 597 строк | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 545 строк | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |
@@ -113,6 +120,7 @@
 10. После каждого PR обязательны backend tests, frontend build и соответствующий smoke.
 11. Большой «переписать всё» PR запрещён.
 12. PostgreSQL/Docker/Linux не смешиваются с текущей декомпозицией.
+13. Каждый завершённый checkpoint обновляет документацию, получает отдельный commit и push в `origin/main`; секреты, live SQLite и media в Git не добавляются.
 
 ## 3. Итоговая структура backend
 

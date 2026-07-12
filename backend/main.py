@@ -187,6 +187,7 @@ try:
         PublicMediaRuntime,
         SourceCleanupRuntime,
         SourceAvailabilityRuntime,
+        SourceRepairRuntime,
         StoragePathError,
         find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
@@ -197,6 +198,7 @@ try:
         resolve_public_avatar as storage_resolve_public_avatar,
         reconcile_orphan_source_rows as storage_reconcile_orphan_source_rows,
         reconcile_source_availability as storage_reconcile_source_availability,
+        repair_unavailable_sources_from_jobs as storage_repair_unavailable_sources_from_jobs,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -208,6 +210,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         PublicMediaRuntime,
         SourceCleanupRuntime,
         SourceAvailabilityRuntime,
+        SourceRepairRuntime,
         StoragePathError,
         find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
@@ -218,6 +221,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         resolve_public_avatar as storage_resolve_public_avatar,
         reconcile_orphan_source_rows as storage_reconcile_orphan_source_rows,
         reconcile_source_availability as storage_reconcile_source_availability,
+        repair_unavailable_sources_from_jobs as storage_repair_unavailable_sources_from_jobs,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -4205,77 +4209,21 @@ def repair_unavailable_image_sources_from_jobs(
     *,
     limit: int = 500,
 ) -> dict[str, int]:
-    """Restore missing source thumbnails without replacing their metadata rows."""
-    stats = {"checked": 0, "repaired": 0, "unrecoverable": 0, "errors": 0}
-    where = ["s.availability_status IN ('missing', 'unavailable')"]
-    params: list[Any] = []
-    if user_id:
-        where.append("s.user_id = ?")
-        params.append(user_id)
-    params.append(max(1, int(limit)))
-    with db() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT s.*, i.job_id, j.settings_json
-            FROM image_sources s
-            JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id
-            LEFT JOIN jobs j ON j.id = i.job_id
-            WHERE {' AND '.join(where)}
-            ORDER BY s.created_at ASC, s.slot_index ASC
-            LIMIT ?
-            """,
-            params,
-        ).fetchall()
-    for row in rows:
-        stats["checked"] += 1
-        candidates: list[str] = []
-        try:
-            req = GenerateRequest(**safe_json_load(row["settings_json"]))
-            for position, source in enumerate(_generation_source_inputs(req), start=1):
-                slot = int(source.get("slot") or position)
-                if slot == int(row["slot_index"] or 0):
-                    candidates.append(str(source.get("value") or ""))
-                    break
-        except Exception:
-            pass
-        if row["source_image_id"]:
-            with db() as conn:
-                source_image = conn.execute(
-                    "SELECT url, thumbnail_url FROM images WHERE id = ? AND user_id = ?",
-                    (row["source_image_id"], row["user_id"]),
-                ).fetchone()
-            if source_image:
-                candidates.extend([str(source_image["url"] or ""), str(source_image["thumbnail_url"] or "")])
-        repaired = None
-        for value in dict.fromkeys(candidate for candidate in candidates if candidate):
-            repaired = _save_source_thumb(value, row["image_id"], int(row["slot_index"] or 0))
-            if repaired is not None:
-                break
-        if repaired is None:
-            stats["unrecoverable"] += 1
-            continue
-        path, width, height, byte_size = repaired
-        now = datetime.now(timezone.utc).isoformat()
-        try:
-            with db() as conn:
-                conn.execute(
-                    """
-                    UPDATE image_sources
-                    SET thumb_url = ?, thumb_width = ?, thumb_height = ?, thumb_bytes = ?,
-                        availability_status = 'available', availability_checked_at = ?, unavailable_at = NULL
-                    WHERE id = ? AND availability_status IN ('missing', 'unavailable')
-                    """,
-                    (public_url(path, row["user_id"]), width, height, byte_size, now, row["id"]),
-                )
-                changed = conn.execute("SELECT changes()").fetchone()[0]
-            if not changed:
-                path.unlink(missing_ok=True)
-                continue
-            stats["repaired"] += 1
-        except Exception:
-            path.unlink(missing_ok=True)
-            stats["errors"] += 1
-    return stats
+    def source_candidates(settings_json: str | None, slot_index: int) -> list[str]:
+        req = GenerateRequest(**safe_json_load(settings_json))
+        for position, source in enumerate(_generation_source_inputs(req), start=1):
+            slot = int(source.get("slot") or position)
+            if slot == slot_index:
+                return [str(source.get("value") or "")]
+        return []
+
+    runtime = SourceRepairRuntime(
+        connect=db,
+        source_candidates_from_settings=source_candidates,
+        save_source_thumb=_save_source_thumb,
+        public_url=public_url,
+    )
+    return storage_repair_unavailable_sources_from_jobs(runtime, user_id, limit=limit)
 
 
 def gallery_sources_for_image(
