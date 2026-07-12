@@ -189,6 +189,17 @@ def test_media_own_session_200(temp_db, two_users):
     assert r.content == b"fake-png"
 
 
+def test_media_owner_prefix_does_not_authorize_different_filename(temp_db, two_users):
+    (main.MEDIA / "a.png.evil").write_bytes(b"must-not-leak")
+    sa = sess_a(two_users)
+    with TestClient(main.app) as c:
+        r = c.get(
+            "/api/media/a.png.evil?userId=web_a",
+            cookies={"onenode_session": sa["session_token"]},
+        )
+    assert r.status_code == 404
+
+
 def test_legacy_media_path_without_session_401(temp_db, two_users):
     with TestClient(main.app) as c:
         r = c.get("/media/a.png")

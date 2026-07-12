@@ -34,6 +34,10 @@
 - canonical root containment, media URL parsing и compatibility URL creation вынесены в `storage/paths.py`;
 - storage paths package проверен пятью циклами по 120 тестов; общий backend checkpoint: 652 passed, 2 известных feed-теста deselected;
 - storage paths развёрнут в production; пять live smoke-циклов подтвердили private media 401 без сессии и traversal 404;
+- private media ownership больше не использует небезопасное prefix-сопоставление `filename%`; разрешается только точный URL-путь и необязательный query string;
+- trusted private-media resolution вынесен в `storage/private_media.py`, public avatar/feed resolution — в `storage/public_media.py`;
+- private/public media package проверен пятью циклами по 81 тесту; общий backend checkpoint: 657 passed, 2 известных feed-теста deselected;
+- production smoke 5/5 подтвердил private 401, traversal/orphan/unpublished 404 и опубликованный feed asset 200 локально и через домен;
 - после рестарта удалён дублирующий Uvicorn-процесс, ошибочно слушавший `0.0.0.0:8000`; штатный backend подтверждён единственным listener на `127.0.0.1:8000`.
 
 Частично выполнено:
@@ -42,7 +46,7 @@
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
 - deploy gate: TypeScript блокирует запуск, но единая `tools/verify.ps1` и CI gate ещё не созданы.
 
-Следующий пакет декомпозиции: private/public media helpers, без смешивания с cleanup/recovery. Production restart выполняется отдельно только после полного checkpoint.
+Следующий пакет декомпозиции: storage cleanup/recovery, после отдельного аудита нестабильного source availability цикла. Production restart выполняется отдельно только после полного checkpoint.
 
 Отдельный storage-аудит: startup source availability/repair меняет статус более 100 source-записей между последовательными рестартами, затем восстанавливает их. Ошибок восстановления нет, но цикл статусов нужно сделать стабильным до переноса storage cleanup/recovery.
 
@@ -52,7 +56,7 @@
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 681 строк | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 639 строк | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |

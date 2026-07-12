@@ -54,6 +54,8 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/security/otp.py` owns OTP generation/hash, production configuration validation, mock delivery, stale-challenge cleanup and request rate limits through an injected runtime.
 - `backend/app/security/events.py` owns session, security, login-attempt and product-event persistence; callers remain responsible for passing only sanitized metadata.
 - `backend/app/storage/paths.py` owns canonical root containment, private-media URL parsing and compatibility URL creation; filesystem deletion, cleanup and recovery remain separate follow-up packages.
+- `backend/app/storage/private_media.py` owns trusted-owner resolution for canonical and legacy private media URLs; filename matching is exact apart from an optional query string.
+- `backend/app/storage/public_media.py` owns the narrow public surfaces for referenced custom avatars and ready assets belonging to published feed rows.
 - Keep it independent of FastAPI, SQLite and provider network calls.
 
 ## Security boundaries

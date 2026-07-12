@@ -181,18 +181,34 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.storage import (
+        PrivateMediaAccessError,
+        PrivateMediaRuntime,
+        PublicMediaAccessError,
+        PublicMediaRuntime,
         StoragePathError,
+        find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
         media_filename_from_url as storage_media_filename_from_url,
         public_media_url as storage_public_media_url,
+        resolve_feed_media as storage_resolve_feed_media,
+        resolve_private_media as storage_resolve_private_media,
+        resolve_public_avatar as storage_resolve_public_avatar,
         resolve_under_root as storage_resolve_under_root,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.storage import (
+        PrivateMediaAccessError,
+        PrivateMediaRuntime,
+        PublicMediaAccessError,
+        PublicMediaRuntime,
         StoragePathError,
+        find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
         media_filename_from_url as storage_media_filename_from_url,
         public_media_url as storage_public_media_url,
+        resolve_feed_media as storage_resolve_feed_media,
+        resolve_private_media as storage_resolve_private_media,
+        resolve_public_avatar as storage_resolve_public_avatar,
         resolve_under_root as storage_resolve_under_root,
     )
 
@@ -2740,33 +2756,12 @@ def gallery_fts_query(value: str) -> str:
 
 
 def gallery_media_owner_row(conn: sqlite3.Connection, filename: str, legacy_user_id: str) -> sqlite3.Row | None:
-    media_url_prefix = f"/api/media/{filename}"
-    legacy_media_url_prefix = f"/media/{filename}"
-    image_row = conn.execute(
-        f"""
-        SELECT id, user_id, url, thumbnail_url FROM images
-        WHERE user_id = ? AND {ACTIVE_IMAGE_WHERE}
-          AND (url LIKE ? OR thumbnail_url LIKE ? OR url LIKE ? OR thumbnail_url LIKE ?)
-        LIMIT 1
-        """,
-        (
-            legacy_user_id,
-            f"{media_url_prefix}%",
-            f"{media_url_prefix}%",
-            f"{legacy_media_url_prefix}%",
-            f"{legacy_media_url_prefix}%",
-        ),
-    ).fetchone()
-    if image_row is not None:
-        return image_row
-    return conn.execute(
-        """
-        SELECT id, user_id, image_id, thumb_url FROM image_sources
-        WHERE user_id = ? AND (thumb_url LIKE ? OR thumb_url LIKE ?)
-        LIMIT 1
-        """,
-        (legacy_user_id, f"{media_url_prefix}%", f"{legacy_media_url_prefix}%"),
-    ).fetchone()
+    return storage_find_gallery_media_owner(
+        conn,
+        filename,
+        legacy_user_id,
+        active_image_where=ACTIVE_IMAGE_WHERE,
+    )
 
 
 def gallery_image_id_from_media_url(conn: sqlite3.Connection, url: str | None, legacy_user_id: str) -> str | None:
@@ -8601,36 +8596,25 @@ async def gallery_use_as(image_id: str, req: UseAsRequest, request: Request) -> 
     }
 
 
-def private_media_response(filename: str, request: Request) -> FileResponse:
-    """Return private gallery/source media only to its trusted owner.
+def _private_media_runtime() -> PrivateMediaRuntime:
+    return PrivateMediaRuntime(
+        connect=db,
+        resolve_trusted_user=require_trusted_user,
+        owner_exists=lambda conn, filename, user_id: gallery_media_owner_row(conn, filename, user_id) is not None,
+        cached_images=lambda: images.values(),
+        resolve_path=storage_resolve_under_root,
+    )
 
-    Both the canonical `/api/media/...` route and the compatibility `/media/...`
-    route use this single authorization path. Query-string `userId`, legacy
-    cookies and `X-OneNode-User` never participate in the decision.
-    """
-    trusted = require_trusted_user(request)
-    user_id = trusted["legacy_user_id"]
+
+def _public_media_runtime() -> PublicMediaRuntime:
+    return PublicMediaRuntime(connect=db, resolve_path=storage_resolve_under_root)
+
+
+def private_media_response(filename: str, request: Request) -> FileResponse:
     try:
-        path = storage_resolve_under_root(MEDIA, filename)
-    except StoragePathError:
-        raise HTTPException(404, "Image not found")
-    if not path.exists():
-        raise HTTPException(404, "Image not found")
-    with db() as conn:
-        allowed = gallery_media_owner_row(conn, filename, user_id) is not None
-    if not allowed:
-        allowed = any(
-            item.get("userId", "demo_user") == user_id
-            and (
-                item.get("url", "").startswith(f"/api/media/{filename}")
-                or item.get("thumbnailUrl", "").startswith(f"/api/media/{filename}")
-                or item.get("url", "").startswith(f"/media/{filename}")
-                or item.get("thumbnailUrl", "").startswith(f"/media/{filename}")
-            )
-            for item in images.values()
-        )
-    if not allowed:
-        raise HTTPException(404, "Image not found")
+        path = storage_resolve_private_media(_private_media_runtime(), MEDIA, filename, request)
+    except PrivateMediaAccessError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
     return FileResponse(path)
 
 
@@ -8647,19 +8631,9 @@ async def public_custom_avatar(filename: str) -> FileResponse:
     route preserves those public profiles without exposing the rest of MEDIA.
     """
     try:
-        path = storage_resolve_under_root(AVATAR_DIR, filename)
-    except StoragePathError:
-        raise HTTPException(404, "Avatar not found")
-    if not path.is_file():
-        raise HTTPException(404, "Avatar not found")
-    avatar_url = f"/media/avatars/{filename}"
-    with db() as conn:
-        referenced = conn.execute(
-            "SELECT 1 FROM users WHERE avatar_url = ? LIMIT 1",
-            (avatar_url,),
-        ).fetchone()
-    if referenced is None:
-        raise HTTPException(404, "Avatar not found")
+        path = storage_resolve_public_avatar(_public_media_runtime(), AVATAR_DIR, filename)
+    except PublicMediaAccessError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
     return FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
 
 
@@ -15648,32 +15622,16 @@ async def delete_own_feed_publication(publication_id: str, request: Request) -> 
 async def feed_media(publication_id: str, request: Request, variant: str = "large", thumb: int = 0) -> FileResponse:
     """Файл ОПУБЛИКОВАННОЙ работы. Доступен любому (публичная лента) — но только
     через публикацию: приватный /api/media остаётся закрытым как был."""
-    selected = "thumb" if int(thumb or 0) else (variant or "large").strip().lower()
-    if selected not in {"thumb", "large"}:
-        raise HTTPException(400, "Invalid feed media variant")
-    with db() as conn:
-        pub = conn.execute(
-                f"""
-            SELECT feed_thumb_name, feed_large_name FROM feed_publications
-            WHERE id = ?
-              AND status = 'published'
-              AND media_ready_at IS NOT NULL
-              AND feed_thumb_name IS NOT NULL
-              AND feed_large_name IS NOT NULL
-            """,
-            (publication_id,),
-        ).fetchone()
-        if pub is None:
-            raise HTTPException(404, "Publication not found")
-    name = _row_get(pub, "feed_thumb_name") if selected == "thumb" else _row_get(pub, "feed_large_name")
-    if not name:
-        raise HTTPException(404, "Image file not found")
     try:
-        path = storage_resolve_under_root(MEDIA, name)
-    except StoragePathError:
-        raise HTTPException(404, "Image file not found")
-    if not path.exists():
-        raise HTTPException(404, "Image file not found")
+        path = storage_resolve_feed_media(
+            _public_media_runtime(),
+            MEDIA,
+            publication_id,
+            variant=variant,
+            thumb=thumb,
+        )
+    except PublicMediaAccessError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
     return FileResponse(
         path,
         media_type="image/webp",
