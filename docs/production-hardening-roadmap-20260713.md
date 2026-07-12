@@ -42,7 +42,7 @@
 | Последний runtime checkpoint | `5154083` — OpenRouter image response normalization |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 882 passed, 0 failed, 0 deselected |
+| Последний полный test checkpoint | 887 passed, 0 failed, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
@@ -82,7 +82,7 @@
 | SAFE-03 | `ГОТОВО` | Startup cleanup больше не удаляет файлы; cleanup использует audit/manifest/quarantine |
 | SAFE-04 | `ГОТОВО` | Есть безопасный backend-only `tools/restart-backend.ps1` с preflight |
 | SAFE-05 | `ГОТОВО` | После каждого runtime-пакета выполняются focused 5x tests, full suite, frontend gates, restart и live smoke |
-| SAFE-06 | `ЧАСТИЧНО` | Есть отдельные test/launcher scripts, но нет единой `tools/verify.ps1` |
+| SAFE-06 | `ГОТОВО` | `tools/verify.ps1` объединяет Quick/Full/CI gates и выдаёт machine-readable `VERIFY_OK`; production checks read-only |
 | SAFE-07 | `НЕ НАЧАТО` | Нет GitHub Actions CI и обязательных checks |
 
 ### 5.2. Security
@@ -172,7 +172,7 @@
 
 | Пакет | Приоритет | Результат |
 |---|---|---|
-| A1 | P0 | Единый read-only `tools/verify.ps1`: compile, focused/full backend, lint/build, map check, process/source checks; никаких restart/mutation по умолчанию |
+| A1 | P0 | `ГОТОВО` — единый read-only `tools/verify.ps1`: compile, focused/full backend, lint/build, map check, process/source checks; никаких restart/mutation |
 | A2 | P0 | GitHub Actions CI вызывает те же deterministic checks без production/real-provider tests |
 | A3 | P0 | Telegram webhook secret: required-in-webhook-mode validation, constant-time header check, negative/replay/body-limit tests |
 | A4 | P0 | MAX secret: запрещён пустой secret в webhook production mode, constant-time comparison, negative tests |
@@ -246,8 +246,8 @@
 
 Это точная очередь, а не список всего проекта:
 
-1. `A1` — единая `tools/verify.ps1`.
-2. `B1` — завершить OpenRouter aliases/request metadata и прекратить дальнейшее мелкое дробление интеграции.
+1. `A1` — `ГОТОВО`: единая `tools/verify.ps1`.
+2. `B1` — **СЛЕДУЮЩИЙ ПАКЕТ**: завершить OpenRouter aliases/request metadata и прекратить дальнейшее мелкое дробление интеграции.
 3. `A3` — Telegram webhook secret enforcement.
 4. `A4` — MAX webhook secret enforcement.
 5. `A5` — OpenRouter DPAPI secret store и удаление plaintext SQLite secret.
@@ -260,6 +260,28 @@
 12. `B6` — ComfyUI decomposition.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
+
+### Checkpoint A1 — единый verification gate
+
+Реализовано 2026-07-13:
+
+- `tools/verify.ps1` поддерживает `Quick`, `Full`, `CI` и `-PlanOnly`;
+- `Quick` выполняет `py_compile`, проверку generated map, focused tools tests и read-only production preflight/source snapshot;
+- `Full` добавляет полный `backend + tools` pytest suite, frontend lint и production build;
+- `CI` выполняет deterministic gates без обращения к live backend/media;
+- скрипт не содержит restart, `Stop-Process`, удаления файлов или записи в production DB/media;
+- завершение имеет machine-readable строку `VERIFY_OK`.
+
+Доказательства:
+
+- focused contract suite: `15 passed` пять последовательных прогонов;
+- финальный `Full`: `887 passed, 72 warnings`, frontend lint `0 errors / 1 existing warning`, frontend build успешно;
+- `py_compile`: 111 Python-файлов;
+- source snapshot до/после: 122 файла, 1 706 364 байта, SHA-256 `AC1A00934150E28C74BC1C4F319AFF24C84324FF8842AE8EEACD44D34A977850`, без изменений;
+- время полного gate: 312,78 секунды;
+- backend preflight: один loopback listener, PID 51140; health HTTP 200;
+- исправлены две найденные ошибки самого verifier: ложное обнаружение родительского PowerShell как pytest-процесса и конфигурация UTF-8 для вывода;
+- controlled restart не выполнялся: A1 добавляет только verification tooling и документацию, runtime-код не менялся.
 
 ## 9. Обязательный gate каждого пакета
 

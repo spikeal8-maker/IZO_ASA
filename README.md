@@ -48,6 +48,29 @@ npm run dev
 
 Open `http://127.0.0.1:5173`.
 
+## Verify
+
+The repository has one non-mutating verification entrypoint:
+
+```powershell
+# Fast static, tooling and production preflight checks.
+.\tools\verify.ps1 -Mode Quick
+
+# Complete local gate: Python compile, generated map, full backend/tools tests,
+# frontend lint/build and read-only production process/source checks.
+.\tools\verify.ps1 -Mode Full
+
+# Deterministic checks suitable for CI; does not inspect the live backend/media.
+.\tools\verify.ps1 -Mode CI
+
+# Show the selected steps without executing them.
+.\tools\verify.ps1 -Mode Full -PlanOnly
+```
+
+`Full` is the default mode. The verifier does not restart processes, delete files,
+or modify production DB/media. Runtime packages still require the separate
+controlled restart and live-smoke procedure documented in the production roadmap.
+
 ## ComfyUI
 
 The backend checks `http://127.0.0.1:8188/object_info`, verifies `FluxKleinOneNode`, loads the One Node workflow JSON from `/flux_klein/workflow_*`, sends patched prompts to `/prompt`, waits for `/history/{prompt_id}`, downloads the image through `/view`, and stores a local copy plus thumbnail.
