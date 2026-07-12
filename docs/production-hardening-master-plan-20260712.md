@@ -51,6 +51,8 @@
 - source availability reconciliation вынесен в `storage/recovery.py`; первый проход корректирует статусы, повторный гарантированно даёт changed=0 при неизменном filesystem;
 - availability package проверен 5 циклами; общий backend checkpoint: 663 passed, 2 известных feed-теста deselected; live source snapshot 125/125 без added/removed/changed;
 - production restart после extraction подтвердил availability 125/2, changed=0, отсутствие cleanup/repair действий и live smoke 5/5;
+- оба ранее deselected feed-теста возвращены в обязательный suite: gallery shell синхронизирован с текущими routes, а gallery-original migration исправлена так, чтобы `delete_source=False` действительно сохранял исходный PNG/JPG;
+- текущий полный backend checkpoint: 665 passed, 0 deselected, 0 excluded; live source snapshot 125/125 без added/removed/changed;
 - после рестарта удалён дублирующий Uvicorn-процесс, ошибочно слушавший `0.0.0.0:8000`; штатный backend подтверждён единственным listener на `127.0.0.1:8000`.
 
 Частично выполнено:

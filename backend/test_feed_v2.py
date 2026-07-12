@@ -110,14 +110,16 @@ def test_gallery_page_shell_serves_installed_visual_file(temp_db):
         assert 'href="/#text-to-image"' in r.text
         assert 'href="/#image-to-image"' in r.text
         assert 'href="/#editor"' in r.text
-        assert 'href="/#face"' in r.text
+        assert 'href="/paint"' in r.text
+        assert 'href="/#face"' not in r.text
         assert "/new#text-to-image" not in r.text
         assert "legacy-unused-topbar" not in r.text
         assert "n2-tab" not in r.text
         assert "data:image" not in r.text
         script = client.get("/static/gallery/gallery.js")
         assert script.status_code == 200
-        assert "/api/gallery/page" in script.text
+        assert "/api/gallery/items" in script.text
+        assert "/api/gallery/secondary" in script.text
         assert "/#text-to-image" in script.text
         assert "/#image-to-image" in script.text
         assert "/new#" not in script.text

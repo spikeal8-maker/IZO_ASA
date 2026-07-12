@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 import gallery_original_audit
 import main
@@ -83,10 +82,19 @@ def _write_optimized(source_rel: str, target_rel: str) -> dict[str, Any]:
     target = (main.MEDIA / target_rel).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     with Image.open(source) as opened:
-        saved = main.save_gallery_original(opened, target.with_suffix("").relative_to(main.MEDIA).as_posix())
-    if saved.resolve() != target:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(saved), str(target))
+        optimized = ImageOps.exif_transpose(opened)
+        if optimized.mode not in {"RGB", "RGBA"}:
+            optimized = optimized.convert("RGB")
+        optimized.thumbnail(
+            (main.GALLERY_IMAGE_MAX_SIDE, main.GALLERY_IMAGE_MAX_SIDE),
+            Image.Resampling.LANCZOS,
+        )
+        optimized.save(
+            target,
+            "WEBP",
+            quality=main.GALLERY_ARCHIVE_WEBP_QUALITY,
+            method=6,
+        )
     with Image.open(target) as optimized:
         width, height = optimized.size
     size = target.stat().st_size
