@@ -29,12 +29,14 @@ from .recovery import (
     repair_unavailable_sources_from_jobs,
 )
 from .source_graph import (
+    SourceDeletionRuntime,
     SourcePersistenceRuntime,
     SourceRowRepairRuntime,
     SourceTreeRuntime,
     persist_image_source_rows,
     read_image_source_tree,
     repair_image_source_rows_from_job,
+    delete_image_source_rows,
 )
 from .source_thumbnails import (
     SourceThumbnailRuntime,
@@ -64,6 +66,7 @@ __all__ = [
     "SourceAvailabilityRuntime",
     "SourceRepairRuntime",
     "SourcePersistenceRuntime",
+    "SourceDeletionRuntime",
     "SourceRowRepairRuntime",
     "SourceTreeRuntime",
     "SourceThumbnailRuntime",
@@ -81,6 +84,7 @@ __all__ = [
     "read_image_source_tree",
     "repair_image_source_rows_from_job",
     "persist_image_source_rows",
+    "delete_image_source_rows",
     "open_source_image",
     "save_source_thumbnail",
     "generation_source_inputs",

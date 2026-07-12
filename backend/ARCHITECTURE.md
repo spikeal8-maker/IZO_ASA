@@ -59,7 +59,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/storage/maintenance.py` blocks startup cleanup/repair/optimization inside pytest and supports an explicit operational disable flag.
 - `backend/app/storage/cleanup.py` removes orphan source metadata rows but never deletes files; file candidates must go through audited quarantine.
 - `backend/app/storage/recovery.py` owns scoped, idempotent source availability reconciliation and unavailable-thumbnail repair through injected parsing, thumbnail and URL adapters.
-- `backend/app/storage/source_graph.py` owns recursive gallery source-tree reads, owner-scoped repair decisions and transactional source metadata persistence; request parsing, thumbnail creation and path operations stay injected from `main.py`.
+- `backend/app/storage/source_graph.py` owns recursive gallery source-tree reads, owner-scoped repair decisions, transactional source metadata persistence and ordered source file/row deletion; request parsing, thumbnail creation and path operations stay injected from `main.py`.
 - `backend/app/storage/source_thumbnails.py` owns data-URL/local-media decoding, EXIF normalization and bounded WEBP source-thumbnail creation; the legacy persistence/recovery callers keep a thin `_save_source_thumb()` adapter.
 - `backend/app/storage/source_inputs.py` owns deterministic source-role labels and generation source normalization, including edit ordering, mode-specific roles, slot assignment, the eight-input cap and legacy deduplication semantics.
 - `backend/app/storage/media_references.py` owns exact canonical/legacy media-reference matching for active images, active source rows and URL strings inside valid job JSON; filename substrings never establish ownership.

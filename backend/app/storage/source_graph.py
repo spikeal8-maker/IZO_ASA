@@ -41,6 +41,12 @@ class SourcePersistenceRuntime:
     delete_media_rel: Callable[[str], None]
 
 
+@dataclass(frozen=True)
+class SourceDeletionRuntime:
+    filename_from_url: Callable[[str | None], str | None]
+    delete_media_rel: Callable[[str], None]
+
+
 def _optional_row_value(row: sqlite3.Row, key: str) -> Any:
     try:
         return row[key]
@@ -251,3 +257,20 @@ def persist_image_source_rows(
         if name:
             runtime.delete_media_rel(name)
     return saved
+
+
+def delete_image_source_rows(
+    runtime: SourceDeletionRuntime,
+    conn: sqlite3.Connection,
+    image_id: str,
+) -> int:
+    rows = conn.execute(
+        "SELECT thumb_url FROM image_sources WHERE image_id = ?",
+        (image_id,),
+    ).fetchall()
+    for row in rows:
+        name = runtime.filename_from_url(row["thumb_url"])
+        if name:
+            runtime.delete_media_rel(name)
+    conn.execute("DELETE FROM image_sources WHERE image_id = ?", (image_id,))
+    return len(rows)

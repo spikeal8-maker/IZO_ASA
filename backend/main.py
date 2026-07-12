@@ -189,6 +189,7 @@ try:
         SourceAvailabilityRuntime,
         SourceRepairRuntime,
         SourcePersistenceRuntime,
+        SourceDeletionRuntime,
         SourceRowRepairRuntime,
         SourceTreeRuntime,
         SourceThumbnailRuntime,
@@ -206,6 +207,7 @@ try:
         read_image_source_tree as storage_read_image_source_tree,
         repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
         persist_image_source_rows as storage_persist_image_source_rows,
+        delete_image_source_rows as storage_delete_image_source_rows,
         save_source_thumbnail as storage_save_source_thumbnail,
         generation_source_inputs as storage_generation_source_inputs,
         source_role_label as storage_source_role_label,
@@ -226,6 +228,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         SourceAvailabilityRuntime,
         SourceRepairRuntime,
         SourcePersistenceRuntime,
+        SourceDeletionRuntime,
         SourceRowRepairRuntime,
         SourceTreeRuntime,
         SourceThumbnailRuntime,
@@ -243,6 +246,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         read_image_source_tree as storage_read_image_source_tree,
         repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
         persist_image_source_rows as storage_persist_image_source_rows,
+        delete_image_source_rows as storage_delete_image_source_rows,
         save_source_thumbnail as storage_save_source_thumbnail,
         generation_source_inputs as storage_generation_source_inputs,
         source_role_label as storage_source_role_label,
@@ -2820,12 +2824,11 @@ def gallery_image_id_from_media_url(conn: sqlite3.Connection, url: str | None, l
 
 
 def delete_image_source_files(conn: sqlite3.Connection, image_id: str) -> None:
-    rows = conn.execute("SELECT thumb_url FROM image_sources WHERE image_id = ?", (image_id,)).fetchall()
-    for row in rows:
-        name = media_filename_from_url(row["thumb_url"])
-        if name:
-            _delete_media_rel(name)
-    conn.execute("DELETE FROM image_sources WHERE image_id = ?", (image_id,))
+    runtime = SourceDeletionRuntime(
+        filename_from_url=media_filename_from_url,
+        delete_media_rel=_delete_media_rel,
+    )
+    storage_delete_image_source_rows(runtime, conn, image_id)
 
 
 def cleanup_orphan_image_sources(*, grace_seconds: int = 3600) -> dict[str, int]:

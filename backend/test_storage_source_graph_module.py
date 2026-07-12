@@ -9,12 +9,14 @@ from pathlib import Path
 import pytest
 
 from app.storage.source_graph import (
+    SourceDeletionRuntime,
     SourcePersistenceRuntime,
     SourceRowRepairRuntime,
     SourceTreeRuntime,
     read_image_source_tree,
     persist_image_source_rows,
     repair_image_source_rows_from_job,
+    delete_image_source_rows,
 )
 
 
@@ -240,3 +242,36 @@ def test_source_persistence_rolls_back_database_and_new_file_on_insert_error(tmp
     assert row["id"] == "old-source"
     assert deleted == []
     assert not (media / "result-1.webp").exists()
+
+
+def test_source_deletion_removes_each_file_before_rows(tmp_path: Path):
+    database = tmp_path / "delete-sources.sqlite3"
+    connect = _connect_factory(database)
+    with connect() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE image_sources (id TEXT, image_id TEXT, thumb_url TEXT);
+            INSERT INTO image_sources VALUES
+              ('one', 'result', '/api/media/one.webp?userId=owner'),
+              ('two', 'result', '/media/two.webp'),
+              ('external', 'result', 'https://example.test/external.webp'),
+              ('other', 'other-image', '/api/media/other.webp');
+            """
+        )
+    deleted: list[str] = []
+    runtime = SourceDeletionRuntime(
+        filename_from_url=lambda value: (
+            str(value).split("/media/", 1)[1].split("?", 1)[0]
+            if value and "/media/" in str(value) and not str(value).startswith("http")
+            else None
+        ),
+        delete_media_rel=deleted.append,
+    )
+
+    with connect() as conn:
+        count = delete_image_source_rows(runtime, conn, "result")
+        remaining = [row["id"] for row in conn.execute("SELECT id FROM image_sources")]
+
+    assert count == 3
+    assert deleted == ["one.webp", "two.webp"]
+    assert remaining == ["other"]
