@@ -15,8 +15,10 @@ from app.integrations.openrouter import (
     fetch_openrouter_key_details,
     fetch_openrouter_image_model_documents,
     fetch_openrouter_text_models,
+    format_openrouter_public_error,
     is_openrouter_size_error,
     normalize_openrouter_endpoint_capability,
+    normalize_openrouter_image_response_metadata,
     normalize_openrouter_model_capability,
     openrouter_error_message,
     parse_openrouter_text_models,
@@ -943,6 +945,7 @@ def test_main_capability_compatibility_wrappers_delegate(monkeypatch):
         ({"usage": {"cost": "invalid", "total_cost": 3}}, 3.0),
         ({"usage": {"total_cost_usd": "4.5"}}, 4.5),
         ({"usage": {}}, None),
+        ({"usage": "invalid"}, None),
     ],
 )
 def test_generation_cost_parser_preserves_precedence_and_numeric_conversion(payload, expected):
@@ -1033,3 +1036,102 @@ def test_main_response_parser_compatibility_wrappers_delegate(monkeypatch):
         ("message", payload),
         ("size", payload),
     ]
+
+
+@pytest.mark.parametrize(
+    ("status", "payload", "expected"),
+    [
+        (
+            400,
+            {"error": {"message": "invalid size requested"}},
+            "Модель не приняла выбранный формат изображения. Попробуйте квадратный формат или другую модель.",
+        ),
+        (
+            401,
+            {"error": {"message": "invalid size requested"}},
+            "Модель не приняла выбранный формат изображения. Попробуйте квадратный формат или другую модель.",
+        ),
+        (401, {"error": "unauthorized"}, "OpenRouter не принял API-ключ или доступ к модели закрыт."),
+        (403, {"error": "forbidden"}, "OpenRouter не принял API-ключ или доступ к модели закрыт."),
+        (429, {"error": "rate limited"}, "OpenRouter временно ограничил запросы. Подождите немного и попробуйте снова."),
+    ],
+)
+def test_public_error_mapping_preserves_precedence_and_special_statuses(status, payload, expected):
+    assert format_openrouter_public_error(
+        status,
+        payload,
+        truncate=lambda _message, _limit: pytest.fail("special errors must not call truncation"),
+    ) == expected
+
+
+def test_public_error_mapping_preserves_provider_message_and_truncation_limit():
+    seen: list[tuple[str, int]] = []
+
+    error = format_openrouter_public_error(
+        500,
+        {"error": {"message": "provider failure", "metadata": {"provider_name": "Provider"}}},
+        truncate=lambda message, limit: seen.append((message, limit)) or "trimmed-message",
+    )
+
+    assert error == "OpenRouter вернул ошибку 500: trimmed-message"
+    assert seen == [("Provider: provider failure", 220)]
+
+
+def test_image_response_metadata_preserves_safe_fields_and_cost_precedence():
+    data = {
+        "id": "primary-id",
+        "response_id": "fallback-id",
+        "usage": {"images": 1},
+        "cost": "0.125",
+        "provider": "provider-name",
+        "data": [{"b64_json": "secret-image-bytes"}],
+        "images": ["secret-image-url"],
+        "output": [{"url": "secret-output-url"}],
+    }
+
+    metadata = normalize_openrouter_image_response_metadata(data)
+
+    assert metadata == {
+        "response_id": "primary-id",
+        "usage": {"images": 1},
+        "cost_usd": 0.125,
+        "raw": {
+            "id": "primary-id",
+            "response_id": "fallback-id",
+            "usage": {"images": 1},
+            "cost": "0.125",
+            "provider": "provider-name",
+        },
+    }
+
+
+@pytest.mark.parametrize("usage", [None, [], "invalid"])
+def test_image_response_metadata_sanitizes_usage_and_uses_fallback_id(usage):
+    metadata = normalize_openrouter_image_response_metadata({
+        "id": "",
+        "response_id": "fallback-id",
+        "usage": usage,
+    })
+
+    assert metadata["response_id"] == "fallback-id"
+    assert metadata["usage"] == {}
+    assert metadata["cost_usd"] is None
+    assert metadata["raw"]["usage"] == usage
+
+
+def test_main_public_error_wrapper_keeps_application_truncator(monkeypatch):
+    payload = {"error": "sentinel"}
+    captured: dict[str, object] = {}
+
+    def fake_format(status, data, *, truncate):
+        captured.update({"status": status, "data": data, "truncate": truncate})
+        return "mapped-error"
+
+    monkeypatch.setattr(main, "format_openrouter_public_error", fake_format)
+
+    assert main._openrouter_public_error(500, payload) == "mapped-error"
+    assert captured == {
+        "status": 500,
+        "data": payload,
+        "truncate": main.truncate_admin_text,
+    }

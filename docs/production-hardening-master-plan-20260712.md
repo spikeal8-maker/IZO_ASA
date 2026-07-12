@@ -194,7 +194,13 @@
 - scripted restart заменил backend PID 30120 на PID 54992, создал logs `backend_restart_20260713_011755_365.{out,err}.log`, подтвердил единственный listener `127.0.0.1:8000`, health 200 и startup reconciliation checked 124 / available 122 / missing 2 / changed 0;
 - live smoke прошёл 5/5, private source без trusted session вернул 401; реальный read-only image catalog остался 39 моделей / 34 verified endpoints;
 - source snapshot до/после deployment совпал: 122 файла, 1 706 364 bytes, content-concatenation SHA-256 `AC1A00934150E28C74BC1C4F319AFF24C84324FF8842AE8EEACD44D34A977850`; pytest-процессов нет;
-- все перечисленные завершённые checkpoint-пакеты, включая OpenRouter image document extraction, capability normalization, response parsing, request planning, request-body assembly, image I/O и POST transport, синхронизируются с `origin/main`; каждый следующий пакет также документируется, коммитится и отправляется в GitHub только после обязательных gates и controlled restart.
+- public OpenRouter error mapping и safe image response metadata normalization вынесены в `app/integrations/openrouter.py`; `main.py` сохраняет compatibility error wrapper с application truncator и собирает `OpenRouterResult` из нормализованных полей;
+- metadata исключает `data`/`images`/`output` из raw, нормализует response ID/usage/cost; characterization выявил и исправил старый `AttributeError` при malformed non-object `usage`, который теперь безопасно даёт empty usage и no nested cost;
+- error/metadata package прошёл 5 циклов по 183 теста; полный backend+tools checkpoint: 882 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 известный hooks warning), TypeScript/Vite production build — успешно; pytest-процессов нет;
+- scripted restart заменил backend PID 54992 на PID 51140, создал logs `backend_restart_20260713_013120_294.{out,err}.log`, подтвердил единственный listener `127.0.0.1:8000`, health 200 и startup reconciliation checked 124 / available 122 / missing 2 / changed 0;
+- live smoke прошёл 5/5, private source без trusted session вернул 401; реальный read-only image catalog остался 39 моделей / 34 verified endpoints;
+- source snapshot до/после deployment совпал: 122 файла, 1 706 364 bytes, content-concatenation SHA-256 `AC1A00934150E28C74BC1C4F319AFF24C84324FF8842AE8EEACD44D34A977850`; pytest-процессов нет;
+- все перечисленные завершённые checkpoint-пакеты, включая OpenRouter image document extraction, capability normalization, response parsing, request planning, request-body assembly, image I/O, POST transport и response normalization, синхронизируются с `origin/main`; каждый следующий пакет также документируется, коммитится и отправляется в GitHub только после обязательных gates и controlled restart.
 
 Частично выполнено:
 
@@ -202,7 +208,7 @@
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
 - deploy gate: TypeScript блокирует запуск и безопасный backend-only restart helper создан; единая `tools/verify.ps1` и CI gate ещё не созданы.
 
-Следующий пакет: вынести чистое OpenRouter public-error mapping и безопасную response metadata normalization из `main.py` в integration helpers с compatibility wrappers; job/gallery persistence, billing и production-настройки не менять. Deployment выполняется только через `tools/restart-backend.ps1`.
+Следующий пакет: вынести чистые OpenRouter model-alias resolution и request metadata assembly из `main.py` в `openrouter_images.py` с compatibility wrapper; catalog lookup, job/gallery persistence, billing и production-настройки не менять. Deployment выполняется только через `tools/restart-backend.ps1`.
 
 Storage-аудит завершён: startup availability теперь стабилен (`changed=0` при неизменном filesystem), автоматическое физическое удаление файлов запрещено, тесты изолированы от production DB/media. Любая будущая очистка файлов выполняется только через manifest/quarantine.
 
@@ -212,7 +218,7 @@ Storage-аудит завершён: startup availability теперь стаб�
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 147 строк | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 149 строк | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |

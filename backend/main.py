@@ -66,10 +66,12 @@ try:
         fetch_openrouter_image_model_documents,
         fetch_openrouter_key_details,
         fetch_openrouter_text_models,
+        format_openrouter_public_error,
         is_openrouter_size_error,
         image_edit_influence_instruction,
         load_openrouter_response_image,
         normalize_openrouter_endpoint_capability,
+        normalize_openrouter_image_response_metadata,
         normalize_openrouter_model_capability,
         openrouter_descriptor_values,
         openrouter_error_message,
@@ -91,10 +93,12 @@ except ImportError:  # Direct `python backend/main.py` execution.
         fetch_openrouter_image_model_documents,
         fetch_openrouter_key_details,
         fetch_openrouter_text_models,
+        format_openrouter_public_error,
         is_openrouter_size_error,
         image_edit_influence_instruction,
         load_openrouter_response_image,
         normalize_openrouter_endpoint_capability,
+        normalize_openrouter_image_response_metadata,
         normalize_openrouter_model_capability,
         openrouter_descriptor_values,
         openrouter_error_message,
@@ -5916,14 +5920,11 @@ def _openrouter_is_size_error(data: dict[str, Any]) -> bool:
 
 
 def _openrouter_public_error(status_code: int, data: dict[str, Any]) -> str:
-    message = _openrouter_error_message(data)
-    if _openrouter_is_size_error(data):
-        return "Модель не приняла выбранный формат изображения. Попробуйте квадратный формат или другую модель."
-    if status_code in {401, 403}:
-        return "OpenRouter не принял API-ключ или доступ к модели закрыт."
-    if status_code == 429:
-        return "OpenRouter временно ограничил запросы. Подождите немного и попробуйте снова."
-    return f"OpenRouter вернул ошибку {status_code}: {truncate_admin_text(message, 220)}"
+    return format_openrouter_public_error(
+        status_code,
+        data,
+        truncate=truncate_admin_text,
+    )
 
 
 async def fetch_openrouter_key_status() -> dict[str, Any]:
@@ -5981,16 +5982,17 @@ async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> O
         image_path = save_gallery_original(opened, f"{job['id']}_openrouter")
     with Image.open(image_path) as saved:
         saved_width, saved_height = saved.size
+    metadata = normalize_openrouter_image_response_metadata(data)
     return OpenRouterResult(
         image_path=image_path,
         thumbnail_path=create_thumbnail(image_path),
-        response_id=data.get("id") or data.get("response_id"),
+        response_id=metadata["response_id"],
         model=model,
-        usage=data.get("usage") if isinstance(data.get("usage"), dict) else {},
-        cost_usd=_openrouter_generation_cost(data),
+        usage=metadata["usage"],
+        cost_usd=metadata["cost_usd"],
         width=saved_width,
         height=saved_height,
-        raw={k: v for k, v in data.items() if k not in {"data", "images", "output"}},
+        raw=metadata["raw"],
     )
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -93,13 +93,14 @@ def normalize_openrouter_endpoint_capability(
 def extract_openrouter_generation_cost(payload: dict[str, Any]) -> float | None:
     """Return the first numeric cost reported by an OpenRouter response."""
 
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
     candidates = [
         payload.get("cost"),
         payload.get("total_cost"),
         payload.get("total_cost_usd"),
-        (payload.get("usage") or {}).get("cost"),
-        (payload.get("usage") or {}).get("total_cost"),
-        (payload.get("usage") or {}).get("total_cost_usd"),
+        usage.get("cost"),
+        usage.get("total_cost"),
+        usage.get("total_cost_usd"),
     ]
     for value in candidates:
         try:
@@ -163,6 +164,35 @@ def is_openrouter_size_error(data: dict[str, Any]) -> bool:
 
     message = openrouter_error_message(data).lower()
     return any(marker in message for marker in ("invalid size", "image size", "size ", "aspect", "invalid_value", "pixels"))
+
+
+def format_openrouter_public_error(
+    status_code: int,
+    data: dict[str, Any],
+    *,
+    truncate: Callable[[str, int], str],
+) -> str:
+    """Map a provider response to the established application-safe Russian error."""
+
+    message = openrouter_error_message(data)
+    if is_openrouter_size_error(data):
+        return "Модель не приняла выбранный формат изображения. Попробуйте квадратный формат или другую модель."
+    if status_code in {401, 403}:
+        return "OpenRouter не принял API-ключ или доступ к модели закрыт."
+    if status_code == 429:
+        return "OpenRouter временно ограничил запросы. Подождите немного и попробуйте снова."
+    return f"OpenRouter вернул ошибку {status_code}: {truncate(message, 220)}"
+
+
+def normalize_openrouter_image_response_metadata(data: dict[str, Any]) -> dict[str, Any]:
+    """Select the safe metadata retained beside a generated gallery image."""
+
+    return {
+        "response_id": data.get("id") or data.get("response_id"),
+        "usage": data.get("usage") if isinstance(data.get("usage"), dict) else {},
+        "cost_usd": extract_openrouter_generation_cost(data),
+        "raw": {key: value for key, value in data.items() if key not in {"data", "images", "output"}},
+    }
 
 
 def parse_openrouter_text_models(payload: Any) -> list[dict[str, Any]]:
