@@ -4966,7 +4966,7 @@ def get_persisted_job_response(job_id: str, user_id: str) -> dict[str, Any] | No
 
 def persist_job(job: dict[str, Any], request: GenerateRequest | None = None, conn: sqlite3.Connection | None = None) -> None:
     settings = request.model_dump() if request else job.get("request", {})
-    for key in ("tokenCost", "resultUrl", "width", "height", "gallerySaveStatus", "galleryQuota", "openrouterRequest", "openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd", "openrouterBilling"):
+    for key in ("tokenCost", "resultUrl", "width", "height", "gallerySaveStatus", "galleryQuota", "openrouterRequest", "openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd", "openrouterBilling", "tokenAdjustment"):
         if key in job:
             settings[key] = job.get(key)
     def write(target_conn: sqlite3.Connection) -> None:
@@ -8456,12 +8456,17 @@ async def worker() -> None:
                 image_path = openrouter_result.image_path
                 thumb_path = openrouter_result.thumbnail_path
                 openrouter_billing = finalize_openrouter_billing_snapshot(job.get("openrouterBilling") or {}, openrouter_result.cost_usd)
+                actual_tokens = int(openrouter_billing.get("actualTokens") or openrouter_billing.get("chargedTokens") or job.get("tokenCost") or 1)
+                with db() as conn:
+                    token_adjustment = reconcile_openrouter_token_charge(conn, job_id, actual_tokens)
                 job.update(
                     openrouterModel=openrouter_result.model,
                     openrouterResponseId=openrouter_result.response_id,
                     openrouterUsage=openrouter_result.usage,
                     openrouterCostUsd=openrouter_result.cost_usd,
                     openrouterBilling=openrouter_billing,
+                    tokenCost=int(token_adjustment.get("settled") or actual_tokens),
+                    tokenAdjustment=token_adjustment,
                 )
             if not image_path:
                 if req.provider == "comfyui" and not COMFYUI_MOCK_FALLBACK:
@@ -14327,6 +14332,58 @@ async def free_comfyui_models() -> bool:
         response = await client.post(f"{COMFYUI_BASE_URL}/free", json={"unload_models": True, "free_memory": True})
         response.raise_for_status()
     return True
+
+
+def reconcile_openrouter_token_charge(conn: sqlite3.Connection, job_id: str, actual_tokens: int) -> dict[str, int | bool]:
+    """Idempotently refund an OpenRouter estimate that exceeded actual token cost."""
+    existing = conn.execute(
+        "SELECT meta_json FROM token_ledger WHERE reason = 'openrouter_generation_adjustment' AND meta_json LIKE ? ORDER BY created_at DESC LIMIT 1",
+        (f'%"jobId": "{job_id}"%',),
+    ).fetchone()
+    if existing is not None:
+        meta = safe_json_load(existing["meta_json"]) or {}
+        actual = int(meta.get("actual_tokens") or actual_tokens)
+        return {"adjusted": False, "refund": int(meta.get("refund_tokens") or 0), "actual": actual, "settled": int(meta.get("settled_tokens") or actual)}
+    charge = conn.execute(
+        "SELECT * FROM token_ledger WHERE reason IN ('generation', 'openrouter_monthly_generation') AND meta_json LIKE ? ORDER BY created_at DESC LIMIT 1",
+        (f'%"jobId": "{job_id}"%',),
+    ).fetchone()
+    if charge is None:
+        actual = max(1, int(actual_tokens))
+        return {"adjusted": False, "refund": 0, "actual": actual, "settled": actual}
+    meta = safe_json_load(charge["meta_json"]) or {}
+    charged = max(0, int(meta.get("token_cost") or 0))
+    actual = max(1, int(actual_tokens))
+    refund = max(0, charged - actual)
+    balance_charged = abs(int(charge["delta"] or 0))
+    balance_refund = min(refund, balance_charged)
+    monthly_refund = max(0, refund - balance_refund)
+    user_id = str(charge["user_id"])
+    if balance_refund:
+        conn.execute("UPDATE users SET token_balance = token_balance + ? WHERE id = ?", (balance_refund, user_id))
+    if monthly_refund:
+        conn.execute(
+            "UPDATE users SET openrouter_monthly_tokens_used = MAX(0, openrouter_monthly_tokens_used - ?) WHERE id = ?",
+            (monthly_refund, user_id),
+        )
+    if refund:
+        conn.execute("UPDATE users SET tokens_used = MAX(0, tokens_used - ?) WHERE id = ?", (refund, user_id))
+    adjustment_meta = {
+        "jobId": job_id,
+        "charged_tokens": charged,
+        "actual_tokens": actual,
+        "settled_tokens": min(charged, actual),
+        "refund_tokens": refund,
+        "balance_refund": balance_refund,
+        "monthly_refund": monthly_refund,
+        "underestimated_tokens": max(0, actual - charged),
+        "charged_ledger_id": charge["id"],
+    }
+    conn.execute(
+        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'openrouter_generation_adjustment', ?, ?)",
+        (str(uuid.uuid4()), user_id, balance_refund, json.dumps(adjustment_meta, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+    )
+    return {"adjusted": True, "refund": refund, "actual": actual, "settled": min(charged, actual)}
 
 
 def _save_setting(key: str, value: dict[str, Any]) -> None:
