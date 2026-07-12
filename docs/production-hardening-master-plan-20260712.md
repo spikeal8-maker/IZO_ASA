@@ -108,7 +108,13 @@
 - controlled restart prompt HTTP package поднял единственный backend PID 27692 на `127.0.0.1:8000`; startup reconciliation: checked 127, available 125, missing 2, changed 0;
 - live smoke прошёл 5/5: health/capabilities/frontend/feed/public feed media — 200, private source без trusted session — 401; Ollama discovery остался `ok=true` и 14 models, реальный prompt при deployment намеренно не создавался;
 - source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
-- все завершённые checkpoint-коммиты до `bb1807c` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
+- Ollama voice transcription переведён на общий `request_ollama_chat_message`; из `main.py` удалён дублирующий HTTP/JSON/message parsing, но сохранены model guard, conditional WAV normalization, base64 body, language instruction, timeout cap, trim/2000 limit и прежний empty-result error;
+- characterization tests фиксируют non-WAV normalization, WAV bypass, точные body/options/base64/language, timeout min 10/max 180, guard до обработки, trim/2000 limit и empty-result error; focused package прошёл 5 циклов по 26 тестов;
+- полный backend checkpoint после voice transport reuse: 713 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 известный hooks warning), TypeScript/Vite production build — успешно; активных pytest-процессов после проверки нет;
+- controlled restart voice transport package поднял единственный backend PID 51864 на `127.0.0.1:8000`; startup reconciliation: checked 127, available 125, missing 2, changed 0;
+- live smoke прошёл 5/5: health/capabilities/frontend/feed/public feed media — 200, private source без trusted session — 401; Ollama discovery остался `ok=true` и 14 models, реальная транскрибация при deployment намеренно не создавалась;
+- source snapshot до/после deployment совпал: 125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; pytest-процессов нет;
+- все завершённые checkpoint-коммиты до `152aeae` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
 
 Частично выполнено:
 
@@ -116,7 +122,7 @@
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
 - deploy gate: TypeScript блокирует запуск, но единая `tools/verify.ps1` и CI gate ещё не созданы.
 
-Следующий пакет: перевести Ollama voice transcription на уже проверенную `/api/chat` integration boundary с characterization tests, сохранив audio model guard, WAV normalization, base64 body, language instruction, timeout cap, 2000-character limit и текущие ошибки. Production restart каждого пакета выполняется только после полного checkpoint.
+Следующий пакет: инвентаризировать OpenRouter integration и вынести первый низкорисковый read-only HTTP/parsing block в `app/integrations/openrouter.py` с characterization tests; generation, billing, prompts, model routing, cache и production-настройки не менять. Production restart каждого пакета выполняется только после полного checkpoint.
 
 Storage-аудит завершён: startup availability теперь стабилен (`changed=0` при неизменном filesystem), автоматическое физическое удаление файлов запрещено, тесты изолированы от production DB/media. Любая будущая очистка файлов выполняется только через manifest/quarantine.
 
@@ -126,7 +132,7 @@ Storage-аудит завершён: startup availability теперь стаб�
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 358 строк | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 352 строки | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |

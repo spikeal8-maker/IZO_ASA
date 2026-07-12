@@ -5937,14 +5937,8 @@ async def transcribe_audio_ollama(audio: bytes, audio_format: str, language: str
         "options": {"temperature": 0, "num_predict": 256, "num_ctx": 8192},
     }
     timeout = max(10, min(180, int(config.get("requestTimeoutSeconds") or 45)))
-    base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(f"{base_url}/api/chat", json=body)
-    payload = response.json() if response.content else {}
-    if response.status_code >= 400:
-        raise RuntimeError(f"Ollama вернула ошибку {response.status_code}.")
-    message = payload.get("message") if isinstance(payload, dict) and isinstance(payload.get("message"), dict) else {}
-    text = str(message.get("content") or "").strip()
+    content, payload = await request_ollama_chat_message(body=body, timeout_seconds=timeout)
+    text = content.strip()
     if not text:
         raise RuntimeError("Локальная модель не распознала речь.")
     return text[:2000], payload

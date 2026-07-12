@@ -214,3 +214,106 @@ def test_prompt_improvement_keeps_body_timeout_and_application_parser(monkeypatc
         "role": "user",
         "content": '{"prompt": "исходный запрос", "technical_context": "технический контекст"}',
     }
+
+
+def test_voice_transcription_normalizes_audio_and_keeps_ollama_body(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_normalize(audio, suffix):
+        captured.update({"sourceAudio": audio, "sourceSuffix": suffix})
+        return b"normalized-wav"
+
+    async def fake_chat(*, body, timeout_seconds):
+        captured.update({"body": body, "timeout": timeout_seconds})
+        return f"  {'x' * 2105}  ", {"done": True}
+
+    monkeypatch.setattr(main, "normalize_audio_to_wav", fake_normalize)
+    monkeypatch.setattr(main, "request_ollama_chat_message", fake_chat)
+    config = {"localModel": "qwen3-asr:1.7b", "requestTimeoutSeconds": 999}
+
+    text, payload = asyncio.run(main.transcribe_audio_ollama(b"webm-audio", "webm", "русском", config))
+
+    assert text == "x" * 2000
+    assert payload == {"done": True}
+    assert captured["sourceAudio"] == b"webm-audio"
+    assert captured["sourceSuffix"] == "webm"
+    assert captured["timeout"] == 180
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body == {
+        "model": "qwen3-asr:1.7b",
+        "stream": False,
+        "think": False,
+        "keep_alive": "5m",
+        "messages": [{
+            "role": "user",
+            "images": ["bm9ybWFsaXplZC13YXY="],
+            "content": "Транскрибируй речь на русском языке. Верни только произнесённый текст без пояснений, кавычек и переносов строк.",
+        }],
+        "options": {"temperature": 0, "num_predict": 256, "num_ctx": 8192},
+    }
+
+
+def test_voice_transcription_keeps_wav_bytes_and_minimum_timeout(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def unexpected_normalize(_audio, _suffix):
+        raise AssertionError("WAV input must not be normalized")
+
+    async def fake_chat(*, body, timeout_seconds):
+        captured.update({"body": body, "timeout": timeout_seconds})
+        return "  распознанный текст  ", {"done": True}
+
+    monkeypatch.setattr(main, "normalize_audio_to_wav", unexpected_normalize)
+    monkeypatch.setattr(main, "request_ollama_chat_message", fake_chat)
+
+    text, _payload = asyncio.run(
+        main.transcribe_audio_ollama(
+            b"wav-bytes",
+            "wav",
+            "английском",
+            {"localModel": "qwen3-asr:1.7b", "requestTimeoutSeconds": 1},
+        )
+    )
+
+    assert text == "распознанный текст"
+    assert captured["timeout"] == 10
+    assert captured["body"]["messages"][0]["images"] == ["d2F2LWJ5dGVz"]
+
+
+def test_voice_transcription_rejects_model_without_audio_encoder_before_work(monkeypatch):
+    def unexpected_normalize(_audio, _suffix):
+        raise AssertionError("normalization must not run")
+
+    async def unexpected_chat(**_kwargs):
+        raise AssertionError("Ollama request must not run")
+
+    monkeypatch.setattr(main, "normalize_audio_to_wav", unexpected_normalize)
+    monkeypatch.setattr(main, "request_ollama_chat_message", unexpected_chat)
+
+    with pytest.raises(RuntimeError, match=r"^Модель gemma4:31b-cloud не имеет аудиоэнкодера\.$"):
+        asyncio.run(
+            main.transcribe_audio_ollama(
+                b"audio",
+                "webm",
+                "русском",
+                {"localModel": "gemma4:31b-cloud"},
+            )
+        )
+
+
+def test_voice_transcription_preserves_empty_model_error(monkeypatch):
+    async def fake_chat(*, body, timeout_seconds):
+        return "  ", {"done": True}
+
+    monkeypatch.setattr(main, "request_ollama_chat_message", fake_chat)
+
+    with pytest.raises(RuntimeError, match=r"^Локальная модель не распознала речь\.$"):
+        asyncio.run(
+            main.transcribe_audio_ollama(
+                b"wav",
+                "wav",
+                "русском",
+                {"localModel": "qwen3-asr:1.7b"},
+            )
+        )
