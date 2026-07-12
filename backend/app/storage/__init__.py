@@ -29,8 +29,10 @@ from .recovery import (
     repair_unavailable_sources_from_jobs,
 )
 from .source_graph import (
+    SourcePersistenceRuntime,
     SourceRowRepairRuntime,
     SourceTreeRuntime,
+    persist_image_source_rows,
     read_image_source_tree,
     repair_image_source_rows_from_job,
 )
@@ -44,6 +46,7 @@ __all__ = [
     "SourceCleanupRuntime",
     "SourceAvailabilityRuntime",
     "SourceRepairRuntime",
+    "SourcePersistenceRuntime",
     "SourceRowRepairRuntime",
     "SourceTreeRuntime",
     "local_media_path_from_url",
@@ -59,6 +62,7 @@ __all__ = [
     "repair_unavailable_sources_from_jobs",
     "read_image_source_tree",
     "repair_image_source_rows_from_job",
+    "persist_image_source_rows",
     "startup_storage_maintenance_allowed",
     "resolve_under_root",
 ]

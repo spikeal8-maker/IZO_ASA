@@ -59,7 +59,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/storage/maintenance.py` blocks startup cleanup/repair/optimization inside pytest and supports an explicit operational disable flag.
 - `backend/app/storage/cleanup.py` removes orphan source metadata rows but never deletes files; file candidates must go through audited quarantine.
 - `backend/app/storage/recovery.py` owns scoped, idempotent source availability reconciliation and unavailable-thumbnail repair through injected parsing, thumbnail and URL adapters.
-- `backend/app/storage/source_graph.py` owns recursive gallery source-tree reads and the owner-scoped decision to return existing source rows or restore them from job settings; parsing and persistence stay injected from `main.py`.
+- `backend/app/storage/source_graph.py` owns recursive gallery source-tree reads, owner-scoped repair decisions and transactional source metadata persistence; request parsing, thumbnail creation and path operations stay injected from `main.py`.
 - `backend/conftest.py` redirects every backend test to a temporary SQLite database, media root and avatar root even when a test forgot its own fixture.
 - Keep it independent of FastAPI, SQLite and provider network calls.
 

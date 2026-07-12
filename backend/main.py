@@ -188,6 +188,7 @@ try:
         SourceCleanupRuntime,
         SourceAvailabilityRuntime,
         SourceRepairRuntime,
+        SourcePersistenceRuntime,
         SourceRowRepairRuntime,
         SourceTreeRuntime,
         StoragePathError,
@@ -203,6 +204,7 @@ try:
         repair_unavailable_sources_from_jobs as storage_repair_unavailable_sources_from_jobs,
         read_image_source_tree as storage_read_image_source_tree,
         repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
+        persist_image_source_rows as storage_persist_image_source_rows,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -215,6 +217,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         SourceCleanupRuntime,
         SourceAvailabilityRuntime,
         SourceRepairRuntime,
+        SourcePersistenceRuntime,
         SourceRowRepairRuntime,
         SourceTreeRuntime,
         StoragePathError,
@@ -230,6 +233,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         repair_unavailable_sources_from_jobs as storage_repair_unavailable_sources_from_jobs,
         read_image_source_tree as storage_read_image_source_tree,
         repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
+        persist_image_source_rows as storage_persist_image_source_rows,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -4119,97 +4123,25 @@ def _save_source_thumb(source_value: str | None, image_id: str, slot_index: int)
 
 
 def persist_image_sources(image_id: str, user_id: str, req: GenerateRequest, created_at: str) -> list[dict[str, Any]]:
-    source_inputs = _generation_source_inputs(req)
-    if not source_inputs:
-        return []
-    saved: list[dict[str, Any]] = []
-    new_paths: list[Path] = []
-    old_urls: list[str] = []
-    old_states: dict[int, tuple[int, str | None]] = {}
-    try:
-        with db() as conn:
-            old_rows = conn.execute(
-                "SELECT slot_index, thumb_url, is_favorite, library_deleted_at FROM image_sources WHERE image_id = ?",
-                (image_id,),
-            ).fetchall()
-            old_urls = [str(row["thumb_url"] or "") for row in old_rows]
-            old_states = {
-                int(row["slot_index"] or 0): (int(row["is_favorite"] or 0), row["library_deleted_at"])
-                for row in old_rows
-            }
-            conn.execute("DELETE FROM image_sources WHERE image_id = ?", (image_id,))
-            for pos, source in enumerate(source_inputs, start=1):
-                slot = int(source.get("slot") or pos)
-                value = str(source.get("value") or "")
-                thumb = _save_source_thumb(value, image_id, slot)
-                if thumb is None:
-                    continue
-                thumb_path, width, height, byte_size = thumb
-                new_paths.append(thumb_path)
-                role = str(source.get("role") or "")
-                source_id = gallery_image_id_from_media_url(conn, value, user_id)
-                children_snapshot = (
-                    gallery_sources_for_image(conn, source_id, user_id, depth=2, visited={image_id})
-                    if source_id
-                    else []
-                )
-                kind = "gallery_image" if source_id else ("upload" if value.startswith("data:image") else "media")
-                old_favorite, old_deleted_at = old_states.get(slot, (0, None))
-                source_row = {
-                    "id": uuid.uuid4().hex,
-                    "imageId": image_id,
-                    "sourceImageId": source_id,
-                    "sourceKind": kind,
-                    "role": role,
-                    "roleLabel": _source_role_label(role, slot, req.mode),
-                    "slotIndex": slot,
-                    "thumbUrl": public_url(thumb_path, user_id),
-                    "width": width,
-                    "height": height,
-                    "bytes": byte_size,
-                    "children": children_snapshot,
-                }
-                conn.execute(
-                    """
-                    INSERT INTO image_sources
-                        (id, image_id, user_id, source_image_id, source_kind, role, slot_index,
-                         thumb_url, thumb_width, thumb_height, thumb_bytes, is_favorite,
-                         library_deleted_at, availability_status, availability_checked_at,
-                         unavailable_at, children_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', ?, NULL, ?, ?)
-                    """,
-                    (
-                        source_row["id"],
-                        image_id,
-                        user_id,
-                        source_id,
-                        kind,
-                        role,
-                        slot,
-                        source_row["thumbUrl"],
-                        width,
-                        height,
-                        byte_size,
-                        old_favorite,
-                        old_deleted_at,
-                        datetime.now(timezone.utc).isoformat(),
-                        json.dumps(children_snapshot, ensure_ascii=False),
-                        created_at,
-                    ),
-                )
-                saved.append(source_row)
-    except Exception:
-        for path in new_paths:
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
-        raise
-    for url in old_urls:
-        name = media_filename_from_url(url)
-        if name:
-            _delete_media_rel(name)
-    return saved
+    tree = SourceTreeRuntime(load_json=safe_json_load, role_label=_source_role_label)
+    runtime = SourcePersistenceRuntime(
+        connect=db,
+        tree=tree,
+        save_source_thumb=_save_source_thumb,
+        find_source_image_id=gallery_image_id_from_media_url,
+        role_label=_source_role_label,
+        public_url=public_url,
+        media_filename_from_url=media_filename_from_url,
+        delete_media_rel=_delete_media_rel,
+    )
+    return storage_persist_image_source_rows(
+        runtime,
+        image_id,
+        user_id,
+        _generation_source_inputs(req),
+        created_at,
+        mode=req.mode,
+    )
 
 
 def repair_unavailable_image_sources_from_jobs(

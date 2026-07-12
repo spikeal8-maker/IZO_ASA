@@ -65,7 +65,12 @@
 - текущий полный backend checkpoint после source-graph extraction: 668 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 ранее известный hooks warning), production build — успешно;
 - controlled production restart source-graph package поднял единственный backend на `127.0.0.1:8000`; startup reconciliation снова checked 127, available 125, missing 2, changed 0;
 - второй live smoke прошёл 5/5: health/capabilities/frontend/public feed media — 200, private source без trusted session — 401; source snapshot снова совпал (125 файлов, тот же SHA-256), pytest-процессов нет;
-- все завершённые checkpoint-коммиты до `ffa83a4` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
+- transactional replacement source rows (`persist_image_sources`) вынесен в `storage/source_graph.py`; compatibility wrapper передаёт уже нормализованные inputs и явно инжектирует DB, thumbnail, URL и file cleanup adapters;
+- добавлены прямые тесты successful commit и forced INSERT failure: slot-level favorite/library state сохраняется, старые файлы удаляются только после commit, а при ошибке DB rollback возвращает старую строку и удаляет новый thumbnail;
+- source-persistence package проверен 5 циклами по 9 тестов; полный backend checkpoint: 670 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 известный hooks warning), production build — успешно;
+- controlled restart поднял единственный backend на `127.0.0.1:8000`; startup reconciliation: checked 127, available 125, missing 2, changed 0; live smoke прошёл 5/5;
+- source snapshot после persistence extraction совпал до/после (125 файлов, 1 871 474 bytes, SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`); read-only storage audit: issues 0, missing active refs 0;
+- все завершённые checkpoint-коммиты до `4e188fe` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
 
 Частично выполнено:
 
@@ -73,7 +78,7 @@
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
 - deploy gate: TypeScript блокирует запуск, но единая `tools/verify.ps1` и CI gate ещё не созданы.
 
-Следующий пакет декомпозиции: вынести сохранение source thumbnails/metadata (`persist_image_sources`) в storage service через явные adapters, сохранив transaction, rollback и compatibility wrapper. Production restart выполняется отдельно только после полного checkpoint.
+Следующий пакет декомпозиции: вынести декодирование и создание source thumbnails (`_open_source_image`, `_save_source_thumb`) в отдельный import-safe storage-модуль, сохранив форматы, размеры и качество WEBP. Production restart выполняется отдельно только после полного checkpoint.
 
 Storage-аудит завершён: startup availability теперь стабилен (`changed=0` при неизменном filesystem), автоматическое физическое удаление файлов запрещено, тесты изолированы от production DB/media. Любая будущая очистка файлов выполняется только через manifest/quarantine.
 
@@ -83,7 +88,7 @@ Storage-аудит завершён: startup availability теперь стаб�
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 522 строки | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 454 строки | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |
