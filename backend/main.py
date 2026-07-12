@@ -186,6 +186,7 @@ try:
         PublicMediaAccessError,
         PublicMediaRuntime,
         SourceCleanupRuntime,
+        SourceAvailabilityRuntime,
         StoragePathError,
         find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
@@ -195,6 +196,7 @@ try:
         resolve_private_media as storage_resolve_private_media,
         resolve_public_avatar as storage_resolve_public_avatar,
         reconcile_orphan_source_rows as storage_reconcile_orphan_source_rows,
+        reconcile_source_availability as storage_reconcile_source_availability,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -205,6 +207,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         PublicMediaAccessError,
         PublicMediaRuntime,
         SourceCleanupRuntime,
+        SourceAvailabilityRuntime,
         StoragePathError,
         find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
@@ -214,6 +217,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         resolve_private_media as storage_resolve_private_media,
         resolve_public_avatar as storage_resolve_public_avatar,
         reconcile_orphan_source_rows as storage_reconcile_orphan_source_rows,
+        reconcile_source_availability as storage_reconcile_source_availability,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -2805,40 +2809,12 @@ def cleanup_orphan_image_sources(*, grace_seconds: int = 3600) -> dict[str, int]
 
 
 def reconcile_image_source_availability(user_id: str | None = None) -> dict[str, int]:
-    """Synchronize source-library flags with files without deleting records or media."""
-    now = datetime.now(timezone.utc).isoformat()
-    params: list[Any] = []
-    where = ["(s.library_deleted_at IS NULL OR s.library_deleted_at = '')"]
-    if user_id:
-        where.append("s.user_id = ?")
-        params.append(user_id)
-    with db() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT s.id, s.thumb_url, s.availability_status
-            FROM image_sources s
-            JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id
-            WHERE {' AND '.join(where)} AND {ACTIVE_IMAGE_WHERE.replace('deleted_at', 'i.deleted_at')}
-            """,
-            params,
-        ).fetchall()
-    updates: list[tuple[str, str, str | None, str]] = []
-    available = missing = changed = 0
-    for row in rows:
-        path = local_media_path_from_url(str(row["thumb_url"] or ""))
-        is_available = bool(path and path.is_file() and path.stat().st_size > 0)
-        status = "available" if is_available else "missing"
-        available += int(is_available)
-        missing += int(not is_available)
-        changed += int(str(row["availability_status"] or "unknown") != status)
-        updates.append((status, now, None if is_available else now, str(row["id"])))
-    if updates:
-        with db() as conn:
-            conn.executemany(
-                "UPDATE image_sources SET availability_status = ?, availability_checked_at = ?, unavailable_at = ? WHERE id = ?",
-                updates,
-            )
-    return {"checked": len(rows), "available": available, "missing": missing, "changed": changed}
+    runtime = SourceAvailabilityRuntime(connect=db, path_from_url=local_media_path_from_url)
+    return storage_reconcile_source_availability(
+        runtime,
+        active_image_where=ACTIVE_IMAGE_WHERE,
+        user_id=user_id,
+    )
 
 
 def user_gallery_allowed(conn: sqlite3.Connection, internal_user_id: str | None, legacy_user_id: str | None) -> bool:

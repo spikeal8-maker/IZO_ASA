@@ -48,6 +48,9 @@
 - non-destructive cleanup package проверен 5 циклами; общий backend checkpoint: 662 passed, 2 известных feed-теста deselected; live source snapshot 148/148 без added/removed/changed;
 - production restart подтвердил `fileCandidates=23`, `rowFiles=0`, `files=0`, availability 125/2 и changed=0; все 23 aged unreferenced candidates перемещены в `D:\IZO_ASA_quarantine\startup-source-candidates-20260712-1647`;
 - итоговый read-only storage audit: blocking issues 0, missing active refs 0, source files 125, aged unreferenced source candidates 0; известные unavailable refs остаются diagnostic-only;
+- source availability reconciliation вынесен в `storage/recovery.py`; первый проход корректирует статусы, повторный гарантированно даёт changed=0 при неизменном filesystem;
+- availability package проверен 5 циклами; общий backend checkpoint: 663 passed, 2 известных feed-теста deselected; live source snapshot 125/125 без added/removed/changed;
+- production restart после extraction подтвердил availability 125/2, changed=0, отсутствие cleanup/repair действий и live smoke 5/5;
 - после рестарта удалён дублирующий Uvicorn-процесс, ошибочно слушавший `0.0.0.0:8000`; штатный backend подтверждён единственным listener на `127.0.0.1:8000`.
 
 Частично выполнено:
@@ -66,7 +69,7 @@
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 621 строк | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 597 строк | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |

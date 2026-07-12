@@ -22,6 +22,7 @@ from .public_media import (
 )
 from .maintenance import startup_storage_maintenance_allowed
 from .cleanup import SourceCleanupRuntime, reconcile_orphan_source_rows
+from .recovery import SourceAvailabilityRuntime, reconcile_source_availability
 
 __all__ = [
     "StoragePathError",
@@ -30,6 +31,7 @@ __all__ = [
     "PublicMediaAccessError",
     "PublicMediaRuntime",
     "SourceCleanupRuntime",
+    "SourceAvailabilityRuntime",
     "local_media_path_from_url",
     "media_filename_from_url",
     "public_media_url",
@@ -39,6 +41,7 @@ __all__ = [
     "resolve_private_media",
     "resolve_public_avatar",
     "reconcile_orphan_source_rows",
+    "reconcile_source_availability",
     "startup_storage_maintenance_allowed",
     "resolve_under_root",
 ]
