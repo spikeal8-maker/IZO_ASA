@@ -76,6 +76,7 @@ try:
         openrouter_ratio_size,
         request_ollama_chat_message,
         request_openrouter_chat_completion,
+        request_openrouter_image,
         requested_orientation,
         resolve_openrouter_reference_value,
         select_openrouter_first_image,
@@ -100,6 +101,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         openrouter_ratio_size,
         request_ollama_chat_message,
         request_openrouter_chat_completion,
+        request_openrouter_image,
         requested_orientation,
         resolve_openrouter_reference_value,
         select_openrouter_first_image,
@@ -5959,17 +5961,21 @@ async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> O
     }
     job.update(status="sent_to_openrouter", progress=24, message="Отправляем в OpenRouter", openrouterRequest=request_meta)
     persist_job(job, payload)
-    async with httpx.AsyncClient(timeout=OPENROUTER_TIMEOUT_SECONDS) as client:
-        response = await client.post(f"{OPENROUTER_BASE_URL}/images", headers=openrouter_headers(), json=body)
-        data = response.json() if response.content else {}
-        if response.status_code >= 400 and body.get("size") not in {None, "auto"} and _openrouter_is_size_error(data):
-            fallback_body = {**body, "size": "auto"}
-            job.update(message="OpenRouter подбирает безопасный формат", openrouterRequest={**request_meta, "fallbackSize": "auto"})
-            persist_job(job, payload)
-            response = await client.post(f"{OPENROUTER_BASE_URL}/images", headers=openrouter_headers(), json=fallback_body)
-            data = response.json() if response.content else {}
-    if response.status_code >= 400:
-        raise RuntimeError(_openrouter_public_error(response.status_code, data))
+
+    def record_size_fallback() -> None:
+        job.update(message="OpenRouter подбирает безопасный формат", openrouterRequest={**request_meta, "fallbackSize": "auto"})
+        persist_job(job, payload)
+
+    status_code, data = await request_openrouter_image(
+        base_url=OPENROUTER_BASE_URL,
+        headers_provider=openrouter_headers,
+        body=body,
+        timeout_seconds=OPENROUTER_TIMEOUT_SECONDS,
+        is_size_error=_openrouter_is_size_error,
+        before_size_fallback=record_size_fallback,
+    )
+    if status_code >= 400:
+        raise RuntimeError(_openrouter_public_error(status_code, data))
     image_payload = _openrouter_first_image(data)
     with await _openrouter_image_to_pil(image_payload) as opened:
         image_path = save_gallery_original(opened, f"{job['id']}_openrouter")

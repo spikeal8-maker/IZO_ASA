@@ -68,6 +68,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/integrations/openrouter.py` owns text-model catalog, key/credits, shared `/chat/completions`, image-model/endpoint document collection with bounded concurrency, pure model/endpoint capability normalization, and pure generation response parsing; `main.py` retains compatibility wrappers, API-key/header/source policy, caches, endpoint selection, request bodies, public error wording and generation decisions.
 - `backend/app/integrations/openrouter_images.py` owns pure orientation, aspect-ratio, descriptor and provider-specific request planning plus pure image request-body assembly; application resolution IDs/tiers are passed through compatibility wrappers and local-reference values through callback injection.
 - `backend/app/integrations/openrouter_image_io.py` owns remote/data reference passthrough, application-resolved local-file encoding, and response b64/URL loading into PIL; `main.py` retains the production path resolver, timeout, gallery persistence and generation orchestration.
+- `backend/app/integrations/openrouter_image_client.py` owns POST `/images`, JSON parsing and the exact one-time `size=auto` retry; `main.py` injects headers, size-error classification and the callback that persists fallback job state before retry.
 - `backend/conftest.py` redirects every backend test to a temporary SQLite database, media root and avatar root even when a test forgot its own fixture.
 - Keep it independent of FastAPI, SQLite and provider network calls.
 
