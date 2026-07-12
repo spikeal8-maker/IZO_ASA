@@ -28,6 +28,12 @@ from .recovery import (
     reconcile_source_availability,
     repair_unavailable_sources_from_jobs,
 )
+from .source_graph import (
+    SourceRowRepairRuntime,
+    SourceTreeRuntime,
+    read_image_source_tree,
+    repair_image_source_rows_from_job,
+)
 
 __all__ = [
     "StoragePathError",
@@ -38,6 +44,8 @@ __all__ = [
     "SourceCleanupRuntime",
     "SourceAvailabilityRuntime",
     "SourceRepairRuntime",
+    "SourceRowRepairRuntime",
+    "SourceTreeRuntime",
     "local_media_path_from_url",
     "media_filename_from_url",
     "public_media_url",
@@ -49,6 +57,8 @@ __all__ = [
     "reconcile_orphan_source_rows",
     "reconcile_source_availability",
     "repair_unavailable_sources_from_jobs",
+    "read_image_source_tree",
+    "repair_image_source_rows_from_job",
     "startup_storage_maintenance_allowed",
     "resolve_under_root",
 ]

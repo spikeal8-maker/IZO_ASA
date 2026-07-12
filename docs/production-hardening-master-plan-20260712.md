@@ -60,7 +60,12 @@
 - controlled production restart поднял единственный backend PID на `127.0.0.1:8000`; startup reconciliation: checked 127, available 125, missing 2, changed 0;
 - live smoke после repair extraction прошёл 5/5: health/capabilities/frontend/public feed media — 200, private source без trusted session — 401;
 - source snapshot до/после рестарта полностью совпал: 125 файлов, 1 871 474 bytes, общий SHA-256 `EDEAF248B43430834D42A6CB41E3E7CF069930DC43F3DD230AE4701A88B8D957`; активных pytest-процессов после проверки нет;
-- пять предыдущих завершённых checkpoint-коммитов (`8d47037`…`27dc56a`) синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
+- source-tree traversal и owner-scoped восстановление rows для одной image вынесены в новый import-safe `storage/source_graph.py`; `main.py` сохраняет compatibility wrappers и инжектирует Pydantic parsing/persistence;
+- source-graph package проверен 5 циклами по 6 тестов: live parent chain, snapshot fallback после удаления intermediate image, repair из job settings и multiple uploads;
+- текущий полный backend checkpoint после source-graph extraction: 668 passed, 0 deselected, 0 excluded; frontend lint — 0 errors (1 ранее известный hooks warning), production build — успешно;
+- controlled production restart source-graph package поднял единственный backend на `127.0.0.1:8000`; startup reconciliation снова checked 127, available 125, missing 2, changed 0;
+- второй live smoke прошёл 5/5: health/capabilities/frontend/public feed media — 200, private source без trusted session — 401; source snapshot снова совпал (125 файлов, тот же SHA-256), pytest-процессов нет;
+- все завершённые checkpoint-коммиты до `ffa83a4` включительно синхронизированы с `origin/main`; каждый следующий завершённый пакет также документируется, коммитится и отправляется в GitHub.
 
 Частично выполнено:
 
@@ -68,7 +73,7 @@
 - schema/migrations: SQL declarations вынесены, migration ledger/version и дальнейшее разделение seed/backfill ещё не выполнены;
 - deploy gate: TypeScript блокирует запуск, но единая `tools/verify.ps1` и CI gate ещё не созданы.
 
-Следующий пакет декомпозиции: вынести чтение дерева gallery sources и восстановление source rows для одной конкретной image из `main.py`, сохранив compatibility wrappers. Production restart выполняется отдельно только после полного checkpoint.
+Следующий пакет декомпозиции: вынести сохранение source thumbnails/metadata (`persist_image_sources`) в storage service через явные adapters, сохранив transaction, rollback и compatibility wrapper. Production restart выполняется отдельно только после полного checkpoint.
 
 Storage-аудит завершён: startup availability теперь стабилен (`changed=0` при неизменном filesystem), автоматическое физическое удаление файлов запрещено, тесты изолированы от production DB/media. Любая будущая очистка файлов выполняется только через manifest/quarantine.
 
@@ -78,7 +83,7 @@ Storage-аудит завершён: startup availability теперь стаб�
 
 | Файл | Текущий размер | Цель |
 |---|---:|---:|
-| `backend/main.py` | ~15 545 строк | entrypoint до 100–300 строк; остальное по модулям |
+| `backend/main.py` | ~15 522 строки | entrypoint до 100–300 строк; остальное по модулям |
 | `frontend/src/newStudioV3.css` | ~5 334 | файлы по feature/component, преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | ~4 056 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | ~3 461 | разделённые feature-компоненты; поведение сохранено |

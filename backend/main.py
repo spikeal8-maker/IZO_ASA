@@ -188,6 +188,8 @@ try:
         SourceCleanupRuntime,
         SourceAvailabilityRuntime,
         SourceRepairRuntime,
+        SourceRowRepairRuntime,
+        SourceTreeRuntime,
         StoragePathError,
         find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
@@ -199,6 +201,8 @@ try:
         reconcile_orphan_source_rows as storage_reconcile_orphan_source_rows,
         reconcile_source_availability as storage_reconcile_source_availability,
         repair_unavailable_sources_from_jobs as storage_repair_unavailable_sources_from_jobs,
+        read_image_source_tree as storage_read_image_source_tree,
+        repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -211,6 +215,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         SourceCleanupRuntime,
         SourceAvailabilityRuntime,
         SourceRepairRuntime,
+        SourceRowRepairRuntime,
+        SourceTreeRuntime,
         StoragePathError,
         find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
@@ -222,6 +228,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         reconcile_orphan_source_rows as storage_reconcile_orphan_source_rows,
         reconcile_source_availability as storage_reconcile_source_availability,
         repair_unavailable_sources_from_jobs as storage_repair_unavailable_sources_from_jobs,
+        read_image_source_tree as storage_read_image_source_tree,
+        repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
         startup_storage_maintenance_allowed,
         resolve_under_root as storage_resolve_under_root,
     )
@@ -4234,71 +4242,40 @@ def gallery_sources_for_image(
     depth: int = 3,
     visited: set[str] | None = None,
 ) -> list[dict[str, Any]]:
-    visited = set(visited or set())
-    if depth <= 0 or image_id in visited:
-        return []
-    visited.add(image_id)
-    rows = conn.execute(
-        """
-        SELECT * FROM image_sources
-        WHERE image_id = ? AND user_id = ?
-        ORDER BY slot_index ASC, created_at ASC
-        """,
-        (image_id, user_id),
-    ).fetchall()
-    sources: list[dict[str, Any]] = []
-    for row in rows:
-        source_image_id = row["source_image_id"]
-        snapshot_children = safe_json_load(_row_get(row, "children_json")) or []
-        if not isinstance(snapshot_children, list):
-            snapshot_children = []
-        live_children = (
-            gallery_sources_for_image(conn, source_image_id, user_id, depth=depth - 1, visited=visited)
-            if source_image_id
-            else []
-        )
-        children = live_children or snapshot_children
-        sources.append({
-            "id": row["id"],
-            "imageId": row["image_id"],
-            "sourceImageId": source_image_id,
-            "sourceKind": row["source_kind"],
-            "role": row["role"],
-            "roleLabel": _source_role_label(row["role"], int(row["slot_index"] or 0)),
-            "slotIndex": int(row["slot_index"] or 0),
-            "thumbUrl": row["thumb_url"],
-            "width": int(row["thumb_width"] or 0),
-            "height": int(row["thumb_height"] or 0),
-            "bytes": int(row["thumb_bytes"] or 0),
-            "children": children,
-        })
-    return sources
+    runtime = SourceTreeRuntime(load_json=safe_json_load, role_label=_source_role_label)
+    return storage_read_image_source_tree(
+        runtime,
+        conn,
+        image_id,
+        user_id,
+        depth=depth,
+        visited=visited,
+    )
 
 
 def repair_image_sources_from_job(image_id: str, user_id: str) -> list[dict[str, Any]]:
-    with db() as conn:
-        image = conn.execute(
-            f"SELECT id, user_id, job_id, created_at FROM images WHERE id = ? AND user_id = ? AND {ACTIVE_IMAGE_WHERE}",
-            (image_id, user_id),
-        ).fetchone()
-        if image is None:
+    def restore_from_job_settings(
+        settings_json: str | None,
+        target_image_id: str,
+        target_user_id: str,
+        created_at: str,
+    ) -> list[dict[str, Any]]:
+        try:
+            req = GenerateRequest(**(safe_json_load(settings_json) or {}))
+        except Exception:
             return []
-        existing = int(conn.execute(
-            "SELECT COUNT(*) AS c FROM image_sources WHERE image_id = ? AND user_id = ?",
-            (image_id, user_id),
-        ).fetchone()["c"])
-        if existing:
-            return gallery_sources_for_image(conn, image_id, user_id)
-        job = conn.execute("SELECT settings_json FROM jobs WHERE id = ? AND user_id = ?", (image["job_id"], user_id)).fetchone()
-    if job is None:
-        return []
-    try:
-        req = GenerateRequest(**(safe_json_load(job["settings_json"]) or {}))
-    except Exception:
-        return []
-    if not _generation_source_inputs(req):
-        return []
-    return persist_image_sources(image_id, user_id, req, image["created_at"])
+        if not _generation_source_inputs(req):
+            return []
+        return persist_image_sources(target_image_id, target_user_id, req, created_at)
+
+    tree = SourceTreeRuntime(load_json=safe_json_load, role_label=_source_role_label)
+    runtime = SourceRowRepairRuntime(
+        connect=db,
+        active_image_where=ACTIVE_IMAGE_WHERE,
+        tree=tree,
+        restore_from_job_settings=restore_from_job_settings,
+    )
+    return storage_repair_image_source_rows_from_job(runtime, image_id, user_id)
 
 
 def validate_generation_media_inputs(req: GenerateRequest, user_id: str) -> None:
