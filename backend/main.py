@@ -143,12 +143,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.database import (
-        BASE_SCHEMA_SQL,
         DbGuardError,
-        IMAGE_ADDITIVE_COLUMNS,
         LEGACY_BASELINE_MIGRATION,
-        USER_EARLY_ADDITIVE_COLUMNS,
-        add_missing_columns,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -159,19 +155,18 @@ try:
         mask_database_path,
         open_sqlite,
         parse_allowed_database_paths,
+        prepare_core_schema_group,
         prepare_identity_schema_group,
         preflight_sqlite_database,
         safe_guard_payload,
+        seed_core_defaults,
+        seed_default_challenge,
     )
 
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.database import (
-        BASE_SCHEMA_SQL,
         DbGuardError,
-        IMAGE_ADDITIVE_COLUMNS,
         LEGACY_BASELINE_MIGRATION,
-        USER_EARLY_ADDITIVE_COLUMNS,
-        add_missing_columns,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -182,9 +177,12 @@ except ImportError:  # Direct `python backend/main.py` execution.
         mask_database_path,
         open_sqlite,
         parse_allowed_database_paths,
+        prepare_core_schema_group,
         prepare_identity_schema_group,
         preflight_sqlite_database,
         safe_guard_payload,
+        seed_core_defaults,
+        seed_default_challenge,
     )
 
 try:
@@ -1358,105 +1356,14 @@ def init_db() -> None:
             conn,
             supported_version=LEGACY_BASELINE_MIGRATION.version,
         )
-        conn.executescript(BASE_SCHEMA_SQL)
-        add_missing_columns(conn, "users", USER_EARLY_ADDITIVE_COLUMNS)
-        add_missing_columns(conn, "images", IMAGE_ADDITIVE_COLUMNS)
+        prepare_core_schema_group(conn)
         now = datetime.now(timezone.utc).isoformat()
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO users (id, username, first_name, language, role, created_at, last_login_at)
-            VALUES ('demo_user', 'demo', 'Demo', 'ru', 'admin', ?, ?)
-            """,
-            (now, now),
-        )
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO model_profiles (id, name, provider, model_name)
-            VALUES ('local_flux_klein', 'Local Flux Klein', 'comfyui', 'flux-2-klein-9b-fp8.safetensors')
-            """,
-        )
-        # MODEL PROFILE: canonical 4B/9B profiles. We must support both free models and
-        # never hardcode a single one. supports_pose is additive (default 0). The exact
-        # required-file fingerprints live in settings_json so the admin status endpoint can
-        # cross-check them against the live ComfyUI install.
-        add_missing_columns(conn, "model_profiles", {"supports_pose": "INTEGER NOT NULL DEFAULT 0"})
-        seed_profiles = [
-            (
-                "flux_klein_4b", "FLUX.2 [klein] 4B", "flux-2-klein-4b-fp8.safetensors", 0,
-                {
-                    "variant": "4b",
-                    "unet": "flux-2-klein-4b-fp8.safetensors",
-                    "text_encoder": "qwen_3_4b",
-                    "vae": "flux2-vae.safetensors",
-                    "faceswap_lora": "bfs_head_v1_flux-klein_4b",
-                    "node": "FluxKleinOneNode",
-                    "pose": {"supported": False, "reason": "repo refcontrol pose LoRA is published for 9B only"},
-                },
-            ),
-            (
-                "flux_klein_9b", "FLUX.2 [klein] 9B", "flux-2-klein-9b-fp8.safetensors", 1,
-                {
-                    "variant": "9b",
-                    "unet": "flux-2-klein-9b-fp8.safetensors",
-                    "text_encoder": "qwen_3_8b",
-                    "vae": "flux2-vae.safetensors",
-                    "faceswap_lora": "bfs_head_v1_flux-klein_9b",
-                    "node": "FluxKleinOneNode",
-                    "pose": {
-                        "supported": True,
-                        "lora": "refcontrol_v2_poses.safetensors",
-                        "preprocessor_node": "DWPreprocessor",
-                        "workflow": "pose",
-                    },
-                },
-            ),
-        ]
-        for pid, pname, model_name, supports_pose, settings in seed_profiles:
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO model_profiles (id, name, provider, model_name, supports_pose, settings_json)
-                VALUES (?, ?, 'comfyui', ?, ?, ?)
-                """,
-                (pid, pname, model_name, supports_pose, json.dumps(settings, ensure_ascii=False)),
-            )
-        seed_presets = [
-            ("portrait", "Кинематографичный портрет", "Cinematic portrait", "text_to_image"),
-            ("enhance", "Улучшить качество", "Enhance quality", "edit"),
-            ("collage", "Коллаж в сцену", "Collage to scene", "paint"),
-        ]
-        for preset_id, name_ru, name_en, mode in seed_presets:
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO presets (id, name_ru, name_en, mode, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (preset_id, name_ru, name_en, mode, now, now),
-            )
+        seed_core_defaults(conn, now=now)
 
         prepare_identity_schema_group(conn, now=now)
 
         initialize_media_schema_group(conn)
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO challenges (
-                id, title, description, rules, prompt_hint, category, status,
-                reward_pool, starts_at, ends_at, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
-            """,
-            (
-                "moscow_2120_week",
-                "Москва 2120",
-                "Покажите город будущего. Лучшие работы получают токены и место в витрине.",
-                "Создайте образ Москвы будущего: город, транспорт, люди, архитектура или повседневная сцена. Без логотипов, текста на изображении и копирования чужих работ.",
-                "Футуристическая Москва 2120 года, город будущего, выразительная архитектура, живые люди, кинематографичный свет",
-                "challenge_moscow_2120",
-                10000,
-                "2026-07-01T00:00:00+00:00",
-                "2026-07-14T23:59:59+00:00",
-                now,
-            ),
-        )
+        seed_default_challenge(conn, now=now)
 
         finalize_identity_schema_group(
             conn,

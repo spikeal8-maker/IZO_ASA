@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B3c` — identity/auth schema prepare/finalize extraction; точный hash в Git history |
+| Последний completed checkpoint | `B3d` — core/billing schema и default seed extraction; B3 полностью закрыт |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1015 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1017 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 116 файлов; последний startup `checked=117`, `available=116`, `missing=1`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B3b run `29263163242` success (`1014 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B3c run `29265857059` success (`1015 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и четыре live snapshot готовы; свежий pre-B3a snapshot `20260713T142811.243312Z` проверен; schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 156 после B3c | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 063 после B3d | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -104,7 +104,7 @@
 | ID | Статус | Состояние |
 |---|---|---|
 | BE-01 | `ГОТОВО` | `app/config.py` владеет env/DB-path helpers, typed HTTP/provider/runtime/bot/media/storage policies и secret-free blocking production validation; compatibility exports удаляются только в B14 |
-| BE-02 | `ЧАСТИЧНО` | B3a добавил ledger/version 1; B3b вынес media/feed/search group, B3c — identity prepare/backfill/finalize; billing/core groups и repository layer ещё не завершены |
+| BE-02 | `ЧАСТИЧНО` | Schema/migration scope B3 готов: ledger/version, core/billing, identity и media groups; repository layer остаётся отдельной незавершённой границей |
 | BE-03 | `ЧАСТИЧНО` | Tokens/passwords/sessions/permissions/OTP/events вынесены; legacy auth removal и routers не завершены |
 | BE-04 | `ЧАСТИЧНО` | Storage paths/private/public/recovery/source graph/thumbnails/validation/cleanup вынесены; оставшиеся gallery/media orchestration blocks ещё в `main.py` |
 | BE-05 | `ГОТОВО` | Текущий ограниченный scope Ollama: URL, discovery и общий chat transport вынесены |
@@ -146,7 +146,7 @@
 
 | ID | Статус | Состояние |
 |---|---|---|
-| DATA-01 | `ЧАСТИЧНО` | SQLite остаётся единственной production DB; guard, ledger/version 1, media и identity idempotent groups готовы, billing/core groups и lock/busy telemetry ещё не завершены |
+| DATA-01 | `ЧАСТИЧНО` | SQLite остаётся единственной production DB; guard, ledger/version 1 и все текущие idempotent schema groups готовы, но lock/busy telemetry ещё не завершена |
 | DATA-02 | `ЧАСТИЧНО` | Token ledger и refund logic существуют, но конкурентные/idempotency tests и формальная append-only policy не завершены |
 | DATA-03 | `НЕ НАЧАТО` | Repository boundary, необходимая для PostgreSQL migration, не завершена |
 | DATA-04 | `ОТЛОЖЕНО` | PostgreSQL migration выполняется отдельным проектом после database/service extraction |
@@ -190,7 +190,7 @@
 |---|---|
 | B1 | `ГОТОВО` — model aliases и request metadata вынесены; дальнейшее мелкое дробление этой integration boundary остановлено |
 | B2 | `ГОТОВО` — B2a HTTP security, B2b provider endpoints/timeouts, B2c runtime/bot modes, B2d media limits, B2e storage paths и B2f production validation готовы |
-| B3 | `ЧАСТИЧНО` — B3a ledger/version 1, B3b media/feed/search и B3c identity/auth groups готовы; далее billing/core groups отдельными пакетами |
+| B3 | `ГОТОВО` — ledger/version 1, core/billing, identity/auth, media/feed/search groups и migration tests; в `main.py` inline DDL отсутствует |
 | B4 | Выделить Telegram client и затем handlers/service |
 | B5 | Выделить MAX client и затем handlers/service |
 | B6 | Выделить ComfyUI HTTP client, workflow builders и result adapter отдельными пакетами |
@@ -261,9 +261,10 @@
 11. `B3a` — `ГОТОВО`: migration ledger, immutable checksum и baseline schema version 1.
 12. `B3b` — `ГОТОВО`: media/feed/search idempotent schema execution group.
 13. `B3c` — `ГОТОВО`: identity/auth prepare, legacy backfill и finalize phases.
-14. `B3d+` — **СЛЕДУЮЩИЕ ПАКЕТЫ**: billing/core schema groups и migration tests.
-15. `B4`/`B5` — Telegram и MAX integrations.
-16. `B6` — ComfyUI decomposition.
+14. `B3d` — `ГОТОВО`: core/base/billing schema preparation и default seeds; B3 закрыт.
+15. `B4` — **СЛЕДУЮЩИЙ ПАКЕТ**: Telegram client/typed errors/health boundary.
+16. `B5` — MAX client/typed errors/health boundary.
+17. `B6` — ComfyUI decomposition.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -1073,6 +1074,66 @@ Exact-head CI после B3b и timeout correction:
   anonymous me-v2 HTTP 401; MAX остался в polling, `/me` и poll 200 без ошибки;
 - secrets, provider modes, paid generation, production data, VPS и tunnel не
   изменялись.
+
+Exact-head CI после B3c:
+
+- GitHub Actions run `29265857059` на SHA `0f8f68b` завершён успешно за 16 мин 08 с;
+- `1015 passed, 72 warnings` за 847,08 с; lint `0 errors / 1 existing warning`;
+- production build 1,43 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 899,86 с.
+
+### Checkpoint B3d — core/billing schema и default seeds
+
+Реализовано и развёрнуто 2026-07-13:
+
+- `prepare_core_schema_group()` владеет прежним `BASE_SCHEMA_SQL`, включая
+  billing tables, и ранними additive user/image columns; он выполняется до
+  вычисления общего startup timestamp, как и прежний inline-код;
+- `seed_core_defaults()` после timestamp идемпотентно создаёт demo admin, legacy
+  local profile, canonical FLUX 4B/9B profiles с прежним settings JSON и три
+  system presets;
+- `seed_default_challenge()` остаётся после identity/media schema, поэтому таблица
+  `challenges` уже существует, а порядок относительно identity finalize сохранён;
+- один больше не используемый `add_missing_columns` import удалён из `main.py`;
+  helper остаётся публичным в `app.database` и используется schema groups/tests;
+- `main.py` уменьшен с 15 156 до 15 063 строк; `schema_groups.py` ровно 293 строки,
+  внутри установленной цели 100–300;
+- финальный source audit не нашёл в `main.py` ни `CREATE/ALTER/DROP`, ни
+  `executescript`; `init_db()` теперь только 21-строчная orchestration ledger →
+  core → identity/media → baseline. Поэтому B3 закрыт полностью;
+- repository layer и SQLite lock/busy telemetry не объявлены готовыми: это
+  отдельные BE/DATA задачи после schema extraction.
+
+Доказательства:
+
+- characterization на старом inline-коде и после переноса проверяет точные demo,
+  model settings/pose flags, presets и challenge dates/reward; оба прогона зелёные;
+- standalone core contract дважды применяет BASE/additive/seeds и подтверждает
+  billing tables, seed counts и неизменный first-created timestamp;
+- database/billing/feed suite: `76 passed`; focused database/billing/promo/referral/
+  account/product/feed/API suite: `170 passed, 2 warnings` пять последовательных
+  циклов по 116–123 с;
+- локальный Full: `1017 passed, 72 warnings` за 307,35 с; frontend lint
+  `0 errors / 1 existing warning`, build успешен за 0,538 с, origin
+  `200/200/403/403`;
+- verifier: 123 Python-файла, source стабилен — 116 файлов / 1 576 580 байт /
+  `2D5E93221F75C4A01960EB43E9CCBEDBE94D8985D9B31A2B32CC77D397D1328B`,
+  итоговый Full 334,70 с; generated map `608 symbols / 166 routes`;
+- pre/post restart application schema полностью совпала: 116 objects, SHA-256
+  `d9839afcbff72749e85133fc7cce29dd1bf4a865668a8863d2e6a6f7b9bb2925`;
+  seed-row SHA-256 также совпал:
+  `4e36c556582613e5e058e58673201a9e35fe64dc092db1902bded8a7f32234aa`;
+- SQLite `quick_check=ok`, `user_version=1`, ledger rows `1`; непосредственно
+  до/после restart без изменений: users `33`, jobs `681`, images `962`, token
+  ledger `1376`, billing packages/invoices/payments/refunds `0/0/0/0`, referral
+  rewards `1`, model profiles/presets/challenges `3/3/1`;
+- отдельный новый backup не нужен: SQL/data behavior не менялись, migration version
+  не повышалась, проверенный pre-B3a snapshot сохранён;
+- deploy штатным launcher: backend PID 49476, frontend PID 55520; health/DB Guard,
+  auth capabilities, models, tariffs, feed, frontend root/version HTTP 200, private
+  gallery HTTP 401; source `checked=117 / available=116 / missing=1 / changed=0`;
+- MAX остался в polling, `/me` и poll 200 без ошибки; secrets, provider modes,
+  paid generation, production data, VPS и tunnel не изменялись.
 
 ## 9. Обязательный gate каждого пакета
 

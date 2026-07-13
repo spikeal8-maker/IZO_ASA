@@ -34,7 +34,10 @@ from .schema_groups import (
     backfill_identity_core,
     finalize_identity_schema_group,
     initialize_media_schema_group,
+    prepare_core_schema_group,
     prepare_identity_schema_group,
+    seed_core_defaults,
+    seed_default_challenge,
 )
 
 __all__ = [
@@ -45,7 +48,10 @@ __all__ = [
     "backfill_identity_core",
     "finalize_identity_schema_group",
     "initialize_media_schema_group",
+    "prepare_core_schema_group",
     "prepare_identity_schema_group",
+    "seed_core_defaults",
+    "seed_default_challenge",
     "LEGACY_BASELINE_MIGRATION",
     "MIGRATION_LEDGER_SQL",
     "MigrationDefinition",

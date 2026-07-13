@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import pytest
@@ -26,9 +27,12 @@ from app.database import (
     finalize_legacy_schema_baseline,
     finalize_identity_schema_group,
     initialize_media_schema_group,
+    prepare_core_schema_group,
     prepare_identity_schema_group,
     record_applied_migration,
     safe_guard_payload,
+    seed_core_defaults,
+    seed_default_challenge,
     sqlite_user_version,
     table_columns,
 )
@@ -262,6 +266,67 @@ def test_init_db_characterizes_media_schema_group_and_is_idempotent(tmp_path, mo
     assert "blue city" in search_rows[0]["search_text"]
 
 
+def test_init_db_characterizes_core_defaults_and_is_idempotent(tmp_path, monkeypatch):
+    path = tmp_path / "core-defaults.sqlite3"
+    monkeypatch.setattr(main, "DB_PATH", path)
+
+    main.init_db()
+    main.init_db()
+
+    with open_sqlite(path) as conn:
+        demo = conn.execute(
+            "SELECT username, first_name, language, role FROM users WHERE id = 'demo_user'"
+        ).fetchone()
+        profiles = {
+            row["id"]: row
+            for row in conn.execute(
+                "SELECT id, provider, model_name, supports_pose, settings_json "
+                "FROM model_profiles WHERE id IN "
+                "('local_flux_klein', 'flux_klein_4b', 'flux_klein_9b')"
+            ).fetchall()
+        }
+        presets = {
+            row["id"]: (row["name_ru"], row["name_en"], row["mode"])
+            for row in conn.execute(
+                "SELECT id, name_ru, name_en, mode FROM presets "
+                "WHERE id IN ('portrait', 'enhance', 'collage')"
+            ).fetchall()
+        }
+        challenge = conn.execute(
+            "SELECT title, category, status, reward_pool, starts_at, ends_at "
+            "FROM challenges WHERE id = 'moscow_2120_week'"
+        ).fetchone()
+        challenge_count = conn.execute(
+            "SELECT COUNT(*) FROM challenges WHERE id = 'moscow_2120_week'"
+        ).fetchone()[0]
+
+    assert tuple(demo) == ("demo", "Demo", "ru", "admin")
+    assert set(profiles) == {"local_flux_klein", "flux_klein_4b", "flux_klein_9b"}
+    assert profiles["local_flux_klein"]["model_name"] == "flux-2-klein-9b-fp8.safetensors"
+    settings_4b = json.loads(profiles["flux_klein_4b"]["settings_json"])
+    settings_9b = json.loads(profiles["flux_klein_9b"]["settings_json"])
+    assert profiles["flux_klein_4b"]["supports_pose"] == 0
+    assert settings_4b["variant"] == "4b"
+    assert settings_4b["pose"]["supported"] is False
+    assert profiles["flux_klein_9b"]["supports_pose"] == 1
+    assert settings_9b["variant"] == "9b"
+    assert settings_9b["pose"]["lora"] == "refcontrol_v2_poses.safetensors"
+    assert presets == {
+        "portrait": ("Кинематографичный портрет", "Cinematic portrait", "text_to_image"),
+        "enhance": ("Улучшить качество", "Enhance quality", "edit"),
+        "collage": ("Коллаж в сцену", "Collage to scene", "paint"),
+    }
+    assert tuple(challenge) == (
+        "Москва 2120",
+        "challenge_moscow_2120",
+        "active",
+        10000,
+        "2026-07-01T00:00:00+00:00",
+        "2026-07-14T23:59:59+00:00",
+    )
+    assert challenge_count == 1
+
+
 def test_media_schema_group_is_import_safe_and_idempotent(tmp_path):
     path = tmp_path / "media-schema-unit.sqlite3"
     with open_sqlite(path) as conn:
@@ -372,6 +437,58 @@ def test_identity_schema_group_is_import_safe_and_idempotent(tmp_path):
     assert refresh_column is True
     assert editorial_count == 1
     assert {"ux_users_internal_user_id", "ux_users_public_user_code"} <= indexes
+
+
+def test_core_schema_and_default_seeds_are_import_safe_and_idempotent(tmp_path):
+    path = tmp_path / "core-schema-unit.sqlite3"
+    now = "2026-07-13T00:00:00+00:00"
+    with open_sqlite(path) as conn:
+        prepare_core_schema_group(conn)
+        prepare_core_schema_group(conn)
+        seed_core_defaults(conn, now=now)
+        seed_core_defaults(conn, now="later-value")
+        prepare_identity_schema_group(conn, now=now)
+        seed_default_challenge(conn, now=now)
+        seed_default_challenge(conn, now="later-value")
+
+        tables = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        seed_counts = {
+            "demo": conn.execute("SELECT COUNT(*) FROM users WHERE id = 'demo_user'").fetchone()[0],
+            "profiles": conn.execute(
+                "SELECT COUNT(*) FROM model_profiles WHERE id IN "
+                "('local_flux_klein', 'flux_klein_4b', 'flux_klein_9b')"
+            ).fetchone()[0],
+            "presets": conn.execute(
+                "SELECT COUNT(*) FROM presets WHERE id IN ('portrait', 'enhance', 'collage')"
+            ).fetchone()[0],
+            "challenge": conn.execute(
+                "SELECT COUNT(*) FROM challenges WHERE id = 'moscow_2120_week'"
+            ).fetchone()[0],
+        }
+        challenge_created_at = conn.execute(
+            "SELECT created_at FROM challenges WHERE id = 'moscow_2120_week'"
+        ).fetchone()[0]
+        image_columns = table_columns(conn, "images")
+        user_columns = table_columns(conn, "users")
+
+    assert {
+        "token_ledger",
+        "billing_packages",
+        "invoices",
+        "invoice_items",
+        "payments",
+        "refunds",
+        "referral_rewards",
+    } <= tables
+    assert {"deleted_at", "storage_tier"} <= image_columns
+    assert {"public_user_code", "display_name"} <= user_columns
+    assert seed_counts == {"demo": 1, "profiles": 3, "presets": 3, "challenge": 1}
+    assert challenge_created_at == now
 
 
 def test_migration_ledger_creation_is_empty_and_does_not_advance_version(tmp_path):

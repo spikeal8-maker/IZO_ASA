@@ -66,12 +66,13 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   seed/backfill order and the remaining schema-group split stay in `main.init_db()`
   during the incremental B3 work.
 - `backend/app/database/schema_groups.py` owns idempotent execution groups extracted
-  from the legacy initializer. The first group applies feed media columns, gallery
-  FTS/backfill, image/source indexes and job indexes. Identity Core is split into
-  prepare and finalize phases around the unchanged media/challenge order; legacy
-  Telegram/MAX identity backfill lives here, while public-code assignment remains an
-  injected application callback. `main.init_db()` calls every phase at its original
-  point in the schema order.
+  from the legacy initializer. Core preparation owns the base schema (including
+  billing tables) and early additive columns; stable demo/model/preset/challenge seeds
+  remain idempotent groups. The media group applies feed columns, gallery FTS/backfill,
+  image/source indexes and job indexes. Identity Core is split into prepare and finalize
+  phases around the unchanged media/challenge order; legacy Telegram/MAX identity
+  backfill lives here, while public-code assignment remains an injected application
+  callback. `main.init_db()` is now ordering/wiring only and contains no inline DDL.
 - `backend/app/security/tokens.py` owns opaque token generation, HMAC/SHA-256 hashing and production secret validation.
 - `backend/app/security/passwords.py` owns the Argon2id policy, hashing, verification and dummy timing hash; `main.py` keeps compatibility wrappers.
 - `backend/app/security/sessions.py` owns create/resolve/refresh/revoke through an injected runtime; it does not import FastAPI or application globals.
