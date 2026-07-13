@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B5b` — MAX update parsing/handlers service; B5 полностью закрыт |
+| Последний completed checkpoint | `B6a` — ComfyUI HTTP client boundary; workflow/result split остаётся B6b/B6c |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1068 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1079 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 116 файлов; последний startup `checked=117`, `available=116`, `missing=1`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B5a run `29276052820` success (`1062 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B5b run `29278442114` success (`1068 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и четыре live snapshot готовы; свежий pre-B3a snapshot `20260713T142811.243312Z` проверен; schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 14 884 после B5b | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 14 848 после B6a | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -111,8 +111,8 @@
 | BE-06 | `ГОТОВО` | Ограниченный integration scope завершён: HTTP/parsing/planning/I/O/model aliases/request metadata вынесены; application caches, policy, persistence, billing и orchestration остаются в соответствующих будущих services |
 | BE-07 | `ГОТОВО` | B4a client/errors/file URL/health и B4b parsing/update handlers service выделены; routes/polling lifecycle остаются общим B12/B13 scope |
 | BE-08 | `ГОТОВО` | B5a client/errors/health и B5b parsing/update handlers service выделены; routes/polling/subscription lifecycle остаются B12/B13 scope |
-| BE-09 | `НЕ НАЧАТО` | ComfyUI client/workflow/result adapter не выделены |
-| BE-10 | `НЕ НАЧАТО` | Generation/gallery/feed/account/billing services не выделены системно |
+| BE-09 | `ЧАСТИЧНО` | B6a HTTP client готов; workflow builders и result/media adapter остаются B6b/B6c |
+| BE-10 | `НЕ НАЧАТО` | Generation/gallery/feed/account/billing services не выделены системно; B7 обязан добавить startup reconciliation зависших generation-state строк |
 | BE-11 | `НЕ НАЧАТО` | FastAPI routers не разделены по областям |
 | BE-12 | `НЕ НАЧАТО` | Application factory/lifecycle не созданы; `main.py` остаётся ASGI-монолитом |
 
@@ -193,8 +193,8 @@
 | B3 | `ГОТОВО` — ledger/version 1, core/billing, identity/auth, media/feed/search groups и migration tests; в `main.py` inline DDL отсутствует |
 | B4 | `ГОТОВО` — B4a client/errors/health и B4b injected update handlers service выделены без смены polling/webhook semantics |
 | B5 | `ГОТОВО` — B5a client/errors/health и B5b injected update handlers service выделены без смены polling/webhook semantics |
-| B6 | Выделить ComfyUI HTTP client, workflow builders и result adapter отдельными пакетами |
-| B7 | Выделить generation service и queue boundary |
+| B6 | `ЧАСТИЧНО` — B6a HTTP client выделен; B6b workflow builders и B6c result adapter остаются |
+| B7 | Выделить generation service и queue boundary, включая startup reconciliation stale `queued/running/uploading/sent_*` строк |
 | B8 | Выделить gallery/source lifecycle service |
 | B9 | Выделить feed/publication/reaction/moderation service |
 | B10 | Выделить account/auth service и удалить подтверждённо неиспользуемые legacy authorization consumers |
@@ -266,7 +266,8 @@
 16. `B4b` — `ГОТОВО`: Telegram update parsing/handlers service без переноса routes; B4 закрыт.
 17. `B5a` — `ГОТОВО`: MAX async/sync client, typed errors и health boundary.
 18. `B5b` — `ГОТОВО`: MAX update parsing/handlers service без переноса routes; B5 закрыт.
-19. `B6` — **СЛЕДУЮЩИЙ ПАКЕТ**: ComfyUI decomposition.
+19. `B6a` — `ГОТОВО`: ComfyUI HTTP client boundary без переноса workflow/result logic.
+20. `B6b` — **СЛЕДУЮЩИЙ ПАКЕТ**: ComfyUI workflow builders.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -1312,6 +1313,14 @@ Exact CI после B4b:
 - production build 2,24 с, origin isolation `200/200/403/403`, итоговый
   `VERIFY_OK` CI за 852,32 с.
 
+Exact CI после B5b:
+
+- GitHub Actions run `29278442114`, job `86913334959`, на SHA `18266eb`
+  завершён успешно за 17 мин 35 с;
+- `1068 passed, 72 warnings` за 928,89 с; lint `0 errors / 1 existing warning`;
+- production build 1,39 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 975,33 с.
+
 ### Checkpoint B5a — MAX HTTP client, typed errors и health
 
 Реализовано и развёрнуто 2026-07-13:
@@ -1362,6 +1371,56 @@ Exact CI после B4b:
 - SQLite `quick_check=ok`, `user_version=1`, migrations `1`, users/jobs/images/token
   ledger `33/681/962/1376`; schema/data migration не выполнялась, новый backup не
   требуется; secrets, paid generation, VPS и tunnel не изменялись.
+
+### Checkpoint B6a — ComfyUI HTTP client boundary
+
+Реализовано и развёрнуто 2026-07-13:
+
+- новый import-safe `app/integrations/comfyui_client.py` владеет HTTP-вызовами
+  `/object_info`, Flux Klein models/config/bgremoval/LoRA/workflow endpoints,
+  `/upload/image`, `/prompt`, `/history`, `/view`, `/interrupt` и `/free`;
+- сохранены прежние endpoint payloads и таймауты: availability/node discovery
+  `4/8`, catalog/config `10`, workflow/history `20`, submit `30`, upload `60`, image
+  download `120`, interrupt `5` и free `10` секунд;
+- availability и node discovery сохраняют non-raising degraded contract, interrupt
+  сохраняет прежнее отсутствие `raise_for_status`; остальные HTTP failures по-прежнему
+  доходят до application error policy;
+- `ComfyUIHistoryClient` держит один reusable `httpx.AsyncClient`/connection pool на
+  весь polling одной генерации; application deadline, cancel-before-network,
+  progress и двухсекундный interval остаются в `main.wait_for_history()`;
+- `main.py` сохраняет прежние compatibility function names, mode-to-workflow mapping,
+  workflow patch/build logic, submit response validation, image persistence,
+  generation fallback и job orchestration;
+- прямых ComfyUI URL/`AsyncClient` вызовов в `main.py` больше нет; файл уменьшен с
+  14 884 до 14 848 строк (−36), client имеет 293 строки, direct tests — 231 строку,
+  wiring tests — 67 строк; generated map остаётся `598 symbols / 166 routes`.
+
+Доказательства:
+
+- исходный ComfyUI/Admin baseline до переноса: `59 passed`; direct client + wiring
+  contracts: `11 passed`; расширенный ComfyUI/API/Admin suite: `117 passed,
+  10 warnings` пять последовательных циклов за `64,64 / 65,04 / 65,23 / 65,90 /
+  63,36` с;
+- contracts проверяют exact URL/query/JSON/multipart, все прежние timeout values,
+  missing/unavailable node behavior, HTTP failure propagation, legacy non-raising
+  interrupt, binary download, memory-free payload, reusable history client и
+  cancel-before-network;
+- локальный Full: `1079 passed, 72 warnings` за 285,85 с; lint `0 errors / 1 existing
+  warning`, build 0,466 с, origin `200/200/403/403`, итоговый `VERIFY_OK` за 311,39 с;
+  135 Python-файлов, source стабилен: 116 файлов / 1 576 580 байт /
+  `2D5E93221F75C4A01960EB43E9CCBEDBE94D8985D9B31A2B32CC77D397D1328B`;
+- controlled backend-only restart: PID `35644 → 13016`, один listener
+  `127.0.0.1:8000`, proxy headers disabled; frontend остался PID 55520;
+- live HTTP: health/models/Flux config/bgremoval/feed/bot status/frontend и real
+  LoRA triggers `200`, private media `401`, polling-mode Telegram webhook `404`;
+  read-only real client получил workflow `dict/10 nodes` и пустую history для
+  отсутствующего prompt; ComfyUI object/models доступны;
+- SQLite `quick_check=ok`, `user_version=1`, migrations `1`, users/jobs/images/token
+  ledger `33/681/962/1376`; schema/data migration, backup, secrets, paid generation,
+  VPS и tunnel не изменялись;
+- pre-restart audit нашёл одну stale production row `sent_to_comfyui/progress=24`
+  возрастом около восьми часов при пустых ComfyUI running/pending queues. Строка не
+  изменялась; обязательное startup reconciliation добавлено в scope B7.
 
 ## 9. Обязательный gate каждого пакета
 

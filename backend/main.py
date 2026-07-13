@@ -80,19 +80,30 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.integrations import (
+        ComfyUIHistoryClient as IntegrationComfyUIHistoryClient,
         build_max_http_verify,
         build_openrouter_image_request_metadata,
         build_openrouter_image_request_body,
         build_openrouter_image_request_plan,
+        comfyui_flux_klein_available as integration_comfyui_available,
         extract_openrouter_generation_cost,
         extract_openrouter_error_payload,
+        fetch_comfyui_image_bytes as integration_fetch_comfyui_image_bytes,
+        fetch_comfyui_models as integration_fetch_comfyui_models,
+        fetch_comfyui_node_names as integration_fetch_comfyui_node_names,
+        fetch_comfyui_workflow as integration_fetch_comfyui_workflow,
+        fetch_flux_bgremoval_models as integration_fetch_flux_bgremoval_models,
+        fetch_flux_klein_config as integration_fetch_flux_klein_config,
+        fetch_flux_lora_triggers as integration_fetch_flux_lora_triggers,
         fetch_ollama_models_status,
         fetch_openrouter_image_model_documents,
         fetch_openrouter_key_details,
         fetch_openrouter_text_models,
         format_openrouter_public_error,
+        free_comfyui_memory as integration_free_comfyui_memory,
         is_openrouter_size_error,
         image_edit_influence_instruction,
+        interrupt_comfyui as integration_interrupt_comfyui,
         load_openrouter_response_image,
         normalize_openrouter_endpoint_capability,
         normalize_openrouter_image_response_metadata,
@@ -110,26 +121,39 @@ try:
         resolve_openrouter_image_model,
         resolve_openrouter_reference_value,
         select_openrouter_first_image,
+        submit_comfyui_workflow as integration_submit_comfyui_workflow,
         TelegramApiError,
         TelegramConfigurationError,
         request_telegram_bot_api,
         telegram_file_url,
+        upload_comfyui_image as integration_upload_comfyui_image,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations import (
+        ComfyUIHistoryClient as IntegrationComfyUIHistoryClient,
         build_max_http_verify,
         build_openrouter_image_request_metadata,
         build_openrouter_image_request_body,
         build_openrouter_image_request_plan,
+        comfyui_flux_klein_available as integration_comfyui_available,
         extract_openrouter_generation_cost,
         extract_openrouter_error_payload,
+        fetch_comfyui_image_bytes as integration_fetch_comfyui_image_bytes,
+        fetch_comfyui_models as integration_fetch_comfyui_models,
+        fetch_comfyui_node_names as integration_fetch_comfyui_node_names,
+        fetch_comfyui_workflow as integration_fetch_comfyui_workflow,
+        fetch_flux_bgremoval_models as integration_fetch_flux_bgremoval_models,
+        fetch_flux_klein_config as integration_fetch_flux_klein_config,
+        fetch_flux_lora_triggers as integration_fetch_flux_lora_triggers,
         fetch_ollama_models_status,
         fetch_openrouter_image_model_documents,
         fetch_openrouter_key_details,
         fetch_openrouter_text_models,
         format_openrouter_public_error,
+        free_comfyui_memory as integration_free_comfyui_memory,
         is_openrouter_size_error,
         image_edit_influence_instruction,
+        interrupt_comfyui as integration_interrupt_comfyui,
         load_openrouter_response_image,
         normalize_openrouter_endpoint_capability,
         normalize_openrouter_image_response_metadata,
@@ -147,10 +171,12 @@ except ImportError:  # Direct `python backend/main.py` execution.
         resolve_openrouter_image_model,
         resolve_openrouter_reference_value,
         select_openrouter_first_image,
+        submit_comfyui_workflow as integration_submit_comfyui_workflow,
         TelegramApiError,
         TelegramConfigurationError,
         request_telegram_bot_api,
         telegram_file_url,
+        upload_comfyui_image as integration_upload_comfyui_image,
     )
 
 try:
@@ -5673,66 +5699,29 @@ def _media_file_path_from_url(url: str | None) -> Path | None:
 
 
 async def comfyui_available() -> bool:
-    try:
-        async with httpx.AsyncClient(timeout=4) as client:
-            response = await client.get(f"{COMFYUI_BASE_URL}/object_info")
-            response.raise_for_status()
-            data = response.json()
-            return "FluxKleinOneNode" in data
-    except Exception:
-            return False
+    return await integration_comfyui_available(base_url=COMFYUI_BASE_URL)
 
 
 async def comfyui_node_names() -> set[str]:
     """Registered ComfyUI node class names (e.g. FluxKleinOneNode, DWPreprocessor).
     Used to verify pose readiness. Returns an empty set if ComfyUI is unreachable."""
-    try:
-        async with httpx.AsyncClient(timeout=8) as client:
-            response = await client.get(f"{COMFYUI_BASE_URL}/object_info")
-            response.raise_for_status()
-            return set(response.json().keys())
-    except Exception:
-        return set()
+    return await integration_fetch_comfyui_node_names(base_url=COMFYUI_BASE_URL)
 
 
 async def get_comfyui_models() -> dict[str, list[str]]:
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.get(f"{COMFYUI_BASE_URL}/flux_klein/models")
-        response.raise_for_status()
-        data = response.json()
-    return {
-        "diffusion_models": data.get("diffusion_models", []),
-        "text_encoders": data.get("text_encoders", []),
-        "vaes": data.get("vaes", []),
-        "loras": data.get("loras", []),
-    }
+    return await integration_fetch_comfyui_models(base_url=COMFYUI_BASE_URL)
 
 
 async def get_flux_klein_config() -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.get(f"{COMFYUI_BASE_URL}/flux_klein/config")
-        response.raise_for_status()
-        data = response.json()
-    return {
-        "autofill_prompts": data.get("autofill_prompts", {}),
-        "lora_triggers_custom": data.get("lora_triggers_custom", {}),
-        "t2i_templates": data.get("t2i_templates", []),
-        "discover_prompts": data.get("discover_prompts", {}),
-    }
+    return await integration_fetch_flux_klein_config(base_url=COMFYUI_BASE_URL)
 
 
 async def get_flux_bgremoval_models() -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.get(f"{COMFYUI_BASE_URL}/flux_klein/bgremoval_models")
-        response.raise_for_status()
-        return response.json()
+    return await integration_fetch_flux_bgremoval_models(base_url=COMFYUI_BASE_URL)
 
 
 async def get_flux_lora_triggers(name: str) -> dict[str, Any]:
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.get(f"{COMFYUI_BASE_URL}/flux_klein/lora_triggers", params={"name": name})
-        response.raise_for_status()
-        return response.json()
+    return await integration_fetch_flux_lora_triggers(base_url=COMFYUI_BASE_URL, name=name)
 
 
 def resolve_profile_model(requested: str) -> str:
@@ -5938,14 +5927,7 @@ def choose_faceswap_lora(available_loras: list[str], requested: Lora | None, mod
 
 
 async def upload_to_comfyui(path: Path) -> str:
-    async with httpx.AsyncClient(timeout=60) as client:
-        with path.open("rb") as file:
-            files = {"image": (path.name, file, "image/png")}
-            data = {"overwrite": "true", "type": "input"}
-            response = await client.post(f"{COMFYUI_BASE_URL}/upload/image", files=files, data=data)
-        response.raise_for_status()
-        payload = response.json()
-    return payload.get("name") or path.name
+    return await integration_upload_comfyui_image(base_url=COMFYUI_BASE_URL, path=path)
 
 
 def _fit_comfyui_input_size(source_size: tuple[int, int], target_box: tuple[int, int] | None = None, max_side: int | None = None) -> tuple[int, int]:
@@ -6143,10 +6125,7 @@ async def fetch_workflow(mode: str) -> dict[str, Any]:
         "texture_transfer": "workflow_edit",
     }
     endpoint = workflow_by_mode.get(mode, "workflow_t2i")
-    async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.get(f"{COMFYUI_BASE_URL}/flux_klein/{endpoint}")
-        response.raise_for_status()
-        return response.json()
+    return await integration_fetch_comfyui_workflow(base_url=COMFYUI_BASE_URL, endpoint=endpoint)
 
 
 def set_input(prompt: dict[str, Any], node_id: str, key: str, value: Any) -> None:
@@ -6326,13 +6305,11 @@ def patch_mode_nodes(prompt: dict[str, Any], req: GenerateRequest, uploads: dict
 
 
 async def submit_workflow(workflow: dict[str, Any], job: dict[str, Any]) -> tuple[str, dict[str, Any], list[dict[str, str]]]:
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            f"{COMFYUI_BASE_URL}/prompt",
-            json={"prompt": workflow, "client_id": f"onenode-backend-{job['id']}", "extra_data": {"enable_previews": True}},
-        )
-        response.raise_for_status()
-        data = response.json()
+    data = await integration_submit_comfyui_workflow(
+        base_url=COMFYUI_BASE_URL,
+        workflow=workflow,
+        job_id=job["id"],
+    )
     if data.get("error"):
         raise RuntimeError(f"ComfyUI workflow error: {data['error']}")
     node_errors = data.get("node_errors") or {}
@@ -6347,8 +6324,7 @@ async def submit_workflow(workflow: dict[str, Any], job: dict[str, Any]) -> tupl
 
 async def interrupt_comfyui_prompt() -> None:
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            await client.post(f"{COMFYUI_BASE_URL}/interrupt")
+        await integration_interrupt_comfyui(base_url=COMFYUI_BASE_URL)
     except Exception:
         pass
 
@@ -6372,13 +6348,11 @@ def extract_images_from_history(history: dict[str, Any]) -> list[dict[str, str]]
 async def wait_for_history(prompt_id: str, job: dict[str, Any]) -> dict[str, Any]:
     timeout = COMFYUI_FACE_TIMEOUT_SECONDS if job.get("mode") == "faceswap" else COMFYUI_TIMEOUT_SECONDS
     deadline = time.monotonic() + timeout
-    async with httpx.AsyncClient(timeout=20) as client:
+    async with IntegrationComfyUIHistoryClient(base_url=COMFYUI_BASE_URL) as history_client:
         while time.monotonic() < deadline:
             if job.get("status") == "cancelled":
                 raise RuntimeError("Задача отменена")
-            response = await client.get(f"{COMFYUI_BASE_URL}/history/{prompt_id}")
-            response.raise_for_status()
-            payload = response.json()
+            payload = await history_client.fetch(prompt_id)
             if prompt_id in payload:
                 return payload[prompt_id]
             job["progress"] = min(94, int(job.get("progress", 24)) + 2)
@@ -6388,12 +6362,9 @@ async def wait_for_history(prompt_id: str, job: dict[str, Any]) -> dict[str, Any
 
 
 async def download_comfyui_image(image: dict[str, str], job_id: str) -> tuple[Path, Path]:
-    params = {"filename": image["filename"], "subfolder": image.get("subfolder", ""), "type": image.get("type", "output")}
-    async with httpx.AsyncClient(timeout=120) as client:
-        response = await client.get(f"{COMFYUI_BASE_URL}/view", params=params)
-        response.raise_for_status()
-        with Image.open(io.BytesIO(response.content)) as opened:
-            image_path = save_gallery_original(opened, f"{job_id}_comfyui")
+    content = await integration_fetch_comfyui_image_bytes(base_url=COMFYUI_BASE_URL, image=image)
+    with Image.open(io.BytesIO(content)) as opened:
+        image_path = save_gallery_original(opened, f"{job_id}_comfyui")
     return image_path, create_thumbnail(image_path)
 
 
@@ -7165,11 +7136,7 @@ async def cancel_job(job_id: str, request: Request) -> dict[str, Any]:
         refund_generation_tokens(conn, job_id, reason="user_cancelled")
     jobs[job_id].update(status="cancelled", progress=100, message="Отменено")
     persist_job(jobs[job_id])
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            await client.post(f"{COMFYUI_BASE_URL}/interrupt")
-    except Exception:
-        pass
+    await interrupt_comfyui_prompt()
     return {k: v for k, v in jobs[job_id].items() if k != "request"}
 
 
@@ -12598,10 +12565,7 @@ def _saved_setting(key: str) -> dict[str, Any]:
 
 
 async def free_comfyui_models() -> bool:
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.post(f"{COMFYUI_BASE_URL}/free", json={"unload_models": True, "free_memory": True})
-        response.raise_for_status()
-    return True
+    return await integration_free_comfyui_memory(base_url=COMFYUI_BASE_URL)
 
 
 def reconcile_openrouter_token_charge(conn: sqlite3.Connection, job_id: str, actual_tokens: int) -> dict[str, int | bool]:

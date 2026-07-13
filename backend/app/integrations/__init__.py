@@ -1,5 +1,20 @@
 """External provider HTTP boundaries."""
 
+from .comfyui_client import (
+    ComfyUIHistoryClient,
+    comfyui_flux_klein_available,
+    fetch_comfyui_image_bytes,
+    fetch_comfyui_models,
+    fetch_comfyui_node_names,
+    fetch_comfyui_workflow,
+    fetch_flux_bgremoval_models,
+    fetch_flux_klein_config,
+    fetch_flux_lora_triggers,
+    free_comfyui_memory,
+    interrupt_comfyui,
+    submit_comfyui_workflow,
+    upload_comfyui_image,
+)
 from .ollama import fetch_ollama_models_status, ollama_base_url, request_ollama_chat_message
 from .max_tls import build_max_http_verify, normalize_max_tls_trust_store
 from .max_client import (
@@ -54,6 +69,17 @@ from .telegram import (
 
 __all__ = [
     "build_max_http_verify",
+    "ComfyUIHistoryClient",
+    "comfyui_flux_klein_available",
+    "fetch_comfyui_image_bytes",
+    "fetch_comfyui_models",
+    "fetch_comfyui_node_names",
+    "fetch_comfyui_workflow",
+    "fetch_flux_bgremoval_models",
+    "fetch_flux_klein_config",
+    "fetch_flux_lora_triggers",
+    "free_comfyui_memory",
+    "interrupt_comfyui",
     "MaxBotHealth",
     "MaxClientError",
     "MaxConfigurationError",
@@ -99,5 +125,7 @@ __all__ = [
     "TelegramTransportError",
     "probe_telegram_bot",
     "request_telegram_bot_api",
+    "submit_comfyui_workflow",
     "telegram_file_url",
+    "upload_comfyui_image",
 ]
