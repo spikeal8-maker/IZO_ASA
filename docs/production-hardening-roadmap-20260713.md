@@ -39,7 +39,7 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `A7` — exact Vite Host allowlist и loopback-only proxy metadata trust; точный hash в Git history |
+| Последний completed checkpoint | `A7` — exact Vite Host allowlist и loopback-only proxy metadata trust; commit `87f4351` |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
 | Последний полный test checkpoint | 976 passed, 0 failed, 0 skipped, 0 deselected |
@@ -48,7 +48,7 @@
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 121 файл; startup `checked=123`, `available=121`, `missing=2`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact-head run `29236615611` success, required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; A7 run `29239661386` success, required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и три live snapshot готовы; автоматический schedule/retention ещё не включены |
@@ -564,6 +564,10 @@
   HTTP 200, local foreign Host HTTP 403;
 - новый blocking auth smoke подтверждён в свежем backend log:
   generate/gallery/me-v2 = `401/401/401`; MAX polling продолжил HTTP 200;
+- GitHub Actions run `29239661386` для exact commit `87f4351` завершён
+  `success`: `976 passed, 72 warnings` за 689,08 с, lint
+  `0 errors / 1 warning`, build 1,22 с, origin `200/200/403/403`, итоговый
+  `VERIFY_OK mode=CI durationSeconds=748.92 liveChecks=false`;
 - VPS, доменный tunnel, secrets, live DB и пользовательские media не изменялись
   пакетом A7; обнаруженные параллельные favicon-правки не включались в A7 commit.
 
