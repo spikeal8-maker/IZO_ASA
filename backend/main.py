@@ -145,11 +145,8 @@ try:
     from .app.database import (
         BASE_SCHEMA_SQL,
         IDENTITY_SCHEMA_SQL,
-        IMAGE_SEARCH_SCHEMA_SQL,
         DbGuardError,
-        FEED_PUBLICATION_ADDITIVE_COLUMNS,
         IMAGE_ADDITIVE_COLUMNS,
-        IMAGE_SOURCE_ADDITIVE_COLUMNS,
         LEGACY_BASELINE_MIGRATION,
         USER_EARLY_ADDITIVE_COLUMNS,
         add_missing_columns,
@@ -157,6 +154,7 @@ try:
         database_size_mb,
         ensure_migration_ledger,
         finalize_legacy_schema_baseline,
+        initialize_media_schema_group,
         mask_database_path,
         open_sqlite,
         parse_allowed_database_paths,
@@ -168,11 +166,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
     from app.database import (
         BASE_SCHEMA_SQL,
         IDENTITY_SCHEMA_SQL,
-        IMAGE_SEARCH_SCHEMA_SQL,
         DbGuardError,
-        FEED_PUBLICATION_ADDITIVE_COLUMNS,
         IMAGE_ADDITIVE_COLUMNS,
-        IMAGE_SOURCE_ADDITIVE_COLUMNS,
         LEGACY_BASELINE_MIGRATION,
         USER_EARLY_ADDITIVE_COLUMNS,
         add_missing_columns,
@@ -180,6 +175,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         database_size_mb,
         ensure_migration_ledger,
         finalize_legacy_schema_baseline,
+        initialize_media_schema_group,
         mask_database_path,
         open_sqlite,
         parse_allowed_database_paths,
@@ -1457,73 +1453,7 @@ def init_db() -> None:
         # the access/session expires_at. Additive, safe ALTER for existing DBs.
         add_missing_columns(conn, "auth_sessions", {"refresh_expires_at": "TEXT"})
 
-        # Feed media architecture: additive-only public feed asset metadata.
-        # Some live DBs already have early feed columns, so check every column
-        # individually. Originals stay in images; public feed variants live here.
-        add_missing_columns(conn, "feed_publications", FEED_PUBLICATION_ADDITIVE_COLUMNS)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_feed_publications_media_ready "
-            "ON feed_publications(status, media_ready_at)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_feed_publications_category_ready_created "
-            "ON feed_publications(category, status, media_ready_at, created_at)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_feed_publications_legacy_ready_created "
-            "ON feed_publications(legacy_user_id, status, media_ready_at, created_at)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_images_user_deleted_created "
-            "ON images(user_id, deleted_at, created_at)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_images_user_favorite_deleted_created "
-            "ON images(user_id, is_favorite, deleted_at, created_at)"
-        )
-        conn.execute("UPDATE images SET deleted_at = NULL WHERE deleted_at = ''")
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_images_active_user_created "
-            "ON images(user_id, created_at DESC, id DESC) WHERE deleted_at IS NULL"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_images_job_id "
-            "ON images(job_id)"
-        )
-        conn.executescript(IMAGE_SEARCH_SCHEMA_SQL)
-        conn.execute(
-            """
-            INSERT INTO images_search(rowid, image_id, user_id, search_text)
-            SELECT images.rowid, images.id, images.user_id,
-                   COALESCE(images.id, '') || ' ' || COALESCE(images.prompt_original, '') || ' ' ||
-                   COALESCE(images.prompt_translated, '') || ' ' || COALESCE(images.mode, '') || ' ' ||
-                   COALESCE(images.provider, '') || ' ' || COALESCE(images.settings_json, '')
-            FROM images
-            WHERE NOT EXISTS (SELECT 1 FROM images_search WHERE images_search.rowid = images.rowid)
-            """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_image_sources_image "
-            "ON image_sources(image_id, slot_index)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_image_sources_user "
-            "ON image_sources(user_id, created_at)"
-        )
-        add_missing_columns(conn, "image_sources", IMAGE_SOURCE_ADDITIVE_COLUMNS)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_image_sources_library_available "
-            "ON image_sources(user_id, availability_status, created_at DESC) "
-            "WHERE library_deleted_at IS NULL"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_jobs_user_created "
-            "ON jobs(user_id, created_at)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_jobs_result_image "
-            "ON jobs(result_image_id)"
-        )
+        initialize_media_schema_group(conn)
         conn.execute(
             """
             INSERT OR IGNORE INTO challenges (

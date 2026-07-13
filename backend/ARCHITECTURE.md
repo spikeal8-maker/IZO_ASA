@@ -65,6 +65,10 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/database/schema.py` owns import-safe SQL schema declarations; execution,
   seed/backfill order and the remaining schema-group split stay in `main.init_db()`
   during the incremental B3 work.
+- `backend/app/database/schema_groups.py` owns idempotent execution groups extracted
+  from the legacy initializer. The first group applies feed media columns, gallery
+  FTS/backfill, image/source indexes and job indexes; `main.init_db()` calls it at the
+  original point in the schema order.
 - `backend/app/security/tokens.py` owns opaque token generation, HMAC/SHA-256 hashing and production secret validation.
 - `backend/app/security/passwords.py` owns the Argon2id policy, hashing, verification and dummy timing hash; `main.py` keeps compatibility wrappers.
 - `backend/app/security/sessions.py` owns create/resolve/refresh/revoke through an injected runtime; it does not import FastAPI or application globals.

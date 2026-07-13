@@ -11,6 +11,7 @@ import main
 from app.database import (
     BASE_SCHEMA_SQL,
     IDENTITY_SCHEMA_SQL,
+    IMAGE_ADDITIVE_COLUMNS,
     IMAGE_SEARCH_SCHEMA_SQL,
     LEGACY_BASELINE_MIGRATION,
     MigrationDefinition,
@@ -22,6 +23,7 @@ from app.database import (
     preflight_sqlite_database,
     ensure_migration_ledger,
     finalize_legacy_schema_baseline,
+    initialize_media_schema_group,
     record_applied_migration,
     safe_guard_payload,
     sqlite_user_version,
@@ -196,6 +198,108 @@ def test_image_search_schema_is_idempotent_and_tracks_image_rows(tmp_path):
     assert row["user_id"] == "user-search"
     assert "красный замок" in row["search_text"]
     assert "red castle" in row["search_text"]
+
+
+def test_init_db_characterizes_media_schema_group_and_is_idempotent(tmp_path, monkeypatch):
+    path = tmp_path / "media-schema-group.sqlite3"
+    with open_sqlite(path) as conn:
+        conn.executescript(BASE_SCHEMA_SQL)
+        conn.execute(
+            """
+            INSERT INTO images (
+                id, user_id, job_id, url, thumbnail_url, prompt_original,
+                prompt_translated, width, height, mode, provider, created_at
+            ) VALUES (
+                'img-before-group', 'user-media', 'job-media', '/api/media/before.png',
+                '/api/media/before.webp', 'синий город', 'blue city',
+                704, 704, 'text_to_image', 'comfyui', '2026-01-01'
+            )
+            """
+        )
+    monkeypatch.setattr(main, "DB_PATH", path)
+
+    main.init_db()
+    with open_sqlite(path) as conn:
+        conn.execute("UPDATE images SET deleted_at = '' WHERE id = 'img-before-group'")
+    main.init_db()
+
+    with open_sqlite(path) as conn:
+        indexes = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            ).fetchall()
+        }
+        search_rows = conn.execute(
+            "SELECT image_id, user_id, search_text FROM images_search "
+            "WHERE image_id = 'img-before-group'"
+        ).fetchall()
+        deleted_at = conn.execute(
+            "SELECT deleted_at FROM images WHERE id = 'img-before-group'"
+        ).fetchone()[0]
+
+    assert {
+        "idx_feed_publications_media_ready",
+        "idx_feed_publications_category_ready_created",
+        "idx_feed_publications_legacy_ready_created",
+        "idx_images_user_deleted_created",
+        "idx_images_user_favorite_deleted_created",
+        "idx_images_active_user_created",
+        "idx_images_job_id",
+        "idx_image_sources_image",
+        "idx_image_sources_user",
+        "idx_image_sources_library_available",
+        "idx_jobs_user_created",
+        "idx_jobs_result_image",
+    } <= indexes
+    assert deleted_at is None
+    assert len(search_rows) == 1
+    assert search_rows[0]["user_id"] == "user-media"
+    assert "синий город" in search_rows[0]["search_text"]
+    assert "blue city" in search_rows[0]["search_text"]
+
+
+def test_media_schema_group_is_import_safe_and_idempotent(tmp_path):
+    path = tmp_path / "media-schema-unit.sqlite3"
+    with open_sqlite(path) as conn:
+        conn.executescript(BASE_SCHEMA_SQL)
+        add_missing_columns(conn, "users", {"internal_user_id": "TEXT"})
+        add_missing_columns(conn, "images", IMAGE_ADDITIVE_COLUMNS)
+        conn.executescript(IDENTITY_SCHEMA_SQL)
+        conn.execute(
+            """
+            INSERT INTO images (
+                id, user_id, job_id, url, thumbnail_url, prompt_original,
+                prompt_translated, width, height, mode, provider, created_at
+            ) VALUES (
+                'img-unit-group', 'user-unit', 'job-unit', '/api/media/unit.png',
+                '/api/media/unit.webp', 'белая башня', 'white tower',
+                704, 704, 'text_to_image', 'comfyui', '2026-01-01'
+            )
+            """
+        )
+
+        initialize_media_schema_group(conn)
+        initialize_media_schema_group(conn)
+
+        assert {
+            "media_ready_at",
+            "category",
+            "generation_snapshot_json",
+        } <= table_columns(conn, "feed_publications")
+        assert {
+            "children_json",
+            "library_deleted_at",
+            "availability_status",
+        } <= table_columns(conn, "image_sources")
+        assert "deleted_at" in table_columns(conn, "images")
+        rows = conn.execute(
+            "SELECT image_id, search_text FROM images_search WHERE image_id = 'img-unit-group'"
+        ).fetchall()
+
+    assert len(rows) == 1
+    assert "белая башня" in rows[0]["search_text"]
+    assert "white tower" in rows[0]["search_text"]
 
 
 def test_migration_ledger_creation_is_empty_and_does_not_advance_version(tmp_path):

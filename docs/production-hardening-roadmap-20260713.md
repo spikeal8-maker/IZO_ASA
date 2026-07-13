@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B3a` — SQLite migration ledger и baseline schema version 1; точный hash в Git history |
+| Последний completed checkpoint | `B3b` — media/feed/search schema execution group extraction; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1012 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1014 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
-| Source baseline | 115 файлов; последний startup `checked=116`, `available=115`, `missing=1`, `changed=0` |
+| Source baseline | 116 файлов; последний startup `checked=117`, `available=116`, `missing=1`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B2f run `29254828576` success (`1005 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B3a run `29258633264` success (`1012 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и четыре live snapshot готовы; свежий pre-B3a snapshot `20260713T142811.243312Z` проверен; schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 308 после B3a | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 238 после B3b | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -104,7 +104,7 @@
 | ID | Статус | Состояние |
 |---|---|---|
 | BE-01 | `ГОТОВО` | `app/config.py` владеет env/DB-path helpers, typed HTTP/provider/runtime/bot/media/storage policies и secret-free blocking production validation; compatibility exports удаляются только в B14 |
-| BE-02 | `ЧАСТИЧНО` | `database/connection.py`, `guard.py`, `schema.py`, `migrations.py` созданы; B3a добавил immutable ledger и schema version 1, но schema groups и repository layer ещё не завершены |
+| BE-02 | `ЧАСТИЧНО` | B3a добавил immutable ledger/version 1; B3b вынес media/feed/search execution group, но identity/billing groups и repository layer ещё не завершены |
 | BE-03 | `ЧАСТИЧНО` | Tokens/passwords/sessions/permissions/OTP/events вынесены; legacy auth removal и routers не завершены |
 | BE-04 | `ЧАСТИЧНО` | Storage paths/private/public/recovery/source graph/thumbnails/validation/cleanup вынесены; оставшиеся gallery/media orchestration blocks ещё в `main.py` |
 | BE-05 | `ГОТОВО` | Текущий ограниченный scope Ollama: URL, discovery и общий chat transport вынесены |
@@ -146,7 +146,7 @@
 
 | ID | Статус | Состояние |
 |---|---|---|
-| DATA-01 | `ЧАСТИЧНО` | SQLite остаётся единственной production DB; guard, immutable migration ledger/version 1 и additive migrations есть, schema groups и lock/busy telemetry ещё не завершены |
+| DATA-01 | `ЧАСТИЧНО` | SQLite остаётся единственной production DB; guard, immutable ledger/version 1 и первый idempotent schema group готовы, остальные groups и lock/busy telemetry ещё не завершены |
 | DATA-02 | `ЧАСТИЧНО` | Token ledger и refund logic существуют, но конкурентные/idempotency tests и формальная append-only policy не завершены |
 | DATA-03 | `НЕ НАЧАТО` | Repository boundary, необходимая для PostgreSQL migration, не завершена |
 | DATA-04 | `ОТЛОЖЕНО` | PostgreSQL migration выполняется отдельным проектом после database/service extraction |
@@ -190,7 +190,7 @@
 |---|---|
 | B1 | `ГОТОВО` — model aliases и request metadata вынесены; дальнейшее мелкое дробление этой integration boundary остановлено |
 | B2 | `ГОТОВО` — B2a HTTP security, B2b provider endpoints/timeouts, B2c runtime/bot modes, B2d media limits, B2e storage paths и B2f production validation готовы |
-| B3 | `ЧАСТИЧНО` — B3a ledger/version 1 готов; далее idempotent schema groups и billing/feed/auth migration tests отдельными пакетами |
+| B3 | `ЧАСТИЧНО` — B3a ledger/version 1 и B3b media/feed/search group готовы; далее identity/billing groups и migration tests отдельными пакетами |
 | B4 | Выделить Telegram client и затем handlers/service |
 | B5 | Выделить MAX client и затем handlers/service |
 | B6 | Выделить ComfyUI HTTP client, workflow builders и result adapter отдельными пакетами |
@@ -259,9 +259,10 @@
 9. `A7` — `ГОТОВО`: host allowlist и proxy-origin checks.
 10. `B2` — `ГОТОВО`: typed config extraction и blocking production validation.
 11. `B3a` — `ГОТОВО`: migration ledger, immutable checksum и baseline schema version 1.
-12. `B3b+` — **СЛЕДУЮЩИЕ ПАКЕТЫ**: idempotent schema groups и auth/feed/billing migration tests.
-13. `B4`/`B5` — Telegram и MAX integrations.
-14. `B6` — ComfyUI decomposition.
+12. `B3b` — `ГОТОВО`: media/feed/search idempotent schema execution group.
+13. `B3c+` — **СЛЕДУЮЩИЕ ПАКЕТЫ**: identity/billing schema groups и migration tests.
+14. `B4`/`B5` — Telegram и MAX integrations.
+15. `B6` — ComfyUI decomposition.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -942,6 +943,61 @@ Exact-head CI после B2f:
 - health/DB Guard `ok`, local health/models/feed и frontend root/version HTTP 200,
   private gallery HTTP 401; MAX остался в polling, `/me` и polling 200 без ошибки;
 - secrets, provider modes, paid generation, VPS и tunnel не изменялись.
+
+Exact-head CI после B3a:
+
+- GitHub Actions run `29258633264` на SHA `a2f337f` завершён успешно за 16 мин 06 с;
+- `1012 passed, 72 warnings` за 842,50 с; lint `0 errors / 1 existing warning`;
+- production build 1,38 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 889,84 с.
+
+### Checkpoint B3b — media/feed/search schema execution group
+
+Реализовано и развёрнуто 2026-07-13:
+
+- новый import-safe `app/database/schema_groups.py` владеет одним идемпотентным
+  execution group: additive feed media columns, feed/gallery indexes,
+  `deleted_at` normalization, image FTS schema/backfill, image-source и job indexes;
+- 67-строчный inline SQL-блок в `main.init_db()` заменён одним вызовом
+  `initialize_media_schema_group(conn)` строго в прежнем месте — после identity
+  schema/session column и до challenge seed/identity backfill;
+- SQL declarations, порядок statements и `executescript()` boundary не изменены;
+  три больше не используемых imports удалены из `main.py`, а публичные database
+  exports сохранены;
+- `main.py` физически уменьшен с 15 308 до 15 238 строк; новый модуль не
+  импортирует FastAPI, application globals, filesystem, network или secrets;
+- schema version не повышалась: B3b — механическая декомпозиция уже применённой
+  baseline schema version 1, а не новая data migration.
+
+Доказательства:
+
+- characterization до переноса на старом inline-коде подтвердил все 12 indexes,
+  FTS backfill уже существующей image row, `deleted_at='' → NULL` и повторный
+  `init_db()` без дублей; тот же тест зелёный после переноса;
+- прямой unit-contract применяет group дважды без runtime wiring и проверяет feed,
+  image-source, image и FTS contracts; весь database module: `19 passed`;
+- focused database/DB Guard/API/lifecycle/feed/gallery/source-graph suite:
+  `147 passed, 2 warnings` пять последовательных циклов по 130–133 с;
+- локальный Full: `1014 passed, 72 warnings` за 280,73 с; frontend lint
+  `0 errors / 1 existing warning`, build успешен за 0,505 с, origin
+  `200/200/403/403`;
+- verifier: 123 Python-файла, source стабилен — 116 файлов / 1 576 580 байт /
+  `2D5E93221F75C4A01960EB43E9CCBEDBE94D8985D9B31A2B32CC77D397D1328B`,
+  итоговый Full 304,75 с;
+- pre/post restart affected schema fingerprint полностью совпал: 16 objects,
+  SHA-256 `9d96dd2071ebaa776fe94defbc7174547dffa9d72a88fc39a409dab41c3e6ed6`;
+  SQLite `quick_check=ok`, `user_version=1`, ledger rows `1`, images/search rows
+  `962/962`, empty `deleted_at=0`;
+- непосредственно до/после restart без изменений: feed publications `69`, image
+  sources `124`, jobs `681`, token ledger `1376`; отдельный новый backup не нужен,
+  потому что SQL/data behavior не менялись, а проверенный pre-B3a snapshot сохранён;
+- deploy штатным launcher: backend PID 53684, frontend PID 35400, по одному
+  loopback listener; startup source `checked=117 / available=116 / missing=1 /
+  changed=0`;
+- health/DB Guard, models, feed, frontend root/version HTTP 200, private gallery
+  HTTP 401; MAX остался в polling, `/me` и poll 200 без ошибки;
+- secrets, provider modes, paid generation, production data, VPS и tunnel не
+  изменялись.
 
 ## 9. Обязательный gate каждого пакета
 
