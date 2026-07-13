@@ -186,6 +186,7 @@ try:
         TelegramUpdateRuntime,
         comfyui_results,
         comfyui_workflows,
+        generation_jobs,
         generation_recovery,
         extract_max_command,
         handle_max_update_with_runtime,
@@ -210,6 +211,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         TelegramUpdateRuntime,
         comfyui_results,
         comfyui_workflows,
+        generation_jobs,
         generation_recovery,
         extract_max_command,
         handle_max_update_with_runtime,
@@ -3766,94 +3768,34 @@ def reconcile_stale_generation_state() -> dict[str, int]:
 
 
 def job_response_from_row(row: sqlite3.Row, image_row: sqlite3.Row | None = None) -> dict[str, Any]:
-    settings = safe_json_load(row["settings_json"]) or {}
-    result_url = _row_get(image_row, "url") or settings.get("resultUrl")
-    thumb_url = _row_get(image_row, "thumbnail_url")
-    response: dict[str, Any] = {
-        "id": row["id"],
-        "userId": row["user_id"],
-        "mode": row["mode"],
-        "provider": row["provider"],
-        "status": row["status"],
-        "progress": row["progress"],
-        "message": row["error_message"] or ("Готово" if row["status"] == "completed" else row["status"]),
-        "resultImageId": row["result_image_id"],
-        "resultUrl": result_url,
-        "thumbnailUrl": thumb_url,
-        "width": _row_get(image_row, "width") or settings.get("width"),
-        "height": _row_get(image_row, "height") or settings.get("height"),
-        "createdAt": row["created_at"],
-        "completedAt": row["completed_at"],
-        "tokenCost": settings.get("tokenCost"),
-        "openrouterBilling": settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else None,
-    }
-    if row["error_message"]:
-        response["error"] = row["error_message"]
-    if image_row is not None:
-        image_settings = safe_json_load(_row_get(image_row, "settings_json")) or {}
-        response.update({
-            "width": _row_get(image_row, "width"),
-            "height": _row_get(image_row, "height"),
-            "modelProfile": _user_model_name(image_settings.get("modelProfile") or settings.get("modelProfile") or row["provider"]),
-            "generationTimeMs": image_settings.get("generationTimeMs"),
-        })
-    return response
+    return generation_jobs.job_response_from_row(row, image_row, model_display_name=_user_model_name)
 
 
 def get_persisted_job_response(job_id: str, user_id: str) -> dict[str, Any] | None:
     with db() as conn:
-        row = conn.execute("SELECT * FROM jobs WHERE id = ? AND user_id = ?", (job_id, user_id)).fetchone()
-        if row is None:
-            return None
-        image_row = None
-        if row["result_image_id"]:
-            image_row = conn.execute(
-                f"SELECT * FROM images WHERE id = ? AND user_id = ? AND {ACTIVE_IMAGE_WHERE}",
-                (row["result_image_id"], user_id),
-            ).fetchone()
-        if image_row is None:
-            image_row = conn.execute(
-                f"SELECT * FROM images WHERE job_id = ? AND user_id = ? AND {ACTIVE_IMAGE_WHERE} ORDER BY created_at DESC LIMIT 1",
-                (job_id, user_id),
-            ).fetchone()
-        return job_response_from_row(row, image_row)
+        return generation_jobs.get_persisted_job_response(
+            conn,
+            job_id,
+            user_id,
+            model_display_name=_user_model_name,
+        )
 
 
 def persist_job(job: dict[str, Any], request: GenerateRequest | None = None, conn: sqlite3.Connection | None = None) -> None:
-    settings = request.model_dump() if request else job.get("request", {})
-    for key in ("tokenCost", "resultUrl", "width", "height", "gallerySaveStatus", "galleryQuota", "openrouterRequest", "openrouterModel", "openrouterResponseId", "openrouterUsage", "openrouterCostUsd", "openrouterBilling", "tokenAdjustment"):
-        if key in job:
-            settings[key] = job.get(key)
+    request_data = request.model_dump() if request else job.get("request", {})
+    request_mode = request.mode if request else ""
+    request_provider = request.provider if request else ""
+    request_prompt = request.prompt if request else request_data.get("prompt", "")
+
     def write(target_conn: sqlite3.Connection) -> None:
-        target_conn.execute(
-            """
-            INSERT INTO jobs (id, user_id, mode, provider, status, progress, prompt_original, prompt_translated,
-                              result_image_id, error_message, settings_json, created_at, started_at, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                status=excluded.status,
-                progress=excluded.progress,
-                result_image_id=excluded.result_image_id,
-                error_message=excluded.error_message,
-                settings_json=excluded.settings_json,
-                completed_at=excluded.completed_at
-            """,
-            (
-                job["id"],
-                job.get("userId", "demo_user"),
-                job.get("mode", request.mode if request else ""),
-                job.get("provider", request.provider if request else ""),
-                job.get("status", "queued"),
-                int(job.get("progress", 0)),
-                (request.prompt if request else settings.get("prompt", "")) or "",
-                "",
-                job.get("resultImageId"),
-                job.get("error"),
-                json.dumps(settings, ensure_ascii=False),
-                job.get("createdAt") or datetime.now(timezone.utc).isoformat(),
-                job.get("startedAt"),
-                job.get("completedAt"),
-            ),
+        generation_jobs.persist_job(
+            target_conn,
+            job,
+            request_data=request_data,
+            request_mode=request_mode,
+            request_provider=request_provider,
+            request_prompt=request_prompt,
+            now_iso=datetime.now(timezone.utc).isoformat(),
         )
     if conn is not None:
         write(conn)

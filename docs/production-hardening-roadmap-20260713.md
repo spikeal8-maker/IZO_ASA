@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B7a` — startup reconciliation orphaned generation jobs; следующий пакет B7b |
+| Последний completed checkpoint | `B7b` — generation job persistence/response boundary; следующий пакет B7c |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1116 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1124 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 115 файлов; последний startup `checked=116`, `available=115`, `missing=1`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B6c run `29286748620` success (`1108 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B7a run `29289893003` success (`1116 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и пять live snapshot готовы; pre-B7a snapshot `20260713T221737.032822Z` verify/rehearsal успешен; schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 14 712 после B7a | entrypoint/application wiring; B7a добавил startup wiring, сокращение worker/job blocks продолжается в B7b+ |
+| `backend/main.py` | 14 654 после B7b | entrypoint/application wiring; generation worker/queue/result builders остаются B7c+ |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -112,7 +112,7 @@
 | BE-07 | `ГОТОВО` | B4a client/errors/file URL/health и B4b parsing/update handlers service выделены; routes/polling lifecycle остаются общим B12/B13 scope |
 | BE-08 | `ГОТОВО` | B5a client/errors/health и B5b parsing/update handlers service выделены; routes/polling/subscription lifecycle остаются B12/B13 scope |
 | BE-09 | `ГОТОВО` | B6a HTTP client, B6b pure workflow builders и B6c result/media adapter выделены; generation/job/gallery orchestration остаётся B7/B8 |
-| BE-10 | `ЧАСТИЧНО` | B7a transactional startup reconciliation готов; generation worker/queue/job persistence ещё остаются B7b+, gallery/feed/account/billing — B8-B11 |
+| BE-10 | `ЧАСТИЧНО` | B7a startup reconciliation и B7b job persistence/response готовы; generation worker/queue/result builders остаются B7c+, gallery/feed/account/billing — B8-B11 |
 | BE-11 | `НЕ НАЧАТО` | FastAPI routers не разделены по областям |
 | BE-12 | `НЕ НАЧАТО` | Application factory/lifecycle не созданы; `main.py` остаётся ASGI-монолитом |
 
@@ -135,7 +135,7 @@
 | OPS-01 | `ГОТОВО` | `start-public.bat` блокирует deploy при ошибке `tsc -b` или Vite build |
 | OPS-02 | `ЧАСТИЧНО` | Launcher проверяет DB/health/smoke, но release build не атомарный и build label не равен Git commit автоматически |
 | OPS-03 | `НЕ НАЧАТО` | Vite Preview не заменён на Caddy |
-| OPS-04 | `НЕ НАЧАТО` | Backend/Caddy/ComfyUI/Ollama не оформлены как Windows Services с restart-on-failure; два backend PID уже исчезали без traceback/graceful shutdown, что подтверждает срочность supervisor |
+| OPS-04 | `НЕ НАЧАТО` | Backend/Caddy/ComfyUI/Ollama не оформлены как надёжные managed services: два backend PID исчезали без traceback; ComfyUI boot task имеет restart count 0/nonzero last result, а во время B7b процесс был недоступен и менял PID через параллельный launcher |
 | OPS-05 | `ЧАСТИЧНО` | SQLite Backup API + incremental media работают на отдельный физический `I:`; пять live snapshot проверены, но регулярный schedule/retention ещё не настроены |
 | OPS-06 | `ЧАСТИЧНО` | SHA-256, manifest checksum, SQLite `quick_check` и restore rehearsal готовы; encrypted offsite copy ещё не выбрана |
 | OPS-07 | `ЧАСТИЧНО` | Есть health/logs и ручной storage audit, но нет единого monitoring/alerting контура |
@@ -194,7 +194,7 @@
 | B4 | `ГОТОВО` — B4a client/errors/health и B4b injected update handlers service выделены без смены polling/webhook semantics |
 | B5 | `ГОТОВО` — B5a client/errors/health и B5b injected update handlers service выделены без смены polling/webhook semantics |
 | B6 | `ГОТОВО` — B6a HTTP client, B6b workflow builders и B6c result/media adapter выделены |
-| B7 | `ЧАСТИЧНО` — B7a startup reconciliation stale `queued/running/uploading/sent_*` строк готов; generation worker/queue/job persistence остаются B7b+ |
+| B7 | `ЧАСТИЧНО` — B7a startup reconciliation и B7b job persistence/response готовы; generation worker/queue/result builders остаются B7c+ |
 | B8 | Выделить gallery/source lifecycle service |
 | B9 | Выделить feed/publication/reaction/moderation service |
 | B10 | Выделить account/auth service и удалить подтверждённо неиспользуемые legacy authorization consumers |
@@ -270,7 +270,8 @@
 20. `B6b` — `ГОТОВО`: ComfyUI workflow endpoint policy и pure graph builders.
 21. `B6c` — `ГОТОВО`: ComfyUI result/media adapter; B6 закрыт.
 22. `B7a` — `ГОТОВО`: transactional startup reconciliation orphaned generation jobs и idempotent refund.
-23. `B7b` — **СЛЕДУЮЩИЙ ПАКЕТ**: generation job persistence/response boundary без переноса worker orchestration.
+23. `B7b` — `ГОТОВО`: generation job persistence/response boundary без переноса worker orchestration.
+24. `B7c` — **СЛЕДУЮЩИЙ ПАКЕТ**: pure generation result/job-state builders перед переносом worker orchestration.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -1609,6 +1610,69 @@ Exact CI после B6c:
 - pytest-процессов после gate 0; schema migration, secrets, paid generation, VPS и
   tunnel не изменялись. Единственная production DB mutation является заявленным и
   проверенным исправлением orphaned job/refund поверх pre-deploy backup.
+
+Exact CI после B7a:
+
+- GitHub Actions run `29289893003`, job `86950921063`, на SHA `4986667`
+  завершён успешно за 12 мин 28 с;
+- `1116 passed, 72 warnings` за 647,20 с; lint `0 errors / 1 existing warning`;
+- production build 0,984 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 683,92 с.
+
+### Checkpoint B7b — generation job persistence/response boundary
+
+Реализовано и развёрнуто 2026-07-14:
+
+- новый import-safe `app/services/generation_jobs.py` владеет legacy-compatible
+  UPSERT строки job, owner-scoped persisted job/image lookup и преобразованием
+  SQLite row в API response;
+- точные прежние правила сохранены: active image только при `deleted_at IS NULL`,
+  сначала `result_image_id`, затем latest active image того же job/owner; чужой owner
+  получает `None`, deleted result не используется;
+- response сохраняет fallback result URL/size из settings, image overrides,
+  `Готово`/error message, dict-only OpenRouter billing, display-name adapter и
+  generation time из image settings;
+- UPSERT сохраняет прежний whitelist settings и намеренно обновляет только
+  status/progress/result/error/settings/completed_at. Owner/mode/provider/prompt/
+  created_at/started_at при conflict остаются исходными; этот неочевидный contract
+  зафиксирован до переноса;
+- service получает structural connection и model-display callback, не импортирует
+  `main`, FastAPI, Pydantic, HTTPX или environment. Pydantic `model_dump`, connection
+  ownership и прежние function names остаются тонкими wrappers в `main.py`;
+- worker, in-memory queue, provider calls, billing и gallery/result orchestration не
+  переносились. `main.py` уменьшен с 14 712 до 14 654 строк (−58); service имеет
+  165 строк, characterization tests — 163, direct tests — 199; generated map остаётся
+  `597 symbols / 166 routes` из-за compatibility wrappers.
+
+Доказательства:
+
+- characterization старых функций до extraction: `3 passed`; после extraction
+  direct + characterization contracts: `8 passed`;
+- расширенный job/recovery/generation/ownership/billing/OpenRouter/API suite:
+  `138 passed, 42 warnings` пять последовательных циклов за
+  `70,85 / 67,77 / 69,89 / 66,88 / 66,29` с;
+- локальный Full: `1124 passed, 72 warnings` за 290,06 с; lint
+  `0 errors / 1 existing warning`, production build 2,12 с, origin
+  `200/200/403/403`, итоговый `VERIFY_OK` за 325,63 с; 146 Python-файлов;
+- source-media snapshot стабилен: 115 файлов / 1 534 310 байт / SHA-256
+  `D5C642413D984AD5E4232FE8B650B9C9F6BE18D283D673010134B57E37F41D6F`;
+- pre-restart SQLite active jobs — 0; controlled backend-only restart PID
+  `484 → 46320`, один loopback listener, proxy headers disabled, DB Guard ready;
+- live HTTP smoke 5/5: health/models/Flux config/bgremoval/feed/bots/frontend `200`,
+  private media `401`, Telegram webhook `404`; real read-only latest completed job
+  mapping дал `completed/progress=100`, result URL present, 18 response fields без
+  вывода owner/prompt/URL;
+- перед deploy отдельно обнаружено отсутствие ComfyUI listener. Параллельная локальная
+  ComfyUI-работа запустила PID 16932, затем заменила его PID 54544. Мой запоздавший
+  диагностический duplicate PID 17668 безопасно отказался на уже занятой DB/8188 и
+  завершился; рабочий процесс не останавливался;
+- фактический boot task называется `ComfyUI-AutoStart`, запускает текущий portable
+  `run_nvidia_gpu.bat`, но имеет `RestartCount=0`, last result `3221225786` и не был
+  источником наблюдавшегося restart. Это усиливает, а не закрывает OPS-04;
+- финальный monitor после параллельного restart: backend PID 46320 и ComfyUI PID
+  54544 стабильны 6/6 samples за 61 секунду, health/queue `200/200`, queue пуста;
+- schema/data migration, backup, secrets, paid generation, VPS и tunnel пакетом B7b
+  не изменялись; tests/live smoke не записывали production jobs/media.
 
 ## 9. Обязательный gate каждого пакета
 
