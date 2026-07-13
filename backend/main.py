@@ -144,20 +144,22 @@ except ImportError:  # Direct `python backend/main.py` execution.
 try:
     from .app.database import (
         BASE_SCHEMA_SQL,
-        IDENTITY_SCHEMA_SQL,
         DbGuardError,
         IMAGE_ADDITIVE_COLUMNS,
         LEGACY_BASELINE_MIGRATION,
         USER_EARLY_ADDITIVE_COLUMNS,
         add_missing_columns,
+        backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
         ensure_migration_ledger,
         finalize_legacy_schema_baseline,
+        finalize_identity_schema_group,
         initialize_media_schema_group,
         mask_database_path,
         open_sqlite,
         parse_allowed_database_paths,
+        prepare_identity_schema_group,
         preflight_sqlite_database,
         safe_guard_payload,
     )
@@ -165,20 +167,22 @@ try:
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.database import (
         BASE_SCHEMA_SQL,
-        IDENTITY_SCHEMA_SQL,
         DbGuardError,
         IMAGE_ADDITIVE_COLUMNS,
         LEGACY_BASELINE_MIGRATION,
         USER_EARLY_ADDITIVE_COLUMNS,
         add_missing_columns,
+        backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
         ensure_migration_ledger,
         finalize_legacy_schema_baseline,
+        finalize_identity_schema_group,
         initialize_media_schema_group,
         mask_database_path,
         open_sqlite,
         parse_allowed_database_paths,
+        prepare_identity_schema_group,
         preflight_sqlite_database,
         safe_guard_payload,
     )
@@ -1429,29 +1433,7 @@ def init_db() -> None:
                 (preset_id, name_ru, name_en, mode, now, now),
             )
 
-        # --- Identity Core: additive-only schema (Phase 3) ---------------------
-        # Does NOT change auth behaviour. Adds canonical identity scaffolding
-        # alongside the legacy provider-based users.id, plus idempotent backfill.
-        add_missing_columns(conn, "users", {"internal_user_id": "TEXT"})
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO users (
-                id, username, first_name, display_name, language, role, plan,
-                token_balance, gallery_enabled, internal_user_id, created_at, last_login_at
-            )
-            VALUES (
-                'seed_editorial', 'seed_editorial', 'Выбор редакции', 'Выбор редакции',
-                'ru', 'user', 'mini', 0, 0, 'seed_editorial', ?, ?
-            )
-            """,
-            (now, now),
-        )
-
-        conn.executescript(IDENTITY_SCHEMA_SQL)
-
-        # Phase 4.1: refresh tokens get their own lifetime, tracked separately from
-        # the access/session expires_at. Additive, safe ALTER for existing DBs.
-        add_missing_columns(conn, "auth_sessions", {"refresh_expires_at": "TEXT"})
+        prepare_identity_schema_group(conn, now=now)
 
         initialize_media_schema_group(conn)
         conn.execute(
@@ -1476,24 +1458,11 @@ def init_db() -> None:
             ),
         )
 
-        backfill_identity_core(conn, now)
-
-        # Canonical-identity uniqueness, created AFTER backfill so it validates
-        # the populated values. Partial index keeps NULLs allowed during rollout.
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_internal_user_id "
-            "ON users(internal_user_id) WHERE internal_user_id IS NOT NULL"
+        finalize_identity_schema_group(
+            conn,
+            now=now,
+            ensure_public_user_code=ensure_public_user_code,
         )
-
-        # Phase 18: human-readable public_user_code (stable, unique, not an auth key).
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_public_user_code "
-            "ON users(public_user_code) WHERE public_user_code IS NOT NULL"
-        )
-        for row in conn.execute(
-            "SELECT internal_user_id FROM users WHERE public_user_code IS NULL AND internal_user_id IS NOT NULL"
-        ).fetchall():
-            ensure_public_user_code(conn, row["internal_user_id"])
         finalize_legacy_schema_baseline(conn, applied_at=now)
 
 
@@ -1561,57 +1530,6 @@ def resolve_display_name(urow: sqlite3.Row | None, identity: sqlite3.Row | None 
     if code:
         return str(code)
     return "Пользователь"
-
-
-def backfill_identity_core(conn: sqlite3.Connection, now: str) -> None:
-    """Idempotent, additive backfill for Identity Core.
-
-    1. Assign a canonical internal_user_id (uuid4 hex) to every user missing one.
-       Never touches users.id.
-    2. Backfill auth_identities from legacy users.telegram_id / users.max_id, only
-       when those columns exist and hold a non-empty value. INSERT OR IGNORE plus
-       UNIQUE(provider, provider_user_id) guarantee no duplicates on re-runs.
-
-    Does NOT guess web/email identities from legacy/unverified data.
-    Raises RuntimeError if duplicate provider ids are detected, rather than
-    silently merging distinct users.
-    """
-    # 1. internal_user_id for users that don't have one yet (id is never updated).
-    for row in conn.execute("SELECT id FROM users WHERE internal_user_id IS NULL").fetchall():
-        conn.execute(
-            "UPDATE users SET internal_user_id = ? WHERE id = ? AND internal_user_id IS NULL",
-            (uuid.uuid4().hex, row["id"]),
-        )
-
-    user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
-
-    # 2. auth_identities backfill from each legacy provider column.
-    for provider, column in (("telegram", "telegram_id"), ("max", "max_id")):
-        if column not in user_columns:
-            continue
-        duplicates = conn.execute(
-            f"SELECT {column} AS pid, COUNT(*) AS c FROM users "
-            f"WHERE {column} IS NOT NULL AND {column} <> '' "
-            f"GROUP BY {column} HAVING c > 1"
-        ).fetchall()
-        if duplicates:
-            raise RuntimeError(
-                f"Duplicate {column} values detected across distinct users "
-                f"({[d['pid'] for d in duplicates]}); refusing to backfill "
-                f"auth_identities to avoid silently merging users."
-            )
-        for row in conn.execute(
-            f"SELECT id, internal_user_id, {column} AS pid FROM users "
-            f"WHERE {column} IS NOT NULL AND {column} <> ''"
-        ).fetchall():
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO auth_identities
-                    (id, internal_user_id, legacy_user_id, provider, provider_user_id, linked_at, verified_at)
-                VALUES (?, ?, ?, ?, ?, ?, NULL)
-                """,
-                (uuid.uuid4().hex, row["internal_user_id"], row["id"], provider, str(row["pid"]), now),
-            )
 
 
 # ---------------------------------------------------------------------------

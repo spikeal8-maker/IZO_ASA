@@ -30,14 +30,22 @@ from .migrations import (
     table_columns,
 )
 from .schema import BASE_SCHEMA_SQL, IDENTITY_SCHEMA_SQL, IMAGE_SEARCH_SCHEMA_SQL
-from .schema_groups import initialize_media_schema_group
+from .schema_groups import (
+    backfill_identity_core,
+    finalize_identity_schema_group,
+    initialize_media_schema_group,
+    prepare_identity_schema_group,
+)
 
 __all__ = [
     "DbGuardError",
     "BASE_SCHEMA_SQL",
     "IDENTITY_SCHEMA_SQL",
     "IMAGE_SEARCH_SCHEMA_SQL",
+    "backfill_identity_core",
+    "finalize_identity_schema_group",
     "initialize_media_schema_group",
+    "prepare_identity_schema_group",
     "LEGACY_BASELINE_MIGRATION",
     "MIGRATION_LEDGER_SQL",
     "MigrationDefinition",

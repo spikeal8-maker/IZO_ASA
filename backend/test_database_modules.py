@@ -15,6 +15,7 @@ from app.database import (
     IMAGE_SEARCH_SCHEMA_SQL,
     LEGACY_BASELINE_MIGRATION,
     MigrationDefinition,
+    USER_EARLY_ADDITIVE_COLUMNS,
     DbGuardError,
     add_missing_columns,
     collect_sqlite_guard_status,
@@ -23,7 +24,9 @@ from app.database import (
     preflight_sqlite_database,
     ensure_migration_ledger,
     finalize_legacy_schema_baseline,
+    finalize_identity_schema_group,
     initialize_media_schema_group,
+    prepare_identity_schema_group,
     record_applied_migration,
     safe_guard_payload,
     sqlite_user_version,
@@ -300,6 +303,75 @@ def test_media_schema_group_is_import_safe_and_idempotent(tmp_path):
     assert len(rows) == 1
     assert "белая башня" in rows[0]["search_text"]
     assert "white tower" in rows[0]["search_text"]
+
+
+def test_identity_schema_group_is_import_safe_and_idempotent(tmp_path):
+    path = tmp_path / "identity-schema-unit.sqlite3"
+    now = "2026-07-13T00:00:00+00:00"
+    with open_sqlite(path) as conn:
+        conn.executescript(BASE_SCHEMA_SQL)
+        add_missing_columns(conn, "users", USER_EARLY_ADDITIVE_COLUMNS)
+
+        prepare_identity_schema_group(conn, now=now)
+        prepare_identity_schema_group(conn, now="later-value")
+        conn.execute(
+            """
+            INSERT INTO users (
+                id, telegram_id, username, first_name, language, role,
+                created_at, last_login_at, internal_user_id
+            ) VALUES (
+                'telegram_unit', '4242', 'unit', 'Unit', 'ru', 'user', ?, ?, NULL
+            )
+            """,
+            (now, now),
+        )
+
+        assigned_codes: dict[str, str] = {}
+
+        def assign_public_code(db_conn: sqlite3.Connection, internal_user_id: str) -> str:
+            code = assigned_codes.setdefault(internal_user_id, f"TEST-{len(assigned_codes) + 1:06d}")
+            db_conn.execute(
+                "UPDATE users SET public_user_code = ? "
+                "WHERE internal_user_id = ? AND public_user_code IS NULL",
+                (code, internal_user_id),
+            )
+            return code
+
+        finalize_identity_schema_group(
+            conn,
+            now=now,
+            ensure_public_user_code=assign_public_code,
+        )
+        finalize_identity_schema_group(
+            conn,
+            now="later-value",
+            ensure_public_user_code=assign_public_code,
+        )
+
+        user = conn.execute(
+            "SELECT internal_user_id, public_user_code FROM users WHERE id = 'telegram_unit'"
+        ).fetchone()
+        identity_count = conn.execute(
+            "SELECT COUNT(*) FROM auth_identities "
+            "WHERE provider = 'telegram' AND provider_user_id = '4242'"
+        ).fetchone()[0]
+        refresh_column = "refresh_expires_at" in table_columns(conn, "auth_sessions")
+        indexes = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            ).fetchall()
+        }
+        editorial_count = conn.execute(
+            "SELECT COUNT(*) FROM users WHERE id = 'seed_editorial'"
+        ).fetchone()[0]
+
+    assert user["internal_user_id"]
+    assert user["public_user_code"].startswith("TEST-")
+    assert identity_count == 1
+    assert refresh_column is True
+    assert editorial_count == 1
+    assert {"ux_users_internal_user_id", "ux_users_public_user_code"} <= indexes
 
 
 def test_migration_ledger_creation_is_empty_and_does_not_advance_version(tmp_path):
