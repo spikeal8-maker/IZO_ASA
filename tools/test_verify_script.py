@@ -93,3 +93,4 @@ def test_verify_script_defaults_to_full_mode() -> None:
     assert '[string]$Mode = "Full"' in source
     assert '$fullTests = @("-m", "pytest", "-q", "backend", "tools")' in source
     assert '$usesLiveChecks = $Mode -ne "CI"' in source
+    assert '"tools/test_backup_restore.py"' in source

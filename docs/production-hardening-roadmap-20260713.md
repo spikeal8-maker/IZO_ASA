@@ -39,10 +39,10 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний runtime checkpoint | `A5` — OpenRouter CurrentUser DPAPI secret migration; точный hash в Git history |
+| Последний completed checkpoint | `A6` — SQLite Backup API + incremental media + verified restore rehearsal; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 945 passed, 0 failed, 0 deselected |
+| Последний полный test checkpoint | 958 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
@@ -51,7 +51,7 @@
 | CI | отсутствует |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
-| Backup | регулярный согласованный backup не реализован |
+| Backup | A6 tooling и три live snapshot готовы; автоматический schedule/retention ещё не включены |
 
 ## 4. Реальные размеры крупных файлов
 
@@ -136,8 +136,8 @@
 | OPS-02 | `ЧАСТИЧНО` | Launcher проверяет DB/health/smoke, но release build не атомарный и build label не равен Git commit автоматически |
 | OPS-03 | `НЕ НАЧАТО` | Vite Preview не заменён на Caddy |
 | OPS-04 | `НЕ НАЧАТО` | Backend/Caddy/ComfyUI/Ollama не оформлены как Windows Services с restart-on-failure |
-| OPS-05 | `НЕ НАЧАТО` | Нет регулярного SQLite Backup API + incremental media backup на другом физическом диске |
-| OPS-06 | `НЕ НАЧАТО` | Нет encrypted offsite copy, checksum/quick_check pipeline и регулярного restore test |
+| OPS-05 | `ЧАСТИЧНО` | SQLite Backup API + incremental media работают на отдельный физический `I:`; три live snapshot проверены, но регулярный schedule/retention ещё не настроены |
+| OPS-06 | `ЧАСТИЧНО` | SHA-256, manifest checksum, SQLite `quick_check` и restore rehearsal готовы; encrypted offsite copy ещё не выбрана |
 | OPS-07 | `ЧАСТИЧНО` | Есть health/logs и ручной storage audit, но нет единого monitoring/alerting контура |
 | OPS-08 | `ГОТОВО` | Внешний VPS/tunnel исключён из оптимизационных изменений |
 | OPS-09 | `ГОТОВО` | MAX переведён на `platform-api2.max.ru`; HTTPX использует native system trust store, polling и `/me` live smoke успешны |
@@ -179,7 +179,7 @@
 | A4 | P0 | `ГОТОВО` — MAX secret: запрещён пустой secret в webhook mode, constant-time comparison, body/mode/negative tests |
 | A4b | P0 | `ГОТОВО` — MAX API2/system trust-store migration, sanitized probe, polling + `/me` live smoke и rollback contract |
 | A5 | P0 | `ГОТОВО` — OpenRouter external CurrentUser DPAPI store, verified SQLite migration/delete, admin configured/source contract и rotation/runbook |
-| A6 | P0 | Backup tooling: SQLite Backup API, media manifest/incremental copy, second-disk destination через внешнюю config, `quick_check`, checksum и restore rehearsal |
+| A6 | P0 | `ГОТОВО` — SQLite Backup API, SHA-256 media object store/manifest, внешний second-disk config, `quick_check`, verify и restore rehearsal; schedule/retention остаются отдельным operations-пакетом |
 | A7 | P1 | Точный Vite host allowlist и automated loopback/proxy-header isolation check |
 
 ### Волна B — завершить backend-декомпозицию
@@ -254,8 +254,8 @@
 4. `A4` — `ГОТОВО`: MAX webhook secret/body/mode enforcement.
 5. `A4b` — `ГОТОВО`: MAX API2/system trust-store migration.
 6. `A5` — `ГОТОВО`: OpenRouter DPAPI secret store и удаление plaintext SQLite secret.
-7. `A6` — **СЛЕДУЮЩИЙ ПАКЕТ**: backup/restore tooling без автоматического schedule на первом PR.
-8. `A2` — GitHub Actions CI поверх стабильной verify command.
+7. `A6` — `ГОТОВО`: backup/restore tooling и live rehearsal без автоматического schedule.
+8. `A2` — **СЛЕДУЮЩИЙ ПАКЕТ**: GitHub Actions CI поверх стабильной verify command.
 9. `A7` — host allowlist и proxy-origin checks.
 10. `B2` — завершение config extraction.
 11. `B3` — migration ledger/schema groups.
@@ -412,6 +412,60 @@
 - live smoke 5/5: health/database/models/tariffs/feed HTTP 200, MAX polling 200, private source HTTP 401; paid OpenRouter generation не запускалась;
 - первый live migration command завершился до plan/apply из-за неверного working directory, ничего не изменив; повтор с абсолютным root прошёл успешно;
 - VPS, tunnel, Telegram/MAX secrets и OpenRouter provider key value не изменялись и не выводились.
+
+### Checkpoint A6 — согласованный backup и проверяемый restore
+
+Реализовано 2026-07-13:
+
+- `app/storage/backup.py` создаёт SQLite snapshot только через
+  `sqlite3.Connection.backup()`, затем выполняет `PRAGMA quick_check` и SHA-256;
+- media сохраняются в content-addressed `media-objects`; manifest содержит только
+  безопасные относительные пути, размеры и SHA-256, одинаковые данные не дублируются;
+- изменившийся во время чтения media-файл повторяется до трёх раз, symlink и path
+  traversal/drive path в source или подменённом manifest запрещены;
+- snapshot считается завершённым только после финального `COMPLETED`; новый marker
+  содержит SHA-256 manifest, два ранних live snapshot остаются verify-compatible;
+- `tools/backup_production.py` использует внешний config и по умолчанию запрещает
+  backup на тот же drive letter, где находятся DB/media;
+- `tools/restore_backup.py` имеет `--verify-only`, временный `--rehearse` и restore
+  только в новый пустой каталог; live DB/media автоматически не заменяются;
+- `.env`, DPAPI secret, Git repository, ComfyUI/Ollama и модели намеренно не
+  включены; границы восстановления описаны в `backup-restore-runbook-20260713.md`;
+- Quick verifier включает backup/restore contract suite. Автоматический schedule,
+  retention и encrypted offsite не смешивались с первым rollbackable tooling PR.
+
+Фактическая инфраструктура и live-доказательства:
+
+- production source: физический `D:` / `ST8000NM017B-2TJ103` SATA;
+- backup target: отдельный физический `I:` / `ST1000LM 035-1RK172` USB, свободно
+  после проверки около 849 ГБ;
+- внешний config создан в `%LOCALAPPDATA%\IZO_ASA\backup.json`, target
+  `I:\IZO_ASA_Backups`; config и backup не добавлены в Git;
+- read-only plan: DB 565 104 640 байт, media 2 394 файла / 215 152 173 байта;
+- первый snapshot `20260713T010621.501808Z`: 1 104 новых уникальных objects и
+  1 290 deduplicated reuse;
+- второй snapshot `20260713T010933.881891Z`: 0 новых / 2 394 reuse;
+- финальный checksum-marker snapshot `20260713T011450.444384Z`: 0 новых /
+  2 394 reuse; marker точно совпал с SHA-256 manifest;
+- для финального snapshot отдельно успешны `BACKUP_VERIFY_OK` и
+  `BACKUP_REHEARSAL_OK`, включая восстановленную БД/media и повторные checksums;
+- focused suite после финального тестового контракта: `18 passed` пять
+  последовательных прогонов;
+- единый `Full`: `958 passed, 72 warnings`; frontend lint `0 errors / 1 existing
+  warning`, frontend build успешен;
+- `py_compile` успешен для 119 Python-файлов, generated map check успешен;
+- source snapshot до/после: 122 файла, 1 706 364 байта, SHA-256
+  `AC1A00934150E28C74BC1C4F319AFF24C84324FF8842AE8EEACD44D34A977850`;
+- после backup/verify/rehearsal один listener PID 49032, health=true,
+  database.ready=true; restart не выполнялся, потому что ASGI runtime не изменён;
+- VPS, tunnel, live DB/media, `.env` и DPAPI document не изменялись.
+
+Открытые подпункты после A6:
+
+- OPS-05 остаётся `ЧАСТИЧНО`, пока отдельный пакет не включит schedule, age alert
+  и безопасный retention;
+- OPS-06 остаётся `ЧАСТИЧНО`, пока не появится зашифрованная offsite-копия и
+  отдельное хранение recovery key.
 
 ## 9. Обязательный gate каждого пакета
 

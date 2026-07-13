@@ -17,6 +17,8 @@ Start here when you or another agent joins the project:
 - `docs/identity-core-risks.md` — auth/security risks.
 - `docs/auth-cookie-local-production-guide-20260708.md` — trusted-cookie rule for local
   HTTP vs production HTTPS, including restart persistence checks.
+- `docs/backup-restore-runbook-20260713.md` — current SQLite Backup API,
+  incremental media backup, verification and safe restore procedure.
 - `docs/admin-panel-product-spec.md` — admin product direction.
 - `docs/new-ui-v2-plan.md` — new UI `/new` (working contract).
 - `docs/new-ui-v2-review.md` — current `/new` review state.
@@ -70,6 +72,22 @@ The repository has one non-mutating verification entrypoint:
 `Full` is the default mode. The verifier does not restart processes, delete files,
 or modify production DB/media. Runtime packages still require the separate
 controlled restart and live-smoke procedure documented in the production roadmap.
+
+## Backup
+
+Production data backup uses an external config and a different physical disk.
+It never file-copies the open SQLite database and never restores over live paths:
+
+```powershell
+python tools/backup_production.py --plan
+python tools/backup_production.py
+python tools/restore_backup.py --verify-only
+python tools/restore_backup.py --rehearse
+```
+
+See `docs/backup-restore-runbook-20260713.md` before changing the target,
+restoring data, or moving to a new computer. Git, `.env`, DPAPI secrets,
+ComfyUI/Ollama installations and model files are separate recovery inputs.
 
 ## Secrets
 
