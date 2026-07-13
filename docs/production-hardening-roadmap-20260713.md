@@ -474,7 +474,7 @@
 Реализовано 2026-07-13:
 
 - `.github/workflows/ci.yml` запускается на push/PR в `main` и вручную, имеет
-  только `contents: read`, concurrency cancellation и 20-minute job timeout;
+  только `contents: read`, concurrency cancellation и 30-minute job timeout;
 - official `checkout`, `setup-python` и `setup-node` закреплены полными release
   commit SHA; checkout не сохраняет Git credentials;
 - `.python-version=3.11.9`, `.node-version=24.14.1`, exact Python requirements и
@@ -998,6 +998,19 @@ Exact-head CI после B3a:
   HTTP 401; MAX остался в polling, `/me` и poll 200 без ошибки;
 - secrets, provider modes, paid generation, production data, VPS и tunnel не
   изменялись.
+
+CI timeout correction для B3b:
+
+- первый exact-head run `29261577261` на SHA `7d97cab` дошёл до `92%` pytest без
+  test failure, но GitHub принудительно отменил job по прежнему пределу `20m0s`;
+- это инфраструктурная отмена, не регрессия B3b: local Full/live gates остались
+  зелёными, runtime не перезапускался повторно;
+- workflow timeout увеличен до ограниченных 30 минут, что оставляет запас для
+  вариативности Windows runner, но продолжает останавливать зависший job;
+- новый contract сначала ожидаемо упал на старом YAML, затем весь
+  `tools/test_ci_workflow.py` дал `4 passed` пять последовательных циклов;
+- исправление фиксируется отдельным CI-only commit, после которого exact-head run
+  запускается с нуля.
 
 ## 9. Обязательный gate каждого пакета
 

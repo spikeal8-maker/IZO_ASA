@@ -17,7 +17,7 @@ def test_ci_workflow_uses_pinned_windows_toolchain_and_lockfiles() -> None:
     source = workflow_source()
 
     assert "runs-on: windows-latest" in source
-    assert "timeout-minutes: 20" in source
+    assert "timeout-minutes: 30" in source
     assert "python-version-file: .python-version" in source
     assert "node-version-file: .node-version" in source
     assert "cache-dependency-path: backend/requirements.txt" in source
