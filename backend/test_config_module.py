@@ -10,6 +10,7 @@ from backend.app.config import (
     load_bot_delivery_policy,
     load_http_security_policy,
     load_local_env,
+    load_media_processing_policy,
     load_provider_endpoint_policy,
     load_runtime_environment_policy,
     sqlite_path_from_database_url,
@@ -241,3 +242,77 @@ def test_bot_delivery_policy_preserves_legacy_fallback_order() -> None:
     assert explicit_empty.telegram_updates_mode == "disabled"
     assert explicit_empty.max_updates_mode == "disabled"
     assert invalid_max.max_updates_mode == "webhook"
+
+
+def test_media_processing_policy_defaults_match_legacy_main_contract() -> None:
+    policy = load_media_processing_policy({})
+
+    assert policy.comfyui_input_max_side == 1536
+    assert policy.comfyui_face_input_max_side == 1024
+    assert policy.comfyui_face_source_megapixels == 0.35
+    assert policy.gallery_image_max_side == 2048
+    assert policy.gallery_image_webp_quality == 90
+    assert policy.gallery_full_quality_count == 10
+    assert policy.gallery_archive_max_side == 1536
+    assert policy.gallery_archive_webp_quality == 86
+    assert policy.source_thumb_max_side == 384
+    assert policy.source_thumb_webp_quality == 76
+
+
+def test_media_processing_policy_preserves_legacy_bounds() -> None:
+    policy = load_media_processing_policy(
+        {
+            "COMFYUI_INPUT_MAX_SIDE": "1",
+            "COMFYUI_FACE_INPUT_MAX_SIDE": "9999",
+            "COMFYUI_FACE_SOURCE_MEGAPIXELS": "0.1",
+            "GALLERY_IMAGE_MAX_SIDE": "99999",
+            "GALLERY_IMAGE_WEBP_QUALITY": "1",
+            "GALLERY_FULL_QUALITY_COUNT": "0",
+            "GALLERY_ARCHIVE_MAX_SIDE": "99999",
+            "GALLERY_ARCHIVE_WEBP_QUALITY": "999",
+            "SOURCE_THUMB_MAX_SIDE": "9999",
+            "SOURCE_THUMB_WEBP_QUALITY": "1",
+        }
+    )
+
+    assert policy.comfyui_input_max_side == 512
+    assert policy.comfyui_face_input_max_side == 512
+    assert policy.comfyui_face_source_megapixels == 0.15
+    assert policy.gallery_image_max_side == 4096
+    assert policy.gallery_image_webp_quality == 70
+    assert policy.gallery_full_quality_count == 1
+    assert policy.gallery_archive_max_side == 4096
+    assert policy.gallery_archive_webp_quality == 92
+    assert policy.source_thumb_max_side == 768
+    assert policy.source_thumb_webp_quality == 55
+
+
+def test_media_processing_policy_preserves_dependent_limit_order() -> None:
+    policy = load_media_processing_policy(
+        {
+            "COMFYUI_INPUT_MAX_SIDE": "2048",
+            "COMFYUI_FACE_INPUT_MAX_SIDE": "4096",
+            "COMFYUI_FACE_SOURCE_MEGAPIXELS": "2.0",
+            "GALLERY_IMAGE_MAX_SIDE": "100",
+            "GALLERY_ARCHIVE_MAX_SIDE": "1",
+        }
+    )
+
+    assert policy.comfyui_face_input_max_side == 2048
+    assert policy.comfyui_face_source_megapixels == 1.0
+    assert policy.gallery_image_max_side == 1024
+    assert policy.gallery_archive_max_side == 768
+
+
+def test_media_processing_policy_rejects_invalid_numbers_like_legacy_main() -> None:
+    invalid_environments = (
+        {"GALLERY_IMAGE_MAX_SIDE": "invalid"},
+        {"COMFYUI_FACE_SOURCE_MEGAPIXELS": "invalid"},
+    )
+    for environment in invalid_environments:
+        try:
+            load_media_processing_policy(environment)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid numeric media configuration must fail fast")

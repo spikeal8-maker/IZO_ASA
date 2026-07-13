@@ -73,6 +73,20 @@ class BotDeliveryPolicy:
     max_updates_mode: str
 
 
+@dataclass(frozen=True)
+class MediaProcessingPolicy:
+    comfyui_input_max_side: int
+    comfyui_face_input_max_side: int
+    comfyui_face_source_megapixels: float
+    gallery_image_max_side: int
+    gallery_image_webp_quality: int
+    gallery_full_quality_count: int
+    gallery_archive_max_side: int
+    gallery_archive_webp_quality: int
+    source_thumb_max_side: int
+    source_thumb_webp_quality: int
+
+
 def load_local_env(root: Path | None = None) -> None:
     """Load `root/.env` without overriding process-level environment values."""
     env_path = (root or BACKEND_ROOT) / ".env"
@@ -153,6 +167,65 @@ def load_bot_delivery_policy(
         telegram_polling_enabled=polling_enabled("TELEGRAM_POLLING_ENABLED"),
         max_polling_enabled=polling_enabled("MAX_POLLING_ENABLED"),
         max_updates_mode=max_updates_mode,
+    )
+
+
+def load_media_processing_policy(
+    environment: Mapping[str, str] | None = None,
+) -> MediaProcessingPolicy:
+    """Parse bounded image-processing limits without touching image or media files."""
+
+    source = os.environ if environment is None else environment
+    comfyui_input_max_side = max(
+        512,
+        min(2048, int(source.get("COMFYUI_INPUT_MAX_SIDE", "1536"))),
+    )
+    gallery_image_max_side = max(
+        1024,
+        min(4096, int(source.get("GALLERY_IMAGE_MAX_SIDE", "2048"))),
+    )
+
+    return MediaProcessingPolicy(
+        comfyui_input_max_side=comfyui_input_max_side,
+        comfyui_face_input_max_side=max(
+            512,
+            min(
+                comfyui_input_max_side,
+                int(source.get("COMFYUI_FACE_INPUT_MAX_SIDE", "1024")),
+            ),
+        ),
+        comfyui_face_source_megapixels=max(
+            0.15,
+            min(1.0, float(source.get("COMFYUI_FACE_SOURCE_MEGAPIXELS", "0.35"))),
+        ),
+        gallery_image_max_side=gallery_image_max_side,
+        gallery_image_webp_quality=max(
+            70,
+            min(95, int(source.get("GALLERY_IMAGE_WEBP_QUALITY", "90"))),
+        ),
+        gallery_full_quality_count=max(
+            1,
+            min(50, int(source.get("GALLERY_FULL_QUALITY_COUNT", "10"))),
+        ),
+        gallery_archive_max_side=max(
+            768,
+            min(
+                gallery_image_max_side,
+                int(source.get("GALLERY_ARCHIVE_MAX_SIDE", "1536")),
+            ),
+        ),
+        gallery_archive_webp_quality=max(
+            75,
+            min(92, int(source.get("GALLERY_ARCHIVE_WEBP_QUALITY", "86"))),
+        ),
+        source_thumb_max_side=max(
+            192,
+            min(768, int(source.get("SOURCE_THUMB_MAX_SIDE", "384"))),
+        ),
+        source_thumb_webp_quality=max(
+            55,
+            min(90, int(source.get("SOURCE_THUMB_WEBP_QUALITY", "76"))),
+        ),
     )
 
 

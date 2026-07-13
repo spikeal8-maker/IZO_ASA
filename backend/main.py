@@ -58,6 +58,7 @@ try:
         load_bot_delivery_policy,
         load_http_security_policy,
         load_local_env,
+        load_media_processing_policy,
         load_provider_endpoint_policy,
         load_runtime_environment_policy,
         sqlite_path_from_database_url,
@@ -69,6 +70,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         load_bot_delivery_policy,
         load_http_security_policy,
         load_local_env,
+        load_media_processing_policy,
         load_provider_endpoint_policy,
         load_runtime_environment_policy,
         sqlite_path_from_database_url,
@@ -396,17 +398,18 @@ AVATAR_PRESET_DIR = next(
     ),
     None,
 )
-COMFYUI_INPUT_MAX_SIDE = max(512, min(2048, int(os.getenv("COMFYUI_INPUT_MAX_SIDE", "1536"))))
-COMFYUI_FACE_INPUT_MAX_SIDE = max(512, min(COMFYUI_INPUT_MAX_SIDE, int(os.getenv("COMFYUI_FACE_INPUT_MAX_SIDE", "1024"))))
-COMFYUI_FACE_SOURCE_MEGAPIXELS = max(0.15, min(1.0, float(os.getenv("COMFYUI_FACE_SOURCE_MEGAPIXELS", "0.35"))))
+MEDIA_PROCESSING_POLICY = load_media_processing_policy()
+COMFYUI_INPUT_MAX_SIDE = MEDIA_PROCESSING_POLICY.comfyui_input_max_side
+COMFYUI_FACE_INPUT_MAX_SIDE = MEDIA_PROCESSING_POLICY.comfyui_face_input_max_side
+COMFYUI_FACE_SOURCE_MEGAPIXELS = MEDIA_PROCESSING_POLICY.comfyui_face_source_megapixels
 COMFYUI_INPUT_MIN_SIDE = 256
-GALLERY_IMAGE_MAX_SIDE = max(1024, min(4096, int(os.getenv("GALLERY_IMAGE_MAX_SIDE", "2048"))))
-GALLERY_IMAGE_WEBP_QUALITY = max(70, min(95, int(os.getenv("GALLERY_IMAGE_WEBP_QUALITY", "90"))))
-GALLERY_FULL_QUALITY_COUNT = max(1, min(50, int(os.getenv("GALLERY_FULL_QUALITY_COUNT", "10"))))
-GALLERY_ARCHIVE_MAX_SIDE = max(768, min(GALLERY_IMAGE_MAX_SIDE, int(os.getenv("GALLERY_ARCHIVE_MAX_SIDE", "1536"))))
-GALLERY_ARCHIVE_WEBP_QUALITY = max(75, min(92, int(os.getenv("GALLERY_ARCHIVE_WEBP_QUALITY", "86"))))
-SOURCE_THUMB_MAX_SIDE = max(192, min(768, int(os.getenv("SOURCE_THUMB_MAX_SIDE", "384"))))
-SOURCE_THUMB_WEBP_QUALITY = max(55, min(90, int(os.getenv("SOURCE_THUMB_WEBP_QUALITY", "76"))))
+GALLERY_IMAGE_MAX_SIDE = MEDIA_PROCESSING_POLICY.gallery_image_max_side
+GALLERY_IMAGE_WEBP_QUALITY = MEDIA_PROCESSING_POLICY.gallery_image_webp_quality
+GALLERY_FULL_QUALITY_COUNT = MEDIA_PROCESSING_POLICY.gallery_full_quality_count
+GALLERY_ARCHIVE_MAX_SIDE = MEDIA_PROCESSING_POLICY.gallery_archive_max_side
+GALLERY_ARCHIVE_WEBP_QUALITY = MEDIA_PROCESSING_POLICY.gallery_archive_webp_quality
+SOURCE_THUMB_MAX_SIDE = MEDIA_PROCESSING_POLICY.source_thumb_max_side
+SOURCE_THUMB_WEBP_QUALITY = MEDIA_PROCESSING_POLICY.source_thumb_webp_quality
 
 
 load_local_env(ROOT)
