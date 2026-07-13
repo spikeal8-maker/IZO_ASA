@@ -148,7 +148,8 @@ $quickTests = @(
     "tools/test_launchers.py",
     "tools/test_restart_backend_script.py",
     "tools/test_verify_script.py",
-    "tools/test_backup_restore.py"
+    "tools/test_backup_restore.py",
+    "tools/test_ci_workflow.py"
 )
 $fullTests = @("-m", "pytest", "-q", "backend", "tools")
 $usesLiveChecks = $Mode -ne "CI"

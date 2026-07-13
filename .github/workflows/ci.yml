@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Backend, tooling and frontend gates
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        run: python -m pip install --requirement backend/requirements.txt
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run deterministic repository verification
+        shell: pwsh
+        run: |
+          $env:APP_ENV = "test"
+          $env:BOT_UPDATES_MODE = "disabled"
+          $env:MAX_UPDATES_MODE = "disabled"
+          $env:COMFYUI_REQUIRED = "false"
+          $env:COMFYUI_MOCK_FALLBACK = "false"
+          $env:DATABASE_URL = Join-Path $env:RUNNER_TEMP "izo-ci.sqlite3"
+          $env:MEDIA_DIR = Join-Path $env:RUNNER_TEMP "izo-ci-media"
+          $env:IZO_SECRET_DIR = Join-Path $env:RUNNER_TEMP "izo-ci-secrets"
+          $python = (Get-Command python.exe).Source
+          $npm = (Get-Command npm.cmd).Source
+          .\tools\verify.ps1 -Mode CI -PythonPath $python -NpmPath $npm

@@ -73,6 +73,26 @@ The repository has one non-mutating verification entrypoint:
 or modify production DB/media. Runtime packages still require the separate
 controlled restart and live-smoke procedure documented in the production roadmap.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on pushes and pull requests to `main`, and can be
+started manually. It uses the pinned `.python-version` (`3.11.9`),
+`.node-version` (`24.14.1`), exact Python requirements and `npm ci`, then calls:
+
+```powershell
+.\tools\verify.ps1 -Mode CI
+```
+
+CI mode compiles Python, checks the generated backend map, runs the complete
+backend/tools suite, frontend lint and production build. It intentionally omits
+production process/source checks and receives no repository secrets. Its DB,
+media and DPAPI roots are under the ephemeral GitHub runner temp directory;
+Telegram/MAX update modes and real ComfyUI are disabled.
+
+The official checkout/setup actions are pinned to full commit SHAs. Update those
+pins only after reading the corresponding official release notes and repeating
+the local CI-mode gate.
+
 ## Backup
 
 Production data backup uses an external config and a different physical disk.
