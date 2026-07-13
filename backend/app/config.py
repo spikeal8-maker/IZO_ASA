@@ -35,6 +35,21 @@ class HttpSecurityPolicy:
     cors_allowed_origins: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ProviderEndpointPolicy:
+    comfyui_base_url: str
+    comfyui_required: bool
+    comfyui_mock_fallback: bool
+    comfyui_timeout_seconds: int
+    comfyui_face_timeout_seconds: int
+    openrouter_base_url: str
+    openrouter_timeout_seconds: int
+    prompt_improve_model: str
+    prompt_improve_timeout_seconds: int
+    cbr_daily_xml_url: str
+    usd_rub_fallback_url: str
+
+
 def load_local_env(root: Path | None = None) -> None:
     """Load `root/.env` without overriding process-level environment values."""
     env_path = (root or BACKEND_ROOT) / ".env"
@@ -89,6 +104,56 @@ def load_http_security_policy(
         trust_proxy_headers=source.get("TRUST_PROXY_HEADERS", "false").lower() == "true",
         trust_cloudflare_headers=source.get("TRUST_CLOUDFLARE_HEADERS", "false").lower() == "true",
         cors_allowed_origins=tuple(origin.strip() for origin in cors_raw.split(",") if origin.strip()),
+    )
+
+
+def load_provider_endpoint_policy(
+    environment: Mapping[str, str] | None = None,
+) -> ProviderEndpointPolicy:
+    """Parse provider endpoints and request timeouts without side effects.
+
+    Normalization and clamping intentionally mirror the legacy ``main.py``
+    expressions exactly. In particular, ComfyUI booleans accept only literal
+    ``true`` (case-insensitive), while endpoint whitespace is preserved unless
+    the legacy expression explicitly stripped it.
+    """
+
+    source = os.environ if environment is None else environment
+    comfyui_timeout_seconds = int(source.get("COMFYUI_TIMEOUT_SECONDS", "900"))
+    comfyui_face_timeout_seconds = max(
+        60,
+        min(
+            comfyui_timeout_seconds,
+            int(source.get("COMFYUI_FACE_TIMEOUT_SECONDS", "240")),
+        ),
+    )
+
+    return ProviderEndpointPolicy(
+        comfyui_base_url=source.get("COMFYUI_BASE_URL", "http://127.0.0.1:8188"),
+        comfyui_required=source.get("COMFYUI_REQUIRED", "false").lower() == "true",
+        comfyui_mock_fallback=source.get("COMFYUI_MOCK_FALLBACK", "false").lower() == "true",
+        comfyui_timeout_seconds=comfyui_timeout_seconds,
+        comfyui_face_timeout_seconds=comfyui_face_timeout_seconds,
+        openrouter_base_url=source.get(
+            "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
+        ).rstrip("/"),
+        openrouter_timeout_seconds=max(
+            30,
+            min(300, int(source.get("OPENROUTER_TIMEOUT_SECONDS", "120"))),
+        ),
+        prompt_improve_model=source.get(
+            "PROMPT_IMPROVE_MODEL", "deepseek/deepseek-v4-flash"
+        ).strip(),
+        prompt_improve_timeout_seconds=max(
+            3,
+            min(30, int(source.get("PROMPT_IMPROVE_TIMEOUT_SECONDS", "10"))),
+        ),
+        cbr_daily_xml_url=source.get(
+            "CBR_DAILY_XML_URL", "https://www.cbr.ru/scripts/XML_daily.asp"
+        ),
+        usd_rub_fallback_url=source.get(
+            "USD_RUB_FALLBACK_URL", "https://open.er-api.com/v6/latest/USD"
+        ),
     )
 
 

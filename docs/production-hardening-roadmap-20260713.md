@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B2a` — typed cookie/proxy/CORS config extraction; точный hash в Git history |
+| Последний completed checkpoint | `B2b` — typed provider endpoint/timeout config extraction; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 983 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 987 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 121 файл; startup `checked=123`, `available=121`, `missing=2`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; combined-head run `29242043545` success (`979 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B2a run `29243790613` success (`983 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и три live snapshot готовы; автоматический schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 268 после B2a | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 281 после B2b | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -103,7 +103,7 @@
 
 | ID | Статус | Состояние |
 |---|---|---|
-| BE-01 | `ЧАСТИЧНО` | `app/config.py` владеет env/DB-path helpers и typed cookie/proxy/CORS policy; paths, provider URLs/modes/limits и production validation ещё остаются |
+| BE-01 | `ЧАСТИЧНО` | `app/config.py` владеет env/DB-path helpers, typed cookie/proxy/CORS и provider endpoint/timeout policies; paths, bot/runtime modes, media limits и production validation ещё остаются |
 | BE-02 | `ЧАСТИЧНО` | `database/connection.py`, `guard.py`, `schema.py`, `migrations.py` созданы; repository layer и migration ledger не завершены |
 | BE-03 | `ЧАСТИЧНО` | Tokens/passwords/sessions/permissions/OTP/events вынесены; legacy auth removal и routers не завершены |
 | BE-04 | `ЧАСТИЧНО` | Storage paths/private/public/recovery/source graph/thumbnails/validation/cleanup вынесены; оставшиеся gallery/media orchestration blocks ещё в `main.py` |
@@ -189,7 +189,7 @@
 | Пакет | Результат |
 |---|---|
 | B1 | `ГОТОВО` — model aliases и request metadata вынесены; дальнейшее мелкое дробление этой integration boundary остановлено |
-| B2 | `ЧАСТИЧНО` — B2a cookie/proxy/CORS policy готов; продолжить paths, URLs, modes, limits и production validation малыми пакетами |
+| B2 | `ЧАСТИЧНО` — B2a cookie/proxy/CORS и B2b provider endpoints/timeouts готовы; продолжить paths, bot/runtime modes, media limits и production validation малыми пакетами |
 | B3 | Завершить migrations: ledger/version, idempotent schema groups, billing/feed/auth migration tests |
 | B4 | Выделить Telegram client и затем handlers/service |
 | B5 | Выделить MAX client и затем handlers/service |
@@ -619,6 +619,54 @@
   `https://evil.example` получил HTTP 400 без allow-origin;
 - VPS, tunnel, secrets, DB и media не изменялись; runtime restart выполнялся
   launcher с production environment, а не unconfigured backend-only shell.
+
+Exact-head CI после B2a:
+
+- GitHub Actions run `29243790613` на SHA `ac81e3a` завершён успешно;
+- `983 passed, 72 warnings` за 820,63 с; lint `0 errors / 1 existing warning`;
+- production build 1,15 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 868,60 с.
+
+### Checkpoint B2b — typed provider endpoints and timeouts
+
+Реализовано и развёрнуто 2026-07-13:
+
+- `app/config.py` получил immutable `ProviderEndpointPolicy` и import-safe loader
+  для ComfyUI URL/required/mock/timeouts, OpenRouter URL/timeout, prompt-improvement
+  model/timeout и двух URL источников курса USD/RUB;
+- `main.py` сохраняет прежние `COMFYUI_*`, `OPENROUTER_*`, `PROMPT_IMPROVE_*`,
+  `CBR_DAILY_XML_URL` и `USD_RUB_FALLBACK_URL`, поэтому существующие clients,
+  routes, tests и monkeypatch-поведение не переписаны массово;
+- в точности сохранены legacy semantics: literal `true` для ComfyUI flags,
+  отсутствие trim у ComfyUI/CBR/fallback URL, `rstrip("/")` у OpenRouter,
+  `strip()` у prompt model, прежние clamp/floor rules и fail-fast `ValueError`
+  для неверных integer values;
+- строк в `main.py` временно стало 15 281: безопасные compatibility exports и
+  развёрнутые imports пока больше удалённого env-блока. Реальное сокращение будет
+  после перевода consumers и удаления exports в B14; ownership конфигурации уже
+  вынесен из runtime entrypoint без изменения поведения.
+
+Доказательства:
+
+- characterization до реализации остановился ровно на отсутствующем
+  `load_provider_endpoint_policy`;
+- focused config/API/ComfyUI/OpenRouter/prompt/admin/secret suite:
+  `306 passed, 54 warnings` пять последовательных циклов; generated map
+  `609 symbols / 166 routes` совпал после каждого цикла;
+- локальный Full: `987 passed, 72 warnings` за 288,85 с; frontend lint
+  `0 errors / 1 existing warning`, production build успешен, origin
+  `200/200/403/403`;
+- verifier: 121 файл / 1 649 086 байт / SHA-256
+  `FE5B537CBA2FCFD4F74A2CFD66261BB5DF3D5E885B8D3BC96AE2227E1B513CF8`,
+  source stable, итоговый Full 315,27 с;
+- deploy штатным production launcher: backend PID 33016, frontend PID 13156,
+  по одному listener на `127.0.0.1:8000/5173`, Uvicorn с
+  `--no-proxy-headers`, health/DB Guard ready;
+- local main/health/version/models/feed и public main/health/version HTTP 200;
+  auth smoke `401/401/401`; CORS allowed exact origin HTTP 200 с exact header,
+  denied origin HTTP 400 без allow-origin; MAX `/me` и polling HTTP 200;
+- paid generation не запускалась; secrets, production DB rows, media, VPS и
+  tunnel не изменялись.
 
 ## 9. Обязательный gate каждого пакета
 

@@ -8,6 +8,7 @@ from backend.app.config import (
     env_bool,
     load_http_security_policy,
     load_local_env,
+    load_provider_endpoint_policy,
     sqlite_path_from_database_url,
 )
 
@@ -110,3 +111,70 @@ def test_http_security_policy_does_not_broaden_legacy_true_semantics() -> None:
     assert policy.cookie_secure is False
     assert policy.trust_proxy_headers is False
     assert policy.trust_cloudflare_headers is False
+
+
+def test_provider_endpoint_policy_defaults_match_legacy_main_contract() -> None:
+    policy = load_provider_endpoint_policy({})
+
+    assert policy.comfyui_base_url == "http://127.0.0.1:8188"
+    assert policy.comfyui_required is False
+    assert policy.comfyui_mock_fallback is False
+    assert policy.comfyui_timeout_seconds == 900
+    assert policy.comfyui_face_timeout_seconds == 240
+    assert policy.openrouter_base_url == "https://openrouter.ai/api/v1"
+    assert policy.openrouter_timeout_seconds == 120
+    assert policy.prompt_improve_model == "deepseek/deepseek-v4-flash"
+    assert policy.prompt_improve_timeout_seconds == 10
+    assert policy.cbr_daily_xml_url == "https://www.cbr.ru/scripts/XML_daily.asp"
+    assert policy.usd_rub_fallback_url == "https://open.er-api.com/v6/latest/USD"
+
+
+def test_provider_endpoint_policy_preserves_legacy_normalization_and_bounds() -> None:
+    policy = load_provider_endpoint_policy(
+        {
+            "COMFYUI_BASE_URL": " http://comfy.example/ ",
+            "COMFYUI_REQUIRED": "TRUE",
+            "COMFYUI_MOCK_FALLBACK": "1",
+            "COMFYUI_TIMEOUT_SECONDS": "100",
+            "COMFYUI_FACE_TIMEOUT_SECONDS": "200",
+            "OPENROUTER_BASE_URL": "https://router.example///",
+            "OPENROUTER_TIMEOUT_SECONDS": "999",
+            "PROMPT_IMPROVE_MODEL": "  provider/model  ",
+            "PROMPT_IMPROVE_TIMEOUT_SECONDS": "-1",
+            "CBR_DAILY_XML_URL": " cbr-url ",
+            "USD_RUB_FALLBACK_URL": " fallback-url ",
+        }
+    )
+
+    assert policy.comfyui_base_url == " http://comfy.example/ "
+    assert policy.comfyui_required is True
+    assert policy.comfyui_mock_fallback is False
+    assert policy.comfyui_timeout_seconds == 100
+    assert policy.comfyui_face_timeout_seconds == 100
+    assert policy.openrouter_base_url == "https://router.example"
+    assert policy.openrouter_timeout_seconds == 300
+    assert policy.prompt_improve_model == "provider/model"
+    assert policy.prompt_improve_timeout_seconds == 3
+    assert policy.cbr_daily_xml_url == " cbr-url "
+    assert policy.usd_rub_fallback_url == " fallback-url "
+
+
+def test_provider_endpoint_policy_preserves_face_timeout_floor_order() -> None:
+    policy = load_provider_endpoint_policy(
+        {
+            "COMFYUI_TIMEOUT_SECONDS": "50",
+            "COMFYUI_FACE_TIMEOUT_SECONDS": "10",
+        }
+    )
+
+    assert policy.comfyui_timeout_seconds == 50
+    assert policy.comfyui_face_timeout_seconds == 60
+
+
+def test_provider_endpoint_policy_rejects_invalid_integer_like_legacy_main() -> None:
+    try:
+        load_provider_endpoint_policy({"OPENROUTER_TIMEOUT_SECONDS": "invalid"})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("invalid numeric provider configuration must fail fast")

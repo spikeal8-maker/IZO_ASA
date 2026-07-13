@@ -52,9 +52,21 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
 
 try:
-    from .app.config import env_bool, load_http_security_policy, load_local_env, sqlite_path_from_database_url
+    from .app.config import (
+        env_bool,
+        load_http_security_policy,
+        load_local_env,
+        load_provider_endpoint_policy,
+        sqlite_path_from_database_url,
+    )
 except ImportError:  # Direct `python backend/main.py` execution.
-    from app.config import env_bool, load_http_security_policy, load_local_env, sqlite_path_from_database_url
+    from app.config import (
+        env_bool,
+        load_http_security_policy,
+        load_local_env,
+        load_provider_endpoint_policy,
+        sqlite_path_from_database_url,
+    )
 
 try:
     from .app.integrations import (
@@ -417,17 +429,18 @@ def is_production_like_env() -> bool:
 
 DB_PATH = sqlite_path_from_database_url(os.getenv("DATABASE_URL"))
 
-COMFYUI_BASE_URL = os.getenv("COMFYUI_BASE_URL", "http://127.0.0.1:8188")
-COMFYUI_REQUIRED = os.getenv("COMFYUI_REQUIRED", "false").lower() == "true"
-COMFYUI_MOCK_FALLBACK = os.getenv("COMFYUI_MOCK_FALLBACK", "false").lower() == "true"
-COMFYUI_TIMEOUT_SECONDS = int(os.getenv("COMFYUI_TIMEOUT_SECONDS", "900"))
-COMFYUI_FACE_TIMEOUT_SECONDS = max(60, min(COMFYUI_TIMEOUT_SECONDS, int(os.getenv("COMFYUI_FACE_TIMEOUT_SECONDS", "240"))))
-OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
-OPENROUTER_TIMEOUT_SECONDS = max(30, min(300, int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "120"))))
-PROMPT_IMPROVE_MODEL = os.getenv("PROMPT_IMPROVE_MODEL", "deepseek/deepseek-v4-flash").strip()
-PROMPT_IMPROVE_TIMEOUT_SECONDS = max(3, min(30, int(os.getenv("PROMPT_IMPROVE_TIMEOUT_SECONDS", "10"))))
-CBR_DAILY_XML_URL = os.getenv("CBR_DAILY_XML_URL", "https://www.cbr.ru/scripts/XML_daily.asp")
-USD_RUB_FALLBACK_URL = os.getenv("USD_RUB_FALLBACK_URL", "https://open.er-api.com/v6/latest/USD")
+PROVIDER_ENDPOINT_POLICY = load_provider_endpoint_policy()
+COMFYUI_BASE_URL = PROVIDER_ENDPOINT_POLICY.comfyui_base_url
+COMFYUI_REQUIRED = PROVIDER_ENDPOINT_POLICY.comfyui_required
+COMFYUI_MOCK_FALLBACK = PROVIDER_ENDPOINT_POLICY.comfyui_mock_fallback
+COMFYUI_TIMEOUT_SECONDS = PROVIDER_ENDPOINT_POLICY.comfyui_timeout_seconds
+COMFYUI_FACE_TIMEOUT_SECONDS = PROVIDER_ENDPOINT_POLICY.comfyui_face_timeout_seconds
+OPENROUTER_BASE_URL = PROVIDER_ENDPOINT_POLICY.openrouter_base_url
+OPENROUTER_TIMEOUT_SECONDS = PROVIDER_ENDPOINT_POLICY.openrouter_timeout_seconds
+PROMPT_IMPROVE_MODEL = PROVIDER_ENDPOINT_POLICY.prompt_improve_model
+PROMPT_IMPROVE_TIMEOUT_SECONDS = PROVIDER_ENDPOINT_POLICY.prompt_improve_timeout_seconds
+CBR_DAILY_XML_URL = PROVIDER_ENDPOINT_POLICY.cbr_daily_xml_url
+USD_RUB_FALLBACK_URL = PROVIDER_ENDPOINT_POLICY.usd_rub_fallback_url
 
 
 BOT_UPDATES_MODE = os.getenv("BOT_UPDATES_MODE", os.getenv("BOT_MODE", "disabled")).strip().lower()
