@@ -100,6 +100,12 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/integrations/openrouter_images.py` owns model-alias resolution, safe request-metadata assembly, pure orientation/aspect-ratio/descriptor/provider request planning and image request-body assembly; application resolution IDs/tiers are passed through compatibility wrappers and local-reference values through callback injection.
 - `backend/app/integrations/openrouter_image_io.py` owns remote/data reference passthrough, application-resolved local-file encoding, and response b64/URL loading into PIL; `main.py` retains the production path resolver, timeout, gallery persistence and generation orchestration.
 - `backend/app/integrations/openrouter_image_client.py` owns POST `/images`, JSON parsing and the exact one-time `size=auto` retry; `main.py` injects headers, size-error classification and the callback that persists fallback job state before retry.
+- `backend/app/integrations/telegram.py` owns the import-safe Telegram Bot API HTTP
+  boundary, validated response envelopes, token-redacted typed configuration/
+  transport/response/API errors, official file-URL construction and a sanitized
+  `getMe` health probe. `main.telegram_api()` remains a compatibility adapter for
+  legacy HTTP error mapping and monkeypatch callers; polling, update handlers,
+  webhook lifecycle and routes stay in `main.py` until B4b.
 - `backend/conftest.py` redirects every backend test to a temporary SQLite database, media root and avatar root even when a test forgot its own fixture.
 - Keep it independent of FastAPI, SQLite and provider network calls.
 

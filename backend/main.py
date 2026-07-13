@@ -108,6 +108,10 @@ try:
         resolve_openrouter_image_model,
         resolve_openrouter_reference_value,
         select_openrouter_first_image,
+        TelegramApiError,
+        TelegramConfigurationError,
+        request_telegram_bot_api,
+        telegram_file_url,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations import (
@@ -139,6 +143,10 @@ except ImportError:  # Direct `python backend/main.py` execution.
         resolve_openrouter_image_model,
         resolve_openrouter_reference_value,
         select_openrouter_first_image,
+        TelegramApiError,
+        TelegramConfigurationError,
+        request_telegram_bot_api,
+        telegram_file_url,
     )
 
 try:
@@ -4458,15 +4466,16 @@ def bot_status_payload() -> dict[str, Any]:
 
 
 async def telegram_api(method: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    if not TELEGRAM_BOT_TOKEN:
-        raise HTTPException(400, "TELEGRAM_BOT_TOKEN is required for real Telegram API calls.")
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}", json=payload or {})
-        response.raise_for_status()
-        data = response.json()
-    if not data.get("ok"):
-        raise HTTPException(502, f"Telegram API error: {data}")
-    return data
+    try:
+        return await request_telegram_bot_api(
+            token=TELEGRAM_BOT_TOKEN,
+            method=method,
+            payload=payload,
+        )
+    except TelegramConfigurationError as exc:
+        raise HTTPException(400, "TELEGRAM_BOT_TOKEN is required for real Telegram API calls.") from exc
+    except TelegramApiError as exc:
+        raise HTTPException(502, f"Telegram API error: {exc.payload}") from exc
 
 
 async def max_api(method: str, path: str, payload: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -4539,7 +4548,7 @@ async def _telegram_avatar_source(provider_user_id: str) -> str | None:
         file_path = (info.get("result") or {}).get("file_path")
         if not file_path:
             return None
-        return f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}"
+        return telegram_file_url(TELEGRAM_BOT_TOKEN, file_path)
     except Exception as exc:  # pragma: no cover - network/defensive
         print(f"telegram avatar source failed: {type(exc).__name__}")
         return None
@@ -4856,6 +4865,12 @@ async def handle_max_update(update: dict[str, Any], send_replies: bool) -> dict[
 
 
 def polling_retry_after(exc: Exception, default: float = 5.0) -> float:
+    typed_retry_after = getattr(exc, "retry_after", None)
+    if typed_retry_after is not None:
+        try:
+            return float(typed_retry_after)
+        except (TypeError, ValueError):
+            return default
     response = getattr(exc, "response", None)
     if response is None:
         return default
@@ -4876,6 +4891,8 @@ def polling_retry_after(exc: Exception, default: float = 5.0) -> float:
 
 
 def is_auth_polling_error(exc: Exception) -> bool:
+    if getattr(exc, "status_code", None) in {401, 403}:
+        return True
     response = getattr(exc, "response", None)
     return bool(response is not None and getattr(response, "status_code", None) in {401, 403})
 

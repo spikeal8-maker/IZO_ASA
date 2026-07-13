@@ -30,6 +30,17 @@ from .openrouter import (
     request_openrouter_chat_completion,
     select_openrouter_first_image,
 )
+from .telegram import (
+    TelegramApiError,
+    TelegramBotHealth,
+    TelegramClientError,
+    TelegramConfigurationError,
+    TelegramResponseError,
+    TelegramTransportError,
+    probe_telegram_bot,
+    request_telegram_bot_api,
+    telegram_file_url,
+)
 
 __all__ = [
     "build_max_http_verify",
@@ -62,4 +73,13 @@ __all__ = [
     "resolve_openrouter_image_model",
     "resolve_openrouter_reference_value",
     "select_openrouter_first_image",
+    "TelegramApiError",
+    "TelegramBotHealth",
+    "TelegramClientError",
+    "TelegramConfigurationError",
+    "TelegramResponseError",
+    "TelegramTransportError",
+    "probe_telegram_bot",
+    "request_telegram_bot_api",
+    "telegram_file_url",
 ]

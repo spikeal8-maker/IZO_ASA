@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B3d` — core/billing schema и default seed extraction; B3 полностью закрыт |
+| Последний completed checkpoint | `B4a` — Telegram HTTP client, typed errors, file URL и health probe |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1017 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1035 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 116 файлов; последний startup `checked=117`, `available=116`, `missing=1`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B3c run `29265857059` success (`1015 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B3d run `29268631383` success (`1017 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и четыре live snapshot готовы; свежий pre-B3a snapshot `20260713T142811.243312Z` проверен; schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 063 после B3d | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 080 после B4a | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -109,7 +109,7 @@
 | BE-04 | `ЧАСТИЧНО` | Storage paths/private/public/recovery/source graph/thumbnails/validation/cleanup вынесены; оставшиеся gallery/media orchestration blocks ещё в `main.py` |
 | BE-05 | `ГОТОВО` | Текущий ограниченный scope Ollama: URL, discovery и общий chat transport вынесены |
 | BE-06 | `ГОТОВО` | Ограниченный integration scope завершён: HTTP/parsing/planning/I/O/model aliases/request metadata вынесены; application caches, policy, persistence, billing и orchestration остаются в соответствующих будущих services |
-| BE-07 | `НЕ НАЧАТО` | Telegram integration client/typed errors/health не выделены |
+| BE-07 | `ГОТОВО` | B4a: Telegram HTTP client, token-redacted typed errors, file URL и sanitized `getMe` health probe выделены; handlers/service остаются B4b |
 | BE-08 | `НЕ НАЧАТО` | MAX integration client/typed errors/health не выделены |
 | BE-09 | `НЕ НАЧАТО` | ComfyUI client/workflow/result adapter не выделены |
 | BE-10 | `НЕ НАЧАТО` | Generation/gallery/feed/account/billing services не выделены системно |
@@ -191,7 +191,7 @@
 | B1 | `ГОТОВО` — model aliases и request metadata вынесены; дальнейшее мелкое дробление этой integration boundary остановлено |
 | B2 | `ГОТОВО` — B2a HTTP security, B2b provider endpoints/timeouts, B2c runtime/bot modes, B2d media limits, B2e storage paths и B2f production validation готовы |
 | B3 | `ГОТОВО` — ledger/version 1, core/billing, identity/auth, media/feed/search groups и migration tests; в `main.py` inline DDL отсутствует |
-| B4 | Выделить Telegram client и затем handlers/service |
+| B4 | `ЧАСТИЧНО` — B4a client/errors/health готов; B4b должен выделить update handlers/service без смены polling/webhook semantics |
 | B5 | Выделить MAX client и затем handlers/service |
 | B6 | Выделить ComfyUI HTTP client, workflow builders и result adapter отдельными пакетами |
 | B7 | Выделить generation service и queue boundary |
@@ -262,9 +262,10 @@
 12. `B3b` — `ГОТОВО`: media/feed/search idempotent schema execution group.
 13. `B3c` — `ГОТОВО`: identity/auth prepare, legacy backfill и finalize phases.
 14. `B3d` — `ГОТОВО`: core/base/billing schema preparation и default seeds; B3 закрыт.
-15. `B4` — **СЛЕДУЮЩИЙ ПАКЕТ**: Telegram client/typed errors/health boundary.
-16. `B5` — MAX client/typed errors/health boundary.
-17. `B6` — ComfyUI decomposition.
+15. `B4a` — `ГОТОВО`: Telegram client/typed errors/file URL/health boundary.
+16. `B4b` — **СЛЕДУЮЩИЙ ПАКЕТ**: Telegram update handlers/service boundary без переноса routes.
+17. `B5` — MAX client/typed errors/health boundary.
+18. `B6` — ComfyUI decomposition.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -1134,6 +1135,68 @@ Exact-head CI после B3c:
   gallery HTTP 401; source `checked=117 / available=116 / missing=1 / changed=0`;
 - MAX остался в polling, `/me` и poll 200 без ошибки; secrets, provider modes,
   paid generation, production data, VPS и tunnel не изменялись.
+
+Exact CI после B3d:
+
+- GitHub Actions run `29268631383` на SHA `59ba837` завершён успешно за 16 мин 39 с;
+- `1017 passed, 72 warnings` за 860,80 с; lint `0 errors / 1 existing warning`;
+- production build 1,59 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 920,72 с.
+
+### Checkpoint B4a — Telegram HTTP client, typed errors и health
+
+Реализовано и развёрнуто 2026-07-13:
+
+- новый import-safe `app/integrations/telegram.py` владеет одним POST transport к
+  Telegram Bot API, 30-секундным legacy timeout default, проверкой HTTP 2xx и
+  строгого верхнеуровневого `{ok: bool}` envelope;
+- configuration, transport, invalid response и `ok=false` представлены отдельными
+  типами ошибок. Их сообщения не содержат bot token, request URL или сырые network
+  details; HTTP/API status и `retry_after` доступны polling-коду как typed fields;
+- `probe_telegram_bot()` выполняет read-only `getMe` и возвращает только configured,
+  `ok`, нормализованный status, bot id/username, status code и имя типа ошибки;
+  provider description и token в health payload не попадают;
+- официальный file URL вынесен в `telegram_file_url()` и используется avatar cache;
+- `main.telegram_api()` сохранён как compatibility boundary: прежние HTTP 400 для
+  отсутствующего token и HTTP 502 с прежним API-error detail не изменены; существующие
+  monkeypatch callers, polling/update handlers и routes не переносились;
+- generic polling helpers теперь понимают typed `status_code` и `retry_after`, сохраняя
+  прежний fallback через `httpx.Response` для MAX;
+- `main.py` временно вырос с 15 063 до 15 080 строк из-за явных compatibility imports
+  и typed polling wiring. Это не объявляется уменьшением монолита: удаление Telegram
+  handler/orchestration blocks является отдельным B4b;
+- новый модуль — 230 строк, новый contract test module — 279 строк; generated map
+  остаётся `608 symbols / 166 routes`.
+
+Доказательства:
+
+- characterization до переноса: `3 passed`; после переноса module contract:
+  `18 passed`, включая body/path, missing token, HTTP 401, API 429/retry-after,
+  connection redaction, malformed JSON/envelope, health и file URL;
+- Telegram API/polling/webhook/login/avatar focused suite: `130 passed, 2 warnings`
+  пять последовательных циклов по 59–61 с;
+- первый Full был внешне завершён на 13% с process exit `-1`, без failed assertion и
+  Python traceback; сразу после этого также исчез production backend PID 49476.
+  Verifier корректно заблокировал следующий запуск на preflight (`0` listeners);
+- live backend восстановлен с теми же production launcher env/bind/proxy settings как
+  единственный listener PID 21084, DB Guard и migration status `ok`. Повторный Full
+  полностью успешен и backend пережил его; отсутствие supervisor остаётся известным
+  OPS-риском и не маскируется как исправленное;
+- повторный локальный Full: `1035 passed, 72 warnings` за 297,19 с; frontend lint
+  `0 errors / 1 existing warning`, build 1,23 с, origin `200/200/403/403`, итоговый
+  `VERIFY_OK` за 330,31 с;
+- production SQLite/media schema и migration version этим пакетом не изменяются;
+  новый backup не требуется;
+- после gate выполнен штатный controlled backend-only restart: PID `21084 → 53064`,
+  один listener на `127.0.0.1:8000`, proxy headers disabled, health/DB Guard/migration
+  status `200/ok/ok`; frontend остался PID 55520;
+- live HTTP smoke: health/version/models/tariffs/feed/bot status/frontend
+  `200`, private gallery `401`, polling-mode Telegram webhook POST `404`, frontend
+  host isolation `200/200/403/403`;
+- новый read-only Telegram `getMe` health probe вернул configured/ok/status
+  `true/true/ok` без token; SQLite read-only `quick_check=ok`, `user_version=1`,
+  migration rows `1`, users/jobs/images/token ledger `33/681/962/1376`;
+- secrets, Telegram/MAX update modes, paid generation, VPS и tunnel не изменялись.
 
 ## 9. Обязательный gate каждого пакета
 
