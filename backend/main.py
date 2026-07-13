@@ -62,6 +62,7 @@ try:
         load_provider_endpoint_policy,
         load_runtime_environment_policy,
         load_storage_path_policy,
+        validate_production_configuration as validate_config_production_configuration,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.config import (
@@ -74,6 +75,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         load_provider_endpoint_policy,
         load_runtime_environment_policy,
         load_storage_path_policy,
+        validate_production_configuration as validate_config_production_configuration,
     )
 
 try:
@@ -7192,6 +7194,12 @@ async def worker() -> None:
 @app.on_event("startup")
 async def startup() -> None:
     global worker_started, bot_polling_started
+    validate_config_production_configuration(
+        runtime=RUNTIME_ENVIRONMENT_POLICY,
+        http_security=_HTTP_SECURITY_POLICY,
+        providers=PROVIDER_ENDPOINT_POLICY,
+        storage=STORAGE_PATH_POLICY,
+    )
     validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
     validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
     db_guard_preflight()

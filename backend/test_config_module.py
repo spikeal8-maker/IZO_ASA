@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 from backend.app.config import (
@@ -14,7 +15,9 @@ from backend.app.config import (
     load_provider_endpoint_policy,
     load_runtime_environment_policy,
     load_storage_path_policy,
+    production_configuration_errors,
     sqlite_path_from_database_url,
+    validate_production_configuration,
 )
 
 
@@ -363,3 +366,140 @@ def test_storage_path_policy_preserves_empty_media_and_relative_database_semanti
     assert policy.media_dir == tmp_path.resolve()
     assert policy.avatar_dir == tmp_path.resolve() / "avatars"
     assert policy.database_path == Path("relative.sqlite3")
+
+
+def _valid_production_policies(tmp_path: Path):
+    environment = {
+        "APP_ENV": "production",
+        "TRUSTED_COOKIE_SECURE": "true",
+        "TRUSTED_COOKIE_SAMESITE": "none",
+        "CORS_ALLOWED_ORIGINS": "https://izo.alikinas.ru,http://127.0.0.1:5173",
+        "MEDIA_DIR": str(tmp_path / "media"),
+        "DATABASE_URL": str(tmp_path / "onenode.sqlite3"),
+    }
+    runtime = load_runtime_environment_policy(environment)
+    return (
+        runtime,
+        load_http_security_policy(environment, app_env=runtime.app_env),
+        load_provider_endpoint_policy(environment),
+        load_storage_path_policy(tmp_path, environment),
+    )
+
+
+def test_production_configuration_accepts_current_safe_contract(tmp_path: Path) -> None:
+    runtime, http_security, providers, storage = _valid_production_policies(tmp_path)
+
+    assert production_configuration_errors(
+        runtime=runtime,
+        http_security=http_security,
+        providers=providers,
+        storage=storage,
+    ) == ()
+    validate_production_configuration(
+        runtime=runtime,
+        http_security=http_security,
+        providers=providers,
+        storage=storage,
+    )
+
+
+def test_production_configuration_does_not_block_development(tmp_path: Path) -> None:
+    runtime, http_security, providers, storage = _valid_production_policies(tmp_path)
+
+    assert production_configuration_errors(
+        runtime=replace(runtime, app_env="development"),
+        http_security=replace(
+            http_security,
+            cookie_secure=False,
+            cors_allowed_origins=("*",),
+        ),
+        providers=replace(
+            providers,
+            comfyui_mock_fallback=True,
+            openrouter_base_url="http://external.example",
+        ),
+        storage=replace(storage, database_path=Path("relative.sqlite3")),
+    ) == ()
+
+
+def test_production_configuration_reports_stable_error_codes(tmp_path: Path) -> None:
+    runtime, http_security, providers, storage = _valid_production_policies(tmp_path)
+    errors = production_configuration_errors(
+        runtime=replace(runtime, app_env="development", environment_name="prod"),
+        http_security=replace(
+            http_security,
+            cookie_secure=False,
+            cookie_samesite="invalid",
+            cors_allowed_origins=("*", "not-an-origin"),
+        ),
+        providers=replace(
+            providers,
+            comfyui_mock_fallback=True,
+            comfyui_base_url="http://external.example",
+            openrouter_base_url="http://external.example",
+            prompt_improve_model=" ",
+            cbr_daily_xml_url="not-a-url",
+            usd_rub_fallback_url="ftp://external.example/rates",
+        ),
+        storage=replace(
+            storage,
+            media_dir=Path("relative-media"),
+            database_path=Path("relative.sqlite3"),
+        ),
+    )
+
+    assert errors == (
+        "APP_ENV_MUST_BE_PRODUCTION",
+        "COOKIE_SECURE_REQUIRED",
+        "COOKIE_SAMESITE_INVALID",
+        "CORS_WILDCARD_FORBIDDEN",
+        "CORS_ORIGIN_INVALID_1",
+        "COMFYUI_MOCK_FALLBACK_FORBIDDEN",
+        "COMFYUI_URL_INSECURE",
+        "OPENROUTER_URL_INSECURE",
+        "PROMPT_MODEL_REQUIRED",
+        "CBR_URL_INSECURE",
+        "USD_RUB_FALLBACK_URL_INSECURE",
+        "MEDIA_PATH_MUST_BE_ABSOLUTE",
+        "DATABASE_PATH_MUST_BE_ABSOLUTE",
+    )
+
+
+def test_production_configuration_exception_contains_codes_not_values(tmp_path: Path) -> None:
+    runtime, http_security, providers, storage = _valid_production_policies(tmp_path)
+    unsafe_url = "http://secret-provider.example/private-path"
+
+    try:
+        validate_production_configuration(
+            runtime=runtime,
+            http_security=http_security,
+            providers=replace(providers, openrouter_base_url=unsafe_url),
+            storage=storage,
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "OPENROUTER_URL_INSECURE" in message
+        assert unsafe_url not in message
+    else:
+        raise AssertionError("unsafe production configuration must block startup")
+
+
+def test_production_configuration_rejects_malformed_ports(tmp_path: Path) -> None:
+    runtime, http_security, providers, storage = _valid_production_policies(tmp_path)
+    errors = production_configuration_errors(
+        runtime=runtime,
+        http_security=replace(
+            http_security,
+            cors_allowed_origins=("https://izo.alikinas.ru:not-a-port",),
+        ),
+        providers=replace(
+            providers,
+            openrouter_base_url="https://openrouter.ai:not-a-port/api/v1",
+        ),
+        storage=storage,
+    )
+
+    assert errors == (
+        "CORS_ORIGIN_INVALID_0",
+        "OPENROUTER_URL_INSECURE",
+    )

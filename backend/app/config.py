@@ -6,10 +6,12 @@ SQLite, start workers or import the FastAPI application.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -342,3 +344,101 @@ def load_storage_path_policy(
         avatar_dir=media_dir / "avatars",
         database_path=sqlite_path_from_database_url(source.get("DATABASE_URL"), root),
     )
+
+
+def _loopback_http_or_https_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        parsed.port
+    except ValueError:
+        return False
+    if parsed.scheme == "https" and hostname and not parsed.username and not parsed.password:
+        return True
+    if parsed.scheme != "http" or not hostname or parsed.username or parsed.password:
+        return False
+    if hostname.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def _valid_cors_origin(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        parsed.port
+    except ValueError:
+        return False
+    return bool(
+        parsed.scheme in {"http", "https"}
+        and parsed.hostname
+        and not parsed.username
+        and not parsed.password
+        and not parsed.path
+        and not parsed.query
+        and not parsed.fragment
+    )
+
+
+def production_configuration_errors(
+    *,
+    runtime: RuntimeEnvironmentPolicy,
+    http_security: HttpSecurityPolicy,
+    providers: ProviderEndpointPolicy,
+    storage: StoragePathPolicy,
+) -> tuple[str, ...]:
+    """Return secret-free error codes for unsafe production-only configuration."""
+
+    if not runtime.production_like:
+        return ()
+
+    errors: list[str] = []
+    if runtime.app_env.lower() != "production":
+        errors.append("APP_ENV_MUST_BE_PRODUCTION")
+    if not http_security.cookie_secure:
+        errors.append("COOKIE_SECURE_REQUIRED")
+    if http_security.cookie_samesite.lower() not in {"lax", "strict", "none"}:
+        errors.append("COOKIE_SAMESITE_INVALID")
+    if not http_security.cors_allowed_origins:
+        errors.append("CORS_ORIGINS_REQUIRED")
+    for index, origin in enumerate(http_security.cors_allowed_origins):
+        if origin == "*":
+            errors.append("CORS_WILDCARD_FORBIDDEN")
+        elif not _valid_cors_origin(origin):
+            errors.append(f"CORS_ORIGIN_INVALID_{index}")
+    if providers.comfyui_mock_fallback:
+        errors.append("COMFYUI_MOCK_FALLBACK_FORBIDDEN")
+    if not _loopback_http_or_https_url(providers.comfyui_base_url):
+        errors.append("COMFYUI_URL_INSECURE")
+    if not _loopback_http_or_https_url(providers.openrouter_base_url):
+        errors.append("OPENROUTER_URL_INSECURE")
+    if not providers.prompt_improve_model.strip():
+        errors.append("PROMPT_MODEL_REQUIRED")
+    if not _loopback_http_or_https_url(providers.cbr_daily_xml_url):
+        errors.append("CBR_URL_INSECURE")
+    if not _loopback_http_or_https_url(providers.usd_rub_fallback_url):
+        errors.append("USD_RUB_FALLBACK_URL_INSECURE")
+    if not storage.media_dir.is_absolute():
+        errors.append("MEDIA_PATH_MUST_BE_ABSOLUTE")
+    if not storage.database_path.is_absolute():
+        errors.append("DATABASE_PATH_MUST_BE_ABSOLUTE")
+    return tuple(errors)
+
+
+def validate_production_configuration(
+    *,
+    runtime: RuntimeEnvironmentPolicy,
+    http_security: HttpSecurityPolicy,
+    providers: ProviderEndpointPolicy,
+    storage: StoragePathPolicy,
+) -> None:
+    errors = production_configuration_errors(
+        runtime=runtime,
+        http_security=http_security,
+        providers=providers,
+        storage=storage,
+    )
+    if errors:
+        raise RuntimeError("Unsafe production configuration: " + ",".join(errors))
