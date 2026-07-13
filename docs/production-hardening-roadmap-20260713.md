@@ -571,6 +571,18 @@
 - VPS, доменный tunnel, secrets, live DB и пользовательские media не изменялись
   пакетом A7; обнаруженные параллельные favicon-правки не включались в A7 commit.
 
+Интеграция параллельной favicon-правки после A7:
+
+- отдельный commit `97ebc74` корректно сохранил favicon route/shell tests, но первый
+  exact-head CI run `29241278620` остановился до pytest: `backend/SYMBOL_MAP.md`
+  не был перегенерирован после нового route и сдвига строк `main.py`;
+- application code не менялся при исправлении: карта обновлена до 609 symbols /
+  166 routes; gallery/map suite прошёл `9 passed` пять циклов;
+- локальный Full после исправления: `978 passed, 72 warnings`, lint
+  `0 errors / 1 existing warning`, build/origin-probe successful, source snapshot
+  стабилен; runtime restart не требовался, так как менялись только generated map
+  и документация.
+
 ## 9. Обязательный gate каждого пакета
 
 Минимальный порядок:
