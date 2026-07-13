@@ -8,6 +8,19 @@ from .telegram_updates import (
     telegram_message_from_update,
     telegram_user_from_update,
 )
+from .max_updates import (
+    MaxUpdateRuntime,
+    extract_max_command,
+    handle_max_update_with_runtime,
+    handle_max_updates_with_runtime,
+    max_login_payload_from_update,
+    max_message_payload,
+    max_recipient_params,
+    max_update_type,
+    max_user_from_message,
+    max_user_from_update,
+    sanitized_payload_prefix,
+)
 
 __all__ = [
     "TelegramUpdateRuntime",
@@ -16,4 +29,15 @@ __all__ = [
     "telegram_answer_payload",
     "telegram_message_from_update",
     "telegram_user_from_update",
+    "MaxUpdateRuntime",
+    "extract_max_command",
+    "handle_max_update_with_runtime",
+    "handle_max_updates_with_runtime",
+    "max_login_payload_from_update",
+    "max_message_payload",
+    "max_recipient_params",
+    "max_update_type",
+    "max_user_from_message",
+    "max_user_from_update",
+    "sanitized_payload_prefix",
 ]

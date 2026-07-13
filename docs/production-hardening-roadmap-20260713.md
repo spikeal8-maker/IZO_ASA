@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B5a` — MAX async/sync HTTP client, typed errors и health probe |
+| Последний completed checkpoint | `B5b` — MAX update parsing/handlers service; B5 полностью закрыт |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1062 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1068 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 116 файлов; последний startup `checked=117`, `available=116`, `missing=1`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B4b run `29273695204` success (`1043 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B5a run `29276052820` success (`1062 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и четыре live snapshot готовы; свежий pre-B3a snapshot `20260713T142811.243312Z` проверен; schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 045 после B5a | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 14 884 после B5b | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -110,7 +110,7 @@
 | BE-05 | `ГОТОВО` | Текущий ограниченный scope Ollama: URL, discovery и общий chat transport вынесены |
 | BE-06 | `ГОТОВО` | Ограниченный integration scope завершён: HTTP/parsing/planning/I/O/model aliases/request metadata вынесены; application caches, policy, persistence, billing и orchestration остаются в соответствующих будущих services |
 | BE-07 | `ГОТОВО` | B4a client/errors/file URL/health и B4b parsing/update handlers service выделены; routes/polling lifecycle остаются общим B12/B13 scope |
-| BE-08 | `ЧАСТИЧНО` | B5a async/sync client, typed errors и response-body-free health готовы; update handlers/service остаются B5b |
+| BE-08 | `ГОТОВО` | B5a client/errors/health и B5b parsing/update handlers service выделены; routes/polling/subscription lifecycle остаются B12/B13 scope |
 | BE-09 | `НЕ НАЧАТО` | ComfyUI client/workflow/result adapter не выделены |
 | BE-10 | `НЕ НАЧАТО` | Generation/gallery/feed/account/billing services не выделены системно |
 | BE-11 | `НЕ НАЧАТО` | FastAPI routers не разделены по областям |
@@ -192,7 +192,7 @@
 | B2 | `ГОТОВО` — B2a HTTP security, B2b provider endpoints/timeouts, B2c runtime/bot modes, B2d media limits, B2e storage paths и B2f production validation готовы |
 | B3 | `ГОТОВО` — ledger/version 1, core/billing, identity/auth, media/feed/search groups и migration tests; в `main.py` inline DDL отсутствует |
 | B4 | `ГОТОВО` — B4a client/errors/health и B4b injected update handlers service выделены без смены polling/webhook semantics |
-| B5 | `ЧАСТИЧНО` — B5a client/errors/health готов; B5b должен выделить update handlers/service без смены polling/webhook semantics |
+| B5 | `ГОТОВО` — B5a client/errors/health и B5b injected update handlers service выделены без смены polling/webhook semantics |
 | B6 | Выделить ComfyUI HTTP client, workflow builders и result adapter отдельными пакетами |
 | B7 | Выделить generation service и queue boundary |
 | B8 | Выделить gallery/source lifecycle service |
@@ -265,8 +265,8 @@
 15. `B4a` — `ГОТОВО`: Telegram client/typed errors/file URL/health boundary.
 16. `B4b` — `ГОТОВО`: Telegram update parsing/handlers service без переноса routes; B4 закрыт.
 17. `B5a` — `ГОТОВО`: MAX async/sync client, typed errors и health boundary.
-18. `B5b` — **СЛЕДУЮЩИЙ ПАКЕТ**: MAX update handlers/service boundary без переноса routes.
-19. `B6` — ComfyUI decomposition.
+18. `B5b` — `ГОТОВО`: MAX update parsing/handlers service без переноса routes; B5 закрыт.
+19. `B6` — **СЛЕДУЮЩИЙ ПАКЕТ**: ComfyUI decomposition.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -1256,6 +1256,53 @@ Exact CI после B4a:
 - SQLite `quick_check=ok`, `user_version=1`, migrations `1`, users/jobs/images/token
   ledger `33/681/962/1376`; schema/data migration не выполнялась, новый backup не
   требуется; secrets, paid generation, VPS и tunnel не изменялись.
+
+Exact CI после B5a:
+
+- GitHub Actions run `29276052820`, job `86905247874`, на SHA `1841cf5`
+  завершён успешно за 16 мин 41 с;
+- `1062 passed, 72 warnings` за 864,91 с; lint `0 errors / 1 existing warning`;
+- production build 1,37 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 918,30 с.
+
+### Checkpoint B5b — MAX update handlers service
+
+Реализовано и развёрнуто 2026-07-13:
+
+- новый import-safe `app/services/max_updates.py` владеет update type/payload-prefix,
+  message/callback extraction, real MAX user/profile normalization, login payload,
+  recipient priority, inline keyboard и approve/login/command/batch handling;
+- `MaxUpdateRuntime` инъецирует API, token parser, challenge approval, avatar,
+  command policy, UTC clock, diagnostic writer и log sink; service не импортирует
+  FastAPI, SQLite, env, provider token или `main.py`;
+- старые diagnostic timestamps и безопасные логи сохранены; login/approve payload
+  выводится только нормализованным prefix, исходный token не логируется;
+- все pure helpers доступны как compatibility symbols через `main`; wrappers
+  `handle_max_update(s)` только создают runtime и делегируют;
+- polling cursor/worker, webhook security/replay, subscription lifecycle, routes и
+  delivery modes не переносились и не менялись;
+- `main.py` уменьшен с 15 045 до 14 884 строк (−161); service 223 строки, direct
+  tests 154 строки; generated map уменьшен `606 → 598 symbols`, routes `166`.
+
+Доказательства:
+
+- существующая API/login/webhook/avatar characterization: `85 passed`; direct service
+  contracts: `6 passed`; полный MAX client/service suite `119 passed, 2 warnings`
+  пять последовательных циклов примерно по 53 с;
+- contracts покрывают real bot_started/callback/message shapes, avatar/language
+  normalization, chat-over-user recipient priority, sanitized prefix, approve API/
+  avatar/diag order, confirmation button и ordered batch filtering;
+- локальный Full: `1068 passed, 72 warnings`; lint `0 errors / 1 existing warning`,
+  build 0,479 с, origin `200/200/403/403`, итоговый `VERIFY_OK` за 337,05 с;
+  132 Python-файла, source стабилен: 116 файлов / 1 576 580 байт /
+  `2D5E93221F75C4A01960EB43E9CCBEDBE94D8985D9B31A2B32CC77D397D1328B`;
+- controlled backend-only restart: PID `28304 → 35644`, один listener
+  `127.0.0.1:8000`, proxy headers disabled; frontend PID 55520;
+- live MAX client/service: `/me=200`, polling updates `200`, error `null`, mode/ready
+  `polling/true`; read-only handler обработал `/help`, выбрал user recipient и
+  проигнорировал plain text без отправки provider reply;
+- schema/data migration не выполнялась, новый backup не требуется; secrets, paid
+  generation, VPS и tunnel не изменялись.
 
 Exact CI после B4b:
 

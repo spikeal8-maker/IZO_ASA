@@ -155,18 +155,40 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.services import (
+        MaxUpdateRuntime,
         TelegramUpdateRuntime,
+        extract_max_command,
+        handle_max_update_with_runtime,
+        handle_max_updates_with_runtime,
         handle_telegram_update_with_runtime,
         handle_telegram_updates_with_runtime,
+        max_login_payload_from_update,
+        max_message_payload,
+        max_recipient_params,
+        max_update_type,
+        max_user_from_message,
+        max_user_from_update,
+        sanitized_payload_prefix,
         telegram_answer_payload,
         telegram_message_from_update,
         telegram_user_from_update,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services import (
+        MaxUpdateRuntime,
         TelegramUpdateRuntime,
+        extract_max_command,
+        handle_max_update_with_runtime,
+        handle_max_updates_with_runtime,
         handle_telegram_update_with_runtime,
         handle_telegram_updates_with_runtime,
+        max_login_payload_from_update,
+        max_message_payload,
+        max_recipient_params,
+        max_update_type,
+        max_user_from_message,
+        max_user_from_update,
+        sanitized_payload_prefix,
         telegram_answer_payload,
         telegram_message_from_update,
         telegram_user_from_update,
@@ -1916,24 +1938,6 @@ def mask_short(value: Any) -> str | None:
     return f"{text[:4]}...{text[-4:]}"
 
 
-def max_update_type(update: dict[str, Any]) -> str:
-    for key in ("bot_started", "botStarted", "message_callback", "callback", "message_created", "message"):
-        if isinstance(update.get(key), dict):
-            return key
-    value = update.get("update_type") or update.get("type")
-    return str(value or "unknown")
-
-
-def sanitized_payload_prefix(payload: str | None) -> str | None:
-    if not isinstance(payload, str) or not payload:
-        return None
-    if payload.startswith("login_"):
-        return "login_"
-    if payload.startswith("approve:login_") or payload.startswith("approve:"):
-        return "approve_"
-    return payload[:16]
-
-
 def _max_base_from_me_payload(payload: dict[str, Any]) -> str | None:
     link = _pick_nested_string(payload, ("link", "url", "deep_link", "deeplink", "bot_link"))
     if link and re.match(r"^https://(?:www\.)?max\.ru/[^\s]+$", link):
@@ -2079,86 +2083,6 @@ def bot_login_token_from_payload(payload: str | None) -> str | None:
         return None
     token = payload.replace("login_", "", 1).strip()
     return token if token else None
-
-
-def max_user_from_message(message: dict[str, Any]) -> dict[str, Any] | None:
-    sender = message.get("sender") or message.get("user") or {}
-    if isinstance(sender, dict):
-        provider_id = sender.get("user_id") or sender.get("id")
-        if provider_id:
-            user = dict(sender)
-            user["id"] = provider_id
-            return user
-    user_id = message.get("user_id")
-    if user_id:
-        return {"id": user_id}
-    return None
-
-
-def _enrich_max_user_profile(user: dict[str, Any], update: dict[str, Any] | None) -> dict[str, Any]:
-    """Map MAX-specific field names onto the canonical keys the identity upsert
-    already reads (`photo_url`, `language_code`). MAX exposes the avatar as
-    `avatar_url`/`full_avatar_url` on the user object and the locale as a
-    top-level `user_locale` on the update. No-op when values are already present."""
-    if not user.get("photo_url"):
-        avatar = user.get("full_avatar_url") or user.get("avatar_url")
-        if isinstance(avatar, str) and avatar.startswith("https://"):
-            user["photo_url"] = avatar
-    if not user.get("language_code") and isinstance(update, dict):
-        locale = update.get("user_locale")
-        if isinstance(locale, str) and locale.strip():
-            user["language_code"] = locale.strip()
-    return user
-
-
-def max_user_from_update(update: dict[str, Any], message: dict[str, Any]) -> dict[str, Any] | None:
-    user = max_user_from_message(message)
-    if not user:
-        for container_key in ("callback", "message_callback", "bot_started", "botStarted"):
-            container = update.get(container_key)
-            if not isinstance(container, dict):
-                continue
-            for user_key in ("user", "sender", "from"):
-                candidate = container.get(user_key)
-                if isinstance(candidate, dict):
-                    provider_id = candidate.get("user_id") or candidate.get("id")
-                    if provider_id:
-                        user = dict(candidate)
-                        user["id"] = provider_id
-                        break
-            if user is None:
-                provider_id = container.get("user_id") or container.get("sender_id")
-                if provider_id:
-                    user = {"id": provider_id}
-            if user is not None:
-                break
-    if not user:
-        # Real MAX bot_started shape: user object and user_id live at the top level.
-        top_user = update.get("user")
-        if isinstance(top_user, dict):
-            provider_id = top_user.get("user_id") or top_user.get("id")
-            if provider_id:
-                user = dict(top_user)
-                user["id"] = provider_id
-        if not user and update.get("user_id"):
-            user = {"id": update.get("user_id")}
-    if not user:
-        return None
-    return _enrich_max_user_profile(user, update)
-
-
-def max_login_payload_from_update(update: dict[str, Any], text: str | None) -> str | None:
-    for key in ("payload", "start_payload", "startPayload"):
-        value = update.get(key)
-        if isinstance(value, str) and value.startswith("login_"):
-            return value
-    bot_started = update.get("bot_started") or update.get("botStarted") or {}
-    if isinstance(bot_started, dict):
-        for key in ("payload", "start_payload", "startPayload"):
-            value = bot_started.get(key)
-            if isinstance(value, str) and value.startswith("login_"):
-                return value
-    return bot_login_payload_from_text(text)
 
 
 def approve_bot_login_challenge(
@@ -4676,26 +4600,6 @@ async def configure_max_webhook_subscription() -> dict[str, Any]:
         raise
 
 
-def max_message_payload(answer: dict[str, Any]) -> dict[str, Any]:
-    buttons = answer.get("buttons", [])
-    payload: dict[str, Any] = {"text": answer["text"]}
-    if buttons:
-        row = []
-        for button in buttons:
-            if button.get("callback_data"):
-                row.append({"type": "callback", "text": button["text"], "payload": button["callback_data"]})
-            elif button.get("url"):
-                row.append({"type": "link", "text": button["text"], "url": button["url"]})
-        if row:
-            payload["attachments"] = [
-                {
-                    "type": "inline_keyboard",
-                    "payload": {"buttons": [row]},
-                }
-            ]
-    return payload
-
-
 def get_bot_polling_cursor(provider: Literal["telegram", "max"]) -> str | None:
     with db() as conn:
         row = conn.execute("SELECT cursor FROM bot_polling_state WHERE provider = ?", (provider,)).fetchone()
@@ -4743,90 +4647,25 @@ async def handle_telegram_updates(updates: list[dict[str, Any]], send_replies: b
     return await handle_telegram_updates_with_runtime(updates, send_replies, telegram_update_runtime())
 
 
-def extract_max_command(update: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    callback = update.get("callback") or update.get("message_callback") or {}
-    message = (
-        update.get("message")
-        or update.get("message_created", {}).get("message")
-        or update.get("bot_started", {}).get("message")
-        or callback.get("message")
-        or {}
+def max_update_runtime() -> MaxUpdateRuntime:
+    return MaxUpdateRuntime(
+        api_call=lambda method, path, payload, params: max_api(method, path, payload, params),
+        login_token_from_payload=bot_login_token_from_payload,
+        approve_login=lambda token, user: approve_bot_login_challenge("max", token, user),
+        schedule_avatar=lambda provider_user_id: schedule_avatar_cache("max", provider_user_id),
+        command_response=lambda text: bot_command_response("max", text),
+        now_iso=lambda: datetime.now(timezone.utc).isoformat(),
+        set_diagnostic=lambda key, value: MAX_POLLING_DIAG.__setitem__(key, value),
+        log=print,
     )
-    body = message.get("body") or {}
-    text = callback.get("payload") or callback.get("data") or message.get("text") or body.get("text") or ""
-    return text, message
-
-
-def max_recipient_params(message: dict[str, Any], update: dict[str, Any] | None = None) -> dict[str, Any]:
-    recipient = message.get("recipient") or {}
-    chat_id = message.get("chat_id") or recipient.get("chat_id")
-    user_id = message.get("user_id") or recipient.get("user_id") or message.get("sender", {}).get("user_id") or message.get("sender", {}).get("id")
-    # Real MAX bot_started shape carries no message object; recipient lives at the
-    # top level (chat_id + user_id). Fall back to it only when message has none.
-    if not chat_id and not user_id and isinstance(update, dict):
-        chat_id = update.get("chat_id")
-        top_user = update.get("user") if isinstance(update.get("user"), dict) else {}
-        user_id = update.get("user_id") or top_user.get("user_id") or top_user.get("id")
-    params: dict[str, Any] = {}
-    if chat_id:
-        params["chat_id"] = chat_id
-    elif user_id:
-        params["user_id"] = user_id
-    return params
 
 
 async def handle_max_updates(updates: list[dict[str, Any]], send_replies: bool) -> list[dict[str, Any]]:
-    handled = []
-    for update in updates:
-        result = await handle_max_update(update, send_replies)
-        if result:
-            handled.append(result)
-    return handled
+    return await handle_max_updates_with_runtime(updates, send_replies, max_update_runtime())
 
 
 async def handle_max_update(update: dict[str, Any], send_replies: bool) -> dict[str, Any] | None:
-    text, message = extract_max_command(update)
-    update_type = max_update_type(update)
-    user_present = bool(max_user_from_update(update, message))
-    payload_prefix = sanitized_payload_prefix(text if isinstance(text, str) else None)
-    if update_type in {"bot_started", "botStarted"} or payload_prefix in {"login_", "approve_"}:
-        print(f"MAX_UPDATE type={update_type} hasPayload={bool(payload_prefix)} payloadPrefix={payload_prefix or 'none'} userIdPresent={user_present}")
-    if isinstance(text, str) and (text.startswith("approve:") or text.startswith("/approve ")):
-        MAX_POLLING_DIAG["lastCallbackAt"] = datetime.now(timezone.utc).isoformat()
-        print(f"MAX approve callback received payloadPrefix={payload_prefix or 'none'} userIdPresent={user_present}")
-        token_source = text.replace("approve:", "", 1) if text.startswith("approve:") else text.split(maxsplit=1)[1]
-        token = bot_login_token_from_payload(token_source)
-        user = max_user_from_update(update, message)
-        approved = bool(token and user and approve_bot_login_challenge("max", token, user))
-        print(f"MAX challenge status={'approved' if approved else 'rejected'}")
-        if approved and user:
-            schedule_avatar_cache("max", str(user.get("id") or ""))
-        params = max_recipient_params(message, update)
-        if send_replies and params:
-            await max_api(
-                "POST",
-                "/messages",
-                {"text": "Готово. Вернитесь в браузер." if approved else "Ссылка входа устарела. Попробуйте снова."},
-                params=params,
-            )
-        return {"update": update, "recipient": params, "botLogin": "approved" if approved else "rejected"}
-    login_payload = max_login_payload_from_update(update, text)
-    if login_payload:
-        MAX_POLLING_DIAG["lastBotStartedAt"] = datetime.now(timezone.utc).isoformat()
-        print(f"MAX payload login_ received userIdPresent={user_present}")
-        answer = bot_command_response("max", login_payload)
-        params = max_recipient_params(message, update)
-        if send_replies and params:
-            await max_api("POST", "/messages", max_message_payload(answer), params=params)
-            print("MAX confirmation button sent")
-        return {"update": update, "recipient": params, "answer": answer}
-    if isinstance(text, str) and text.startswith("/"):
-        answer = bot_command_response("max", text)
-        params = max_recipient_params(message, update)
-        if send_replies and params:
-            await max_api("POST", "/messages", max_message_payload(answer), params=params)
-        return {"update": update, "recipient": params, "answer": answer}
-    return None
+    return await handle_max_update_with_runtime(update, send_replies, max_update_runtime())
 
 
 def polling_retry_after(exc: Exception, default: float = 5.0) -> float:

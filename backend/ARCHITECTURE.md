@@ -116,6 +116,11 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   typed injected runtime. It does not import FastAPI, SQLite, provider configuration
   or `main`; `main.py` retains compatibility wrappers and wires bot-login approval,
   avatar scheduling, command responses, API calls and sanitized callback-error logs.
+- `backend/app/services/max_updates.py` owns MAX update-shape/user/profile parsing,
+  recipient and inline-button mapping plus approve/login/command/batch handling through
+  an injected runtime. It does not import FastAPI, SQLite, configuration or `main`;
+  `main.py` retains compatibility symbols/wrappers and wires diagnostics, logging,
+  authentication, avatar scheduling and the MAX client.
 - `backend/conftest.py` redirects every backend test to a temporary SQLite database, media root and avatar root even when a test forgot its own fixture.
 - Keep it independent of FastAPI, SQLite and provider network calls.
 
