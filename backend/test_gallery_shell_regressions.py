@@ -1,7 +1,12 @@
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
+import main
+
 
 GALLERY_DIR = Path(__file__).resolve().parent / "static" / "gallery"
+FEED_DIR = Path(__file__).resolve().parent / "static" / "feed"
 
 
 def test_gallery_shell_keeps_sticky_header_and_five_mobile_tabs():
@@ -58,3 +63,20 @@ def test_secondary_endpoint_skips_primary_gallery_query():
     secondary_block = source.split("async def gallery_secondary", 1)[1].split("async def _gallery_page_payload", 1)[0]
     assert "secondary_only=True" in secondary_block
     assert "payload = await gallery_page" not in secondary_block
+
+
+def test_gallery_and_feed_shells_expose_the_shared_favicon():
+    expected = '<link rel="icon" type="image/svg+xml" href="/favicon.svg" />'
+    gallery = (GALLERY_DIR / "index.html").read_text(encoding="utf-8")
+    feed = (FEED_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert expected in gallery
+    assert expected in feed
+
+
+def test_shared_favicon_is_served_by_backend():
+    response = TestClient(main.app).get("/favicon.svg")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert response.content.startswith(b"<svg")

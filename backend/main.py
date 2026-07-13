@@ -356,6 +356,17 @@ ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
 GALLERY_PAGE_FILE = STATIC_DIR / "gallery" / "index.html"
 FEED_PAGE_FILE = STATIC_DIR / "feed" / "index.html"
+FAVICON_FILE = next(
+    (
+        path
+        for path in (
+            ROOT.parent / "frontend" / "public" / "favicon.svg",
+            ROOT.parent / "frontend" / "dist" / "favicon.svg",
+        )
+        if path.exists()
+    ),
+    None,
+)
 AVATAR_PRESET_DIR = next(
     (
         path
@@ -544,6 +555,17 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 if AVATAR_PRESET_DIR is not None:
     app.mount("/avatars", StaticFiles(directory=AVATAR_PRESET_DIR), name="avatars")
+
+
+@app.get("/favicon.svg", include_in_schema=False)
+async def favicon() -> FileResponse:
+    if FAVICON_FILE is None:
+        raise HTTPException(404, "Favicon is not installed.")
+    return FileResponse(
+        FAVICON_FILE,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.get("/", include_in_schema=False)
