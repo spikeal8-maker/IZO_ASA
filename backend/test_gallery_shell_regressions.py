@@ -17,6 +17,12 @@ def test_gallery_shell_keeps_sticky_header_and_five_mobile_tabs():
     assert "grid-template-columns:repeat(6,minmax(0,1fr))" not in css
 
 
+def test_feed_shell_uses_all_mobile_width_for_five_tabs():
+    page = (FEED_DIR / "index.html").read_text(encoding="utf-8")
+    assert page.count("grid-template-columns:repeat(5,minmax(0,1fr))") >= 2
+    assert "grid-template-columns:repeat(6,minmax(0,1fr))" not in page
+
+
 def test_gallery_shell_hydrates_avatar_with_initials_fallback():
     script = (GALLERY_DIR / "gallery.js").read_text(encoding="utf-8")
     page = (GALLERY_DIR / "index.html").read_text(encoding="utf-8")
