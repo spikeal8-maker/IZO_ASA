@@ -284,21 +284,32 @@ def test_openrouter_generation_skips_comfyui(monkeypatch) -> None:
 
 
 def test_cancel_generation_sets_cancelled_status(monkeypatch) -> None:
-    async def delayed_send_to_comfyui(payload: main.GenerateRequest, job: dict) -> main.ComfyUIResult:
-        # Give the cancel request an event-loop scheduling window even on a slow
-        # two-core CI runner. The production worker still receives a normal
-        # result and must preserve the already-cancelled terminal state.
-        await asyncio.sleep(2)
-        return await fake_send_to_comfyui(payload, job)
+    class FakeInterruptClient:
+        def __init__(self, *args, **kwargs):
+            pass
 
-    monkeypatch.setattr(main, "send_to_comfyui", delayed_send_to_comfyui)
-    with authed_client() as client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeInterruptClient)
+    # Do not enter TestClient as a context here: lifespan would start the
+    # generation worker and turn a cancel-route contract into a CPU race.
+    client = authed_client()
+    try:
         created = client.post(
             "/api/generate",
             json={"mode": "text_to_image", "provider": "comfyui", "prompt": "cancel me", "width": 704, "height": 704},
         ).json()
         cancelled = client.post(f"/api/jobs/{created['id']}/cancel").json()
-        final = wait_for_terminal_job(client, created["id"])
+        final = client.get(f"/api/jobs/{created['id']}").json()
+    finally:
+        client.close()
 
     assert cancelled["status"] == "cancelled"
     assert final["status"] == "cancelled"
