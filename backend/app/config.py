@@ -7,10 +7,32 @@ SQLite, start workers or import the FastAPI application.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CORS_ALLOWED_ORIGINS = (
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://izo.alikinas.ru",
+)
+
+
+@dataclass(frozen=True)
+class HttpSecurityPolicy:
+    session_cookie_name: str
+    refresh_cookie_name: str
+    cookie_secure: bool
+    cookie_samesite: str
+    cookie_domain: str | None
+    cookie_path: str
+    bot_login_challenge_cookie_name: str
+    bot_login_challenge_ttl_seconds: int
+    trust_proxy_headers: bool
+    trust_cloudflare_headers: bool
+    cors_allowed_origins: tuple[str, ...]
 
 
 def load_local_env(root: Path | None = None) -> None:
@@ -34,6 +56,40 @@ def env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def load_http_security_policy(
+    environment: Mapping[str, str] | None = None,
+    *,
+    app_env: str | None = None,
+) -> HttpSecurityPolicy:
+    """Parse the legacy cookie, proxy-header and CORS environment contract.
+
+    Boolean parsing intentionally remains exact: these security switches were
+    historically enabled only by the literal value ``true`` (case-insensitive).
+    Broadening that behavior during extraction could enable trust unexpectedly.
+    """
+
+    source = os.environ if environment is None else environment
+    current_app_env = source.get("APP_ENV", "development") if app_env is None else app_env
+    secure_default = "true" if current_app_env.lower() == "production" else "false"
+    cors_raw = source.get("CORS_ALLOWED_ORIGINS", ",".join(DEFAULT_CORS_ALLOWED_ORIGINS))
+
+    return HttpSecurityPolicy(
+        session_cookie_name=source.get("TRUSTED_SESSION_COOKIE_NAME", "onenode_session"),
+        refresh_cookie_name=source.get("TRUSTED_REFRESH_COOKIE_NAME", "onenode_refresh"),
+        cookie_secure=source.get("TRUSTED_COOKIE_SECURE", secure_default).lower() == "true",
+        cookie_samesite=source.get("TRUSTED_COOKIE_SAMESITE", "lax"),
+        cookie_domain=source.get("TRUSTED_COOKIE_DOMAIN", "") or None,
+        cookie_path=source.get("TRUSTED_COOKIE_PATH", "/"),
+        bot_login_challenge_cookie_name=source.get(
+            "BOT_LOGIN_CHALLENGE_COOKIE_NAME", "onenode_bot_login"
+        ),
+        bot_login_challenge_ttl_seconds=int(source.get("BOT_LOGIN_CHALLENGE_TTL_SECONDS", "600")),
+        trust_proxy_headers=source.get("TRUST_PROXY_HEADERS", "false").lower() == "true",
+        trust_cloudflare_headers=source.get("TRUST_CLOUDFLARE_HEADERS", "false").lower() == "true",
+        cors_allowed_origins=tuple(origin.strip() for origin in cors_raw.split(",") if origin.strip()),
+    )
 
 
 def sqlite_path_from_database_url(value: str | None, root: Path | None = None) -> Path:

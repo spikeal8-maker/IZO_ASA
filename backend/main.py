@@ -52,9 +52,9 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
 
 try:
-    from .app.config import env_bool, load_local_env, sqlite_path_from_database_url
+    from .app.config import env_bool, load_http_security_policy, load_local_env, sqlite_path_from_database_url
 except ImportError:  # Direct `python backend/main.py` execution.
-    from app.config import env_bool, load_local_env, sqlite_path_from_database_url
+    from app.config import env_bool, load_http_security_policy, load_local_env, sqlite_path_from_database_url
 
 try:
     from .app.integrations import (
@@ -488,40 +488,31 @@ SESSION_REFRESH_TTL_SECONDS = int(os.getenv("SESSION_REFRESH_TTL_SECONDS", str(6
 # Phase 13: HttpOnly trusted-session cookies. The session cookie name stays
 # "onenode_session" so the existing resolver keeps working. Cookies are the
 # transport for raw tokens; the DB still stores only hashes.
-TRUSTED_SESSION_COOKIE_NAME = os.getenv("TRUSTED_SESSION_COOKIE_NAME", "onenode_session")
-TRUSTED_REFRESH_COOKIE_NAME = os.getenv("TRUSTED_REFRESH_COOKIE_NAME", "onenode_refresh")
-TRUSTED_COOKIE_SECURE = os.getenv(
-    "TRUSTED_COOKIE_SECURE", "true" if APP_ENV.lower() == "production" else "false"
-).lower() == "true"
-TRUSTED_COOKIE_SAMESITE = os.getenv("TRUSTED_COOKIE_SAMESITE", "lax")
-TRUSTED_COOKIE_DOMAIN = os.getenv("TRUSTED_COOKIE_DOMAIN", "") or None
-TRUSTED_COOKIE_PATH = os.getenv("TRUSTED_COOKIE_PATH", "/")
+_HTTP_SECURITY_POLICY = load_http_security_policy(app_env=APP_ENV)
+TRUSTED_SESSION_COOKIE_NAME = _HTTP_SECURITY_POLICY.session_cookie_name
+TRUSTED_REFRESH_COOKIE_NAME = _HTTP_SECURITY_POLICY.refresh_cookie_name
+TRUSTED_COOKIE_SECURE = _HTTP_SECURITY_POLICY.cookie_secure
+TRUSTED_COOKIE_SAMESITE = _HTTP_SECURITY_POLICY.cookie_samesite
+TRUSTED_COOKIE_DOMAIN = _HTTP_SECURITY_POLICY.cookie_domain
+TRUSTED_COOKIE_PATH = _HTTP_SECURITY_POLICY.cookie_path
 SESSION_COOKIE_NAME = TRUSTED_SESSION_COOKIE_NAME
-BOT_LOGIN_CHALLENGE_COOKIE_NAME = os.getenv("BOT_LOGIN_CHALLENGE_COOKIE_NAME", "onenode_bot_login")
-BOT_LOGIN_CHALLENGE_TTL_SECONDS = int(os.getenv("BOT_LOGIN_CHALLENGE_TTL_SECONDS", "600"))
+BOT_LOGIN_CHALLENGE_COOKIE_NAME = _HTTP_SECURITY_POLICY.bot_login_challenge_cookie_name
+BOT_LOGIN_CHALLENGE_TTL_SECONDS = _HTTP_SECURITY_POLICY.bot_login_challenge_ttl_seconds
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")
 TELEGRAM_BOT_DEEP_LINK_BASE = os.getenv("TELEGRAM_BOT_DEEP_LINK_BASE", "")
 MAX_BOT_DEEP_LINK_BASE = os.getenv("MAX_BOT_DEEP_LINK_BASE", "")
 
-# Phase 18: client-IP trust. Default OFF (use the direct socket peer). Behind the
-# Cloudflare tunnel the socket peer is 127.0.0.1, so the real client IP arrives in
-# CF-Connecting-IP — trust it ONLY when explicitly enabled (the origin is reachable
-# only via the tunnel, so the header cannot be spoofed by direct internet clients).
-TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "false").lower() == "true"
-TRUST_CLOUDFLARE_HEADERS = os.getenv("TRUST_CLOUDFLARE_HEADERS", "false").lower() == "true"
+# Phase 18/A7: Uvicorn preserves the direct socket peer. Application code accepts
+# validated proxy metadata only when its explicit flag is enabled and that peer is
+# loopback; see app/security/proxy_headers.py.
+TRUST_PROXY_HEADERS = _HTTP_SECURITY_POLICY.trust_proxy_headers
+TRUST_CLOUDFLARE_HEADERS = _HTTP_SECURITY_POLICY.trust_cloudflare_headers
 
 # Phase 13.2: explicit CORS origins. A wildcard origin together with credentials is
 # rejected by browsers and is unsafe, so we read an explicit allowlist from
 # CORS_ALLOWED_ORIGINS (comma-separated) and fall back to the known dev + tunnel
 # origins. allow_credentials stays True so cookie auth works.
-CORS_ALLOWED_ORIGINS = [
-    o.strip()
-    for o in os.getenv(
-        "CORS_ALLOWED_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173,https://izo.alikinas.ru",
-    ).split(",")
-    if o.strip()
-]
+CORS_ALLOWED_ORIGINS = list(_HTTP_SECURITY_POLICY.cors_allowed_origins)
 
 # Email OTP login (Phase 8). No real email is sent in dev/test; a mock sender is
 # used. EMAIL_OTP_DEBUG_RETURN_CODE may only be enabled outside production.

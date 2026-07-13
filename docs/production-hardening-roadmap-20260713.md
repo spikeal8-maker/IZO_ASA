@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `A7` — exact Vite Host allowlist и loopback-only proxy metadata trust; commit `87f4351` |
+| Последний completed checkpoint | `B2a` — typed cookie/proxy/CORS config extraction; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 976 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 983 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 121 файл; startup `checked=123`, `available=121`, `missing=2`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; A7 run `29239661386` success, required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; combined-head run `29242043545` success (`979 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и три live snapshot готовы; автоматический schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 277 working tree; 15 255 в A7 commit, ещё 22 строки относятся к отдельной незавершённой favicon-правке | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 268 после B2a | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -103,7 +103,7 @@
 
 | ID | Статус | Состояние |
 |---|---|---|
-| BE-01 | `ЧАСТИЧНО` | `app/config.py` создан; большая часть runtime constants/env policy остаётся в `main.py` |
+| BE-01 | `ЧАСТИЧНО` | `app/config.py` владеет env/DB-path helpers и typed cookie/proxy/CORS policy; paths, provider URLs/modes/limits и production validation ещё остаются |
 | BE-02 | `ЧАСТИЧНО` | `database/connection.py`, `guard.py`, `schema.py`, `migrations.py` созданы; repository layer и migration ledger не завершены |
 | BE-03 | `ЧАСТИЧНО` | Tokens/passwords/sessions/permissions/OTP/events вынесены; legacy auth removal и routers не завершены |
 | BE-04 | `ЧАСТИЧНО` | Storage paths/private/public/recovery/source graph/thumbnails/validation/cleanup вынесены; оставшиеся gallery/media orchestration blocks ещё в `main.py` |
@@ -189,7 +189,7 @@
 | Пакет | Результат |
 |---|---|
 | B1 | `ГОТОВО` — model aliases и request metadata вынесены; дальнейшее мелкое дробление этой integration boundary остановлено |
-| B2 | Завершить `app/config.py`: paths, URLs, modes, limits, cookie/proxy policy и production validation |
+| B2 | `ЧАСТИЧНО` — B2a cookie/proxy/CORS policy готов; продолжить paths, URLs, modes, limits и production validation малыми пакетами |
 | B3 | Завершить migrations: ledger/version, idempotent schema groups, billing/feed/auth migration tests |
 | B4 | Выделить Telegram client и затем handlers/service |
 | B5 | Выделить MAX client и затем handlers/service |
@@ -582,6 +582,43 @@
   `0 errors / 1 existing warning`, build/origin-probe successful, source snapshot
   стабилен; runtime restart не требовался, так как менялись только generated map
   и документация.
+
+### Checkpoint B2a — typed HTTP security configuration
+
+Реализовано и развёрнуто 2026-07-13:
+
+- `app/config.py` получил immutable `HttpSecurityPolicy` и import-safe loader для
+  session/refresh/challenge cookie names, secure/samesite/domain/path, challenge
+  TTL, CF/XFF trust flags и CORS origins;
+- `main.py` сохраняет прежние compatibility globals, поэтому существующие auth,
+  bot-login, cookie и analytics consumers не переписаны массово;
+- extraction намеренно сохраняет старую security semantics: только literal
+  `true` (case-insensitive, без whitespace normalization) включает secure/proxy
+  trust; `1`, `yes` и ` true ` не расширяют доверие;
+- production secure default по-прежнему включается только при точном
+  `APP_ENV=production`; `prod` не меняет прежнее поведение;
+- CORS default/ordering и очистка пустых comma-separated entries сохранены;
+  FastAPI middleware получает обычный list из typed tuple policy;
+- production validation не смешана с extraction и остаётся следующим подпакетом
+  B2 вместе с path/URL/mode/limit policies.
+
+Доказательства:
+
+- characterization ожидаемо остановился на отсутствующих
+  `DEFAULT_CORS_ALLOWED_ORIGINS`/`load_http_security_policy`;
+- расширенный config/cookie/bot/proxy suite: `55 passed` пять последовательных
+  циклов; generated backend map `ok` в каждом цикле;
+- финальный Full: `983 passed, 72 warnings` за 293,45 с; frontend lint
+  `0 errors / 1 existing warning`, build successful, origin `200/200/403/403`;
+- source snapshot стабилен: 121 файл / 1 649 086 байт / SHA-256
+  `FE5B537CBA2FCFD4F74A2CFD66261BB5DF3D5E885B8D3BC96AE2227E1B513CF8`;
+- deploy через штатный production launcher: backend PID 48656, frontend PID 10564,
+  по одному loopback listener, health/database ready, public main/health/version
+  HTTP 200, auth smoke `401/401/401`, MAX polling HTTP 200;
+- live CORS: `https://izo.alikinas.ru` получил HTTP 200 и exact allow-origin;
+  `https://evil.example` получил HTTP 400 без allow-origin;
+- VPS, tunnel, secrets, DB и media не изменялись; runtime restart выполнялся
+  launcher с production environment, а не unconfigured backend-only shell.
 
 ## 9. Обязательный gate каждого пакета
 

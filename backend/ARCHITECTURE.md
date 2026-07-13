@@ -43,7 +43,9 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 ## Existing extracted module
 
 - `backend/resolution_policy.py` owns canonical image resolutions and provider capability mapping.
-- `backend/app/config.py` owns import-safe environment and database-path parsing helpers.
+- `backend/app/config.py` owns import-safe environment/database-path helpers and the
+  typed HTTP security policy for cookie names/flags, proxy trust flags and the CORS
+  origin list. `main.py` keeps compatibility globals while later B2 packages continue.
 - `backend/app/database/connection.py` owns the SQLite connection policy.
 - `backend/app/database/guard.py` owns import-safe DB Guard checks; `main.py` retains compatibility wrappers while the split continues.
 - `backend/app/database/migrations.py` owns validated additive-column primitives and column declarations used by the legacy initializer.
