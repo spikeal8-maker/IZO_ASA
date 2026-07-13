@@ -39,10 +39,10 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний runtime checkpoint | `A4` — MAX webhook secret/body/mode enforcement; точный hash в Git history |
+| Последний runtime checkpoint | `A4b` — MAX API2/system trust-store migration; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 924 passed, 0 failed, 0 deselected |
+| Последний полный test checkpoint | 934 passed, 0 failed, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 233 | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 241 | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -140,7 +140,7 @@
 | OPS-06 | `НЕ НАЧАТО` | Нет encrypted offsite copy, checksum/quick_check pipeline и регулярного restore test |
 | OPS-07 | `ЧАСТИЧНО` | Есть health/logs и ручной storage audit, но нет единого monitoring/alerting контура |
 | OPS-08 | `ГОТОВО` | Внешний VPS/tunnel исключён из оптимизационных изменений |
-| OPS-09 | `НЕ НАЧАТО` | Срочно: `platform-api.max.ru` должен быть переведён на `platform-api2.max.ru` с trust-store/certificate rehearsal до 2026-07-19 |
+| OPS-09 | `ГОТОВО` | MAX переведён на `platform-api2.max.ru`; HTTPX использует native system trust store, polling и `/me` live smoke успешны |
 
 ### 5.6. Database, billing и масштабирование
 
@@ -177,7 +177,7 @@
 | A2 | P0 | GitHub Actions CI вызывает те же deterministic checks без production/real-provider tests |
 | A3 | P0 | `ГОТОВО` — Telegram webhook secret required-in-webhook-mode validation, constant-time header check, negative/replay/body-limit tests |
 | A4 | P0 | `ГОТОВО` — MAX secret: запрещён пустой secret в webhook mode, constant-time comparison, body/mode/negative tests |
-| A4b | P0 | MAX API hostname/certificate migration: проверить `platform-api2.max.ru`, trust store, polling smoke и rollback до 2026-07-19 |
+| A4b | P0 | `ГОТОВО` — MAX API2/system trust-store migration, sanitized probe, polling + `/me` live smoke и rollback contract |
 | A5 | P0 | OpenRouter secret migration: DPAPI store вне repository, admin UI configured/source only, plaintext SQLite migration/delete, затем ручная rotation инструкция |
 | A6 | P0 | Backup tooling: SQLite Backup API, media manifest/incremental copy, second-disk destination через внешнюю config, `quick_check`, checksum и restore rehearsal |
 | A7 | P1 | Точный Vite host allowlist и automated loopback/proxy-header isolation check |
@@ -252,8 +252,8 @@
 2. `B1` — `ГОТОВО`: OpenRouter aliases/request metadata extraction.
 3. `A3` — `ГОТОВО`: Telegram webhook secret/body/replay enforcement.
 4. `A4` — `ГОТОВО`: MAX webhook secret/body/mode enforcement.
-5. `A4b` — **СЛЕДУЮЩИЙ ПАКЕТ (дедлайн 2026-07-19)**: MAX API2/certificate migration rehearsal.
-6. `A5` — OpenRouter DPAPI secret store и удаление plaintext SQLite secret.
+5. `A4b` — `ГОТОВО`: MAX API2/system trust-store migration.
+6. `A5` — **СЛЕДУЮЩИЙ ПАКЕТ**: OpenRouter DPAPI secret store и удаление plaintext SQLite secret.
 7. `A6` — backup/restore tooling без автоматического schedule на первом PR.
 8. `A2` — GitHub Actions CI поверх стабильной verify command.
 9. `A7` — host allowlist и proxy-origin checks.
@@ -355,6 +355,32 @@
 - реальный MAX long polling после restart: marker 9301, status 200, no error;
 - live smoke 5/5: health/database/models/feed HTTP 200, MAX mode `polling`, MAX polling status 200, MAX webhook HTTP 404, private source HTTP 401;
 - production `.env`, MAX subscription, VPS и tunnel не изменялись.
+
+### Checkpoint A4b — MAX API2 и системный trust store
+
+Реализовано 2026-07-13:
+
+- исходный probe локализовал проблему: API1 Python/certifi HTTP 200, API2 Python/certifi `ConnectError`, API2 Windows trust store достигал HTTP 401 без токена;
+- добавлен pinned `truststore==0.10.4`; `MAX_TLS_TRUST_STORE=system` создаёт native OS SSL context, rollback mode `certifi` сохраняется;
+- async MAX API client и synchronous `/me` deep-link discovery используют один `MAX_HTTP_VERIFY` context;
+- `tools/probe_max_api.py` выполняет read-only `/me` и выводит только host/trustStore/status/HTTP;
+- launcher default и локальный production `.env` переведены на `https://platform-api2.max.ru`; delivery mode остался polling;
+- никакие сертификаты вручную не копировались в repository, Python bundle или VPS.
+
+Доказательства:
+
+- characterization test ожидаемо упал на отсутствии `app.integrations.max_tls`;
+- до реализации API2 system-trust probe вернул 200 с реальным токеном без вывода token/body;
+- первый focused test обнаружил ошибочную SSL injection в Telegram вместо MAX до deployment; исправлено;
+- первый API2 live cutover обнаружил второй sync `/me` certifi path: polling был 200, deep-link `ConnectError`; path исправлен и все gates повторены;
+- финальный focused TLS/probe/launcher/deep-link suite: `15 passed` пять последовательных прогонов;
+- финальный повторный `Full`: `934 passed, 72 warnings`, frontend lint `0 errors / 1 existing warning`, frontend build успешно;
+- `py_compile` и generated map check успешны: 116 Python-файлов, 608 symbols, 165 routes;
+- source snapshot до/после: 122 файла, 1 706 364 байта, SHA-256 `AC1A00934150E28C74BC1C4F319AFF24C84324FF8842AE8EEACD44D34A977850`, без изменений;
+- controlled final restart: PID 41040 → PID 28572, один listener `127.0.0.1:8000`, startup `changed=0`;
+- final runtime: API2, trust store `system`, MAX polling 200/no error, `/me` 200, nickname/deep-link resolved через API;
+- live smoke 5/5: health/database/models/feed HTTP 200, MAX API2 polling + `/me` 200, MAX webhook HTTP 404, private source HTTP 401;
+- локальный `.env` изменён только в публичных `MAX_API_BASE_URL`/`MAX_TLS_TRUST_STORE`; secrets, MAX subscription, VPS и tunnel не изменялись.
 
 ## 9. Обязательный gate каждого пакета
 

@@ -122,9 +122,11 @@ class _FakeMaxResponse:
 class _FakeMaxClient:
     calls: list[dict] = []
     response = _FakeMaxResponse(200, {"username": "real_max_bot"})
+    verify = None
 
-    def __init__(self, timeout: int = 10):
+    def __init__(self, timeout: int = 10, verify=None):
         self.timeout = timeout
+        type(self).verify = verify
 
     def __enter__(self):
         return self
@@ -150,6 +152,7 @@ def test_max_capability_resolves_deep_link_base_from_api_me(temp_db, monkeypatch
     assert payload["bot_login"]["max_bot_login_available"] is True
     assert main._MAX_BOT_DEEP_LINK_CACHE["source"] == "api"
     assert main._MAX_BOT_DEEP_LINK_CACHE["base"] == "https://max.ru/real_max_bot"
+    assert _FakeMaxClient.verify is main.MAX_HTTP_VERIFY
     assert _FakeMaxClient.calls[0]["url"].endswith("/me")
     assert "secret-max-token" not in capsys.readouterr().out
 

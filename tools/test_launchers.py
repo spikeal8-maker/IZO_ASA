@@ -30,3 +30,10 @@ def test_public_launcher_keeps_max_polling_unless_webhook_is_explicit() -> None:
 
     assert 'if "%MAX_UPDATES_MODE%"=="" set "MAX_UPDATES_MODE=polling"' in launcher
     assert 'if "%MAX_UPDATES_MODE%"=="" set "MAX_UPDATES_MODE=webhook"' not in launcher
+
+
+def test_public_launcher_defaults_to_migrated_max_api2_hostname() -> None:
+    launcher = (ROOT / "start-public.bat").read_text(encoding="utf-8")
+
+    assert 'set "MAX_API_BASE_URL=https://platform-api2.max.ru"' in launcher
+    assert 'set "MAX_API_BASE_URL=https://platform-api.max.ru"' not in launcher

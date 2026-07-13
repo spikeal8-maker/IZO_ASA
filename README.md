@@ -103,7 +103,8 @@ TELEGRAM_WEBHOOK_SECRET=...
 TELEGRAM_WEBHOOK_MAX_BODY_BYTES=262144
 TELEGRAM_WEBHOOK_REPLAY_CACHE_SIZE=4096
 MAX_BOT_TOKEN=...
-MAX_API_BASE_URL=https://platform-api.max.ru
+MAX_API_BASE_URL=https://platform-api2.max.ru
+MAX_TLS_TRUST_STORE=system
 # Keep polling until webhook mode is switched explicitly with a configured secret.
 MAX_UPDATES_MODE=polling
 # Required only when MAX_UPDATES_MODE=webhook.
@@ -138,11 +139,19 @@ public webhook receiver. Webhook mode requires a distinct secret matching
 polling to webhook implicitly. The format and header follow the official
 [MAX subscription API](https://dev.max.ru/docs-api/methods/POST/subscriptions).
 
-The same MAX documentation announces migration from `platform-api.max.ru` to
-`platform-api2.max.ru` by 2026-07-19 together with trust-store changes. This
-repository keeps the currently working hostname until the separate documented
-certificate/migration rehearsal is completed; do not flip it during an unrelated
-deployment.
+The MAX API hostname migration is complete: runtime and launcher use
+`platform-api2.max.ru`, while `truststore==0.10.4` lets HTTPX validate the server
+through the native OS trust store. Verify a new PC before starting the backend:
+
+```powershell
+python tools/probe_max_api.py
+```
+
+The probe prints only host/trust-store/status/HTTP metadata, never the token or
+response body. Emergency rollback is explicit: restore
+`MAX_API_BASE_URL=https://platform-api.max.ru` and
+`MAX_TLS_TRUST_STORE=certifi`, restart the backend, then confirm polling status
+200. Do not leave the rollback in place past the provider migration window.
 
 Useful local checks:
 

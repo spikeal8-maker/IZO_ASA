@@ -9,6 +9,7 @@
 - Telegram webhook security: webhook mode requires a valid `TELEGRAM_WEBHOOK_SECRET`, registration sends `secret_token`, the official header is compared in constant time, oversized/malformed bodies are rejected, and repeated integer `update_id` values are acknowledged without reprocessing.
 - MAX webhook security: polling keeps the receiver closed; webhook mode requires an official-format `MAX_WEBHOOK_SECRET`, subscription creation always sends it, the header is compared in constant time, and oversized/malformed bodies are rejected.
 - Launcher mode safety: `start-public.bat` must not switch MAX from the proven polling mode to webhook implicitly.
+- MAX API TLS migration: API2 uses the native system trust store; async polling/messages and synchronous `/me` deep-link discovery receive the same verify context, and `tools/probe_max_api.py` exposes no token/body.
 - Health: API responds and reports ComfyUI/FluxKleinOneNode availability fields.
 - Generation modes: `text_to_image`, `image_to_image`, `edit`, `paint`, `inpaint`, `outpaint`, `faceswap`.
 - Providers: ComfyUI path calls the ComfyUI adapter, OpenRouter path does not.

@@ -58,6 +58,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.integrations import (
+        build_max_http_verify,
         build_openrouter_image_request_metadata,
         build_openrouter_image_request_body,
         build_openrouter_image_request_plan,
@@ -74,6 +75,7 @@ try:
         normalize_openrouter_endpoint_capability,
         normalize_openrouter_image_response_metadata,
         normalize_openrouter_model_capability,
+        normalize_max_tls_trust_store,
         openrouter_descriptor_values,
         openrouter_error_message,
         openrouter_ratio_size,
@@ -87,6 +89,7 @@ try:
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations import (
+        build_max_http_verify,
         build_openrouter_image_request_metadata,
         build_openrouter_image_request_body,
         build_openrouter_image_request_plan,
@@ -103,6 +106,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         normalize_openrouter_endpoint_capability,
         normalize_openrouter_image_response_metadata,
         normalize_openrouter_model_capability,
+        normalize_max_tls_trust_store,
         openrouter_descriptor_values,
         openrouter_error_message,
         openrouter_ratio_size,
@@ -414,6 +418,8 @@ MAX_UPDATES_MODE = os.getenv("MAX_UPDATES_MODE", BOT_UPDATES_MODE).strip().lower
 if MAX_UPDATES_MODE not in {"webhook", "polling", "disabled"}:
     MAX_UPDATES_MODE = BOT_UPDATES_MODE
 MAX_API_BASE_URL = os.getenv("MAX_API_BASE_URL", "https://platform-api2.max.ru")
+MAX_TLS_TRUST_STORE = normalize_max_tls_trust_store(os.getenv("MAX_TLS_TRUST_STORE", "system"))
+MAX_HTTP_VERIFY = build_max_http_verify(MAX_TLS_TRUST_STORE)
 MAX_WEBHOOK_URL = os.getenv("MAX_WEBHOOK_URL", "")
 MAX_WEBHOOK_SECRET = os.getenv("MAX_WEBHOOK_SECRET", "").strip()
 MAX_WEBHOOK_MAX_BODY_BYTES = max(1024, min(1024 * 1024, int(os.getenv("MAX_WEBHOOK_MAX_BODY_BYTES", str(256 * 1024)))))
@@ -2132,7 +2138,7 @@ def resolve_max_bot_deep_link_base() -> str | None:
     fields: list[str] = []
     try:
         headers = {"Authorization": MAX_BOT_TOKEN, "Content-Type": "application/json"}
-        with httpx.Client(timeout=10) as client:
+        with httpx.Client(timeout=10, verify=MAX_HTTP_VERIFY) as client:
             response = client.get(f"{MAX_API_BASE_URL.rstrip('/')}/me", headers=headers)
             status = response.status_code
             response.raise_for_status()
@@ -4627,6 +4633,7 @@ def bot_status_payload() -> dict[str, Any]:
             "local": True,
             "mode": MAX_UPDATES_MODE,
             "apiBaseUrl": MAX_API_BASE_URL,
+            "tlsTrustStore": MAX_TLS_TRUST_STORE,
             "pollingReady": bool(MAX_BOT_TOKEN and MAX_API_BASE_URL),
             "webhookReady": bool(MAX_BOT_TOKEN and MAX_WEBHOOK_SECRET and MAX_API_BASE_URL and backend_public.startswith("https://")),
             "webhookSecretConfigured": bool(MAX_WEBHOOK_SECRET),
@@ -4660,7 +4667,7 @@ async def max_api(method: str, path: str, payload: dict[str, Any] | None = None,
     if not MAX_BOT_TOKEN:
         raise HTTPException(400, "MAX_BOT_TOKEN is required for real MAX API calls.")
     headers = {"Authorization": MAX_BOT_TOKEN, "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, verify=MAX_HTTP_VERIFY) as client:
         response = await client.request(method, f"{MAX_API_BASE_URL.rstrip('/')}{path}", headers=headers, json=payload, params=params)
         response.raise_for_status()
         return response.json()
@@ -12053,6 +12060,7 @@ async def admin_max_status(request: Request) -> dict[str, Any]:
         "botNicknameResolved": bool(resolve_max_bot_deep_link_base()),
         "deepLinkBaseSource": _MAX_BOT_DEEP_LINK_CACHE.get("source"),
         "apiBaseUrl": MAX_API_BASE_URL,
+        "tlsTrustStore": MAX_TLS_TRUST_STORE,
         "mode": MAX_UPDATES_MODE,
         "pollingReady": bool(MAX_BOT_TOKEN and MAX_API_BASE_URL),
         "webhookSecretConfigured": bool(MAX_WEBHOOK_SECRET),

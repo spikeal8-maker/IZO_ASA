@@ -31,8 +31,8 @@ set "TRUSTED_COOKIE_SAMESITE=none"
 set "TRUSTED_COOKIE_PATH=/"
 set "TRUST_CLOUDFLARE_HEADERS=true"
 set "LOG_DIR=%ROOT%logs"
-REM platform-api.max.ru passes Python/certifi TLS verification; platform-api2 does not.
-if "%MAX_API_BASE_URL%"=="" set "MAX_API_BASE_URL=https://platform-api.max.ru"
+REM MAX API2 uses the native system trust store through backend truststore support.
+if "%MAX_API_BASE_URL%"=="" set "MAX_API_BASE_URL=https://platform-api2.max.ru"
 REM Telegram keeps its own mode via BOT_UPDATES_MODE (polling). Do NOT change Telegram.
 if "%BOT_UPDATES_MODE%"=="" set "BOT_UPDATES_MODE=polling"
 REM Keep the currently proven MAX polling path unless webhook mode is set explicitly
