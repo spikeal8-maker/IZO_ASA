@@ -18,6 +18,7 @@ def temp_db(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
     monkeypatch.setattr(main, "APP_ENV", "development")
     monkeypatch.setattr(main, "TELEGRAM_BOT_USERNAME", "OneNodeTestBot")
+    monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "test-telegram-token")
     monkeypatch.setattr(main, "MAX_BOT_TOKEN", "test-max-token")
     monkeypatch.setattr(main, "MAX_BOT_DEEP_LINK_BASE", "https://max.ru/onenode-test")
     avatar_dir = tmp_path / "avatars"

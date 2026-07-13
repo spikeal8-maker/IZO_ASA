@@ -55,6 +55,11 @@ def test_ci_workflow_is_read_only_and_has_no_secret_or_provider_access() -> None
     assert '$env:BOT_UPDATES_MODE = "disabled"' in source
     assert '$env:MAX_UPDATES_MODE = "disabled"' in source
     assert '$env:COMFYUI_REQUIRED = "false"' in source
+    assert '$env:TELEGRAM_BOT_TOKEN = ""' in source
+    assert '$env:MAX_BOT_TOKEN = ""' in source
+    assert '$env:OPENROUTER_API_KEY = ""' in source
+    assert '$env:SESSION_HMAC_SECRET = ""' in source
+    assert '$env:EMAIL_PROVIDER = ""' in source
     assert '$env:DATABASE_URL = Join-Path $env:RUNNER_TEMP' in source
     assert '$env:MEDIA_DIR = Join-Path $env:RUNNER_TEMP' in source
     assert '$env:IZO_SECRET_DIR = Join-Path $env:RUNNER_TEMP' in source

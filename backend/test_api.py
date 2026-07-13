@@ -284,7 +284,14 @@ def test_openrouter_generation_skips_comfyui(monkeypatch) -> None:
 
 
 def test_cancel_generation_sets_cancelled_status(monkeypatch) -> None:
-    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    async def delayed_send_to_comfyui(payload: main.GenerateRequest, job: dict) -> main.ComfyUIResult:
+        # Give the cancel request an event-loop scheduling window even on a slow
+        # two-core CI runner. The production worker still receives a normal
+        # result and must preserve the already-cancelled terminal state.
+        await asyncio.sleep(2)
+        return await fake_send_to_comfyui(payload, job)
+
+    monkeypatch.setattr(main, "send_to_comfyui", delayed_send_to_comfyui)
     with authed_client() as client:
         created = client.post(
             "/api/generate",

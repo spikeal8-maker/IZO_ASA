@@ -19,6 +19,7 @@ def temp_db(tmp_path: Path, monkeypatch):
     db_file = tmp_path / "email_otp_test.sqlite3"
     monkeypatch.setattr(main, "DB_PATH", db_file)
     monkeypatch.setattr(main, "APP_ENV", "development")
+    monkeypatch.setattr(main, "SESSION_HMAC_SECRET", "unit-test-session-secret")
     monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", True)  # dev only
     monkeypatch.setattr(main, "EMAIL_OTP_TTL_SECONDS", 300)
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_ATTEMPTS", 5)

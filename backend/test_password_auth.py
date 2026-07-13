@@ -19,6 +19,7 @@ def temp_db(tmp_path: Path, monkeypatch):
     db_file = tmp_path / "password_auth_test.sqlite3"
     monkeypatch.setattr(main, "DB_PATH", db_file)
     monkeypatch.setattr(main, "APP_ENV", "development")
+    monkeypatch.setattr(main, "SESSION_HMAC_SECRET", "unit-test-session-secret")
     monkeypatch.setattr(main, "EMAIL_PROVIDER", "")
     monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", False)
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
