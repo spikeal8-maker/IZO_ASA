@@ -46,8 +46,9 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/config.py` owns import-safe environment/database-path helpers and the
   typed HTTP security policy for cookie names/flags, proxy trust flags and the CORS
   origin list. It also owns the typed ComfyUI/OpenRouter/prompt-improvement/exchange-rate
-  endpoint and timeout policy. `main.py` keeps compatibility globals while later B2
-  packages continue; policy construction itself has no filesystem, DB or network side effects.
+  endpoint and timeout policy plus runtime-environment and Telegram/MAX delivery-mode
+  parsing. `main.py` keeps compatibility globals while later B2 packages continue;
+  policy construction itself has no filesystem, DB or network side effects.
 - `backend/app/database/connection.py` owns the SQLite connection policy.
 - `backend/app/database/guard.py` owns import-safe DB Guard checks; `main.py` retains compatibility wrappers while the split continues.
 - `backend/app/database/migrations.py` owns validated additive-column primitives and column declarations used by the legacy initializer.

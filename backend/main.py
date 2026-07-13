@@ -54,17 +54,23 @@ except ImportError:  # Direct `python backend/main.py` execution.
 try:
     from .app.config import (
         env_bool,
+        is_production_like_environment,
+        load_bot_delivery_policy,
         load_http_security_policy,
         load_local_env,
         load_provider_endpoint_policy,
+        load_runtime_environment_policy,
         sqlite_path_from_database_url,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.config import (
         env_bool,
+        is_production_like_environment,
+        load_bot_delivery_policy,
         load_http_security_policy,
         load_local_env,
         load_provider_endpoint_policy,
+        load_runtime_environment_policy,
         sqlite_path_from_database_url,
     )
 
@@ -418,13 +424,14 @@ OPENROUTER_SECRET_STORE = DpapiSecretStore(OPENROUTER_SECRET_STORE_DIR)
 # Identity Core session service (Phase 4 + 4.1). Keying material for token hashing
 # comes from the environment when available. Only hashes are persisted — raw tokens
 # never reach the database or logs.
-APP_ENV = os.getenv("APP_ENV", "development")
-ENV_NAME = os.getenv("ENV", "")
-MODE_NAME = os.getenv("MODE", "")
+RUNTIME_ENVIRONMENT_POLICY = load_runtime_environment_policy()
+APP_ENV = RUNTIME_ENVIRONMENT_POLICY.app_env
+ENV_NAME = RUNTIME_ENVIRONMENT_POLICY.environment_name
+MODE_NAME = RUNTIME_ENVIRONMENT_POLICY.mode_name
 
 
 def is_production_like_env() -> bool:
-    return any((value or "").strip().lower() in {"production", "prod", "live"} for value in (APP_ENV, ENV_NAME, MODE_NAME))
+    return is_production_like_environment(APP_ENV, ENV_NAME, MODE_NAME)
 
 
 DB_PATH = sqlite_path_from_database_url(os.getenv("DATABASE_URL"))
@@ -443,12 +450,11 @@ CBR_DAILY_XML_URL = PROVIDER_ENDPOINT_POLICY.cbr_daily_xml_url
 USD_RUB_FALLBACK_URL = PROVIDER_ENDPOINT_POLICY.usd_rub_fallback_url
 
 
-BOT_UPDATES_MODE = os.getenv("BOT_UPDATES_MODE", os.getenv("BOT_MODE", "disabled")).strip().lower()
-if BOT_UPDATES_MODE not in {"webhook", "polling", "disabled"}:
-    BOT_UPDATES_MODE = "disabled"
+BOT_DELIVERY_POLICY = load_bot_delivery_policy()
+BOT_UPDATES_MODE = BOT_DELIVERY_POLICY.telegram_updates_mode
 BOT_MODE = BOT_UPDATES_MODE
-TELEGRAM_POLLING_ENABLED = env_bool("TELEGRAM_POLLING_ENABLED", True)
-MAX_POLLING_ENABLED = env_bool("MAX_POLLING_ENABLED", True)
+TELEGRAM_POLLING_ENABLED = BOT_DELIVERY_POLICY.telegram_polling_enabled
+MAX_POLLING_ENABLED = BOT_DELIVERY_POLICY.max_polling_enabled
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
 TELEGRAM_WEBHOOK_MAX_BODY_BYTES = max(1024, min(1024 * 1024, int(os.getenv("TELEGRAM_WEBHOOK_MAX_BODY_BYTES", str(256 * 1024)))))
@@ -457,9 +463,7 @@ _telegram_webhook_replay_guard = WebhookReplayGuard(TELEGRAM_WEBHOOK_REPLAY_CACH
 TELEGRAM_INIT_DATA_TTL_SECONDS = int(os.getenv("TELEGRAM_INIT_DATA_TTL_SECONDS", str(60 * 60 * 24)))
 MAX_BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
 MAX_WEB_APP_DATA_TTL_SECONDS = int(os.getenv("MAX_WEB_APP_DATA_TTL_SECONDS", str(60 * 60 * 24)))
-MAX_UPDATES_MODE = os.getenv("MAX_UPDATES_MODE", BOT_UPDATES_MODE).strip().lower()
-if MAX_UPDATES_MODE not in {"webhook", "polling", "disabled"}:
-    MAX_UPDATES_MODE = BOT_UPDATES_MODE
+MAX_UPDATES_MODE = BOT_DELIVERY_POLICY.max_updates_mode
 MAX_API_BASE_URL = os.getenv("MAX_API_BASE_URL", "https://platform-api2.max.ru")
 MAX_TLS_TRUST_STORE = normalize_max_tls_trust_store(os.getenv("MAX_TLS_TRUST_STORE", "system"))
 MAX_HTTP_VERIFY = build_max_http_verify(MAX_TLS_TRUST_STORE)

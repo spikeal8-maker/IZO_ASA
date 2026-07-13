@@ -50,6 +50,29 @@ class ProviderEndpointPolicy:
     usd_rub_fallback_url: str
 
 
+@dataclass(frozen=True)
+class RuntimeEnvironmentPolicy:
+    app_env: str
+    environment_name: str
+    mode_name: str
+
+    @property
+    def production_like(self) -> bool:
+        return is_production_like_environment(
+            self.app_env,
+            self.environment_name,
+            self.mode_name,
+        )
+
+
+@dataclass(frozen=True)
+class BotDeliveryPolicy:
+    telegram_updates_mode: str
+    telegram_polling_enabled: bool
+    max_polling_enabled: bool
+    max_updates_mode: str
+
+
 def load_local_env(root: Path | None = None) -> None:
     """Load `root/.env` without overriding process-level environment values."""
     env_path = (root or BACKEND_ROOT) / ".env"
@@ -71,6 +94,66 @@ def env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_production_like_environment(
+    app_env: str,
+    environment_name: str = "",
+    mode_name: str = "",
+) -> bool:
+    return any(
+        (value or "").strip().lower() in {"production", "prod", "live"}
+        for value in (app_env, environment_name, mode_name)
+    )
+
+
+def load_runtime_environment_policy(
+    environment: Mapping[str, str] | None = None,
+) -> RuntimeEnvironmentPolicy:
+    """Parse runtime environment labels without validating production secrets."""
+
+    source = os.environ if environment is None else environment
+    return RuntimeEnvironmentPolicy(
+        app_env=source.get("APP_ENV", "development"),
+        environment_name=source.get("ENV", ""),
+        mode_name=source.get("MODE", ""),
+    )
+
+
+def load_bot_delivery_policy(
+    environment: Mapping[str, str] | None = None,
+) -> BotDeliveryPolicy:
+    """Parse Telegram/MAX delivery modes without starting workers or making requests."""
+
+    source = os.environ if environment is None else environment
+    valid_modes = {"webhook", "polling", "disabled"}
+
+    telegram_updates_mode = source.get(
+        "BOT_UPDATES_MODE",
+        source.get("BOT_MODE", "disabled"),
+    ).strip().lower()
+    if telegram_updates_mode not in valid_modes:
+        telegram_updates_mode = "disabled"
+
+    max_updates_mode = source.get(
+        "MAX_UPDATES_MODE",
+        telegram_updates_mode,
+    ).strip().lower()
+    if max_updates_mode not in valid_modes:
+        max_updates_mode = telegram_updates_mode
+
+    def polling_enabled(name: str) -> bool:
+        value = source.get(name)
+        if value is None:
+            return True
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    return BotDeliveryPolicy(
+        telegram_updates_mode=telegram_updates_mode,
+        telegram_polling_enabled=polling_enabled("TELEGRAM_POLLING_ENABLED"),
+        max_polling_enabled=polling_enabled("MAX_POLLING_ENABLED"),
+        max_updates_mode=max_updates_mode,
+    )
 
 
 def load_http_security_policy(

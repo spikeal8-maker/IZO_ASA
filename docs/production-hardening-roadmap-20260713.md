@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B2b` — typed provider endpoint/timeout config extraction; точный hash в Git history |
+| Последний completed checkpoint | `B2c` — typed runtime environment/bot delivery config extraction; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 987 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 991 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 121 файл; startup `checked=123`, `available=121`, `missing=2`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B2a run `29243790613` success (`983 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B2b run `29245840902` success (`987 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и три live snapshot готовы; автоматический schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 281 после B2b | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 285 после B2c | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -103,7 +103,7 @@
 
 | ID | Статус | Состояние |
 |---|---|---|
-| BE-01 | `ЧАСТИЧНО` | `app/config.py` владеет env/DB-path helpers, typed cookie/proxy/CORS и provider endpoint/timeout policies; paths, bot/runtime modes, media limits и production validation ещё остаются |
+| BE-01 | `ЧАСТИЧНО` | `app/config.py` владеет env/DB-path helpers, typed cookie/proxy/CORS, provider endpoint/timeout и runtime/bot-mode policies; paths, media limits и production validation ещё остаются |
 | BE-02 | `ЧАСТИЧНО` | `database/connection.py`, `guard.py`, `schema.py`, `migrations.py` созданы; repository layer и migration ledger не завершены |
 | BE-03 | `ЧАСТИЧНО` | Tokens/passwords/sessions/permissions/OTP/events вынесены; legacy auth removal и routers не завершены |
 | BE-04 | `ЧАСТИЧНО` | Storage paths/private/public/recovery/source graph/thumbnails/validation/cleanup вынесены; оставшиеся gallery/media orchestration blocks ещё в `main.py` |
@@ -189,7 +189,7 @@
 | Пакет | Результат |
 |---|---|
 | B1 | `ГОТОВО` — model aliases и request metadata вынесены; дальнейшее мелкое дробление этой integration boundary остановлено |
-| B2 | `ЧАСТИЧНО` — B2a cookie/proxy/CORS и B2b provider endpoints/timeouts готовы; продолжить paths, bot/runtime modes, media limits и production validation малыми пакетами |
+| B2 | `ЧАСТИЧНО` — B2a cookie/proxy/CORS, B2b provider endpoints/timeouts и B2c runtime/bot modes готовы; продолжить paths, media limits и production validation малыми пакетами |
 | B3 | Завершить migrations: ledger/version, idempotent schema groups, billing/feed/auth migration tests |
 | B4 | Выделить Telegram client и затем handlers/service |
 | B5 | Выделить MAX client и затем handlers/service |
@@ -667,6 +667,57 @@ Exact-head CI после B2a:
   denied origin HTTP 400 без allow-origin; MAX `/me` и polling HTTP 200;
 - paid generation не запускалась; secrets, production DB rows, media, VPS и
   tunnel не изменялись.
+
+Exact-head CI после B2b:
+
+- GitHub Actions run `29245840902` на SHA `433d979` завершён успешно;
+- `987 passed, 72 warnings` за 657,46 с; lint `0 errors / 1 existing warning`;
+- production build 1,35 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 712,32 с.
+
+### Checkpoint B2c — typed runtime and bot delivery modes
+
+Реализовано и развёрнуто 2026-07-13:
+
+- `app/config.py` получил immutable `RuntimeEnvironmentPolicy` и
+  `BotDeliveryPolicy`, pure production-like predicate и import-safe loaders;
+- environment policy владеет `APP_ENV`/`ENV`/`MODE`; bot policy — legacy
+  `BOT_UPDATES_MODE` с fallback на `BOT_MODE`, Telegram/MAX polling flags и
+  `MAX_UPDATES_MODE` с прежним fallback на нормализованный Telegram mode;
+- `main.py` сохраняет прежние `APP_ENV`, `ENV_NAME`, `MODE_NAME`,
+  `BOT_UPDATES_MODE`, `BOT_MODE`, `TELEGRAM_POLLING_ENABLED`,
+  `MAX_POLLING_ENABLED`, `MAX_UPDATES_MODE` и динамический
+  `is_production_like_env()`, поэтому monkeypatch и runtime consumers не менялись;
+- policy не читает токены/secrets, не запускает workers и не делает provider
+  requests; webhook validation и polling lifecycle остаются в прежнем порядке;
+- нормализация в точности сохранена: trim/lower для modes, допустимы только
+  `webhook/polling/disabled`, invalid Telegram → disabled, invalid MAX → Telegram,
+  polling booleans используют прежние `1/true/yes/on` semantics;
+- `main.py` временно 15 285 строк из-за compatibility imports/exports; это
+  осознанный промежуточный этап до удаления exports в B14, а не заявление о
+  завершённом физическом сокращении монолита.
+
+Доказательства:
+
+- characterization до реализации остановился ровно на отсутствующих pure loaders;
+- focused config/API/DB-guard/Telegram/MAX/maintenance suite:
+  `95 passed, 2 warnings` пять последовательных циклов; generated map
+  `609 symbols / 166 routes` совпал после каждого цикла;
+- локальный Full: `991 passed, 72 warnings` за 289,94 с; lint
+  `0 errors / 1 existing warning`, build успешен, origin `200/200/403/403`;
+- verifier: 121 файл / 1 649 086 байт / SHA-256
+  `FE5B537CBA2FCFD4F74A2CFD66261BB5DF3D5E885B8D3BC96AE2227E1B513CF8`,
+  source stable, итоговый Full 315,63 с;
+- deploy штатным production launcher: backend PID 52900, frontend PID 44084,
+  один loopback listener на каждом порту, Uvicorn `--no-proxy-headers`,
+  health/DB Guard production ready;
+- live bot status: Telegram mode `polling`, MAX mode `polling`, оба polling-ready;
+  MAX API `/me` 200, polling 200, `lastUpdatesError=null`, webhook mode не включён;
+- local main/health/version/models/feed и public main/health/version HTTP 200;
+  auth `401/401/401`, allowed CORS exact 200, denied CORS 400, host
+  `200/200/403/403`;
+- provider modes не переключались вручную; secrets, production DB rows, media,
+  VPS и tunnel не изменялись.
 
 ## 9. Обязательный gate каждого пакета
 

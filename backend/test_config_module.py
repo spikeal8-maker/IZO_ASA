@@ -6,9 +6,12 @@ from pathlib import Path
 from backend.app.config import (
     DEFAULT_CORS_ALLOWED_ORIGINS,
     env_bool,
+    is_production_like_environment,
+    load_bot_delivery_policy,
     load_http_security_policy,
     load_local_env,
     load_provider_endpoint_policy,
+    load_runtime_environment_policy,
     sqlite_path_from_database_url,
 )
 
@@ -178,3 +181,63 @@ def test_provider_endpoint_policy_rejects_invalid_integer_like_legacy_main() -> 
         pass
     else:
         raise AssertionError("invalid numeric provider configuration must fail fast")
+
+
+def test_runtime_environment_policy_defaults_and_production_markers() -> None:
+    policy = load_runtime_environment_policy({})
+
+    assert policy.app_env == "development"
+    assert policy.environment_name == ""
+    assert policy.mode_name == ""
+    assert policy.production_like is False
+    assert is_production_like_environment(" Development ", " PROD ", "") is True
+    assert is_production_like_environment("", "", "LiVe") is True
+    assert is_production_like_environment("production-like", "", "") is False
+
+
+def test_bot_delivery_policy_defaults_match_legacy_main_contract() -> None:
+    policy = load_bot_delivery_policy({})
+
+    assert policy.telegram_updates_mode == "disabled"
+    assert policy.telegram_polling_enabled is True
+    assert policy.max_polling_enabled is True
+    assert policy.max_updates_mode == "disabled"
+
+
+def test_bot_delivery_policy_normalizes_modes_and_polling_flags() -> None:
+    policy = load_bot_delivery_policy(
+        {
+            "BOT_UPDATES_MODE": " WEBHOOK ",
+            "TELEGRAM_POLLING_ENABLED": " off ",
+            "MAX_POLLING_ENABLED": " YES ",
+            "MAX_UPDATES_MODE": " POLLING ",
+        }
+    )
+
+    assert policy.telegram_updates_mode == "webhook"
+    assert policy.telegram_polling_enabled is False
+    assert policy.max_polling_enabled is True
+    assert policy.max_updates_mode == "polling"
+
+
+def test_bot_delivery_policy_preserves_legacy_fallback_order() -> None:
+    fallback = load_bot_delivery_policy({"BOT_MODE": " Polling "})
+    explicit_empty = load_bot_delivery_policy(
+        {
+            "BOT_UPDATES_MODE": "",
+            "BOT_MODE": "webhook",
+            "MAX_UPDATES_MODE": "invalid",
+        }
+    )
+    invalid_max = load_bot_delivery_policy(
+        {
+            "BOT_UPDATES_MODE": "webhook",
+            "MAX_UPDATES_MODE": "invalid",
+        }
+    )
+
+    assert fallback.telegram_updates_mode == "polling"
+    assert fallback.max_updates_mode == "polling"
+    assert explicit_empty.telegram_updates_mode == "disabled"
+    assert explicit_empty.max_updates_mode == "disabled"
+    assert invalid_max.max_updates_mode == "webhook"
