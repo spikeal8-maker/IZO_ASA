@@ -183,6 +183,7 @@ try:
     from .app.services import (
         MaxUpdateRuntime,
         TelegramUpdateRuntime,
+        comfyui_workflows,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -203,6 +204,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
     from app.services import (
         MaxUpdateRuntime,
         TelegramUpdateRuntime,
+        comfyui_workflows,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -5834,18 +5836,18 @@ def build_pose_workflow(models: dict[str, list[str]], profile: dict[str, Any], r
     """RefControl pose graph: identity/clothing/background come from the reference image
     (Image 1); only the DWPose skeleton is extracted from the pose image."""
     model, text_encoder, vae = choose_model(models, profile["id"])
-    loras = models.get("loras", [])
-    pose_meta = (profile.get("settings") or {}).get("pose", {}) or {}
-    pose_lora = next((x for x in loras if "refcontrol" in x.lower()), pose_meta.get("lora", ""))
     graph = json.loads(POSE_WORKFLOW_PATH.read_text(encoding="utf-8"))
-    graph["FKP:unet"]["inputs"]["unet_name"] = model
-    graph["FKP:clip"]["inputs"]["clip_name"] = text_encoder
-    graph["FKP:vae"]["inputs"]["vae_name"] = vae
-    graph["FKP:lora"]["inputs"]["lora_name"] = pose_lora
-    graph["FKP:refimg"]["inputs"]["image"] = ref_image_name
-    graph["FKP:poseimg"]["inputs"]["image"] = pose_image_name
-    graph["FKP:noise"]["inputs"]["noise_seed"] = int(req.seed or 0)
-    return graph
+    return comfyui_workflows.build_pose_workflow(
+        graph,
+        models,
+        profile,
+        ref_image_name,
+        pose_image_name,
+        model=model,
+        text_encoder=text_encoder,
+        vae=vae,
+        seed=int(req.seed or 0),
+    )
 
 
 def build_outpaint_workflow(graph: dict[str, Any], models: dict[str, list[str]], req: GenerateRequest, uploads: dict[str, str]) -> dict[str, Any]:
@@ -5855,28 +5857,15 @@ def build_outpaint_workflow(graph: dict[str, Any], models: dict[str, list[str]],
     installed. The published LoRA targets the distilled Klein 4B model, so this
     graph removes the unavailable KV-cache node and wires the LoRA directly.
     """
-    model = next((name for name in models.get("diffusion_models", []) if "klein-4b" in name.lower() and "base" not in name.lower()), "")
-    text_encoder = next((name for name in models.get("text_encoders", []) if "qwen_3_4b" in name.lower()), "")
-    vae = "flux2-vae.safetensors" if "flux2-vae.safetensors" in models.get("vaes", []) else ""
-    outpaint_lora = next((name for name in models.get("loras", []) if "4b" in name.lower() and "outpaint" in name.lower()), "")
-    missing = [label for label, value in (("Klein 4B", model), ("Qwen 3 4B", text_encoder), ("Flux2 VAE", vae), ("Outpaint LoRA", outpaint_lora)) if not value]
-    if missing:
-        raise RuntimeError(f"Outpaint 4B не готов: отсутствует {', '.join(missing)}.")
-    if not server_lora_enabled(outpaint_lora):
-        raise RuntimeError("Outpaint 4B LoRA выключена администратором.")
-
-    graph.pop("FKO:216", None)
-    graph["FKO:194"]["inputs"].update({"unet_name": model, "weight_dtype": "default"})
-    graph["FKO:195"]["inputs"]["clip_name"] = text_encoder
-    graph["FKO:196"]["inputs"]["vae_name"] = vae
-    graph["FKO:outpaint_lora"] = {
-        "class_type": "LoraLoaderModelOnly",
-        "inputs": {"model": ["FKO:194", 0], "lora_name": outpaint_lora, "strength_model": 1},
-        "_meta": {"title": "Klein 4B Outpaint LoRA"},
-    }
-    graph["FKO:163"]["inputs"]["model"] = ["FKO:outpaint_lora", 0]
-    patch_mode_nodes(graph, req, uploads, model, text_encoder, vae)
-    return graph
+    return comfyui_workflows.build_outpaint_workflow(
+        graph,
+        models,
+        req,
+        uploads,
+        lora_enabled=server_lora_enabled,
+        default_negative_prompt=DEFAULT_NEG_PROMPT,
+        model_profiles=get_server_model_profiles(),
+    )
 
 
 def choose_model(models: dict[str, list[str]], requested: str) -> tuple[str, str, str]:
@@ -6110,93 +6099,28 @@ def prepare_comfyui_outpaint_inputs(input_path: Path | None, prefix: str, req: G
 
 
 async def fetch_workflow(mode: str) -> dict[str, Any]:
-    workflow_by_mode = {
-        "text_to_image": "workflow_t2i",
-        "image_to_image": "workflow_i2i",
-        "edit": "workflow_edit",
-        "paint": "workflow_edit",
-        "inpaint": "workflow_inpaint",
-        "outpaint": "workflow_outpaint",
-        # Dedicated workflow_faceswap hangs on Flux 2 Klein 9B in production.
-        # Use the stable multi-reference edit graph: target image + face reference.
-        "faceswap": "workflow_edit",
-        "remove_background": "workflow_remove_bg",
-        "try_on": "workflow_edit",
-        "texture_transfer": "workflow_edit",
-    }
-    endpoint = workflow_by_mode.get(mode, "workflow_t2i")
+    endpoint = comfyui_workflows.workflow_endpoint_for_mode(mode)
     return await integration_fetch_comfyui_workflow(base_url=COMFYUI_BASE_URL, endpoint=endpoint)
 
 
 def set_input(prompt: dict[str, Any], node_id: str, key: str, value: Any) -> None:
-    if node_id in prompt:
-        prompt[node_id].setdefault("inputs", {})[key] = value
+    comfyui_workflows.set_input(prompt, node_id, key, value)
 
 
 def patch_shared_flux_nodes(prompt: dict[str, Any], req: GenerateRequest, model: str, text_encoder: str, vae: str) -> None:
-    set_input(prompt, "FK:165", "unet_name", model)
-    set_input(prompt, "FK:155", "clip_name", text_encoder)
-    set_input(prompt, "FK:153", "vae_name", vae)
-    set_input(prompt, "FK:166", "text", req.prompt)
-    # Edit-режим намеренно не использует negative prompt: ограничения уходят в основной
-    # prompt. Для остальных режимов сохраняем прежний дефолтный negative как fallback.
-    set_input(prompt, "FK:156", "text", "" if req.mode in {"edit", "faceswap"} else (req.negativePrompt or DEFAULT_NEG_PROMPT))
-    set_input(prompt, "FK:170", "width", req.width)
-    set_input(prompt, "FK:170", "height", req.height)
-    set_input(prompt, "FK:171", "seed", req.seed)
-    set_input(prompt, "FK:171", "steps", req.steps)
-    set_input(prompt, "FK:171", "cfg", req.cfg)
-    set_input(prompt, "FK:171", "denoise", 1 if req.mode == "text_to_image" else req.strength)
-    profile_id = "flux_klein_4b" if "4b" in model.lower() else "flux_klein_9b"
-    set_input(prompt, "FK:171", "sampler_name", get_server_model_profiles()[profile_id]["sampler"])
-    set_input(prompt, "FK:171", "scheduler", "simple")
-    set_input(prompt, "FK:86", "filename_prefix", "one-node-flux-2-klein/FK")
+    comfyui_workflows.patch_shared_flux_nodes(
+        prompt,
+        req,
+        model,
+        text_encoder,
+        vae,
+        default_negative_prompt=DEFAULT_NEG_PROMPT,
+        model_profiles=get_server_model_profiles(),
+    )
 
 
 def patch_optional_lora(prompt: dict[str, Any], lora: Lora | None) -> None:
-    if not lora or not lora.id or lora.id == "none":
-        return
-    for node in prompt.values():
-        inputs = node.get("inputs") if isinstance(node, dict) else None
-        if not isinstance(inputs, dict) or "lora_name" not in inputs:
-            continue
-        inputs["lora_name"] = lora.id
-        if "strength_model" in inputs:
-            inputs["strength_model"] = lora.strength
-        if "strength_clip" in inputs:
-            inputs["strength_clip"] = lora.strength
-        return
-    # Живой workflow_edit не содержит LoRA loader. Вставляем model-only loader
-    # между UNETLoader и ModelSamplingAuraFlow, иначе выбранная face-LoRA не применяется.
-    if "FK:165" in prompt and "FK:169" in prompt:
-        prompt["FK:admin_lora"] = {
-            "class_type": "LoraLoaderModelOnly",
-            "inputs": {"model": ["FK:165", 0], "lora_name": lora.id, "strength_model": lora.strength},
-            "_meta": {"title": "Config UI LoRA"},
-        }
-        set_input(prompt, "FK:169", "model", ["FK:admin_lora", 0])
-
-
-# FLUX.2 Klein multi-reference edit: каждое изображение подаётся как ReferenceLatent в
-# цепочку conditioning. Сэмплер денойзит пустой латент (размер = изображение 1), поэтому
-# denoise обязан быть 1.0 — иначе пустой латент денойзится частично и даёт «мусорное полотно».
-# Слоты 1-2 уже есть в workflow_edit (FK:*), слоты 3-4 создаются здесь по тому же шаблону.
-EDIT_SLOT_NODES = [
-    {"load": "FK:91", "scale": "FK:163", "vae": "FK:132", "pos": "FK:133", "neg": "FK:131"},
-    {"load": "FK:88", "scale": "FK:163b", "vae": "FK:232", "pos": "FK:233", "neg": "FK:231"},
-    {"load": "FKE:301", "scale": "FKE:303", "vae": "FKE:305", "pos": "FKE:307", "neg": "FKE:309"},
-    {"load": "FKE:401", "scale": "FKE:403", "vae": "FKE:405", "pos": "FKE:407", "neg": "FKE:409"},
-]
-
-
-def _ensure_edit_slot_nodes(prompt: dict[str, Any], slot: int) -> None:
-    s = EDIT_SLOT_NODES[slot]
-    n = slot + 1
-    prompt.setdefault(s["load"], {"class_type": "LoadImage", "inputs": {"image": "placeholder.png"}, "_meta": {"title": f"Load Image {n}"}})
-    prompt.setdefault(s["scale"], {"class_type": "ImageScaleToTotalPixels", "inputs": {"image": [s["load"], 0], "upscale_method": "nearest-exact", "megapixels": 1, "resolution_steps": 1}, "_meta": {"title": f"Scale Image {n} to 1MP"}})
-    prompt.setdefault(s["vae"], {"class_type": "VAEEncode", "inputs": {"pixels": [s["scale"], 0], "vae": ["FK:153", 0]}, "_meta": {"title": f"VAE Encode Image {n}"}})
-    prompt.setdefault(s["pos"], {"class_type": "ReferenceLatent", "inputs": {"conditioning": ["FK:166", 0], "latent": [s["vae"], 0]}, "_meta": {"title": f"Reference Latent Positive Img{n}"}})
-    prompt.setdefault(s["neg"], {"class_type": "ReferenceLatent", "inputs": {"conditioning": ["FK:156", 0], "latent": [s["vae"], 0]}, "_meta": {"title": f"Reference Latent Negative Img{n}"}})
+    comfyui_workflows.patch_optional_lora(prompt, lora)
 
 
 EDIT_REFERENCE_ROLES = {"face", "clothing", "style", "object", "pose", "background", "color_material", "other"}
@@ -6232,76 +6156,20 @@ def validate_edit_request(req: GenerateRequest) -> None:
 
 
 def patch_edit_reference_chain(prompt: dict[str, Any], image_files: list[str]) -> None:
-    present = [f for f in image_files if f][:4]
-    if not present:
-        raise RuntimeError("Для редактирования нужно хотя бы одно изображение (основа).")
-    prev_pos, prev_neg = "FK:166", "FK:156"
-    for i, fname in enumerate(present):
-        _ensure_edit_slot_nodes(prompt, i)
-        s = EDIT_SLOT_NODES[i]
-        set_input(prompt, s["load"], "image", fname)
-        # Перепривязываем conditioning этого слота к концу уже построенной цепочки.
-        set_input(prompt, s["pos"], "conditioning", [prev_pos, 0])
-        set_input(prompt, s["neg"], "conditioning", [prev_neg, 0])
-        prev_pos, prev_neg = s["pos"], s["neg"]
-    # Удаляем неиспользуемые слоты (по умолчанию workflow приходит с 2 изображениями).
-    for i in range(len(present), 4):
-        for nid in EDIT_SLOT_NODES[i].values():
-            prompt.pop(nid, None)
-    # Сэмплер читает конец цепочки референсов; пустой латент → denoise=1.
-    set_input(prompt, "FK:171", "positive", [prev_pos, 0])
-    set_input(prompt, "FK:171", "negative", [prev_neg, 0])
-    set_input(prompt, "FK:171", "denoise", 1)
+    comfyui_workflows.patch_edit_reference_chain(prompt, image_files)
 
 
 def patch_mode_nodes(prompt: dict[str, Any], req: GenerateRequest, uploads: dict[str, str], model: str, text_encoder: str, vae: str) -> None:
-    patch_shared_flux_nodes(prompt, req, model, text_encoder, vae)
-
-    if req.mode == "image_to_image":
-        set_input(prompt, "FKI2I:img", "image", uploads["input1"])
-        set_input(prompt, "FK:171", "denoise", req.strength)
-    elif req.mode == "remove_background":
-        set_input(prompt, "rmbg:load", "bg_removal_name", "birefnet.safetensors")
-        set_input(prompt, "rmbg:img", "image", uploads["input1"])
-        set_input(prompt, "rmbg:save", "filename_prefix", "one-node-flux-2-klein/assets/rmbg")
-    elif req.mode in {"edit", "paint", "faceswap", "try_on", "texture_transfer"}:
-        # 1..4 изображения в порядке слотов; цепочка ReferenceLatent + denoise=1.
-        image_files = [uploads.get(f"input{i}") for i in range(1, 5)]
-        if req.mode in {"edit", "faceswap"}:
-            patch_optional_lora(prompt, req.loras[0] if req.loras else None)
-        patch_edit_reference_chain(prompt, image_files)
-    elif req.mode == "inpaint":
-        set_input(prompt, "FKI:194", "unet_name", model)
-        set_input(prompt, "FKI:195", "clip_name", text_encoder)
-        set_input(prompt, "FKI:196", "vae_name", vae)
-        set_input(prompt, "FKI:6", "text", req.prompt)
-        set_input(prompt, "FKI:198", "image", uploads["input1"])
-        set_input(prompt, "FKI:199", "image", uploads.get("mask", uploads["input1"]))
-        set_input(prompt, "FKI:209", "preresize_min_width", req.width)
-        set_input(prompt, "FKI:209", "preresize_min_height", req.height)
-        set_input(prompt, "FKI:209", "output_target_width", req.width)
-        set_input(prompt, "FKI:209", "output_target_height", req.height)
-        set_input(prompt, "FKI:163", "seed", req.seed)
-        set_input(prompt, "FKI:163", "steps", req.steps)
-        set_input(prompt, "FKI:163", "cfg", req.cfg)
-        set_input(prompt, "FKI:163", "denoise", req.strength)
-        set_input(prompt, "FKI:203", "filename_prefix", "one-node-flux-2-klein/FK")
-    elif req.mode == "outpaint":
-        set_input(prompt, "FKO:194", "unet_name", model)
-        set_input(prompt, "FKO:195", "clip_name", text_encoder)
-        set_input(prompt, "FKO:196", "vae_name", vae)
-        set_input(prompt, "FKO:6", "text", req.prompt)
-        set_input(prompt, "FKO:198", "image", uploads["input1"])
-        set_input(prompt, "FKO:maskload", "image", uploads.get("mask", uploads["input1"]))
-        set_input(prompt, "FKO:209", "preresize_min_width", req.width)
-        set_input(prompt, "FKO:209", "preresize_min_height", req.height)
-        set_input(prompt, "FKO:209", "output_target_width", req.width)
-        set_input(prompt, "FKO:209", "output_target_height", req.height)
-        set_input(prompt, "FKO:163", "seed", req.seed)
-        set_input(prompt, "FKO:163", "steps", req.steps)
-        set_input(prompt, "FKO:163", "cfg", req.cfg)
-        set_input(prompt, "FKO:163", "denoise", 1)
-        set_input(prompt, "FKO:203", "filename_prefix", "one-node-flux-2-klein/FK")
+    comfyui_workflows.patch_mode_nodes(
+        prompt,
+        req,
+        uploads,
+        model,
+        text_encoder,
+        vae,
+        default_negative_prompt=DEFAULT_NEG_PROMPT,
+        model_profiles=get_server_model_profiles(),
+    )
 
 
 async def submit_workflow(workflow: dict[str, Any], job: dict[str, Any]) -> tuple[str, dict[str, Any], list[dict[str, str]]]:

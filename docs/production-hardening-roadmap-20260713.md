@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B6a` — ComfyUI HTTP client boundary; workflow/result split остаётся B6b/B6c |
+| Последний completed checkpoint | `B6b` — ComfyUI workflow builders; result/media adapter остаётся B6c |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1079 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1094 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 116 файлов; последний startup `checked=117`, `available=116`, `missing=1`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B5b run `29278442114` success (`1068 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B6a run `29281320422` success (`1079 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и четыре live snapshot готовы; свежий pre-B3a snapshot `20260713T142811.243312Z` проверен; schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 14 848 после B6a | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 14 716 после B6b | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -111,7 +111,7 @@
 | BE-06 | `ГОТОВО` | Ограниченный integration scope завершён: HTTP/parsing/planning/I/O/model aliases/request metadata вынесены; application caches, policy, persistence, billing и orchestration остаются в соответствующих будущих services |
 | BE-07 | `ГОТОВО` | B4a client/errors/file URL/health и B4b parsing/update handlers service выделены; routes/polling lifecycle остаются общим B12/B13 scope |
 | BE-08 | `ГОТОВО` | B5a client/errors/health и B5b parsing/update handlers service выделены; routes/polling/subscription lifecycle остаются B12/B13 scope |
-| BE-09 | `ЧАСТИЧНО` | B6a HTTP client готов; workflow builders и result/media adapter остаются B6b/B6c |
+| BE-09 | `ЧАСТИЧНО` | B6a HTTP client и B6b pure workflow builders готовы; result/media adapter остаётся B6c |
 | BE-10 | `НЕ НАЧАТО` | Generation/gallery/feed/account/billing services не выделены системно; B7 обязан добавить startup reconciliation зависших generation-state строк |
 | BE-11 | `НЕ НАЧАТО` | FastAPI routers не разделены по областям |
 | BE-12 | `НЕ НАЧАТО` | Application factory/lifecycle не созданы; `main.py` остаётся ASGI-монолитом |
@@ -193,7 +193,7 @@
 | B3 | `ГОТОВО` — ledger/version 1, core/billing, identity/auth, media/feed/search groups и migration tests; в `main.py` inline DDL отсутствует |
 | B4 | `ГОТОВО` — B4a client/errors/health и B4b injected update handlers service выделены без смены polling/webhook semantics |
 | B5 | `ГОТОВО` — B5a client/errors/health и B5b injected update handlers service выделены без смены polling/webhook semantics |
-| B6 | `ЧАСТИЧНО` — B6a HTTP client выделен; B6b workflow builders и B6c result adapter остаются |
+| B6 | `ЧАСТИЧНО` — B6a HTTP client и B6b workflow builders выделены; B6c result adapter остаётся |
 | B7 | Выделить generation service и queue boundary, включая startup reconciliation stale `queued/running/uploading/sent_*` строк |
 | B8 | Выделить gallery/source lifecycle service |
 | B9 | Выделить feed/publication/reaction/moderation service |
@@ -267,7 +267,8 @@
 17. `B5a` — `ГОТОВО`: MAX async/sync client, typed errors и health boundary.
 18. `B5b` — `ГОТОВО`: MAX update parsing/handlers service без переноса routes; B5 закрыт.
 19. `B6a` — `ГОТОВО`: ComfyUI HTTP client boundary без переноса workflow/result logic.
-20. `B6b` — **СЛЕДУЮЩИЙ ПАКЕТ**: ComfyUI workflow builders.
+20. `B6b` — `ГОТОВО`: ComfyUI workflow endpoint policy и pure graph builders.
+21. `B6c` — **СЛЕДУЮЩИЙ ПАКЕТ**: ComfyUI result/media adapter.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -1421,6 +1422,60 @@ Exact CI после B5b:
 - pre-restart audit нашёл одну stale production row `sent_to_comfyui/progress=24`
   возрастом около восьми часов при пустых ComfyUI running/pending queues. Строка не
   изменялась; обязательное startup reconciliation добавлено в scope B7.
+
+Exact CI после B6a:
+
+- GitHub Actions run `29281320422`, job `86922955651`, на SHA `2ac0a04`
+  завершён успешно за 20 мин 42 с;
+- `1079 passed, 72 warnings` за 1120,35 с; lint `0 errors / 1 existing warning`;
+- production build 1,38 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 1168,68 с.
+
+### Checkpoint B6b — ComfyUI workflow builders
+
+Реализовано и развёрнуто 2026-07-13:
+
+- новый pure `app/services/comfyui_workflows.py` владеет mode-to-workflow endpoint
+  policy, safe existing-node input patch, shared Flux nodes, negative/sampler/denoise
+  policy, optional/existing/dynamic LoRA loader, multi-reference conditioning chain,
+  mode-specific image-to-image/remove-background/inpaint/outpaint nodes, pose graph и
+  installed 4B outpaint graph;
+- service принимает structural request protocol, sampler profiles и `lora_enabled`
+  callback; он не импортирует `main`, FastAPI, Pydantic, SQLite, HTTPX, environment или
+  filesystem paths и не выполняет network/filesystem/database side effects;
+- bundled pose template loading, DB-backed model/profile/LoRA selection, admin settings,
+  request HTTP validation и all generation/result orchestration остаются в `main.py`;
+- старые публичные имена `build_pose_workflow`, `build_outpaint_workflow`,
+  `fetch_workflow`, `set_input`, `patch_shared_flux_nodes`, `patch_optional_lora`,
+  `patch_edit_reference_chain` и `patch_mode_nodes` сохранены как compatibility wrappers;
+- `main.py` уменьшен с 14 848 до 14 716 строк (−132); service имеет 260 строк,
+  direct tests — 288 строк; generated map `598 → 597 symbols`, routes `166`.
+
+Доказательства:
+
+- исходный workflow/API baseline до переноса: `75 passed`; direct pure builder
+  contracts: `15 passed`; расширенный B6 client/workflow/API/Admin suite:
+  `132 passed, 10 warnings` пять последовательных циклов за `67,38 / 66,75 / 63,80 /
+  64,16 / 63,89` с;
+- contracts покрывают все mode mappings/default, missing-node no-op, exact model/clip/
+  VAE/prompt/negative/size/seed/steps/cfg/denoise/sampler/scheduler/prefix values,
+  existing/dynamic LoRA, one/four reference chains, inpaint/outpaint, pose и missing/
+  disabled outpaint dependency failures;
+- локальный Full: `1094 passed, 72 warnings` за 307,33 с; lint `0 errors / 1 existing
+  warning`, build 0,538 с, origin `200/200/403/403`, итоговый `VERIFY_OK` за 336,92 с;
+  137 Python-файлов, source стабилен: 116 файлов / 1 576 580 байт /
+  `2D5E93221F75C4A01960EB43E9CCBEDBE94D8985D9B31A2B32CC77D397D1328B`;
+- controlled backend-only restart: PID `13016 → 48632`, один listener
+  `127.0.0.1:8000`, proxy headers disabled; frontend остался PID 55520;
+- live HTTP: health/models/Flux config/bgremoval/feed/bot status/frontend `200`,
+  private media `401`, polling-mode Telegram webhook `404`; read-only real graph smoke
+  успешно patched `t2i 10 nodes`, `edit 16 nodes/denoise=1` и outpaint `13 nodes` с
+  удалённым KV cache и добавленным LoRA loader, без upload/submit/interrupt/free;
+- во время restart ComfyUI выполнял отдельный prompt с client id без
+  `onenode-backend-*`; после backend-only restart тот же prompt продолжил выполняться,
+  то есть ComfyUI не останавливался и `/interrupt` не вызывался;
+- schema/data migration, production DB/media, backup, secrets, paid generation, VPS и
+  tunnel не изменялись; ранее найденная stale job row остаётся отдельным scope B7.
 
 ## 9. Обязательный gate каждого пакета
 
