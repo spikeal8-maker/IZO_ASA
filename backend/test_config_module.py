@@ -13,6 +13,7 @@ from backend.app.config import (
     load_media_processing_policy,
     load_provider_endpoint_policy,
     load_runtime_environment_policy,
+    load_storage_path_policy,
     sqlite_path_from_database_url,
 )
 
@@ -316,3 +317,49 @@ def test_media_processing_policy_rejects_invalid_numbers_like_legacy_main() -> N
             pass
         else:
             raise AssertionError("invalid numeric media configuration must fail fast")
+
+
+def test_storage_path_policy_defaults_without_creating_directories(tmp_path: Path) -> None:
+    root = tmp_path / "backend"
+    policy = load_storage_path_policy(root, {})
+
+    assert policy.media_dir == (root / "media").resolve()
+    assert policy.avatar_dir == (root / "media" / "avatars").resolve()
+    assert policy.database_path == root / "onenode.sqlite3"
+    assert not root.exists()
+
+
+def test_storage_path_policy_preserves_expansion_and_database_url_parsing(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "backend"
+    media_value = tmp_path / "custom" / ".." / "media"
+    policy = load_storage_path_policy(
+        root,
+        {
+            "MEDIA_DIR": str(media_value),
+            "DATABASE_URL": "sqlite:///C:/data/app.sqlite3",
+        },
+    )
+
+    assert policy.media_dir == media_value.resolve()
+    assert policy.avatar_dir == media_value.resolve() / "avatars"
+    assert policy.database_path == Path("C:/data/app.sqlite3")
+
+
+def test_storage_path_policy_preserves_empty_media_and_relative_database_semantics(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    policy = load_storage_path_policy(
+        tmp_path / "backend",
+        {
+            "MEDIA_DIR": "",
+            "DATABASE_URL": "sqlite:relative.sqlite3",
+        },
+    )
+
+    assert policy.media_dir == tmp_path.resolve()
+    assert policy.avatar_dir == tmp_path.resolve() / "avatars"
+    assert policy.database_path == Path("relative.sqlite3")

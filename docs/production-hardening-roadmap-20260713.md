@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B2d` — typed media-processing limits extraction; точный hash в Git history |
+| Последний completed checkpoint | `B2e` — typed storage/database path values; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 995 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 998 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 115 файлов; последний startup `checked=116`, `available=115`, `missing=1`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B2c run `29247461484` success (`991 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B2d run `29249610234` success (`995 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и три live snapshot готовы; автоматический schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 288 после B2d | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 289 после B2e | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -103,7 +103,7 @@
 
 | ID | Статус | Состояние |
 |---|---|---|
-| BE-01 | `ЧАСТИЧНО` | `app/config.py` владеет env/DB-path helpers и typed HTTP/provider/runtime/bot/media-limit policies; filesystem paths и production validation ещё остаются |
+| BE-01 | `ЧАСТИЧНО` | `app/config.py` владеет env/DB-path helpers и typed HTTP/provider/runtime/bot/media-limit/storage-path policies; завершить production validation |
 | BE-02 | `ЧАСТИЧНО` | `database/connection.py`, `guard.py`, `schema.py`, `migrations.py` созданы; repository layer и migration ledger не завершены |
 | BE-03 | `ЧАСТИЧНО` | Tokens/passwords/sessions/permissions/OTP/events вынесены; legacy auth removal и routers не завершены |
 | BE-04 | `ЧАСТИЧНО` | Storage paths/private/public/recovery/source graph/thumbnails/validation/cleanup вынесены; оставшиеся gallery/media orchestration blocks ещё в `main.py` |
@@ -189,7 +189,7 @@
 | Пакет | Результат |
 |---|---|
 | B1 | `ГОТОВО` — model aliases и request metadata вынесены; дальнейшее мелкое дробление этой integration boundary остановлено |
-| B2 | `ЧАСТИЧНО` — B2a HTTP security, B2b provider endpoints/timeouts, B2c runtime/bot modes и B2d media limits готовы; продолжить filesystem paths и production validation малыми пакетами |
+| B2 | `ЧАСТИЧНО` — B2a HTTP security, B2b provider endpoints/timeouts, B2c runtime/bot modes, B2d media limits и B2e storage paths готовы; остался отдельный production-validation пакет |
 | B3 | Завершить migrations: ledger/version, idempotent schema groups, billing/feed/auth migration tests |
 | B4 | Выделить Telegram client и затем handlers/service |
 | B5 | Выделить MAX client и затем handlers/service |
@@ -771,6 +771,60 @@ Exact-head CI после B2c:
   polling ready, MAX `/me` и poll 200 без ошибки;
 - paid generation не запускалась; secrets, production DB rows, VPS и tunnel не
   изменялись.
+
+Exact-head CI после B2d:
+
+- GitHub Actions run `29249610234` на SHA `31c6fd9` завершён успешно;
+- `995 passed, 72 warnings` за 876,50 с; lint `0 errors / 1 existing warning`;
+- production build 1,17 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 920,76 с.
+
+### Checkpoint B2e — typed storage path values
+
+Реализовано и развёрнуто 2026-07-13:
+
+- `app/config.py` получил immutable `StoragePathPolicy` и import-safe loader для
+  `MEDIA_DIR`, derived avatar directory и `DATABASE_URL`/SQLite path;
+- loader только вычисляет `Path`: он не создаёт каталоги, не читает содержимое,
+  не подключается к SQLite и не перемещает data; `MEDIA.mkdir` и
+  `AVATAR_DIR.mkdir` намеренно остались явными в runtime wiring `main.py`;
+- `main.py` сохраняет compatibility globals `MEDIA`, `AVATAR_DIR`, `DB_PATH`,
+  поэтому storage/database consumers и test monkeypatch не переписаны массово;
+- сохранены legacy semantics `expanduser().resolve()` для media, пустого
+  `MEDIA_DIR`, default `<backend>/media`, relative/raw/`sqlite:`/`sqlite:///`
+  database values и default `<backend>/onenode.sqlite3`;
+- policy создаётся на прежнем месте сразу после `load_local_env(ROOT)`; чтение
+  `DATABASE_URL` происходит чуть раньше внутри того же синхронного import, но
+  между прежними точками нет env mutation, а characterization/full suite
+  подтвердили эквивалентность;
+- static page/favicon/avatar-preset existence discovery оставлено в `main.py`:
+  это runtime asset discovery, а не изменяемая path-конфигурация;
+- `main.py` временно 15 289 строк из-за compatibility export; удаление exports
+  остаётся B14 после перевода consumers.
+
+Доказательства:
+
+- characterization до реализации остановился ровно на отсутствующем loader;
+- focused config/database/DB-guard/storage/lifecycle/API/ownership suite:
+  `144 passed, 24 warnings` пять последовательных циклов; generated map
+  `609 symbols / 166 routes` совпал после каждого цикла;
+- отдельный test подтверждает отсутствие directory creation на несуществующем
+  root и точную обработку empty media/relative SQLite paths;
+- локальный Full: `998 passed, 72 warnings` за 390,16 с; lint
+  `0 errors / 1 existing warning`, build успешен, origin `200/200/403/403`;
+- verifier source стабилен весь прогон: 115 файлов / 1 568 444 байта /
+  `A16510695E8C187E330DB6D198F2CAC9157EE468111325CF8BF35568D05CD02A`,
+  итоговый Full 422,95 с;
+- deploy штатным launcher: backend PID 44440, frontend PID 34680, по одному
+  loopback listener, Uvicorn `--no-proxy-headers`;
+- health подтвердил прежнюю live SQLite: 538,93 MB, 33 users, 5 active admins,
+  migration/DB Guard `ok`; startup source `checked=116 / available=115 /
+  missing=1 / changed=0`;
+- local main/health/version/models/feed и public main/health/version HTTP 200;
+  auth `401/401/401`, CORS `200/400`, host `200/200/403/403`, Telegram/MAX
+  polling ready, MAX `/me` и polling 200 без ошибки;
+- каталоги/data не переносились; paid generation, secrets, production DB rows,
+  VPS и tunnel не изменялись.
 
 ## 9. Обязательный gate каждого пакета
 

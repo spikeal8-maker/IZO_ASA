@@ -87,6 +87,13 @@ class MediaProcessingPolicy:
     source_thumb_webp_quality: int
 
 
+@dataclass(frozen=True)
+class StoragePathPolicy:
+    media_dir: Path
+    avatar_dir: Path
+    database_path: Path
+
+
 def load_local_env(root: Path | None = None) -> None:
     """Load `root/.env` without overriding process-level environment values."""
     env_path = (root or BACKEND_ROOT) / ".env"
@@ -320,3 +327,18 @@ def sqlite_path_from_database_url(value: str | None, root: Path | None = None) -
     if raw.startswith("sqlite:"):
         return Path(raw.replace("sqlite:", "", 1))
     return Path(raw) if raw else (root or BACKEND_ROOT) / "onenode.sqlite3"
+
+
+def load_storage_path_policy(
+    root: Path,
+    environment: Mapping[str, str] | None = None,
+) -> StoragePathPolicy:
+    """Compute storage paths without creating, reading or moving storage content."""
+
+    source = os.environ if environment is None else environment
+    media_dir = Path(source.get("MEDIA_DIR", str(root / "media"))).expanduser().resolve()
+    return StoragePathPolicy(
+        media_dir=media_dir,
+        avatar_dir=media_dir / "avatars",
+        database_path=sqlite_path_from_database_url(source.get("DATABASE_URL"), root),
+    )

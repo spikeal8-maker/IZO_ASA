@@ -61,7 +61,7 @@ try:
         load_media_processing_policy,
         load_provider_endpoint_policy,
         load_runtime_environment_policy,
-        sqlite_path_from_database_url,
+        load_storage_path_policy,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.config import (
@@ -73,7 +73,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         load_media_processing_policy,
         load_provider_endpoint_policy,
         load_runtime_environment_policy,
-        sqlite_path_from_database_url,
+        load_storage_path_policy,
     )
 
 try:
@@ -414,9 +414,10 @@ SOURCE_THUMB_WEBP_QUALITY = MEDIA_PROCESSING_POLICY.source_thumb_webp_quality
 
 load_local_env(ROOT)
 mimetypes.add_type("image/webp", ".webp")
-MEDIA = Path(os.getenv("MEDIA_DIR", str(ROOT / "media"))).expanduser().resolve()
+STORAGE_PATH_POLICY = load_storage_path_policy(ROOT)
+MEDIA = STORAGE_PATH_POLICY.media_dir
 MEDIA.mkdir(parents=True, exist_ok=True)
-AVATAR_DIR = MEDIA / "avatars"
+AVATAR_DIR = STORAGE_PATH_POLICY.avatar_dir
 AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 
 OPENROUTER_SECRET_NAME = "openrouter_api_key"
@@ -437,7 +438,7 @@ def is_production_like_env() -> bool:
     return is_production_like_environment(APP_ENV, ENV_NAME, MODE_NAME)
 
 
-DB_PATH = sqlite_path_from_database_url(os.getenv("DATABASE_URL"))
+DB_PATH = STORAGE_PATH_POLICY.database_path
 
 PROVIDER_ENDPOINT_POLICY = load_provider_endpoint_policy()
 COMFYUI_BASE_URL = PROVIDER_ENDPOINT_POLICY.comfyui_base_url

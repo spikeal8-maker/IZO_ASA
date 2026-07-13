@@ -47,9 +47,10 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   typed HTTP security policy for cookie names/flags, proxy trust flags and the CORS
   origin list. It also owns the typed ComfyUI/OpenRouter/prompt-improvement/exchange-rate
   endpoint and timeout policy plus runtime-environment and Telegram/MAX delivery-mode
-  parsing and bounded ComfyUI/gallery/source-thumbnail processing limits. `main.py`
-  keeps compatibility globals while later B2 packages continue; policy construction
-  itself has no filesystem, DB or network side effects.
+  parsing, bounded ComfyUI/gallery/source-thumbnail processing limits and typed
+  media/avatar/database path values. `main.py` keeps compatibility globals and the
+  explicit directory creation while later B2 packages continue; policy construction
+  itself has no filesystem mutation, DB connection or network side effect.
 - `backend/app/database/connection.py` owns the SQLite connection policy.
 - `backend/app/database/guard.py` owns import-safe DB Guard checks; `main.py` retains compatibility wrappers while the split continues.
 - `backend/app/database/migrations.py` owns validated additive-column primitives and column declarations used by the legacy initializer.
