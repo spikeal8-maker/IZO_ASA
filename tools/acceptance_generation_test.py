@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import requests
+import httpx
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -227,7 +227,7 @@ def build_cases(assets: dict[str, Path], pass_no: int) -> list[Case]:
     ]
 
 
-def wait_job(session: requests.Session, base_url: str, job_id: str, timeout_s: int) -> dict[str, Any]:
+def wait_job(session: httpx.Client, base_url: str, job_id: str, timeout_s: int) -> dict[str, Any]:
     deadline = time.time() + timeout_s
     last: dict[str, Any] = {}
     while time.time() < deadline:
@@ -270,8 +270,10 @@ def main() -> None:
     args = parser.parse_args()
 
     session_info = json.loads(Path(args.session_file).read_text(encoding="utf-8"))
-    session = requests.Session()
-    session.headers.update({"Cookie": session_info["cookies"], "User-Agent": "Codex acceptance test"})
+    session = httpx.Client(
+        headers={"Cookie": session_info["cookies"], "User-Agent": "Codex acceptance test"},
+        follow_redirects=True,
+    )
 
     assets = make_assets()
     report: dict[str, Any] = {
@@ -291,7 +293,7 @@ def main() -> None:
             try:
                 response = session.post(f"{args.base_url}/api/generate", json=case.body, timeout=60)
                 entry["submit_status"] = response.status_code
-                if not response.ok:
+                if not response.is_success:
                     entry["error"] = response.text[:1000]
                     raise RuntimeError(f"submit failed {response.status_code}: {response.text[:240]}")
                 created = response.json()
@@ -317,6 +319,7 @@ def main() -> None:
 
     report["completed_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    session.close()
     print(f"report={out_path}")
 
 

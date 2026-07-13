@@ -95,3 +95,4 @@ def test_verify_script_defaults_to_full_mode() -> None:
     assert '$usesLiveChecks = $Mode -ne "CI"' in source
     assert '"tools/test_backup_restore.py"' in source
     assert '"tools/test_ci_workflow.py"' in source
+    assert '"tools/test_pytest_collection_contract.py"' in source
