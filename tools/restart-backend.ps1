@@ -9,6 +9,8 @@ param(
     [int]$StartupTimeoutSeconds = 60,
     [ValidateRange(1, 60)]
     [int]$StopTimeoutSeconds = 15,
+    [ValidateRange(1, 60)]
+    [int]$HealthProbeTimeoutSeconds = 10,
     [string]$LogDirectory = "",
     [switch]$ValidateOnly,
     [switch]$PreflightOnly
@@ -107,10 +109,13 @@ function Get-BackendState {
 }
 
 function Test-BackendHealth {
-    param([string]$Uri)
+    param(
+        [string]$Uri,
+        [int]$TimeoutSeconds
+    )
 
     try {
-        $response = Invoke-WebRequest -UseBasicParsing -Uri $Uri -TimeoutSec 3
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $Uri -TimeoutSec $TimeoutSeconds
         return $response.StatusCode -eq 200
     } catch {
         return $false
@@ -156,7 +161,7 @@ if ($ValidateOnly) {
 }
 
 $oldState = Get-BackendState -ExpectedPort $Port -ExpectedBind $BindAddress -ExpectedPython $pythonExecutable
-if (-not (Test-BackendHealth -Uri $healthUri)) {
+if (-not (Test-BackendHealth -Uri $healthUri -TimeoutSeconds $HealthProbeTimeoutSeconds)) {
     throw "Current backend failed health preflight: $healthUri"
 }
 
@@ -208,7 +213,7 @@ try {
         if ($newProcess.HasExited) {
             break
         }
-        if (Test-BackendHealth -Uri $healthUri) {
+        if (Test-BackendHealth -Uri $healthUri -TimeoutSeconds $HealthProbeTimeoutSeconds) {
             $healthy = $true
             break
         }

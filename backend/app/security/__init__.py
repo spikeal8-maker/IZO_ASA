@@ -60,9 +60,17 @@ from .webhooks import (
     validate_telegram_webhook_secret,
     webhook_secret_matches,
 )
+from .secret_store import (
+    DpapiSecretStore,
+    SecretStoreError,
+    assert_secret_store_outside_repository,
+    default_secret_store_dir,
+    migrate_sqlite_secret_to_store,
+)
 
 __all__ = [
     "DUMMY_PASSWORD_HASH",
+    "DpapiSecretStore",
     "EventRuntime",
     "OtpAccessError",
     "OtpRateLimits",
@@ -75,13 +83,16 @@ __all__ = [
     "PermissionRuntime",
     "SessionAccessError",
     "SessionRuntime",
+    "SecretStoreError",
     "WebhookPayloadError",
     "WebhookReplayGuard",
     "build_max_subscription_payload",
     "build_telegram_set_webhook_payload",
+    "assert_secret_store_outside_repository",
     "create_session",
     "cleanup_expired_otp_challenges",
     "enforce_email_otp_rate_limits",
+    "default_secret_store_dir",
     "generate_bot_login_token",
     "generate_secure_token",
     "generate_otp_code",
@@ -89,6 +100,7 @@ __all__ = [
     "hash_token",
     "hash_otp",
     "password_hash_needs_rehash",
+    "migrate_sqlite_secret_to_store",
     "parse_webhook_json_object",
     "refresh_session",
     "record_login_attempt",

@@ -53,6 +53,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/security/permissions.py` owns trusted-user resolution, legacy-header spoof auditing and the admin role gate; HTTP error mapping remains in `main.py`.
 - `backend/app/security/otp.py` owns OTP generation/hash, production configuration validation, mock delivery, stale-challenge cleanup and request rate limits through an injected runtime.
 - `backend/app/security/events.py` owns session, security, login-attempt and product-event persistence; callers remain responsible for passing only sanitized metadata.
+- `backend/app/security/secret_store.py` owns external CurrentUser DPAPI documents, Windows ACL restriction, atomic writes and verified SQLite-secret migration; `main.py` owns OpenRouter source priority and admin HTTP mapping.
 - `backend/app/security/webhooks.py` owns Telegram/MAX secret validation, constant-time comparison, registration/subscription payload construction, bounded body parsing and the Telegram single-process bounded replay guard; `main.py` retains mode policy, HTTP error mapping and update handling.
 - `backend/app/storage/paths.py` owns canonical root containment, private-media URL parsing and compatibility URL creation; filesystem deletion, cleanup and recovery remain separate follow-up packages.
 - `backend/app/storage/private_media.py` owns trusted-owner resolution for canonical and legacy private media URLs; filename matching is exact apart from an optional query string.

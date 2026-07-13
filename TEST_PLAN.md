@@ -10,6 +10,7 @@
 - MAX webhook security: polling keeps the receiver closed; webhook mode requires an official-format `MAX_WEBHOOK_SECRET`, subscription creation always sends it, the header is compared in constant time, and oversized/malformed bodies are rejected.
 - Launcher mode safety: `start-public.bat` must not switch MAX from the proven polling mode to webhook implicitly.
 - MAX API TLS migration: API2 uses the native system trust store; async polling/messages and synchronous `/me` deep-link discovery receive the same verify context, and `tools/probe_max_api.py` exposes no token/body.
+- OpenRouter secret storage: tests isolate the real DPAPI root, exercise real CurrentUser DPAPI, prove encrypted atomic files contain no plaintext, verify ACL/migration failure safety, and delete the SQLite row only after readback comparison.
 - Health: API responds and reports ComfyUI/FluxKleinOneNode availability fields.
 - Generation modes: `text_to_image`, `image_to_image`, `edit`, `paint`, `inpaint`, `outpaint`, `faceswap`.
 - Providers: ComfyUI path calls the ComfyUI adapter, OpenRouter path does not.

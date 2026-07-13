@@ -102,7 +102,7 @@ def test_admin_can_save_openrouter_key_without_exposing_secret(temp_db, monkeypa
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     async def fake_status():
-        return {"configured": True, "source": "admin_ui", "ok": True, "data": {"limit": 10, "usage": 1}}
+        return {"configured": True, "source": "dpapi", "ok": True, "data": {"limit": 10, "usage": 1}}
 
     monkeypatch.setattr(main, "fetch_openrouter_key_status", fake_status)
     sess = admin_session()
@@ -118,7 +118,9 @@ def test_admin_can_save_openrouter_key_without_exposing_secret(temp_db, monkeypa
     assert settings.status_code == 200
     assert "sk-or-test-secret-123" not in settings.text
     assert deleted.status_code == 200
-    assert main.admin_secret_value("openrouter_api_key") == ""
+    assert main.OPENROUTER_SECRET_STORE.get(main.OPENROUTER_SECRET_NAME) == ""
+    with main.db() as conn:
+        assert conn.execute("SELECT COUNT(*) AS c FROM admin_secrets").fetchone()["c"] == 0
 
 
 def test_admin_can_save_openrouter_model_config(temp_db):

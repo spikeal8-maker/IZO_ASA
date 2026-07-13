@@ -39,10 +39,10 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний runtime checkpoint | `A4b` — MAX API2/system trust-store migration; точный hash в Git history |
+| Последний runtime checkpoint | `A5` — OpenRouter CurrentUser DPAPI secret migration; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 934 passed, 0 failed, 0 deselected |
+| Последний полный test checkpoint | 945 passed, 0 failed, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 241 | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 266 | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -80,7 +80,7 @@
 | SAFE-01 | `ГОТОВО` | Созданы `ARCHITECTURE.md` и автоматически проверяемый `SYMBOL_MAP.md` |
 | SAFE-02 | `ГОТОВО` | Backend-тесты принудительно изолированы от production DB/media/avatar roots |
 | SAFE-03 | `ГОТОВО` | Startup cleanup больше не удаляет файлы; cleanup использует audit/manifest/quarantine |
-| SAFE-04 | `ГОТОВО` | Есть безопасный backend-only `tools/restart-backend.ps1` с preflight |
+| SAFE-04 | `ГОТОВО` | Безопасный backend-only restart имеет preflight и параметризуемый health timeout 10 секунд для текущей большой SQLite |
 | SAFE-05 | `ГОТОВО` | После каждого runtime-пакета выполняются focused 5x tests, full suite, frontend gates, restart и live smoke |
 | SAFE-06 | `ГОТОВО` | `tools/verify.ps1` объединяет Quick/Full/CI gates и выдаёт machine-readable `VERIFY_OK`; production checks read-only |
 | SAFE-07 | `НЕ НАЧАТО` | Нет GitHub Actions CI и обязательных checks |
@@ -93,7 +93,7 @@
 | SEC-02 | `ГОТОВО` | Telegram/MAX operational management endpoints требуют trusted admin |
 | SEC-03 | `ГОТОВО` | Webhook mode требует `TELEGRAM_WEBHOOK_SECRET`; официальный header проверяется constant-time, body ограничен, integer `update_id` защищён bounded replay guard |
 | SEC-04 | `ГОТОВО` | MAX webhook mode требует official-format secret; header проверяется constant-time, body ограничен, polling receiver закрыт |
-| SEC-05 | `НЕ НАЧАТО` | OpenRouter key из admin UI всё ещё хранится plaintext в SQLite `admin_secrets` |
+| SEC-05 | `ГОТОВО` | OpenRouter env override или external CurrentUser DPAPI; live SQLite plaintext row удалён, admin API возвращает только configured/source |
 | SEC-06 | `ЧАСТИЧНО` | Trusted Identity Core используется для protected routes, но legacy `X-OneNode-User` helpers и JS-readable `onenode_user` cookie остаются в коде |
 | SEC-07 | `НЕ НАЧАТО` | `allowedHosts: true` остаётся в Vite server и preview config |
 | SEC-08 | `ЧАСТИЧНО` | Backend/frontend привязаны к loopback, но `TRUST_CLOUDFLARE_HEADERS=true` задаётся launcher без отдельного документированного origin-isolation test |
@@ -178,7 +178,7 @@
 | A3 | P0 | `ГОТОВО` — Telegram webhook secret required-in-webhook-mode validation, constant-time header check, negative/replay/body-limit tests |
 | A4 | P0 | `ГОТОВО` — MAX secret: запрещён пустой secret в webhook mode, constant-time comparison, body/mode/negative tests |
 | A4b | P0 | `ГОТОВО` — MAX API2/system trust-store migration, sanitized probe, polling + `/me` live smoke и rollback contract |
-| A5 | P0 | OpenRouter secret migration: DPAPI store вне repository, admin UI configured/source only, plaintext SQLite migration/delete, затем ручная rotation инструкция |
+| A5 | P0 | `ГОТОВО` — OpenRouter external CurrentUser DPAPI store, verified SQLite migration/delete, admin configured/source contract и rotation/runbook |
 | A6 | P0 | Backup tooling: SQLite Backup API, media manifest/incremental copy, second-disk destination через внешнюю config, `quick_check`, checksum и restore rehearsal |
 | A7 | P1 | Точный Vite host allowlist и automated loopback/proxy-header isolation check |
 
@@ -253,8 +253,8 @@
 3. `A3` — `ГОТОВО`: Telegram webhook secret/body/replay enforcement.
 4. `A4` — `ГОТОВО`: MAX webhook secret/body/mode enforcement.
 5. `A4b` — `ГОТОВО`: MAX API2/system trust-store migration.
-6. `A5` — **СЛЕДУЮЩИЙ ПАКЕТ**: OpenRouter DPAPI secret store и удаление plaintext SQLite secret.
-7. `A6` — backup/restore tooling без автоматического schedule на первом PR.
+6. `A5` — `ГОТОВО`: OpenRouter DPAPI secret store и удаление plaintext SQLite secret.
+7. `A6` — **СЛЕДУЮЩИЙ ПАКЕТ**: backup/restore tooling без автоматического schedule на первом PR.
 8. `A2` — GitHub Actions CI поверх стабильной verify command.
 9. `A7` — host allowlist и proxy-origin checks.
 10. `B2` — завершение config extraction.
@@ -381,6 +381,37 @@
 - final runtime: API2, trust store `system`, MAX polling 200/no error, `/me` 200, nickname/deep-link resolved через API;
 - live smoke 5/5: health/database/models/feed HTTP 200, MAX API2 polling + `/me` 200, MAX webhook HTTP 404, private source HTTP 401;
 - локальный `.env` изменён только в публичных `MAX_API_BASE_URL`/`MAX_TLS_TRUST_STORE`; secrets, MAX subscription, VPS и tunnel не изменялись.
+
+### Checkpoint A5 — OpenRouter CurrentUser DPAPI
+
+Реализовано 2026-07-13:
+
+- `app/security/secret_store.py` хранит versioned DPAPI document вне repository в `%LOCALAPPDATA%\IZO_ASA\secrets` или внешнем `IZO_SECRET_DIR`;
+- используется Windows DPAPI CurrentUser scope с application entropy, atomic temp→replace и защищённым ACL без наследования;
+- `OPENROUTER_API_KEY` остаётся env override; иначе source имеет только значения `dpapi`/`none`;
+- admin save/delete работают с DPAPI и очищают legacy SQLite row; API/status никогда не возвращают key;
+- `tools/migrate_openrouter_secret.py` имеет read-only `--plan`, encrypt/readback constant-time verification и удаляет SQLite row только после успешной проверки;
+- обязательная backend conftest isolation подменяет production DPAPI root временным fake-crypto store;
+- README содержит rotation/new-PC/service-account runbook; DPAPI file не считается переносимым backup.
+
+Доказательства:
+
+- read-only inventory: один `admin_secrets` row, OpenRouter value length 73, другие rows отсутствовали; value не выводился;
+- characterization test ожидаемо упал на отсутствии `app.security.secret_store`;
+- real CurrentUser DPAPI roundtrip, atomic/encryption/ACL/corruption/failure/idempotency/tool tests успешны;
+- расширенный A5 package: `126 passed`; focused secret/admin/migration suite: `17 passed` пять последовательных прогонов;
+- финальный `Full`: `945 passed, 72 warnings`, frontend lint `0 errors / 1 existing warning`, frontend build успешно;
+- `py_compile` и generated map check успешны: 118 Python-файлов, 609 symbols, 165 routes;
+- source snapshot до/после: 122 файла, 1 706 364 байта, SHA-256 `AC1A00934150E28C74BC1C4F319AFF24C84324FF8842AE8EEACD44D34A977850`, без изменений;
+- live plan: legacyRows 1 / dpapiConfigured false; apply: `migrated`, legacyRows 0 / configured true / source dpapi;
+- encrypted document: 570 bytes, plaintext absent, ACL inheritance disabled, current Windows user FullControl;
+- OpenRouter read-only provider verification до и после restart: `/key` 200, `/credits` 200;
+- первый post-migration restart: PID 28572 → PID 50240, startup `already_migrated`, source dpapi, `changed=0`;
+- `/api/health` измерен 3,4–4,8 секунды; два финальных restart preflight с прежним hardcoded 3-second timeout безопасно отказались до остановки PID;
+- restart helper получил `HealthProbeTimeoutSeconds=10`, contract suite `11 passed` пять циклов; final restart PID 50240 → PID 49032 успешен;
+- live smoke 5/5: health/database/models/tariffs/feed HTTP 200, MAX polling 200, private source HTTP 401; paid OpenRouter generation не запускалась;
+- первый live migration command завершился до plan/apply из-за неверного working directory, ничего не изменив; повтор с абсолютным root прошёл успешно;
+- VPS, tunnel, Telegram/MAX secrets и OpenRouter provider key value не изменялись и не выводились.
 
 ## 9. Обязательный gate каждого пакета
 

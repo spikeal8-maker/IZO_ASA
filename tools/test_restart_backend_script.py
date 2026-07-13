@@ -107,6 +107,9 @@ def test_restart_script_checks_exact_listener_command_health_and_logs() -> None:
     assert "--port\\s+" in source
     assert "Get-CimInstance Win32_Process" in source
     assert "/api/health" in source
+    assert '[int]$HealthProbeTimeoutSeconds = 10' in source
+    assert "-TimeoutSec $TimeoutSeconds" in source
+    assert source.count("-TimeoutSeconds $HealthProbeTimeoutSeconds") == 2
     assert "RedirectStandardOutput" in source
     assert "RedirectStandardError" in source
     assert "BACKEND_RESTART_FAILED" in source

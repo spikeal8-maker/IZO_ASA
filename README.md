@@ -71,6 +71,35 @@ The repository has one non-mutating verification entrypoint:
 or modify production DB/media. Runtime packages still require the separate
 controlled restart and live-smoke procedure documented in the production roadmap.
 
+## Secrets
+
+The OpenRouter key no longer lives in SQLite. An environment-level
+`OPENROUTER_API_KEY` remains the highest-priority override; otherwise the admin UI
+writes a Windows CurrentUser DPAPI document under
+`%LOCALAPPDATA%\IZO_ASA\secrets` (or `IZO_SECRET_DIR` outside the repository).
+The file is atomically replaced, encrypted, and restricted to the current Windows
+account. APIs expose only `configured` and `source=env|dpapi|none`.
+
+Safe migration/audit commands:
+
+```powershell
+python tools/migrate_openrouter_secret.py --plan
+python tools/migrate_openrouter_secret.py
+```
+
+DPAPI is tied to the Windows account. Do not treat the encrypted file as a
+portable backup and do not copy it to a new PC expecting it to decrypt. On a new
+computer or after changing the Windows service account:
+
+1. Install dependencies and run the backend under the intended long-term account.
+2. Enter a newly created/rotated OpenRouter key through the trusted admin UI.
+3. Confirm the admin status reports `configured=true`, `source=dpapi`, and provider checks succeed.
+4. Only then revoke the old key in the OpenRouter account.
+
+Never place the key in Git or send it through logs/chat. Telegram/MAX tokens and
+other `.env` secrets are still local configuration and are not covered by this
+OpenRouter-specific DPAPI migration.
+
 ## ComfyUI
 
 The backend checks `http://127.0.0.1:8188/object_info`, verifies `FluxKleinOneNode`, loads the One Node workflow JSON from `/flux_klein/workflow_*`, sends patched prompts to `/prompt`, waits for `/history/{prompt_id}`, downloads the image through `/view`, and stores a local copy plus thumbnail.

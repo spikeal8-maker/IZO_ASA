@@ -162,6 +162,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
 try:
     from .app.security import (
         DUMMY_PASSWORD_HASH as SECURITY_DUMMY_PASSWORD_HASH,
+        DpapiSecretStore,
         PASSWORD_ALGORITHM as SECURITY_PASSWORD_ALGORITHM,
         PASSWORD_HASHER as SECURITY_PASSWORD_HASHER,
         PASSWORD_MAX_LENGTH as SECURITY_PASSWORD_MAX_LENGTH,
@@ -174,13 +175,16 @@ try:
         PermissionRuntime,
         SessionAccessError,
         SessionRuntime,
+        SecretStoreError,
         WebhookPayloadError,
         WebhookReplayGuard,
         build_max_subscription_payload,
         build_telegram_set_webhook_payload,
+        assert_secret_store_outside_repository,
         create_session as security_create_session,
         cleanup_expired_otp_challenges as security_cleanup_expired_otp_challenges,
         enforce_email_otp_rate_limits as security_enforce_email_otp_rate_limits,
+        default_secret_store_dir,
         generate_otp_code as security_generate_otp_code,
         generate_bot_login_token as security_generate_bot_login_token,
         generate_secure_token as security_generate_secure_token,
@@ -188,6 +192,7 @@ try:
         hash_token as security_hash_token,
         hash_otp as security_hash_otp,
         password_hash_needs_rehash as security_password_hash_needs_rehash,
+        migrate_sqlite_secret_to_store,
         parse_webhook_json_object,
         refresh_session as security_refresh_session,
         record_login_attempt as security_record_login_attempt,
@@ -211,6 +216,7 @@ try:
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.security import (
         DUMMY_PASSWORD_HASH as SECURITY_DUMMY_PASSWORD_HASH,
+        DpapiSecretStore,
         PASSWORD_ALGORITHM as SECURITY_PASSWORD_ALGORITHM,
         PASSWORD_HASHER as SECURITY_PASSWORD_HASHER,
         PASSWORD_MAX_LENGTH as SECURITY_PASSWORD_MAX_LENGTH,
@@ -223,13 +229,16 @@ except ImportError:  # Direct `python backend/main.py` execution.
         PermissionRuntime,
         SessionAccessError,
         SessionRuntime,
+        SecretStoreError,
         WebhookPayloadError,
         WebhookReplayGuard,
         build_max_subscription_payload,
         build_telegram_set_webhook_payload,
+        assert_secret_store_outside_repository,
         create_session as security_create_session,
         cleanup_expired_otp_challenges as security_cleanup_expired_otp_challenges,
         enforce_email_otp_rate_limits as security_enforce_email_otp_rate_limits,
+        default_secret_store_dir,
         generate_otp_code as security_generate_otp_code,
         generate_bot_login_token as security_generate_bot_login_token,
         generate_secure_token as security_generate_secure_token,
@@ -237,6 +246,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         hash_token as security_hash_token,
         hash_otp as security_hash_otp,
         password_hash_needs_rehash as security_password_hash_needs_rehash,
+        migrate_sqlite_secret_to_store,
         parse_webhook_json_object,
         refresh_session as security_refresh_session,
         record_login_attempt as security_record_login_attempt,
@@ -372,6 +382,11 @@ MEDIA = Path(os.getenv("MEDIA_DIR", str(ROOT / "media"))).expanduser().resolve()
 MEDIA.mkdir(parents=True, exist_ok=True)
 AVATAR_DIR = MEDIA / "avatars"
 AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+
+OPENROUTER_SECRET_NAME = "openrouter_api_key"
+OPENROUTER_SECRET_STORE_DIR = default_secret_store_dir()
+assert_secret_store_outside_repository(OPENROUTER_SECRET_STORE_DIR, ROOT.parent)
+OPENROUTER_SECRET_STORE = DpapiSecretStore(OPENROUTER_SECRET_STORE_DIR)
 
 # Identity Core session service (Phase 4 + 4.1). Keying material for token hashing
 # comes from the environment when available. Only hashes are persisted — raw tokens
@@ -5463,27 +5478,6 @@ def optimize_existing_gallery_storage(limit_per_user: int = 250) -> dict[str, in
     return totals
 
 
-def admin_secret_value(key: str) -> str:
-    try:
-        with db() as conn:
-            row = conn.execute("SELECT value FROM admin_secrets WHERE key = ?", (key,)).fetchone()
-        return str(row["value"] or "").strip() if row else ""
-    except Exception:
-        return ""
-
-
-def save_admin_secret(key: str, value: str) -> None:
-    now = datetime.now(timezone.utc).isoformat()
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO admin_secrets (key, value, updated_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-            (key, value, now),
-        )
-    _admin_models_page_cache["ts"] = 0.0
-    _admin_models_page_cache["data"] = None
-
-
 def delete_admin_secret(key: str) -> None:
     with db() as conn:
         conn.execute("DELETE FROM admin_secrets WHERE key = ?", (key,))
@@ -5494,13 +5488,35 @@ def delete_admin_secret(key: str) -> None:
 def openrouter_api_key_source() -> str:
     if os.getenv("OPENROUTER_API_KEY", "").strip():
         return "env"
-    if admin_secret_value("openrouter_api_key"):
-        return "admin_ui"
+    if OPENROUTER_SECRET_STORE.exists(OPENROUTER_SECRET_NAME):
+        return "dpapi"
     return "none"
 
 
 def openrouter_api_key() -> str:
-    return os.getenv("OPENROUTER_API_KEY", "").strip() or admin_secret_value("openrouter_api_key")
+    return os.getenv("OPENROUTER_API_KEY", "").strip() or OPENROUTER_SECRET_STORE.get(OPENROUTER_SECRET_NAME)
+
+
+def migrate_openrouter_secret_from_sqlite() -> str:
+    with db() as conn:
+        return migrate_sqlite_secret_to_store(conn, OPENROUTER_SECRET_STORE, OPENROUTER_SECRET_NAME)
+
+
+def save_openrouter_api_key(value: str) -> None:
+    OPENROUTER_SECRET_STORE.set(OPENROUTER_SECRET_NAME, value)
+    verified = OPENROUTER_SECRET_STORE.get(OPENROUTER_SECRET_NAME)
+    if not hmac.compare_digest(verified.encode("utf-8"), value.encode("utf-8")):
+        raise SecretStoreError("OpenRouter DPAPI secret readback verification failed.")
+    delete_admin_secret(OPENROUTER_SECRET_NAME)
+    _admin_models_page_cache["ts"] = 0.0
+    _admin_models_page_cache["data"] = None
+
+
+def delete_openrouter_api_key() -> None:
+    OPENROUTER_SECRET_STORE.delete(OPENROUTER_SECRET_NAME)
+    delete_admin_secret(OPENROUTER_SECRET_NAME)
+    _admin_models_page_cache["ts"] = 0.0
+    _admin_models_page_cache["data"] = None
 
 
 OPENROUTER_GENERATION_MODES = {"text_to_image", "image_to_image", "edit"}
@@ -7158,6 +7174,9 @@ async def startup() -> None:
     db_guard_preflight()
     validate_session_crypto_config()
     init_db()
+    openrouter_secret_migration = migrate_openrouter_secret_from_sqlite()
+    if openrouter_secret_migration != "not_configured":
+        print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
     enforce_db_guard_after_migrations()
     storage_maintenance_enabled = startup_storage_maintenance_allowed(os.environ)
     if storage_maintenance_enabled:
@@ -13765,7 +13784,10 @@ async def admin_save_openrouter_key(req: AdminSecretKeyRequest, request: Request
     key = req.key.strip()
     if not key.startswith("sk-or-"):
         raise HTTPException(400, "OpenRouter key должен начинаться с sk-or-")
-    save_admin_secret("openrouter_api_key", key)
+    try:
+        save_openrouter_api_key(key)
+    except SecretStoreError as exc:
+        raise HTTPException(503, "OpenRouter secret store is unavailable.") from exc
     key_status = await fetch_openrouter_key_status()
     return {"ok": bool(key_status.get("ok")), "key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config()}
 
@@ -13773,7 +13795,10 @@ async def admin_save_openrouter_key(req: AdminSecretKeyRequest, request: Request
 @app.delete("/api/admin/openrouter/key")
 async def admin_delete_openrouter_key(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
-    delete_admin_secret("openrouter_api_key")
+    try:
+        delete_openrouter_api_key()
+    except SecretStoreError as exc:
+        raise HTTPException(503, "OpenRouter secret store is unavailable.") from exc
     key_status = await fetch_openrouter_key_status()
     return {"ok": True, "key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config()}
 
