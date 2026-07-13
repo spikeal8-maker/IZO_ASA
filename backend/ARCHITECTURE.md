@@ -104,8 +104,13 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   boundary, validated response envelopes, token-redacted typed configuration/
   transport/response/API errors, official file-URL construction and a sanitized
   `getMe` health probe. `main.telegram_api()` remains a compatibility adapter for
-  legacy HTTP error mapping and monkeypatch callers; polling, update handlers,
-  webhook lifecycle and routes stay in `main.py` until B4b.
+  legacy HTTP error mapping and monkeypatch callers; polling, webhook lifecycle and
+  routes stay in `main.py` until their later dedicated packages.
+- `backend/app/services/telegram_updates.py` owns Telegram message/callback parsing,
+  inline-button payload mapping and approve/command/batch update handling through a
+  typed injected runtime. It does not import FastAPI, SQLite, provider configuration
+  or `main`; `main.py` retains compatibility wrappers and wires bot-login approval,
+  avatar scheduling, command responses, API calls and sanitized callback-error logs.
 - `backend/conftest.py` redirects every backend test to a temporary SQLite database, media root and avatar root even when a test forgot its own fixture.
 - Keep it independent of FastAPI, SQLite and provider network calls.
 

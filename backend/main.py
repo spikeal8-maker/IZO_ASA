@@ -150,6 +150,25 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
 
 try:
+    from .app.services import (
+        TelegramUpdateRuntime,
+        handle_telegram_update_with_runtime,
+        handle_telegram_updates_with_runtime,
+        telegram_answer_payload,
+        telegram_message_from_update,
+        telegram_user_from_update,
+    )
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.services import (
+        TelegramUpdateRuntime,
+        handle_telegram_update_with_runtime,
+        handle_telegram_updates_with_runtime,
+        telegram_answer_payload,
+        telegram_message_from_update,
+        telegram_user_from_update,
+    )
+
+try:
     from .app.database import (
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
@@ -2054,16 +2073,6 @@ def bot_login_token_from_payload(payload: str | None) -> str | None:
         return None
     token = payload.replace("login_", "", 1).strip()
     return token if token else None
-
-
-def telegram_user_from_update(update: dict[str, Any]) -> dict[str, Any] | None:
-    callback = update.get("callback_query") or {}
-    if isinstance(callback, dict) and isinstance(callback.get("from"), dict):
-        return callback["from"]
-    message = update.get("message") or {}
-    if isinstance(message, dict) and isinstance(message.get("from"), dict):
-        return message["from"]
-    return None
 
 
 def max_user_from_message(message: dict[str, Any]) -> dict[str, Any] | None:
@@ -4657,24 +4666,6 @@ async def configure_max_webhook_subscription() -> dict[str, Any]:
         raise
 
 
-def telegram_answer_payload(chat_id: Any, answer: dict[str, Any]) -> dict[str, Any]:
-    buttons = []
-    for button in answer.get("buttons", []):
-        callback_data = button.get("callback_data")
-        if callback_data:
-            buttons.append({"text": button["text"], "callback_data": callback_data})
-            continue
-        url = button.get("url", "")
-        if url.startswith("https://"):
-            buttons.append({"text": button["text"], "web_app": {"url": url}})
-        else:
-            buttons.append({"text": button["text"], "url": url})
-    payload: dict[str, Any] = {"chat_id": chat_id, "text": answer["text"]}
-    if buttons:
-        payload["reply_markup"] = {"inline_keyboard": [buttons]}
-    return payload
-
-
 def max_message_payload(answer: dict[str, Any]) -> dict[str, Any]:
     buttons = answer.get("buttons", [])
     payload: dict[str, Any] = {"text": answer["text"]}
@@ -4723,59 +4714,23 @@ def pending_max_login_challenges_count() -> int:
         ).fetchone()["c"]
 
 
-def telegram_message_from_update(update: dict[str, Any]) -> tuple[str, dict[str, Any], Any, str | None]:
-    message = update.get("message") or {}
-    callback = update.get("callback_query") or {}
-    callback_id = callback.get("id") if isinstance(callback, dict) else None
-    if callback:
-        message = callback.get("message") or {}
-        text = callback.get("data") or message.get("text") or ""
-    else:
-        text = message.get("text") or ""
-    chat = message.get("chat") or {}
-    return text, message, chat.get("id"), callback_id
+def telegram_update_runtime() -> TelegramUpdateRuntime:
+    return TelegramUpdateRuntime(
+        api_call=telegram_api,
+        login_token_from_payload=bot_login_token_from_payload,
+        approve_login=lambda token, user: approve_bot_login_challenge("telegram", token, user),
+        schedule_avatar=lambda provider_user_id: schedule_avatar_cache("telegram", provider_user_id),
+        command_response=lambda text: bot_command_response("telegram", text),
+        report_callback_error=lambda exc: print("telegram callback answer error", type(exc).__name__),
+    )
 
 
 async def handle_telegram_update(update: dict[str, Any], send_replies: bool) -> dict[str, Any] | None:
-    update_id = update.get("update_id")
-    text, _message, chat_id, callback_id = telegram_message_from_update(update)
-    if isinstance(text, str) and text.startswith("approve:"):
-        token = bot_login_token_from_payload(text.replace("approve:", "", 1))
-        user = telegram_user_from_update(update)
-        approved = bool(token and user and approve_bot_login_challenge("telegram", token, user))
-        if approved and user:
-            schedule_avatar_cache("telegram", str(user.get("id") or ""))
-        if send_replies and callback_id:
-            await telegram_api(
-                "answerCallbackQuery",
-                {"callback_query_id": callback_id, "text": "Вход подтверждён" if approved else "Ссылка устарела"},
-            )
-        if send_replies and chat_id is not None:
-            await telegram_api(
-                "sendMessage",
-                {"chat_id": chat_id, "text": "Готово. Вернитесь в браузер." if approved else "Ссылка входа устарела. Попробуйте снова."},
-            )
-        return {"updateId": update_id, "chatId": chat_id, "botLogin": "approved" if approved else "rejected"}
-    if isinstance(text, str) and text.startswith("/"):
-        answer = bot_command_response("telegram", text)
-        if send_replies and chat_id is not None:
-            await telegram_api("sendMessage", telegram_answer_payload(chat_id, answer))
-        if send_replies and callback_id:
-            try:
-                await telegram_api("answerCallbackQuery", {"callback_query_id": callback_id})
-            except Exception as exc:
-                print("telegram callback answer error", type(exc).__name__)
-        return {"updateId": update_id, "chatId": chat_id, "answer": answer}
-    return None
+    return await handle_telegram_update_with_runtime(update, send_replies, telegram_update_runtime())
 
 
 async def handle_telegram_updates(updates: list[dict[str, Any]], send_replies: bool) -> list[dict[str, Any]]:
-    handled = []
-    for update in updates:
-        result = await handle_telegram_update(update, send_replies)
-        if result:
-            handled.append(result)
-    return handled
+    return await handle_telegram_updates_with_runtime(updates, send_replies, telegram_update_runtime())
 
 
 def extract_max_command(update: dict[str, Any]) -> tuple[str, dict[str, Any]]:
