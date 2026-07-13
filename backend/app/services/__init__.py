@@ -4,6 +4,7 @@ from . import comfyui_workflows
 from . import comfyui_results
 from . import generation_recovery
 from . import generation_jobs
+from . import generation_results
 from .comfyui_results import ComfyUIResult
 from .telegram_updates import (
     TelegramUpdateRuntime,
@@ -32,6 +33,7 @@ __all__ = [
     "comfyui_results",
     "generation_recovery",
     "generation_jobs",
+    "generation_results",
     "ComfyUIResult",
     "TelegramUpdateRuntime",
     "handle_telegram_update_with_runtime",

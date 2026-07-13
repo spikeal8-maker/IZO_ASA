@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B7b` — generation job persistence/response boundary; следующий пакет B7c |
+| Последний completed checkpoint | `B7c` — pure generation result/job-state builders; следующий пакет B7d |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1124 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1128 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 115 файлов; последний startup `checked=116`, `available=115`, `missing=1`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B7a run `29289893003` success (`1116 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B7b run `29291985656` success (`1124 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и пять live snapshot готовы; pre-B7a snapshot `20260713T221737.032822Z` verify/rehearsal успешен; schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 14 654 после B7b | entrypoint/application wiring; generation worker/queue/result builders остаются B7c+ |
+| `backend/main.py` | 14 631 после B7c | entrypoint/application wiring; generation worker orchestration/queue lifecycle остаются B7d+ |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -112,7 +112,7 @@
 | BE-07 | `ГОТОВО` | B4a client/errors/file URL/health и B4b parsing/update handlers service выделены; routes/polling lifecycle остаются общим B12/B13 scope |
 | BE-08 | `ГОТОВО` | B5a client/errors/health и B5b parsing/update handlers service выделены; routes/polling/subscription lifecycle остаются B12/B13 scope |
 | BE-09 | `ГОТОВО` | B6a HTTP client, B6b pure workflow builders и B6c result/media adapter выделены; generation/job/gallery orchestration остаётся B7/B8 |
-| BE-10 | `ЧАСТИЧНО` | B7a startup reconciliation и B7b job persistence/response готовы; generation worker/queue/result builders остаются B7c+, gallery/feed/account/billing — B8-B11 |
+| BE-10 | `ЧАСТИЧНО` | B7a startup reconciliation, B7b job persistence/response и B7c pure result/terminal-state builders готовы; generation worker orchestration/queue lifecycle остаются B7d+, gallery/feed/account/billing — B8-B11 |
 | BE-11 | `НЕ НАЧАТО` | FastAPI routers не разделены по областям |
 | BE-12 | `НЕ НАЧАТО` | Application factory/lifecycle не созданы; `main.py` остаётся ASGI-монолитом |
 
@@ -194,7 +194,7 @@
 | B4 | `ГОТОВО` — B4a client/errors/health и B4b injected update handlers service выделены без смены polling/webhook semantics |
 | B5 | `ГОТОВО` — B5a client/errors/health и B5b injected update handlers service выделены без смены polling/webhook semantics |
 | B6 | `ГОТОВО` — B6a HTTP client, B6b workflow builders и B6c result/media adapter выделены |
-| B7 | `ЧАСТИЧНО` — B7a startup reconciliation и B7b job persistence/response готовы; generation worker/queue/result builders остаются B7c+ |
+| B7 | `ЧАСТИЧНО` — B7a startup reconciliation, B7b job persistence/response и B7c pure result/terminal-state builders готовы; generation worker orchestration/queue lifecycle остаются B7d+ |
 | B8 | Выделить gallery/source lifecycle service |
 | B9 | Выделить feed/publication/reaction/moderation service |
 | B10 | Выделить account/auth service и удалить подтверждённо неиспользуемые legacy authorization consumers |
@@ -271,7 +271,8 @@
 21. `B6c` — `ГОТОВО`: ComfyUI result/media adapter; B6 закрыт.
 22. `B7a` — `ГОТОВО`: transactional startup reconciliation orphaned generation jobs и idempotent refund.
 23. `B7b` — `ГОТОВО`: generation job persistence/response boundary без переноса worker orchestration.
-24. `B7c` — **СЛЕДУЮЩИЙ ПАКЕТ**: pure generation result/job-state builders перед переносом worker orchestration.
+24. `B7c` — `ГОТОВО`: pure generation result/job-state builders без переноса side effects.
+25. `B7d` — **СЛЕДУЮЩИЙ ПАКЕТ**: single-job generation processor с явно инъецированными provider/storage/billing callbacks; внешний queue loop и startup lifecycle пока остаются в `main.py`.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -1673,6 +1674,63 @@ Exact CI после B7a:
   54544 стабильны 6/6 samples за 61 секунду, health/queue `200/200`, queue пуста;
 - schema/data migration, backup, secrets, paid generation, VPS и tunnel пакетом B7b
   не изменялись; tests/live smoke не записывали production jobs/media.
+
+Exact CI после B7b:
+
+- GitHub Actions run `29291985656`, job `86957371006`, на SHA `48e9ba0`
+  завершён успешно за 20 мин 9 с;
+- `1124 passed, 72 warnings` за 1058,92 с; lint `0 errors / 1 existing warning`;
+- production build 1,54 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 1122,75 с.
+
+### Checkpoint B7c — pure generation result/job-state builders
+
+Реализовано и развёрнуто 2026-07-14:
+
+- новый import-safe `app/services/generation_results.py` строит точную запись generated
+  image и два terminal job state: `completed` и `failed`;
+- image-record contract сохраняет прежние поля и правила: Unicode prompt не выдаётся
+  за перевод, LoRA сохраняются как ID, ComfyUI prompt/history переносятся без
+  преобразования, а фактические OpenRouter dimensions/metadata/billing/request
+  используются только при наличии результата провайдера;
+- terminal-state builders изменяют тот же job dict и сохраняют прежние message,
+  progress, result/gallery quota и строковое представление ошибки. Не относящиеся к
+  terminal transition поля намеренно не удаляются;
+- builders используют только structural protocols/mappings и не импортируют `main`,
+  FastAPI, Pydantic, SQLite, HTTPX, environment, filesystem или asyncio;
+- worker по-прежнему владеет очередью, cancellation, provider calls, billing/refund,
+  UUID/URL/time, DB/files, source graph, quota/eviction и persistence. Две
+  дублированные completed-ветки сведены к одному вызову после прежнего gallery flow;
+- `main.py` уменьшен с 14 654 до 14 631 строк (−23); новый service имеет 114 строк,
+  direct contract tests — 4; generated map остаётся `597 symbols / 166 routes`.
+
+Доказательства:
+
+- до extraction прежний worker/gallery/refund baseline: `9 passed`; добавленные
+  contracts сначала дали ожидаемый RED только на отсутствующем module import, затем
+  direct suite `4 passed`, а direct + прежний integration baseline — `13 passed`;
+- расширенный result/job/recovery/generation/ownership/ComfyUI/quota/API suite:
+  `194 passed, 40 warnings` пять последовательных циклов за
+  `81,66 / 79,85 / 81,83 / 82,24 / 79,67` с;
+- первый Full gate штатно остановился на устаревших line numbers generated map; карта
+  пересоздана официальным AST-generator и её `--check` успешен;
+- успешный локальный Full: `1128 passed, 72 warnings`; frontend lint
+  `0 errors / 1 existing warning`, production build 1,77 с, origin
+  `200/200/403/403`, итоговый `VERIFY_OK` за 309,84 с; 148 Python-файлов;
+- source-media snapshot до/после Full идентичен: 115 файлов / 1 534 310 байт /
+  SHA-256 `D5C642413D984AD5E4232FE8B650B9C9F6BE18D283D673010134B57E37F41D6F`;
+- pre-deploy audit: active jobs 0, ComfyUI running/pending 0/0, DB ready/Guard ok,
+  единственные loopback listeners на 5173/8000/8188; controlled backend-only restart
+  PID `46320 → 57684`, `--no-proxy-headers` сохранён;
+- первый live-smoke harness ошибочно использовал GET для webhook из-за конфликта имени
+  `$Args` и правильно получил 405; gate отклонил этот прогон. После исправления helper
+  полный smoke повторён: 5/5 health/models/Flux/bgremoval/feed/bots/frontend `200`,
+  private media `401`, Telegram POST webhook `404`;
+- backend PID 57684 и ComfyUI PID 54544 стабильны 6/6 samples за 58 секунд,
+  health/queue `200/200`; после restart active jobs 0 и pytest-процессов 0;
+- schema/data migration, backup, secrets, paid generation, frontend runtime, ComfyUI,
+  VPS и tunnel пакетом B7c не изменялись; tests/live smoke не записывали production
+  jobs/media.
 
 ## 9. Обязательный gate каждого пакета
 

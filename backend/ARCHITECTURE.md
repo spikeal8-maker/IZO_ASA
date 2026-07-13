@@ -121,13 +121,19 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   orphaned active generation rows. Jobs with a persisted active image are completed;
   the remaining `queued`/`running`/`uploading`/`sent_*` rows are failed through the
   injected idempotent refund path before in-memory state loads. The caller owns the
-  database transaction. The in-process queue and worker remain in `main.py` for B7c+.
+  database transaction. The in-process queue and worker remain in `main.py` for B7d+.
 - `backend/app/services/generation_jobs.py` owns the legacy-compatible job UPSERT,
   owner-scoped persisted job/image lookup and row-to-API response mapping. It receives
   a structural database connection and the application model-display adapter; it has
   no FastAPI, Pydantic, HTTPX or environment dependency. `main.py` keeps thin function
   wrappers plus request-model conversion/connection ownership. Queue processing,
-  provider calls, billing and gallery/result orchestration remain B7c+/B8.
+  provider calls, billing and gallery/result orchestration remain B7d+/B8.
+- `backend/app/services/generation_results.py` owns the pure generated-image record
+  builder and exact completed/failed job-state transitions. It receives structural
+  request/result objects and mappings and has no FastAPI, Pydantic, SQLite, HTTPX,
+  filesystem, environment or asyncio dependency. `main.py` still owns identifiers,
+  public URLs, timing and every provider/billing/database/file/gallery side effect;
+  single-job worker orchestration remains B7d and gallery lifecycle remains B8.
 - `backend/app/integrations/openrouter.py` owns text-model catalog, key/credits, shared `/chat/completions`, image-model/endpoint document collection with bounded concurrency, pure model/endpoint capability normalization, generation response parsing, public error mapping and safe image-response metadata normalization; `main.py` retains compatibility wrappers, API-key/header/source policy, caches, endpoint selection and generation orchestration.
 - `backend/app/integrations/openrouter_images.py` owns model-alias resolution, safe request-metadata assembly, pure orientation/aspect-ratio/descriptor/provider request planning and image request-body assembly; application resolution IDs/tiers are passed through compatibility wrappers and local-reference values through callback injection.
 - `backend/app/integrations/openrouter_image_io.py` owns remote/data reference passthrough, application-resolved local-file encoding, and response b64/URL loading into PIL; `main.py` retains the production path resolver, timeout, gallery persistence and generation orchestration.

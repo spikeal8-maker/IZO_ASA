@@ -188,6 +188,7 @@ try:
         comfyui_workflows,
         generation_jobs,
         generation_recovery,
+        generation_results,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -213,6 +214,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         comfyui_workflows,
         generation_jobs,
         generation_recovery,
+        generation_results,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -6458,34 +6460,19 @@ async def worker() -> None:
                 gallery_quota = gallery_quota_for_user(conn, user_row, user_id)
             image_id = f"img_{uuid.uuid4().hex[:12]}"
             created_at = datetime.now(timezone.utc).isoformat()
-            record = {
-                "id": image_id,
-                "userId": user_id,
-                "url": public_url(image_path, user_id),
-                "thumbnailUrl": public_url(thumb_path, user_id),
-                "mode": req.mode,
-                "provider": req.provider,
-                "promptOriginal": req.prompt,
-                "promptTranslated": req.prompt if req.prompt.isascii() else "",
-                "seed": req.seed,
-                "width": openrouter_result.width if openrouter_result else req.width,
-                "height": openrouter_result.height if openrouter_result else req.height,
-                "modelProfile": req.modelProfile,
-                "loras": [item.id for item in req.loras],
-                "preset": None,
-                "tokenCost": job.get("tokenCost"),
-                "generationTimeMs": int((time.perf_counter() - started) * 1000),
-                "isFavorite": False,
-                "createdAt": created_at,
-                "comfyuiPromptId": prompt_id,
-                "comfyuiHistory": comfyui_history,
-                "openrouterModel": openrouter_result.model if openrouter_result else None,
-                "openrouterResponseId": openrouter_result.response_id if openrouter_result else None,
-                "openrouterUsage": openrouter_result.usage if openrouter_result else None,
-                "openrouterCostUsd": openrouter_result.cost_usd if openrouter_result else None,
-                "openrouterBilling": job.get("openrouterBilling") if openrouter_result else None,
-                "openrouterRequest": job.get("openrouterRequest") if openrouter_result else None,
-            }
+            record = generation_results.build_generation_image_record(
+                image_id=image_id,
+                user_id=user_id,
+                image_url=public_url(image_path, user_id),
+                thumbnail_url=public_url(thumb_path, user_id),
+                request=req,
+                job=job,
+                created_at=created_at,
+                generation_time_ms=int((time.perf_counter() - started) * 1000),
+                comfyui_prompt_id=prompt_id,
+                comfyui_history=comfyui_history,
+                openrouter_result=openrouter_result,
+            )
             if gallery_quota["gallery_full"]:
                 with db() as conn:
                     evicted_count = evict_gallery_images_for_new_save(conn, user_id, gallery_quota, created_at)
@@ -6508,18 +6495,6 @@ async def worker() -> None:
                 with db() as conn:
                     saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
                     gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
-                job.update(
-                    status="completed",
-                    progress=100,
-                    message="Готово",
-                    resultImageId=result_image_id,
-                    resultUrl=record["url"],
-                    width=record["width"],
-                    height=record["height"],
-                    gallerySaveStatus=save_status,
-                    galleryQuota=gallery_quota,
-                    completedAt=created_at,
-                )
             else:
                 images[image_id] = record
                 persist_image(record, job_id)
@@ -6530,23 +6505,25 @@ async def worker() -> None:
                 with db() as conn:
                     saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
                     gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
-                job.update(
-                    status="completed",
-                    progress=100,
-                    message="Готово",
-                    resultImageId=image_id,
-                    resultUrl=record["url"],
-                    width=record["width"],
-                    height=record["height"],
-                    gallerySaveStatus="saved",
-                    galleryQuota=gallery_quota,
-                    completedAt=created_at,
-                )
+                save_status = "saved"
+                result_image_id = image_id
+            generation_results.complete_generation_job(
+                job,
+                record=record,
+                result_image_id=result_image_id,
+                gallery_save_status=save_status,
+                gallery_quota=gallery_quota,
+                completed_at=created_at,
+            )
             persist_job(job, req)
         except Exception as exc:
             with db() as conn:
                 refund_generation_tokens(conn, job_id, reason="generation_failed")
-            job.update(status="failed", progress=100, message="Генерация не выполнена.", error=str(exc), completedAt=datetime.now(timezone.utc).isoformat())
+            generation_results.fail_generation_job(
+                job,
+                error=exc,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
             persist_job(job, req)
         finally:
             queue.task_done()
