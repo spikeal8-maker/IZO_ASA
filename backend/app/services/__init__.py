@@ -2,6 +2,7 @@
 
 from . import comfyui_workflows
 from . import comfyui_results
+from . import generation_recovery
 from .comfyui_results import ComfyUIResult
 from .telegram_updates import (
     TelegramUpdateRuntime,
@@ -28,6 +29,7 @@ from .max_updates import (
 __all__ = [
     "comfyui_workflows",
     "comfyui_results",
+    "generation_recovery",
     "ComfyUIResult",
     "TelegramUpdateRuntime",
     "handle_telegram_update_with_runtime",

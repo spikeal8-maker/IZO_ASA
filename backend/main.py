@@ -186,6 +186,7 @@ try:
         TelegramUpdateRuntime,
         comfyui_results,
         comfyui_workflows,
+        generation_recovery,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -209,6 +210,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         TelegramUpdateRuntime,
         comfyui_results,
         comfyui_workflows,
+        generation_recovery,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -3752,6 +3754,17 @@ def load_db_state() -> None:
             }
 
 
+def reconcile_stale_generation_state() -> dict[str, int]:
+    completed_at = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        report = generation_recovery.reconcile_stale_generation_jobs(
+            conn,
+            completed_at=completed_at,
+            refund_job=refund_generation_tokens,
+        )
+    return report.as_dict()
+
+
 def job_response_from_row(row: sqlite3.Row, image_row: sqlite3.Row | None = None) -> dict[str, Any]:
     settings = safe_json_load(row["settings_json"]) or {}
     result_url = _row_get(image_row, "url") or settings.get("resultUrl")
@@ -6615,6 +6628,9 @@ async def startup() -> None:
     if openrouter_secret_migration != "not_configured":
         print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
     enforce_db_guard_after_migrations()
+    generation_recovery_report = reconcile_stale_generation_state()
+    if generation_recovery_report["checked"]:
+        print(f"generation startup reconciliation: {generation_recovery_report}")
     storage_maintenance_enabled = startup_storage_maintenance_allowed(os.environ)
     if storage_maintenance_enabled:
         recovered_gallery = recover_missing_optimized_gallery_files()

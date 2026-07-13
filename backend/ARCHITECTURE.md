@@ -117,6 +117,12 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   HTTPX, environment or filesystem-root dependency. `main.py` retains application
   deadlines/cancellation/progress, gallery storage policy, fallback behavior and job
   lifecycle orchestration until B7/B8.
+- `backend/app/services/generation_recovery.py` owns transactional startup handling for
+  orphaned active generation rows. Jobs with a persisted active image are completed;
+  the remaining `queued`/`running`/`uploading`/`sent_*` rows are failed through the
+  injected idempotent refund path before in-memory state loads. The caller owns the
+  database transaction. Job persistence/response mapping, the in-process queue and the
+  worker remain in `main.py` for B7b+.
 - `backend/app/integrations/openrouter.py` owns text-model catalog, key/credits, shared `/chat/completions`, image-model/endpoint document collection with bounded concurrency, pure model/endpoint capability normalization, generation response parsing, public error mapping and safe image-response metadata normalization; `main.py` retains compatibility wrappers, API-key/header/source policy, caches, endpoint selection and generation orchestration.
 - `backend/app/integrations/openrouter_images.py` owns model-alias resolution, safe request-metadata assembly, pure orientation/aspect-ratio/descriptor/provider request planning and image request-body assembly; application resolution IDs/tiers are passed through compatibility wrappers and local-reference values through callback injection.
 - `backend/app/integrations/openrouter_image_io.py` owns remote/data reference passthrough, application-resolved local-file encoding, and response b64/URL loading into PIL; `main.py` retains the production path resolver, timeout, gallery persistence and generation orchestration.

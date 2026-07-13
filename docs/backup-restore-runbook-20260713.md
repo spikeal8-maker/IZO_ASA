@@ -1,6 +1,6 @@
 # IZO ASA — backup и restore runbook для текущего Windows production
 
-Дата проверки: 2026-07-13
+Дата проверки: 2026-07-14
 
 ## Что защищает этот backup
 
@@ -121,20 +121,22 @@ destination находятся `database.sqlite3`, `media` и `RESTORE_COMPLETED
 
 ## Текущие доказательства
 
-На 2026-07-13 созданы три completed snapshot. Последний:
+На 2026-07-14 созданы пять completed snapshot. Последний создан перед B7a
+startup reconciliation:
 
 ```text
-snapshot=20260713T011450.444384Z
+snapshot=20260713T221737.032822Z
 databaseBytes=565104640
 mediaFiles=2394
-mediaBytes=215152173
-copiedObjects=0
-reusedObjects=2394
+mediaBytes=244742470
+copiedObjects=9
+reusedObjects=2385
 ```
 
 Для него независимо успешны `BACKUP_VERIFY_OK`, SQLite `quick_check`, checksum
 pipeline и `BACKUP_REHEARSAL_OK`. После операции production сохранил один listener
-PID 49032, health=true и database.ready=true.
+и health/database ready. Последующий controlled B7a restart поднял PID 484; snapshot
+остался проверенной точкой отката до единственной recovery/refund mutation.
 
 ## Что ещё не реализовано
 

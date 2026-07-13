@@ -39,19 +39,19 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B6c` — ComfyUI result/media adapter; B6 закрыт, следующий пакет B7 |
+| Последний completed checkpoint | `B7a` — startup reconciliation orphaned generation jobs; следующий пакет B7b |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1108 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1116 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
-| Source baseline | 116 файлов; последний startup `checked=117`, `available=116`, `missing=1`, `changed=0` |
+| Source baseline | 115 файлов; последний startup `checked=116`, `available=115`, `missing=1`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B6b run `29284297234` success (`1094 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B6c run `29286748620` success (`1108 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
-| Backup | A6 tooling и четыре live snapshot готовы; свежий pre-B3a snapshot `20260713T142811.243312Z` проверен; schedule/retention ещё не включены |
+| Backup | A6 tooling и пять live snapshot готовы; pre-B7a snapshot `20260713T221737.032822Z` verify/rehearsal успешен; schedule/retention ещё не включены |
 
 ## 4. Реальные размеры крупных файлов
 
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 14 696 после B6c | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 14 712 после B7a | entrypoint/application wiring; B7a добавил startup wiring, сокращение worker/job blocks продолжается в B7b+ |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -112,7 +112,7 @@
 | BE-07 | `ГОТОВО` | B4a client/errors/file URL/health и B4b parsing/update handlers service выделены; routes/polling lifecycle остаются общим B12/B13 scope |
 | BE-08 | `ГОТОВО` | B5a client/errors/health и B5b parsing/update handlers service выделены; routes/polling/subscription lifecycle остаются B12/B13 scope |
 | BE-09 | `ГОТОВО` | B6a HTTP client, B6b pure workflow builders и B6c result/media adapter выделены; generation/job/gallery orchestration остаётся B7/B8 |
-| BE-10 | `НЕ НАЧАТО` | Generation/gallery/feed/account/billing services не выделены системно; B7 обязан добавить startup reconciliation зависших generation-state строк |
+| BE-10 | `ЧАСТИЧНО` | B7a transactional startup reconciliation готов; generation worker/queue/job persistence ещё остаются B7b+, gallery/feed/account/billing — B8-B11 |
 | BE-11 | `НЕ НАЧАТО` | FastAPI routers не разделены по областям |
 | BE-12 | `НЕ НАЧАТО` | Application factory/lifecycle не созданы; `main.py` остаётся ASGI-монолитом |
 
@@ -136,7 +136,7 @@
 | OPS-02 | `ЧАСТИЧНО` | Launcher проверяет DB/health/smoke, но release build не атомарный и build label не равен Git commit автоматически |
 | OPS-03 | `НЕ НАЧАТО` | Vite Preview не заменён на Caddy |
 | OPS-04 | `НЕ НАЧАТО` | Backend/Caddy/ComfyUI/Ollama не оформлены как Windows Services с restart-on-failure; два backend PID уже исчезали без traceback/graceful shutdown, что подтверждает срочность supervisor |
-| OPS-05 | `ЧАСТИЧНО` | SQLite Backup API + incremental media работают на отдельный физический `I:`; четыре live snapshot проверены, но регулярный schedule/retention ещё не настроены |
+| OPS-05 | `ЧАСТИЧНО` | SQLite Backup API + incremental media работают на отдельный физический `I:`; пять live snapshot проверены, но регулярный schedule/retention ещё не настроены |
 | OPS-06 | `ЧАСТИЧНО` | SHA-256, manifest checksum, SQLite `quick_check` и restore rehearsal готовы; encrypted offsite copy ещё не выбрана |
 | OPS-07 | `ЧАСТИЧНО` | Есть health/logs и ручной storage audit, но нет единого monitoring/alerting контура |
 | OPS-08 | `ГОТОВО` | Внешний VPS/tunnel исключён из оптимизационных изменений |
@@ -194,7 +194,7 @@
 | B4 | `ГОТОВО` — B4a client/errors/health и B4b injected update handlers service выделены без смены polling/webhook semantics |
 | B5 | `ГОТОВО` — B5a client/errors/health и B5b injected update handlers service выделены без смены polling/webhook semantics |
 | B6 | `ГОТОВО` — B6a HTTP client, B6b workflow builders и B6c result/media adapter выделены |
-| B7 | Выделить generation service и queue boundary, включая startup reconciliation stale `queued/running/uploading/sent_*` строк |
+| B7 | `ЧАСТИЧНО` — B7a startup reconciliation stale `queued/running/uploading/sent_*` строк готов; generation worker/queue/job persistence остаются B7b+ |
 | B8 | Выделить gallery/source lifecycle service |
 | B9 | Выделить feed/publication/reaction/moderation service |
 | B10 | Выделить account/auth service и удалить подтверждённо неиспользуемые legacy authorization consumers |
@@ -269,7 +269,8 @@
 19. `B6a` — `ГОТОВО`: ComfyUI HTTP client boundary без переноса workflow/result logic.
 20. `B6b` — `ГОТОВО`: ComfyUI workflow endpoint policy и pure graph builders.
 21. `B6c` — `ГОТОВО`: ComfyUI result/media adapter; B6 закрыт.
-22. `B7` — **СЛЕДУЮЩИЙ ПАКЕТ**: generation service/queue boundary и startup reconciliation зависших job-state строк.
+22. `B7a` — `ГОТОВО`: transactional startup reconciliation orphaned generation jobs и idempotent refund.
+23. `B7b` — **СЛЕДУЮЩИЙ ПАКЕТ**: generation job persistence/response boundary без переноса worker orchestration.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -1536,6 +1537,78 @@ Exact CI после B6b:
   остаётся открытым критическим operations-пакетом, а не считается application crash;
 - schema/data migration, backup, secrets, paid generation, VPS и tunnel пакетом не
   изменялись; тесты не обращались к production DB/media, а live smoke был read-only.
+
+Exact CI после B6c:
+
+- GitHub Actions run `29286748620`, job `86941024277`, на SHA `03df252`
+  завершён успешно за 19 мин 22 с;
+- `1108 passed, 72 warnings` за 1021,60 с; lint `0 errors / 1 existing warning`;
+- production build 1,59 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 1079,82 с.
+
+### Checkpoint B7a — startup reconciliation orphaned generation jobs
+
+Реализовано и развёрнуто 2026-07-14:
+
+- новый import-safe `app/services/generation_recovery.py` задаёт явный active-state
+  contract: `queued`, `running`, `uploading`, `sent_to_comfyui` и
+  `sent_to_openrouter` после нового startup не могут принадлежать живому worker
+  предыдущего процесса;
+- reconciliation выполняется одной транзакцией после DB Guard/migrations и до
+  `load_db_state()`: active job с уже сохранённой active image восстанавливается как
+  `completed`, остальные становятся `failed/progress=100` с понятным сообщением и
+  `completed_at`;
+- refund не реализован повторно: service получает существующий
+  `refund_generation_tokens` как dependency, поэтому balance/daily/monthly paths и
+  ledger idempotency сохраняются; повторный reconciliation terminal rows не меняет;
+- refund exception намеренно откатывает всю транзакцию, чтобы startup не фиксировал
+  job failure без согласованного финансового результата;
+- service принимает structural connection/refund protocols и не импортирует `main`,
+  FastAPI, HTTPX или environment. Он имеет 116 строк; direct tests — 175 строк,
+  wiring tests — 59 строк;
+- `main.py` временно вырос с 14 696 до 14 712 строк (+16) из-за явного startup
+  adapter и импорта; это не объявляется сокращением монолита — job persistence и
+  response mapping переносятся в B7b, worker orchestration в следующих B7 пакетах;
+  generated map `596 → 597 symbols`, routes остаются `166`.
+
+Доказательства:
+
+- characterization до реализации остановился на отсутствующем recovery module;
+  direct/wiring contracts после реализации: `8 passed`;
+- расширенный recovery/generation/billing/database/startup/API suite:
+  `122 passed, 20 warnings` пять последовательных циклов за
+  `57,53 / 58,41 / 58,70 / 57,71 / 57,25` с;
+- первый Full корректно нашёл несоответствие старого ownership test: он искусственно
+  возвращал в `queued` уже завершённую job с сохранённой image, поэтому новая recovery
+  обоснованно восстанавливала `completed`; результат `1115 passed / 1 failed` не
+  засчитан как успешный gate;
+- cancellation test уточнён без ослабления ownership: отдельная queued job создаётся
+  уже после startup как работа текущего процесса. Recovery+ownership suite после
+  исправления прошёл `39 passed` пять раз за
+  `11,87 / 12,07 / 11,72 / 11,72 / 11,94` с;
+- повторный локальный Full: `1116 passed, 72 warnings` за 289,32 с; lint
+  `0 errors / 1 existing warning`, production build 0,474 с, origin
+  `200/200/403/403`, итоговый `VERIFY_OK` за 314,53 с; 143 Python-файла;
+- source-media snapshot внутри успешного Full стабилен: 115 файлов / 1 534 310 байт /
+  SHA-256 `D5C642413D984AD5E4232FE8B650B9C9F6BE18D283D673010134B57E37F41D6F`;
+  изменение 116→115 между двумя длинными Full зафиксировано как параллельная live
+  активность, а не скрыто как test mutation;
+- перед production mutation создан snapshot `20260713T221737.032822Z`: SQLite
+  565 104 640 байт, 2394 media / 244 742 470 байт, 9 copied / 2385 reused objects;
+  независимые `BACKUP_VERIFY_OK` и `BACKUP_REHEARSAL_OK` успешны;
+- pre-restart audit подтвердил одну orphaned job
+  `job_20260713_144446_cafd73` в `sent_to_comfyui/progress=24`, active images 0,
+  исходный ledger `daily_generation`, refund 0; ComfyUI running/pending queues пусты;
+- controlled backend-only restart: PID `45088 → 484`, один listener
+  `127.0.0.1:8000`, proxy headers disabled; startup report ровно
+  `checked=1/completed_from_images=0/failed=1/refunds_created=1`;
+- post-deploy read-only audit: job стала `failed/progress=100`, создан ровно один
+  `daily_generation_refund` с `startup_reconciliation`, active jobs 0; live smoke
+  5/5 дал health/models/Flux/feed/bots/frontend `200`, private media `401`, Telegram
+  webhook `404`, затем PID 484/health 200 подтверждены 7/7 samples за 67 секунд;
+- pytest-процессов после gate 0; schema migration, secrets, paid generation, VPS и
+  tunnel не изменялись. Единственная production DB mutation является заявленным и
+  проверенным исправлением orphaned job/refund поверх pre-deploy backup.
 
 ## 9. Обязательный gate каждого пакета
 
