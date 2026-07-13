@@ -102,6 +102,8 @@ try:
         openrouter_error_message,
         openrouter_ratio_size,
         request_ollama_chat_message,
+        request_max_api,
+        request_max_bot_me,
         request_openrouter_chat_completion,
         request_openrouter_image,
         requested_orientation,
@@ -137,6 +139,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         openrouter_error_message,
         openrouter_ratio_size,
         request_ollama_chat_message,
+        request_max_api,
+        request_max_bot_me,
         request_openrouter_chat_completion,
         request_openrouter_image,
         requested_orientation,
@@ -1970,12 +1974,11 @@ def resolve_max_bot_deep_link_base() -> str | None:
     status: int | None = None
     fields: list[str] = []
     try:
-        headers = {"Authorization": MAX_BOT_TOKEN, "Content-Type": "application/json"}
-        with httpx.Client(timeout=10, verify=MAX_HTTP_VERIFY) as client:
-            response = client.get(f"{MAX_API_BASE_URL.rstrip('/')}/me", headers=headers)
-            status = response.status_code
-            response.raise_for_status()
-            payload = response.json()
+        payload, status = request_max_bot_me(
+            token=MAX_BOT_TOKEN,
+            base_url=MAX_API_BASE_URL,
+            verify=MAX_HTTP_VERIFY,
+        )
         fields = sorted(set(_flatten_field_names(payload)))[:80]
         base = _max_base_from_me_payload(payload if isinstance(payload, dict) else {})
         if base:
@@ -1990,6 +1993,9 @@ def resolve_max_bot_deep_link_base() -> str | None:
             print(f"MAX deep link base source=api; MAX bot nickname resolved=true; MAX API /me status={status}")
             return base
     except Exception as exc:
+        typed_status = getattr(exc, "status_code", None)
+        if isinstance(typed_status, int):
+            status = typed_status
         print(f"MAX deep link base source=failed; MAX bot nickname resolved=false; MAX API /me status={status}; error={type(exc).__name__}")
         _MAX_BOT_DEEP_LINK_CACHE.update({
             "attempted": True,
@@ -4490,11 +4496,15 @@ async def telegram_api(method: str, payload: dict[str, Any] | None = None) -> di
 async def max_api(method: str, path: str, payload: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> dict[str, Any]:
     if not MAX_BOT_TOKEN:
         raise HTTPException(400, "MAX_BOT_TOKEN is required for real MAX API calls.")
-    headers = {"Authorization": MAX_BOT_TOKEN, "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=30, verify=MAX_HTTP_VERIFY) as client:
-        response = await client.request(method, f"{MAX_API_BASE_URL.rstrip('/')}{path}", headers=headers, json=payload, params=params)
-        response.raise_for_status()
-        return response.json()
+    return await request_max_api(
+        token=MAX_BOT_TOKEN,
+        base_url=MAX_API_BASE_URL,
+        verify=MAX_HTTP_VERIFY,
+        method=method,
+        path=path,
+        payload=payload,
+        params=params,
+    )
 
 
 _AVATAR_FORMAT_SUFFIX = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp"}

@@ -2,6 +2,16 @@
 
 from .ollama import fetch_ollama_models_status, ollama_base_url, request_ollama_chat_message
 from .max_tls import build_max_http_verify, normalize_max_tls_trust_store
+from .max_client import (
+    MaxBotHealth,
+    MaxClientError,
+    MaxConfigurationError,
+    MaxResponseError,
+    MaxTransportError,
+    probe_max_bot,
+    request_max_api,
+    request_max_bot_me,
+)
 from .openrouter_image_client import request_openrouter_image
 from .openrouter_image_io import load_openrouter_response_image, resolve_openrouter_reference_value
 from .openrouter_images import (
@@ -44,12 +54,20 @@ from .telegram import (
 
 __all__ = [
     "build_max_http_verify",
+    "MaxBotHealth",
+    "MaxClientError",
+    "MaxConfigurationError",
+    "MaxResponseError",
+    "MaxTransportError",
     "build_openrouter_image_request_metadata",
     "build_openrouter_image_request_body",
     "build_openrouter_image_request_plan",
     "fetch_ollama_models_status",
     "ollama_base_url",
     "request_ollama_chat_message",
+    "probe_max_bot",
+    "request_max_api",
+    "request_max_bot_me",
     "request_openrouter_image",
     "extract_openrouter_generation_cost",
     "extract_openrouter_error_payload",

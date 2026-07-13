@@ -96,6 +96,11 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/storage/backup.py` owns application-independent SQLite Backup API snapshots, SHA-256 content-addressed incremental media objects, manifests, verification and restore-to-new-directory rehearsal. It is invoked only by operator tools and never imported by the ASGI runtime.
 - `backend/app/integrations/ollama.py` owns Ollama base-URL normalization, bounded `/api/tags` discovery and the shared `/api/chat` HTTP/response parsing boundary used by prompt improvement and voice transcription; `main.py` still owns request bodies, timeout policy, concurrency, application parsing, audio-model guards and voice preprocessing.
 - `backend/app/integrations/max_tls.py` owns the MAX `system`/`certifi` trust-store policy; both async API calls and synchronous `/me` discovery receive the same native-system SSL context from `main.py`.
+- `backend/app/integrations/max_client.py` owns async MAX API calls, synchronous
+  startup `/me` discovery, token-redacted typed configuration/transport/response
+  errors and a response-body-free health probe. `main.max_api()` keeps the legacy
+  missing-token HTTP mapping; polling/update handlers, subscription lifecycle and
+  routes stay in `main.py` until B5b/B12.
 - `backend/app/integrations/openrouter.py` owns text-model catalog, key/credits, shared `/chat/completions`, image-model/endpoint document collection with bounded concurrency, pure model/endpoint capability normalization, generation response parsing, public error mapping and safe image-response metadata normalization; `main.py` retains compatibility wrappers, API-key/header/source policy, caches, endpoint selection and generation orchestration.
 - `backend/app/integrations/openrouter_images.py` owns model-alias resolution, safe request-metadata assembly, pure orientation/aspect-ratio/descriptor/provider request planning and image request-body assembly; application resolution IDs/tiers are passed through compatibility wrappers and local-reference values through callback injection.
 - `backend/app/integrations/openrouter_image_io.py` owns remote/data reference passthrough, application-resolved local-file encoding, and response b64/URL loading into PIL; `main.py` retains the production path resolver, timeout, gallery persistence and generation orchestration.
