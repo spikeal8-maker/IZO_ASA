@@ -181,8 +181,10 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.services import (
+        ComfyUIResult,
         MaxUpdateRuntime,
         TelegramUpdateRuntime,
+        comfyui_results,
         comfyui_workflows,
         extract_max_command,
         handle_max_update_with_runtime,
@@ -202,8 +204,10 @@ try:
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services import (
+        ComfyUIResult,
         MaxUpdateRuntime,
         TelegramUpdateRuntime,
+        comfyui_results,
         comfyui_workflows,
         extract_max_command,
         handle_max_update_with_runtime,
@@ -1156,14 +1160,6 @@ DEFAULT_TARIFFS: dict[str, dict[str, Any]] = {
     "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "openrouter_monthly_tokens": 500, "gallery_slots": 500, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "black-forest-labs/flux.2-pro"}, "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 10},
     "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "openrouter_monthly_tokens": 1200, "gallery_slots": 500, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-pro", "max": "openai/gpt-image-1"}, "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 50},
 }
-
-
-@dataclass
-class ComfyUIResult:
-    prompt_id: str
-    image_path: Path
-    thumbnail_path: Path
-    history: dict[str, Any]
 
 
 @dataclass
@@ -6178,14 +6174,7 @@ async def submit_workflow(workflow: dict[str, Any], job: dict[str, Any]) -> tupl
         workflow=workflow,
         job_id=job["id"],
     )
-    if data.get("error"):
-        raise RuntimeError(f"ComfyUI workflow error: {data['error']}")
-    node_errors = data.get("node_errors") or {}
-    if node_errors:
-        raise RuntimeError(f"ComfyUI node errors: {json.dumps(node_errors, ensure_ascii=False)}")
-    prompt_id = data.get("prompt_id")
-    if not prompt_id:
-        raise RuntimeError("ComfyUI не вернул prompt_id.")
+    prompt_id = comfyui_results.prompt_id_from_submission(data)
     history = await wait_for_history(prompt_id, job)
     return prompt_id, history, extract_images_from_history(history)
 
@@ -6198,19 +6187,7 @@ async def interrupt_comfyui_prompt() -> None:
 
 
 def extract_images_from_history(history: dict[str, Any]) -> list[dict[str, str]]:
-    found: list[dict[str, str]] = []
-    outputs = history.get("outputs", {})
-    for output in outputs.values():
-        for image in output.get("images", []):
-            if image.get("filename"):
-                found.append(
-                    {
-                        "filename": image["filename"],
-                        "subfolder": image.get("subfolder", ""),
-                        "type": image.get("type", "output"),
-                    }
-                )
-    return found
+    return comfyui_results.extract_images_from_history(history)
 
 
 async def wait_for_history(prompt_id: str, job: dict[str, Any]) -> dict[str, Any]:
@@ -6231,9 +6208,12 @@ async def wait_for_history(prompt_id: str, job: dict[str, Any]) -> dict[str, Any
 
 async def download_comfyui_image(image: dict[str, str], job_id: str) -> tuple[Path, Path]:
     content = await integration_fetch_comfyui_image_bytes(base_url=COMFYUI_BASE_URL, image=image)
-    with Image.open(io.BytesIO(content)) as opened:
-        image_path = save_gallery_original(opened, f"{job_id}_comfyui")
-    return image_path, create_thumbnail(image_path)
+    return comfyui_results.persist_downloaded_image(
+        content,
+        job_id,
+        save_original=save_gallery_original,
+        create_thumbnail=create_thumbnail,
+    )
 
 
 async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> ComfyUIResult | None:

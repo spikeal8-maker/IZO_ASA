@@ -1,6 +1,8 @@
 """Application service boundaries."""
 
 from . import comfyui_workflows
+from . import comfyui_results
+from .comfyui_results import ComfyUIResult
 from .telegram_updates import (
     TelegramUpdateRuntime,
     handle_telegram_update_with_runtime,
@@ -25,6 +27,8 @@ from .max_updates import (
 
 __all__ = [
     "comfyui_workflows",
+    "comfyui_results",
+    "ComfyUIResult",
     "TelegramUpdateRuntime",
     "handle_telegram_update_with_runtime",
     "handle_telegram_updates_with_runtime",

@@ -1,6 +1,6 @@
 # IZO ASA — актуальный план оптимизации и подготовки production
 
-Дата актуализации: 2026-07-13
+Дата актуализации: 2026-07-14
 
 Статус: главный рабочий roadmap
 
@@ -34,21 +34,21 @@
 
 ## 3. Фактическая контрольная точка
 
-Проверено 2026-07-13:
+Проверено 2026-07-14:
 
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B6b` — ComfyUI workflow builders; result/media adapter остаётся B6c |
+| Последний completed checkpoint | `B6c` — ComfyUI result/media adapter; B6 закрыт, следующий пакет B7 |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1094 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1108 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 116 файлов; последний startup `checked=117`, `available=116`, `missing=1`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B6a run `29281320422` success (`1079 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B6b run `29284297234` success (`1094 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и четыре live snapshot готовы; свежий pre-B3a snapshot `20260713T142811.243312Z` проверен; schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 14 716 после B6b | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 14 696 после B6c | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -111,7 +111,7 @@
 | BE-06 | `ГОТОВО` | Ограниченный integration scope завершён: HTTP/parsing/planning/I/O/model aliases/request metadata вынесены; application caches, policy, persistence, billing и orchestration остаются в соответствующих будущих services |
 | BE-07 | `ГОТОВО` | B4a client/errors/file URL/health и B4b parsing/update handlers service выделены; routes/polling lifecycle остаются общим B12/B13 scope |
 | BE-08 | `ГОТОВО` | B5a client/errors/health и B5b parsing/update handlers service выделены; routes/polling/subscription lifecycle остаются B12/B13 scope |
-| BE-09 | `ЧАСТИЧНО` | B6a HTTP client и B6b pure workflow builders готовы; result/media adapter остаётся B6c |
+| BE-09 | `ГОТОВО` | B6a HTTP client, B6b pure workflow builders и B6c result/media adapter выделены; generation/job/gallery orchestration остаётся B7/B8 |
 | BE-10 | `НЕ НАЧАТО` | Generation/gallery/feed/account/billing services не выделены системно; B7 обязан добавить startup reconciliation зависших generation-state строк |
 | BE-11 | `НЕ НАЧАТО` | FastAPI routers не разделены по областям |
 | BE-12 | `НЕ НАЧАТО` | Application factory/lifecycle не созданы; `main.py` остаётся ASGI-монолитом |
@@ -135,7 +135,7 @@
 | OPS-01 | `ГОТОВО` | `start-public.bat` блокирует deploy при ошибке `tsc -b` или Vite build |
 | OPS-02 | `ЧАСТИЧНО` | Launcher проверяет DB/health/smoke, но release build не атомарный и build label не равен Git commit автоматически |
 | OPS-03 | `НЕ НАЧАТО` | Vite Preview не заменён на Caddy |
-| OPS-04 | `НЕ НАЧАТО` | Backend/Caddy/ComfyUI/Ollama не оформлены как Windows Services с restart-on-failure |
+| OPS-04 | `НЕ НАЧАТО` | Backend/Caddy/ComfyUI/Ollama не оформлены как Windows Services с restart-on-failure; два backend PID уже исчезали без traceback/graceful shutdown, что подтверждает срочность supervisor |
 | OPS-05 | `ЧАСТИЧНО` | SQLite Backup API + incremental media работают на отдельный физический `I:`; четыре live snapshot проверены, но регулярный schedule/retention ещё не настроены |
 | OPS-06 | `ЧАСТИЧНО` | SHA-256, manifest checksum, SQLite `quick_check` и restore rehearsal готовы; encrypted offsite copy ещё не выбрана |
 | OPS-07 | `ЧАСТИЧНО` | Есть health/logs и ручной storage audit, но нет единого monitoring/alerting контура |
@@ -193,7 +193,7 @@
 | B3 | `ГОТОВО` — ledger/version 1, core/billing, identity/auth, media/feed/search groups и migration tests; в `main.py` inline DDL отсутствует |
 | B4 | `ГОТОВО` — B4a client/errors/health и B4b injected update handlers service выделены без смены polling/webhook semantics |
 | B5 | `ГОТОВО` — B5a client/errors/health и B5b injected update handlers service выделены без смены polling/webhook semantics |
-| B6 | `ЧАСТИЧНО` — B6a HTTP client и B6b workflow builders выделены; B6c result adapter остаётся |
+| B6 | `ГОТОВО` — B6a HTTP client, B6b workflow builders и B6c result/media adapter выделены |
 | B7 | Выделить generation service и queue boundary, включая startup reconciliation stale `queued/running/uploading/sent_*` строк |
 | B8 | Выделить gallery/source lifecycle service |
 | B9 | Выделить feed/publication/reaction/moderation service |
@@ -268,7 +268,8 @@
 18. `B5b` — `ГОТОВО`: MAX update parsing/handlers service без переноса routes; B5 закрыт.
 19. `B6a` — `ГОТОВО`: ComfyUI HTTP client boundary без переноса workflow/result logic.
 20. `B6b` — `ГОТОВО`: ComfyUI workflow endpoint policy и pure graph builders.
-21. `B6c` — **СЛЕДУЮЩИЙ ПАКЕТ**: ComfyUI result/media adapter.
+21. `B6c` — `ГОТОВО`: ComfyUI result/media adapter; B6 закрыт.
+22. `B7` — **СЛЕДУЮЩИЙ ПАКЕТ**: generation service/queue boundary и startup reconciliation зависших job-state строк.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -1476,6 +1477,65 @@ Exact CI после B6a:
   то есть ComfyUI не останавливался и `/interrupt` не вызывался;
 - schema/data migration, production DB/media, backup, secrets, paid generation, VPS и
   tunnel не изменялись; ранее найденная stale job row остаётся отдельным scope B7.
+
+Exact CI после B6b:
+
+- GitHub Actions run `29284297234`, job `86932930187`, на SHA `66cbb3e`
+  завершён успешно за 14 мин 09 с;
+- `1094 passed, 72 warnings` за 712,83 с; lint `0 errors / 1 existing warning`;
+- production build 1,71 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 762,03 с.
+
+### Checkpoint B6c — ComfyUI result/media adapter
+
+Реализовано и развёрнуто 2026-07-14:
+
+- новый import-safe `app/services/comfyui_results.py` владеет `ComfyUIResult`,
+  точной проверкой ответа `/prompt`, нормализацией image descriptors из history и
+  преобразованием скачанных bytes в PIL image с injected callbacks сохранения
+  оригинала и thumbnail;
+- точный прежний приоритет ошибок сохранён: provider `error`, затем Unicode-safe
+  `node_errors`, затем обязательный непустой `prompt_id`; тексты RuntimeError не
+  изменены;
+- порядок outputs/images, default `subfolder=""`/`type="output"`, пропуск элементов
+  без filename и prefix `{job_id}_comfyui` сохранены characterization tests;
+- service не импортирует `main`, FastAPI, Pydantic, SQLite, HTTPX, environment или
+  application storage roots; HTTP download остаётся в B6a client, а storage policy,
+  callbacks, history polling, cancellation/progress, fallback, job lifecycle и gallery
+  ownership остаются в `main.py` до B7/B8;
+- прежние `submit_workflow`, `extract_images_from_history` и
+  `download_comfyui_image` сохранены как compatibility wiring; оплачиваемая или
+  пользовательская генерация для deploy-smoke не создавалась;
+- `main.py` уменьшен с 14 716 до 14 696 строк (−20); service имеет 61 строку,
+  direct tests — 128 строк, wiring tests — 64 строки; generated map
+  `597 → 596 symbols`, routes остаются `166`.
+
+Доказательства:
+
+- characterization до переноса: `4 passed`; direct result + wiring contracts после
+  переноса: `14 passed`; расширенный B6/API/Admin suite: `146 passed, 10 warnings`
+  пять последовательных циклов за `66,45 / 65,16 / 66,97 / 62,87 / 67,03` с;
+- локальный Full: `1108 passed, 72 warnings` за 291,53 с; lint
+  `0 errors / 1 existing warning`, production build 0,505 с, origin
+  `200/200/403/403`, итоговый `VERIFY_OK` за 318,53 с; 140 Python-файлов;
+- live source-media snapshot до/после Full стабилен: 116 файлов / 1 576 580 байт /
+  SHA-256 `2D5E93221F75C4A01960EB43E9CCBEDBE94D8985D9B31A2B32CC77D397D1328B`;
+- pre-restart read-only audit: ComfyUI running/pending queues пусты; единственная
+  строка `job_20260713_144446_cafd73` остаётся stale в
+  `sent_to_comfyui/progress=24`, не изменялась и подтверждает обязательный B7 startup
+  reconciliation;
+- controlled backend-only restart: PID `41648 → 45088`, один listener
+  `127.0.0.1:8000`, proxy headers disabled; frontend остался PID 55520, ComfyUI не
+  останавливался;
+- live smoke 5/5: health/models/Flux config/bgremoval/feed/bot status/frontend `200`,
+  private media без session `401`, polling-mode Telegram webhook `404`; затем PID
+  `45088` и health `200` подтверждены 7/7 samples за 67 секунд;
+- до этого PID 48632 завершился внешне без Uvicorn shutdown и без Python traceback;
+  backend был восстановлен на PID 41648 и стабилен до controlled restart. Вместе с
+  аналогичным B4a инцидентом это второй практический случай, поэтому OPS-04 supervisor
+  остаётся открытым критическим operations-пакетом, а не считается application crash;
+- schema/data migration, backup, secrets, paid generation, VPS и tunnel пакетом не
+  изменялись; тесты не обращались к production DB/media, а live smoke был read-only.
 
 ## 9. Обязательный gate каждого пакета
 

@@ -36,7 +36,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 7. Tariffs, token ledger, promos, referrals and billing records.
 8. Media ownership, gallery storage and cleanup/recovery.
 9. Generation queue and job lifecycle.
-10. ComfyUI workflow construction and result handling.
+10. ComfyUI application generation, job lifecycle and gallery orchestration.
 11. Remaining OpenRouter/Ollama/Telegram/MAX integration orchestration.
 12. Gallery, feed, admin and bot routes.
 
@@ -110,9 +110,13 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   Flux graph transformations for shared nodes, optional LoRA, multi-reference edit,
   inpaint/outpaint, pose and remove-background workflows. Sampler profiles and the
   admin LoRA-enabled decision are injected. `main.py` retains bundled-template I/O,
-  DB-backed model/profile selection, request validation, application deadlines/
-  cancellation/progress, response validation, gallery persistence, fallback policy
-  and generation orchestration.
+  DB-backed model/profile selection, request validation and generation orchestration.
+- `backend/app/services/comfyui_results.py` owns the result DTO, exact prompt-submission
+  error validation, normalized history image descriptors and downloaded-image decoding
+  through injected original/thumbnail persistence callbacks. It has no FastAPI, SQLite,
+  HTTPX, environment or filesystem-root dependency. `main.py` retains application
+  deadlines/cancellation/progress, gallery storage policy, fallback behavior and job
+  lifecycle orchestration until B7/B8.
 - `backend/app/integrations/openrouter.py` owns text-model catalog, key/credits, shared `/chat/completions`, image-model/endpoint document collection with bounded concurrency, pure model/endpoint capability normalization, generation response parsing, public error mapping and safe image-response metadata normalization; `main.py` retains compatibility wrappers, API-key/header/source policy, caches, endpoint selection and generation orchestration.
 - `backend/app/integrations/openrouter_images.py` owns model-alias resolution, safe request-metadata assembly, pure orientation/aspect-ratio/descriptor/provider request planning and image request-body assembly; application resolution IDs/tiers are passed through compatibility wrappers and local-reference values through callback injection.
 - `backend/app/integrations/openrouter_image_io.py` owns remote/data reference passthrough, application-resolved local-file encoding, and response b64/URL loading into PIL; `main.py` retains the production path resolver, timeout, gallery persistence and generation orchestration.
