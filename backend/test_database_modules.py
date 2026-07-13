@@ -6,17 +6,25 @@ import sqlite3
 
 import pytest
 
+import main
+
 from app.database import (
     BASE_SCHEMA_SQL,
     IDENTITY_SCHEMA_SQL,
     IMAGE_SEARCH_SCHEMA_SQL,
+    LEGACY_BASELINE_MIGRATION,
+    MigrationDefinition,
     DbGuardError,
     add_missing_columns,
     collect_sqlite_guard_status,
     open_sqlite,
     parse_allowed_database_paths,
     preflight_sqlite_database,
+    ensure_migration_ledger,
+    finalize_legacy_schema_baseline,
+    record_applied_migration,
     safe_guard_payload,
+    sqlite_user_version,
     table_columns,
 )
 
@@ -188,3 +196,108 @@ def test_image_search_schema_is_idempotent_and_tracks_image_rows(tmp_path):
     assert row["user_id"] == "user-search"
     assert "красный замок" in row["search_text"]
     assert "red castle" in row["search_text"]
+
+
+def test_migration_ledger_creation_is_empty_and_does_not_advance_version(tmp_path):
+    path = tmp_path / "ledger.sqlite3"
+    with open_sqlite(path) as conn:
+        ensure_migration_ledger(conn, supported_version=LEGACY_BASELINE_MIGRATION.version)
+        assert sqlite_user_version(conn) == 0
+        assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 0
+
+
+def test_legacy_baseline_finalize_is_idempotent_and_advances_version(tmp_path):
+    path = tmp_path / "baseline.sqlite3"
+    with open_sqlite(path) as conn:
+        assert finalize_legacy_schema_baseline(conn, applied_at="2026-07-13T00:00:00Z") is True
+        assert finalize_legacy_schema_baseline(conn, applied_at="later-value") is False
+        row = conn.execute(
+            "SELECT version, name, checksum, applied_at FROM schema_migrations"
+        ).fetchone()
+        assert dict(row) == {
+            "version": LEGACY_BASELINE_MIGRATION.version,
+            "name": LEGACY_BASELINE_MIGRATION.name,
+            "checksum": LEGACY_BASELINE_MIGRATION.checksum,
+            "applied_at": "2026-07-13T00:00:00Z",
+        }
+        assert sqlite_user_version(conn) == 1
+
+
+def test_migration_ledger_rejects_changed_applied_definition(tmp_path):
+    path = tmp_path / "changed.sqlite3"
+    with open_sqlite(path) as conn:
+        finalize_legacy_schema_baseline(conn, applied_at="2026-07-13T00:00:00Z")
+        changed = MigrationDefinition(
+            version=1,
+            name=LEGACY_BASELINE_MIGRATION.name,
+            checksum="sha256:" + "0" * 64,
+        )
+        with pytest.raises(RuntimeError, match="MIGRATION_DEFINITION_MISMATCH"):
+            record_applied_migration(conn, changed, applied_at="later-value")
+        assert sqlite_user_version(conn) == 1
+
+
+def test_migration_ledger_rejects_database_newer_than_code(tmp_path):
+    path = tmp_path / "newer.sqlite3"
+    with open_sqlite(path) as conn:
+        conn.execute("PRAGMA user_version = 2")
+        with pytest.raises(RuntimeError, match="DATABASE_SCHEMA_VERSION_UNSUPPORTED"):
+            ensure_migration_ledger(conn, supported_version=1)
+        table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
+        ).fetchone()
+        assert table is None
+
+
+def test_migration_ledger_rejects_name_reuse_at_another_version(tmp_path):
+    path = tmp_path / "name-reuse.sqlite3"
+    with open_sqlite(path) as conn:
+        finalize_legacy_schema_baseline(conn, applied_at="2026-07-13T00:00:00Z")
+        reused = MigrationDefinition(
+            version=2,
+            name=LEGACY_BASELINE_MIGRATION.name,
+            checksum="sha256:" + "1" * 64,
+        )
+        with pytest.raises(RuntimeError, match="MIGRATION_NAME_REUSED"):
+            record_applied_migration(conn, reused, applied_at="later-value")
+        assert sqlite_user_version(conn) == 1
+
+
+def test_init_db_records_legacy_baseline_once(tmp_path, monkeypatch):
+    path = tmp_path / "init-ledger.sqlite3"
+    monkeypatch.setattr(main, "DB_PATH", path)
+
+    main.init_db()
+    main.init_db()
+
+    with open_sqlite(path) as conn:
+        rows = conn.execute(
+            "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
+        ).fetchall()
+        assert [dict(row) for row in rows] == [
+            {
+                "version": LEGACY_BASELINE_MIGRATION.version,
+                "name": LEGACY_BASELINE_MIGRATION.name,
+                "checksum": LEGACY_BASELINE_MIGRATION.checksum,
+            }
+        ]
+        assert sqlite_user_version(conn) == 1
+
+
+def test_init_db_rejects_newer_database_before_schema_mutation(tmp_path, monkeypatch):
+    path = tmp_path / "newer-init.sqlite3"
+    with open_sqlite(path) as conn:
+        conn.execute("PRAGMA user_version = 2")
+    monkeypatch.setattr(main, "DB_PATH", path)
+
+    with pytest.raises(RuntimeError, match="DATABASE_SCHEMA_VERSION_UNSUPPORTED"):
+        main.init_db()
+
+    with open_sqlite(path) as conn:
+        tables = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        assert "schema_migrations" not in tables
+        assert "users" not in tables
+        assert sqlite_user_version(conn) == 2

@@ -9,6 +9,39 @@ from __future__ import annotations
 import re
 import sqlite3
 from collections.abc import Mapping
+from dataclasses import dataclass
+
+
+MIGRATION_LEDGER_SQL = """
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY CHECK (version > 0),
+    name TEXT NOT NULL UNIQUE,
+    checksum TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+)
+"""
+
+
+@dataclass(frozen=True)
+class MigrationDefinition:
+    version: int
+    name: str
+    checksum: str
+
+    def __post_init__(self) -> None:
+        if self.version <= 0:
+            raise ValueError("Migration version must be positive.")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_]*", self.name):
+            raise ValueError("Migration name must use lowercase ASCII identifiers.")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", self.checksum):
+            raise ValueError("Migration checksum must be a lowercase SHA-256 value.")
+
+
+LEGACY_BASELINE_MIGRATION = MigrationDefinition(
+    version=1,
+    name="legacy_schema_baseline",
+    checksum="sha256:ed687bd48f5f07c01f445e184a5939782b112d7af6a91b99fe825791b29038a5",
+)
 
 
 USER_EARLY_ADDITIVE_COLUMNS = {
@@ -117,3 +150,66 @@ def add_missing_columns(
         existing.add(column)
         added.append(column)
     return added
+
+
+def sqlite_user_version(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("PRAGMA user_version").fetchone()[0])
+
+
+def ensure_migration_ledger(
+    conn: sqlite3.Connection,
+    *,
+    supported_version: int,
+) -> None:
+    current_version = sqlite_user_version(conn)
+    if current_version > supported_version:
+        raise RuntimeError("DATABASE_SCHEMA_VERSION_UNSUPPORTED")
+    conn.execute(MIGRATION_LEDGER_SQL)
+    row = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
+    ledger_version = int(row[0] or 0)
+    if ledger_version > supported_version:
+        raise RuntimeError("MIGRATION_LEDGER_VERSION_UNSUPPORTED")
+
+
+def record_applied_migration(
+    conn: sqlite3.Connection,
+    migration: MigrationDefinition,
+    *,
+    applied_at: str,
+) -> bool:
+    ensure_migration_ledger(conn, supported_version=migration.version)
+    existing = conn.execute(
+        "SELECT name, checksum FROM schema_migrations WHERE version = ?",
+        (migration.version,),
+    ).fetchone()
+    if existing is not None:
+        if existing["name"] != migration.name or existing["checksum"] != migration.checksum:
+            raise RuntimeError("MIGRATION_DEFINITION_MISMATCH")
+        if sqlite_user_version(conn) < migration.version:
+            conn.execute(f"PRAGMA user_version = {migration.version}")
+        return False
+
+    reused_name = conn.execute(
+        "SELECT version FROM schema_migrations WHERE name = ?",
+        (migration.name,),
+    ).fetchone()
+    if reused_name is not None:
+        raise RuntimeError("MIGRATION_NAME_REUSED")
+    conn.execute(
+        "INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)",
+        (migration.version, migration.name, migration.checksum, applied_at),
+    )
+    conn.execute(f"PRAGMA user_version = {migration.version}")
+    return True
+
+
+def finalize_legacy_schema_baseline(
+    conn: sqlite3.Connection,
+    *,
+    applied_at: str,
+) -> bool:
+    return record_applied_migration(
+        conn,
+        LEGACY_BASELINE_MIGRATION,
+        applied_at=applied_at,
+    )

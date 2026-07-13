@@ -56,8 +56,15 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   secret guards.
 - `backend/app/database/connection.py` owns the SQLite connection policy.
 - `backend/app/database/guard.py` owns import-safe DB Guard checks; `main.py` retains compatibility wrappers while the split continues.
-- `backend/app/database/migrations.py` owns validated additive-column primitives and column declarations used by the legacy initializer.
-- `backend/app/database/schema.py` owns import-safe SQL schema declarations; execution and seed/backfill order remain in `main.init_db()` during the incremental split.
+- `backend/app/database/migrations.py` owns validated additive-column primitives,
+  column declarations and the immutable SQLite migration ledger contract. Production
+  now has baseline migration `1` (`legacy_schema_baseline`) mirrored in both
+  `schema_migrations` and `PRAGMA user_version`; a database newer than the running
+  code is rejected before schema mutation. The baseline marker is written only after
+  the complete legacy initializer succeeds.
+- `backend/app/database/schema.py` owns import-safe SQL schema declarations; execution,
+  seed/backfill order and the remaining schema-group split stay in `main.init_db()`
+  during the incremental B3 work.
 - `backend/app/security/tokens.py` owns opaque token generation, HMAC/SHA-256 hashing and production secret validation.
 - `backend/app/security/passwords.py` owns the Argon2id policy, hashing, verification and dummy timing hash; `main.py` keeps compatibility wrappers.
 - `backend/app/security/sessions.py` owns create/resolve/refresh/revoke through an injected runtime; it does not import FastAPI or application globals.

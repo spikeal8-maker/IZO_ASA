@@ -150,10 +150,13 @@ try:
         FEED_PUBLICATION_ADDITIVE_COLUMNS,
         IMAGE_ADDITIVE_COLUMNS,
         IMAGE_SOURCE_ADDITIVE_COLUMNS,
+        LEGACY_BASELINE_MIGRATION,
         USER_EARLY_ADDITIVE_COLUMNS,
         add_missing_columns,
         collect_sqlite_guard_status,
         database_size_mb,
+        ensure_migration_ledger,
+        finalize_legacy_schema_baseline,
         mask_database_path,
         open_sqlite,
         parse_allowed_database_paths,
@@ -170,10 +173,13 @@ except ImportError:  # Direct `python backend/main.py` execution.
         FEED_PUBLICATION_ADDITIVE_COLUMNS,
         IMAGE_ADDITIVE_COLUMNS,
         IMAGE_SOURCE_ADDITIVE_COLUMNS,
+        LEGACY_BASELINE_MIGRATION,
         USER_EARLY_ADDITIVE_COLUMNS,
         add_missing_columns,
         collect_sqlite_guard_status,
         database_size_mb,
+        ensure_migration_ledger,
+        finalize_legacy_schema_baseline,
         mask_database_path,
         open_sqlite,
         parse_allowed_database_paths,
@@ -1348,6 +1354,10 @@ def db() -> sqlite3.Connection:
 
 def init_db() -> None:
     with db() as conn:
+        ensure_migration_ledger(
+            conn,
+            supported_version=LEGACY_BASELINE_MIGRATION.version,
+        )
         conn.executescript(BASE_SCHEMA_SQL)
         add_missing_columns(conn, "users", USER_EARLY_ADDITIVE_COLUMNS)
         add_missing_columns(conn, "images", IMAGE_ADDITIVE_COLUMNS)
@@ -1554,6 +1564,7 @@ def init_db() -> None:
             "SELECT internal_user_id FROM users WHERE public_user_code IS NULL AND internal_user_id IS NOT NULL"
         ).fetchall():
             ensure_public_user_code(conn, row["internal_user_id"])
+        finalize_legacy_schema_baseline(conn, applied_at=now)
 
 
 PROVIDER_CODE_PREFIX = {"web_email": "WEB", "telegram": "TG", "max": "MAX"}
