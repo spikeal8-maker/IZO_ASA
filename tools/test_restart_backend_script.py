@@ -53,6 +53,32 @@ def test_restart_script_validate_only_imports_without_listener_or_mutation(tmp_p
     assert not (repo / "logs").exists()
 
 
+def test_restart_script_relative_file_invocation_resolves_repository_root() -> None:
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(SCRIPT.relative_to(ROOT)),
+            "-ValidateOnly",
+            "-PythonPath",
+            sys.executable,
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "BACKEND_RESTART_VALIDATE_OK" in result.stdout
+    assert "root=" in result.stdout
+
+
 def test_restart_script_rejects_public_bind_before_any_restart(tmp_path: Path) -> None:
     repo = _fake_repo(tmp_path)
 
@@ -105,6 +131,9 @@ def test_restart_script_checks_exact_listener_command_health_and_logs() -> None:
     assert "uvicorn\\s+main:app" in source
     assert "--host\\s+" in source
     assert "--port\\s+" in source
+    assert '"--no-proxy-headers")' in source
+    assert "RequireProxyIsolation" in source
+    assert "ProxyHeadersDisabled" in source
     assert "Get-CimInstance Win32_Process" in source
     assert "/api/health" in source
     assert '[int]$HealthProbeTimeoutSeconds = 10' in source

@@ -24,12 +24,33 @@ dev` (:5173). Do **not** use while the tunnel is meant to serve the public site.
 1. Builds frontend: `npx tsc -b` + `npx vite build` (aborts on failure — public site
    stays unchanged if the build is broken).
 2. Frees ports 8000 + 5173 (stops old backend/dev/preview; no duplicates).
-3. Starts backend: `uvicorn main:app --host 127.0.0.1 --port 8000`.
+3. Starts backend: `uvicorn main:app --host 127.0.0.1 --port 8000
+   --no-proxy-headers`. Uvicorn must not rewrite the socket peer before application
+   proxy trust validation.
 4. Starts frontend: `npx vite preview --host 127.0.0.1 --port 5173` (serves dist).
+   Vite accepts only the exact public hostname `izo.alikinas.ru` (plus Vite's built-in
+   localhost/IP handling); arbitrary hostnames and subdomains receive HTTP 403.
 5. Probes and prints: backend/frontend PIDs, vite-dev-client present (False expected),
    hashed asset present (True), `/api/version` (200), and no-session
-   generate/gallery/me (401 each).
+   generate/gallery/me (401 each). The three auth statuses are blocking: any mismatch
+   exits the launcher with code 23.
 Cloudflared is NOT managed here — it must already point to :5173.
+
+`TRUST_CLOUDFLARE_HEADERS=true` permits `CF-Connecting-IP` and `CF-IPCountry` only
+when the direct socket peer seen by FastAPI is `127.0.0.1` or `::1`. The generic
+`X-Forwarded-For` path remains separately controlled by `TRUST_PROXY_HEADERS`.
+Header values are validated before analytics use and never authorize a request.
+
+The same production Vite config is exercised after every Full/CI build:
+
+```powershell
+cd frontend
+npm run build
+npm run check:origin
+```
+
+The probe starts a temporary preview on an ephemeral loopback port and requires
+`200` for the exact public host/loopback and `403` for a subdomain/foreign host.
 
 ## Safe backend-only restart
 
@@ -44,7 +65,8 @@ checked PowerShell helper instead of assembling stop/start commands manually:
 The helper is intentionally restricted to `127.0.0.1`. It validates the Python import,
 requires exactly one existing `uvicorn main:app` listener with the expected command,
 checks current health before stopping it, writes separate timestamped stdout/stderr logs,
-waits for the new `/api/health` response, and verifies the new listener PID. It inherits
+waits for the new `/api/health` response, and verifies the new listener PID and
+`--no-proxy-headers` flag. It inherits
 the caller's environment and does not manage frontend, ComfyUI, Ollama or the tunnel.
 
 For a dependency/path check without inspecting or restarting a listener:

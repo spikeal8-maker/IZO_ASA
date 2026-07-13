@@ -37,3 +37,15 @@ def test_public_launcher_defaults_to_migrated_max_api2_hostname() -> None:
 
     assert 'set "MAX_API_BASE_URL=https://platform-api2.max.ru"' in launcher
     assert 'set "MAX_API_BASE_URL=https://platform-api.max.ru"' not in launcher
+
+
+def test_public_launcher_uses_valid_json_and_blocks_on_auth_smoke_mismatch() -> None:
+    launcher = (ROOT / "start-public.bat").read_text(encoding="utf-8")
+
+    assert "$generateBody=@{mode='text_to_image'} | ConvertTo-Json -Compress" in launcher
+    assert "$generateStatus=St 'POST' 'http://127.0.0.1:5173/api/generate' $generateBody" in launcher
+    assert "$generateStatus -ne 401" in launcher
+    assert "$galleryStatus -ne 401" in launcher
+    assert "$meStatus -ne 401" in launcher
+    assert "AUTH SMOKE FAILED" in launcher
+    assert "exit 23" in launcher

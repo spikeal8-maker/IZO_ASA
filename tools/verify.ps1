@@ -2,9 +2,10 @@
 param(
     [ValidateSet("Quick", "Full", "CI")]
     [string]$Mode = "Full",
-    [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$RepoRoot = "",
     [string]$PythonPath = "",
     [string]$NpmPath = "",
+    [switch]$RequireStableLiveSource,
     [switch]$PlanOnly
 )
 
@@ -13,6 +14,14 @@ $ErrorActionPreference = "Stop"
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = $utf8NoBom
 $OutputEncoding = $utf8NoBom
+
+if (-not $RepoRoot.Trim()) {
+    $scriptPath = [string]$MyInvocation.MyCommand.Path
+    if (-not $scriptPath.Trim()) {
+        throw "Verifier script path could not be resolved. Pass -RepoRoot explicitly."
+    }
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent $scriptPath)
+}
 
 function Resolve-Executable {
     param(
@@ -98,15 +107,13 @@ function Get-SourceSnapshot {
     }
 }
 
-function Assert-SnapshotEqual {
+function Test-SourceSnapshotEqual {
     param(
         [pscustomobject]$Before,
         [pscustomobject]$After
     )
 
-    if ($Before.Count -ne $After.Count -or $Before.Bytes -ne $After.Bytes -or $Before.Sha256 -ne $After.Sha256) {
-        throw "Live source snapshot changed during verification: before=$($Before | ConvertTo-Json -Compress) after=$($After | ConvertTo-Json -Compress)"
-    }
+    return $Before.Count -eq $After.Count -and $Before.Bytes -eq $After.Bytes -and $Before.Sha256 -eq $After.Sha256
 }
 
 $startedAt = Get-Date
@@ -150,7 +157,8 @@ $quickTests = @(
     "tools/test_verify_script.py",
     "tools/test_backup_restore.py",
     "tools/test_ci_workflow.py",
-    "tools/test_pytest_collection_contract.py"
+    "tools/test_pytest_collection_contract.py",
+    "tools/test_origin_isolation.py"
 )
 $fullTests = @("-m", "pytest", "-q", "backend", "tools")
 $usesLiveChecks = $Mode -ne "CI"
@@ -161,13 +169,14 @@ if ($PlanOnly) {
     Write-Host "VERIFY_PLAN_STEP py_compile files=$($pythonFiles.Count)"
     Write-Host "VERIFY_PLAN_STEP backend_map_check command=python tools/generate_backend_map.py --check"
     if ($usesLiveChecks) {
-        Write-Host "VERIFY_PLAN_STEP source_snapshot before_after=true"
+        Write-Host "VERIFY_PLAN_STEP source_snapshot before_after=true requireStable=$RequireStableLiveSource"
         Write-Host "VERIFY_PLAN_STEP backend_preflight command=restart-backend.ps1 -PreflightOnly"
     }
     if ($usesFullSuite) {
         Write-Host "VERIFY_PLAN_STEP pytest scope=backend+tools"
         Write-Host "VERIFY_PLAN_STEP frontend_lint command=npm run lint"
         Write-Host "VERIFY_PLAN_STEP frontend_build command=npm run build"
+        Write-Host "VERIFY_PLAN_STEP frontend_origin_isolation command=npm run check:origin"
     } else {
         Write-Host "VERIFY_PLAN_STEP pytest scope=tool-contracts"
     }
@@ -197,6 +206,7 @@ if ($usesFullSuite) {
     Invoke-NativeStep -Name "pytest_full" -FilePath $python -ArgumentList $fullTests -WorkingDirectory $resolvedRoot
     Invoke-NativeStep -Name "frontend_lint" -FilePath $npm -ArgumentList @("run", "lint") -WorkingDirectory $frontendDirectory
     Invoke-NativeStep -Name "frontend_build" -FilePath $npm -ArgumentList @("run", "build") -WorkingDirectory $frontendDirectory
+    Invoke-NativeStep -Name "frontend_origin_isolation" -FilePath $npm -ArgumentList @("run", "check:origin") -WorkingDirectory $frontendDirectory
 } else {
     Invoke-NativeStep -Name "pytest_quick" -FilePath $python -ArgumentList $quickTests -WorkingDirectory $resolvedRoot
 }
@@ -213,9 +223,19 @@ if ($pytestProcesses.Count -ne 0) {
 }
 
 $afterSnapshot = $null
+$sourceStable = $null
 if ($usesLiveChecks) {
     $afterSnapshot = Get-SourceSnapshot -MediaDirectory (Join-Path $backendDirectory "media")
-    Assert-SnapshotEqual -Before $beforeSnapshot -After $afterSnapshot
+    $sourceStable = Test-SourceSnapshotEqual -Before $beforeSnapshot -After $afterSnapshot
+    if (-not $sourceStable) {
+        $beforeJson = $beforeSnapshot | ConvertTo-Json -Compress
+        $afterJson = $afterSnapshot | ConvertTo-Json -Compress
+        Write-Host "VERIFY_SOURCE_CONCURRENT_CHANGE before=$beforeJson after=$afterJson"
+        if ($RequireStableLiveSource) {
+            throw "Live source snapshot changed during strict maintenance verification."
+        }
+        Write-Warning "Live source changed while production remained online. Tests use isolated temp roots; rerun with -RequireStableLiveSource only in a maintenance window."
+    }
     Write-Host "VERIFY_SOURCE_AFTER count=$($afterSnapshot.Count) bytes=$($afterSnapshot.Bytes) sha256=$($afterSnapshot.Sha256)"
 }
 
@@ -230,5 +250,6 @@ $summary = [ordered]@{
     sourceCount = if ($null -ne $afterSnapshot) { $afterSnapshot.Count } else { $null }
     sourceBytes = if ($null -ne $afterSnapshot) { $afterSnapshot.Bytes } else { $null }
     sourceSha256 = if ($null -ne $afterSnapshot) { $afterSnapshot.Sha256 } else { $null }
+    sourceStable = $sourceStable
 }
 Write-Host "VERIFY_OK $($summary | ConvertTo-Json -Compress)"

@@ -1,12 +1,14 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const exactAllowedHosts = ['izo.alikinas.ru'] as const
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    allowedHosts: true,
+    allowedHosts: [...exactAllowedHosts],
     hmr: false,
     proxy: {
       '/api': {
@@ -35,7 +37,7 @@ export default defineConfig({
   // /src). It uses preview.* (not server.*), so mirror the API/media proxy here.
   preview: {
     port: 5173,
-    allowedHosts: true,
+    allowedHosts: [...exactAllowedHosts],
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',

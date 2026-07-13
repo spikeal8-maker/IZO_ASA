@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `A2` — deterministic GitHub Actions CI на clean hosted Windows runner; точный hash в Git history |
+| Последний completed checkpoint | `A7` — exact Vite Host allowlist и loopback-only proxy metadata trust; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 964 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 976 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
-| Source baseline | 122 файла; startup `changed=0` |
+| Source baseline | 121 файл; startup `checked=123`, `available=121`, `missing=2`, `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; run `29235661215` success, required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact-head run `29236615611` success, required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и три live snapshot готовы; автоматический schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 15 266 | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
+| `backend/main.py` | 15 277 working tree; 15 255 в A7 commit, ещё 22 строки относятся к отдельной незавершённой favicon-правке | entrypoint/application wiring; преимущественно 100–300 строк после удаления compatibility exports |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -67,7 +67,7 @@
 | `frontend/src/index.css` | 1 999 | только глобальные правила |
 | `frontend/src/adminModels.tsx` | 1 591 | API/types/hooks/components/page |
 | `backend/test_feed_v2.py` | 1 501 | отдельные behavioral test modules |
-| `backend/test_api.py` | 1 177 | отдельные API-area test modules |
+| `backend/test_api.py` | 1 224 | отдельные API-area test modules |
 
 Вывод: backend-декомпозиция начата и имеет рабочую инфраструктуру, но монолит не устранён. Frontend-декомпозиция и разделение больших тестовых файлов практически не начинались.
 
@@ -82,7 +82,7 @@
 | SAFE-03 | `ГОТОВО` | Startup cleanup больше не удаляет файлы; cleanup использует audit/manifest/quarantine |
 | SAFE-04 | `ГОТОВО` | Безопасный backend-only restart имеет preflight и параметризуемый health timeout 10 секунд для текущей большой SQLite |
 | SAFE-05 | `ГОТОВО` | После каждого runtime-пакета выполняются focused 5x tests, full suite, frontend gates, restart и live smoke |
-| SAFE-06 | `ГОТОВО` | `tools/verify.ps1` объединяет Quick/Full/CI gates и выдаёт machine-readable `VERIFY_OK`; production checks read-only |
+| SAFE-06 | `ГОТОВО` | `tools/verify.ps1` объединяет Quick/Full/CI gates и выдаёт machine-readable `VERIFY_OK`; online media change отчётно отделён от strict maintenance mode |
 | SAFE-07 | `ЧАСТИЧНО` | GitHub Actions CI успешно блокирует свой run при ошибках; required branch protection для private repo отклонён GitHub API 403 до Pro/public |
 
 ### 5.2. Security
@@ -95,8 +95,8 @@
 | SEC-04 | `ГОТОВО` | MAX webhook mode требует official-format secret; header проверяется constant-time, body ограничен, polling receiver закрыт |
 | SEC-05 | `ГОТОВО` | OpenRouter env override или external CurrentUser DPAPI; live SQLite plaintext row удалён, admin API возвращает только configured/source |
 | SEC-06 | `ЧАСТИЧНО` | Trusted Identity Core используется для protected routes, но legacy `X-OneNode-User` helpers и JS-readable `onenode_user` cookie остаются в коде |
-| SEC-07 | `НЕ НАЧАТО` | `allowedHosts: true` остаётся в Vite server и preview config |
-| SEC-08 | `ЧАСТИЧНО` | Backend/frontend привязаны к loopback, но `TRUST_CLOUDFLARE_HEADERS=true` задаётся launcher без отдельного документированного origin-isolation test |
+| SEC-07 | `ГОТОВО` | Vite server/preview используют exact `izo.alikinas.ru`; automated probe требует 403 для произвольного host и поддомена |
+| SEC-08 | `ГОТОВО` | Backend/frontend loopback-only; Uvicorn proxy rewrite отключён, CF/XFF принимаются только от direct loopback peer и валидируются |
 | SEC-09 | `ЧАСТИЧНО` | Основные secret/token logs редактированы, но нужен отдельный automated log-redaction audit |
 
 ### 5.3. Backend-декомпозиция
@@ -180,7 +180,7 @@
 | A4b | P0 | `ГОТОВО` — MAX API2/system trust-store migration, sanitized probe, polling + `/me` live smoke и rollback contract |
 | A5 | P0 | `ГОТОВО` — OpenRouter external CurrentUser DPAPI store, verified SQLite migration/delete, admin configured/source contract и rotation/runbook |
 | A6 | P0 | `ГОТОВО` — SQLite Backup API, SHA-256 media object store/manifest, внешний second-disk config, `quick_check`, verify и restore rehearsal; schedule/retention остаются отдельным operations-пакетом |
-| A7 | P1 | Точный Vite host allowlist и automated loopback/proxy-header isolation check |
+| A7 | P1 | `ГОТОВО` — exact Vite host allowlist, loopback-only validated proxy metadata, Uvicorn `--no-proxy-headers`, automated origin/live smoke |
 
 ### Волна B — завершить backend-декомпозицию
 
@@ -519,6 +519,54 @@
 - поэтому workflow A2 готов и реально выполняется, но SAFE-07 остаётся
   `ЧАСТИЧНО`: check ещё нельзя сделать обязательным правилом merge на текущем plan.
 
+### Checkpoint A7 — Host/origin и proxy-header isolation
+
+Реализовано и развёрнуто 2026-07-13:
+
+- Vite `server.allowedHosts` и `preview.allowedHosts` больше не равны `true`;
+  разрешён только exact hostname `izo.alikinas.ru`, без wildcard/subdomain;
+- `npm run check:origin` поднимает production config на временном loopback port и
+  блокирует gate, если exact domain/loopback не дают 200 либо чужой host/subdomain
+  не дают 403; этот шаг запускается после build в Full и CI;
+- production и dev launchers, а также controlled restart запускают Uvicorn с
+  `--no-proxy-headers`, чтобы `request.client.host` оставался реальным socket peer;
+- `app/security/proxy_headers.py` вынесен из `main.py`: CF/XFF принимаются только
+  при явном feature flag и direct peer `127.0.0.1`/`::1`; IP и country code
+  валидируются, заголовки от non-loopback peer игнорируются;
+- restart helper разрешает безопасный переход со старого процесса, но новый PID
+  принимает только после проверки `--no-proxy-headers`; preflight сообщает
+  `proxyHeadersDisabled=True|False`;
+- `start-public.bat` формирует generate smoke через `ConvertTo-Json`; статусы
+  generate/gallery/me-v2 должны быть ровно `401/401/401`, иначе deploy завершается
+  с code 23;
+- относительный запуск `powershell -File tools\verify.ps1` и restart helper теперь
+  надёжно вычисляет repository root, regression tests это фиксируют;
+- online verifier больше не приписывает реальную активность пользователей тестам:
+  concurrent source change даёт явный marker и `sourceStable=false`; флаг
+  `-RequireStableLiveSource` сохраняет strict fail для maintenance window.
+
+Доказательства:
+
+- characterization ожидаемо остановился на отсутствующем proxy module;
+- финальный focused A7 suite: `38 passed` плюс origin-probe, пять последовательных
+  циклов; отдельный verifier concurrency contract: `6 passed` пять циклов;
+- окончательный Full: `976 passed, 72 warnings` за 300,73 с; frontend lint
+  `0 errors / 1 existing warning`, build successful, origin checks
+  `izo.alikinas.ru=200`, loopback=200, subdomain=403, foreign host=403;
+- Full preflight после deploy: PID 50636, loopback, `proxyHeadersDisabled=True`;
+  source snapshot стабилен: 121 файл / 1 649 086 байт / SHA-256
+  `FE5B537CBA2FCFD4F74A2CFD66261BB5DF3D5E885B8D3BC96AE2227E1B513CF8`;
+- предыдущий strict Full корректно заметил реальное изменение 122→121 во время
+  работающего production; backend log одновременно зафиксировал настоящий
+  `/api/generate` HTTP 200 и gallery/media reads, pytest после gate отсутствовал;
+- финальный deploy через штатный launcher: backend PID 42616, frontend PID 31244,
+  по одному listener на `127.0.0.1`; health/database ready, public main/health/version
+  HTTP 200, local foreign Host HTTP 403;
+- новый blocking auth smoke подтверждён в свежем backend log:
+  generate/gallery/me-v2 = `401/401/401`; MAX polling продолжил HTTP 200;
+- VPS, доменный tunnel, secrets, live DB и пользовательские media не изменялись
+  пакетом A7; обнаруженные параллельные favicon-правки не включались в A7 commit.
+
 ## 9. Обязательный gate каждого пакета
 
 Минимальный порядок:
@@ -531,7 +579,8 @@
 6. Выполнить `npm run lint` и `npm run build`.
 7. Проверить `git diff --check`, `py_compile`, generated symbol map.
 8. Для runtime-пакета выполнить `restart-backend.ps1 -PreflightOnly`, source snapshot, controlled restart и live smoke.
-9. Проверить отсутствие pytest-процессов и неизменность DB/media.
+9. Проверить отсутствие pytest-процессов, temp-root isolation и source marker;
+   strict неизменность live media требовать только в maintenance window.
 10. Обновить этот roadmap и архитектурную документацию.
 11. Сделать отдельный commit и push в `origin/main`.
 

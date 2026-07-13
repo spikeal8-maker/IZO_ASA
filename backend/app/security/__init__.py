@@ -67,6 +67,7 @@ from .secret_store import (
     default_secret_store_dir,
     migrate_sqlite_secret_to_store,
 )
+from .proxy_headers import resolve_client_ip, resolve_country_code
 
 __all__ = [
     "DUMMY_PASSWORD_HASH",
@@ -107,6 +108,8 @@ __all__ = [
     "record_product_event",
     "record_security_event",
     "record_session_event",
+    "resolve_client_ip",
+    "resolve_country_code",
     "require_admin",
     "resolve_trusted_identity",
     "resolve_session",

@@ -89,7 +89,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -Lo
 
 echo [3/5] Starting backend on 127.0.0.1:8000...
 echo Backend log: %BACKEND_LOG%
-start "IZO_ASA backend :8000" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "$env:APP_ENV='%APP_ENV%'; $env:APP_BUILD='%APP_BUILD%'; $env:FRONTEND_BUILD_LABEL='%FRONTEND_BUILD_LABEL%'; $env:DATABASE_URL='%DATABASE_URL%'; $env:DB_GUARD_ALLOWED_PATHS='%DB_GUARD_ALLOWED_PATHS%'; $env:DB_GUARD_MIN_SIZE_MB='%DB_GUARD_MIN_SIZE_MB%'; $env:DB_GUARD_MIN_USERS='%DB_GUARD_MIN_USERS%'; $env:DB_GUARD_MIN_ACTIVE_ADMINS='%DB_GUARD_MIN_ACTIVE_ADMINS%'; $env:MAX_API_BASE_URL='%MAX_API_BASE_URL%'; $env:BOT_UPDATES_MODE='%BOT_UPDATES_MODE%'; $env:MAX_UPDATES_MODE='%MAX_UPDATES_MODE%'; Set-Location -LiteralPath '%BACKEND%'; python -m uvicorn main:app --host 127.0.0.1 --port 8000 *>> '%BACKEND_LOG%'"
+start "IZO_ASA backend :8000" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "$env:APP_ENV='%APP_ENV%'; $env:APP_BUILD='%APP_BUILD%'; $env:FRONTEND_BUILD_LABEL='%FRONTEND_BUILD_LABEL%'; $env:DATABASE_URL='%DATABASE_URL%'; $env:DB_GUARD_ALLOWED_PATHS='%DB_GUARD_ALLOWED_PATHS%'; $env:DB_GUARD_MIN_SIZE_MB='%DB_GUARD_MIN_SIZE_MB%'; $env:DB_GUARD_MIN_USERS='%DB_GUARD_MIN_USERS%'; $env:DB_GUARD_MIN_ACTIVE_ADMINS='%DB_GUARD_MIN_ACTIVE_ADMINS%'; $env:MAX_API_BASE_URL='%MAX_API_BASE_URL%'; $env:BOT_UPDATES_MODE='%BOT_UPDATES_MODE%'; $env:MAX_UPDATES_MODE='%MAX_UPDATES_MODE%'; Set-Location -LiteralPath '%BACKEND%'; python -m uvicorn main:app --host 127.0.0.1 --port 8000 --no-proxy-headers *>> '%BACKEND_LOG%'"
 
 echo Waiting for backend health before starting frontend...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -142,10 +142,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "  Write-Host ('raw /src/main present   : ' + ($html -match '/src/main.tsx'));" ^
   "  Write-Host ('hashed asset present    : ' + ($html -match 'assets/index-')); } catch { Write-Host 'frontend probe failed' }" ^
   "try { Write-Host ('api/version : ' + (Invoke-WebRequest 'http://127.0.0.1:5173/api/version' -UseBasicParsing -TimeoutSec 8).StatusCode) } catch { Write-Host 'api/version probe failed' }" ^
-  "function St($m,$u,$b){ try { $r=Invoke-WebRequest $u -Method $m -UseBasicParsing -TimeoutSec 8 -Body $b -ContentType 'application/json'; return $r.StatusCode } catch { return $_.Exception.Response.StatusCode.value__ } }" ^
-  "Write-Host ('generate no-session : ' + (St 'POST' 'http://127.0.0.1:5173/api/generate' '{""mode"":""text_to_image""}'));" ^
-  "Write-Host ('gallery no-session  : ' + (St 'GET'  'http://127.0.0.1:5173/api/gallery' $null));" ^
-  "Write-Host ('me-v2 no-session    : ' + (St 'GET'  'http://127.0.0.1:5173/api/me-v2'  $null))"
+  "function St($m,$u,$b){ try { $r=Invoke-WebRequest $u -Method $m -UseBasicParsing -TimeoutSec 8 -Body $b -ContentType 'application/json'; return $r.StatusCode } catch { return $_.Exception.Response.StatusCode.value__ } };" ^
+  "$generateBody=@{mode='text_to_image'} | ConvertTo-Json -Compress;" ^
+  "$generateStatus=St 'POST' 'http://127.0.0.1:5173/api/generate' $generateBody;" ^
+  "$galleryStatus=St 'GET' 'http://127.0.0.1:5173/api/gallery' $null;" ^
+  "$meStatus=St 'GET' 'http://127.0.0.1:5173/api/me-v2' $null;" ^
+  "Write-Host ('generate no-session : ' + $generateStatus);" ^
+  "Write-Host ('gallery no-session  : ' + $galleryStatus);" ^
+  "Write-Host ('me-v2 no-session    : ' + $meStatus);" ^
+  "if ($generateStatus -ne 401 -or $galleryStatus -ne 401 -or $meStatus -ne 401) { Write-Host 'AUTH SMOKE FAILED: expected 401 from generate/gallery/me-v2'; exit 23 }"
 if errorlevel 1 (
   echo.
   echo BACKEND DOWN

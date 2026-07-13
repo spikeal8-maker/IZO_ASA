@@ -59,7 +59,7 @@ The repository has one non-mutating verification entrypoint:
 .\tools\verify.ps1 -Mode Quick
 
 # Complete local gate: Python compile, generated map, full backend/tools tests,
-# frontend lint/build and read-only production process/source checks.
+# frontend lint/build, live Host isolation and read-only process/source checks.
 .\tools\verify.ps1 -Mode Full
 
 # Deterministic checks suitable for CI; does not inspect the live backend/media.
@@ -67,11 +67,18 @@ The repository has one non-mutating verification entrypoint:
 
 # Show the selected steps without executing them.
 .\tools\verify.ps1 -Mode Full -PlanOnly
+
+# Optional only in a maintenance window: fail if real users change live source
+# media while the verifier is running.
+.\tools\verify.ps1 -Mode Full -RequireStableLiveSource
 ```
 
 `Full` is the default mode. The verifier does not restart processes, delete files,
 or modify production DB/media. Runtime packages still require the separate
 controlled restart and live-smoke procedure documented in the production roadmap.
+Because production remains online, a concurrent user media change is reported as
+`VERIFY_SOURCE_CONCURRENT_CHANGE` and `sourceStable=false`, not attributed to tests;
+backend tests are independently forced onto temporary DB/media roots.
 
 ## Continuous integration
 

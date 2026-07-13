@@ -6,7 +6,8 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 ## Runtime entrypoint
 
 - ASGI object: `backend/main.py::app`.
-- Public launcher starts one Uvicorn process on `127.0.0.1:8000`.
+- Public launcher starts one Uvicorn process on `127.0.0.1:8000` with
+  `--no-proxy-headers`; application code validates forwarded analytics metadata.
 - Startup runs DB preflight, session crypto validation, additive `init_db()`, DB Guard verification, state loading and background workers.
 - The live SQLite database and media stay local to this computer.
 - The existing external domain tunnel is outside the optimization scope.
@@ -55,6 +56,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/security/events.py` owns session, security, login-attempt and product-event persistence; callers remain responsible for passing only sanitized metadata.
 - `backend/app/security/secret_store.py` owns external CurrentUser DPAPI documents, Windows ACL restriction, atomic writes and verified SQLite-secret migration; `main.py` owns OpenRouter source priority and admin HTTP mapping.
 - `backend/app/security/webhooks.py` owns Telegram/MAX secret validation, constant-time comparison, registration/subscription payload construction, bounded body parsing and the Telegram single-process bounded replay guard; `main.py` retains mode policy, HTTP error mapping and update handling.
+- `backend/app/security/proxy_headers.py` owns validated client-IP/country resolution. CF/XFF metadata is accepted only when its feature flag is enabled and the unchanged direct socket peer is IPv4/IPv6 loopback; invalid IP/country values fall back to the direct peer or `None`.
 - `backend/app/storage/paths.py` owns canonical root containment, private-media URL parsing and compatibility URL creation; filesystem deletion, cleanup and recovery remain separate follow-up packages.
 - `backend/app/storage/private_media.py` owns trusted-owner resolution for canonical and legacy private media URLs; filename matching is exact apart from an optional query string.
 - `backend/app/storage/public_media.py` owns the narrow public surfaces for referenced custom avatars and ready assets belonging to published feed rows.
@@ -83,6 +85,8 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - Raw session/refresh tokens, OTP, passwords, bot tokens and provider keys must not be logged.
 - Private media requires both a trusted session and an ownership check.
 - Admin mutations require audit records.
+- Uvicorn must keep `--no-proxy-headers`; otherwise it can rewrite the direct peer
+  before the application enforces its loopback-only proxy trust boundary.
 
 ## Dependency direction for extraction
 

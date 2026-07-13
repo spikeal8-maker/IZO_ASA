@@ -104,11 +104,12 @@ def test_get_client_ip_trust(temp_db, monkeypatch):
     assert main.get_client_ip(Req({"x-forwarded-for": "9.9.9.9", "cf-connecting-ip": "8.8.8.8"})) == "1.2.3.4"
     # cloudflare trust on
     monkeypatch.setattr(main, "TRUST_CLOUDFLARE_HEADERS", True)
-    assert main.get_client_ip(Req({"cf-connecting-ip": "8.8.8.8"})) == "8.8.8.8"
+    assert main.get_client_ip(Req({"cf-connecting-ip": "8.8.8.8"}, host="127.0.0.1")) == "8.8.8.8"
+    assert main.get_client_ip(Req({"cf-connecting-ip": "8.8.8.8"}, host="1.2.3.4")) == "1.2.3.4"
     # proxy trust on -> first XFF
     monkeypatch.setattr(main, "TRUST_CLOUDFLARE_HEADERS", False)
     monkeypatch.setattr(main, "TRUST_PROXY_HEADERS", True)
-    assert main.get_client_ip(Req({"x-forwarded-for": "9.9.9.9, 10.0.0.1"})) == "9.9.9.9"
+    assert main.get_client_ip(Req({"x-forwarded-for": "9.9.9.9, 10.0.0.1"}, host="127.0.0.1")) == "9.9.9.9"
 
 
 # 10, 11

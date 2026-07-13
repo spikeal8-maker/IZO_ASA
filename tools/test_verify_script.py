@@ -36,6 +36,34 @@ def _plan(mode: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def test_relative_file_invocation_resolves_repository_root() -> None:
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(SCRIPT.relative_to(ROOT)),
+            "-PlanOnly",
+            "-Mode",
+            "Quick",
+            "-PythonPath",
+            sys.executable,
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "root=" in result.stdout
+    assert "VERIFY_PLAN_OK mode=Quick" in result.stdout
+
+
 def test_full_plan_contains_every_local_gate_without_execution() -> None:
     result = _plan("Full")
 
@@ -81,7 +109,11 @@ def test_verify_script_has_no_process_or_file_deletion_commands() -> None:
     assert "Stop-Process" not in source
     assert "Remove-Item" not in source
     assert "-PreflightOnly" in source
-    assert "Assert-SnapshotEqual" in source
+    assert "Test-SourceSnapshotEqual" in source
+    assert "VERIFY_SOURCE_CONCURRENT_CHANGE" in source
+    assert "[switch]$RequireStableLiveSource" in source
+    assert "if ($RequireStableLiveSource)" in source
+    assert "Tests use isolated temp roots" in source
     assert "VERIFY_OK" in source
     assert "[Console]::OutputEncoding = $utf8NoBom" in source
     assert '$_.Name -match "^(?i:python' in source

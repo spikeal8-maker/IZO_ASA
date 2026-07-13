@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$RepoRoot = "",
     [string]$PythonPath = "",
     [string]$BindAddress = "127.0.0.1",
     [ValidateRange(1, 65535)]
@@ -18,6 +18,14 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if (-not $RepoRoot.Trim()) {
+    $scriptPath = [string]$MyInvocation.MyCommand.Path
+    if (-not $scriptPath.Trim()) {
+        throw "Restart script path could not be resolved. Pass -RepoRoot explicitly."
+    }
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent $scriptPath)
+}
 
 if ($ValidateOnly -and $PreflightOnly) {
     throw "ValidateOnly and PreflightOnly are mutually exclusive."
@@ -58,7 +66,8 @@ function Assert-BackendCommand {
     param(
         [string]$CommandLine,
         [int]$ExpectedPort,
-        [string]$ExpectedBind
+        [string]$ExpectedBind,
+        [switch]$RequireProxyIsolation
     )
 
     $hostPattern = [regex]::Escape($ExpectedBind)
@@ -72,13 +81,17 @@ function Assert-BackendCommand {
     if ($CommandLine -notmatch "(?i)--port\s+$portPattern(?:\s|$)") {
         throw "Backend command does not use port $ExpectedPort."
     }
+    if ($RequireProxyIsolation -and $CommandLine -notmatch "(?i)(?:^|\s)--no-proxy-headers(?:\s|$)") {
+        throw "Backend command does not disable Uvicorn proxy-header rewriting."
+    }
 }
 
 function Get-BackendState {
     param(
         [int]$ExpectedPort,
         [string]$ExpectedBind,
-        [string]$ExpectedPython
+        [string]$ExpectedPython,
+        [switch]$RequireProxyIsolation
     )
 
     $listeners = @(Get-NetTCPConnection -LocalPort $ExpectedPort -State Listen -ErrorAction SilentlyContinue)
@@ -93,7 +106,7 @@ function Get-BackendState {
     if ($null -eq $process) {
         throw "Listener PID $($listener.OwningProcess) could not be inspected."
     }
-    Assert-BackendCommand -CommandLine ([string]$process.CommandLine) -ExpectedPort $ExpectedPort -ExpectedBind $ExpectedBind
+    Assert-BackendCommand -CommandLine ([string]$process.CommandLine) -ExpectedPort $ExpectedPort -ExpectedBind $ExpectedBind -RequireProxyIsolation:$RequireProxyIsolation
     if ($process.ExecutablePath) {
         $actualPython = [System.IO.Path]::GetFullPath([string]$process.ExecutablePath)
         $requiredPython = [System.IO.Path]::GetFullPath($ExpectedPython)
@@ -105,6 +118,7 @@ function Get-BackendState {
         ProcessId = [int]$listener.OwningProcess
         Address = [string]$listener.LocalAddress
         CommandLine = [string]$process.CommandLine
+        ProxyHeadersDisabled = [bool]($process.CommandLine -match "(?i)(?:^|\s)--no-proxy-headers(?:\s|$)")
     }
 }
 
@@ -166,7 +180,7 @@ if (-not (Test-BackendHealth -Uri $healthUri -TimeoutSeconds $HealthProbeTimeout
 }
 
 if ($PreflightOnly) {
-    Write-Host "BACKEND_RESTART_PREFLIGHT_OK pid=$($oldState.ProcessId) bind=$($oldState.Address) port=$Port"
+    Write-Host "BACKEND_RESTART_PREFLIGHT_OK pid=$($oldState.ProcessId) bind=$($oldState.Address) port=$Port proxyHeadersDisabled=$($oldState.ProxyHeadersDisabled)"
     return
 }
 
@@ -200,7 +214,7 @@ $newProcess = $null
 try {
     $newProcess = Start-Process `
         -FilePath $pythonExecutable `
-        -ArgumentList @("-m", "uvicorn", "main:app", "--host", $BindAddress, "--port", [string]$Port) `
+        -ArgumentList @("-m", "uvicorn", "main:app", "--host", $BindAddress, "--port", [string]$Port, "--no-proxy-headers") `
         -WorkingDirectory $backendDirectory `
         -WindowStyle Hidden `
         -RedirectStandardOutput $stdoutLog `
@@ -223,7 +237,7 @@ try {
         throw "New backend did not pass health within $StartupTimeoutSeconds seconds."
     }
 
-    $newState = Get-BackendState -ExpectedPort $Port -ExpectedBind $BindAddress -ExpectedPython $pythonExecutable
+    $newState = Get-BackendState -ExpectedPort $Port -ExpectedBind $BindAddress -ExpectedPython $pythonExecutable -RequireProxyIsolation
     if ($newState.ProcessId -ne $newProcess.Id) {
         throw "Listener PID $($newState.ProcessId) does not match started PID $($newProcess.Id)."
     }

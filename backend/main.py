@@ -199,6 +199,8 @@ try:
         record_product_event as security_record_product_event,
         record_security_event as security_record_security_event,
         record_session_event as security_record_session_event,
+        resolve_client_ip as security_resolve_client_ip,
+        resolve_country_code as security_resolve_country_code,
         require_admin as security_require_admin,
         resolve_trusted_identity as security_resolve_trusted_identity,
         resolve_session as security_resolve_session,
@@ -253,6 +255,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         record_product_event as security_record_product_event,
         record_security_event as security_record_security_event,
         record_session_event as security_record_session_event,
+        resolve_client_ip as security_resolve_client_ip,
+        resolve_country_code as security_resolve_country_code,
         require_admin as security_require_admin,
         resolve_trusted_identity as security_resolve_trusted_identity,
         resolve_session as security_resolve_session,
@@ -1671,36 +1675,21 @@ def validate_session_crypto_config() -> None:
 
 def get_client_ip(request: Request | None) -> str | None:
     """Best-effort client IP for ANALYTICS only (never an auth decision).
-    Trusts CF-Connecting-IP / X-Forwarded-For only when explicitly configured."""
-    if not request:
-        return None
-    if TRUST_CLOUDFLARE_HEADERS:
-        cf = request.headers.get("cf-connecting-ip")
-        if cf:
-            return cf.strip()
-    if TRUST_PROXY_HEADERS:
-        xff = request.headers.get("x-forwarded-for")
-        if xff:
-            return xff.split(",")[0].strip()
-    return request.client.host if request.client else None
+    Trusts validated CF/XFF metadata only from a direct loopback proxy peer."""
+    return security_resolve_client_ip(
+        request,
+        trust_cloudflare=TRUST_CLOUDFLARE_HEADERS,
+        trust_forwarded=TRUST_PROXY_HEADERS,
+    )
 
 
 def _client_ip(request: Request | None) -> str | None:
     return get_client_ip(request)
 
 
-def _safe_country_code(value: str | None) -> str | None:
-    code = (value or "").strip().upper()
-    if code == "XX":
-        return None
-    return code if re.fullmatch(r"[A-Z]{2}", code) else None
-
-
 def request_country_code(request: Request | None) -> str | None:
     """Best-effort country code for profile analytics from trusted CF headers only."""
-    if not request or not TRUST_CLOUDFLARE_HEADERS:
-        return None
-    return _safe_country_code(request.headers.get("cf-ipcountry"))
+    return security_resolve_country_code(request, trust_cloudflare=TRUST_CLOUDFLARE_HEADERS)
 
 
 def parse_user_agent(ua: str | None) -> dict[str, str]:
