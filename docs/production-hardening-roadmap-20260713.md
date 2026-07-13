@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `A6` — SQLite Backup API + incremental media + verified restore rehearsal; точный hash в Git history |
+| Последний completed checkpoint | `A2` — deterministic GitHub Actions CI на clean hosted Windows runner; точный hash в Git history |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 958 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 964 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 122 файла; startup `changed=0` |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | отсутствует |
+| CI | GitHub Actions active; run `29235661215` success, required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и три live snapshot готовы; автоматический schedule/retention ещё не включены |
@@ -83,7 +83,7 @@
 | SAFE-04 | `ГОТОВО` | Безопасный backend-only restart имеет preflight и параметризуемый health timeout 10 секунд для текущей большой SQLite |
 | SAFE-05 | `ГОТОВО` | После каждого runtime-пакета выполняются focused 5x tests, full suite, frontend gates, restart и live smoke |
 | SAFE-06 | `ГОТОВО` | `tools/verify.ps1` объединяет Quick/Full/CI gates и выдаёт machine-readable `VERIFY_OK`; production checks read-only |
-| SAFE-07 | `НЕ НАЧАТО` | Нет GitHub Actions CI и обязательных checks |
+| SAFE-07 | `ЧАСТИЧНО` | GitHub Actions CI успешно блокирует свой run при ошибках; required branch protection для private repo отклонён GitHub API 403 до Pro/public |
 
 ### 5.2. Security
 
@@ -174,7 +174,7 @@
 | Пакет | Приоритет | Результат |
 |---|---|---|
 | A1 | P0 | `ГОТОВО` — единый read-only `tools/verify.ps1`: compile, focused/full backend, lint/build, map check, process/source checks; никаких restart/mutation |
-| A2 | P0 | GitHub Actions CI вызывает те же deterministic checks без production/real-provider tests |
+| A2 | P0 | `ГОТОВО` — GitHub Actions CI вызывает тот же deterministic verifier на pinned Windows/Python/Node без production/real-provider tests |
 | A3 | P0 | `ГОТОВО` — Telegram webhook secret required-in-webhook-mode validation, constant-time header check, negative/replay/body-limit tests |
 | A4 | P0 | `ГОТОВО` — MAX secret: запрещён пустой secret в webhook mode, constant-time comparison, body/mode/negative tests |
 | A4b | P0 | `ГОТОВО` — MAX API2/system trust-store migration, sanitized probe, polling + `/me` live smoke и rollback contract |
@@ -255,8 +255,8 @@
 5. `A4b` — `ГОТОВО`: MAX API2/system trust-store migration.
 6. `A5` — `ГОТОВО`: OpenRouter DPAPI secret store и удаление plaintext SQLite secret.
 7. `A6` — `ГОТОВО`: backup/restore tooling и live rehearsal без автоматического schedule.
-8. `A2` — **СЛЕДУЮЩИЙ ПАКЕТ**: GitHub Actions CI поверх стабильной verify command.
-9. `A7` — host allowlist и proxy-origin checks.
+8. `A2` — `ГОТОВО`: GitHub Actions CI поверх стабильной verify command.
+9. `A7` — **СЛЕДУЮЩИЙ ПАКЕТ**: host allowlist и proxy-origin checks.
 10. `B2` — завершение config extraction.
 11. `B3` — migration ledger/schema groups.
 12. `B4`/`B5` — Telegram и MAX integrations.
@@ -466,6 +466,58 @@
   и безопасный retention;
 - OPS-06 остаётся `ЧАСТИЧНО`, пока не появится зашифрованная offsite-копия и
   отдельное хранение recovery key.
+
+### Checkpoint A2 — deterministic GitHub Actions CI
+
+Реализовано 2026-07-13:
+
+- `.github/workflows/ci.yml` запускается на push/PR в `main` и вручную, имеет
+  только `contents: read`, concurrency cancellation и 20-minute job timeout;
+- official `checkout`, `setup-python` и `setup-node` закреплены полными release
+  commit SHA; checkout не сохраняет Git credentials;
+- `.python-version=3.11.9`, `.node-version=24.14.1`, exact Python requirements и
+  `npm ci` по lockfile воспроизводят текущий toolchain;
+- hosted job вызывает только `tools/verify.ps1 -Mode CI`: Python compile,
+  generated map, полный backend/tools pytest, frontend lint и production build;
+- DB/media/DPAPI roots направлены в `RUNNER_TEMP`; Telegram/MAX/OpenRouter/session
+  и email secrets явно пусты, bot updates/real ComfyUI отключены;
+- CI contract tests запрещают unpinned Actions, write permissions, secrets,
+  self-hosted runner, deploy/push, restart/live backend и production backup calls;
+- `pytest.ini` собирает только явные `test_*.py`; операторский
+  `acceptance_generation_test.py` переведён с незаявленного `requests` на уже
+  закреплённый `httpx` и не коллекционируется как unit test;
+- bot/profile fixtures теперь создают собственные fake tokens, production-mode
+  auth fixtures — собственный test HMAC secret;
+- generation cancel route contract больше не зависит от lifespan worker/CPU race:
+  queued job отменяется без фонового worker, ComfyUI interrupt клиент подменён.
+
+Доказательства и найденные clean-environment проблемы:
+
+- локальный focused workflow suite: `9 passed` пять циклов; после clean-env
+  исправлений расширенный набор `36 passed` пять циклов;
+- cancel contract дополнительно прошёл `20/20` отдельных clean-env запусков;
+- финальный локальный CI-mode: `964 passed, 72 warnings`, frontend lint
+  `0 errors / 1 existing warning`, build successful, `liveChecks=false`;
+- первый hosted run `29232617232` остановил undeclared `requests` во время
+  collection; исправлено без добавления зависимости;
+- второй hosted run `29233126914` выявил 15 зависимостей tests от локального
+  `.env` и одну cancel race; secret fixtures/isolation исправлены;
+- третий hosted run `29234441726`: `963 passed`, осталась только cancel race;
+- четвёртый hosted run `29235661215` завершён `success`: `964 passed,
+  72 warnings` за 722,32 с, lint `0 errors / 1 warning`, Vite build 1,42 с,
+  итоговый `VERIFY_OK mode=CI durationSeconds=774.29 liveChecks=false`;
+- success URL: `https://github.com/spikeal8-maker/IZO_ASA/actions/runs/29235661215`;
+- production backend не перезапускался и не использовался GitHub runner;
+  локальный Quick после правок: `36 passed`, source snapshot неизменен.
+
+Ограничение GitHub plan:
+
+- repository private; попытка прочитать/настроить `main` branch protection
+  возвращает GitHub API 403: для этой private repository требуется GitHub Pro
+  либо public visibility;
+- repository не делался public и платный план не оформлялся автоматически;
+- поэтому workflow A2 готов и реально выполняется, но SAFE-07 остаётся
+  `ЧАСТИЧНО`: check ещё нельзя сделать обязательным правилом merge на текущем plan.
 
 ## 9. Обязательный gate каждого пакета
 

@@ -93,6 +93,11 @@ The official checkout/setup actions are pinned to full commit SHAs. Update those
 pins only after reading the corresponding official release notes and repeating
 the local CI-mode gate.
 
+The repository is currently private and GitHub rejected branch-protection setup
+with HTTP 403 on the current plan. CI runs and reports failures, but making the
+check a mandatory merge rule requires GitHub Pro or an explicit decision to make
+the repository public. Do not change repository visibility just to enable this.
+
 ## Backup
 
 Production data backup uses an external config and a different physical disk.
