@@ -24,7 +24,10 @@ def payment_app(tmp_path, monkeypatch):
 
 
 def test_checkout_creates_invoice_and_provider_payment(payment_app):
+    captured = {}
+
     async def create(**_kwargs):
+        captured.update(_kwargs)
         return YooKassaPayment("provider-1", "pending", "250.00", "RUB", "https://pay.test/confirm", False)
 
     payment_app["monkeypatch"].setattr(main, "create_yookassa_payment", create)
@@ -32,6 +35,7 @@ def test_checkout_creates_invoice_and_provider_payment(payment_app):
         response = client.post("/api/billing/checkout-v2", json={"package_code": "tokens_50", "idempotency_key": "checkout-test-0001"}, headers=payment_app["headers"])
     assert response.status_code == 200, response.text
     assert response.json()["confirmation_url"] == "https://pay.test/confirm"
+    assert captured["return_url"].endswith(f"/payment?payment_id={response.json()['payment_id']}")
     with main.db() as conn:
         payment = conn.execute("SELECT * FROM payments").fetchone()
         invoice = conn.execute("SELECT * FROM invoices").fetchone()
@@ -99,6 +103,29 @@ def test_paid_tariff_changes_plan_and_sets_expiry(payment_app):
     with main.db() as conn:
         user = conn.execute("SELECT plan, plan_expires_at, token_balance FROM users WHERE internal_user_id='iuid-buyer'").fetchone()
     assert user["plan"] == "plus" and user["plan_expires_at"] and user["token_balance"] == 10
+
+
+def test_payment_result_reconciles_pending_payment(payment_app):
+    async def create(**_kwargs):
+        return YooKassaPayment("provider-result", "pending", "250.00", "RUB", "https://pay.test/confirm", False)
+
+    async def fetch(*_args, **_kwargs):
+        return YooKassaPayment("provider-result", "succeeded", "250.00", "RUB", None, True)
+
+    payment_app["monkeypatch"].setattr(main, "create_yookassa_payment", create)
+    payment_app["monkeypatch"].setattr(main, "fetch_yookassa_payment", fetch)
+    with TestClient(main.app) as client:
+        checkout = client.post("/api/billing/checkout-v2", json={"package_code": "tokens_50", "idempotency_key": "checkout-result-0001"}, headers=payment_app["headers"])
+        result = client.get(f"/api/billing/payments/{checkout.json()['payment_id']}/status-v2", headers=payment_app["headers"])
+    assert result.status_code == 200, result.text
+    assert result.json()["payment"]["status"] == "paid"
+    assert result.json()["account"]["token_balance"] == 60
+
+
+def test_payment_result_requires_owner_session(payment_app):
+    with TestClient(main.app) as client:
+        result = client.get("/api/billing/payments/not-mine/status-v2")
+    assert result.status_code == 401
 
 
 def test_expired_paid_plan_falls_back_to_free(payment_app):

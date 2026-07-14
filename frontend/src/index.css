@@ -1497,6 +1497,18 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-provider-state { border-left: 3px solid #555; padding-left: 8px; }
 .admin-provider-state.ok { border-color: #5ee87b; color: #8feaa2; }
 .admin-provider-state.warn { border-color: #d7b941; color: #d8c36c; }
+.payment-result-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #090b09; color: #f1f1f1; }
+.payment-result-panel { width: min(520px, 100%); border: 1px solid #343834; border-radius: 8px; background: #111511; padding: 28px; text-align: center; }
+.payment-result-panel > svg { width: 42px; height: 42px; margin-bottom: 8px; }
+.payment-result-panel.success > svg { color: #63d77c; }
+.payment-result-panel.pending > svg { color: #d5bf57; }
+.payment-result-panel.failed > svg { color: #dc6d6d; }
+.payment-result-panel h1 { margin: 4px 0 14px; font-size: 26px; letter-spacing: 0; }
+.payment-result-panel p { color: #b7bcb7; }
+.payment-result-panel small { display: block; color: #c9b86a; }
+.payment-result-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+.payment-result-actions a, .payment-result-actions button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #3d443d; border-radius: 7px; background: #171c17; color: #f1f1f1; padding: 8px 12px; text-decoration: none; cursor: pointer; }
+.payment-result-actions svg { width: 16px; height: 16px; }
 .admin-table-note { color: #8e8e8e; margin: 4px 0 0; }
 .admin-mail-tables th { padding: 7px 8px; text-align: left; color: #989898; font-size: 11px; text-transform: uppercase; }
 .admin-mail-tables input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--acid); }

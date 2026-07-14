@@ -4,6 +4,7 @@ import { appShellSeo, applyClientSeo } from './seo'
 const NewStudio = lazy(() => import('./newUi'))
 const LegacyApp = lazy(() => import('./LegacyApp'))
 const AdminApp = lazy(() => import('./AdminApp'))
+const PaymentResultPage = lazy(() => import('./PaymentResultPage'))
 
 function isNewStudioRoute(path: string) {
   if (path === '/') return true
@@ -26,6 +27,10 @@ function isLegacyRoute(path: string) {
 
 function isAdminRoute(path: string) {
   return path === '/admin' || path.startsWith('/admin/')
+}
+
+function isPaymentRoute(path: string) {
+  return path === '/payment' || path === '/payment/'
 }
 
 function isStaticFeedRoute(path: string) {
@@ -62,7 +67,7 @@ function App() {
     return <div className="app-loading">Загружаем галерею...</div>
   }
 
-  const Target = isNewStudioRoute(path) ? NewStudio : isAdminRoute(path) ? AdminApp : (isLegacyRoute(path) ? LegacyApp : null)
+  const Target = isPaymentRoute(path) ? PaymentResultPage : isNewStudioRoute(path) ? NewStudio : isAdminRoute(path) ? AdminApp : (isLegacyRoute(path) ? LegacyApp : null)
 
   if (!Target) {
     return <NotFound />

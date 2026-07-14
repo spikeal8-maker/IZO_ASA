@@ -10084,7 +10084,7 @@ async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -
             secret_key=yookassa_secret_key(),
             amount=int(package["price_amount"]),
             idempotency_key=req.idempotency_key,
-            return_url=f"{public_site_url(request)}/#tariffs",
+            return_url=f"{public_site_url(request)}/payment?payment_id={payment_id}",
             description=f"ИЗО АСА: {package['name']}",
             metadata={"invoice_id": invoice_id, "payment_id": payment_id},
         )
@@ -10099,6 +10099,79 @@ async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -
     if provider_payment.status == "succeeded" and provider_payment.paid:
         completed = _complete_yookassa_payment(provider_payment.id, verified_amount=provider_payment.amount_value, verified_currency=provider_payment.currency)
     return {"ok": True, "payment_id": payment_id, "provider_payment_id": provider_payment.id, "status": provider_payment.status, "confirmation_url": provider_payment.confirmation_url, "completed": completed}
+
+
+@app.get("/api/billing/payments/{payment_id}/status-v2")
+async def billing_payment_status_v2(payment_id: str, request: Request) -> dict[str, Any]:
+    """Return a user's payment status and reconcile pending YooKassa payments."""
+    trusted = require_trusted_user(request)
+    with db() as conn:
+        payment = conn.execute(
+            "SELECT * FROM payments WHERE id=? AND internal_user_id=?",
+            (payment_id, trusted["internal_user_id"]),
+        ).fetchone()
+    if payment is None:
+        raise HTTPException(404, "Платеж не найден.")
+
+    verification_error = None
+    if payment["status"] == "pending" and payment["provider"] == "yookassa" and payment["provider_payment_id"]:
+        config = yookassa_config()
+        if yookassa_ready(config):
+            try:
+                verified = await fetch_yookassa_payment(
+                    str(payment["provider_payment_id"]),
+                    shop_id=str(config["shop_id"]),
+                    secret_key=yookassa_secret_key(),
+                )
+                if verified.status == "succeeded" and verified.paid:
+                    _complete_yookassa_payment(
+                        verified.id,
+                        verified_amount=verified.amount_value,
+                        verified_currency=verified.currency,
+                    )
+                elif verified.status == "canceled":
+                    now = datetime.now(timezone.utc).isoformat()
+                    with db() as conn:
+                        conn.execute("UPDATE payments SET status='canceled', updated_at=? WHERE id=? AND status='pending'", (now, payment_id))
+                        conn.execute("UPDATE invoices SET status='cancelled', cancelled_at=?, updated_at=? WHERE id=? AND status!='paid'", (now, now, payment["invoice_id"]))
+            except (YooKassaError, HTTPException) as exc:
+                verification_error = str(getattr(exc, "detail", exc))
+
+    with db() as conn:
+        row = conn.execute(
+            """
+            SELECT p.*, i.invoice_code, i.tokens_total, ii.package_code, ii.title AS item_title
+            FROM payments p
+            JOIN invoices i ON i.id=p.invoice_id
+            LEFT JOIN invoice_items ii ON ii.invoice_id=i.id
+            WHERE p.id=? AND p.internal_user_id=?
+            ORDER BY ii.created_at LIMIT 1
+            """,
+            (payment_id, trusted["internal_user_id"]),
+        ).fetchone()
+        user = conn.execute("SELECT plan, plan_expires_at, token_balance FROM users WHERE internal_user_id=?", (trusted["internal_user_id"],)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Платеж не найден.")
+    return {
+        "ok": True,
+        "payment": {
+            "id": row["id"],
+            "status": row["status"],
+            "amount": int(row["amount"] or 0),
+            "currency": row["currency"],
+            "title": row["item_title"] or "Оплата ИЗО АСА",
+            "package_code": row["package_code"],
+            "tokens": int(row["tokens_total"] or 0),
+            "invoice_code": row["invoice_code"],
+            "paid_at": row["paid_at"],
+        },
+        "account": {
+            "plan": _row_get(user, "plan") or "free",
+            "plan_expires_at": _row_get(user, "plan_expires_at"),
+            "token_balance": int(_row_get(user, "token_balance") or 0),
+        },
+        "verification_error": verification_error,
+    }
 
 
 @app.post("/api/billing/yookassa/webhook-v2")
