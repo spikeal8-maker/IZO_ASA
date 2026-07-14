@@ -12080,7 +12080,8 @@ async def admin_payments_status_v2(request: Request) -> dict[str, Any]:
         ).fetchone()
         payments = conn.execute("SELECT * FROM payments ORDER BY created_at DESC LIMIT 50").fetchall()
         events = conn.execute("SELECT event_type, provider_payment_id, status, received_at, processed_at, error FROM payment_provider_events ORDER BY received_at DESC LIMIT 50").fetchall()
-        packages = conn.execute("SELECT * FROM billing_packages ORDER BY sort_order, price_amount").fetchall()
+        packages = conn.execute("SELECT * FROM billing_packages WHERE code LIKE 'tokens_%' ORDER BY sort_order, price_amount").fetchall()
+        tariffs = get_tariff_config(conn)
     return {
         "ok": True,
         "provider": "yookassa",
@@ -12089,6 +12090,15 @@ async def admin_payments_status_v2(request: Request) -> dict[str, Any]:
         "webhook_url": f"{os.getenv('PUBLIC_SITE_URL', 'https://izo.alikinas.ru').rstrip('/')}/api/billing/yookassa/webhook-v2",
         "summary": {"total": int(summary["total"] or 0), "paid": int(summary["paid"] or 0), "pending": int(summary["pending"] or 0), "revenue_rub": int(summary["revenue"] or 0)},
         "packages": [_billing_package_dict(row) for row in packages],
+        "tariff_products": [
+            {
+                "code": f"tariff_{plan}",
+                "title": tariffs[plan]["title"],
+                "price_amount": int(tariffs[plan]["price_rub_month"]),
+                "source": "tariffs",
+            }
+            for plan in ("mini", "plus", "pro", "business")
+        ],
         "payments": [_billing_payment_dict(row) for row in payments],
         "events": [dict(row) for row in events],
     }

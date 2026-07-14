@@ -7,6 +7,7 @@ type PaymentStatus = AdminRecord & {
   config?: AdminRecord
   summary?: AdminRecord
   packages?: AdminRecord[]
+  tariff_products?: AdminRecord[]
   payments?: AdminRecord[]
   events?: AdminRecord[]
 }
@@ -55,8 +56,12 @@ export default function AdminPayments() {
   return (
     <div className="admin-section admin-payments-page">
       <div className="admin-section-head">
-        <div><h3>Платежи</h3><p>ЮKassa, счета, начисление токенов и контроль webhook.</p></div>
+        <div><h3>Платежи и пополнения</h3><p>Подключение ЮKassa, разовые пакеты токенов и реальные операции.</p></div>
         <span className={data?.configured ? 'status ok' : 'status warn'}>{data?.configured ? 'настроено' : 'нужны реквизиты магазина'}</span>
+      </div>
+      <div className="admin-owner-note"><strong>Тарифные цены берутся из «Тарифов»</strong><span>Здесь они показаны только для контроля синхронизации и не имеют второго набора настроек.</span><button className="secondary" onClick={() => { window.location.assign('/admin/tariffs') }}>Открыть тарифы</button></div>
+      <div className="admin-payment-tariffs">
+        {(data?.tariff_products || []).map((item) => <span key={String(item.code)}><b>{String(item.title)}</b>{Number(item.price_amount || 0).toLocaleString('ru-RU')} ₽/мес</span>)}
       </div>
       <div className="admin-mail-grid">
         <article className="admin-mail-card">
@@ -68,11 +73,11 @@ export default function AdminPayments() {
           {message && <small>{message}</small>}
         </article>
         <article className="admin-mail-card">
-          <h4>Сводка</h4>
-          <p>Оплат: <b>{String(summary.paid || 0)}</b></p>
-          <p>Ожидают: <b>{String(summary.pending || 0)}</b></p>
-          <p>Оборот: <b>{Number(summary.revenue_rub || 0).toLocaleString('ru-RU')} ₽</b></p>
-          <p>Всего попыток: <b>{String(summary.total || 0)}</b></p>
+          <h4>Реальные операции</h4>
+          <p>Успешных оплат: <b>{String(summary.paid || 0)}</b></p>
+          <p>Ожидают подтверждения: <b>{String(summary.pending || 0)}</b></p>
+          <p>Получено по успешным платежам: <b>{Number(summary.revenue_rub || 0).toLocaleString('ru-RU')} ₽</b></p>
+          <p>Создано попыток оплаты: <b>{String(summary.total || 0)}</b></p>
         </article>
         <article className="admin-mail-card">
           <h4>Webhook</h4>
@@ -81,7 +86,7 @@ export default function AdminPayments() {
         </article>
       </div>
       <div className="admin-mail-tables">
-        <article><h4>Пакеты</h4><table><tbody>{(data?.packages || []).map((item) => <tr key={String(item.code)}><td><input value={String(item.name)} disabled={!String(item.code).startsWith('tokens_')} onChange={(event) => updatePackage(String(item.code), { name: event.target.value })} /><small>{String(item.code)}</small></td><td><input type="number" min="1" value={Number(item.token_amount || 0)} disabled={!String(item.code).startsWith('tokens_')} onChange={(event) => updatePackage(String(item.code), { token_amount: Number(event.target.value) })} /></td><td><input type="number" min="1" value={Number(item.price_amount || 0)} disabled={!String(item.code).startsWith('tokens_')} onChange={(event) => updatePackage(String(item.code), { price_amount: Number(event.target.value) })} /></td><td>{String(item.code).startsWith('tokens_') && <button className="secondary" onClick={() => { void savePackage(item) }}>Сохранить</button>}</td></tr>)}</tbody></table></article>
+        <article><h4>Разовые пакеты токенов</h4><p className="admin-table-note">Эти пакеты пользователь покупает отдельно сверх тарифа.</p><table><thead><tr><th>Название</th><th>Токенов</th><th>Цена, ₽</th><th>Продаётся</th><th></th></tr></thead><tbody>{(data?.packages || []).map((item) => <tr key={String(item.code)}><td><input value={String(item.name)} onChange={(event) => updatePackage(String(item.code), { name: event.target.value })} /><small>{String(item.code)}</small></td><td><input type="number" min="1" value={Number(item.token_amount || 0)} onChange={(event) => updatePackage(String(item.code), { token_amount: Number(event.target.value) })} /></td><td><input type="number" min="1" value={Number(item.price_amount || 0)} onChange={(event) => updatePackage(String(item.code), { price_amount: Number(event.target.value) })} /></td><td><input type="checkbox" checked={Boolean(item.is_active)} onChange={(event) => updatePackage(String(item.code), { is_active: event.target.checked })} aria-label={`Продавать ${String(item.name)}`} /></td><td><button className="secondary" onClick={() => { void savePackage(item) }}>Сохранить</button></td></tr>)}</tbody></table></article>
         <article><h4>Последние платежи</h4><table><tbody>{(data?.payments || []).map((item) => <tr key={String(item.id)}><td><b>{String(item.status)}</b><small>{String(item.created_at || '')}</small></td><td>{Number(item.amount || 0).toLocaleString('ru-RU')} ₽</td><td>{String(item.provider)}</td></tr>)}</tbody></table></article>
       </div>
       <div className="admin-mail-tables"><article><h4>События ЮKassa</h4><table><tbody>{(data?.events || []).map((item, index) => <tr key={`${String(item.provider_payment_id)}-${index}`}><td><b>{String(item.event_type)}</b><small>{String(item.received_at || '')}</small></td><td>{String(item.status)}</td><td>{String(item.error || '')}</td></tr>)}</tbody></table></article></div>

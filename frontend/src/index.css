@@ -1487,6 +1487,26 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-two-col p, .admin-note { color: #aaa; line-height: 1.45; }
 .admin-section-head.compact { align-items: end; }
 .admin-section-head.compact small { color: #8d8d8d; font-size: 12px; }
+.admin-owner-note { display: flex; align-items: center; gap: 12px; border: 1px solid rgba(236,255,47,.3); background: rgba(236,255,47,.045); border-radius: 9px; padding: 9px 12px; }
+.admin-owner-note strong { color: #f2f2f2; white-space: nowrap; }
+.admin-owner-note span { color: #9b9b9b; }
+.admin-owner-note button { margin-left: auto; white-space: nowrap; }
+.admin-payment-tariffs { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-payment-tariffs span { display: flex; align-items: center; gap: 8px; border: 1px solid #303030; background: #141414; border-radius: 8px; padding: 7px 10px; color: #a5a5a5; }
+.admin-payment-tariffs b { color: #f0f0f0; }
+.admin-table-note { color: #8e8e8e; margin: 4px 0 0; }
+.admin-mail-tables th { padding: 7px 8px; text-align: left; color: #989898; font-size: 11px; text-transform: uppercase; }
+.admin-mail-tables input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--acid); }
+.admin-tariffs-page .admin-grid { grid-template-columns: repeat(5, minmax(245px, 1fr)); overflow-x: auto; padding-bottom: 4px; }
+.admin-tariff-card { min-width: 245px; }
+.admin-tariff-card > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid #292929; padding-bottom: 8px; }
+.admin-tariff-card > header strong { color: #f3f3f3; }
+.admin-tariff-card > header span { color: var(--acid); font-size: 13px; font-weight: 900; }
+.admin-tariff-card > label:not(.admin-checkline) { display: grid; grid-template-columns: minmax(92px, .85fr) minmax(118px, 1.15fr); align-items: center; gap: 8px; color: #a0a0a0; letter-spacing: 0; text-transform: none; }
+.admin-tariff-card > label input, .admin-tariff-card > label select { color: #f2f2f2; font-weight: 750; }
+.admin-tariff-card .admin-resolution-picker { margin-top: 2px; }
+.admin-promo-create { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: end; border: 1px solid #303030; background: #151515; border-radius: 10px; padding: 12px; }
+.admin-promo-create label { display: grid; gap: 5px; color: #a0a0a0; letter-spacing: 0; }
 .admin-healthline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .admin-healthline span { border: 1px solid #303030; background: #111; color: #cfcfcf; border-radius: 999px; padding: 7px 10px; font-size: 12px; font-weight: 900; }
 .admin-healthline .ok { color: #9eff58; border-color: rgba(158,255,88,.45); background: rgba(158,255,88,.08); }

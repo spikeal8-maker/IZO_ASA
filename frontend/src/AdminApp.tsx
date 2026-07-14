@@ -182,7 +182,6 @@ function AdminAccessPage({ status, onOpenAuth }: { status: 'loading' | 'denied';
 }
 
 function AdminDashboard({ summary }: { summary: AnyRec | null }) {
-  const finance = (summary?.finance || {}) as AnyRec
   const timeline = (summary?.timeline || {}) as AnyRec
   const [range, setRange] = useState<DashboardRange>(24)
   const isHourlyRange = HOURLY_DASHBOARD_RANGES.has(range)
@@ -212,14 +211,6 @@ function AdminDashboard({ summary }: { summary: AnyRec | null }) {
         {kpi('Ошибки входа', summary?.errors24h, 'за 24 часа')}
         {kpi('Ошибки генерации', summary?.errors, 'failed jobs')}
       </div>
-      {Boolean(summary?.finance) && (
-        <div className="admin-grid admin-grid-compact">
-          {kpi('Доход', `${Number(finance.tokenRevenue ?? 0).toLocaleString('ru-RU')} ₽`, 'оценка')}
-          {kpi('Себестоимость', `${Number(finance.tokenCost ?? 0).toLocaleString('ru-RU')} ₽`, 'оценка')}
-          {kpi('Свет', `${Number(finance.electricity ?? 0).toLocaleString('ru-RU')} ₽`, 'оценка')}
-          {kpi('Акции', `${Number(finance.promoBudget ?? 0).toLocaleString('ru-RU')} ₽`, 'оценка')}
-        </div>
-      )}
       <div className="admin-dashboard-toolbar">
         <strong>Графики по времени</strong>
         {[
@@ -246,7 +237,6 @@ function AdminDashboard({ summary }: { summary: AnyRec | null }) {
 function AdminTokens() {
   const [tariffs, setTariffs] = useState<TariffConfig>(DEFAULT_TARIFFS)
   const [openrouterConfig, setOpenrouterConfig] = useState<OpenRouterConfig>({})
-  const [finance, setFinance] = useState({ tokenRevenue: 0, tokenCost: 0, electricity: 0, promoBudget: 0 })
   const [promos, setPromos] = useState<PromoCode[]>([])
   const [promoDraft, setPromoDraft] = useState({ code: 'START50', tokens: 50, activations: 100 })
   const [msg, setMsg] = useState('')
@@ -258,7 +248,6 @@ function AdminTokens() {
     ])
     if (settings?.tariffs) setTariffs(normalizeTariffs(settings.tariffs as Partial<Record<TariffKey, Partial<TariffConfig[TariffKey]>>>))
     setOpenrouterConfig((settings?.openrouter_models || {}) as OpenRouterConfig)
-    if (settings?.finance) setFinance((current) => ({ ...current, ...(settings.finance as Partial<typeof finance>) }))
     setPromos(Array.isArray(promoRows) ? promoRows : [])
   }, [])
 
@@ -272,10 +261,6 @@ function AdminTokens() {
       setTariffs(normalizeTariffs(result.settings))
       setMsg('Тарифы сохранены')
     } else setMsg('Ошибка сохранения тарифов')
-  }
-  const saveFinance = async () => {
-    const result = await adminPost<{ ok?: boolean }>('/admin/settings/finance', { settings: finance })
-    setMsg(result?.ok ? 'Финансы сохранены' : 'Ошибка сохранения финансов')
   }
   const toggleResolution = (plan: TariffKey, resolutionId: string, checked: boolean) => {
     setTariffs((current) => {
@@ -311,35 +296,18 @@ function AdminTokens() {
   }
 
   return (
-    <div className="admin-section">
-      <h3>Тарифы, токены, финансы и акции</h3>
-      {msg && <small>{msg}</small>}
-      <div className="admin-two-col">
-        <article>
-          <h3>Финансы</h3>
-          <label>Доход от токенов<input type="number" value={finance.tokenRevenue} onChange={(e) => setFinance({ ...finance, tokenRevenue: Number(e.target.value) })} /></label>
-          <label>Себестоимость API<input type="number" value={finance.tokenCost} onChange={(e) => setFinance({ ...finance, tokenCost: Number(e.target.value) })} /></label>
-          <label>Свет<input type="number" value={finance.electricity} onChange={(e) => setFinance({ ...finance, electricity: Number(e.target.value) })} /></label>
-          <label>Акции<input type="number" value={finance.promoBudget} onChange={(e) => setFinance({ ...finance, promoBudget: Number(e.target.value) })} /></label>
-          <button className="secondary" onClick={saveFinance}>Сохранить финансы</button>
-        </article>
-        <article>
-          <h3>Промокод</h3>
-          <label>Код<input value={promoDraft.code} onChange={(e) => setPromoDraft({ ...promoDraft, code: e.target.value.toUpperCase() })} /></label>
-          <label>Токены<input type="number" value={promoDraft.tokens} onChange={(e) => setPromoDraft({ ...promoDraft, tokens: Number(e.target.value) })} /></label>
-          <label>Активации<input type="number" value={promoDraft.activations} onChange={(e) => setPromoDraft({ ...promoDraft, activations: Number(e.target.value) })} /></label>
-          <button className="secondary" onClick={createPromo}>Создать промокод</button>
-        </article>
+    <div className="admin-section admin-tariffs-page">
+      <div className="admin-section-headline">
+        <div><h3>Тарифы и доступы</h3><p>Единый источник цен подписки, лимитов, моделей и возможностей пользователя.</p></div>
+        <button className="secondary" onClick={saveTariffs}>Сохранить тарифы</button>
       </div>
+      {msg && <small>{msg}</small>}
+      <div className="admin-owner-note"><strong>Здесь настраиваются тарифы</strong><span>Цена тарифа автоматически передаётся в оплату. На странице «Платежи» она повторно не редактируется.</span></div>
       <div className="admin-section">
-        <div className="admin-section-head">
-          <h3>Настройки тарифов</h3>
-          <button className="secondary" onClick={saveTariffs}>Сохранить тарифы</button>
-        </div>
         <div className="admin-grid">
           {tariffKeys.map((plan) => (
-            <div key={plan}>
-              <strong>{plan.toUpperCase()}</strong>
+            <div className="admin-tariff-card" key={plan}>
+              <header><strong>{plan.toUpperCase()}</strong><span>{tariffs[plan].price_rub_month ? `${tariffs[plan].price_rub_month.toLocaleString('ru-RU')} ₽/мес` : 'Бесплатно'}</span></header>
               <label>Название<input value={tariffs[plan].title} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], title: e.target.value } }))} /></label>
               <label>Описание<input value={tariffs[plan].note} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], note: e.target.value } }))} /></label>
               <label>Цена, ₽/мес<input type="number" min="0" value={tariffs[plan].price_rub_month} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], price_rub_month: Number(e.target.value) } }))} /></label>
@@ -383,7 +351,15 @@ function AdminTokens() {
         </div>
       </div>
       <div className="admin-section">
-        <h3>Промокоды в базе</h3>
+        <div className="admin-section-headline">
+          <div><h3>Бонусы и промокоды</h3><p>Начисляют токены, но не меняют цену или состав тарифа.</p></div>
+        </div>
+        <div className="admin-promo-create">
+          <label>Код<input value={promoDraft.code} onChange={(e) => setPromoDraft({ ...promoDraft, code: e.target.value.toUpperCase() })} /></label>
+          <label>Токенов пользователю<input type="number" value={promoDraft.tokens} onChange={(e) => setPromoDraft({ ...promoDraft, tokens: Number(e.target.value) })} /></label>
+          <label>Лимит активаций<input type="number" value={promoDraft.activations} onChange={(e) => setPromoDraft({ ...promoDraft, activations: Number(e.target.value) })} /></label>
+          <button className="secondary" onClick={createPromo}>Создать промокод</button>
+        </div>
         <div className="admin-grid">
           {promos.length ? promos.map((item) => (
             <div key={item.code}>
