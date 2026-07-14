@@ -7,10 +7,14 @@ import pytest
 
 import app.services.gallery_presentation as gallery_presentation_module
 from app.services.gallery_presentation import (
+    format_gallery_public_bytes,
+    format_gallery_public_datetime,
+    format_gallery_public_duration,
     gallery_aspect_ratio,
     gallery_model_info,
     gallery_mode_label,
     gallery_public_params,
+    gallery_public_token_cost,
     gallery_source_ids,
 )
 
@@ -189,3 +193,67 @@ def test_public_params_filter_falsy_values_but_keep_zero_token_cost() -> None:
 
     assert empty == []
     assert zero == [{"label": "Токены", "value": "0 ток."}]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        (0, None),
+        (-1, None),
+        (1, "1 Б"),
+        (1023, "1023 Б"),
+        (1024, "1,0 КБ"),
+        (1536, "1,5 КБ"),
+        (1024**2, "1,0 МБ"),
+        (1024**3, "1,0 ГБ"),
+    ],
+)
+def test_public_bytes_contract(value, expected) -> None:
+    assert format_gallery_public_bytes(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        (0, None),
+        (-1, None),
+        ("invalid", None),
+        (999, "999 мс"),
+        (1000, "1,0 с"),
+        (1249, "1,2 с"),
+        (1250, "1,2 с"),
+    ],
+)
+def test_public_duration_contract(value, expected) -> None:
+    assert format_gallery_public_duration(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        ("2026-07-14T05:00:00Z", "14.07.2026, 08:00:00"),
+        ("2026-07-14T05:00:00", "14.07.2026, 08:00:00"),
+        ("2026-07-14T05:00:00+03:00", "14.07.2026, 05:00:00"),
+        ("not-a-date", "not-a-date"),
+    ],
+)
+def test_public_datetime_contract(value, expected) -> None:
+    assert format_gallery_public_datetime(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        ({"tokenCost": "7", "openrouterBilling": {"chargedTokens": 8, "actualTokens": 9}}, 7),
+        ({"tokenCost": "invalid", "openrouterBilling": {"chargedTokens": "8", "actualTokens": 9}}, 8),
+        ({"openrouterBilling": {"chargedTokens": "invalid", "actualTokens": "9"}}, 9),
+        ({"tokenCost": 0}, 0),
+        ({"openrouterBilling": "not-a-dict"}, None),
+        ({}, None),
+    ],
+)
+def test_public_token_cost_contract(settings, expected) -> None:
+    assert gallery_public_token_cost(settings) == expected

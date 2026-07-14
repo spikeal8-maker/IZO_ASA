@@ -248,3 +248,67 @@ def test_public_params_filter_empty_values_after_calling_every_formatter(monkeyp
 
     assert result == second == []
     assert calls == ["aspect", "file_size", "bytes", "duration", "datetime", "mode"] * 2
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        (0, None),
+        (-1, None),
+        (1, "1 Б"),
+        (1023, "1023 Б"),
+        (1024, "1,0 КБ"),
+        (1536, "1,5 КБ"),
+        (1024**2, "1,0 МБ"),
+        (1024**3, "1,0 ГБ"),
+    ],
+)
+def test_public_bytes_preserve_units_thresholds_and_decimal_comma(value, expected) -> None:
+    assert main._format_public_bytes(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        (0, None),
+        (-1, None),
+        ("invalid", None),
+        (999, "999 мс"),
+        (1000, "1,0 с"),
+        (1249, "1,2 с"),
+        (1250, "1,2 с"),
+    ],
+)
+def test_public_duration_preserves_coercion_threshold_and_rounding(value, expected) -> None:
+    assert main._format_public_duration(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, None),
+        ("2026-07-14T05:00:00Z", "14.07.2026, 08:00:00"),
+        ("2026-07-14T05:00:00", "14.07.2026, 08:00:00"),
+        ("2026-07-14T05:00:00+03:00", "14.07.2026, 05:00:00"),
+        ("not-a-date", "not-a-date"),
+    ],
+)
+def test_public_datetime_preserves_moscow_conversion_and_invalid_fallback(value, expected) -> None:
+    assert main._format_public_datetime(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        ({"tokenCost": "7", "openrouterBilling": {"chargedTokens": 8, "actualTokens": 9}}, 7),
+        ({"tokenCost": "invalid", "openrouterBilling": {"chargedTokens": "8", "actualTokens": 9}}, 8),
+        ({"openrouterBilling": {"chargedTokens": "invalid", "actualTokens": "9"}}, 9),
+        ({"tokenCost": 0}, 0),
+        ({"openrouterBilling": "not-a-dict"}, None),
+        ({}, None),
+    ],
+)
+def test_public_token_cost_preserves_precedence_coercion_and_fallback(settings, expected) -> None:
+    assert main._public_token_cost(settings) == expected

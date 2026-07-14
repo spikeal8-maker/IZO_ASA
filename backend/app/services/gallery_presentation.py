@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 
@@ -43,6 +44,64 @@ def gallery_source_ids(settings: Mapping[str, Any]) -> list[str]:
     if not isinstance(raw, list):
         return []
     return [str(item) for item in raw[:4] if str(item or "").strip()]
+
+
+def format_gallery_public_bytes(value: int | None) -> str | None:
+    if not value or value <= 0:
+        return None
+    units = ("Б", "КБ", "МБ", "ГБ")
+    size = float(value)
+    unit = units[0]
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            break
+        size /= 1024
+    if unit == "Б":
+        return f"{int(size)} {unit}"
+    return f"{size:.1f} {unit}".replace(".", ",")
+
+
+def format_gallery_public_duration(ms: Any) -> str | None:
+    try:
+        value = int(ms or 0)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    if value < 1000:
+        return f"{value} мс"
+    return f"{value / 1000:.1f} с".replace(".", ",")
+
+
+def format_gallery_public_datetime(value: Any) -> str | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(timezone(timedelta(hours=3)))
+        return dt.strftime("%d.%m.%Y, %H:%M:%S")
+    except Exception:
+        return str(value)
+
+
+def gallery_public_token_cost(settings: Mapping[str, Any]) -> int | None:
+    for value in (
+        settings.get("tokenCost"),
+        (settings.get("openrouterBilling") or {}).get("chargedTokens")
+        if isinstance(settings.get("openrouterBilling"), dict)
+        else None,
+        (settings.get("openrouterBilling") or {}).get("actualTokens")
+        if isinstance(settings.get("openrouterBilling"), dict)
+        else None,
+    ):
+        try:
+            if value is not None:
+                return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def gallery_model_info(

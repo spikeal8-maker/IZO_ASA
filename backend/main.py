@@ -3268,57 +3268,19 @@ def _media_file_size_from_url(url: str | None) -> int | None:
 
 
 def _format_public_bytes(value: int | None) -> str | None:
-    if not value or value <= 0:
-        return None
-    units = ("Б", "КБ", "МБ", "ГБ")
-    size = float(value)
-    unit = units[0]
-    for unit in units:
-        if size < 1024 or unit == units[-1]:
-            break
-        size /= 1024
-    if unit == "Б":
-        return f"{int(size)} {unit}"
-    return f"{size:.1f} {unit}".replace(".", ",")
+    return gallery_presentation.format_gallery_public_bytes(value)
 
 
 def _format_public_duration(ms: Any) -> str | None:
-    try:
-        value = int(ms or 0)
-    except (TypeError, ValueError):
-        return None
-    if value <= 0:
-        return None
-    if value < 1000:
-        return f"{value} мс"
-    return f"{value / 1000:.1f} с".replace(".", ",")
+    return gallery_presentation.format_gallery_public_duration(ms)
 
 
 def _format_public_datetime(value: Any) -> str | None:
-    if not value:
-        return None
-    try:
-        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        dt = dt.astimezone(timezone(timedelta(hours=3)))
-        return dt.strftime("%d.%m.%Y, %H:%M:%S")
-    except Exception:
-        return str(value)
+    return gallery_presentation.format_gallery_public_datetime(value)
 
 
 def _public_token_cost(settings: dict[str, Any]) -> int | None:
-    for value in (
-        settings.get("tokenCost"),
-        (settings.get("openrouterBilling") or {}).get("chargedTokens") if isinstance(settings.get("openrouterBilling"), dict) else None,
-        (settings.get("openrouterBilling") or {}).get("actualTokens") if isinstance(settings.get("openrouterBilling"), dict) else None,
-    ):
-        try:
-            if value is not None:
-                return int(value)
-        except (TypeError, ValueError):
-            continue
-    return None
+    return gallery_presentation.gallery_public_token_cost(settings)
 
 
 MODEL_RELEASE_YEAR_BY_ID = {
