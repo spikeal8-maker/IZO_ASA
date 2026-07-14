@@ -107,6 +107,19 @@ def test_assistant_config_merges_saved_values_with_mode_defaults(prompt_user):
     assert config["improve"]["modePrompts"]["mask"]
 
 
+def test_assistant_config_migrates_fake_qwen_ollama_tag(prompt_user):
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('assistant_models', ?, '2026-07-15T00:00:00+00:00')",
+            ('{"voice":{"route":"qwen","localModel":"qwen3-asr:1.7b"}}',),
+        )
+    voice = main.assistant_models_config()["voice"]
+    assert voice["route"] == "qwen"
+    assert voice["localModel"] == "gemma4:12b"
+    assert voice["qwenModel"] == "Qwen/Qwen3-ASR-1.7B"
+    assert voice["qwenBaseUrl"] == "http://127.0.0.1:8001"
+
+
 def test_default_prompt_instructions_are_visible_in_russian(prompt_user):
     config = main.assistant_models_config()["improve"]
     message = main._improve_system_message(main.ImprovePromptRequest(prompt="дом", mode="text", language="ru"), config)
@@ -125,13 +138,18 @@ def test_admin_assistant_catalog_contains_ollama_and_openrouter_prices(prompt_us
     async def fake_openrouter_models(force=False):
         return [{"id": "deepseek/deepseek-v4-flash", "name": "DeepSeek V4 Flash", "inputPerMillionUsd": 0.077, "outputPerMillionUsd": 0.154, "contextLength": 1048576}]
 
+    async def fake_qwen(_config=None):
+        return {"ok": False, "baseUrl": "http://127.0.0.1:8001", "models": [], "error": "ConnectError"}
+
     monkeypatch.setattr(main, "ollama_models_status", fake_ollama)
+    monkeypatch.setattr(main, "qwen_asr_status", fake_qwen)
     monkeypatch.setattr(main, "openrouter_text_models", fake_openrouter_models)
     with TestClient(main.app) as client:
         response = client.get("/api/admin/assistants", cookies={"onenode_session": prompt_user["cookie"]})
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["ollama"]["models"][0]["name"] == "gemma4:31b-cloud"
+    assert body["qwen"]["ok"] is False
     assert body["openrouterModels"][0]["inputPerMillionUsd"] == 0.077
 
 
@@ -186,3 +204,27 @@ def test_voice_transcription_uses_local_ollama_route(prompt_user, monkeypatch):
     assert response.status_code == 200, response.text
     assert response.json()["provider"] == "local"
     assert response.json()["model"] == "gemma4:12b"
+
+
+def test_voice_transcription_uses_qwen_service_route(prompt_user, monkeypatch):
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('assistant_models', ?, '2026-07-15T00:00:00+00:00')",
+            ('{"voice":{"route":"qwen","qwenModel":"Qwen/Qwen3-ASR-1.7B","minRecordingSeconds":1}}',),
+        )
+
+    async def fake_qwen(audio, audio_format, language, config=None):
+        assert audio == b"not-real-audio"
+        assert config["qwenModel"] == "Qwen/Qwen3-ASR-1.7B"
+        return "Qwen расшифровка", {"usage": {}}
+
+    monkeypatch.setattr(main, "transcribe_audio_qwen", fake_qwen)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/tools/transcribe?duration_ms=1600&language=ru",
+            files={"file": ("voice.webm", b"not-real-audio", "audio/webm")},
+            cookies={"onenode_session": prompt_user["cookie"]},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["provider"] == "qwen"
+    assert response.json()["text"] == "Qwen расшифровка"

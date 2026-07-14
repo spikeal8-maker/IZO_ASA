@@ -3,6 +3,7 @@
 // Реальные данные приходят из GET /api/admin/models-page (см. backend). Тарифная матрица,
 // маршруты и user-choice сохраняются через /api/admin/settings/{key}.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import AdminVoice from './adminVoice'
 import { ensureSessionRefreshedV2 } from './authV2'
 import { normalizeTariffs, tariffKeys, type TariffConfig, type TariffKey } from './profileSupport'
 import { IMAGE_RESOLUTIONS, normalizeResolutionIds, resolutionLabel, type ResolutionFormat, type ResolutionTier } from './resolutionPolicy'
@@ -234,19 +235,8 @@ const fallbackReferenceLimit = (model: ApiImageModel) => {
   return 0
 }
 
-type AssistantModelPlan = {
-  task: 'Транскрибация' | 'Улучшение промпта'
-  role: 'Основная' | 'Резерв' | 'Кандидат' | 'Аварийная'
-  model: string
-  runtime: string
-  hardware: string
-  strengths: string
-  limitations: string
-  status: 'Рекомендуется' | 'Проверить' | 'Планируется'
-}
-
 type AssistantConfig = {
-  voice: { localModel: string; apiModel: string; route: string; queueTimeoutSeconds: number; requestTimeoutSeconds: number; minRecordingSeconds: number }
+  voice: { localModel: string; qwenModel: string; qwenBaseUrl: string; apiModel: string; route: string; queueTimeoutSeconds: number; requestTimeoutSeconds: number; minRecordingSeconds: number }
   improve: { route: 'local' | 'api' | 'auto'; localModel: string; apiModel: string; localTimeoutSeconds: number; apiTimeoutSeconds: number; systemPrompt: string; modePrompts: Record<string, string> }
 }
 type AssistantAdminData = {
@@ -262,20 +252,6 @@ type AssistantTestResult = { ok?: boolean; provider?: string; model?: string; im
 const ASSISTANT_MODE_LABELS: Record<string, string> = {
   text: 'По тексту', i2i: 'По фото', edit: 'Сборка', sketch: 'Эскиз', mask: 'Маска', outpaint: 'Расширение', remove_bg: 'Удалить фон',
 }
-
-const ASSISTANT_MODEL_PLAN: AssistantModelPlan[] = [
-  { task: 'Транскрибация', role: 'Основная', model: 'Gemma 4 12B Unified', runtime: 'Ollama локально', hardware: 'текущий сервер / RTX 4070', strengths: 'Русский ASR уже проверен; одна модель для голоса и улучшения', limitations: 'Холодный старт около 27 сек.; максимум аудио 30 сек.', status: 'Рекомендуется' },
-  { task: 'Транскрибация', role: 'Кандидат', model: 'Gemma 4 E4B', runtime: 'Ollama локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Аудиоэнкодер, меньше активных параметров', limitations: 'Нужен сравнительный русский тест с 12B', status: 'Проверить' },
-  { task: 'Транскрибация', role: 'Кандидат', model: 'Gemma 4 E2B', runtime: 'Ollama локально', hardware: 'RTX 4070 или CPU', strengths: 'Самый лёгкий вариант Gemma 4 с аудиовходом', limitations: 'Пока не установлена; требуется проверка точности', status: 'Проверить' },
-  { task: 'Транскрибация', role: 'Основная', model: 'Qwen3-ASR 1.7B', runtime: 'Локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Лёгкая современная ASR, высокая скорость, русский язык', limitations: 'До запуска нужен собственный тест речи, шума и пауз', status: 'Проверить' },
-  { task: 'Транскрибация', role: 'Кандидат', model: 'Faster Whisper Large V3 Turbo', runtime: 'Локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Зрелый production-стек, VAD, предсказуемая интеграция', limitations: 'Тяжелее Qwen3-ASR; нужна защита от текста на тишине', status: 'Рекомендуется' },
-  { task: 'Транскрибация', role: 'Кандидат', model: 'Qwen3-ASR 0.6B', runtime: 'Локально', hardware: 'RTX 4070 или CPU', strengths: 'Минимальная нагрузка и быстрая короткая диктовка', limitations: 'Качество русского требуется сравнить с версией 1.7B', status: 'Проверить' },
-  { task: 'Транскрибация', role: 'Аварийная', model: 'Whisper Medium INT8', runtime: 'Локально', hardware: 'i5 10-го поколения / RAM', strengths: 'Работает без GPU и внешнего API', limitations: 'Высокая нагрузка CPU и очередь при параллельных запросах', status: 'Планируется' },
-  { task: 'Транскрибация', role: 'Резерв', model: 'Gemini 3.1 Flash Lite Audio', runtime: 'OpenRouter API', hardware: 'Облако', strengths: 'Аудиовход, дешёвый автоматический резерв', limitations: 'Платный вызов; форматы WebM/Opus нужно проверить живым тестом', status: 'Планируется' },
-  { task: 'Транскрибация', role: 'Резерв', model: 'GPT Audio Mini', runtime: 'OpenRouter API', hardware: 'Облако', strengths: 'Альтернативный провайдер аудиораспознавания', limitations: 'Использовать только при недоступности основного API-маршрута', status: 'Планируется' },
-  { task: 'Улучшение промпта', role: 'Основная', model: 'Gemma 4 12B Q4', runtime: 'Локально', hardware: 'RTX 4070 12 ГБ', strengths: 'Локальный текстовый помощник и аудиораспознавание без цены за вызов', limitations: 'Нужны короткий контекст и диспетчер VRAM', status: 'Рекомендуется' },
-  { task: 'Улучшение промпта', role: 'Резерв', model: 'DeepSeek V4 Flash', runtime: 'OpenRouter API', hardware: 'Облако', strengths: 'Недорогой structured output и хороший русский текст', limitations: 'Только текст: аудио не принимает', status: 'Планируется' },
-]
 
 const fallbackCapabilityModel = (model: ApiImageModel): ApiImageModel => {
   const maxInputReferences = fallbackReferenceLimit(model)
@@ -624,12 +600,6 @@ const CSS = `
 .amv2 .assistant-summary span{color:var(--muted);font-size:11px;font-weight:800;text-transform:uppercase}
 .amv2 .assistant-summary strong{font-size:14px;color:var(--lime)}
 .amv2 .assistant-summary small{color:var(--muted);line-height:1.35}
-.amv2 .assistant-table th,.amv2 .assistant-table td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px;line-height:1.35}
-.amv2 .assistant-table th{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em;background:rgba(255,255,255,.025)}
-.amv2 .assistant-table td strong{display:block;color:var(--text);margin-bottom:3px}
-.amv2 .assistant-table td small{color:var(--muted)}
-.amv2 .assistant-status{display:inline-flex;padding:3px 7px;border:1px solid var(--line-strong);border-radius:999px;white-space:nowrap;color:var(--muted)}
-.amv2 .assistant-status.recommended{color:var(--lime);border-color:rgba(234,255,16,.35)}
 .amv2 .assistant-config{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);gap:12px}
 .amv2 .assistant-form{padding:14px;display:grid;gap:12px}
 .amv2 .assistant-form textarea,.amv2 .assistant-test textarea{font-size:13px;font-weight:400;letter-spacing:0;line-height:1.45}
@@ -796,7 +766,7 @@ export default function AdminModelsV2() {
   }, [])
 
   useEffect(() => {
-    if ((pageTab === 'voice' || pageTab === 'improve') && !assistantData) queueMicrotask(() => { void loadAssistants() })
+    if (pageTab === 'improve' && !assistantData) queueMicrotask(() => { void loadAssistants() })
   }, [assistantData, loadAssistants, pageTab])
 
   const updateAssistantConfig = (next: AssistantConfig) => setAssistantData((current) => current ? { ...current, config: next } : current)
@@ -1131,11 +1101,6 @@ export default function AdminModelsV2() {
     'Верни только JSON с одним строковым полем improved_prompt.',
   ].filter(Boolean).join(' ') : ''
   const assistantPreviewUser = JSON.stringify({ prompt: assistantTestPrompt.trim(), technical_context: null }, null, 2)
-  const voiceOllamaModels = assistantData?.ollama.models.filter((model) => {
-    const name = model.name || ''
-    return /^gemma4:(12b|e2b|e4b|latest)/.test(name) && !name.endsWith(':cloud')
-  }) || []
-
   return <div className="amv2">
     <style>{CSS}</style>
     {msg && <p style={{ color: 'var(--lime)', fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
@@ -1152,29 +1117,7 @@ export default function AdminModelsV2() {
       </div>}
     </div>
 
-    {pageTab === 'voice' && assistantData && <>
-      <section className="assistant-summary">
-        <div><span>Текущий маршрут</span><strong>{assistantData.config.voice.route === 'local' ? 'Ollama локально' : assistantData.config.voice.route === 'auto' ? 'Ollama → OpenRouter' : 'OpenRouter API'}</strong><small>При auto API используется только после ошибки локальной модели.</small></div>
-        <div><span>Локальная модель</span><strong>{assistantData.config.voice.localModel}</strong><small>{assistantData.ollama.ok ? 'Ollama в сети' : 'Ollama не отвечает'}</small></div>
-        <div><span>API-резерв</span><strong>{assistantData.config.voice.apiModel}</strong><small>Модель OpenRouter с аудиовходом.</small></div>
-      </section>
-      <article className="card">
-        <div className="card-head"><div><h2 className="card-title">Голосовой ввод</h2><p className="card-note">Рабочий API-маршрут и ограничения пользовательской записи.</p></div></div>
-        <div className="assistant-form">
-          <div className="two-col">
-            <div className="field"><label>Маршрут сейчас</label><select value={assistantData.config.voice.route} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, route: e.target.value } })}><option value="local">Ollama локально</option><option value="api">OpenRouter API</option><option value="auto">Авто: Ollama → OpenRouter</option></select></div>
-            <div className="field"><label>Локальная аудиомодель Ollama</label><select value={assistantData.config.voice.localModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, localModel: e.target.value } })}>{!voiceOllamaModels.some((m) => m.name === assistantData.config.voice.localModel) && <option value={assistantData.config.voice.localModel}>{assistantData.config.voice.localModel}</option>}{voiceOllamaModels.map((model) => <option key={model.name} value={model.name}>{model.name} · установлена</option>)}</select><small>Подходят Gemma 4 12B, E4B и E2B. 26B и 31B аудио не принимают.</small></div>
-            <div className="field"><label>API-модель с аудиовходом</label><input value={assistantData.config.voice.apiModel} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, apiModel: e.target.value } })} /></div>
-            <div className="field"><label>Минимальная запись, секунд</label><input type="number" min="0.5" max="10" step="0.5" value={assistantData.config.voice.minRecordingSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, minRecordingSeconds: Number(e.target.value) } })} /></div>
-            <div className="field"><label>Timeout распознавания, секунд</label><input type="number" min="10" max="180" value={assistantData.config.voice.requestTimeoutSeconds} onChange={(e) => updateAssistantConfig({ ...assistantData.config, voice: { ...assistantData.config.voice, requestTimeoutSeconds: Number(e.target.value) } })} /></div>
-          </div>
-          <button className="primary" disabled={assistantBusy} onClick={() => void saveAssistantConfig()}>{assistantBusy ? 'Сохраняю…' : 'Сохранить голосовой маршрут'}</button>
-        </div>
-        <div className="matrix-wrap"><table className="assistant-table"><thead><tr><th>Задача</th><th>Роль и модель</th><th>Исполнение</th><th>Сильные стороны</th><th>Ограничения</th><th>Статус</th></tr></thead>
-          <tbody>{ASSISTANT_MODEL_PLAN.filter((item) => item.task === 'Транскрибация').map((item) => <tr key={`${item.role}-${item.model}`}><td>{item.task}</td><td><strong>{item.model}</strong><small>{item.role}</small></td><td><strong>{item.runtime}</strong><small>{item.hardware}</small></td><td>{item.strengths}</td><td>{item.limitations}</td><td><span className={`assistant-status${item.status === 'Рекомендуется' ? ' recommended' : ''}`}>{item.status}</span></td></tr>)}</tbody>
-        </table></div>
-      </article>
-    </>}
+    {pageTab === 'voice' && <AdminVoice />}
 
     {pageTab === 'improve' && assistantData && <>
       <section className="assistant-summary">

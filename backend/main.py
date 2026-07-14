@@ -137,6 +137,7 @@ try:
         telegram_file_url,
         upload_comfyui_image as integration_upload_comfyui_image,
     )
+
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations import (
         ComfyUIHistoryClient as IntegrationComfyUIHistoryClient,
@@ -186,6 +187,21 @@ except ImportError:  # Direct `python backend/main.py` execution.
         request_telegram_bot_api,
         telegram_file_url,
         upload_comfyui_image as integration_upload_comfyui_image,
+    )
+
+try:
+    from .app.integrations.qwen_asr import (
+        DEFAULT_QWEN_ASR_BASE_URL,
+        DEFAULT_QWEN_ASR_MODEL,
+        fetch_qwen_asr_status,
+        request_qwen_asr_transcription,
+    )
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.integrations.qwen_asr import (
+        DEFAULT_QWEN_ASR_BASE_URL,
+        DEFAULT_QWEN_ASR_MODEL,
+        fetch_qwen_asr_status,
+        request_qwen_asr_transcription,
     )
 
 try:
@@ -5198,7 +5214,9 @@ PROMPT_IMPROVE_MODE_RULES = {
 
 DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
     "voice": {
-        "localModel": "qwen3-asr:1.7b",
+        "localModel": "gemma4:12b",
+        "qwenModel": DEFAULT_QWEN_ASR_MODEL,
+        "qwenBaseUrl": DEFAULT_QWEN_ASR_BASE_URL,
         "apiModel": "google/gemini-3.1-flash-lite",
         "route": "api",
         "queueTimeoutSeconds": 1,
@@ -5228,6 +5246,11 @@ def assistant_models_config() -> dict[str, Any]:
     stored = safe_json_load(row["value_json"]) if row else {}
     stored = stored if isinstance(stored, dict) else {}
     voice = {**DEFAULT_ASSISTANT_MODELS_CONFIG["voice"], **(stored.get("voice") if isinstance(stored.get("voice"), dict) else {})}
+    if voice.get("localModel") == "qwen3-asr:1.7b":
+        voice["localModel"] = "gemma4:12b"
+    voice["route"] = voice["route"] if voice.get("route") in {"local", "qwen", "api", "auto"} else "api"
+    voice["qwenModel"] = str(voice.get("qwenModel") or DEFAULT_QWEN_ASR_MODEL).strip()
+    voice["qwenBaseUrl"] = str(voice.get("qwenBaseUrl") or DEFAULT_QWEN_ASR_BASE_URL).strip().rstrip("/")
     improve = {**DEFAULT_ASSISTANT_MODELS_CONFIG["improve"], **(stored.get("improve") if isinstance(stored.get("improve"), dict) else {})}
     improve["modePrompts"] = {
         **DEFAULT_ASSISTANT_MODELS_CONFIG["improve"]["modePrompts"],
@@ -5239,6 +5262,11 @@ def assistant_models_config() -> dict[str, Any]:
 
 async def ollama_models_status() -> dict[str, Any]:
     return await fetch_ollama_models_status()
+
+
+async def qwen_asr_status(config: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = config or assistant_models_config()["voice"]
+    return await fetch_qwen_asr_status(base_url=str(config.get("qwenBaseUrl") or DEFAULT_QWEN_ASR_BASE_URL))
 
 
 _openrouter_text_model_cache: dict[str, Any] = {"ts": 0.0, "models": []}
@@ -5496,6 +5524,50 @@ async def transcribe_audio_ollama(audio: bytes, audio_format: str, language: str
     if not text:
         raise RuntimeError("Локальная модель не распознала речь.")
     return text[:2000], payload
+
+
+async def transcribe_audio_qwen(audio: bytes, audio_format: str, language: str, config: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+    config = config or assistant_models_config()["voice"]
+    wav = audio if audio_format == "wav" else await asyncio.to_thread(normalize_audio_to_wav, audio, audio_format)
+    timeout = max(10, min(180, int(config.get("requestTimeoutSeconds") or 45)))
+    return await request_qwen_asr_transcription(
+        audio=wav,
+        audio_format="wav",
+        language="Russian" if language.startswith("рус") else "English",
+        model=str(config.get("qwenModel") or DEFAULT_QWEN_ASR_MODEL),
+        base_url=str(config.get("qwenBaseUrl") or DEFAULT_QWEN_ASR_BASE_URL),
+        timeout_seconds=timeout,
+    )
+
+
+async def transcribe_audio_routed(
+    audio: bytes,
+    audio_format: str,
+    language: str,
+    config: dict[str, Any] | None = None,
+    force_provider: str | None = None,
+) -> tuple[str, dict[str, Any], str, str]:
+    config = config or assistant_models_config()["voice"]
+    route = force_provider or str(config.get("route") or "api")
+    providers = ["qwen", "local", "api"] if route == "auto" else [route]
+    errors: list[str] = []
+    for provider in providers:
+        try:
+            if provider == "qwen":
+                text, payload = await transcribe_audio_qwen(audio, audio_format, language, config)
+                return text, payload, provider, str(config.get("qwenModel") or DEFAULT_QWEN_ASR_MODEL)
+            if provider == "local":
+                text, payload = await transcribe_audio_ollama(audio, audio_format, language, config)
+                return text, payload, provider, str(config.get("localModel") or "gemma4:12b")
+            if provider == "api":
+                text, payload = await transcribe_audio_openrouter(audio, audio_format, language, config)
+                return text, payload, provider, str(config.get("apiModel") or "google/gemini-3.1-flash-lite")
+            raise RuntimeError("Неизвестный маршрут транскрибации.")
+        except (httpx.HTTPError, RuntimeError) as exc:
+            errors.append(f"{provider}: {exc}")
+            if route != "auto":
+                raise
+    raise RuntimeError("Ни один маршрут транскрибации не сработал: " + "; ".join(errors))
 
 
 def resolve_openrouter_model(req: GenerateRequest) -> str:
@@ -6703,22 +6775,9 @@ async def transcribe_audio(
     if not audio_format:
         raise HTTPException(415, "Формат записи голоса не поддерживается.")
     started = time.monotonic()
-    route = str(config.get("route") or "api")
-    provider = "api"
     try:
         spoken_language = "русском" if language == "ru" else "английском"
-        if route == "local":
-            text, payload = await transcribe_audio_ollama(audio, audio_format, spoken_language, config)
-            provider = "local"
-        elif route == "auto":
-            try:
-                text, payload = await transcribe_audio_ollama(audio, audio_format, spoken_language, config)
-                provider = "local"
-            except (httpx.HTTPError, RuntimeError):
-                text, payload = await transcribe_audio_openrouter(audio, audio_format, spoken_language, config)
-                provider = "api"
-        else:
-            text, payload = await transcribe_audio_openrouter(audio, audio_format, spoken_language, config)
+        text, payload, provider, model = await transcribe_audio_routed(audio, audio_format, spoken_language, config)
     except (httpx.HTTPError, RuntimeError) as exc:
         raise HTTPException(502, str(exc)) from exc
     usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
@@ -6726,9 +6785,9 @@ async def transcribe_audio(
         "voice_transcribed",
         internal_user_id=trusted.get("internal_user_id"), legacy_user_id=trusted.get("legacy_user_id"),
         session_id=trusted.get("session_id"), platform="web", request=request,
-        properties={"model": config.get("localModel") if provider == "local" else config.get("apiModel"), "provider": provider, "duration_ms": duration_ms, "bytes": len(audio), "latency_ms": round((time.monotonic() - started) * 1000)},
+        properties={"model": model, "provider": provider, "duration_ms": duration_ms, "bytes": len(audio), "latency_ms": round((time.monotonic() - started) * 1000)},
     )
-    return {"ok": True, "text": text, "model": config.get("localModel") if provider == "local" else config.get("apiModel"), "provider": provider, "usage": usage}
+    return {"ok": True, "text": text, "model": model, "provider": provider, "usage": usage}
 
 
 @app.post("/api/generate")
@@ -12134,6 +12193,7 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
 @app.get("/api/admin/assistants")
 async def admin_assistants(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
+    config = assistant_models_config()
     try:
         text_models = await openrouter_text_models()
         text_models_error = None
@@ -12142,8 +12202,9 @@ async def admin_assistants(request: Request) -> dict[str, Any]:
         text_models_error = type(exc).__name__
     return {
         "ok": True,
-        "config": assistant_models_config(),
+        "config": config,
         "ollama": await ollama_models_status(),
+        "qwen": await qwen_asr_status(config["voice"]),
         "openrouterConfigured": bool(openrouter_api_key()),
         "openrouterModels": text_models,
         "openrouterModelsError": text_models_error,
@@ -12294,6 +12355,50 @@ async def admin_test_assistant(req: AdminAssistantTestRequest, request: Request)
         "improvedPrompt": improved,
         "latencyMs": round((time.monotonic() - started) * 1000),
         "costUsd": _openrouter_generation_cost(payload) if provider == "api" else 0,
+    }
+
+
+@app.post("/api/admin/assistants/voice-test")
+async def admin_test_voice_assistant(
+    request: Request,
+    file: UploadFile = File(...),
+    provider: str = "configured",
+    language: str = "ru",
+) -> dict[str, Any]:
+    require_trusted_admin(request)
+    if provider not in {"configured", "local", "qwen", "api"}:
+        raise HTTPException(400, "Неизвестный голосовой провайдер.")
+    audio = await file.read(8 * 1024 * 1024 + 1)
+    if not audio:
+        raise HTTPException(400, "Аудиофайл пуст.")
+    if len(audio) > 8 * 1024 * 1024:
+        raise HTTPException(413, "Аудиофайл слишком большой.")
+    content_type = (file.content_type or "").lower()
+    audio_format = {
+        "audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a",
+        "audio/mpeg": "mp3", "audio/wav": "wav", "audio/x-wav": "wav",
+    }.get(content_type) or Path(file.filename or "").suffix.lower().lstrip(".")
+    if audio_format not in {"webm", "ogg", "m4a", "mp3", "wav"}:
+        raise HTTPException(415, "Формат аудиофайла не поддерживается.")
+    started = time.monotonic()
+    config = assistant_models_config()["voice"]
+    try:
+        text, payload, used_provider, model = await transcribe_audio_routed(
+            audio,
+            audio_format,
+            "русском" if language == "ru" else "английском",
+            config,
+            None if provider == "configured" else provider,
+        )
+    except (httpx.HTTPError, RuntimeError) as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {
+        "ok": True,
+        "text": text,
+        "provider": used_provider,
+        "model": model,
+        "latencyMs": round((time.monotonic() - started) * 1000),
+        "usage": payload.get("usage") if isinstance(payload, dict) and isinstance(payload.get("usage"), dict) else {},
     }
 
 

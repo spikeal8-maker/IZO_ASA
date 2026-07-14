@@ -229,7 +229,7 @@ def test_voice_transcription_normalizes_audio_and_keeps_ollama_body(monkeypatch)
 
     monkeypatch.setattr(main, "normalize_audio_to_wav", fake_normalize)
     monkeypatch.setattr(main, "request_ollama_chat_message", fake_chat)
-    config = {"localModel": "qwen3-asr:1.7b", "requestTimeoutSeconds": 999}
+    config = {"localModel": "gemma4:12b", "requestTimeoutSeconds": 999}
 
     text, payload = asyncio.run(main.transcribe_audio_ollama(b"webm-audio", "webm", "русском", config))
 
@@ -241,7 +241,7 @@ def test_voice_transcription_normalizes_audio_and_keeps_ollama_body(monkeypatch)
     body = captured["body"]
     assert isinstance(body, dict)
     assert body == {
-        "model": "qwen3-asr:1.7b",
+        "model": "gemma4:12b",
         "stream": False,
         "think": False,
         "keep_alive": "5m",
@@ -272,7 +272,7 @@ def test_voice_transcription_keeps_wav_bytes_and_minimum_timeout(monkeypatch):
             b"wav-bytes",
             "wav",
             "английском",
-            {"localModel": "qwen3-asr:1.7b", "requestTimeoutSeconds": 1},
+            {"localModel": "gemma4:12b", "requestTimeoutSeconds": 1},
         )
     )
 
@@ -314,6 +314,6 @@ def test_voice_transcription_preserves_empty_model_error(monkeypatch):
                 b"wav",
                 "wav",
                 "русском",
-                {"localModel": "qwen3-asr:1.7b"},
+                {"localModel": "gemma4:12b"},
             )
         )
