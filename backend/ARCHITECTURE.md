@@ -193,6 +193,13 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   The module imports no FastAPI, SQLite, HTTPX, environment or filesystem root.
   `main.py` retains a thin wrapper, concrete adapters and all backfill SQL. Feed item,
   reaction, publication and moderation orchestration remains in `main.py` for B9.
+- `backend/app/services/feed_sources.py` owns the read-only source-history query and
+  row-to-public-payload mapping through a structural connection plus injected JSON,
+  row-access and role-label callbacks. It preserves the empty-ID short circuit,
+  deterministic slot/creation ordering and legacy defaults without importing SQLite,
+  FastAPI, HTTPX, environment or filesystem roots. `main.py` keeps the compatibility
+  wrapper used by snapshots/feed items; source write/delete lifecycle remains in the
+  storage services and full feed orchestration moves incrementally in B9.
 - `backend/app/integrations/openrouter.py` owns text-model catalog, key/credits, shared `/chat/completions`, image-model/endpoint document collection with bounded concurrency, pure model/endpoint capability normalization, generation response parsing, public error mapping and safe image-response metadata normalization; `main.py` retains compatibility wrappers, API-key/header/source policy, caches, endpoint selection and generation orchestration.
 - `backend/app/integrations/openrouter_images.py` owns model-alias resolution, safe request-metadata assembly, pure orientation/aspect-ratio/descriptor/provider request planning and image request-body assembly; application resolution IDs/tiers are passed through compatibility wrappers and local-reference values through callback injection.
 - `backend/app/integrations/openrouter_image_io.py` owns remote/data reference passthrough, application-resolved local-file encoding, and response b64/URL loading into PIL; `main.py` retains the production path resolver, timeout, gallery persistence and generation orchestration.

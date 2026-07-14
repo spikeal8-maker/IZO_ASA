@@ -197,6 +197,7 @@ try:
         gallery_presentation,
         gallery_items,
         feed_presentation,
+        feed_sources,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -231,6 +232,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         gallery_presentation,
         gallery_items,
         feed_presentation,
+        feed_sources,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -13456,31 +13458,13 @@ def _feed_challenge_payload(conn: sqlite3.Connection, category: str | None) -> d
 
 
 def _feed_source_history_payload(conn: sqlite3.Connection, image_id: str | None) -> list[dict[str, Any]]:
-    if not image_id:
-        return []
-    rows = conn.execute(
-        """
-        SELECT source_kind, role, slot_index, thumb_url, thumb_width, thumb_height, children_json
-        FROM image_sources
-        WHERE image_id = ?
-        ORDER BY slot_index ASC, created_at ASC
-        """,
-        (image_id,),
-    ).fetchall()
-    items: list[dict[str, Any]] = []
-    for row in rows:
-        children = safe_json_load(_row_get(row, "children_json")) or []
-        items.append({
-            "kind": _row_get(row, "source_kind"),
-            "role": _row_get(row, "role"),
-            "roleLabel": _source_role_label(_row_get(row, "role"), int(_row_get(row, "slot_index") or 0)),
-            "slotIndex": int(_row_get(row, "slot_index") or 0),
-            "thumbUrl": _row_get(row, "thumb_url"),
-            "width": int(_row_get(row, "thumb_width") or 0),
-            "height": int(_row_get(row, "thumb_height") or 0),
-            "children": children if isinstance(children, list) else [],
-        })
-    return items
+    return feed_sources.feed_source_history_payload(
+        conn,
+        image_id,
+        load_children=safe_json_load,
+        row_get=_row_get,
+        role_label=_source_role_label,
+    )
 
 
 def _feed_generation_snapshot(conn: sqlite3.Connection, image: sqlite3.Row) -> dict[str, Any]:
