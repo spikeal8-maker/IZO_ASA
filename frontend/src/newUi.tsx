@@ -2688,17 +2688,13 @@ export default function NewStudio(): ReactElement {
     }
   }, [tab, historyItems.length])
 
-  // Auto-grow главного prompt на мобильном: высота по контенту до max-height,
-  // затем внутренний скролл. На desktop высоту не трогаем — там resize вручную.
+  // Keep the prompt readable on every viewport, then fall back to inner scrolling.
   useEffect(() => {
     const ta = promptTextareaRef.current
     if (!ta) return
-    if (!window.matchMedia('(max-width: 820px)').matches) {
-      ta.style.height = ''
-      return
-    }
     ta.style.height = 'auto'
-    const max = Math.round(window.innerHeight * 0.34)
+    const mobile = window.matchMedia('(max-width: 820px)').matches
+    const max = Math.round(window.innerHeight * (mobile ? 0.34 : 0.45))
     ta.style.height = `${Math.min(ta.scrollHeight, max)}px`
   }, [prompts.text, prompts.i2i, prompts.edit, prompts.paint, tab])
 
@@ -3280,13 +3276,16 @@ export default function NewStudio(): ReactElement {
         <section className={`form-section prompt-section${isEditStudio || isPaintStudio ? ' editor-prompt-section' : ''}`}>
           <div className="section-title">
             <h2>{promptTitle}</h2>
-            {isPaintStudio && (
-              <label className="paint-tech-toggle">
-                <input type="checkbox" checked={paintTechPromptOpen} onChange={(e) => setPaintTechPromptOpen(e.target.checked)} />
-                <span>Технический промпт</span>
-              </label>
-            )}
-            <span className="help-dot" role="button" tabIndex={0} onClick={() => setHelpOpen(true)}>?</span>
+            <div className="prompt-title-meta">
+              {isPaintStudio && (
+                <label className="paint-tech-toggle">
+                  <input type="checkbox" checked={paintTechPromptOpen} onChange={(e) => setPaintTechPromptOpen(e.target.checked)} />
+                  <span>Технический промпт</span>
+                </label>
+              )}
+              <span className="counter">{promptCounterValue} / {promptTextareaLimit}</span>
+              <span className="help-dot" role="button" tabIndex={0} onClick={() => setHelpOpen(true)}>?</span>
+            </div>
           </div>
           <div className={`prompt-card paint-prompt-card${isPaintStudio && paintTechPromptOpen ? ' is-tech-open' : ''}`}>
             <textarea
@@ -3296,7 +3295,6 @@ export default function NewStudio(): ReactElement {
               value={promptTextareaValue}
               onChange={(e) => updatePromptTextarea(e.target.value)}
             />
-            <div className="counter">{promptCounterValue} / {promptTextareaLimit}</div>
           </div>
           <div className="action-row">
             <button className={`tool-button${voiceRecording ? ' voice-recording' : ''}`} type="button" disabled={voiceBusy} aria-pressed={voiceRecording} onClick={() => void toggleVoiceInput()}>
