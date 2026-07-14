@@ -2,20 +2,19 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Lock, Shield, WandSparkles } from 'lucide-react'
 import {
   AuthV2Modal,
-  ensureSessionRefreshedV2,
   initAuthV2,
-  refreshAuthStateV2,
   useAuthV2,
 } from './authV2'
 import { DiagPanel } from './diag'
 import { isDiagMode } from './diagMeta'
+import { adminGet, adminPost } from './adminApi'
 import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, modelOptionById, normalizeTariffs, qualityPresetLabels, qualityPresets, resolutionOptions, tariffKeys, type ModelOption, type TariffConfig, type TariffKey } from './profileSupport'
 import './index.css'
 
 const AdminAnalyticsV2 = lazy(() => import('./adminAnalytics').then((module) => ({ default: module.AdminAnalyticsV2 })))
 const AdminModelsV2 = lazy(() => import('./adminModels'))
-
-const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
+const AdminMail = lazy(() => import('./adminMail'))
+const AdminPayments = lazy(() => import('./adminPayments'))
 
 type AdminTab = 'dashboard' | 'crm' | 'models' | 'tariffs' | 'payments' | 'mail' | 'logs'
 type AnyRec = Record<string, unknown>
@@ -154,36 +153,6 @@ function AdminLineChart({
       <footer><small>{note}</small><b>{rangeLabel}</b></footer>
     </article>
   )
-}
-
-async function adminFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(init.headers)
-  const request = () => fetch(`${API}${path}`, { ...init, headers, credentials: 'include' })
-  let response = await request()
-  if (response.status === 401 && !path.includes('/auth/session/refresh-v2')) {
-    const refreshed = await ensureSessionRefreshedV2()
-    if (refreshed) {
-      await refreshAuthStateV2().catch(() => null)
-      response = await request()
-    }
-  }
-  return response
-}
-
-async function adminGet<T>(path: string): Promise<T | null> {
-  const res = await adminFetch(path)
-  if (!res.ok) return null
-  return await res.json() as T
-}
-
-async function adminPost<T>(path: string, body: unknown): Promise<T | null> {
-  const res = await adminFetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) return null
-  return await res.json() as T
 }
 
 function AdminAccessPage({ status, onOpenAuth }: { status: 'loading' | 'denied'; onOpenAuth: () => void }) {
@@ -429,63 +398,6 @@ function AdminTokens() {
   )
 }
 
-function AdminMail() {
-  const [data, setData] = useState<AnyRec | null>(null)
-  const [email, setEmail] = useState('')
-  const [msg, setMsg] = useState('')
-  const load = useCallback(async () => setData(await adminGet<AnyRec>('/admin/mail/status-v2')), [])
-  useEffect(() => {
-    queueMicrotask(() => { void load() })
-  }, [load])
-  const sendTest = async () => {
-    const result = await adminPost<AnyRec>('/admin/mail/test-v2', { email, template: 'verify_email' })
-    setMsg(result?.ok ? `Тест отправлен на ${String(result.email || email)}` : 'Не удалось отправить тест')
-    await load()
-  }
-  const summary = (data?.summary || {}) as AnyRec
-  const config = (data?.config || {}) as AnyRec
-  return (
-    <div className="admin-section admin-mail-page">
-      <div className="admin-mail-grid">
-        <article className="admin-mail-card">
-          <h4>Статус почты</h4>
-          <p>{data?.service_ready ? 'Готово к отправке' : 'Провайдер не настроен или адаптер недоступен'}</p>
-          <div className="admin-mail-flags">
-            {Object.entries(config).map(([key, value]) => <span key={key} className={value ? 'ok' : 'warn'}>{key}: {value ? 'yes' : 'no'}</span>)}
-          </div>
-        </article>
-        <article className="admin-mail-card">
-          <h4>Тест отправки</h4>
-          <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@example.com" /></label>
-          <button className="secondary" disabled={!email.trim()} onClick={sendTest}>Отправить тест</button>
-          {msg && <small>{msg}</small>}
-        </article>
-        <article className="admin-mail-card">
-          <h4>Сводка</h4>
-          {Object.entries(summary).map(([key, value]) => <p key={key}><b>{key}</b>: {String(value)}</p>)}
-        </article>
-      </div>
-    </div>
-  )
-}
-
-function AdminPayments() {
-  return (
-    <div className="admin-section admin-payments-page">
-      <div className="admin-section-head">
-        <div>
-          <h3>Платежи</h3>
-          <p>Счета, оплаты, возвраты и начисление токенов.</p>
-        </div>
-      </div>
-      <div className="admin-note">
-        <strong>Подключение ЮKassa готовится</strong>
-        <p>Страница уже отделена от CRM. Дальше здесь появятся общая сводка, журнал webhook, сверка и возвраты.</p>
-      </div>
-    </div>
-  )
-}
-
 function AdminLogs({ logsData }: { logsData: AnyRec | null }) {
   const [tab, setTab] = useState<'overview' | 'generation' | 'security' | 'events' | 'audit' | 'config'>('overview')
   const items = (key: string) => Array.isArray(logsData?.[key]) ? logsData[key] as AnyRec[] : []
@@ -595,8 +507,8 @@ export default function AdminApp() {
           {tab === 'crm' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем CRM...</div>}><AdminAnalyticsV2 /></Suspense></div>}
           {tab === 'models' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем модели...</div>}><AdminModelsV2 /></Suspense></div>}
           {tab === 'tariffs' && <AdminTokens />}
-          {tab === 'payments' && <AdminPayments />}
-          {tab === 'mail' && <AdminMail />}
+          {tab === 'payments' && <Suspense fallback={<div className="preview-empty">Загружаем платежи...</div>}><AdminPayments /></Suspense>}
+          {tab === 'mail' && <Suspense fallback={<div className="preview-empty">Загружаем почту...</div>}><AdminMail /></Suspense>}
           {tab === 'logs' && <AdminLogs logsData={logsData} />}
         </section>
       </main>
