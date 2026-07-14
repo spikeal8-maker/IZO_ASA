@@ -120,7 +120,6 @@ export default function AdminVoice() {
   if (!data) return <div className="voice-admin"><style>{CSS}</style><div className="voice-hero"><div className="voice-title"><RefreshCw size={20} /><div><h2>Голосовой ввод</h2><p>{message || 'Загружаю статусы моделей…'}</p></div></div></div></div>
 
   const voice = data.config.voice
-  const qwenBackendReady = data.qwen.error !== 'BackendNotUpdated'
   const ollamaModels = data.ollama.models.map((model) => model.name).filter(Boolean) as string[]
   return <div className="voice-admin">
     <style>{CSS}</style>
@@ -135,7 +134,7 @@ export default function AdminVoice() {
       <article className="voice-provider"><div className="voice-provider-head"><div className="voice-provider-name"><Cloud size={17} /><h3>OpenRouter</h3></div><span className={`voice-status${data.openrouterConfigured ? ' ok' : ''}`}>{data.openrouterConfigured ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}{data.openrouterConfigured ? 'ключ готов' : 'нет ключа'}</span></div><p>Платный облачный резерв.</p><code>{voice.apiModel}</code></article>
     </section>
 
-    <div className="voice-route" aria-label="Маршрут транскрибации">{(['local', 'qwen', 'api', 'auto'] as VoiceRoute[]).map((route) => <button key={route} type="button" disabled={route === 'qwen' && !qwenBackendReady} title={route === 'qwen' && !qwenBackendReady ? 'Перезапустите backend для Qwen' : undefined} className={voice.route === route ? 'active' : ''} onClick={() => updateVoice({ route })}>{LABELS[route]}</button>)}</div>
+    <div className="voice-route" aria-label="Маршрут транскрибации">{(['local', 'qwen', 'api', 'auto'] as VoiceRoute[]).map((route) => <button key={route} type="button" disabled={route === 'qwen' && !data.qwen.ok} title={route === 'qwen' && !data.qwen.ok ? 'Сначала запустите Qwen ASR и дождитесь зелёного статуса' : undefined} className={voice.route === route ? 'active' : ''} onClick={() => updateVoice({ route })}>{LABELS[route]}</button>)}</div>
 
     <section className="voice-workspace">
       <div className="voice-config"><header className="voice-section-head"><h3>Настройки маршрута</h3><p>Авторезерв переходит дальше только после ошибки текущего провайдера.</p></header><div className="voice-fields">
