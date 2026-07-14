@@ -190,6 +190,7 @@ try:
         generation_recovery,
         generation_results,
         generation_worker,
+        generation_queue,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -217,6 +218,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         generation_recovery,
         generation_results,
         generation_worker,
+        generation_queue,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -6469,23 +6471,19 @@ def _generation_worker_runtime() -> generation_worker.GenerationWorkerRuntime:
     )
 
 
+def _generation_queue_runtime() -> generation_queue.GenerationQueueRuntime:
+    return generation_queue.GenerationQueueRuntime(
+        queue=queue,
+        jobs=jobs,
+        parse_request=lambda payload: GenerateRequest(**payload),
+        perf_counter=time.perf_counter,
+        build_worker_runtime=_generation_worker_runtime,
+        process_job=generation_worker.process_generation_job,
+    )
+
+
 async def worker() -> None:
-    while True:
-        job_id = await queue.get()
-        job = jobs[job_id]
-        req = GenerateRequest(**job["request"])
-        started = time.perf_counter()
-        runtime = _generation_worker_runtime()
-        try:
-            await generation_worker.process_generation_job(
-                job_id,
-                job,
-                req,
-                runtime,
-                started_at=started,
-            )
-        finally:
-            queue.task_done()
+    await generation_queue.consume_generation_queue(_generation_queue_runtime())
 
 
 @app.on_event("startup")
@@ -6537,9 +6535,11 @@ async def startup() -> None:
     load_db_state()
     if storage_maintenance_enabled:
         asyncio.create_task(asyncio.to_thread(optimize_existing_gallery_storage))
-    if not worker_started:
-        asyncio.create_task(worker())
-        worker_started = True
+    worker_started = generation_queue.start_generation_consumer_once(
+        already_started=worker_started,
+        create_task=asyncio.create_task,
+        consumer=worker,
+    )
     start_bot_polling_tasks()
     if BOT_UPDATES_MODE == "webhook":
         backend_public = os.getenv("BACKEND_PUBLIC_URL", "http://127.0.0.1:8000")

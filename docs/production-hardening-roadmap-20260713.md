@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B7d` — injected single-job generation processor; следующий пакет B7e |
+| Последний completed checkpoint | `B7e` — generation queue consumer/one-shot startup lifecycle; B7 закрыт, следующий пакет B8 |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1136 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1146 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
-| Source baseline | 119 файлов / 1 582 126 байт / SHA-256 `4565392F98C20F586C8F4E12CB35931C5D2A8842B93103FFFA1DA5020DD18B9A`; последовательные смены объяснены реальными пользовательскими генерациями B7c и были стабильны внутри gates |
+| Source baseline | 120 файлов / 1 595 746 байт / SHA-256 `078DB0E8BE1C646E914D8E7B247871F8DC7DD3B073204999E95837D8259787B4`; изменения объяснены реальными пользовательскими генерациями и были стабильны внутри gates |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B7c run `29294261925` success (`1128 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B7d run `29296269360` success (`1136 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и пять live snapshot готовы; pre-B7a snapshot `20260713T221737.032822Z` verify/rehearsal успешен; schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 14 590 после B7d | entrypoint/application wiring; generation queue consumer/startup-task lifecycle остаются B7e |
+| `backend/main.py` | 14 590 после B7e | entrypoint/application wiring; generation concrete adapters/compatibility wrappers остаются до B14, следующий крупный scope — gallery B8 |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -112,7 +112,7 @@
 | BE-07 | `ГОТОВО` | B4a client/errors/file URL/health и B4b parsing/update handlers service выделены; routes/polling lifecycle остаются общим B12/B13 scope |
 | BE-08 | `ГОТОВО` | B5a client/errors/health и B5b parsing/update handlers service выделены; routes/polling/subscription lifecycle остаются B12/B13 scope |
 | BE-09 | `ГОТОВО` | B6a HTTP client, B6b pure workflow builders и B6c result/media adapter выделены; generation/job/gallery orchestration остаётся B7/B8 |
-| BE-10 | `ЧАСТИЧНО` | B7a recovery, B7b persistence/response, B7c pure result states и B7d injected single-job processor готовы; in-process queue consumer/startup-task lifecycle остаётся B7e, gallery/feed/account/billing — B8-B11 |
+| BE-10 | `ГОТОВО` | B7a recovery, B7b persistence/response, B7c result states, B7d single-job processor и B7e in-process queue consumer/one-shot startup lifecycle выделены; concrete adapters/compatibility wrappers удаляются только в B14 |
 | BE-11 | `НЕ НАЧАТО` | FastAPI routers не разделены по областям |
 | BE-12 | `НЕ НАЧАТО` | Application factory/lifecycle не созданы; `main.py` остаётся ASGI-монолитом |
 
@@ -194,7 +194,7 @@
 | B4 | `ГОТОВО` — B4a client/errors/health и B4b injected update handlers service выделены без смены polling/webhook semantics |
 | B5 | `ГОТОВО` — B5a client/errors/health и B5b injected update handlers service выделены без смены polling/webhook semantics |
 | B6 | `ГОТОВО` — B6a HTTP client, B6b workflow builders и B6c result/media adapter выделены |
-| B7 | `ЧАСТИЧНО` — B7a recovery, B7b persistence/response, B7c pure result states и B7d injected single-job processor готовы; queue consumer/startup-task lifecycle остаётся B7e |
+| B7 | `ГОТОВО` — recovery, persistence/response, result states, single-job processor и in-process queue consumer/one-shot startup lifecycle выделены; persistent queue/multi-worker относятся к волне F |
 | B8 | Выделить gallery/source lifecycle service |
 | B9 | Выделить feed/publication/reaction/moderation service |
 | B10 | Выделить account/auth service и удалить подтверждённо неиспользуемые legacy authorization consumers |
@@ -273,7 +273,8 @@
 23. `B7b` — `ГОТОВО`: generation job persistence/response boundary без переноса worker orchestration.
 24. `B7c` — `ГОТОВО`: pure generation result/job-state builders без переноса side effects.
 25. `B7d` — `ГОТОВО`: single-job generation processor с явно инъецированными provider/storage/billing callbacks; внешний queue loop и startup lifecycle сохранены.
-26. `B7e` — **СЛЕДУЮЩИЙ ПАКЕТ**: выделить in-process queue consumer и startup-task lifecycle с characterization cancellation/restart; это не persistent queue и не меняет single-worker deployment.
+26. `B7e` — `ГОТОВО`: in-process queue consumer и one-shot startup-task lifecycle с characterization cancellation/error/duplicate-start; B7 закрыт.
+27. `B8` — **СЛЕДУЮЩИЙ ПАКЕТ**: по частям выделить gallery/source lifecycle service, начиная с pure quota/eviction decisions перед DB/file adapters.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -1800,6 +1801,69 @@ Exact CI после B7c:
 - schema/data migration, backup, secrets, paid test generation, frontend runtime,
   ComfyUI, VPS и tunnel пакетом B7d не изменялись. Изменение live jobs/media было
   реальной пользовательской активностью старого B7c process, а не тестами.
+
+Exact CI после B7d:
+
+- GitHub Actions run `29296269360`, job `86970359668`, на SHA `7b02ce3`
+  завершён успешно за 19 мин 12 с;
+- `1136 passed, 72 warnings` за 1026,96 с; lint `0 errors / 1 existing warning`;
+- production build 1,63 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 1085,67 с.
+
+### Checkpoint B7e — generation queue consumer/one-shot startup lifecycle
+
+Реализовано и развёрнуто 2026-07-14:
+
+- новый import-safe `app/services/generation_queue.py` владеет бесконечным consumer
+  loop и one-shot task starter для текущей in-process `asyncio.Queue`;
+- frozen runtime явно получает queue protocol, jobs mapping, request parser, timer,
+  worker-runtime factory и single-job processor callback. Модуль не импортирует
+  `main`, FastAPI, Pydantic, SQLite, HTTPX, environment или filesystem;
+- сохранён точный порядок legacy consumer: queue `get` → job lookup → request parse →
+  timer → worker runtime → process внутри `try/finally` → один `task_done`;
+- поэтому process exception или cancellation всё равно вызывает `task_done`, а lookup,
+  parse или runtime-build failure до `try` его не вызывает. Это намеренно
+  characterization, а не скрытое изменение поведения;
+- one-shot starter не создаёт duplicate consumer при `worker_started=True`, выставляет
+  started только после успешного `create_task` и пробрасывает task-creation error;
+- `main.worker()` остаётся двухстрочным compatibility wrapper, а startup сохраняет
+  глобальный `worker_started`. Тесты, меняющие `main.queue`/flag, продолжают работать;
+- автоматического рестарта упавшего task по-прежнему нет — это открытый OPS-04 и будет
+  решаться managed Windows service/supervisor, а не маскироваться рефакторингом;
+- persistent queue, multi-worker, Docker и PostgreSQL не добавлялись и остаются волной F;
+- `main.py` остался 14 590 строк: удалённые consumer/startup branches заменены явным
+  runtime wiring/compatibility wrapper без искусственного сжатия форматирования;
+  queue service имеет 54 строки, direct tests — 201; map `605 symbols / 166 routes`.
+
+Доказательства:
+
+- до extraction startup/worker/result/gallery/refund baseline: `23 passed`; direct
+  contracts сначала дали ожидаемый RED только на отсутствующем module import;
+- direct queue suite после реализации: `10 passed`; direct queue/worker/result +
+  прежние startup/worker integrations: `32 passed`;
+- расширенный queue/worker/result/job/recovery/generation/ownership/ComfyUI/quota/
+  startup/API suite: `215 passed, 40 warnings` пять последовательных циклов за
+  `76,50 / 76,13 / 77,58 / 76,56 / 76,05` с;
+- локальный Full: `1146 passed, 72 warnings`; frontend lint
+  `0 errors / 1 existing warning`, production build 0,413 с, origin
+  `200/200/403/403`, итоговый `VERIFY_OK` за 299,19 с; 152 Python-файла;
+- Full source snapshot стабилен: 120 файлов / 1 595 746 байт / SHA-256
+  `078DB0E8BE1C646E914D8E7B247871F8DC7DD3B073204999E95837D8259787B4`;
+- прирост от 119 до 120 файлов исследован read-only: уже B7d PID 42376 реально
+  обработал пользовательскую ComfyUI job в 03:35:12–03:35:21 до `completed/100`,
+  с result image, без error, и создал один source thumbnail 13 620 байт. Это первое
+  реальное live-доказательство B7d, не платный test call;
+- два pre-deploy idle audit дали active jobs 0 и ComfyUI running/pending 0/0;
+  controlled backend-only restart PID `42376 → 49460`, один loopback listener,
+  `--no-proxy-headers`, DB ready/Guard ok;
+- live smoke 5/5: health/models/Flux/bgremoval/feed/bots/frontend `200`, private media
+  `401`, Telegram POST webhook `404`;
+- backend PID 49460 и ComfyUI PID 54544 стабильны 6/6 samples за 58 секунд,
+  health/queue `200/200`; после restart active jobs 0 и pytest-процессов 0;
+- final Quick после документации: `43 passed`, source snapshot неизменен,
+  `VERIFY_OK` за 8,71 с;
+- schema/data migration, backup, secrets, paid test generation, frontend runtime,
+  ComfyUI, VPS и tunnel пакетом B7e не изменялись.
 
 ## 9. Обязательный gate каждого пакета
 
