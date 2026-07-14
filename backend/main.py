@@ -193,6 +193,7 @@ try:
         generation_queue,
         gallery_policy,
         gallery_eviction,
+        gallery_query,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -223,6 +224,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         generation_queue,
         gallery_policy,
         gallery_eviction,
+        gallery_query,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -2633,29 +2635,18 @@ def evict_gallery_images_for_new_save(
 
 
 def gallery_cursor_from_row(row: sqlite3.Row) -> str:
-    payload = {"created_at": _row_get(row, "created_at") or "", "id": _row_get(row, "id") or ""}
-    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    return gallery_query.encode_gallery_cursor(_row_get(row, "created_at"), _row_get(row, "id"))
 
 
 def parse_gallery_cursor(cursor: str | None) -> tuple[str, str] | None:
-    if not cursor:
-        return None
     try:
-        padded = cursor + ("=" * (-len(cursor) % 4))
-        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
-    except Exception:
-        raise HTTPException(400, "invalid gallery cursor")
-    created_at = str(payload.get("created_at") or "")
-    image_id = str(payload.get("id") or "")
-    if not created_at or not image_id:
-        raise HTTPException(400, "invalid gallery cursor")
-    return created_at, image_id
+        return gallery_query.decode_gallery_cursor(cursor)
+    except gallery_query.GalleryCursorError as exc:
+        raise HTTPException(400, "invalid gallery cursor") from exc
 
 
 def gallery_fts_query(value: str) -> str:
-    terms = [term for term in re.split(r"[^\w]+", str(value or "").lower(), flags=re.UNICODE) if term]
-    return " AND ".join(f'"{term}"*' for term in terms[:12])
+    return gallery_query.build_gallery_fts_query(value)
 
 
 def gallery_media_owner_row(conn: sqlite3.Connection, filename: str, legacy_user_id: str) -> sqlite3.Row | None:
