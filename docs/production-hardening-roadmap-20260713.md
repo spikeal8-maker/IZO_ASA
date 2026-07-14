@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B8b` — owner-scoped gallery count/eviction-candidate read repository; B8 выполнен частично, следующий пакет B8c |
+| Последний completed checkpoint | `B8c` — injected gallery eviction application order; B8 выполнен частично, следующий пакет B8d |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1162 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1170 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 120 файлов / 1 595 746 байт / SHA-256 `078DB0E8BE1C646E914D8E7B247871F8DC7DD3B073204999E95837D8259787B4`; изменения объяснены реальными пользовательскими генерациями и были стабильны внутри gates |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B8a run `29299896127` success (`1153 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B8b run `29301489818` success (`1162 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и пять live snapshot готовы; pre-B7a snapshot `20260713T221737.032822Z` verify/rehearsal успешен; schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 14 566 после B8b | entrypoint/application wiring; gallery eviction mutation/file/source lifecycle остаётся в B8c+, compatibility wrappers — до B14 |
+| `backend/main.py` | 14 574 после B8c | explicit gallery callback wiring; side-effect loop вынесен, adapter cleanup остаётся B12–B14, следующий pure scope — cursor/search B8d |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -106,7 +106,7 @@
 | BE-01 | `ГОТОВО` | `app/config.py` владеет env/DB-path helpers, typed HTTP/provider/runtime/bot/media/storage policies и secret-free blocking production validation; compatibility exports удаляются только в B14 |
 | BE-02 | `ЧАСТИЧНО` | Schema/migration scope B3 готов: ledger/version, core/billing, identity и media groups; repository layer остаётся отдельной незавершённой границей |
 | BE-03 | `ЧАСТИЧНО` | Tokens/passwords/sessions/permissions/OTP/events вынесены; legacy auth removal и routers не завершены |
-| BE-04 | `ЧАСТИЧНО` | Storage boundaries, B8a pure quota policy и B8b owner-scoped count/candidate read repository вынесены; gallery mutation/file/source lifecycle ещё в `main.py` |
+| BE-04 | `ЧАСТИЧНО` | Storage boundaries, B8a policy, B8b read repository и B8c injected eviction side-effect order вынесены; concrete DB/file/cache adapters и остальной gallery lifecycle ещё в `main.py` |
 | BE-05 | `ГОТОВО` | Текущий ограниченный scope Ollama: URL, discovery и общий chat transport вынесены |
 | BE-06 | `ГОТОВО` | Ограниченный integration scope завершён: HTTP/parsing/planning/I/O/model aliases/request metadata вынесены; application caches, policy, persistence, billing и orchestration остаются в соответствующих будущих services |
 | BE-07 | `ГОТОВО` | B4a client/errors/file URL/health и B4b parsing/update handlers service выделены; routes/polling lifecycle остаются общим B12/B13 scope |
@@ -195,7 +195,7 @@
 | B5 | `ГОТОВО` — B5a client/errors/health и B5b injected update handlers service выделены без смены polling/webhook semantics |
 | B6 | `ГОТОВО` — B6a HTTP client, B6b workflow builders и B6c result/media adapter выделены |
 | B7 | `ГОТОВО` — recovery, persistence/response, result states, single-job processor и in-process queue consumer/one-shot startup lifecycle выделены; persistent queue/multi-worker относятся к волне F |
-| B8 | `ЧАСТИЧНО` — B8a pure quota policy и B8b read repository готовы; B8c+ последовательно выносят mutation/file/source lifecycle без массового переноса |
+| B8 | `ЧАСТИЧНО` — B8a quota policy, B8b read repository и B8c eviction application готовы; B8d+ выносят cursor/search/item/source lifecycle без массового переноса |
 | B9 | Выделить feed/publication/reaction/moderation service |
 | B10 | Выделить account/auth service и удалить подтверждённо неиспользуемые legacy authorization consumers |
 | B11 | Выделить billing/token ledger service с atomic/idempotency/concurrency tests |
@@ -276,7 +276,8 @@
 26. `B7e` — `ГОТОВО`: in-process queue consumer и one-shot startup-task lifecycle с characterization cancellation/error/duplicate-start; B7 закрыт.
 27. `B8a` — `ГОТОВО`: pure normalizer тарифа, точный quota payload и решение вытеснить 0/1/2 старых unprotected image; SQL/files не переносились.
 28. `B8b` — `ГОТОВО`: owner-scoped active count и favorite-protected oldest eviction-candidate read repository; mutations/files не переносились.
-29. `B8c` — **СЛЕДУЮЩИЙ ПАКЕТ**: выделить последовательность применения уже выбранных eviction rows через injected source-delete/soft-delete/file/cache callbacks; конкретные SQLite/filesystem adapters оставить в application layer.
+29. `B8c` — `ГОТОВО`: последовательность source-delete → soft-delete → file-delete → cache-drop вынесена через frozen injected runtime; concrete adapters остались в `main.py`.
+30. `B8d` — **СЛЕДУЮЩИЙ ПАКЕТ**: вынести pure gallery cursor encode/decode и FTS query normalization с characterization invalid-cursor contracts; HTTPException mapping оставить route/application adapter.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -1977,6 +1978,60 @@ Exact CI после B8a:
   health `200`, ComfyUI queue пуста;
 - schema/data migration, production DB/media, backup, secrets, paid generation,
   frontend runtime, ComfyUI, VPS и tunnel пакетом B8b не изменялись.
+
+Exact CI после B8b:
+
+- GitHub Actions run `29301489818`, job `86985996536`, на SHA `ae48b7e`
+  завершён успешно за 16 мин 46 с;
+- `1162 passed, 72 warnings` за 886,86 с; lint `0 errors / 1 existing warning`;
+- production build 1,37 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 937,93 с.
+
+### Checkpoint B8c — injected gallery eviction application
+
+Реализовано и развёрнуто 2026-07-14:
+
+- новый import-safe `app/services/gallery_eviction.py` владеет точным порядком
+  side effects для уже выбранных rows: source deletion → soft-delete → original/thumb
+  deletion → in-memory cache drop;
+- frozen runtime получает четыре callbacks. Модуль не импортирует `main`, SQLite,
+  FastAPI, Pydantic, HTTPX, environment или filesystem и не знает production paths;
+- callbacks применяются к rows последовательно; исключение пробрасывается и останавливает
+  текущую и оставшиеся строки в той же точке, что старый inline loop; nullable media
+  values передаются без нормализации;
+- `main.py` по-прежнему связывает active connection/`now_iso`, source/filesystem
+  helpers и `images` mirror. Favorite selection остаётся read repository B8b;
+- `main.py` вырос с 14 566 до 14 574 строк (+8), потому что неявный inline loop заменён
+  явной сборкой четырёх concrete adapters с сохранённым public-feed комментарием.
+  Это осознанный wiring overhead, а не сокращение файла; adapters удаляются только в
+  B12–B14 после routers/application factory. Service имеет 31 строку, direct tests —
+  106, расширенный characterization module — 218; map `605 symbols / 166 routes`.
+
+Доказательства:
+
+- два новых characterization contracts до extraction расширили прежний модуль до
+  `5 passed` и зафиксировали точный межстрочный порядок и source-error short-circuit;
+- direct contracts ожидаемо дали RED только на отсутствующем service module; после
+  реализации direct + characterization suite дал `11 passed`, весь B8a–B8c и прежний
+  product/feed baseline — `30 passed`;
+- расширенный gallery/queue/worker/result/job/recovery/generation/ownership/ComfyUI/
+  API suite: `240 passed, 40 warnings` пять последовательных циклов за
+  `80,66 / 79,17 / 79,48 / 79,05 / 78,96` с;
+- локальный Full: `1170 passed, 72 warnings` за 273,40 с; lint
+  `0 errors / 1 existing warning`, production build 0,455 с, origin
+  `200/200/403/403`, итоговый `VERIFY_OK` за 295,92 с; 159 Python-файлов;
+- source-media snapshot до/после Full строго идентичен: 120 файлов / 1 595 746 байт /
+  SHA-256 `078DB0E8BE1C646E914D8E7B247871F8DC7DD3B073204999E95837D8259787B4`;
+- pre-deploy audit: production `jobs` active 0, latest `completed/100`, ComfyUI
+  running/pending 0/0, pytest processes 0;
+- controlled backend-only restart заменил PID `49372 → 9432`; независимый preflight
+  подтвердил один listener `127.0.0.1:8000`, `--no-proxy-headers` и health `200`;
+- live smoke 5/5: health/models/Flux config/bgremoval/feed/bots/frontend `200`, private
+  media `401`, Telegram POST webhook `404`;
+- backend PID 9432 и ComfyUI PID 54544 стабильны 6/6 samples за 58 секунд,
+  health `200`, ComfyUI queue пуста;
+- schema/data migration, production DB/media, backup, secrets, paid generation,
+  frontend runtime, ComfyUI, VPS и tunnel пакетом B8c не изменялись.
 
 ## 9. Обязательный gate каждого пакета
 

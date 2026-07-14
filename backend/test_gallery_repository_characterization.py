@@ -137,3 +137,82 @@ def test_over_limit_eviction_selects_exactly_two_oldest_candidates(gallery_db, m
 
     assert removed == 2
     assert removed_ids == ["first", "second"]
+
+
+def test_eviction_applies_each_row_in_source_soft_delete_file_cache_order(gallery_db, monkeypatch) -> None:
+    trace: list[tuple] = []
+
+    class TracingConnection:
+        def __init__(self, conn: sqlite3.Connection) -> None:
+            self.conn = conn
+
+        def execute(self, sql: str, parameters=()):
+            if sql.startswith("UPDATE images SET deleted_at"):
+                trace.append(("soft-delete", parameters[1], parameters[0]))
+            return self.conn.execute(sql, parameters)
+
+    class TracingImages(dict):
+        def pop(self, key, *args):
+            trace.append(("cache", key))
+            return super().pop(key, *args)
+
+    monkeypatch.setattr(
+        main,
+        "delete_image_source_files",
+        lambda _conn, image_id: trace.append(("sources", image_id)),
+    )
+    monkeypatch.setattr(
+        main,
+        "delete_image_files_from_disk",
+        lambda *, url, thumbnail_url: trace.append(("files", url, thumbnail_url)),
+    )
+    monkeypatch.setattr(main, "images", TracingImages({"first": {}, "second": {}}))
+    with main.db() as conn:
+        _insert_user(conn, "owner")
+        _insert_image(conn, "first", "owner", "2026-01-01")
+        _insert_image(conn, "second", "owner", "2026-01-02")
+        removed = main.evict_gallery_images_for_new_save(
+            TracingConnection(conn),
+            "owner",
+            {"gallery_slots": 1, "gallery_used": 2},
+            "2026-03-01",
+        )
+
+    assert removed == 2
+    assert trace == [
+        ("sources", "first"),
+        ("soft-delete", "first", "2026-03-01"),
+        ("files", "/api/media/first.webp", "/api/media/first-thumb.webp"),
+        ("cache", "first"),
+        ("sources", "second"),
+        ("soft-delete", "second", "2026-03-01"),
+        ("files", "/api/media/second.webp", "/api/media/second-thumb.webp"),
+        ("cache", "second"),
+    ]
+
+
+def test_source_delete_error_stops_eviction_before_soft_delete_files_or_cache(gallery_db, monkeypatch) -> None:
+    trace: list[tuple] = []
+
+    def fail_sources(_conn, image_id: str) -> None:
+        trace.append(("sources", image_id))
+        raise RuntimeError("source deletion failed")
+
+    monkeypatch.setattr(main, "delete_image_source_files", fail_sources)
+    monkeypatch.setattr(main, "delete_image_files_from_disk", lambda **_kwargs: trace.append(("files",)))
+    main.images["first"] = {"id": "first"}
+    with main.db() as conn:
+        _insert_user(conn, "owner")
+        _insert_image(conn, "first", "owner", "2026-01-01")
+        with pytest.raises(RuntimeError, match="source deletion failed"):
+            main.evict_gallery_images_for_new_save(
+                conn,
+                "owner",
+                {"gallery_slots": 1, "gallery_used": 1},
+                "2026-03-01",
+            )
+        deleted_at = conn.execute("SELECT deleted_at FROM images WHERE id = 'first'").fetchone()["deleted_at"]
+
+    assert trace == [("sources", "first")]
+    assert deleted_at is None
+    assert "first" in main.images

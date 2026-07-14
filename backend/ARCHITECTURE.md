@@ -156,8 +156,13 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   image count and oldest eviction-candidate selection. The query preserves legacy
   empty deletion markers, deterministic `created_at,id` order, image favorites and
   same-owner source favorites. It performs no mutations or filesystem work;
-  `main.py` still applies source deletion, soft-delete, physical media deletion and
-  cache eviction until B8c+.
+  the eviction service sequences source deletion, soft-delete, physical media deletion
+  and cache eviction; `main.py` supplies their concrete adapters.
+- `backend/app/services/gallery_eviction.py` owns the exact per-row source-delete,
+  soft-delete, physical-file-delete and cache-drop sequence through a frozen injected
+  runtime. Callback failures propagate and stop the current/remaining rows exactly as
+  before. The service imports no concrete database or filesystem API; `main.py` still
+  constructs callbacks bound to the active transaction, media helpers and cache.
 - `backend/app/integrations/openrouter.py` owns text-model catalog, key/credits, shared `/chat/completions`, image-model/endpoint document collection with bounded concurrency, pure model/endpoint capability normalization, generation response parsing, public error mapping and safe image-response metadata normalization; `main.py` retains compatibility wrappers, API-key/header/source policy, caches, endpoint selection and generation orchestration.
 - `backend/app/integrations/openrouter_images.py` owns model-alias resolution, safe request-metadata assembly, pure orientation/aspect-ratio/descriptor/provider request planning and image request-body assembly; application resolution IDs/tiers are passed through compatibility wrappers and local-reference values through callback injection.
 - `backend/app/integrations/openrouter_image_io.py` owns remote/data reference passthrough, application-resolved local-file encoding, and response b64/URL loading into PIL; `main.py` retains the production path resolver, timeout, gallery persistence and generation orchestration.

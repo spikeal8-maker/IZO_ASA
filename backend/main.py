@@ -192,6 +192,7 @@ try:
         generation_worker,
         generation_queue,
         gallery_policy,
+        gallery_eviction,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -221,6 +222,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         generation_worker,
         generation_queue,
         gallery_policy,
+        gallery_eviction,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -2613,15 +2615,21 @@ def evict_gallery_images_for_new_save(
     if not target:
         return 0
     rows = storage_select_gallery_eviction_candidates(conn, legacy_user_id, limit=target)
-    for row in rows:
-        delete_image_source_files(conn, row["id"])
-        conn.execute("UPDATE images SET deleted_at = ? WHERE id = ?", (now_iso, row["id"]))
+    runtime = gallery_eviction.GalleryEvictionRuntime(
+        delete_sources=lambda image_id: delete_image_source_files(conn, image_id),
+        soft_delete=lambda image_id: conn.execute(
+            "UPDATE images SET deleted_at = ? WHERE id = ?",
+            (now_iso, image_id),
+        ),
         # Public feed variants are independent from the private gallery source.
         # Quota eviction must not silently unpublish an explicitly posted work.
-        delete_image_files_from_disk(url=row["url"], thumbnail_url=row["thumbnail_url"])
-        if row["id"] in images:
-            images.pop(row["id"])
-    return len(rows)
+        delete_files=lambda url, thumbnail_url: delete_image_files_from_disk(
+            url=url,
+            thumbnail_url=thumbnail_url,
+        ),
+        drop_cached_image=lambda image_id: images.pop(image_id) if image_id in images else None,
+    )
+    return gallery_eviction.apply_gallery_evictions(runtime, rows)
 
 
 def gallery_cursor_from_row(row: sqlite3.Row) -> str:
