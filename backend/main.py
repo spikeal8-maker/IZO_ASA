@@ -191,6 +191,7 @@ try:
         generation_results,
         generation_worker,
         generation_queue,
+        gallery_policy,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -219,6 +220,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         generation_results,
         generation_worker,
         generation_queue,
+        gallery_policy,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -2578,9 +2580,7 @@ def get_tariff_config(conn: sqlite3.Connection | None = None) -> dict[str, dict[
 
 
 def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | None, legacy_user_id: str | None = None) -> dict[str, Any]:
-    plan = str(_row_get(user_row, "plan") or "mini").lower()
-    if plan not in PLAN_ORDER:
-        plan = "mini"
+    plan = gallery_policy.normalize_gallery_plan(_row_get(user_row, "plan"), PLAN_ORDER)
     tariff = get_tariff_config(conn)[plan]
     user_id = legacy_user_id or _row_get(user_row, "id")
     used = 0
@@ -2589,18 +2589,7 @@ def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | Non
             "SELECT COUNT(*) AS c FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')",
             (user_id,),
         ).fetchone()["c"])
-    total = int(tariff["gallery_slots"])
-    return {
-        "plan": plan,
-        "daily_tokens": int(tariff["daily_tokens"]),
-        "openrouter_monthly_tokens": int(tariff.get("openrouter_monthly_tokens") or 0),
-        "gallery_slots": total,
-        "video_enabled": bool(tariff.get("video_enabled")),
-        "video_slots": int(tariff.get("video_slots") or 0),
-        "gallery_used": used,
-        "gallery_free": max(0, total - used),
-        "gallery_full": used >= total,
-    }
+    return gallery_policy.build_gallery_quota(plan=plan, tariff=tariff, gallery_used=used)
 
 
 ACTIVE_IMAGE_WHERE = "deleted_at IS NULL"
@@ -2619,11 +2608,9 @@ def evict_gallery_images_for_new_save(
     over-limit galleries shrink gradually with continued use instead of staying
     permanently above quota.
     """
-    total = int(quota.get("gallery_slots") or 0)
-    used = int(quota.get("gallery_used") or 0)
-    if total <= 0 or used < total:
+    target = gallery_policy.gallery_eviction_target(quota)
+    if not target:
         return 0
-    target = 2 if used > total else 1
     rows = conn.execute(
         """
         SELECT id, url, thumbnail_url FROM images
