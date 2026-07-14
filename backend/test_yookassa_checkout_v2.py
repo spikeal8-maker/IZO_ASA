@@ -80,3 +80,33 @@ def test_webhook_rejects_amount_mismatch_without_tokens(payment_app):
         balance = conn.execute("SELECT token_balance FROM users WHERE internal_user_id='iuid-buyer'").fetchone()["token_balance"]
         ledger_count = conn.execute("SELECT COUNT(*) AS c FROM token_ledger WHERE reason='payment_grant'").fetchone()["c"]
     assert balance == 10 and ledger_count == 0
+
+
+def test_paid_tariff_changes_plan_and_sets_expiry(payment_app):
+    async def create(**_kwargs):
+        return YooKassaPayment("provider-plan", "pending", "990.00", "RUB", "https://pay.test/confirm", False)
+
+    async def fetch(*_args, **_kwargs):
+        return YooKassaPayment("provider-plan", "succeeded", "990.00", "RUB", None, True)
+
+    payment_app["monkeypatch"].setattr(main, "create_yookassa_payment", create)
+    payment_app["monkeypatch"].setattr(main, "fetch_yookassa_payment", fetch)
+    with TestClient(main.app) as client:
+        checkout = client.post("/api/billing/checkout-v2", json={"package_code": "tariff_plus", "idempotency_key": "checkout-plan-0001"}, headers=payment_app["headers"])
+        assert checkout.status_code == 200, checkout.text
+        webhook = client.post("/api/billing/yookassa/webhook-v2", json={"event": "payment.succeeded", "object": {"id": "provider-plan"}})
+    assert webhook.status_code == 200, webhook.text
+    with main.db() as conn:
+        user = conn.execute("SELECT plan, plan_expires_at, token_balance FROM users WHERE internal_user_id='iuid-buyer'").fetchone()
+    assert user["plan"] == "plus" and user["plan_expires_at"] and user["token_balance"] == 10
+
+
+def test_expired_paid_plan_falls_back_to_free(payment_app):
+    with main.db() as conn:
+        conn.execute("UPDATE users SET plan='pro', plan_expires_at='2020-01-01T00:00:00+00:00' WHERE internal_user_id='iuid-buyer'")
+    with TestClient(main.app) as client:
+        response = client.get("/api/billing/packages-v2", headers=payment_app["headers"])
+    assert response.status_code == 200
+    with main.db() as conn:
+        user = conn.execute("SELECT plan, plan_expires_at FROM users WHERE internal_user_id='iuid-buyer'").fetchone()
+    assert user["plan"] == "free" and user["plan_expires_at"] is None

@@ -1034,6 +1034,13 @@ class BillingCheckoutV2Request(BaseModel):
     idempotency_key: str = Field(min_length=12, max_length=120)
 
 
+class AdminTokenPackageV2Request(BaseModel):
+    name: str = Field(min_length=2, max_length=100)
+    price_amount: int = Field(ge=1, le=10_000_000)
+    token_amount: int = Field(ge=1, le=1_000_000)
+    is_active: bool = True
+
+
 class BonusGrantV2Request(BaseModel):
     token_amount: int = 0
     bonus_type: Literal["manual", "compensation", "campaign", "referral"] = "manual"
@@ -2930,9 +2937,30 @@ def resolve_trusted_user(request: Request) -> dict[str, Any]:
         raise HTTPException(exc.status_code, exc.message) from exc
 
 
+def expire_paid_plan_if_needed(internal_user_id: str) -> bool:
+    now = datetime.now(timezone.utc)
+    with db() as conn:
+        row = conn.execute("SELECT plan, plan_expires_at FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+        if row is None or not row["plan_expires_at"] or str(row["plan"] or "free") == "free":
+            return False
+        try:
+            expires_at = datetime.fromisoformat(str(row["plan_expires_at"]))
+        except ValueError:
+            return False
+        if expires_at > now:
+            return False
+        conn.execute(
+            "UPDATE users SET plan='free', plan_expires_at=NULL, openrouter_monthly_tokens_used=0, last_openrouter_month_reset=? WHERE internal_user_id=?",
+            (now.strftime("%Y-%m"), internal_user_id),
+        )
+    return True
+
+
 def require_trusted_user(request: Request) -> dict[str, Any]:
     """Thin wrapper over resolve_trusted_user for new v2 endpoints."""
-    return resolve_trusted_user(request)
+    trusted = resolve_trusted_user(request)
+    expire_paid_plan_if_needed(trusted["internal_user_id"])
+    return trusted
 
 
 def require_trusted_admin(request: Request) -> dict[str, Any]:
@@ -6891,6 +6919,7 @@ def _request_plan_or_default(request: Request | None, default: str = "mini") -> 
         trusted = resolve_trusted_user(request)
     except HTTPException:
         return default
+    expire_paid_plan_if_needed(trusted["internal_user_id"])
     with db() as conn:
         row = conn.execute("SELECT plan FROM users WHERE internal_user_id = ?", (trusted["internal_user_id"],)).fetchone()
         if row is None and trusted["legacy_user_id"]:
@@ -9528,7 +9557,7 @@ ADMIN_TOKENS_MAX_ABS = 100000
 
 
 def _admin_load_target(conn: sqlite3.Connection, internal_user_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT id, internal_user_id, role, banned, token_balance, plan, display_name, email FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+    row = conn.execute("SELECT id, internal_user_id, role, banned, token_balance, plan, plan_expires_at, display_name, email FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
     if row is None:
         raise HTTPException(404, "User not found.")
     return row
@@ -9651,6 +9680,23 @@ def _billing_package_dict(row: sqlite3.Row) -> dict[str, Any]:
         "is_active": bool(row["is_active"]),
         "sort_order": int(row["sort_order"] or 0),
     }
+
+
+def _sync_tariff_billing_packages(conn: sqlite3.Connection) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    tariffs = get_tariff_config(conn)
+    for index, plan in enumerate(("mini", "plus", "pro", "business"), start=1):
+        tariff = tariffs[plan]
+        conn.execute(
+            """
+            INSERT INTO billing_packages
+                (id, code, name, description, price_amount, currency, token_amount, is_active, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'RUB', 0, 1, ?, ?, ?)
+            ON CONFLICT(code) DO UPDATE SET name=excluded.name, description=excluded.description,
+                price_amount=excluded.price_amount, is_active=1, sort_order=excluded.sort_order, updated_at=excluded.updated_at
+            """,
+            (uuid.uuid4().hex, f"tariff_{plan}", f"Тариф {tariff['title']} на 30 дней", tariff["note"], int(tariff["price_rub_month"]), 100 + index * 10, now, now),
+        )
 
 
 def _billing_projection(conn: sqlite3.Connection, internal_user_id: str) -> dict[str, Any]:
@@ -9995,7 +10041,8 @@ async def admin_user_billing_v2(internal_user_id: str, request: Request) -> dict
 async def billing_packages_v2(request: Request) -> dict[str, Any]:
     require_trusted_user(request)
     with db() as conn:
-        rows = conn.execute("SELECT * FROM billing_packages WHERE is_active = 1 ORDER BY sort_order, price_amount").fetchall()
+        _sync_tariff_billing_packages(conn)
+        rows = conn.execute("SELECT * FROM billing_packages WHERE is_active = 1 AND code LIKE 'tokens_%' ORDER BY sort_order, price_amount").fetchall()
     return {"ok": True, "provider_ready": yookassa_ready(), "packages": [_billing_package_dict(row) for row in rows]}
 
 
@@ -10008,6 +10055,7 @@ async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        _sync_tariff_billing_packages(conn)
         existing = conn.execute("SELECT * FROM payments WHERE idempotency_key = ?", (req.idempotency_key,)).fetchone()
         if existing is not None:
             return {"ok": True, "payment": _billing_payment_dict(existing), "confirmation_url": None, "idempotent": True}
@@ -10855,7 +10903,8 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
 
 
 def _complete_yookassa_payment(provider_payment_id: str, *, verified_amount: str, verified_currency: str) -> dict[str, Any]:
-    now = datetime.now(timezone.utc).isoformat()
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat()
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         payment = conn.execute(
@@ -10885,6 +10934,23 @@ def _complete_yookassa_payment(provider_payment_id: str, *, verified_amount: str
                 (ledger_id, payment["user_id"], tokens_total, json.dumps({"invoice_id": invoice["id"], "payment_id": payment["id"], "provider_payment_id": provider_payment_id}, ensure_ascii=False), now),
             )
             conn.execute("UPDATE users SET token_balance = ? WHERE internal_user_id = ?", (new_balance, payment["internal_user_id"]))
+        item = conn.execute("SELECT package_code FROM invoice_items WHERE invoice_id = ? ORDER BY created_at LIMIT 1", (invoice["id"],)).fetchone()
+        package_code = str(_row_get(item, "package_code") or "")
+        if package_code.startswith("tariff_"):
+            plan = package_code.removeprefix("tariff_")
+            if plan not in PLAN_ORDER or plan == "free":
+                raise HTTPException(409, "Invalid tariff package.")
+            current_expiry = _row_get(target, "plan_expires_at")
+            try:
+                current_expiry_dt = datetime.fromisoformat(str(current_expiry)) if current_expiry else now_dt
+            except ValueError:
+                current_expiry_dt = now_dt
+            base = current_expiry_dt if current_expiry_dt > now_dt else now_dt
+            expires_at = (base + timedelta(days=30)).isoformat()
+            conn.execute(
+                "UPDATE users SET plan=?, plan_expires_at=?, openrouter_monthly_tokens_used=0, last_openrouter_month_reset=? WHERE internal_user_id=?",
+                (plan, expires_at, now_dt.strftime("%Y-%m"), payment["internal_user_id"]),
+            )
         conn.execute("UPDATE payments SET status='paid', paid_at=?, token_ledger_id=?, updated_at=? WHERE id=?", (now, ledger_id, now, payment["id"]))
         conn.execute("UPDATE invoices SET status='paid', paid_at=?, updated_at=? WHERE id=?", (now, now, invoice["id"]))
         payment = conn.execute("SELECT * FROM payments WHERE id = ?", (payment["id"],)).fetchone()
@@ -12008,6 +12074,7 @@ async def admin_payments_status_v2(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
     config = yookassa_config()
     with db() as conn:
+        _sync_tariff_billing_packages(conn)
         summary = conn.execute(
             "SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN status='paid' THEN 1 ELSE 0 END),0) AS paid, COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END),0) AS pending, COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) AS revenue FROM payments"
         ).fetchone()
@@ -12035,6 +12102,24 @@ async def admin_payments_config_v2(req: AdminYooKassaConfigV2Request, request: R
     except SecretStoreError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, "configured": yookassa_ready(), "provider": "yookassa"}
+
+
+@app.put("/api/admin/payments/packages/{code}-v2")
+async def admin_payment_package_v2(code: str, req: AdminTokenPackageV2Request, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    if not re.fullmatch(r"tokens_[a-z0-9_]{1,60}", code):
+        raise HTTPException(400, "Редактировать здесь можно только пакеты токенов.")
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        row = conn.execute("SELECT * FROM billing_packages WHERE code = ?", (code,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Пакет не найден.")
+        conn.execute(
+            "UPDATE billing_packages SET name=?, price_amount=?, token_amount=?, is_active=?, updated_at=? WHERE code=?",
+            (req.name.strip(), req.price_amount, req.token_amount, 1 if req.is_active else 0, now, code),
+        )
+        updated = conn.execute("SELECT * FROM billing_packages WHERE code = ?", (code,)).fetchone()
+    return {"ok": True, "package": _billing_package_dict(updated)}
 
 
 @app.post("/api/admin/assistants/test")

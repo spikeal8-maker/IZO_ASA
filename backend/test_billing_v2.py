@@ -136,3 +136,15 @@ def test_refund_limits_and_analytics_safe(temp_db):
     text = detail.text
     for forbidden in ("password_hash", "session_token_hash", "refresh_token_hash", "code_hash", "provider_payload", "webhook_payload"):
         assert forbidden not in text
+
+
+def test_admin_can_update_token_package_but_not_tariff_package(temp_db):
+    token = admin_token()
+    body = {"name": "80 токенов", "price_amount": 360, "token_amount": 80, "is_active": True}
+    with TestClient(main.app) as client:
+        updated = client.put("/api/admin/payments/packages/tokens_50-v2", json=body, headers=bearer(token))
+        rejected = client.put("/api/admin/payments/packages/tariff_pro-v2", json=body, headers=bearer(token))
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["package"]["price_amount"] == 360
+    assert updated.json()["package"]["token_amount"] == 80
+    assert rejected.status_code == 400

@@ -38,6 +38,18 @@ export default function AdminPayments() {
     await load()
   }
 
+  const updatePackage = (code: string, patch: AdminRecord) => {
+    setData((current) => current ? { ...current, packages: (current.packages || []).map((item) => String(item.code) === code ? { ...item, ...patch } : item) } : current)
+  }
+  const savePackage = async (item: AdminRecord) => {
+    const result = await adminPut<AdminRecord>(`/admin/payments/packages/${String(item.code)}-v2`, {
+      name: String(item.name || ''), price_amount: Number(item.price_amount || 0),
+      token_amount: Number(item.token_amount || 0), is_active: Boolean(item.is_active),
+    })
+    setMessage(result?.ok ? `Пакет ${String(item.name)} сохранен` : 'Не удалось сохранить пакет')
+    await load()
+  }
+
   const summary = data?.summary || {}
   const config = data?.config || {}
   return (
@@ -69,7 +81,7 @@ export default function AdminPayments() {
         </article>
       </div>
       <div className="admin-mail-tables">
-        <article><h4>Пакеты</h4><table><tbody>{(data?.packages || []).map((item) => <tr key={String(item.code)}><td><b>{String(item.name)}</b><small>{String(item.code)}</small></td><td>{String(item.token_amount)} ток.</td><td>{Number(item.price_amount || 0).toLocaleString('ru-RU')} ₽</td></tr>)}</tbody></table></article>
+        <article><h4>Пакеты</h4><table><tbody>{(data?.packages || []).map((item) => <tr key={String(item.code)}><td><input value={String(item.name)} disabled={!String(item.code).startsWith('tokens_')} onChange={(event) => updatePackage(String(item.code), { name: event.target.value })} /><small>{String(item.code)}</small></td><td><input type="number" min="1" value={Number(item.token_amount || 0)} disabled={!String(item.code).startsWith('tokens_')} onChange={(event) => updatePackage(String(item.code), { token_amount: Number(event.target.value) })} /></td><td><input type="number" min="1" value={Number(item.price_amount || 0)} disabled={!String(item.code).startsWith('tokens_')} onChange={(event) => updatePackage(String(item.code), { price_amount: Number(event.target.value) })} /></td><td>{String(item.code).startsWith('tokens_') && <button className="secondary" onClick={() => { void savePackage(item) }}>Сохранить</button>}</td></tr>)}</tbody></table></article>
         <article><h4>Последние платежи</h4><table><tbody>{(data?.payments || []).map((item) => <tr key={String(item.id)}><td><b>{String(item.status)}</b><small>{String(item.created_at || '')}</small></td><td>{Number(item.amount || 0).toLocaleString('ru-RU')} ₽</td><td>{String(item.provider)}</td></tr>)}</tbody></table></article>
       </div>
       <div className="admin-mail-tables"><article><h4>События ЮKassa</h4><table><tbody>{(data?.events || []).map((item, index) => <tr key={`${String(item.provider_payment_id)}-${index}`}><td><b>{String(item.event_type)}</b><small>{String(item.received_at || '')}</small></td><td>{String(item.status)}</td><td>{String(item.error || '')}</td></tr>)}</tbody></table></article></div>

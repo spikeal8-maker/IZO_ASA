@@ -257,14 +257,14 @@ export default function ProfilePage({
       .catch(() => { if (!cancelled) setBillingPackages([]) })
     return () => { cancelled = true }
   }, [authStatus, profileTab])
-  const startCheckout = async () => {
-    if (!selectedPackage || checkoutBusy) return
+  const startCheckout = async (packageCode = selectedPackage) => {
+    if (!packageCode || checkoutBusy) return
     setCheckoutBusy(true)
     setCheckoutMessage('')
     try {
       const response = await fetch(`${API}/billing/checkout-v2`, {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ package_code: selectedPackage, idempotency_key: `checkout-${crypto.randomUUID()}` }),
+        body: JSON.stringify({ package_code: packageCode, idempotency_key: `checkout-${crypto.randomUUID()}` }),
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok || !result?.confirmation_url) throw new Error(String(result?.detail || 'Не удалось создать оплату'))
@@ -522,7 +522,7 @@ export default function ProfilePage({
                     {item.premium > 0 ? <em>{item.premium} токенов/мес на премиум-модели</em> : null}
                     {item.benefit > 0 ? <small>Выгода по токенам: {item.benefit.toLocaleString('ru-RU')} ₽</small> : null}
                     {item.features.length ? <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null}
-                    <button type="button" disabled>{item.id === activePlan ? 'Текущий тариф' : 'Смена тарифа скоро'}</button>
+                    <button type="button" disabled={item.id === activePlan || item.id === 'free' || checkoutBusy} onClick={() => { void startCheckout(`tariff_${item.id}`) }}>{item.id === activePlan ? 'Текущий тариф' : checkoutBusy ? 'Переходим к оплате...' : 'Выбрать тариф'}</button>
                   </article>
                 ))}
               </div>
@@ -538,7 +538,7 @@ export default function ProfilePage({
                 <div className="profile-token-packs" aria-label="Пакеты токенов">
                   {billingPackages.map((item) => <button type="button" className={selectedPackage === item.code ? 'active' : ''} key={item.code} onClick={() => setSelectedPackage(item.code)}>{item.token_amount} ток. · {item.price_amount.toLocaleString('ru-RU')} ₽</button>)}
                 </div>
-                <button type="button" className="profile-primary" disabled={!selectedPackage || checkoutBusy} onClick={startCheckout}>{checkoutBusy ? 'Переходим к оплате...' : 'Купить токены'}</button>
+                <button type="button" className="profile-primary" disabled={!selectedPackage || checkoutBusy} onClick={() => { void startCheckout() }}>{checkoutBusy ? 'Переходим к оплате...' : 'Купить токены'}</button>
                 {checkoutMessage && <small className="profile-save-err">{checkoutMessage}</small>}
               </article>
             </section>

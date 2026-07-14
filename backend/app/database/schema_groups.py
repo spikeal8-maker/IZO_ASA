@@ -124,6 +124,20 @@ def seed_core_defaults(conn: sqlite3.Connection, *, now: str) -> None:
             """,
             (uuid.uuid4().hex, code, name, price, tokens, sort_order, now, now),
         )
+    for sort_order, code, name, price in (
+        (110, "tariff_mini", "Тариф Mini на 30 дней", 490),
+        (120, "tariff_plus", "Тариф Plus на 30 дней", 990),
+        (130, "tariff_pro", "Тариф Pro на 30 дней", 1990),
+        (140, "tariff_business", "Тариф Бизнес на 30 дней", 4990),
+    ):
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO billing_packages
+                (id, code, name, description, price_amount, currency, token_amount, is_active, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, 'Подписка ИЗО АСА на 30 дней', ?, 'RUB', 0, 1, ?, ?, ?)
+            """,
+            (uuid.uuid4().hex, code, name, price, sort_order, now, now),
+        )
 
 
 def seed_default_challenge(conn: sqlite3.Connection, *, now: str) -> None:
