@@ -30,6 +30,7 @@ type PublicModelFormatPricing = {
   supported?: boolean
 }
 type PublicModelPricing = { id: string; label: string; formats: PublicModelFormatPricing[] }
+type BillingPackage = { code: string; name: string; description?: string; price_amount: number; token_amount: number; currency: string }
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 
@@ -153,6 +154,10 @@ export default function ProfilePage({
   const [codeCopied, setCodeCopied] = useState(false)
   const [tokenHistoryDays, setTokenHistoryDays] = useState(30)
   const [tokenHistory, setTokenHistory] = useState<TokenHistory | null>(null)
+  const [billingPackages, setBillingPackages] = useState<BillingPackage[]>([])
+  const [selectedPackage, setSelectedPackage] = useState('')
+  const [checkoutBusy, setCheckoutBusy] = useState(false)
+  const [checkoutMessage, setCheckoutMessage] = useState('')
   const account = me?.account
   const activePlan = (tariffKeys.includes(String(account?.plan || 'mini').toLowerCase() as TariffKey) ? String(account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
   const currentTariff = tariffs[activePlan] || DEFAULT_TARIFFS[activePlan]
@@ -238,6 +243,37 @@ export default function ProfilePage({
       })
     return () => { cancelled = true }
   }, [authStatus, tokenHistoryDays])
+  useEffect(() => {
+    if (authStatus !== 'authed' || profileTab !== 'tariffs') return
+    let cancelled = false
+    fetch(`${API}/billing/packages-v2`, { credentials: 'include' })
+      .then((response) => response.ok ? response.json() : null)
+      .then((result) => {
+        if (cancelled) return
+        const packages = Array.isArray(result?.packages) ? result.packages as BillingPackage[] : []
+        setBillingPackages(packages)
+        setSelectedPackage((current) => current || packages[0]?.code || '')
+      })
+      .catch(() => { if (!cancelled) setBillingPackages([]) })
+    return () => { cancelled = true }
+  }, [authStatus, profileTab])
+  const startCheckout = async () => {
+    if (!selectedPackage || checkoutBusy) return
+    setCheckoutBusy(true)
+    setCheckoutMessage('')
+    try {
+      const response = await fetch(`${API}/billing/checkout-v2`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ package_code: selectedPackage, idempotency_key: `checkout-${crypto.randomUUID()}` }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result?.confirmation_url) throw new Error(String(result?.detail || 'Не удалось создать оплату'))
+      window.location.assign(String(result.confirmation_url))
+    } catch (error) {
+      setCheckoutMessage(error instanceof Error ? error.message : 'Не удалось создать оплату')
+      setCheckoutBusy(false)
+    }
+  }
   const copyPublicCode = async () => {
     const value = publicCode || 'GUEST'
     try {
@@ -499,10 +535,11 @@ export default function ProfilePage({
                   <span>Стоимость</span>
                   <strong>1 токен = {safeTokenRub.toLocaleString('ru-RU')} ₽</strong>
                 </div>
-                <div className="profile-token-packs" aria-label="Примеры пакетов токенов">
-                  {[50, 100, 250].map((count) => <span key={count}>{count} ток. · {(count * safeTokenRub).toLocaleString('ru-RU')} ₽</span>)}
+                <div className="profile-token-packs" aria-label="Пакеты токенов">
+                  {billingPackages.map((item) => <button type="button" className={selectedPackage === item.code ? 'active' : ''} key={item.code} onClick={() => setSelectedPackage(item.code)}>{item.token_amount} ток. · {item.price_amount.toLocaleString('ru-RU')} ₽</button>)}
                 </div>
-                <button type="button" className="profile-primary" disabled>Купить токены скоро</button>
+                <button type="button" className="profile-primary" disabled={!selectedPackage || checkoutBusy} onClick={startCheckout}>{checkoutBusy ? 'Переходим к оплате...' : 'Купить токены'}</button>
+                {checkoutMessage && <small className="profile-save-err">{checkoutMessage}</small>}
               </article>
             </section>
           </>}

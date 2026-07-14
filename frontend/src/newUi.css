@@ -2745,7 +2745,8 @@ button.profile-chip { cursor: pointer; }
 .profile-token-rate span { color: #98a19a; font-size: 12px; }
 .profile-token-rate strong { color: var(--n2-lime); font-size: 22px; line-height: 1; white-space: nowrap; }
 .profile-token-packs { display: flex; flex-wrap: wrap; gap: 7px; min-width: 0; }
-.profile-token-packs span { min-height: 30px; display: inline-flex; align-items: center; border: 1px solid rgba(236,255,47,.22); border-radius: 999px; background: rgba(236,255,47,.055); color: #dbe6dd; padding: 5px 10px; font-size: 12px; font-weight: 760; white-space: nowrap; }
+.profile-token-packs button { min-height: 30px; display: inline-flex; align-items: center; border: 1px solid rgba(236,255,47,.22); border-radius: 999px; background: rgba(236,255,47,.055); color: #dbe6dd; padding: 5px 10px; font-size: 12px; font-weight: 760; white-space: nowrap; }
+.profile-token-packs button.active { border-color: var(--acid); color: var(--acid); background: rgba(236,255,47,.1); }
 .profile-token-buy .profile-primary { min-width: 190px; justify-self: end; }
 .profile-earn { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .profile-earn-card, .profile-small-card { padding: 20px; display: grid; gap: 10px; align-content: start; }
@@ -2916,7 +2917,7 @@ button.profile-chip { cursor: pointer; }
   .profile-token-buy { grid-template-columns: 1fr; gap: 12px; padding: 14px; }
   .profile-token-buy .profile-primary { grid-column: auto; grid-row: auto; justify-self: stretch; width: 100%; }
   .profile-token-rate strong { font-size: 20px; }
-  .profile-token-packs span { flex: 1 1 136px; justify-content: center; }
+  .profile-token-packs button { flex: 1 1 136px; justify-content: center; }
   .profile-tariff-summary, .profile-earn-hero { grid-template-columns: 1fr 1fr; }
   .profile-tariff-summary .profile-primary, .profile-earn-hero h3 { grid-column: 1 / -1; }
   .profile-profile { grid-template-columns: 1fr; }

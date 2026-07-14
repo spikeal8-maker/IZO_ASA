@@ -36,6 +36,10 @@ try:
     from .app.integrations.unisender import UniSenderError, UniSenderMessage, send_unisender_email
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations.unisender import UniSenderError, UniSenderMessage, send_unisender_email
+try:
+    from .app.integrations.yookassa import YooKassaError, create_yookassa_payment, fetch_yookassa_payment
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.integrations.yookassa import YooKassaError, create_yookassa_payment, fetch_yookassa_payment
 
 try:
     from .resolution_policy import (
@@ -550,6 +554,7 @@ AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 
 OPENROUTER_SECRET_NAME = "openrouter_api_key"
 UNISENDER_SECRET_NAME = "unisender_api_key"
+YOOKASSA_SECRET_NAME = "yookassa_secret_key"
 OPENROUTER_SECRET_STORE_DIR = default_secret_store_dir()
 assert_secret_store_outside_repository(OPENROUTER_SECRET_STORE_DIR, ROOT.parent)
 OPENROUTER_SECRET_STORE = DpapiSecretStore(OPENROUTER_SECRET_STORE_DIR)
@@ -1016,6 +1021,17 @@ class BillingRefundV2Request(BaseModel):
     amount: int = 0
     reason: str = ""
     idempotency_key: str | None = None
+
+
+class AdminYooKassaConfigV2Request(BaseModel):
+    shop_id: str = Field(min_length=2, max_length=100)
+    secret_key: str | None = Field(default=None, min_length=8, max_length=512)
+    test_mode: bool = True
+
+
+class BillingCheckoutV2Request(BaseModel):
+    package_code: str = Field(min_length=2, max_length=80)
+    idempotency_key: str = Field(min_length=12, max_length=120)
 
 
 class BonusGrantV2Request(BaseModel):
@@ -5014,6 +5030,40 @@ def save_unisender_config(req: AdminMailConfigV2Request) -> None:
             "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
             (json.dumps({"provider": "unisender", "sender_name": req.sender_name.strip(), "sender_email": sender_email, "list_id": req.list_id}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
         )
+
+
+def yookassa_secret_key() -> str:
+    return os.getenv("YOOKASSA_SECRET_KEY", "").strip() or OPENROUTER_SECRET_STORE.get(YOOKASSA_SECRET_NAME)
+
+
+def yookassa_config() -> dict[str, Any]:
+    with db() as conn:
+        row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'yookassa'").fetchone()
+    value = safe_json_load(row["value_json"]) if row else {}
+    return value if isinstance(value, dict) else {}
+
+
+def yookassa_ready(config: dict[str, Any] | None = None) -> bool:
+    current = config if config is not None else yookassa_config()
+    return bool(current.get("shop_id") and yookassa_secret_key())
+
+
+def save_yookassa_config(req: AdminYooKassaConfigV2Request) -> None:
+    if req.secret_key:
+        OPENROUTER_SECRET_STORE.set(YOOKASSA_SECRET_NAME, req.secret_key.strip())
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('yookassa', ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+            (json.dumps({"provider": "yookassa", "shop_id": req.shop_id.strip(), "test_mode": bool(req.test_mode)}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+        )
+
+
+def public_site_url(request: Request) -> str:
+    configured = os.getenv("PUBLIC_SITE_URL", "").strip().rstrip("/")
+    if configured:
+        return configured
+    return str(request.base_url).rstrip("/")
 
 
 OPENROUTER_GENERATION_MODES = {"text_to_image", "image_to_image", "edit"}
@@ -9941,6 +9991,102 @@ async def admin_user_billing_v2(internal_user_id: str, request: Request) -> dict
     return {"ok": True, "packages": [_billing_package_dict(r) for r in packages], **projection}
 
 
+@app.get("/api/billing/packages-v2")
+async def billing_packages_v2(request: Request) -> dict[str, Any]:
+    require_trusted_user(request)
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM billing_packages WHERE is_active = 1 ORDER BY sort_order, price_amount").fetchall()
+    return {"ok": True, "provider_ready": yookassa_ready(), "packages": [_billing_package_dict(row) for row in rows]}
+
+
+@app.post("/api/billing/checkout-v2")
+async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    config = yookassa_config()
+    if not yookassa_ready(config):
+        raise HTTPException(503, "Прием платежей пока не настроен.")
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute("SELECT * FROM payments WHERE idempotency_key = ?", (req.idempotency_key,)).fetchone()
+        if existing is not None:
+            return {"ok": True, "payment": _billing_payment_dict(existing), "confirmation_url": None, "idempotent": True}
+        package = conn.execute("SELECT * FROM billing_packages WHERE code = ? AND is_active = 1", (req.package_code,)).fetchone()
+        if package is None:
+            raise HTTPException(404, "Пакет токенов не найден.")
+        target = _admin_load_target(conn, trusted["internal_user_id"])
+        invoice_id = uuid.uuid4().hex
+        payment_id = uuid.uuid4().hex
+        invoice_code = _invoice_code(conn)
+        conn.execute(
+            "INSERT INTO invoices (id, invoice_code, internal_user_id, user_id, status, currency, subtotal_amount, discount_amount, total_amount, tokens_total, reason, created_at, updated_at) VALUES (?, ?, ?, ?, 'draft', 'RUB', ?, 0, ?, ?, 'user_checkout', ?, ?)",
+            (invoice_id, invoice_code, trusted["internal_user_id"], target["id"], package["price_amount"], package["price_amount"], package["token_amount"], now, now),
+        )
+        conn.execute(
+            "INSERT INTO invoice_items (id, invoice_id, package_code, title, description, quantity, unit_amount, total_amount, token_amount, created_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
+            (uuid.uuid4().hex, invoice_id, package["code"], package["name"], package["description"], package["price_amount"], package["price_amount"], package["token_amount"], now),
+        )
+        conn.execute(
+            "INSERT INTO payments (id, invoice_id, internal_user_id, user_id, status, amount, currency, method, provider, reason, idempotency_key, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, 'RUB', 'bank_card', 'yookassa', 'user_checkout', ?, ?, ?)",
+            (payment_id, invoice_id, trusted["internal_user_id"], target["id"], package["price_amount"], req.idempotency_key, now, now),
+        )
+    try:
+        provider_payment = await create_yookassa_payment(
+            shop_id=str(config["shop_id"]),
+            secret_key=yookassa_secret_key(),
+            amount=int(package["price_amount"]),
+            idempotency_key=req.idempotency_key,
+            return_url=f"{public_site_url(request)}/#tariffs",
+            description=f"ИЗО АСА: {package['name']}",
+            metadata={"invoice_id": invoice_id, "payment_id": payment_id},
+        )
+    except YooKassaError as exc:
+        with db() as conn:
+            conn.execute("UPDATE payments SET status='failed', updated_at=? WHERE id=?", (datetime.now(timezone.utc).isoformat(), payment_id))
+        raise HTTPException(502, str(exc)) from exc
+    with db() as conn:
+        conn.execute("UPDATE payments SET provider_payment_id=?, status='pending', updated_at=? WHERE id=?", (provider_payment.id, datetime.now(timezone.utc).isoformat(), payment_id))
+        conn.execute("UPDATE invoices SET status='issued', issued_at=?, updated_at=? WHERE id=?", (datetime.now(timezone.utc).isoformat(), datetime.now(timezone.utc).isoformat(), invoice_id))
+    completed = None
+    if provider_payment.status == "succeeded" and provider_payment.paid:
+        completed = _complete_yookassa_payment(provider_payment.id, verified_amount=provider_payment.amount_value, verified_currency=provider_payment.currency)
+    return {"ok": True, "payment_id": payment_id, "provider_payment_id": provider_payment.id, "status": provider_payment.status, "confirmation_url": provider_payment.confirmation_url, "completed": completed}
+
+
+@app.post("/api/billing/yookassa/webhook-v2")
+async def billing_yookassa_webhook_v2(request: Request) -> dict[str, Any]:
+    config = yookassa_config()
+    if not yookassa_ready(config):
+        raise HTTPException(503, "YooKassa is not configured.")
+    payload = await request.json()
+    event_type = str(payload.get("event") or "") if isinstance(payload, dict) else ""
+    obj = payload.get("object") if isinstance(payload, dict) and isinstance(payload.get("object"), dict) else {}
+    provider_payment_id = str(obj.get("id") or "")
+    if not event_type or not provider_payment_id:
+        raise HTTPException(400, "Invalid YooKassa event.")
+    event_key = f"{event_type}:{provider_payment_id}"
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        existing = conn.execute("SELECT * FROM payment_provider_events WHERE event_key = ?", (event_key,)).fetchone()
+        if existing is not None and existing["processed_at"]:
+            return {"ok": True, "idempotent": True}
+        conn.execute(
+            "INSERT OR IGNORE INTO payment_provider_events (id, provider, event_key, event_type, provider_payment_id, status, received_at) VALUES (?, 'yookassa', ?, ?, ?, 'received', ?)",
+            (uuid.uuid4().hex, event_key, event_type, provider_payment_id, now),
+        )
+    try:
+        verified = await fetch_yookassa_payment(provider_payment_id, shop_id=str(config["shop_id"]), secret_key=yookassa_secret_key())
+        if verified.status == "succeeded" and verified.paid:
+            _complete_yookassa_payment(provider_payment_id, verified_amount=verified.amount_value, verified_currency=verified.currency)
+        with db() as conn:
+            conn.execute("UPDATE payment_provider_events SET status=?, processed_at=?, error=NULL WHERE event_key=?", (verified.status, datetime.now(timezone.utc).isoformat(), event_key))
+    except (YooKassaError, HTTPException) as exc:
+        with db() as conn:
+            conn.execute("UPDATE payment_provider_events SET status='failed', error=? WHERE event_key=?", (truncate_admin_text(str(exc), 300), event_key))
+        raise HTTPException(502, "YooKassa event verification failed.") from exc
+    return {"ok": True, "status": verified.status}
+
+
 @app.post("/api/admin/users/{internal_user_id}/invoices-v2")
 async def admin_create_invoice_v2(internal_user_id: str, req: BillingCreateInvoiceV2Request, request: Request) -> dict[str, Any]:
     admin = require_trusted_admin(request)
@@ -10706,6 +10852,44 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "status": "banned" if _row_get(urow, "banned") else "active",
         "role": _row_get(urow, "role"),
     }
+
+
+def _complete_yookassa_payment(provider_payment_id: str, *, verified_amount: str, verified_currency: str) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        payment = conn.execute(
+            "SELECT * FROM payments WHERE provider = 'yookassa' AND provider_payment_id = ?",
+            (provider_payment_id,),
+        ).fetchone()
+        if payment is None:
+            raise HTTPException(404, "Payment not found.")
+        invoice = conn.execute("SELECT * FROM invoices WHERE id = ?", (payment["invoice_id"],)).fetchone()
+        if invoice is None:
+            raise HTTPException(409, "Payment invoice not found.")
+        expected_amount = f"{int(payment['amount'] or 0):.2f}"
+        if verified_amount != expected_amount or verified_currency != payment["currency"]:
+            raise HTTPException(409, "YooKassa payment amount does not match the invoice.")
+        if payment["status"] == "paid":
+            user = conn.execute("SELECT token_balance FROM users WHERE internal_user_id = ?", (payment["internal_user_id"],)).fetchone()
+            return {"payment": _billing_payment_dict(payment), "invoice": _billing_invoice_dict(invoice), "new_token_balance": int(_row_get(user, "token_balance") or 0), "idempotent": True}
+        target = _admin_load_target(conn, payment["internal_user_id"])
+        tokens_total = int(invoice["tokens_total"] or 0)
+        old_balance = int(target["token_balance"] or 0)
+        new_balance = old_balance + tokens_total
+        ledger_id = None
+        if tokens_total > 0:
+            ledger_id = uuid.uuid4().hex
+            conn.execute(
+                "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'payment_grant', ?, ?)",
+                (ledger_id, payment["user_id"], tokens_total, json.dumps({"invoice_id": invoice["id"], "payment_id": payment["id"], "provider_payment_id": provider_payment_id}, ensure_ascii=False), now),
+            )
+            conn.execute("UPDATE users SET token_balance = ? WHERE internal_user_id = ?", (new_balance, payment["internal_user_id"]))
+        conn.execute("UPDATE payments SET status='paid', paid_at=?, token_ledger_id=?, updated_at=? WHERE id=?", (now, ledger_id, now, payment["id"]))
+        conn.execute("UPDATE invoices SET status='paid', paid_at=?, updated_at=? WHERE id=?", (now, now, invoice["id"]))
+        payment = conn.execute("SELECT * FROM payments WHERE id = ?", (payment["id"],)).fetchone()
+        invoice = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice["id"],)).fetchone()
+    return {"payment": _billing_payment_dict(payment), "invoice": _billing_invoice_dict(invoice), "new_token_balance": new_balance, "idempotent": False}
 
 
 @app.get("/api/admin/dashboard-v2")
@@ -11817,6 +12001,40 @@ async def admin_mail_config_v2(req: AdminMailConfigV2Request, request: Request) 
     except (ValueError, SecretStoreError) as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, "configured": unisender_ready(), "provider": "unisender"}
+
+
+@app.get("/api/admin/payments/status-v2")
+async def admin_payments_status_v2(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    config = yookassa_config()
+    with db() as conn:
+        summary = conn.execute(
+            "SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN status='paid' THEN 1 ELSE 0 END),0) AS paid, COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END),0) AS pending, COALESCE(SUM(CASE WHEN status='paid' THEN amount ELSE 0 END),0) AS revenue FROM payments"
+        ).fetchone()
+        payments = conn.execute("SELECT * FROM payments ORDER BY created_at DESC LIMIT 50").fetchall()
+        events = conn.execute("SELECT event_type, provider_payment_id, status, received_at, processed_at, error FROM payment_provider_events ORDER BY received_at DESC LIMIT 50").fetchall()
+        packages = conn.execute("SELECT * FROM billing_packages ORDER BY sort_order, price_amount").fetchall()
+    return {
+        "ok": True,
+        "provider": "yookassa",
+        "configured": yookassa_ready(config),
+        "config": {"shop_id": config.get("shop_id") or "", "secret_key": bool(yookassa_secret_key()), "test_mode": bool(config.get("test_mode", True))},
+        "webhook_url": f"{os.getenv('PUBLIC_SITE_URL', 'https://izo.alikinas.ru').rstrip('/')}/api/billing/yookassa/webhook-v2",
+        "summary": {"total": int(summary["total"] or 0), "paid": int(summary["paid"] or 0), "pending": int(summary["pending"] or 0), "revenue_rub": int(summary["revenue"] or 0)},
+        "packages": [_billing_package_dict(row) for row in packages],
+        "payments": [_billing_payment_dict(row) for row in payments],
+        "events": [dict(row) for row in events],
+    }
+
+
+@app.put("/api/admin/payments/config-v2")
+async def admin_payments_config_v2(req: AdminYooKassaConfigV2Request, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    try:
+        save_yookassa_config(req)
+    except SecretStoreError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "configured": yookassa_ready(), "provider": "yookassa"}
 
 
 @app.post("/api/admin/assistants/test")

@@ -111,6 +111,19 @@ def seed_core_defaults(conn: sqlite3.Connection, *, now: str) -> None:
             """,
             (preset_id, name_ru, name_en, mode, now, now),
         )
+    for sort_order, code, name, tokens, price in (
+        (10, "tokens_50", "50 токенов", 50, 250),
+        (20, "tokens_100", "100 токенов", 100, 500),
+        (30, "tokens_250", "250 токенов", 250, 1250),
+    ):
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO billing_packages
+                (id, code, name, description, price_amount, currency, token_amount, is_active, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, 'Дополнительные токены для премиум-моделей', ?, 'RUB', ?, 1, ?, ?, ?)
+            """,
+            (uuid.uuid4().hex, code, name, price, tokens, sort_order, now, now),
+        )
 
 
 def seed_default_challenge(conn: sqlite3.Connection, *, now: str) -> None:

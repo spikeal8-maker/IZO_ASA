@@ -263,6 +263,21 @@ CREATE TABLE IF NOT EXISTS users (
                 updated_at TEXT NOT NULL
             );
 
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_provider_payment
+                ON payments(provider, provider_payment_id) WHERE provider_payment_id IS NOT NULL;
+
+            CREATE TABLE IF NOT EXISTS payment_provider_events (
+                id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                event_key TEXT NOT NULL UNIQUE,
+                event_type TEXT NOT NULL,
+                provider_payment_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                received_at TEXT NOT NULL,
+                processed_at TEXT,
+                error TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS refunds (
                 id TEXT PRIMARY KEY,
                 payment_id TEXT NOT NULL,
@@ -357,6 +372,7 @@ CREATE TABLE IF NOT EXISTS users (
             CREATE INDEX IF NOT EXISTS idx_invoices_status_created ON invoices(status, created_at);
             CREATE INDEX IF NOT EXISTS idx_payments_user_created ON payments(internal_user_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
+            CREATE INDEX IF NOT EXISTS idx_payment_provider_events_received ON payment_provider_events(received_at);
             CREATE INDEX IF NOT EXISTS idx_refunds_user_created ON refunds(internal_user_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items(invoice_id);
             CREATE INDEX IF NOT EXISTS idx_promo_redemptions_user_created ON promo_redemptions(internal_user_id, created_at);
