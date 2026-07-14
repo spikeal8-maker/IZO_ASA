@@ -195,6 +195,7 @@ try:
         gallery_eviction,
         gallery_query,
         gallery_presentation,
+        gallery_items,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -227,6 +228,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         gallery_eviction,
         gallery_query,
         gallery_presentation,
+        gallery_items,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -3372,13 +3374,7 @@ def _gallery_source_ids(settings: dict[str, Any]) -> list[str]:
 
 
 def _feed_publication_ready(publication: sqlite3.Row | None) -> bool:
-    return bool(
-        publication is not None
-        and _row_get(publication, "status") == "published"
-        and _row_get(publication, "media_ready_at")
-        and _row_get(publication, "feed_thumb_name")
-        and _row_get(publication, "feed_large_name")
-    )
+    return gallery_items.feed_publication_ready(publication, row_get=_row_get)
 
 
 def _gallery_page_item(
@@ -3387,71 +3383,21 @@ def _gallery_page_item(
     *,
     include_feed_media: bool = False,
 ) -> dict[str, Any]:
-    settings = json.loads(row["settings_json"] or "{}")
-    publication_id = _row_get(publication, "id") if publication is not None else None
-    feed_ready = _feed_publication_ready(publication)
-    published = bool(publication_id and feed_ready)
-    thumb_url = row["thumbnail_url"]
-    image_url = row["url"]
-    if include_feed_media and publication_id and feed_ready:
-        thumb_url = f"/api/feed/media/{publication_id}?variant=thumb"
-        image_url = f"/api/feed/media/{publication_id}?variant=large"
-    prompt = row["prompt_original"] or row["prompt_translated"] or ""
-    width = int(row["width"] or 0)
-    height = int(row["height"] or 0)
-    file_size = _media_file_size_from_url(row["url"])
-    return {
-        "id": row["id"],
-        "imageId": row["id"],
-        "src": thumb_url,
-        "thumbnailUrl": thumb_url,
-        "viewerSrc": image_url,
-        "downloadUrl": image_url,
-        "prompt": prompt,
-        "promptOriginal": row["prompt_original"] or "",
-        "promptTranslated": row["prompt_translated"] or "",
-        "mode": row["mode"],
-        "modeLabel": _gallery_mode_label(row["mode"]),
-        "provider": row["provider"],
-        "model": _user_model_name(settings.get("modelProfile") or row["provider"]),
-        "modelProfile": _user_model_name(settings.get("modelProfile") or row["provider"]),
-        "modelInfo": _gallery_model_info(settings, row["provider"]),
-        "preset": settings.get("preset") or settings.get("styleName"),
-        "loras": settings.get("loras") if isinstance(settings.get("loras"), list) else [],
-        "seed": settings.get("seed"),
-        "width": width,
-        "height": height,
-        "aspect": _gallery_aspect_ratio(width, height),
-        "aspectRatio": _gallery_aspect_ratio(width, height),
-        "createdAt": row["created_at"],
-        "date": row["created_at"],
-        "generationTimeMs": settings.get("generationTimeMs", 0),
-        "genTime": settings.get("generationTimeMs", 0),
-        "tokenCost": settings.get("tokenCost"),
-        "openrouterBilling": settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else None,
-        "fileSizeBytes": file_size,
-        "publicParams": _gallery_public_params(
-            image_id=row["id"],
-            mode=row["mode"],
-            provider=row["provider"],
-            width=width,
-            height=height,
-            url=row["url"],
-            created_at=row["created_at"],
-            settings=settings,
-        ),
-        "favorite": bool(row["is_favorite"]),
-        "isFavorite": bool(row["is_favorite"]),
-        "published": published,
-        "feedPublicationId": publication_id,
-        "publishedAt": _row_get(publication, "created_at") if publication is not None else None,
-        "feedMediaStatus": "ready" if feed_ready else ("missing" if publication is not None else None),
-        "views": _row_get(publication, "view_count") if publication is not None else 0,
-        "likes": 0,
-        "saves": 0,
-        "remixes": 0,
-        "sourceIds": _gallery_source_ids(settings),
-    }
+    return gallery_items.gallery_page_item(
+        row,
+        publication,
+        include_feed_media=include_feed_media,
+        load_settings=json.loads,
+        row_get=_row_get,
+        publication_ready=_feed_publication_ready,
+        media_file_size=_media_file_size_from_url,
+        mode_label=_gallery_mode_label,
+        model_display_name=_user_model_name,
+        model_info=_gallery_model_info,
+        aspect_ratio=_gallery_aspect_ratio,
+        public_params=_gallery_public_params,
+        source_ids=_gallery_source_ids,
+    )
 
 
 def _gallery_page_limits(
