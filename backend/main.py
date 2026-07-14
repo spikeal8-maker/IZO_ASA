@@ -33,6 +33,11 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, Field
 
 try:
+    from .app.integrations.unisender import UniSenderError, UniSenderMessage, send_unisender_email
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.integrations.unisender import UniSenderError, UniSenderMessage, send_unisender_email
+
+try:
     from .resolution_policy import (
         IMAGE_RESOLUTIONS,
         CONFIG_UI_RESOLUTION_IDS,
@@ -544,6 +549,7 @@ AVATAR_DIR = STORAGE_PATH_POLICY.avatar_dir
 AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 
 OPENROUTER_SECRET_NAME = "openrouter_api_key"
+UNISENDER_SECRET_NAME = "unisender_api_key"
 OPENROUTER_SECRET_STORE_DIR = default_secret_store_dir()
 assert_secret_store_outside_repository(OPENROUTER_SECRET_STORE_DIR, ROOT.parent)
 OPENROUTER_SECRET_STORE = DpapiSecretStore(OPENROUTER_SECRET_STORE_DIR)
@@ -969,6 +975,13 @@ class AdminConfigUiActionV2Request(BaseModel):
 class AdminMailTestV2Request(BaseModel):
     email: str = ""
     template: Literal["verify_email", "support_reply", "system_notice"] = "verify_email"
+
+
+class AdminMailConfigV2Request(BaseModel):
+    api_key: str | None = Field(default=None, min_length=8, max_length=512)
+    sender_name: str = Field(default="ИЗО АСА", min_length=1, max_length=100)
+    sender_email: str = Field(min_length=5, max_length=254)
+    list_id: int = Field(ge=1)
 
 
 class BillingInvoiceItemV2Request(BaseModel):
@@ -2339,7 +2352,7 @@ def password_hash_needs_rehash(password_hash: str) -> bool:
 
 
 def email_provider_configured() -> bool:
-    return bool(EMAIL_PROVIDER)
+    return unisender_ready() or bool(EMAIL_PROVIDER)
 
 
 def email_otp_available() -> bool:
@@ -2361,6 +2374,28 @@ def validate_email_otp_config() -> None:
 
 
 def send_email_otp(destination: str, code: str) -> None:
+    config = unisender_config()
+    if unisender_ready(config):
+        try:
+            send_unisender_email(
+                unisender_api_key(),
+                UniSenderMessage(
+                    to=destination,
+                    subject="Код подтверждения ИЗО АСА",
+                    html=(
+                        "<p>Ваш код подтверждения:</p>"
+                        f"<p style='font-size:28px;font-weight:700;letter-spacing:4px'>{code}</p>"
+                        f"<p>Код действует {max(1, EMAIL_OTP_TTL_SECONDS // 60)} мин.</p>"
+                    ),
+                    sender_name=str(config.get("sender_name") or "ИЗО АСА"),
+                    sender_email=str(config["sender_email"]),
+                    list_id=int(config["list_id"]),
+                    reference_key=f"otp-{uuid.uuid4().hex}",
+                ),
+            )
+            return
+        except UniSenderError as exc:
+            raise RuntimeError(str(exc)) from exc
     security_send_email_otp(
         destination,
         code,
@@ -4949,6 +4984,36 @@ def delete_openrouter_api_key() -> None:
     delete_admin_secret(OPENROUTER_SECRET_NAME)
     _admin_models_page_cache["ts"] = 0.0
     _admin_models_page_cache["data"] = None
+
+
+def unisender_api_key() -> str:
+    return os.getenv("UNISENDER_API_KEY", "").strip() or OPENROUTER_SECRET_STORE.get(UNISENDER_SECRET_NAME)
+
+
+def unisender_config() -> dict[str, Any]:
+    with db() as conn:
+        row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'mail_provider'").fetchone()
+    value = safe_json_load(row["value_json"]) if row else {}
+    return value if isinstance(value, dict) else {}
+
+
+def unisender_ready(config: dict[str, Any] | None = None) -> bool:
+    current = config if config is not None else unisender_config()
+    return bool(unisender_api_key() and current.get("sender_email") and current.get("list_id"))
+
+
+def save_unisender_config(req: AdminMailConfigV2Request) -> None:
+    sender_email = normalize_email(req.sender_email)
+    if not sender_email:
+        raise ValueError("Введите корректный подтвержденный email отправителя.")
+    if req.api_key:
+        OPENROUTER_SECRET_STORE.set(UNISENDER_SECRET_NAME, req.api_key.strip())
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('mail_provider', ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+            (json.dumps({"provider": "unisender", "sender_name": req.sender_name.strip(), "sender_email": sender_email, "list_id": req.list_id}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+        )
 
 
 OPENROUTER_GENERATION_MODES = {"text_to_image", "image_to_image", "edit"}
@@ -11054,10 +11119,10 @@ async def admin_mail_status_v2(request: Request) -> dict[str, Any]:
             LIMIT 20
             """
         ).fetchall()
-    provider = EMAIL_PROVIDER.strip()
+    provider_config = unisender_config()
+    provider = "unisender" if unisender_ready(provider_config) else EMAIL_PROVIDER.strip()
     production = APP_ENV.lower() == "production"
-    # Current code has the secure OTP contract, but no production provider adapter yet.
-    delivery_implemented = not (production and bool(provider))
+    delivery_implemented = provider == "unisender" or not (production and bool(provider))
     service_ready = email_otp_available() and delivery_implemented
     return {
         "ok": True,
@@ -11070,11 +11135,10 @@ async def admin_mail_status_v2(request: Request) -> dict[str, Any]:
         "delivery_implemented": delivery_implemented,
         "debug_return_code": EMAIL_OTP_DEBUG_RETURN_CODE and not production,
         "config": {
-            "EMAIL_PROVIDER": bool(provider),
-            "EMAIL_FROM": bool(os.getenv("EMAIL_FROM") or os.getenv("SMTP_FROM")),
-            "SMTP_HOST": bool(os.getenv("SMTP_HOST")),
-            "SMTP_PORT": bool(os.getenv("SMTP_PORT")),
-            "SUPPORT_EMAIL": bool(os.getenv("SUPPORT_EMAIL")),
+            "api_key": bool(unisender_api_key()),
+            "sender_name": provider_config.get("sender_name") or "",
+            "sender_email": provider_config.get("sender_email") or "",
+            "list_id": provider_config.get("list_id") or "",
         },
         "summary": {
             "otp_total": int(otp_total or 0),
@@ -11743,6 +11807,16 @@ async def admin_assistants(request: Request) -> dict[str, Any]:
         "openrouterModels": text_models,
         "openrouterModelsError": text_models_error,
     }
+
+
+@app.put("/api/admin/mail/config-v2")
+async def admin_mail_config_v2(req: AdminMailConfigV2Request, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    try:
+        save_unisender_config(req)
+    except (ValueError, SecretStoreError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "configured": unisender_ready(), "provider": "unisender"}
 
 
 @app.post("/api/admin/assistants/test")

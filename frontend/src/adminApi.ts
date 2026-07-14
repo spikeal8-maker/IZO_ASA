@@ -33,3 +33,13 @@ export async function adminPost<T>(path: string, body: unknown): Promise<T | nul
   if (!response.ok) return null
   return await response.json() as T
 }
+
+export async function adminPut<T>(path: string, body: unknown): Promise<T | null> {
+  const response = await adminFetch(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) return null
+  return await response.json() as T
+}
