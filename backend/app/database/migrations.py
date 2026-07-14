@@ -113,6 +113,11 @@ FEED_PUBLICATION_ADDITIVE_COLUMNS = {
     "generation_snapshot_json": "TEXT",
     "updated_at": "TEXT",
     "view_count": "INTEGER NOT NULL DEFAULT 0",
+    "moderation_status": "TEXT NOT NULL DEFAULT 'approved'",
+    "moderation_reason": "TEXT",
+    "moderated_at": "TEXT",
+    "moderated_by_internal_user_id": "TEXT",
+    "source_job_id": "TEXT",
 }
 
 IMAGE_SOURCE_ADDITIVE_COLUMNS = {

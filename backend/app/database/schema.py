@@ -576,6 +576,11 @@ CREATE TABLE IF NOT EXISTS auth_identities (
                 allow_recreate INTEGER NOT NULL DEFAULT 1,
                 status TEXT NOT NULL DEFAULT 'published',
                 view_count INTEGER NOT NULL DEFAULT 0,
+                moderation_status TEXT NOT NULL DEFAULT 'approved',
+                moderation_reason TEXT,
+                moderated_at TEXT,
+                moderated_by_internal_user_id TEXT,
+                source_job_id TEXT,
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_feed_publications_status_created

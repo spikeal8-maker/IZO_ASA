@@ -14,6 +14,8 @@ from . import gallery_presentation
 from . import gallery_items
 from . import feed_presentation
 from . import feed_sources
+from . import feed_downloads
+from . import feed_policy
 from .comfyui_results import ComfyUIResult
 from .telegram_updates import (
     TelegramUpdateRuntime,
@@ -52,6 +54,8 @@ __all__ = [
     "gallery_items",
     "feed_presentation",
     "feed_sources",
+    "feed_downloads",
+    "feed_policy",
     "ComfyUIResult",
     "TelegramUpdateRuntime",
     "handle_telegram_update_with_runtime",

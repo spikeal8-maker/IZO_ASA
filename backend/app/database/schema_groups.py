@@ -241,6 +241,10 @@ def initialize_media_schema_group(conn: sqlite3.Connection) -> None:
         "ON feed_publications(legacy_user_id, status, media_ready_at, created_at)"
     )
     conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feed_publications_moderation_created "
+        "ON feed_publications(moderation_status, created_at)"
+    )
+    conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_images_user_deleted_created "
         "ON images(user_id, deleted_at, created_at)"
     )

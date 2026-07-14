@@ -211,8 +211,9 @@ button{user-select:none}
 .detail-icon{height:42px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:22px;line-height:1;position:relative}.detail-icon.like,.detail-icon.save{color:var(--acid);border-color:rgba(234,255,0,.24);background:rgba(234,255,0,.055)}.detail-icon small{display:block;font-size:12px;line-height:1;color:#fff;font-weight:820}
 .download-btn{height:42px;font-size:12px;padding:0 12px}.detail-icon:hover,.download-btn:hover,.remix-main:hover{border-color:rgba(234,255,0,.45);background:rgba(255,255,255,.08)}
 .detail-icon.more{font-size:24px;color:#e8eee2}.detail-icon.more.active{border-color:rgba(234,255,0,.42);color:var(--acid);background:rgba(234,255,0,.07)}
-.detail-more{display:grid;gap:10px;margin-bottom:12px;padding:10px;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:rgba(255,255,255,.025)}.detail-more[hidden]{display:none!important}.detail-secondary-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.detail-secondary-actions button{height:36px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#dfe7d9;font-size:11px;font-weight:720;cursor:pointer}.detail-secondary-actions button:hover{border-color:rgba(234,255,0,.36);color:#fff}
-.detail-management{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.detail-management button{height:34px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#dfe7d9;font-size:12px;font-weight:720;cursor:pointer}.detail-management button:hover{border-color:rgba(234,255,0,.36);color:#fff}.detail-management .danger{border-color:rgba(255,98,98,.36);color:#ffb8b8;background:rgba(255,71,71,.055)}.detail-management .danger:hover{border-color:rgba(255,98,98,.66);color:#fff}.detail-management button[hidden]{display:none!important}
+.detail-more{display:grid;gap:10px;margin-bottom:12px;padding:10px;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:rgba(255,255,255,.025)}.detail-more[hidden]{display:none!important}.detail-secondary-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.detail-secondary-actions button{height:38px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#dfe7d9;font-size:11px;font-weight:720;cursor:pointer}.detail-secondary-actions button:hover{border-color:rgba(234,255,0,.36);color:#fff}
+.detail-action-label{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-width:0}.detail-action-label svg{width:16px;height:16px;flex:0 0 auto;stroke-width:1.9}.detail-management{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.detail-management button{height:36px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#dfe7d9;font-size:11px;font-weight:720;cursor:pointer}.detail-management button:hover{border-color:rgba(234,255,0,.36);color:#fff}.detail-management .danger{border-color:rgba(255,98,98,.36);color:#ffb8b8;background:rgba(255,71,71,.055)}.detail-management .danger:hover{border-color:rgba(255,98,98,.66);color:#fff}.detail-management button[hidden]{display:none!important}
+.feed-use-menu{display:grid;gap:8px;padding:10px;border:1px solid rgba(234,255,0,.18);border-radius:11px;background:rgba(8,12,8,.72)}.feed-use-menu[hidden]{display:none!important}.feed-use-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#fff;font-size:12px;font-weight:800}.feed-use-close{width:28px;height:28px;border:0;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}.feed-use-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.feed-use-option{min-height:42px;padding:7px 9px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.035);color:#e9f0e4;display:flex;align-items:center;gap:8px;text-align:left;font-size:11px;font-weight:720;cursor:pointer}.feed-use-option:hover{border-color:rgba(234,255,0,.4);color:#fff}.feed-use-option svg{width:17px;height:17px;color:var(--acid);flex:0 0 auto}.feed-use-option small{display:block;color:var(--muted);font-size:9px;font-weight:620;margin-top:2px}
 [data-tip]{position:relative}[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:50%;top:-34px;transform:translateX(-50%);white-space:nowrap;background:rgba(14,17,14,.93);border:1px solid rgba(255,255,255,.13);color:#fff;border-radius:7px;padding:6px 8px;font-size:11px;font-weight:600;box-shadow:0 12px 28px rgba(0,0,0,.35);z-index:10}
 .detail-panels{display:grid;gap:8px;margin-bottom:10px}.panel-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.panel-tab{height:44px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.035);color:#fff;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;font-size:12px;font-weight:780;text-transform:uppercase;letter-spacing:.02em;cursor:pointer}.panel-tab span{color:var(--acid);font-size:18px;line-height:1;font-weight:500}.panel-tab.active{border-color:rgba(234,255,0,.36);background:rgba(234,255,0,.055)}.panel-content{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.035);overflow:hidden}.panel-pane{display:none}.panel-pane.active{display:grid}
 .prompt-state{margin-left:auto;color:var(--muted);font-size:11px;text-transform:none;letter-spacing:0;font-weight:700}
@@ -236,6 +237,7 @@ button{user-select:none}
 @media (max-width:980px) and (hover:none){.card-actions{display:none}.persist-stats{right:7px;bottom:7px;gap:8px}.persist-stat{min-width:26px;min-height:24px;justify-content:center;padding:2px 0;gap:3px}.persist-stat .num{font-size:10px;font-weight:650}.persist-stat.heart .ico,.persist-stat.remix .ico{font-size:18px}}
 @media (max-width:820px){:root{--top:72px}}
 @media (max-width:560px){.filters{width:100%;padding:3px 3px 0;scroll-snap-type:x proximity}.filter-btn{flex:1 0 auto;min-width:max-content;min-height:34px;padding:0 10px;font-size:12px;scroll-snap-align:center}.filter-btn::before{left:6px;right:6px}.search{height:34px}.signal-filter{height:34px;min-width:92px;font-size:11px;padding:0 7px}.challenge-copy h2{font-size:20px}.challenge-copy p{font-size:12px}.masonry{gap:7px}.masonry-col{gap:7px}.masonry-col:nth-child(n){padding-top:0}.mode-feature{height:96px}.mode-tile{min-width:146px;height:72px}.detail-author{grid-template-columns:56px minmax(0,1fr);grid-template-rows:auto auto;gap:6px 8px;align-items:start;padding:7px}.detail-avatar{grid-column:1;grid-row:1;width:54px;height:54px;font-size:18px}.author-card-main{grid-column:2;grid-row:1/3;gap:4px;align-self:start;min-width:0;padding-right:68px}.author-name-row b{display:block;white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word;font-size:15px;line-height:1.08}.author-work-count{font-size:10px;line-height:1.15}.author-top-actions{position:absolute;right:6px;top:5px;display:flex;gap:5px}.modal-close-inline,.author-notify{width:27px;height:27px}.author-actions{grid-column:1;grid-row:2;justify-content:flex-start;align-items:start;margin-top:0}.follow{width:54px;min-width:54px;height:22px;padding:0 2px;font-size:8px;border-radius:6px}.author-totals{grid-column:auto;grid-row:auto;margin-top:1px;padding-top:5px}.author-totals span{grid-template-columns:1fr;justify-items:center;gap:2px;padding:0 3px}.author-totals b{font-size:12px}.metric-ico{font-size:12px}.metric-row{font-size:11px;gap:7px;margin-bottom:9px}.detail-actions{grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}.remix-main,.detail-icon{height:36px;font-size:16px}.detail-icon small,.remix-main small{font-size:9px}.download-btn{font-size:0}.download-btn::before{content:'⇩';font-size:16px}.detail-management{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.panel-tabs{gap:6px}.panel-tab{height:42px;padding:0 8px;font-size:10px}.panel-tab .prompt-state{display:none}.detail-management button{font-size:11px}.more-grid{gap:7px}.more-col{gap:7px}.card-top .avatar{width:18px;min-width:18px;height:18px;font-size:8px}.card-top .author-name{font-size:10px}.author-line{gap:5px;padding:1px 0}}
+@media (max-width:560px){.download-btn{font-size:9px}.download-btn::before{content:none}.download-btn .detail-action-label{gap:4px}.download-btn .detail-action-label svg{width:14px;height:14px}.feed-use-options{grid-template-columns:1fr}.feed-use-option{min-height:40px}}
 @media (max-width:620px){.author-modal{padding:8px;align-items:flex-start}.author-dialog{width:100%;max-height:calc(100vh - 16px);border-radius:14px;padding:12px}.author-dialog-head{margin-bottom:-36px}.author-profile{display:block}.author-profile-main{padding-right:0}.author-profile-avatar{width:100%;max-height:none;aspect-ratio:1;border-radius:14px;font-size:56px;margin:0 0 12px}.author-profile-title{padding-right:46px;margin-bottom:2px}.author-profile-title h2{font-size:26px}.author-profile-about{font-size:14px;padding:12px;margin-bottom:10px}.author-profile-info{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.author-profile-info span{min-height:46px}.author-profile-info b{white-space:normal}.author-profile-links{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:0}.author-profile-links a{width:auto;min-height:40px;justify-content:space-between}.author-profile-stats{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:10px}.author-profile-stats span{padding-top:8px}.author-profile-stats b{font-size:14px}.author-profile-stats small{font-size:8px}.author-modal.photo-zoom .author-profile-avatar{width:calc(100vw - 24px);max-height:none;aspect-ratio:1;inset:50%}}
 @media (hover:hover){.iv3.topbar-scope .tab.active:hover,.primary-cta:hover,.filter-btn.active:hover{color:#070a04}}
 .author-profile-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
@@ -362,13 +364,25 @@ button{user-select:none}
         </div>
         <div class="detail-more" id="detailMore" hidden>
           <div class="detail-secondary-actions">
-            <button type="button" id="modalHideBtn">Не интересно</button>
-            <button class="download-btn" type="button" data-toast="Скачивание изображения">Скачать</button>
+            <button type="button" id="modalUseBtn"><span class="detail-action-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Редактировать</span></button>
+            <button type="button" id="modalHideBtn"><span class="detail-action-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="m2 2 20 20"/><path d="M10.6 10.7a2 2 0 0 0 2.7 2.7"/><path d="M9.9 4.2A10.6 10.6 0 0 1 12 4c7 0 10 8 10 8a16 16 0 0 1-2 3.2"/><path d="M6.6 6.6C3.8 8.5 2 12 2 12s3 8 10 8a9.8 9.8 0 0 0 4.2-.9"/></svg><span>Не интересно</span></span></button>
+            <button class="download-btn" type="button" data-download-format="jpeg"><span class="detail-action-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Скачать JPEG</span></button>
+            <button class="download-btn" type="button" data-download-format="png"><span class="detail-action-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Скачать PNG</span></button>
+          </div>
+          <div class="feed-use-menu" id="feedUseMenu" hidden>
+            <div class="feed-use-head"><span>Куда передать работу</span><button class="feed-use-close" type="button" id="feedUseClose" aria-label="Закрыть выбор">×</button></div>
+            <div class="feed-use-options">
+              <button class="feed-use-option" type="button" data-use-target="image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg><span>По фото<small>Полное преобразование</small></span></button>
+              <button class="feed-use-option" type="button" data-use-target="editor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 17.5h7M17.5 14v7"/></svg><span>Сборка<small>Как основное изображение</small></span></button>
+              <button class="feed-use-option" type="button" data-use-target="face_source"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="M18 3v4M16 5h4"/></svg><span>Взять лицо<small>Как референс лица</small></span></button>
+              <button class="feed-use-option" type="button" data-use-target="face_target"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/><path d="m17 11 2 2 3-3"/></svg><span>Наложить лицо<small>Как основа для замены</small></span></button>
+              <button class="feed-use-option" type="button" data-use-target="prompt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg><span>Взять промпт<small>Без изображения</small></span></button>
+            </div>
           </div>
           <div class="detail-management" id="detailOwnerActions">
-            <button type="button" id="modalReportBtn">Пожаловаться</button>
-            <button type="button" id="modalEditBtn">Редактировать</button>
-            <button type="button" id="modalDeleteBtn" class="danger">Удалить публикацию</button>
+            <button type="button" id="modalReportBtn"><span class="detail-action-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M5 21V4"/><path d="M5 5h12l-2 4 2 4H5"/></svg><span>Пожаловаться</span></span></button>
+            <button type="button" id="modalEditBtn"><span class="detail-action-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Изменить публикацию</span></button>
+            <button type="button" id="modalDeleteBtn" class="danger"><span class="detail-action-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 15H6L5 6"/><path d="M10 11v6M14 11v6"/></svg><span>Удалить публикацию</span></span></button>
           </div>
           <div class="detail-panels">
             <div class="panel-tabs" role="tablist" aria-label="Данные публикации">
@@ -464,6 +478,9 @@ const modalRemixBtn = document.querySelector('#modalRemixBtn');
 const modalSaveBtn = document.querySelector('#modalSaveBtn');
 const modalMoreBtn = document.querySelector('#modalMoreBtn');
 const detailMore = document.querySelector('#detailMore');
+const modalUseBtn = document.querySelector('#modalUseBtn');
+const feedUseMenu = document.querySelector('#feedUseMenu');
+const feedUseClose = document.querySelector('#feedUseClose');
 const modalEditBtn = document.querySelector('#modalEditBtn');
 const modalHideBtn = document.querySelector('#modalHideBtn');
 const modalReportBtn = document.querySelector('#modalReportBtn');
@@ -1091,6 +1108,11 @@ function closeAuthorPublicProfile(){
   authorModal.classList.remove('open');
   authorModal.setAttribute('aria-hidden','true');
 }
+function setDetailActionText(button, text){
+  const label = button?.querySelector('.detail-action-label');
+  const textNode = label?.lastElementChild;
+  if(textNode?.tagName === 'SPAN') textNode.textContent = text;
+}
 function syncAuthorControls(item){
   if(!item) return;
   followBtn.textContent = item.followed ? 'Отписаться' : 'Подписаться';
@@ -1103,7 +1125,7 @@ function syncAuthorControls(item){
     : 'Подписаться и включить оповещения о новых публикациях автора';
   modalEditBtn.hidden = !item.mine;
   modalDeleteBtn.hidden = !item.canDelete;
-  modalDeleteBtn.textContent = item.deleteRole === 'admin' && !item.mine ? 'Удалить как админ' : 'Удалить публикацию';
+  setDetailActionText(modalDeleteBtn, item.deleteRole === 'admin' && !item.mine ? 'Удалить как админ' : 'Удалить публикацию');
   modalDeleteBtn.title = item.deleteRole === 'admin' && !item.mine
     ? 'Скрыть публикацию из ленты как администратор'
     : 'Снять вашу публикацию с публичной ленты';
@@ -1189,11 +1211,14 @@ function openModal(index){
   modalSaveBtn.innerHTML = `${item.saved ? '★' : '☆'}<small>${escapeHtml(compactCount(item.savesNum || 0))}</small>`;
   modalSaveBtn.classList.toggle('active', item.saved);
   modalSaveBtn.dataset.tip = item.saved ? 'Убрать из избранного' : 'Сохранить в личное избранное';
-  modalHideBtn.textContent = item.hidden ? 'Вернуть в ленту' : 'Не интересно';
+  setFeedUseMenuOpen(false);
+  setDetailActionText(modalHideBtn, item.hidden ? 'Вернуть в ленту' : 'Не интересно');
   modalHideBtn.title = item.hidden ? 'Вернуть в ленту' : 'Не интересно';
   modalHideBtn.setAttribute('aria-label', item.hidden ? 'Вернуть в ленту' : 'Не интересно');
-  modalReportBtn.textContent = item.reported ? 'Жалоба отправлена' : 'Пожаловаться';
+  setDetailActionText(modalReportBtn, item.reported ? 'Жалоба отправлена' : 'Пожаловаться');
   modalReportBtn.disabled = item.reported;
+  const promptUseButton = feedUseMenu.querySelector('[data-use-target="prompt"]');
+  if(promptUseButton) promptUseButton.disabled = !item.prompt;
   modalStats.innerHTML = renderModalStats(item);
   modalPromptState.textContent = item.promptVisibility === 'open' ? 'открыт' : item.promptVisibility === 'partial' ? 'частично' : 'скрыт';
   modalPrompt.textContent = item.challenge ? `${item.prompt}\n\nЧеллендж: ${item.challenge.title}. ${item.challenge.promptHint || item.challenge.description || ''}` : item.prompt;
@@ -1217,16 +1242,17 @@ function showChallenge(){
   activateFeedTab('challenge', { force:true });
   showToast('Открыт челлендж Москва 2120');
 }
-function downloadCurrent(){
+function downloadCurrent(format='jpeg'){
   const item = works[currentIndex];
-  if(!item?.fullSrc) return;
+  if(!item?.id) return;
+  const selected = format === 'png' ? 'png' : 'jpeg';
   const a = document.createElement('a');
-  a.href = item.fullSrc;
-  a.download = `${item.id || 'izo-feed'}.webp`;
-  a.target = '_blank';
+  a.href = `/api/feed/publications/${encodeURIComponent(item.id)}/download?format=${selected}`;
+  a.download = `izo-asa-${item.id}.${selected === 'png' ? 'png' : 'jpg'}`;
   document.body.appendChild(a);
   a.click();
   a.remove();
+  showToast(`Готовим ${selected === 'png' ? 'PNG' : 'JPEG'} с водяным знаком`);
 }
 function closeModal(){
   closeAuthorPublicProfile();
@@ -1496,8 +1522,37 @@ function setDetailMoreOpen(open){
   modalMoreBtn.classList.toggle('active', open);
   modalMoreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
   modalMoreBtn.dataset.tip = open ? 'Скрыть дополнительные действия' : 'Другие действия';
+  if(!open) setFeedUseMenuOpen(false);
+}
+function setFeedUseMenuOpen(open){
+  if(!feedUseMenu || !modalUseBtn) return;
+  feedUseMenu.hidden = !open;
+  modalUseBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+async function useCurrentAs(target){
+  const item = works[currentIndex];
+  if(!item?.id) return;
+  const button = feedUseMenu.querySelector(`[data-use-target="${target}"]`);
+  if(button) button.disabled = true;
+  try{
+    const data = await api(`/api/feed/publications/${encodeURIComponent(item.id)}/use-as`, {
+      method:'POST',
+      body:JSON.stringify({ target })
+    });
+    sessionStorage.setItem('izoUseAsDraft', JSON.stringify({ ...data, createdAt:new Date().toISOString() }));
+    const route = target === 'image' ? '/#image-to-image' : target === 'prompt' ? '/#text-to-image' : '/#editor';
+    window.location.href = route;
+  }catch(err){
+    showToast('Войдите, чтобы использовать работу в редакторе');
+    console.error(err);
+  }finally{
+    if(button) button.disabled = false;
+  }
 }
 modalMoreBtn.addEventListener('click', ()=>setDetailMoreOpen(detailMore.hidden));
+modalUseBtn.addEventListener('click', ()=>setFeedUseMenuOpen(feedUseMenu.hidden));
+feedUseClose.addEventListener('click', ()=>setFeedUseMenuOpen(false));
+feedUseMenu.querySelectorAll('[data-use-target]').forEach(button=>button.addEventListener('click', ()=>useCurrentAs(button.dataset.useTarget)));
 modalLikeBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) likeWork(item.id); });
 modalRemixBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) remixWork(item.id); });
 modalSaveBtn.addEventListener('click', ()=>{ const item = works[currentIndex]; if(item) saveWork(item.id); });
@@ -1667,7 +1722,8 @@ document.addEventListener('click', e=>{
   if(action?.dataset.action === 'help'){ showToast('Помощь открывается в основном интерфейсе'); window.location.href = '/#help'; return; }
   if(action?.dataset.action === 'tab-help'){ showToast((tabTexts[activeFilter] || tabTexts.all).text); return; }
   if(action?.dataset.action === 'back-feed'){ activateFeedTab('all', { force:true }); return; }
-  if(e.target.closest('.download-btn')){ downloadCurrent(); return; }
+  const downloadButton = e.target.closest('.download-btn');
+  if(downloadButton){ downloadCurrent(downloadButton.dataset.downloadFormat); return; }
   const t = e.target.closest('[data-toast]');
   if(t) showToast(t.dataset.toast);
 });

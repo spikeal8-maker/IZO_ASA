@@ -198,6 +198,8 @@ try:
         gallery_items,
         feed_presentation,
         feed_sources,
+        feed_downloads,
+        feed_policy,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -233,6 +235,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         gallery_items,
         feed_presentation,
         feed_sources,
+        feed_downloads,
+        feed_policy,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -1097,6 +1101,11 @@ class FavoriteRequest(BaseModel):
 
 class UseAsRequest(BaseModel):
     target: str
+
+
+class FeedModerationRequest(BaseModel):
+    action: Literal["approve", "reject"]
+    reason: str = Field(min_length=3, max_length=500)
 
 
 class AdminLimitRequest(BaseModel):
@@ -3669,6 +3678,17 @@ def persist_image(record: dict[str, Any], job_id: str) -> None:
 
 
 def local_media_path_from_url(url: str) -> Path | None:
+    feed_match = re.fullmatch(r"/api/feed/media/([A-Za-z0-9_-]+)(?:\?[^#]*)?", str(url or ""))
+    if feed_match:
+        try:
+            return storage_resolve_feed_media(
+                _public_media_runtime(),
+                MEDIA,
+                feed_match.group(1),
+                variant="large",
+            )
+        except PublicMediaAccessError:
+            return None
     try:
         return storage_local_media_path_from_url(MEDIA, url)
     except StoragePathError as exc:
@@ -13583,6 +13603,9 @@ def _feed_item_payload(
     author_profile = _feed_author_profile(conn, pub["internal_user_id"], pub["legacy_user_id"])
     return {
         "id": pub["id"],
+        "status": _row_get(pub, "status"),
+        "moderation_status": _row_get(pub, "moderation_status") or "approved",
+        "moderation_reason": _row_get(pub, "moderation_reason"),
         "image_url": f"/api/feed/media/{pub['id']}?variant=large",
         "thumbnail_url": f"/api/feed/media/{pub['id']}?variant=thumb",
         "media_status": "ready" if media_ready else "missing",
@@ -13823,7 +13846,14 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
         raise HTTPException(400, "invalid category")
     with db() as conn:
         image = conn.execute(
-            "SELECT id, user_id, url, width, height, mode, provider, prompt_original, settings_json, created_at FROM images WHERE id = ?",
+            """
+            SELECT i.id, i.user_id, i.job_id, i.url, i.width, i.height, i.mode, i.provider,
+                   i.prompt_original, i.settings_json, i.created_at,
+                   j.status AS job_status, j.result_image_id AS job_result_image_id
+            FROM images i
+            LEFT JOIN jobs j ON j.id = i.job_id
+            WHERE i.id = ? AND i.deleted_at IS NULL
+            """,
             (image_id,),
         ).fetchone()
     # Не раскрываем существование чужих изображений: и «нет», и «не твоё» → 404.
@@ -13839,6 +13869,27 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
                 request=request,
             )
         raise HTTPException(404, "Image not found")
+    decision = feed_policy.publication_decision(
+        _row_get(image, "mode"),
+        has_verified_generation=bool(
+            _row_get(image, "job_id")
+            and _row_get(image, "job_status") == "completed"
+            and _row_get(image, "job_result_image_id") == image_id
+        ),
+    )
+    if decision.blocked:
+        with db() as conn:
+            record_security_event(
+                conn,
+                "feed_publish_policy_denied",
+                internal_user_id=user["internal_user_id"],
+                session_id=user.get("session_id"),
+                request=request,
+                details={"image_id": short_public_id(image_id), "reason": decision.reason},
+            )
+        if str(decision.reason or "").startswith("source_mode_not_publishable"):
+            raise HTTPException(400, "This generation mode cannot be published to the feed yet")
+        raise HTTPException(400, "Only verified generated results can be published")
     with db() as conn:
         existing = conn.execute(
             "SELECT id FROM feed_publications WHERE image_id = ?", (image_id,)
@@ -13853,6 +13904,8 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
             raise HTTPException(400, "Image cannot be prepared for feed")
         source_type = _feed_source_type(_row_get(image, "mode"))
         source_label = _feed_source_label(source_type)
+        publication_status = "pending_review" if decision.requires_review else "published"
+        moderation_status = "pending_review" if decision.requires_review else "approved"
         remix_policy = "allowed" if allow_recreate else "disabled"
         generation_snapshot = _feed_generation_snapshot(conn, image)
         tags_json = json.dumps(tags, ensure_ascii=False)
@@ -13860,18 +13913,20 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
         if existing:
             conn.execute(
                 "UPDATE feed_publications SET title = ?, description = ?, prompt_visibility = ?, "
-                "allow_recreate = ?, status = 'published', feed_thumb_name = ?, feed_large_name = ?, "
+                "allow_recreate = ?, status = ?, feed_thumb_name = ?, feed_large_name = ?, "
                 "feed_thumb_width = ?, feed_thumb_height = ?, feed_thumb_bytes = ?, "
                 "feed_large_width = ?, feed_large_height = ?, feed_large_bytes = ?, "
                 "media_ready_at = ?, media_error = NULL, native_aspect_ratio = ?, orientation = ?, "
                 "source_type = ?, source_label = ?, display_policy = ?, remix_policy = ?, category = ?, "
-                "tags_json = ?, generation_snapshot_json = ?, updated_at = ? "
+                "tags_json = ?, generation_snapshot_json = ?, moderation_status = ?, moderation_reason = ?, "
+                "moderated_at = ?, moderated_by_internal_user_id = NULL, source_job_id = ?, updated_at = ? "
                 "WHERE id = ?",
                 (
                     title,
                     description,
                     visibility,
                     int(allow_recreate),
+                    publication_status,
                     assets.feed_thumb_name,
                     assets.feed_large_name,
                     assets.feed_thumb_width,
@@ -13890,6 +13945,10 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
                     category,
                     tags_json,
                     snapshot_json,
+                    moderation_status,
+                    decision.reason,
+                    now if moderation_status == "approved" else None,
+                    _row_get(image, "job_id"),
                     now,
                     pub_id,
                 ),
@@ -13901,42 +13960,53 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
                 "feed_large_name, feed_thumb_width, feed_thumb_height, feed_thumb_bytes, "
                 "feed_large_width, feed_large_height, feed_large_bytes, media_ready_at, media_error, "
                 "native_aspect_ratio, orientation, source_type, source_label, display_policy, remix_policy, category, "
-                "tags_json, generation_snapshot_json, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    pub_id,
-                    image_id,
-                    user["internal_user_id"],
-                    user["legacy_user_id"],
-                    title,
-                    description,
-                    visibility,
-                    int(allow_recreate),
-                    now,
-                    assets.feed_thumb_name,
-                    assets.feed_large_name,
-                    assets.feed_thumb_width,
-                    assets.feed_thumb_height,
-                    assets.feed_thumb_bytes,
-                    assets.feed_large_width,
-                    assets.feed_large_height,
-                    assets.feed_large_bytes,
-                    now,
-                    assets.native_aspect_ratio,
-                    assets.orientation,
-                    source_type,
-                    source_label,
-                    FEED_DISPLAY_POLICY,
-                    remix_policy,
-                    category,
-                    tags_json,
-                    snapshot_json,
-                    now,
-                ),
+                "tags_json, generation_snapshot_json, moderation_status, moderation_reason, moderated_at, "
+                "moderated_by_internal_user_id, source_job_id, updated_at) "
+                "VALUES (:id, :image_id, :internal_user_id, :legacy_user_id, :title, :description, "
+                ":prompt_visibility, :allow_recreate, :status, :created_at, :feed_thumb_name, :feed_large_name, "
+                ":feed_thumb_width, :feed_thumb_height, :feed_thumb_bytes, :feed_large_width, :feed_large_height, "
+                ":feed_large_bytes, :media_ready_at, NULL, :native_aspect_ratio, :orientation, :source_type, "
+                ":source_label, :display_policy, :remix_policy, :category, :tags_json, :snapshot_json, "
+                ":moderation_status, :moderation_reason, :moderated_at, NULL, :source_job_id, :updated_at)",
+                {
+                    "id": pub_id,
+                    "image_id": image_id,
+                    "internal_user_id": user["internal_user_id"],
+                    "legacy_user_id": user["legacy_user_id"],
+                    "title": title,
+                    "description": description,
+                    "prompt_visibility": visibility,
+                    "allow_recreate": int(allow_recreate),
+                    "status": publication_status,
+                    "created_at": now,
+                    "feed_thumb_name": assets.feed_thumb_name,
+                    "feed_large_name": assets.feed_large_name,
+                    "feed_thumb_width": assets.feed_thumb_width,
+                    "feed_thumb_height": assets.feed_thumb_height,
+                    "feed_thumb_bytes": assets.feed_thumb_bytes,
+                    "feed_large_width": assets.feed_large_width,
+                    "feed_large_height": assets.feed_large_height,
+                    "feed_large_bytes": assets.feed_large_bytes,
+                    "media_ready_at": now,
+                    "native_aspect_ratio": assets.native_aspect_ratio,
+                    "orientation": assets.orientation,
+                    "source_type": source_type,
+                    "source_label": source_label,
+                    "display_policy": FEED_DISPLAY_POLICY,
+                    "remix_policy": remix_policy,
+                    "category": category,
+                    "tags_json": tags_json,
+                    "snapshot_json": snapshot_json,
+                    "moderation_status": moderation_status,
+                    "moderation_reason": decision.reason,
+                    "moderated_at": now if moderation_status == "approved" else None,
+                    "source_job_id": _row_get(image, "job_id"),
+                    "updated_at": now,
+                },
             )
         pub = conn.execute("SELECT * FROM feed_publications WHERE id = ?", (pub_id,)).fetchone()
         item = _feed_item_payload(conn, pub, user["internal_user_id"])
-    return {"ok": True, "publication": item}
+    return {"ok": True, "publication": item, "moderation": moderation_status}
 
 
 @app.patch("/api/feed/publications/{publication_id}")
@@ -14067,6 +14137,40 @@ async def feed_report(publication_id: str, request: Request) -> dict[str, Any]:
     return _feed_reaction_toggle(request, publication_id, "report", True)
 
 
+@app.post("/api/feed/publications/{publication_id}/use-as")
+async def feed_publication_use_as(publication_id: str, req: UseAsRequest, request: Request) -> dict[str, Any]:
+    """Prepare a server-selected public feed image for a trusted editing workflow."""
+    require_trusted_user(request)
+    target = str(req.target or "").strip().lower()
+    allowed_targets = {"image", "editor", "face_source", "face_target", "prompt"}
+    if target not in allowed_targets:
+        raise HTTPException(400, "Unsupported feed editing target")
+    with db() as conn:
+        publication = conn.execute(
+            """
+            SELECT * FROM feed_publications
+            WHERE id = ?
+              AND status = 'published'
+              AND media_ready_at IS NOT NULL
+              AND feed_thumb_name IS NOT NULL
+              AND feed_large_name IS NOT NULL
+            """,
+            (publication_id,),
+        ).fetchone()
+        if publication is None:
+            raise HTTPException(404, "Publication not found")
+        item = _feed_item_payload(conn, publication, None)
+    return {
+        "ok": True,
+        "publicationId": publication_id,
+        "target": target,
+        "inputImage": f"/api/feed/media/{publication_id}?variant=large",
+        "prompt": item.get("prompt") if target in {"image", "editor", "prompt"} else None,
+        "aspectRatio": item.get("native_aspect_ratio"),
+        "source": "feed",
+    }
+
+
 @app.post("/api/feed/authors/{author_id}/follow")
 async def feed_follow_author(author_id: str, request: Request) -> dict[str, Any]:
     user = require_trusted_user(request)
@@ -14185,6 +14289,114 @@ async def feed_remix_start(publication_id: str, request: Request) -> dict[str, A
         "aspectRatio": item["native_aspect_ratio"],
         "lockedPrompt": item["prompt_visibility"] == "hidden",
     }
+
+
+@app.get("/api/admin/feed/moderation")
+async def admin_feed_moderation_queue(request: Request, limit: int = 50) -> dict[str, Any]:
+    require_trusted_admin(request)
+    limit = max(1, min(int(limit or 50), 100))
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT p.id, p.image_id, p.internal_user_id, p.title, p.description, p.source_type,
+                   p.source_label, p.moderation_status, p.moderation_reason, p.created_at,
+                   COALESCE(u.display_name, u.first_name, 'Автор') AS author_name
+            FROM feed_publications p
+            LEFT JOIN users u ON u.internal_user_id = p.internal_user_id
+            WHERE p.status = 'pending_review' AND p.moderation_status = 'pending_review'
+            ORDER BY p.created_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return {
+        "ok": True,
+        "items": [
+            {
+                **dict(row),
+                "review_image_url": f"/api/admin/feed/publications/{row['id']}/media",
+            }
+            for row in rows
+        ],
+    }
+
+
+@app.get("/api/admin/feed/publications/{publication_id}/media")
+async def admin_feed_moderation_media(publication_id: str, request: Request) -> FileResponse:
+    require_trusted_admin(request)
+    with db() as conn:
+        publication = conn.execute(
+            "SELECT feed_large_name FROM feed_publications WHERE id = ? AND status = 'pending_review'",
+            (publication_id,),
+        ).fetchone()
+    if publication is None or not publication["feed_large_name"]:
+        raise HTTPException(404, "Publication not found")
+    try:
+        path = storage_resolve_under_root(MEDIA, publication["feed_large_name"])
+    except StoragePathError as exc:
+        raise HTTPException(404, "Image file not found") from exc
+    if not path.is_file():
+        raise HTTPException(404, "Image file not found")
+    return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "private, no-store"})
+
+
+@app.post("/api/admin/feed/publications/{publication_id}/moderate")
+async def admin_moderate_feed_publication(
+    publication_id: str,
+    req: FeedModerationRequest,
+    request: Request,
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = req.reason.strip()
+    now = datetime.now(timezone.utc).isoformat()
+    rejected_media: list[str | None] = []
+    with db() as conn:
+        publication = conn.execute(
+            "SELECT * FROM feed_publications WHERE id = ? AND status = 'pending_review'",
+            (publication_id,),
+        ).fetchone()
+        if publication is None:
+            raise HTTPException(404, "Publication not found")
+        next_status = "published" if req.action == "approve" else "hidden"
+        moderation_status = "approved" if req.action == "approve" else "rejected"
+        conn.execute(
+            """
+            UPDATE feed_publications
+            SET status = ?, moderation_status = ?, moderation_reason = ?, moderated_at = ?,
+                moderated_by_internal_user_id = ?, media_error = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                next_status,
+                moderation_status,
+                reason,
+                now,
+                admin["internal_user_id"],
+                None if req.action == "approve" else "moderation_rejected",
+                now,
+                publication_id,
+            ),
+        )
+        if req.action == "reject":
+            rejected_media = [publication["feed_thumb_name"], publication["feed_large_name"]]
+            conn.execute(
+                "UPDATE feed_publications SET feed_thumb_name = NULL, feed_large_name = NULL, media_ready_at = NULL WHERE id = ?",
+                (publication_id,),
+            )
+        record_audit_log(
+            conn,
+            "moderate_feed_publication",
+            actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=publication["internal_user_id"],
+            entity_type="feed_publication",
+            entity_id=publication_id,
+            before={"status": publication["status"], "moderation_status": publication["moderation_status"]},
+            after={"status": next_status, "moderation_status": moderation_status, "reason": reason},
+            request=request,
+        )
+    for media_name in rejected_media:
+        _delete_media_rel(media_name)
+    return {"ok": True, "publicationId": publication_id, "status": next_status, "moderation": moderation_status}
 
 
 @app.post("/api/admin/feed/publications/{publication_id}/delete-v2")
@@ -14364,4 +14576,36 @@ async def feed_media(publication_id: str, request: Request, variant: str = "larg
         path,
         media_type="image/webp",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@app.get("/api/feed/publications/{publication_id}/download")
+async def feed_publication_download(publication_id: str, request: Request, format: str = "jpeg") -> Response:
+    """Download a branded JPEG/PNG without exposing the private gallery original."""
+    try:
+        selected_format = feed_downloads.normalize_download_format(format)
+        source_path = storage_resolve_feed_media(
+            _public_media_runtime(),
+            MEDIA,
+            publication_id,
+            variant="large",
+        )
+        content = feed_downloads.render_feed_download(source_path, output_format=selected_format)
+    except feed_downloads.FeedDownloadError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except PublicMediaAccessError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+    except (OSError, ValueError) as exc:
+        raise HTTPException(422, "Image cannot be prepared for download") from exc
+    extension = "jpg" if selected_format == "jpeg" else "png"
+    safe_publication_id = re.sub(r"[^a-zA-Z0-9_-]", "-", publication_id)[:80] or "publication"
+    return Response(
+        content=content,
+        media_type="image/jpeg" if selected_format == "jpeg" else "image/png",
+        headers={
+            "Content-Disposition": f'attachment; filename="izo-asa-{safe_publication_id}.{extension}"',
+            "Cache-Control": "public, max-age=86400",
+            "X-Content-Type-Options": "nosniff",
+            "X-IZO-Watermark-Version": feed_downloads.WATERMARK_VERSION,
+        },
     )

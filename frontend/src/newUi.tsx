@@ -1145,15 +1145,23 @@ export default function NewStudio(): ReactElement {
     window.sessionStorage.removeItem('izoUseAsDraft')
     try {
       const draft = JSON.parse(raw) as { target?: string; inputImage?: string; prompt?: string }
-      if (!draft.inputImage) return undefined
-      const image = apiUrl(draft.inputImage)
       const target = draft.target || 'image'
+      if (target !== 'prompt' && !draft.inputImage) return undefined
+      const image = draft.inputImage ? apiUrl(draft.inputImage) : ''
       queueMicrotask(() => {
         if (cancelled) return
-        if (target === 'editor') {
+        if (target === 'prompt') {
+          setTab('text')
+          if (draft.prompt) setPrompts((current) => ({ ...current, text: draft.prompt || '' }))
+        } else if (target === 'editor' || target === 'face_target') {
           setTab('edit')
           setEditSlots((current) => current.map((slot, index) => index === 0 ? { ...slot, image } : slot))
           if (draft.prompt) setPrompts((current) => ({ ...current, edit: draft.prompt || '' }))
+        } else if (target === 'face_source') {
+          setTab('edit')
+          setEditSlots((current) => current.map((slot, index) => (
+            index === 1 ? { ...slot, image, role: 'face', takeNote: '' } : slot
+          )))
         } else if (target === 'draw') {
           setTab('paint')
           setPaintImage(image)
@@ -1254,10 +1262,14 @@ export default function NewStudio(): ReactElement {
       }),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then(() => {
+      .then((data) => {
         setPublishFor(null)
         setGalleryItem(undefined)
-        showToast(feedLang === 'ru' ? 'Опубликовано в ленту' : 'Published to feed')
+        const pendingReview = data?.moderation === 'pending_review'
+        showToast(pendingReview
+          ? (feedLang === 'ru' ? 'Отправлено на проверку' : 'Sent for review')
+          : (feedLang === 'ru' ? 'Опубликовано в ленту' : 'Published to feed'))
+        if (pendingReview) return
         window.setTimeout(() => {
           window.location.href = '/feed'
         }, 250)

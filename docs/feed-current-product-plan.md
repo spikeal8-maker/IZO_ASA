@@ -63,6 +63,28 @@ The current product, content, database, and UX audit lives in
 
 ## Completed In This Pass
 
+- Public downloads now use
+  `GET /api/feed/publications/{publication_id}/download?format=jpeg|png`.
+  The backend renders a compact ИЗО АСА emblem, product name, and
+  `alitinizo.ru` in the lower-right corner. Preview media remains clean, private
+  gallery originals are never exposed, JPEG is the default interoperable
+  download, and PNG is available when transparency or lossless output matters.
+- Publication management and creative reuse are separate actions. Owners use
+  `Изменить публикацию` to change publication metadata. `Редактировать` opens
+  explicit destinations for image-to-image, editor base, face reference, face
+  target, or prompt-only reuse. The trusted `use-as` endpoint selects the public
+  feed media server-side; the client cannot submit an arbitrary source URL.
+- Every secondary publication action has a local Lucide-style icon while
+  retaining a readable text label and accessible button semantics.
+- New publications require verified completed-generation provenance. Mask/
+  inpaint and background-removal results are rejected by the backend. Modes
+  that can preserve large parts of an uploaded reference (`image_to_image`,
+  edit, outpaint, face/try-on/texture operations) enter `pending_review` and do
+  not appear in public reads or public media routes until approved.
+- Admin feed moderation has a trusted queue, protected review-media endpoint,
+  approve/reject mutation, audit trail, and rejection cleanup. Existing
+  publications are additively grandfathered as approved; the private gallery
+  source remains untouched by moderation.
 - Feed author payloads now expose real `followersCount` and `followingCount`
   values from `feed_author_follows`. The publication author card and public
   profile display both counts and update the follower count immediately after
@@ -143,6 +165,10 @@ The current product, content, database, and UX audit lives in
 - Do not keep disabled duplicate feed pages as "fallbacks"; remove them after a
   tested canonical replacement exists.
 - Do not return to serving `images.url` originals from public feed endpoints.
+- Do not restore direct client downloads of `feed_large.webp`; branded download
+  responses must remain server-rendered JPEG/PNG files.
+- Do not trust a client-provided mode or source URL when publishing or reusing a
+  feed image. Provenance and media selection remain server-owned.
 - Do not remove seed/demo originals or feed publications during visual work.
 - Do not let `/feed` drift from the main top bar treatment; update this page
   when `TopBarV3` changes.

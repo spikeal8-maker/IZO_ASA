@@ -7,6 +7,7 @@ is served only for published items; init_db stays idempotent with feed tables.
 from __future__ import annotations
 
 import json
+import io
 
 import pytest
 from fastapi.testclient import TestClient
@@ -73,12 +74,18 @@ def make_image(image_id: str, legacy_user: str, prompt: str = "секретны�
     thumb = main.MEDIA / f"{image_id}_thumb.webp"
     image.thumbnail((512, 512))
     image.save(thumb, "WEBP", quality=88)
+    job_id = f"job-{image_id}"
     with main.db() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id, user_id, mode, provider, status, progress, prompt_original, result_image_id, settings_json, created_at, completed_at) "
+            "VALUES (?, ?, 'text_to_image', 'comfyui', 'completed', 100, ?, ?, '{}', '2026-07-03', '2026-07-03')",
+            (job_id, legacy_user, prompt, image_id),
+        )
         conn.execute(
             "INSERT INTO images (id, user_id, job_id, url, thumbnail_url, width, height, mode, provider, "
             "prompt_original, settings_json, created_at) "
-            "VALUES (?, ?, 'job-x', ?, ?, 1200, 800, 'text_to_image', 'comfyui', ?, '{\"seed\": 42}', '2026-07-03')",
-            (image_id, legacy_user, f"/api/media/{image_id}.png?userId={legacy_user}",
+            "VALUES (?, ?, ?, ?, ?, 1200, 800, 'text_to_image', 'comfyui', ?, '{\"seed\": 42}', '2026-07-03')",
+            (image_id, legacy_user, job_id, f"/api/media/{image_id}.png?userId={legacy_user}",
              f"/api/media/{image_id}_thumb.webp?userId={legacy_user}", prompt),
         )
 
@@ -97,6 +104,73 @@ def test_publish_requires_session(temp_db):
     with TestClient(main.app) as client:
         r = client.post("/api/feed/publications", json={"imageId": "img-1", "title": "X"})
         assert r.status_code == 401
+
+
+def test_feed_publish_requires_verified_generation_and_blocks_unsafe_source_modes(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-policy", "web_policy")
+        make_image("img-policy-missing", "web_policy")
+        with main.db() as conn:
+            conn.execute("DELETE FROM jobs WHERE id = 'job-img-policy-missing'")
+        missing = client.post(
+            "/api/feed/publications",
+            json={"imageId": "img-policy-missing", "title": "Нет происхождения"},
+            headers=bearer(token),
+        )
+        assert missing.status_code == 400
+        assert "verified generated" in missing.json()["detail"]
+
+        for mode in ("inpaint", "remove_background"):
+            image_id = f"img-policy-{mode}"
+            make_image(image_id, "web_policy")
+            with main.db() as conn:
+                conn.execute("UPDATE images SET mode = ? WHERE id = ?", (mode, image_id))
+            blocked = client.post(
+                "/api/feed/publications",
+                json={"imageId": image_id, "title": "Запрещённый режим"},
+                headers=bearer(token),
+            )
+            assert blocked.status_code == 400
+            assert "cannot be published" in blocked.json()["detail"]
+
+
+def test_feed_risky_mode_waits_for_admin_moderation(temp_db):
+    with TestClient(main.app) as client:
+        owner_token = make_user("iuid-review-owner", "web_review_owner")
+        admin_token = make_admin("iuid-review-admin", "web_review_admin")
+        make_image("img-review", "web_review_owner")
+        with main.db() as conn:
+            conn.execute("UPDATE images SET mode = 'image_to_image' WHERE id = 'img-review'")
+
+        response = client.post(
+            "/api/feed/publications",
+            json={"imageId": "img-review", "title": "На проверку"},
+            headers=bearer(owner_token),
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        pub = data["publication"]
+        assert data["moderation"] == "pending_review"
+        assert pub["status"] == "pending_review"
+        assert pub["moderation_status"] == "pending_review"
+        assert client.get(f"/api/feed/media/{pub['id']}?variant=large").status_code == 404
+        assert pub["id"] not in {item["id"] for item in client.get("/api/feed?type=new").json()["items"]}
+
+        assert client.get("/api/admin/feed/moderation", headers=bearer(owner_token)).status_code == 403
+        queue = client.get("/api/admin/feed/moderation", headers=bearer(admin_token))
+        assert queue.status_code == 200, queue.text
+        assert queue.json()["items"][0]["id"] == pub["id"]
+        preview = client.get(queue.json()["items"][0]["review_image_url"], headers=bearer(admin_token))
+        assert preview.status_code == 200
+        approved = client.post(
+            f"/api/admin/feed/publications/{pub['id']}/moderate",
+            json={"action": "approve", "reason": "Проверено администратором"},
+            headers=bearer(admin_token),
+        )
+        assert approved.status_code == 200, approved.text
+        assert approved.json()["status"] == "published"
+        assert client.get(f"/api/feed/media/{pub['id']}?variant=large").status_code == 200
+        assert pub["id"] in {item["id"] for item in client.get("/api/feed?type=new").json()["items"]}
 
 
 def test_gallery_page_shell_serves_installed_visual_file(temp_db):
@@ -152,6 +226,11 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "n2-tab" not in r.text
         assert 'data-action="challenge"' in r.text
         assert "downloadCurrent" in r.text
+        assert "Скачать JPEG" in r.text
+        assert "Скачать PNG" in r.text
+        assert "modalUseBtn" in r.text
+        assert "data-use-target=\"face_source\"" in r.text
+        assert "/use-as" in r.text
         assert "modalSaveBtn" in r.text
         assert "modalDeleteBtn" in r.text
         assert "modalEditBtn" in r.text
@@ -576,6 +655,67 @@ def test_feed_media_served_only_for_published(temp_db):
         assert anon.get("/api/feed/media/nope").status_code == 404
         # Приватный /api/media как был: без сессии чужой файл не отдаётся
         # (легаси-фолбэк ?userId в проде закрыт trusted-сессией — см. gallery).
+
+
+def test_feed_download_is_branded_jpeg_or_png_without_session(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-download", "web_download")
+        make_image("img-download", "web_download")
+        pub = publish(client, token, "img-download")
+
+        jpeg = client.get(f"/api/feed/publications/{pub['id']}/download")
+        assert jpeg.status_code == 200, jpeg.text
+        assert jpeg.headers["content-type"] == "image/jpeg"
+        assert jpeg.headers["content-disposition"].endswith('.jpg"')
+        assert jpeg.headers["x-izo-watermark-version"] == "v1"
+        with Image.open(io.BytesIO(jpeg.content)) as downloaded:
+            assert downloaded.format == "JPEG"
+            assert downloaded.size == (1200, 800)
+
+        png = client.get(f"/api/feed/publications/{pub['id']}/download?format=png")
+        assert png.status_code == 200, png.text
+        assert png.headers["content-type"] == "image/png"
+        assert png.headers["content-disposition"].endswith('.png"')
+        with Image.open(io.BytesIO(png.content)) as downloaded:
+            assert downloaded.format == "PNG"
+            assert downloaded.size == (1200, 800)
+
+        assert client.get(f"/api/feed/publications/{pub['id']}/download?format=webp").status_code == 400
+        assert client.get("/api/feed/publications/missing/download").status_code == 404
+
+
+def test_feed_use_as_requires_session_and_returns_server_selected_media(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-use-feed", "web_use_feed")
+        make_image("img-use-feed", "web_use_feed", prompt="город из стекла")
+        pub = publish(client, token, "img-use-feed")
+
+        denied = client.post(f"/api/feed/publications/{pub['id']}/use-as", json={"target": "image"})
+        assert denied.status_code == 401
+        invalid = client.post(
+            f"/api/feed/publications/{pub['id']}/use-as",
+            json={"target": "unknown"},
+            headers=bearer(token),
+        )
+        assert invalid.status_code == 400
+
+        prepared = client.post(
+            f"/api/feed/publications/{pub['id']}/use-as",
+            json={"target": "face_target"},
+            headers=bearer(token),
+        )
+        assert prepared.status_code == 200, prepared.text
+        payload = prepared.json()
+        assert payload["inputImage"] == f"/api/feed/media/{pub['id']}?variant=large"
+        assert payload["prompt"] is None
+        assert main.local_media_path_from_url(payload["inputImage"]).is_file()
+
+        prompt_only = client.post(
+            f"/api/feed/publications/{pub['id']}/use-as",
+            json={"target": "prompt"},
+            headers=bearer(token),
+        ).json()
+        assert prompt_only["prompt"] == "город из стекла"
 
 
 def test_gallery_delete_retires_feed_publication_and_variants(temp_db):
@@ -1390,6 +1530,11 @@ def test_init_db_has_feed_media_contract_columns(temp_db):
         "remix_policy",
         "tags_json",
         "updated_at",
+        "moderation_status",
+        "moderation_reason",
+        "moderated_at",
+        "moderated_by_internal_user_id",
+        "source_job_id",
     }
     assert expected <= columns
 
@@ -1411,6 +1556,7 @@ def test_init_db_has_media_query_indexes(temp_db):
         "idx_feed_publications_media_ready",
         "idx_feed_publications_category_ready_created",
         "idx_feed_publications_legacy_ready_created",
+        "idx_feed_publications_moderation_created",
     }
     assert expected <= indexes
 
