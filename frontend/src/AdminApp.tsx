@@ -17,7 +17,7 @@ const AdminModelsV2 = lazy(() => import('./adminModels'))
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 
-type AdminTab = 'dashboard' | 'users' | 'models' | 'tariffs' | 'mail' | 'logs'
+type AdminTab = 'dashboard' | 'crm' | 'models' | 'tariffs' | 'payments' | 'mail' | 'logs'
 type AnyRec = Record<string, unknown>
 type SeriesPoint = { date: string; value: number }
 type DashboardRange = 1 | 6 | 12 | 24 | 7 | 30 | 90
@@ -35,6 +35,28 @@ type OpenRouterConfig = {
 }
 
 const HOURLY_DASHBOARD_RANGES = new Set<DashboardRange>([1, 6, 12, 24])
+
+const ADMIN_ROUTES: Array<{ tab: AdminTab; label: string; path: string }> = [
+  { tab: 'dashboard', label: 'Дашборд', path: '/admin/dashboard' },
+  { tab: 'crm', label: 'CRM', path: '/admin/crm' },
+  { tab: 'models', label: 'Модели', path: '/admin/models' },
+  { tab: 'tariffs', label: 'Тарифы', path: '/admin/tariffs' },
+  { tab: 'payments', label: 'Платежи', path: '/admin/payments' },
+  { tab: 'mail', label: 'Почта', path: '/admin/mail' },
+  { tab: 'logs', label: 'Логи', path: '/admin/logs' },
+]
+
+function adminTabFromPath(pathname: string): AdminTab {
+  const normalized = pathname.replace(/\/+$/, '') || '/admin'
+  if (normalized === '/admin' || normalized === '/admin/dashboard') return 'dashboard'
+  return ADMIN_ROUTES.find((route) => normalized === route.path || normalized.startsWith(`${route.path}/`))?.tab || 'dashboard'
+}
+
+function navigateAdmin(path: string): void {
+  if (window.location.pathname === path) return
+  window.history.pushState({}, '', path)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}
 
 function asSeries(value: unknown): SeriesPoint[] {
   return Array.isArray(value)
@@ -447,6 +469,23 @@ function AdminMail() {
   )
 }
 
+function AdminPayments() {
+  return (
+    <div className="admin-section admin-payments-page">
+      <div className="admin-section-head">
+        <div>
+          <h3>Платежи</h3>
+          <p>Счета, оплаты, возвраты и начисление токенов.</p>
+        </div>
+      </div>
+      <div className="admin-note">
+        <strong>Подключение ЮKassa готовится</strong>
+        <p>Страница уже отделена от CRM. Дальше здесь появятся общая сводка, журнал webhook, сверка и возвраты.</p>
+      </div>
+    </div>
+  )
+}
+
 function AdminLogs({ logsData }: { logsData: AnyRec | null }) {
   const [tab, setTab] = useState<'overview' | 'generation' | 'security' | 'events' | 'audit' | 'config'>('overview')
   const items = (key: string) => Array.isArray(logsData?.[key]) ? logsData[key] as AnyRec[] : []
@@ -491,12 +530,17 @@ function AdminLogs({ logsData }: { logsData: AnyRec | null }) {
 export default function AdminApp() {
   const { status, me } = useAuthV2()
   const [authOpen, setAuthOpen] = useState(false)
-  const [tab, setTab] = useState<AdminTab>('dashboard')
+  const [tab, setTab] = useState<AdminTab>(() => adminTabFromPath(window.location.pathname))
   const [summary, setSummary] = useState<AnyRec | null>(null)
   const [logsData, setLogsData] = useState<AnyRec | null>(null)
   const isAdmin = status === 'authed' && me?.account?.role === 'admin'
 
   useEffect(() => { void initAuthV2() }, [])
+  useEffect(() => {
+    const syncRoute = () => setTab(adminTabFromPath(window.location.pathname))
+    window.addEventListener('popstate', syncRoute)
+    return () => window.removeEventListener('popstate', syncRoute)
+  }, [])
   useEffect(() => {
     if (!isAdmin) return
     void adminGet<AnyRec>('/admin/summary').then(setSummary)
@@ -526,15 +570,6 @@ export default function AdminApp() {
   const queue = Array.isArray(summary?.queue) ? summary.queue : []
   const errors = Number(summary?.errors ?? 0)
   const health = errors === 0 ? 'Стабильно' : `Ошибки генерации: ${errors}`
-  const tabs: Array<[AdminTab, string]> = [
-    ['dashboard', 'Дашборд'],
-    ['users', 'Пользователи'],
-    ['models', 'Модели'],
-    ['tariffs', 'Тарифы'],
-    ['mail', 'Почта'],
-    ['logs', 'Логи'],
-  ]
-
   return (
     <div className="app-shell admin-route-shell">
       {isDiagMode() && <DiagPanel />}
@@ -554,12 +589,13 @@ export default function AdminApp() {
             <span><b>{String(queue.length)}</b> в очереди</span>
           </div>
           <div className="admin-tabbar">
-            {tabs.map(([id, label]) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label}</button>)}
+            {ADMIN_ROUTES.map((route) => <button key={route.tab} className={tab === route.tab ? 'active' : ''} onClick={() => navigateAdmin(route.path)}>{route.label}</button>)}
           </div>
           {tab === 'dashboard' && <AdminDashboard summary={summary} />}
-          {tab === 'users' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем пользователей...</div>}><AdminAnalyticsV2 /></Suspense></div>}
+          {tab === 'crm' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем CRM...</div>}><AdminAnalyticsV2 /></Suspense></div>}
           {tab === 'models' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем модели...</div>}><AdminModelsV2 /></Suspense></div>}
           {tab === 'tariffs' && <AdminTokens />}
+          {tab === 'payments' && <AdminPayments />}
           {tab === 'mail' && <AdminMail />}
           {tab === 'logs' && <AdminLogs logsData={logsData} />}
         </section>
