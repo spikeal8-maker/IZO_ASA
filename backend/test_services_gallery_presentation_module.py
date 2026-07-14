@@ -10,6 +10,7 @@ from app.services.gallery_presentation import (
     gallery_aspect_ratio,
     gallery_model_info,
     gallery_mode_label,
+    gallery_public_params,
     gallery_source_ids,
 )
 
@@ -118,3 +119,73 @@ def test_model_info_uses_catalog_then_display_callback_and_ignores_non_dict_bill
     assert catalog["providerName"] == "Maker"
     assert fallback["shortName"] == "display:fallback/model"
     assert fallback["providerName"] == ""
+
+
+def test_public_params_preserve_order_values_and_callback_sequence() -> None:
+    events: list[tuple[object, ...]] = []
+    settings = {"generationTimeMs": 900}
+
+    result = gallery_public_params(
+        mode="edit",
+        provider="openrouter",
+        width=640,
+        height=480,
+        url="/api/media/item.webp",
+        created_at="created",
+        settings=settings,
+        model_info=lambda value, provider: events.append(("model", value, provider)) or {"fullName": "Full"},
+        token_cost=lambda value: events.append(("tokens", value)) or 3,
+        aspect_ratio=lambda width, height: events.append(("aspect", width, height)) or "4:3",
+        media_file_size=lambda url: events.append(("file_size", url)) or 1024,
+        format_bytes=lambda value: events.append(("bytes", value)) or "1,0 КБ",
+        format_duration=lambda value: events.append(("duration", value)) or "900 мс",
+        format_datetime=lambda value: events.append(("datetime", value)) or "Date",
+        mode_label=lambda value: events.append(("mode", value)) or "Сборка",
+    )
+
+    assert result == [
+        {"label": "Токены", "value": "3 ток."},
+        {"label": "Разрешение", "value": "640×480"},
+        {"label": "Формат", "value": "4:3"},
+        {"label": "Вес файла", "value": "1,0 КБ"},
+        {"label": "Время генерации", "value": "900 мс"},
+        {"label": "Дата генерации", "value": "Date"},
+        {"label": "Режим", "value": "Сборка"},
+        {"label": "Полное наименование модели", "value": "Full"},
+    ]
+    assert events == [
+        ("model", settings, "openrouter"),
+        ("tokens", settings),
+        ("tokens", settings),
+        ("aspect", 640, 480),
+        ("file_size", "/api/media/item.webp"),
+        ("bytes", 1024),
+        ("duration", 900),
+        ("datetime", "created"),
+        ("mode", "edit"),
+    ]
+
+
+def test_public_params_filter_falsy_values_but_keep_zero_token_cost() -> None:
+    common = {
+        "mode": None,
+        "provider": None,
+        "width": 0,
+        "height": 0,
+        "url": None,
+        "created_at": None,
+        "settings": {},
+        "model_info": lambda settings, provider: {"fullName": ""},
+        "aspect_ratio": lambda width, height: None,
+        "media_file_size": lambda url: None,
+        "format_bytes": lambda value: None,
+        "format_duration": lambda value: None,
+        "format_datetime": lambda value: None,
+        "mode_label": lambda value: "",
+    }
+
+    empty = gallery_public_params(token_cost=lambda settings: None, **common)
+    zero = gallery_public_params(token_cost=lambda settings: 0, **common)
+
+    assert empty == []
+    assert zero == [{"label": "Токены", "value": "0 ток."}]

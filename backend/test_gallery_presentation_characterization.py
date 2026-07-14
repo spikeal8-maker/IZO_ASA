@@ -133,3 +133,118 @@ def test_model_info_uses_catalog_then_display_callback_and_preserves_raw_precede
         "providerName": "",
         "release": "2026",
     }
+
+
+def test_public_params_preserve_callback_order_labels_and_zero_token_cost(monkeypatch) -> None:
+    events: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(
+        main,
+        "_gallery_model_info",
+        lambda settings, provider: events.append(("model", settings, provider)) or {"fullName": "Model Full"},
+    )
+    monkeypatch.setattr(
+        main,
+        "_public_token_cost",
+        lambda settings: events.append(("tokens", settings)) or 0,
+    )
+    monkeypatch.setattr(
+        main,
+        "_gallery_aspect_ratio",
+        lambda width, height: events.append(("aspect", width, height)) or "3:2",
+    )
+    monkeypatch.setattr(
+        main,
+        "_media_file_size_from_url",
+        lambda url: events.append(("file_size", url)) or 2048,
+    )
+    monkeypatch.setattr(
+        main,
+        "_format_public_bytes",
+        lambda value: events.append(("bytes", value)) or "2,0 КБ",
+    )
+    monkeypatch.setattr(
+        main,
+        "_format_public_duration",
+        lambda value: events.append(("duration", value)) or "1,5 с",
+    )
+    monkeypatch.setattr(
+        main,
+        "_format_public_datetime",
+        lambda value: events.append(("datetime", value)) or "14.07.2026, 08:00:00",
+    )
+    monkeypatch.setattr(
+        main,
+        "_gallery_mode_label",
+        lambda value: events.append(("mode", value)) or "По тексту",
+    )
+    settings = {"generationTimeMs": 1500}
+
+    result = main._gallery_public_params(
+        image_id="unused-image-id",
+        mode="text_to_image",
+        provider="openrouter",
+        width=1200,
+        height=800,
+        url="/api/media/image.webp",
+        created_at="2026-07-14T05:00:00Z",
+        settings=settings,
+    )
+
+    assert result == [
+        {"label": "Токены", "value": "0 ток."},
+        {"label": "Разрешение", "value": "1200×800"},
+        {"label": "Формат", "value": "3:2"},
+        {"label": "Вес файла", "value": "2,0 КБ"},
+        {"label": "Время генерации", "value": "1,5 с"},
+        {"label": "Дата генерации", "value": "14.07.2026, 08:00:00"},
+        {"label": "Режим", "value": "По тексту"},
+        {"label": "Полное наименование модели", "value": "Model Full"},
+    ]
+    assert events == [
+        ("model", settings, "openrouter"),
+        ("tokens", settings),
+        ("tokens", settings),
+        ("aspect", 1200, 800),
+        ("file_size", "/api/media/image.webp"),
+        ("bytes", 2048),
+        ("duration", 1500),
+        ("datetime", "2026-07-14T05:00:00Z"),
+        ("mode", "text_to_image"),
+    ]
+
+
+def test_public_params_filter_empty_values_after_calling_every_formatter(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(main, "_gallery_model_info", lambda settings, provider: {"fullName": ""})
+    monkeypatch.setattr(main, "_public_token_cost", lambda settings: None)
+    monkeypatch.setattr(main, "_gallery_aspect_ratio", lambda width, height: calls.append("aspect") or None)
+    monkeypatch.setattr(main, "_media_file_size_from_url", lambda url: calls.append("file_size") or None)
+    monkeypatch.setattr(main, "_format_public_bytes", lambda value: calls.append("bytes") or None)
+    monkeypatch.setattr(main, "_format_public_duration", lambda value: calls.append("duration") or None)
+    monkeypatch.setattr(main, "_format_public_datetime", lambda value: calls.append("datetime") or None)
+    monkeypatch.setattr(main, "_gallery_mode_label", lambda value: calls.append("mode") or "")
+
+    result = main._gallery_public_params(
+        image_id="first-unused-id",
+        mode=None,
+        provider=None,
+        width=0,
+        height=0,
+        url=None,
+        created_at=None,
+        settings={},
+    )
+    second = main._gallery_public_params(
+        image_id="different-unused-id",
+        mode=None,
+        provider=None,
+        width=0,
+        height=0,
+        url=None,
+        created_at=None,
+        settings={},
+    )
+
+    assert result == second == []
+    assert calls == ["aspect", "file_size", "bytes", "duration", "datetime", "mode"] * 2

@@ -3366,18 +3366,23 @@ def _gallery_public_params(
     created_at: str | None,
     settings: dict[str, Any],
 ) -> list[dict[str, str]]:
-    model_info = _gallery_model_info(settings, provider)
-    params: list[tuple[str, str | None]] = [
-        ("Токены", f"{_public_token_cost(settings)} ток." if _public_token_cost(settings) is not None else None),
-        ("Разрешение", f"{width}×{height}" if width and height else None),
-        ("Формат", _gallery_aspect_ratio(width, height)),
-        ("Вес файла", _format_public_bytes(_media_file_size_from_url(url))),
-        ("Время генерации", _format_public_duration(settings.get("generationTimeMs"))),
-        ("Дата генерации", _format_public_datetime(created_at)),
-        ("Режим", _gallery_mode_label(mode)),
-        ("Полное наименование модели", model_info["fullName"]),
-    ]
-    return [{"label": label, "value": value} for label, value in params if value]
+    return gallery_presentation.gallery_public_params(
+        mode=mode,
+        provider=provider,
+        width=width,
+        height=height,
+        url=url,
+        created_at=created_at,
+        settings=settings,
+        model_info=_gallery_model_info,
+        token_cost=_public_token_cost,
+        aspect_ratio=_gallery_aspect_ratio,
+        media_file_size=_media_file_size_from_url,
+        format_bytes=_format_public_bytes,
+        format_duration=_format_public_duration,
+        format_datetime=_format_public_datetime,
+        mode_label=_gallery_mode_label,
+    )
 
 
 def row_to_image(row: sqlite3.Row) -> dict[str, Any]:

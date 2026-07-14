@@ -74,3 +74,35 @@ def gallery_model_info(
         "providerName": maker,
         "release": release,
     }
+
+
+def gallery_public_params(
+    *,
+    mode: str | None,
+    provider: str | None,
+    width: int | None,
+    height: int | None,
+    url: str | None,
+    created_at: str | None,
+    settings: Mapping[str, Any],
+    model_info: Callable[[Mapping[str, Any], str | None], Mapping[str, str]],
+    token_cost: Callable[[Mapping[str, Any]], int | None],
+    aspect_ratio: Callable[[int | None, int | None], str | None],
+    media_file_size: Callable[[str | None], int | None],
+    format_bytes: Callable[[int | None], str | None],
+    format_duration: Callable[[Any], str | None],
+    format_datetime: Callable[[Any], str | None],
+    mode_label: Callable[[str | None], str],
+) -> list[dict[str, str]]:
+    model = model_info(settings, provider)
+    params: list[tuple[str, str | None]] = [
+        ("Токены", f"{token_cost(settings)} ток." if token_cost(settings) is not None else None),
+        ("Разрешение", f"{width}×{height}" if width and height else None),
+        ("Формат", aspect_ratio(width, height)),
+        ("Вес файла", format_bytes(media_file_size(url))),
+        ("Время генерации", format_duration(settings.get("generationTimeMs"))),
+        ("Дата генерации", format_datetime(created_at)),
+        ("Режим", mode_label(mode)),
+        ("Полное наименование модели", model["fullName"]),
+    ]
+    return [{"label": label, "value": value} for label, value in params if value]

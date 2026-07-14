@@ -174,8 +174,11 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   explicit injected dependencies; billing/catalog/fallback precedence and the local
   IZO Base payload remain legacy-compatible. The service has no admin-cache
   dependency; the former unused cache timestamp conversion could raise during
-  ordinary item rendering and was removed. Filesystem-backed public params and full
-  row/item mapping remain later B8 scopes.
+  ordinary item rendering and was removed. The ordered public-params builder also
+  lives here and receives model/token/aspect/file/format callbacks explicitly; exact
+  falsy filtering and callback order stay legacy-compatible. Pure formatter ownership,
+  filesystem-backed file-size resolution and full row/item mapping remain later B8
+  scopes.
 - `backend/app/integrations/openrouter.py` owns text-model catalog, key/credits, shared `/chat/completions`, image-model/endpoint document collection with bounded concurrency, pure model/endpoint capability normalization, generation response parsing, public error mapping and safe image-response metadata normalization; `main.py` retains compatibility wrappers, API-key/header/source policy, caches, endpoint selection and generation orchestration.
 - `backend/app/integrations/openrouter_images.py` owns model-alias resolution, safe request-metadata assembly, pure orientation/aspect-ratio/descriptor/provider request planning and image request-body assembly; application resolution IDs/tiers are passed through compatibility wrappers and local-reference values through callback injection.
 - `backend/app/integrations/openrouter_image_io.py` owns remote/data reference passthrough, application-resolved local-file encoding, and response b64/URL loading into PIL; `main.py` retains the production path resolver, timeout, gallery persistence and generation orchestration.
