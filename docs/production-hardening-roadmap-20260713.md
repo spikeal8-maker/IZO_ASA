@@ -42,7 +42,7 @@
 | Последний completed checkpoint | `B8l` — separate feed source-history read/mapping service; B8 завершён, следующий пакет B9a |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1313 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1314 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
@@ -2550,6 +2550,27 @@ Exact CI после B8k:
   `VERIFY_OK` за 9,38 с;
 - schema/data migration, production DB/media, backup, secrets, paid generation,
   frontend runtime, ComfyUI, VPS и tunnel пакетом B8l не изменялись.
+
+CI remediation после первого B8l push:
+
+- GitHub Actions run `29320213377`, job `87043492546`, на SHA `3a33d93`
+  завершил функциональную часть с `1312 passed`; единственный failure — старый
+  shared-runner wall-clock assert: полный cursor scan 500 строк занял 7,948 с
+  при локальном абсолютном лимите 3,0 с;
+- status/count/search/pagination/no-duplicate assertions в этом case прошли;
+  B8l source-history код в failure не участвовал;
+- local performance limits сохранены строгими: first/scan/search/secondary
+  `1/3/1/1` с; только при official `GITHUB_ACTIONS=true` действует bounded
+  multiplier 4 (`4/12/4/4` с), поэтому gate остаётся ограничивающим, но не
+  зависит от кратковременной нагрузки shared runner;
+- добавлен отдельный contract test local/GitHub timing limits; весь load-profile
+  file прошёл 5 локальных циклов и отдельный `GITHUB_ACTIONS=true` цикл — по
+  `4 passed` каждый;
+- повторный локальный Full после remediation: `1314 passed, 72 warnings` за
+  291,27 с; lint `0 errors / 1 existing warning`, build 0,464 с, origin
+  `200/200/403/403`, `VERIFY_OK` за 318,53 с; source snapshot стабилен;
+- remediation изменяет только test gate и roadmap; production runtime не
+  перезапускался повторно после уже успешного B8l deploy-monitor.
 
 ## 9. Обязательный gate каждого пакета
 

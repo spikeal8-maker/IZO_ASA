@@ -1,11 +1,31 @@
 from __future__ import annotations
 
+import os
 import time
 
 import pytest
 from fastapi.testclient import TestClient
 
 import main
+
+
+_GITHUB_ACTIONS_TIMING_MULTIPLIER = 4.0
+
+
+def _gallery_timing_limit(local_seconds: float) -> float:
+    if os.environ.get("GITHUB_ACTIONS", "").strip().lower() == "true":
+        return local_seconds * _GITHUB_ACTIONS_TIMING_MULTIPLIER
+    return local_seconds
+
+
+def test_gallery_load_timing_limit_is_strict_locally_and_bounded_on_github(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert _gallery_timing_limit(1.0) == 1.0
+    assert _gallery_timing_limit(3.0) == 3.0
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert _gallery_timing_limit(1.0) == 4.0
+    assert _gallery_timing_limit(3.0) == 12.0
 
 
 def _seed_gallery(tmp_path, monkeypatch, count: int) -> str:
@@ -77,9 +97,9 @@ def test_gallery_cursor_load_profiles(tmp_path, monkeypatch, count, capsys):
     assert search.status_code == 200
     assert len(search.json()["items"]) == (count + 9) // 10
     assert len(seen) == count
-    assert first_page_seconds < 1.0
-    assert scan_seconds < 3.0
-    assert search_seconds < 1.0
+    assert first_page_seconds < _gallery_timing_limit(1.0)
+    assert scan_seconds < _gallery_timing_limit(3.0)
+    assert search_seconds < _gallery_timing_limit(1.0)
     secondary_seconds = 0.0
     if count == 500:
         secondary_started = time.perf_counter()
@@ -87,7 +107,7 @@ def test_gallery_cursor_load_profiles(tmp_path, monkeypatch, count, capsys):
         secondary_seconds = time.perf_counter() - secondary_started
         assert secondary.status_code == 200
         assert "items" not in secondary.json()
-        assert secondary_seconds < 1.0
+        assert secondary_seconds < _gallery_timing_limit(1.0)
         compatibility = client.get("/api/gallery/page?limit=24", headers=headers)
         assert compatibility.status_code == 200
         assert len(compatibility.json()["items"]) == 24
