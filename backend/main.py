@@ -3346,28 +3346,13 @@ MODEL_RELEASE_YEAR_BY_ID = {
 
 
 def _gallery_model_info(settings: dict[str, Any], provider: str | None = None) -> dict[str, str]:
-    raw = str(settings.get("modelProfile") or settings.get("openrouterModel") or provider or "").strip()
-    billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
-    catalog = globals().get("OPENROUTER_PRICE_CATALOG") or {}
-    catalog_item = catalog.get(raw)
-    short_name = str(billing.get("modelName") or getattr(catalog_item, "name", None) or _user_model_name(raw))
-    maker = str(billing.get("modelProvider") or getattr(catalog_item, "provider", None) or "")
-    release = MODEL_RELEASE_YEAR_BY_ID.get(raw) or ("2026" if raw else "")
-    if not raw or raw == "comfyui" or "local_flux" in raw.lower() or "klein" in raw.lower():
-        short_name = "ИЗО Base"
-        maker = "ИЗО / FLUX.2 Klein"
-        release = "2026"
-    full_parts = [short_name]
-    if maker:
-        full_parts.append(maker)
-    if release:
-        full_parts.append(f"выпуск: {release}")
-    return {
-        "shortName": short_name,
-        "fullName": " · ".join(full_parts),
-        "providerName": maker,
-        "release": release,
-    }
+    return gallery_presentation.gallery_model_info(
+        settings,
+        provider,
+        price_catalog=globals().get("OPENROUTER_PRICE_CATALOG") or {},
+        release_years=MODEL_RELEASE_YEAR_BY_ID,
+        model_display_name=_user_model_name,
+    )
 
 
 def _gallery_public_params(

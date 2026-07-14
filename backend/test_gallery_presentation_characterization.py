@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 import main
@@ -69,3 +71,65 @@ def test_source_ids_preserve_precedence_slice_before_filter_and_string_coercion(
 @pytest.mark.parametrize("value", ["not-a-list", {"id": "x"}, 42, None])
 def test_source_ids_reject_non_list_values(value) -> None:
     assert main._gallery_source_ids({"sourceImageIds": value}) == []
+
+
+@pytest.mark.parametrize("raw", [None, "comfyui", "local_flux_v2", "flux-klein-custom"])
+def test_model_info_maps_local_models_to_exact_izo_base_payload(raw) -> None:
+    settings = {"modelProfile": raw} if raw is not None else {}
+
+    assert main._gallery_model_info(settings, "comfyui") == {
+        "shortName": "ИЗО Base",
+        "fullName": "ИЗО Base · ИЗО / FLUX.2 Klein · выпуск: 2026",
+        "providerName": "ИЗО / FLUX.2 Klein",
+        "release": "2026",
+    }
+
+
+def test_model_info_billing_overrides_catalog_display_and_uses_release_map(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "OPENROUTER_PRICE_CATALOG",
+        {"vendor/model": SimpleNamespace(name="Catalog Name", provider="Catalog Maker")},
+    )
+    monkeypatch.setitem(main.MODEL_RELEASE_YEAR_BY_ID, "vendor/model", "2025")
+
+    result = main._gallery_model_info(
+        {
+            "modelProfile": "vendor/model",
+            "openrouterBilling": {"modelName": "Billing Name", "modelProvider": "Billing Maker"},
+        }
+    )
+
+    assert result == {
+        "shortName": "Billing Name",
+        "fullName": "Billing Name · Billing Maker · выпуск: 2025",
+        "providerName": "Billing Maker",
+        "release": "2025",
+    }
+
+
+def test_model_info_uses_catalog_then_display_callback_and_preserves_raw_precedence(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "OPENROUTER_PRICE_CATALOG",
+        {"profile/model": SimpleNamespace(name="Catalog Name", provider="Catalog Maker")},
+    )
+    monkeypatch.setattr(main, "_user_model_name", lambda raw: f"display:{raw}")
+
+    catalog = main._gallery_model_info(
+        {"modelProfile": "profile/model", "openrouterModel": "ignored/model"},
+        "ignored-provider",
+    )
+    fallback = main._gallery_model_info(
+        {"openrouterModel": "fallback/model", "openrouterBilling": "not-a-dict"},
+        "ignored-provider",
+    )
+
+    assert catalog["shortName"] == "Catalog Name"
+    assert catalog["providerName"] == "Catalog Maker"
+    assert fallback == {
+        "shortName": "display:fallback/model",
+        "fullName": "display:fallback/model · выпуск: 2026",
+        "providerName": "",
+        "release": "2026",
+    }
