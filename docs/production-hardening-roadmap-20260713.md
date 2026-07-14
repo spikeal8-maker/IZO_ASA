@@ -48,7 +48,7 @@
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 120 файлов / 1 595 746 байт / SHA-256 `078DB0E8BE1C646E914D8E7B247871F8DC7DD3B073204999E95837D8259787B4`; изменения объяснены реальными пользовательскими генерациями и были стабильны внутри gates |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B8k run `29318047634` success (`1308 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B8l/remediation run `29321670540` success (`1314 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и пять live snapshot готовы; pre-B7a snapshot `20260713T221737.032822Z` verify/rehearsal успешен; schedule/retention ещё не включены |
@@ -2571,6 +2571,17 @@ CI remediation после первого B8l push:
   `200/200/403/403`, `VERIFY_OK` за 318,53 с; source snapshot стабилен;
 - remediation изменяет только test gate и roadmap; production runtime не
   перезапускался повторно после уже успешного B8l deploy-monitor.
+
+Exact CI после B8l remediation:
+
+- GitHub Actions run `29321670540`, job `87048191809`, на SHA `ac01375`
+  завершён успешно за 22 мин 06 с;
+- `1314 passed, 72 warnings` за 1182,39 с; lint
+  `0 errors / 1 existing warning`;
+- production build 1,34 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 1243,83 с;
+- это последний code-bearing checkpoint перед B9a; рабочая `main`
+  синхронизирована, production runtime этим test-only remediation не изменялся.
 
 ## 9. Обязательный gate каждого пакета
 
