@@ -39,16 +39,16 @@
 | Параметр | Факт |
 |---|---|
 | Git | `main` синхронизирован с `origin/main` |
-| Последний completed checkpoint | `B8d` — pure gallery cursor/FTS helpers и malformed-cursor fix; B8 выполнен частично, следующий пакет B8e |
+| Последний completed checkpoint | `B8e` — pure aspect/mode/source-ID presentation helpers и cache-dependency fix; B8 выполнен частично, следующий пакет B8f |
 | Backend | один Uvicorn listener на `127.0.0.1:8000` |
 | Backend health | HTTP 200 |
-| Последний полный test checkpoint | 1197 passed, 0 failed, 0 skipped, 0 deselected |
+| Последний полный test checkpoint | 1224 passed, 0 failed, 0 skipped, 0 deselected |
 | Frontend lint | 0 errors, 1 известный hooks warning |
 | Frontend production build | успешно |
 | Private source без trusted session | HTTP 401 |
 | Source baseline | 120 файлов / 1 595 746 байт / SHA-256 `078DB0E8BE1C646E914D8E7B247871F8DC7DD3B073204999E95837D8259787B4`; изменения объяснены реальными пользовательскими генерациями и были стабильны внутри gates |
 | Production DB/media в тестах | не используются, принудительно изолированы |
-| CI | GitHub Actions active; exact B8c run `29302973816` success (`1170 passed`), required branch protection недоступен на текущем private plan |
+| CI | GitHub Actions active; exact B8d run `29304365769` success (`1197 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
 | Backup | A6 tooling и пять live snapshot готовы; pre-B7a snapshot `20260713T221737.032822Z` verify/rehearsal успешен; schedule/retention ещё не включены |
@@ -59,7 +59,7 @@
 
 | Файл | Строк | Цель |
 |---|---:|---:|
-| `backend/main.py` | 14 565 после B8d | gallery cursor/FTS wrappers thin; следующий scope — pure aspect/mode/source presentation B8e, concrete adapter cleanup — B12–B14 |
+| `backend/main.py` | 14 533 после B8e | presentation wrappers thin; следующий scope — injected model-info B8f, filesystem/public-params/page-item mapping — B8g |
 | `frontend/src/newStudioV3.css` | 5 408 | feature/component styles преимущественно до 300–500 строк |
 | `frontend/src/newUi.tsx` | 4 242 | page composition до 300–500 строк |
 | `frontend/src/LegacyApp.tsx` | 3 589 | feature components без удаления Legacy UI |
@@ -106,7 +106,7 @@
 | BE-01 | `ГОТОВО` | `app/config.py` владеет env/DB-path helpers, typed HTTP/provider/runtime/bot/media/storage policies и secret-free blocking production validation; compatibility exports удаляются только в B14 |
 | BE-02 | `ЧАСТИЧНО` | Schema/migration scope B3 готов: ledger/version, core/billing, identity и media groups; repository layer остаётся отдельной незавершённой границей |
 | BE-03 | `ЧАСТИЧНО` | Tokens/passwords/sessions/permissions/OTP/events вынесены; legacy auth removal и routers не завершены |
-| BE-04 | `ЧАСТИЧНО` | Storage boundaries, B8a policy, B8b read repository, B8c eviction order и B8d cursor/FTS helpers вынесены; concrete adapters и item/source lifecycle ещё в `main.py` |
+| BE-04 | `ЧАСТИЧНО` | Storage boundaries и B8a–B8e quota/read/eviction/query/basic presentation вынесены; model/public-params/item/source lifecycle ещё в `main.py` |
 | BE-05 | `ГОТОВО` | Текущий ограниченный scope Ollama: URL, discovery и общий chat transport вынесены |
 | BE-06 | `ГОТОВО` | Ограниченный integration scope завершён: HTTP/parsing/planning/I/O/model aliases/request metadata вынесены; application caches, policy, persistence, billing и orchestration остаются в соответствующих будущих services |
 | BE-07 | `ГОТОВО` | B4a client/errors/file URL/health и B4b parsing/update handlers service выделены; routes/polling lifecycle остаются общим B12/B13 scope |
@@ -195,7 +195,7 @@
 | B5 | `ГОТОВО` — B5a client/errors/health и B5b injected update handlers service выделены без смены polling/webhook semantics |
 | B6 | `ГОТОВО` — B6a HTTP client, B6b workflow builders и B6c result/media adapter выделены |
 | B7 | `ГОТОВО` — recovery, persistence/response, result states, single-job processor и in-process queue consumer/one-shot startup lifecycle выделены; persistent queue/multi-worker относятся к волне F |
-| B8 | `ЧАСТИЧНО` — B8a–B8d quota/read/eviction/cursor-search готовы; B8e+ выносят presentation/item/source lifecycle без массового переноса |
+| B8 | `ЧАСТИЧНО` — B8a–B8e quota/read/eviction/query/basic presentation готовы; B8f+ выносят model/item/source lifecycle без массового переноса |
 | B9 | Выделить feed/publication/reaction/moderation service |
 | B10 | Выделить account/auth service и удалить подтверждённо неиспользуемые legacy authorization consumers |
 | B11 | Выделить billing/token ledger service с atomic/idempotency/concurrency tests |
@@ -278,7 +278,8 @@
 28. `B8b` — `ГОТОВО`: owner-scoped active count и favorite-protected oldest eviction-candidate read repository; mutations/files не переносились.
 29. `B8c` — `ГОТОВО`: последовательность source-delete → soft-delete → file-delete → cache-drop вынесена через frozen injected runtime; concrete adapters остались в `main.py`.
 30. `B8d` — `ГОТОВО`: pure cursor encode/decode и FTS normalization вынесены; valid-JSON non-object cursor теперь контролируемо даёт HTTP 400.
-31. `B8e` — **СЛЕДУЮЩИЙ ПАКЕТ**: вынести только pure aspect-ratio, mode-label и source-ID presentation helpers; model catalog, filesystem size, public params и full page-item builder оставить B8f.
+31. `B8e` — `ГОТОВО`: pure aspect-ratio, mode-label и source-ID helpers вынесены; неиспользуемая зависимость mode-label от admin cache удалена.
+32. `B8f` — **СЛЕДУЮЩИЙ ПАКЕТ**: вынести model-info builder с явно инъецированными price catalog/display-name/release-year dependencies; filesystem/public params/full page item оставить B8g.
 
 После каждого пакета статус в разделе 5 обновляется. Завершённый пункт меняется на `ГОТОВО` только после commit, push, production restart и live smoke, если пакет затрагивает runtime.
 
@@ -2087,6 +2088,61 @@ Exact CI после B8c:
   health `200`, ComfyUI queue пуста;
 - schema/data migration, production DB/media, backup, secrets, paid generation,
   frontend runtime, ComfyUI, VPS и tunnel пакетом B8d не изменялись.
+
+Exact CI после B8d:
+
+- GitHub Actions run `29304365769`, job `86994601228`, на SHA `fe18538`
+  завершён успешно за 13 мин 27 с;
+- `1197 passed, 72 warnings` за 685,54 с; lint `0 errors / 1 existing warning`;
+- production build 1,39 с, origin isolation `200/200/403/403`, итоговый
+  `VERIFY_OK` CI за 732,84 с.
+
+### Checkpoint B8e — pure basic gallery presentation helpers
+
+Реализовано и развёрнуто 2026-07-14:
+
+- новый import-safe `app/services/gallery_presentation.py` владеет aspect-ratio,
+  mode-label и source-ID helpers;
+- aspect сохраняет legacy `math.gcd` reduction, zero/None handling и даже прежнюю
+  negative-value форму; mode labels сохраняют 14 aliases, lookup trim и untrimmed
+  unknown fallback;
+- source IDs сохраняют приоритет `sourceImageIds → source_image_ids → sourceIds`,
+  list-only contract, slicing первых четырёх значений до фильтрации и string coercion;
+- до extraction обнаружена лишняя и опасная зависимость: `_gallery_mode_label()` читал
+  `_admin_models_page_cache`, вычислял timestamp и никогда не использовал ни cache data,
+  ни timestamp. Строка `corrupt-unused-timestamp` вызывала `ValueError` при обычном
+  построении gallery item;
+- pure helper больше не читает admin cache, поэтому presentation не может упасть из-за
+  несвязанного cache timestamp; model catalog, file size, public params и full item
+  mapping намеренно не переносились;
+- `main.py` уменьшен с 14 565 до 14 533 строк (−32); service имеет 45 строк,
+  characterization tests — 71, direct tests — 60; map `605 symbols / 166 routes`.
+
+Доказательства:
+
+- 14 legacy aspect/mode/source characterization cases прошли до extraction;
+  отдельный corrupt-cache test ожидаемо дал `ValueError`, direct suite — RED на
+  отсутствующем module import;
+- после реализации direct + characterization suite дал `27 passed`; весь B8,
+  pagination/search/item output baseline — `90 passed`;
+- расширенный gallery/queue/worker/result/job/recovery/generation/ownership/ComfyUI/
+  API suite: `298 passed, 40 warnings` пять последовательных циклов за
+  `82,19 / 80,21 / 80,65 / 80,93 / 80,24` с;
+- локальный Full: `1224 passed, 72 warnings` за 274,58 с; lint
+  `0 errors / 1 existing warning`, production build 0,439 с, origin
+  `200/200/403/403`, итоговый `VERIFY_OK` за 297,54 с; 165 Python-файлов;
+- source-media snapshot до/после Full строго идентичен: 120 файлов / 1 595 746 байт /
+  SHA-256 `078DB0E8BE1C646E914D8E7B247871F8DC7DD3B073204999E95837D8259787B4`;
+- pre-deploy audit: production `jobs` active 0, latest `completed/100`, ComfyUI
+  running/pending 0/0, pytest processes 0;
+- controlled backend-only restart заменил PID `26536 → 33788`; независимый preflight
+  подтвердил один listener `127.0.0.1:8000`, `--no-proxy-headers` и health `200`;
+- live smoke 5/5: health/models/Flux config/bgremoval/feed/bots/frontend `200`, private
+  media `401`, Telegram POST webhook `404`;
+- backend PID 33788 и ComfyUI PID 54544 стабильны 6/6 samples за 58 секунд,
+  health `200`, ComfyUI queue пуста;
+- schema/data migration, production DB/media, backup, secrets, paid generation,
+  frontend runtime, ComfyUI, VPS и tunnel пакетом B8e не изменялись.
 
 ## 9. Обязательный gate каждого пакета
 

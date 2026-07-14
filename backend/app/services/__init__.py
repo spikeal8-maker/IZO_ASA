@@ -10,6 +10,7 @@ from . import generation_queue
 from . import gallery_policy
 from . import gallery_eviction
 from . import gallery_query
+from . import gallery_presentation
 from .comfyui_results import ComfyUIResult
 from .telegram_updates import (
     TelegramUpdateRuntime,
@@ -44,6 +45,7 @@ __all__ = [
     "gallery_policy",
     "gallery_eviction",
     "gallery_query",
+    "gallery_presentation",
     "ComfyUIResult",
     "TelegramUpdateRuntime",
     "handle_telegram_update_with_runtime",

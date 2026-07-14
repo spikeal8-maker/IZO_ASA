@@ -194,6 +194,7 @@ try:
         gallery_policy,
         gallery_eviction,
         gallery_query,
+        gallery_presentation,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -225,6 +226,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         gallery_policy,
         gallery_eviction,
         gallery_query,
+        gallery_presentation,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -3436,49 +3438,15 @@ def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _gallery_aspect_ratio(width: int | None, height: int | None) -> str | None:
-    if not width or not height:
-        return None
-    gcd = math.gcd(int(width), int(height))
-    if gcd <= 0:
-        return None
-    return f"{int(width) // gcd}:{int(height) // gcd}"
+    return gallery_presentation.gallery_aspect_ratio(width, height)
 
 
 def _gallery_mode_label(mode: str | None) -> str:
-    models_cache_data = _admin_models_page_cache.get("data")
-    models_cache_ts = _admin_models_page_cache.get("ts")
-    if isinstance(models_cache_ts, dict):
-        newest_cache_ts = max((float(v or 0) for v in models_cache_ts.values()), default=0.0)
-    else:
-        newest_cache_ts = float(models_cache_ts or 0)
-    return {
-        "text_to_image": "По тексту",
-        "image_to_image": "По фото",
-        "edit": "Сборка",
-        "paint": "Редактор",
-        "inpaint": "Инпейнт",
-        "outpaint": "Аутпейнт",
-        "try_on": "Примерка",
-        "texture_transfer": "Перенос текстуры",
-        "remove_background": "Удаление фона",
-        "faceswap": "Лицо",
-        "face": "Лицо",
-        "face_swap": "Лицо",
-        "drawing": "Редактор",
-        "editor": "Сборка",
-    }.get(str(mode or "").strip(), str(mode or "По тексту"))
+    return gallery_presentation.gallery_mode_label(mode)
 
 
 def _gallery_source_ids(settings: dict[str, Any]) -> list[str]:
-    raw = (
-        settings.get("sourceImageIds")
-        or settings.get("source_image_ids")
-        or settings.get("sourceIds")
-        or []
-    )
-    if not isinstance(raw, list):
-        return []
-    return [str(item) for item in raw[:4] if str(item or "").strip()]
+    return gallery_presentation.gallery_source_ids(settings)
 
 
 def _feed_publication_ready(publication: sqlite3.Row | None) -> bool:
