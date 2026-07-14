@@ -33,9 +33,9 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, Field
 
 try:
-    from .app.integrations.unisender import UniSenderError, UniSenderMessage, get_unisender_lists, send_unisender_email
+    from .app.integrations.unisender import UniSenderError, UniSenderMessage, create_unisender_list, get_unisender_lists, send_unisender_email
 except ImportError:  # Direct `python backend/main.py` execution.
-    from app.integrations.unisender import UniSenderError, UniSenderMessage, get_unisender_lists, send_unisender_email
+    from app.integrations.unisender import UniSenderError, UniSenderMessage, create_unisender_list, get_unisender_lists, send_unisender_email
 try:
     from .app.integrations.yookassa import YooKassaError, create_yookassa_payment, fetch_yookassa_payment
 except ImportError:  # Direct `python backend/main.py` execution.
@@ -987,6 +987,14 @@ class AdminMailConfigV2Request(BaseModel):
     sender_name: str = Field(default="ИЗО АСА", min_length=1, max_length=100)
     sender_email: str = Field(min_length=5, max_length=254)
     list_id: int = Field(ge=1)
+
+
+class AdminMailVerifyV2Request(BaseModel):
+    api_key: str | None = Field(default=None, min_length=8, max_length=512)
+
+
+class AdminMailCreateListV2Request(BaseModel):
+    title: str = Field(default="Пользователи ИЗО АСА", min_length=2, max_length=150)
 
 
 class BillingInvoiceItemV2Request(BaseModel):
@@ -5058,6 +5066,16 @@ def save_unisender_config(req: AdminMailConfigV2Request) -> None:
             "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
             (json.dumps({"provider": "unisender", "sender_name": req.sender_name.strip(), "sender_email": sender_email, "list_id": req.list_id}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
         )
+
+
+def save_unisender_api_key(value: str) -> None:
+    clean = value.strip()
+    if not clean:
+        raise SecretStoreError("UniSender API key is empty.")
+    OPENROUTER_SECRET_STORE.set(UNISENDER_SECRET_NAME, clean)
+    verified = OPENROUTER_SECRET_STORE.get(UNISENDER_SECRET_NAME)
+    if not hmac.compare_digest(verified.encode("utf-8"), clean.encode("utf-8")):
+        raise SecretStoreError("UniSender DPAPI secret readback verification failed.")
 
 
 def yookassa_secret_key() -> str:
@@ -12153,6 +12171,37 @@ async def admin_mail_provider_options_v2(request: Request) -> dict[str, Any]:
     except UniSenderError as exc:
         raise HTTPException(502, str(exc)) from exc
     return {"ok": True, "provider": "unisender", "lists": lists}
+
+
+@app.post("/api/admin/mail/verify-v2")
+async def admin_mail_verify_v2(req: AdminMailVerifyV2Request, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    candidate = (req.api_key or "").strip() or unisender_api_key()
+    if not candidate:
+        raise HTTPException(400, "Вставьте API-ключ UniSender.")
+    try:
+        lists = await asyncio.to_thread(get_unisender_lists, candidate)
+        if req.api_key:
+            save_unisender_api_key(candidate)
+    except UniSenderError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    except SecretStoreError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return {"ok": True, "provider": "unisender", "api_key_saved": bool(unisender_api_key()), "lists": lists}
+
+
+@app.post("/api/admin/mail/lists-v2")
+async def admin_mail_create_list_v2(req: AdminMailCreateListV2Request, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    api_key = unisender_api_key()
+    if not api_key:
+        raise HTTPException(409, "Сначала проверьте и сохраните API-ключ UniSender.")
+    try:
+        created = await asyncio.to_thread(create_unisender_list, api_key, req.title)
+        lists = await asyncio.to_thread(get_unisender_lists, api_key)
+    except UniSenderError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"ok": True, "created": created, "lists": lists}
 
 
 @app.get("/api/admin/payments/status-v2")

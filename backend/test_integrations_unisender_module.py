@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.integrations.unisender import UniSenderError, UniSenderMessage, get_unisender_lists, send_unisender_email
+from app.integrations.unisender import UniSenderError, UniSenderMessage, create_unisender_list, get_unisender_lists, send_unisender_email
 
 
 def message() -> UniSenderMessage:
@@ -62,3 +62,14 @@ def test_get_unisender_lists_returns_human_titles():
 def test_get_unisender_lists_surfaces_provider_error():
     with pytest.raises(UniSenderError, match="invalid_api_key"):
         get_unisender_lists("bad-key", get=lambda *_args, **_kwargs: response({"error": "invalid_api_key"}))
+
+
+def test_create_unisender_list_returns_created_list():
+    captured = {}
+
+    def get(url, **kwargs):
+        captured.update({"url": url, **kwargs})
+        return response({"result": {"id": 44}})
+
+    assert create_unisender_list("secret-key", "Пользователи ИЗО", get=get) == {"id": 44, "title": "Пользователи ИЗО"}
+    assert captured["params"]["title"] == "Пользователи ИЗО"

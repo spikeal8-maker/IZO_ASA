@@ -13,6 +13,7 @@ import httpx
 
 UNISENDER_SEND_EMAIL_URL = "https://api.unisender.com/ru/api/sendEmail"
 UNISENDER_GET_LISTS_URL = "https://api.unisender.com/ru/api/getLists"
+UNISENDER_CREATE_LIST_URL = "https://api.unisender.com/ru/api/createList"
 
 
 class UniSenderError(RuntimeError):
@@ -66,6 +67,37 @@ def get_unisender_lists(
             continue
         lists.append({"id": list_id, "title": str(item.get("title") or f"Список {list_id}")})
     return lists
+
+
+def create_unisender_list(
+    api_key: str,
+    title: str,
+    *,
+    timeout_seconds: float = 20.0,
+    get: Callable[..., httpx.Response] = httpx.get,
+) -> dict[str, Any]:
+    if not api_key.strip():
+        raise UniSenderError("UniSender API key is not configured.")
+    if not title.strip():
+        raise UniSenderError("Contact list title is required.")
+    response = get(
+        UNISENDER_CREATE_LIST_URL,
+        params={"format": "json", "api_key": api_key, "title": title.strip()},
+        timeout=timeout_seconds,
+    )
+    try:
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise UniSenderError("UniSender request failed.") from exc
+    if not isinstance(payload, dict):
+        raise UniSenderError("UniSender returned an invalid response.")
+    if payload.get("error"):
+        raise UniSenderError(str(payload.get("error")))
+    result = payload.get("result")
+    if not isinstance(result, dict) or not result.get("id"):
+        raise UniSenderError("UniSender did not return a contact list id.")
+    return {"id": int(result["id"]), "title": title.strip()}
 
 
 def _delivery_id(payload: Any) -> str:
