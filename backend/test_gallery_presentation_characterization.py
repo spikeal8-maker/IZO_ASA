@@ -312,3 +312,130 @@ def test_public_datetime_preserves_moscow_conversion_and_invalid_fallback(value,
 )
 def test_public_token_cost_preserves_precedence_coercion_and_fallback(settings, expected) -> None:
     assert main._public_token_cost(settings) == expected
+
+
+def test_row_to_image_preserves_exact_payload_and_callback_order(monkeypatch) -> None:
+    events: list[tuple[object, ...]] = []
+    settings = {
+        "seed": 42,
+        "modelProfile": "provider/model",
+        "loras": ["lora-a"],
+        "preset": "preset-a",
+        "generationTimeMs": 1250,
+        "tokenCost": 7,
+        "openrouterBilling": {"chargedTokens": 7},
+        "comfyuiPromptId": "prompt-1",
+        "comfyuiHistory": {"node": "done"},
+    }
+    row = {
+        "id": "img-1",
+        "user_id": "user-1",
+        "url": "/api/media/image.webp",
+        "thumbnail_url": "/api/media/thumb.webp",
+        "mode": "edit",
+        "provider": "openrouter",
+        "prompt_original": "original",
+        "prompt_translated": "translated",
+        "settings_json": "serialized-settings",
+        "width": 640,
+        "height": 480,
+        "is_favorite": 1,
+        "created_at": "2026-07-14T05:00:00Z",
+        "deleted_at": "deleted",
+        "storage_tier": "archive",
+    }
+    monkeypatch.setattr(main.json, "loads", lambda raw: events.append(("json", raw)) or settings)
+    monkeypatch.setattr(main, "_media_file_size_from_url", lambda url: events.append(("file", url)) or 321)
+    monkeypatch.setattr(main, "_user_model_name", lambda raw: events.append(("display", raw)) or "Display")
+    monkeypatch.setattr(
+        main,
+        "_gallery_model_info",
+        lambda value, provider: events.append(("model", value, provider)) or {"fullName": "Full"},
+    )
+    monkeypatch.setattr(
+        main,
+        "_gallery_public_params",
+        lambda **kwargs: events.append(("params", kwargs)) or [{"label": "A", "value": "B"}],
+    )
+    monkeypatch.setattr(main, "_row_get", lambda value, key: events.append(("row_get", key)) or value.get(key))
+
+    result = main.row_to_image(row)
+
+    assert result == {
+        "id": "img-1",
+        "userId": "user-1",
+        "url": "/api/media/image.webp",
+        "thumbnailUrl": "/api/media/thumb.webp",
+        "mode": "edit",
+        "provider": "openrouter",
+        "promptOriginal": "original",
+        "promptTranslated": "translated",
+        "seed": 42,
+        "width": 640,
+        "height": 480,
+        "modelProfile": "Display",
+        "modelInfo": {"fullName": "Full"},
+        "loras": ["lora-a"],
+        "preset": "preset-a",
+        "generationTimeMs": 1250,
+        "tokenCost": 7,
+        "openrouterBilling": {"chargedTokens": 7},
+        "fileSizeBytes": 321,
+        "publicParams": [{"label": "A", "value": "B"}],
+        "isFavorite": True,
+        "createdAt": "2026-07-14T05:00:00Z",
+        "comfyuiPromptId": "prompt-1",
+        "comfyuiHistory": {"node": "done"},
+        "deletedAt": "deleted",
+        "storageTier": "archive",
+    }
+    assert events == [
+        ("json", "serialized-settings"),
+        ("file", "/api/media/image.webp"),
+        ("display", "provider/model"),
+        ("model", settings, "openrouter"),
+        (
+            "params",
+            {
+                "image_id": "img-1",
+                "mode": "edit",
+                "provider": "openrouter",
+                "width": 640,
+                "height": 480,
+                "url": "/api/media/image.webp",
+                "created_at": "2026-07-14T05:00:00Z",
+                "settings": settings,
+            },
+        ),
+        ("row_get", "deleted_at"),
+        ("row_get", "storage_tier"),
+    ]
+
+
+def test_row_to_image_preserves_empty_settings_prompt_and_storage_defaults() -> None:
+    row = {
+        "id": "img-empty",
+        "user_id": "user-empty",
+        "url": None,
+        "thumbnail_url": None,
+        "mode": None,
+        "provider": None,
+        "prompt_original": None,
+        "prompt_translated": None,
+        "settings_json": None,
+        "width": None,
+        "height": None,
+        "is_favorite": 0,
+        "created_at": None,
+        "deleted_at": None,
+        "storage_tier": "",
+    }
+
+    result = main.row_to_image(row)
+
+    assert result["promptOriginal"] == result["promptTranslated"] == ""
+    assert result["seed"] == result["generationTimeMs"] == 0
+    assert result["loras"] == []
+    assert result["isFavorite"] is False
+    assert result["deletedAt"] is None
+    assert result["storageTier"] == "original"

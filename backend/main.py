@@ -3348,45 +3348,15 @@ def _gallery_public_params(
 
 
 def row_to_image(row: sqlite3.Row) -> dict[str, Any]:
-    settings = json.loads(row["settings_json"] or "{}")
-    file_size = _media_file_size_from_url(row["url"])
-    return {
-        "id": row["id"],
-        "userId": row["user_id"],
-        "url": row["url"],
-        "thumbnailUrl": row["thumbnail_url"],
-        "mode": row["mode"],
-        "provider": row["provider"],
-        "promptOriginal": row["prompt_original"] or "",
-        "promptTranslated": row["prompt_translated"] or "",
-        "seed": settings.get("seed", 0),
-        "width": row["width"],
-        "height": row["height"],
-        "modelProfile": _user_model_name(settings.get("modelProfile")),
-        "modelInfo": _gallery_model_info(settings, row["provider"]),
-        "loras": settings.get("loras", []),
-        "preset": settings.get("preset"),
-        "generationTimeMs": settings.get("generationTimeMs", 0),
-        "tokenCost": settings.get("tokenCost"),
-        "openrouterBilling": settings.get("openrouterBilling"),
-        "fileSizeBytes": file_size,
-        "publicParams": _gallery_public_params(
-            image_id=row["id"],
-            mode=row["mode"],
-            provider=row["provider"],
-            width=row["width"],
-            height=row["height"],
-            url=row["url"],
-            created_at=row["created_at"],
-            settings=settings,
-        ),
-        "isFavorite": bool(row["is_favorite"]),
-        "createdAt": row["created_at"],
-        "comfyuiPromptId": settings.get("comfyuiPromptId"),
-        "comfyuiHistory": settings.get("comfyuiHistory"),
-        "deletedAt": _row_get(row, "deleted_at"),
-        "storageTier": _row_get(row, "storage_tier") or "original",
-    }
+    return gallery_presentation.gallery_row_to_image(
+        row,
+        load_settings=json.loads,
+        media_file_size=_media_file_size_from_url,
+        model_display_name=_user_model_name,
+        model_info=_gallery_model_info,
+        public_params=_gallery_public_params,
+        row_get=_row_get,
+    )
 
 
 def _gallery_aspect_ratio(width: int | None, height: int | None) -> str | None:

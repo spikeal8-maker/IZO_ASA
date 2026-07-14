@@ -15,6 +15,7 @@ from app.services.gallery_presentation import (
     gallery_mode_label,
     gallery_public_params,
     gallery_public_token_cost,
+    gallery_row_to_image,
     gallery_source_ids,
 )
 
@@ -257,3 +258,99 @@ def test_public_datetime_contract(value, expected) -> None:
 )
 def test_public_token_cost_contract(settings, expected) -> None:
     assert gallery_public_token_cost(settings) == expected
+
+
+def test_row_to_image_preserves_payload_and_callback_order() -> None:
+    events: list[tuple[object, ...]] = []
+    settings = {"seed": 9, "modelProfile": "model", "generationTimeMs": 15}
+    row = {
+        "id": "img",
+        "user_id": "user",
+        "url": "url",
+        "thumbnail_url": "thumb",
+        "mode": "edit",
+        "provider": "provider",
+        "prompt_original": "original",
+        "prompt_translated": "translated",
+        "settings_json": "raw",
+        "width": 10,
+        "height": 20,
+        "is_favorite": 1,
+        "created_at": "created",
+        "deleted_at": "deleted",
+        "storage_tier": "archive",
+    }
+
+    result = gallery_row_to_image(
+        row,
+        load_settings=lambda raw: events.append(("json", raw)) or settings,
+        media_file_size=lambda url: events.append(("file", url)) or 123,
+        model_display_name=lambda raw: events.append(("display", raw)) or "Display",
+        model_info=lambda value, provider: events.append(("model", value, provider)) or {"fullName": "Full"},
+        public_params=lambda **kwargs: events.append(("params", kwargs)) or [{"label": "L", "value": "V"}],
+        row_get=lambda value, key: events.append(("row_get", key)) or value.get(key),
+    )
+
+    assert result["id"] == "img"
+    assert result["userId"] == "user"
+    assert result["modelProfile"] == "Display"
+    assert result["modelInfo"] == {"fullName": "Full"}
+    assert result["fileSizeBytes"] == 123
+    assert result["publicParams"] == [{"label": "L", "value": "V"}]
+    assert result["deletedAt"] == "deleted"
+    assert result["storageTier"] == "archive"
+    assert events == [
+        ("json", "raw"),
+        ("file", "url"),
+        ("display", "model"),
+        ("model", settings, "provider"),
+        (
+            "params",
+            {
+                "image_id": "img",
+                "mode": "edit",
+                "provider": "provider",
+                "width": 10,
+                "height": 20,
+                "url": "url",
+                "created_at": "created",
+                "settings": settings,
+            },
+        ),
+        ("row_get", "deleted_at"),
+        ("row_get", "storage_tier"),
+    ]
+
+
+def test_row_to_image_preserves_defaults() -> None:
+    row = {
+        "id": "img",
+        "user_id": "user",
+        "url": None,
+        "thumbnail_url": None,
+        "mode": None,
+        "provider": None,
+        "prompt_original": None,
+        "prompt_translated": None,
+        "settings_json": None,
+        "width": None,
+        "height": None,
+        "is_favorite": 0,
+        "created_at": None,
+    }
+
+    result = gallery_row_to_image(
+        row,
+        load_settings=lambda raw: {},
+        media_file_size=lambda url: None,
+        model_display_name=lambda raw: "Base",
+        model_info=lambda settings, provider: {},
+        public_params=lambda **kwargs: [],
+        row_get=lambda value, key: None,
+    )
+
+    assert result["promptOriginal"] == result["promptTranslated"] == ""
+    assert result["seed"] == result["generationTimeMs"] == 0
+    assert result["loras"] == []
+    assert result["isFavorite"] is False
+    assert result["storageTier"] == "original"

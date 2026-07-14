@@ -165,3 +165,54 @@ def gallery_public_params(
         ("Полное наименование модели", model["fullName"]),
     ]
     return [{"label": label, "value": value} for label, value in params if value]
+
+
+def gallery_row_to_image(
+    row: Any,
+    *,
+    load_settings: Callable[[str], Any],
+    media_file_size: Callable[[str | None], int | None],
+    model_display_name: Callable[[Any], str],
+    model_info: Callable[[Mapping[str, Any], str | None], Mapping[str, str]],
+    public_params: Callable[..., list[dict[str, str]]],
+    row_get: Callable[[Any, str], Any],
+) -> dict[str, Any]:
+    settings = load_settings(row["settings_json"] or "{}")
+    file_size = media_file_size(row["url"])
+    return {
+        "id": row["id"],
+        "userId": row["user_id"],
+        "url": row["url"],
+        "thumbnailUrl": row["thumbnail_url"],
+        "mode": row["mode"],
+        "provider": row["provider"],
+        "promptOriginal": row["prompt_original"] or "",
+        "promptTranslated": row["prompt_translated"] or "",
+        "seed": settings.get("seed", 0),
+        "width": row["width"],
+        "height": row["height"],
+        "modelProfile": model_display_name(settings.get("modelProfile")),
+        "modelInfo": model_info(settings, row["provider"]),
+        "loras": settings.get("loras", []),
+        "preset": settings.get("preset"),
+        "generationTimeMs": settings.get("generationTimeMs", 0),
+        "tokenCost": settings.get("tokenCost"),
+        "openrouterBilling": settings.get("openrouterBilling"),
+        "fileSizeBytes": file_size,
+        "publicParams": public_params(
+            image_id=row["id"],
+            mode=row["mode"],
+            provider=row["provider"],
+            width=row["width"],
+            height=row["height"],
+            url=row["url"],
+            created_at=row["created_at"],
+            settings=settings,
+        ),
+        "isFavorite": bool(row["is_favorite"]),
+        "createdAt": row["created_at"],
+        "comfyuiPromptId": settings.get("comfyuiPromptId"),
+        "comfyuiHistory": settings.get("comfyuiHistory"),
+        "deletedAt": row_get(row, "deleted_at"),
+        "storageTier": row_get(row, "storage_tier") or "original",
+    }
