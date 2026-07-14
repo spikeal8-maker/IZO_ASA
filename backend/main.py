@@ -196,6 +196,7 @@ try:
         gallery_query,
         gallery_presentation,
         gallery_items,
+        feed_presentation,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -229,6 +230,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         gallery_query,
         gallery_presentation,
         gallery_items,
+        feed_presentation,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -13482,39 +13484,19 @@ def _feed_source_history_payload(conn: sqlite3.Connection, image_id: str | None)
 
 
 def _feed_generation_snapshot(conn: sqlite3.Connection, image: sqlite3.Row) -> dict[str, Any]:
-    settings = safe_json_load(_row_get(image, "settings_json")) or {}
-    if not isinstance(settings, dict):
-        settings = {}
-    width = int(_row_get(image, "width") or 0)
-    height = int(_row_get(image, "height") or 0)
-    model_info = _gallery_model_info(settings, _row_get(image, "provider"))
-    return {
-        "prompt": str(_row_get(image, "prompt_original") or "").strip(),
-        "mode": _row_get(image, "mode"),
-        "provider": _row_get(image, "provider"),
-        "style": settings.get("styleName") or None,
-        "model": _user_model_name(settings.get("modelProfile") or _row_get(image, "provider")),
-        "modelInfo": model_info,
-        "width": width,
-        "height": height,
-        "aspectRatio": _feed_aspect_ratio(width, height),
-        "generationParams": _gallery_public_params(
-            image_id=image["id"],
-            mode=_row_get(image, "mode"),
-            provider=_row_get(image, "provider"),
-            width=width,
-            height=height,
-            url=_row_get(image, "url"),
-            created_at=_row_get(image, "created_at"),
-            settings=settings,
-        ),
-        "sourceHistory": _feed_source_history_payload(conn, image["id"]),
-        "tokenCost": _public_token_cost(settings),
-        "generationTimeMs": settings.get("generationTimeMs"),
-        "fileSizeBytes": _media_file_size_from_url(_row_get(image, "url")),
-        "seed": settings.get("seed"),
-        "generatedAt": _row_get(image, "created_at"),
-    }
+    return feed_presentation.feed_generation_snapshot(
+        conn,
+        image,
+        load_settings=safe_json_load,
+        row_get=_row_get,
+        model_info=_gallery_model_info,
+        model_display_name=_user_model_name,
+        aspect_ratio=_feed_aspect_ratio,
+        public_params=_gallery_public_params,
+        source_history=_feed_source_history_payload,
+        token_cost=_public_token_cost,
+        media_file_size=_media_file_size_from_url,
+    )
 
 
 def backfill_feed_generation_snapshots() -> int:
