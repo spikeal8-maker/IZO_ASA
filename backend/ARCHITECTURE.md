@@ -149,10 +149,15 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   a persistent queue or supervisor; crash restart remains an operations concern.
 - `backend/app/services/gallery_policy.py` owns pure tariff normalization, the exact
   public gallery quota payload and the legacy 0/1/2 eviction-target decision. It has
-  no framework, database, HTTP or filesystem dependency. `main.py` still owns the
-  owner-scoped count/select/update SQL, favorite/source protection, physical file
-  deletion and in-memory image mirror; those boundaries are split incrementally in
-  B8b+.
+  no framework, database, HTTP or filesystem dependency. The read repository owns
+  count/candidate SQL; `main.py` still owns update/source/file/cache side effects,
+  which are split incrementally in B8c+.
+- `backend/app/storage/gallery_repository.py` owns the read-only owner-scoped active
+  image count and oldest eviction-candidate selection. The query preserves legacy
+  empty deletion markers, deterministic `created_at,id` order, image favorites and
+  same-owner source favorites. It performs no mutations or filesystem work;
+  `main.py` still applies source deletion, soft-delete, physical media deletion and
+  cache eviction until B8c+.
 - `backend/app/integrations/openrouter.py` owns text-model catalog, key/credits, shared `/chat/completions`, image-model/endpoint document collection with bounded concurrency, pure model/endpoint capability normalization, generation response parsing, public error mapping and safe image-response metadata normalization; `main.py` retains compatibility wrappers, API-key/header/source policy, caches, endpoint selection and generation orchestration.
 - `backend/app/integrations/openrouter_images.py` owns model-alias resolution, safe request-metadata assembly, pure orientation/aspect-ratio/descriptor/provider request planning and image request-body assembly; application resolution IDs/tiers are passed through compatibility wrappers and local-reference values through callback injection.
 - `backend/app/integrations/openrouter_image_io.py` owns remote/data reference passthrough, application-resolved local-file encoding, and response b64/URL loading into PIL; `main.py` retains the production path resolver, timeout, gallery persistence and generation orchestration.

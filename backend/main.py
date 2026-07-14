@@ -410,6 +410,8 @@ try:
         SourceTreeRuntime,
         SourceThumbnailRuntime,
         StoragePathError,
+        count_active_gallery_images as storage_count_active_gallery_images,
+        select_gallery_eviction_candidates as storage_select_gallery_eviction_candidates,
         find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
         media_filename_from_url as storage_media_filename_from_url,
@@ -449,6 +451,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         SourceTreeRuntime,
         SourceThumbnailRuntime,
         StoragePathError,
+        count_active_gallery_images as storage_count_active_gallery_images,
+        select_gallery_eviction_candidates as storage_select_gallery_eviction_candidates,
         find_gallery_media_owner as storage_find_gallery_media_owner,
         local_media_path_from_url as storage_local_media_path_from_url,
         media_filename_from_url as storage_media_filename_from_url,
@@ -2585,10 +2589,7 @@ def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | Non
     user_id = legacy_user_id or _row_get(user_row, "id")
     used = 0
     if user_id:
-        used = int(conn.execute(
-            "SELECT COUNT(*) AS c FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')",
-            (user_id,),
-        ).fetchone()["c"])
+        used = storage_count_active_gallery_images(conn, user_id)
     return gallery_policy.build_gallery_quota(plan=plan, tariff=tariff, gallery_used=used)
 
 
@@ -2611,19 +2612,7 @@ def evict_gallery_images_for_new_save(
     target = gallery_policy.gallery_eviction_target(quota)
     if not target:
         return 0
-    rows = conn.execute(
-        """
-        SELECT id, url, thumbnail_url FROM images
-        WHERE user_id = ? AND is_favorite = 0 AND (deleted_at IS NULL OR deleted_at = '')
-          AND NOT EXISTS (
-              SELECT 1 FROM image_sources s
-              WHERE s.image_id = images.id AND s.user_id = images.user_id AND s.is_favorite = 1
-          )
-        ORDER BY created_at ASC, id ASC
-        LIMIT ?
-        """,
-        (legacy_user_id, target),
-    ).fetchall()
+    rows = storage_select_gallery_eviction_candidates(conn, legacy_user_id, limit=target)
     for row in rows:
         delete_image_source_files(conn, row["id"])
         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ?", (now_iso, row["id"]))

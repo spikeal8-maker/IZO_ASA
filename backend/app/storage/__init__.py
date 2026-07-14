@@ -55,6 +55,10 @@ from .input_validation import (
     MediaInputValidationRuntime,
     validate_owned_media_inputs,
 )
+from .gallery_repository import (
+    count_active_gallery_images,
+    select_gallery_eviction_candidates,
+)
 
 __all__ = [
     "StoragePathError",
@@ -96,6 +100,8 @@ __all__ = [
     "MediaInputValidationError",
     "MediaInputValidationRuntime",
     "validate_owned_media_inputs",
+    "count_active_gallery_images",
+    "select_gallery_eviction_candidates",
     "startup_storage_maintenance_allowed",
     "resolve_under_root",
 ]
