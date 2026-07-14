@@ -189,6 +189,7 @@ try:
         generation_jobs,
         generation_recovery,
         generation_results,
+        generation_worker,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -215,6 +216,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         generation_jobs,
         generation_recovery,
         generation_results,
+        generation_worker,
         extract_max_command,
         handle_max_update_with_runtime,
         handle_max_updates_with_runtime,
@@ -6389,142 +6391,99 @@ def mock_image(req: GenerateRequest, job_id: str) -> tuple[Path, Path]:
     return out, create_thumbnail(out)
 
 
+def _worker_refund_tokens(job_id: str, reason: str) -> bool:
+    with db() as conn:
+        return refund_generation_tokens(conn, job_id, reason=reason)
+
+
+def _worker_settle_openrouter(
+    job_id: str,
+    job: dict[str, Any],
+    result: OpenRouterResult,
+) -> generation_worker.OpenRouterSettlement:
+    billing = finalize_openrouter_billing_snapshot(job.get("openrouterBilling") or {}, result.cost_usd)
+    actual_tokens = int(
+        billing.get("actualTokens")
+        or billing.get("chargedTokens")
+        or job.get("tokenCost")
+        or 1
+    )
+    with db() as conn:
+        token_adjustment = reconcile_openrouter_token_charge(conn, job_id, actual_tokens)
+    return generation_worker.OpenRouterSettlement(
+        billing=billing,
+        actual_tokens=actual_tokens,
+        token_adjustment=token_adjustment,
+    )
+
+
+def _worker_gallery_quota(user_id: str) -> dict[str, Any]:
+    with db() as conn:
+        user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return gallery_quota_for_user(conn, user_row, user_id)
+
+
+def _worker_evict_gallery(user_id: str, quota: dict[str, Any], created_at: str) -> int:
+    with db() as conn:
+        return evict_gallery_images_for_new_save(conn, user_id, quota, created_at)
+
+
+async def _worker_save_image(
+    record: dict[str, Any],
+    job_id: str,
+    user_id: str,
+    request: GenerateRequest,
+    created_at: str,
+) -> None:
+    image_id = record["id"]
+    images[image_id] = record
+    persist_image(record, job_id)
+    sources = persist_image_sources(image_id, user_id, request, created_at)
+    if sources:
+        images[image_id]["sources"] = sources
+    await asyncio.to_thread(optimize_gallery_storage_for_user, user_id, limit=2)
+
+
+def _worker_register_transient_image(record: dict[str, Any]) -> None:
+    images[record["id"]] = record
+
+
+def _generation_worker_runtime() -> generation_worker.GenerationWorkerRuntime:
+    return generation_worker.GenerationWorkerRuntime(
+        comfyui_mock_fallback=COMFYUI_MOCK_FALLBACK,
+        persist_job=persist_job,
+        refund_tokens=_worker_refund_tokens,
+        send_to_comfyui=send_to_comfyui,
+        send_to_openrouter=send_to_openrouter,
+        settle_openrouter=_worker_settle_openrouter,
+        mock_image=mock_image,
+        gallery_quota=_worker_gallery_quota,
+        evict_gallery=_worker_evict_gallery,
+        public_url=public_url,
+        new_image_id=lambda: f"img_{uuid.uuid4().hex[:12]}",
+        now_iso=lambda: datetime.now(timezone.utc).isoformat(),
+        perf_counter=time.perf_counter,
+        sleep=asyncio.sleep,
+        save_image=_worker_save_image,
+        register_transient_image=_worker_register_transient_image,
+    )
+
+
 async def worker() -> None:
     while True:
         job_id = await queue.get()
         job = jobs[job_id]
         req = GenerateRequest(**job["request"])
         started = time.perf_counter()
+        runtime = _generation_worker_runtime()
         try:
-            if job.get("status") == "cancelled":
-                with db() as conn:
-                    refund_generation_tokens(conn, job_id, reason="cancelled_before_start")
-                persist_job(job, req)
-                continue
-            job.update(status="uploading", progress=12, message="Загружаем изображения")
-            persist_job(job, req)
-            await asyncio.sleep(0.5)
-            prompt_id = None
-            image_path = None
-            thumb_path = None
-            comfyui_history = None
-            openrouter_result: OpenRouterResult | None = None
-            if req.provider == "comfyui":
-                job.update(status="sent_to_comfyui", progress=24, message="Отправляем в ComfyUI")
-                persist_job(job, req)
-                result = await send_to_comfyui(req, job)
-                if result:
-                    prompt_id = result.prompt_id
-                    image_path = result.image_path
-                    thumb_path = result.thumbnail_path
-                    comfyui_history = result.history
-            elif req.provider == "openrouter":
-                openrouter_result = await send_to_openrouter(req, job)
-                image_path = openrouter_result.image_path
-                thumb_path = openrouter_result.thumbnail_path
-                openrouter_billing = finalize_openrouter_billing_snapshot(job.get("openrouterBilling") or {}, openrouter_result.cost_usd)
-                actual_tokens = int(openrouter_billing.get("actualTokens") or openrouter_billing.get("chargedTokens") or job.get("tokenCost") or 1)
-                with db() as conn:
-                    token_adjustment = reconcile_openrouter_token_charge(conn, job_id, actual_tokens)
-                job.update(
-                    openrouterModel=openrouter_result.model,
-                    openrouterResponseId=openrouter_result.response_id,
-                    openrouterUsage=openrouter_result.usage,
-                    openrouterCostUsd=openrouter_result.cost_usd,
-                    openrouterBilling=openrouter_billing,
-                    tokenCost=int(token_adjustment.get("settled") or actual_tokens),
-                    tokenAdjustment=token_adjustment,
-                )
-            if not image_path:
-                if req.provider == "comfyui" and not COMFYUI_MOCK_FALLBACK:
-                    raise RuntimeError("ComfyUI не вернул изображение, mock fallback отключён.")
-                if req.provider == "openrouter":
-                    raise RuntimeError("OpenRouter не вернул изображение.")
-                await asyncio.sleep(0.8)
-                for progress in (38, 52, 67, 81, 94):
-                    if job["status"] == "cancelled":
-                        break
-                    job.update(status="running", progress=progress, message="Генерация изображения")
-                    persist_job(job, req)
-                    await asyncio.sleep(0.45)
-            if job["status"] == "cancelled":
-                with db() as conn:
-                    refund_generation_tokens(conn, job_id, reason="cancelled_during_generation")
-                persist_job(job, req)
-                continue
-            if not image_path or not thumb_path:
-                image_path, thumb_path = mock_image(req, job_id)
-            user_id = job.get("userId", "demo_user")
-            with db() as conn:
-                user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-                gallery_quota = gallery_quota_for_user(conn, user_row, user_id)
-            image_id = f"img_{uuid.uuid4().hex[:12]}"
-            created_at = datetime.now(timezone.utc).isoformat()
-            record = generation_results.build_generation_image_record(
-                image_id=image_id,
-                user_id=user_id,
-                image_url=public_url(image_path, user_id),
-                thumbnail_url=public_url(thumb_path, user_id),
-                request=req,
-                job=job,
-                created_at=created_at,
-                generation_time_ms=int((time.perf_counter() - started) * 1000),
-                comfyui_prompt_id=prompt_id,
-                comfyui_history=comfyui_history,
-                openrouter_result=openrouter_result,
-            )
-            if gallery_quota["gallery_full"]:
-                with db() as conn:
-                    evicted_count = evict_gallery_images_for_new_save(conn, user_id, gallery_quota, created_at)
-                if evicted_count:
-                    images[image_id] = record
-                    persist_image(record, job_id)
-                    sources = persist_image_sources(image_id, user_id, req, created_at)
-                    if sources:
-                        images[image_id]["sources"] = sources
-                    await asyncio.to_thread(optimize_gallery_storage_for_user, user_id, limit=2)
-                    save_status = "saved"
-                    result_image_id = image_id
-                else:
-                    # All occupied slots are protected by favorites. Do not evict
-                    # them automatically; return the generated file for this job
-                    # but leave gallery storage unchanged.
-                    images[image_id] = record
-                    save_status = "quota_full"
-                    result_image_id = None
-                with db() as conn:
-                    saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-                    gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
-            else:
-                images[image_id] = record
-                persist_image(record, job_id)
-                sources = persist_image_sources(image_id, user_id, req, created_at)
-                if sources:
-                    images[image_id]["sources"] = sources
-                await asyncio.to_thread(optimize_gallery_storage_for_user, user_id, limit=2)
-                with db() as conn:
-                    saved_user_row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-                    gallery_quota = gallery_quota_for_user(conn, saved_user_row, user_id)
-                save_status = "saved"
-                result_image_id = image_id
-            generation_results.complete_generation_job(
+            await generation_worker.process_generation_job(
+                job_id,
                 job,
-                record=record,
-                result_image_id=result_image_id,
-                gallery_save_status=save_status,
-                gallery_quota=gallery_quota,
-                completed_at=created_at,
+                req,
+                runtime,
+                started_at=started,
             )
-            persist_job(job, req)
-        except Exception as exc:
-            with db() as conn:
-                refund_generation_tokens(conn, job_id, reason="generation_failed")
-            generation_results.fail_generation_job(
-                job,
-                error=exc,
-                completed_at=datetime.now(timezone.utc).isoformat(),
-            )
-            persist_job(job, req)
         finally:
             queue.task_done()
 

@@ -35,8 +35,8 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 6. Users, account profile and admin CRM.
 7. Tariffs, token ledger, promos, referrals and billing records.
 8. Media ownership, gallery storage and cleanup/recovery.
-9. Generation queue and job lifecycle.
-10. ComfyUI application generation, job lifecycle and gallery orchestration.
+9. Generation queue consumer and startup-task lifecycle.
+10. ComfyUI application policy/wiring and gallery orchestration.
 11. Remaining OpenRouter/Ollama/Telegram/MAX integration orchestration.
 12. Gallery, feed, admin and bot routes.
 
@@ -121,19 +121,26 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   orphaned active generation rows. Jobs with a persisted active image are completed;
   the remaining `queued`/`running`/`uploading`/`sent_*` rows are failed through the
   injected idempotent refund path before in-memory state loads. The caller owns the
-  database transaction. The in-process queue and worker remain in `main.py` for B7d+.
+  database transaction. The in-process queue consumer/startup task remains in
+  `main.py` for B7e.
 - `backend/app/services/generation_jobs.py` owns the legacy-compatible job UPSERT,
   owner-scoped persisted job/image lookup and row-to-API response mapping. It receives
   a structural database connection and the application model-display adapter; it has
   no FastAPI, Pydantic, HTTPX or environment dependency. `main.py` keeps thin function
   wrappers plus request-model conversion/connection ownership. Queue processing,
-  provider calls, billing and gallery/result orchestration remain B7d+/B8.
+  provider calls, billing and gallery orchestration remain application adapters/B8.
 - `backend/app/services/generation_results.py` owns the pure generated-image record
   builder and exact completed/failed job-state transitions. It receives structural
   request/result objects and mappings and has no FastAPI, Pydantic, SQLite, HTTPX,
   filesystem, environment or asyncio dependency. `main.py` still owns identifiers,
-  public URLs, timing and every provider/billing/database/file/gallery side effect;
-  single-job worker orchestration remains B7d and gallery lifecycle remains B8.
+  public URLs and every provider/billing/database/file/gallery side effect; the
+  single-job processor consumes these builders and gallery lifecycle remains B8.
+- `backend/app/services/generation_worker.py` owns orchestration of one pre-parsed
+  generation job through an explicit frozen runtime of provider, billing, refund,
+  quota, storage, clock and persistence callbacks. It preserves cancellation,
+  progress, fallback, settlement, quota and terminal-state order without importing
+  FastAPI, Pydantic, SQLite, HTTPX, environment or filesystem roots. `main.py` owns
+  the concrete adapters plus the `asyncio.Queue` consumer/startup task until B7e.
 - `backend/app/integrations/openrouter.py` owns text-model catalog, key/credits, shared `/chat/completions`, image-model/endpoint document collection with bounded concurrency, pure model/endpoint capability normalization, generation response parsing, public error mapping and safe image-response metadata normalization; `main.py` retains compatibility wrappers, API-key/header/source policy, caches, endpoint selection and generation orchestration.
 - `backend/app/integrations/openrouter_images.py` owns model-alias resolution, safe request-metadata assembly, pure orientation/aspect-ratio/descriptor/provider request planning and image request-body assembly; application resolution IDs/tiers are passed through compatibility wrappers and local-reference values through callback injection.
 - `backend/app/integrations/openrouter_image_io.py` owns remote/data reference passthrough, application-resolved local-file encoding, and response b64/URL loading into PIL; `main.py` retains the production path resolver, timeout, gallery persistence and generation orchestration.
