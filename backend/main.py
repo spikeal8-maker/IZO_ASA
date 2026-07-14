@@ -33,9 +33,9 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, Field
 
 try:
-    from .app.integrations.unisender import UniSenderError, UniSenderMessage, send_unisender_email
+    from .app.integrations.unisender import UniSenderError, UniSenderMessage, get_unisender_lists, send_unisender_email
 except ImportError:  # Direct `python backend/main.py` execution.
-    from app.integrations.unisender import UniSenderError, UniSenderMessage, send_unisender_email
+    from app.integrations.unisender import UniSenderError, UniSenderMessage, get_unisender_lists, send_unisender_email
 try:
     from .app.integrations.yookassa import YooKassaError, create_yookassa_payment, fetch_yookassa_payment
 except ImportError:  # Direct `python backend/main.py` execution.
@@ -12067,6 +12067,19 @@ async def admin_mail_config_v2(req: AdminMailConfigV2Request, request: Request) 
     except (ValueError, SecretStoreError) as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, "configured": unisender_ready(), "provider": "unisender"}
+
+
+@app.get("/api/admin/mail/provider-options-v2")
+async def admin_mail_provider_options_v2(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    api_key = unisender_api_key()
+    if not api_key:
+        raise HTTPException(409, "Сначала сохраните API-ключ UniSender.")
+    try:
+        lists = await asyncio.to_thread(get_unisender_lists, api_key)
+    except UniSenderError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"ok": True, "provider": "unisender", "lists": lists}
 
 
 @app.get("/api/admin/payments/status-v2")

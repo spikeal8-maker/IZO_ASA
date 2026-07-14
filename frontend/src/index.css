@@ -1494,6 +1494,9 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-payment-tariffs { display: flex; flex-wrap: wrap; gap: 8px; }
 .admin-payment-tariffs span { display: flex; align-items: center; gap: 8px; border: 1px solid #303030; background: #141414; border-radius: 8px; padding: 7px 10px; color: #a5a5a5; }
 .admin-payment-tariffs b { color: #f0f0f0; }
+.admin-provider-state { border-left: 3px solid #555; padding-left: 8px; }
+.admin-provider-state.ok { border-color: #5ee87b; color: #8feaa2; }
+.admin-provider-state.warn { border-color: #d7b941; color: #d8c36c; }
 .admin-table-note { color: #8e8e8e; margin: 4px 0 0; }
 .admin-mail-tables th { padding: 7px 8px; text-align: left; color: #989898; font-size: 11px; text-transform: uppercase; }
 .admin-mail-tables input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--acid); }
