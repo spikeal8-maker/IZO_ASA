@@ -2583,6 +2583,24 @@ Exact CI после B8l remediation:
 - это последний code-bearing checkpoint перед B9a; рабочая `main`
   синхронизирована, production runtime этим test-only remediation не изменялся.
 
+### Maintenance checkpoint G8 — gallery resilience and source retention
+
+Реализовано и отправлено в `main` 2026-07-15, commit `c1d1a26`:
+
+- bounded gallery/Studio picker reads, lazy secondary sections и private-media
+  session retry устраняют full-history загрузки и потерю `use-as` draft;
+- source-library rows отделены от lifecycle и quota generated gallery cards;
+  source/image favorites защищают только собственные библиотеки;
+- source authorization, recovery и audit учитывают сохранённые исходники после
+  удаления parent result; отсутствующий физический файл даёт явный `410`;
+- terminal-job Base64 compaction вынесен в dry-run maintenance command с
+  обязательным backup для apply; live DB автоматически не изменялась;
+- verification: gallery/storage `228 passed`, final focused `13 passed`, frontend
+  build, Python/JavaScript syntax checks и desktop/mobile smoke прошли.
+
+Подробный текущий контракт и эксплуатационные доказательства находятся в
+`gallery-current-product-plan.md` и `gallery-optimization-implementation.md`.
+
 ## 9. Обязательный gate каждого пакета
 
 Минимальный порядок:

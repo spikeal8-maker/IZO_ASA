@@ -1,6 +1,6 @@
 # Gallery Current Product Plan
 
-Date: 2026-07-08.
+Date: 2026-07-15.
 
 ## Canonical Gallery Screen
 
@@ -31,8 +31,13 @@ as reference material unless we explicitly decide to migrate the visible
   to the job, but it is not persisted as a gallery item. The user must unheart
   or manually delete an image to free a slot.
 - Manual delete is explicit and may delete a favorite after confirmation.
-  Deleting an original also retires linked feed publications and removes related
-  media files.
+  Deleting an original retires linked feed publications and removes the generated
+  gallery media, but does not delete independently retained uploaded-source rows.
+- Uploaded-source library state is independent from the lifecycle and quota of a
+  generated gallery card. Source favorites protect source-library entries only;
+  image favorites protect generated gallery entries only.
+- A source whose parent result was evicted or manually deleted remains available
+  until the user explicitly removes that source from the uploaded-source library.
 
 ## Visible Gallery Behavior
 
@@ -86,15 +91,18 @@ as reference material unless we explicitly decide to migrate the visible
 - `/api/media/{filename}` checks active image ownership through SQLite. A narrow
   in-memory fallback exists only for a just-generated result that could not be
   persisted because every gallery slot is favorite-protected.
+- Private media responses use owner-scoped authorization and a private one-day
+  browser cache. `use-as` validates the exact database row and physical file;
+  a missing file returns `410` instead of a broken editor draft.
 
 ## Generator Image Picker
 
 - The internal picker used by `По фото`, `Сборка`, and `Редактор` has two
   explicit tabs: `Сгенерированные` and `Загруженные`.
-- Generated images come from the user's gallery. Previously uploaded source
-  images come from `uploadedItems` in `GET /api/gallery/secondary` (or the
-  compatibility aggregate); the picker must
-  not maintain a second source-image index.
+- Generated images come from bounded `GET /api/gallery/items` pages. Previously
+  uploaded source images come from `uploadedItems` in bounded
+  `GET /api/gallery/secondary` pages; the picker must not request the full
+  compatibility aggregate or maintain a second source-image index.
 - Picker thumbnails preserve their stored width/height ratio. Do not force a
   square crop: portrait and landscape sources must be recognizable before the
   user selects them.
@@ -102,6 +110,9 @@ as reference material unless we explicitly decide to migrate the visible
   opened the picker, including a specific `Сборка` reference slot.
 - Loading, empty, and failure states are visible inside the uploaded tab and do
   not erase the generated tab.
+- Private picker images retry once after a trusted-session refresh. A `use-as`
+  draft is removed from session storage only after its image has been verified
+  and applied, so a transient authorization failure does not lose the action.
 - A source row marked `missing` is metadata for a lost physical preview, not a
   consumed source-library slot. Startup repair recreates that preview from the
   original job data, an existing media input, or a linked gallery image while

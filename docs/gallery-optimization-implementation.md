@@ -139,3 +139,44 @@ Review the generated manifest and run the media health checks before deleting th
 - On the 500-record profile, the secondary-only payload completes in about 0.013 s while the compatibility aggregate remains covered by the same test.
 - Missing source previews are repaired per metadata row from retained job data, existing media, or a linked gallery image; the repair does not replace IDs or favorite/library state.
 - Local recovery on 2026-07-12 restored 123 of 125 missing source previews. The two remaining rows reference deleted gallery originals with no retained bytes or feed derivative.
+
+## Phase 8: source retention and resilient loading
+
+Implemented and pushed to `main` on 2026-07-15 as commit `c1d1a26`:
+
+- Generated gallery quota eviction and explicit result deletion no longer delete
+  independently retained uploaded-source rows or previews.
+- Source authorization is owner-scoped by the active source-library row rather
+  than by the continued existence of its parent generated result.
+- Source favorites and generated-image favorites protect their own libraries;
+  one no longer changes eviction behavior in the other.
+- Startup reconciliation includes source rows whose parent result was deleted;
+  exact `use-as` requests validate the physical file and mark a missing source
+  unavailable with HTTP `410`.
+- The Studio picker uses bounded `/api/gallery/items` and
+  `/api/gallery/secondary` requests instead of the aggregate full-history route.
+- Private image requests retry once after trusted-session refresh, and a failed
+  transfer retains its session draft for a later retry.
+- Initial gallery pages remain 24 items on desktop and 12 on mobile; secondary
+  feed/source sections load only when the user approaches them.
+- Completed generation-job settings can be compacted with
+  `backend/compact_terminal_job_settings.py`. The command is dry-run by default;
+  applying it requires both `--apply` and `--backup`. Failed and cancelled jobs
+  retain their input payloads for diagnosis and retry.
+
+Verification for this package:
+
+- gallery/storage regression suite: `228 passed`;
+- final focused media-audit and gallery-shell suite: `13 passed`;
+- frontend production build, Python compilation, and gallery JavaScript syntax
+  check passed;
+- desktop and 390 x 844 mobile smoke checks confirmed sticky navigation, bounded
+  card counts, lazy lower-section loading, loaded profile avatar, and no card
+  image failures or horizontal overflow.
+
+Operational note:
+
+- Run terminal-job compaction only in a maintenance window with the required
+  SQLite backup. The 2026-07-15 dry run found about 90.4 MiB of compactable
+  Base64 payload in completed jobs; it was intentionally not applied during the
+  code deployment.
