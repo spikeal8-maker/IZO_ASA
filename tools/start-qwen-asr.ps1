@@ -2,7 +2,9 @@ param(
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$Model = "Qwen/Qwen3-ASR-1.7B",
     [string]$ModelRevision = "7278e1e70fe206f11671096ffdd38061171dd6e5",
-    [int]$Port = 8001
+    [int]$Port = 8001,
+    [string]$CudaVisibleDevices = "",
+    [switch]$AllowSharedGenerationGpu
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,6 +30,16 @@ if ($listener) {
     exit 0
 }
 
+$comfyListener = Get-NetTCPConnection -LocalPort 8188 -State Listen -ErrorAction SilentlyContinue
+if ($comfyListener -and -not $CudaVisibleDevices.Trim() -and -not $AllowSharedGenerationGpu) {
+    throw @"
+ComfyUI is running on port 8188. Starting Qwen ASR without an explicit GPU can exhaust
+the generation GPU and stall the ComfyUI queue. Keep Qwen stopped, select the dedicated
+GPU with -CudaVisibleDevices (for example, '1'), or use -AllowSharedGenerationGpu only
+for a controlled test while the generation queue is empty.
+"@
+}
+
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $stdout = Join-Path $logDir "qwen-asr.out.log"
 $stderr = Join-Path $logDir "qwen-asr.err.log"
@@ -35,11 +47,15 @@ $oldModel = $env:QWEN_ASR_MODEL
 $oldModelRevision = $env:QWEN_ASR_MODEL_REVISION
 $oldHfHome = $env:HF_HOME
 $oldSymlinkWarning = $env:HF_HUB_DISABLE_SYMLINKS_WARNING
+$oldCudaVisibleDevices = $env:CUDA_VISIBLE_DEVICES
 try {
     $env:QWEN_ASR_MODEL = $Model
     $env:QWEN_ASR_MODEL_REVISION = $ModelRevision
     $env:HF_HOME = "C:\izo-qwen-cache"
     $env:HF_HUB_DISABLE_SYMLINKS_WARNING = "1"
+    if ($CudaVisibleDevices.Trim()) {
+        $env:CUDA_VISIBLE_DEVICES = $CudaVisibleDevices.Trim()
+    }
     # Keep a PowerShell parent alive because the Windows venv launcher creates
     # the real Python server as a child process and then exits.
     $escapedPython = $venvPython.Replace("'", "''")
@@ -54,7 +70,8 @@ try {
         -WindowStyle Hidden `
         -PassThru
     Set-Content -LiteralPath $wrapperPidFile -Value $wrapper.Id -Encoding ascii
-    Write-Output "QWEN_ASR_STARTING wrapper_pid=$($wrapper.Id) port=$Port model=$Model"
+    $deviceSelection = if ($CudaVisibleDevices.Trim()) { $CudaVisibleDevices.Trim() } else { "automatic" }
+    Write-Output "QWEN_ASR_STARTING wrapper_pid=$($wrapper.Id) port=$Port model=$Model cuda_visible_devices=$deviceSelection"
     Write-Output "QWEN_ASR_LOG stdout=$stdout stderr=$stderr"
 
     $deadline = (Get-Date).AddSeconds(90)
@@ -80,4 +97,5 @@ try {
     $env:QWEN_ASR_MODEL_REVISION = $oldModelRevision
     $env:HF_HOME = $oldHfHome
     $env:HF_HUB_DISABLE_SYMLINKS_WARNING = $oldSymlinkWarning
+    $env:CUDA_VISIBLE_DEVICES = $oldCudaVisibleDevices
 }
