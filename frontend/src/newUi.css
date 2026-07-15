@@ -2013,6 +2013,33 @@
   margin-top: 4px;
 }
 
+.n2-help-billing {
+  padding-top: 14px;
+  border-top: 1px solid var(--n2-line);
+}
+
+.n2-help-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.n2-help-links a,
+.n2-help-contact-link {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 6px 10px;
+  border: 1px solid rgba(236, 255, 47, 0.34);
+  border-radius: 8px;
+  color: var(--n2-acid);
+  background: rgba(236, 255, 47, 0.04);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 850;
+}
+
 @media (max-width: 720px) {
   .n2-help-card {
     width: 100%;
