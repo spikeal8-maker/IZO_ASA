@@ -57,7 +57,7 @@ $releaseInfo = [ordered]@{ release_id = $releaseId; git_sha = $sha; built_at = (
 $releaseInfo | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $releasePath "release.json") -Encoding utf8
 
 $vite = Join-Path $frontend "node_modules\vite\bin\vite.js"
-$preview = Start-Process -FilePath "node.exe" -ArgumentList @($vite, "preview", "--host", "127.0.0.1", "--port", "5197", "--strictPort", "--outDir", $releasePath) -WorkingDirectory $frontend -WindowStyle Hidden -PassThru
+$preview = Start-Process -FilePath "node.exe" -ArgumentList @("`"$vite`"", "preview", "--host", "127.0.0.1", "--port", "5197", "--strictPort", "--outDir", "`"$releasePath`"") -WorkingDirectory $frontend -WindowStyle Hidden -PassThru
 try {
     $ready = $false
     for ($i = 0; $i -lt 40; $i++) {
@@ -71,6 +71,11 @@ try {
         & npm run e2e:synthetic
         if ($LASTEXITCODE -ne 0) { throw "Candidate browser smoke failed." }
     } finally { Pop-Location }
+} catch {
+    if ($releasePath.StartsWith($releases, [StringComparison]::OrdinalIgnoreCase)) {
+        Remove-Item -LiteralPath $releasePath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    throw
 } finally {
     Stop-Process -Id $preview.Id -Force -ErrorAction SilentlyContinue
 }

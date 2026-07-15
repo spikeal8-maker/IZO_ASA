@@ -20,7 +20,7 @@ if ($PlanOnly) { Write-Host "ROLLBACK_PLAN target=$ReleaseId path=$target smoke=
 
 $frontend = Join-Path $root "frontend"
 $vite = Join-Path $frontend "node_modules\vite\bin\vite.js"
-$preview = Start-Process -FilePath "node.exe" -ArgumentList @($vite, "preview", "--host", "127.0.0.1", "--port", "5197", "--strictPort", "--outDir", $target) -WorkingDirectory $frontend -WindowStyle Hidden -PassThru
+$preview = Start-Process -FilePath "node.exe" -ArgumentList @("`"$vite`"", "preview", "--host", "127.0.0.1", "--port", "5197", "--strictPort", "--outDir", "`"$target`"") -WorkingDirectory $frontend -WindowStyle Hidden -PassThru
 try {
     for ($i = 0; $i -lt 40; $i++) {
         try { if ((Invoke-WebRequest "http://127.0.0.1:5197/" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { break } } catch {}
@@ -45,7 +45,7 @@ if ($listener) {
     if ($process.CommandLine -notmatch "vite.+preview" -or $process.CommandLine -notlike "*$root*") { throw "Port 5173 is not owned by the canonical Vite preview; refusing to stop it." }
     Stop-Process -Id $listener.OwningProcess -Force
 }
-Start-Process -FilePath "node.exe" -ArgumentList @($vite, "preview", "--host", "127.0.0.1", "--port", "5173", "--strictPort", "--outDir", $target) -WorkingDirectory $frontend -WindowStyle Hidden | Out-Null
+Start-Process -FilePath "node.exe" -ArgumentList @("`"$vite`"", "preview", "--host", "127.0.0.1", "--port", "5173", "--strictPort", "--outDir", "`"$target`"") -WorkingDirectory $frontend -WindowStyle Hidden | Out-Null
 for ($i = 0; $i -lt 30; $i++) {
     try { if ((Invoke-WebRequest "http://127.0.0.1:5173/" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { Write-Host "ROLLBACK_OK active=$ReleaseId previous=$oldActive"; exit 0 } } catch {}
     Start-Sleep -Seconds 1
