@@ -1,7 +1,7 @@
 # План защиты студии от runtime-падений
 
 Дата: 2026-07-15
-Статус: P0 завершён
+Статус: P0-P5 реализованы в коде; production-секреты оповещений задаются окружением
 Область: основной интерфейс `/`, API-контракты, CI, публикация и мониторинг.
 
 ## Цель
@@ -135,7 +135,7 @@ JSON-ответ не проверялся во время выполнения, 
 origin isolation, studio runtime resilience. Любой ненулевой код останавливает
 публикацию.
 
-Проверено 2026-07-15 командой `tools/verify.ps1 -Mode CI`: 1348 backend-тестов,
+Последний полный контроль 2026-07-15 командой `tools/verify.ps1 -Mode CI`: 1361 тест,
 frontend lint, production build, origin isolation и studio runtime resilience
 прошли. Lint сохранил одно ранее существовавшее предупреждение React Hooks без
 ошибок.
@@ -148,3 +148,44 @@ frontend lint, production build, origin isolation и studio runtime resilience
 4. P3: атомарный release и rollback.
 5. P4: мониторинг и синтетические проверки.
 6. P5: регулярные аварийные учения.
+
+## Реализованный контур
+
+### Локальная устойчивость и контракты
+
+- `frontend/src/RuntimeBoundary.tsx` изолирует панель настроек, предпросмотр,
+  историю и окно выбора галереи. Повторный запуск одного блока не перемонтирует
+  всю студию и не удаляет черновик.
+- `frontend/src/runtimeContracts.ts` нормализует Gallery, Feed, Generation,
+  AuthSession и Model до передачи данных в состояние React.
+- `frontend/src/runtimeTelemetry.ts` формирует обезличенный код инцидента. В
+  запрос не попадают prompt, cookie, stack trace, токены и изображения.
+- `e2e:studio-resilience` проверяет старый, новый и повреждённый контракт
+  галереи, недоступный backend, гостевые `401` и локальные падения трёх областей.
+
+### Публикация и откат
+
+```powershell
+.\tools\publish-frontend-release.ps1
+.\tools\rollback-frontend-release.ps1
+```
+
+Релизы лежат в `.runtime/releases/frontend/<sha-time>`, активный release
+переключается атомарным manifest только после browser smoke. Хранятся активный
+и предыдущий зелёные релизы. `start-public.bat` запускает именно проверенный
+каталог и не останавливает текущий frontend, пока кандидат не готов.
+
+### Наблюдаемость и учения
+
+- `POST /api/client-errors` принимает только разрешённые технические поля,
+  ограничен 20 событиями в минуту на источник и не сохраняет IP или raw UA.
+- `GET /api/admin/runtime-health-v2` показывает release, ошибки за 24 часа,
+  последние инциденты и последний synthetic run.
+- `RUNTIME_ALERT_WEBHOOK_URL` включает webhook для новой сигнатуры;
+  `RUNTIME_SYNTHETIC_KEY` защищает запись результата synthetic monitor.
+- `npm run e2e:synthetic` проверяет `/`, `/feed`, `/gallery`, `/profile`.
+- `.\tools\run-resilience-drill.ps1` выполняет автоматизированную аварийную
+  тренировку и пишет отчёт в `.runtime/drills/`.
+
+GitHub branch protection остаётся настройкой владельца репозитория: required
+check должен указывать на workflow `Backend, tooling and frontend gates`.

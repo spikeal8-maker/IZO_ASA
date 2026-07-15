@@ -3,17 +3,19 @@ import type { ErrorInfo, ReactElement, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { installGlobalRuntimeTelemetry, reportRuntimeError } from './runtimeTelemetry'
 
-class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null; revision: number }> {
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; incidentId: string; revision: number }> {
   constructor(props: { children: ReactNode }) {
     super(props)
-    this.state = { hasError: false, error: null, revision: 0 }
+    this.state = { hasError: false, incidentId: '', revision: 0 }
   }
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error }
+  static getDerivedStateFromError() {
+    return { hasError: true }
   }
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('ErrorBoundary caught:', error, info)
+    this.setState({ incidentId: reportRuntimeError('root', error) })
   }
   render() {
     if (this.state.hasError) {
@@ -21,9 +23,9 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
         <div style={{ padding: 40, textAlign: 'center', fontFamily: 'sans-serif' }}>
           <h2>Студия временно остановлена</h2>
           <p style={{ color: '#aaa', fontSize: 14 }}>Настройки сохранены. Восстановите студию и продолжите работу.</p>
-          <p style={{ color: '#777', fontSize: 12 }}>{String(this.state.error?.message || 'Неизвестная ошибка интерфейса')}</p>
+          {this.state.incidentId && <p style={{ color: '#777', fontSize: 12 }}>Код инцидента: {this.state.incidentId}</p>}
           <button
-            onClick={() => this.setState((state) => ({ hasError: false, error: null, revision: state.revision + 1 }))}
+            onClick={() => this.setState((state) => ({ hasError: false, incidentId: '', revision: state.revision + 1 }))}
             style={{ marginTop: 16, padding: '8px 24px', cursor: 'pointer' }}
           >
             Восстановить студию
@@ -36,6 +38,8 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
       : this.props.children
   }
 }
+
+installGlobalRuntimeTelemetry()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

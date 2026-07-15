@@ -61,6 +61,10 @@ function galleryPayload(kind) {
 async function installApiFixtures(context, kind) {
   await context.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
+    if (kind === 'backend-unavailable') {
+      await route.abort('connectionrefused')
+      return
+    }
     if (url.pathname === '/api/gallery/items') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(galleryPayload(kind)) })
       return
@@ -88,6 +92,24 @@ async function openStudio(browser, kind) {
   assert(!await page.getByText('Студия временно остановлена').count(), `${kind}: root ErrorBoundary is visible`)
   assert(pageErrors.length === 0, `${kind}: page errors: ${pageErrors.join(' | ')}`)
   return { context, page, pageErrors }
+}
+
+async function verifyIsolatedFailure(browser, region, survivingSelector) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+  await installApiFixtures(context, 'mixed')
+  await context.addInitScript((failedRegion) => {
+    window.sessionStorage.setItem('izo:e2e:fail-region', failedRegion)
+  }, region)
+  const page = await context.newPage()
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+  const fallback = page.locator(`[data-runtime-region="${region}"]`).filter({ hasText: 'временно недоступен' })
+  await fallback.waitFor({ state: 'visible' })
+  assert(!await page.getByText('Студия временно остановлена').count(), `${region}: local failure reached root ErrorBoundary`)
+  await page.locator(survivingSelector).waitFor({ state: 'visible' })
+  await fallback.getByRole('button', { name: 'Повторить' }).click()
+  await page.locator(`[data-studio-region="${region}"]`).waitFor({ state: 'visible' })
+  assert(!await page.getByText('Студия временно остановлена').count(), `${region}: retry reached root ErrorBoundary`)
+  await context.close()
 }
 
 let previewProcess
@@ -145,7 +167,24 @@ try {
   assert(!await malformed.page.getByText('Студия временно остановлена').count(), 'malformed: invalid gallery records crashed studio')
   await malformed.context.close()
 
-  console.log(JSON.stringify({ ok: true, beforeHover, afterHover, baseUrl, galleryContracts: ['new', 'legacy', 'missing-id', 'malformed'] }))
+  const unavailable = await openStudio(browser, 'backend-unavailable')
+  assert(!await unavailable.page.getByText('Студия временно остановлена').count(), 'backend-unavailable: studio crashed')
+  assert(await unavailable.page.locator('.prompt-section textarea').isVisible(), 'backend-unavailable: prompt is not usable')
+  await unavailable.context.close()
+
+  await verifyIsolatedFailure(browser, 'studio-form', '[data-studio-region="preview"]')
+  await verifyIsolatedFailure(browser, 'preview', '[data-studio-region="studio-form"]')
+  await verifyIsolatedFailure(browser, 'history', '[data-studio-region="preview"]')
+
+  console.log(JSON.stringify({
+    ok: true,
+    beforeHover,
+    afterHover,
+    baseUrl,
+    galleryContracts: ['new', 'legacy', 'missing-id', 'malformed'],
+    networkFailures: ['backend-unavailable', 'guest-401'],
+    isolatedFailures: ['studio-form', 'preview', 'history'],
+  }))
 } finally {
   await browser.close()
   if (previewProcess && !previewProcess.killed) previewProcess.kill()

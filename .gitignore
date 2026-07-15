@@ -38,6 +38,7 @@ logs/
 *.log
 .tools/
 .tunnels/
+.runtime/
 
 # Generated test and visual artifacts
 frontend/*.png

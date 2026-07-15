@@ -30,7 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image, ImageDraw, ImageFont, ImageOps
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 try:
     from .app.integrations.smtp import SmtpConfig, SmtpError, SmtpMessage, send_smtp_email, verify_smtp_connection
@@ -838,6 +838,27 @@ class ImprovePromptRequest(BaseModel):
     mode: Literal["text", "i2i", "edit", "sketch", "mask", "outpaint", "remove_bg"] = "text"
     language: Literal["ru", "en"] = "ru"
     technicalPrompt: str = Field(default="", max_length=4000)
+
+
+class ClientRuntimeErrorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    incident_id: str = Field(min_length=6, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    signature: str = Field(min_length=6, max_length=80, pattern=r"^[a-fA-F0-9]+$")
+    region: Literal["root", "studio-form", "preview", "history", "gallery-picker", "global"]
+    route: str = Field(min_length=1, max_length=160)
+    mode: str = Field(default="default", max_length=48)
+    release: str = Field(default="unknown", max_length=80)
+    kind: str = Field(default="Error", max_length=80)
+
+
+class SyntheticResultRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok", "error"]
+    release: str = Field(default="unknown", max_length=80)
+    checked_routes: list[str] = Field(default_factory=list, max_length=10)
+    duration_ms: int = Field(ge=0, le=600_000)
 
 
 class MiniAppAuthRequest(BaseModel):
@@ -6777,6 +6798,32 @@ async def health() -> dict[str, Any]:
 # is actually live. No secrets, no env values, no raw DB URLs.
 APP_BUILD = os.getenv("APP_BUILD", "20E.2E-2026-06-28")
 
+_runtime_error_rate: dict[str, list[float]] = {}
+_runtime_alerted_signatures: dict[str, float] = {}
+_runtime_error_window: list[float] = []
+_runtime_threshold_alerted_at = 0.0
+
+
+async def _send_runtime_alert(payload: dict[str, Any]) -> None:
+    webhook = os.getenv("RUNTIME_ALERT_WEBHOOK_URL", "").strip()
+    if not webhook:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=3, follow_redirects=False) as client:
+            await client.post(webhook, json={"event": "frontend_runtime_error", **payload})
+    except (httpx.HTTPError, RuntimeError):
+        return
+
+
+def _check_runtime_error_rate(request: Request) -> None:
+    key = _client_ip(request) or "unknown"
+    now = time.monotonic()
+    recent = [stamp for stamp in _runtime_error_rate.get(key, []) if now - stamp < 60]
+    if len(recent) >= 20:
+        raise HTTPException(429, "runtime_error_rate_limited")
+    recent.append(now)
+    _runtime_error_rate[key] = recent
+
 
 @app.get("/api/version")
 async def version() -> dict[str, Any]:
@@ -6863,6 +6910,112 @@ async def improve_prompt(req: ImprovePromptRequest, request: Request) -> dict[st
         "provider": provider,
         "usage": usage,
         "costUsd": cost,
+    }
+
+
+@app.post("/api/client-errors", status_code=202)
+async def client_runtime_error(req: ClientRuntimeErrorRequest, request: Request) -> dict[str, Any]:
+    global _runtime_error_window, _runtime_threshold_alerted_at
+    _check_runtime_error_rate(request)
+    properties = {
+        "incident_id": req.incident_id,
+        "signature": req.signature,
+        "region": req.region,
+        "route": req.route,
+        "mode": req.mode,
+        "release": req.release,
+        "kind": req.kind,
+    }
+    record_event_log(
+        "frontend_runtime_error",
+        platform="web",
+        device_type=parse_user_agent(request.headers.get("user-agent"))["device_type"],
+        request=None,
+        properties=properties,
+    )
+    now = time.monotonic()
+    last_alert = _runtime_alerted_signatures.get(req.signature, 0.0)
+    if now - last_alert >= 600:
+        _runtime_alerted_signatures[req.signature] = now
+        asyncio.create_task(_send_runtime_alert(properties))
+    _runtime_error_window = [stamp for stamp in _runtime_error_window if now - stamp < 300]
+    _runtime_error_window.append(now)
+    if len(_runtime_error_window) >= 5 and now - _runtime_threshold_alerted_at >= 600:
+        _runtime_threshold_alerted_at = now
+        asyncio.create_task(_send_runtime_alert({
+            "kind": "runtime_error_threshold",
+            "count": len(_runtime_error_window),
+            "window_seconds": 300,
+            "release": req.release,
+        }))
+    return {"accepted": True, "incidentId": req.incident_id}
+
+
+@app.post("/api/runtime/synthetic-result", status_code=202)
+async def runtime_synthetic_result(req: SyntheticResultRequest, request: Request) -> dict[str, Any]:
+    expected = os.getenv("RUNTIME_SYNTHETIC_KEY", "").strip()
+    supplied = request.headers.get("x-izo-synthetic-key", "")
+    if not expected or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(401, "invalid_synthetic_key")
+    properties = {
+        "status": req.status,
+        "release": req.release,
+        "checked_routes": [route[:160] for route in req.checked_routes],
+        "duration_ms": req.duration_ms,
+    }
+    record_event_log(
+        f"frontend_synthetic_{req.status}",
+        platform="monitor",
+        request=None,
+        properties=properties,
+    )
+    if req.status == "error":
+        asyncio.create_task(_send_runtime_alert({"kind": "synthetic_error", **properties}))
+    return {"accepted": True}
+
+
+@app.get("/api/admin/runtime-health-v2")
+async def admin_runtime_health_v2(request: Request) -> dict[str, Any]:
+    require_admin(request)
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    with db() as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) AS c FROM event_logs WHERE event_name = 'frontend_runtime_error' AND created_at >= ?",
+            (since,),
+        ).fetchone()["c"]
+        rows = conn.execute(
+            "SELECT properties_json, created_at FROM event_logs WHERE event_name = 'frontend_runtime_error' "
+            "ORDER BY created_at DESC LIMIT 20"
+        ).fetchall()
+        synthetic_row = conn.execute(
+            "SELECT event_name, properties_json, created_at FROM event_logs "
+            "WHERE event_name IN ('frontend_synthetic_ok', 'frontend_synthetic_error') "
+            "ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    incidents = []
+    for row in rows:
+        details = safe_json_load(row["properties_json"]) or {}
+        incidents.append({
+            "incident_id": details.get("incident_id"),
+            "signature": details.get("signature"),
+            "region": details.get("region"),
+            "route": details.get("route"),
+            "release": details.get("release"),
+            "kind": details.get("kind"),
+            "created_at": row["created_at"],
+        })
+    latest_synthetic = None
+    if synthetic_row:
+        latest_synthetic = safe_json_load(synthetic_row["properties_json"]) or {}
+        latest_synthetic["event"] = synthetic_row["event_name"]
+        latest_synthetic["created_at"] = synthetic_row["created_at"]
+    return {
+        "ok": True,
+        "release": {"backend": APP_BUILD, "frontend": os.getenv("FRONTEND_BUILD_LABEL", "unknown")},
+        "runtime_errors_24h": int(total or 0),
+        "alert_webhook_configured": bool(os.getenv("RUNTIME_ALERT_WEBHOOK_URL", "").strip()),
+        "latest_synthetic": latest_synthetic,
+        "recent_incidents": incidents,
     }
 
 

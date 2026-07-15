@@ -6,23 +6,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_public_launcher_stops_on_typescript_failure() -> None:
+def test_public_launcher_stops_when_candidate_release_fails() -> None:
     launcher = (ROOT / "start-public.bat").read_text(encoding="utf-8")
-    tsc_index = launcher.index("call npx tsc -b")
-    vite_index = launcher.index("call npx vite build", tsc_index)
-    gate = launcher[tsc_index:vite_index]
+    publish_index = launcher.index("publish-frontend-release.ps1")
+    restart_index = launcher.index("Freeing ports 8000 and 5173")
+    gate = launcher[publish_index:restart_index]
 
     assert "if errorlevel 1" in gate
     assert "exit /b 1" in gate
-    assert "TypeScript compile failed" in gate
-    assert "Vite build will still run" not in gate
+    assert "active public release was NOT changed" in gate
 
 
-def test_public_launcher_builds_before_restarting_ports() -> None:
+def test_public_launcher_verifies_release_before_restarting_ports() -> None:
     launcher = (ROOT / "start-public.bat").read_text(encoding="utf-8")
 
-    assert launcher.index("call npx tsc -b") < launcher.index("call npx vite build")
-    assert launcher.index("call npx vite build") < launcher.index("Freeing ports 8000 and 5173")
+    assert launcher.index("publish-frontend-release.ps1") < launcher.index("Freeing ports 8000 and 5173")
+    assert "--outDir '%FRONTEND_RELEASE%'" in launcher
 
 
 def test_public_launcher_keeps_max_polling_unless_webhook_is_explicit() -> None:

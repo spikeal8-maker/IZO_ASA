@@ -5671,3 +5671,36 @@ font-size: 9px;
     stroke: currentColor;
   }
 }
+.runtime-region-fallback {
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px;
+  color: #e8eee4;
+  background: #080d09;
+  border: 1px solid #263129;
+  text-align: center;
+}
+
+.runtime-region-fallback span,
+.runtime-region-fallback small {
+  color: #94a197;
+}
+
+.runtime-region-fallback button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid #8fa500;
+  border-radius: 6px;
+  color: #d9f500;
+  background: transparent;
+  cursor: pointer;
+}
+
+.runtime-region-fallback.preview-image {
+  width: 100%;
+  height: 100%;
+}

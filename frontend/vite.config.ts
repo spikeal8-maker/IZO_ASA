@@ -2,10 +2,14 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const exactAllowedHosts = ['izo.alikinas.ru'] as const
+const appRelease = process.env.FRONTEND_BUILD_LABEL || process.env.GITHUB_SHA || 'dev'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __APP_RELEASE__: JSON.stringify(appRelease),
+  },
   server: {
     port: 5173,
     allowedHosts: [...exactAllowedHosts],

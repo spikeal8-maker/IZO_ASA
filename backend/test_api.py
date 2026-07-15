@@ -99,6 +99,10 @@ def isolated_db(tmp_path, monkeypatch):
     main.bot_polling_started = False
     main.bot_polling_tasks.clear()
     main._telegram_webhook_replay_guard.clear()
+    main._runtime_error_rate.clear()
+    main._runtime_alerted_signatures.clear()
+    main._runtime_error_window.clear()
+    main._runtime_threshold_alerted_at = 0.0
 
     iuid = "iuid-api-test"
     legacy = "web_apitest"
@@ -127,6 +131,72 @@ def authed_client() -> TestClient:
     client.cookies.set(main.TRUSTED_SESSION_COOKIE_NAME, _SESSION["session_token"])
     client.headers.update({"X-OneNode-User": _SESSION["legacy_user_id"]})
     return client
+
+
+def test_runtime_error_ingestion_is_sanitized(monkeypatch) -> None:
+    monkeypatch.delenv("RUNTIME_ALERT_WEBHOOK_URL", raising=False)
+    main._runtime_error_rate.clear()
+    main._runtime_alerted_signatures.clear()
+    payload = {
+        "incident_id": "inc-test-123",
+        "signature": "a1b2c3d4",
+        "region": "preview",
+        "route": "/",
+        "mode": "text-to-image",
+        "release": "test-sha",
+        "kind": "TypeError",
+    }
+    with TestClient(main.app) as client:
+        response = client.post("/api/client-errors", json=payload)
+    assert response.status_code == 202
+    with main.db() as conn:
+        row = conn.execute(
+            "SELECT properties_json, ip_address, user_agent_hash FROM event_logs "
+            "WHERE event_name = 'frontend_runtime_error' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    assert row["ip_address"] is None
+    assert row["user_agent_hash"] is None
+    stored = main.safe_json_load(row["properties_json"])
+    assert stored == payload
+    serialized = row["properties_json"].lower()
+    assert "prompt" not in serialized
+    assert "cookie" not in serialized
+    assert "stack" not in serialized
+
+
+def test_runtime_error_rejects_unapproved_fields() -> None:
+    main._runtime_error_rate.clear()
+    payload = {
+        "incident_id": "inc-test-456",
+        "signature": "abcdef12",
+        "region": "history",
+        "route": "/",
+        "stack": "must never be accepted",
+    }
+    with TestClient(main.app) as client:
+        response = client.post("/api/client-errors", json=payload)
+    assert response.status_code == 422
+
+
+def test_runtime_health_reports_latest_synthetic(monkeypatch) -> None:
+    monkeypatch.setenv("RUNTIME_SYNTHETIC_KEY", "test-monitor-key")
+    with TestClient(main.app) as client:
+        denied = client.post("/api/runtime/synthetic-result", json={"status": "ok", "duration_ms": 10})
+        accepted = client.post(
+            "/api/runtime/synthetic-result",
+            headers={"X-IZO-Synthetic-Key": "test-monitor-key"},
+            json={"status": "ok", "release": "test-sha", "checked_routes": ["/", "/feed"], "duration_ms": 321},
+        )
+    assert denied.status_code == 401
+    assert accepted.status_code == 202
+    with authed_client() as client:
+        health = client.get("/api/admin/runtime-health-v2")
+    assert health.status_code == 200
+    payload = health.json()
+    assert payload["latest_synthetic"]["status"] == "ok"
+    assert payload["latest_synthetic"]["release"] == "test-sha"
+    assert payload["latest_synthetic"]["checked_routes"] == ["/", "/feed"]
 
 
 BOT_OPERATIONAL_CASES = [

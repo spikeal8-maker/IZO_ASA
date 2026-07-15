@@ -46,6 +46,15 @@ import { FORMAT_TO_PRICING_ID, IMAGE_RESOLUTIONS, normalizeResolutionId, type Im
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
 import { applyClientSeo, currentSeoLocale, type SeoMeta } from './seo'
+import ResilientRegion from './RuntimeBoundary'
+import {
+  normalizeFeedPayload,
+  normalizeGalleryPayload,
+  normalizeGeneration,
+  normalizeModels,
+  type GalleryContractItem,
+  type GenerationContract,
+} from './runtimeContracts'
 import './newUi.css'
 import './newStudioV3.css'
 import previewPlaceholderUrl from './assets/preview-placeholder.jpg'
@@ -267,59 +276,8 @@ function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   return { view: 'tabs', tab: 'text' }
 }
 
-interface N2Job {
-  id: string
-  status: string
-  progress?: number
-  message?: string
-  resultUrl?: string
-  resultImageId?: string
-  width?: number
-  height?: number
-  error?: string
-  createdAt?: string
-}
-
-interface N2GalleryImage {
-  id: string
-  url: string
-  thumbnailUrl: string
-  mode: string
-  promptOriginal: string
-  createdAt: string
-  resultImageId?: string
-  modelProfile?: string
-  tokenCost?: number | null
-  generationTimeMs?: number
-  // Для формы миниатюр истории: у галереи есть width/height, у ленты — aspectRatio.
-  width?: number
-  height?: number
-  aspectRatio?: string
-}
-
-function normalizeGalleryImage(value: unknown, index: number): N2GalleryImage | null {
-  if (!value || typeof value !== 'object') return null
-  const item = value as Record<string, unknown>
-  const url = String(item.viewerSrc || item.downloadUrl || item.url || item.src || item.thumbnailUrl || '')
-  const thumbnailUrl = String(item.thumbnailUrl || item.src || item.viewerSrc || item.downloadUrl || item.url || '')
-  if (!url || !thumbnailUrl) return null
-  const id = String(item.id || item.imageId || `gallery-${index}-${thumbnailUrl}`)
-  return {
-    id,
-    url,
-    thumbnailUrl,
-    mode: String(item.mode || ''),
-    promptOriginal: String(item.promptOriginal || item.prompt || ''),
-    createdAt: String(item.createdAt || item.date || ''),
-    resultImageId: item.resultImageId ? String(item.resultImageId) : undefined,
-    modelProfile: item.modelProfile ? String(item.modelProfile) : undefined,
-    tokenCost: typeof item.tokenCost === 'number' ? item.tokenCost : null,
-    generationTimeMs: typeof item.generationTimeMs === 'number' ? item.generationTimeMs : undefined,
-    width: typeof item.width === 'number' ? item.width : undefined,
-    height: typeof item.height === 'number' ? item.height : undefined,
-    aspectRatio: item.aspectRatio ? String(item.aspectRatio) : undefined,
-  }
-}
+type N2Job = GenerationContract
+type N2GalleryImage = GalleryContractItem
 
 type UploadedSourceImage = {
   id: string
@@ -665,42 +623,6 @@ const FEED_I18N: Record<FeedLang, Record<string, string>> = {
     open: 'Open',
     role: 'Status',
   },
-}
-
-// Модель публикации = ответ GET /api/feed (snake_case backend-контракта).
-interface FeedPublication {
-  id: string
-  image_url: string
-  thumbnail_url: string
-  display_url?: string
-  user_id: string
-  author_name: string
-  author_handle?: string | null
-  author_avatar?: string | null
-  author_type?: string
-  is_seed?: boolean
-  is_current_user?: boolean
-  badge?: string | null
-  category?: string | null
-  title: string
-  description: string | null
-  prompt: string | null
-  prompt_visibility: 'open' | 'partial' | 'hidden'
-  allow_recreate: boolean
-  style: string | null
-  model: string | null
-  mode: string | null
-  aspect_ratio: string
-  resolution: string | null
-  seed: number | null
-  created_at: string
-  remix_count: number
-  save_count: number
-  like_count: number
-  view_count?: number
-  is_liked_by_me: boolean
-  is_saved_by_me: boolean
-  is_mine: boolean
 }
 
 // Форма карточки по соотношению сторон публикации.
@@ -1391,7 +1313,7 @@ export default function NewStudio(): ReactElement {
     apiFetch('/models')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (!cancelled && data?.ok !== false) setModelsPayload(data)
+        if (!cancelled && data && data?.ok !== false) setModelsPayload(normalizeModels(data))
       })
       .catch(() => undefined)
     return () => { cancelled = true }
@@ -1503,11 +1425,7 @@ export default function NewStudio(): ReactElement {
   const fetchGallery = useCallback(async () => {
     try {
       const data = await apiFetch('/gallery/items?limit=24').then((r) => (r.ok ? r.json() : null))
-      const arr: N2GalleryImage[] = Array.isArray(data?.items)
-        ? data.items
-            .map((item: unknown, index: number) => normalizeGalleryImage(item, index))
-            .filter((item: N2GalleryImage | null): item is N2GalleryImage => item !== null)
-        : []
+      const arr = normalizeGalleryPayload(data)
       if (arr.length === 0 && ownGallerySeenRef.current) return []
       if (arr.length > 0) ownGallerySeenRef.current = true
       setGallery(arr)
@@ -1531,27 +1449,16 @@ export default function NewStudio(): ReactElement {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled || !data) return
-        const rows: FeedPublication[] = Array.isArray(data) ? data : data.items || data.publications || []
-        const mapped: N2GalleryImage[] = rows
-          .map((p) => {
-            // Только ПУБЛИЧНЫЕ деривативы ленты (display_url/thumbnail_url).
-            // image_url может указывать на приватный оригинал (/api/media → 401),
-            // поэтому его не используем — иначе миниатюра «битая».
-            const display = p.display_url || p.thumbnail_url || ''
-            const thumb = p.thumbnail_url || p.display_url || ''
-            return {
-              id: `feed-${p.id}`,
-              url: display,
-              thumbnailUrl: thumb,
-              mode: 'feed',
-              promptOriginal: p.prompt || p.title || '',
-              createdAt: p.created_at || '',
-              aspectRatio: p.aspect_ratio || '1:1',
-            }
-          })
-          // В историю не добавляем элементы без рабочего публичного изображения.
-          .filter((x) => x.url && x.thumbnailUrl)
-          .slice(0, 10)
+        const mapped: N2GalleryImage[] = normalizeFeedPayload(data).map((item) => ({
+          id: `feed-${item.id}`,
+          url: item.displayUrl,
+          thumbnailUrl: item.thumbnailUrl,
+          mode: 'feed',
+          promptOriginal: item.prompt,
+          createdAt: item.createdAt,
+          aspectRatio: item.aspectRatio,
+          tokenCost: null,
+        })).slice(0, 10)
         setFeedFallback(mapped)
       })
       .catch(() => undefined)
@@ -1579,7 +1486,11 @@ export default function NewStudio(): ReactElement {
           if (response.status === 404) setNotice('Задача не найдена. Обновите историю, если результат уже сохранился.')
           return
         }
-        const next: N2Job = await response.json()
+        const next = normalizeGeneration(await response.json())
+        if (!next) {
+          setNotice('Сервер вернул неполные данные задачи. Повторите проверку истории.')
+          return
+        }
         setJob(next)
         if (next.status === 'completed') {
           const completedUrl = next.resultUrl
@@ -1784,11 +1695,7 @@ export default function NewStudio(): ReactElement {
         return Promise.all([primaryResponse.json(), secondaryResponse.json()])
       })
       .then(([primary, secondary]) => {
-        setGalleryPickerImages(Array.isArray(primary?.items)
-          ? primary.items
-              .map((item: unknown, index: number) => normalizeGalleryImage(item, index))
-              .filter((item: N2GalleryImage | null): item is N2GalleryImage => item !== null)
-          : [])
+        setGalleryPickerImages(normalizeGalleryPayload(primary))
         setUploadedSources(Array.isArray(secondary?.uploadedItems) ? secondary.uploadedItems : [])
       })
       .catch(() => setGalleryPickerError('Не удалось загрузить ранее загруженные изображения.'))
@@ -2024,7 +1931,11 @@ export default function NewStudio(): ReactElement {
         else setNotice(apiErrorText(detail, `Сервер вернул ошибку (${response.status}). Попробуйте ещё раз.`))
         return
       }
-      const created: N2Job = await response.json()
+      const created = normalizeGeneration(await response.json())
+      if (!created) {
+        setNotice('Сервер не подтвердил создание задачи. Токены не списываются без подтверждённой задачи.')
+        return
+      }
       if (mode === 'text') {
         lastTextSubmittedRef.current = { prompt: textPrompt, model: selectedModel.id, width: requestSize.width, height: requestSize.height }
       } else if (mode === 'i2i') {
@@ -3077,7 +2988,8 @@ export default function NewStudio(): ReactElement {
 
   const studio = (
     <main className="layout">
-      <aside className="sidebar">
+      <ResilientRegion region="studio-form" label="Панель настроек" fallbackClassName="sidebar" render={() => (
+      <aside className="sidebar" data-studio-region="studio-form">
         <div className="sidebar-head">
           <h1>{studioTitle}</h1>
           <button
@@ -3593,6 +3505,7 @@ export default function NewStudio(): ReactElement {
           {jobActive || isSubmitting ? generatingLabel : <>{generateLabel}<span className="generate-token-cost">{currentStudioTokenCost} ток.</span></>}
         </button>
       </aside>
+      )} />
 
       <section className="preview-panel">
         <div className="mobile-title-row">
@@ -3639,7 +3552,8 @@ export default function NewStudio(): ReactElement {
             {proModeAllowed ? effectiveProMode ? 'Режим Стандарт' : 'Режим Профи' : 'Профи закрыт'}
           </button>
         </div>
-        <div className={`preview-image preview-shape-${visiblePreviewShape}`}>
+        <ResilientRegion region="preview" label="Предпросмотр" fallbackClassName={`preview-image preview-shape-${visiblePreviewShape}`} render={() => (
+        <div className={`preview-image preview-shape-${visiblePreviewShape}`} data-studio-region="preview">
           {isPaintStudio && paintWorkbenchVisible && !hoverStyle && !previewJobActive ? (
             paintWorkbench
           ) : hoverStyle ? (
@@ -3813,10 +3727,12 @@ export default function NewStudio(): ReactElement {
             </div>
           )}
         </div>
+        )} />
       </section>
 
       <section className="result-dock">
-        <div className="history">
+        <ResilientRegion region="history" label="История" fallbackClassName="history" render={() => (
+        <div className="history" data-studio-region="history">
           <div className="history-head">
             <button className="history-prompt-chip" type="button" disabled={!dockImage} onClick={() => copyPrompt(dockPromptText)}>
               Промпт изображения ›
@@ -3873,6 +3789,7 @@ export default function NewStudio(): ReactElement {
             </div>
           )}
         </div>
+        )} />
 
         <aside className="image-prompt">
           <div className="prompt-copy">
@@ -4163,7 +4080,8 @@ export default function NewStudio(): ReactElement {
 
       {galleryPickTarget && (
         <div className="n2-overlay" role="dialog" aria-label="Выбор из галереи" onClick={() => setGalleryPickTarget(null)}>
-          <div className="n2-overlay-card n2-templates" onClick={(e) => e.stopPropagation()}>
+          <ResilientRegion region="gallery-picker" label="Выбор изображения" fallbackClassName="n2-overlay-card n2-templates" render={() => (
+          <div className="n2-overlay-card n2-templates" data-studio-region="gallery-picker" onClick={(e) => e.stopPropagation()}>
             <button className="n2-overlay-close" type="button" aria-label="Закрыть" onClick={() => setGalleryPickTarget(null)}>
               ×
             </button>
@@ -4231,6 +4149,7 @@ export default function NewStudio(): ReactElement {
               </div>
             ) : <p className="n2-gallery-picker-message">Ранее загруженных изображений пока нет.</p>}
           </div>
+          )} />
         </div>
       )}
 

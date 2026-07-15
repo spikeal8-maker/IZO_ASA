@@ -21,6 +21,8 @@ set "LIVE_DB=%BACKEND%\onenode.sqlite3"
 set "APP_ENV=production"
 set "APP_BUILD=FEED-MEDIA-READY-FILTER-20260707"
 set "FRONTEND_BUILD_LABEL=FEED-MEDIA-READY-FILTER-20260707"
+for /f %%I in ('git -C "%ROOT%" rev-parse --short=12 HEAD 2^>nul') do set "APP_BUILD=%%I"
+set "FRONTEND_BUILD_LABEL=%APP_BUILD%"
 set "DATABASE_URL=sqlite:///%LIVE_DB%"
 set "DB_GUARD_ALLOWED_PATHS=%LIVE_DB%"
 set "DB_GUARD_MIN_SIZE_MB=10"
@@ -66,23 +68,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "if ($item.Length -lt 10MB) { Write-Host '[ERROR] Refusing suspiciously small live DB:' $size 'MB'; exit 12 }"
 if errorlevel 1 (echo [ERROR] Production DB preflight failed. Public backend NOT started. & pause & exit /b 1)
 
-echo [1/5] Building frontend ^(tsc -b + vite build^)...
-pushd "%FRONTEND%" >nul
-if not exist "node_modules" (
-  echo Installing frontend dependencies...
-  call npm install || (echo [ERROR] npm install failed. & popd >nul & pause & exit /b 1)
-)
-call npx tsc -b
+echo [1/5] Preparing immutable frontend release and running browser smoke...
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\publish-frontend-release.ps1" -RepoRoot "%ROOT%" -SkipVerify
 if errorlevel 1 (
-  echo [ERROR] TypeScript compile failed. Public site NOT changed.
-  popd >nul
+  echo [ERROR] Candidate release failed. The active public release was NOT changed.
   if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1
 )
-call npx vite build
-if errorlevel 1 (echo [ERROR] vite build failed. Public site NOT changed. & popd >nul & pause & exit /b 1)
-popd >nul
-if not exist "%FRONTEND%\dist\index.html" (echo [ERROR] dist\index.html missing after build. & pause & exit /b 1)
+for /f "delims=" %%I in ('powershell -NoProfile -Command "(Get-Content -LiteralPath '%ROOT%.runtime\active-frontend.json' -Raw ^| ConvertFrom-Json).release_path"') do set "FRONTEND_RELEASE=%%I"
+if not exist "%FRONTEND_RELEASE%\index.html" (echo [ERROR] Active release index.html missing. & pause & exit /b 1)
 
 echo [2/5] Freeing ports 8000 and 5173 (stop old backend/dev/preview)...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 8000,5173 -ErrorAction SilentlyContinue | Where-Object {$_.State -eq 'Listen'} | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }" >nul 2>nul
@@ -106,8 +100,8 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [4/5] Starting frontend PREVIEW (dist) on 127.0.0.1:5173...
-start "IZO_ASA public frontend :5173" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%FRONTEND%'; npx vite preview --host 127.0.0.1 --port 5173"
+echo [4/5] Starting verified frontend PREVIEW on 127.0.0.1:5173...
+start "IZO_ASA public frontend :5173" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%FRONTEND%'; npx vite preview --host 127.0.0.1 --port 5173 --strictPort --outDir '%FRONTEND_RELEASE%'"
 
 echo [5/5] Waiting for frontend, then probing...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
