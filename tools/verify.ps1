@@ -177,6 +177,7 @@ if ($PlanOnly) {
         Write-Host "VERIFY_PLAN_STEP frontend_lint command=npm run lint"
         Write-Host "VERIFY_PLAN_STEP frontend_build command=npm run build"
         Write-Host "VERIFY_PLAN_STEP frontend_origin_isolation command=npm run check:origin"
+        Write-Host "VERIFY_PLAN_STEP frontend_studio_resilience command=npm run e2e:studio-resilience"
     } else {
         Write-Host "VERIFY_PLAN_STEP pytest scope=tool-contracts"
     }
@@ -207,6 +208,7 @@ if ($usesFullSuite) {
     Invoke-NativeStep -Name "frontend_lint" -FilePath $npm -ArgumentList @("run", "lint") -WorkingDirectory $frontendDirectory
     Invoke-NativeStep -Name "frontend_build" -FilePath $npm -ArgumentList @("run", "build") -WorkingDirectory $frontendDirectory
     Invoke-NativeStep -Name "frontend_origin_isolation" -FilePath $npm -ArgumentList @("run", "check:origin") -WorkingDirectory $frontendDirectory
+    Invoke-NativeStep -Name "frontend_studio_resilience" -FilePath $npm -ArgumentList @("run", "e2e:studio-resilience") -WorkingDirectory $frontendDirectory
 } else {
     Invoke-NativeStep -Name "pytest_quick" -FilePath $python -ArgumentList $quickTests -WorkingDirectory $resolvedRoot
 }

@@ -76,6 +76,7 @@ def test_full_plan_contains_every_local_gate_without_execution() -> None:
     assert "pytest scope=backend+tools" in result.stdout
     assert "frontend_lint" in result.stdout
     assert "frontend_build" in result.stdout
+    assert "frontend_studio_resilience" in result.stdout
     assert "VERIFY_PLAN_OK mode=Full" in result.stdout
 
 
@@ -86,6 +87,7 @@ def test_ci_plan_is_deterministic_and_omits_live_runtime_checks() -> None:
     assert "pytest scope=backend+tools" in result.stdout
     assert "frontend_lint" in result.stdout
     assert "frontend_build" in result.stdout
+    assert "frontend_studio_resilience" in result.stdout
     assert "source_snapshot" not in result.stdout
     assert "backend_preflight" not in result.stdout
     assert "VERIFY_PLAN_OK mode=CI" in result.stdout

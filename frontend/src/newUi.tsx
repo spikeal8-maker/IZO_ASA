@@ -57,7 +57,8 @@ const API = import.meta.env.VITE_API_BASE_URL || '/api'
 // (в проде API='/api' → origin пуст и URL остаются относительными).
 const API_ORIGIN = API.endsWith('/api') ? API.slice(0, -'/api'.length) : ''
 
-function apiUrl(path: string): string {
+function apiUrl(path: unknown): string {
+  if (typeof path !== 'string' || !path) return ''
   return path.startsWith('/') ? `${API_ORIGIN}${path}` : path
 }
 

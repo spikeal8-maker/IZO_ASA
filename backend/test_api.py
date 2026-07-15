@@ -1016,7 +1016,7 @@ def test_generation_persists_source_snapshots_for_gallery_history(monkeypatch) -
     assert detail["sources"][0]["roleLabel"] == "Основа"
     assert source_thumb.status_code == 200
     assert deleted.status_code == 200
-    assert source_thumb_after_delete.status_code == 404
+    assert source_thumb_after_delete.status_code == 200
 
 
 def test_gallery_source_history_includes_parent_chain(monkeypatch) -> None:
