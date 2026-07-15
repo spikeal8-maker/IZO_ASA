@@ -25,6 +25,7 @@ def test_ci_workflow_uses_pinned_windows_toolchain_and_lockfiles() -> None:
     assert "python -m pip install --requirement backend/requirements.txt" in source
     assert "working-directory: frontend" in source
     assert "run: npm ci" in source
+    assert "run: npx playwright install chromium" in source
     assert (ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.11.9"
     assert (ROOT / ".node-version").read_text(encoding="utf-8").strip() == "24.14.1"
     assert len(FULL_SHA_ACTION.findall(source)) == 3

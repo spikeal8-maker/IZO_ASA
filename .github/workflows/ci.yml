@@ -47,6 +47,10 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install chromium
+
       - name: Run deterministic repository verification
         shell: pwsh
         run: |
