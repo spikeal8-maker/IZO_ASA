@@ -1,6 +1,7 @@
 param(
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$Model = "Qwen/Qwen3-ASR-1.7B",
+    [string]$ModelRevision = "7278e1e70fe206f11671096ffdd38061171dd6e5",
     [int]$Port = 8001
 )
 
@@ -31,10 +32,12 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $stdout = Join-Path $logDir "qwen-asr.out.log"
 $stderr = Join-Path $logDir "qwen-asr.err.log"
 $oldModel = $env:QWEN_ASR_MODEL
+$oldModelRevision = $env:QWEN_ASR_MODEL_REVISION
 $oldHfHome = $env:HF_HOME
 $oldSymlinkWarning = $env:HF_HUB_DISABLE_SYMLINKS_WARNING
 try {
     $env:QWEN_ASR_MODEL = $Model
+    $env:QWEN_ASR_MODEL_REVISION = $ModelRevision
     $env:HF_HOME = "C:\izo-qwen-cache"
     $env:HF_HUB_DISABLE_SYMLINKS_WARNING = "1"
     # Keep a PowerShell parent alive because the Windows venv launcher creates
@@ -74,6 +77,7 @@ try {
     throw "Qwen ASR did not become ready within 90 seconds. See $stderr"
 } finally {
     $env:QWEN_ASR_MODEL = $oldModel
+    $env:QWEN_ASR_MODEL_REVISION = $oldModelRevision
     $env:HF_HOME = $oldHfHome
     $env:HF_HUB_DISABLE_SYMLINKS_WARNING = $oldSymlinkWarning
 }

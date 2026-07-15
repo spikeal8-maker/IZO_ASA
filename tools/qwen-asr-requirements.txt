@@ -1,0 +1,10 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+# Tested Windows/CUDA runtime for the local Qwen3-ASR service.
+torch==2.11.0+cu128
+torchaudio==2.11.0+cu128
+qwen-asr==0.0.6
+transformers==4.57.6
+fastapi==0.139.0
+uvicorn==0.51.0
+hf-xet==1.5.1

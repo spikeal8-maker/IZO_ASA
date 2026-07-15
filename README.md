@@ -19,6 +19,8 @@ Start here when you or another agent joins the project:
   HTTP vs production HTTPS, including restart persistence checks.
 - `docs/backup-restore-runbook-20260713.md` — current SQLite Backup API,
   incremental media backup, verification and safe restore procedure.
+- `docs/qwen-asr-deployment.md` — reproducible local Qwen3-ASR installation,
+  model source, verified versions, operations, migration and troubleshooting.
 - `docs/admin-panel-product-spec.md` — admin product direction.
 - `docs/new-ui-v2-plan.md` — new UI `/new` (working contract).
 - `docs/new-ui-v2-review.md` — current `/new` review state.

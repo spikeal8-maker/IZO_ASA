@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException
 
 
 MODEL_ID = os.getenv("QWEN_ASR_MODEL", "Qwen/Qwen3-ASR-1.7B")
+MODEL_REVISION = os.getenv("QWEN_ASR_MODEL_REVISION", "7278e1e70fe206f11671096ffdd38061171dd6e5")
 _model: Any = None
 _runtime_info: dict[str, Any] = {"cuda": False, "device": None}
 _model_lock = asyncio.Lock()
@@ -27,6 +28,7 @@ def _load_model() -> tuple[Any, dict[str, Any]]:
     torch.set_float32_matmul_precision("high")
     model = Qwen3ASRModel.from_pretrained(
         MODEL_ID,
+        revision=MODEL_REVISION,
         dtype=torch.bfloat16,
         device_map="cuda:0",
         max_inference_batch_size=1,
@@ -59,6 +61,7 @@ async def health() -> dict[str, Any]:
     return {
         "ok": _model is not None,
         "model": MODEL_ID,
+        "revision": MODEL_REVISION,
         **_runtime_info,
     }
 
@@ -67,7 +70,10 @@ async def health() -> dict[str, Any]:
 async def models() -> dict[str, Any]:
     if _model is None:
         raise HTTPException(503, "Qwen ASR is still loading.")
-    return {"object": "list", "data": [{"id": MODEL_ID, "object": "model", "owned_by": "Qwen"}]}
+    return {
+        "object": "list",
+        "data": [{"id": MODEL_ID, "object": "model", "owned_by": "Qwen", "revision": MODEL_REVISION}],
+    }
 
 
 def _request_audio_and_language(payload: dict[str, Any]) -> tuple[str, str | None]:

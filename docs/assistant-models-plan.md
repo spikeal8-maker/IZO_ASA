@@ -101,6 +101,9 @@
 
 ## Отдельный runtime Qwen3-ASR
 
+Полная инструкция установки, проверки, переноса и диагностики находится в
+`docs/qwen-asr-deployment.md`. Этот раздел фиксирует только архитектурные решения.
+
 - `Qwen/Qwen3-ASR-1.7B` не является моделью Ollama и не должна храниться в `localModel`.
 - На Windows используется официальный пакет `qwen-asr==0.0.6` с Transformers-backend. vLLM-сервер нативно не используется.
 - Изолированное CUDA-окружение находится в `.tools/qwen-asr-venv`, ASCII junction — `C:\izo-qwen-asr`, кеш весов — `C:\izo-qwen-cache`. ASCII-пути обязательны из-за ограничения зависимости `nagisa/DyNet` на Windows.
