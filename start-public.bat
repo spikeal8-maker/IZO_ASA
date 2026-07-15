@@ -2,8 +2,8 @@
 REM ==========================================================================
 REM  PUBLIC / LIVE launcher for the tunnel https://izo.alikinas.ru
 REM  Serves the BUILT frontend/dist via `vite preview` (no /@vite/client, no
-REM  hot-reload). Backend = uvicorn on 127.0.0.1:8000. Cloudflared is expected
-REM  to already point at :5173 and is NOT started/managed here.
+REM  hot-reload). Backend = uvicorn on 127.0.0.1:8000. The autostart wrapper
+REM  starts and verifies the FRP tunnel after this launcher becomes healthy.
 REM  Re-run this after ANY frontend or backend code change.
 REM ==========================================================================
 setlocal
@@ -167,7 +167,7 @@ echo   Public URL: %PUBURL%
 echo   Expect: vite-dev-client=False, hashed asset=True, api/version=200,
 echo           generate/gallery/me no-session=401.
 echo   NOTE: frontend code changes require re-running start-public.bat.
-echo   Cloudflared tunnel is NOT managed here (must point to :5173).
+echo   FRP tunnel is managed and verified by start-public-autostart.bat.
 echo ==========================================
 echo.
 if /I not "%IZO_NO_PAUSE%"=="1" pause
