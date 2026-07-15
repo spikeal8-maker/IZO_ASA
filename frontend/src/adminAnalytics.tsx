@@ -48,8 +48,9 @@ export interface CrmUserRow {
   daily_tokens_used?: number; daily_tokens_limit?: number
   first_seen_at?: string | null; gallery_count?: number; marketing_source?: string | null; risk_level?: string | null
   gallery_access?: boolean; gallery_enabled?: boolean
+  account_group?: 'customer' | 'admin' | 'demo'
   daily_tokens?: number; gallery_slots?: number; gallery_used?: number; gallery_free?: number; gallery_full?: boolean
-  last_device?: { browser?: string | null; os?: string | null } | null
+  last_device?: { browser?: string | null; os?: string | null; device_type?: string | null } | null
   internal_user_id_short?: string
 }
 
@@ -66,7 +67,7 @@ const shortId = (v: unknown, n = 8): string => { const s = v == null ? '' : Stri
 const n0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 const deferred = 'Отложено: backend v2 пока не отдаёт эти данные.'
 type ActivityKind = 'online' | 'today' | 'week' | 'month' | 'cold'
-type UserSort = 'recent' | 'created_desc' | 'created_asc' | 'generations_desc' | 'tokens_desc' | 'balance_desc' | 'balance_asc' | 'code_asc' | 'plan_asc'
+type UserSort = 'recent' | 'activity_asc' | 'created_desc' | 'created_asc' | 'generations_desc' | 'generations_asc' | 'tokens_desc' | 'tokens_asc' | 'balance_desc' | 'balance_asc' | 'code_asc' | 'plan_asc' | 'plan_desc' | 'name_asc' | 'name_desc' | 'source_asc' | 'source_desc' | 'contact_asc' | 'contact_desc'
 const ACTIVITY_LABEL: Record<ActivityKind, string> = { online: 'Онлайн', today: 'Был сегодня', week: 'Был на неделе', month: 'Был в месяце', cold: 'Нет генераций / холодный' }
 
 function activityKind(u: CrmUserRow): ActivityKind {
@@ -104,7 +105,8 @@ function riskLabel(u: CrmUserRow & AnyRec): string {
 function deviceLabel(u: CrmUserRow): string {
   const browser = u.last_device?.browser
   const os = u.last_device?.os
-  return browser || os ? `${S(browser)} / ${S(os)} · MAC: недоступен` : 'MAC: недоступен'
+  const device = u.last_device?.device_type
+  return [browser, os, device].filter(Boolean).join(' · ') || 'Данных пока нет'
 }
 
 function quotaLabel(u: CrmUserRow & AnyRec): string {
@@ -394,7 +396,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             </div>
             <div className="crm-card-top-actions">
               <button className="secondary crm-card-icon-action" title="Копировать код" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>□</button>
-              <button className="secondary" onClick={() => setTab('tech')}>Открыть профиль</button>
+              <button className="secondary" onClick={() => setTab('tech')}>Технические данные</button>
               <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
             </div>
           </div>
@@ -416,7 +418,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 const nm = [i.first_name, i.last_name].filter(Boolean).join(' ')
                 return (
                 <div className="crm-subrow" key={n}>
-                  <span><Badge p={String(i.provider)} /> {nm ? `${nm} · ` : ''}@{S(i.provider_username)} · {S(i.provider_email)} · id {shortId(i.provider_user_id, 6)}</span>
+                  <span><Badge p={String(i.provider)} /> {nm ? `${nm} · ` : ''}@{S(i.provider_username)} · {S(i.provider_email)}{i.phone ? ` · ${S(i.phone)}` : ''} · id {shortId(i.provider_user_id, 6)}</span>
                   <small>вход {shortTime(i.last_login_at)} · {S(i.language_code)} · {i.verified_at ? 'verified' : 'не подтв.'} · аватар: {i.avatar_url ? 'есть' : 'нет'} · raw-профиль: {i.has_raw_profile ? 'да' : 'нет'}</small>
                 </div>
                 )
@@ -496,13 +498,13 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <div className="crm-panel">
                 <h4>Устройства и сессии</h4>
                 {(data?.sessions || []).slice(0, 6).map((s, n) => (
-                  <div className="crm-subrow" key={n}><small><strong>{S(s.platform)}</strong> · {S(s.ip_address)} {s.revoked_at ? '· отозв.' : '· активна'}</small><small>{S((s.device as AnyRec)?.browser)}/{S((s.device as AnyRec)?.os)} · {S((s.device as AnyRec)?.device_type)} · {S((s.device as AnyRec)?.app_build)} · {S((s.device as AnyRec)?.mac_status)}</small></div>
+                  <div className="crm-subrow" key={n}><small><strong>{S(s.platform)}</strong> · {S(s.ip_address)} {s.revoked_at ? '· отозв.' : '· активна'}</small><small>{S((s.device as AnyRec)?.browser)} · {S((s.device as AnyRec)?.os)} · {S((s.device as AnyRec)?.device_type)} · {S((s.device as AnyRec)?.app_build)}</small></div>
                 ))}{!data?.sessions?.length && <p className="crm-card-note">—</p>}
               </div>
               <div className="crm-panel">
-                <h4>MAC: недоступен</h4>
+                <h4>Устройства</h4>
                 {(data?.devices || []).slice(0, 6).map((d, n) => (
-                  <div className="crm-subrow" key={n}><small><strong>{S(d.platform)}</strong> · inst {S(d.installation_id)}</small><small>{S((d.metadata as AnyRec)?.browser)}/{S((d.metadata as AnyRec)?.os)} · anon {S(d.anonymous_id)} · {S(d.mac_status)} · {shortTime(d.last_seen_at)}</small></div>
+                  <div className="crm-subrow" key={n}><small><strong>{S(d.platform)}</strong> · inst {S(d.installation_id)}</small><small>{S((d.metadata as AnyRec)?.browser)} · {S((d.metadata as AnyRec)?.os)} · {S((d.metadata as AnyRec)?.device_type)} · anon {S(d.anonymous_id)} · {shortTime(d.last_seen_at)}</small></div>
                 ))}{!data?.devices?.length && <p className="crm-card-note">—</p>}
               </div>
             </div>
@@ -546,7 +548,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               {(data?.referral_relations || []).map((r, n) => <small key={`lr${n}`}>Реф. связь {S(r.referral_code)} · {S(r.status)} · parent {S(r.parent_internal_user_id)} · child {S(r.child_internal_user_id)}</small>)}
               {(data?.referral_rewards_recent || []).map((r, n) => <small key={`lw${n}`}>Реф. награда {shortId(r.id)} · {S(r.status)} · +{S(r.token_amount)} ток. · ledger {S(r.token_ledger_id)}</small>)}
             </div>{!data?.promo_redemptions_recent?.length && !data?.bonus_grants_recent?.length && !data?.referral_rewards_recent?.length && <p className="crm-card-note">Нет реальных промо/бонусов/реферальных начислений.</p>}</div>}
-            {tab === 'prompts' && <div className="crm-acc"><strong>Промпты</strong><div className="crm-rows">{(data?.recent_generations || []).slice(0, 12).map((g, n) => <small key={n}>{shortTime(g.created_at)} · {S(g.mode)} · {S(g.status)} · {S(g.prompt)}</small>)}</div>{!data?.recent_generations?.length && <p className="crm-card-note">—</p>}</div>}
+            {tab === 'prompts' && <div className="crm-acc"><strong>Генерации и промпты</strong><div className="crm-generation-list">{(data?.recent_generations || []).slice(0, 20).map((g, n) => <div className={g.status === 'failed' ? 'crm-generation-row failed' : 'crm-generation-row'} key={n}><span><b>{S(g.model || g.provider)}</b><small>{shortTime(g.created_at)} · {S(g.mode)} · {S(g.status)} · {S(g.token_cost)} ток.</small></span><p>{S(g.prompt)}</p>{g.error ? <small className="crm-err">{S(g.error)}</small> : null}</div>)}</div>{!data?.recent_generations?.length && <p className="crm-card-note">—</p>}</div>}
             {tab === 'gallery' && <div className="crm-acc"><strong>Галерея</strong><div className="crm-gallery-strip">{(data?.recent_gallery || []).slice(0, 8).map((img, n) => <button type="button" className="crm-gallery-strip-item" key={n} onClick={() => openImage(img)}><img src={imageUrl(img)} alt="" /><small>{S(img.mode)} · {shortTime(img.created_at)}</small></button>)}</div>{!data?.recent_gallery?.length && <p className="crm-card-note">—</p>}</div>}
             {tab === 'tech' && <div className="crm-acc">
               <strong>Технические идентификаторы</strong>
@@ -681,47 +683,68 @@ export function AdminAnalyticsV2(): ReactElement {
   const [q, setQ] = useState('')
   const [source, setSource] = useState<'all' | 'web_email' | 'telegram' | 'max'>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'banned' | 'admin'>('all')
+  const [groupFilter, setGroupFilter] = useState<'all' | 'customer' | 'admin' | 'demo'>('all')
   const [sort, setSort] = useState<UserSort>('recent')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [card, setCard] = useState<CrmUserRow | null>(null)
   const [rowAct, setRowAct] = useState<{ u: CrmUserRow; kind: ActKind; preset?: string } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const d = await adminGet<Dash>('/admin/dashboard-v2')
+    setLoadError('')
     const params = new URLSearchParams({ limit: '100', sort })
     if (q.trim()) params.set('q', q.trim())
     if (source !== 'all') params.set('provider', source)
     if (statusFilter === 'active' || statusFilter === 'banned') params.set('status', statusFilter)
-    const u = await adminGet<{ items: CrmUserRow[] }>(`/admin/users-analytics-v2?${params.toString()}`)
+    if (statusFilter === 'admin') params.set('group', 'admin')
+    if (groupFilter !== 'all') params.set('group', groupFilter)
+    const [d, u] = await Promise.all([
+      adminGet<Dash>('/admin/dashboard-v2'),
+      adminGet<{ items: CrmUserRow[] }>(`/admin/users-analytics-v2?${params.toString()}`),
+    ])
     setDash(d?.dashboard ?? null)
-    let items = Array.isArray(u?.items) ? u!.items : []
-    if (statusFilter === 'admin') items = items.filter((i) => i.role === 'admin') // server has no admin filter yet
-    setUsers(items)
+    setUsers(Array.isArray(u?.items) ? u.items : [])
+    if (!d || !u) setLoadError('CRM не загрузилась. Проверьте админскую сессию и повторите запрос.')
     setLoading(false)
-  }, [q, source, statusFilter, sort])
+  }, [q, source, statusFilter, groupFilter, sort])
   useEffect(() => {
     const id = window.setTimeout(() => { void load() }, 0)
     return () => window.clearTimeout(id)
   }, [load])
 
-  const card_ = (label: string, value: unknown) => <div className="analytics-card" key={label}><strong>{String(value ?? '—')}</strong><span>{label}</span></div>
   const byProvider = (dash?.users_by_provider as Record<string, number>) || {}
+  const sortHead = (label: string, asc: UserSort, desc: UserSort): ReactElement => {
+    const active = sort === asc || sort === desc
+    const next = sort === asc ? desc : asc
+    const arrow = sort === asc ? '↑' : sort === desc ? '↓' : '↕'
+    return <button type="button" className={active ? 'crm-sort-head active' : 'crm-sort-head'} onClick={() => setSort(next)}>{label} <span>{arrow}</span></button>
+  }
+  const groupedUsers = groupFilter === 'all'
+    ? [
+        { key: 'customer', label: 'Клиенты', items: users.filter((u) => (u.account_group || 'customer') === 'customer') },
+        { key: 'admin', label: 'Администраторы', items: users.filter((u) => u.account_group === 'admin') },
+        { key: 'demo', label: 'Демо-пользователи', items: users.filter((u) => u.account_group === 'demo') },
+      ].filter((g) => g.items.length)
+    : [{ key: groupFilter, label: groupFilter === 'customer' ? 'Клиенты' : groupFilter === 'admin' ? 'Администраторы' : 'Демо-пользователи', items: users }]
 
   return (
     <section className="admin-analytics">
       <div className="crm-head"><h3>Пользователи</h3><p className="crm-sub">Операторская CRM: входы, источники, активность и трасты-действия в строке.</p></div>
       <AdminDiagnostics />
-      <div className="analytics-cards compact">
-        {card_('Всего', dash?.total_users)}{card_('Сегодня', dash?.active_today)}{card_('7 дней', dash?.active_7d)}
-        {card_('Сессии', dash?.sessions_active)}{card_('Генерации', dash?.generations_total)}{card_('Токены', dash?.tokens_spent_total)}
-        {card_('Web', byProvider.web_email ?? 0)}{card_('TG', byProvider.telegram ?? 0)}{card_('MAX', byProvider.max ?? 0)}{card_('Ошибки 24ч', dash?.failed_logins_24h)}
+      <div className="crm-summary-grid">
+        <div className="crm-summary"><span>Аудитория</span><strong>{S(dash?.total_users)}</strong><small>{S(dash?.active_7d)} активны за 7 дней</small></div>
+        <div className="crm-summary"><span>Сейчас</span><strong>{S(dash?.active_today)}</strong><small>{S(dash?.sessions_active)} активных сессий</small></div>
+        <div className="crm-summary"><span>Использование</span><strong>{S(dash?.generations_total)}</strong><small>{S(dash?.tokens_spent_total)} токенов списано</small></div>
+        <div className="crm-summary crm-summary-sources"><span>Источники</span><strong>Web {byProvider.web_email ?? 0}</strong><small>TG {byProvider.telegram ?? 0} · MAX {byProvider.max ?? 0}</small></div>
+        <div className={n0(dash?.failed_logins_24h) ? 'crm-summary risk' : 'crm-summary'}><span>Контроль</span><strong>{S(dash?.failed_logins_24h)}</strong><small>ошибок входа за 24 часа</small></div>
       </div>
       <div className="analytics-search">
-        <input placeholder="Код, имя, email, username" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void load() }} />
+        <input placeholder="Код, имя, email, телефон или username" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void load() }} />
         <select value={source} onChange={(e) => setSource(e.target.value as typeof source)}><option value="all">Все источники</option><option value="web_email">Web</option><option value="telegram">Telegram</option><option value="max">MAX</option></select>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}><option value="all">Все статусы</option><option value="active">Активные</option><option value="banned">Забанены</option><option value="admin">Админы</option></select>
+        <select value={groupFilter} onChange={(e) => setGroupFilter(e.target.value as typeof groupFilter)}><option value="all">Все группы</option><option value="customer">Клиенты</option><option value="admin">Админы</option><option value="demo">Демо</option></select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}><option value="all">Все статусы</option><option value="active">Активные</option><option value="banned">Забанены</option></select>
         <select value={sort} onChange={(e) => setSort(e.target.value as UserSort)} aria-label="Сортировка пользователей"><option value="recent">Сначала активные</option><option value="created_desc">Новые регистрации</option><option value="created_asc">Старые регистрации</option><option value="generations_desc">Больше генераций</option><option value="tokens_desc">Больше списаний</option><option value="balance_desc">Больше баланс</option><option value="balance_asc">Меньше баланс</option><option value="code_asc">Код пользователя</option><option value="plan_asc">Тариф</option></select>
         <button className="secondary" onClick={() => void load()}>Найти</button>
       </div>
@@ -729,12 +752,15 @@ export function AdminAnalyticsV2(): ReactElement {
         <button className="secondary crm-settings-toggle" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((v) => !v)}>Вид и колонки</button>
       </div>
       {settingsOpen && <CrmSettingsScaffold onClose={() => setSettingsOpen(false)} />}
-      {loading ? <p>Загрузка…</p> : (
+      {loadError && <div className="crm-load-error"><span>{loadError}</span><button className="secondary" onClick={() => void load()}>Повторить</button></div>}
+      {loading ? <p>Загрузка…</p> : !loadError && (
         <div className="analytics-table dense">
           <div className="analytics-row analytics-head">
-            <span>Клиент</span><span>Активность</span><span>Источник</span><span>Контакт</span><span>Тариф / галерея</span><span>Генерации / токены</span><span>Устройство</span><span>Действия</span>
+            <span>{sortHead('Клиент', 'name_asc', 'name_desc')}</span><span>{sortHead('Активность', 'activity_asc', 'recent')}</span><span>{sortHead('Источник', 'source_asc', 'source_desc')}</span><span>{sortHead('Контакты', 'contact_asc', 'contact_desc')}</span><span>{sortHead('Тариф', 'plan_asc', 'plan_desc')}</span><span>{sortHead('Использование', 'generations_asc', 'generations_desc')}</span><span>Устройство</span><span>Действия</span>
           </div>
-          {users.map((u) => {
+          {groupedUsers.map((section) => <div className="crm-group-block" key={section.key}>
+            <div className="crm-group-title"><strong>{section.label}</strong><span>{section.items.length}</span></div>
+          {section.items.map((u) => {
             const sourceList = u.providers?.length ? u.providers : u.primary_provider ? [u.primary_provider] : []
             const active = activityKind(u)
             const openCard = () => setCard(u)
@@ -744,11 +770,11 @@ export function AdminAnalyticsV2(): ReactElement {
             }
             return (
               <div key={u.public_user_code || u.internal_user_id_short} className={`analytics-row crm-row activity-${active}`} role="button" tabIndex={0} aria-label={`Открыть карточку ${u.display_name || u.username || u.public_user_code}`} onClick={openCard} onKeyDown={rowKey}>
-                <span className="crm-client-cell"><AvatarMark u={u as CrmUserRow & AnyRec} className={`crm-avatar crm-row-avatar activity-${active}`} /><span><span className="crm-client-line"><strong>{u.display_name || u.username || u.public_user_code}</strong><em className="crm-chip">{u.role === 'admin' ? 'admin' : 'user'}</em></span><span className="crm-client-line"><small>{u.public_user_code}</small><em className="crm-chip plan">{u.plan || 'mini'}</em></span></span></span>
+                <span className="crm-client-cell"><AvatarMark u={u as CrmUserRow & AnyRec} className={`crm-avatar crm-row-avatar activity-${active}`} /><span><span className="crm-client-line"><strong>{u.display_name || u.username || u.public_user_code}</strong><em className="crm-chip">{u.account_group === 'demo' ? 'demo' : u.role === 'admin' ? 'admin' : 'client'}</em></span><span className="crm-client-line"><small>{u.public_user_code}</small><em className="crm-chip plan">{u.plan || 'mini'}</em></span></span></span>
                 <span><small><i className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}</small><small>{shortTime(u.last_seen_at)}</small><small>{u.active_sessions_count ?? 0} сесс. · {u.last_platform || '—'}</small></span>
                 <span>{sourceList.map((p) => <Badge key={p} p={p} />)}<small>{u.last_ip || 'IP —'}</small></span>
-                <span><small>{u.email || '—'}</small><small>{genderAgeLabel(u as CrmUserRow & AnyRec)}</small><small>{u.username ? `@${u.username}` : ''}{u.phone ? ` · ${u.phone}` : ''}</small></span>
-                <span><small>{u.plan || 'mini'} · галерея открыта</small><strong>{quotaLabel(u as CrmUserRow & AnyRec)}</strong><small>свободно {n0(u.gallery_free)}</small></span>
+                <span className="crm-contact-cell"><small>{u.email || '—'}</small><small>{u.username ? `@${u.username}` : 'username —'}</small><small>{u.phone || genderAgeLabel(u as CrmUserRow & AnyRec)}</small></span>
+                <span><strong>{u.plan || 'mini'}</strong><small>галерея {quotaLabel(u as CrmUserRow & AnyRec)}</small><small>свободно {n0(u.gallery_free)}</small></span>
                 <span><strong>{tokenLine(u)}</strong><small>всего / сегодня / баланс / день</small><small>списано {n0(u.tokens_spent)}</small></span>
                 <span><small>{deviceLabel(u)}</small><small>{u.device_count ?? 0} устр.</small></span>
                 <span className="crm-row-actions">
@@ -758,6 +784,7 @@ export function AdminAnalyticsV2(): ReactElement {
               </div>
             )
           })}
+          </div>)}
           {users.length === 0 && <p>Пользователи не найдены.</p>}
         </div>
       )}

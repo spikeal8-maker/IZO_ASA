@@ -155,6 +155,38 @@ def test_users_analytics_no_hashes_and_clean_ids(temp_db):
     assert item["internal_user_id_short"].endswith("…")
 
 
+def test_trusted_crm_full_contacts_search_sort_and_groups(temp_db):
+    tok = make_admin()
+    with TestClient(main.app) as c:
+        register(c, "support.lookup@example.com")
+        with main.db() as conn:
+            identity = conn.execute(
+                "SELECT internal_user_id FROM auth_identities WHERE provider_user_id='support.lookup@example.com'"
+            ).fetchone()
+            conn.execute(
+                "UPDATE auth_identities SET provider_username='support_nick', provider_phone='+79991234567' "
+                "WHERE internal_user_id=?",
+                (identity["internal_user_id"],),
+            )
+        by_phone = c.get(
+            "/api/admin/users-analytics-v2?q=9991234567&sort=contact_desc",
+            headers=bearer(tok),
+        )
+        admins = c.get("/api/admin/users-analytics-v2?group=admin&sort=name_asc", headers=bearer(tok))
+        detail = c.get(f"/api/admin/users/{identity['internal_user_id']}/analytics-v2", headers=bearer(tok))
+
+    assert by_phone.status_code == 200
+    item = by_phone.json()["items"][0]
+    assert item["email"] == "support.lookup@example.com"
+    assert item["username"] == "support_nick"
+    assert item["phone"] == "+79991234567"
+    assert item["account_group"] == "customer"
+    assert admins.status_code == 200
+    assert all(row["account_group"] == "admin" for row in admins.json()["items"])
+    assert detail.json()["identities"][0]["provider_email"] == "support.lookup@example.com"
+    assert detail.json()["identities"][0]["phone"] == "+79991234567"
+
+
 # 15
 def test_user_detail_analytics_safe(temp_db):
     tok = make_admin()

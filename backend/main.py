@@ -11314,7 +11314,7 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
     iuid = urow["internal_user_id"]
     legacy = urow["id"]
     identities = conn.execute(
-        "SELECT provider, provider_username, provider_email, provider_first_name, provider_last_name, last_login_at "
+        "SELECT provider, provider_username, provider_email, provider_phone, provider_first_name, provider_last_name, last_login_at "
         "FROM auth_identities WHERE internal_user_id = ? ORDER BY (last_login_at IS NULL), last_login_at DESC, linked_at ASC",
         (iuid,),
     ).fetchall()
@@ -11333,6 +11333,11 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
     ).fetchone()["c"]
     device_meta = safe_json_load(_row_get(last_session, "metadata_json")) or {}
     device = device_meta.get("device") if isinstance(device_meta, dict) else {}
+    identity_email = next((str(i["provider_email"]).strip() for i in identities if i["provider_email"]), None)
+    identity_username = next((str(i["provider_username"]).strip() for i in identities if i["provider_username"]), None)
+    identity_phone = next((str(i["provider_phone"]).strip() for i in identities if i["provider_phone"]), None)
+    is_demo = legacy == "demo_user" or str(_row_get(urow, "username") or "").lower() == "demo"
+    account_group = "demo" if is_demo else ("admin" if _row_get(urow, "role") == "admin" else "customer")
     gallery_quota = gallery_quota_for_user(conn, urow, legacy)
     return {
         "internal_user_id": iuid,  # used by the admin drawer fetch + technical section only
@@ -11345,9 +11350,12 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "age": _row_get(urow, "age"),
         "primary_provider": primary,
         "providers": sorted({i["provider"] for i in identities}),
-        "email": mask_email(_row_get(urow, "email")),
-        "username": _row_get(urow, "username"),
-        "phone": _row_get(urow, "phone"),
+        # This endpoint is trusted-admin-only. Full contacts are necessary for support
+        # searches; password/session secrets and raw provider profiles remain excluded.
+        "email": _row_get(urow, "email") or identity_email,
+        "username": _row_get(urow, "username") or identity_username,
+        "phone": _row_get(urow, "phone") or identity_phone,
+        "account_group": account_group,
         "first_seen_at": _row_get(urow, "created_at"),
         "last_seen_at": _row_get(urow, "last_seen_at"),
         "last_login_at": _row_get(urow, "last_login_at"),
@@ -11571,21 +11579,31 @@ async def admin_logs_v2(request: Request) -> dict[str, Any]:
 
 
 ADMIN_USERS_SORT_SQL = {
+    "activity_asc": "COALESCE(u.last_seen_at, u.last_login_at, u.created_at) ASC, u.created_at ASC",
     "recent": "COALESCE(u.last_seen_at, u.last_login_at, u.created_at) DESC, u.created_at DESC",
     "created_desc": "u.created_at DESC",
     "created_asc": "u.created_at ASC",
+    "generations_asc": "COALESCE(u.generation_count, 0) ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
     "generations_desc": "COALESCE(u.generation_count, 0) DESC, COALESCE(u.last_seen_at, u.created_at) DESC",
+    "tokens_asc": "COALESCE(u.tokens_used, 0) ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
     "tokens_desc": "COALESCE(u.tokens_used, 0) DESC, COALESCE(u.last_seen_at, u.created_at) DESC",
     "balance_desc": "COALESCE(u.token_balance, 0) DESC, COALESCE(u.last_seen_at, u.created_at) DESC",
     "balance_asc": "COALESCE(u.token_balance, 0) ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
+    "name_asc": "LOWER(COALESCE(NULLIF(u.display_name,''), NULLIF(u.username,''), NULLIF(u.email,''), u.public_user_code, u.id)) ASC",
+    "name_desc": "LOWER(COALESCE(NULLIF(u.display_name,''), NULLIF(u.username,''), NULLIF(u.email,''), u.public_user_code, u.id)) DESC",
     "code_asc": "u.public_user_code ASC, u.created_at ASC",
+    "plan_desc": "u.plan DESC, COALESCE(u.last_seen_at, u.created_at) DESC",
+    "source_asc": "COALESCE((SELECT MIN(ai.provider) FROM auth_identities ai WHERE ai.internal_user_id=u.internal_user_id),'') ASC, COALESCE(u.last_seen_at,u.created_at) DESC",
+    "source_desc": "COALESCE((SELECT MIN(ai.provider) FROM auth_identities ai WHERE ai.internal_user_id=u.internal_user_id),'') DESC, COALESCE(u.last_seen_at,u.created_at) DESC",
+    "contact_asc": "LOWER(COALESCE(NULLIF(u.email,''), NULLIF(u.username,''), NULLIF(u.phone,''), (SELECT MIN(COALESCE(NULLIF(ai.provider_email,''),NULLIF(ai.provider_username,''),NULLIF(ai.provider_phone,''))) FROM auth_identities ai WHERE ai.internal_user_id=u.internal_user_id),'')) ASC",
+    "contact_desc": "LOWER(COALESCE(NULLIF(u.email,''), NULLIF(u.username,''), NULLIF(u.phone,''), (SELECT MIN(COALESCE(NULLIF(ai.provider_email,''),NULLIF(ai.provider_username,''),NULLIF(ai.provider_phone,''))) FROM auth_identities ai WHERE ai.internal_user_id=u.internal_user_id),'')) DESC",
     "plan_asc": "u.plan ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
 }
 
 
 @app.get("/api/admin/users-analytics-v2")
 async def admin_users_analytics_v2(request: Request, q: str | None = None, provider: str | None = None,
-                                   status: str | None = None, sort: str = "recent",
+                                   status: str | None = None, group: str | None = None, sort: str = "recent",
                                    limit: int = 50, offset: int = 0) -> dict[str, Any]:
     require_trusted_admin(request)
     limit = _clamp_limit(limit)
@@ -11596,14 +11614,25 @@ async def admin_users_analytics_v2(request: Request, q: str | None = None, provi
     if status == "banned":
         clauses.append("u.banned = 1")
     elif status == "active":
+    if group == "admin":
+        clauses.append("u.role = 'admin' AND u.id != 'demo_user'")
+    elif group == "demo":
+        clauses.append("(u.id = 'demo_user' OR LOWER(COALESCE(u.username,'')) = 'demo')")
+    elif group == "customer":
+        clauses.append("u.role != 'admin' AND u.id != 'demo_user' AND LOWER(COALESCE(u.username,'')) != 'demo'")
         clauses.append("u.banned = 0")
     if provider:
         clauses.append("EXISTS (SELECT 1 FROM auth_identities ai WHERE ai.internal_user_id = u.internal_user_id AND ai.provider = ?)")
         params.append(provider)
     if q:
         like = f"%{q}%"
-        clauses.append("(u.public_user_code LIKE ? OR u.display_name LIKE ? OR u.username LIKE ? OR u.email LIKE ? OR u.id LIKE ?)")
-        params += [like, like, like, like, like]
+        clauses.append(
+            "(u.public_user_code LIKE ? OR u.display_name LIKE ? OR u.username LIKE ? OR u.email LIKE ? "
+            "OR u.phone LIKE ? OR u.id LIKE ? OR EXISTS (SELECT 1 FROM auth_identities ai2 "
+            "WHERE ai2.internal_user_id=u.internal_user_id AND (ai2.provider_user_id LIKE ? OR ai2.provider_username LIKE ? "
+            "OR ai2.provider_email LIKE ? OR ai2.provider_phone LIKE ?)))"
+        )
+        params += [like] * 10
     where = "WHERE " + " AND ".join(clauses)
     order_by = ADMIN_USERS_SORT_SQL.get(sort, ADMIN_USERS_SORT_SQL["recent"])
     items = []
@@ -11706,9 +11735,9 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
         **loyalty,
         "identities": [{
             "provider": r["provider"], "provider_user_id": r["provider_user_id"],
-            "provider_username": r["provider_username"], "provider_email": mask_email(r["provider_email"]),
+            "provider_username": r["provider_username"], "provider_email": r["provider_email"],
             "first_name": r["provider_first_name"], "last_name": r["provider_last_name"],
-            "phone": mask_phone(r["provider_phone"]) if r["provider_phone"] else None,
+            "phone": r["provider_phone"],
             "language_code": r["provider_language_code"], "avatar_url": r["provider_avatar_url"],
             "linked_at": r["linked_at"],
             "verified_at": r["verified_at"], "last_login_at": r["last_login_at"],
