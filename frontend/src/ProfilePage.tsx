@@ -158,6 +158,8 @@ export default function ProfilePage({
   const [selectedPackage, setSelectedPackage] = useState('')
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutMessage, setCheckoutMessage] = useState('')
+  const [checkoutAccepted, setCheckoutAccepted] = useState(false)
+  const [receiptContact, setReceiptContact] = useState(() => me?.identities?.find((identity) => identity.provider_email)?.provider_email || '')
   const account = me?.account
   const activePlan = (tariffKeys.includes(String(account?.plan || 'mini').toLowerCase() as TariffKey) ? String(account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
   const currentTariff = tariffs[activePlan] || DEFAULT_TARIFFS[activePlan]
@@ -259,12 +261,25 @@ export default function ProfilePage({
   }, [authStatus, profileTab])
   const startCheckout = async (packageCode = selectedPackage) => {
     if (!packageCode || checkoutBusy) return
+    if (!receiptContact.trim()) {
+      setCheckoutMessage('Укажите email или телефон для электронного чека.')
+      return
+    }
+    if (!checkoutAccepted) {
+      setCheckoutMessage('Подтвердите согласие с офертой и условиями оплаты.')
+      return
+    }
     setCheckoutBusy(true)
     setCheckoutMessage('')
     try {
       const response = await fetch(`${API}/billing/checkout-v2`, {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ package_code: packageCode, idempotency_key: `checkout-${crypto.randomUUID()}` }),
+        body: JSON.stringify({
+          package_code: packageCode,
+          idempotency_key: `checkout-${crypto.randomUUID()}`,
+          offer_accepted: checkoutAccepted,
+          receipt_contact: receiptContact.trim(),
+        }),
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok || !result?.confirmation_url) throw new Error(String(result?.detail || 'Не удалось создать оплату'))
@@ -514,6 +529,17 @@ export default function ProfilePage({
                 <div><span>Видео</span><strong>{videoEnabled ? `${videoUsed}/${videoSlots}` : 'Закрыто'}</strong><small>{videoEnabled ? `свободно ${videoFree}` : 'доступно с Pro'}</small></div>
                 <button type="button" className="profile-primary" disabled>Управление тарифом скоро</button>
               </div>
+              <div className="profile-checkout-consent profile-card">
+                <label>
+                  <span>Email или телефон для электронного чека</span>
+                  <input value={receiptContact} onChange={(event) => { setReceiptContact(event.target.value); setCheckoutMessage('') }} placeholder="mail@example.ru или +7 900 000-00-00" autoComplete="email" />
+                </label>
+                <label className="profile-checkout-checkbox">
+                  <input type="checkbox" checked={checkoutAccepted} onChange={(event) => { setCheckoutAccepted(event.target.checked); setCheckoutMessage('') }} />
+                  <span>Я принимаю <a href="/legal/offer" target="_blank" rel="noreferrer">публичную оферту</a>, <a href="/legal/payment" target="_blank" rel="noreferrer">условия оплаты</a> и <a href="/legal/privacy" target="_blank" rel="noreferrer">политику конфиденциальности</a>.</span>
+                </label>
+                <small>Итоговая цена будет показана до перехода в ЮKassa. Данные банковской карты вводятся только на защищённой странице платёжного оператора.</small>
+              </div>
               <div className="profile-plans">
                 {planCards.map((item) => (
                   <article className={`${item.id === activePlan ? 'profile-card profile-plan active current' : 'profile-card profile-plan'}`} key={item.id}>
@@ -522,7 +548,7 @@ export default function ProfilePage({
                     {item.premium > 0 ? <em>{item.premium} токенов/мес на премиум-модели</em> : null}
                     {item.benefit > 0 ? <small>Выгода по токенам: {item.benefit.toLocaleString('ru-RU')} ₽</small> : null}
                     {item.features.length ? <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null}
-                    <button type="button" disabled={item.id === activePlan || item.id === 'free' || checkoutBusy} onClick={() => { void startCheckout(`tariff_${item.id}`) }}>{item.id === activePlan ? 'Текущий тариф' : checkoutBusy ? 'Переходим к оплате...' : 'Выбрать тариф'}</button>
+                    <button type="button" disabled={item.id === activePlan || item.id === 'free' || checkoutBusy || !checkoutAccepted || !receiptContact.trim()} onClick={() => { void startCheckout(`tariff_${item.id}`) }}>{item.id === activePlan ? 'Текущий тариф' : checkoutBusy ? 'Переходим к оплате...' : 'Выбрать тариф'}</button>
                   </article>
                 ))}
               </div>
@@ -538,7 +564,7 @@ export default function ProfilePage({
                 <div className="profile-token-packs" aria-label="Пакеты токенов">
                   {billingPackages.map((item) => <button type="button" className={selectedPackage === item.code ? 'active' : ''} key={item.code} onClick={() => setSelectedPackage(item.code)}>{item.token_amount} ток. · {item.price_amount.toLocaleString('ru-RU')} ₽</button>)}
                 </div>
-                <button type="button" className="profile-primary" disabled={!selectedPackage || checkoutBusy} onClick={() => { void startCheckout() }}>{checkoutBusy ? 'Переходим к оплате...' : 'Купить токены'}</button>
+                <button type="button" className="profile-primary" disabled={!selectedPackage || checkoutBusy || !checkoutAccepted || !receiptContact.trim()} onClick={() => { void startCheckout() }}>{checkoutBusy ? 'Переходим к оплате...' : 'Купить токены'}</button>
                 {checkoutMessage && <small className="profile-save-err">{checkoutMessage}</small>}
               </article>
             </section>

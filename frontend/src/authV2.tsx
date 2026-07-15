@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import { Lock, X } from 'lucide-react'
+import { normalizeAuthSessions } from './runtimeContracts'
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 const INSTALL_KEY = 'onenode_installation_id'
@@ -402,7 +403,8 @@ export interface SessionInfoV2 {
 export async function listSessionsV2(): Promise<{ sessions: SessionInfoV2[]; current_session_id?: string } | null> {
   const res = await authFetch('/auth/sessions')
   if (!res.ok) return null
-  return (await res.json()) as { sessions: SessionInfoV2[]; current_session_id?: string }
+  const normalized = normalizeAuthSessions(await res.json())
+  return { sessions: normalized.sessions, current_session_id: normalized.currentSessionId }
 }
 
 export async function revokeSessionV2(sessionId: string): Promise<boolean> {
@@ -820,7 +822,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
             <label>Пароль<input type="password" value={password} placeholder="········" onChange={(e) => setPassword(e.target.value)} /></label>
             <p className="auth-modal-hint">Минимум 8 символов.</p>
             <label>Повторите пароль<input type="password" value={passwordRepeat} placeholder="········" onChange={(e) => setPasswordRepeat(e.target.value)} /></label>
-            <p className="auth-modal-consent">Нажимая кнопку, вы принимаете Пользовательское соглашение, Политику конфиденциальности и согласие на обработку персональных данных.</p>
+            <p className="auth-modal-consent">Нажимая кнопку, вы принимаете <a href="/legal/terms" target="_blank" rel="noreferrer">Пользовательское соглашение</a>, <a href="/legal/privacy" target="_blank" rel="noreferrer">Политику конфиденциальности</a> и <a href="/legal/consent" target="_blank" rel="noreferrer">согласие на обработку персональных данных</a>.</p>
             <button className="generate small-action" onClick={onRegister} disabled={!email.trim() || !password || !passwordRepeat || busy}>Создать аккаунт и принять условия</button>
           </>
         )}

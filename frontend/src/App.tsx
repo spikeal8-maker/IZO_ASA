@@ -5,6 +5,7 @@ const NewStudio = lazy(() => import('./newUi'))
 const LegacyApp = lazy(() => import('./LegacyApp'))
 const AdminApp = lazy(() => import('./AdminApp'))
 const PaymentResultPage = lazy(() => import('./PaymentResultPage'))
+const CommercePage = lazy(() => import('./CommercePage'))
 
 function isNewStudioRoute(path: string) {
   if (path === '/') return true
@@ -31,6 +32,10 @@ function isAdminRoute(path: string) {
 
 function isPaymentRoute(path: string) {
   return path === '/payment' || path === '/payment/'
+}
+
+function isCommerceRoute(path: string) {
+  return path === '/tariffs' || path === '/tariffs/' || path === '/legal' || path.startsWith('/legal/')
 }
 
 function isStaticFeedRoute(path: string) {
@@ -67,7 +72,7 @@ function App() {
     return <div className="app-loading">Загружаем галерею...</div>
   }
 
-  const Target = isPaymentRoute(path) ? PaymentResultPage : isNewStudioRoute(path) ? NewStudio : isAdminRoute(path) ? AdminApp : (isLegacyRoute(path) ? LegacyApp : null)
+  const Target = isPaymentRoute(path) ? PaymentResultPage : isCommerceRoute(path) ? CommercePage : isNewStudioRoute(path) ? NewStudio : isAdminRoute(path) ? AdminApp : (isLegacyRoute(path) ? LegacyApp : null)
 
   if (!Target) {
     return <NotFound />

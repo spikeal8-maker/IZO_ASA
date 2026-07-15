@@ -266,6 +266,20 @@ CREATE TABLE IF NOT EXISTS users (
             CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_provider_payment
                 ON payments(provider, provider_payment_id) WHERE provider_payment_id IS NOT NULL;
 
+            CREATE TABLE IF NOT EXISTS legal_acceptances (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT NOT NULL,
+                payment_id TEXT,
+                document_type TEXT NOT NULL,
+                document_version TEXT NOT NULL,
+                receipt_contact TEXT,
+                ip_address TEXT,
+                user_agent TEXT,
+                accepted_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_legal_acceptances_user_time
+                ON legal_acceptances(internal_user_id, accepted_at);
+
             CREATE TABLE IF NOT EXISTS payment_provider_events (
                 id TEXT PRIMARY KEY,
                 provider TEXT NOT NULL,

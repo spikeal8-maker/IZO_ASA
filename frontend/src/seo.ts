@@ -79,6 +79,15 @@ export function appShellSeo(path: string): SeoMeta {
       ? { title: 'IZO ASA — admin panel', description: 'Private administration area for IZO ASA.', canonical, robots: 'noindex, nofollow' }
       : { title: 'ИЗО АСА — админ-панель', description: 'Закрытая панель администрирования ИЗО АСА.', canonical, robots: 'noindex, nofollow' }
   }
+  if (path === '/tariffs' || path === '/tariffs/') {
+    return { title: 'Тарифы ИЗО АСА — генерация изображений', description: 'Тарифы, цены, токены и условия оплаты сервиса генерации изображений ИЗО АСА.', canonical: 'https://izo.alikinas.ru/tariffs' }
+  }
+  if (path.startsWith('/legal/')) {
+    const titles: Record<string, string> = { offer: 'Публичная оферта', privacy: 'Политика конфиденциальности', consent: 'Согласие на обработку данных', terms: 'Пользовательское соглашение', payment: 'Условия оплаты', refunds: 'Правила возврата', contacts: 'Реквизиты и контакты', cookies: 'Правила использования cookie' }
+    const key = path.split('/')[2] || 'offer'
+    const title = titles[key] || 'Правовая информация'
+    return { title: `${title} — ИЗО АСА`, description: `${title} сервиса генерации изображений ИЗО АСА.`, canonical: `https://izo.alikinas.ru/legal/${key}` }
+  }
   if (path === '/old' || path === '/legacy' || path === '/v1') {
     return locale === 'en'
       ? { title: 'IZO ASA — legacy interface 1.0', description: 'Legacy IZO ASA 1.0 interface kept for compatibility while UI 2.0 is being completed.', canonical, robots: 'noindex, follow' }

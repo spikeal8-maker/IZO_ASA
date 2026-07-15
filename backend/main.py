@@ -1060,6 +1060,8 @@ class AdminYooKassaConfigV2Request(BaseModel):
 class BillingCheckoutV2Request(BaseModel):
     package_code: str = Field(min_length=2, max_length=80)
     idempotency_key: str = Field(min_length=12, max_length=120)
+    offer_accepted: bool = False
+    receipt_contact: str | None = Field(default=None, max_length=200)
 
 
 class AdminTokenPackageV2Request(BaseModel):
@@ -5127,6 +5129,65 @@ def yookassa_ready(config: dict[str, Any] | None = None) -> bool:
     return bool(current.get("shop_id") and yookassa_secret_key())
 
 
+DEFAULT_LEGAL_SETTINGS: dict[str, Any] = {
+    "brand_name": "ИЗО АСА",
+    "seller_name": "",
+    "seller_status": "",
+    "inn": "",
+    "ogrn": "",
+    "legal_address": "",
+    "support_email": "mail@alikinas.ru",
+    "support_phone": "",
+    "support_hours": "Ежедневно, 10:00–20:00 по московскому времени",
+    "site_url": "https://izo.alikinas.ru",
+    "service_description": "Онлайн-сервис генерации и редактирования изображений с использованием моделей искусственного интеллекта.",
+    "offer_version": "2026-07-15",
+}
+
+
+def normalize_legal_settings(source: Any) -> dict[str, Any]:
+    raw = source if isinstance(source, dict) else {}
+    limits = {
+        "brand_name": 120, "seller_name": 300, "seller_status": 160, "inn": 12,
+        "ogrn": 15, "legal_address": 500, "support_email": 200,
+        "support_phone": 80, "support_hours": 200, "site_url": 300,
+        "service_description": 1000, "offer_version": 40,
+    }
+    result: dict[str, Any] = {}
+    for key, limit in limits.items():
+        value = str(raw.get(key, DEFAULT_LEGAL_SETTINGS[key]) or "").strip()
+        result[key] = value[:limit]
+    if result["support_email"] and not normalize_email(result["support_email"]):
+        result["support_email"] = ""
+    if result["inn"] and not re.fullmatch(r"\d{10}|\d{12}", result["inn"]):
+        result["inn"] = ""
+    if result["ogrn"] and not re.fullmatch(r"\d{13}|\d{15}", result["ogrn"]):
+        result["ogrn"] = ""
+    return result
+
+
+def legal_settings(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+    def load(current_conn: sqlite3.Connection) -> dict[str, Any]:
+        row = current_conn.execute("SELECT value_json FROM admin_settings WHERE key = 'legal'").fetchone()
+        return normalize_legal_settings(safe_json_load(row["value_json"]) if row else {})
+    if conn is not None:
+        return load(conn)
+    with db() as current_conn:
+        return load(current_conn)
+
+
+def legal_readiness(settings: dict[str, Any]) -> dict[str, Any]:
+    labels = {
+        "seller_name": "полное имя или наименование исполнителя",
+        "seller_status": "правовой статус исполнителя",
+        "inn": "ИНН",
+        "legal_address": "адрес исполнителя",
+        "support_email": "email поддержки",
+    }
+    missing = [label for key, label in labels.items() if not str(settings.get(key) or "").strip()]
+    return {"ready": not missing, "missing": missing}
+
+
 def save_yookassa_config(req: AdminYooKassaConfigV2Request) -> None:
     if req.secret_key:
         OPENROUTER_SECRET_STORE.set(YOOKASSA_SECRET_NAME, req.secret_key.strip())
@@ -7055,6 +7116,26 @@ async def tariffs(request: Request) -> dict[str, Any]:
         "economy": {
             "tokenRub": economy["tokenRub"],
         },
+    }
+
+
+@app.get("/api/public/commerce-v2")
+async def public_commerce_v2() -> dict[str, Any]:
+    """Public storefront data without credentials or user-specific fields."""
+    with db() as conn:
+        _sync_tariff_billing_packages(conn)
+        tariffs_config = get_tariff_config(conn)
+        packages = conn.execute(
+            "SELECT * FROM billing_packages WHERE is_active = 1 AND code LIKE 'tokens_%' ORDER BY sort_order, price_amount"
+        ).fetchall()
+        public_legal = legal_settings(conn)
+    return {
+        "ok": True,
+        "tariffs": tariffs_config,
+        "packages": [_billing_package_dict(row) for row in packages],
+        "legal": public_legal,
+        "legal_readiness": legal_readiness(public_legal),
+        "payments_available": yookassa_ready(),
     }
 
 
@@ -10170,6 +10251,17 @@ async def billing_packages_v2(request: Request) -> dict[str, Any]:
 @app.post("/api/billing/checkout-v2")
 async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
+    if not req.offer_accepted:
+        raise HTTPException(400, "Подтвердите принятие публичной оферты и условий оплаты.")
+    receipt_contact = str(req.receipt_contact or "").strip()
+    if not receipt_contact:
+        raise HTTPException(400, "Укажите email или номер телефона для электронного чека.")
+    valid_contact = bool(normalize_email(receipt_contact)) if "@" in receipt_contact else len(re.sub(r"\D", "", receipt_contact)) >= 10
+    if not valid_contact:
+        raise HTTPException(400, "Введите корректный email или номер телефона для электронного чека.")
+    readiness = legal_readiness(legal_settings())
+    if not readiness["ready"]:
+        raise HTTPException(503, "Прием платежей временно недоступен: публичные реквизиты продавца не заполнены.")
     config = yookassa_config()
     if not yookassa_ready(config):
         raise HTTPException(503, "Прием платежей пока не настроен.")
@@ -10198,6 +10290,20 @@ async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -
         conn.execute(
             "INSERT INTO payments (id, invoice_id, internal_user_id, user_id, status, amount, currency, method, provider, reason, idempotency_key, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, 'RUB', 'bank_card', 'yookassa', 'user_checkout', ?, ?, ?)",
             (payment_id, invoice_id, trusted["internal_user_id"], target["id"], package["price_amount"], req.idempotency_key, now, now),
+        )
+        offer_version = legal_settings(conn)["offer_version"]
+        conn.execute(
+            "INSERT INTO legal_acceptances (id, internal_user_id, payment_id, document_type, document_version, receipt_contact, ip_address, user_agent, accepted_at) VALUES (?, ?, ?, 'public_offer', ?, ?, ?, ?, ?)",
+            (
+                uuid.uuid4().hex,
+                trusted["internal_user_id"],
+                payment_id,
+                offer_version,
+                receipt_contact or None,
+                request.client.host if request.client else None,
+                (request.headers.get("user-agent") or "")[:500],
+                now,
+            ),
         )
     try:
         provider_payment = await create_yookassa_payment(
@@ -12217,6 +12323,8 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
         settings = {"plans": {plan: normalize_resolution_ids(raw_plans.get(plan), DEFAULT_TARIFFS[plan]["allowed_resolutions"]) for plan in PLAN_ORDER}}
     elif key == "server_model_profiles":
         settings = normalize_server_model_profiles(req.settings)
+    elif key == "legal":
+        settings = normalize_legal_settings(req.settings)
     else:
         settings = req.settings
     require_trusted_admin(request)
@@ -12315,6 +12423,7 @@ async def admin_payments_status_v2(request: Request) -> dict[str, Any]:
         events = conn.execute("SELECT event_type, provider_payment_id, status, received_at, processed_at, error FROM payment_provider_events ORDER BY received_at DESC LIMIT 50").fetchall()
         packages = conn.execute("SELECT * FROM billing_packages WHERE code LIKE 'tokens_%' ORDER BY sort_order, price_amount").fetchall()
         tariffs = get_tariff_config(conn)
+        public_legal = legal_settings(conn)
     return {
         "ok": True,
         "provider": "yookassa",
@@ -12332,6 +12441,8 @@ async def admin_payments_status_v2(request: Request) -> dict[str, Any]:
             }
             for plan in ("mini", "plus", "pro", "business")
         ],
+        "legal": public_legal,
+        "legal_readiness": legal_readiness(public_legal),
         "payments": [_billing_payment_dict(row) for row in payments],
         "events": [dict(row) for row in events],
     }

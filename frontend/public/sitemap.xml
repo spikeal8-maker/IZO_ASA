@@ -24,4 +24,13 @@
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
+  <url><loc>https://izo.alikinas.ru/tariffs</loc><lastmod>2026-07-15</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://izo.alikinas.ru/legal/offer</loc><lastmod>2026-07-15</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://izo.alikinas.ru/legal/privacy</loc><lastmod>2026-07-15</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://izo.alikinas.ru/legal/consent</loc><lastmod>2026-07-15</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://izo.alikinas.ru/legal/terms</loc><lastmod>2026-07-15</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://izo.alikinas.ru/legal/payment</loc><lastmod>2026-07-15</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://izo.alikinas.ru/legal/refunds</loc><lastmod>2026-07-15</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://izo.alikinas.ru/legal/contacts</loc><lastmod>2026-07-15</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://izo.alikinas.ru/legal/cookies</loc><lastmod>2026-07-15</lastmod><changefreq>monthly</changefreq><priority>0.4</priority></url>
 </urlset>

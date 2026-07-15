@@ -67,6 +67,7 @@ export default function PaymentResultPage() {
           <a href="/profile">Вернуться в профиль</a>
           <a href="/">К генератору</a>
         </div>
+        <div className="payment-result-legal"><a href="/legal/payment">Условия оплаты</a><a href="/legal/refunds">Возвраты</a><a href="/legal/contacts">Реквизиты</a></div>
       </section>
     </main>
   )

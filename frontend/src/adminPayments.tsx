@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { adminGet, adminPut, type AdminRecord } from './adminApi'
+import { adminGet, adminPost, adminPut, type AdminRecord } from './adminApi'
 
 type PaymentStatus = AdminRecord & {
   configured?: boolean
@@ -10,7 +10,16 @@ type PaymentStatus = AdminRecord & {
   tariff_products?: AdminRecord[]
   payments?: AdminRecord[]
   events?: AdminRecord[]
+  legal?: AdminRecord
+  legal_readiness?: { ready?: boolean; missing?: string[] }
 }
+
+const legalFields = [
+  ['seller_name', 'Полное имя / наименование'], ['seller_status', 'Правовой статус'],
+  ['inn', 'ИНН'], ['ogrn', 'ОГРН / ОГРНИП (если есть)'], ['legal_address', 'Адрес исполнителя'],
+  ['support_email', 'Email поддержки'], ['support_phone', 'Телефон поддержки'],
+  ['support_hours', 'Время работы поддержки'], ['service_description', 'Описание услуги'],
+] as const
 
 export default function AdminPayments() {
   const [data, setData] = useState<PaymentStatus | null>(null)
@@ -18,12 +27,14 @@ export default function AdminPayments() {
   const [secretKey, setSecretKey] = useState('')
   const [testMode, setTestMode] = useState(true)
   const [message, setMessage] = useState('')
+  const [legal, setLegal] = useState<AdminRecord>({})
   const load = useCallback(async () => {
     const next = await adminGet<PaymentStatus>('/admin/payments/status-v2')
     const config = next?.config || {}
     setData(next)
     setShopId(String(config.shop_id || ''))
     setTestMode(Boolean(config.test_mode ?? true))
+    setLegal(next?.legal || {})
   }, [])
 
   useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
@@ -36,6 +47,11 @@ export default function AdminPayments() {
     })
     setMessage(result?.ok ? 'Настройки ЮKassa сохранены' : 'Не удалось сохранить настройки')
     if (result?.ok) setSecretKey('')
+    await load()
+  }
+  const saveLegal = async () => {
+    const result = await adminPost<AdminRecord>('/admin/settings/legal', { settings: legal })
+    setMessage(result?.ok ? 'Публичные реквизиты сохранены' : 'Не удалось сохранить реквизиты')
     await load()
   }
 
@@ -63,6 +79,13 @@ export default function AdminPayments() {
       <div className="admin-payment-tariffs">
         {(data?.tariff_products || []).map((item) => <span key={String(item.code)}><b>{String(item.title)}</b>{Number(item.price_amount || 0).toLocaleString('ru-RU')} ₽/мес</span>)}
       </div>
+      <article className="admin-mail-card admin-legal-settings">
+        <div className="admin-section-head"><div><h4>Публичные реквизиты и документы</h4><p>Эти сведения отображаются на витрине, в оферте, правилах оплаты и возврата.</p></div><span className={data?.legal_readiness?.ready ? 'status ok' : 'status warn'}>{data?.legal_readiness?.ready ? 'готово к публикации' : `не заполнено: ${(data?.legal_readiness?.missing || []).join(', ')}`}</span></div>
+        <div className="admin-legal-grid">
+          {legalFields.map(([key, label]) => <label key={key} className={key === 'service_description' || key === 'legal_address' ? 'wide' : ''}>{label}{key === 'service_description' ? <textarea value={String(legal[key] || '')} onChange={(event) => setLegal((current) => ({ ...current, [key]: event.target.value }))} /> : <input value={String(legal[key] || '')} onChange={(event) => setLegal((current) => ({ ...current, [key]: event.target.value }))} />}</label>)}
+        </div>
+        <div className="admin-legal-actions"><button className="secondary" onClick={() => { void saveLegal() }}>Сохранить реквизиты</button><a href="/tariffs" target="_blank" rel="noreferrer">Открыть публичную витрину</a></div>
+      </article>
       <div className="admin-mail-grid">
         <article className="admin-mail-card">
           <h4>Подключение ЮKassa</h4>
