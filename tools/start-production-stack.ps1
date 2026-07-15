@@ -58,7 +58,12 @@ function Start-HiddenProcess {
         [string]$WorkingDirectory
     )
     if (-not (Test-Path -LiteralPath $FilePath)) {
-        throw "$Name executable is missing: $FilePath"
+        $resolvedCommand = Get-Command $FilePath -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if (-not $resolvedCommand) {
+            throw "$Name executable is missing: $FilePath"
+        }
+        $FilePath = $resolvedCommand.Source
     }
     $params = @{
         FilePath = $FilePath
