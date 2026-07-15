@@ -14,6 +14,7 @@ REM Set IZO_NO_PAUSE=1 manually to skip pauses in interactive runs too.
 echo|pause >nul 2>nul && (set "HAS_CONSOLE=1") || (set "IZO_NO_PAUSE=1")
 
 set "ROOT=%~dp0"
+set "ROOT_NO_SLASH=%ROOT:~0,-1%"
 set "BACKEND=%ROOT%backend"
 set "FRONTEND=%ROOT%frontend"
 set "PUBURL=https://izo.alikinas.ru"
@@ -69,7 +70,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 if errorlevel 1 (echo [ERROR] Production DB preflight failed. Public backend NOT started. & pause & exit /b 1)
 
 echo [1/5] Preparing immutable frontend release and running browser smoke...
-powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\publish-frontend-release.ps1" -RepoRoot "%ROOT%" -SkipVerify
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\publish-frontend-release.ps1" -RepoRoot "%ROOT_NO_SLASH%" -SkipVerify
 if errorlevel 1 (
   echo [ERROR] Candidate release failed. The active public release was NOT changed.
   if /I not "%IZO_NO_PAUSE%"=="1" pause
