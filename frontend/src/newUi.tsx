@@ -11,7 +11,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Lock, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun, Trash2, Undo2 } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Lock, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun, Trash2, Undo2, X } from 'lucide-react'
 import {
   AuthV2Modal,
   getAuthCapabilitiesV2,
@@ -3295,6 +3295,20 @@ export default function NewStudio(): ReactElement {
               value={promptTextareaValue}
               onChange={(e) => updatePromptTextarea(e.target.value)}
             />
+            {promptTextareaValue.length > 0 && (
+              <button
+                className="prompt-clear-button"
+                type="button"
+                title="Очистить промпт"
+                aria-label="Очистить промпт"
+                onClick={() => {
+                  updatePromptTextarea('')
+                  promptTextareaRef.current?.focus()
+                }}
+              >
+                <X size={14} strokeWidth={2.2} aria-hidden="true" />
+              </button>
+            )}
           </div>
           <div className="action-row">
             <button className={`tool-button${voiceRecording ? ' voice-recording' : ''}`} type="button" disabled={voiceBusy} aria-pressed={voiceRecording} onClick={() => void toggleVoiceInput()}>

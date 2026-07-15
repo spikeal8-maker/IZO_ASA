@@ -5321,6 +5321,7 @@ box-shadow: none;
 
 .iv3 .prompt-section .prompt-card,
 .iv3 .editor-prompt-section .prompt-card {
+position: relative;
 display: block;
 min-height: 0;
 overflow: hidden;
@@ -5344,9 +5345,42 @@ box-shadow:
 height: 118px;
 min-height: 96px;
 max-height: 60vh;
-padding: 14px;
+padding: 14px 42px 14px 14px;
 resize: vertical;
 scrollbar-width: none;
+}
+
+.iv3 .prompt-clear-button {
+position: absolute;
+z-index: 3;
+top: 8px;
+right: 8px;
+width: 24px;
+height: 24px;
+min-height: 0;
+padding: 0;
+display: grid;
+place-items: center;
+border: 0;
+border-radius: 999px;
+color: rgba(222, 228, 221, .72);
+background: rgba(255, 255, 255, .055);
+box-shadow: none;
+}
+
+@media (hover: hover) {
+.iv3 button.prompt-clear-button:not(:disabled):hover {
+color: #f5f8f2;
+background: rgba(255, 255, 255, .11);
+border: 0;
+box-shadow: none;
+transform: none;
+}
+}
+
+.iv3 .prompt-clear-button:focus-visible {
+outline: 2px solid rgba(224, 255, 0, .9);
+outline-offset: 2px;
 }
 
 .iv3 .prompt-section textarea::-webkit-scrollbar {
@@ -5384,6 +5418,13 @@ border-radius: 11px;
 .iv3 .prompt-section textarea {
 max-height: 34vh;
 resize: none;
+padding-right: 38px;
+}
+.iv3 .prompt-clear-button {
+top: 6px;
+right: 6px;
+width: 22px;
+height: 22px;
 }
 .iv3 .prompt-title-meta {
 gap: 6px;
