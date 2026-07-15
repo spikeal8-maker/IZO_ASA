@@ -197,3 +197,43 @@ def test_persist_conflict_updates_only_legacy_mutable_columns() -> None:
     assert (row["created_at"], row["started_at"]) == ("created-1", "started-1")
     assert (row["status"], row["progress"], row["result_image_id"]) == ("completed", 100, "image-1")
     assert row["error_message"] == "warning" and row["completed_at"] == "completed-2"
+
+
+def test_terminal_job_compacts_embedded_images_but_keeps_request_object_usable() -> None:
+    conn = connection()
+    embedded = "data:image/png;base64," + ("a" * 400)
+    request_data = {"prompt": "done", "inputImage": embedded, "nested": [embedded]}
+    job = {"id": "job-terminal", "status": "completed", "progress": 100}
+
+    persist_job(
+        conn,
+        job,
+        request_data=request_data,
+        request_mode="edit",
+        request_provider="openrouter",
+        request_prompt="done",
+        now_iso="now",
+    )
+
+    settings_json = conn.execute("SELECT settings_json FROM jobs WHERE id='job-terminal'").fetchone()[0]
+    assert "base64," not in settings_json
+    assert settings_json.count("[data-image-omitted:image/png:") == 2
+    assert request_data["inputImage"] == embedded
+
+
+def test_nonterminal_job_keeps_embedded_images_for_restart_recovery() -> None:
+    conn = connection()
+    embedded = "data:image/webp;base64," + ("b" * 400)
+
+    persist_job(
+        conn,
+        {"id": "job-running", "status": "running", "progress": 50},
+        request_data={"inputImage": embedded},
+        request_mode="edit",
+        request_provider="openrouter",
+        request_prompt="working",
+        now_iso="now",
+    )
+
+    settings_json = conn.execute("SELECT settings_json FROM jobs WHERE id='job-running'").fetchone()[0]
+    assert embedded in settings_json

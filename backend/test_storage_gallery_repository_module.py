@@ -93,7 +93,7 @@ def test_select_candidates_orders_by_created_at_then_id_and_returns_exact_media_
     ]
 
 
-def test_select_candidates_excludes_deleted_image_favorite_and_same_owner_source_favorite() -> None:
+def test_select_candidates_excludes_deleted_and_image_favorite_but_not_source_favorite() -> None:
     conn = connection()
     add_image(conn, "deleted", "owner", "2026-01-01", deleted_at="2026-02-01")
     add_image(conn, "image-favorite", "owner", "2026-01-02", favorite=1)
@@ -105,7 +105,7 @@ def test_select_candidates_excludes_deleted_image_favorite_and_same_owner_source
 
     rows = select_gallery_eviction_candidates(conn, "owner", limit=10)
 
-    assert [row["id"] for row in rows] == ["candidate"]
+    assert [row["id"] for row in rows] == ["source-favorite", "candidate"]
 
 
 def test_foreign_source_favorite_does_not_protect_owner_image_and_foreign_image_is_never_selected() -> None:

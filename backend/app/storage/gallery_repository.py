@@ -25,7 +25,7 @@ def select_gallery_eviction_candidates(
     *,
     limit: int,
 ) -> list[Any]:
-    """Return oldest owner rows that are not protected by image/source favorites."""
+    """Return oldest owner rows not protected by the image's own favorite flag."""
     candidate_limit = int(limit)
     if candidate_limit <= 0:
         return []
@@ -34,10 +34,6 @@ def select_gallery_eviction_candidates(
             """
             SELECT id, url, thumbnail_url FROM images
             WHERE user_id = ? AND is_favorite = 0 AND (deleted_at IS NULL OR deleted_at = '')
-              AND NOT EXISTS (
-                  SELECT 1 FROM image_sources s
-                  WHERE s.image_id = images.id AND s.user_id = images.user_id AND s.is_favorite = 1
-              )
             ORDER BY created_at ASC, id ASC
             LIMIT ?
             """,

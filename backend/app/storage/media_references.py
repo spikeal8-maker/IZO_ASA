@@ -61,10 +61,8 @@ def owned_active_source_exists(
     row = conn.execute(
         f"""
         SELECT 1 FROM image_sources s
-        JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id
         WHERE s.user_id = ?
           AND (s.library_deleted_at IS NULL OR s.library_deleted_at = '')
-          AND {active_image_where.replace('deleted_at', 'i.deleted_at')}
           AND (
             s.thumb_url = ? OR s.thumb_url LIKE ? ESCAPE '\\'
             OR s.thumb_url = ? OR s.thumb_url LIKE ? ESCAPE '\\'

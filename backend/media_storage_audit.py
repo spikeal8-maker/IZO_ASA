@@ -125,18 +125,20 @@ def audit_media_storage(*, item_limit: int = 50) -> dict[str, Any]:
                 "SELECT s.id, s.thumb_url, s.availability_status, s.library_deleted_at, i.deleted_at FROM image_sources s "
                 "LEFT JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id"
             ).fetchall():
-                target = deleted_refs if main._row_get(row, "deleted_at") else active_refs
+                parent_deleted = bool(main._row_get(row, "deleted_at"))
                 rel = _media_rel_from_url(row["thumb_url"])
                 source = f"image_sources.thumb_url:{row['id']}"
                 known_unavailable = str(main._row_get(row, "availability_status") or "").lower() in {"missing", "unavailable"}
                 removed_from_library = bool(main._row_get(row, "library_deleted_at"))
-                if not main._row_get(row, "deleted_at") and (known_unavailable or removed_from_library):
+                if parent_deleted and removed_from_library:
+                    _add_ref(deleted_refs, rel, source)
+                elif known_unavailable:
                     if rel and (main.MEDIA / rel).is_file():
                         _add_ref(active_refs, rel, source)
                     else:
                         _add_ref(known_missing_refs, rel, source)
                 else:
-                    _add_ref(target, rel, source)
+                    _add_ref(active_refs, rel, source)
 
         user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
         if "avatar_url" in user_columns:

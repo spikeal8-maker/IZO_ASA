@@ -287,11 +287,13 @@ function render({ preservePrimary = false, preserveSecondary = false } = {}){
   favCountEl.parentElement.classList.toggle('overLimit', Number(limits.favorites.used || 0) > Number(favoriteLimit() || 0));
   document.getElementById('likesCount').textContent = String(Number(limits.likes?.used || 0));
   const feedSectionCount = document.getElementById('feedSectionCount');
-  if(feedSectionCount) feedSectionCount.textContent = `${feedItems.length} публикаций`;
+  if(feedSectionCount) feedSectionCount.textContent = secondaryLoaded ? `${feedItems.length} публикаций` : 'загрузятся при прокрутке';
   const uploadsSectionCount = document.getElementById('uploadsSectionCount');
-  if(uploadsSectionCount) uploadsSectionCount.textContent = uploadedUnavailableCount
-    ? `${uploadedImages.length} доступно · ${uploadedUnavailableCount} недоступно`
-    : `${uploadedImages.length} исходников`;
+  if(uploadsSectionCount) uploadsSectionCount.textContent = !secondaryLoaded
+    ? 'загрузятся при прокрутке'
+    : (uploadedUnavailableCount
+      ? `${uploadedImages.length} доступно · ${uploadedUnavailableCount} недоступно`
+      : `${uploadedImages.length} исходников`);
   const loadMoreBtn = document.getElementById('loadMoreBtn');
   loadMoreBtn.hidden = !hasMoreGallery || Boolean(galleryLoadError);
   loadMoreBtn.textContent = galleryLoading ? 'Загружаем...' : 'Показать еще';

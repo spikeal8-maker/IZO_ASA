@@ -78,13 +78,11 @@ def test_quota_count_is_owner_scoped_and_accepts_legacy_empty_deleted_at(gallery
     assert override_quota["gallery_used"] == 1
 
 
-def test_eviction_selects_oldest_id_and_respects_image_and_same_owner_source_favorites(
+def test_eviction_selects_oldest_non_image_favorite_and_preserves_source_library(
     gallery_db,
     monkeypatch,
 ) -> None:
-    deleted_sources: list[str] = []
     deleted_files: list[tuple[str, str]] = []
-    monkeypatch.setattr(main, "delete_image_source_files", lambda _conn, image_id: deleted_sources.append(image_id))
     monkeypatch.setattr(
         main,
         "delete_image_files_from_disk",
@@ -100,7 +98,7 @@ def test_eviction_selects_oldest_id_and_respects_image_and_same_owner_source_fav
         _insert_image(conn, "candidate-a", "owner", "2026-01-03")
         _protect_source(conn, "candidate-a", "other")
         _insert_image(conn, "foreign-oldest", "other", "2025-01-01")
-        main.images.update({image_id: {"id": image_id} for image_id in ("candidate-a", "candidate-b")})
+        main.images.update({image_id: {"id": image_id} for image_id in ("source-protected", "candidate-a", "candidate-b")})
 
         removed = main.evict_gallery_images_for_new_save(
             conn,
@@ -113,16 +111,13 @@ def test_eviction_selects_oldest_id_and_respects_image_and_same_owner_source_fav
         ).fetchall()
 
     assert removed == 1
-    assert deleted_sources == ["candidate-a"]
-    assert deleted_files == [("/api/media/candidate-a.webp", "/api/media/candidate-a-thumb.webp")]
-    assert {row["id"]: row["deleted_at"] for row in rows}["candidate-a"] == "2026-03-01"
-    assert "candidate-a" not in main.images
+    assert deleted_files == [("/api/media/source-protected.webp", "/api/media/source-protected-thumb.webp")]
+    assert {row["id"]: row["deleted_at"] for row in rows}["source-protected"] == "2026-03-01"
+    assert "source-protected" not in main.images
     assert "candidate-b" in main.images
 
 
 def test_over_limit_eviction_selects_exactly_two_oldest_candidates(gallery_db, monkeypatch) -> None:
-    removed_ids: list[str] = []
-    monkeypatch.setattr(main, "delete_image_source_files", lambda _conn, image_id: removed_ids.append(image_id))
     monkeypatch.setattr(main, "delete_image_files_from_disk", lambda **_kwargs: None)
     with main.db() as conn:
         _insert_user(conn, "owner")
@@ -136,10 +131,12 @@ def test_over_limit_eviction_selects_exactly_two_oldest_candidates(gallery_db, m
         )
 
     assert removed == 2
-    assert removed_ids == ["first", "second"]
+    with main.db() as conn:
+        rows = conn.execute("SELECT id, deleted_at FROM images WHERE user_id='owner' ORDER BY created_at").fetchall()
+    assert [row["id"] for row in rows if row["deleted_at"]] == ["first", "second"]
 
 
-def test_eviction_applies_each_row_in_source_soft_delete_file_cache_order(gallery_db, monkeypatch) -> None:
+def test_eviction_applies_each_row_in_soft_delete_file_cache_order(gallery_db, monkeypatch) -> None:
     trace: list[tuple] = []
 
     class TracingConnection:
@@ -156,11 +153,6 @@ def test_eviction_applies_each_row_in_source_soft_delete_file_cache_order(galler
             trace.append(("cache", key))
             return super().pop(key, *args)
 
-    monkeypatch.setattr(
-        main,
-        "delete_image_source_files",
-        lambda _conn, image_id: trace.append(("sources", image_id)),
-    )
     monkeypatch.setattr(
         main,
         "delete_image_files_from_disk",
@@ -180,39 +172,32 @@ def test_eviction_applies_each_row_in_source_soft_delete_file_cache_order(galler
 
     assert removed == 2
     assert trace == [
-        ("sources", "first"),
         ("soft-delete", "first", "2026-03-01"),
         ("files", "/api/media/first.webp", "/api/media/first-thumb.webp"),
         ("cache", "first"),
-        ("sources", "second"),
         ("soft-delete", "second", "2026-03-01"),
         ("files", "/api/media/second.webp", "/api/media/second-thumb.webp"),
         ("cache", "second"),
     ]
 
 
-def test_source_delete_error_stops_eviction_before_soft_delete_files_or_cache(gallery_db, monkeypatch) -> None:
+def test_legacy_source_delete_wrapper_is_removed_and_eviction_still_succeeds(gallery_db, monkeypatch) -> None:
     trace: list[tuple] = []
-
-    def fail_sources(_conn, image_id: str) -> None:
-        trace.append(("sources", image_id))
-        raise RuntimeError("source deletion failed")
-
-    monkeypatch.setattr(main, "delete_image_source_files", fail_sources)
+    assert not hasattr(main, "delete_image_source_files")
     monkeypatch.setattr(main, "delete_image_files_from_disk", lambda **_kwargs: trace.append(("files",)))
     main.images["first"] = {"id": "first"}
     with main.db() as conn:
         _insert_user(conn, "owner")
         _insert_image(conn, "first", "owner", "2026-01-01")
-        with pytest.raises(RuntimeError, match="source deletion failed"):
-            main.evict_gallery_images_for_new_save(
-                conn,
-                "owner",
-                {"gallery_slots": 1, "gallery_used": 1},
-                "2026-03-01",
-            )
+        removed = main.evict_gallery_images_for_new_save(
+            conn,
+            "owner",
+            {"gallery_slots": 1, "gallery_used": 1},
+            "2026-03-01",
+        )
         deleted_at = conn.execute("SELECT deleted_at FROM images WHERE id = 'first'").fetchone()["deleted_at"]
 
-    assert trace == [("sources", "first")]
-    assert deleted_at is None
-    assert "first" in main.images
+    assert removed == 1
+    assert trace == [("files",)]
+    assert deleted_at == "2026-03-01"
+    assert "first" not in main.images

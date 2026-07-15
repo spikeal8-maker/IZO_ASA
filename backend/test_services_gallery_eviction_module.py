@@ -11,7 +11,6 @@ from app.services.gallery_eviction import GalleryEvictionRuntime, apply_gallery_
 
 def runtime(trace: list[tuple]) -> GalleryEvictionRuntime:
     return GalleryEvictionRuntime(
-        delete_sources=lambda image_id: trace.append(("sources", image_id)),
         soft_delete=lambda image_id: trace.append(("soft-delete", image_id)),
         delete_files=lambda url, thumbnail_url: trace.append(("files", url, thumbnail_url)),
         drop_cached_image=lambda image_id: trace.append(("cache", image_id)),
@@ -38,7 +37,7 @@ def test_runtime_is_frozen() -> None:
     configured = runtime([])
 
     with pytest.raises(FrozenInstanceError):
-        configured.delete_sources = lambda _image_id: None  # type: ignore[misc]
+        configured.soft_delete = lambda _image_id: None  # type: ignore[misc]
 
 
 def test_apply_evictions_preserves_row_and_side_effect_order() -> None:
@@ -52,11 +51,9 @@ def test_apply_evictions_preserves_row_and_side_effect_order() -> None:
 
     assert removed == 2
     assert trace == [
-        ("sources", "first"),
         ("soft-delete", "first"),
         ("files", "/first.webp", "/first-thumb.webp"),
         ("cache", "first"),
-        ("sources", "second"),
         ("soft-delete", "second"),
         ("files", "/second.webp", "/second-thumb.webp"),
         ("cache", "second"),
@@ -90,7 +87,6 @@ def test_callback_error_propagates_and_stops_current_and_remaining_rows() -> Non
         raise RuntimeError("soft delete failed")
 
     configured = GalleryEvictionRuntime(
-        delete_sources=lambda image_id: trace.append(("sources", image_id)),
         soft_delete=fail_soft_delete,
         delete_files=lambda url, thumbnail_url: trace.append(("files", url, thumbnail_url)),
         drop_cached_image=lambda image_id: trace.append(("cache", image_id)),
@@ -103,4 +99,4 @@ def test_callback_error_propagates_and_stops_current_and_remaining_rows() -> Non
     with pytest.raises(RuntimeError, match="soft delete failed"):
         apply_gallery_evictions(configured, rows)
 
-    assert trace == [("sources", "first"), ("soft-delete", "first")]
+    assert trace == [("soft-delete", "first")]

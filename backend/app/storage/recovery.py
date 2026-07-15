@@ -43,9 +43,7 @@ def reconcile_source_availability(
             f"""
             SELECT s.id, s.thumb_url, s.availability_status
             FROM image_sources s
-            JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id
             WHERE {' AND '.join(where)}
-              AND {active_image_where.replace('deleted_at', 'i.deleted_at')}
             """,
             params,
         ).fetchall()

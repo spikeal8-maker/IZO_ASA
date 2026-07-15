@@ -14,6 +14,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, To
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Lock, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun, Trash2, Undo2, X } from 'lucide-react'
 import {
   AuthV2Modal,
+  ensureSessionRefreshedV2,
   getAuthCapabilitiesV2,
   initAuthV2,
   logoutV2,
@@ -67,8 +68,17 @@ function userMediaUrl(path: string | null | undefined): string | null {
 
 // Auth: только trusted cookie session (credentials: include). Никаких legacy
 // заголовков, кук или клиентских идентификаторов — см. docs/new-ui-v2-plan.md.
-function apiFetch(path: string, init: RequestInit = {}) {
-  return fetch(`${API}${path}`, { ...init, credentials: 'include' })
+async function apiFetch(path: string, init: RequestInit = {}) {
+  const request = () => fetch(`${API}${path}`, { ...init, credentials: 'include' })
+  let response = await request()
+  if (response.status === 401 && await ensureSessionRefreshedV2()) response = await request()
+  return response
+}
+
+async function verifyPrivateImage(path: string): Promise<void> {
+  const response = await apiFetch(path)
+  if (!response.ok) throw new Error(`Image unavailable: ${response.status}`)
+  await response.body?.cancel().catch(() => undefined)
 }
 
 function apiErrorText(detail: unknown, fallback: string): string {
@@ -1016,6 +1026,7 @@ export default function NewStudio(): ReactElement {
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [galleryPickTarget, setGalleryPickTarget] = useState<UploadTarget | null>(null)
   const [galleryPickerTab, setGalleryPickerTab] = useState<GalleryPickerTab>('generated')
+  const [galleryPickerImages, setGalleryPickerImages] = useState<N2GalleryImage[]>([])
   const [uploadedSources, setUploadedSources] = useState<UploadedSourceImage[]>([])
   const [galleryPickerLoading, setGalleryPickerLoading] = useState(false)
   const [galleryPickerError, setGalleryPickerError] = useState('')
@@ -1138,46 +1149,6 @@ export default function NewStudio(): ReactElement {
   const voiceStreamRef = useRef<MediaStream | null>(null)
   const voiceStartedAtRef = useRef(0)
 
-  useEffect(() => {
-    let cancelled = false
-    const raw = window.sessionStorage.getItem('izoUseAsDraft')
-    if (!raw) return undefined
-    window.sessionStorage.removeItem('izoUseAsDraft')
-    try {
-      const draft = JSON.parse(raw) as { target?: string; inputImage?: string; prompt?: string }
-      const target = draft.target || 'image'
-      if (target !== 'prompt' && !draft.inputImage) return undefined
-      const image = draft.inputImage ? apiUrl(draft.inputImage) : ''
-      queueMicrotask(() => {
-        if (cancelled) return
-        if (target === 'prompt') {
-          setTab('text')
-          if (draft.prompt) setPrompts((current) => ({ ...current, text: draft.prompt || '' }))
-        } else if (target === 'editor' || target === 'face_target') {
-          setTab('edit')
-          setEditSlots((current) => current.map((slot, index) => index === 0 ? { ...slot, image } : slot))
-          if (draft.prompt) setPrompts((current) => ({ ...current, edit: draft.prompt || '' }))
-        } else if (target === 'face_source') {
-          setTab('edit')
-          setEditSlots((current) => current.map((slot, index) => (
-            index === 1 ? { ...slot, image, role: 'face', takeNote: '' } : slot
-          )))
-        } else if (target === 'draw') {
-          setTab('paint')
-          setPaintImage(image)
-          setPaintWorkbenchVisible(true)
-          if (draft.prompt) setPrompts((current) => ({ ...current, paint: draft.prompt || '' }))
-        } else {
-          setTab('i2i')
-          setSourceImage(image)
-          if (draft.prompt) setPrompts((current) => ({ ...current, i2i: draft.prompt || '' }))
-        }
-      })
-    } catch {
-      // Ignore stale drafts from older gallery builds.
-    }
-    return () => { cancelled = true }
-  }, [setTab])
   const [paintToolsOpen, setPaintToolsOpen] = useState(false)
   const [compare, setCompare] = useState(50)
   const [compareEnabled, setCompareEnabled] = useState(true)
@@ -1294,6 +1265,50 @@ export default function NewStudio(): ReactElement {
   const [inspectZoom, setInspectZoom] = useState(1)
   const [inspectPan, setInspectPan] = useState({ x: 0, y: 0 })
   const [notice, setNotice] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    const raw = window.sessionStorage.getItem('izoUseAsDraft')
+    if (!raw) return undefined
+
+    const applyDraft = async () => {
+      try {
+        const draft = JSON.parse(raw) as { target?: string; inputImage?: string; prompt?: string }
+        const target = draft.target || 'image'
+        if (target !== 'prompt' && !draft.inputImage) throw new Error('Missing draft image')
+        const image = draft.inputImage ? apiUrl(draft.inputImage) : ''
+        if (image) await verifyPrivateImage(image)
+        if (cancelled) return
+
+        if (target === 'prompt') {
+          setTab('text')
+          if (draft.prompt) setPrompts((current) => ({ ...current, text: draft.prompt || '' }))
+        } else if (target === 'editor' || target === 'face_target') {
+          setTab('edit')
+          setEditSlots((current) => current.map((slot, index) => index === 0 ? { ...slot, image } : slot))
+          if (draft.prompt) setPrompts((current) => ({ ...current, edit: draft.prompt || '' }))
+        } else if (target === 'face_source') {
+          setTab('edit')
+          setEditSlots((current) => current.map((slot, index) => (
+            index === 1 ? { ...slot, image, role: 'face', takeNote: '' } : slot
+          )))
+        } else if (target === 'draw') {
+          setTab('paint')
+          setPaintImage(image)
+          setPaintWorkbenchVisible(true)
+          if (draft.prompt) setPrompts((current) => ({ ...current, paint: draft.prompt || '' }))
+        } else {
+          setTab('i2i')
+          setSourceImage(image)
+          if (draft.prompt) setPrompts((current) => ({ ...current, i2i: draft.prompt || '' }))
+        }
+        window.sessionStorage.removeItem('izoUseAsDraft')
+      } catch {
+        if (!cancelled) setNotice('Не удалось загрузить выбранное изображение. Черновик сохранён — повторите переход из галереи.')
+      }
+    }
+    void applyDraft()
+    return () => { cancelled = true }
+  }, [setTab])
   const [gallery, setGallery] = useState<N2GalleryImage[]>([])
   const [galleryItem, setGalleryItem] = useState<N2GalleryImage>()
   // Изображение, чей промпт показан в доке «Промпт изображения» (v3-студия).
@@ -1462,8 +1477,8 @@ export default function NewStudio(): ReactElement {
   const ownGallerySeenRef = useRef(false)
   const fetchGallery = useCallback(async () => {
     try {
-      const data = await apiFetch('/gallery').then((r) => (r.ok ? r.json() : []))
-      const arr: N2GalleryImage[] = Array.isArray(data) ? data : []
+      const data = await apiFetch('/gallery/items?limit=24').then((r) => (r.ok ? r.json() : null))
+      const arr: N2GalleryImage[] = Array.isArray(data?.items) ? data.items : []
       if (arr.length === 0 && ownGallerySeenRef.current) return []
       if (arr.length > 0) ownGallerySeenRef.current = true
       setGallery(arr)
@@ -1731,18 +1746,40 @@ export default function NewStudio(): ReactElement {
     setGalleryPickerTab('generated')
     setGalleryPickerLoading(true)
     setGalleryPickerError('')
-    apiFetch('/gallery/page?limit=120')
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error('gallery picker unavailable')))
-      .then((payload) => {
-        setUploadedSources(Array.isArray(payload?.uploadedItems) ? payload.uploadedItems : [])
+    Promise.all([
+      apiFetch('/gallery/items?limit=60'),
+      apiFetch('/gallery/secondary?limit=60'),
+    ])
+      .then(async ([primaryResponse, secondaryResponse]) => {
+        if (!primaryResponse.ok || !secondaryResponse.ok) throw new Error('gallery picker unavailable')
+        return Promise.all([primaryResponse.json(), secondaryResponse.json()])
+      })
+      .then(([primary, secondary]) => {
+        setGalleryPickerImages(Array.isArray(primary?.items) ? primary.items : [])
+        setUploadedSources(Array.isArray(secondary?.uploadedItems) ? secondary.uploadedItems : [])
       })
       .catch(() => setGalleryPickerError('Не удалось загрузить ранее загруженные изображения.'))
       .finally(() => setGalleryPickerLoading(false))
   }
 
+  async function retryImageOnce(image: HTMLImageElement, onFailure: () => void) {
+    if (image.dataset.retryAttempted === '1') {
+      onFailure()
+      return
+    }
+    image.dataset.retryAttempted = '1'
+    await ensureSessionRefreshedV2().catch(() => false)
+    const url = new URL(image.currentSrc || image.src, window.location.href)
+    url.searchParams.set('_retry', String(Date.now()))
+    image.src = url.toString()
+  }
+
   function markPickerImageError(event: ChangeEvent<HTMLImageElement>) {
-    event.currentTarget.hidden = true
-    event.currentTarget.closest('.n2-template-style')?.classList.add('is-broken')
+    const image = event.currentTarget
+    void retryImageOnce(image, () => {
+      image.hidden = true
+      image.closest('.n2-template-style')?.classList.add('is-broken')
+    })
   }
 
   function showInspectPreview(url: string, title: string) {
@@ -2813,13 +2850,15 @@ export default function NewStudio(): ReactElement {
     })
   }
 
-  function markVisiblePreviewError() {
-    if (isPaintStudio) {
-      setResultError(true)
-      return
-    }
-    if (!activeCoreMode) return
-    setPreviewByMode((cur) => ({ ...cur, [activeCoreMode]: { ...cur[activeCoreMode], error: true } }))
+  function markVisiblePreviewError(event: ChangeEvent<HTMLImageElement>) {
+    void retryImageOnce(event.currentTarget, () => {
+      if (isPaintStudio) {
+        setResultError(true)
+        return
+      }
+      if (!activeCoreMode) return
+      setPreviewByMode((cur) => ({ ...cur, [activeCoreMode]: { ...cur[activeCoreMode], error: true } }))
+    })
   }
 
   async function createPaintSketchCanvas() {
@@ -4098,19 +4137,19 @@ export default function NewStudio(): ReactElement {
             <h2>{galleryPickTarget.kind === 'edit' ? 'Выберите изображение' : 'Выберите исходник из галереи'}</h2>
             <div className="n2-gallery-picker-tabs" role="tablist" aria-label="Источник изображения">
               <button className={galleryPickerTab === 'generated' ? 'active' : ''} type="button" role="tab" aria-selected={galleryPickerTab === 'generated'} onClick={() => setGalleryPickerTab('generated')}>
-                Сгенерированные <span>{gallery.length}</span>
+                Сгенерированные <span>{galleryPickerImages.length}</span>
               </button>
               <button className={galleryPickerTab === 'uploaded' ? 'active' : ''} type="button" role="tab" aria-selected={galleryPickerTab === 'uploaded'} onClick={() => setGalleryPickerTab('uploaded')}>
                 Загруженные <span>{uploadedSources.length}</span>
               </button>
             </div>
-            {galleryPickerError && galleryPickerTab === 'uploaded' && <p className="n2-gallery-picker-message error">{galleryPickerError}</p>}
-            {galleryPickerLoading && galleryPickerTab === 'uploaded' ? (
+            {galleryPickerError && <p className="n2-gallery-picker-message error">{galleryPickerError}</p>}
+            {galleryPickerLoading ? (
               <p className="n2-gallery-picker-message">Загружаем изображения…</p>
             ) : galleryPickerTab === 'generated' ? (
-              gallery.length ? (
+              galleryPickerImages.length ? (
                 <div className="n2-templates-styles n2-gallery-picker-grid">
-                  {gallery.map((item) => (
+                  {galleryPickerImages.map((item) => (
                     <button
                       key={item.id}
                       className="n2-template-style"

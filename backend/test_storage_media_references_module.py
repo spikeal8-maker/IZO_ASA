@@ -60,7 +60,7 @@ def test_owned_image_match_is_exact_with_optional_query_and_legacy_path(tmp_path
         assert find_owned_active_image(conn, "foo.png", "owner", active_image_where=ACTIVE) is None
 
 
-def test_source_match_rejects_substrings_deleted_parents_and_library_deleted_rows(tmp_path: Path):
+def test_source_match_rejects_substrings_and_library_deleted_but_keeps_deleted_parent_library_rows(tmp_path: Path):
     connect = _connect_factory(tmp_path / "sources.sqlite3")
     _create_schema(connect)
     with connect() as conn:
@@ -77,7 +77,7 @@ def test_source_match_rejects_substrings_deleted_parents_and_library_deleted_row
             """
         )
         assert owned_active_source_exists(conn, "foo.png", "owner", active_image_where=ACTIVE) is True
-        assert owned_active_source_exists(conn, "deleted.png", "owner", active_image_where=ACTIVE) is False
+        assert owned_active_source_exists(conn, "deleted.png", "owner", active_image_where=ACTIVE) is True
         assert owned_active_source_exists(conn, "library.png", "owner", active_image_where=ACTIVE) is False
         conn.execute("DELETE FROM image_sources WHERE id = 'exact'")
         assert owned_active_source_exists(conn, "foo.png", "owner", active_image_where=ACTIVE) is False

@@ -29,7 +29,7 @@ def test_gallery_shell_hydrates_avatar_with_initials_fallback():
     assert "profile.avatar_url" in script
     assert "showInitials" in script
     assert "addEventListener('error'" in script
-    assert "gallery-opt-phase5" in page
+    assert "gallery-resilience" in page
 
 
 def test_gallery_cards_defer_offscreen_render_and_masonry_reuses_spans():
@@ -69,6 +69,12 @@ def test_secondary_endpoint_skips_primary_gallery_query():
     secondary_block = source.split("async def gallery_secondary", 1)[1].split("async def _gallery_page_payload", 1)[0]
     assert "secondary_only=True" in secondary_block
     assert "payload = await gallery_page" not in secondary_block
+
+
+def test_gallery_http_payload_does_not_rescan_every_source_file():
+    source = (GALLERY_DIR.parent.parent / "main.py").read_text(encoding="utf-8")
+    payload_block = source.split("async def _gallery_page_payload", 1)[1].split("@app.get(\"/api/gallery/page\")", 1)[0]
+    assert "reconcile_image_source_availability" not in payload_block
 
 
 def test_gallery_and_feed_shells_expose_the_shared_favicon():

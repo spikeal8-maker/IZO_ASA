@@ -62,8 +62,8 @@ def test_source_availability_reconciliation_is_scoped_and_idempotent(tmp_path: P
         active_image_where="(deleted_at IS NULL OR deleted_at = '')",
     )
 
-    assert first == {"checked": 2, "available": 1, "missing": 1, "changed": 2}
-    assert second == {"checked": 2, "available": 1, "missing": 1, "changed": 0}
+    assert first == {"checked": 3, "available": 1, "missing": 2, "changed": 3}
+    assert second == {"checked": 3, "available": 1, "missing": 2, "changed": 0}
     with connect() as conn:
         rows = {row["id"]: row for row in conn.execute("SELECT * FROM image_sources")}
     assert rows["present"]["availability_status"] == "available"
@@ -71,7 +71,8 @@ def test_source_availability_reconciliation_is_scoped_and_idempotent(tmp_path: P
     assert rows["missing"]["availability_status"] == "missing"
     assert rows["missing"]["unavailable_at"] is not None
     assert rows["library-deleted"]["availability_checked_at"] is None
-    assert rows["deleted-image"]["availability_checked_at"] is None
+    assert rows["deleted-image"]["availability_status"] == "missing"
+    assert rows["deleted-image"]["availability_checked_at"] is not None
 
 
 def test_source_repair_preserves_metadata_and_is_idempotent(tmp_path: Path):

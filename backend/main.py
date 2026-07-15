@@ -448,7 +448,6 @@ try:
         SourceAvailabilityRuntime,
         SourceRepairRuntime,
         SourcePersistenceRuntime,
-        SourceDeletionRuntime,
         SourceRowRepairRuntime,
         SourceTreeRuntime,
         SourceThumbnailRuntime,
@@ -468,7 +467,6 @@ try:
         read_image_source_tree as storage_read_image_source_tree,
         repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
         persist_image_source_rows as storage_persist_image_source_rows,
-        delete_image_source_rows as storage_delete_image_source_rows,
         save_source_thumbnail as storage_save_source_thumbnail,
         generation_source_inputs as storage_generation_source_inputs,
         source_role_label as storage_source_role_label,
@@ -489,7 +487,6 @@ except ImportError:  # Direct `python backend/main.py` execution.
         SourceAvailabilityRuntime,
         SourceRepairRuntime,
         SourcePersistenceRuntime,
-        SourceDeletionRuntime,
         SourceRowRepairRuntime,
         SourceTreeRuntime,
         SourceThumbnailRuntime,
@@ -509,7 +506,6 @@ except ImportError:  # Direct `python backend/main.py` execution.
         read_image_source_tree as storage_read_image_source_tree,
         repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
         persist_image_source_rows as storage_persist_image_source_rows,
-        delete_image_source_rows as storage_delete_image_source_rows,
         save_source_thumbnail as storage_save_source_thumbnail,
         generation_source_inputs as storage_generation_source_inputs,
         source_role_label as storage_source_role_label,
@@ -2725,7 +2721,6 @@ def evict_gallery_images_for_new_save(
         return 0
     rows = storage_select_gallery_eviction_candidates(conn, legacy_user_id, limit=target)
     runtime = gallery_eviction.GalleryEvictionRuntime(
-        delete_sources=lambda image_id: delete_image_source_files(conn, image_id),
         soft_delete=lambda image_id: conn.execute(
             "UPDATE images SET deleted_at = ? WHERE id = ?",
             (now_iso, image_id),
@@ -2776,14 +2771,6 @@ def gallery_image_id_from_media_url(conn: sqlite3.Connection, url: str | None, l
         active_image_where=ACTIVE_IMAGE_WHERE,
     )
     return row["id"] if row is not None else None
-
-
-def delete_image_source_files(conn: sqlite3.Connection, image_id: str) -> None:
-    runtime = SourceDeletionRuntime(
-        filename_from_url=media_filename_from_url,
-        delete_media_rel=_delete_media_rel,
-    )
-    storage_delete_image_source_rows(runtime, conn, image_id)
 
 
 def cleanup_orphan_image_sources(*, grace_seconds: int = 3600) -> dict[str, int]:
@@ -7216,7 +7203,6 @@ async def _gallery_page_payload(
     cursor_value = parse_gallery_cursor(cursor)
     search = str(q or "").strip()[:120]
     gallery_filter = str(filter or "all").strip().lower()
-    await asyncio.to_thread(reconcile_image_source_availability, user_id)
     with db() as conn:
         user_row = conn.execute(
             "SELECT * FROM users WHERE internal_user_id = ? OR id = ?",
@@ -7361,7 +7347,6 @@ async def _gallery_page_payload(
             "s.user_id = ?",
             "s.source_kind IN ('upload', 'media')",
             "(s.library_deleted_at IS NULL OR s.library_deleted_at = '')",
-            ACTIVE_IMAGE_WHERE.replace("deleted_at", "images.deleted_at"),
         ]
         uploaded_params: list[Any] = [user_id]
         if search:
@@ -7372,7 +7357,7 @@ async def _gallery_page_payload(
             f"""
             SELECT COUNT(*) AS count
             FROM image_sources s
-            JOIN images ON images.id = s.image_id AND images.user_id = s.user_id
+            LEFT JOIN images ON images.id = s.image_id AND images.user_id = s.user_id
             WHERE {' AND '.join(f'({part})' for part in uploaded_where)}
               AND s.availability_status = 'missing'
             """,
@@ -7383,7 +7368,7 @@ async def _gallery_page_payload(
             f"""
             SELECT s.*, images.mode AS owner_mode
             FROM image_sources s
-            JOIN images ON images.id = s.image_id AND images.user_id = s.user_id
+            LEFT JOIN images ON images.id = s.image_id AND images.user_id = s.user_id
             WHERE {' AND '.join(f'({part})' for part in uploaded_where)}
             ORDER BY s.created_at DESC, s.slot_index ASC
             LIMIT ?
@@ -7449,14 +7434,23 @@ async def gallery_source_use_as(source_id: str, req: UseAsRequest, request: Requ
         row = conn.execute(
             """
             SELECT s.* FROM image_sources s
-            JOIN images ON images.id = s.image_id AND images.user_id = s.user_id
-            WHERE s.id = ? AND s.user_id = ? AND images.deleted_at IS NULL
+            WHERE s.id = ? AND s.user_id = ?
+              AND (s.library_deleted_at IS NULL OR s.library_deleted_at = '')
+              AND s.availability_status = 'available'
             LIMIT 1
             """,
             (source_id, user_id),
         ).fetchone()
         if row is None:
             raise HTTPException(404, "Source image not found")
+        source_path = local_media_path_from_url(row["thumb_url"])
+        if source_path is None or not source_path.is_file() or source_path.stat().st_size <= 0:
+            checked_at = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                "UPDATE image_sources SET availability_status = 'missing', availability_checked_at = ?, unavailable_at = ? WHERE id = ?",
+                (checked_at, checked_at, source_id),
+            )
+            raise HTTPException(410, "Source image is unavailable")
     return {
         "ok": True,
         "sourceId": source_id,
@@ -7560,7 +7554,6 @@ async def gallery_delete(image_id: str, request: Request) -> dict[str, Any]:
     record = images.pop(image_id)
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
-        delete_image_source_files(conn, image_id)
         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ? AND user_id = ?", (now, image_id, user_id))
         retire_feed_publications_for_image(conn, image_id, now)
     delete_image_files_from_disk(url=record.get("url"), thumbnail_url=record.get("thumbnailUrl"))
@@ -7574,11 +7567,16 @@ async def gallery_use_as(image_id: str, req: UseAsRequest, request: Request) -> 
     with db() as conn:
         if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
             raise HTTPException(403, "Gallery is not available for this plan.")
-    if image_id not in images and DB_PATH.exists():
-        load_db_state()
-    if image_id not in images or images[image_id].get("userId", "demo_user") != user_id:
-        raise HTTPException(404, "Image not found")
-    record = images[image_id]
+        row = conn.execute(
+            f"SELECT * FROM images WHERE id = ? AND user_id = ? AND {ACTIVE_IMAGE_WHERE}",
+            (image_id, user_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Image not found")
+        record = row_to_image(row)
+    image_path = local_media_path_from_url(record["url"])
+    if image_path is None or not image_path.is_file() or image_path.stat().st_size <= 0:
+        raise HTTPException(410, "Image file is unavailable")
     return {
         "ok": True,
         "imageId": image_id,
@@ -7610,7 +7608,7 @@ def private_media_response(filename: str, request: Request) -> FileResponse:
         path = storage_resolve_private_media(_private_media_runtime(), MEDIA, filename, request)
     except PrivateMediaAccessError as exc:
         raise HTTPException(exc.status_code, exc.message) from exc
-    return FileResponse(path)
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.get("/api/media/{filename}")
@@ -11515,7 +11513,6 @@ async def admin_delete_user_gallery_image_v2(
         ).fetchone()
         if row is None:
             raise HTTPException(404, "Image not found.")
-        delete_image_source_files(conn, row["id"])
         conn.execute("UPDATE images SET deleted_at = ? WHERE id = ? AND user_id = ?", (now, row["id"], target["id"]))
         record_audit_log(
             conn,

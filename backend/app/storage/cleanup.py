@@ -21,9 +21,11 @@ def reconcile_orphan_source_rows(
     *,
     grace_seconds: int = 3600,
 ) -> dict[str, int]:
-    """Delete orphan metadata rows and report files for audited quarantine.
+    """Delete rows whose parent is absent and report files for audited quarantine.
 
-    This function never deletes or moves a filesystem entry.
+    Soft-deleted gallery parents are intentionally retained: their source
+    snapshots form an independent user library and generation lineage. This
+    function never deletes or moves a filesystem entry.
     """
     with runtime.connect() as conn:
         orphan_rows = conn.execute(
@@ -31,7 +33,7 @@ def reconcile_orphan_source_rows(
             SELECT s.id, s.thumb_url
             FROM image_sources s
             LEFT JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id
-            WHERE i.id IS NULL OR NOT (i.deleted_at IS NULL OR i.deleted_at = '')
+            WHERE i.id IS NULL
             """
         ).fetchall()
         orphan_names = {

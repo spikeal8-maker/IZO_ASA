@@ -308,6 +308,46 @@ def test_use_as_other_image_404(temp_db, two_users):
     assert r.status_code == 404
 
 
+def test_source_library_item_remains_usable_after_parent_gallery_image_is_deleted(temp_db, two_users):
+    source_file = main.MEDIA / "source-a.webp"
+    source_file.write_bytes(b"source-preview")
+    with main.db() as conn:
+        conn.execute(
+            """
+            INSERT INTO image_sources (
+                id, image_id, user_id, source_kind, role, slot_index, thumb_url,
+                thumb_width, thumb_height, thumb_bytes, availability_status, created_at
+            ) VALUES (?, ?, ?, 'upload', 'base', 1, ?, 320, 240, ?, 'available', ?)
+            """,
+            (
+                "source-a-001",
+                "img-a-001",
+                "web_a",
+                "/api/media/source-a.webp?userId=web_a",
+                source_file.stat().st_size,
+                "2026-01-01T01:00:00+00:00",
+            ),
+        )
+        conn.execute("UPDATE images SET deleted_at = ? WHERE id = ?", ("2026-02-01", "img-a-001"))
+
+    sa = sess_a(two_users)
+    with TestClient(main.app) as c:
+        use_as = c.post(
+            "/api/gallery/sources/source-a-001/use-as",
+            json={"target": "image_to_image"},
+            cookies={"onenode_session": sa["session_token"]},
+        )
+        media = c.get(
+            "/api/media/source-a.webp?userId=web_a",
+            cookies={"onenode_session": sa["session_token"]},
+        )
+
+    assert use_as.status_code == 200
+    assert use_as.json()["inputImage"].startswith("/api/media/source-a.webp")
+    assert media.status_code == 200
+    assert media.content == b"source-preview"
+
+
 # --- 16. Gallery send own image → success (local delivery) ---
 def test_send_own_image_200(temp_db, two_users):
     sa = sess_a(two_users)

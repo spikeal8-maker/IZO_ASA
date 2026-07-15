@@ -23,6 +23,21 @@ PERSISTED_JOB_SETTINGS_KEYS = (
     "tokenAdjustment",
 )
 
+COMPACTABLE_JOB_STATUSES = frozenset({"completed"})
+
+
+def _compact_terminal_media(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _compact_terminal_media(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_compact_terminal_media(item) for item in value]
+    if isinstance(value, str) and value.startswith("data:image") and "," in value:
+        header, payload = value.split(",", 1)
+        mime_type = header[5:].split(";", 1)[0] or "image/unknown"
+        approximate_bytes = max(0, len(payload) * 3 // 4)
+        return f"[data-image-omitted:{mime_type}:{approximate_bytes}]"
+    return value
+
 
 class JobConnection(Protocol):
     def execute(self, sql: str, parameters: tuple[Any, ...] = ()) -> Any: ...
@@ -133,6 +148,8 @@ def persist_job(
     for key in PERSISTED_JOB_SETTINGS_KEYS:
         if key in job:
             settings[key] = job.get(key)
+    if str(job.get("status") or "").lower() in COMPACTABLE_JOB_STATUSES:
+        settings = _compact_terminal_media(dict(settings))
     conn.execute(
         """
         INSERT INTO jobs (id, user_id, mode, provider, status, progress, prompt_original, prompt_translated,
