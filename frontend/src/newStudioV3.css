@@ -5600,6 +5600,27 @@ font-size: 9px;
   }
 }
 
+/* Generation controls live directly on the sidebar surface. Keep only a
+   straight divider between groups; individual controls retain their borders. */
+.iv3 .style-section,
+.iv3 .format-section,
+.iv3 .quality-section {
+  padding: 14px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 820px) {
+  .iv3 .style-section,
+  .iv3 .format-section,
+  .iv3 .quality-section {
+    padding: 12px 0 0;
+  }
+}
+
 /* Yellow active controls must keep dark text on hover. */
 @media (hover: hover) {
   .iv3 .tab.active:not(:disabled):not(.disabled):hover,
