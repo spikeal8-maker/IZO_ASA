@@ -77,6 +77,24 @@ type OpenRouterCapabilityModel = {
   modes: string[]
   features: { seed?: boolean; quality?: boolean; aspectRatio?: boolean; resolution?: boolean; transparentBackground?: boolean; multipleOutputs?: boolean }
 }
+type OpenRouterVideoModel = {
+  id: string
+  canonicalSlug: string
+  name: string
+  description: string
+  created: number
+  supportedResolutions: string[]
+  supportedAspectRatios: string[]
+  supportedSizes: string[]
+  supportedDurations: number[]
+  supportedFrameImages: string[]
+  generateAudio: boolean | null
+  seed: boolean | null
+  pricingSkus: Record<string, number>
+  allowedParameters: string[]
+  modes: string[]
+  referenceEvidence: 'description' | null
+}
 type ConfigStatus = {
   status?: string
   checked_at?: string
@@ -117,6 +135,9 @@ type PageData = {
     capabilityCatalog?: OpenRouterCapabilityModel[]
     capabilityError?: string | null
     capabilityCacheTtlSeconds?: number
+    videoCatalog?: OpenRouterVideoModel[]
+    videoCatalogError?: string | null
+    videoCatalogSource?: string
   }
   comfyFiles: Record<string, unknown>
   profiles: ProfileOption[]
@@ -218,6 +239,42 @@ const API_MODE_SECTIONS: ApiModeSection[] = [
   { id: 'outpaint', title: 'Редактор — расширение', local: 'Flux 2 Klein outpaint workflow', note: 'Строгий список: только модели с явно заявленным outpaint/canvas параметром.', filter: (m) => Boolean(m.modes?.includes('outpaint')) },
   { id: 'remove_background', title: 'Редактор — удалить фон', local: 'локальный workflow/утилита', note: 'Исходник плюс официальная поддержка прозрачного background.', filter: (m) => Boolean(m.modes?.includes('remove_background')) },
 ]
+const VIDEO_MODE_SECTIONS = [
+  { id: 'text_to_video', title: 'Видео по тексту', note: 'Текстовый сценарий без обязательного стартового кадра.' },
+  { id: 'image_to_video', title: 'Видео по изображению', note: 'OpenRouter явно разрешает передать первый кадр.' },
+  { id: 'first_last_frame', title: 'Первый и последний кадр', note: 'Модель явно принимает оба граничных кадра.' },
+  { id: 'reference_to_video', title: 'Видео по референсам', note: 'Предварительный список по описанию модели. Перед запуском нужен отдельный контрактный тест.' },
+] as const
+
+function videoPriceLabel(pricing: Record<string, number>) {
+  const labels: Record<string, string> = {
+    duration_seconds: 'секунда видео',
+    duration_seconds_720p: '720p/сек',
+    duration_seconds_1080p: '1080p/сек',
+    duration_seconds_1024p: '1024p/сек',
+    duration_seconds_with_audio: 'с аудио/сек',
+    duration_seconds_with_audio_720p: 'с аудио 720p/сек',
+    duration_seconds_with_audio_4k: 'с аудио 4K/сек',
+    duration_seconds_without_audio: 'без аудио/сек',
+    duration_seconds_without_audio_720p: 'без аудио 720p/сек',
+    duration_seconds_without_audio_4k: 'без аудио 4K/сек',
+    video_tokens: 'видеотокен',
+    video_tokens_without_audio: 'видеотокен без аудио',
+    text_to_video_duration_seconds_480p: 'текст→видео 480p/сек',
+    text_to_video_duration_seconds_720p: 'текст→видео 720p/сек',
+    text_to_video_duration_seconds_1080p: 'текст→видео 1080p/сек',
+    image_to_video_duration_seconds_720p: 'кадр→видео 720p/сек',
+    image_to_video_duration_seconds_1080p: 'кадр→видео 1080p/сек',
+  }
+  const entries = Object.entries(pricing)
+  if (!entries.length) return 'цена не опубликована'
+  return entries.map(([key, value]) => {
+    const cents = key.startsWith('cents_per_')
+    const normalized = cents ? value / 100 : value
+    const centsLabel = key === 'cents_per_image_input' ? 'входное изображение' : key === 'cents_per_video_output_second_480p' ? 'выход 480p/сек' : key === 'cents_per_video_output_second_720p' ? 'выход 720p/сек' : key
+    return `${labels[key] || centsLabel}: $${normalized.toFixed(normalized < 0.01 ? 6 : 4)}`
+  }).join(' · ')
+}
 
 const fallbackReferenceLimit = (model: ApiImageModel) => {
   if (!model.params.includes('input_references')) return 0
@@ -541,6 +598,19 @@ const CSS = `
 .amv2 .api-table tr.api-model-row{cursor:pointer}
 .amv2 .api-table tr.api-model-row:hover td{background:rgba(234,255,16,.035)}
 .amv2 .api-table tr.api-model-row.expanded td{background:rgba(234,255,16,.05)}
+.amv2 .video-catalog-head{width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px;border:0;background:transparent;color:var(--text);text-align:left;cursor:pointer}
+.amv2 .video-catalog-head:hover{background:rgba(234,255,16,.035)}
+.amv2 .video-catalog-title{display:flex;align-items:center;gap:10px;min-width:0}.amv2 .video-catalog-title>span{color:var(--lime);flex:none}
+.amv2 .video-catalog-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.amv2 .video-mode-list{display:grid;gap:8px;padding:0 12px 12px}
+.amv2 .video-mode{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:rgba(255,255,255,.018)}
+.amv2 .video-mode-toggle{width:100%;display:grid;grid-template-columns:minmax(190px,1fr) minmax(260px,2fr) auto;gap:14px;align-items:center;padding:11px 12px;border:0;background:transparent;color:var(--text);text-align:left;cursor:pointer}
+.amv2 .video-mode-toggle:hover{background:rgba(234,255,16,.035)}.amv2 .video-mode-toggle span{color:var(--muted);font-size:12px;font-weight:500}
+.amv2 .video-models{display:grid;gap:7px;padding:0 10px 10px}.amv2 .video-model{border:1px solid var(--line);border-radius:var(--radius);background:rgba(0,0,0,.18)}
+.amv2 .video-model-summary{width:100%;display:grid;grid-template-columns:minmax(220px,1.4fr) minmax(130px,.7fr) minmax(150px,.8fr) minmax(240px,1.5fr) auto;gap:12px;align-items:center;padding:10px;border:0;background:transparent;color:var(--text);text-align:left;cursor:pointer}
+.amv2 .video-model-summary:hover{background:rgba(255,255,255,.025)}.amv2 .video-model-summary small{color:var(--muted);font-weight:500}
+.amv2 .video-model-detail{padding:0 10px 11px;display:grid;gap:6px;color:var(--muted);font-size:12px;line-height:1.45}.amv2 .video-model-detail b{color:var(--text)}
+.amv2 .video-evidence{color:var(--yellow)}
 .amv2 .sort-head{appearance:none;border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;padding:0;display:inline-flex;align-items:center;gap:6px}
 .amv2 .sort-head.active{color:var(--lime)}
 .amv2 .detail-cell{padding:0 10px 9px 10px!important;background:rgba(255,255,255,.018)}
@@ -659,6 +729,7 @@ const CSS = `
 @media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
 @media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview,.amv2 .assistant-summary{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
+@media (max-width:880px){.amv2 .video-catalog-card{width:calc(100vw - 40px);max-width:calc(100vw - 40px)}.amv2 .video-mode-toggle,.amv2 .video-model-summary{grid-template-columns:1fr}.amv2 .video-catalog-head{align-items:flex-start;flex-direction:column}.amv2 .video-catalog-meta{width:100%;justify-content:flex-start}.amv2 .video-model-summary span,.amv2 .video-model-detail{overflow-wrap:anywhere}}
 `
 
 export default function AdminModelsV2() {
@@ -672,6 +743,9 @@ export default function AdminModelsV2() {
   const [apiSorts, setApiSorts] = useState<Record<string, ApiSortState>>({})
   const [apiSectionsOpen, setApiSectionsOpen] = useState<Record<string, boolean>>({ text_to_image: true })
   const [apiExpandedRows, setApiExpandedRows] = useState<Record<string, boolean>>({})
+  const [videoCatalogOpen, setVideoCatalogOpen] = useState(true)
+  const [videoSectionsOpen, setVideoSectionsOpen] = useState<Record<string, boolean>>({})
+  const [videoExpandedRows, setVideoExpandedRows] = useState<Record<string, boolean>>({})
   const [openrouterKeyInput, setOpenrouterKeyInput] = useState('')
   const [openrouterBusy, setOpenrouterBusy] = useState(false)
   const [openrouterConfigBusy, setOpenrouterConfigBusy] = useState(false)
@@ -1317,6 +1391,58 @@ export default function AdminModelsV2() {
       </div>
       {!liveCapabilityCatalog.length ? <p className="hint" style={{ color: 'var(--yellow)' }}>Живой каталог возможностей пока не получен. Модели, цены и управление показаны из проверенного резервного каталога; перезапустите backend для автоматического обновления.</p> : null}
       {data.openrouter.capabilityError ? <p className="hint" style={{ color: 'var(--yellow)' }}>Каталог возможностей OpenRouter не загрузился: {data.openrouter.capabilityError}</p> : null}
+
+      <article className="card video-catalog-card">
+        <button className="video-catalog-head" onClick={() => setVideoCatalogOpen((open) => !open)} aria-expanded={videoCatalogOpen}>
+          <div className="video-catalog-title">
+            <span aria-hidden="true">▶</span>
+            <div><h2 className="card-title">Видео OpenRouter</h2><p className="card-note">Живой каталог возможностей. Подключение генерации будет отдельным этапом.</p></div>
+          </div>
+          <div className="video-catalog-meta"><span className="state ok">{data.openrouter.videoCatalog?.length || 0} моделей</span><span className="mini">{videoCatalogOpen ? 'Свернуть' : 'Раскрыть'}</span></div>
+        </button>
+        {videoCatalogOpen && <div className="video-mode-list">
+          {data.openrouter.videoCatalogError ? <p className="hint" style={{ color: 'var(--yellow)' }}>Каталог видео не загрузился: {data.openrouter.videoCatalogError}</p> : null}
+          {!data.openrouter.videoCatalogError && !data.openrouter.videoCatalog?.length ? <p className="hint">OpenRouter не вернул видеомодели. Обновите backend или проверьте доступ к API.</p> : null}
+          {VIDEO_MODE_SECTIONS.map((section) => {
+            const open = videoSectionsOpen[section.id] ?? false
+            const rows = (data.openrouter.videoCatalog || []).filter((model) => model.modes.includes(section.id)).filter((model) => {
+              const hay = `${model.id} ${model.name} ${model.description} ${Object.keys(model.pricingSkus).join(' ')}`.toLowerCase()
+              return !query || hay.includes(query.toLowerCase())
+            })
+            return <section className="video-mode" key={section.id}>
+              <button className="video-mode-toggle" onClick={() => setVideoSectionsOpen((current) => ({ ...current, [section.id]: !open }))} aria-expanded={open}>
+                <strong>{section.title}</strong><span>{section.note}</span><b>{rows.length}</b>
+              </button>
+              {open && <div className="video-models">
+                {!rows.length ? <p className="hint">Подходящих моделей в текущем каталоге нет.</p> : rows.map((model) => {
+                  const rowKey = `${section.id}:${model.id}`
+                  const expanded = videoExpandedRows[rowKey] || false
+                  return <div className="video-model" key={rowKey}>
+                    <button className="video-model-summary" onClick={() => setVideoExpandedRows((current) => ({ ...current, [rowKey]: !expanded }))} aria-expanded={expanded}>
+                      <strong>{model.name}<small style={{ display: 'block' }}>{model.id}</small></strong>
+                      <span>{model.supportedDurations.length ? `${model.supportedDurations.join(', ')} сек.` : 'длительность не указана'}</span>
+                      <span>{model.supportedResolutions.join(', ') || 'разрешение не указано'}</span>
+                      <span>{videoPriceLabel(model.pricingSkus)}</span>
+                      <b>{expanded ? '−' : '+'}</b>
+                    </button>
+                    {expanded && <div className="video-model-detail">
+                      <span><b>Соотношения:</b> {model.supportedAspectRatios.join(', ') || 'не опубликованы'}</span>
+                      <span><b>Кадры:</b> {model.supportedFrameImages.join(', ') || 'не принимает'}</span>
+                      <span><b>Аудио:</b> {model.generateAudio === true ? 'генерирует' : model.generateAudio === false ? 'не генерирует' : 'OpenRouter не указал'}</span>
+                      <span><b>Seed:</b> {model.seed === true ? 'поддерживается' : model.seed === false ? 'не поддерживается' : 'не указан'}</span>
+                      <span><b>Параметры:</b> {model.allowedParameters.join(', ') || 'дополнительные параметры не опубликованы'}</span>
+                      <span><b>Цены:</b> {videoPriceLabel(model.pricingSkus)}</span>
+                      {section.id === 'reference_to_video' ? <span className="video-evidence"><b>Достоверность:</b> режим определен по описанию модели, до подключения нужен живой тест запроса.</span> : null}
+                      {model.description ? <span><b>Описание OpenRouter:</b> {model.description}</span> : null}
+                    </div>}
+                  </div>
+                })}
+              </div>}
+            </section>
+          })}
+          <p className="hint">Источник: {data.openrouter.videoCatalogSource || 'OpenRouter video models API'}. Список обновляется вместе с кешем каталога моделей.</p>
+        </div>}
+      </article>
 
       {API_MODE_SECTIONS.map((section) => {
         const sort = apiSorts[section.id] || { key: 'price' as const, dir: 'asc' as const }

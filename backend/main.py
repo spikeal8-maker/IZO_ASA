@@ -109,6 +109,7 @@ try:
         fetch_openrouter_key_details,
         fetch_openrouter_audio_input_models,
         fetch_openrouter_text_models,
+        fetch_openrouter_video_models,
         format_openrouter_public_error,
         free_comfyui_memory as integration_free_comfyui_memory,
         is_openrouter_size_error,
@@ -161,6 +162,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         fetch_openrouter_key_details,
         fetch_openrouter_audio_input_models,
         fetch_openrouter_text_models,
+        fetch_openrouter_video_models,
         format_openrouter_public_error,
         free_comfyui_memory as integration_free_comfyui_memory,
         is_openrouter_size_error,
@@ -5217,6 +5219,7 @@ def public_site_url(request: Request) -> str:
 OPENROUTER_GENERATION_MODES = {"text_to_image", "image_to_image", "edit"}
 OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS = 6 * 60 * 60
 _openrouter_capability_cache: dict[str, Any] = {"ts": 0.0, "models": []}
+_openrouter_video_catalog_cache: dict[str, Any] = {"ts": 0.0, "models": []}
 
 
 def openrouter_model_capability(model: dict[str, Any]) -> dict[str, Any]:
@@ -5251,6 +5254,21 @@ async def fetch_openrouter_image_capabilities(force: bool = False) -> list[dict[
             models.append({**base, "endpointVerified": False})
     models.sort(key=lambda item: (item["name"].lower(), item["id"]))
     _openrouter_capability_cache.update({"ts": now, "models": models})
+    return models
+
+
+async def fetch_openrouter_video_catalog(force: bool = False) -> list[dict[str, Any]]:
+    now = time.monotonic()
+    cached = _openrouter_video_catalog_cache.get("models")
+    if not force and isinstance(cached, list) and cached and now - float(_openrouter_video_catalog_cache.get("ts") or 0) < OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS:
+        return cached
+    headers = openrouter_headers() if openrouter_api_key() else {"Content-Type": "application/json"}
+    models = await fetch_openrouter_video_models(
+        base_url=OPENROUTER_BASE_URL,
+        headers=headers,
+        timeout_seconds=20,
+    )
+    _openrouter_video_catalog_cache.update({"ts": now, "models": models})
     return models
 
 
@@ -13872,6 +13890,12 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
     except Exception as exc:
         openrouter_capabilities = []
         openrouter_capability_error = truncate_admin_text(str(exc), 240)
+    try:
+        openrouter_video_catalog = await fetch_openrouter_video_catalog()
+        openrouter_video_error = None
+    except Exception as exc:
+        openrouter_video_catalog = []
+        openrouter_video_error = truncate_admin_text(str(exc), 240)
 
     # Каталог: local (из profiles) + openrouter.
     catalog: list[dict[str, Any]] = []
@@ -13935,6 +13959,9 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
             "capabilityCatalog": openrouter_capabilities,
             "capabilityError": openrouter_capability_error,
             "capabilityCacheTtlSeconds": OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS,
+            "videoCatalog": openrouter_video_catalog,
+            "videoCatalogError": openrouter_video_error,
+            "videoCatalogSource": "openrouter:/api/v1/videos/models",
         },
         "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"} if include_local else {},
         "profiles": status.get("profiles", []),

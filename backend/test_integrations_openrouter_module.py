@@ -16,6 +16,7 @@ from app.integrations.openrouter import (
     fetch_openrouter_image_model_documents,
     fetch_openrouter_audio_input_models,
     fetch_openrouter_text_models,
+    fetch_openrouter_video_models,
     format_openrouter_public_error,
     is_openrouter_size_error,
     normalize_openrouter_endpoint_capability,
@@ -24,6 +25,7 @@ from app.integrations.openrouter import (
     openrouter_error_message,
     parse_openrouter_audio_input_models,
     parse_openrouter_text_models,
+    parse_openrouter_video_models,
     request_openrouter_chat_completion,
     select_openrouter_first_image,
 )
@@ -154,6 +156,58 @@ def test_text_model_fetch_preserves_path_headers_and_parsing():
     assert dict(seen[0].url.params) == {"output_modalities": "text"}
     assert seen[0].headers["Authorization"] == "Bearer test-token"
     assert seen[0].headers["X-Title"] == "IZO ASA"
+
+
+def test_video_model_parser_normalizes_capabilities_prices_and_evidence():
+    payload = {"data": [{
+        "id": "vendor/video-pro",
+        "name": "Video Pro",
+        "description": "Creates video from text, frames, or a set of reference images.",
+        "created": "invalid",
+        "supported_resolutions": ["720p", "1080p"],
+        "supported_aspect_ratios": ["16:9", "9:16"],
+        "supported_sizes": ["1280x720"],
+        "supported_durations": [10, "5", 0, "bad", 5],
+        "supported_frame_images": ["first_frame", "last_frame"],
+        "generate_audio": True,
+        "seed": False,
+        "pricing_skus": {"duration_seconds_720p": "0.08", "bad": "unknown", "negative": -1},
+        "allowed_passthrough_parameters": ["seed", "generate_audio"],
+    }, {"name": "missing id"}, "bad-row"]}
+
+    models = parse_openrouter_video_models(payload)
+
+    assert len(models) == 1
+    model = models[0]
+    assert model["id"] == "vendor/video-pro"
+    assert model["created"] == 0
+    assert model["supportedDurations"] == [5, 10]
+    assert model["pricingSkus"] == {"duration_seconds_720p": 0.08}
+    assert model["modes"] == ["text_to_video", "image_to_video", "first_last_frame", "reference_to_video"]
+    assert model["referenceEvidence"] == "description"
+
+
+def test_video_model_fetch_uses_dedicated_catalog_endpoint():
+    seen: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"data": [{"id": "vendor/video", "name": "Video"}]})
+
+    result = asyncio.run(fetch_openrouter_video_models(
+        base_url="https://openrouter.test/api/v1/",
+        headers={"Authorization": "Bearer test-token"},
+        transport=httpx.MockTransport(handler),
+    ))
+
+    assert result[0]["id"] == "vendor/video"
+    assert seen[0].url.path == "/api/v1/videos/models"
+    assert seen[0].headers["authorization"] == "Bearer test-token"
+
+
+def test_video_model_parser_tolerates_empty_and_malformed_payloads():
+    assert parse_openrouter_video_models(None) == []
+    assert parse_openrouter_video_models({"data": {}}) == []
 
 
 def test_text_model_fetch_returns_empty_for_empty_body():

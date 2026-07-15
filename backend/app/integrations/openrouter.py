@@ -265,6 +265,88 @@ def parse_openrouter_audio_input_models(payload: Any) -> list[dict[str, Any]]:
     return models
 
 
+def parse_openrouter_video_models(payload: Any) -> list[dict[str, Any]]:
+    """Normalize the dedicated OpenRouter video catalog for the admin UI."""
+
+    rows = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), list) else []
+    models: list[dict[str, Any]] = []
+    reference_markers = (
+        "reference-to-video",
+        "reference images",
+        "set of reference images",
+        "multimodal reference",
+    )
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        model_id = str(row.get("id") or "").strip()
+        if not model_id:
+            continue
+
+        def string_list(key: str) -> list[str]:
+            value = row.get(key)
+            if not isinstance(value, list):
+                return []
+            return [str(item).strip() for item in value if str(item).strip()]
+
+        durations: list[int] = []
+        for value in row.get("supported_durations") or []:
+            try:
+                duration = int(value)
+            except (TypeError, ValueError):
+                continue
+            if duration > 0 and duration not in durations:
+                durations.append(duration)
+        durations.sort()
+
+        pricing_source = row.get("pricing_skus") if isinstance(row.get("pricing_skus"), dict) else {}
+        pricing: dict[str, float] = {}
+        for key, value in pricing_source.items():
+            try:
+                amount = float(value)
+            except (TypeError, ValueError):
+                continue
+            if amount >= 0:
+                pricing[str(key)] = amount
+
+        frame_images = string_list("supported_frame_images")
+        description = str(row.get("description") or "").strip()
+        description_lower = description.lower()
+        modes = ["text_to_video"]
+        if "first_frame" in frame_images:
+            modes.append("image_to_video")
+        if "first_frame" in frame_images and "last_frame" in frame_images:
+            modes.append("first_last_frame")
+        reference_evidence = "description" if any(marker in description_lower for marker in reference_markers) else None
+        if reference_evidence:
+            modes.append("reference_to_video")
+        try:
+            created = int(row.get("created") or 0)
+        except (TypeError, ValueError):
+            created = 0
+
+        models.append({
+            "id": model_id,
+            "canonicalSlug": str(row.get("canonical_slug") or "").strip(),
+            "name": str(row.get("name") or model_id).strip(),
+            "description": description,
+            "created": created,
+            "supportedResolutions": string_list("supported_resolutions"),
+            "supportedAspectRatios": string_list("supported_aspect_ratios"),
+            "supportedSizes": string_list("supported_sizes"),
+            "supportedDurations": durations,
+            "supportedFrameImages": frame_images,
+            "generateAudio": row.get("generate_audio") if isinstance(row.get("generate_audio"), bool) else None,
+            "seed": row.get("seed") if isinstance(row.get("seed"), bool) else None,
+            "pricingSkus": pricing,
+            "allowedParameters": string_list("allowed_passthrough_parameters"),
+            "modes": modes,
+            "referenceEvidence": reference_evidence,
+        })
+    models.sort(key=lambda item: (item["name"].lower(), item["id"]))
+    return models
+
+
 async def fetch_openrouter_text_models(
     *,
     base_url: str,
@@ -307,6 +389,28 @@ async def fetch_openrouter_audio_input_models(
     response.raise_for_status()
     payload = response.json() if response.content else {}
     return parse_openrouter_audio_input_models(payload)
+
+
+async def fetch_openrouter_video_models(
+    *,
+    base_url: str,
+    headers: dict[str, str],
+    timeout_seconds: float = 20,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch the first-party OpenRouter video-model catalog."""
+
+    client_options: dict[str, Any] = {"timeout": timeout_seconds}
+    if transport is not None:
+        client_options["transport"] = transport
+    async with httpx.AsyncClient(**client_options) as client:
+        response = await client.get(
+            f"{base_url.rstrip('/')}/videos/models",
+            headers=headers,
+        )
+    response.raise_for_status()
+    payload = response.json() if response.content else {}
+    return parse_openrouter_video_models(payload)
 
 
 async def fetch_openrouter_key_details(
