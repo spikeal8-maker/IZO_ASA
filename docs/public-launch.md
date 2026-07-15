@@ -93,3 +93,32 @@ If a mobile app still shows an old build after `start-public.bat`: it is platfor
 cache, not the server. Force-close the Mini App and re-open from the bot. If MAX Mobile
 won't open at all, check the MAX Mini App URL / domain allowlist / HTTPS / mobile launch
 config (see docs/phase16-live-delivery-stability.md).
+# Windows autostart
+
+Production services are started after the `spike` Windows account logs on by the
+`IZO_ASA_Public_Autostart.bat` Windows Startup-folder launcher. It runs
+`tools/start-production-stack.ps1`, which starts or verifies Ollama, Config UI,
+FRP, backend, frontend and the public endpoint. It intentionally does not start
+Qwen ASR on the shared generation GPU.
+
+The launcher uses the `C:\izo-generator` junction to the canonical repository so
+that `cmd.exe` never has to parse the Cyrillic project path during Windows logon.
+The tracked launcher template is `start-production-autostart.bat`. To restore
+autostart on this machine, create the junction and copy the template:
+
+```powershell
+New-Item -ItemType Junction -Path C:\izo-generator -Target $PWD
+Copy-Item .\start-production-autostart.bat `
+  (Join-Path ([Environment]::GetFolderPath('Startup')) 'IZO_ASA_Public_Autostart.bat')
+```
+
+Verify the complete running stack without restarting anything:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\start-production-stack.ps1 -CheckOnly
+```
+
+Autostart runs after logon rather than as `SYSTEM`: backend secrets are protected
+by the Windows user profile and Ollama models also live in that profile. Moving
+the same commands to a boot-time `SYSTEM` task would start with the wrong secret
+and model stores.
