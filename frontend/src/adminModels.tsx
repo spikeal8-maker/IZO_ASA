@@ -95,6 +95,22 @@ type OpenRouterVideoModel = {
   modes: string[]
   referenceEvidence: 'description' | null
 }
+type OpenRouterVideoMode = 'text_to_video' | 'image_to_video' | 'first_last_frame' | 'reference_to_video'
+type OpenRouterVideoConfig = {
+  enabled?: Partial<Record<OpenRouterVideoMode, string[]>>
+  access?: Partial<Record<OpenRouterVideoMode, Partial<Record<OpenRouterTier, string[]>>>>
+}
+type VideoPriceProfile = {
+  id: string
+  label: string
+  resolution: string
+  aspectRatio?: string
+  size?: string
+  sourceKey: string
+  unit: 'second' | 'video_token'
+  rateUsd: number
+  inputFeeUsd: number
+}
 type ConfigStatus = {
   status?: string
   checked_at?: string
@@ -136,6 +152,7 @@ type PageData = {
     capabilityError?: string | null
     capabilityCacheTtlSeconds?: number
     videoCatalog?: OpenRouterVideoModel[]
+    videoConfig?: OpenRouterVideoConfig
     videoCatalogError?: string | null
     videoCatalogSource?: string
   }
@@ -274,6 +291,115 @@ function videoPriceLabel(pricing: Record<string, number>) {
     const centsLabel = key === 'cents_per_image_input' ? 'входное изображение' : key === 'cents_per_video_output_second_480p' ? 'выход 480p/сек' : key === 'cents_per_video_output_second_720p' ? 'выход 720p/сек' : key
     return `${labels[key] || centsLabel}: $${normalized.toFixed(normalized < 0.01 ? 6 : 4)}`
   }).join(' · ')
+}
+
+const videoResolutionFromKey = (key: string) => {
+  const match = key.toLowerCase().match(/(?:_|-)(480p|720p|1024p|1080p|1k|2k|4k)$/)
+  return match ? match[1].replace('k', 'K') : ''
+}
+const videoResolutionForSize = (size: string) => {
+  const [width, height] = size.split('x').map(Number)
+  const edge = Math.min(width || 0, height || 0)
+  if (edge >= 2100) return '4K'
+  if (edge >= 1080) return '1080p'
+  if (edge >= 1024) return '1024p'
+  if (edge >= 720) return '720p'
+  if (edge >= 480) return '480p'
+  return edge ? `${edge}p` : ''
+}
+const videoAspectForSize = (size: string, supported: string[]) => {
+  const [width, height] = size.split('x').map(Number)
+  if (!width || !height) return ''
+  let best = ''
+  let delta = Number.POSITIVE_INFINITY
+  for (const value of supported) {
+    const [a, b] = value.split(':').map(Number)
+    if (!a || !b) continue
+    const next = Math.abs(width / height - a / b)
+    if (next < delta) { delta = next; best = value }
+  }
+  return best
+}
+const videoInputFeeUsd = (model: OpenRouterVideoModel, mode: OpenRouterVideoMode) => {
+  const cents = model.pricingSkus.cents_per_image_input
+  if (typeof cents !== 'number' || mode === 'text_to_video') return 0
+  return (cents / 100) * (mode === 'first_last_frame' ? 2 : 1)
+}
+const videoPricingProfiles = (model: OpenRouterVideoModel, mode: OpenRouterVideoMode): VideoPriceProfile[] => {
+  const supported = new Set(model.supportedResolutions.map((value) => value.toLowerCase()))
+  const inputFeeUsd = videoInputFeeUsd(model, mode)
+  const entries = Object.entries(model.pricingSkus)
+  const modePrefix = mode === 'text_to_video' ? 'text_to_video_duration_seconds' : 'image_to_video_duration_seconds'
+  const modeEntries = entries.filter(([key]) => key.startsWith(modePrefix))
+  const genericEntries = entries.filter(([key]) => key === 'duration_seconds' || key.startsWith('duration_seconds_') || key.startsWith('cents_per_video_output_second_'))
+  const audioEntries = entries.filter(([key]) => key.startsWith('duration_seconds_with_audio') || key.startsWith('duration_seconds_without_audio'))
+  const selected = [...(modeEntries.length ? modeEntries : genericEntries), ...audioEntries]
+  const profiles: VideoPriceProfile[] = []
+  for (const [key, rawValue] of selected) {
+    const cents = key.startsWith('cents_per_')
+    const rateUsd = cents ? rawValue / 100 : rawValue
+    const keyResolution = videoResolutionFromKey(key)
+    if (keyResolution && supported.size && !supported.has(keyResolution.toLowerCase())) continue
+    const family = key.replace(/_(?:480p|720p|1024p|1080p|1k|2k|4k)$/i, '')
+    const siblingResolutions = selected.filter(([other]) => other !== key && other.replace(/_(?:480p|720p|1024p|1080p|1k|2k|4k)$/i, '') === family).map(([other]) => videoResolutionFromKey(other)).filter(Boolean)
+    const resolutions = keyResolution ? [keyResolution] : model.supportedResolutions.filter((value) => !siblingResolutions.some((item) => item.toLowerCase() === value.toLowerCase()))
+    const targetResolutions = resolutions.length ? resolutions : ['по умолчанию']
+    for (const resolution of targetResolutions) {
+      const audio = key.includes('without_audio') ? 'без аудио' : key.includes('with_audio') ? 'с аудио' : ''
+      const flow = key.startsWith('text_to_video_') ? 'по тексту' : key.startsWith('image_to_video_') ? 'по кадру' : ''
+      const label = [resolution, flow, audio].filter(Boolean).join(' · ')
+      profiles.push({ id: `${key}:${resolution}`, label, resolution, sourceKey: key, unit: 'second', rateUsd, inputFeeUsd })
+    }
+  }
+
+  const tokenRate = model.pricingSkus.video_tokens
+  const tokenRateNoAudio = model.pricingSkus.video_tokens_without_audio
+  if (typeof tokenRate === 'number') {
+    const variants = typeof tokenRateNoAudio === 'number' && tokenRateNoAudio !== tokenRate
+      ? [['с аудио', tokenRate] as const, ['без аудио', tokenRateNoAudio] as const]
+      : [[model.generateAudio ? 'с аудио / без аудио' : '', tokenRate] as const]
+    for (const size of model.supportedSizes) {
+      const resolution = videoResolutionForSize(size)
+      if (resolution && supported.size && !supported.has(resolution.toLowerCase())) continue
+      const aspectRatio = videoAspectForSize(size, model.supportedAspectRatios)
+      for (const [audio, rateUsd] of variants) {
+        profiles.push({
+          id: `video_tokens:${size}:${audio}`,
+          label: [resolution, aspectRatio, size, audio].filter(Boolean).join(' · '),
+          resolution,
+          aspectRatio,
+          size,
+          sourceKey: audio === 'без аудио' ? 'video_tokens_without_audio' : 'video_tokens',
+          unit: 'video_token',
+          rateUsd,
+          inputFeeUsd,
+        })
+      }
+    }
+  }
+  const seen = new Set<string>()
+  return profiles.filter((profile) => {
+    const key = `${profile.label}:${profile.rateUsd}:${profile.inputFeeUsd}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+const videoEconomics = (profile: VideoPriceProfile, seconds: number, rate: number | null, minMarginPercent: number, tokenRub: number) => {
+  let billedUnits = seconds
+  if (profile.unit === 'video_token') {
+    const [width, height] = (profile.size || '').split('x').map(Number)
+    if (!width || !height) return null
+    billedUnits = (width * height * seconds * 24) / 1024
+  }
+  const costUsd = profile.rateUsd * billedUnits + profile.inputFeeUsd
+  if (rate === null) return { costUsd, costRub: null, tokens: null, revenueRub: null, profitRub: null, marginPercent: null }
+  const costRub = costUsd * rate
+  const marginFactor = Math.max(0.05, 1 - clampMargin(minMarginPercent) / 100)
+  const tokens = Math.max(1, Math.ceil(costRub / (clampTokenRub(tokenRub) * marginFactor)))
+  const revenue = tokens * clampTokenRub(tokenRub)
+  const profit = revenue - costRub
+  return { costUsd, costRub, tokens, revenueRub: revenue, profitRub: profit, marginPercent: revenue ? (profit / revenue) * 100 : null }
 }
 
 const fallbackReferenceLimit = (model: ApiImageModel) => {
@@ -603,13 +729,15 @@ const CSS = `
 .amv2 .video-catalog-title{display:flex;align-items:center;gap:10px;min-width:0}.amv2 .video-catalog-title>span{color:var(--lime);flex:none}
 .amv2 .video-catalog-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .amv2 .video-mode-list{display:grid;gap:8px;padding:0 12px 12px}
+.amv2 .video-economy-note{display:flex;align-items:center;gap:10px 18px;flex-wrap:wrap;padding:10px 12px;border:1px solid rgba(234,255,16,.22);border-radius:var(--radius);background:rgba(234,255,16,.045);font-size:11px}.amv2 .video-economy-note strong{color:var(--lime)}.amv2 .video-economy-note span{color:var(--muted)}
 .amv2 .video-mode{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:rgba(255,255,255,.018)}
 .amv2 .video-mode-toggle{width:100%;display:grid;grid-template-columns:minmax(190px,1fr) minmax(260px,2fr) auto;gap:14px;align-items:center;padding:11px 12px;border:0;background:transparent;color:var(--text);text-align:left;cursor:pointer}
 .amv2 .video-mode-toggle:hover{background:rgba(234,255,16,.035)}.amv2 .video-mode-toggle span{color:var(--muted);font-size:12px;font-weight:500}
 .amv2 .video-models{display:grid;gap:7px;padding:0 10px 10px}.amv2 .video-model{border:1px solid var(--line);border-radius:var(--radius);background:rgba(0,0,0,.18)}
-.amv2 .video-model-summary{width:100%;display:grid;grid-template-columns:minmax(220px,1.4fr) minmax(130px,.7fr) minmax(150px,.8fr) minmax(240px,1.5fr) auto;gap:12px;align-items:center;padding:10px;border:0;background:transparent;color:var(--text);text-align:left;cursor:pointer}
-.amv2 .video-model-summary:hover{background:rgba(255,255,255,.025)}.amv2 .video-model-summary small{color:var(--muted);font-weight:500}
-.amv2 .video-model-detail{padding:0 10px 11px;display:grid;gap:6px;color:var(--muted);font-size:12px;line-height:1.45}.amv2 .video-model-detail b{color:var(--text)}
+.amv2 .video-model-summary{width:100%;display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(110px,.55fr) minmax(110px,.55fr) minmax(145px,.7fr) auto minmax(210px,auto) 30px;gap:10px;align-items:center;padding:9px 10px;color:var(--text);text-align:left}
+.amv2 .video-model-summary:hover{background:rgba(255,255,255,.025)}.amv2 .video-model-summary small{display:block;color:var(--muted);font-weight:500;overflow-wrap:anywhere}.amv2 .video-model-name{border:0;background:transparent;color:inherit;text-align:left;padding:0;cursor:pointer}.amv2 .video-model-name strong{font-size:12px}.amv2 .video-sale-preview{color:var(--lime);font-weight:750}.amv2 .video-enabled{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;text-transform:none;letter-spacing:0}.amv2 .video-enabled input{width:14px;height:14px;min-height:14px;padding:0}.amv2 .video-expand{width:28px;height:28px;padding:0;border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.035);color:var(--text);font-size:16px}.amv2 .video-tier-checks{justify-content:flex-start}
+.amv2 .video-model-detail{padding:0 10px 11px;display:grid;gap:9px;color:var(--muted);font-size:12px;line-height:1.45}.amv2 .video-model-detail b{color:var(--text)}.amv2 .video-capabilities{display:flex;gap:8px 18px;flex-wrap:wrap}.amv2 .video-model-detail details{margin:0}.amv2 .video-model-detail details p{padding:0 12px 12px;margin:0}
+.amv2 .video-economics-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius)}.amv2 .video-economics-table{min-width:max-content}.amv2 .video-economics-table th,.amv2 .video-economics-table td{padding:7px 9px;vertical-align:middle}.amv2 .video-economics-table thead th{position:sticky;top:0}.amv2 .video-economics-table tbody th{position:sticky;left:0;z-index:1;min-width:235px;background:#151815}.amv2 .video-economics-table tbody th small{display:block;color:var(--muted);font-weight:500;margin-top:3px}.amv2 .video-economics-cell{display:grid;gap:2px;min-width:175px;white-space:nowrap}.amv2 .video-economics-cell strong{color:var(--lime);font-size:12px}.amv2 .video-economics-cell span{font-size:10px;color:var(--muted)}
 .amv2 .video-evidence{color:var(--yellow)}
 .amv2 .sort-head{appearance:none;border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.04em;padding:0;display:inline-flex;align-items:center;gap:6px}
 .amv2 .sort-head.active{color:var(--lime)}
@@ -729,7 +857,7 @@ const CSS = `
 @media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
 @media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview,.amv2 .assistant-summary{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
-@media (max-width:880px){.amv2 .video-catalog-card{width:calc(100vw - 40px);max-width:calc(100vw - 40px)}.amv2 .video-mode-toggle,.amv2 .video-model-summary{grid-template-columns:1fr}.amv2 .video-catalog-head{align-items:flex-start;flex-direction:column}.amv2 .video-catalog-meta{width:100%;justify-content:flex-start}.amv2 .video-model-summary span,.amv2 .video-model-detail{overflow-wrap:anywhere}}
+@media (max-width:880px){.amv2 .video-catalog-card{width:calc(100vw - 40px);max-width:calc(100vw - 40px)}.amv2 .video-mode-toggle{grid-template-columns:1fr}.amv2 .video-model-summary{grid-template-columns:minmax(0,1fr) auto}.amv2 .video-model-name,.amv2 .video-model-summary>span,.amv2 .video-tier-checks{grid-column:1 / -1}.amv2 .video-enabled{grid-column:1}.amv2 .video-expand{grid-column:2;grid-row:1}.amv2 .video-catalog-head{align-items:flex-start;flex-direction:column}.amv2 .video-catalog-meta{width:100%;justify-content:flex-start}.amv2 .video-model-summary span,.amv2 .video-model-detail{overflow-wrap:anywhere}.amv2 .video-economy-note{display:grid;gap:5px}}
 `
 
 export default function AdminModelsV2() {
@@ -746,6 +874,7 @@ export default function AdminModelsV2() {
   const [videoCatalogOpen, setVideoCatalogOpen] = useState(true)
   const [videoSectionsOpen, setVideoSectionsOpen] = useState<Record<string, boolean>>({})
   const [videoExpandedRows, setVideoExpandedRows] = useState<Record<string, boolean>>({})
+  const [videoConfigBusy, setVideoConfigBusy] = useState(false)
   const [openrouterKeyInput, setOpenrouterKeyInput] = useState('')
   const [openrouterBusy, setOpenrouterBusy] = useState(false)
   const [openrouterConfigBusy, setOpenrouterConfigBusy] = useState(false)
@@ -974,6 +1103,53 @@ export default function AdminModelsV2() {
       setData((prev) => prev ? { ...prev, openrouter: { ...prev.openrouter, config: r.config } } : prev)
       setMsg('Настройки API-моделей сохранены')
     } else setMsg('Не удалось сохранить настройки API-моделей')
+  }
+
+  const saveVideoConfig = async (config: OpenRouterVideoConfig) => {
+    setVideoConfigBusy(true)
+    const saved = await saveSetting('openrouter_video_models', config, 'Доступность видеомоделей') as OpenRouterVideoConfig | null
+    setVideoConfigBusy(false)
+    if (saved) setData((current) => current ? { ...current, openrouter: { ...current.openrouter, videoConfig: saved } } : current)
+  }
+
+  const toggleVideoModel = (mode: OpenRouterVideoMode, modelId: string, checked: boolean) => {
+    if (!data) return
+    const current = data.openrouter.videoConfig || {}
+    const enabled = JSON.parse(JSON.stringify(current.enabled || {})) as NonNullable<OpenRouterVideoConfig['enabled']>
+    const access = JSON.parse(JSON.stringify(current.access || {})) as NonNullable<OpenRouterVideoConfig['access']>
+    const values = new Set(enabled[mode] || [])
+    if (checked) values.add(modelId)
+    else {
+      values.delete(modelId)
+      for (const tier of OPENROUTER_TIERS) {
+        const tierValues = new Set(access[mode]?.[tier.id] || [])
+        tierValues.delete(modelId)
+        if (access[mode]) {
+          if (tierValues.size) access[mode]![tier.id] = Array.from(tierValues).sort()
+          else delete access[mode]![tier.id]
+        }
+      }
+    }
+    if (values.size) enabled[mode] = Array.from(values).sort()
+    else delete enabled[mode]
+    if (access[mode] && !Object.keys(access[mode]!).length) delete access[mode]
+    void saveVideoConfig({ enabled, access })
+  }
+
+  const toggleVideoTier = (mode: OpenRouterVideoMode, tier: OpenRouterTier, modelId: string, checked: boolean) => {
+    if (!data) return
+    const current = data.openrouter.videoConfig || {}
+    const enabled = JSON.parse(JSON.stringify(current.enabled || {})) as NonNullable<OpenRouterVideoConfig['enabled']>
+    const access = JSON.parse(JSON.stringify(current.access || {})) as NonNullable<OpenRouterVideoConfig['access']>
+    access[mode] = access[mode] || {}
+    const tierValues = new Set(access[mode]?.[tier] || [])
+    if (checked) tierValues.add(modelId)
+    else tierValues.delete(modelId)
+    if (tierValues.size) access[mode]![tier] = Array.from(tierValues).sort()
+    else delete access[mode]![tier]
+    if (!Object.keys(access[mode]!).length) delete access[mode]
+    if (checked) enabled[mode] = Array.from(new Set([...(enabled[mode] || []), modelId])).sort()
+    void saveVideoConfig({ enabled, access })
   }
 
   const toggleOpenrouterModel = (mode: string, modelId: string, checked: boolean) => {
@@ -1396,11 +1572,17 @@ export default function AdminModelsV2() {
         <button className="video-catalog-head" onClick={() => setVideoCatalogOpen((open) => !open)} aria-expanded={videoCatalogOpen}>
           <div className="video-catalog-title">
             <span aria-hidden="true">▶</span>
-            <div><h2 className="card-title">Видео OpenRouter</h2><p className="card-note">Живой каталог возможностей. Подключение генерации будет отдельным этапом.</p></div>
+            <div><h2 className="card-title">Видео OpenRouter</h2><p className="card-note">Модели, тарифный доступ и полная экономика каждого поддерживаемого варианта.</p></div>
           </div>
           <div className="video-catalog-meta"><span className="state ok">{data.openrouter.videoCatalog?.length || 0} моделей</span><span className="mini">{videoCatalogOpen ? 'Свернуть' : 'Раскрыть'}</span></div>
         </button>
         {videoCatalogOpen && <div className="video-mode-list">
+          <div className="video-economy-note">
+            <strong>Формула продажи</strong>
+            <span>Курс: {usdRubBase === null ? 'не загружен' : `${usdRubBase.toFixed(2)} ₽/$`} + {Math.round(USD_FEE_RATE * 100)}% резерв = {usdRubEffective === null ? '—' : `${usdRubEffective.toFixed(2)} ₽/$`}</span>
+            <span>1 токен = {tokenRub.toFixed(2)} ₽ · минимальная маржа {minMarginPercent.toFixed(0)}%</span>
+            <span>Токены округляются вверх так, чтобы фактическая маржа не опускалась ниже заданной.</span>
+          </div>
           {data.openrouter.videoCatalogError ? <p className="hint" style={{ color: 'var(--yellow)' }}>Каталог видео не загрузился: {data.openrouter.videoCatalogError}</p> : null}
           {!data.openrouter.videoCatalogError && !data.openrouter.videoCatalog?.length ? <p className="hint">OpenRouter не вернул видеомодели. Обновите backend или проверьте доступ к API.</p> : null}
           {VIDEO_MODE_SECTIONS.map((section) => {
@@ -1417,23 +1599,49 @@ export default function AdminModelsV2() {
                 {!rows.length ? <p className="hint">Подходящих моделей в текущем каталоге нет.</p> : rows.map((model) => {
                   const rowKey = `${section.id}:${model.id}`
                   const expanded = videoExpandedRows[rowKey] || false
+                  const mode = section.id as OpenRouterVideoMode
+                  const profiles = videoPricingProfiles(model, mode)
+                  const enabled = data.openrouter.videoConfig?.enabled?.[mode]?.includes(model.id) || false
+                  const firstDuration = model.supportedDurations[0]
+                  const sampleCells = firstDuration ? profiles.map((profile) => videoEconomics(profile, firstDuration, usdRubEffective, minMarginPercent, tokenRub)).filter(Boolean) : []
+                  const sampleTokens = sampleCells.length ? Math.min(...sampleCells.map((cell) => cell?.tokens ?? Number.POSITIVE_INFINITY)) : null
                   return <div className="video-model" key={rowKey}>
-                    <button className="video-model-summary" onClick={() => setVideoExpandedRows((current) => ({ ...current, [rowKey]: !expanded }))} aria-expanded={expanded}>
-                      <strong>{model.name}<small style={{ display: 'block' }}>{model.id}</small></strong>
+                    <div className="video-model-summary">
+                      <button className="video-model-name" onClick={() => setVideoExpandedRows((current) => ({ ...current, [rowKey]: !expanded }))} aria-expanded={expanded}>
+                        <strong>{model.name}<small>{model.id}</small></strong>
+                      </button>
                       <span>{model.supportedDurations.length ? `${model.supportedDurations.join(', ')} сек.` : 'длительность не указана'}</span>
                       <span>{model.supportedResolutions.join(', ') || 'разрешение не указано'}</span>
-                      <span>{videoPriceLabel(model.pricingSkus)}</span>
-                      <b>{expanded ? '−' : '+'}</b>
-                    </button>
+                      <span className="video-sale-preview">{sampleTokens && Number.isFinite(sampleTokens) ? `от ${sampleTokens} ток. за ${firstDuration} сек.` : 'расчет недоступен'}</span>
+                      <label className="video-enabled"><input type="checkbox" checked={enabled} disabled={videoConfigBusy} onChange={(event) => toggleVideoModel(mode, model.id, event.target.checked)} /><span>Включена</span></label>
+                      <div className="tier-checks video-tier-checks">{OPENROUTER_TIERS.map((tier) => <label key={tier.id}><input type="checkbox" disabled={videoConfigBusy} checked={data.openrouter.videoConfig?.access?.[mode]?.[tier.id]?.includes(model.id) || false} onChange={(event) => toggleVideoTier(mode, tier.id, model.id, event.target.checked)} /><span>{tier.label}</span></label>)}</div>
+                      <button className="video-expand" onClick={() => setVideoExpandedRows((current) => ({ ...current, [rowKey]: !expanded }))} aria-label={expanded ? 'Свернуть модель' : 'Раскрыть модель'}>{expanded ? '−' : '+'}</button>
+                    </div>
                     {expanded && <div className="video-model-detail">
-                      <span><b>Соотношения:</b> {model.supportedAspectRatios.join(', ') || 'не опубликованы'}</span>
-                      <span><b>Кадры:</b> {model.supportedFrameImages.join(', ') || 'не принимает'}</span>
-                      <span><b>Аудио:</b> {model.generateAudio === true ? 'генерирует' : model.generateAudio === false ? 'не генерирует' : 'OpenRouter не указал'}</span>
-                      <span><b>Seed:</b> {model.seed === true ? 'поддерживается' : model.seed === false ? 'не поддерживается' : 'не указан'}</span>
-                      <span><b>Параметры:</b> {model.allowedParameters.join(', ') || 'дополнительные параметры не опубликованы'}</span>
-                      <span><b>Цены:</b> {videoPriceLabel(model.pricingSkus)}</span>
+                      <div className="video-capabilities">
+                        <span><b>Соотношения:</b> {model.supportedAspectRatios.join(', ') || 'не опубликованы'}</span>
+                        <span><b>Кадры:</b> {model.supportedFrameImages.join(', ') || 'не принимает'}</span>
+                        <span><b>Аудио:</b> {model.generateAudio === true ? 'генерирует' : model.generateAudio === false ? 'не генерирует' : 'OpenRouter не указал'}</span>
+                        <span><b>Seed:</b> {model.seed === true ? 'поддерживается' : model.seed === false ? 'не поддерживается' : 'не указан'}</span>
+                        <span><b>Сырые ставки:</b> {videoPriceLabel(model.pricingSkus)}</span>
+                      </div>
+                      {profiles.length ? <div className="video-economics-wrap"><table className="video-economics-table">
+                        <thead><tr><th>Разрешение и расчет</th>{model.supportedDurations.map((seconds) => <th key={seconds}>{seconds} сек.</th>)}</tr></thead>
+                        <tbody>{profiles.map((profile) => <tr key={profile.id}>
+                          <th><strong>{profile.label}</strong><small>{profile.unit === 'second' ? `$${profile.rateUsd.toFixed(4)}/сек.` : `$${profile.rateUsd.toFixed(7)}/видеотокен`}{profile.inputFeeUsd ? ` + $${profile.inputFeeUsd.toFixed(3)} вход` : ''}</small></th>
+                          {model.supportedDurations.map((seconds) => {
+                            const cell = videoEconomics(profile, seconds, usdRubEffective, minMarginPercent, tokenRub)
+                            return <td key={seconds}>{cell ? <div className="video-economics-cell">
+                              <strong>{cell.tokens === null ? '—' : `${cell.tokens} ток.`}</strong>
+                              <span>себест. {cell.costRub === null ? '—' : `${cell.costRub.toFixed(2)} ₽`} · ${cell.costUsd.toFixed(4)}</span>
+                              <span>выручка {cell.revenueRub === null ? '—' : `${cell.revenueRub.toFixed(2)} ₽`}</span>
+                              <span>прибыль {cell.profitRub === null ? '—' : `${cell.profitRub.toFixed(2)} ₽`} · {cell.marginPercent === null ? '—' : `${cell.marginPercent.toFixed(1)}%`}</span>
+                            </div> : '—'}</td>
+                          })}
+                        </tr>)}</tbody>
+                      </table></div> : <p className="hint">OpenRouter не опубликовал достаточно данных для предварительного расчета. Включать модель в тариф до живого платного теста нельзя.</p>}
                       {section.id === 'reference_to_video' ? <span className="video-evidence"><b>Достоверность:</b> режим определен по описанию модели, до подключения нужен живой тест запроса.</span> : null}
-                      {model.description ? <span><b>Описание OpenRouter:</b> {model.description}</span> : null}
+                      {model.description ? <details><summary>Описание OpenRouter</summary><p>{model.description}</p></details> : null}
                     </div>}
                   </div>
                 })}

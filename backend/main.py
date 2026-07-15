@@ -119,6 +119,7 @@ try:
         normalize_openrouter_endpoint_capability,
         normalize_openrouter_image_response_metadata,
         normalize_openrouter_model_capability,
+        normalize_openrouter_video_config,
         normalize_max_tls_trust_store,
         openrouter_descriptor_values,
         openrouter_error_message,
@@ -172,6 +173,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         normalize_openrouter_endpoint_capability,
         normalize_openrouter_image_response_metadata,
         normalize_openrouter_model_capability,
+        normalize_openrouter_video_config,
         normalize_max_tls_trust_store,
         openrouter_descriptor_values,
         openrouter_error_message,
@@ -12495,6 +12497,7 @@ async def admin_get_settings(request: Request) -> dict[str, Any]:
 
 @app.post("/api/admin/settings/{key}")
 async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
     if key == "tariffs":
         settings = normalize_tariffs(req.settings, strict=True)
     elif key == "config_ui_resolution_access":
@@ -12502,11 +12505,16 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
         settings = {"plans": {plan: normalize_resolution_ids(raw_plans.get(plan), DEFAULT_TARIFFS[plan]["allowed_resolutions"]) for plan in PLAN_ORDER}}
     elif key == "server_model_profiles":
         settings = normalize_server_model_profiles(req.settings)
+    elif key == "openrouter_video_models":
+        try:
+            video_catalog = await fetch_openrouter_video_catalog()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Каталог видеомоделей временно недоступен: {truncate_admin_text(str(exc), 180)}") from exc
+        settings = normalize_openrouter_video_config(req.settings, video_catalog)
     elif key == "legal":
         settings = normalize_legal_settings(req.settings)
     else:
         settings = req.settings
-    require_trusted_admin(request)
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute(
@@ -12517,7 +12525,7 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
             """,
             (key, json.dumps(settings, ensure_ascii=False), now),
         )
-    if key in {"generation_routes", "server_model_loras", "server_model_profiles", "models", "tariff_matrix", "user_choice", "tariffs", "config_ui_resolution_access", "openrouter_economy"}:
+    if key in {"generation_routes", "server_model_loras", "server_model_profiles", "models", "tariff_matrix", "user_choice", "tariffs", "config_ui_resolution_access", "openrouter_economy", "openrouter_video_models"}:
         _admin_models_page_cache["ts"] = 0.0
         _admin_models_page_cache["data"] = None
     return {"ok": True, "key": key, "settings": settings}
@@ -14113,6 +14121,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
             "capabilityError": openrouter_capability_error,
             "capabilityCacheTtlSeconds": OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS,
             "videoCatalog": openrouter_video_catalog,
+            "videoConfig": normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), openrouter_video_catalog),
             "videoCatalogError": openrouter_video_error,
             "videoCatalogSource": "openrouter:/api/v1/videos/models",
         },

@@ -22,6 +22,7 @@ from app.integrations.openrouter import (
     normalize_openrouter_endpoint_capability,
     normalize_openrouter_image_response_metadata,
     normalize_openrouter_model_capability,
+    normalize_openrouter_video_config,
     openrouter_error_message,
     parse_openrouter_audio_input_models,
     parse_openrouter_text_models,
@@ -208,6 +209,34 @@ def test_video_model_fetch_uses_dedicated_catalog_endpoint():
 def test_video_model_parser_tolerates_empty_and_malformed_payloads():
     assert parse_openrouter_video_models(None) == []
     assert parse_openrouter_video_models({"data": {}}) == []
+
+
+def test_video_config_keeps_only_catalog_modes_tiers_and_models():
+    catalog = [
+        {"id": "vendor/text", "modes": ["text_to_video"]},
+        {"id": "vendor/image", "modes": ["text_to_video", "image_to_video"]},
+    ]
+    config = normalize_openrouter_video_config({
+        "enabled": {
+            "text_to_video": ["vendor/text", "missing/model"],
+            "unknown_mode": ["vendor/text"],
+        },
+        "access": {
+            "text_to_video": {"mini": ["vendor/image"], "free": ["vendor/text"]},
+            "image_to_video": {"pro": ["vendor/image", "vendor/text"]},
+        },
+    }, catalog)
+
+    assert config == {
+        "enabled": {
+            "text_to_video": ["vendor/image", "vendor/text"],
+            "image_to_video": ["vendor/image"],
+        },
+        "access": {
+            "text_to_video": {"mini": ["vendor/image"]},
+            "image_to_video": {"pro": ["vendor/image"]},
+        },
+    }
 
 
 def test_text_model_fetch_returns_empty_for_empty_body():

@@ -8,6 +8,10 @@ from typing import Any, Callable
 import httpx
 
 
+OPENROUTER_VIDEO_MODES = ("text_to_video", "image_to_video", "first_last_frame", "reference_to_video")
+OPENROUTER_VIDEO_TIERS = ("mini", "plus", "pro", "business")
+
+
 def _parameter_names(parameters: Any) -> list[str]:
     return sorted(str(key) for key in parameters.keys()) if isinstance(parameters, dict) else []
 
@@ -345,6 +349,41 @@ def parse_openrouter_video_models(payload: Any) -> list[dict[str, Any]]:
         })
     models.sort(key=lambda item: (item["name"].lower(), item["id"]))
     return models
+
+
+def normalize_openrouter_video_config(raw: Any, catalog: list[dict[str, Any]]) -> dict[str, Any]:
+    """Keep only catalog-backed video models and known product modes/tiers."""
+
+    source = raw if isinstance(raw, dict) else {}
+    enabled_source = source.get("enabled") if isinstance(source.get("enabled"), dict) else {}
+    access_source = source.get("access") if isinstance(source.get("access"), dict) else {}
+    models_by_mode = {
+        mode: {
+            str(model.get("id") or "")
+            for model in catalog
+            if isinstance(model, dict) and mode in (model.get("modes") or []) and model.get("id")
+        }
+        for mode in OPENROUTER_VIDEO_MODES
+    }
+    enabled: dict[str, list[str]] = {}
+    access: dict[str, dict[str, list[str]]] = {}
+    for mode in OPENROUTER_VIDEO_MODES:
+        allowed = models_by_mode[mode]
+        values = enabled_source.get(mode) if isinstance(enabled_source.get(mode), list) else []
+        normalized_enabled = sorted({str(value) for value in values if str(value) in allowed})
+        mode_access_source = access_source.get(mode) if isinstance(access_source.get(mode), dict) else {}
+        mode_access: dict[str, list[str]] = {}
+        for tier in OPENROUTER_VIDEO_TIERS:
+            tier_values = mode_access_source.get(tier) if isinstance(mode_access_source.get(tier), list) else []
+            normalized_tier = sorted({str(value) for value in tier_values if str(value) in allowed})
+            if normalized_tier:
+                mode_access[tier] = normalized_tier
+                normalized_enabled = sorted(set(normalized_enabled).union(normalized_tier))
+        if normalized_enabled:
+            enabled[mode] = normalized_enabled
+        if mode_access:
+            access[mode] = mode_access
+    return {"enabled": enabled, "access": access}
 
 
 async def fetch_openrouter_text_models(
