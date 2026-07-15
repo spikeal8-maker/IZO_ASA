@@ -13650,6 +13650,69 @@ def openrouter_usage_stats() -> dict[str, Any]:
     }
 
 
+def openrouter_video_usage_stats() -> dict[str, Any]:
+    """Summarize completed OpenRouter video jobs without inventing missing costs."""
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT mode, settings_json FROM jobs "
+            "WHERE provider = 'openrouter' AND status = 'completed' "
+            "AND mode IN ('text_to_video', 'image_to_video', 'first_last_frame', 'reference_to_video') "
+            "ORDER BY completed_at DESC LIMIT 500"
+        ).fetchall()
+    models: dict[str, dict[str, Any]] = {}
+    modes: dict[str, dict[str, Any]] = {}
+    total_count = 0
+    total_priced = 0
+    total_cost_usd = 0.0
+    for row in rows:
+        settings = safe_json_load(row["settings_json"]) or {}
+        if not isinstance(settings, dict):
+            settings = {}
+        mode = str(row["mode"] or "unknown")
+        model = str(settings.get("openrouterModel") or settings.get("modelProfile") or "unknown")
+        try:
+            cost_usd: float | None = float(settings.get("openrouterCostUsd"))
+        except (TypeError, ValueError):
+            cost_usd = None
+        total_count += 1
+        mode_bucket = modes.setdefault(mode, {"count": 0, "priced": 0, "costUsd": 0.0})
+        model_bucket = models.setdefault(model, {"count": 0, "priced": 0, "costUsd": 0.0})
+        mode_bucket["count"] += 1
+        model_bucket["count"] += 1
+        if cost_usd is not None:
+            total_priced += 1
+            total_cost_usd += cost_usd
+            mode_bucket["priced"] += 1
+            mode_bucket["costUsd"] += cost_usd
+            model_bucket["priced"] += 1
+            model_bucket["costUsd"] += cost_usd
+
+    def rows_for(source: dict[str, dict[str, Any]], key_name: str) -> list[dict[str, Any]]:
+        result = []
+        for key, item in source.items():
+            count = int(item["count"] or 0)
+            priced = int(item["priced"] or 0)
+            cost = float(item["costUsd"] or 0)
+            result.append({
+                key_name: key,
+                "count": count,
+                "priced": priced,
+                "costUsd": round(cost, 6),
+                "avgCostUsd": round(cost / priced, 6) if priced else None,
+            })
+        result.sort(key=lambda item: int(item["count"]), reverse=True)
+        return result
+
+    return {
+        "count": total_count,
+        "priced": total_priced,
+        "costUsd": round(total_cost_usd, 6),
+        "avgCostUsd": round(total_cost_usd / total_priced, 6) if total_priced else None,
+        "models": rows_for(models, "model"),
+        "modes": rows_for(modes, "mode"),
+    }
+
+
 OPENROUTER_ADMIN_MODES = {
     "text_to_image", "image_to_image", "edit", "paint", "inpaint", "outpaint", "remove_background"
 }
@@ -14122,6 +14185,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
             "capabilityCacheTtlSeconds": OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS,
             "videoCatalog": openrouter_video_catalog,
             "videoConfig": normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), openrouter_video_catalog),
+            "videoUsage": openrouter_video_usage_stats(),
             "videoCatalogError": openrouter_video_error,
             "videoCatalogSource": "openrouter:/api/v1/videos/models",
         },

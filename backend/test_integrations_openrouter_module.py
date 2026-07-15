@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 import json
+import sqlite3
 
 import httpx
 import pytest
@@ -1250,3 +1252,30 @@ def test_main_public_error_wrapper_keeps_application_truncator(monkeypatch):
         "data": payload,
         "truncate": main.truncate_admin_text,
     }
+
+
+def test_video_usage_stats_counts_unpriced_jobs_without_inventing_spend(monkeypatch):
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("CREATE TABLE jobs (mode TEXT, provider TEXT, status TEXT, settings_json TEXT, completed_at TEXT)")
+    conn.executemany(
+        "INSERT INTO jobs VALUES (?, 'openrouter', 'completed', ?, '2026-07-15T12:00:00Z')",
+        [
+            ("text_to_video", json.dumps({"openrouterModel": "video/a", "openrouterCostUsd": 0.5})),
+            ("text_to_video", json.dumps({"openrouterModel": "video/a"})),
+            ("image_to_video", json.dumps({"openrouterModel": "video/b", "openrouterCostUsd": 1.25})),
+        ],
+    )
+
+    @contextmanager
+    def fake_db():
+        yield conn
+
+    monkeypatch.setattr(main, "db", fake_db)
+    stats = main.openrouter_video_usage_stats()
+
+    assert stats["count"] == 3
+    assert stats["priced"] == 2
+    assert stats["costUsd"] == 1.75
+    assert stats["avgCostUsd"] == 0.875
+    assert stats["models"][0] == {"model": "video/a", "count": 2, "priced": 1, "costUsd": 0.5, "avgCostUsd": 0.5}
