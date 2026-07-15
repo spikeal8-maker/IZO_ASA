@@ -76,7 +76,7 @@ if errorlevel 1 (
   if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1
 )
-for /f "delims=" %%I in ('powershell -NoProfile -Command "(Get-Content -LiteralPath '%ROOT%.runtime\active-frontend.json' -Raw ^| ConvertFrom-Json).release_path"') do set "FRONTEND_RELEASE=%%I"
+for /f "delims=" %%I in ('powershell -NoProfile -Command "(ConvertFrom-Json (Get-Content -LiteralPath '%ROOT%.runtime\active-frontend.json' -Raw)).release_path"') do set "FRONTEND_RELEASE=%%I"
 if not exist "%FRONTEND_RELEASE%\index.html" (echo [ERROR] Active release index.html missing. & pause & exit /b 1)
 
 echo [2/5] Freeing ports 8000 and 5173 (stop old backend/dev/preview)...
