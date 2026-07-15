@@ -5342,17 +5342,19 @@ box-shadow:
 }
 
 .iv3 .prompt-section textarea {
+position: relative;
+z-index: 2;
 height: 118px;
 min-height: 96px;
 max-height: 60vh;
-padding: 14px 42px 14px 14px;
+padding: 14px;
 resize: vertical;
 scrollbar-width: none;
 }
 
 .iv3 .prompt-clear-button {
 position: absolute;
-z-index: 3;
+z-index: 4;
 top: 8px;
 right: 8px;
 width: 24px;
@@ -5363,18 +5365,51 @@ display: grid;
 place-items: center;
 border: 0;
 border-radius: 999px;
-color: rgba(222, 228, 221, .72);
-background: rgba(255, 255, 255, .055);
+color: transparent;
+background: transparent;
 box-shadow: none;
+}
+
+.iv3 .prompt-clear-mark {
+position: absolute;
+z-index: 1;
+top: 13px;
+right: 13px;
+width: 14px;
+height: 14px;
+display: grid;
+place-items: center;
+color: rgba(222, 228, 221, .58);
+pointer-events: none;
+transition: color .16s ease, filter .16s ease;
+}
+
+.iv3 .prompt-inline-counter {
+position: absolute;
+z-index: 1;
+right: 18px;
+bottom: 2px;
+padding: 2px 4px;
+border-radius: 4px;
+color: rgba(205, 214, 206, .68);
+background: rgba(5, 12, 9, .56);
+font-size: 11px;
+font-weight: 560;
+line-height: 1;
+pointer-events: none;
 }
 
 @media (hover: hover) {
 .iv3 button.prompt-clear-button:not(:disabled):hover {
-color: #f5f8f2;
-background: rgba(255, 255, 255, .11);
+color: transparent;
+background: transparent;
 border: 0;
 box-shadow: none;
 transform: none;
+}
+.iv3 .prompt-card:has(.prompt-clear-button:hover) .prompt-clear-mark {
+color: rgba(245, 248, 242, .92);
+filter: drop-shadow(0 0 5px rgba(182, 207, 18, .28));
 }
 }
 
@@ -5418,13 +5453,21 @@ border-radius: 11px;
 .iv3 .prompt-section textarea {
 max-height: 34vh;
 resize: none;
-padding-right: 38px;
 }
 .iv3 .prompt-clear-button {
 top: 6px;
 right: 6px;
 width: 22px;
 height: 22px;
+}
+.iv3 .prompt-clear-mark {
+top: 10px;
+right: 10px;
+}
+.iv3 .prompt-inline-counter {
+right: 8px;
+bottom: 2px;
+font-size: 10.5px;
 }
 .iv3 .prompt-title-meta {
 gap: 6px;

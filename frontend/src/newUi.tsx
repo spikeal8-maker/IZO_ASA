@@ -3283,7 +3283,6 @@ export default function NewStudio(): ReactElement {
                   <span>Технический промпт</span>
                 </label>
               )}
-              <span className="counter">{promptCounterValue} / {promptTextareaLimit}</span>
               <span className="help-dot" role="button" tabIndex={0} onClick={() => setHelpOpen(true)}>?</span>
             </div>
           </div>
@@ -3295,19 +3294,25 @@ export default function NewStudio(): ReactElement {
               value={promptTextareaValue}
               onChange={(e) => updatePromptTextarea(e.target.value)}
             />
+            <span className="prompt-inline-counter" aria-hidden="true">
+              {promptCounterValue} / {promptTextareaLimit}
+            </span>
             {promptTextareaValue.length > 0 && (
-              <button
-                className="prompt-clear-button"
-                type="button"
-                title="Очистить промпт"
-                aria-label="Очистить промпт"
-                onClick={() => {
-                  updatePromptTextarea('')
-                  promptTextareaRef.current?.focus()
-                }}
-              >
-                <X size={14} strokeWidth={2.2} aria-hidden="true" />
-              </button>
+              <>
+                <span className="prompt-clear-mark" aria-hidden="true">
+                  <X size={14} strokeWidth={2.2} />
+                </span>
+                <button
+                  className="prompt-clear-button"
+                  type="button"
+                  title="Очистить промпт"
+                  aria-label="Очистить промпт"
+                  onClick={() => {
+                    updatePromptTextarea('')
+                    promptTextareaRef.current?.focus()
+                  }}
+                />
+              </>
             )}
           </div>
           <div className="action-row">
