@@ -5237,8 +5237,29 @@ box-shadow: none;
 .iv3 .prompt-section,
 .iv3 .editor-prompt-section {
 border: 0;
+padding: 0;
 background: transparent;
 box-shadow: none;
+}
+
+/* Desktop workspace is one continuous surface. The sidebar is separated from
+   preview/history by one structural line instead of nested panel backdrops. */
+@media (min-width: 821px) {
+.iv3 .layout {
+padding: 0;
+gap: 0;
+}
+.iv3 .sidebar {
+padding: 14px 16px;
+border-right: 1px solid var(--line);
+background: transparent;
+}
+.iv3 .preview-panel {
+margin: 12px 12px 6px;
+}
+.iv3 .result-dock {
+margin: 6px 12px 12px;
+}
 }
 
 .iv3 .prompt-section .prompt-card,
