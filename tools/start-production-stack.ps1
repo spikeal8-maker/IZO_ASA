@@ -5,6 +5,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$autostartJunctionPath = "C:\izo-generator"
+$autostartJunction = Get-Item -LiteralPath $autostartJunctionPath -Force -ErrorAction SilentlyContinue
+if ($autostartJunction -and
+    ($autostartJunction.Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+    $repoRoot.StartsWith($autostartJunctionPath, [StringComparison]::OrdinalIgnoreCase)) {
+    $junctionTarget = @($autostartJunction.Target)[0]
+    $relativePath = $repoRoot.Substring($autostartJunctionPath.Length).TrimStart("\")
+    $repoRoot = if ($relativePath) { Join-Path $junctionTarget $relativePath } else { $junctionTarget }
+}
 $logDir = Join-Path $repoRoot "logs"
 $ollamaExe = Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"
 $comfyRoot = "C:\LLM\ComfyUI_windows_portable_nvidia_cu126\ComfyUI_windows_portable"
@@ -110,7 +119,7 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000 --no-proxy-headers *>> '
     }
 }
 
-Write-StackLog "Production stack check started. user=$env:USERNAME computer=$env:COMPUTERNAME checkOnly=$CheckOnly"
+Write-StackLog "Production stack check started. user=$env:USERNAME computer=$env:COMPUTERNAME checkOnly=$CheckOnly repo=$repoRoot"
 
 $components = @(
     @{ Name = "Ollama"; Uri = "http://127.0.0.1:11434/api/tags" },
