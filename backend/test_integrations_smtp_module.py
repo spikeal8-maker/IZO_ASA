@@ -33,18 +33,18 @@ class FakeClient:
 
 
 def config() -> SmtpConfig:
-    return SmtpConfig("smtp.mail.ru", 465, "mail@alikinas.ru", "application-password")
+    return SmtpConfig("smtp.example.test", 465, "mail@alikinas.ru", "smtp-password")
 
 
 def test_verify_smtp_connection_logs_in_and_checks_server():
     client = FakeClient()
     verify_smtp_connection(config(), client_factory=lambda _config: client)
-    assert client.login_args == ("mail@alikinas.ru", "application-password")
+    assert client.login_args == ("mail@alikinas.ru", "smtp-password")
     assert client.noop_called is True
 
 
 def test_verify_smtp_connection_returns_human_auth_error():
-    with pytest.raises(SmtpError, match="Обычный пароль от ящика для SMTP не подходит"):
+    with pytest.raises(SmtpError, match="SMTP-сервер не принял имя пользователя или пароль"):
         verify_smtp_connection(config(), client_factory=lambda _config: FakeClient(auth_error=True))
 
 

@@ -84,7 +84,7 @@ export default function AdminMail() {
   return (
     <div className="admin-section admin-mail-page">
       <div className="admin-mail-heading">
-        <div><h3>Почта ИЗО АСА</h3><p>Системные письма и коды подтверждения отправляются с вашего ящика VK WorkSpace.</p></div>
+        <div><h3>Почта ИЗО АСА</h3><p>Системные письма и коды подтверждения отправляются через настроенный SMTP-сервер.</p></div>
         <span className={`admin-mail-status ${ready ? 'ok' : 'warn'}`}>{ready ? 'Почта работает' : 'Почта не подключена'}</span>
       </div>
       <div className="admin-mail-grid">
@@ -96,12 +96,11 @@ export default function AdminMail() {
           </div>
           <label>Почтовый ящик<input type="email" value={username} onChange={(event) => { setUsername(event.target.value); if (!senderEmail) setSenderEmail(event.target.value) }} placeholder="mail@alikinas.ru" /></label>
           <label>
-            Пароль для отправки через SMTP
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={config.password ? 'Пароль сохранён · введите новый только для замены' : 'Вставьте специальный пароль Mail.ru'} />
+            Пароль SMTP
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={config.password ? 'Пароль сохранён · введите новый только для замены' : 'Введите пароль SMTP'} />
             <small>
-              Обычный пароль от ящика здесь не работает. Сначала откройте «Настройки → Все настройки → Безопасность → Внешние сервисы» и включите «Доступ к почте по IMAP, POP и SMTP». Затем в разделе «Пароли для внешних приложений» создайте пароль «ИЗО АСА» и выберите «Только отправка писем».
+              Данные выдаёт администратор SMTP-сервера. Пароль сохраняется в защищённом хранилище и после сохранения больше не отображается.
             </small>
-            <a className="admin-mail-help-link" href="https://help.mail.ru/mail/login/mailer/" target="_blank" rel="noreferrer">Официальная инструкция Mail.ru</a>
           </label>
           <div className="admin-mail-server-row sender">
             <label>Имя отправителя<input value={senderName} onChange={(event) => setSenderName(event.target.value)} /></label>
