@@ -54,7 +54,7 @@ export default function AdminMail() {
       })
       setPassword('')
       setConnectionState('ok')
-      setConnectionMessage('Почта подключена. Настройки защищённо сохранены.')
+      setConnectionMessage('Почта подключена. Пароль сохранён и больше не показывается в админке.')
       await load()
     } catch (cause) {
       setConnectionState('error')
@@ -95,7 +95,14 @@ export default function AdminMail() {
             <label>Порт<input inputMode="numeric" value={port} onChange={(event) => setPort(event.target.value)} /></label>
           </div>
           <label>Почтовый ящик<input type="email" value={username} onChange={(event) => { setUsername(event.target.value); if (!senderEmail) setSenderEmail(event.target.value) }} placeholder="mail@alikinas.ru" /></label>
-          <label>Пароль приложения<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={config.password ? 'Пароль сохранён · введите новый только для замены' : 'Введите пароль приложения VK WorkSpace'} /><small>Используется пароль приложения, а не обычный пароль от почты. Он хранится в защищённом хранилище Windows.</small></label>
+          <label>
+            Пароль для отправки через SMTP
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={config.password ? 'Пароль сохранён · введите новый только для замены' : 'Вставьте специальный пароль Mail.ru'} />
+            <small>
+              Обычный пароль от ящика здесь не работает. В почте Mail.ru откройте «Настройки → Все настройки → Безопасность → Пароли для внешних приложений», создайте пароль «ИЗО АСА» и выберите «Только отправка писем».
+            </small>
+            <a className="admin-mail-help-link" href="https://help.mail.ru/mail/login/mailer/" target="_blank" rel="noreferrer">Официальная инструкция Mail.ru</a>
+          </label>
           <div className="admin-mail-server-row sender">
             <label>Имя отправителя<input value={senderName} onChange={(event) => setSenderName(event.target.value)} /></label>
             <label>Email отправителя<input type="email" value={senderEmail} onChange={(event) => setSenderEmail(event.target.value)} placeholder="mail@alikinas.ru" /></label>

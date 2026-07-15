@@ -51,7 +51,7 @@ def _validate_config(config: SmtpConfig) -> None:
     if not config.username.strip():
         raise SmtpError("Не указан почтовый ящик.")
     if not config.password:
-        raise SmtpError("Не указан пароль приложения.")
+        raise SmtpError("Не указан специальный пароль Mail.ru для отправки через SMTP.")
 
 
 def _default_client(config: SmtpConfig) -> SmtpClient:
@@ -67,7 +67,10 @@ def _default_client(config: SmtpConfig) -> SmtpClient:
 
 def _smtp_error(exc: BaseException) -> SmtpError:
     if isinstance(exc, smtplib.SMTPAuthenticationError):
-        return SmtpError("Почтовый сервер отклонил логин или пароль приложения.")
+        return SmtpError(
+            "Mail.ru не принял данные. Обычный пароль от ящика для SMTP не подходит: "
+            "создайте пароль для внешнего приложения с доступом «Только отправка писем»."
+        )
     if isinstance(exc, (TimeoutError, OSError)):
         return SmtpError("Не удалось подключиться к почтовому серверу.")
     return SmtpError("Почтовый сервер отклонил запрос.")

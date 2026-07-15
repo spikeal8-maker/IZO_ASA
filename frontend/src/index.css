@@ -1507,6 +1507,7 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-provider-state.warn { border-color: #d7b941; color: #d8c36c; }
 .admin-mail-card label small { display: block; margin-top: 5px; color: #858b85; line-height: 1.35; }
 .admin-mail-card label small a { color: #cddf70; }
+.admin-mail-help-link { display: inline-block; margin-top: 6px; color: #cddf70; font-size: 12px; }
 .admin-mail-message { display: block; border-left: 3px solid #c9d83f; padding: 6px 8px; color: #e1e1d6; }
 .admin-mail-message.ok { border-color: #5ee87b; color: #9aebab; }
 .admin-mail-message.error { border-color: #ef5d5d; color: #ef9b9b; }
