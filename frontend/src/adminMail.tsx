@@ -99,7 +99,7 @@ export default function AdminMail() {
             Пароль для отправки через SMTP
             <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={config.password ? 'Пароль сохранён · введите новый только для замены' : 'Вставьте специальный пароль Mail.ru'} />
             <small>
-              Обычный пароль от ящика здесь не работает. В почте Mail.ru откройте «Настройки → Все настройки → Безопасность → Пароли для внешних приложений», создайте пароль «ИЗО АСА» и выберите «Только отправка писем».
+              Обычный пароль от ящика здесь не работает. Сначала откройте «Настройки → Все настройки → Безопасность → Внешние сервисы» и включите «Доступ к почте по IMAP, POP и SMTP». Затем в разделе «Пароли для внешних приложений» создайте пароль «ИЗО АСА» и выберите «Только отправка писем».
             </small>
             <a className="admin-mail-help-link" href="https://help.mail.ru/mail/login/mailer/" target="_blank" rel="noreferrer">Официальная инструкция Mail.ru</a>
           </label>
