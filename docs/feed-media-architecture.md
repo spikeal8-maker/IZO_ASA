@@ -69,23 +69,38 @@ remix, чтобы frontend не угадывал эти данные.
 
 ## Demo / Seed Publications
 
-Демо-изображения в текущей базе — это стартовое редакционное наполнение, а не
-мусор. Они должны оставаться в ленте, чтобы у нового пользователя и гостя не
-был пустой первый экран.
+Стартовое редакционное наполнение хранится как воспроизводимый bundle, а не как
+копия рабочей SQLite:
+
+- manifest: `backend/seed/feed/manifest.json`;
+- public WebP variants: `backend/seed/feed/seed-pub-*_thumb.webp` и
+  `seed-pub-*_large.webp`;
+- restore service: `backend/app/database/demo_feed.py`;
+- dry-run/apply CLI: `backend/restore_demo_feed_bundle.py`.
+
+Bundle содержит 5 редакционных авторов, 42 публикации и 84 оптимизированных
+WebP-файла. Внутренние `seed-*` ID и `metric_origin=editorial_seed` нужны только
+для безопасного восстановления и аналитики; интерфейс не показывает
+пользователю, что публикация является demo/seed.
 
 Правила:
 
-- не удалять `seed_izo_*.png` в первых 6 заходах;
-- не удалять seed/demo-строки из `feed_publications`;
-- создать для seed/demo такие же `feed_thumb` и `feed_large`, как для обычных
-  пользовательских публикаций;
+- не коммитить рабочую SQLite или весь `backend/media`;
+- version-control bundle является источником истины только для `seed-*` rows;
+- production startup проверяет SHA-256 bundle и идемпотентно восстанавливает
+  отсутствующие DB rows и `MEDIA_DIR/feed` assets;
+- ручной dry-run: `python backend/restore_demo_feed_bundle.py`;
+- ручное восстановление: `python backend/restore_demo_feed_bundle.py --apply`;
 - если `feed_thumb_name` / `feed_large_name` уже заполнены, но файлов нет,
-  миграция должна создать эти файлы или обновить поля на реально созданные;
+  restore должен атомарно вернуть проверенные файлы из bundle;
 - seed/demo должны иметь `native_aspect_ratio`, `orientation`, `source_type`,
   `category` и редакционный/seed author marker;
 - seed/demo не должны занимать пользовательские лимиты галереи.
+- `seed-pub-41` и `seed-img-41` retired: публикация с пустым шаблоном лица не
+  восстанавливается и удаляется только по точным seed-scoped ID.
 
-Итог: стартовая лента остается наполненной, но перестает грузить тяжелые PNG.
+Итог: чистый clone может восстановить стартовую ленту без production database,
+а пользовательские публикации и media никогда не попадают в Git.
 
 ## Aspect Ratio And Origin Contract
 

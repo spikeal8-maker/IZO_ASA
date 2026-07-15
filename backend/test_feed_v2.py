@@ -309,7 +309,7 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "detail-owner-actions" not in r.text
         assert "избранных" in r.text
         assert "view_count" in r.text
-        assert "Демо-витрина" in r.text
+        assert "Демо-витрина" not in r.text
         assert "metric_origin" in r.text
         assert "24 891 онлайн" not in r.text
         assert "/view" in r.text

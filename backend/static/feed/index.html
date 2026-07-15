@@ -206,7 +206,6 @@ button{user-select:none}
 .modal-close-inline{width:32px;height:32px;border-radius:9px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.055);color:#fff;font-size:18px;line-height:1;cursor:pointer}
 .detail-title{font-size:25px;line-height:1.08;letter-spacing:-.045em;font-weight:780;margin:0 0 4px}.image-meta-line{color:var(--muted);font-size:12px;font-weight:650;margin:0 0 8px}
 .metric-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#dfe7d9;font-size:13px;font-weight:650;margin:0 0 14px}.metric-row span{display:inline-flex;align-items:center;gap:5px}.metric-row b{color:#fff;font-weight:800}
-.metric-row .metric-origin-note{min-height:22px;padding:0 7px;border:1px solid rgba(255,255,255,.1);border-radius:6px;color:var(--muted);font-size:10px;font-weight:700}
 .detail-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;align-items:stretch;margin-bottom:10px}
 .remix-main{height:42px;border:1px solid rgba(234,255,0,.24);border-radius:10px;background:rgba(234,255,0,.10);color:#f5ff76;font-size:22px;font-weight:820;cursor:pointer;box-shadow:0 12px 28px rgba(0,0,0,.20);display:flex;align-items:center;justify-content:center;gap:8px}.remix-main small{color:#fff;font-size:12px;font-weight:820}
 .detail-icon,.download-btn{height:48px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.055);color:#f6f9f2;cursor:pointer;font-weight:650;box-shadow:0 12px 28px rgba(0,0,0,.20)}
@@ -648,9 +647,6 @@ function renderModalStats(item){
     metricHtml('likes', item.likesNum || 0, 'лайков'),
     metricHtml('saves', item.savesNum || 0, 'избранных')
   ];
-  if(item.metricOrigin === 'editorial_seed'){
-    metrics.push('<span class="metric-origin-note" title="Стартовые показатели редакционной витрины">Демо-витрина</span>');
-  }
   return metrics.join('');
 }
 function formatTime(value){

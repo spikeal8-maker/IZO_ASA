@@ -32,6 +32,13 @@ Start here when you or another agent joins the project:
 - `docs/gallery-current-product-plan.md` — visible `/gallery` contract: slots,
   favorite protection, deletion, publish modal, viewer and grid order.
 
+Editorial starter feed content is versioned separately from production data in
+`backend/seed/feed`. Validate it with `python backend/restore_demo_feed_bundle.py`
+and restore a clean database/media volume with
+`python backend/restore_demo_feed_bundle.py --apply`. Production startup performs
+the same idempotent restore automatically. Never commit `backend/onenode.sqlite3`
+or the complete runtime `backend/media` tree.
+
 The `docs/phase*.md` files are historical phase reports. They are useful evidence, but
 the current working rules should be read from the files listed above first.
 

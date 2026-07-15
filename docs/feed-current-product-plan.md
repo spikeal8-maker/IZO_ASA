@@ -31,7 +31,8 @@ preserving the existing feed-media backend contract:
 - automatic gallery quota eviction preserves linked feed publications and their
   independent public media;
 - explicit gallery deletion retires linked feed publications;
-- seed/demo publications stay as editorial starter content.
+- versioned editorial starter publications restore from `backend/seed/feed`;
+  internal seed markers are never rendered as demo labels to users.
 
 ## Implementation Order
 

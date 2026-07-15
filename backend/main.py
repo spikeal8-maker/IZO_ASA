@@ -326,6 +326,11 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
 
 try:
+    from .app.database.demo_feed import restore_demo_feed_bundle
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.database.demo_feed import restore_demo_feed_bundle
+
+try:
     from .app.security import (
         DUMMY_PASSWORD_HASH as SECURITY_DUMMY_PASSWORD_HASH,
         DpapiSecretStore,
@@ -1544,6 +1549,9 @@ def init_db() -> None:
 
         initialize_media_schema_group(conn)
         seed_default_challenge(conn, now=now)
+        if is_production_like_env():
+            report = restore_demo_feed_bundle(conn, MEDIA, apply=True)
+            print(f"demo feed bundle: {report}")
 
         finalize_identity_schema_group(
             conn,
