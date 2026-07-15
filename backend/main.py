@@ -11333,12 +11333,12 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
     ).fetchone()["c"]
     device_meta = safe_json_load(_row_get(last_session, "metadata_json")) or {}
     device = device_meta.get("device") if isinstance(device_meta, dict) else {}
+    gallery_quota = gallery_quota_for_user(conn, urow, legacy)
     identity_email = next((str(i["provider_email"]).strip() for i in identities if i["provider_email"]), None)
     identity_username = next((str(i["provider_username"]).strip() for i in identities if i["provider_username"]), None)
     identity_phone = next((str(i["provider_phone"]).strip() for i in identities if i["provider_phone"]), None)
     is_demo = legacy == "demo_user" or str(_row_get(urow, "username") or "").lower() == "demo"
     account_group = "demo" if is_demo else ("admin" if _row_get(urow, "role") == "admin" else "customer")
-    gallery_quota = gallery_quota_for_user(conn, urow, legacy)
     return {
         "internal_user_id": iuid,  # used by the admin drawer fetch + technical section only
         "internal_user_id_short": (iuid[:8] + "…") if iuid else None,
@@ -11579,25 +11579,25 @@ async def admin_logs_v2(request: Request) -> dict[str, Any]:
 
 
 ADMIN_USERS_SORT_SQL = {
-    "activity_asc": "COALESCE(u.last_seen_at, u.last_login_at, u.created_at) ASC, u.created_at ASC",
     "recent": "COALESCE(u.last_seen_at, u.last_login_at, u.created_at) DESC, u.created_at DESC",
+    "activity_asc": "COALESCE(u.last_seen_at, u.last_login_at, u.created_at) ASC, u.created_at ASC",
     "created_desc": "u.created_at DESC",
     "created_asc": "u.created_at ASC",
-    "generations_asc": "COALESCE(u.generation_count, 0) ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
     "generations_desc": "COALESCE(u.generation_count, 0) DESC, COALESCE(u.last_seen_at, u.created_at) DESC",
-    "tokens_asc": "COALESCE(u.tokens_used, 0) ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
+    "generations_asc": "COALESCE(u.generation_count, 0) ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
     "tokens_desc": "COALESCE(u.tokens_used, 0) DESC, COALESCE(u.last_seen_at, u.created_at) DESC",
+    "tokens_asc": "COALESCE(u.tokens_used, 0) ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
     "balance_desc": "COALESCE(u.token_balance, 0) DESC, COALESCE(u.last_seen_at, u.created_at) DESC",
     "balance_asc": "COALESCE(u.token_balance, 0) ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
+    "code_asc": "u.public_user_code ASC, u.created_at ASC",
     "name_asc": "LOWER(COALESCE(NULLIF(u.display_name,''), NULLIF(u.username,''), NULLIF(u.email,''), u.public_user_code, u.id)) ASC",
     "name_desc": "LOWER(COALESCE(NULLIF(u.display_name,''), NULLIF(u.username,''), NULLIF(u.email,''), u.public_user_code, u.id)) DESC",
-    "code_asc": "u.public_user_code ASC, u.created_at ASC",
+    "plan_asc": "u.plan ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
     "plan_desc": "u.plan DESC, COALESCE(u.last_seen_at, u.created_at) DESC",
     "source_asc": "COALESCE((SELECT MIN(ai.provider) FROM auth_identities ai WHERE ai.internal_user_id=u.internal_user_id),'') ASC, COALESCE(u.last_seen_at,u.created_at) DESC",
     "source_desc": "COALESCE((SELECT MIN(ai.provider) FROM auth_identities ai WHERE ai.internal_user_id=u.internal_user_id),'') DESC, COALESCE(u.last_seen_at,u.created_at) DESC",
     "contact_asc": "LOWER(COALESCE(NULLIF(u.email,''), NULLIF(u.username,''), NULLIF(u.phone,''), (SELECT MIN(COALESCE(NULLIF(ai.provider_email,''),NULLIF(ai.provider_username,''),NULLIF(ai.provider_phone,''))) FROM auth_identities ai WHERE ai.internal_user_id=u.internal_user_id),'')) ASC",
     "contact_desc": "LOWER(COALESCE(NULLIF(u.email,''), NULLIF(u.username,''), NULLIF(u.phone,''), (SELECT MIN(COALESCE(NULLIF(ai.provider_email,''),NULLIF(ai.provider_username,''),NULLIF(ai.provider_phone,''))) FROM auth_identities ai WHERE ai.internal_user_id=u.internal_user_id),'')) DESC",
-    "plan_asc": "u.plan ASC, COALESCE(u.last_seen_at, u.created_at) DESC",
 }
 
 
@@ -11614,13 +11614,13 @@ async def admin_users_analytics_v2(request: Request, q: str | None = None, provi
     if status == "banned":
         clauses.append("u.banned = 1")
     elif status == "active":
+        clauses.append("u.banned = 0")
     if group == "admin":
         clauses.append("u.role = 'admin' AND u.id != 'demo_user'")
     elif group == "demo":
         clauses.append("(u.id = 'demo_user' OR LOWER(COALESCE(u.username,'')) = 'demo')")
     elif group == "customer":
         clauses.append("u.role != 'admin' AND u.id != 'demo_user' AND LOWER(COALESCE(u.username,'')) != 'demo'")
-        clauses.append("u.banned = 0")
     if provider:
         clauses.append("EXISTS (SELECT 1 FROM auth_identities ai WHERE ai.internal_user_id = u.internal_user_id AND ai.provider = ?)")
         params.append(provider)
