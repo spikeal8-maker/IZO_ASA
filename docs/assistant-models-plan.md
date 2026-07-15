@@ -102,8 +102,13 @@
 ## Отдельный runtime Qwen3-ASR
 
 - `Qwen/Qwen3-ASR-1.7B` не является моделью Ollama и не должна храниться в `localModel`.
-- Официальный runtime запускается отдельно через пакет `qwen-asr` или vLLM и предоставляет OpenAI-совместимые `/v1/models` и `/v1/chat/completions`.
+- На Windows используется официальный пакет `qwen-asr==0.0.6` с Transformers-backend. vLLM-сервер нативно не используется.
+- Изолированное CUDA-окружение находится в `.tools/qwen-asr-venv`, ASCII junction — `C:\izo-qwen-asr`, кеш весов — `C:\izo-qwen-cache`. ASCII-пути обязательны из-за ограничения зависимости `nagisa/DyNet` на Windows.
+- Runtime `tools/qwen_asr_service.py` предоставляет OpenAI-совместимые `/v1/models` и `/v1/chat/completions`.
 - Backend-порт по умолчанию: `http://127.0.0.1:8001`; он настраивается в админке.
+- Запуск: `powershell -File tools/start-qwen-asr.ps1`. Остановка: `powershell -File tools/stop-qwen-asr.ps1`. PID реального Python-сервера хранится в `.tools/qwen-asr.pid`, PID удерживающего Windows-процесса — в `.tools/qwen-asr-wrapper.pid`, вывод — в `logs/qwen-asr.*.log`.
 - Старое сохранённое значение `localModel=qwen3-asr:1.7b` автоматически нормализуется в `gemma4:12b`, чтобы не показывать несуществующую Ollama-модель.
-- На текущей машине отдельный Qwen runtime не запущен. Включать маршрут `qwen` до зелёного статуса и успешного тестового аудио нельзя.
+- На текущей RTX 3090 Qwen3-ASR 1.7B проверен русским WAV через штатный backend-адаптер: точная расшифровка, первый inference 4,83 сек., тёплый 1,71 сек., видеопамять runtime около 4,6 ГБ. Полный холодный запуск с загрузкой весов может занимать около минуты; стартовый скрипт ждёт зелёный `/health` до 90 секунд.
+- Принудительный `sdpa` на текущем Windows/CUDA runtime зависал внутри generation; сервис использует штатную attention-конфигурацию официальной модели.
+- Перед первым тестовым запуском ComfyUI-модели были выгружены при пустой очереди. До установки отдельной RTX 4070 одновременная загрузка тяжёлого ComfyUI workflow и Qwen требует контроля свободной VRAM.
 - После установки RTX 4070 Qwen3-ASR 1.7B и 0.6B проходят один benchmark: чистая речь, шум, паузы, мобильный микрофон, отсутствие галлюцинаций на тишине и p95 задержки.
