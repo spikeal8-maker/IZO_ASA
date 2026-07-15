@@ -1,6 +1,6 @@
 # Feed Current Product Plan
 
-Date: 2026-07-08.
+Date: 2026-07-15.
 
 ## Canonical Feed Screen
 
@@ -49,9 +49,16 @@ The current product, content, database, and UX audit lives in
 
 ## Immediate Backend Gaps
 
-- `following`, `challenge`, author publications, and modal actions should remain
-  aligned with the same public media contract.
+- Keep ranking explainable and add first-viewport author diversity without
+  breaking cursor stability.
+- Add production telemetry for first stable cards, cached tab switching, save
+  rate, successful remix rate, follow-after-profile-open, and hide rate.
+- Generalize the challenge destination when more than one challenge is active.
 - Future schema changes must be additive-only and backed by audits/migrations.
+
+Moderation is intentionally outside the 2026-07-15 optimization package. Its
+current behavior is neither expanded nor used as a prerequisite for the feed
+pagination, analytics, subscription, database, or layout improvements below.
 
 ## Visual Notes For Step 6/9
 
@@ -62,6 +69,39 @@ The current product, content, database, and UX audit lives in
   cached, cancellable, direct-manipulation transitions and stable loading space.
 
 ## Completed In This Pass
+
+- `GET /api/feed` now uses opaque keyset cursors and returns `nextCursor` and
+  `hasMore`. Every public publication remains reachable without an offset scan;
+  appended pages are deduplicated by publication ID in the browser.
+- Search by title, description, author, source, category, and tags is performed
+  on the server. `Лайкнутые`, `Избранное`, and remixable-only filters are also
+  server-side and therefore cover the whole feed, not only the first page.
+- The browser loads 30 works initially, prefetches adjacent sections, and uses
+  an intersection observer plus an explicit `Показать ещё` fallback. Existing
+  cards remain visible while the next page loads.
+- Views are accepted once per trusted user or anonymous installation in a
+  six-hour window. Viewer identifiers are SHA-256-derived, raw installation
+  values are not stored, and event rows have a 90-day bounded retention policy.
+- `feed_publications.metric_origin` separates organic counters from editorial
+  starter data. Demo migration marks seeded works as `editorial_seed`, and the
+  detail view labels those figures as `Демо-витрина`.
+- Author profiles, reaction totals, viewer reactions, follow state, and images
+  are loaded in batches for each page instead of repeating those queries for
+  every publication.
+- `Подписки` now reports unread publication count, displays it on the tab, and
+  records the user's last read time when the section opens. The count describes
+  new works from followed authors, not a decorative or fabricated number.
+- Feed database readiness now audits the view/read tables and the reaction,
+  view-recency, and retention indexes needed by these paths.
+- Mobile direct actions retain compact icons but use at least 40 px hit areas;
+  primary modal and tab controls use 42-44 px targets. This improves touch
+  reliability without making the icons visually dominant.
+- The hard-coded online-user total was removed. The feed does not display a
+  concurrency number until it is backed by a real presence metric; this also
+  prevents the desktop search area from clipping the `Подписки` tab.
+- On phone widths, the duplicate generator-mode row in the global top bar is
+  hidden while the visual quick-start rail remains available. The feed no
+  longer spends two header rows on the same destinations.
 
 - Public downloads now use
   `GET /api/feed/publications/{publication_id}/download?format=jpeg|png`.

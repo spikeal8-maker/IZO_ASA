@@ -35,7 +35,16 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "moderated_at",
         "moderated_by_internal_user_id",
         "source_job_id",
+        "metric_origin",
     },
+}
+
+EXPECTED_TABLES = {
+    "feed_publications",
+    "feed_reactions",
+    "feed_author_follows",
+    "feed_view_events",
+    "feed_subscription_reads",
 }
 
 EXPECTED_INDEXES: dict[str, str] = {
@@ -43,6 +52,9 @@ EXPECTED_INDEXES: dict[str, str] = {
     "idx_feed_publications_category_ready_created": "feed_publications",
     "idx_feed_publications_legacy_ready_created": "feed_publications",
     "idx_feed_publications_moderation_created": "feed_publications",
+    "idx_feed_reactions_viewer_kind": "feed_reactions",
+    "idx_feed_view_events_viewer_recent": "feed_view_events",
+    "idx_feed_view_events_last_viewed": "feed_view_events",
     "idx_images_user_deleted_created": "images",
     "idx_images_job_id": "images",
     "idx_jobs_user_created": "jobs",
@@ -56,12 +68,20 @@ def audit_db_schema() -> dict[str, Any]:
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "db_path": str(main.DB_PATH),
         "expected_columns": {table: sorted(columns) for table, columns in EXPECTED_COLUMNS.items()},
+        "expected_tables": sorted(EXPECTED_TABLES),
+        "missing_tables": [],
         "missing_columns": {},
         "expected_indexes": EXPECTED_INDEXES,
         "missing_indexes": [],
         "issues": [],
     }
     with main.db() as conn:
+        existing_tables = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        }
+        report["missing_tables"] = sorted(EXPECTED_TABLES - existing_tables)
+        report["issues"].extend(f"missing_table:{table}" for table in report["missing_tables"])
         for table, expected in EXPECTED_COLUMNS.items():
             existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
             missing = sorted(expected - existing)

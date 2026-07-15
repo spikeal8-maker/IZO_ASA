@@ -14076,13 +14076,6 @@ def _feed_author_profile(conn: sqlite3.Connection, internal_user_id: str, legacy
         "SELECT provider_avatar_url FROM auth_identities WHERE internal_user_id = ? AND provider_avatar_url IS NOT NULL AND provider_avatar_url != '' ORDER BY last_login_at DESC LIMIT 1",
         (internal_user_id,),
     ).fetchone()
-    name = (
-        _row_get(row, "display_name")
-        or _row_get(row, "username")
-        or _row_get(row, "first_name")
-        or "Пользователь ИЗО"
-    )
-    avatar_url = _row_get(row, "avatar_url") or _row_get(identity, "provider_avatar_url")
     followers_count = int(conn.execute(
         "SELECT COUNT(*) AS c FROM feed_author_follows WHERE author_internal_user_id = ?",
         (internal_user_id,),
@@ -14091,11 +14084,33 @@ def _feed_author_profile(conn: sqlite3.Connection, internal_user_id: str, legacy
         "SELECT COUNT(*) AS c FROM feed_author_follows WHERE follower_internal_user_id = ?",
         (internal_user_id,),
     ).fetchone()["c"])
+    return _feed_author_profile_payload(
+        row,
+        internal_user_id,
+        _row_get(identity, "provider_avatar_url"),
+        followers_count,
+        following_count,
+    )
+
+
+def _feed_author_profile_payload(
+    row: sqlite3.Row | None,
+    internal_user_id: str,
+    provider_avatar_url: str | None,
+    followers_count: int,
+    following_count: int,
+) -> dict[str, Any]:
+    name = (
+        _row_get(row, "display_name")
+        or _row_get(row, "username")
+        or _row_get(row, "first_name")
+        or "Пользователь ИЗО"
+    )
     return {
         "id": internal_user_id,
         "displayName": name,
         "username": _row_get(row, "username"),
-        "avatarUrl": avatar_url,
+        "avatarUrl": _row_get(row, "avatar_url") or provider_avatar_url,
         "avatarPreset": _row_get(row, "avatar_preset"),
         "publicAbout": _row_get(row, "public_about"),
         "publicWebsite": _row_get(row, "public_website"),
@@ -14108,6 +14123,73 @@ def _feed_author_profile(conn: sqlite3.Connection, internal_user_id: str, legacy
         "country": _row_get(row, "country"),
         "followersCount": followers_count,
         "followingCount": following_count,
+    }
+
+
+def _feed_author_profiles(
+    conn: sqlite3.Connection,
+    author_keys: set[tuple[str, str | None]],
+) -> dict[str, dict[str, Any]]:
+    if not author_keys:
+        return {}
+    internal_ids = sorted({internal_id for internal_id, _legacy_id in author_keys})
+    legacy_ids = sorted({legacy_id for _internal_id, legacy_id in author_keys if legacy_id})
+    internal_slots = ",".join("?" for _ in internal_ids)
+    user_where = f"internal_user_id IN ({internal_slots})"
+    user_params: list[Any] = list(internal_ids)
+    if legacy_ids:
+        legacy_slots = ",".join("?" for _ in legacy_ids)
+        user_where += f" OR id IN ({legacy_slots})"
+        user_params.extend(legacy_ids)
+    user_rows = conn.execute(
+        f"""
+        SELECT id, internal_user_id, display_name, username, first_name, avatar_url, avatar_preset,
+               public_about, public_website, public_focus, public_phone,
+               public_links_json, gender, age, city, country
+        FROM users WHERE {user_where}
+        """,
+        user_params,
+    ).fetchall()
+    by_internal = {str(row["internal_user_id"]): row for row in user_rows if _row_get(row, "internal_user_id")}
+    by_legacy = {str(row["id"]): row for row in user_rows}
+    identity_rows = conn.execute(
+        f"""
+        SELECT internal_user_id, provider_avatar_url
+        FROM auth_identities
+        WHERE internal_user_id IN ({internal_slots})
+          AND provider_avatar_url IS NOT NULL AND provider_avatar_url != ''
+        ORDER BY last_login_at DESC
+        """,
+        internal_ids,
+    ).fetchall()
+    avatars: dict[str, str] = {}
+    for identity in identity_rows:
+        avatars.setdefault(str(identity["internal_user_id"]), str(identity["provider_avatar_url"]))
+    followers = {
+        str(row["author_internal_user_id"]): int(row["c"])
+        for row in conn.execute(
+            f"SELECT author_internal_user_id, COUNT(*) AS c FROM feed_author_follows "
+            f"WHERE author_internal_user_id IN ({internal_slots}) GROUP BY author_internal_user_id",
+            internal_ids,
+        ).fetchall()
+    }
+    following = {
+        str(row["follower_internal_user_id"]): int(row["c"])
+        for row in conn.execute(
+            f"SELECT follower_internal_user_id, COUNT(*) AS c FROM feed_author_follows "
+            f"WHERE follower_internal_user_id IN ({internal_slots}) GROUP BY follower_internal_user_id",
+            internal_ids,
+        ).fetchall()
+    }
+    return {
+        internal_id: _feed_author_profile_payload(
+            by_internal.get(internal_id) or (by_legacy.get(str(legacy_id)) if legacy_id else None),
+            internal_id,
+            avatars.get(internal_id),
+            followers.get(internal_id, 0),
+            following.get(internal_id, 0),
+        )
+        for internal_id, legacy_id in author_keys
     }
 
 
@@ -14200,16 +14282,91 @@ def _feed_aspect_ratio(width: int, height: int) -> str:
     return f"{int(width) // g}:{int(height) // g}"
 
 
+def _feed_payload_context(
+    conn: sqlite3.Connection,
+    publications: list[sqlite3.Row],
+    viewer_internal_user_id: str | None,
+) -> dict[str, Any]:
+    publication_ids = [str(row["id"]) for row in publications]
+    image_ids = [str(row["image_id"]) for row in publications]
+    publication_slots = ",".join("?" for _ in publication_ids)
+    image_slots = ",".join("?" for _ in image_ids)
+    images: dict[str, sqlite3.Row] = {}
+    reaction_counts: dict[str, dict[str, int]] = {}
+    viewer_kinds: dict[str, set[str]] = {}
+    if image_ids:
+        images = {
+            str(row["id"]): row
+            for row in conn.execute(
+                f"SELECT id, url, thumbnail_url, width, height, prompt_original, settings_json, "
+                f"provider, mode, created_at FROM images WHERE id IN ({image_slots})",
+                image_ids,
+            ).fetchall()
+        }
+    if publication_ids:
+        for row in conn.execute(
+            f"SELECT publication_id, kind, COUNT(*) AS c FROM feed_reactions "
+            f"WHERE publication_id IN ({publication_slots}) GROUP BY publication_id, kind",
+            publication_ids,
+        ).fetchall():
+            reaction_counts.setdefault(str(row["publication_id"]), {})[str(row["kind"])] = int(row["c"])
+        if viewer_internal_user_id:
+            for row in conn.execute(
+                f"SELECT publication_id, kind FROM feed_reactions "
+                f"WHERE internal_user_id = ? AND publication_id IN ({publication_slots})",
+                (viewer_internal_user_id, *publication_ids),
+            ).fetchall():
+                viewer_kinds.setdefault(str(row["publication_id"]), set()).add(str(row["kind"]))
+    author_keys = {
+        (str(row["internal_user_id"]), _row_get(row, "legacy_user_id"))
+        for row in publications
+    }
+    author_profiles = _feed_author_profiles(conn, author_keys)
+    followed_authors: set[str] = set()
+    viewer_role: str | None = None
+    if viewer_internal_user_id:
+        followed_authors = {
+            str(row["author_internal_user_id"])
+            for row in conn.execute(
+                "SELECT author_internal_user_id FROM feed_author_follows WHERE follower_internal_user_id = ?",
+                (viewer_internal_user_id,),
+            ).fetchall()
+        }
+        viewer_row = conn.execute(
+            "SELECT role FROM users WHERE internal_user_id = ?",
+            (viewer_internal_user_id,),
+        ).fetchone()
+        viewer_role = _row_get(viewer_row, "role")
+    challenges = {
+        category: _feed_challenge_payload(conn, category)
+        for category in {_row_get(row, "category") for row in publications if _row_get(row, "category")}
+    }
+    return {
+        "images": images,
+        "reaction_counts": reaction_counts,
+        "viewer_kinds": viewer_kinds,
+        "author_profiles": author_profiles,
+        "followed_authors": followed_authors,
+        "viewer_role": viewer_role,
+        "challenges": challenges,
+        "source_histories": {},
+    }
+
+
 def _feed_item_payload(
     conn: sqlite3.Connection,
     pub: sqlite3.Row,
     viewer_internal_user_id: str | None,
+    context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    image = conn.execute(
-        "SELECT id, url, thumbnail_url, width, height, prompt_original, settings_json, provider, mode, created_at "
-        "FROM images WHERE id = ?",
-        (pub["image_id"],),
-    ).fetchone()
+    context = context or {}
+    image = context.get("images", {}).get(str(pub["image_id"]))
+    if image is None:
+        image = conn.execute(
+            "SELECT id, url, thumbnail_url, width, height, prompt_original, settings_json, provider, mode, created_at "
+            "FROM images WHERE id = ?",
+            (pub["image_id"],),
+        ).fetchone()
     settings: dict[str, Any] = {}
     if image is not None:
         try:
@@ -14227,17 +14384,19 @@ def _feed_item_payload(
         prompt = (raw_prompt[:FEED_PARTIAL_PROMPT_CHARS] + "…") if len(raw_prompt) > FEED_PARTIAL_PROMPT_CHARS else (raw_prompt or None)
     else:
         prompt = None
-    counts = {
-        r["kind"]: r["c"]
-        for r in conn.execute(
-            "SELECT kind, COUNT(*) AS c FROM feed_reactions WHERE publication_id = ? GROUP BY kind",
-            (pub["id"],),
-        ).fetchall()
-    }
-    viewer_kinds: set[str] = set()
-    is_followed_by_me = False
-    viewer_role: str | None = None
-    if viewer_internal_user_id:
+    counts = context.get("reaction_counts", {}).get(str(pub["id"]))
+    if counts is None:
+        counts = {
+            r["kind"]: r["c"]
+            for r in conn.execute(
+                "SELECT kind, COUNT(*) AS c FROM feed_reactions WHERE publication_id = ? GROUP BY kind",
+                (pub["id"],),
+            ).fetchall()
+        }
+    viewer_kinds: set[str] = context.get("viewer_kinds", {}).get(str(pub["id"]), set())
+    is_followed_by_me = str(pub["internal_user_id"]) in context.get("followed_authors", set())
+    viewer_role: str | None = context.get("viewer_role")
+    if viewer_internal_user_id and not context:
         viewer_kinds = {
             r["kind"]
             for r in conn.execute(
@@ -14264,7 +14423,19 @@ def _feed_item_payload(
     source_type = _row_get(pub, "source_type") or _feed_source_type(snapshot.get("mode") or _row_get(image, "mode"))
     is_mine = viewer_internal_user_id == pub["internal_user_id"]
     viewer_is_admin = viewer_role == "admin"
-    author_profile = _feed_author_profile(conn, pub["internal_user_id"], pub["legacy_user_id"])
+    author_profile = context.get("author_profiles", {}).get(str(pub["internal_user_id"]))
+    if author_profile is None:
+        author_profile = _feed_author_profile(conn, pub["internal_user_id"], pub["legacy_user_id"])
+    category = _row_get(pub, "category")
+    challenge = context.get("challenges", {}).get(category) if category else None
+    if category and category not in context.get("challenges", {}):
+        challenge = _feed_challenge_payload(conn, category)
+    source_histories = context.setdefault("source_histories", {})
+    source_history = snapshot.get("sourceHistory")
+    if not source_history:
+        if pub["image_id"] not in source_histories:
+            source_histories[pub["image_id"]] = _feed_source_history_payload(conn, pub["image_id"])
+        source_history = source_histories[pub["image_id"]]
     return {
         "id": pub["id"],
         "status": _row_get(pub, "status"),
@@ -14294,8 +14465,8 @@ def _feed_item_payload(
         "remix_policy": _row_get(pub, "remix_policy") or ("allowed" if bool(pub["allow_recreate"]) else "disabled"),
         "category": _row_get(pub, "category"),
         "tags": safe_json_load(_row_get(pub, "tags_json")) or [],
-        "challenge": _feed_challenge_payload(conn, _row_get(pub, "category")),
-        "source_history": snapshot.get("sourceHistory") or _feed_source_history_payload(conn, pub["image_id"]),
+        "challenge": challenge,
+        "source_history": source_history,
         "resolution": f"{width}×{height}" if width and height else None,
         "generation_params": snapshot.get("generationParams") or _gallery_public_params(
             image_id=pub["image_id"],
@@ -14313,6 +14484,7 @@ def _feed_item_payload(
         "seed": snapshot.get("seed") if "seed" in snapshot else settings.get("seed"),
         "created_at": pub["created_at"],
         "view_count": int(_row_get(pub, "view_count") or 0),
+        "metric_origin": _row_get(pub, "metric_origin") or "organic",
         "remix_count": counts.get("recreate", 0),
         "save_count": counts.get("save", 0),
         "like_count": counts.get("like", 0),
@@ -14336,151 +14508,292 @@ def _feed_optional_viewer(request: Request) -> str | None:
     except HTTPException:
         return None
 
+FEED_CURSOR_VERSION = 1
+FEED_VIEW_WINDOW = timedelta(hours=6)
+FEED_VIEW_RETENTION = timedelta(days=90)
+FEED_SEARCH_MAX_CHARS = 120
+
+
+def _feed_viewer_key(request: Request, viewer_internal_user_id: str | None) -> str:
+    if viewer_internal_user_id:
+        raw = f"user:{viewer_internal_user_id}"
+    else:
+        installation_id = str(request.headers.get("x-installation-id") or "").strip()
+        if installation_id and len(installation_id) <= 128 and re.fullmatch(r"[A-Za-z0-9._:-]+", installation_id):
+            raw = f"installation:{installation_id}"
+        else:
+            client_host = request.client.host if request.client else "unknown"
+            user_agent = str(request.headers.get("user-agent") or "")[:240]
+            raw = f"guest:{client_host}:{user_agent}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _encode_feed_cursor(payload: dict[str, Any]) -> str:
+    data = {"v": FEED_CURSOR_VERSION, **payload}
+    return base64.urlsafe_b64encode(
+        json.dumps(data, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+
+
+def _decode_feed_cursor(
+    cursor: str | None,
+    *,
+    feed_type: str,
+    query: str,
+    signal: str,
+) -> dict[str, Any] | None:
+    if not cursor:
+        return None
+    try:
+        padded = cursor + ("=" * (-len(cursor) % 4))
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise HTTPException(400, "invalid feed cursor") from exc
+    if not isinstance(payload, dict) or payload.get("v") != FEED_CURSOR_VERSION:
+        raise HTTPException(400, "invalid feed cursor")
+    if payload.get("type") != feed_type or payload.get("q", "") != query or payload.get("signal", "all") != signal:
+        raise HTTPException(400, "feed cursor does not match request")
+    return payload
+
+
+def _feed_subscription_unread_count(conn: sqlite3.Connection, viewer: str | None) -> int:
+    if not viewer:
+        return 0
+    row = conn.execute(
+        "SELECT last_read_at FROM feed_subscription_reads WHERE internal_user_id = ?",
+        (viewer,),
+    ).fetchone()
+    last_read_at = _row_get(row, "last_read_at") or "1970-01-01T00:00:00+00:00"
+    return int(conn.execute(
+        """
+        SELECT COUNT(*) AS c
+        FROM feed_publications p
+        JOIN feed_author_follows f ON f.author_internal_user_id = p.internal_user_id
+        WHERE f.follower_internal_user_id = ?
+          AND p.status = 'published'
+          AND p.media_ready_at IS NOT NULL
+          AND p.feed_thumb_name IS NOT NULL
+          AND p.feed_large_name IS NOT NULL
+          AND p.created_at > ?
+          AND p.internal_user_id != ?
+        """,
+        (viewer, last_read_at, viewer),
+    ).fetchone()["c"])
+
+
+def _feed_cursor_for_row(
+    row: sqlite3.Row,
+    *,
+    feed_type: str,
+    query: str,
+    signal: str,
+) -> str:
+    payload: dict[str, Any] = {
+        "type": feed_type,
+        "q": query,
+        "signal": signal,
+        "created": str(_row_get(row, "created_at") or ""),
+        "id": str(_row_get(row, "id") or ""),
+    }
+    if feed_type == "remix":
+        payload["remix"] = int(_row_get(row, "recreate_count") or 0)
+        payload["saves"] = int(_row_get(row, "save_count") or 0)
+    elif feed_type in {"for_you", "top"}:
+        payload["score"] = int(_row_get(row, "rank_score") or 0)
+    return _encode_feed_cursor(payload)
+
+
+def _feed_list_rows(
+    conn: sqlite3.Connection,
+    *,
+    feed_type: str,
+    viewer: str | None,
+    viewer_key: str,
+    limit: int,
+    challenge_id: str | None,
+    query: str,
+    signal: str,
+    cursor: dict[str, Any] | None,
+) -> list[sqlite3.Row]:
+    where = [
+        "p.status = 'published'",
+        "p.media_ready_at IS NOT NULL",
+        "p.feed_thumb_name IS NOT NULL",
+        "p.feed_large_name IS NOT NULL",
+        "(? IS NULL OR NOT EXISTS (SELECT 1 FROM feed_reactions hidden "
+        "WHERE hidden.publication_id = p.id AND hidden.internal_user_id = ? AND hidden.kind = 'hide'))",
+    ]
+    where_params: list[Any] = [viewer, viewer]
+    joins = ""
+    if feed_type == "following":
+        if not viewer:
+            return []
+        joins += " JOIN feed_author_follows followed ON followed.author_internal_user_id = p.internal_user_id"
+        where.append("followed.follower_internal_user_id = ?")
+        where_params.append(viewer)
+    if feed_type == "challenge":
+        category = "challenge_moscow_2120"
+        if challenge_id:
+            challenge = conn.execute(
+                "SELECT category FROM challenges WHERE id = ? AND status = 'active'",
+                (challenge_id,),
+            ).fetchone()
+            category = _row_get(challenge, "category") or category
+        where.append("p.category = ?")
+        where_params.append(category)
+    if query:
+        search_value = f"%{query}%"
+        where.append(
+            "(p.title LIKE ? OR COALESCE(p.description, '') LIKE ? OR COALESCE(p.source_label, '') LIKE ? "
+            "OR COALESCE(p.category, '') LIKE ? OR COALESCE(p.tags_json, '') LIKE ? "
+            "OR EXISTS (SELECT 1 FROM users author_search WHERE "
+            "(author_search.internal_user_id = p.internal_user_id OR author_search.id = p.legacy_user_id) "
+            "AND (COALESCE(author_search.display_name, '') LIKE ? OR COALESCE(author_search.username, '') LIKE ? "
+            "OR COALESCE(author_search.first_name, '') LIKE ?)))"
+        )
+        where_params.extend([search_value] * 8)
+    if signal in {"liked", "saved"}:
+        if not viewer:
+            return []
+        kind = "like" if signal == "liked" else "save"
+        where.append(
+            "EXISTS (SELECT 1 FROM feed_reactions selected_signal "
+            "WHERE selected_signal.publication_id = p.id "
+            "AND selected_signal.internal_user_id = ? AND selected_signal.kind = ?)"
+        )
+        where_params.extend([viewer, kind])
+    elif signal == "remixable":
+        where.append("p.allow_recreate = 1 AND COALESCE(p.remix_policy, 'allowed') != 'disabled'")
+
+    score_sql = "0"
+    score_params: list[Any] = []
+    if feed_type == "for_you":
+        score_sql = """
+            CASE WHEN ? IS NOT NULL AND EXISTS (
+                SELECT 1 FROM feed_author_follows preferred_author
+                WHERE preferred_author.follower_internal_user_id = ?
+                  AND preferred_author.author_internal_user_id = p.internal_user_id
+            ) THEN 18 ELSE 0 END
+          + CASE WHEN ? IS NOT NULL AND EXISTS (
+                SELECT 1 FROM feed_reactions viewer_preference
+                JOIN feed_publications preferred_publication ON preferred_publication.id = viewer_preference.publication_id
+                WHERE viewer_preference.internal_user_id = ?
+                  AND viewer_preference.kind IN ('like', 'save', 'recreate')
+                  AND preferred_publication.id != p.id
+                  AND ((preferred_publication.category IS NOT NULL AND preferred_publication.category = p.category)
+                    OR (preferred_publication.source_type IS NOT NULL AND preferred_publication.source_type = p.source_type))
+            ) THEN 7 ELSE 0 END
+          + CASE WHEN p.created_at >= datetime('now', '-7 days') THEN 6
+                 WHEN p.created_at >= datetime('now', '-30 days') THEN 3 ELSE 0 END
+          + COALESCE(rt.recreate_count, 0) * 8
+          + COALESCE(rt.save_count, 0) * 4
+          + COALESCE(rt.like_count, 0)
+          - CASE WHEN EXISTS (
+                SELECT 1 FROM feed_view_events recent_view
+                WHERE recent_view.publication_id = p.id AND recent_view.viewer_key = ?
+                  AND recent_view.last_viewed_at >= ?
+            ) THEN 12 ELSE 0 END
+        """
+        score_params = [viewer, viewer, viewer, viewer, viewer_key, (datetime.now(timezone.utc) - FEED_VIEW_WINDOW).isoformat()]
+    elif feed_type == "top":
+        score_sql = "COALESCE(rt.recreate_count, 0) * 8 + COALESCE(rt.save_count, 0) * 4 + COALESCE(rt.like_count, 0)"
+
+    ranked_sql = f"""
+        WITH reaction_totals AS (
+            SELECT publication_id,
+                   SUM(CASE WHEN kind = 'like' THEN 1 ELSE 0 END) AS like_count,
+                   SUM(CASE WHEN kind = 'save' THEN 1 ELSE 0 END) AS save_count,
+                   SUM(CASE WHEN kind = 'recreate' THEN 1 ELSE 0 END) AS recreate_count
+            FROM feed_reactions GROUP BY publication_id
+        ), ranked AS (
+            SELECT p.*,
+                   COALESCE(rt.like_count, 0) AS like_count,
+                   COALESCE(rt.save_count, 0) AS save_count,
+                   COALESCE(rt.recreate_count, 0) AS recreate_count,
+                   ({score_sql}) AS rank_score
+            FROM feed_publications p
+            LEFT JOIN reaction_totals rt ON rt.publication_id = p.id
+            {joins}
+            WHERE {' AND '.join(where)}
+        )
+        SELECT * FROM ranked
+    """
+    params = [*score_params, *where_params]
+    if feed_type == "remix":
+        if cursor:
+            ranked_sql += " WHERE (recreate_count < ? OR (recreate_count = ? AND (save_count < ? OR (save_count = ? AND (created_at < ? OR (created_at = ? AND id < ?))))))"
+            params.extend([cursor["remix"], cursor["remix"], cursor["saves"], cursor["saves"], cursor["created"], cursor["created"], cursor["id"]])
+        ranked_sql += " ORDER BY recreate_count DESC, save_count DESC, created_at DESC, id DESC"
+    elif feed_type in {"for_you", "top"}:
+        if cursor:
+            ranked_sql += " WHERE (rank_score < ? OR (rank_score = ? AND (created_at < ? OR (created_at = ? AND id < ?))))"
+            params.extend([cursor["score"], cursor["score"], cursor["created"], cursor["created"], cursor["id"]])
+        ranked_sql += " ORDER BY rank_score DESC, created_at DESC, id DESC"
+    else:
+        if cursor:
+            ranked_sql += " WHERE (created_at < ? OR (created_at = ? AND id < ?))"
+            params.extend([cursor["created"], cursor["created"], cursor["id"]])
+        ranked_sql += " ORDER BY created_at DESC, id DESC"
+    ranked_sql += " LIMIT ?"
+    params.append(limit + 1)
+    return conn.execute(ranked_sql, params).fetchall()
+
+
 @app.get("/api/feed")
 async def feed_list(
     request: Request,
     type: str = "for_you",
     limit: int = 30,
     challenge_id: str | None = None,
+    cursor: str | None = None,
+    q: str | None = None,
+    signal: str = "all",
 ) -> dict[str, Any]:
     aliases = {"all": "for_you", "new": "fresh"}
     feed_type = aliases.get(type, type)
     if feed_type not in {"for_you", "fresh", "top", "remix", "challenge", "following"}:
         feed_type = "for_you"
     limit = max(1, min(int(limit or 30), 60))
+    query = str(q or "").strip()[:FEED_SEARCH_MAX_CHARS]
+    signal = signal if signal in {"all", "liked", "saved", "remixable"} else "all"
     viewer = _feed_optional_viewer(request)
+    viewer_key = _feed_viewer_key(request, viewer)
+    cursor_payload = _decode_feed_cursor(
+        cursor,
+        feed_type=feed_type,
+        query=query,
+        signal=signal,
+    )
     with db() as conn:
-        if feed_type == "following":
-            if not viewer:
-                rows = []
-            else:
-                rows = conn.execute(
-                    f"""
-                    SELECT p.* FROM feed_publications p
-                    JOIN feed_author_follows f ON f.author_internal_user_id = p.internal_user_id
-                    WHERE f.follower_internal_user_id = ?
-                      AND p.status = 'published'
-                      AND p.media_ready_at IS NOT NULL
-                      AND p.feed_thumb_name IS NOT NULL
-                      AND p.feed_large_name IS NOT NULL
-                      {FEED_VIEWER_VISIBLE_SQL}
-                    ORDER BY p.created_at DESC
-                    LIMIT ?
-                    """,
-                    (viewer, viewer, viewer, limit),
-                ).fetchall()
-        elif feed_type == "challenge":
-            challenge = None
-            if challenge_id:
-                challenge = conn.execute(
-                    "SELECT category FROM challenges WHERE id = ? AND status = 'active'",
-                    (challenge_id,),
-                ).fetchone()
-            category = _row_get(challenge, "category") or "challenge_moscow_2120"
-            rows = conn.execute(
-                f"""
-                SELECT p.* FROM feed_publications p
-                WHERE p.status = 'published'
-                  AND p.category = ?
-                  AND p.media_ready_at IS NOT NULL
-                  AND p.feed_thumb_name IS NOT NULL
-                  AND p.feed_large_name IS NOT NULL
-                  {FEED_VIEWER_VISIBLE_SQL}
-                ORDER BY p.created_at DESC
-                LIMIT ?
-                """,
-                (category, viewer, viewer, limit),
-            ).fetchall()
-        elif feed_type == "remix":
-            rows = conn.execute(
-                f"""
-                SELECT p.* FROM feed_publications p
-                LEFT JOIN feed_reactions r ON r.publication_id = p.id
-                WHERE p.status = 'published'
-                  AND p.media_ready_at IS NOT NULL
-                  AND p.feed_thumb_name IS NOT NULL
-                  AND p.feed_large_name IS NOT NULL
-                  {FEED_VIEWER_VISIBLE_SQL}
-                GROUP BY p.id
-                ORDER BY SUM(CASE WHEN r.kind = 'recreate' THEN 1 ELSE 0 END) DESC,
-                         SUM(CASE WHEN r.kind = 'save' THEN 1 ELSE 0 END) DESC,
-                         p.created_at DESC
-                LIMIT ?
-                """,
-                (viewer, viewer, limit),
-            ).fetchall()
-        elif feed_type == "top":
-            rows = conn.execute(
-                f"""
-                SELECT p.* FROM feed_publications p
-                LEFT JOIN feed_reactions r ON r.publication_id = p.id
-                WHERE p.status = 'published'
-                  AND p.media_ready_at IS NOT NULL
-                  AND p.feed_thumb_name IS NOT NULL
-                  AND p.feed_large_name IS NOT NULL
-                  {FEED_VIEWER_VISIBLE_SQL}
-                GROUP BY p.id
-                ORDER BY SUM(CASE WHEN r.kind IN ('like', 'save', 'recreate') THEN 1 ELSE 0 END) DESC,
-                         p.created_at DESC
-                LIMIT ?
-                """,
-                (viewer, viewer, limit),
-            ).fetchall()
-        elif feed_type == "for_you":
-            rows = conn.execute(
-                f"""
-                SELECT p.* FROM feed_publications p
-                LEFT JOIN feed_reactions r ON r.publication_id = p.id
-                WHERE p.status = 'published'
-                  AND p.media_ready_at IS NOT NULL
-                  AND p.feed_thumb_name IS NOT NULL
-                  AND p.feed_large_name IS NOT NULL
-                  {FEED_VIEWER_VISIBLE_SQL}
-                GROUP BY p.id
-                ORDER BY
-                    CASE WHEN ? IS NOT NULL AND EXISTS (
-                      SELECT 1 FROM feed_author_follows preferred_author
-                      WHERE preferred_author.follower_internal_user_id = ?
-                        AND preferred_author.author_internal_user_id = p.internal_user_id
-                    ) THEN 18 ELSE 0 END
-                  + CASE WHEN ? IS NOT NULL AND EXISTS (
-                      SELECT 1
-                      FROM feed_reactions viewer_preference
-                      JOIN feed_publications preferred_publication
-                        ON preferred_publication.id = viewer_preference.publication_id
-                      WHERE viewer_preference.internal_user_id = ?
-                        AND viewer_preference.kind IN ('like', 'save', 'recreate')
-                        AND preferred_publication.id != p.id
-                        AND (
-                          (preferred_publication.category IS NOT NULL AND preferred_publication.category = p.category)
-                          OR (preferred_publication.source_type IS NOT NULL AND preferred_publication.source_type = p.source_type)
-                        )
-                    ) THEN 7 ELSE 0 END
-                  + SUM(CASE WHEN r.kind = 'recreate' THEN 8 ELSE 0 END)
-                  + SUM(CASE WHEN r.kind = 'save' THEN 4 ELSE 0 END)
-                  + SUM(CASE WHEN r.kind = 'like' THEN 1 ELSE 0 END) DESC,
-                  CASE WHEN p.category = 'challenge_moscow_2120' THEN 1 ELSE 0 END DESC,
-                  p.created_at DESC
-                LIMIT ?
-                """,
-                (viewer, viewer, viewer, viewer, viewer, viewer, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                f"""
-                SELECT p.* FROM feed_publications p
-                WHERE p.status = 'published'
-                  AND p.media_ready_at IS NOT NULL
-                  AND p.feed_thumb_name IS NOT NULL
-                  AND p.feed_large_name IS NOT NULL
-                  {FEED_VIEWER_VISIBLE_SQL}
-                ORDER BY p.created_at DESC
-                LIMIT ?
-                """,
-                (viewer, viewer, limit),
-            ).fetchall()
-        items = [_feed_item_payload(conn, pub, viewer) for pub in rows]
-    return {"ok": True, "type": feed_type, "items": items}
+        rows = _feed_list_rows(
+            conn,
+            feed_type=feed_type,
+            viewer=viewer,
+            viewer_key=viewer_key,
+            limit=limit,
+            challenge_id=challenge_id,
+            query=query,
+            signal=signal,
+            cursor=cursor_payload,
+        )
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+        payload_context = _feed_payload_context(conn, page_rows, viewer)
+        items = [_feed_item_payload(conn, pub, viewer, payload_context) for pub in page_rows]
+        unread_count = _feed_subscription_unread_count(conn, viewer)
+    return {
+        "ok": True,
+        "type": feed_type,
+        "items": items,
+        "nextCursor": _feed_cursor_for_row(
+            page_rows[-1],
+            feed_type=feed_type,
+            query=query,
+            signal=signal,
+        ) if has_more and page_rows else None,
+        "hasMore": has_more,
+        "followingUnreadCount": unread_count,
+    }
 
 
 @app.post("/api/feed/publications")
@@ -14759,7 +15072,10 @@ async def feed_unsave(publication_id: str, request: Request) -> dict[str, Any]:
 @app.post("/api/feed/publications/{publication_id}/view")
 async def feed_publication_view(publication_id: str, request: Request) -> dict[str, Any]:
     viewer = _feed_optional_viewer(request)
-    now = datetime.now(timezone.utc).isoformat()
+    viewer_key = _feed_viewer_key(request, viewer)
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat()
+    cutoff = (now_dt - FEED_VIEW_WINDOW).isoformat()
     with db() as conn:
         pub = conn.execute(
             "SELECT * FROM feed_publications WHERE id = ? AND status = 'published'",
@@ -14767,13 +15083,36 @@ async def feed_publication_view(publication_id: str, request: Request) -> dict[s
         ).fetchone()
         if pub is None:
             raise HTTPException(404, "Publication not found")
-        conn.execute(
-            "UPDATE feed_publications SET view_count = COALESCE(view_count, 0) + 1, updated_at = ? WHERE id = ?",
-            (now, publication_id),
-        )
+        event = conn.execute(
+            "SELECT last_viewed_at FROM feed_view_events WHERE publication_id = ? AND viewer_key = ?",
+            (publication_id, viewer_key),
+        ).fetchone()
+        accepted = event is None or str(event["last_viewed_at"]) < cutoff
+        if accepted:
+            conn.execute(
+                "UPDATE feed_publications SET view_count = COALESCE(view_count, 0) + 1, updated_at = ? WHERE id = ?",
+                (now, publication_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO feed_view_events
+                    (publication_id, viewer_key, first_viewed_at, last_viewed_at, accepted_view_count)
+                VALUES (?, ?, ?, ?, 1)
+                ON CONFLICT(publication_id, viewer_key) DO UPDATE SET
+                    last_viewed_at = excluded.last_viewed_at,
+                    accepted_view_count = feed_view_events.accepted_view_count + 1
+                """,
+                (publication_id, viewer_key, now, now),
+            )
+            retention_cutoff = (now_dt - FEED_VIEW_RETENTION).isoformat()
+            conn.execute(
+                "DELETE FROM feed_view_events WHERE rowid IN ("
+                "SELECT rowid FROM feed_view_events WHERE last_viewed_at < ? LIMIT 200)",
+                (retention_cutoff,),
+            )
         updated = conn.execute("SELECT * FROM feed_publications WHERE id = ?", (publication_id,)).fetchone()
         item = _feed_item_payload(conn, updated, viewer)
-    return {"ok": True, "publication": item}
+    return {"ok": True, "accepted": accepted, "windowHours": int(FEED_VIEW_WINDOW.total_seconds() // 3600), "publication": item}
 
 
 @app.post("/api/feed/publications/{publication_id}/dislike")
@@ -14890,8 +15229,43 @@ async def feed_author_publications(
             """,
             (author_id, viewer, viewer, limit),
         ).fetchall()
-        items = [_feed_item_payload(conn, pub, viewer) for pub in rows]
-    return {"ok": True, "authorId": author_id, "items": items}
+        context = _feed_payload_context(conn, rows, viewer)
+        items = [_feed_item_payload(conn, pub, viewer, context) for pub in rows]
+        summary = conn.execute(
+            """
+            WITH reaction_totals AS (
+                SELECT r.kind, COUNT(*) AS c
+                FROM feed_reactions r
+                JOIN feed_publications publication ON publication.id = r.publication_id
+                WHERE publication.internal_user_id = ? AND publication.status = 'published'
+                GROUP BY r.kind
+            )
+            SELECT
+                (SELECT COUNT(*) FROM feed_publications WHERE internal_user_id = ? AND status = 'published') AS publications,
+                (SELECT COALESCE(SUM(view_count), 0) FROM feed_publications WHERE internal_user_id = ? AND status = 'published') AS views,
+                COALESCE((SELECT c FROM reaction_totals WHERE kind = 'like'), 0) AS likes,
+                COALESCE((SELECT c FROM reaction_totals WHERE kind = 'save'), 0) AS saves,
+                COALESCE((SELECT c FROM reaction_totals WHERE kind = 'recreate'), 0) AS remixes
+            """,
+            (author_id, author_id, author_id),
+        ).fetchone()
+    return {"ok": True, "authorId": author_id, "items": items, "summary": dict(summary)}
+
+
+@app.post("/api/feed/following/read")
+async def feed_following_mark_read(request: Request) -> dict[str, Any]:
+    user = require_trusted_user(request)
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO feed_subscription_reads (internal_user_id, last_read_at)
+            VALUES (?, ?)
+            ON CONFLICT(internal_user_id) DO UPDATE SET last_read_at = excluded.last_read_at
+            """,
+            (user["internal_user_id"], now),
+        )
+    return {"ok": True, "lastReadAt": now, "unreadCount": 0}
 
 
 @app.get("/api/feed/challenges")

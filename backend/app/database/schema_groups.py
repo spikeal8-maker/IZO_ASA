@@ -272,6 +272,34 @@ def initialize_media_schema_group(conn: sqlite3.Connection) -> None:
         "ON feed_publications(moderation_status, created_at)"
     )
     conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feed_reactions_viewer_kind "
+        "ON feed_reactions(internal_user_id, kind, publication_id)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS feed_view_events ("
+        "publication_id TEXT NOT NULL, viewer_key TEXT NOT NULL, "
+        "first_viewed_at TEXT NOT NULL, last_viewed_at TEXT NOT NULL, "
+        "accepted_view_count INTEGER NOT NULL DEFAULT 1, "
+        "PRIMARY KEY (publication_id, viewer_key))"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feed_view_events_viewer_recent "
+        "ON feed_view_events(viewer_key, last_viewed_at DESC, publication_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feed_view_events_last_viewed "
+        "ON feed_view_events(last_viewed_at)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS feed_subscription_reads ("
+        "internal_user_id TEXT PRIMARY KEY, last_read_at TEXT NOT NULL)"
+    )
+    conn.execute(
+        "UPDATE feed_publications SET metric_origin = 'editorial_seed' "
+        "WHERE metric_origin = 'organic' "
+        "AND (internal_user_id LIKE 'seed_author_%' OR id LIKE 'seed-pub-%')"
+    )
+    conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_images_user_deleted_created "
         "ON images(user_id, deleted_at, created_at)"
     )

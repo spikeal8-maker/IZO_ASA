@@ -177,6 +177,9 @@ def test_identity_schema_is_idempotent_and_creates_auth_feed_tables(tmp_path):
         "event_logs",
         "feed_publications",
         "feed_reactions",
+        "feed_author_follows",
+        "feed_view_events",
+        "feed_subscription_reads",
         "challenges",
     } <= tables
 
@@ -354,6 +357,7 @@ def test_media_schema_group_is_import_safe_and_idempotent(tmp_path):
             "media_ready_at",
             "category",
             "generation_snapshot_json",
+            "metric_origin",
         } <= table_columns(conn, "feed_publications")
         assert {
             "children_json",

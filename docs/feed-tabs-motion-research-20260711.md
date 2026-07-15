@@ -208,6 +208,11 @@ right visual language for a content pager.
 - `Для вас` now adds viewer-aware author-follow and content-preference signals
   to the existing quality/recency ranking while retaining a guest fallback.
 
-Cursor pagination, a general multi-challenge selector, and a richer long-term
-interest model remain separate backend/product increments; they are not required
-for the corrected transition mechanics.
+- Cursor pagination is now implemented with 30-item pages, automatic loading,
+  an explicit fallback button, server search/filtering, and ID deduplication.
+- Subscription unread state is visible on the tab and cleared when the section
+  opens.
+
+A general multi-challenge selector and a richer long-term interest/diversity
+model remain separate product increments; they are not required for the
+corrected transition mechanics.

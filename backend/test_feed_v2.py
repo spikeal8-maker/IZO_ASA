@@ -267,7 +267,7 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "showToast(method === 'POST' ? 'Лайк поставлен' : 'Лайк снят'); await loadFeed" not in r.text
         assert "detail-panels" in r.text
         assert "authorTotals" in r.text
-        assert "function renderAuthorCard(item, authorWorks)" in r.text
+        assert "function renderAuthorCard(item, authorWorks, summary = null)" in r.text
         assert "author-work-count" in r.text
         assert "more-col" in r.text
         assert "overflow-y:auto;overflow-x:hidden" in r.text
@@ -299,14 +299,24 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert 'id="feedAdjacent"' in r.text
         assert "const feedCache = new Map()" in r.text
         assert "new AbortController()" in r.text
+        assert "const FEED_PAGE_SIZE = 30" in r.text
+        assert "nextCursor" in r.text
+        assert "new IntersectionObserver" in r.text
+        assert "X-Installation-Id" in r.text
+        assert 'id="followingBadge"' in r.text
         assert 'role="tabpanel"' in r.text
         assert "prefers-reduced-motion:reduce" in r.text
         assert "detail-owner-actions" not in r.text
         assert "избранных" in r.text
         assert "view_count" in r.text
+        assert "Демо-витрина" in r.text
+        assert "metric_origin" in r.text
+        assert "24 891 онлайн" not in r.text
         assert "/view" in r.text
         assert "data-panel=\"history\"" in r.text
         assert "function setActivePanel(name = '')" in r.text
+        assert ".panel-pane.history-list{display:none}" in r.text
+        assert ".panel-pane.history-list.active{display:grid}" in r.text
         assert "История создания" not in r.text
         assert "modalHistory" in r.text
         assert "function renderSourceHistory(item)" in r.text
@@ -319,6 +329,9 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert ".iv3.topbar-scope{--line:" in r.text
         assert "position:sticky;top:0;z-index:160" in r.text
         assert "mobile-bottom-nav" not in r.text
+        assert "@media (max-width:820px){:root{--top:54px}" in r.text
+        assert ".mode-feature{\n  position:relative;display:block;width:100%" in r.text
+        assert ".iv3.topbar-scope .mode-tabs{display:none}" in r.text
 
         asset = client.get("/static/feed/assets/mode_text.webp")
         assert asset.status_code == 200
@@ -471,21 +484,97 @@ def test_reactions_require_session_and_toggle(temp_db):
         assert r.json()["publication"]["remix_count"] == 1
 
 
-def test_feed_publication_view_count_is_public_and_incremented(temp_db):
+def test_feed_publication_view_count_is_public_and_deduplicated(temp_db):
     with TestClient(main.app) as client:
         token = make_user("iuid-view-author", "web_view_author")
         make_image("img-view", "web_view_author")
         pub = publish(client, token, "img-view")
 
     with TestClient(main.app) as anon:
-        r = anon.post(f"/api/feed/publications/{pub['id']}/view")
+        headers = {"X-Installation-Id": "install-viewer-a"}
+        r = anon.post(f"/api/feed/publications/{pub['id']}/view", headers=headers)
         assert r.status_code == 200
+        assert r.json()["accepted"] is True
         assert r.json()["publication"]["view_count"] == 1
-        r = anon.post(f"/api/feed/publications/{pub['id']}/view")
+        r = anon.post(f"/api/feed/publications/{pub['id']}/view", headers=headers)
+        assert r.json()["accepted"] is False
+        assert r.json()["publication"]["view_count"] == 1
+        r = anon.post(
+            f"/api/feed/publications/{pub['id']}/view",
+            headers={"X-Installation-Id": "install-viewer-b"},
+        )
+        assert r.json()["accepted"] is True
         assert r.json()["publication"]["view_count"] == 2
         feed = anon.get("/api/feed?type=new").json()
         item = next(i for i in feed["items"] if i["id"] == pub["id"])
         assert item["view_count"] == 2
+
+
+def test_feed_cursor_pagination_search_and_signal_filter(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-pages", "web_pages", display_name="Автор Пагинации")
+        with main.db() as conn:
+            image_rows = []
+            publication_rows = []
+            for index in range(67):
+                image_id = f"img-page-{index:02d}"
+                publication_id = f"pub-page-{index:02d}"
+                created_at = f"2026-07-14T12:{index // 60:02d}:{index % 60:02d}+00:00"
+                image_rows.append((
+                    image_id, "web_pages", f"job-page-{index:02d}",
+                    f"/api/media/{image_id}.png", f"/api/media/{image_id}.webp",
+                    "город будущего", created_at,
+                ))
+                title = "Единственный янтарный маяк" if index == 31 else f"Публикация {index:02d}"
+                publication_rows.append((
+                    publication_id, image_id, "iuid-pages", "web_pages", title,
+                    f"{publication_id}.webp", f"{publication_id}.jpg", created_at, created_at,
+                ))
+            conn.executemany(
+                """
+                INSERT INTO images (
+                    id, user_id, job_id, url, thumbnail_url, width, height, mode,
+                    provider, prompt_original, settings_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, 1024, 1024, 'text_to_image', 'comfyui', ?, '{}', ?)
+                """,
+                image_rows,
+            )
+            conn.executemany(
+                """
+                INSERT INTO feed_publications (
+                    id, image_id, internal_user_id, legacy_user_id, title, status,
+                    feed_thumb_name, feed_large_name, media_ready_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, 'published', ?, ?, ?, ?)
+                """,
+                publication_rows,
+            )
+
+        collected = []
+        cursor = None
+        while True:
+            suffix = f"&cursor={cursor}" if cursor else ""
+            response = client.get(f"/api/feed?type=fresh&limit=25{suffix}")
+            assert response.status_code == 200, response.text
+            page = response.json()
+            collected.extend(item["id"] for item in page["items"])
+            cursor = page["nextCursor"]
+            if not page["hasMore"]:
+                break
+        assert len(collected) == 67
+        assert len(set(collected)) == 67
+
+        search = client.get("/api/feed?type=fresh&q=янтарный%20маяк")
+        assert search.status_code == 200
+        assert [item["title"] for item in search.json()["items"]] == ["Единственный янтарный маяк"]
+
+        first = client.get("/api/feed?type=fresh&limit=1").json()
+        mismatched = client.get(f"/api/feed?type=fresh&limit=1&q=другое&cursor={first['nextCursor']}")
+        assert mismatched.status_code == 400
+
+        target = collected[0]
+        assert client.post(f"/api/feed/publications/{target}/save", headers=bearer(token)).status_code == 200
+        saved = client.get("/api/feed?type=fresh&signal=saved", headers=bearer(token)).json()
+        assert [item["id"] for item in saved["items"]] == [target]
 
 
 def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
@@ -544,6 +633,13 @@ def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
         ).json()
         assert {item["id"] for item in author_items["items"]} == {pub_a["id"], pub_b["id"], pub_c["id"]}
         assert all(item["author"]["displayName"] == "Тимур Ким" for item in author_items["items"])
+        assert author_items["summary"]["publications"] == 3
+        assert author_items["summary"]["remixes"] == 1
+
+        assert following["followingUnreadCount"] == 3
+        marked_read = client.post("/api/feed/following/read", headers=bearer(viewer_token))
+        assert marked_read.status_code == 200
+        assert client.get("/api/feed?type=following", headers=bearer(viewer_token)).json()["followingUnreadCount"] == 0
 
         disliked = client.post(
             f"/api/feed/publications/{pub_b['id']}/dislike",
@@ -1499,7 +1595,13 @@ def test_init_db_idempotent_with_feed_tables(temp_db):
     main.init_db()
     main.init_db()
     with main.db() as conn:
-        for table in ("feed_publications", "feed_reactions"):
+        for table in (
+            "feed_publications",
+            "feed_reactions",
+            "feed_author_follows",
+            "feed_view_events",
+            "feed_subscription_reads",
+        ):
             row = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
             ).fetchone()
@@ -1535,6 +1637,7 @@ def test_init_db_has_feed_media_contract_columns(temp_db):
         "moderated_at",
         "moderated_by_internal_user_id",
         "source_job_id",
+        "metric_origin",
     }
     assert expected <= columns
 
@@ -1557,6 +1660,9 @@ def test_init_db_has_media_query_indexes(temp_db):
         "idx_feed_publications_category_ready_created",
         "idx_feed_publications_legacy_ready_created",
         "idx_feed_publications_moderation_created",
+        "idx_feed_reactions_viewer_kind",
+        "idx_feed_view_events_viewer_recent",
+        "idx_feed_view_events_last_viewed",
     }
     assert expected <= indexes
 
@@ -1617,7 +1723,7 @@ def test_seed_demo_migrate_assigns_demo_authors_and_reactions(temp_db):
     assert report["changed_publications"] == 2
     with main.db() as conn:
         seed = conn.execute(
-            "SELECT internal_user_id, legacy_user_id, category, source_label FROM feed_publications WHERE id = 'seed-pub-01'"
+            "SELECT internal_user_id, legacy_user_id, category, source_label, metric_origin FROM feed_publications WHERE id = 'seed-pub-01'"
         ).fetchone()
         real = conn.execute(
             "SELECT internal_user_id, legacy_user_id FROM feed_publications WHERE id = 'real-pub-01'"
@@ -1640,6 +1746,7 @@ def test_seed_demo_migrate_assigns_demo_authors_and_reactions(temp_db):
     assert seed["legacy_user_id"].startswith("seed_author_")
     assert seed["category"] == "challenge_moscow_2120"
     assert seed["source_label"] != "Выбор редакции"
+    assert seed["metric_origin"] == "editorial_seed"
     assert real["internal_user_id"] == "iuid_real"
     assert real["legacy_user_id"] == "web_real"
     assert reactions > 0

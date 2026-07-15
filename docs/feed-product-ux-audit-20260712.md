@@ -1,16 +1,18 @@
 # Feed Product And UX Audit
 
-Date: 2026-07-12.
+Date: 2026-07-15. Live-data figures below remain the 2026-07-12 snapshot.
 
 Scope: only `/feed`, feed tables/API, feed content, ranking, cards, detail view,
 desktop/mobile behavior, and feed documentation.
 
 ## Executive Assessment
 
-The feed has a sound public-media foundation and a much more stable tab pager
-than its earlier implementation. It is not yet a mature social discovery
-surface. The largest current gaps are social proof, trustworthy analytics,
-pagination, content curation, and stronger differentiation between sections.
+The feed has a sound public-media foundation, stable tab pager, complete cursor
+reachability, server search/filtering, bounded unique-view accounting, and
+working subscription unread state. It is now a credible public browsing
+surface, but still needs production telemetry, recommendation explanations,
+author diversity, and broader challenge semantics before it is a mature social
+discovery product.
 
 ## Live Data Snapshot
 
@@ -68,29 +70,34 @@ Do not fabricate follows from real accounts. If editorial demo social proof is
 needed, create follows only among clearly identified demo authors through an
 audited seed migration.
 
-### P0: analytics are not yet trustworthy as product metrics
+### P0: analytics origin and repeat views
 
 The very high demo view/like totals and zero follows create an implausible
 conversion funnel. Demo counters are useful visually, but must be distinguishable
 from organic production analytics in database reporting.
 
-Recommended schema addition:
+Implemented 2026-07-15:
 
-- `metric_origin`: `organic | editorial_seed | imported`;
-- event-level unique-view aggregation by viewer/installation and time window;
-- dashboards should exclude editorial seed activity by default.
+- `metric_origin` distinguishes `organic` and `editorial_seed` publications;
+- seeded reaction totals are explicitly labelled in the opened card;
+- a view is accepted once per user/installation in a six-hour window;
+- anonymous keys are hashed and view events are retained for 90 days;
+- reporting can exclude editorial seed activity without ID conventions.
 
-### P1: only 60 of 67 publications are reachable per request
+Still required: a production analytics dashboard and migration policy for a
+future explicit `imported` source.
 
-Every tab has a hard limit of 60 and no cursor. Search/filtering is performed on
-the loaded subset, so some public work is unreachable through normal browsing.
+### P1: publication reachability and discovery
 
-Recommended:
+Resolved 2026-07-15:
 
-- opaque cursor based on the tab's ordering tuple;
-- infinite loading before the user reaches the end;
-- server-side search and personal filters;
-- deduplication by publication ID when appending pages.
+- opaque cursors use each section's complete ordering tuple;
+- the initial 30-item page extends through automatic loading and a manual
+  fallback button;
+- search and personal filters run before pagination on the server;
+- appended pages deduplicate publication IDs;
+- automated coverage walks 67 records through three cursor pages with no loss
+  or duplication.
 
 ### P1: section promises and data differ
 
@@ -102,7 +109,8 @@ Recommended:
   not only raw recreate reactions.
 - `Челленджи` is plural but backed by one default category. Use singular until
   a real active-challenge selector exists.
-- `Подписки` needs onboarding when empty and unread/new-publication indicators.
+- `Подписки` has an honest empty message and unread/new-publication indicator;
+  a richer author-discovery onboarding route remains desirable.
 
 ### P1: content curation and brand safety
 
@@ -129,10 +137,12 @@ and should rank fully reproducible works higher when quality is comparable.
 
 ### P2: database indexes and lifecycle
 
-The personalized ranking now reads reactions by viewer. Add and audit an index
-on `(internal_user_id, kind, publication_id)` before traffic grows. Add retention
-and audit rules for follows, reports, hides, and view events. Follow/unfollow must
-remain idempotent and must never alter publication ownership or gallery media.
+The personalized ranking index `(internal_user_id, kind, publication_id)` is
+installed and audited. View lookup and retention have dedicated indexes;
+anonymous view keys are hashed and old events are removed in bounded batches.
+Follow/unfollow remains idempotent and does not alter publication ownership or
+gallery media. Explicit lifecycle policy for other personal reaction events is
+still required.
 
 ## Recommended Feed Experience
 
@@ -178,7 +188,8 @@ separation without copying its presentation.
 - Tab switch from cache: p95 under 300 ms with zero layout collapse.
 - No stale response can replace the selected tab.
 - Follow action updates every visible representation immediately.
-- Follower count is visible on grid, detail author card, and public profile.
+- Follower count is visible in the opened author context and public profile;
+  image-preview metrics remain limited to the publication itself.
 - At least 95% of active public publications are reachable through pagination.
 - Track follow-after-profile-open, save rate, successful-remix rate, hide rate,
   and seven-day return rate separately for each feed section.

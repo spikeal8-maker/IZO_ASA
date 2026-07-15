@@ -129,7 +129,7 @@ def migrate_seed_demo_feed(*, apply: bool = False) -> dict[str, Any]:
                     """
                     UPDATE feed_publications
                     SET internal_user_id = ?, legacy_user_id = ?, category = ?,
-                        source_type = ?, source_label = ?, updated_at = ?
+                        source_type = ?, source_label = ?, metric_origin = 'editorial_seed', updated_at = ?
                     WHERE id = ?
                     """,
                     (

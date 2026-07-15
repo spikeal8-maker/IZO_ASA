@@ -597,6 +597,7 @@ CREATE TABLE IF NOT EXISTS auth_identities (
                 moderated_at TEXT,
                 moderated_by_internal_user_id TEXT,
                 source_job_id TEXT,
+                metric_origin TEXT NOT NULL DEFAULT 'organic',
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_feed_publications_status_created
@@ -613,6 +614,8 @@ CREATE TABLE IF NOT EXISTS auth_identities (
             );
             CREATE INDEX IF NOT EXISTS idx_feed_reactions_publication
                 ON feed_reactions(publication_id, kind);
+            CREATE INDEX IF NOT EXISTS idx_feed_reactions_viewer_kind
+                ON feed_reactions(internal_user_id, kind, publication_id);
 
             CREATE TABLE IF NOT EXISTS feed_author_follows (
                 follower_internal_user_id TEXT NOT NULL,
@@ -622,6 +625,24 @@ CREATE TABLE IF NOT EXISTS auth_identities (
             );
             CREATE INDEX IF NOT EXISTS idx_feed_author_follows_author
                 ON feed_author_follows(author_internal_user_id);
+
+            CREATE TABLE IF NOT EXISTS feed_view_events (
+                publication_id TEXT NOT NULL,
+                viewer_key TEXT NOT NULL,
+                first_viewed_at TEXT NOT NULL,
+                last_viewed_at TEXT NOT NULL,
+                accepted_view_count INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (publication_id, viewer_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_feed_view_events_viewer_recent
+                ON feed_view_events(viewer_key, last_viewed_at DESC, publication_id);
+            CREATE INDEX IF NOT EXISTS idx_feed_view_events_last_viewed
+                ON feed_view_events(last_viewed_at);
+
+            CREATE TABLE IF NOT EXISTS feed_subscription_reads (
+                internal_user_id TEXT PRIMARY KEY,
+                last_read_at TEXT NOT NULL
+            );
 
             CREATE TABLE IF NOT EXISTS challenges (
                 id TEXT PRIMARY KEY,

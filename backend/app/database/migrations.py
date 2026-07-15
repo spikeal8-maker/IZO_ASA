@@ -119,6 +119,7 @@ FEED_PUBLICATION_ADDITIVE_COLUMNS = {
     "moderated_at": "TEXT",
     "moderated_by_internal_user_id": "TEXT",
     "source_job_id": "TEXT",
+    "metric_origin": "TEXT NOT NULL DEFAULT 'organic'",
 }
 
 IMAGE_SOURCE_ADDITIVE_COLUMNS = {
