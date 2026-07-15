@@ -329,10 +329,16 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert ".iv3.topbar-scope{--line:" in r.text
         assert "position:sticky;top:0;z-index:160" in r.text
         assert "mobile-bottom-nav" not in r.text
-        assert "@media (max-width:820px){:root{--top:54px}" in r.text
+        assert "@media (max-width:820px){:root{--top:77px}" in r.text
         normalized_html = r.text.replace("\r\n", "\n")
         assert ".mode-feature{\n  position:relative;display:block;width:100%" in normalized_html
-        assert ".iv3.topbar-scope .mode-tabs{display:none}" in r.text
+        assert "grid-template-rows:31px 28px" in r.text
+        assert ".iv3.topbar-scope .mode-tabs{grid-column:1/-1;grid-row:2;display:grid" in r.text
+        assert 'id="videoTopTab"' in r.text
+        assert 'href="/#video"' in r.text
+        assert "data.account?.video_enabled" in r.text
+        assert "videoTopTab.classList.remove('disabled')" in r.text
+        assert '<span class="user-label">Войти</span>' in r.text
 
         asset = client.get("/static/feed/assets/mode_text.webp")
         assert asset.status_code == 200

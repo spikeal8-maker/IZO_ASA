@@ -269,6 +269,7 @@ function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   if (h === '#editor') return { view: 'tabs', tab: 'edit' }
   if (h === '#face' || h === '#face-to-image') return { view: 'tabs', tab: 'edit' }
   if (h === '#draw' || h === '#drawing' || h === '#paint') return { view: 'tabs', tab: 'paint' }
+  if (h === '#video') return { view: 'tabs', tab: 'video' }
   if (h === '#text-to-image') return { view: 'tabs', tab: 'text' }
   if (p === '/paint' || p.startsWith('/paint/') || p === '/new/paint' || p.startsWith('/new/paint/')) return { view: 'tabs', tab: 'paint' }
   // /feed is owned by backend/static/feed/index.html. If the SPA is ever served
