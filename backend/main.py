@@ -107,6 +107,7 @@ try:
         fetch_ollama_models_status,
         fetch_openrouter_image_model_documents,
         fetch_openrouter_key_details,
+        fetch_openrouter_audio_input_models,
         fetch_openrouter_text_models,
         format_openrouter_public_error,
         free_comfyui_memory as integration_free_comfyui_memory,
@@ -158,6 +159,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         fetch_ollama_models_status,
         fetch_openrouter_image_model_documents,
         fetch_openrouter_key_details,
+        fetch_openrouter_audio_input_models,
         fetch_openrouter_text_models,
         format_openrouter_public_error,
         free_comfyui_memory as integration_free_comfyui_memory,
@@ -5270,6 +5272,7 @@ async def qwen_asr_status(config: dict[str, Any] | None = None) -> dict[str, Any
 
 
 _openrouter_text_model_cache: dict[str, Any] = {"ts": 0.0, "models": []}
+_openrouter_audio_model_cache: dict[str, Any] = {"ts": 0.0, "models": []}
 
 
 async def openrouter_text_models(force: bool = False) -> list[dict[str, Any]]:
@@ -5284,6 +5287,21 @@ async def openrouter_text_models(force: bool = False) -> list[dict[str, Any]]:
         timeout_seconds=15,
     )
     _openrouter_text_model_cache.update({"ts": now, "models": models})
+    return models
+
+
+async def openrouter_audio_models(force: bool = False) -> list[dict[str, Any]]:
+    now = time.monotonic()
+    cached = _openrouter_audio_model_cache.get("models")
+    if not force and isinstance(cached, list) and cached and now - float(_openrouter_audio_model_cache.get("ts") or 0) < 3600:
+        return cached
+    headers = openrouter_headers() if openrouter_api_key() else {"Content-Type": "application/json"}
+    models = await fetch_openrouter_audio_input_models(
+        base_url=OPENROUTER_BASE_URL,
+        headers=headers,
+        timeout_seconds=15,
+    )
+    _openrouter_audio_model_cache.update({"ts": now, "models": models})
     return models
 
 
@@ -12200,6 +12218,12 @@ async def admin_assistants(request: Request) -> dict[str, Any]:
     except Exception as exc:
         text_models = []
         text_models_error = type(exc).__name__
+    try:
+        audio_models = await openrouter_audio_models()
+        audio_models_error = None
+    except Exception as exc:
+        audio_models = []
+        audio_models_error = type(exc).__name__
     return {
         "ok": True,
         "config": config,
@@ -12208,6 +12232,8 @@ async def admin_assistants(request: Request) -> dict[str, Any]:
         "openrouterConfigured": bool(openrouter_api_key()),
         "openrouterModels": text_models,
         "openrouterModelsError": text_models_error,
+        "openrouterAudioModels": audio_models,
+        "openrouterAudioModelsError": audio_models_error,
     }
 
 
@@ -12366,7 +12392,7 @@ async def admin_test_voice_assistant(
     language: str = "ru",
 ) -> dict[str, Any]:
     require_trusted_admin(request)
-    if provider not in {"configured", "local", "qwen", "api"}:
+    if provider not in {"configured", "local", "qwen", "api", "auto"}:
         raise HTTPException(400, "Неизвестный голосовой провайдер.")
     audio = await file.read(8 * 1024 * 1024 + 1)
     if not audio:

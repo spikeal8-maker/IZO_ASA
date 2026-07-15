@@ -214,6 +214,8 @@ def parse_openrouter_text_models(payload: Any) -> list[dict[str, Any]]:
             output_per_million = float(pricing.get("completion") or 0) * 1_000_000
         except (TypeError, ValueError):
             input_per_million = output_per_million = 0
+        if input_per_million < 0 or output_per_million < 0:
+            continue
         model_id = str(row.get("id") or "").strip()
         if not model_id:
             continue
@@ -225,6 +227,41 @@ def parse_openrouter_text_models(payload: Any) -> list[dict[str, Any]]:
             "contextLength": int(row.get("context_length") or 0),
         })
     models.sort(key=lambda item: (item["name"].lower(), item["id"]))
+    return models
+
+
+def parse_openrouter_audio_input_models(payload: Any) -> list[dict[str, Any]]:
+    """Return models that accept audio and can answer with transcription text."""
+
+    rows = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), list) else []
+    models: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        architecture = row.get("architecture") if isinstance(row.get("architecture"), dict) else {}
+        inputs = architecture.get("input_modalities") if isinstance(architecture.get("input_modalities"), list) else []
+        outputs = architecture.get("output_modalities") if isinstance(architecture.get("output_modalities"), list) else []
+        if "audio" not in inputs or "text" not in outputs:
+            continue
+        model_id = str(row.get("id") or "").strip()
+        if not model_id:
+            continue
+        pricing = row.get("pricing") if isinstance(row.get("pricing"), dict) else {}
+        try:
+            input_per_million = float(pricing.get("prompt") or 0) * 1_000_000
+            output_per_million = float(pricing.get("completion") or 0) * 1_000_000
+        except (TypeError, ValueError):
+            input_per_million = output_per_million = 0
+        if input_per_million < 0 or output_per_million < 0:
+            continue
+        models.append({
+            "id": model_id,
+            "name": str(row.get("name") or model_id),
+            "inputPerMillionUsd": round(input_per_million, 6),
+            "outputPerMillionUsd": round(output_per_million, 6),
+            "contextLength": int(row.get("context_length") or 0),
+        })
+    models.sort(key=lambda item: (item["inputPerMillionUsd"] + item["outputPerMillionUsd"], item["name"].lower()))
     return models
 
 
@@ -248,6 +285,28 @@ async def fetch_openrouter_text_models(
     response.raise_for_status()
     payload = response.json() if response.content else {}
     return parse_openrouter_text_models(payload)
+
+
+async def fetch_openrouter_audio_input_models(
+    *,
+    base_url: str,
+    headers: dict[str, str],
+    timeout_seconds: float = 15,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch the OpenRouter catalog restricted to audio-input, text-output models."""
+
+    client_options: dict[str, Any] = {"timeout": timeout_seconds}
+    if transport is not None:
+        client_options["transport"] = transport
+    async with httpx.AsyncClient(**client_options) as client:
+        response = await client.get(
+            f"{base_url.rstrip('/')}/models?input_modalities=audio&output_modalities=text",
+            headers=headers,
+        )
+    response.raise_for_status()
+    payload = response.json() if response.content else {}
+    return parse_openrouter_audio_input_models(payload)
 
 
 async def fetch_openrouter_key_details(

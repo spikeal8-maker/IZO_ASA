@@ -14,6 +14,7 @@ from app.integrations.openrouter import (
     extract_openrouter_generation_cost,
     fetch_openrouter_key_details,
     fetch_openrouter_image_model_documents,
+    fetch_openrouter_audio_input_models,
     fetch_openrouter_text_models,
     format_openrouter_public_error,
     is_openrouter_size_error,
@@ -21,6 +22,7 @@ from app.integrations.openrouter import (
     normalize_openrouter_image_response_metadata,
     normalize_openrouter_model_capability,
     openrouter_error_message,
+    parse_openrouter_audio_input_models,
     parse_openrouter_text_models,
     request_openrouter_chat_completion,
     select_openrouter_first_image,
@@ -28,6 +30,36 @@ from app.integrations.openrouter import (
 
 
 TEXT_ARCHITECTURE = {"input_modalities": ["text"], "output_modalities": ["text"]}
+AUDIO_ARCHITECTURE = {"input_modalities": ["text", "audio"], "output_modalities": ["text"]}
+
+
+def test_audio_model_parser_only_keeps_audio_input_and_sorts_by_price():
+    payload = {"data": [
+        {"id": "audio/expensive", "name": "Expensive", "architecture": AUDIO_ARCHITECTURE, "pricing": {"prompt": "0.000002", "completion": "0.000003"}},
+        {"id": "audio/cheap", "name": "Cheap", "architecture": AUDIO_ARCHITECTURE, "pricing": {"prompt": "0.0000001", "completion": "0.0000002"}},
+        {"id": "openrouter/auto", "name": "Auto Router", "architecture": AUDIO_ARCHITECTURE, "pricing": {"prompt": "-1", "completion": "-1"}},
+        {"id": "text/only", "name": "Text", "architecture": TEXT_ARCHITECTURE, "pricing": {}},
+    ]}
+
+    assert [model["id"] for model in parse_openrouter_audio_input_models(payload)] == ["audio/cheap", "audio/expensive"]
+    assert parse_openrouter_audio_input_models(payload)[0]["inputPerMillionUsd"] == 0.1
+
+
+def test_audio_model_fetch_uses_modality_filters():
+    seen: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"data": [{"id": "audio/model", "architecture": AUDIO_ARCHITECTURE}]})
+
+    result = asyncio.run(fetch_openrouter_audio_input_models(
+        base_url="https://openrouter.test/api/v1/",
+        headers={"Authorization": "Bearer test"},
+        transport=httpx.MockTransport(handler),
+    ))
+
+    assert result[0]["id"] == "audio/model"
+    assert dict(seen[0].url.params) == {"input_modalities": "audio", "output_modalities": "text"}
 
 
 def test_text_model_parser_filters_modalities_prices_and_sorts():
