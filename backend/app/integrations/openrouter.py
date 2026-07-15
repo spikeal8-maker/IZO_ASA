@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Callable
+from urllib.parse import urljoin
 
 import httpx
 
@@ -450,6 +451,54 @@ async def fetch_openrouter_video_models(
     response.raise_for_status()
     payload = response.json() if response.content else {}
     return parse_openrouter_video_models(payload)
+
+
+async def submit_openrouter_video(
+    *,
+    base_url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    timeout_seconds: float = 30,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict[str, Any]:
+    """Submit one asynchronous video job using OpenRouter's native endpoint."""
+
+    client_options: dict[str, Any] = {"timeout": timeout_seconds}
+    if transport is not None:
+        client_options["transport"] = transport
+    async with httpx.AsyncClient(**client_options) as client:
+        response = await client.post(f"{base_url.rstrip('/')}/videos", headers=headers, json=payload)
+    response.raise_for_status()
+    data = response.json() if response.content else {}
+    if not isinstance(data, dict) or not str(data.get("id") or "").strip():
+        raise RuntimeError("OpenRouter did not return a video job id.")
+    return data
+
+
+async def poll_openrouter_video(
+    *,
+    base_url: str,
+    headers: dict[str, str],
+    job_id: str,
+    polling_url: str | None = None,
+    timeout_seconds: float = 30,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict[str, Any]:
+    """Read one video job state without starting an unbounded server poll loop."""
+
+    target = str(polling_url or "").strip()
+    if not target.startswith(("http://", "https://")):
+        target = urljoin(f"{base_url.rstrip('/')}/", target) if target else f"{base_url.rstrip('/')}/videos/{job_id}"
+    client_options: dict[str, Any] = {"timeout": timeout_seconds}
+    if transport is not None:
+        client_options["transport"] = transport
+    async with httpx.AsyncClient(**client_options) as client:
+        response = await client.get(target, headers=headers)
+    response.raise_for_status()
+    data = response.json() if response.content else {}
+    if not isinstance(data, dict):
+        raise RuntimeError("OpenRouter returned an invalid video job response.")
+    return data
 
 
 async def fetch_openrouter_key_details(

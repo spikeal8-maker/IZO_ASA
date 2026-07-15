@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
@@ -24,6 +25,21 @@ PERSISTED_JOB_SETTINGS_KEYS = (
 )
 
 COMPACTABLE_JOB_STATUSES = frozenset({"completed"})
+
+PUBLIC_SERVER_ERROR = "Сервер временно недоступен. Попробуйте ещё раз позже."
+_PRIVATE_ERROR_DETAILS = re.compile(
+    r"openai|openrouter|comfy\s*ui|coffee\s*ui|api[\s_-]*key|provider|endpoint|traceback|stack trace|"
+    r"insufficient[_\s-]*(?:credits?|quota)|billing|authentication failed|connection refused|econnrefused",
+    re.IGNORECASE,
+)
+
+
+def public_generation_error_message(value: Any) -> str:
+    """Keep provider diagnostics in storage while returning a neutral user message."""
+    message = str(value or "").strip()
+    if not message or _PRIVATE_ERROR_DETAILS.search(message):
+        return PUBLIC_SERVER_ERROR
+    return message
 
 
 def _compact_terminal_media(value: Any) -> Any:
@@ -69,6 +85,7 @@ def job_response_from_row(
 ) -> dict[str, Any]:
     settings = _safe_json_load(row["settings_json"]) or {}
     result_url = _row_get(image_row, "url") or settings.get("resultUrl")
+    public_error = public_generation_error_message(row["error_message"]) if row["error_message"] else None
     response: dict[str, Any] = {
         "id": row["id"],
         "userId": row["user_id"],
@@ -76,7 +93,7 @@ def job_response_from_row(
         "provider": row["provider"],
         "status": row["status"],
         "progress": row["progress"],
-        "message": row["error_message"] or ("Готово" if row["status"] == "completed" else row["status"]),
+        "message": public_error or ("Готово" if row["status"] == "completed" else row["status"]),
         "resultImageId": row["result_image_id"],
         "resultUrl": result_url,
         "thumbnailUrl": _row_get(image_row, "thumbnail_url"),
@@ -90,7 +107,7 @@ def job_response_from_row(
         else None,
     }
     if row["error_message"]:
-        response["error"] = row["error_message"]
+        response["error"] = public_error
     if image_row is not None:
         image_settings = _safe_json_load(_row_get(image_row, "settings_json")) or {}
         response.update(

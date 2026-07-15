@@ -10,6 +10,7 @@ const CommercePage = lazy(() => import('./CommercePage'))
 function isNewStudioRoute(path: string) {
   if (path === '/') return true
   if (path === '/paint' || path.startsWith('/paint/')) return true
+  if (path === '/video' || path.startsWith('/video/')) return true
   if (path === '/profile' || path.startsWith('/profile/')) return true
   return false
 }
@@ -18,6 +19,7 @@ function canonicalNewPath(path: string) {
   if (path === '/new' || path === '/new/') return '/'
   if (path === '/new/profile' || path.startsWith('/new/profile/')) return path.replace(/^\/new/, '')
   if (path === '/new/paint' || path.startsWith('/new/paint/')) return path.replace(/^\/new/, '')
+  if (path === '/new/video' || path.startsWith('/new/video/')) return path.replace(/^\/new/, '')
   if (path === '/new/gallery' || path.startsWith('/new/gallery/')) return path.replace(/^\/new/, '')
   return '/'
 }

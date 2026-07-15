@@ -8,6 +8,7 @@ from app.services.generation_jobs import (
     get_persisted_job_response,
     job_response_from_row,
     persist_job,
+    public_generation_error_message,
 )
 
 
@@ -97,6 +98,13 @@ def test_response_mapping_preserves_error_defaults_and_model_adapter() -> None:
     assert response["modelProfile"] == "display:fallback"
     assert response["generationTimeMs"] == 123
     assert response["openrouterBilling"] is None
+
+
+def test_provider_diagnostics_are_hidden_from_user_job_responses() -> None:
+    assert public_generation_error_message("OpenRouter API key has insufficient credits") == (
+        "Сервер временно недоступен. Попробуйте ещё раз позже."
+    )
+    assert public_generation_error_message("Проверьте исходное изображение") == "Проверьте исходное изображение"
 
 
 def test_persisted_lookup_prefers_result_id_then_latest_active_image() -> None:

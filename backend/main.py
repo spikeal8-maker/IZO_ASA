@@ -110,6 +110,7 @@ try:
         fetch_openrouter_audio_input_models,
         fetch_openrouter_text_models,
         fetch_openrouter_video_models,
+        poll_openrouter_video,
         format_openrouter_public_error,
         free_comfyui_memory as integration_free_comfyui_memory,
         is_openrouter_size_error,
@@ -129,6 +130,7 @@ try:
         request_max_bot_me,
         request_openrouter_chat_completion,
         request_openrouter_image,
+        submit_openrouter_video,
         requested_orientation,
         resolve_openrouter_image_model,
         resolve_openrouter_reference_value,
@@ -164,6 +166,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         fetch_openrouter_audio_input_models,
         fetch_openrouter_text_models,
         fetch_openrouter_video_models,
+        poll_openrouter_video,
         format_openrouter_public_error,
         free_comfyui_memory as integration_free_comfyui_memory,
         is_openrouter_size_error,
@@ -183,6 +186,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         request_max_bot_me,
         request_openrouter_chat_completion,
         request_openrouter_image,
+        submit_openrouter_video,
         requested_orientation,
         resolve_openrouter_image_model,
         resolve_openrouter_reference_value,
@@ -808,6 +812,25 @@ class GenerateRequest(BaseModel):
     outpaintMask: str | None = None
     canvas: str | None = None
     outpaint: dict[str, int | bool] | None = None
+
+
+class VideoGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["text_to_video", "image_to_video", "first_last_frame", "reference_to_video"] = "text_to_video"
+    model: str = Field(min_length=1, max_length=160)
+    prompt: str = Field(min_length=1, max_length=3000)
+    duration: int = Field(ge=1, le=60)
+    resolution: str = Field(min_length=2, max_length=20)
+    aspectRatio: str = Field(default="16:9", min_length=3, max_length=12)
+    generateAudio: bool = False
+    firstFrame: str | None = Field(default=None, max_length=16_000_000)
+    lastFrame: str | None = Field(default=None, max_length=16_000_000)
+    references: list[str] = Field(default_factory=list, max_length=4)
+
+    @property
+    def provider(self) -> str:
+        return "openrouter"
 
 
 LOCAL_TEXT_TO_IMAGE_STEPS = 4
@@ -5240,6 +5263,7 @@ def public_site_url(request: Request) -> str:
 
 
 OPENROUTER_GENERATION_MODES = {"text_to_image", "image_to_image", "edit"}
+OPENROUTER_VIDEO_MODES = ("text_to_video", "image_to_video", "first_last_frame", "reference_to_video")
 OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS = 6 * 60 * 60
 _openrouter_capability_cache: dict[str, Any] = {"ts": 0.0, "models": []}
 _openrouter_video_catalog_cache: dict[str, Any] = {"ts": 0.0, "models": []}
@@ -13677,6 +13701,281 @@ def openrouter_usage_stats() -> dict[str, Any]:
         "models": model_rows[:20],
         "modes": mode_rows,
     }
+
+
+def _video_pricing_rate(model: dict[str, Any], req: VideoGenerateRequest) -> tuple[float, str, str | None]:
+    pricing = model.get("pricingSkus") if isinstance(model.get("pricingSkus"), dict) else {}
+    resolution = req.resolution.lower()
+    prefix = "text_to_video_duration_seconds" if req.mode == "text_to_video" else "image_to_video_duration_seconds"
+    preferred = [
+        f"{prefix}_{resolution}",
+        f"duration_seconds_{'with' if req.generateAudio else 'without'}_audio_{resolution}",
+        f"duration_seconds_{resolution}",
+        prefix,
+        f"duration_seconds_{'with' if req.generateAudio else 'without'}_audio",
+        "duration_seconds",
+    ]
+    for key in preferred:
+        if isinstance(pricing.get(key), (int, float)):
+            return float(pricing[key]), "second", key
+    token_key = "video_tokens" if req.generateAudio or not isinstance(pricing.get("video_tokens_without_audio"), (int, float)) else "video_tokens_without_audio"
+    if isinstance(pricing.get(token_key), (int, float)):
+        return float(pricing[token_key]), "video_token", token_key
+    generic = next(((str(key), float(value)) for key, value in pricing.items() if isinstance(value, (int, float)) and "duration" in str(key)), None)
+    if generic:
+        return generic[1], "second", generic[0]
+    raise HTTPException(422, "Для выбранной видеомодели нет проверенной ставки.")
+
+
+def _video_size(model: dict[str, Any], resolution: str, aspect_ratio: str) -> tuple[int, int] | None:
+    ratio_parts = [int(value) for value in aspect_ratio.split(":") if value.isdigit()]
+    target_ratio = ratio_parts[0] / ratio_parts[1] if len(ratio_parts) == 2 and ratio_parts[1] else None
+    sizes: list[tuple[int, int]] = []
+    for raw in model.get("supportedSizes") or []:
+        match = re.fullmatch(r"(\d+)x(\d+)", str(raw).lower())
+        if match:
+            sizes.append((int(match.group(1)), int(match.group(2))))
+    if sizes and target_ratio:
+        return min(sizes, key=lambda size: abs(size[0] / size[1] - target_ratio))
+    short = int(re.sub(r"\D", "", resolution) or 720)
+    if target_ratio and target_ratio >= 1:
+        return max(short, round(short * target_ratio)), short
+    if target_ratio:
+        return short, max(short, round(short / target_ratio))
+    return None
+
+
+async def estimate_openrouter_video_billing(model: dict[str, Any], req: VideoGenerateRequest) -> dict[str, Any]:
+    rate_usd, unit, source_key = _video_pricing_rate(model, req)
+    billed_units = float(req.duration)
+    size = _video_size(model, req.resolution, req.aspectRatio)
+    if unit == "video_token":
+        if not size:
+            raise HTTPException(422, "Модель требует точный размер кадра для расчёта стоимости.")
+        billed_units = (size[0] * size[1] * req.duration * 24) / 1024
+    input_count = (1 if req.firstFrame else 0) + (1 if req.lastFrame else 0) + len(req.references)
+    image_fee = float((model.get("pricingSkus") or {}).get("cents_per_image_input") or 0) / 100 * input_count
+    cost_usd = rate_usd * billed_units + image_fee
+    exchange = await fetch_usd_rub_rate()
+    rate = exchange.get("rate")
+    if not isinstance(rate, (int, float)):
+        raise HTTPException(503, "Курс USD/RUB недоступен для расчёта видео.")
+    economy = openrouter_economy_settings()
+    effective_rate = float(rate) * (1 + OPENROUTER_USD_FEE_RATE)
+    cost_rub = cost_usd * effective_rate
+    tokens = openrouter_tokens_for_cost(cost_rub, 1, economy)
+    revenue = tokens * float(economy["tokenRub"])
+    return {
+        "billingStatus": "estimated", "modelId": model["id"], "pricingKey": source_key,
+        "unit": unit, "rateUsd": rate_usd, "billedUnits": round(billed_units, 4),
+        "estimatedCostUsd": round(cost_usd, 6), "estimatedCostRub": round(cost_rub, 4),
+        "effectiveUsdRub": round(effective_rate, 6), "exchangeRate": float(rate),
+        "tokenRub": economy["tokenRub"], "minMarginPercent": economy["minMarginPercent"],
+        "chargedTokens": tokens, "revenueRub": round(revenue, 4),
+        "profitRub": round(revenue - cost_rub, 4), "size": f"{size[0]}x{size[1]}" if size else None,
+    }
+
+
+def _video_job_payload(row: sqlite3.Row) -> dict[str, Any]:
+    settings = safe_json_load(row["settings_json"]) or {}
+    return {
+        "id": row["id"], "mode": row["mode"], "status": row["status"],
+        "progress": int(row["progress"] or 0), "prompt": row["prompt_original"] or "",
+        "error": row["error_message"], "createdAt": row["created_at"],
+        "completedAt": row["completed_at"], "model": settings.get("openrouterModel"),
+        "duration": settings.get("duration"), "resolution": settings.get("resolution"),
+        "aspectRatio": settings.get("aspectRatio"), "tokenCost": settings.get("tokenCost"),
+        "videoUrl": f"/api/video/media/{row['id']}" if settings.get("localFile") else None,
+    }
+
+
+def _allowed_video_models(catalog: list[dict[str, Any]], config: dict[str, Any], mode: str, plan: str, is_admin: bool) -> list[dict[str, Any]]:
+    enabled = set((config.get("enabled") or {}).get(mode) or [])
+    tier = set((((config.get("access") or {}).get(mode) or {}).get(plan)) or [])
+    allowed = enabled if is_admin else enabled.intersection(tier)
+    return [model for model in catalog if model.get("id") in allowed and mode in (model.get("modes") or [])]
+
+
+@app.get("/api/video/config")
+async def video_generation_config(request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    with db() as conn:
+        user = conn.execute("SELECT plan, role FROM users WHERE id = ?", (user_id,)).fetchone()
+        quota = gallery_quota_for_user(conn, user, user_id)
+    plan = str(_row_get(user, "plan") or "free").lower()
+    is_admin = str(_row_get(user, "role") or "") == "admin"
+    if not quota["video_enabled"] and not is_admin:
+        raise HTTPException(403, "Генерация видео доступна на тарифах Pro и Бизнес.")
+    catalog = await fetch_openrouter_video_catalog()
+    config = normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), catalog)
+    modes: dict[str, list[dict[str, Any]]] = {}
+    for mode in OPENROUTER_VIDEO_MODES:
+        modes[mode] = _allowed_video_models(catalog, config, mode, plan, is_admin)
+    return {"modes": modes, "plan": plan, "videoSlots": quota["video_slots"], "economy": openrouter_economy_settings()}
+
+
+@app.post("/api/video/generate")
+async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    with db() as conn:
+        user = conn.execute("SELECT plan, role FROM users WHERE id = ?", (user_id,)).fetchone()
+        quota = gallery_quota_for_user(conn, user, user_id)
+        used = int(conn.execute("SELECT COUNT(*) FROM jobs WHERE user_id = ? AND mode IN ('text_to_video','image_to_video','first_last_frame','reference_to_video') AND status = 'completed'", (user_id,)).fetchone()[0])
+    plan = str(_row_get(user, "plan") or "free").lower()
+    is_admin = str(_row_get(user, "role") or "") == "admin"
+    if (not quota["video_enabled"] or used >= int(quota["video_slots"] or 0)) and not is_admin:
+        raise HTTPException(403, "Лимит видео по тарифу исчерпан.")
+    catalog = await fetch_openrouter_video_catalog()
+    config = normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), catalog)
+    model = next((item for item in _allowed_video_models(catalog, config, req.mode, plan, is_admin) if item.get("id") == req.model), None)
+    if model is None:
+        raise HTTPException(403, "Эта видеомодель недоступна для режима и тарифа.")
+    if req.duration not in (model.get("supportedDurations") or []):
+        raise HTTPException(422, "Модель не поддерживает выбранную длительность.")
+    if req.resolution not in (model.get("supportedResolutions") or []):
+        raise HTTPException(422, "Модель не поддерживает выбранное разрешение.")
+    if req.aspectRatio not in (model.get("supportedAspectRatios") or []):
+        raise HTTPException(422, "Модель не поддерживает выбранный формат кадра.")
+    if req.mode == "image_to_video" and not req.firstFrame:
+        raise HTTPException(422, "Добавьте исходный кадр.")
+    if req.mode == "first_last_frame" and (not req.firstFrame or not req.lastFrame):
+        raise HTTPException(422, "Добавьте начальный и конечный кадры.")
+    if req.mode == "reference_to_video" and not req.references:
+        raise HTTPException(422, "Добавьте хотя бы один референс.")
+    billing = await estimate_openrouter_video_billing(model, req)
+    body: dict[str, Any] = {"model": req.model, "prompt": req.prompt.strip(), "duration": req.duration, "resolution": req.resolution, "aspect_ratio": req.aspectRatio, "generate_audio": req.generateAudio}
+    if req.firstFrame:
+        body["frame_images"] = [{"type": "image_url", "image_url": {"url": openrouter_reference_value(req.firstFrame)}, "frame_type": "first_frame"}]
+    if req.lastFrame:
+        body.setdefault("frame_images", []).append({"type": "image_url", "image_url": {"url": openrouter_reference_value(req.lastFrame)}, "frame_type": "last_frame"})
+    if req.references:
+        body["input_references"] = [{"type": "image_url", "image_url": {"url": openrouter_reference_value(value)}} for value in req.references]
+    job_id = f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        with db() as conn:
+            charge = charge_generation_tokens(conn, user_id, int(billing["chargedTokens"]), job_id, req, billing)
+            conn.execute("INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,settings_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (job_id, user_id, req.mode, "openrouter", "submitting", 5, req.prompt.strip(), json.dumps({"openrouterModel": req.model, "duration": req.duration, "resolution": req.resolution, "aspectRatio": req.aspectRatio, "generateAudio": req.generateAudio, "tokenCost": billing["chargedTokens"], "openrouterBilling": billing}, ensure_ascii=False), now))
+        submitted = await submit_openrouter_video(base_url=OPENROUTER_BASE_URL, headers=openrouter_headers(), payload=body)
+    except Exception as exc:
+        with db() as conn:
+            refund_generation_tokens(conn, job_id, reason="video_submit_failed")
+            conn.execute("UPDATE jobs SET status='failed',progress=100,error_message=?,completed_at=? WHERE id=?", (truncate_admin_text(str(exc), 500), datetime.now(timezone.utc).isoformat(), job_id))
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(502, f"Не удалось запустить видео: {truncate_admin_text(str(exc), 300)}") from exc
+    with db() as conn:
+        row = conn.execute("SELECT settings_json FROM jobs WHERE id=?", (job_id,)).fetchone()
+        settings = safe_json_load(row["settings_json"]) or {}
+        settings.update({"openrouterJobId": submitted["id"], "pollingUrl": submitted.get("polling_url"), "generationId": submitted.get("generation_id")})
+        conn.execute("UPDATE jobs SET status='queued',progress=10,settings_json=? WHERE id=?", (json.dumps(settings, ensure_ascii=False), job_id))
+    return {"id": job_id, "status": "queued", "progress": 10, "tokenCost": billing["chargedTokens"], "tokenBalance": charge["new_balance"]}
+
+
+@app.post("/api/video/estimate")
+async def estimate_video(req: VideoGenerateRequest, request: Request) -> dict[str, Any]:
+    trusted = require_trusted_user(request)
+    user_id = trusted["legacy_user_id"]
+    with db() as conn:
+        user = conn.execute("SELECT plan, role FROM users WHERE id = ?", (user_id,)).fetchone()
+    plan = str(_row_get(user, "plan") or "free").lower()
+    is_admin = str(_row_get(user, "role") or "") == "admin"
+    catalog = await fetch_openrouter_video_catalog()
+    config = normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), catalog)
+    model = next((item for item in _allowed_video_models(catalog, config, req.mode, plan, is_admin) if item.get("id") == req.model), None)
+    if model is None:
+        raise HTTPException(403, "Эта видеомодель недоступна для режима и тарифа.")
+    if req.duration not in (model.get("supportedDurations") or []):
+        raise HTTPException(422, "Модель не поддерживает выбранную длительность.")
+    if req.resolution not in (model.get("supportedResolutions") or []):
+        raise HTTPException(422, "Модель не поддерживает выбранное разрешение.")
+    if req.aspectRatio not in (model.get("supportedAspectRatios") or []):
+        raise HTTPException(422, "Модель не поддерживает выбранный формат кадра.")
+    return await estimate_openrouter_video_billing(model, req)
+
+
+async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
+    if row["status"] not in {"submitting", "queued", "pending", "in_progress"}:
+        return row
+    settings = safe_json_load(row["settings_json"]) or {}
+    external_id = str(settings.get("openrouterJobId") or "")
+    if not external_id:
+        return row
+    try:
+        state = await poll_openrouter_video(base_url=OPENROUTER_BASE_URL, headers=openrouter_headers(), job_id=external_id, polling_url=settings.get("pollingUrl"))
+    except Exception:
+        return row
+    status = str(state.get("status") or "pending")
+    progress = 55 if status == "in_progress" else 15
+    completed_at = None
+    error = None
+    if status == "completed":
+        progress = 100
+        urls = state.get("unsigned_urls") if isinstance(state.get("unsigned_urls"), list) else []
+        if urls:
+            async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
+                response = await client.get(str(urls[0]), headers=openrouter_headers())
+            response.raise_for_status()
+            if len(response.content) > 300 * 1024 * 1024:
+                raise HTTPException(502, "Полученное видео превышает лимит хранения.")
+            filename = f"{row['id']}.mp4"
+            (MEDIA / filename).write_bytes(response.content)
+            settings["localFile"] = filename
+        settings["openrouterUsage"] = state.get("usage") or {}
+        settings["openrouterCostUsd"] = (state.get("usage") or {}).get("cost")
+        billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
+        actual = (state.get("usage") or {}).get("cost")
+        if isinstance(actual, (int, float)):
+            actual_rub = float(actual) * float(billing.get("effectiveUsdRub") or 0)
+            actual_tokens = openrouter_tokens_for_cost(actual_rub, 1, {"tokenRub": billing.get("tokenRub", 5), "minMarginPercent": billing.get("minMarginPercent", 40)})
+            with db() as conn:
+                reconcile_openrouter_token_charge(conn, row["id"], actual_tokens)
+        completed_at = datetime.now(timezone.utc).isoformat()
+    elif status in {"failed", "cancelled", "expired"}:
+        progress = 100
+        error = str(state.get("error") or "OpenRouter не завершил генерацию видео.")
+        completed_at = datetime.now(timezone.utc).isoformat()
+        with db() as conn:
+            refund_generation_tokens(conn, row["id"], reason=f"video_{status}")
+    settings["pollingUrl"] = state.get("polling_url") or settings.get("pollingUrl")
+    with db() as conn:
+        conn.execute("UPDATE jobs SET status=?,progress=?,error_message=?,settings_json=?,completed_at=COALESCE(?,completed_at) WHERE id=?", (status, progress, error, json.dumps(settings, ensure_ascii=False), completed_at, row["id"]))
+        return conn.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone()
+
+
+@app.get("/api/video/jobs/{job_id}")
+async def get_video_job(job_id: str, request: Request) -> dict[str, Any]:
+    user_id = require_trusted_user(request)["legacy_user_id"]
+    with db() as conn:
+        row = conn.execute("SELECT * FROM jobs WHERE id=? AND user_id=? AND mode IN ('text_to_video','image_to_video','first_last_frame','reference_to_video')", (job_id, user_id)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Видео-задание не найдено.")
+    row = await _refresh_video_job(row)
+    return _video_job_payload(row)
+
+
+@app.get("/api/video/history")
+async def video_history(request: Request, limit: int = 30) -> dict[str, Any]:
+    user_id = require_trusted_user(request)["legacy_user_id"]
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM jobs WHERE user_id=? AND mode IN ('text_to_video','image_to_video','first_last_frame','reference_to_video') ORDER BY created_at DESC LIMIT ?", (user_id, max(1, min(limit, 60)))).fetchall()
+    refreshed = [await _refresh_video_job(row) for row in rows[:5]] + list(rows[5:])
+    return {"items": [_video_job_payload(row) for row in refreshed]}
+
+
+@app.get("/api/video/media/{job_id}")
+async def video_media(job_id: str, request: Request) -> FileResponse:
+    user_id = require_trusted_user(request)["legacy_user_id"]
+    with db() as conn:
+        row = conn.execute("SELECT settings_json FROM jobs WHERE id=? AND user_id=? AND status='completed'", (job_id, user_id)).fetchone()
+    settings = safe_json_load(row["settings_json"]) if row else {}
+    filename = str((settings or {}).get("localFile") or "")
+    path = storage_resolve_under_root(MEDIA, filename) if filename else None
+    if path is None or not path.exists():
+        raise HTTPException(404, "Видеофайл не найден.")
+    return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=86400"})
 
 
 def openrouter_video_usage_stats() -> dict[str, Any]:

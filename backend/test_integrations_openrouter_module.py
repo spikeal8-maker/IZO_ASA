@@ -29,8 +29,10 @@ from app.integrations.openrouter import (
     parse_openrouter_audio_input_models,
     parse_openrouter_text_models,
     parse_openrouter_video_models,
+    poll_openrouter_video,
     request_openrouter_chat_completion,
     select_openrouter_first_image,
+    submit_openrouter_video,
 )
 
 
@@ -1279,3 +1281,39 @@ def test_video_usage_stats_counts_unpriced_jobs_without_inventing_spend(monkeypa
     assert stats["costUsd"] == 1.75
     assert stats["avgCostUsd"] == 0.875
     assert stats["models"][0] == {"model": "video/a", "count": 2, "priced": 1, "costUsd": 0.5, "avgCostUsd": 0.5}
+
+
+def test_submit_openrouter_video_uses_native_async_endpoint():
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(202, json={"id": "video-job-1", "status": "pending", "polling_url": "/api/v1/videos/video-job-1"})
+
+    result = asyncio.run(submit_openrouter_video(
+        base_url="https://openrouter.ai/api/v1",
+        headers={"Authorization": "Bearer test"},
+        payload={"model": "google/veo", "prompt": "camera moves", "duration": 4},
+        transport=httpx.MockTransport(handler),
+    ))
+
+    assert seen == {"path": "/api/v1/videos", "body": {"model": "google/veo", "prompt": "camera moves", "duration": 4}}
+    assert result["id"] == "video-job-1"
+
+
+def test_poll_openrouter_video_resolves_relative_polling_url():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == httpx.URL("https://openrouter.ai/api/v1/videos/video-job-1")
+        return httpx.Response(200, json={"id": "video-job-1", "status": "completed", "unsigned_urls": ["https://cdn/video.mp4"], "usage": {"cost": 0.4}})
+
+    result = asyncio.run(poll_openrouter_video(
+        base_url="https://openrouter.ai/api/v1",
+        headers={"Authorization": "Bearer test"},
+        job_id="video-job-1",
+        polling_url="/api/v1/videos/video-job-1",
+        transport=httpx.MockTransport(handler),
+    ))
+
+    assert result["status"] == "completed"
+    assert result["usage"]["cost"] == 0.4

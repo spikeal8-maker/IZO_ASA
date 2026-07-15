@@ -52,7 +52,7 @@ export default function TopBarV3({
 }) {
   const selectMode = (mode: V3Mode) => {
     if (onSelectMode) onSelectMode(mode)
-    else goto(mode === 'paint' ? '/paint' : '/')
+    else goto(mode === 'paint' ? '/paint' : mode === 'video' ? '/video' : '/')
   }
   return (
     <header className="topbar">

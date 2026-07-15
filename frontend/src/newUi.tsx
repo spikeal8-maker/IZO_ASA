@@ -11,7 +11,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Lock, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun, Trash2, Undo2, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun, Trash2, Undo2, X } from 'lucide-react'
 import {
   AuthV2Modal,
   ensureSessionRefreshedV2,
@@ -41,7 +41,7 @@ import TopBarV3 from './TopBarV3'
 import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import ProfilePage, { type PublicProfileLink } from './ProfilePage'
-import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelPublicInfo, normalizeModelAccess, normalizeTariffs, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
+import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelOptions, modelPublicInfo, normalizeModelAccess, normalizeTariffs, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
 import { FORMAT_TO_PRICING_ID, IMAGE_RESOLUTIONS, normalizeResolutionId, type ImageResolution } from './resolutionPolicy'
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
@@ -60,6 +60,7 @@ import './newStudioV3.css'
 import previewPlaceholderUrl from './assets/preview-placeholder.jpg'
 
 const PaintWorkbench = lazy(() => import('./PaintWorkbench'))
+const VideoStudio = lazy(() => import('./VideoStudio'))
 
 const API = import.meta.env.VITE_API_BASE_URL || '/api'
 // Origin API-сервера для относительных media-URL из ответов backend
@@ -91,17 +92,25 @@ async function verifyPrivateImage(path: string): Promise<void> {
   await response.body?.cancel().catch(() => undefined)
 }
 
+const PRIVATE_ERROR_DETAILS = /(?:openai|openrouter|comfy\s*ui|coffee\s*ui|api[\s_-]*key|provider|endpoint|traceback|stack trace|insufficient[_\s-]*(?:credits?|quota)|billing|authentication failed|connection refused|econnrefused)/i
+
+function publicErrorText(message: string, fallback: string): string {
+  const normalized = message.trim()
+  if (!normalized || PRIVATE_ERROR_DETAILS.test(normalized)) return fallback
+  return normalized
+}
+
 function apiErrorText(detail: unknown, fallback: string): string {
-  if (typeof detail === 'string' && detail.trim()) return detail.trim()
+  if (typeof detail === 'string' && detail.trim()) return publicErrorText(detail, fallback)
   if (Array.isArray(detail)) {
     const messages = detail
       .map((item) => item && typeof item === 'object' && 'msg' in item ? String(item.msg || '') : '')
       .filter(Boolean)
-    if (messages.length) return messages.join('. ')
+    if (messages.length) return publicErrorText(messages.join('. '), fallback)
   }
   if (detail && typeof detail === 'object') {
     const value = detail as { code?: unknown; field?: unknown; message?: unknown }
-    if (typeof value.message === 'string' && value.message.trim()) return value.message.trim()
+    if (typeof value.message === 'string' && value.message.trim()) return publicErrorText(value.message, fallback)
     const field = typeof value.field === 'string' ? value.field : 'изображение'
     if (value.code === 'input_media_missing') return `Файл для поля «${field}» больше не найден. Выберите изображение заново.`
     if (value.code === 'input_media_unavailable') return `Изображение для поля «${field}» недоступно. Выберите свой файл или изображение из галереи.`
@@ -272,6 +281,7 @@ function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   if (h === '#video') return { view: 'tabs', tab: 'video' }
   if (h === '#text-to-image') return { view: 'tabs', tab: 'text' }
   if (p === '/paint' || p.startsWith('/paint/') || p === '/new/paint' || p.startsWith('/new/paint/')) return { view: 'tabs', tab: 'paint' }
+  if (p === '/video' || p.startsWith('/video/') || p === '/new/video' || p.startsWith('/new/video/')) return { view: 'tabs', tab: 'video' }
   // /feed is owned by backend/static/feed/index.html. If the SPA is ever served
   // for that path by a stale build or broken proxy, do not revive the old React feed.
   return { view: 'tabs', tab: 'text' }
@@ -679,7 +689,7 @@ function composePaintPrompt(basePrompt: string, userPrompt: string) {
 
 function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
   const locale = currentSeoLocale()
-  const path = view === 'profile' ? '/profile' : tab === 'paint' ? '/paint' : '/'
+  const path = view === 'profile' ? '/profile' : tab === 'paint' ? '/paint' : tab === 'video' ? '/video' : '/'
   const canonical = `https://izo.alikinas.ru${path}`
 
   if (view === 'profile') {
@@ -726,9 +736,8 @@ function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
     },
     video: {
       title: 'Видео — ИЗО АСА',
-      description: 'Раздел генерации видео в ИЗО АСА готовится к запуску.',
+      description: 'Создавайте видео по тексту, изображению, начальному и конечному кадру или набору референсов.',
       canonical,
-      robots: 'noindex, follow',
     },
   }
   const en: Record<N2Tab, SeoMeta> = {
@@ -759,9 +768,8 @@ function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
     },
     video: {
       title: 'Video — IZO ASA',
-      description: 'AI video generation in IZO ASA is being prepared for launch.',
+      description: 'Create videos from text, images, first and last frames, or visual references.',
       canonical,
-      robots: 'noindex, follow',
     },
   }
   return locale === 'en' ? en[tab] : ru[tab]
@@ -788,7 +796,7 @@ export default function NewStudio(): ReactElement {
       }
       setView('tabs')
       setTabState(next)
-      navTo(next === 'paint' ? '/paint' : '/')
+      navTo(next === 'paint' ? '/paint' : next === 'video' ? '/video' : '/')
     },
     [navTo],
   )
@@ -1004,6 +1012,7 @@ export default function NewStudio(): ReactElement {
   const [quality, setQuality] = useState(initialStudioDraft.quality || 'fast')
   const [proMode, setProMode] = useState(false)
   const [proModelChoices, setProModelChoices] = useState<Partial<Record<ModelModeKey, string>>>({})
+  const [proModelDetails, setProModelDetails] = useState<Partial<Record<ModelModeKey, string>>>({})
   const [studioModelSort, setStudioModelSort] = useState<StudioModelSort>('tokens-asc')
   const [seed, setSeed] = useState(initialStudioDraft.seed || 0)
   const [guidance] = useState(3.5)
@@ -1024,8 +1033,7 @@ export default function NewStudio(): ReactElement {
   const [openrouterPricing, setOpenrouterPricing] = useState<Record<string, PublicModelPricing>>({})
   const activeTariffKey = (String(me?.account?.plan || 'mini').toLowerCase() in tariffs ? String(me?.account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
   const activeTariff = tariffs[activeTariffKey] || DEFAULT_TARIFFS[activeTariffKey] || DEFAULT_TARIFFS.mini
-  const proModeAllowed = Boolean(activeTariff.pro_mode_enabled)
-  const effectiveProMode = proModeAllowed && proMode
+  const effectiveProMode = proMode
   const [userModelChoices, setUserModelChoices] = useState<UserModelChoices>(() => {
     try {
       const raw = window.localStorage.getItem('izo:user-model-choices')
@@ -1558,7 +1566,7 @@ export default function NewStudio(): ReactElement {
           }
           void refreshAuthStateV2()
         } else if (next.status === 'failed') {
-          setNotice(next.error || 'Генерация не удалась. Попробуйте ещё раз.')
+          setNotice(apiErrorText(next.error, 'Сервер временно недоступен. Попробуйте ещё раз позже.'))
           if (jobMode === 'paint') {
             setResultError(true)
           } else {
@@ -2429,10 +2437,12 @@ export default function NewStudio(): ReactElement {
     })
     return sameFormat.includes(resolutionId) ? resolutionId : sameFormat[0] || allowed[0] || 'sq-sd'
   }
-  const visibleStudioModels = (currentModeAccess?.models || [])
-    .filter((model) => userModelVisibility[currentModelMode]?.[model.id] !== false)
   const studioModelEnabled = (model: ModelOption, mode: ModelModeKey = currentModelMode) => isRasterOpenRouterModel(model) && (model.provider !== 'openrouter' || mode === 'text_to_image' || mode === 'image_to_image' || mode === 'edit')
-  const selectableStudioModels = (visibleStudioModels.length ? visibleStudioModels : currentModeAccess?.models || [])
+  const accessibleStudioModelIds = new Set((currentModeAccess?.models || []).map((model) => model.id))
+  const studioModelCatalog = Array.from(new Map(
+    [...(currentModeAccess?.models || []), ...modelOptions].map((model) => [model.id, model]),
+  ).values())
+  const selectableStudioModels = studioModelCatalog
     .filter((model) => studioModelEnabled(model))
     .sort((a, b) => {
       if (studioModelSort === 'name-asc') return a.label.localeCompare(b.label, 'ru')
@@ -2441,6 +2451,8 @@ export default function NewStudio(): ReactElement {
       return tokenCostForModel(a) - tokenCostForModel(b) || a.label.localeCompare(b.label, 'ru')
     })
   function selectStudioModel(model: ModelOption) {
+    setProModelDetails((current) => ({ ...current, [currentModelMode]: model.id }))
+    if (!accessibleStudioModelIds.has(model.id)) return
     const supported = supportedFormatIdsForModel(model)
     const supportedResolutions = supportedResolutionIdsForModel(model)
     if (!supported.includes(currentFormatPricingId) || !supportedResolutions.includes(resolutionId)) {
@@ -2484,10 +2496,11 @@ export default function NewStudio(): ReactElement {
     return (chosen ? allowed.find((model) => model.id === chosen) : undefined) || studioSelectedModel(mode, preset)
   }
   const currentStudioModel = effectiveProMode ? studioProSelectedModel(currentModelMode, selectedQuality) : studioSelectedModel(currentModelMode, selectedQuality)
+  const inspectedStudioModel = selectableStudioModels.find((model) => model.id === proModelDetails[currentModelMode]) || currentStudioModel
+  const inspectedStudioModelAvailable = accessibleStudioModelIds.has(inspectedStudioModel.id)
   const editReferenceLimit = currentStudioModel.provider === 'openrouter'
     ? Math.max(2, Math.min(EDIT_SLOT_COUNT, currentStudioModel.generation?.maxInputReferences || 2))
     : EDIT_SLOT_COUNT
-  const currentStudioModelInfo = modelPublicInfo(currentStudioModel)
   const currentStudioTokenCost = tokenCostForModel(currentStudioModel)
   const currentSupportedFormatIds = supportedFormatIdsForModel(currentStudioModel)
   const currentSupportedResolutionIds = supportedResolutionIdsForModel(currentStudioModel)
@@ -2993,20 +3006,6 @@ export default function NewStudio(): ReactElement {
       <aside className="sidebar" data-studio-region="studio-form">
         <div className="sidebar-head">
           <h1>{studioTitle}</h1>
-          <button
-            className={`pro-button${effectiveProMode ? ' active' : ''}${!proModeAllowed ? ' locked' : ''}`}
-            type="button"
-            disabled={!proModeAllowed}
-            title={proModeAllowed ? undefined : 'Режим Профи доступен в старших тарифах'}
-            onClick={() => { if (proModeAllowed) setProMode((v) => !v) }}
-          >
-            {proModeAllowed ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-              </svg>
-            ) : <Lock size={16} strokeWidth={2.1} aria-hidden="true" />}
-            {proModeAllowed ? effectiveProMode ? 'Режим Стандарт' : 'Режим Профи' : 'Профи закрыт'}
-          </button>
         </div>
 
         {isI2IStudio && (
@@ -3425,8 +3424,21 @@ export default function NewStudio(): ReactElement {
 
         <section className="form-section quality-section">
           <div className="section-title studio-model-title">
-            <h2>{effectiveProMode ? 'Модель' : 'Качество'}</h2>
-            {effectiveProMode && <span>{currentModeAccess?.label || studioTitle}</span>}
+            <div className="studio-model-heading">
+              <h2>Качество</h2>
+              {effectiveProMode && <span>{currentModeAccess?.label || studioTitle}</span>}
+            </div>
+            <button
+              className={`pro-button quality-pro-toggle${effectiveProMode ? ' active' : ''}`}
+              type="button"
+              aria-pressed={effectiveProMode}
+              onClick={() => setProMode((value) => !value)}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              </svg>
+              {effectiveProMode ? 'Простой режим' : 'Режим Профи'}
+            </button>
           </div>
           {!effectiveProMode ? (
             <div className="quality-row">
@@ -3452,21 +3464,22 @@ export default function NewStudio(): ReactElement {
             <>
             <div className="studio-selected-model">
               <div className="studio-selected-head">
-                <strong>{currentStudioModel.label}</strong>
+                <strong>{inspectedStudioModel.label}</strong>
                 <span className="studio-selected-specs">
-                  <b>{currentStudioModelInfo.company}</b>
-                  <em>{currentStudioModelInfo.year}</em>
-                  <em>{pricingForModel(currentStudioModel)?.requestSize || `${selectedResolution.width}×${selectedResolution.height}`}</em>
+                  <b>{modelPublicInfo(inspectedStudioModel).company}</b>
+                  <em>{modelPublicInfo(inspectedStudioModel).year}</em>
+                  <em>{pricingForModel(inspectedStudioModel)?.requestSize || `${selectedResolution.width}×${selectedResolution.height}`}</em>
                   {isEditStudio && <em>до {editReferenceLimit} изображений</em>}
+                  {!inspectedStudioModelAvailable && <em className="studio-model-unavailable">Недоступна на вашем тарифе</em>}
                 </span>
               </div>
-              <p>{currentStudioModelInfo.description}</p>
+              <p>{modelPublicInfo(inspectedStudioModel).description}</p>
               <div className="studio-model-formats" aria-label="Стоимость по форматам">
-                {currentStudioModel.provider === 'openrouter'
-                  ? (openrouterPricing[currentStudioModel.id]?.formats || []).map((fmt) => (
-                    <span key={fmt.id} className={`${fmt.id === currentFormatPricingId ? 'active' : ''}${fmt.supported === false ? ' disabled' : ''}`.trim()}>{fmt.short}: {fmt.supported === false ? 'нет' : `${fmt.tokens ?? currentStudioModel.tokenHint}т`}</span>
+                {inspectedStudioModel.provider === 'openrouter'
+                  ? (openrouterPricing[inspectedStudioModel.id]?.formats || []).map((fmt) => (
+                    <span key={fmt.id} className={`${fmt.id === currentFormatPricingId ? 'active' : ''}${fmt.supported === false ? ' disabled' : ''}`.trim()}>{fmt.short}: {fmt.supported === false ? 'нет' : `${fmt.tokens ?? inspectedStudioModel.tokenHint}т`}</span>
                   ))
-                  : ['1:1', '9:16', '16:9', '3:2'].map((fmt) => <span key={fmt} className={fmt === formatName(currentFormatPricingId) ? 'active' : ''}>{fmt}: {currentStudioModel.tokenHint}т</span>)}
+                  : ['1:1', '9:16', '16:9', '3:2'].map((fmt) => <span key={fmt} className={fmt === formatName(currentFormatPricingId) ? 'active' : ''}>{fmt}: {inspectedStudioModel.tokenHint}т</span>)}
               </div>
             </div>
             <div className="studio-model-sort" aria-label="Сортировка моделей">
@@ -3477,18 +3490,20 @@ export default function NewStudio(): ReactElement {
             <div className="studio-model-list" role="listbox" aria-label={`Модели для ${currentModeAccess?.label || studioTitle}`}>
               {selectableStudioModels.map((model) => {
                 const active = currentStudioModel.id === model.id
+                const available = accessibleStudioModelIds.has(model.id)
                 const info = modelPublicInfo(model)
                 return (
                   <button
                     type="button"
                     key={`${currentModelMode}-${model.id}`}
-                    className={`studio-model-row${active ? ' active' : ''}`}
+                    className={`studio-model-row${active ? ' active' : ''}${available ? '' : ' unavailable'}`}
                     onClick={() => selectStudioModel(model)}
                     aria-selected={active}
+                    title={available ? 'Выбрать модель' : 'Посмотреть описание модели'}
                     role="option"
                   >
                     <span className="studio-model-main"><strong>{model.label}</strong><small>{info.strengths.slice(0, 2).join(' · ')}</small></span>
-                    <span className="studio-model-cost"><b>{tokenCostForModel(model)} ток.</b><small>{formatSummaryForModel(model)}</small></span>
+                    <span className="studio-model-cost"><b>{available ? `${tokenCostForModel(model)} ток.` : 'Недоступна'}</b><small>{formatSummaryForModel(model)}</small></span>
                   </button>
                 )
               })}
@@ -3538,20 +3553,6 @@ export default function NewStudio(): ReactElement {
               )}
             </div>
           )}
-          <button
-            className={`pro-button${effectiveProMode ? ' active' : ''}${!proModeAllowed ? ' locked' : ''}`}
-            type="button"
-            disabled={!proModeAllowed}
-            title={proModeAllowed ? undefined : 'Режим Профи доступен в старших тарифах'}
-            onClick={() => { if (proModeAllowed) setProMode((v) => !v) }}
-          >
-            {proModeAllowed ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="m4 19 1.4-11 4.4 4.4L12 5l2.2 7.4L18.6 8 20 19H4Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-              </svg>
-            ) : <Lock size={16} strokeWidth={2.1} aria-hidden="true" />}
-            {proModeAllowed ? effectiveProMode ? 'Режим Стандарт' : 'Режим Профи' : 'Профи закрыт'}
-          </button>
         </div>
         <ResilientRegion region="preview" label="Предпросмотр" fallbackClassName={`preview-image preview-shape-${visiblePreviewShape}`} render={() => (
         <div className={`preview-image preview-shape-${visiblePreviewShape}`} data-studio-region="preview">
@@ -4277,6 +4278,8 @@ export default function NewStudio(): ReactElement {
             <div className="iv3-content"><div className="preview-empty">Открываем ленту...</div></div>
           ) : tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'paint' ? (
             studio
+          ) : tab === 'video' ? (
+            <Suspense fallback={<div className="iv3-content"><div className="preview-empty">Загружаем видеостудию…</div></div>}><VideoStudio /></Suspense>
           ) : (
             placeholderStudio('Видео', 'Раздел видео открыт для тарифов Pro и Бизнес. Генерация видео будет подключена отдельным модулем.')
           )}
