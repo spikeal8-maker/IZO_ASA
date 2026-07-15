@@ -144,10 +144,8 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | GET | `/api/admin/settings` | `admin_get_settings` | 12174 | admin |
 | POST | `/api/admin/settings/{key}` | `admin_save_settings` | 12184 | admin |
 | GET | `/api/admin/assistants` | `admin_assistants` | 12212 | admin |
-| PUT | `/api/admin/mail/config-v2` | `admin_mail_config_v2` | 12241 | admin |
-| GET | `/api/admin/mail/provider-options-v2` | `admin_mail_provider_options_v2` | 12251 | admin |
-| POST | `/api/admin/mail/verify-v2` | `admin_mail_verify_v2` | 12264 | admin |
-| POST | `/api/admin/mail/lists-v2` | `admin_mail_create_list_v2` | 12281 | admin |
+| PUT | `/api/admin/mail/config-v2` | `admin_mail_config_v2` | 12271 | admin |
+| POST | `/api/admin/mail/verify-v2` | `admin_mail_verify_v2` | 12281 | admin |
 | GET | `/api/admin/payments/status-v2` | `admin_payments_status_v2` | 12295 | admin |
 | PUT | `/api/admin/payments/config-v2` | `admin_payments_config_v2` | 12330 | admin |
 | PUT | `/api/admin/payments/packages/{code}-v2` | `admin_payment_package_v2` | 12340 | admin |
@@ -491,11 +489,12 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | `migrate_openrouter_secret_from_sqlite` | function | 5037–5039 |
 | `save_openrouter_api_key` | function | 5042–5049 |
 | `delete_openrouter_api_key` | function | 5052–5056 |
-| `unisender_api_key` | function | 5059–5060 |
-| `unisender_config` | function | 5063–5067 |
-| `unisender_ready` | function | 5070–5072 |
-| `save_unisender_config` | function | 5075–5086 |
-| `save_unisender_api_key` | function | 5089–5096 |
+| `smtp_password` | function | 5065–5066 |
+| `smtp_config` | function | 5069–5082 |
+| `smtp_ready` | function | 5085–5087 |
+| `smtp_connection_config` | function | 5090–5097 |
+| `save_smtp_config` | function | 5100–5114 |
+| `save_smtp_password` | function | 5117–5124 |
 | `yookassa_secret_key` | function | 5099–5100 |
 | `yookassa_config` | function | 5103–5107 |
 | `yookassa_ready` | function | 5110–5112 |
@@ -757,10 +756,8 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | `admin_get_settings` | async function | 12174–12180 |
 | `admin_save_settings` | async function | 12184–12208 |
 | `admin_assistants` | async function | 12212–12237 |
-| `admin_mail_config_v2` | async function | 12241–12247 |
-| `admin_mail_provider_options_v2` | async function | 12251–12260 |
-| `admin_mail_verify_v2` | async function | 12264–12277 |
-| `admin_mail_create_list_v2` | async function | 12281–12291 |
+| `admin_mail_config_v2` | async function | 12272–12278 |
+| `admin_mail_verify_v2` | async function | 12282–12307 |
 | `admin_payments_status_v2` | async function | 12295–12326 |
 | `admin_payments_config_v2` | async function | 12330–12336 |
 | `admin_payment_package_v2` | async function | 12340–12354 |

@@ -1,126 +1,123 @@
 import { useCallback, useEffect, useState } from 'react'
-import { adminFetch, adminGet, adminPost, adminPut, type AdminRecord } from './adminApi'
+import { adminFetch, adminGet, type AdminRecord } from './adminApi'
+
+type RequestState = 'idle' | 'working' | 'ok' | 'error'
 
 export default function AdminMail() {
   const [data, setData] = useState<AdminRecord | null>(null)
-  const [email, setEmail] = useState('')
-  const [configMessage, setConfigMessage] = useState('')
-  const [testMessage, setTestMessage] = useState('')
-  const [apiKey, setApiKey] = useState('')
+  const [host, setHost] = useState('smtp.mail.ru')
+  const [port, setPort] = useState('465')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [senderName, setSenderName] = useState('ИЗО АСА')
   const [senderEmail, setSenderEmail] = useState('')
-  const [listId, setListId] = useState('')
-  const [lists, setLists] = useState<AdminRecord[]>([])
-  const [checking, setChecking] = useState(false)
+  const [testEmail, setTestEmail] = useState('')
+  const [connectionState, setConnectionState] = useState<RequestState>('idle')
+  const [connectionMessage, setConnectionMessage] = useState('')
+  const [testState, setTestState] = useState<RequestState>('idle')
+  const [testMessage, setTestMessage] = useState('')
+
   const load = useCallback(async () => {
     const next = await adminGet<AdminRecord>('/admin/mail/status-v2')
     const config = (next?.config || {}) as AdminRecord
     setData(next)
+    setHost(String(config.host || 'smtp.mail.ru'))
+    setPort(String(config.port || 465))
+    setUsername(String(config.username || ''))
     setSenderName(String(config.sender_name || 'ИЗО АСА'))
     setSenderEmail(String(config.sender_email || ''))
-    setListId(String(config.list_id || ''))
   }, [])
 
   useEffect(() => {
     queueMicrotask(() => { void load() })
   }, [load])
 
-  const saveConfig = async () => {
-    const result = await adminPut<AdminRecord>('/admin/mail/config-v2', {
-      api_key: apiKey.trim() || null,
-      sender_name: senderName.trim(),
-      sender_email: senderEmail.trim(),
-      list_id: Number(listId),
+  const request = async (path: string, body: AdminRecord) => {
+    const response = await adminFetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     })
-    setConfigMessage(result?.ok ? 'Отправитель и список сохранены' : 'Не удалось сохранить настройки')
-    if (result?.ok) setApiKey('')
-    await load()
+    const result = await response.json().catch(() => ({})) as AdminRecord
+    if (!response.ok) throw new Error(String(result.detail || 'Почтовый сервер не ответил'))
+    return result
+  }
+
+  const saveAndVerify = async () => {
+    setConnectionState('working')
+    setConnectionMessage('Проверяем соединение с почтовым сервером…')
+    try {
+      await request('/admin/mail/verify-v2', {
+        host: host.trim(), port: Number(port), username: username.trim(),
+        password: password.trim() || null, sender_name: senderName.trim(),
+        sender_email: senderEmail.trim(), use_ssl: true, save: true,
+      })
+      setPassword('')
+      setConnectionState('ok')
+      setConnectionMessage('Почта подключена. Настройки защищённо сохранены.')
+      await load()
+    } catch (cause) {
+      setConnectionState('error')
+      setConnectionMessage(cause instanceof Error ? cause.message : 'Не удалось подключить почту')
+    }
   }
 
   const sendTest = async () => {
-    const result = await adminPost<AdminRecord>('/admin/mail/test-v2', { email, template: 'verify_email' })
-    setTestMessage(result?.ok ? `Тест отправлен на ${String(result.email || email)}` : 'Не удалось отправить тест')
-    await load()
-  }
-  const providerRequest = async (path: string, body: AdminRecord) => {
-    const response = await adminFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    const result = await response.json().catch(() => ({})) as AdminRecord
-    if (!response.ok) throw new Error(String(result.detail || 'UniSender не ответил'))
-    return result
-  }
-  const checkProvider = async () => {
-    setChecking(true)
+    setTestState('working')
+    setTestMessage('Отправляем тестовое письмо…')
     try {
-      const result = await providerRequest('/admin/mail/verify-v2', { api_key: apiKey.trim() || null })
-      const nextLists = Array.isArray(result.lists) ? result.lists as AdminRecord[] : []
+      const result = await request('/admin/mail/test-v2', { email: testEmail.trim(), template: 'verify_email' })
+      setTestState('ok')
+      setTestMessage(`Письмо отправлено на ${String(result.email || testEmail)}`)
       await load()
-      setLists(nextLists)
-      if (nextLists.length && !nextLists.some((item) => String(item.id) === listId)) setListId(String(nextLists[0].id))
-      setApiKey('')
-      setConfigMessage(nextLists.length ? `Ключ сохранен · найдено списков: ${nextLists.length}` : 'Ключ сохранен. Теперь создайте рабочий список контактов.')
     } catch (cause) {
-      setConfigMessage(cause instanceof Error ? cause.message : 'Не удалось проверить API-ключ UniSender')
-    } finally {
-      setChecking(false)
+      setTestState('error')
+      setTestMessage(cause instanceof Error ? cause.message : 'Не удалось отправить письмо')
     }
   }
-  const createList = async () => {
-    setChecking(true)
-    try {
-      const result = await providerRequest('/admin/mail/lists-v2', { title: 'Пользователи ИЗО АСА' })
-      const nextLists = Array.isArray(result.lists) ? result.lists as AdminRecord[] : []
-      setLists(nextLists)
-      const created = result.created as AdminRecord | undefined
-      if (created?.id) setListId(String(created.id))
-      setConfigMessage('Рабочий список «Пользователи ИЗО АСА» создан')
-    } catch (cause) {
-      setConfigMessage(cause instanceof Error ? cause.message : 'Не удалось создать список')
-    } finally {
-      setChecking(false)
-    }
-  }
+
   const summary = (data?.summary || {}) as AdminRecord
   const config = (data?.config || {}) as AdminRecord
+  const ready = Boolean(data?.service_ready)
+  const canConnect = Boolean(host.trim() && port && username.trim() && senderName.trim() && senderEmail.trim() && (password.trim() || config.password))
 
   return (
     <div className="admin-section admin-mail-page">
+      <div className="admin-mail-heading">
+        <div><h3>Почта ИЗО АСА</h3><p>Системные письма и коды подтверждения отправляются с вашего ящика VK WorkSpace.</p></div>
+        <span className={`admin-mail-status ${ready ? 'ok' : 'warn'}`}>{ready ? 'Почта работает' : 'Почта не подключена'}</span>
+      </div>
       <div className="admin-mail-grid">
-        <article className="admin-mail-card">
-          <h4>Подключение UniSender</h4>
-          <p className={data?.service_ready ? 'admin-provider-state ok' : 'admin-provider-state warn'}>{data?.service_ready ? 'Почта готова к отправке' : 'Нужно заполнить и проверить настройки'}</p>
-          <label>API-ключ<input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={config.api_key ? 'Ключ надежно сохранен · вставьте новый для замены' : 'Вставьте API-ключ'} /></label>
-          <button className="secondary" disabled={checking || (!apiKey.trim() && !config.api_key)} onClick={checkProvider}>{checking ? 'Проверяем…' : config.api_key && !apiKey ? 'Проверить сохраненный ключ' : 'Проверить и сохранить ключ'}</button>
-          <label>Имя в поле «От кого»<input value={senderName} onChange={(event) => setSenderName(event.target.value)} /><small>Так получатель увидит отправителя письма, например «ИЗО АСА».</small></label>
-          <label>Email отправителя<input type="email" value={senderEmail} onChange={(event) => setSenderEmail(event.target.value)} placeholder="Реальный адрес, к которому у вас есть доступ" /><small>Придумать адрес недостаточно: откройте в UniSender создание письма, укажите обратный адрес и подтвердите его по ссылке из полученного письма. <a href="https://www.unisender.com/ru/support/api/messages/sendemail/" target="_blank" rel="noreferrer">Инструкция</a></small></label>
-          <label>Список контактов
-            {lists.length ? <select value={listId} onChange={(event) => setListId(event.target.value)}>{lists.map((item) => <option key={String(item.id)} value={String(item.id)}>{String(item.title)} · #{String(item.id)}</option>)}</select>
-              : <input readOnly value="" placeholder={config.api_key ? 'Списков пока нет' : 'Сначала проверьте API-ключ'} />}
-            <small>Это техническая группа для системных писем. Получатель каждого письма передаётся отдельно.</small>
-          </label>
-          {Boolean(config.api_key) && !lists.length && <button className="secondary" disabled={checking} onClick={createList}>Создать рабочий список</button>}
-          <button className="secondary" disabled={!senderEmail || !listId || (!apiKey && !config.api_key)} onClick={saveConfig}>Сохранить отправителя и список</button>
-          {configMessage && <small className="admin-mail-message">{configMessage}</small>}
+        <article className="admin-mail-card admin-mail-connect">
+          <h4>Подключение ящика</h4>
+          <div className="admin-mail-server-row">
+            <label>SMTP-сервер<input value={host} onChange={(event) => setHost(event.target.value)} /></label>
+            <label>Порт<input inputMode="numeric" value={port} onChange={(event) => setPort(event.target.value)} /></label>
+          </div>
+          <label>Почтовый ящик<input type="email" value={username} onChange={(event) => { setUsername(event.target.value); if (!senderEmail) setSenderEmail(event.target.value) }} placeholder="mail@alikinas.ru" /></label>
+          <label>Пароль приложения<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={config.password ? 'Пароль сохранён · введите новый только для замены' : 'Введите пароль приложения VK WorkSpace'} /><small>Используется пароль приложения, а не обычный пароль от почты. Он хранится в защищённом хранилище Windows.</small></label>
+          <div className="admin-mail-server-row sender">
+            <label>Имя отправителя<input value={senderName} onChange={(event) => setSenderName(event.target.value)} /></label>
+            <label>Email отправителя<input type="email" value={senderEmail} onChange={(event) => setSenderEmail(event.target.value)} placeholder="mail@alikinas.ru" /></label>
+          </div>
+          <button className="secondary" disabled={!canConnect || connectionState === 'working'} onClick={saveAndVerify}>{connectionState === 'working' ? 'Проверяем…' : ready ? 'Проверить сохранённые настройки' : 'Сохранить и проверить'}</button>
+          {connectionMessage && <small className={`admin-mail-message ${connectionState}`}>{connectionMessage}</small>}
         </article>
         <article className="admin-mail-card">
-          <h4>Тест отправки</h4>
-          <label>Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@example.com" /></label>
-          <button className="secondary" disabled={!email.trim() || !data?.service_ready} onClick={sendTest}>Отправить тест</button>
-          <small>Кнопка станет доступна после сохранения отправителя и списка.</small>
-          {testMessage && <small className="admin-mail-message">{testMessage}</small>}
+          <h4>Тестовое письмо</h4>
+          <p>После подключения отправьте письмо на свой адрес и проверьте папку «Входящие».</p>
+          <label>Email получателя<input type="email" value={testEmail} onChange={(event) => setTestEmail(event.target.value)} placeholder="Ваш email для проверки" /></label>
+          <button className="secondary" disabled={!ready || !testEmail.trim() || testState === 'working'} onClick={sendTest}>{testState === 'working' ? 'Отправляем…' : 'Отправить тест'}</button>
+          {testMessage && <small className={`admin-mail-message ${testState}`}>{testMessage}</small>}
         </article>
         <article className="admin-mail-card">
           <h4>Работа почты</h4>
-          <p>Всего кодов подтверждения: <b>{String(summary.otp_total || 0)}</b></p>
-          <p>Отправлено за 24 часа: <b>{String(summary.otp_24h || 0)}</b></p>
-          <p>Сейчас ожидают ввода: <b>{String(summary.otp_active || 0)}</b></p>
-          <p>Подтверждено за 24 часа: <b>{String(summary.otp_consumed_24h || 0)}</b></p>
+          <p>Всего кодов подтверждения <b>{String(summary.otp_total || 0)}</b></p>
+          <p>Запрошено за 24 часа <b>{String(summary.otp_24h || 0)}</b></p>
+          <p>Ожидают ввода <b>{String(summary.otp_active || 0)}</b></p>
+          <p>Подтверждено за 24 часа <b>{String(summary.otp_consumed_24h || 0)}</b></p>
         </article>
       </div>
-      <article className="admin-mail-plan-note">
-        <h4>Какой тариф UniSender нужен</h4>
-        <p>Для кодов входа, подтверждений и системных уведомлений активируйте <b>«Базовый» Email API</b>. «Расширенный» пока не нужен: он рассчитан на сложные массовые сценарии и расширенную аналитику.</p>
-        <p>Основной тариф «Фри» можно оставить на старте, пока хватает лимитов аккаунта. По текущим условиям это до 1500 писем в месяц и 100 уникальных контактов.</p>
-      </article>
     </div>
   )
 }

@@ -33,9 +33,9 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, Field
 
 try:
-    from .app.integrations.unisender import UniSenderError, UniSenderMessage, create_unisender_list, get_unisender_lists, send_unisender_email
+    from .app.integrations.smtp import SmtpConfig, SmtpError, SmtpMessage, send_smtp_email, verify_smtp_connection
 except ImportError:  # Direct `python backend/main.py` execution.
-    from app.integrations.unisender import UniSenderError, UniSenderMessage, create_unisender_list, get_unisender_lists, send_unisender_email
+    from app.integrations.smtp import SmtpConfig, SmtpError, SmtpMessage, send_smtp_email, verify_smtp_connection
 try:
     from .app.integrations.yookassa import YooKassaError, create_yookassa_payment, fetch_yookassa_payment
 except ImportError:  # Direct `python backend/main.py` execution.
@@ -571,7 +571,7 @@ AVATAR_DIR = STORAGE_PATH_POLICY.avatar_dir
 AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 
 OPENROUTER_SECRET_NAME = "openrouter_api_key"
-UNISENDER_SECRET_NAME = "unisender_api_key"
+SMTP_SECRET_NAME = "smtp_password"
 YOOKASSA_SECRET_NAME = "yookassa_secret_key"
 OPENROUTER_SECRET_STORE_DIR = default_secret_store_dir()
 assert_secret_store_outside_repository(OPENROUTER_SECRET_STORE_DIR, ROOT.parent)
@@ -1001,18 +1001,24 @@ class AdminMailTestV2Request(BaseModel):
 
 
 class AdminMailConfigV2Request(BaseModel):
-    api_key: str | None = Field(default=None, min_length=8, max_length=512)
+    host: str = Field(default="smtp.mail.ru", min_length=3, max_length=253)
+    port: int = Field(default=465, ge=1, le=65535)
+    username: str = Field(min_length=5, max_length=254)
+    password: str | None = Field(default=None, min_length=8, max_length=512)
     sender_name: str = Field(default="ИЗО АСА", min_length=1, max_length=100)
     sender_email: str = Field(min_length=5, max_length=254)
-    list_id: int = Field(ge=1)
+    use_ssl: bool = True
 
 
 class AdminMailVerifyV2Request(BaseModel):
-    api_key: str | None = Field(default=None, min_length=8, max_length=512)
-
-
-class AdminMailCreateListV2Request(BaseModel):
-    title: str = Field(default="Пользователи ИЗО АСА", min_length=2, max_length=150)
+    host: str = Field(default="smtp.mail.ru", min_length=3, max_length=253)
+    port: int = Field(default=465, ge=1, le=65535)
+    username: str = Field(min_length=5, max_length=254)
+    password: str | None = Field(default=None, min_length=8, max_length=512)
+    sender_name: str = Field(default="ИЗО АСА", min_length=1, max_length=100)
+    sender_email: str = Field(min_length=5, max_length=254)
+    use_ssl: bool = True
+    save: bool = True
 
 
 class BillingInvoiceItemV2Request(BaseModel):
@@ -2401,7 +2407,9 @@ def password_hash_needs_rehash(password_hash: str) -> bool:
 
 
 def email_provider_configured() -> bool:
-    return unisender_ready() or bool(EMAIL_PROVIDER)
+    # EMAIL_PROVIDER remains a development-test switch. Production readiness
+    # requires complete SMTP credentials, not only an environment label.
+    return smtp_ready() or (bool(EMAIL_PROVIDER) and APP_ENV.lower() != "production")
 
 
 def email_otp_available() -> bool:
@@ -2423,12 +2431,12 @@ def validate_email_otp_config() -> None:
 
 
 def send_email_otp(destination: str, code: str) -> None:
-    config = unisender_config()
-    if unisender_ready(config):
+    config = smtp_config()
+    if smtp_ready(config):
         try:
-            send_unisender_email(
-                unisender_api_key(),
-                UniSenderMessage(
+            send_smtp_email(
+                smtp_connection_config(config),
+                SmtpMessage(
                     to=destination,
                     subject="Код подтверждения ИЗО АСА",
                     html=(
@@ -2438,12 +2446,10 @@ def send_email_otp(destination: str, code: str) -> None:
                     ),
                     sender_name=str(config.get("sender_name") or "ИЗО АСА"),
                     sender_email=str(config["sender_email"]),
-                    list_id=int(config["list_id"]),
-                    reference_key=f"otp-{uuid.uuid4().hex}",
                 ),
             )
             return
-        except UniSenderError as exc:
+        except SmtpError as exc:
             raise RuntimeError(str(exc)) from exc
     security_send_email_otp(
         destination,
@@ -5056,44 +5062,66 @@ def delete_openrouter_api_key() -> None:
     _admin_models_page_cache["data"] = None
 
 
-def unisender_api_key() -> str:
-    return os.getenv("UNISENDER_API_KEY", "").strip() or OPENROUTER_SECRET_STORE.get(UNISENDER_SECRET_NAME)
+def smtp_password() -> str:
+    return os.getenv("SMTP_PASSWORD", "").strip() or OPENROUTER_SECRET_STORE.get(SMTP_SECRET_NAME)
 
 
-def unisender_config() -> dict[str, Any]:
+def smtp_config() -> dict[str, Any]:
     with db() as conn:
         row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'mail_provider'").fetchone()
     value = safe_json_load(row["value_json"]) if row else {}
-    return value if isinstance(value, dict) else {}
+    current = value if isinstance(value, dict) and value.get("provider") == "smtp" else {}
+    return {
+        "provider": "smtp",
+        "host": str(current.get("host") or os.getenv("SMTP_HOST", "smtp.mail.ru")).strip(),
+        "port": int(current.get("port") or os.getenv("SMTP_PORT", "465")),
+        "username": str(current.get("username") or os.getenv("SMTP_USERNAME", "")).strip(),
+        "sender_name": str(current.get("sender_name") or os.getenv("SMTP_SENDER_NAME", "ИЗО АСА")).strip(),
+        "sender_email": str(current.get("sender_email") or os.getenv("SMTP_SENDER_EMAIL", "")).strip(),
+        "use_ssl": bool(current.get("use_ssl", True)),
+    }
 
 
-def unisender_ready(config: dict[str, Any] | None = None) -> bool:
-    current = config if config is not None else unisender_config()
-    return bool(unisender_api_key() and current.get("sender_email") and current.get("list_id"))
+def smtp_ready(config: dict[str, Any] | None = None) -> bool:
+    current = config if config is not None else smtp_config()
+    return bool(smtp_password() and current.get("host") and current.get("username") and current.get("sender_email"))
 
 
-def save_unisender_config(req: AdminMailConfigV2Request) -> None:
+def smtp_connection_config(config: dict[str, Any], password: str | None = None) -> SmtpConfig:
+    return SmtpConfig(
+        host=str(config.get("host") or "smtp.mail.ru"),
+        port=int(config.get("port") or 465),
+        username=str(config.get("username") or ""),
+        password=password if password is not None else smtp_password(),
+        use_ssl=bool(config.get("use_ssl", True)),
+    )
+
+
+def save_smtp_config(req: AdminMailConfigV2Request | AdminMailVerifyV2Request) -> None:
+    username = normalize_email(req.username)
     sender_email = normalize_email(req.sender_email)
-    if not sender_email:
-        raise ValueError("Введите корректный подтвержденный email отправителя.")
-    if req.api_key:
-        OPENROUTER_SECRET_STORE.set(UNISENDER_SECRET_NAME, req.api_key.strip())
+    if not username or not sender_email:
+        raise ValueError("Введите корректный адрес почтового ящика.")
+    if username != sender_email:
+        raise ValueError("Почтовый ящик и email отправителя должны совпадать.")
+    if req.password:
+        save_smtp_password(req.password)
     with db() as conn:
         conn.execute(
             "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('mail_provider', ?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
-            (json.dumps({"provider": "unisender", "sender_name": req.sender_name.strip(), "sender_email": sender_email, "list_id": req.list_id}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+            (json.dumps({"provider": "smtp", "host": req.host.strip(), "port": req.port, "username": username, "sender_name": req.sender_name.strip(), "sender_email": sender_email, "use_ssl": bool(req.use_ssl)}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
         )
 
 
-def save_unisender_api_key(value: str) -> None:
+def save_smtp_password(value: str) -> None:
     clean = value.strip()
     if not clean:
-        raise SecretStoreError("UniSender API key is empty.")
-    OPENROUTER_SECRET_STORE.set(UNISENDER_SECRET_NAME, clean)
-    verified = OPENROUTER_SECRET_STORE.get(UNISENDER_SECRET_NAME)
+        raise SecretStoreError("Пароль приложения пуст.")
+    OPENROUTER_SECRET_STORE.set(SMTP_SECRET_NAME, clean)
+    verified = OPENROUTER_SECRET_STORE.get(SMTP_SECRET_NAME)
     if not hmac.compare_digest(verified.encode("utf-8"), clean.encode("utf-8")):
-        raise SecretStoreError("UniSender DPAPI secret readback verification failed.")
+        raise SecretStoreError("Не удалось проверить сохраненный пароль приложения.")
 
 
 def yookassa_secret_key() -> str:
@@ -11537,10 +11565,10 @@ async def admin_mail_status_v2(request: Request) -> dict[str, Any]:
             LIMIT 20
             """
         ).fetchall()
-    provider_config = unisender_config()
-    provider = "unisender" if unisender_ready(provider_config) else EMAIL_PROVIDER.strip()
+    provider_config = smtp_config()
+    provider = "smtp" if smtp_ready(provider_config) else EMAIL_PROVIDER.strip()
     production = APP_ENV.lower() == "production"
-    delivery_implemented = provider == "unisender" or not (production and bool(provider))
+    delivery_implemented = provider == "smtp" or not (production and bool(provider))
     service_ready = email_otp_available() and delivery_implemented
     return {
         "ok": True,
@@ -11553,10 +11581,13 @@ async def admin_mail_status_v2(request: Request) -> dict[str, Any]:
         "delivery_implemented": delivery_implemented,
         "debug_return_code": EMAIL_OTP_DEBUG_RETURN_CODE and not production,
         "config": {
-            "api_key": bool(unisender_api_key()),
+            "password": bool(smtp_password()),
+            "host": provider_config.get("host") or "smtp.mail.ru",
+            "port": int(provider_config.get("port") or 465),
+            "username": provider_config.get("username") or "",
             "sender_name": provider_config.get("sender_name") or "",
             "sender_email": provider_config.get("sender_email") or "",
-            "list_id": provider_config.get("list_id") or "",
+            "use_ssl": bool(provider_config.get("use_ssl", True)),
         },
         "summary": {
             "otp_total": int(otp_total or 0),
@@ -12241,54 +12272,37 @@ async def admin_assistants(request: Request) -> dict[str, Any]:
 async def admin_mail_config_v2(req: AdminMailConfigV2Request, request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
     try:
-        save_unisender_config(req)
+        save_smtp_config(req)
     except (ValueError, SecretStoreError) as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "configured": unisender_ready(), "provider": "unisender"}
-
-
-@app.get("/api/admin/mail/provider-options-v2")
-async def admin_mail_provider_options_v2(request: Request) -> dict[str, Any]:
-    require_trusted_admin(request)
-    api_key = unisender_api_key()
-    if not api_key:
-        raise HTTPException(409, "Сначала сохраните API-ключ UniSender.")
-    try:
-        lists = await asyncio.to_thread(get_unisender_lists, api_key)
-    except UniSenderError as exc:
-        raise HTTPException(502, str(exc)) from exc
-    return {"ok": True, "provider": "unisender", "lists": lists}
+    return {"ok": True, "configured": smtp_ready(), "provider": "smtp"}
 
 
 @app.post("/api/admin/mail/verify-v2")
 async def admin_mail_verify_v2(req: AdminMailVerifyV2Request, request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
-    candidate = (req.api_key or "").strip() or unisender_api_key()
-    if not candidate:
-        raise HTTPException(400, "Вставьте API-ключ UniSender.")
+    candidate_password = (req.password or "").strip() or smtp_password()
+    candidate_config = {
+        "host": req.host.strip(),
+        "port": req.port,
+        "username": normalize_email(req.username),
+        "sender_name": req.sender_name.strip(),
+        "sender_email": normalize_email(req.sender_email),
+        "use_ssl": bool(req.use_ssl),
+    }
+    if not candidate_password:
+        raise HTTPException(400, "Введите пароль приложения для почтового ящика.")
+    if not candidate_config["username"] or candidate_config["username"] != candidate_config["sender_email"]:
+        raise HTTPException(400, "Почтовый ящик и email отправителя должны совпадать.")
     try:
-        lists = await asyncio.to_thread(get_unisender_lists, candidate)
-        if req.api_key:
-            save_unisender_api_key(candidate)
-    except UniSenderError as exc:
+        await asyncio.to_thread(verify_smtp_connection, smtp_connection_config(candidate_config, candidate_password))
+        if req.save:
+            save_smtp_config(req)
+    except SmtpError as exc:
         raise HTTPException(502, str(exc)) from exc
-    except SecretStoreError as exc:
+    except (ValueError, SecretStoreError) as exc:
         raise HTTPException(500, str(exc)) from exc
-    return {"ok": True, "provider": "unisender", "api_key_saved": bool(unisender_api_key()), "lists": lists}
-
-
-@app.post("/api/admin/mail/lists-v2")
-async def admin_mail_create_list_v2(req: AdminMailCreateListV2Request, request: Request) -> dict[str, Any]:
-    require_trusted_admin(request)
-    api_key = unisender_api_key()
-    if not api_key:
-        raise HTTPException(409, "Сначала проверьте и сохраните API-ключ UniSender.")
-    try:
-        created = await asyncio.to_thread(create_unisender_list, api_key, req.title)
-        lists = await asyncio.to_thread(get_unisender_lists, api_key)
-    except UniSenderError as exc:
-        raise HTTPException(502, str(exc)) from exc
-    return {"ok": True, "created": created, "lists": lists}
+    return {"ok": True, "provider": "smtp", "configured": smtp_ready(), "message": "SMTP подключен и настройки сохранены."}
 
 
 @app.get("/api/admin/payments/status-v2")

@@ -1463,8 +1463,16 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-section-headline h3 { margin: 0; color: var(--acid); }
 .admin-section-headline p { margin: 4px 0 0; color: #8f8f8f; }
 .admin-mail-page { display: grid; gap: 12px; }
+.admin-mail-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 2px 2px 4px; }
+.admin-mail-heading h3 { margin: 0 0 4px; color: #f0f0f0; }
+.admin-mail-heading p { margin: 0; color: #969b96; }
+.admin-mail-status { flex: none; border: 1px solid #424242; border-radius: 999px; padding: 7px 11px; color: #bbb; font-size: 12px; font-weight: 800; }
+.admin-mail-status.ok { color: #82e99a; border-color: rgba(94, 232, 123, .4); background: rgba(39, 87, 49, .22); }
+.admin-mail-status.warn { color: #ffd36a; border-color: rgba(215, 185, 65, .4); background: rgba(92, 69, 16, .2); }
 .admin-mail-grid { display: grid; grid-template-columns: 1.2fr 1fr 1.2fr; gap: 12px; }
 .admin-mail-card { border: 1px solid #2d2d2d; border-radius: 12px; background: #121212; padding: 14px; display: grid; gap: 10px; align-content: start; }
+.admin-mail-server-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px; gap: 10px; }
+.admin-mail-server-row.sender { grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); }
 .admin-mail-card h4, .admin-mail-tables h4 { margin: 0; color: var(--acid); }
 .admin-mail-card p { margin: 0; color: #9a9a9a; line-height: 1.45; }
 .admin-mail-flags { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1500,6 +1508,8 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-mail-card label small { display: block; margin-top: 5px; color: #858b85; line-height: 1.35; }
 .admin-mail-card label small a { color: #cddf70; }
 .admin-mail-message { display: block; border-left: 3px solid #c9d83f; padding: 6px 8px; color: #e1e1d6; }
+.admin-mail-message.ok { border-color: #5ee87b; color: #9aebab; }
+.admin-mail-message.error { border-color: #ef5d5d; color: #ef9b9b; }
 .admin-mail-plan-note { margin-top: 14px; border: 1px solid #303630; border-radius: 8px; background: #121612; padding: 14px 16px; }
 .admin-mail-plan-note h4 { margin: 0 0 8px; color: #efff3d; }
 .admin-mail-plan-note p { margin: 5px 0; color: #aeb4ae; }
@@ -1829,6 +1839,8 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
   .admin-head > strong { justify-self: start; }
   .admin-tabbar { margin-right: -12px; padding-right: 12px; }
   .admin-grid, .admin-two-col, .settings-grid, .admin-kpi-strip, .admin-chart-grid, .admin-mail-grid, .admin-mail-tables { grid-template-columns: 1fr; }
+  .admin-mail-heading { align-items: flex-start; }
+  .admin-mail-server-row, .admin-mail-server-row.sender { grid-template-columns: 1fr; }
   .admin-section-headline { display: grid; }
   .admin-grid span { font-size: 21px; }
   .admin-user-table { overflow-x: visible; }
