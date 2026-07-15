@@ -296,6 +296,30 @@ interface N2GalleryImage {
   aspectRatio?: string
 }
 
+function normalizeGalleryImage(value: unknown, index: number): N2GalleryImage | null {
+  if (!value || typeof value !== 'object') return null
+  const item = value as Record<string, unknown>
+  const url = String(item.viewerSrc || item.downloadUrl || item.url || item.src || item.thumbnailUrl || '')
+  const thumbnailUrl = String(item.thumbnailUrl || item.src || item.viewerSrc || item.downloadUrl || item.url || '')
+  if (!url || !thumbnailUrl) return null
+  const id = String(item.id || item.imageId || `gallery-${index}-${thumbnailUrl}`)
+  return {
+    id,
+    url,
+    thumbnailUrl,
+    mode: String(item.mode || ''),
+    promptOriginal: String(item.promptOriginal || item.prompt || ''),
+    createdAt: String(item.createdAt || item.date || ''),
+    resultImageId: item.resultImageId ? String(item.resultImageId) : undefined,
+    modelProfile: item.modelProfile ? String(item.modelProfile) : undefined,
+    tokenCost: typeof item.tokenCost === 'number' ? item.tokenCost : null,
+    generationTimeMs: typeof item.generationTimeMs === 'number' ? item.generationTimeMs : undefined,
+    width: typeof item.width === 'number' ? item.width : undefined,
+    height: typeof item.height === 'number' ? item.height : undefined,
+    aspectRatio: item.aspectRatio ? String(item.aspectRatio) : undefined,
+  }
+}
+
 type UploadedSourceImage = {
   id: string
   thumbnailUrl: string
@@ -1478,7 +1502,11 @@ export default function NewStudio(): ReactElement {
   const fetchGallery = useCallback(async () => {
     try {
       const data = await apiFetch('/gallery/items?limit=24').then((r) => (r.ok ? r.json() : null))
-      const arr: N2GalleryImage[] = Array.isArray(data?.items) ? data.items : []
+      const arr: N2GalleryImage[] = Array.isArray(data?.items)
+        ? data.items
+            .map((item: unknown, index: number) => normalizeGalleryImage(item, index))
+            .filter((item: N2GalleryImage | null): item is N2GalleryImage => item !== null)
+        : []
       if (arr.length === 0 && ownGallerySeenRef.current) return []
       if (arr.length > 0) ownGallerySeenRef.current = true
       setGallery(arr)
@@ -1755,7 +1783,11 @@ export default function NewStudio(): ReactElement {
         return Promise.all([primaryResponse.json(), secondaryResponse.json()])
       })
       .then(([primary, secondary]) => {
-        setGalleryPickerImages(Array.isArray(primary?.items) ? primary.items : [])
+        setGalleryPickerImages(Array.isArray(primary?.items)
+          ? primary.items
+              .map((item: unknown, index: number) => normalizeGalleryImage(item, index))
+              .filter((item: N2GalleryImage | null): item is N2GalleryImage => item !== null)
+          : [])
         setUploadedSources(Array.isArray(secondary?.uploadedItems) ? secondary.uploadedItems : [])
       })
       .catch(() => setGalleryPickerError('Не удалось загрузить ранее загруженные изображения.'))
@@ -2581,7 +2613,7 @@ export default function NewStudio(): ReactElement {
   // Без явного выбора показываем свою последнюю генерацию (но НЕ ленту, чтобы
   // промпт-блок не рассинхронизировался с пустым preview у гостя).
   const dockImage = dockImageId ? historyItems.find((g) => g.id === dockImageId) : gallery[0]
-  const dockIsFeed = !!dockImage && dockImage.id.startsWith('feed-')
+  const dockIsFeed = typeof dockImage?.id === 'string' && dockImage.id.startsWith('feed-')
   const visibleGalleryImage = visibleResultUrl
     ? gallery.find((item) => item.id === activeCorePreview?.galleryId || apiUrl(item.url) === apiUrl(visibleResultUrl) || apiUrl(item.thumbnailUrl) === apiUrl(visibleResultUrl))
     : undefined
