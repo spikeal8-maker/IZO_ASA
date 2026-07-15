@@ -31,11 +31,13 @@ function isAdminRoute(path: string) {
 }
 
 function isPaymentRoute(path: string) {
-  return path === '/payment' || path === '/payment/'
+  if (path === '/payment/result' || path === '/payment/result/') return true
+  return (path === '/payment' || path === '/payment/') && new URLSearchParams(window.location.search).has('payment_id')
 }
 
 function isCommerceRoute(path: string) {
-  return path === '/tariffs' || path === '/tariffs/' || path === '/legal' || path.startsWith('/legal/')
+  const publicDocuments = ['/offer', '/privacy', '/consent', '/terms', '/payment', '/refunds', '/contacts', '/cookies']
+  return path === '/tariffs' || path === '/tariffs/' || path === '/legal' || path === '/legal/' || path.startsWith('/legal/') || publicDocuments.includes(path.replace(/\/$/, ''))
 }
 
 function isStaticFeedRoute(path: string) {

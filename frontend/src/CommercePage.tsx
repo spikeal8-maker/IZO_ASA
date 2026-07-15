@@ -25,6 +25,10 @@ const legalLinks = [
   ['/legal/payment', 'Оплата и чеки'], ['/legal/refunds', 'Возвраты'], ['/legal/contacts', 'Реквизиты и контакты'],
   ['/legal/cookies', 'Файлы cookie'],
 ]
+const shortLegalRoutes: Record<string, string> = {
+  '/offer': 'offer', '/privacy': 'privacy', '/consent': 'consent', '/terms': 'terms',
+  '/payment': 'payment', '/refunds': 'refunds', '/contacts': 'contacts', '/cookies': 'cookies',
+}
 
 function PublicHeader() {
   return <header className="commerce-header"><a className="commerce-brand" href="/" aria-label="ИЗО АСА — на главную"><span>ИЗО</span> АСА</a><nav><a href="/tariffs">Тарифы</a><a href="/legal/contacts">Контакты</a><a className="commerce-login" href="/profile/tariffs">Войти</a></nav></header>
@@ -134,7 +138,11 @@ export default function CommercePage() {
   const [loading, setLoading] = useState(true)
   useEffect(() => { fetch(`${API}/public/commerce-v2`).then((response) => response.ok ? response.json() : Promise.reject()).then(setData).catch(() => setData({})).finally(() => setLoading(false)) }, [])
   const path = window.location.pathname.replace(/\/+$/, '') || '/'
-  const kind = useMemo(() => path.startsWith('/legal/') ? path.split('/')[2] : '', [path])
+  const kind = useMemo(() => {
+    if (path === '/legal') return 'offer'
+    if (path.startsWith('/legal/')) return path.split('/')[2] || 'offer'
+    return shortLegalRoutes[path] || ''
+  }, [path])
   const legal = data.legal || {}
   return <div className="commerce-page"><PublicHeader /><main>{path === '/tariffs' ? <TariffsPage data={data} loading={loading} /> : <LegalPage kind={kind} legal={legal} />}</main><PublicFooter legal={legal} /></div>
 }

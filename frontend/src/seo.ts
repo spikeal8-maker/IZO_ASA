@@ -82,9 +82,11 @@ export function appShellSeo(path: string): SeoMeta {
   if (path === '/tariffs' || path === '/tariffs/') {
     return { title: 'Тарифы ИЗО АСА — генерация изображений', description: 'Тарифы, цены, токены и условия оплаты сервиса генерации изображений ИЗО АСА.', canonical: 'https://izo.alikinas.ru/tariffs' }
   }
-  if (path.startsWith('/legal/')) {
+  const shortLegalRoutes: Record<string, string> = { '/offer': 'offer', '/privacy': 'privacy', '/consent': 'consent', '/terms': 'terms', '/payment': 'payment', '/refunds': 'refunds', '/contacts': 'contacts', '/cookies': 'cookies' }
+  if (path === '/legal' || path.startsWith('/legal/') || shortLegalRoutes[path.replace(/\/$/, '')]) {
     const titles: Record<string, string> = { offer: 'Публичная оферта', privacy: 'Политика конфиденциальности', consent: 'Согласие на обработку данных', terms: 'Пользовательское соглашение', payment: 'Условия оплаты', refunds: 'Правила возврата', contacts: 'Реквизиты и контакты', cookies: 'Правила использования cookie' }
-    const key = path.split('/')[2] || 'offer'
+    const cleanPath = path.replace(/\/$/, '')
+    const key = shortLegalRoutes[cleanPath] || (cleanPath.startsWith('/legal/') ? cleanPath.split('/')[2] : 'offer')
     const title = titles[key] || 'Правовая информация'
     return { title: `${title} — ИЗО АСА`, description: `${title} сервиса генерации изображений ИЗО АСА.`, canonical: `https://izo.alikinas.ru/legal/${key}` }
   }
