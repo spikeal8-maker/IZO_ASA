@@ -18,7 +18,8 @@ $logPath = Join-Path $logDir ("production-autostart_{0}.log" -f (Get-Date -Forma
 function Write-StackLog {
     param([string]$Message)
     $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
-    $line | Tee-Object -FilePath $logPath -Append
+    Add-Content -LiteralPath $logPath -Value $line
+    Write-Host $line
 }
 
 function Test-HttpEndpoint {
@@ -70,6 +71,38 @@ function Start-HiddenProcess {
     }
     $process = Start-Process @params
     Write-StackLog "$Name started, pid=$($process.Id)"
+}
+
+function Start-BootstrapBackend {
+    $backendDir = Join-Path $repoRoot "backend"
+    $databasePath = Join-Path $backendDir "onenode.sqlite3"
+    $backendLog = Join-Path $logDir ("bootstrap_backend_{0}.log" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+    $databaseUrl = "sqlite:///" + $databasePath.Replace("\", "/")
+    $serverCommand = @"
+`$env:APP_ENV='production'
+`$env:DATABASE_URL='$databaseUrl'
+`$env:DB_GUARD_ALLOWED_PATHS='$databasePath'
+`$env:DB_GUARD_MIN_SIZE_MB='10'
+`$env:DB_GUARD_MIN_USERS='5'
+`$env:DB_GUARD_MIN_ACTIVE_ADMINS='1'
+`$env:TRUSTED_COOKIE_SECURE='true'
+`$env:TRUSTED_COOKIE_SAMESITE='none'
+`$env:TRUSTED_COOKIE_PATH='/'
+`$env:TRUST_CLOUDFLARE_HEADERS='true'
+`$env:MAX_API_BASE_URL='https://platform-api2.max.ru'
+`$env:BOT_UPDATES_MODE='polling'
+`$env:MAX_UPDATES_MODE='polling'
+Set-Location -LiteralPath '$backendDir'
+python -m uvicorn main:app --host 127.0.0.1 --port 8000 --no-proxy-headers *>> '$backendLog'
+"@
+    $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($serverCommand))
+    Start-HiddenProcess -Name "Bootstrap backend" -FilePath "powershell.exe" `
+        -ArgumentList @("-NoProfile", "-NonInteractive", "-EncodedCommand", $encodedCommand) `
+        -WorkingDirectory $repoRoot
+    Write-StackLog "Bootstrap backend log: $backendLog"
+    if (-not (Wait-HttpEndpoint -Name "Bootstrap backend" -Uri "http://127.0.0.1:8000/api/health" -TimeoutSeconds 90)) {
+        throw "Bootstrap backend did not start. See $backendLog"
+    }
 }
 
 Write-StackLog "Production stack check started. user=$env:USERNAME computer=$env:COMPUTERNAME checkOnly=$CheckOnly"
@@ -132,10 +165,19 @@ if (-not $frp) {
 $backendReady = Test-HttpEndpoint -Uri "http://127.0.0.1:8000/api/health"
 $frontendReady = Test-HttpEndpoint -Uri "http://127.0.0.1:5173/"
 if (-not ($backendReady -and $frontendReady)) {
+    # Candidate browser smoke checks API-backed routes. On a cold boot the
+    # backend must therefore be available before start-public publishes the
+    # release; the public launcher replaces this bootstrap process afterward.
+    if (-not $backendReady) {
+        Start-BootstrapBackend
+    }
     $launcher = Join-Path $repoRoot "start-public-autostart.bat"
     Write-StackLog "Starting public backend and frontend via $launcher"
     $launch = Start-Process -FilePath "cmd.exe" -ArgumentList @("/d", "/c", "`"$launcher`"") -WorkingDirectory $repoRoot -WindowStyle Hidden -Wait -PassThru
     Write-StackLog "Public launcher finished with exit code $($launch.ExitCode)."
+    if ($launch.ExitCode -ne 0) {
+        throw "Public launcher failed with exit code $($launch.ExitCode)."
+    }
 } else {
     Write-StackLog "Backend and frontend already ready."
 }
