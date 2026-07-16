@@ -56,22 +56,26 @@ async def create_yookassa_payment(
     return_url: str,
     description: str,
     metadata: dict[str, str],
+    receipt: dict[str, Any] | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> YooKassaPayment:
     owns_client = client is None
     current = client or httpx.AsyncClient(timeout=25.0)
     try:
+        payload: dict[str, Any] = {
+            "amount": {"value": rubles_value(amount), "currency": "RUB"},
+            "capture": True,
+            "confirmation": {"type": "redirect", "return_url": return_url},
+            "description": description[:128],
+            "metadata": metadata,
+        }
+        if receipt is not None:
+            payload["receipt"] = receipt
         response = await current.post(
             f"{YOOKASSA_API_URL}/payments",
             auth=(shop_id, secret_key),
             headers={"Idempotence-Key": idempotency_key},
-            json={
-                "amount": {"value": rubles_value(amount), "currency": "RUB"},
-                "capture": True,
-                "confirmation": {"type": "redirect", "return_url": return_url},
-                "description": description[:128],
-                "metadata": metadata,
-            },
+            json=payload,
         )
         response.raise_for_status()
         return parse_payment(response.json())

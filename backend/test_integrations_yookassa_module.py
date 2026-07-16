@@ -35,6 +35,29 @@ def test_fetch_payment_parses_verified_status():
     assert result.paid is True and result.amount_value == "250.00"
 
 
+def test_create_payment_forwards_receipt_without_mutating_it():
+    receipt = {
+        "customer": {"email": "buyer@example.test"},
+        "items": [{"description": "50 tokens", "quantity": "1.000"}],
+    }
+
+    async def handler(request: httpx.Request):
+        assert request.read()
+        assert __import__("json").loads(request.content)["receipt"] == receipt
+        return httpx.Response(200, json=payment_payload(), request=request)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await create_yookassa_payment(
+                shop_id="shop", secret_key="secret", amount=250,
+                idempotency_key="checkout-2", return_url="https://izo.test/",
+                description="50 tokens", metadata={}, receipt=receipt, client=client,
+            )
+
+    asyncio.run(run())
+    assert receipt["customer"]["email"] == "buyer@example.test"
+
+
 def test_rubles_value_rejects_non_positive_amount():
     assert rubles_value(250) == "250.00"
     with pytest.raises(YooKassaError):

@@ -7,6 +7,7 @@ from .contracts import (
     PaymentSnapshot,
 )
 from .simulator import SimulatedPaymentProvider
+from .yookassa_provider import YooKassaPaymentProvider
 
 __all__ = [
     "PaymentCreateCommand",
@@ -16,4 +17,5 @@ __all__ = [
     "PaymentReceiptItem",
     "PaymentSnapshot",
     "SimulatedPaymentProvider",
+    "YooKassaPaymentProvider",
 ]
