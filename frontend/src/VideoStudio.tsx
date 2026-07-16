@@ -107,6 +107,13 @@ function shortModelName(model: VideoModel | undefined) {
   if (!model) return 'Нет модели'
   return model.name.replace(/^.*?:\s*/, '').replace(/\s+(Preview|Standard)$/i, ' $1')
 }
+function modelRate(model: VideoModel | undefined) {
+  const tokens = Number(model?.publicPricing?.fromTokens || 0)
+  const seconds = Math.min(...(model?.supportedDurations || []).filter((value) => value > 0))
+  if (!tokens || !Number.isFinite(seconds)) return 'цена по запросу'
+  const rate = tokens / seconds
+  return `${Number.isInteger(rate) ? rate : rate.toFixed(1)} ток./с`
+}
 export default function VideoStudio(): ReactElement {
   const initialDraft = useMemo(() => readStorage<Record<string, unknown>>(DRAFT_KEY, {}), [])
   const initialMode = (initialDraft.mode as VideoMode) || 'text_to_video'
@@ -371,7 +378,7 @@ export default function VideoStudio(): ReactElement {
             {mode === 'reference_to_video' && <div className="video-reference-inputs">{references.map((value, index) => sourceCard('reference', value, `Референс ${index + 1}`, '', index))}{references.length < 4 && sourceCard('reference', '', 'Добавить референс', 'До четырёх изображений')}</div>}
           </section>}
 
-          <label className="video-prompt"><span><b>Что происходит в кадре?</b><button type="button" title="Подсказки"><Lightbulb /> Подсказки</button></span><textarea value={prompt} maxLength={3000} placeholder="Опишите сцену, движение камеры, действия и атмосферу..." onChange={(event) => { setPrompt(event.target.value); setLastImprovedPrompt('') }} /><small>{prompt.length} / 3000</small></label>
+          <label className="video-prompt"><span><b>Опишите видео</b><button type="button" title="Подсказки"><Lightbulb /> Подсказки</button></span><textarea value={prompt} maxLength={3000} placeholder="Сцена, действия, движение камеры и атмосфера" onChange={(event) => { setPrompt(event.target.value); setLastImprovedPrompt('') }} /><small>{prompt.length} / 3000</small></label>
           <div className="video-prompt-actions">
             <button type="button" className={voiceRecording ? 'recording' : ''} disabled={voiceBusy} aria-pressed={voiceRecording} onClick={() => void toggleVoiceInput()}>{voiceRecording && <i aria-hidden="true" />}<Mic2 /> {voiceBusy ? 'Распознаю…' : voiceRecording ? 'Стоп' : 'Голос'}</button>
             <button type="button" disabled={!prompt.trim() || improveBusy || lastImprovedPrompt === prompt} onClick={() => void improvePrompt()}><WandSparkles /> {improveBusy ? 'Улучшаю…' : lastImprovedPrompt === prompt ? 'Улучшено' : 'Улучшить'}</button>
@@ -381,7 +388,7 @@ export default function VideoStudio(): ReactElement {
           <div className="video-format-tabs">{selectedModel?.supportedAspectRatios.map((value) => <button key={value} type="button" className={aspectRatio === value ? 'active' : ''} onClick={() => setAspectRatio(value)}><i style={{ aspectRatio: aspectStyle(value) }} /><span>{value}</span></button>)}</div>
 
           <section className="video-params"><h2>Основные параметры</h2>
-            <div className="video-quality-tabs">{QUALITY_META.map((item) => { const presetModel = qualityChoices[item.id]; return <button type="button" key={item.id} className={quality === item.id ? 'active' : ''} onClick={() => selectQuality(item.id)}><strong>{item.label}</strong><small>{shortModelName(presetModel)}</small><b>{presetModel?.publicPricing?.fromTokens ? `от ${presetModel.publicPricing.fromTokens} ток.` : 'цена по запросу'}</b></button> })}</div>
+            <div className="video-quality-tabs">{QUALITY_META.map((item) => { const presetModel = qualityChoices[item.id]; return <button type="button" key={item.id} className={quality === item.id ? 'active' : ''} onClick={() => selectQuality(item.id)}><span><strong>{item.label}</strong><b>{modelRate(presetModel)}</b></span><small>{shortModelName(presetModel)}</small></button> })}</div>
             <div className="video-options-row single">
               <label><span>Длительность</span><select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{selectedModel?.supportedDurations.map((value) => <option key={value} value={value}>{value} секунд</option>)}</select></label>
             </div>
@@ -399,7 +406,6 @@ export default function VideoStudio(): ReactElement {
       <section className="video-result">
         <div className="video-stage-wrap"><div className="video-stage" style={{ aspectRatio: aspectStyle(stageRatio) }}>
           <div className="video-stage-overlay">
-            <div className="video-stage-caption"><strong>Предпросмотр</strong>{shownJob && <span className={`status ${shownJob.status}`}>{statusLabel(shownJob.status)}</span>}</div>
             <div className="video-stage-actions">
               {shownJob?.videoUrl && <a href={shownJob.videoUrl} download title="Скачать"><Download /> <span>Скачать</span></a>}
               {shownJob?.videoUrl && <button type="button" onClick={() => void shareVideo(shownJob)}><Share2 /> <span>Поделиться</span></button>}
@@ -413,10 +419,10 @@ export default function VideoStudio(): ReactElement {
         </div></div>
 
         <div className="video-result-shelf">
-          <section className="video-history" aria-label="История генераций"><header><h2>История генераций</h2><span>{history.length ? `${history.length} роликов` : 'Пока пусто'}</span></header>
-            {history.length ? <div className="video-history-list">{history.map((job) => <button key={job.id} type="button" className={selectedJob?.id === job.id ? 'active' : ''} onClick={() => setSelectedJob(job)} style={{ aspectRatio: aspectStyle(job.aspectRatio) }}>{job.videoUrl ? <video src={job.videoUrl} muted preload="metadata" /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<small>{job.duration || 0} сек.</small></button>)}</div> : <p>Первое созданное видео появится здесь и в общей галерее.</p>}
+          <section className="video-history" aria-label="Предыдущие видео">
+            {history.length ? <div className="video-history-list">{history.map((job) => { const jobModel = models.find((item) => item.id === job.model); return <button key={job.id} type="button" className={selectedJob?.id === job.id ? 'active' : ''} onClick={() => setSelectedJob(job)} style={{ aspectRatio: aspectStyle(job.aspectRatio) }}>{job.videoUrl ? <video src={job.videoUrl} muted preload="metadata" /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<span className="video-history-meta"><small>{job.duration || 0} сек.</small><em>{shortModelName(jobModel)}</em></span></button> })}</div> : <p>Здесь появятся созданные видео.</p>}
           </section>
-          <aside className="video-context"><header><h2>Промпт и параметры</h2></header>{shownJob ? <><p>{shownJob.prompt || 'Промпт не сохранён'}</p><div className="video-context-tags"><span>{models.find((item) => item.id === shownJob.model)?.name || shownJob.model}</span><span>{shownJob.duration} сек.</span><span>{shownJob.aspectRatio}</span><span>{shownJob.resolution}</span>{shownJob.generateAudio && <span><Volume2 /> Звук</span>}</div><div className="video-context-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(shownJob.prompt || '')}><Copy /> Копировать</button><button type="button" onClick={() => applySettings(shownJob)}><Settings2 /> Использовать настройки</button></div></> : <p>Выберите работу в истории, чтобы увидеть ее промпт и настройки.</p>}</aside>
+          <aside className="video-context"><header><h2>Параметры ролика</h2></header>{shownJob ? <><p>{shownJob.prompt || 'Промпт не сохранён'}</p><div className="video-context-tags"><span>{shortModelName(models.find((item) => item.id === shownJob.model))}</span><span>{shownJob.duration} сек.</span><span>{shownJob.aspectRatio}</span><span>{shownJob.resolution}</span>{shownJob.generateAudio && <span><Volume2 /> Звук</span>}</div><div className="video-context-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(shownJob.prompt || '')}><Copy /> Копировать</button><button type="button" onClick={() => applySettings(shownJob)}><Settings2 /> Использовать настройки</button></div></> : <p>Выберите видео, чтобы увидеть его параметры.</p>}</aside>
         </div>
       </section>
     </section>

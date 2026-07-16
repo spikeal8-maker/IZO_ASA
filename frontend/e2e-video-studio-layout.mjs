@@ -74,6 +74,8 @@ async function inspect(browser, viewport) {
   await mockApi(page)
   await page.goto(`${base}/video?layout_test=${viewport.width}`, { waitUntil: 'networkidle' })
   await page.locator('.video-studio').waitFor()
+  await page.locator('.video-history-list button').nth(3).click()
+  await page.locator('.video-prompt textarea').fill('Плавное приближение камеры к городской сцене, естественное движение людей и транспорта, мягкий дневной свет.')
   const result = await page.evaluate(() => {
     const rect = (selector) => document.querySelector(selector)?.getBoundingClientRect()
     const stage = rect('.video-stage')
@@ -81,14 +83,23 @@ async function inspect(browser, viewport) {
     const composer = rect('.video-composer')
     const resultPanel = rect('.video-result')
     const overlay = rect('.video-stage-overlay')
+    const contextActions = rect('.video-context-actions')
+    const durationSelect = rect('.video-options-row.single select')
+    const prompt = document.querySelector('.video-prompt textarea')
+    const promptStyle = prompt ? getComputedStyle(prompt) : null
     const rootStyle = getComputedStyle(document.querySelector('.video-studio'))
     return {
-      stage, shelf, composer, resultPanel, overlay,
+      stage, shelf, composer, resultPanel, overlay, contextActions, durationSelect,
       fontSize: Number.parseFloat(rootStyle.fontSize),
+      promptFontSize: promptStyle ? Number.parseFloat(promptStyle.fontSize) : 0,
+      promptFontWeight: promptStyle ? Number.parseInt(promptStyle.fontWeight, 10) : 0,
       viewportHeight: window.innerHeight,
       overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
       resultBeforeComposer: Boolean(resultPanel && composer && resultPanel.top < composer.top),
       historyButtons: document.querySelectorAll('.video-history-list button').length,
+      historyMeta: document.querySelectorAll('.video-history-meta').length,
+      historyHeading: document.querySelector('.video-history h2') !== null,
+      stageCaption: document.querySelector('.video-stage-caption') !== null,
       proOpen: document.querySelector('.video-pro-body') !== null,
       modelSelectVisible: Boolean(document.querySelector('.video-pro-body select')),
     }
@@ -109,7 +120,17 @@ async function run() {
     assert(fullHd.stage && fullHd.stage.height > 400, 'Full HD stage is too small')
     assert(fullHd.overlay && fullHd.stage && fullHd.overlay.top >= fullHd.stage.top, 'Stage actions are not over the video')
     assert(fullHd.historyButtons === history.length, 'History items are missing')
+    assert(fullHd.historyMeta === history.length, 'History duration and model metadata are missing')
+    assert(!fullHd.historyHeading, 'Redundant history heading is still visible')
+    assert(!fullHd.stageCaption, 'Redundant preview caption is still visible')
+    assert(fullHd.promptFontWeight <= 500, 'Prompt text is still too bold')
+    assert(fullHd.durationSelect && fullHd.durationSelect.height <= 44, 'Duration control is too tall')
     assert(!fullHd.proOpen && !fullHd.modelSelectVisible, 'Professional model selector is open by default')
+
+    const browserFullHd = await inspect(browser, { width: 1920, height: 900 })
+    assert(!browserFullHd.overflowX, 'Browser Full HD has horizontal overflow')
+    assert(browserFullHd.shelf && browserFullHd.shelf.bottom <= browserFullHd.viewportHeight + 1, 'History shelf is outside the browser Full HD viewport')
+    assert(browserFullHd.contextActions && browserFullHd.shelf && browserFullHd.contextActions.bottom <= browserFullHd.shelf.bottom + 1, 'Context actions are clipped in browser Full HD')
 
     const fourK = await inspect(browser, { width: 3840, height: 2160 })
     assert(!fourK.overflowX, '4K has horizontal overflow')
@@ -120,8 +141,9 @@ async function run() {
     assert(!mobile.overflowX, 'Mobile has horizontal overflow')
     assert(mobile.resultBeforeComposer, 'Mobile result must appear before Composer')
     assert(mobile.stage && mobile.stage.width <= 390, 'Mobile stage exceeds viewport width')
+    assert(mobile.stage && mobile.stage.height <= mobile.stage.width, 'Mobile landscape video stage is too tall')
 
-    console.log(JSON.stringify({ fullHd, fourK, mobile }, null, 2))
+    console.log(JSON.stringify({ fullHd, browserFullHd, fourK, mobile }, null, 2))
   } finally {
     await browser.close()
   }
