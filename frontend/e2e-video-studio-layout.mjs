@@ -76,6 +76,16 @@ async function inspect(browser, viewport) {
   await page.locator('.video-studio').waitFor()
   await page.locator('.video-history-list button').nth(3).click()
   await page.locator('.video-prompt textarea').fill('Плавное приближение камеры к городской сцене, естественное движение людей и транспорта, мягкий дневной свет.')
+  const activeMode = page.locator('.video-mode-tabs button.active')
+  const activeModeNormal = await activeMode.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { backgroundColor: style.backgroundColor, color: style.color }
+  })
+  await activeMode.hover()
+  const activeModeHover = await activeMode.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { backgroundColor: style.backgroundColor, color: style.color }
+  })
   const result = await page.evaluate(() => {
     const rect = (selector) => document.querySelector(selector)?.getBoundingClientRect()
     const stage = rect('.video-stage')
@@ -108,8 +118,11 @@ async function inspect(browser, viewport) {
       modelSelectVisible: Boolean(document.querySelector('.video-pro-body select')),
       modeTabsBorderWidth: modeTabsStyle ? Number.parseFloat(modeTabsStyle.borderTopWidth) : 0,
       videoTopTabDisabled: videoTopTab?.getAttribute('aria-disabled') === 'true' || videoTopTab?.classList.contains('disabled'),
+      composerWidth: composer?.width || 0,
     }
   })
+  result.activeModeNormal = activeModeNormal
+  result.activeModeHover = activeModeHover
   if (process.env.E2E_SCREENSHOT_DIR) {
     await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/video-${viewport.width}x${viewport.height}.png`, fullPage: true })
   }
@@ -134,6 +147,10 @@ async function run() {
     assert(fullHd.generateButton && fullHd.composer && fullHd.generateButton.bottom <= fullHd.composer.bottom + 1, 'Create video button is outside Composer')
     assert(fullHd.generateButton && fullHd.generateButton.height >= 50, 'Create video button is too small')
     assert(fullHd.modeTabsBorderWidth >= 1, 'Video mode tabs have no visible divider')
+    assert(fullHd.activeModeHover.backgroundColor === fullHd.activeModeNormal.backgroundColor, 'Active video mode becomes dark on hover')
+    assert(fullHd.activeModeHover.color === fullHd.activeModeNormal.color, 'Active video mode text changes color on hover')
+    assert(fullHd.composerWidth >= 490 && fullHd.composerWidth <= 510, 'Full HD Composer does not match the fluid studio width')
+    assert(fullHd.fontSize >= 16, 'Full HD base typography is too small')
     assert(!fullHd.videoTopTabDisabled, 'Video topbar tab is still tariff-gated')
     assert(!fullHd.proOpen && !fullHd.modelSelectVisible, 'Professional model selector is open by default')
 
@@ -146,6 +163,8 @@ async function run() {
     assert(!fourK.overflowX, '4K has horizontal overflow')
     assert(fourK.shelf && fourK.shelf.bottom <= fourK.viewportHeight + 1, 'History shelf is outside the 4K viewport')
     assert(fourK.fontSize > fullHd.fontSize, '4K typography does not scale up')
+    assert(fourK.promptFontSize > fullHd.promptFontSize, '4K prompt typography does not scale up')
+    assert(fourK.composerWidth >= 540 && fourK.composerWidth <= 560, '4K Composer is outside the design-system range')
 
     const mobile = await inspect(browser, { width: 390, height: 844 })
     assert(!mobile.overflowX, 'Mobile has horizontal overflow')
