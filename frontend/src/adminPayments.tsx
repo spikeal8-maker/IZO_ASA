@@ -1,6 +1,6 @@
 import { CheckCircle2, CircleAlert, ClipboardCopy, ExternalLink, UserRoundCheck } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { adminGet, adminPost, adminPut, type AdminRecord } from './adminApi'
+import { adminFetch, adminGet, adminPost, adminPut, type AdminRecord } from './adminApi'
 
 type PaymentStatus = AdminRecord & {
   configured?: boolean
@@ -13,6 +13,7 @@ type PaymentStatus = AdminRecord & {
   events?: AdminRecord[]
   legal?: AdminRecord
   legal_readiness?: { ready?: boolean; missing?: string[] }
+  connection_check?: { ok?: boolean; checked_at?: string; message?: string }
 }
 
 const legalFields = [
@@ -30,6 +31,7 @@ export default function AdminPayments() {
   const [receiptVatCode, setReceiptVatCode] = useState('1')
   const [paymentSubject, setPaymentSubject] = useState('service')
   const [message, setMessage] = useState('')
+  const [checkBusy, setCheckBusy] = useState(false)
   const [reviewMessage, setReviewMessage] = useState('')
   const [legal, setLegal] = useState<AdminRecord>({})
   const load = useCallback(async () => {
@@ -62,6 +64,24 @@ export default function AdminPayments() {
     setMessage(result?.ok ? 'Публичные реквизиты сохранены' : 'Не удалось сохранить реквизиты')
     await load()
   }
+  const checkConnection = async () => {
+    setCheckBusy(true)
+    setMessage('')
+    try {
+      const response = await adminFetch('/admin/payments/check-v2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      const result = await response.json().catch(() => ({})) as AdminRecord
+      setMessage(String(result.message || (response.ok ? 'Подключение к ЮKassa работает' : 'Проверка не пройдена')))
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Не удалось проверить ЮKassa')
+    } finally {
+      setCheckBusy(false)
+      await load()
+    }
+  }
 
   const updatePackage = (code: string, patch: AdminRecord) => {
     setData((current) => current ? { ...current, packages: (current.packages || []).map((item) => String(item.code) === code ? { ...item, ...patch } : item) } : current)
@@ -81,6 +101,8 @@ export default function AdminPayments() {
   const secretReady = Boolean(secretKey.trim() || config.secret_key)
   const receiptReady = Number(receiptVatCode) >= 1 && Number(receiptVatCode) <= 12 && Boolean(paymentSubject)
   const webhookReady = Boolean(data?.webhook_url)
+  const webhookObserved = Boolean((data?.events || []).length)
+  const connectionOk = Boolean(data?.connection_check?.ok)
   const publicSiteUrl = String(legal.site_url || 'https://izo.alikinas.ru').replace(/\/+$/, '')
   const reviewTemplate = useMemo(() => [
     'Здравствуйте!',
@@ -112,7 +134,7 @@ export default function AdminPayments() {
     <div className="admin-section admin-payments-page">
       <div className="admin-section-head">
         <div><h3>Платежи и пополнения</h3><p>Подключение ЮKassa, разовые пакеты токенов и реальные операции.</p></div>
-        <span className={data?.configured ? 'status ok' : 'status warn'}>{data?.configured ? 'настроено' : 'нужны реквизиты магазина'}</span>
+        <span className={connectionOk ? 'status ok' : 'status warn'}>{connectionOk ? 'API проверен' : data?.configured ? 'реквизиты сохранены, нужна проверка' : 'нужны реквизиты магазина'}</span>
       </div>
       <div className="admin-owner-note"><strong>Тарифные цены берутся из «Тарифов»</strong><span>Здесь они показаны только для контроля синхронизации и не имеют второго набора настроек.</span><button className="secondary" onClick={() => { window.location.assign('/admin/tariffs') }}>Открыть тарифы</button></div>
       <div className="admin-payment-tariffs">
@@ -180,16 +202,22 @@ export default function AdminPayments() {
             </select>
           </label>
           <label className="admin-check"><input type="checkbox" checked={testMode} onChange={(event) => setTestMode(event.target.checked)} /> Тестовый магазин</label>
-          <button className="secondary" disabled={!shopReady || !secretReady || !receiptReady} onClick={save}>Сохранить настройки</button>
-          {message && <small>{message}</small>}
+          <div className="admin-payment-connect-actions">
+            <button className="secondary" disabled={!shopReady || !secretReady || !receiptReady} onClick={save}>Сохранить настройки</button>
+            <button className="secondary" disabled={!data?.configured || checkBusy} onClick={() => { void checkConnection() }}>{checkBusy ? 'Проверяем…' : 'Проверить ЮKассу'}</button>
+          </div>
+          {message && <small className={`admin-mail-message ${connectionOk ? 'ok' : 'error'}`}>{message}</small>}
+          <small>Проверка безопасна: она читает список платежей и ничего не списывает.</small>
         </article>
         <article className="admin-mail-card admin-payment-readiness">
           <h4>Готовность приема оплаты</h4>
           <p className={shopReady ? 'ok' : 'error'}>{shopReady ? <CheckCircle2 /> : <CircleAlert />}<span><b>Магазин</b><small>{shopReady ? 'shopId заполнен' : 'нужен shopId'}</small></span></p>
           <p className={secretReady ? 'ok' : 'error'}>{secretReady ? <CheckCircle2 /> : <CircleAlert />}<span><b>Секрет API</b><small>{secretReady ? 'ключ сохранен или введен' : 'нужен секретный ключ'}</small></span></p>
           <p className={receiptReady ? 'ok' : 'error'}>{receiptReady ? <CheckCircle2 /> : <CircleAlert />}<span><b>Электронный чек</b><small>{receiptReady ? 'НДС и предмет расчета выбраны' : 'выберите параметры чека'}</small></span></p>
-          <p className={webhookReady ? 'ok' : 'error'}>{webhookReady ? <CheckCircle2 /> : <CircleAlert />}<span><b>Webhook</b><small>{webhookReady ? 'адрес сформирован; его нужно добавить в ЮKassa' : 'адрес не сформирован'}</small></span></p>
-          <small>Статус «настроено» появится только после сохранения shopId, секрета и параметров чека. После этого всё равно обязательна тестовая оплата.</small>
+          <p className={connectionOk ? 'ok' : 'error'}>{connectionOk ? <CheckCircle2 /> : <CircleAlert />}<span><b>Связь с API</b><small>{data?.connection_check?.message || 'нажмите «Проверить ЮKассу»'}</small></span></p>
+          <p className={webhookObserved ? 'ok' : webhookReady ? 'warn' : 'error'}>{webhookObserved ? <CheckCircle2 /> : <CircleAlert />}<span><b>Webhook</b><small>{webhookObserved ? 'уведомление от ЮKassa уже получено' : webhookReady ? 'адрес готов, но реальное уведомление ещё не приходило' : 'адрес не сформирован'}</small></span></p>
+          <small>{data?.connection_check?.checked_at ? `Последняя проверка API: ${new Date(data.connection_check.checked_at).toLocaleString('ru-RU')}. ` : ''}Полная проверка завершается тестовой покупкой из кабинета пользователя.</small>
+          <a className="admin-payment-checkout-link" href="/profile/tariffs" target="_blank" rel="noreferrer">Открыть тестовую покупку <ExternalLink /></a>
         </article>
         <article className="admin-mail-card">
           <h4>Реальные операции</h4>

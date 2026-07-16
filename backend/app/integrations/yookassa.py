@@ -26,6 +26,11 @@ class YooKassaPayment:
     paid: bool
 
 
+@dataclass(frozen=True)
+class YooKassaConnectionCheck:
+    payments_visible: int
+
+
 def rubles_value(amount: int) -> str:
     if amount <= 0:
         raise YooKassaError("Payment amount must be positive.")
@@ -81,6 +86,42 @@ async def create_yookassa_payment(
         return parse_payment(response.json())
     except (httpx.HTTPError, ValueError) as exc:
         raise YooKassaError("YooKassa payment request failed.") from exc
+    finally:
+        if owns_client:
+            await current.aclose()
+
+
+async def check_yookassa_connection(
+    *,
+    shop_id: str,
+    secret_key: str,
+    client: httpx.AsyncClient | None = None,
+) -> YooKassaConnectionCheck:
+    """Verify shop credentials without creating or changing a payment."""
+    owns_client = client is None
+    current = client or httpx.AsyncClient(timeout=20.0)
+    try:
+        response = await current.get(
+            f"{YOOKASSA_API_URL}/payments",
+            auth=(shop_id, secret_key),
+            params={"limit": 1},
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("type") != "list" or not isinstance(payload.get("items"), list):
+            raise YooKassaError("ЮKassa вернула неожиданный ответ при проверке магазина.")
+        return YooKassaConnectionCheck(payments_visible=len(payload["items"]))
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status in {401, 403}:
+            message = "ЮKassa не приняла shopId или секретный ключ."
+        elif status == 429:
+            message = "ЮKassa временно ограничила частоту запросов. Повторите проверку позже."
+        else:
+            message = f"ЮKassa вернула ошибку HTTP {status} при проверке магазина."
+        raise YooKassaError(message) from exc
+    except (httpx.RequestError, ValueError) as exc:
+        raise YooKassaError("Не удалось связаться с API ЮKassa.") from exc
     finally:
         if owns_client:
             await current.aclose()

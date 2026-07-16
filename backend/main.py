@@ -38,9 +38,9 @@ try:
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations.smtp import SmtpConfig, SmtpError, SmtpMessage, send_smtp_email, verify_smtp_connection
 try:
-    from .app.integrations.yookassa import YooKassaError, create_yookassa_payment, fetch_yookassa_payment
+    from .app.integrations.yookassa import YooKassaError, check_yookassa_connection, create_yookassa_payment, fetch_yookassa_payment
 except ImportError:  # Direct `python backend/main.py` execution.
-    from app.integrations.yookassa import YooKassaError, create_yookassa_payment, fetch_yookassa_payment
+    from app.integrations.yookassa import YooKassaError, check_yookassa_connection, create_yookassa_payment, fetch_yookassa_payment
 try:
     from .app.billing import (
         PaymentCreateCommand,
@@ -5361,12 +5361,34 @@ def save_yookassa_config(req: AdminYooKassaConfigV2Request) -> None:
                         "test_mode": bool(req.test_mode),
                         "receipt_vat_code": req.receipt_vat_code,
                         "payment_subject": req.payment_subject.strip(),
+                        "last_check_ok": False,
+                        "last_checked_at": None,
+                        "last_check_message": "Настройки изменены. Проверьте подключение заново.",
                     },
                     ensure_ascii=False,
                 ),
                 datetime.now(timezone.utc).isoformat(),
             ),
         )
+
+
+def save_yookassa_connection_check(*, ok: bool, message: str) -> dict[str, Any]:
+    config = yookassa_config()
+    checked_at = datetime.now(timezone.utc).isoformat()
+    config.update(
+        {
+            "last_check_ok": bool(ok),
+            "last_checked_at": checked_at,
+            "last_check_message": str(message).strip()[:500],
+        }
+    )
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('yookassa', ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+            (json.dumps(config, ensure_ascii=False), checked_at),
+        )
+    return config
 
 
 def public_site_url(request: Request) -> str:
@@ -13210,6 +13232,11 @@ async def admin_payments_status_v2(request: Request) -> dict[str, Any]:
             "receipt_vat_code": config.get("receipt_vat_code"),
             "payment_subject": config.get("payment_subject") or "service",
         },
+        "connection_check": {
+            "ok": bool(config.get("last_check_ok")),
+            "checked_at": config.get("last_checked_at"),
+            "message": config.get("last_check_message") or "",
+        },
         "webhook_url": f"{os.getenv('PUBLIC_SITE_URL', 'https://izo.alikinas.ru').rstrip('/')}/api/billing/yookassa/webhook-v2",
         "summary": {"total": int(summary["total"] or 0), "paid": int(summary["paid"] or 0), "pending": int(summary["pending"] or 0), "revenue_rub": int(summary["revenue"] or 0)},
         "packages": [_billing_package_dict(row) for row in packages],
@@ -13237,6 +13264,46 @@ async def admin_payments_config_v2(req: AdminYooKassaConfigV2Request, request: R
     except SecretStoreError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, "configured": yookassa_checkout_ready(), "provider": "yookassa"}
+
+
+@app.post("/api/admin/payments/check-v2")
+async def admin_payments_check_v2(request: Request) -> dict[str, Any]:
+    actor = require_trusted_admin(request)
+    config = yookassa_config()
+    shop_id = str(config.get("shop_id") or "").strip()
+    secret_key = yookassa_secret_key()
+    if not shop_id or not secret_key:
+        raise HTTPException(400, "Сначала сохраните shopId и секретный ключ.")
+    try:
+        result = await check_yookassa_connection(shop_id=shop_id, secret_key=secret_key)
+        message = "Подключение к ЮKassa работает. Реквизиты магазина приняты API."
+        saved = save_yookassa_connection_check(ok=True, message=message)
+        status_code = 200
+    except YooKassaError as exc:
+        message = str(exc)
+        saved = save_yookassa_connection_check(ok=False, message=message)
+        status_code = 502
+        result = None
+    with db() as conn:
+        record_audit_log(
+            conn,
+            "admin_check_yookassa",
+            actor_internal_user_id=actor.get("internal_user_id"),
+            entity_type="billing_provider",
+            entity_id="yookassa",
+            after={"ok": bool(saved.get("last_check_ok")), "checked_at": saved.get("last_checked_at")},
+            request=request,
+        )
+    payload = {
+        "ok": bool(saved.get("last_check_ok")),
+        "provider": "yookassa",
+        "checked_at": saved.get("last_checked_at"),
+        "message": message,
+        "payments_visible": result.payments_visible if result else 0,
+    }
+    if status_code != 200:
+        return JSONResponse(status_code=status_code, content=payload)
+    return payload
 
 
 @app.put("/api/admin/payments/packages/{code}-v2")
@@ -14433,8 +14500,6 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
         quota = gallery_quota_for_user(conn, user, user_id)
     plan = str(_row_get(user, "plan") or "free").lower()
     is_admin = str(_row_get(user, "role") or "") == "admin"
-    if not quota["video_enabled"] and not is_admin:
-        raise HTTPException(403, "Генерация видео доступна на тарифах Pro и Бизнес.")
     catalog = await fetch_openrouter_video_catalog()
     config = normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), catalog)
     exchange = await fetch_usd_rub_rate()
@@ -14485,12 +14550,8 @@ async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[st
     user_id = trusted["legacy_user_id"]
     with db() as conn:
         user = conn.execute("SELECT plan, role FROM users WHERE id = ?", (user_id,)).fetchone()
-        quota = gallery_quota_for_user(conn, user, user_id)
-        used = int(conn.execute("SELECT COUNT(*) FROM jobs WHERE user_id = ? AND mode IN ('text_to_video','image_to_video','first_last_frame','reference_to_video') AND status = 'completed'", (user_id,)).fetchone()[0])
     plan = str(_row_get(user, "plan") or "free").lower()
     is_admin = str(_row_get(user, "role") or "") == "admin"
-    if (not quota["video_enabled"] or used >= int(quota["video_slots"] or 0)) and not is_admin:
-        raise HTTPException(403, "Лимит видео по тарифу исчерпан.")
     catalog = await fetch_openrouter_video_catalog()
     config = normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), catalog)
     model = next((item for item in _allowed_video_models(catalog, config, req.mode, plan, is_admin) if item.get("id") == req.model), None)

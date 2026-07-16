@@ -2226,3 +2226,36 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
 .admin-payment-readiness p.error svg {
   color: #ff7070;
 }
+
+.admin-payment-readiness p.warn svg {
+  color: #e3bd4e;
+}
+
+.admin-payment-connect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-payment-connect-actions button {
+  flex: 1 1 190px;
+}
+
+.admin-payment-checkout-link {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #3b443b;
+  border-radius: 7px;
+  background: #171c17;
+  color: #f1f1f1;
+  padding: 8px 12px;
+  text-decoration: none;
+}
+
+.admin-payment-checkout-link svg {
+  width: 15px;
+  height: 15px;
+}
