@@ -121,6 +121,26 @@ def test_plan_change_audit(temp_db):
     assert count("audit_logs", "WHERE action='admin_change_plan'") == 1
 
 
+def test_personal_discount_change_is_persisted_and_audited(temp_db):
+    tok = admin_token()
+    make_user("iuid-1", "telegram_1")
+    with TestClient(main.app) as c:
+        assert c.post("/api/admin/users/iuid-1/discount-v2", json={"percent": 25, "reason": ""}, headers=bearer(tok)).status_code == 400
+        response = c.post(
+            "/api/admin/users/iuid-1/discount-v2",
+            json={"percent": 25, "reason": "Персональное предложение"},
+            headers=bearer(tok),
+        )
+    assert response.status_code == 200
+    assert response.json()["personal_discount_percent"] == 25
+    with main.db() as conn:
+        row = conn.execute(
+            "SELECT personal_discount_percent FROM users WHERE internal_user_id='iuid-1'"
+        ).fetchone()
+    assert row["personal_discount_percent"] == 25
+    assert count("audit_logs", "WHERE action='admin_change_personal_discount'") == 1
+
+
 # Profile: 15, 16, 17, 18
 def test_profile_update(temp_db):
     tok = admin_token()

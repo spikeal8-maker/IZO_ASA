@@ -138,6 +138,29 @@ def test_refund_limits_and_analytics_safe(temp_db):
         assert forbidden not in text
 
 
+def test_yookassa_refund_cannot_be_falsely_completed_only_in_local_db(temp_db):
+    token = admin_token()
+    make_user("iuid-target", "telegram_target")
+    with TestClient(main.app) as c:
+        invoice = create_invoice(c, token, "iuid-target", amount=500, tokens=0)
+        payment = c.post(
+            f"/api/admin/invoices/{invoice['id']}/mark-paid-v2",
+            json={"amount": 500, "reason": "paid", "idempotency_key": "pay-yookassa-ref"},
+            headers=bearer(token),
+        ).json()["payment"]
+        with main.db() as conn:
+            conn.execute("UPDATE payments SET provider='yookassa' WHERE id=?", (payment["id"],))
+        response = c.post(
+            f"/api/admin/payments/{payment['id']}/refund-v2",
+            json={"amount": 200, "reason": "refund", "idempotency_key": "refund-yookassa"},
+            headers=bearer(token),
+        )
+    assert response.status_code == 409
+    with main.db() as conn:
+        assert conn.execute("SELECT COUNT(*) AS c FROM refunds").fetchone()["c"] == 0
+        assert conn.execute("SELECT status FROM payments WHERE id=?", (payment["id"],)).fetchone()["status"] == "paid"
+
+
 def test_admin_can_update_token_package_but_not_tariff_package(temp_db):
     token = admin_token()
     body = {"name": "80 токенов", "price_amount": 360, "token_amount": 80, "is_active": True}

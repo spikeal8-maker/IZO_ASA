@@ -30,7 +30,7 @@ type PublicModelFormatPricing = {
   supported?: boolean
 }
 type PublicModelPricing = { id: string; label: string; formats: PublicModelFormatPricing[] }
-type BillingPackage = { code: string; name: string; description?: string; price_amount: number; token_amount: number; currency: string }
+type BillingPackage = { code: string; name: string; description?: string; price_amount: number; base_price_amount?: number; discount_percent?: number; discount_amount?: number; token_amount: number; currency: string }
 type ProfileVideoMode = 'text_to_video' | 'image_to_video' | 'first_last_frame' | 'reference_to_video'
 type ProfileVideoModel = { id: string; name: string; description?: string; publicPricing?: { fromTokens?: number | null }; supportedDurations?: number[]; supportedResolutions?: string[]; supportedAspectRatios?: string[]; generateAudio?: boolean | null }
 type ProfileVideoConfig = { modes: Record<ProfileVideoMode, ProfileVideoModel[]>; plan?: string }
@@ -160,6 +160,7 @@ export default function ProfilePage({
   const [tokenHistoryDays, setTokenHistoryDays] = useState(30)
   const [tokenHistory, setTokenHistory] = useState<TokenHistory | null>(null)
   const [billingPackages, setBillingPackages] = useState<BillingPackage[]>([])
+  const [personalDiscountPercent, setPersonalDiscountPercent] = useState(0)
   const [selectedPackage, setSelectedPackage] = useState('')
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutMessage, setCheckoutMessage] = useState('')
@@ -267,9 +268,10 @@ export default function ProfilePage({
         if (cancelled) return
         const packages = Array.isArray(result?.packages) ? result.packages as BillingPackage[] : []
         setBillingPackages(packages)
+        setPersonalDiscountPercent(Math.max(0, Number(result?.personal_discount_percent || 0)))
         setSelectedPackage((current) => current || packages[0]?.code || '')
       })
-      .catch(() => { if (!cancelled) setBillingPackages([]) })
+      .catch(() => { if (!cancelled) { setBillingPackages([]); setPersonalDiscountPercent(0) } })
     return () => { cancelled = true }
   }, [authStatus, profileTab])
   useEffect(() => {
@@ -357,15 +359,18 @@ export default function ProfilePage({
       tariff.queue_label && tariff.queue_label.toLowerCase() !== 'обычная' ? `Очередь: ${tariff.queue_label}` : '',
       tariff.video_enabled ? `${tariff.video_slots} видео-экспортов/мес` : '',
     ].filter(Boolean)
+    const basePrice = tariff.price_rub_month
+    const discountAmount = Math.round(basePrice * personalDiscountPercent / 100)
     return {
       id,
       title: tariff.title,
       note: tariff.note,
-      price: tariff.price_rub_month,
+      price: Math.max(0, basePrice - discountAmount),
+      basePrice,
       daily: tariff.daily_tokens,
       premium: tariff.openrouter_monthly_tokens,
       premiumValue: tariff.openrouter_monthly_tokens * safeTokenRub,
-      benefit: Math.max(0, tariff.openrouter_monthly_tokens * safeTokenRub - tariff.price_rub_month),
+      benefit: Math.max(0, tariff.openrouter_monthly_tokens * safeTokenRub - Math.max(0, basePrice - discountAmount)),
       slots: tariff.gallery_slots,
       quality: tariff.quality_label,
       features,
@@ -565,6 +570,7 @@ export default function ProfilePage({
                 <button type="button" className="profile-primary" disabled>Управление тарифом скоро</button>
               </div>
               <div className="profile-checkout-consent profile-card">
+                {personalDiscountPercent > 0 && <div className="profile-checkout-discount">Персональная скидка: <strong>{personalDiscountPercent}%</strong>. Она уже учтена в ценах ниже.</div>}
                 <label>
                   <span>Email или телефон для электронного чека</span>
                   <input value={receiptContact} onChange={(event) => { setReceiptContact(event.target.value); setCheckoutMessage('') }} placeholder="mail@example.ru или +7 900 000-00-00" autoComplete="email" />
@@ -579,7 +585,7 @@ export default function ProfilePage({
                 {planCards.map((item) => (
                   <article className={`${item.id === activePlan ? 'profile-card profile-plan active current' : 'profile-card profile-plan'}`} key={item.id}>
                     {item.id === activePlan && <span className="profile-chip current">Текущий</span>}
-                    <h4>{item.title}</h4><p>{item.note}</p><strong>{item.price ? `${item.price.toLocaleString('ru-RU')} ₽/мес` : 'Бесплатно'}</strong><span>{item.daily} серверных токенов/день · {item.quality}</span>
+                    <h4>{item.title}</h4><p>{item.note}</p><strong>{item.price ? `${item.price.toLocaleString('ru-RU')} ₽/мес` : 'Бесплатно'}</strong>{personalDiscountPercent > 0 && item.basePrice > item.price ? <small className="profile-old-price">{item.basePrice.toLocaleString('ru-RU')} ₽ без скидки</small> : null}<span>{item.daily} серверных токенов/день · {item.quality}</span>
                     {item.premium > 0 ? <em>{item.premium} токенов/мес на премиум-модели</em> : null}
                     {item.benefit > 0 ? <small>Выгода по токенам: {item.benefit.toLocaleString('ru-RU')} ₽</small> : null}
                     {item.features.length ? <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null}
@@ -597,7 +603,7 @@ export default function ProfilePage({
                   <strong>1 токен = {safeTokenRub.toLocaleString('ru-RU')} ₽</strong>
                 </div>
                 <div className="profile-token-packs" aria-label="Пакеты токенов">
-                  {billingPackages.map((item) => <button type="button" className={selectedPackage === item.code ? 'active' : ''} key={item.code} onClick={() => setSelectedPackage(item.code)}>{item.token_amount} ток. · {item.price_amount.toLocaleString('ru-RU')} ₽</button>)}
+                  {billingPackages.map((item) => <button type="button" className={selectedPackage === item.code ? 'active' : ''} key={item.code} onClick={() => setSelectedPackage(item.code)}>{item.token_amount} ток. · {item.price_amount.toLocaleString('ru-RU')} ₽{item.base_price_amount && item.base_price_amount > item.price_amount ? <del>{item.base_price_amount.toLocaleString('ru-RU')} ₽</del> : null}</button>)}
                 </div>
                 <button type="button" className="profile-primary" disabled={!selectedPackage || checkoutBusy || !checkoutAccepted || !receiptContact.trim()} onClick={() => { void startCheckout() }}>{checkoutBusy ? 'Переходим к оплате...' : 'Купить токены'}</button>
                 {checkoutMessage && <small className="profile-save-err">{checkoutMessage}</small>}

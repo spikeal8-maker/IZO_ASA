@@ -146,7 +146,7 @@ interface UserDetail {
 }
 
 // --- Shared trusted-action confirm (compact popover, reason-gated, audited). ---
-type ActKind = 'tokens' | 'role' | 'plan' | 'profile' | 'ban' | 'unban' | 'reset' | 'deactivate' | 'invoice' | 'mark_paid' | 'refund' | 'cancel_invoice' | 'bonus' | 'cancel_bonus' | 'promo' | 'referral_reward'
+type ActKind = 'tokens' | 'discount' | 'role' | 'plan' | 'profile' | 'ban' | 'unban' | 'reset' | 'deactivate' | 'invoice' | 'mark_paid' | 'refund' | 'cancel_invoice' | 'bonus' | 'cancel_bonus' | 'promo' | 'referral_reward'
 function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
   target: CrmUserRow; kind: ActKind; preset?: string; context?: AnyRec; onClose: () => void; onDone: () => void
 }): ReactElement {
@@ -160,13 +160,14 @@ function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
   const [msg, setMsg] = useState('')
   const iuid = target.internal_user_id
   const title: Record<ActKind, string> = {
-    tokens: 'Изменить токены', role: isAdmin ? 'Снять админа' : 'Сделать админом', plan: 'Изменить тариф',
+    tokens: 'Изменить токены', discount: 'Персональная скидка', role: isAdmin ? 'Снять админа' : 'Сделать админом', plan: 'Изменить тариф',
     profile: 'Изменить профиль', ban: 'Забанить / отключить', unban: 'Разбанить', reset: 'Сбросить пароль', deactivate: 'Деактивировать',
     invoice: 'Выставить счёт', mark_paid: 'Отметить оплату', refund: 'Возврат', cancel_invoice: 'Отменить счёт',
     bonus: 'Начислить бонус', cancel_bonus: 'Отменить бонус', promo: 'Применить промокод', referral_reward: 'Реферальная корректировка',
   }
   const danger = kind === 'ban' || kind === 'deactivate' || kind === 'reset' || kind === 'refund' || kind === 'cancel_invoice' || kind === 'cancel_bonus' || (kind === 'role' && isAdmin)
   const changePreview = kind === 'tokens' ? `${Number(value) > 0 ? '+' : ''}${value || '—'} токенов`
+    : kind === 'discount' ? `Скидка на оплату: ${value || '0'}%`
     : kind === 'role' ? `${isAdmin ? 'admin → user' : 'user → admin'}`
     : kind === 'plan' ? `Тариф: ${value || '—'}`
     : kind === 'profile' ? `Имя/email будут обновлены`
@@ -195,6 +196,7 @@ function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
     const base = `/admin/users/${encodeURIComponent(iuid)}`
     let res: { ok: boolean; status: number; detail?: string } = { ok: false, status: 0 }
     if (kind === 'tokens') { const d = Number(value); if (!d) { setBusy(false); setMsg('Введите ненулевое число.'); return } res = await adminPost(`${base}/tokens-v2`, { delta: d, reason }) }
+    else if (kind === 'discount') { const percent = Number(value); if (!Number.isInteger(percent) || percent < 0 || percent > 90) { setBusy(false); setMsg('Скидка должна быть целым числом от 0 до 90%.'); return } res = await adminPost(`${base}/discount-v2`, { percent, reason }) }
     else if (kind === 'role') res = await adminPost(`${base}/role-v2`, { role: isAdmin ? 'user' : 'admin', reason })
     else if (kind === 'plan') { if (!value) { setBusy(false); setMsg('Выберите тариф.'); return } res = await adminPost(`${base}/plan-v2`, { plan: value, reason }) }
     else if (kind === 'profile') { const body: Record<string, unknown> = { reason }; if (value.trim()) body.display_name = value.trim(); if (email.trim()) body.email = email.trim(); if (!body.display_name && !body.email) { setBusy(false); setMsg('Нет полей для изменения.'); return } res = await adminPost(`${base}/profile-v2`, body) }
@@ -263,12 +265,13 @@ function ActionConfirm({ target, kind, preset, context, onClose, onDone }: {
             <label>Изменение баланса<input value={value} onChange={(e) => setValue(e.target.value)} placeholder="например 50 или -50" /></label>
           </div>
         )}
+        {kind === 'discount' && <label>Скидка, %<input value={value} onChange={(e) => setValue(e.target.value)} inputMode="numeric" placeholder="от 0 до 90" /></label>}
         {kind === 'invoice' && <><label>Сумма счёта, ₽<input value={value} onChange={(e) => setValue(e.target.value)} inputMode="numeric" placeholder="например 1250" /></label><label>Токены к начислению после оплаты<input value={tokens} onChange={(e) => setTokens(e.target.value)} inputMode="numeric" placeholder="например 500" /></label></>}
         {(kind === 'mark_paid' || kind === 'refund') && <label>Сумма<input value={value} onChange={(e) => setValue(e.target.value)} inputMode="numeric" placeholder={S(context?.total_amount || context?.amount)} /></label>}
         {kind === 'bonus' && <label>Тип бонуса<select value={bonusType} onChange={(e) => setBonusType(e.target.value)}><option value="manual">manual</option><option value="compensation">compensation</option><option value="campaign">campaign</option><option value="referral">referral</option></select></label>}
         {(kind === 'bonus' || kind === 'referral_reward') && <label>Токены<input value={value} onChange={(e) => setValue(e.target.value)} inputMode="numeric" placeholder="например 100" /></label>}
         {kind === 'promo' && <label>Промокод<input value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" placeholder="WELCOME" /></label>}
-        {kind === 'plan' && <label>Тариф<select value={value} onChange={(e) => setValue(e.target.value)}><option value="">Выбрать…</option><option value="free">free</option><option value="mini">mini</option><option value="plus">plus</option><option value="pro">pro</option></select></label>}
+        {kind === 'plan' && <label>Тариф<select value={value} onChange={(e) => setValue(e.target.value)}><option value="">Выбрать…</option><option value="free">free</option><option value="mini">mini</option><option value="plus">plus</option><option value="pro">pro</option><option value="business">business</option></select></label>}
         {kind === 'profile' && <><label>Отображаемое имя<input value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" /></label><label>Email<input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" /></label></>}
         {kind === 'reset' && <label>Новый пароль (не сохраняется)<input type="password" value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" /></label>}
         <label>Причина (обязательно)<input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Причина действия" /></label>
@@ -396,7 +399,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             </div>
             <div className="crm-card-top-actions">
               <button className="secondary crm-card-icon-action" title="Копировать код" onClick={() => navigator.clipboard?.writeText(S(sm.public_user_code)).catch(() => undefined)}>□</button>
-              <button className="secondary" onClick={() => setTab('tech')}>Технические данные</button>
+              <button className="secondary" onClick={() => setTab('tech')}>Устройства и входы</button>
               <button className="auth-modal-close" aria-label="Закрыть" onClick={onClose}>×</button>
             </div>
           </div>
@@ -470,7 +473,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 {row('Операций ledger', data?.token_summary?.entries ?? 0)}
                 {row('Счетов', data?.billing_summary?.invoice_count ?? 0)}{row('Неоплачено', data?.billing_summary?.unpaid_count ?? 0)}
                 {row('Оплачено', money(data?.billing_summary?.total_paid))}{row('Возвраты', money(data?.billing_summary?.total_refunded))}
-                {row('Бонусы', data?.loyalty_summary?.bonus_count ?? 0)}
+                {row('Скидка на оплату', `${n0(data?.billing_summary?.personal_discount_percent)}%`)}{row('Бонусы', data?.loyalty_summary?.bonus_count ?? 0)}
               </dl>
               <div className="crm-rows">
                 {(data?.invoices_recent || []).slice(0, 4).map((i, n) => <small key={`inv${n}`}><strong>{S(i.invoice_code)}</strong> · {S(i.status)} · {money(i.total_amount, S(i.currency))} · {S(i.tokens_total)} ток. · {shortTime(i.created_at)}</small>)}
@@ -527,7 +530,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <button className={tab === 'loyalty' ? 'active' : ''} onClick={() => setTab('loyalty')}>Лояльность</button>
               <button className={tab === 'prompts' ? 'active' : ''} onClick={() => setTab('prompts')}>Промпты</button>
               <button className={tab === 'gallery' ? 'active' : ''} onClick={() => setTab('gallery')}>Галерея</button>
-              <button className={tab === 'tech' ? 'active' : ''} onClick={() => setTab('tech')}>Техническое</button>
+              <button className={tab === 'tech' ? 'active' : ''} onClick={() => setTab('tech')}>Устройства и входы</button>
             </div>
             {tab === 'logs' && <div className="crm-acc">
               <strong>Логи ({(data?.recent_events?.length || 0) + (data?.recent_security_events?.length || 0) + (data?.admin_actions?.length || 0)})</strong>
@@ -551,8 +554,8 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             {tab === 'prompts' && <div className="crm-acc"><strong>Генерации и промпты</strong><div className="crm-generation-list">{(data?.recent_generations || []).slice(0, 20).map((g, n) => <div className={g.status === 'failed' ? 'crm-generation-row failed' : 'crm-generation-row'} key={n}><span><b>{S(g.model || g.provider)}</b><small>{shortTime(g.created_at)} · {S(g.mode)} · {S(g.status)} · {S(g.token_cost)} ток.</small></span><p>{S(g.prompt)}</p>{g.error ? <small className="crm-err">{S(g.error)}</small> : null}</div>)}</div>{!data?.recent_generations?.length && <p className="crm-card-note">—</p>}</div>}
             {tab === 'gallery' && <div className="crm-acc"><strong>Галерея</strong><div className="crm-gallery-strip">{(data?.recent_gallery || []).slice(0, 8).map((img, n) => <button type="button" className="crm-gallery-strip-item" key={n} onClick={() => openImage(img)}><img src={imageUrl(img)} alt="" /><small>{S(img.mode)} · {shortTime(img.created_at)}</small></button>)}</div>{!data?.recent_gallery?.length && <p className="crm-card-note">—</p>}</div>}
             {tab === 'tech' && <div className="crm-acc">
-              <strong>Технические идентификаторы</strong>
-              <p className="legacy-admin-warn">Не показывать пользователю.</p>
+              <strong>Устройства, входы и служебные идентификаторы</strong>
+              <p className="legacy-admin-warn">Служебные данные доступны только администратору.</p>
               <dl className="crm-preview-list">{row('internal_user_id', u.internal_user_id)}{row('public_user_code', sm.public_user_code)}{row('primary_provider', sm.primary_provider)}</dl>
             </div>}
           </div>
@@ -562,7 +565,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             <p className="crm-card-note">{adminReady ? 'Каждое поддержанное действие требует причину и пишется в audit log.' : 'Войдите как админ: мутационные действия заблокированы.'}</p>
             <div className="crm-action-group"><strong>Токены</strong><div className="crm-quick"><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'tokens', preset: '50' })}>+50</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'tokens', preset: '-50' })}>-50</button>{actionButton('tokens', 'Другое')}</div></div>
             <div className="crm-action-group"><strong>Биллинг</strong>{actionButton('plan', 'Изменить тариф')}<button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'invoice', preset: '0' })}>Выставить счёт</button><button className="secondary crm-supported-action" disabled={!adminReady || !unpaidInvoice} onClick={() => adminReady && unpaidInvoice && setAct({ kind: 'mark_paid', preset: S(unpaidInvoice.total_amount), context: unpaidInvoice })}>Отметить оплату</button><button className="secondary danger crm-supported-action" disabled={!adminReady || !refundablePayment} onClick={() => adminReady && refundablePayment && setAct({ kind: 'refund', preset: S(refundablePayment.amount), context: refundablePayment })}>Возврат</button><button className="secondary danger crm-supported-action" disabled={!adminReady || !unpaidInvoice} onClick={() => adminReady && unpaidInvoice && setAct({ kind: 'cancel_invoice', context: unpaidInvoice })}>Отменить счёт</button></div>
-            <div className="crm-action-group"><strong>Маркетинг</strong><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'bonus', preset: '100' })}>Бонус / компенсация</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'promo' })}>Применить промокод</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'referral_reward', preset: '100' })}>Реферальная корректировка</button><button className="secondary danger crm-supported-action" disabled={!adminReady || !cancellableBonus} onClick={() => adminReady && cancellableBonus && setAct({ kind: 'cancel_bonus', context: cancellableBonus })}>Отменить бонус</button></div>
+            <div className="crm-action-group"><strong>Маркетинг</strong><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'discount', preset: S(data?.billing_summary?.personal_discount_percent || 0) })}>Скидка на оплату</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'bonus', preset: '100' })}>Бонус / компенсация</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'promo' })}>Применить промокод</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'referral_reward', preset: '100' })}>Реферальная корректировка</button><button className="secondary danger crm-supported-action" disabled={!adminReady || !cancellableBonus} onClick={() => adminReady && cancellableBonus && setAct({ kind: 'cancel_bonus', context: cancellableBonus })}>Отменить бонус</button></div>
             <div className="crm-action-group"><strong>Доступ</strong>{actionButton(isBanned ? 'unban' : 'ban', isBanned ? 'Разбанить' : 'Бан/Разбан', undefined, !isBanned)}{actionButton('reset', 'Сбросить пароль', undefined, true)}</div>
             <div className="crm-action-group"><strong>Аккаунт</strong>{actionButton('profile', 'Редактировать профиль')}{actionButton('role', isAdmin ? 'Снять админа' : 'Сделать админом')}<button className="secondary danger crm-supported-action" disabled={!adminReady || isAdmin || isBanned} onClick={() => adminReady && setAct({ kind: 'deactivate' })}>Деактивировать</button>{disabledAction('Анонимизировать')}</div>
           </aside>

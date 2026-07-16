@@ -27,6 +27,8 @@ export default function AdminPayments() {
   const [shopId, setShopId] = useState('')
   const [secretKey, setSecretKey] = useState('')
   const [testMode, setTestMode] = useState(true)
+  const [receiptVatCode, setReceiptVatCode] = useState('1')
+  const [paymentSubject, setPaymentSubject] = useState('service')
   const [message, setMessage] = useState('')
   const [reviewMessage, setReviewMessage] = useState('')
   const [legal, setLegal] = useState<AdminRecord>({})
@@ -36,6 +38,8 @@ export default function AdminPayments() {
     setData(next)
     setShopId(String(config.shop_id || ''))
     setTestMode(Boolean(config.test_mode ?? true))
+    setReceiptVatCode(String(config.receipt_vat_code || '1'))
+    setPaymentSubject(String(config.payment_subject || 'service'))
     setLegal(next?.legal || {})
   }, [])
 
@@ -46,6 +50,8 @@ export default function AdminPayments() {
       shop_id: shopId.trim(),
       secret_key: secretKey.trim() || null,
       test_mode: testMode,
+      receipt_vat_code: Number(receiptVatCode),
+      payment_subject: paymentSubject,
     })
     setMessage(result?.ok ? 'Настройки ЮKassa сохранены' : 'Не удалось сохранить настройки')
     if (result?.ok) setSecretKey('')
@@ -71,6 +77,10 @@ export default function AdminPayments() {
 
   const summary = data?.summary || {}
   const config = data?.config || {}
+  const shopReady = Boolean(shopId.trim())
+  const secretReady = Boolean(secretKey.trim() || config.secret_key)
+  const receiptReady = Number(receiptVatCode) >= 1 && Number(receiptVatCode) <= 12 && Boolean(paymentSubject)
+  const webhookReady = Boolean(data?.webhook_url)
   const publicSiteUrl = String(legal.site_url || 'https://izo.alikinas.ru').replace(/\/+$/, '')
   const reviewTemplate = useMemo(() => [
     'Здравствуйте!',
@@ -145,9 +155,41 @@ export default function AdminPayments() {
           <h4>Подключение ЮKassa</h4>
           <label>shopId<input value={shopId} onChange={(event) => setShopId(event.target.value)} placeholder="Идентификатор магазина" /></label>
           <label>Секретный ключ<input type="password" value={secretKey} onChange={(event) => setSecretKey(event.target.value)} placeholder={config.secret_key ? 'Ключ сохранен, можно заменить' : 'Секретный ключ API'} /></label>
+          <label>НДС в чеке
+            <select value={receiptVatCode} onChange={(event) => setReceiptVatCode(event.target.value)}>
+              <option value="1">Без НДС (код 1)</option>
+              <option value="2">НДС 0% (код 2)</option>
+              <option value="3">НДС 10% (код 3)</option>
+              <option value="4">НДС 20% (код 4)</option>
+              <option value="5">НДС 10/110 (код 5)</option>
+              <option value="6">НДС 20/120 (код 6)</option>
+              <option value="7">НДС 5% (код 7)</option>
+              <option value="8">НДС 7% (код 8)</option>
+              <option value="9">НДС 5/105 (код 9)</option>
+              <option value="10">НДС 7/107 (код 10)</option>
+              <option value="11">НДС 22% (код 11)</option>
+              <option value="12">НДС 22/122 (код 12)</option>
+            </select>
+            <small>Для самозанятого обычно используется «Без НДС». Значение должно совпадать с настройками магазина ЮKassa.</small>
+          </label>
+          <label>Предмет расчета
+            <select value={paymentSubject} onChange={(event) => setPaymentSubject(event.target.value)}>
+              <option value="service">Услуга</option>
+              <option value="payment">Платеж</option>
+              <option value="another">Иной предмет расчета</option>
+            </select>
+          </label>
           <label className="admin-check"><input type="checkbox" checked={testMode} onChange={(event) => setTestMode(event.target.checked)} /> Тестовый магазин</label>
-          <button className="secondary" disabled={!shopId.trim() || (!secretKey && !config.secret_key)} onClick={save}>Сохранить</button>
+          <button className="secondary" disabled={!shopReady || !secretReady || !receiptReady} onClick={save}>Сохранить настройки</button>
           {message && <small>{message}</small>}
+        </article>
+        <article className="admin-mail-card admin-payment-readiness">
+          <h4>Готовность приема оплаты</h4>
+          <p className={shopReady ? 'ok' : 'error'}>{shopReady ? <CheckCircle2 /> : <CircleAlert />}<span><b>Магазин</b><small>{shopReady ? 'shopId заполнен' : 'нужен shopId'}</small></span></p>
+          <p className={secretReady ? 'ok' : 'error'}>{secretReady ? <CheckCircle2 /> : <CircleAlert />}<span><b>Секрет API</b><small>{secretReady ? 'ключ сохранен или введен' : 'нужен секретный ключ'}</small></span></p>
+          <p className={receiptReady ? 'ok' : 'error'}>{receiptReady ? <CheckCircle2 /> : <CircleAlert />}<span><b>Электронный чек</b><small>{receiptReady ? 'НДС и предмет расчета выбраны' : 'выберите параметры чека'}</small></span></p>
+          <p className={webhookReady ? 'ok' : 'error'}>{webhookReady ? <CheckCircle2 /> : <CircleAlert />}<span><b>Webhook</b><small>{webhookReady ? 'адрес сформирован; его нужно добавить в ЮKassa' : 'адрес не сформирован'}</small></span></p>
+          <small>Статус «настроено» появится только после сохранения shopId, секрета и параметров чека. После этого всё равно обязательна тестовая оплата.</small>
         </article>
         <article className="admin-mail-card">
           <h4>Реальные операции</h4>

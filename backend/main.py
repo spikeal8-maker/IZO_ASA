@@ -1053,6 +1053,11 @@ class AdminTokensV2Request(BaseModel):
     reason: str = ""
 
 
+class AdminDiscountV2Request(BaseModel):
+    percent: int = Field(default=0, ge=0, le=90)
+    reason: str = ""
+
+
 class AdminPlanV2Request(BaseModel):
     plan: Literal["free", "mini", "plus", "pro", "business"]
     reason: str = ""
@@ -10117,7 +10122,11 @@ ADMIN_TOKENS_MAX_ABS = 100000
 
 
 def _admin_load_target(conn: sqlite3.Connection, internal_user_id: str) -> sqlite3.Row:
-    row = conn.execute("SELECT id, internal_user_id, role, banned, token_balance, plan, plan_expires_at, display_name, email FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
+    row = conn.execute(
+        "SELECT id, internal_user_id, role, banned, token_balance, plan, plan_expires_at, "
+        "display_name, email, personal_discount_percent FROM users WHERE internal_user_id = ?",
+        (internal_user_id,),
+    ).fetchone()
     if row is None:
         raise HTTPException(404, "User not found.")
     return row
@@ -10145,6 +10154,13 @@ def _billing_idempotency(value: str | None, prefix: str) -> str:
     if raw:
         return raw[:120]
     return f"{prefix}-{uuid.uuid4().hex}"
+
+
+def _billing_discount(base_amount: int, percent: int | None) -> tuple[int, int, int]:
+    subtotal = max(0, int(base_amount or 0))
+    safe_percent = max(0, min(90, int(percent or 0)))
+    discount = min(subtotal, (subtotal * safe_percent + 50) // 100)
+    return subtotal, discount, max(1, subtotal - discount)
 
 
 def _invoice_code(conn: sqlite3.Connection) -> str:
@@ -10260,6 +10276,10 @@ def _sync_tariff_billing_packages(conn: sqlite3.Connection) -> None:
 
 
 def _billing_projection(conn: sqlite3.Connection, internal_user_id: str) -> dict[str, Any]:
+    user = conn.execute(
+        "SELECT personal_discount_percent FROM users WHERE internal_user_id = ?",
+        (internal_user_id,),
+    ).fetchone()
     summary = conn.execute(
         """
         SELECT
@@ -10296,6 +10316,7 @@ def _billing_projection(conn: sqlite3.Connection, internal_user_id: str) -> dict
             "total_refunded": int(refunds_total or 0),
             "last_invoice_at": summary["last_invoice_at"],
             "last_payment_at": totals["last_payment_at"],
+            "personal_discount_percent": int(user["personal_discount_percent"] or 0) if user else 0,
         },
         "invoices_recent": [_billing_invoice_dict(r) for r in invoices],
         "payments_recent": [_billing_payment_dict(r) for r in payments],
@@ -10525,6 +10546,37 @@ async def admin_tokens_v2(internal_user_id: str, req: AdminTokensV2Request, requ
     return {"ok": True, "internal_user_id": internal_user_id, "old_balance": old_balance, "new_balance": new_balance, "delta": req.delta}
 
 
+@app.post("/api/admin/users/{internal_user_id}/discount-v2")
+async def admin_discount_v2(internal_user_id: str, req: AdminDiscountV2Request, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    reason = (req.reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "Укажите причину.")
+    with db() as conn:
+        target = _admin_load_target(conn, internal_user_id)
+        old_percent = int(target["personal_discount_percent"] or 0)
+        conn.execute(
+            "UPDATE users SET personal_discount_percent = ? WHERE internal_user_id = ?",
+            (req.percent, internal_user_id),
+        )
+        record_audit_log(
+            conn,
+            "admin_change_personal_discount",
+            actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=internal_user_id,
+            entity_id=target["id"],
+            before={"personal_discount_percent": old_percent},
+            after={"personal_discount_percent": req.percent, "reason": reason},
+            request=request,
+        )
+    return {
+        "ok": True,
+        "internal_user_id": internal_user_id,
+        "old_percent": old_percent,
+        "personal_discount_percent": req.percent,
+    }
+
+
 @app.post("/api/admin/users/{internal_user_id}/plan-v2")
 async def admin_plan_v2(internal_user_id: str, req: AdminPlanV2Request, request: Request) -> dict[str, Any]:
     admin = require_trusted_admin(request)
@@ -10599,15 +10651,31 @@ async def admin_user_billing_v2(internal_user_id: str, request: Request) -> dict
 
 @app.get("/api/billing/packages-v2")
 async def billing_packages_v2(request: Request) -> dict[str, Any]:
-    require_trusted_user(request)
+    trusted = require_trusted_user(request)
     with db() as conn:
         _sync_tariff_billing_packages(conn)
         rows = conn.execute("SELECT * FROM billing_packages WHERE is_active = 1 AND code LIKE 'tokens_%' ORDER BY sort_order, price_amount").fetchall()
+        user = _admin_load_target(conn, trusted["internal_user_id"])
+        discount_percent = int(user["personal_discount_percent"] or 0)
+        packages = []
+        for row in rows:
+            item = _billing_package_dict(row)
+            subtotal, discount_amount, total = _billing_discount(item["price_amount"], discount_percent)
+            item.update(
+                {
+                    "base_price_amount": subtotal,
+                    "discount_percent": discount_percent,
+                    "discount_amount": discount_amount,
+                    "price_amount": total,
+                }
+            )
+            packages.append(item)
     return {
         "ok": True,
         "provider_ready": billing_payments_available(),
         "provider": active_billing_provider(),
-        "packages": [_billing_package_dict(row) for row in rows],
+        "personal_discount_percent": discount_percent,
+        "packages": packages,
     }
 
 
@@ -10648,20 +10716,24 @@ async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -
         if package is None:
             raise HTTPException(404, "Пакет токенов не найден.")
         target = _admin_load_target(conn, trusted["internal_user_id"])
+        subtotal_amount, discount_amount, total_amount = _billing_discount(
+            int(package["price_amount"]),
+            int(target["personal_discount_percent"] or 0),
+        )
         invoice_id = uuid.uuid4().hex
         payment_id = uuid.uuid4().hex
         invoice_code = _invoice_code(conn)
         conn.execute(
-            "INSERT INTO invoices (id, invoice_code, internal_user_id, user_id, status, currency, subtotal_amount, discount_amount, total_amount, tokens_total, reason, created_at, updated_at) VALUES (?, ?, ?, ?, 'draft', 'RUB', ?, 0, ?, ?, 'user_checkout', ?, ?)",
-            (invoice_id, invoice_code, trusted["internal_user_id"], target["id"], package["price_amount"], package["price_amount"], package["token_amount"], now, now),
+            "INSERT INTO invoices (id, invoice_code, internal_user_id, user_id, status, currency, subtotal_amount, discount_amount, total_amount, tokens_total, reason, created_at, updated_at) VALUES (?, ?, ?, ?, 'draft', 'RUB', ?, ?, ?, ?, 'user_checkout', ?, ?)",
+            (invoice_id, invoice_code, trusted["internal_user_id"], target["id"], subtotal_amount, discount_amount, total_amount, package["token_amount"], now, now),
         )
         conn.execute(
             "INSERT INTO invoice_items (id, invoice_id, package_code, title, description, quantity, unit_amount, total_amount, token_amount, created_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
-            (uuid.uuid4().hex, invoice_id, package["code"], package["name"], package["description"], package["price_amount"], package["price_amount"], package["token_amount"], now),
+            (uuid.uuid4().hex, invoice_id, package["code"], package["name"], package["description"], total_amount, total_amount, package["token_amount"], now),
         )
         conn.execute(
             "INSERT INTO payments (id, invoice_id, internal_user_id, user_id, status, amount, currency, method, provider, reason, idempotency_key, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, 'RUB', 'bank_card', ?, 'user_checkout', ?, ?, ?)",
-            (payment_id, invoice_id, trusted["internal_user_id"], target["id"], package["price_amount"], provider_name, req.idempotency_key, now, now),
+            (payment_id, invoice_id, trusted["internal_user_id"], target["id"], total_amount, provider_name, req.idempotency_key, now, now),
         )
         offer_version = legal_settings(conn)["offer_version"]
         conn.execute(
@@ -10678,7 +10750,7 @@ async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -
             ),
         )
     command = PaymentCreateCommand(
-        amount=int(package["price_amount"]),
+        amount=total_amount,
         currency="RUB",
         idempotency_key=req.idempotency_key,
         return_url=f"{public_site_url(request)}/payment?payment_id={payment_id}",
@@ -10690,7 +10762,7 @@ async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -
                 PaymentReceiptItem(
                     description=str(package["name"]),
                     quantity=1,
-                    amount=int(package["price_amount"]),
+                    amount=total_amount,
                 ),
             ),
         ),
@@ -11239,6 +11311,12 @@ async def admin_refund_payment_v2(payment_id: str, req: BillingRefundV2Request, 
         pay = conn.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
         if pay is None:
             raise HTTPException(404, "Payment not found.")
+        if str(pay["provider"] or "").lower() == "yookassa":
+            raise HTTPException(
+                409,
+                "Автоматический возврат в ЮKassa пока не подключен. "
+                "Выполните возврат в кабинете ЮKassa и не отмечайте его завершенным только в CRM.",
+            )
         if pay["status"] not in {"paid", "partially_refunded"}:
             raise HTTPException(400, "Возврат возможен только по оплаченной записи.")
         refunded = int(conn.execute("SELECT COALESCE(SUM(amount),0) AS c FROM refunds WHERE payment_id = ? AND status = 'completed'", (payment_id,)).fetchone()["c"] or 0)

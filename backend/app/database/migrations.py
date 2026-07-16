@@ -82,6 +82,7 @@ USER_EARLY_ADDITIVE_COLUMNS = {
     "last_daily_reset": "TEXT",
     "openrouter_monthly_tokens_used": "INTEGER NOT NULL DEFAULT 0",
     "last_openrouter_month_reset": "TEXT",
+    "personal_discount_percent": "INTEGER NOT NULL DEFAULT 0",
 }
 
 IMAGE_ADDITIVE_COLUMNS = {

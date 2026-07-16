@@ -69,6 +69,41 @@ def test_checkout_creates_invoice_and_provider_payment(payment_app):
     assert acceptance["receipt_contact"] == "buyer@example.test"
 
 
+def test_personal_discount_changes_invoice_payment_and_receipt(payment_app):
+    captured = {}
+
+    async def create(**kwargs):
+        captured.update(kwargs)
+        return YooKassaPayment("provider-discount", "pending", "200.00", "RUB", "https://pay.test/discount", False)
+
+    payment_app["monkeypatch"].setattr(main, "create_yookassa_payment", create)
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE users SET personal_discount_percent=20 WHERE internal_user_id='iuid-buyer'"
+        )
+    with TestClient(main.app) as client:
+        packages = client.get("/api/billing/packages-v2", headers=payment_app["headers"])
+        response = client.post(
+            "/api/billing/checkout-v2",
+            json=checkout_payload("tokens_50", "checkout-discount-0001"),
+            headers=payment_app["headers"],
+        )
+    assert packages.status_code == 200
+    package = next(item for item in packages.json()["packages"] if item["code"] == "tokens_50")
+    assert package["base_price_amount"] == 250
+    assert package["discount_percent"] == 20
+    assert package["discount_amount"] == 50
+    assert package["price_amount"] == 200
+    assert response.status_code == 200, response.text
+    assert captured["amount"] == 200
+    assert captured["receipt"]["items"][0]["amount"]["value"] == "200.00"
+    with main.db() as conn:
+        payment = conn.execute("SELECT amount FROM payments WHERE provider_payment_id='provider-discount'").fetchone()
+        invoice = conn.execute("SELECT subtotal_amount, discount_amount, total_amount FROM invoices").fetchone()
+    assert payment["amount"] == 200
+    assert tuple(invoice) == (250, 50, 200)
+
+
 def test_verified_webhook_grants_tokens_exactly_once(payment_app):
     async def create(**_kwargs):
         return YooKassaPayment("provider-2", "pending", "250.00", "RUB", "https://pay.test/confirm", False)

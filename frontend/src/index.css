@@ -52,6 +52,7 @@ button { cursor: pointer; border: 0; }
     transform: translateY(0);
   }
 }
+
 .app-shell { height: 100vh; background: radial-gradient(circle at 20% 0%, #101010 0, var(--bg) 34%); position: relative; overflow: hidden; }
 .workspace { height: 100vh; padding: 20px 30px; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; }
 .admin-route-shell .workspace { padding: 20px; }
@@ -2127,4 +2128,101 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
     fill: currentColor;
     stroke: currentColor;
   }
+}
+
+/* CRM density pass: keep this after the legacy CRM rules so it wins the cascade. */
+@media (min-width: 861px) {
+  .crm-card {
+    width: min(1320px, calc(100vw - 28px));
+    height: min(850px, calc(100dvh - 28px));
+  }
+  .crm-card-header { padding: 12px 14px; }
+  .crm-card-id .crm-avatar {
+    width: 76px;
+    height: 76px;
+    flex-basis: 76px;
+    border-width: 2px;
+    font-size: 24px;
+  }
+  .crm-card-titleline h2 { font-size: 23px; }
+  .crm-card-titleline > span,
+  .crm-role-chip,
+  .crm-plan-chip {
+    padding: 4px 6px;
+    font-size: 10px;
+    font-weight: 650;
+  }
+  .crm-card-person .crm-card-kpis {
+    grid-template-columns: repeat(7, minmax(78px, auto));
+  }
+  .crm-card-kpis span {
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 11px;
+  }
+  .crm-card-kpis b { font-size: 15px; font-weight: 700; }
+  .crm-card-top-actions .secondary {
+    min-height: 32px;
+    padding: 0 11px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .crm-card-cols { grid-template-columns: minmax(0, 1fr) 292px; }
+  .crm-card-actions {
+    padding: 10px;
+    gap: 9px;
+  }
+  .crm-card-actions h4 { font-size: 15px; }
+  .crm-action-group { gap: 5px; }
+  .crm-action-group strong {
+    font-size: 11px;
+    font-weight: 650;
+    text-transform: uppercase;
+  }
+  .crm-action-group .secondary,
+  .crm-supported-action {
+    min-height: 34px;
+    padding: 0 9px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #162028;
+  }
+  .crm-card-actions .crm-card-note {
+    padding: 7px 8px;
+    font-size: 11px;
+  }
+  .crm-panel h4 { font-size: 14px; }
+  .crm-preview-list dt,
+  .crm-preview-list dd { padding: 6px 8px; }
+  .crm-bottom-tabs button {
+    min-height: 34px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+}
+
+.admin-payment-readiness p {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  margin: 8px 0;
+}
+
+.admin-payment-readiness p svg {
+  width: 18px;
+  height: 18px;
+}
+
+.admin-payment-readiness p span {
+  display: grid;
+  gap: 2px;
+}
+
+.admin-payment-readiness p.ok svg {
+  color: #62df7d;
+}
+
+.admin-payment-readiness p.error svg {
+  color: #ff7070;
 }
