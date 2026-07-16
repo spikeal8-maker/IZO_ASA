@@ -316,6 +316,14 @@ def initialize_media_schema_group(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_images_job_id "
         "ON images(job_id)"
     )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_videos_active_user_created "
+        "ON videos(user_id, created_at DESC, id DESC) WHERE deleted_at IS NULL"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_videos_job_id "
+        "ON videos(job_id)"
+    )
     conn.executescript(IMAGE_SEARCH_SCHEMA_SQL)
     conn.execute(
         """

@@ -59,6 +59,29 @@ CREATE TABLE IF NOT EXISTS users (
                 stored_bytes INTEGER
             );
 
+            CREATE TABLE IF NOT EXISTS videos (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                job_id TEXT NOT NULL UNIQUE,
+                url TEXT NOT NULL,
+                width INTEGER NOT NULL DEFAULT 0,
+                height INTEGER NOT NULL DEFAULT 0,
+                duration_seconds INTEGER NOT NULL DEFAULT 0,
+                aspect_ratio TEXT,
+                mode TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                prompt_original TEXT,
+                settings_json TEXT NOT NULL DEFAULT '{}',
+                stored_bytes INTEGER,
+                is_favorite INTEGER NOT NULL DEFAULT 0,
+                deleted_at TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_videos_user_created
+                ON videos(user_id, created_at DESC, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_videos_job
+                ON videos(job_id);
+
             CREATE TABLE IF NOT EXISTS image_sources (
                 id TEXT PRIMARY KEY,
                 image_id TEXT NOT NULL,

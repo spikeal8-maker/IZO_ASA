@@ -31,6 +31,11 @@ type PublicModelFormatPricing = {
 }
 type PublicModelPricing = { id: string; label: string; formats: PublicModelFormatPricing[] }
 type BillingPackage = { code: string; name: string; description?: string; price_amount: number; token_amount: number; currency: string }
+type ProfileVideoMode = 'text_to_video' | 'image_to_video' | 'first_last_frame' | 'reference_to_video'
+type ProfileVideoModel = { id: string; name: string; description?: string; publicPricing?: { fromTokens?: number | null }; supportedDurations?: number[]; supportedResolutions?: string[]; supportedAspectRatios?: string[] }
+type ProfileVideoConfig = { modes: Record<ProfileVideoMode, ProfileVideoModel[]> }
+const videoModeLabels: Record<ProfileVideoMode, string> = { text_to_video: 'Текст → видео', image_to_video: 'Изображение → видео', first_last_frame: 'Начало и конец', reference_to_video: 'По референсам' }
+const videoQualityLabels = { fast: 'Быстро', standard: 'Стандарт', max: 'Максимум' } as const
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 
@@ -159,6 +164,14 @@ export default function ProfilePage({
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutMessage, setCheckoutMessage] = useState('')
   const [checkoutAccepted, setCheckoutAccepted] = useState(false)
+  const [videoConfig, setVideoConfig] = useState<ProfileVideoConfig | null>(null)
+  const [videoConfigError, setVideoConfigError] = useState('')
+  const [videoVisibility, setVideoVisibility] = useState<Record<string, Record<string, boolean>>>(() => {
+    try { return JSON.parse(localStorage.getItem('izo:video-model-visibility') || '{}') as Record<string, Record<string, boolean>> } catch { return {} }
+  })
+  const [videoQualityModels, setVideoQualityModels] = useState<Record<string, Record<string, string>>>(() => {
+    try { return JSON.parse(localStorage.getItem('izo:video-quality-models') || '{}') as Record<string, Record<string, string>> } catch { return {} }
+  })
   const [receiptContact, setReceiptContact] = useState(() => me?.identities?.find((identity) => identity.provider_email)?.provider_email || '')
   const account = me?.account
   const activePlan = (tariffKeys.includes(String(account?.plan || 'mini').toLowerCase() as TariffKey) ? String(account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
@@ -259,6 +272,28 @@ export default function ProfilePage({
       .catch(() => { if (!cancelled) setBillingPackages([]) })
     return () => { cancelled = true }
   }, [authStatus, profileTab])
+  useEffect(() => {
+    if (authStatus !== 'authed' || profileTab !== 'models') return
+    let cancelled = false
+    fetch(`${API}/video/config`, { credentials: 'include' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(String((await response.json().catch(() => ({})))?.detail || 'Каталог видео недоступен'))
+        return response.json() as Promise<ProfileVideoConfig>
+      })
+      .then((data) => { if (!cancelled) { setVideoConfig(data); setVideoConfigError('') } })
+      .catch((reason: Error) => { if (!cancelled) setVideoConfigError(reason.message) })
+    return () => { cancelled = true }
+  }, [authStatus, profileTab])
+  useEffect(() => { try { localStorage.setItem('izo:video-model-visibility', JSON.stringify(videoVisibility)) } catch { /* browser storage can be blocked */ } }, [videoVisibility])
+  useEffect(() => { try { localStorage.setItem('izo:video-quality-models', JSON.stringify(videoQualityModels)) } catch { /* browser storage can be blocked */ } }, [videoQualityModels])
+  const visibleVideoModels = (mode: ProfileVideoMode) => (videoConfig?.modes[mode] || []).filter((model) => videoVisibility[mode]?.[model.id] !== false)
+  const videoQualityModel = (mode: ProfileVideoMode, qualityId: keyof typeof videoQualityLabels) => {
+    const models = [...visibleVideoModels(mode)].sort((a, b) => Number(a.publicPricing?.fromTokens ?? 999999) - Number(b.publicPricing?.fromTokens ?? 999999))
+    const stored = videoQualityModels[mode]?.[qualityId]
+    return models.find((model) => model.id === stored) || (qualityId === 'fast' ? models[0] : qualityId === 'max' ? models[models.length - 1] : models[Math.floor((models.length - 1) / 2)])
+  }
+  const toggleVideoModel = (mode: ProfileVideoMode, modelId: string, visible: boolean) => setVideoVisibility((current) => ({ ...current, [mode]: { ...(current[mode] || {}), [modelId]: visible } }))
+  const setVideoQualityModel = (mode: ProfileVideoMode, qualityId: string, modelId: string) => setVideoQualityModels((current) => ({ ...current, [mode]: { ...(current[mode] || {}), [qualityId]: modelId } }))
   const startCheckout = async (packageCode = selectedPackage) => {
     if (!packageCode || checkoutBusy) return
     if (!receiptContact.trim()) {
@@ -663,6 +698,46 @@ export default function ProfilePage({
                           </div>
                         </details>
                       })}
+                    </div>
+                  </details>
+                })}
+              </div>
+              <div className="profile-section-head"><h3>Видеомодели</h3><span>Выберите модели, которые будут видны в видеогенераторе</span></div>
+              {videoConfigError && <p className="profile-save-err">{videoConfigError}</p>}
+              {!videoConfig && !videoConfigError && <p className="profile-model-loading">Загружаем каталог видеомоделей...</p>}
+              <div className="profile-video-catalog">
+                {(Object.keys(videoModeLabels) as ProfileVideoMode[]).map((mode) => {
+                  const models = videoConfig?.modes[mode] || []
+                  const visibleCount = visibleVideoModels(mode).length
+                  return <details className="profile-model-group" key={`video-${mode}`} open={mode === 'text_to_video'}>
+                    <summary><strong>{videoModeLabels[mode]}</strong><span>{visibleCount} / {models.length} показано</span></summary>
+                    <div className="profile-video-presets" aria-label={`Модели качества: ${videoModeLabels[mode]}`}>
+                      {(Object.keys(videoQualityLabels) as Array<keyof typeof videoQualityLabels>).map((qualityId) => {
+                        const selected = videoQualityModel(mode, qualityId)
+                        return <label key={`${mode}-${qualityId}`}>
+                          <span>{videoQualityLabels[qualityId]}</span>
+                          <select value={selected?.id || ''} disabled={!visibleCount} onChange={(event) => setVideoQualityModel(mode, qualityId, event.currentTarget.value)}>
+                            {visibleVideoModels(mode).map((model) => <option key={model.id} value={model.id}>{model.name} · от {model.publicPricing?.fromTokens ?? '—'} ток.</option>)}
+                          </select>
+                        </label>
+                      })}
+                    </div>
+                    <div className="profile-video-model-list">
+                      {models.map((model) => {
+                        const visible = videoVisibility[mode]?.[model.id] !== false
+                        return <label className={visible ? 'profile-video-model-row' : 'profile-video-model-row muted'} key={`${mode}-${model.id}`}>
+                          <input type="checkbox" checked={visible} onChange={(event) => toggleVideoModel(mode, model.id, event.currentTarget.checked)} />
+                          <span className="profile-video-model-copy">
+                            <strong>{model.name}</strong>
+                            <small>{model.description || model.id}</small>
+                          </span>
+                          <span className="profile-video-model-meta">
+                            <b>от {model.publicPricing?.fromTokens ?? '—'} ток.</b>
+                            <small>{(model.supportedDurations || []).map((value) => `${value} с`).join(', ') || 'длительность по модели'} · {(model.supportedResolutions || []).join(', ') || 'разрешение по модели'}</small>
+                          </span>
+                        </label>
+                      })}
+                      {!models.length && videoConfig && <p className="profile-model-empty">Для этого режима доступных моделей пока нет.</p>}
                     </div>
                   </details>
                 })}

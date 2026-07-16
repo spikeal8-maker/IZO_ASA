@@ -3611,13 +3611,22 @@ def _gallery_page_limits(
         """,
         (legacy_user_id,),
     ).fetchone()["c"])
-    favorites_used = int(conn.execute(
+    image_favorites_used = int(conn.execute(
         """
         SELECT COUNT(*) AS c FROM images
         WHERE user_id = ? AND is_favorite = 1 AND (deleted_at IS NULL OR deleted_at = '')
         """,
         (legacy_user_id,),
     ).fetchone()["c"])
+    video_used = int(conn.execute(
+        "SELECT COUNT(*) AS c FROM videos WHERE user_id = ? AND deleted_at IS NULL",
+        (legacy_user_id,),
+    ).fetchone()["c"])
+    video_favorites_used = int(conn.execute(
+        "SELECT COUNT(*) AS c FROM videos WHERE user_id = ? AND is_favorite = 1 AND deleted_at IS NULL",
+        (legacy_user_id,),
+    ).fetchone()["c"])
+    favorites_used = image_favorites_used + video_favorites_used
     feed_likes = int(conn.execute(
         """
         SELECT COUNT(*) AS c
@@ -3648,6 +3657,11 @@ def _gallery_page_limits(
         },
         "likes": {
             "used": feed_likes,
+        },
+        "videos": {
+            "used": video_used,
+            "limit": int(quota["video_slots"] or 0),
+            "free": max(0, int(quota["video_slots"] or 0) - video_used),
         },
     }
 
@@ -7459,6 +7473,7 @@ async def gallery_items_page(
         ).fetchone()
         if not user_gallery_allowed(conn, trusted["internal_user_id"], user_id):
             raise HTTPException(403, "Gallery is not available for this plan.")
+        _backfill_completed_video_gallery(conn, user_id)
         where_sql = ["user_id = ?", ACTIVE_IMAGE_WHERE]
         params: list[Any] = [user_id]
         if search:
@@ -7478,6 +7493,8 @@ async def gallery_items_page(
             params.append(user_id)
         elif gallery_filter == "16:9":
             where_sql.append("width > 0 AND height > 0 AND width * 9 = height * 16")
+        elif gallery_filter == "9:16":
+            where_sql.append("width > 0 AND height > 0 AND width * 16 = height * 9")
         elif gallery_filter == "4:5":
             where_sql.append("width > 0 AND height > 0 AND width * 5 = height * 4")
         elif gallery_filter == "1:1":
@@ -7515,14 +7532,50 @@ async def gallery_items_page(
                     [user_id, *page_ids],
                 ).fetchall()
             }
-        items = [_gallery_page_item(row, publications.get(row["id"])) for row in page_rows]
+        image_items = [_gallery_page_item(row, publications.get(row["id"])) for row in page_rows]
+        video_where = ["user_id = ?", "deleted_at IS NULL"]
+        video_params: list[Any] = [user_id]
+        if search:
+            like = f"%{search}%"
+            video_where.append("(id LIKE ? OR prompt_original LIKE ? OR mode LIKE ? OR provider LIKE ? OR settings_json LIKE ?)")
+            video_params.extend([like, like, like, like, like])
+        if gallery_filter == "favorite":
+            video_where.append("is_favorite = 1")
+        elif gallery_filter == "published" or gallery_filter == "face" or gallery_filter == "image":
+            video_where.append("0 = 1")
+        elif gallery_filter == "16:9":
+            video_where.append("aspect_ratio = '16:9'")
+        elif gallery_filter == "9:16":
+            video_where.append("aspect_ratio = '9:16'")
+        elif gallery_filter == "1:1":
+            video_where.append("aspect_ratio = '1:1'")
+        elif gallery_filter == "video":
+            pass
+        if cursor_value:
+            video_where.append("(created_at < ? OR (created_at = ? AND id < ?))")
+            video_params.extend([cursor_value[0], cursor_value[0], cursor_value[1]])
+        video_rows = conn.execute(
+            f"SELECT * FROM videos WHERE {' AND '.join(f'({part})' for part in video_where)} "
+            "ORDER BY created_at DESC, id DESC LIMIT ?",
+            [*video_params, limit + 1],
+        ).fetchall()
+        video_items = [_video_gallery_item(row) for row in video_rows]
+        if gallery_filter == "video":
+            image_items = []
+        combined_items = sorted(
+            [*image_items, *video_items],
+            key=lambda item: (str(item.get("createdAt") or ""), str(item.get("id") or "")),
+            reverse=True,
+        )
+        has_more = len(combined_items) > limit or len(image_rows) > limit or len(video_rows) > limit
+        items = combined_items[:limit]
         limits = _gallery_page_limits(conn, user_row, user_id)
     return {
         "ok": True,
         "limits": limits,
         "items": items,
         "hasMore": has_more,
-        "nextCursor": gallery_cursor_from_row(page_rows[-1]) if has_more and page_rows else None,
+        "nextCursor": gallery_query.encode_gallery_cursor(items[-1]["createdAt"], items[-1]["id"]) if has_more and items else None,
     }
 
 
@@ -13957,7 +14010,13 @@ def _video_size(model: dict[str, Any], resolution: str, aspect_ratio: str) -> tu
     return None
 
 
-async def estimate_openrouter_video_billing(model: dict[str, Any], req: VideoGenerateRequest) -> dict[str, Any]:
+def _openrouter_video_billing_from_exchange(
+    model: dict[str, Any],
+    req: VideoGenerateRequest,
+    *,
+    rate: float,
+    economy: dict[str, float],
+) -> dict[str, Any]:
     rate_usd, unit, source_key = _video_pricing_rate(model, req)
     billed_units = float(req.duration)
     size = _video_size(model, req.resolution, req.aspectRatio)
@@ -13968,11 +14027,6 @@ async def estimate_openrouter_video_billing(model: dict[str, Any], req: VideoGen
     input_count = (1 if req.firstFrame else 0) + (1 if req.lastFrame else 0) + len(req.references)
     image_fee = float((model.get("pricingSkus") or {}).get("cents_per_image_input") or 0) / 100 * input_count
     cost_usd = rate_usd * billed_units + image_fee
-    exchange = await fetch_usd_rub_rate()
-    rate = exchange.get("rate")
-    if not isinstance(rate, (int, float)):
-        raise HTTPException(503, "Курс USD/RUB недоступен для расчёта видео.")
-    economy = openrouter_economy_settings()
     effective_rate = float(rate) * (1 + OPENROUTER_USD_FEE_RATE)
     cost_rub = cost_usd * effective_rate
     tokens = openrouter_tokens_for_cost(cost_rub, 1, economy)
@@ -13988,6 +14042,62 @@ async def estimate_openrouter_video_billing(model: dict[str, Any], req: VideoGen
     }
 
 
+async def estimate_openrouter_video_billing(model: dict[str, Any], req: VideoGenerateRequest) -> dict[str, Any]:
+    exchange = await fetch_usd_rub_rate()
+    rate = exchange.get("rate")
+    if not isinstance(rate, (int, float)):
+        raise HTTPException(503, "Курс USD/RUB недоступен для расчёта видео.")
+    return _openrouter_video_billing_from_exchange(
+        model,
+        req,
+        rate=float(rate),
+        economy=openrouter_economy_settings(),
+    )
+
+
+def _video_model_public_pricing(
+    model: dict[str, Any],
+    mode: str,
+    *,
+    rate: float | None,
+    economy: dict[str, float],
+) -> dict[str, Any]:
+    durations = [int(value) for value in (model.get("supportedDurations") or []) if int(value) > 0]
+    resolutions = [str(value) for value in (model.get("supportedResolutions") or []) if str(value)]
+    ratios = [str(value) for value in (model.get("supportedAspectRatios") or []) if str(value)]
+    if rate is None or not durations or not resolutions or not ratios:
+        return {"fromTokens": None, "examples": []}
+    examples: list[dict[str, Any]] = []
+    for duration in sorted(set(durations)):
+        for resolution in resolutions:
+            try:
+                sample = VideoGenerateRequest(
+                    mode=mode,
+                    model=str(model.get("id") or ""),
+                    prompt="preview",
+                    duration=duration,
+                    resolution=resolution,
+                    aspectRatio=ratios[0],
+                    generateAudio=False,
+                    firstFrame="preview" if mode in {"image_to_video", "first_last_frame"} else None,
+                    lastFrame="preview" if mode == "first_last_frame" else None,
+                    references=["preview"] if mode == "reference_to_video" else [],
+                )
+                billing = _openrouter_video_billing_from_exchange(model, sample, rate=rate, economy=economy)
+            except (HTTPException, ValueError, TypeError):
+                continue
+            examples.append({
+                "duration": duration,
+                "resolution": resolution,
+                "aspectRatio": ratios[0],
+                "tokens": int(billing["chargedTokens"]),
+            })
+    return {
+        "fromTokens": min((item["tokens"] for item in examples), default=None),
+        "examples": examples,
+    }
+
+
 def _video_job_payload(row: sqlite3.Row) -> dict[str, Any]:
     settings = safe_json_load(row["settings_json"]) or {}
     return {
@@ -13998,6 +14108,36 @@ def _video_job_payload(row: sqlite3.Row) -> dict[str, Any]:
         "duration": settings.get("duration"), "resolution": settings.get("resolution"),
         "aspectRatio": settings.get("aspectRatio"), "tokenCost": settings.get("tokenCost"),
         "videoUrl": f"/api/video/media/{row['id']}" if settings.get("localFile") else None,
+        "galleryVideoId": settings.get("galleryVideoId"),
+        "galleryDeleted": bool(settings.get("galleryDeleted")),
+        "generateAudio": bool(settings.get("generateAudio")),
+    }
+
+
+def _video_gallery_item(row: sqlite3.Row) -> dict[str, Any]:
+    settings = safe_json_load(row["settings_json"]) or {}
+    return {
+        "id": row["id"],
+        "mediaType": "video",
+        "videoUrl": row["url"],
+        "viewerSrc": row["url"],
+        "downloadUrl": row["url"],
+        "thumbnailUrl": None,
+        "width": int(row["width"] or 0),
+        "height": int(row["height"] or 0),
+        "duration": int(row["duration_seconds"] or 0),
+        "aspectRatio": row["aspect_ratio"],
+        "mode": row["mode"],
+        "modeLabel": "Видео",
+        "provider": row["provider"],
+        "model": settings.get("openrouterModel"),
+        "prompt": row["prompt_original"] or "",
+        "promptOriginal": row["prompt_original"] or "",
+        "settings": settings,
+        "favorite": bool(row["is_favorite"]),
+        "published": False,
+        "createdAt": row["created_at"],
+        "storedBytes": int(row["stored_bytes"] or 0),
     }
 
 
@@ -14021,10 +14161,32 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
         raise HTTPException(403, "Генерация видео доступна на тарифах Pro и Бизнес.")
     catalog = await fetch_openrouter_video_catalog()
     config = normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), catalog)
+    exchange = await fetch_usd_rub_rate()
+    exchange_rate = exchange.get("rate") if isinstance(exchange.get("rate"), (int, float)) else None
+    economy = openrouter_economy_settings()
     modes: dict[str, list[dict[str, Any]]] = {}
     for mode in OPENROUTER_VIDEO_MODES:
-        modes[mode] = _allowed_video_models(catalog, config, mode, plan, is_admin)
-    return {"modes": modes, "plan": plan, "videoSlots": quota["video_slots"], "economy": openrouter_economy_settings()}
+        modes[mode] = []
+        for model in _allowed_video_models(catalog, config, mode, plan, is_admin):
+            public_model = dict(model)
+            public_model["publicPricing"] = _video_model_public_pricing(
+                model,
+                mode,
+                rate=float(exchange_rate) if exchange_rate is not None else None,
+                economy=economy,
+            )
+            modes[mode].append(public_model)
+    return {
+        "modes": modes,
+        "plan": plan,
+        "videoSlots": quota["video_slots"],
+        "economy": economy,
+        "exchange": {
+            "usdRub": exchange_rate,
+            "source": exchange.get("source"),
+            "fetchedAt": exchange.get("fetchedAt"),
+        },
+    }
 
 
 @app.post("/api/video/generate")
@@ -14135,6 +14297,8 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
             filename = f"{row['id']}.mp4"
             (MEDIA / filename).write_bytes(response.content)
             settings["localFile"] = filename
+            settings["galleryVideoId"] = f"gallery_{row['id']}"
+            settings.pop("galleryDeleted", None)
         settings["openrouterUsage"] = state.get("usage") or {}
         settings["openrouterCostUsd"] = (state.get("usage") or {}).get("cost")
         billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
@@ -14153,6 +14317,35 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
             refund_generation_tokens(conn, row["id"], reason=f"video_{status}")
     settings["pollingUrl"] = state.get("polling_url") or settings.get("pollingUrl")
     with db() as conn:
+        if status == "completed" and settings.get("localFile"):
+            size = _video_size(
+                {"supportedSizes": []},
+                str(settings.get("resolution") or "720p"),
+                str(settings.get("aspectRatio") or "16:9"),
+            ) or (0, 0)
+            local_path = storage_resolve_under_root(MEDIA, str(settings["localFile"]))
+            stored_bytes = local_path.stat().st_size if local_path and local_path.is_file() else None
+            conn.execute(
+                """
+                INSERT INTO videos (
+                    id, user_id, job_id, url, width, height, duration_seconds,
+                    aspect_ratio, mode, provider, prompt_original, settings_json,
+                    stored_bytes, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    url=excluded.url, width=excluded.width, height=excluded.height,
+                    duration_seconds=excluded.duration_seconds, aspect_ratio=excluded.aspect_ratio,
+                    prompt_original=excluded.prompt_original, settings_json=excluded.settings_json,
+                    stored_bytes=excluded.stored_bytes, deleted_at=NULL
+                """,
+                (
+                    settings["galleryVideoId"], row["user_id"], row["id"],
+                    f"/api/video/media/{row['id']}", int(size[0]), int(size[1]),
+                    int(settings.get("duration") or 0), settings.get("aspectRatio"),
+                    row["mode"], "openrouter", row["prompt_original"] or "",
+                    json.dumps(settings, ensure_ascii=False), stored_bytes, row["created_at"],
+                ),
+            )
         conn.execute("UPDATE jobs SET status=?,progress=?,error_message=?,settings_json=?,completed_at=COALESCE(?,completed_at) WHERE id=?", (status, progress, error, json.dumps(settings, ensure_ascii=False), completed_at, row["id"]))
         return conn.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone()
 
@@ -14168,10 +14361,56 @@ async def get_video_job(job_id: str, request: Request) -> dict[str, Any]:
     return _video_job_payload(row)
 
 
+def _backfill_completed_video_gallery(conn: sqlite3.Connection, user_id: str) -> int:
+    rows = conn.execute(
+        "SELECT * FROM jobs WHERE user_id=? AND status='completed' "
+        "AND mode IN ('text_to_video','image_to_video','first_last_frame','reference_to_video')",
+        (user_id,),
+    ).fetchall()
+    inserted = 0
+    for row in rows:
+        settings = safe_json_load(row["settings_json"]) or {}
+        filename = str(settings.get("localFile") or "")
+        path = storage_resolve_under_root(MEDIA, filename) if filename else None
+        if path is None or not path.is_file():
+            continue
+        gallery_id = str(settings.get("galleryVideoId") or f"gallery_{row['id']}")
+        settings["galleryVideoId"] = gallery_id
+        size = _video_size(
+            {"supportedSizes": []},
+            str(settings.get("resolution") or "720p"),
+            str(settings.get("aspectRatio") or "16:9"),
+        ) or (0, 0)
+        before = conn.total_changes
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO videos (
+                id,user_id,job_id,url,width,height,duration_seconds,aspect_ratio,
+                mode,provider,prompt_original,settings_json,stored_bytes,created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                gallery_id, user_id, row["id"], f"/api/video/media/{row['id']}",
+                int(size[0]), int(size[1]), int(settings.get("duration") or 0),
+                settings.get("aspectRatio"), row["mode"], "openrouter",
+                row["prompt_original"] or "", json.dumps(settings, ensure_ascii=False),
+                path.stat().st_size, row["created_at"],
+            ),
+        )
+        if conn.total_changes > before:
+            conn.execute(
+                "UPDATE jobs SET settings_json=? WHERE id=?",
+                (json.dumps(settings, ensure_ascii=False), row["id"]),
+            )
+            inserted += 1
+    return inserted
+
+
 @app.get("/api/video/history")
 async def video_history(request: Request, limit: int = 30) -> dict[str, Any]:
     user_id = require_trusted_user(request)["legacy_user_id"]
     with db() as conn:
+        _backfill_completed_video_gallery(conn, user_id)
         rows = conn.execute("SELECT * FROM jobs WHERE user_id=? AND mode IN ('text_to_video','image_to_video','first_last_frame','reference_to_video') ORDER BY created_at DESC LIMIT ?", (user_id, max(1, min(limit, 60)))).fetchall()
     refreshed = [await _refresh_video_job(row) for row in rows[:5]] + list(rows[5:])
     return {"items": [_video_job_payload(row) for row in refreshed]}
@@ -14188,6 +14427,54 @@ async def video_media(job_id: str, request: Request) -> FileResponse:
     if path is None or not path.exists():
         raise HTTPException(404, "Видеофайл не найден.")
     return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=86400"})
+
+
+@app.post("/api/gallery/videos/{video_id}/favorite")
+async def gallery_video_favorite(video_id: str, req: FavoriteRequest, request: Request) -> dict[str, Any]:
+    user_id = require_trusted_user(request)["legacy_user_id"]
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id FROM videos WHERE id=? AND user_id=? AND deleted_at IS NULL",
+            (video_id, user_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Видео не найдено.")
+        conn.execute(
+            "UPDATE videos SET is_favorite=? WHERE id=? AND user_id=?",
+            (1 if req.isFavorite else 0, video_id, user_id),
+        )
+    return {"ok": True, "videoId": video_id, "favorite": req.isFavorite}
+
+
+@app.delete("/api/gallery/videos/{video_id}")
+async def gallery_video_delete(video_id: str, request: Request) -> dict[str, Any]:
+    user_id = require_trusted_user(request)["legacy_user_id"]
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT v.*, j.settings_json AS job_settings FROM videos v "
+            "LEFT JOIN jobs j ON j.id=v.job_id "
+            "WHERE v.id=? AND v.user_id=? AND v.deleted_at IS NULL",
+            (video_id, user_id),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Видео не найдено.")
+        settings = safe_json_load(row["job_settings"]) or {}
+        filename = str(settings.get("localFile") or "")
+        path = storage_resolve_under_root(MEDIA, filename) if filename else None
+        if path and path.is_file():
+            path.unlink(missing_ok=True)
+        settings.pop("localFile", None)
+        settings["galleryDeleted"] = True
+        conn.execute(
+            "UPDATE videos SET deleted_at=?,is_favorite=0 WHERE id=? AND user_id=?",
+            (now, video_id, user_id),
+        )
+        conn.execute(
+            "UPDATE jobs SET settings_json=? WHERE id=? AND user_id=?",
+            (json.dumps(settings, ensure_ascii=False), row["job_id"], user_id),
+        )
+    return {"ok": True, "videoId": video_id}
 
 
 def openrouter_video_usage_stats() -> dict[str, Any]:

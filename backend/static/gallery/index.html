@@ -67,7 +67,7 @@
     <a class="tab" href="/#image-to-image" title="Изменить изображение по фото">По фото</a>
     <a class="tab" href="/#editor" title="Собрать изображение из нескольких фото">Сборка</a>
     <a class="tab" href="/paint" title="Правки изображения">Редактор</a>
-    <span class="tab disabled" aria-disabled="true">Видео</span>
+    <a class="tab" href="/video" title="Создать видео">Видео</a>
   </nav>
   <div class="top-actions">
     <a class="top-button active" href="/gallery" aria-label="Галерея" aria-current="page">
@@ -91,10 +91,10 @@
   <div class="compactBar">
     <div class="titleLine"><h1>Галерея</h1><button id="helpBtn" class="infoTiny" title="Как работает галерея">?</button></div>
     <div class="counts" aria-label="Лимиты галереи">
-      <div class="countChip"><strong id="galleryCount">20 / 50</strong><span>В галерее</span></div>
+      <div class="countChip"><strong id="galleryCount">20 / 50</strong><span>Изображения</span></div>
+      <div class="countChip"><strong id="videoCount">0 / 0</strong><span>Видео</span></div>
       <div class="countChip"><strong id="feedCount">8 / 50</strong><span>В ленте</span></div>
       <div class="countChip"><strong id="favCount">5 / 16</strong><span>Сердечки</span></div>
-      <div class="countChip likesChip"><strong id="likesCount">0</strong><span>Лайки</span></div>
     </div>
     <label class="searchBox" title="Поиск по промпту, режиму, модели или ID">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m21 21-4.2-4.2m1.2-5.3a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -105,7 +105,7 @@
         <div id="filterPopover" class="popover" role="menu">
           <h4>Показать</h4>
           <div class="filterGrid">
-            <button data-filter="all" class="active">Все</button><button data-filter="favorite">С сердечком</button><button data-filter="published">В ленте</button><button data-filter="unpublished">Не в ленте</button><button data-filter="16:9">16:9</button><button data-filter="4:5">4:5</button><button data-filter="1:1">1:1</button>
+            <button data-filter="all" class="active">Все</button><button data-filter="image">Изображения</button><button data-filter="video">Видео</button><button data-filter="favorite">С сердечком</button><button data-filter="published">В ленте</button><button data-filter="unpublished">Не в ленте</button><button data-filter="16:9">16:9</button><button data-filter="9:16">9:16</button><button data-filter="4:5">4:5</button><button data-filter="1:1">1:1</button>
           </div>
         </div>
       </div>
@@ -116,7 +116,7 @@
   </div>
 
   <section class="section" aria-labelledby="myGalleryTitle">
-    <h2 id="myGalleryTitle" class="visuallyHidden">Галерея изображений</h2>
+    <h2 id="myGalleryTitle" class="visuallyHidden">Галерея работ</h2>
     <div id="galleryGrid" class="masonry"></div>
     <div class="loadMoreRow"><button id="loadMoreBtn" class="btn" type="button" hidden>Показать еще</button></div>
   </section>
@@ -148,6 +148,7 @@
         </div>
         <button id="prevBtn" class="viewerNav prev" title="Предыдущее изображение">‹</button>
         <img id="viewerImg" alt="Просмотр изображения">
+        <video id="viewerVideo" controls playsinline preload="metadata" hidden></video>
         <button id="nextBtn" class="viewerNav next" title="Следующее изображение">›</button>
       </div>
       <div id="thumbRail" class="thumbRail" aria-label="Миниатюры"></div>

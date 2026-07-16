@@ -2692,8 +2692,8 @@ Exact CI после B8l remediation:
 - добавлена таблица `videos`, идемпотентный backfill завершенных заданий и единая галерейная выдача изображений и видео;
 - общая галерея воспроизводит, скачивает, отмечает избранным, фильтрует и удаляет видео; действия ленты и image-editor для видео пока честно скрыты;
 - удаление видео убирает физический MP4 и запись из активной галереи, но сохраняет job и бухгалтерский аудит;
-- verification: frontend production build, Python/JS syntax, `206 passed` video/database/gallery regressions, Playwright desktop/mobile visual smoke;
-- платный контрактный smoke production-моделей и полный backend gate выполняются перед production deploy этого checkpoint.
+- verification: frontend production build, Python/JS syntax, `206 passed` video/database/gallery regressions, полный backend gate `1332 passed`, Playwright desktop/mobile visual smoke;
+- платный контрактный smoke production-моделей выполняется перед массовым включением production-моделей.
 
 ## 9. Обязательный gate каждого пакета
 

@@ -126,7 +126,9 @@ function itemPrompt(item){
 }
 function normalizeItem(item){
   const prompt = itemPrompt(item);
-  return { ...item, prompt, favorite: Boolean(item.favorite ?? item.isFavorite), modeText: item.modeLabel || modeLabel(item.mode), dateText: formatDate(item.createdAt || item.date), src: apiUrl(item.src || item.thumbnailUrl), viewerSrc: apiUrl(item.viewerSrc || item.downloadUrl || item.src || item.thumbnailUrl), sources: Array.isArray(item.sources) ? item.sources : item.sources };
+  const mediaType = item.mediaType === 'video' ? 'video' : 'image';
+  const videoSrc = mediaType === 'video' ? apiUrl(item.videoUrl || item.viewerSrc || item.downloadUrl || '') : '';
+  return { ...item, mediaType, prompt, favorite: Boolean(item.favorite ?? item.isFavorite), modeText: item.modeLabel || modeLabel(item.mode), dateText: formatDate(item.createdAt || item.date), src: mediaType === 'video' ? videoSrc : apiUrl(item.src || item.thumbnailUrl), viewerSrc: mediaType === 'video' ? videoSrc : apiUrl(item.viewerSrc || item.downloadUrl || item.src || item.thumbnailUrl), sources: Array.isArray(item.sources) ? item.sources : item.sources };
 }
 function modeLabel(mode){
   return ({
@@ -167,16 +169,20 @@ function cardTemplate(raw, context){
   const item = normalizeItem(raw);
   const promptText = item.prompt || 'Промпт не сохранен';
   const pubPill = item.published && context === 'gallery' ? `<span class="pill feed">В ленте</span>` : '';
-  const heartTitle = item.favorite ? 'Убрать сердечко' : 'Поставить сердечко: оставить изображение и защитить от автоудаления';
+  const isVideo = item.mediaType === 'video';
+  const heartTitle = item.favorite ? 'Убрать сердечко' : `Поставить сердечко: оставить ${isVideo ? 'видео' : 'изображение'} и защитить от автоудаления`;
   const feedTitle = item.published ? 'Открыть публикацию в общей ленте' : 'Опубликовать в ленту';
   const imgAttrs = item.width && item.height ? ` width="${Number(item.width)}" height="${Number(item.height)}"` : '';
-  return `<article class="card" data-id="${escapeHtml(item.id)}" data-context="${context}" data-width="${Number(item.width || 1)}" data-height="${Number(item.height || 1)}" title="${escapeHtml(promptText)}">
-    <img src="${escapeHtml(item.src)}" alt="${escapeHtml(promptText)}" loading="lazy" decoding="async"${imgAttrs}>
+  const media = isVideo
+    ? `<video src="${escapeHtml(item.viewerSrc)}" muted playsinline preload="metadata" aria-label="${escapeHtml(promptText)}"></video><span class="videoDuration">${escapeHtml(item.duration ? `${item.duration} с` : 'Видео')}</span>`
+    : `<img src="${escapeHtml(item.src)}" alt="${escapeHtml(promptText)}" loading="lazy" decoding="async"${imgAttrs}>`;
+  return `<article class="card ${isVideo ? 'videoCard' : ''}" data-id="${escapeHtml(item.id)}" data-context="${context}" data-width="${Number(item.width || 1)}" data-height="${Number(item.height || 1)}" title="${escapeHtml(promptText)}">
+    ${media}
     <div class="cardTop"><span class="pill" title="Режим генерации">${escapeHtml(item.modeText)}</span>${pubPill}</div>
     <div class="cardBottom"><time class="cardDate">${escapeHtml(item.dateText)}</time><div class="cardActions">
       <button class="action heart ${item.favorite?'active':''}" data-action="heart" title="${heartTitle}" aria-label="${heartTitle}">${item.favorite ? heartFilled : heartOutline}</button>
-      <button class="action feedAct ${item.published?'feedOn':''}" data-action="feed" title="${feedTitle}" aria-label="${feedTitle}">${feedIcon}</button>
-      <button class="action danger" data-action="delete" title="Удалить изображение" aria-label="Удалить изображение">${trashIcon}</button>
+      ${isVideo ? '' : `<button class="action feedAct ${item.published?'feedOn':''}" data-action="feed" title="${feedTitle}" aria-label="${feedTitle}">${feedIcon}</button>`}
+      <button class="action danger" data-action="delete" title="Удалить ${isVideo ? 'видео' : 'изображение'}" aria-label="Удалить ${isVideo ? 'видео' : 'изображение'}">${trashIcon}</button>
     </div></div>
     <div class="listContent"><div class="listPrompt">${escapeHtml(promptText)}</div><div class="listMeta">${escapeHtml(item.dateText)} · ${escapeHtml(item.modeText)}${item.published?' · В ленте':''}</div></div>
   </article>`;
@@ -281,11 +287,11 @@ function render({ preservePrimary = false, preserveSecondary = false } = {}){
   const galleryCountEl = document.getElementById('galleryCount');
   galleryCountEl.textContent = `${limits.originals.used} / ${limits.originals.limit}`;
   galleryCountEl.parentElement.classList.toggle('overLimit', Number(limits.originals.used || 0) > Number(limits.originals.limit || 0));
+  document.getElementById('videoCount').textContent = `${Number(limits.videos?.used || 0)} / ${Number(limits.videos?.limit || 0)}`;
   document.getElementById('feedCount').textContent = `${limits.feed.used} / ${limits.feed.limit}`;
   const favCountEl = document.getElementById('favCount');
   favCountEl.textContent = `${limits.favorites.used} / ${favoriteLimit()}`;
   favCountEl.parentElement.classList.toggle('overLimit', Number(limits.favorites.used || 0) > Number(favoriteLimit() || 0));
-  document.getElementById('likesCount').textContent = String(Number(limits.likes?.used || 0));
   const feedSectionCount = document.getElementById('feedSectionCount');
   if(feedSectionCount) feedSectionCount.textContent = secondaryLoaded ? `${feedItems.length} публикаций` : 'загрузятся при прокрутке';
   const uploadsSectionCount = document.getElementById('uploadsSectionCount');
@@ -430,7 +436,8 @@ async function toggleFavorite(id){
   if(!item.favorite && favoriteLimit() && limits.favorites.used >= favoriteLimit()){ showToast(`Лимит сердечек: максимум ${favoriteLimit()}.`); return; }
   const next = !item.favorite;
   try{
-    await api(`/api/gallery/${encodeURIComponent(id)}/favorite`, { method:'POST', body:JSON.stringify({ isFavorite: next }) });
+    const favoriteRoute = normalizeItem(item).mediaType === 'video' ? `/api/gallery/videos/${encodeURIComponent(id)}/favorite` : `/api/gallery/${encodeURIComponent(id)}/favorite`;
+    await api(favoriteRoute, { method:'POST', body:JSON.stringify({ isFavorite: next }) });
     images = images.map(raw => String(raw.id) === String(id) ? { ...raw, favorite: next, isFavorite: next } : raw);
     feedImages = feedImages.map(raw => String(raw.id) === String(id) ? { ...raw, favorite: next, isFavorite: next } : raw);
     limits = { ...limits, favorites: { ...limits.favorites, used: Math.max(0, Number(limits.favorites.used || 0) + (next ? 1 : -1)) } };
@@ -481,7 +488,11 @@ async function submitPublish(){
 async function deleteImage(id){
   const item = originalById(id); if(!item) return;
   deleteTargetId = id;
-  document.getElementById('deleteText').textContent = item.published
+  const isVideo = normalizeItem(item).mediaType === 'video';
+  document.querySelector('#deleteModal h3').textContent = `Удалить ${isVideo ? 'видео' : 'изображение'}?`;
+  document.getElementById('deleteText').textContent = isVideo
+    ? 'Видео будет удалено из галереи и истории генерации.'
+    : item.published
     ? 'Изображение будет удалено из галереи, публикация в ленте будет снята, а слот освободится.'
     : 'Изображение будет удалено из галереи, а слот освободится.';
   openSmall('deleteModal');
@@ -492,7 +503,8 @@ async function confirmDeleteImage(){
   const deleteBtn = document.getElementById('deleteConfirmBtn');
   deleteBtn.disabled = true;
   try{
-    await api(`/api/gallery/${encodeURIComponent(id)}`, { method:'DELETE' });
+    const isVideo = normalizeItem(item).mediaType === 'video';
+    await api(isVideo ? `/api/gallery/videos/${encodeURIComponent(id)}` : `/api/gallery/${encodeURIComponent(id)}`, { method:'DELETE' });
     const viewerOpen = document.getElementById('viewer').classList.contains('open');
     if(viewerOpen) closeViewer();
     closeSmalls();
@@ -500,14 +512,15 @@ async function confirmDeleteImage(){
     feedImages = feedImages.filter(raw => String(raw.id) !== String(id));
     limits = {
       ...limits,
-      originals: { ...limits.originals, used: Math.max(0, Number(limits.originals.used || 0) - 1), free: Math.max(0, Number(limits.originals.free || 0) + 1), full: false },
+      originals: isVideo ? limits.originals : { ...limits.originals, used: Math.max(0, Number(limits.originals.used || 0) - 1), free: Math.max(0, Number(limits.originals.free || 0) + 1), full: false },
+      videos: isVideo ? { ...limits.videos, used: Math.max(0, Number(limits.videos?.used || 0) - 1), free: Math.max(0, Number(limits.videos?.free || 0) + 1) } : limits.videos,
       favorites: { ...limits.favorites, used: item.favorite ? Math.max(0, Number(limits.favorites.used || 0) - 1) : Number(limits.favorites.used || 0) },
       feed: { ...limits.feed, used: item.published ? Math.max(0, Number(limits.feed.used || 0) - 1) : Number(limits.feed.used || 0) }
     };
     removeImageCards(id);
     render({ preservePrimary:true, preserveSecondary:true });
-    showToast('Изображение удалено. Место освобождено.');
-  }catch(err){ showToast('Не удалось удалить изображение.'); console.error(err); }
+    showToast(isVideo ? 'Видео удалено.' : 'Изображение удалено. Место освобождено.');
+  }catch(err){ showToast('Не удалось удалить работу.'); console.error(err); }
   finally{
     deleteTargetId = null;
     deleteBtn.disabled = false;
@@ -526,8 +539,17 @@ function updateViewer(){
   const baseItem = currentCollection[currentIndex] ? normalizeItem(currentCollection[currentIndex]) : null; if(!baseItem) return;
   const item = normalizeItem(itemById(baseItem.id) || baseItem);
   const promptText = item.prompt || 'Промпт не сохранен';
-  document.getElementById('viewerImg').src = item.viewerSrc || item.src;
-  document.getElementById('viewerImg').alt = promptText;
+  const isVideo = item.mediaType === 'video';
+  const viewerImg = document.getElementById('viewerImg');
+  const viewerVideo = document.getElementById('viewerVideo');
+  if(isVideo){
+    viewerImg.hidden = true;
+    viewerVideo.hidden = false;
+    if(viewerVideo.src !== new URL(item.viewerSrc, window.location.origin).href) viewerVideo.src = item.viewerSrc;
+  }else{
+    viewerVideo.pause(); viewerVideo.removeAttribute('src'); viewerVideo.load(); viewerVideo.hidden = true;
+    viewerImg.hidden = false; viewerImg.src = item.viewerSrc || item.src; viewerImg.alt = promptText;
+  }
   document.getElementById('viewerCounter').textContent = `${currentIndex+1} / ${currentCollection.length}`;
   document.getElementById('viewerMode').textContent = item.modeText;
   let metaLine = document.getElementById('viewerMetaLine');
@@ -550,18 +572,23 @@ function updateViewer(){
   publishTopBtn.innerHTML = item.published ? openPostIcon : feedIcon;
   publishTopBtn.title = item.published ? 'Открыть публикацию в ленте' : 'Опубликовать в ленту';
   publishTopBtn.setAttribute('aria-label', publishTopBtn.title);
+  feedBtn.hidden = isVideo;
+  publishTopBtn.hidden = isVideo;
+  document.querySelector('.editZoomRow').hidden = isVideo;
+  document.querySelectorAll('.zoomBtn,#zoomResetBtn').forEach(control => { control.hidden = isVideo; });
   const downloadBtn = document.getElementById('downloadBtn');
   downloadBtn.href = item.viewerSrc || item.src;
-  downloadBtn.setAttribute('download', `izo-asa-${item.id}.png`);
+  downloadBtn.setAttribute('download', `izo-asa-${item.id}.${isVideo ? 'mp4' : 'png'}`);
   const desktopDownloadBtn = document.getElementById('desktopDownloadBtn');
   desktopDownloadBtn.href = item.viewerSrc || item.src;
-  desktopDownloadBtn.setAttribute('download', `izo-asa-${item.id}.png`);
+  desktopDownloadBtn.setAttribute('download', `izo-asa-${item.id}.${isVideo ? 'mp4' : 'png'}`);
   document.getElementById('viewerPrompt').textContent = promptText;
   renderSources(item); renderPublication(item); renderParams(item); renderThumbs();
-  loadViewerDetail(item.id);
+  if(!isVideo) loadViewerDetail(item.id);
 }
 function renderSources(item){
   const wrap = document.getElementById('sourceContent');
+  if(item.mediaType === 'video'){ wrap.innerHTML = item.mode === 'text_to_video' ? `<p>Видео создано из текста.</p>` : `<p>Исходные кадры хранятся в задании генерации.</p>`; return; }
   if(Array.isArray(item.sources)){
     if(item.sources.length === 0){ wrap.innerHTML = `<p>Исходников нет: изображение создано из текста.</p>`; return; }
     wrap.innerHTML = `<div class="sourceTree">${item.sources.map((source,n)=>sourceNodeTemplate(source,n,0)).join('')}</div>`;
@@ -628,6 +655,7 @@ async function openSourceImage(sourceId){
 }
 function renderPublication(item){
   const wrap = document.getElementById('publicationContent');
+  if(item.mediaType === 'video'){ wrap.innerHTML = `<p>Публикация видео в ленту появится на следующем этапе. Сейчас ролик хранится в общей галерее.</p>`; return; }
   if(!item.published){ wrap.innerHTML = `<p>Это изображение пока не опубликовано. При публикации будет создана отдельная WebP-копия для ленты, оригинал останется в галерее.</p><p style="margin-top:10px"><button class="btn acid" id="publishSelectedBtnInline">Опубликовать в ленту</button></p>`; return; }
   wrap.innerHTML = `<p>Опубликовано: <b>${escapeHtml(formatDate(item.publishedAt || item.createdAt))}</b>. В ленте хранится отдельная WebP-копия.</p><div class="stats"><div class="stat"><strong>${escapeHtml(item.views || 0)}</strong><span>Просмотры</span></div><div class="stat"><strong>${item.likes || 0}</strong><span>Лайки</span></div><div class="stat"><strong>${item.saves || 0}</strong><span>Сохранения</span></div><div class="stat"><strong>${item.remixes || 0}</strong><span>Ремиксы</span></div></div>`;
 }
@@ -693,14 +721,14 @@ function renderThumbs(){
   const prefix = start > 0 ? `<span class="pill" title="Ранее в подборке">+${start}</span>` : '';
   const suffixCount = currentCollection.length - end;
   const suffix = suffixCount > 0 ? `<span class="pill" title="Дальше в подборке">+${suffixCount}</span>` : '';
-  const thumbs = currentCollection.slice(start, end).map((raw,offset)=>{ const idx=start+offset; const item=normalizeItem(raw); return `<button class="thumb ${idx===currentIndex?'active':''}" data-idx="${idx}"><img src="${escapeHtml(item.src)}" alt="" loading="lazy" decoding="async"></button>`; }).join('');
+  const thumbs = currentCollection.slice(start, end).map((raw,offset)=>{ const idx=start+offset; const item=normalizeItem(raw); const media = item.mediaType === 'video' ? `<video src="${escapeHtml(item.viewerSrc)}" muted playsinline preload="metadata"></video>` : `<img src="${escapeHtml(item.src)}" alt="" loading="lazy" decoding="async">`; return `<button class="thumb ${idx===currentIndex?'active':''}" data-idx="${idx}">${media}</button>`; }).join('');
   document.getElementById('thumbRail').innerHTML = `${prefix}${thumbs}${suffix}`;
 }
-function closeViewer(){ document.getElementById('viewer').classList.remove('open'); document.body.style.overflow = ''; resetViewerZoom(); }
+function closeViewer(){ const video=document.getElementById('viewerVideo'); video.pause(); document.getElementById('viewer').classList.remove('open'); document.body.style.overflow = ''; resetViewerZoom(); }
 function stepViewer(dir){ currentIndex = (currentIndex + dir + currentCollection.length) % currentCollection.length; resetViewerZoom(); updateViewer(); }
 function openSmall(id){ document.getElementById(id).classList.add('open'); }
 function closeSmalls(){ document.querySelectorAll('.smallModal').forEach(m=>m.classList.remove('open')); }
-function showSpace(){ document.getElementById('spaceText').textContent = `${limits.originals.used} из ${limits.originals.limit} мест в галерее, ${limits.feed.used} публикаций в ленте, ${limits.favorites.used} из ${favoriteLimit()} сердечек, ${Number(limits.likes?.used || 0)} лайков в ленте. Тариф: ${String(limits.plan || '').toUpperCase()}.`; openSmall('spaceModal'); }
+function showSpace(){ document.getElementById('spaceText').textContent = `${limits.originals.used} из ${limits.originals.limit} изображений, ${Number(limits.videos?.used || 0)} из ${Number(limits.videos?.limit || 0)} видео, ${limits.feed.used} публикаций в ленте, ${limits.favorites.used} из ${favoriteLimit()} сердечек. Тариф: ${String(limits.plan || '').toUpperCase()}.`; openSmall('spaceModal'); }
 function closeMenus(except){
   document.querySelectorAll('.dropMenu.open').forEach(menu => { if(menu !== except) menu.classList.remove('open'); });
 }
@@ -710,6 +738,7 @@ function currentItem(){
 function applyViewerZoom(){
   const img = document.getElementById('viewerImg');
   const stage = document.querySelector('.viewerStage');
+  if(currentItem()?.mediaType === 'video'){ img.style.transform = ''; stage.classList.remove('zoomed'); return; }
   img.style.transform = `translate(${viewerPan.x}px, ${viewerPan.y}px) scale(${viewerZoom})`;
   document.getElementById('viewerZoomText').textContent = `${Math.round(viewerZoom * 100)}%`;
   document.getElementById('desktopViewerZoomText').textContent = `${Math.round(viewerZoom * 100)}%`;

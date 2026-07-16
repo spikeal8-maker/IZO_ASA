@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,7 @@ def test_video_config_returns_only_enabled_catalog_models(video_api: TestClient)
     response = video_api.get("/api/video/config")
     assert response.status_code == 200
     assert response.json()["modes"]["text_to_video"][0]["id"] == MODEL["id"]
+    assert response.json()["modes"]["text_to_video"][0]["publicPricing"]["fromTokens"] > 0
     assert response.json()["modes"]["reference_to_video"] == []
 
 
@@ -100,3 +102,47 @@ def test_video_generate_persists_external_job_and_server_price(video_api: TestCl
         row = conn.execute("SELECT status,settings_json FROM jobs WHERE id=?", (response.json()["id"],)).fetchone()
     assert row["status"] == "queued"
     assert "external-video-1" in row["settings_json"]
+
+
+def test_completed_video_is_backfilled_into_gallery_and_can_be_deleted(video_api: TestClient):
+    filename = "completed-video.mp4"
+    path = main.MEDIA / filename
+    path.write_bytes(b"test-video-bytes")
+    settings = {
+        "localFile": filename,
+        "openrouterModel": MODEL["id"],
+        "duration": 4,
+        "resolution": "720p",
+        "aspectRatio": "16:9",
+        "tokenCost": 3,
+    }
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,settings_json,created_at,completed_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ("video-completed", "video-user", "text_to_video", "openrouter", "completed", 100, "city in motion", json.dumps(settings), "2026-07-15T01:00:00+00:00", "2026-07-15T01:01:00+00:00"),
+        )
+
+    history = video_api.get("/api/video/history")
+    assert history.status_code == 200
+    assert history.json()["items"][0]["galleryVideoId"] == "gallery_video-completed"
+
+    gallery = video_api.get("/api/gallery/items?filter=video")
+    assert gallery.status_code == 200
+    item = gallery.json()["items"][0]
+    assert item["mediaType"] == "video"
+    assert item["width"] == 1280
+    assert item["height"] == 720
+    assert item["videoUrl"] == "/api/video/media/video-completed"
+
+    favorite = video_api.post(f"/api/gallery/videos/{item['id']}/favorite", json={"isFavorite": True})
+    assert favorite.status_code == 200
+    assert favorite.json()["favorite"] is True
+
+    deleted = video_api.delete(f"/api/gallery/videos/{item['id']}")
+    assert deleted.status_code == 200
+    assert not path.exists()
+    assert video_api.get("/api/gallery/items?filter=video").json()["items"] == []
+    with main.db() as conn:
+        job_settings = json.loads(conn.execute("SELECT settings_json FROM jobs WHERE id='video-completed'").fetchone()["settings_json"])
+    assert job_settings["galleryDeleted"] is True
+    assert "localFile" not in job_settings
