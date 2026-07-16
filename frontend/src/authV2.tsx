@@ -364,6 +364,7 @@ export async function verifyEmailLinkCodeV2(challengeId: string, code: string): 
 export interface MeV2 {
   internal_user_id?: string
   legacy_user_id?: string
+  billing?: { receipt_email?: string | null } | null
   profile?: {
     display_name?: string | null; first_name?: string | null; last_name?: string | null
     public_user_code?: string | null; username?: string | null; email?: string | null; email_verified_at?: string | null; providers?: string[]

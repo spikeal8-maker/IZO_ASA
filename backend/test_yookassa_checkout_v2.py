@@ -197,6 +197,49 @@ def test_checkout_requires_offer_and_receipt_contact(payment_app):
     assert no_contact.status_code == 400
 
 
+def test_self_employed_checkout_saves_email_without_yookassa_receipt(payment_app):
+    captured = {}
+
+    async def create(**kwargs):
+        captured.update(kwargs)
+        return YooKassaPayment("provider-npd", "pending", "250.00", "RUB", "https://pay.test/npd", False)
+
+    payment_app["monkeypatch"].setattr(main, "create_yookassa_payment", create)
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE admin_settings SET value_json=? WHERE key='legal'",
+            ('{"seller_name":"Тестовый продавец","seller_status":"Самозанятый, НПД","inn":"123456789012","legal_address":"Тестовый адрес","support_email":"buyer@example.test"}',),
+        )
+    with TestClient(main.app) as client:
+        checkout = client.post(
+            "/api/billing/checkout-v2",
+            json=checkout_payload("tokens_50", "checkout-self-employed-0001"),
+            headers=payment_app["headers"],
+        )
+        profile = client.get("/api/me/profile-v2", headers=payment_app["headers"])
+        packages = client.get("/api/billing/packages-v2", headers=payment_app["headers"])
+    assert checkout.status_code == 200, checkout.text
+    assert captured["receipt"] is None
+    assert profile.status_code == 200
+    assert profile.json()["billing"]["receipt_email"] == "buyer@example.test"
+    assert packages.json()["checkout"]["fiscalization_mode"] == "self_employed_manual"
+    assert packages.json()["checkout"]["receipt_email"] == "buyer@example.test"
+
+
+def test_self_employed_checkout_rejects_phone_as_receipt_contact(payment_app):
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE admin_settings SET value_json=? WHERE key='legal'",
+            ('{"seller_name":"Тестовый продавец","seller_status":"Самозанятый","inn":"123456789012","legal_address":"Тестовый адрес","support_email":"buyer@example.test"}',),
+        )
+    payload = checkout_payload("tokens_50", "checkout-self-employed-phone")
+    payload["receipt_contact"] = "+7 900 000-00-00"
+    with TestClient(main.app) as client:
+        response = client.post("/api/billing/checkout-v2", json=payload, headers=payment_app["headers"])
+    assert response.status_code == 400
+    assert "email" in response.json()["detail"].lower()
+
+
 def test_public_commerce_exposes_tariffs_documents_and_readiness(payment_app):
     with TestClient(main.app) as client:
         response = client.get("/api/public/commerce-v2")

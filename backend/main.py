@@ -5346,6 +5346,34 @@ def legal_readiness(settings: dict[str, Any]) -> dict[str, Any]:
     return {"ready": not missing, "missing": missing}
 
 
+def seller_is_self_employed(settings: dict[str, Any] | None = None) -> bool:
+    current = settings or legal_settings()
+    status = str(current.get("seller_status") or "").strip().lower()
+    return "самозанят" in status or re.search(r"(?:^|\W)нпд(?:$|\W)", status) is not None
+
+
+def billing_profile_email(conn: sqlite3.Connection, internal_user_id: str) -> str:
+    row = conn.execute(
+        "SELECT receipt_email FROM user_billing_profiles WHERE internal_user_id = ?",
+        (internal_user_id,),
+    ).fetchone()
+    return str(row["receipt_email"] or "").strip() if row else ""
+
+
+def save_billing_profile_email(
+    conn: sqlite3.Connection,
+    internal_user_id: str,
+    email: str,
+    *,
+    updated_at: str,
+) -> None:
+    conn.execute(
+        "INSERT INTO user_billing_profiles (internal_user_id, receipt_email, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(internal_user_id) DO UPDATE SET receipt_email=excluded.receipt_email, updated_at=excluded.updated_at",
+        (internal_user_id, email, updated_at),
+    )
+
+
 def save_yookassa_config(req: AdminYooKassaConfigV2Request) -> None:
     if req.secret_key:
         OPENROUTER_SECRET_STORE.set(YOOKASSA_SECRET_NAME, req.secret_key.strip())
@@ -9523,10 +9551,12 @@ async def me_profile_v2(request: Request) -> dict[str, Any]:
             "SELECT provider, provider_username, provider_email, linked_at, last_login_at FROM auth_identities WHERE internal_user_id = ?",
             (iuid,),
         ).fetchall()
+        receipt_email = billing_profile_email(conn, iuid)
     return {
         "internal_user_id": iuid,
         "legacy_user_id": legacy,
         "profile": build_profile(urow),
+        "billing": {"receipt_email": receipt_email or None},
         "identities": [
             {
                 "provider": r["provider"],
@@ -10678,6 +10708,8 @@ async def billing_packages_v2(request: Request) -> dict[str, Any]:
         _sync_tariff_billing_packages(conn)
         rows = conn.execute("SELECT * FROM billing_packages WHERE is_active = 1 AND code LIKE 'tokens_%' ORDER BY sort_order, price_amount").fetchall()
         user = _admin_load_target(conn, trusted["internal_user_id"])
+        settings = legal_settings(conn)
+        receipt_email = billing_profile_email(conn, trusted["internal_user_id"])
         discount_percent = int(user["personal_discount_percent"] or 0)
         packages = []
         for row in rows:
@@ -10698,6 +10730,20 @@ async def billing_packages_v2(request: Request) -> dict[str, Any]:
         "provider": active_billing_provider(),
         "personal_discount_percent": discount_percent,
         "packages": packages,
+        "checkout": {
+            "fiscalization_mode": "self_employed_manual" if seller_is_self_employed(settings) else "yookassa_54fz",
+            "contact_type": "email",
+            "receipt_delivery": "seller" if seller_is_self_employed(settings) else "provider",
+            "receipt_email": receipt_email or None,
+        },
+        "legal": {
+            key: settings.get(key)
+            for key in (
+                "brand_name", "seller_name", "seller_status", "inn", "ogrn",
+                "legal_address", "support_email", "support_phone", "support_hours",
+                "site_url", "offer_version",
+            )
+        },
     }
 
 
@@ -10706,13 +10752,16 @@ async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -
     trusted = require_trusted_user(request)
     if not req.offer_accepted:
         raise HTTPException(400, "Подтвердите принятие публичной оферты и условий оплаты.")
+    settings = legal_settings()
+    self_employed = seller_is_self_employed(settings)
     receipt_contact = str(req.receipt_contact or "").strip()
     if not receipt_contact:
-        raise HTTPException(400, "Укажите email или номер телефона для электронного чека.")
-    valid_contact = bool(normalize_email(receipt_contact)) if "@" in receipt_contact else len(re.sub(r"\D", "", receipt_contact)) >= 10
+        raise HTTPException(400, "Укажите email для получения чека.")
+    normalized_receipt_email = normalize_email(receipt_contact)
+    valid_contact = bool(normalized_receipt_email) if self_employed or "@" in receipt_contact else len(re.sub(r"\D", "", receipt_contact)) >= 10
     if not valid_contact:
-        raise HTTPException(400, "Введите корректный email или номер телефона для электронного чека.")
-    readiness = legal_readiness(legal_settings())
+        raise HTTPException(400, "Введите корректный email для получения чека." if self_employed else "Введите корректный email или номер телефона для электронного чека.")
+    readiness = legal_readiness(settings)
     if not readiness["ready"]:
         raise HTTPException(503, "Прием платежей временно недоступен: публичные реквизиты продавца не заполнены.")
     provider_name = active_billing_provider()
@@ -10771,14 +10820,16 @@ async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -
                 now,
             ),
         )
-    command = PaymentCreateCommand(
-        amount=total_amount,
-        currency="RUB",
-        idempotency_key=req.idempotency_key,
-        return_url=f"{public_site_url(request)}/payment?payment_id={payment_id}",
-        description=f"ИЗО АСА: {package['name']}",
-        metadata={"invoice_id": invoice_id, "payment_id": payment_id},
-        receipt=PaymentReceipt(
+        if normalized_receipt_email:
+            save_billing_profile_email(
+                conn,
+                trusted["internal_user_id"],
+                normalized_receipt_email,
+                updated_at=now,
+            )
+    receipt = None
+    if not self_employed:
+        receipt = PaymentReceipt(
             contact=receipt_contact,
             items=(
                 PaymentReceiptItem(
@@ -10787,7 +10838,15 @@ async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -
                     amount=total_amount,
                 ),
             ),
-        ),
+        )
+    command = PaymentCreateCommand(
+        amount=total_amount,
+        currency="RUB",
+        idempotency_key=req.idempotency_key,
+        return_url=f"{public_site_url(request)}/payment?payment_id={payment_id}",
+        description=f"ИЗО АСА: {package['name']}",
+        metadata={"invoice_id": invoice_id, "payment_id": payment_id},
+        receipt=receipt,
     )
     try:
         if provider_name == "simulator":
@@ -10801,10 +10860,14 @@ async def billing_checkout_v2(req: BillingCheckoutV2Request, request: Request) -
                 return_url=command.return_url,
                 description=command.description,
                 metadata=dict(command.metadata),
-                receipt=build_yookassa_receipt(
-                    command,
-                    vat_code=config.get("receipt_vat_code"),
-                    payment_subject=str(config.get("payment_subject") or "service"),
+                receipt=(
+                    build_yookassa_receipt(
+                        command,
+                        vat_code=config.get("receipt_vat_code"),
+                        payment_subject=str(config.get("payment_subject") or "service"),
+                    )
+                    if command.receipt is not None
+                    else None
                 ),
             )
             provider_payment = raw_payment

@@ -303,6 +303,12 @@ CREATE TABLE IF NOT EXISTS users (
             CREATE INDEX IF NOT EXISTS idx_legal_acceptances_user_time
                 ON legal_acceptances(internal_user_id, accepted_at);
 
+            CREATE TABLE IF NOT EXISTS user_billing_profiles (
+                internal_user_id TEXT PRIMARY KEY,
+                receipt_email TEXT,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS payment_provider_events (
                 id TEXT PRIMARY KEY,
                 provider TEXT NOT NULL,

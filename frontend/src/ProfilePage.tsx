@@ -1,5 +1,5 @@
 import { useEffect, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
-import { Copy, Link as LinkIcon, Lock, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles } from 'lucide-react'
+import { Copy, Link as LinkIcon, Lock, Plus, ReceiptText, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles, X } from 'lucide-react'
 import type { AuthStatusV2, MeV2 } from './authV2'
 import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, avatarPresets, modelAccessOption, modelModeOrder, modelOptions, modelPublicInfo, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
 
@@ -31,6 +31,13 @@ type PublicModelFormatPricing = {
 }
 type PublicModelPricing = { id: string; label: string; formats: PublicModelFormatPricing[] }
 type BillingPackage = { code: string; name: string; description?: string; price_amount: number; base_price_amount?: number; discount_percent?: number; discount_amount?: number; token_amount: number; currency: string }
+type BillingCheckoutMeta = { fiscalization_mode?: string; contact_type?: string; receipt_delivery?: string; receipt_email?: string | null }
+type BillingLegal = {
+  brand_name?: string; seller_name?: string; seller_status?: string; inn?: string; ogrn?: string
+  legal_address?: string; support_email?: string; support_phone?: string; support_hours?: string
+  site_url?: string; offer_version?: string
+}
+type CheckoutSelection = { code: string; title: string; price: number; description?: string }
 type ProfileVideoMode = 'text_to_video' | 'image_to_video' | 'first_last_frame' | 'reference_to_video'
 type ProfileVideoModel = { id: string; name: string; description?: string; publicPricing?: { fromTokens?: number | null }; supportedDurations?: number[]; supportedResolutions?: string[]; supportedAspectRatios?: string[]; generateAudio?: boolean | null }
 type ProfileVideoConfig = { modes: Record<ProfileVideoMode, ProfileVideoModel[]>; plan?: string }
@@ -165,6 +172,9 @@ export default function ProfilePage({
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutMessage, setCheckoutMessage] = useState('')
   const [checkoutAccepted, setCheckoutAccepted] = useState(false)
+  const [checkoutSelection, setCheckoutSelection] = useState<CheckoutSelection | null>(null)
+  const [billingCheckoutMeta, setBillingCheckoutMeta] = useState<BillingCheckoutMeta>({})
+  const [billingLegal, setBillingLegal] = useState<BillingLegal>({})
   const [videoConfig, setVideoConfig] = useState<ProfileVideoConfig | null>(null)
   const [videoConfigError, setVideoConfigError] = useState('')
   const [videoVisibility, setVideoVisibility] = useState<Record<string, Record<string, boolean>>>(() => {
@@ -173,7 +183,7 @@ export default function ProfilePage({
   const [videoQualityModels, setVideoQualityModels] = useState<Record<string, Record<string, string>>>(() => {
     try { return JSON.parse(localStorage.getItem('izo:video-quality-models') || '{}') as Record<string, Record<string, string>> } catch { return {} }
   })
-  const [receiptContact, setReceiptContact] = useState(() => me?.identities?.find((identity) => identity.provider_email)?.provider_email || '')
+  const [receiptContact, setReceiptContact] = useState(() => me?.billing?.receipt_email || me?.identities?.find((identity) => identity.provider_email)?.provider_email || '')
   const account = me?.account
   const activePlan = (tariffKeys.includes(String(account?.plan || 'mini').toLowerCase() as TariffKey) ? String(account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
   const currentTariff = tariffs[activePlan] || DEFAULT_TARIFFS[activePlan]
@@ -266,10 +276,19 @@ export default function ProfilePage({
         setBillingPackages(packages)
         setPersonalDiscountPercent(Math.max(0, Number(result?.personal_discount_percent || 0)))
         setSelectedPackage((current) => current || packages[0]?.code || '')
+        setBillingCheckoutMeta((result?.checkout || {}) as BillingCheckoutMeta)
+        setBillingLegal((result?.legal || {}) as BillingLegal)
+        const savedEmail = String(result?.checkout?.receipt_email || '').trim()
+        if (savedEmail) setReceiptContact(savedEmail)
       })
-      .catch(() => { if (!cancelled) { setBillingPackages([]); setPersonalDiscountPercent(0) } })
+      .catch(() => { if (!cancelled) { setBillingPackages([]); setPersonalDiscountPercent(0); setBillingCheckoutMeta({}); setBillingLegal({}) } })
     return () => { cancelled = true }
   }, [authStatus, profileTab])
+  useEffect(() => {
+    const profileEmail = String(me?.billing?.receipt_email || '').trim()
+    const identityEmail = String(me?.identities?.find((identity) => identity.provider_email)?.provider_email || '').trim()
+    if (!receiptContact.trim() && (profileEmail || identityEmail)) setReceiptContact(profileEmail || identityEmail)
+  }, [me, receiptContact])
   useEffect(() => {
     if (authStatus !== 'authed' || profileTab !== 'models') return
     let cancelled = false
@@ -292,10 +311,21 @@ export default function ProfilePage({
   }
   const toggleVideoModel = (mode: ProfileVideoMode, modelId: string, visible: boolean) => setVideoVisibility((current) => ({ ...current, [mode]: { ...(current[mode] || {}), [modelId]: visible } }))
   const setVideoQualityModel = (mode: ProfileVideoMode, qualityId: string, modelId: string) => setVideoQualityModels((current) => ({ ...current, [mode]: { ...(current[mode] || {}), [qualityId]: modelId } }))
-  const startCheckout = async (packageCode = selectedPackage) => {
+  const openCheckout = (selection: CheckoutSelection) => {
+    setCheckoutSelection(selection)
+    setCheckoutAccepted(false)
+    setCheckoutMessage('')
+  }
+  const closeCheckout = () => {
+    if (checkoutBusy) return
+    setCheckoutSelection(null)
+    setCheckoutAccepted(false)
+    setCheckoutMessage('')
+  }
+  const startCheckout = async (packageCode = checkoutSelection?.code || selectedPackage) => {
     if (!packageCode || checkoutBusy) return
-    if (!receiptContact.trim()) {
-      setCheckoutMessage('Укажите email или телефон для электронного чека.')
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receiptContact.trim())) {
+      setCheckoutMessage('Введите корректный email для получения чека.')
       return
     }
     if (!checkoutAccepted) {
@@ -563,20 +593,8 @@ export default function ProfilePage({
                 <div><span>Премиум-модели</span><strong>{premiumMonthlyTokens}</strong><small>токенов в месяц</small></div>
                 <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
                 <div><span>Видео</span><strong>Доступно</strong><small>модели зависят от тарифа</small></div>
-                <button type="button" className="profile-primary" disabled>Управление тарифом скоро</button>
               </div>
-              <div className="profile-checkout-consent profile-card">
-                {personalDiscountPercent > 0 && <div className="profile-checkout-discount">Персональная скидка: <strong>{personalDiscountPercent}%</strong>. Она уже учтена в ценах ниже.</div>}
-                <label>
-                  <span>Email или телефон для электронного чека</span>
-                  <input value={receiptContact} onChange={(event) => { setReceiptContact(event.target.value); setCheckoutMessage('') }} placeholder="mail@example.ru или +7 900 000-00-00" autoComplete="email" />
-                </label>
-                <label className="profile-checkout-checkbox">
-                  <input type="checkbox" checked={checkoutAccepted} onChange={(event) => { setCheckoutAccepted(event.target.checked); setCheckoutMessage('') }} />
-                  <span>Я принимаю <a href="/legal/offer" target="_blank" rel="noreferrer">публичную оферту</a>, <a href="/legal/payment" target="_blank" rel="noreferrer">условия оплаты</a> и <a href="/legal/privacy" target="_blank" rel="noreferrer">политику конфиденциальности</a>.</span>
-                </label>
-                <small>Итоговая цена будет показана до перехода в ЮKassa. Данные банковской карты вводятся только на защищённой странице платёжного оператора.</small>
-              </div>
+              {personalDiscountPercent > 0 && <div className="profile-checkout-discount">Персональная скидка <strong>{personalDiscountPercent}%</strong> уже учтена в ценах.</div>}
               <div className="profile-plans">
                 {planCards.map((item) => (
                   <article className={`${item.id === activePlan ? 'profile-card profile-plan active current' : 'profile-card profile-plan'}`} key={item.id}>
@@ -585,7 +603,7 @@ export default function ProfilePage({
                     {item.premium > 0 ? <em>{item.premium} токенов/мес на премиум-модели</em> : null}
                     {item.benefit > 0 ? <small>Выгода по токенам: {item.benefit.toLocaleString('ru-RU')} ₽</small> : null}
                     {item.features.length ? <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null}
-                    <button type="button" disabled={item.id === activePlan || item.id === 'free' || checkoutBusy || !checkoutAccepted || !receiptContact.trim()} onClick={() => { void startCheckout(`tariff_${item.id}`) }}>{item.id === activePlan ? 'Текущий тариф' : checkoutBusy ? 'Переходим к оплате...' : 'Выбрать тариф'}</button>
+                    <button type="button" disabled={item.id === activePlan || item.price <= 0} onClick={() => openCheckout({ code: `tariff_${item.id}`, title: `Тариф ${item.title} на 30 дней`, price: item.price, description: `${item.premium} токенов премиум-моделей в месяц` })}>{item.id === activePlan ? 'Текущий тариф' : item.price <= 0 ? 'Бесплатный доступ' : 'Выбрать тариф'}</button>
                   </article>
                 ))}
               </div>
@@ -601,10 +619,59 @@ export default function ProfilePage({
                 <div className="profile-token-packs" aria-label="Пакеты токенов">
                   {billingPackages.map((item) => <button type="button" className={selectedPackage === item.code ? 'active' : ''} key={item.code} onClick={() => setSelectedPackage(item.code)}>{item.token_amount} ток. · {item.price_amount.toLocaleString('ru-RU')} ₽{item.base_price_amount && item.base_price_amount > item.price_amount ? <del>{item.base_price_amount.toLocaleString('ru-RU')} ₽</del> : null}</button>)}
                 </div>
-                <button type="button" className="profile-primary" disabled={!selectedPackage || checkoutBusy || !checkoutAccepted || !receiptContact.trim()} onClick={() => { void startCheckout() }}>{checkoutBusy ? 'Переходим к оплате...' : 'Купить токены'}</button>
-                {checkoutMessage && <small className="profile-save-err">{checkoutMessage}</small>}
+                <button type="button" className="profile-primary" disabled={!selectedPackage} onClick={() => {
+                  const item = billingPackages.find((candidate) => candidate.code === selectedPackage)
+                  if (item) openCheckout({ code: item.code, title: item.name, price: item.price_amount, description: `${item.token_amount} дополнительных токенов` })
+                }}>Купить токены</button>
               </article>
+              <footer className="profile-billing-footer">
+                <div>
+                  <strong>{billingLegal.brand_name || 'ИЗО АСА'}</strong>
+                  <span>{[billingLegal.seller_name, billingLegal.seller_status].filter(Boolean).join(' · ')}</span>
+                  <span>{billingLegal.inn ? `ИНН ${billingLegal.inn}` : ''}{billingLegal.legal_address ? ` · ${billingLegal.legal_address}` : ''}</span>
+                </div>
+                <nav aria-label="Документы об оплате">
+                  <a href="/legal/offer" target="_blank" rel="noreferrer">Оферта</a>
+                  <a href="/legal/payment" target="_blank" rel="noreferrer">Оплата и чеки</a>
+                  <a href="/legal/refunds" target="_blank" rel="noreferrer">Возвраты</a>
+                  <a href="/legal/privacy" target="_blank" rel="noreferrer">Конфиденциальность</a>
+                  <a href="/legal/contacts" target="_blank" rel="noreferrer">Контакты</a>
+                </nav>
+              </footer>
             </section>
+            {checkoutSelection && <div className="profile-checkout-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCheckout() }}>
+              <section className="profile-checkout-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-checkout-title">
+                <header>
+                  <div><span>Подтверждение покупки</span><h3 id="profile-checkout-title">{checkoutSelection.title}</h3></div>
+                  <button type="button" onClick={closeCheckout} disabled={checkoutBusy} aria-label="Закрыть"><X size={19} /></button>
+                </header>
+                <div className="profile-checkout-order">
+                  <div><span>К оплате</span><strong>{checkoutSelection.price.toLocaleString('ru-RU')} ₽</strong></div>
+                  {checkoutSelection.description && <p>{checkoutSelection.description}</p>}
+                </div>
+                <label className="profile-checkout-email">
+                  <span>Email для получения чека</span>
+                  <input type="email" value={receiptContact} onChange={(event) => { setReceiptContact(event.target.value); setCheckoutMessage('') }} placeholder="name@example.ru" autoComplete="email" />
+                  <small>Email сохранится в платежном профиле и будет подставлен при следующей покупке.</small>
+                </label>
+                <div className="profile-checkout-fiscal">
+                  <ReceiptText aria-hidden="true" />
+                  <p>{billingCheckoutMeta.fiscalization_mode === 'self_employed_manual'
+                    ? 'Продавец применяет НПД. После подтверждения оплаты продавец формирует чек в приложении «Мой налог» и передает его покупателю по указанному email.'
+                    : 'Электронный чек будет сформирован в подключенной системе фискализации и направлен на указанный email.'}</p>
+                </div>
+                <label className="profile-checkout-checkbox">
+                  <input type="checkbox" checked={checkoutAccepted} onChange={(event) => { setCheckoutAccepted(event.target.checked); setCheckoutMessage('') }} />
+                  <span>Я принимаю <a href="/legal/offer" target="_blank" rel="noreferrer">публичную оферту</a>, <a href="/legal/payment" target="_blank" rel="noreferrer">условия оплаты</a> и <a href="/legal/privacy" target="_blank" rel="noreferrer">политику конфиденциальности</a>.</span>
+                </label>
+                <div className="profile-checkout-security"><ShieldCheck aria-hidden="true" /><span>Данные карты вводятся только на защищенной странице ЮKassa.</span></div>
+                {checkoutMessage && <p className="profile-checkout-error">{checkoutMessage}</p>}
+                <footer>
+                  <button type="button" className="profile-ghost" onClick={closeCheckout} disabled={checkoutBusy}>Отмена</button>
+                  <button type="button" className="profile-primary" onClick={() => { void startCheckout() }} disabled={checkoutBusy || !checkoutAccepted}>{checkoutBusy ? 'Переходим в ЮKassa...' : `Оплатить ${checkoutSelection.price.toLocaleString('ru-RU')} ₽`}</button>
+                </footer>
+              </section>
+            </div>}
           </>}
 
           {profileTab === 'earn' && <>
