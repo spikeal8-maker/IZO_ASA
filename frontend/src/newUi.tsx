@@ -56,6 +56,7 @@ import {
   type GenerationContract,
 } from './runtimeContracts'
 import './newUi.css'
+import './paymentCheckout.css'
 import './newStudioV3.css'
 import previewPlaceholderUrl from './assets/preview-placeholder.jpg'
 

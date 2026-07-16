@@ -216,8 +216,9 @@ export default function AdminPayments() {
           <p className={receiptReady ? 'ok' : 'error'}>{receiptReady ? <CheckCircle2 /> : <CircleAlert />}<span><b>Электронный чек</b><small>{receiptReady ? 'НДС и предмет расчета выбраны' : 'выберите параметры чека'}</small></span></p>
           <p className={connectionOk ? 'ok' : 'error'}>{connectionOk ? <CheckCircle2 /> : <CircleAlert />}<span><b>Связь с API</b><small>{data?.connection_check?.message || 'нажмите «Проверить ЮKассу»'}</small></span></p>
           <p className={webhookObserved ? 'ok' : webhookReady ? 'warn' : 'error'}>{webhookObserved ? <CheckCircle2 /> : <CircleAlert />}<span><b>Webhook</b><small>{webhookObserved ? 'уведомление от ЮKassa уже получено' : webhookReady ? 'адрес готов, но реальное уведомление ещё не приходило' : 'адрес не сформирован'}</small></span></p>
-          <small>{data?.connection_check?.checked_at ? `Последняя проверка API: ${new Date(data.connection_check.checked_at).toLocaleString('ru-RU')}. ` : ''}Полная проверка завершается тестовой покупкой из кабинета пользователя.</small>
-          <a className="admin-payment-checkout-link" href="/profile/tariffs" target="_blank" rel="noreferrer">Открыть тестовую покупку <ExternalLink /></a>
+          <small>{data?.connection_check?.checked_at ? `Последняя проверка API: ${new Date(data.connection_check.checked_at).toLocaleString('ru-RU')}. ` : ''}Полная проверка завершается покупкой минимального действующего пакета из кабинета пользователя.</small>
+          <a className="admin-payment-checkout-link" href="/profile/tariffs?buy=tokens_50" target="_blank" rel="noreferrer">Проверить покупку минимального пакета <ExternalLink /></a>
+          <p className="admin-table-note">Произвольный платеж на 1 ₽ не создаём: в боевом магазине проверяется реальный товар с корректным счётом и назначением.</p>
         </article>
         <article className="admin-mail-card">
           <h4>Реальные операции</h4>

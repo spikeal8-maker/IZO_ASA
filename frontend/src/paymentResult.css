@@ -1,0 +1,47 @@
+.payment-result-page {
+  min-height: 100dvh;
+  padding: 20px;
+}
+
+.payment-result-panel {
+  width: min(560px, 100%);
+  padding: 30px;
+  border-color: rgba(190, 210, 195, .24);
+  background: #101510;
+}
+
+.payment-result-panel strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+.payment-result-note {
+  margin: 14px auto 0;
+  max-width: 420px;
+  color: #d9e0da !important;
+}
+
+.payment-result-actions a:first-of-type {
+  border-color: var(--acid, #dfff21);
+  background: var(--acid, #dfff21);
+  color: #081008;
+  font-weight: 750;
+}
+
+@media (max-width: 560px) {
+  .payment-result-page {
+    align-items: end;
+    padding: 0;
+  }
+
+  .payment-result-panel {
+    padding: 24px 18px max(22px, env(safe-area-inset-bottom));
+    border-width: 1px 0 0;
+    border-radius: 10px 10px 0 0;
+  }
+
+  .payment-result-actions {
+    display: grid;
+  }
+}

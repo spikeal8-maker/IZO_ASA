@@ -20,6 +20,7 @@ def checkout_payload(package_code: str, key: str) -> dict:
 def payment_app(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "DB_PATH", tmp_path / "payments.sqlite3")
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
+    monkeypatch.delenv("PUBLIC_SITE_URL", raising=False)
     monkeypatch.setattr(
         main,
         "yookassa_config",
@@ -57,7 +58,7 @@ def test_checkout_creates_invoice_and_provider_payment(payment_app):
         response = client.post("/api/billing/checkout-v2", json=checkout_payload("tokens_50", "checkout-test-0001"), headers=payment_app["headers"])
     assert response.status_code == 200, response.text
     assert response.json()["confirmation_url"] == "https://pay.test/confirm"
-    assert captured["return_url"].endswith(f"/payment?payment_id={response.json()['payment_id']}")
+    assert captured["return_url"] == f"https://izo.alikinas.ru/payment?payment_id={response.json()['payment_id']}"
     assert captured["receipt"]["customer"] == {"email": "buyer@example.test"}
     with main.db() as conn:
         payment = conn.execute("SELECT * FROM payments").fetchone()

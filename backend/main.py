@@ -5423,7 +5423,7 @@ def public_site_url(request: Request) -> str:
     configured = os.getenv("PUBLIC_SITE_URL", "").strip().rstrip("/")
     if configured:
         return configured
-    return str(request.base_url).rstrip("/")
+    return "https://izo.alikinas.ru"
 
 
 OPENROUTER_GENERATION_MODES = {"text_to_image", "image_to_image", "edit"}

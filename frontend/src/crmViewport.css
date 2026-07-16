@@ -1,0 +1,32 @@
+@media (min-width: 861px) {
+  .crm-card-overlay {
+    padding: 12px;
+  }
+
+  .crm-card {
+    width: min(1740px, calc(100vw - 24px));
+    height: calc(100dvh - 24px);
+    max-height: none;
+  }
+
+  .crm-card-cols {
+    grid-template-columns: minmax(0, 1fr) minmax(310px, 340px);
+  }
+
+  .crm-card-actions {
+    height: auto;
+    max-height: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .crm-card-overlay {
+    padding: 0;
+  }
+
+  .crm-card {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+  }
+}

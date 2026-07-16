@@ -1,5 +1,6 @@
 import { CheckCircle2, Clock3, RefreshCw, XCircle } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import './paymentResult.css'
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 
@@ -59,12 +60,13 @@ export default function PaymentResultPage() {
           <p>{Number(data?.payment?.amount || 0).toLocaleString('ru-RU')} ₽ · счет {data?.payment?.invoice_code}</p>
           {succeeded && Number(data?.payment?.tokens || 0) > 0 && <p>Начислено: <b>{data?.payment?.tokens} ток.</b> · баланс: <b>{data?.account?.token_balance} ток.</b></p>}
           {succeeded && String(data?.payment?.package_code || '').startsWith('tariff_') && <p>Тариф активирован: <b>{String(data?.account?.plan || '').toUpperCase()}</b></p>}
+          {succeeded && <p className="payment-result-note">Доступы уже обновлены. Можно вернуться в студию и продолжить работу.</p>}
           {pending && <p>Страницу можно оставить открытой: статус обновится автоматически.</p>}
           {data?.verification_error && <small>ЮKassa временно не ответила. Повторная проверка выполнится автоматически.</small>}
         </>}
         <div className="payment-result-actions">
           {(pending || error) && <button type="button" onClick={() => { setLoading(true); void load() }}><RefreshCw aria-hidden="true" />Проверить снова</button>}
-          <a href="/profile">Вернуться в профиль</a>
+          <a href="/profile/tariffs">Тариф и баланс</a>
           <a href="/">К генератору</a>
         </div>
         <div className="payment-result-legal"><a href="/legal/payment">Условия оплаты</a><a href="/legal/refunds">Возвраты</a><a href="/legal/contacts">Реквизиты</a></div>
