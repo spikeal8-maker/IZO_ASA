@@ -223,8 +223,10 @@ def create_backup(
     )
     root.mkdir(parents=True, exist_ok=True)
     snapshots = root / "snapshots"
+    manifests = root / "manifests"
     object_store = root / "media-objects"
     snapshots.mkdir(exist_ok=True)
+    manifests.mkdir(exist_ok=True)
     snapshot_id = _snapshot_id()
     completed = snapshots / snapshot_id
     completed.mkdir()
@@ -257,6 +259,10 @@ def create_backup(
     }
     manifest_path = completed / "manifest.json"
     _atomic_json(manifest_path, manifest)
+    manifest_index = manifests / f"{snapshot_id}.json"
+    _atomic_json(manifest_index, manifest)
+    if sha256_file(manifest_index) != sha256_file(manifest_path):
+        raise BackupError("manifest_index_checksum_mismatch")
     # This marker is the commit point. A crash can leave an unmarked directory,
     # but readers will never treat it as a completed snapshot.
     (completed / COMPLETE_MARKER).write_text(sha256_file(manifest_path) + "\n", encoding="ascii")

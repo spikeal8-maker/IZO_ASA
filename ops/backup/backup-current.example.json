@@ -1,0 +1,23 @@
+{
+  "LastLocalBackup": null,
+  "LastVerifiedBackup": null,
+  "LastCloudStage": null,
+  "LastReplicaReceive": null,
+  "LatestSnapshotId": null,
+  "DatabaseBytes": null,
+  "MediaFiles": null,
+  "ManifestSha256": null,
+  "YandexDiskRunning": false,
+  "LegacyYandexDiskRunning": false,
+  "YandexSyncErrors": [],
+  "CloudFolderAvailable": false,
+  "YandexRouteInterface": null,
+  "YandexHttpsReachable": false,
+  "LocalFreeGB": null,
+  "CloudFreeGB": null,
+  "CloudFreePercent": null,
+  "CloudStatus": "UNKNOWN",
+  "OverallStatus": "ATTENTION",
+  "LastError": null,
+  "UpdatedAt": null
+}

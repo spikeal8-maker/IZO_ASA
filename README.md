@@ -19,6 +19,8 @@ Start here when you or another agent joins the project:
   HTTP vs production HTTPS, including restart persistence checks.
 - `docs/backup-restore-runbook-20260713.md` — current SQLite Backup API,
   incremental media backup, verification and safe restore procedure.
+- `docs/yandex-disk-backup-runbook-20260716.md` — PRIMARY/STANDBY roles,
+  Yandex.Disk staging, Task Scheduler automation, health and deployment blockers.
 - `docs/qwen-asr-deployment.md` — reproducible local Qwen3-ASR installation,
   model source, verified versions, operations, migration and troubleshooting.
 - `docs/admin-panel-product-spec.md` — admin product direction.
@@ -129,6 +131,9 @@ python tools/restore_backup.py --rehearse
 See `docs/backup-restore-runbook-20260713.md` before changing the target,
 restoring data, or moving to a new computer. Git, `.env`, DPAPI secrets,
 ComfyUI/Ollama installations and model files are separate recovery inputs.
+For offsite transport and standby setup, follow
+`docs/yandex-disk-backup-runbook-20260716.md`; never point Yandex.Disk at the live
+database or run the installer before its client/account/volume preflight passes.
 
 ## Secrets
 

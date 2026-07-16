@@ -1,0 +1,5 @@
+{
+  "role": "STANDBY",
+  "databaseWriter": false,
+  "computerName": "STANDBY_COMPUTER"
+}

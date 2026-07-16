@@ -1,0 +1,5 @@
+{
+  "role": "PRIMARY",
+  "databaseWriter": true,
+  "computerName": "PRIMARY_COMPUTER"
+}

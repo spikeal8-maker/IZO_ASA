@@ -53,6 +53,14 @@ echo   IZO_ASA - PUBLIC launcher (dist mode)
 echo ==========================================
 echo.
 
+REM A configured STANDBY must never start a writing backend automatically.
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%ops\backup\check_server_role.ps1"
+if errorlevel 1 (
+  echo [ERROR] Server role guard refused public startup.
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
+
 where python >nul 2>nul || (echo [ERROR] Python not found in PATH. & pause & exit /b 1)
 where node   >nul 2>nul || (echo [ERROR] Node.js not found in PATH. & pause & exit /b 1)
 where npm    >nul 2>nul || (echo [ERROR] npm not found in PATH. & pause & exit /b 1)

@@ -138,15 +138,12 @@ pipeline и `BACKUP_REHEARSAL_OK`. После операции production сох
 и health/database ready. Последующий controlled B7a restart поднял PID 484; snapshot
 остался проверенной точкой отката до единственной recovery/refund mutation.
 
-## Что ещё не реализовано
+## Автоматизация и offsite
 
-- Нет Task Scheduler/Windows Service schedule. Сейчас backup запускается вручную.
-- Нет автоматического retention/pruning; ничего из backup автоматически не удаляется.
-- Нет encrypted offsite copy. Диск `I:` нужно физически защищать, потому что на нём
-  находятся пользовательские данные и изображения.
-- Нет автоматического alert, если диск отключён или backup давно не выполнялся.
+Новый operations-пакет с Task Scheduler, role guard, health state, безопасной
+публикацией через Яндекс.Диск и STANDBY rehearsal описан в
+`docs/yandex-disk-backup-runbook-20260716.md`.
 
-Следующий отдельный operations-пакет должен добавить schedule, retention с
-защитой последнего verified snapshot и мониторинг возраста backup. Encrypted
-offsite добавляется только после выбора бюджета/провайдера и отдельного recovery-key
-runbook; ключ шифрования нельзя хранить рядом с backup.
+Автоматический retention по-прежнему выключен до недельного испытания. Сквозное
+шифрование пользовательских media также требует отдельного решения владельца и
+recovery-key runbook; ключ нельзя хранить рядом с backup.

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "active_release": "D:\\Google Drive\\My progact\\Генератор картинок",
+  "python": "D:\\Google Drive\\My progact\\Генератор картинок\\backend\\.venv\\Scripts\\python.exe",
+  "database_url": "sqlite:///D:/Google Drive/My progact/Генератор картинок/backend/onenode.sqlite3",
+  "media_dir": "D:\\Google Drive\\My progact\\Генератор картинок\\backend\\media",
+  "backup_config": "C:\\IZO_ASA\\config\\backup.json",
+  "role_config": "C:\\IZO_ASA\\config\\server-role.json",
+  "health_file": "C:\\IZO_ASA\\health\\backup-current.json",
+  "log_root": "C:\\IZO_ASA\\logs",
+  "cloud_root": "E:\\Yandex.Disk\\IZO_ASA_ServerBackup",
+  "replica_cache": "D:\\IZO_ASA_ReplicaCache",
+  "rehearsal_root": "D:\\IZO_ASA_RestoreTest"
+}

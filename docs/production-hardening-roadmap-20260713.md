@@ -488,10 +488,46 @@
 
 Открытые подпункты после A6:
 
-- OPS-05 остаётся `ЧАСТИЧНО`, пока отдельный пакет не включит schedule, age alert
-  и безопасный retention;
+- OPS-05 имеет реализованный код schedule/age alert в A6b, но остаётся
+  `ЧАСТИЧНО` до физической установки и недельного наблюдения; retention до этого
+  намеренно выключен;
 - OPS-06 остаётся `ЧАСТИЧНО`, пока не появится зашифрованная offsite-копия и
   отдельное хранение recovery key.
+
+### Checkpoint A6b — Яндекс.Диск transport и STANDBY automation
+
+Код реализован и локально проверен 2026-07-16:
+
+- `tools/backup_transport.py` публикует только verified snapshot в раздельные
+  `database/snapshots`, `recovery/manifests`, `data/media-objects`; база, manifest
+  и media повторно сверяются, а `COMPLETED` публикуется последним;
+- завершённый cloud snapshot неизменяем; повторный stage только проверяет его;
+- STANDBY получает данные в отдельный ReplicaCache, после чего выполняет полный
+  verify и опциональный rehearsal; backend/FRP автоматически не включаются;
+- `ops/backup` содержит role config, fail-closed launcher guard, lock локального
+  backup, 15-минутный local schedule, почасовой stage/receive, ежедневный STANDBY
+  rehearsal и 10-минутный health monitor;
+- установщик проверяет NTFS, отдельный backup volume, fixed internal Yandex root,
+  наличие live DB/media/Python, `YandexDisk4.exe` и `cldflt`; secrets не записывает;
+- contract suite: `17 passed`; все PowerShell-сценарии разобраны parser без ошибок;
+- production-safe snapshot `20260716T005805.698960Z`: DB 565 104 640 байт,
+  media 2 436 файлов / 260 170 702 байта, 96 новых objects / 2 340 reuse;
+  `BACKUP_VERIFY_OK` и `BACKUP_REHEARSAL_OK` успешны без остановки backend.
+
+Физическое внедрение пока `BLOCKED`, а не объявлено готовым:
+
+- PRIMARY-кандидат: `D2-R2-X`; имя STANDBY и выделенный Яндекс-аккаунт не указаны;
+- Диск 4.21.2.4570 и legacy 3.2.48.5157 сейчас работают одновременно; до
+  подтверждения разных невложенных sync roots cloud stage fail closed;
+- `disk.yandex.ru:443` доступен через интерфейс `AdGuard VPN`, а требуемый direct
+  route ещё не настроен; installer/stage fail closed и не меняют VPN автоматически;
+- папка `D:\Yandex.Disk\IZO_ASA_ServerBackup` обнаружена, но Яндекс 360, режим
+  «Хранить на компьютере», свободное облачное место и отсутствие sync errors не
+  подтверждены;
+- реальный cloud download на STANDBY, reboot/offline tests и пять полных циклов
+  ещё должны быть выполнены по `yandex-disk-backup-runbook-20260716.md`;
+- пользовательские media пока не имеют отдельного end-to-end encryption; решение
+  владельца и recovery-key runbook обязательны до production offsite.
 
 ### Checkpoint A2 — deterministic GitHub Actions CI
 
@@ -2643,6 +2679,21 @@ Exact CI после B8l remediation:
 - эксплуатационный контракт и повторное развертывание описаны в `video-generation-studio-20260715.md`.
 
 До массового включения остается платный контрактный smoke каждой production-модели.
+
+### Product checkpoint V3 — video product shell and media gallery
+
+Реализовано и локально проверено 2026-07-16:
+
+- видеостудия приведена к проектной схеме `Composer -> Stage -> Actions -> History + Context` из `izo-asa-design-system-20260716.md`;
+- все четыре режима сохраняются на desktop и mobile, а режимы с кадрами получают загрузку с устройства и выбор из общей галереи;
+- Stage использует выбранный формат кадра вместо фиксированной мобильной высоты; mobile-кнопка генерации больше не перекрывает Composer;
+- API каталога отдает минимальную публичную цену и проверенные примеры по длительности/разрешению, поэтому цена видна до выбора модели;
+- профиль получил пользовательский каталог видеомоделей, видимость и назначения `Быстро`/`Стандарт`/`Максимум` по режимам;
+- добавлена таблица `videos`, идемпотентный backfill завершенных заданий и единая галерейная выдача изображений и видео;
+- общая галерея воспроизводит, скачивает, отмечает избранным, фильтрует и удаляет видео; действия ленты и image-editor для видео пока честно скрыты;
+- удаление видео убирает физический MP4 и запись из активной галереи, но сохраняет job и бухгалтерский аудит;
+- verification: frontend production build, Python/JS syntax, `206 passed` video/database/gallery regressions, Playwright desktop/mobile visual smoke;
+- платный контрактный smoke production-моделей и полный backend gate выполняются перед production deploy этого checkpoint.
 
 ## 9. Обязательный gate каждого пакета
 
