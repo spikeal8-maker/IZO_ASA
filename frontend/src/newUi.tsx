@@ -840,7 +840,6 @@ export default function NewStudio(): ReactElement {
     return () => window.removeEventListener('popstate', onPop)
   }, [])
   const { status: authStatus, me } = useAuthV2()
-  const videoEnabled = Boolean(me?.account?.video_enabled)
   const isAdmin = authStatus === 'authed' && me?.account?.role === 'admin'
   const [authOpen, setAuthOpen] = useState(false)
   const ensureAuthed = useCallback(async () => {
@@ -4271,7 +4270,6 @@ export default function NewStudio(): ReactElement {
             userLabel={authStatus === 'authed' ? acct.userLabel : null}
             initials={authStatus === 'authed' ? acct.initials : null}
             isAdmin={isAdmin}
-            videoEnabled={authStatus === 'authed' && videoEnabled}
             onSelectMode={selectStudioMode}
             onOpenFeed={() => setTab('feed')}
             onOpenGallery={goGallery}
@@ -4288,7 +4286,7 @@ export default function NewStudio(): ReactElement {
           ) : tab === 'video' ? (
             <Suspense fallback={<div className="iv3-content"><div className="preview-empty">Загружаем видеостудию…</div></div>}><VideoStudio /></Suspense>
           ) : (
-            placeholderStudio('Видео', 'Раздел видео открыт для тарифов Pro и Бизнес. Генерация видео будет подключена отдельным модулем.')
+            placeholderStudio('Видео', 'Выберите режим и доступную вашему тарифу видеомодель.')
           )}
         </div>
         {view === 'tabs' && (tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'paint') && (

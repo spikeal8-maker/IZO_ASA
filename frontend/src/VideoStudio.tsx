@@ -366,19 +366,20 @@ export default function VideoStudio(): ReactElement {
     <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => void handleFile(event)} />
     <section className="video-shell">
       <aside className="video-composer" aria-label="Настройки видеогенерации">
-        <header className="video-composer-title"><span>Видео</span><h1>Создать ролик</h1></header>
-        <div className="video-mode-tabs" role="tablist" aria-label="Способ создания">
-          {MODE_META.map((item) => <button key={item.id} type="button" role="tab" aria-selected={mode === item.id} className={mode === item.id ? 'active' : ''} onClick={() => selectMode(item.id)}><strong>{item.label}</strong><small>{item.note}</small></button>)}
-        </div>
+        <div className="video-composer-scroll">
+          <header className="video-composer-title"><span>Видео</span><h1>Создать ролик</h1></header>
+          <div className="video-mode-tabs" role="tablist" aria-label="Способ создания">
+            {MODE_META.map((item) => <button key={item.id} type="button" role="tab" aria-selected={mode === item.id} className={mode === item.id ? 'active' : ''} onClick={() => selectMode(item.id)}><strong>{item.label}</strong><small>{item.note}</small></button>)}
+          </div>
 
-        {loading ? <div className="video-loading"><LoaderCircle className="spin" /> Загружаем модели</div> : models.length ? <>
+          {loading ? <div className="video-loading"><LoaderCircle className="spin" /> Загружаем модели</div> : models.length ? <>
           {mode !== 'text_to_video' && <section className="video-inputs"><h2>Исходные материалы</h2>
             {mode === 'image_to_video' && sourceCard('first', firstFrame, 'Исходный кадр', 'Фото, которое нужно оживить')}
             {mode === 'first_last_frame' && <div className="video-input-pair">{sourceCard('first', firstFrame, 'Начало', 'Первый кадр')}{sourceCard('last', lastFrame, 'Конец', 'Последний кадр')}</div>}
             {mode === 'reference_to_video' && <div className="video-reference-inputs">{references.map((value, index) => sourceCard('reference', value, `Референс ${index + 1}`, '', index))}{references.length < 4 && sourceCard('reference', '', 'Добавить референс', 'До четырёх изображений')}</div>}
           </section>}
 
-          <label className="video-prompt"><span><b>Опишите видео</b><button type="button" title="Подсказки"><Lightbulb /> Подсказки</button></span><textarea value={prompt} maxLength={3000} placeholder="Сцена, действия, движение камеры и атмосфера" onChange={(event) => { setPrompt(event.target.value); setLastImprovedPrompt('') }} /><small>{prompt.length} / 3000</small></label>
+          <label className="video-prompt"><span><b>Что происходит в кадре?</b><button type="button" title="Подсказки"><Lightbulb /> Подсказки</button></span><textarea value={prompt} maxLength={3000} placeholder="Опишите сцену, действия, движение камеры и атмосферу" onChange={(event) => { setPrompt(event.target.value); setLastImprovedPrompt('') }} /><small>{prompt.length} / 3000</small></label>
           <div className="video-prompt-actions">
             <button type="button" className={voiceRecording ? 'recording' : ''} disabled={voiceBusy} aria-pressed={voiceRecording} onClick={() => void toggleVoiceInput()}>{voiceRecording && <i aria-hidden="true" />}<Mic2 /> {voiceBusy ? 'Распознаю…' : voiceRecording ? 'Стоп' : 'Голос'}</button>
             <button type="button" disabled={!prompt.trim() || improveBusy || lastImprovedPrompt === prompt} onClick={() => void improvePrompt()}><WandSparkles /> {improveBusy ? 'Улучшаю…' : lastImprovedPrompt === prompt ? 'Улучшено' : 'Улучшить'}</button>
@@ -394,13 +395,14 @@ export default function VideoStudio(): ReactElement {
             </div>
             <div className="video-setting-label">Качество</div>
             <div className="video-resolution-tabs">{selectedModel?.supportedResolutions.map((value) => <button key={value} type="button" className={resolution === value ? 'active' : ''} onClick={() => setResolution(value)}>{value}</button>)}</div>
-            {selectedModel?.generateAudio !== false && <label className="video-audio"><span>{generateAudio ? <Volume2 /> : <VolumeX />}<b>Звук в ролике</b><small>Сгенерировать звук и атмосферу</small></span><input type="checkbox" checked={generateAudio} onChange={(event) => setGenerateAudio(event.target.checked)} /><i /></label>}
+            {selectedModel?.generateAudio !== false && <label className="video-audio"><span>{generateAudio ? <Volume2 /> : <VolumeX />}<b>Звук</b><small>Речь и атмосфера, если модель поддерживает</small></span><input type="checkbox" checked={generateAudio} onChange={(event) => setGenerateAudio(event.target.checked)} /><i /></label>}
             <button type="button" className="video-pro" onClick={() => setProOpen((value) => !value)}><Settings2 /> Профессиональные настройки <ChevronDown className={proOpen ? 'open' : ''} /></button>
             {proOpen && <div className="video-pro-body"><label><span>Модель</span><select value={selectedModel?.id || ''} onChange={(event) => syncModelDefaults(models.find((item) => item.id === event.target.value))}>{models.map((model) => <option key={model.id} value={model.id}>{model.name}{model.publicPricing?.fromTokens ? ` · от ${model.publicPricing.fromTokens} ток.` : ''}</option>)}</select></label><p>{selectedModel?.description || 'Описание модели пока не опубликовано.'}</p><small>{selectedModelPrice ? `Минимальная стоимость: ${selectedModelPrice} ток.` : 'Цена рассчитывается по выбранным параметрам.'}</small></div>}
           </section>
           {error && <div className="video-error">{error}</div>}
-          <button className="video-generate" type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{activeJob ? 'Генерация идёт' : 'Создать видео'}</span><b>{estimate ? `${estimate} ток.` : 'Рассчитаем'}</b></button>
         </> : <div className="video-empty-models">{error || config?.availability?.[mode]?.reason || 'Для этого режима пока нет доступных моделей.'}</div>}
+        </div>
+        {!loading && <button className="video-generate" type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{activeJob ? 'Генерация идёт' : 'Создать видео'}</span><b>{estimate ? `${estimate} ток.` : models.length ? 'Рассчитаем' : 'Нет модели'}</b></button>}
       </aside>
 
       <section className="video-result">

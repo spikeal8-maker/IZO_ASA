@@ -9,12 +9,12 @@
 export type V3Mode = 'text' | 'i2i' | 'edit' | 'paint' | 'video'
 export type V3Section = V3Mode | 'feed' | 'gallery' | 'profile' | 'admin'
 
-const MODE_TABS: Array<{ id: V3Mode; label: string; hint: string; gated?: boolean }> = [
+const MODE_TABS: Array<{ id: V3Mode; label: string; hint: string }> = [
   { id: 'text', label: 'По тексту', hint: 'Изображение по тексту' },
   { id: 'i2i', label: 'По фото', hint: 'Изменить изображение по фото' },
   { id: 'edit', label: 'Сборка', hint: 'Собрать изображение из нескольких фото' },
   { id: 'paint', label: 'Редактор', hint: 'Правки изображения' },
-  { id: 'video', label: 'Видео', hint: 'Генерация видео', gated: true },
+  { id: 'video', label: 'Видео', hint: 'Генерация видео' },
 ]
 
 function goto(path: string) {
@@ -34,7 +34,6 @@ export default function TopBarV3({
   avatarUrl,
   userLabel,
   initials,
-  videoEnabled,
 }: {
   active: V3Section
   onSelectMode?: (mode: V3Mode) => void
@@ -48,7 +47,6 @@ export default function TopBarV3({
   avatarUrl?: string | null
   userLabel?: string | null
   initials?: string | null
-  videoEnabled?: boolean
 }) {
   const selectMode = (mode: V3Mode) => {
     if (onSelectMode) onSelectMode(mode)
@@ -74,25 +72,18 @@ export default function TopBarV3({
       </div>
 
       <nav className="mode-tabs" aria-label="Режимы генератора">
-        {MODE_TABS.map((t) => {
-          const disabled = Boolean(t.gated && !videoEnabled)
-          return (
-            <button
-              key={t.id}
-              type="button"
-              className={`tab${active === t.id ? ' active' : ''}${disabled ? ' disabled' : ''}`}
-              aria-disabled={disabled || undefined}
-              aria-label={t.hint}
-              title={t.hint}
-              onClick={() => {
-                if (disabled) return
-                selectMode(t.id)
-              }}
-            >
-              {t.label}
-            </button>
-          )
-        })}
+        {MODE_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={`tab${active === t.id ? ' active' : ''}`}
+            aria-label={t.hint}
+            title={t.hint}
+            onClick={() => selectMode(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
       </nav>
 
       <div className="top-actions">

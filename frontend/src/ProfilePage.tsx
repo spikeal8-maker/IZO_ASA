@@ -189,10 +189,6 @@ export default function ProfilePage({
   const gallerySlots = Number(account?.gallery_slots ?? currentTariff.gallery_slots)
   const galleryUsed = Number(account?.gallery_used ?? galleryCount)
   const galleryFree = Math.max(0, Number(account?.gallery_free ?? gallerySlots - galleryUsed))
-  const videoEnabled = Boolean(account?.video_enabled ?? currentTariff.video_enabled)
-  const videoSlots = Number(account?.video_slots ?? currentTariff.video_slots)
-  const videoUsed = Math.max(0, Number(account?.video_used ?? 0))
-  const videoFree = Math.max(0, Number(account?.video_free ?? videoSlots - videoUsed))
   const feedLikes = Number((account as { feed_likes?: number | null; likes_received?: number | null } | undefined)?.feed_likes ?? (account as { likes_received?: number | null } | undefined)?.likes_received ?? 0)
   const displayEmail = me?.identities?.find((i) => i.provider_email)?.provider_email
   const telegramIdentity = me?.identities?.find((i) => i.provider === 'telegram')
@@ -566,7 +562,7 @@ export default function ProfilePage({
                 <div><span>Токены сегодня</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></div>
                 <div><span>Премиум-модели</span><strong>{premiumMonthlyTokens}</strong><small>токенов в месяц</small></div>
                 <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
-                <div><span>Видео</span><strong>{videoEnabled ? `${videoUsed}/${videoSlots}` : 'Закрыто'}</strong><small>{videoEnabled ? `свободно ${videoFree}` : 'доступно с Pro'}</small></div>
+                <div><span>Видео</span><strong>Доступно</strong><small>модели зависят от тарифа</small></div>
                 <button type="button" className="profile-primary" disabled>Управление тарифом скоро</button>
               </div>
               <div className="profile-checkout-consent profile-card">

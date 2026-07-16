@@ -78,6 +78,16 @@ def test_video_config_returns_only_enabled_catalog_models(video_api: TestClient)
     assert response.json()["availability"]["reference_to_video"]["reason"] == "В админке не включены модели для этого режима."
 
 
+def test_video_page_is_available_to_free_plan_and_models_define_access(video_api: TestClient):
+    with main.db() as conn:
+        conn.execute("UPDATE users SET role='user', plan='free' WHERE id='video-user'")
+
+    response = video_api.get("/api/video/config")
+
+    assert response.status_code == 200
+    assert response.json()["plan"] == "free"
+
+
 def test_video_estimate_rejects_unsupported_resolution(video_api: TestClient):
     response = video_api.post("/api/video/estimate", json=payload(resolution="1080p"))
     assert response.status_code == 422

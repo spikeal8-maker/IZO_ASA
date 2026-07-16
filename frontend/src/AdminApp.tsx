@@ -334,8 +334,6 @@ function AdminTokens() {
               </details>
               <label>Очередь<input value={tariffs[plan].queue_label} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], queue_label: e.target.value } }))} /></label>
               <label className="admin-checkline"><input type="checkbox" checked={tariffs[plan].pro_mode_enabled} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], pro_mode_enabled: e.target.checked } }))} /> Режим профи</label>
-              <label className="admin-checkline"><input type="checkbox" checked={tariffs[plan].video_enabled} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], video_enabled: e.target.checked } }))} /> Видео</label>
-              <label>Видео, шт.<input type="number" min="0" value={tariffs[plan].video_slots} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], video_slots: Number(e.target.value) } }))} /></label>
               <details className="admin-resolution-picker">
                 <summary>Разрешения: {tariffs[plan].allowed_resolutions.length}</summary>
                 <div>
@@ -345,7 +343,7 @@ function AdminTokens() {
                   </label>)}
                 </div>
               </details>
-              <small>{tariffs[plan].title}: {tariffs[plan].daily_tokens} серверных/день · {tariffs[plan].openrouter_monthly_tokens} OpenRouter/мес · {tariffs[plan].gallery_slots} работ · профи {tariffs[plan].pro_mode_enabled ? 'да' : 'нет'} · видео {tariffs[plan].video_enabled ? tariffs[plan].video_slots : 'нет'}</small>
+              <small>{tariffs[plan].title}: {tariffs[plan].daily_tokens} серверных/день · {tariffs[plan].openrouter_monthly_tokens} OpenRouter/мес · {tariffs[plan].gallery_slots} работ · профи {tariffs[plan].pro_mode_enabled ? 'да' : 'нет'} · видеомодели настраиваются во вкладке Модели</small>
             </div>
           ))}
         </div>

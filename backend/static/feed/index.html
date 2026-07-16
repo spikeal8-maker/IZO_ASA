@@ -93,7 +93,7 @@ button{user-select:none}
 .iv3.topbar-scope .feed-button>svg,.iv3.topbar-scope .feed-button .feed-label{position:relative;z-index:1}
 @keyframes feed-sheen{0%,42%{transform:translateX(-72%) rotate(2deg)}68%,100%{transform:translateX(72%) rotate(2deg)}}@keyframes feed-pulse{0%,100%{box-shadow:0 0 0 1px rgba(214,103,255,.13),0 0 13px rgba(185,66,255,.38),0 0 26px rgba(123,64,255,.2),inset 0 1px 0 rgba(255,255,255,.18),inset 0 -1px 0 rgba(190,90,255,.28)}50%{box-shadow:0 0 0 1px rgba(228,126,255,.2),0 0 18px rgba(201,79,255,.5),0 0 34px rgba(123,64,255,.28),inset 0 1px 0 rgba(255,255,255,.22),inset 0 -1px 0 rgba(208,112,255,.34)}}
 .iv3.topbar-scope .mode-tabs{justify-content:center;min-width:0;overflow-x:auto;scrollbar-width:none}.iv3.topbar-scope .mode-tabs::-webkit-scrollbar{display:none}
-.iv3.topbar-scope .tab{display:inline-flex;align-items:center;justify-content:center;min-width:132px;padding:0 16px;border-radius:0;font-size:14.5px;font-weight:620}.iv3.topbar-scope .tab:first-child{border-radius:12px 0 0 12px}.iv3.topbar-scope .tab:last-child{border-radius:0 12px 12px 0}.iv3.topbar-scope .tab+.tab{margin-left:-1px}.iv3.topbar-scope .tab.active{color:#080b05;border-color:rgba(182,207,18,.74);background:linear-gradient(180deg,#c5dc27,#b6cf12);box-shadow:0 0 24px rgba(182,207,18,.12)}.iv3.topbar-scope .tab.disabled{color:rgba(255,255,255,.28)}
+.iv3.topbar-scope .tab{display:inline-flex;align-items:center;justify-content:center;min-width:132px;padding:0 16px;border-radius:0;font-size:14.5px;font-weight:620}.iv3.topbar-scope .tab:first-child{border-radius:12px 0 0 12px}.iv3.topbar-scope .tab:last-child{border-radius:0 12px 12px 0}.iv3.topbar-scope .tab+.tab{margin-left:-1px}.iv3.topbar-scope .tab.active{color:#080b05;border-color:rgba(182,207,18,.74);background:linear-gradient(180deg,#c5dc27,#b6cf12);box-shadow:0 0 24px rgba(182,207,18,.12)}
 .iv3.topbar-scope .top-actions{gap:10px;justify-content:flex-end}.iv3.topbar-scope .top-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 16px;font-size:14px;font-weight:620}.iv3.topbar-scope .account-button{gap:8px;min-height:38px;padding:0 10px;border-radius:12px;border-color:rgba(155,115,255,.34);background:rgba(18,20,20,.78)}
 .iv3.topbar-scope .settings-glyph,.iv3.topbar-scope .user-glyph{width:22px;height:22px;display:grid;place-items:center;color:rgba(255,255,255,.88);line-height:1}.iv3.topbar-scope .user-glyph{border:2px solid rgba(255,255,255,.78);border-radius:999px;background:radial-gradient(circle at 50% 36%,rgba(255,255,255,.92) 0 18%,transparent 19%),radial-gradient(circle at 50% 86%,rgba(255,255,255,.92) 0 32%,transparent 33%)}
 @media (prefers-reduced-motion:reduce){.iv3.topbar-scope .feed-button::after,.iv3.topbar-scope .feed-button{animation:none}}
@@ -268,7 +268,7 @@ button{user-select:none}
     <a class="tab" href="/#image-to-image" title="Изменить изображение по фото">По фото</a>
     <a class="tab" href="/#editor" title="Собрать изображение из нескольких фото">Сборка</a>
     <a class="tab" href="/paint" title="Правки изображения">Редактор</a>
-    <a id="videoTopTab" class="tab disabled" href="/#video" title="Генерация видео" aria-disabled="true">Видео</a>
+    <a id="videoTopTab" class="tab" href="/#video" title="Генерация видео">Видео</a>
   </nav>
   <div class="top-actions">
     <a class="top-button" href="/gallery" aria-label="Галерея">
@@ -476,7 +476,6 @@ const featureLine = document.querySelector('#featureLine');
 const accountButton = document.querySelector('.account-button');
 const userGlyph = document.querySelector('.account-button .user-glyph');
 const userLabel = document.querySelector('.account-button .user-label');
-const videoTopTab = document.querySelector('#videoTopTab');
 const topbarSecondary = document.querySelector('.top-actions [data-action="help"]');
 const followBtn = document.querySelector('#followBtn');
 const authorNotifyBtn = document.querySelector('#authorNotifyBtn');
@@ -627,10 +626,6 @@ async function loadTopbarUser(){
       userGlyph.innerHTML = avatar ? `<img src="${escapeHtml(avatar)}" alt="">` : `<span class="user-initials">${escapeHtml(initialsFromName(name))}</span>`;
     }
     accountButton?.classList.add('authed');
-    if(data.account?.video_enabled && videoTopTab){
-      videoTopTab.classList.remove('disabled');
-      videoTopTab.removeAttribute('aria-disabled');
-    }
     if(data.account?.role === 'admin' && topbarSecondary){
       topbarSecondary.dataset.action = 'admin';
       topbarSecondary.setAttribute('aria-label', 'Админ');
@@ -1812,8 +1807,6 @@ document.addEventListener('click', e=>{
   }
 }, true);
 document.addEventListener('click', e=>{
-  const disabledTopbarTab = e.target.closest('.mode-tabs .tab.disabled');
-  if(disabledTopbarTab){ e.preventDefault(); return; }
   const action = e.target.closest('[data-action]');
   if(action?.dataset.action === 'challenge'){ showChallenge(); return; }
   if(action?.dataset.action === 'help'){ showToast('Помощь открывается в основном интерфейсе'); window.location.href = '/#help'; return; }

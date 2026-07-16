@@ -62,7 +62,7 @@ function TariffsPage({ data, loading }: { data: CommerceData; loading: boolean }
         `${Number(tariff.gallery_slots || 0)} работ в галерее`,
         `Качество до ${tariff.quality_label || 'SD'}`,
         tariff.pro_mode_enabled ? 'Режим профи и выбор моделей' : '',
-        tariff.video_enabled ? `Видео: ${Number(tariff.video_slots || 0)} экспортов в месяц` : '',
+        'Видеогенерация: модели по тарифу',
       ].filter(Boolean)
       return <article className={`commerce-plan ${id === 'pro' ? 'featured' : ''}`} key={id}>
         {id === 'pro' && <span className="commerce-plan-badge">Популярный</span>}

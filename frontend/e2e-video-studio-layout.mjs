@@ -85,11 +85,15 @@ async function inspect(browser, viewport) {
     const overlay = rect('.video-stage-overlay')
     const contextActions = rect('.video-context-actions')
     const durationSelect = rect('.video-options-row.single select')
+    const generateButton = rect('.video-generate')
+    const modeTabs = rect('.video-mode-tabs')
+    const videoTopTab = document.querySelector('.mode-tabs .tab[aria-label="Генерация видео"]')
+    const modeTabsStyle = document.querySelector('.video-mode-tabs') ? getComputedStyle(document.querySelector('.video-mode-tabs')) : null
     const prompt = document.querySelector('.video-prompt textarea')
     const promptStyle = prompt ? getComputedStyle(prompt) : null
     const rootStyle = getComputedStyle(document.querySelector('.video-studio'))
     return {
-      stage, shelf, composer, resultPanel, overlay, contextActions, durationSelect,
+      stage, shelf, composer, resultPanel, overlay, contextActions, durationSelect, generateButton, modeTabs,
       fontSize: Number.parseFloat(rootStyle.fontSize),
       promptFontSize: promptStyle ? Number.parseFloat(promptStyle.fontSize) : 0,
       promptFontWeight: promptStyle ? Number.parseInt(promptStyle.fontWeight, 10) : 0,
@@ -102,6 +106,8 @@ async function inspect(browser, viewport) {
       stageCaption: document.querySelector('.video-stage-caption') !== null,
       proOpen: document.querySelector('.video-pro-body') !== null,
       modelSelectVisible: Boolean(document.querySelector('.video-pro-body select')),
+      modeTabsBorderWidth: modeTabsStyle ? Number.parseFloat(modeTabsStyle.borderTopWidth) : 0,
+      videoTopTabDisabled: videoTopTab?.getAttribute('aria-disabled') === 'true' || videoTopTab?.classList.contains('disabled'),
     }
   })
   if (process.env.E2E_SCREENSHOT_DIR) {
@@ -125,6 +131,10 @@ async function run() {
     assert(!fullHd.stageCaption, 'Redundant preview caption is still visible')
     assert(fullHd.promptFontWeight <= 500, 'Prompt text is still too bold')
     assert(fullHd.durationSelect && fullHd.durationSelect.height <= 44, 'Duration control is too tall')
+    assert(fullHd.generateButton && fullHd.composer && fullHd.generateButton.bottom <= fullHd.composer.bottom + 1, 'Create video button is outside Composer')
+    assert(fullHd.generateButton && fullHd.generateButton.height >= 50, 'Create video button is too small')
+    assert(fullHd.modeTabsBorderWidth >= 1, 'Video mode tabs have no visible divider')
+    assert(!fullHd.videoTopTabDisabled, 'Video topbar tab is still tariff-gated')
     assert(!fullHd.proOpen && !fullHd.modelSelectVisible, 'Professional model selector is open by default')
 
     const browserFullHd = await inspect(browser, { width: 1920, height: 900 })

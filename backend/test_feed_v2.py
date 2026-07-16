@@ -336,8 +336,9 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert ".iv3.topbar-scope .mode-tabs{grid-column:1/-1;grid-row:2;display:grid" in r.text
         assert 'id="videoTopTab"' in r.text
         assert 'href="/#video"' in r.text
-        assert "data.account?.video_enabled" in r.text
-        assert "videoTopTab.classList.remove('disabled')" in r.text
+        assert 'id="videoTopTab" class="tab disabled"' not in r.text
+        assert "data.account?.video_enabled" not in r.text
+        assert "videoTopTab.classList.remove('disabled')" not in r.text
         assert '<span class="user-label">Войти</span>' in r.text
 
         asset = client.get("/static/feed/assets/mode_text.webp")
