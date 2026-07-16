@@ -31,6 +31,9 @@ def test_publish_plan_is_immutable_and_atomic() -> None:
     assert '$branch -ne "main" -and -not $PlanOnly' in script
     assert "npm run build" in script
     assert script.index("npm run build") < script.index("e2e:synthetic")
+    assert "Port 5173 is not owned by the canonical Vite preview" in script
+    assert '"--port", "5173", "--strictPort", "--outDir", "`"$releasePath`""' in script
+    assert "Activated frontend preview did not become ready on port 5173." in script
 
 
 def test_drill_plan_covers_primary_failure_modes() -> None:

@@ -93,6 +93,29 @@ $tempManifest = "$activeManifest.tmp"
 $manifest | ConvertTo-Json | Set-Content -LiteralPath $tempManifest -Encoding utf8
 Move-Item -LiteralPath $tempManifest -Destination $activeManifest -Force
 
+$listener = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($listener) {
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)"
+    if ($process.CommandLine -notmatch "vite.+preview" -or $process.CommandLine -notlike "*$root*") {
+        throw "Port 5173 is not owned by the canonical Vite preview; refusing to stop it."
+    }
+    Stop-Process -Id $listener.OwningProcess -Force
+}
+Start-Process -FilePath "node.exe" -ArgumentList @("`"$vite`"", "preview", "--host", "127.0.0.1", "--port", "5173", "--strictPort", "--outDir", "`"$releasePath`"") -WorkingDirectory $frontend -WindowStyle Hidden | Out-Null
+$productionReady = $false
+for ($i = 0; $i -lt 30; $i++) {
+    try {
+        if ((Invoke-WebRequest "http://127.0.0.1:5173/" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) {
+            $productionReady = $true
+            break
+        }
+    } catch {}
+    Start-Sleep -Seconds 1
+}
+if (-not $productionReady) {
+    throw "Activated frontend preview did not become ready on port 5173."
+}
+
 $keep = @($releaseId, $previous) | Where-Object { $_ } | Select-Object -Unique
 Get-ChildItem -LiteralPath $releases -Directory | Where-Object { $keep -notcontains $_.Name } | ForEach-Object {
     if ($_.FullName.StartsWith($releases, [StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
