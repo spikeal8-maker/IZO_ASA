@@ -74,6 +74,8 @@ def test_video_config_returns_only_enabled_catalog_models(video_api: TestClient)
     assert response.json()["modes"]["text_to_video"][0]["id"] == MODEL["id"]
     assert response.json()["modes"]["text_to_video"][0]["publicPricing"]["fromTokens"] > 0
     assert response.json()["modes"]["reference_to_video"] == []
+    assert response.json()["availability"]["text_to_video"]["enabled"] == 1
+    assert response.json()["availability"]["reference_to_video"]["reason"] == "В админке не включены модели для этого режима."
 
 
 def test_video_estimate_rejects_unsupported_resolution(video_api: TestClient):

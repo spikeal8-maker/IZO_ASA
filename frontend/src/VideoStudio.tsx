@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, ReactElement } from 'react'
 import {
   ChevronDown, Copy, Download, Film, ImagePlus, Images,
-  Lightbulb, LoaderCircle, MoreVertical, Play, RotateCcw, Settings2,
-  Share2, Sparkles, Trash2, Upload, Volume2, VolumeX, X,
+  Lightbulb, LoaderCircle, Mic2, MoreVertical, Play, RotateCcw, Settings2,
+  Share2, Sparkles, Trash2, Upload, Volume2, VolumeX, WandSparkles, X,
 } from 'lucide-react'
 import { ensureSessionRefreshedV2 } from './authV2'
 import './videoStudio.css'
@@ -29,6 +29,7 @@ type VideoConfig = {
   plan: string
   videoSlots: number
   economy: { tokenRub: number; minMarginPercent: number }
+  availability?: Record<VideoMode, { enabled: number; tariff: number; reason?: string }>
 }
 type VideoJob = {
   id: string
@@ -97,6 +98,15 @@ function aspectStyle(value: string | undefined) {
   const [width, height] = String(value || '16:9').split(':').map(Number)
   return `${width || 16} / ${height || 9}`
 }
+function errorText(detail: unknown, fallback: string) {
+  if (typeof detail === 'string' && detail.trim()) return detail.trim()
+  if (detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string') return detail.message
+  return fallback
+}
+function shortModelName(model: VideoModel | undefined) {
+  if (!model) return 'Нет модели'
+  return model.name.replace(/^.*?:\s*/, '').replace(/\s+(Preview|Standard)$/i, ' $1')
+}
 export default function VideoStudio(): ReactElement {
   const initialDraft = useMemo(() => readStorage<Record<string, unknown>>(DRAFT_KEY, {}), [])
   const initialMode = (initialDraft.mode as VideoMode) || 'text_to_video'
@@ -125,7 +135,14 @@ export default function VideoStudio(): ReactElement {
   const [uploadTarget, setUploadTarget] = useState<FrameKey>('first')
   const [proOpen, setProOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [voiceRecording, setVoiceRecording] = useState(false)
+  const [voiceBusy, setVoiceBusy] = useState(false)
+  const [improveBusy, setImproveBusy] = useState(false)
+  const [lastImprovedPrompt, setLastImprovedPrompt] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null)
+  const voiceStreamRef = useRef<MediaStream | null>(null)
+  const voiceStartedAtRef = useRef(0)
 
   const visibility = useMemo(() => readStorage<Record<VideoMode, Record<string, boolean>>>(VISIBILITY_KEY, {} as Record<VideoMode, Record<string, boolean>>), [])
   const qualityModels = useMemo(() => readStorage<Record<VideoMode, Partial<Record<VideoQuality, string>>>>(QUALITY_MODELS_KEY, {} as Record<VideoMode, Partial<Record<VideoQuality, string>>>), [])
@@ -193,6 +210,65 @@ export default function VideoStudio(): ReactElement {
     syncModelDefaults(candidates.find((item) => item.id === stored) || (quality === 'max' ? sorted[sorted.length - 1] : quality === 'standard' ? sorted[Math.floor((sorted.length - 1) / 2)] : sorted[0]))
   }
   const selectQuality = (next: VideoQuality) => { setQuality(next); syncModelDefaults(qualityModel(next)) }
+
+  const improvePrompt = async () => {
+    const original = prompt.trim()
+    if (!original || improveBusy) return
+    setImproveBusy(true); setError('')
+    try {
+      const response = await apiFetch('/tools/improve-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: original, mode, language: 'ru', technicalPrompt: '' }),
+      })
+      const payload = await response.json().catch(() => ({})) as { improvedPrompt?: string; detail?: unknown }
+      if (!response.ok || !payload.improvedPrompt?.trim()) throw new Error(errorText(payload.detail, 'Не удалось улучшить описание.'))
+      const improved = payload.improvedPrompt.trim().slice(0, 3000)
+      setPrompt(improved); setLastImprovedPrompt(improved)
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не удалось улучшить описание.') }
+    finally { setImproveBusy(false) }
+  }
+
+  const toggleVoiceInput = async () => {
+    if (voiceRecording) { voiceRecorderRef.current?.stop(); return }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setError('Этот браузер не поддерживает запись голоса.'); return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const preferredType = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm'].find((value) => MediaRecorder.isTypeSupported(value)) || ''
+      const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined)
+      const chunks: BlobPart[] = []
+      recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data) }
+      recorder.onerror = () => setError('Не удалось записать голос.')
+      recorder.onstop = async () => {
+        const durationMs = Math.max(0, Date.now() - voiceStartedAtRef.current)
+        setVoiceRecording(false)
+        voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
+        voiceStreamRef.current = null; voiceRecorderRef.current = null
+        if (durationMs < 1000) { setError('Говорите не меньше одной секунды.'); return }
+        const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
+        const form = new FormData()
+        form.append('file', blob, `voice.${blob.type.includes('ogg') ? 'ogg' : 'webm'}`)
+        setVoiceBusy(true); setError('')
+        try {
+          const response = await apiFetch(`/tools/transcribe?duration_ms=${durationMs}&language=ru`, { method: 'POST', body: form })
+          const payload = await response.json().catch(() => ({})) as { text?: string; detail?: unknown }
+          if (!response.ok || !payload.text?.trim()) throw new Error(errorText(payload.detail, 'Не удалось распознать речь.'))
+          const spoken = payload.text.trim()
+          setPrompt((current) => `${current.trim()}${current.trim() ? ' ' : ''}${spoken}`.slice(0, 3000))
+        } catch (reason) { setError(reason instanceof Error ? reason.message : 'Не удалось распознать речь.') }
+        finally { setVoiceBusy(false) }
+      }
+      voiceStreamRef.current = stream; voiceRecorderRef.current = recorder; voiceStartedAtRef.current = Date.now()
+      recorder.start(250); setVoiceRecording(true); setError('')
+    } catch { setError('Разрешите доступ к микрофону в браузере.') }
+  }
+
+  useEffect(() => () => {
+    if (voiceRecorderRef.current?.state === 'recording') voiceRecorderRef.current.stop()
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
+  }, [])
 
   const requestBody = useMemo(() => selectedModel ? {
     mode, model: selectedModel.id, prompt: prompt.trim() || 'preview', duration, resolution,
@@ -277,6 +353,7 @@ export default function VideoStudio(): ReactElement {
   const modeMeta = MODE_META.find((item) => item.id === mode) || MODE_META[0]
   const stageRatio = shownJob?.aspectRatio || aspectRatio
   const selectedModelPrice = selectedModel?.publicPricing?.fromTokens
+  const qualityChoices = useMemo(() => Object.fromEntries(QUALITY_META.map((item) => [item.id, qualityModel(item.id)])) as Record<VideoQuality, VideoModel | undefined>, [qualityModel])
 
   return <main className="video-studio">
     <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => void handleFile(event)} />
@@ -294,35 +371,41 @@ export default function VideoStudio(): ReactElement {
             {mode === 'reference_to_video' && <div className="video-reference-inputs">{references.map((value, index) => sourceCard('reference', value, `Референс ${index + 1}`, '', index))}{references.length < 4 && sourceCard('reference', '', 'Добавить референс', 'До четырёх изображений')}</div>}
           </section>}
 
-          <label className="video-prompt"><span><b>Что происходит в кадре?</b><button type="button" title="Подсказки"><Lightbulb /> Подсказки</button></span><textarea value={prompt} maxLength={3000} placeholder="Опишите сцену, движение камеры, действия и атмосферу..." onChange={(event) => setPrompt(event.target.value)} /><small>{prompt.length} / 3000</small></label>
-          <div className="video-prompt-actions"><button type="button" disabled><Sparkles /> Голос</button><button type="button" disabled><Sparkles /> Улучшить</button><button type="button" onClick={() => setPrompt('Камера плавно приближается, естественное движение объектов, кинематографичный свет и реалистичная атмосфера.')}>Пример</button></div>
+          <label className="video-prompt"><span><b>Что происходит в кадре?</b><button type="button" title="Подсказки"><Lightbulb /> Подсказки</button></span><textarea value={prompt} maxLength={3000} placeholder="Опишите сцену, движение камеры, действия и атмосферу..." onChange={(event) => { setPrompt(event.target.value); setLastImprovedPrompt('') }} /><small>{prompt.length} / 3000</small></label>
+          <div className="video-prompt-actions">
+            <button type="button" className={voiceRecording ? 'recording' : ''} disabled={voiceBusy} aria-pressed={voiceRecording} onClick={() => void toggleVoiceInput()}>{voiceRecording && <i aria-hidden="true" />}<Mic2 /> {voiceBusy ? 'Распознаю…' : voiceRecording ? 'Стоп' : 'Голос'}</button>
+            <button type="button" disabled={!prompt.trim() || improveBusy || lastImprovedPrompt === prompt} onClick={() => void improvePrompt()}><WandSparkles /> {improveBusy ? 'Улучшаю…' : lastImprovedPrompt === prompt ? 'Улучшено' : 'Улучшить'}</button>
+            <button type="button" onClick={() => setPrompt('Камера плавно приближается, естественное движение объектов, кинематографичный свет и реалистичная атмосфера.')}><Sparkles /> Пример</button>
+          </div>
+          <div className="video-setting-label">Формат</div>
+          <div className="video-format-tabs">{selectedModel?.supportedAspectRatios.map((value) => <button key={value} type="button" className={aspectRatio === value ? 'active' : ''} onClick={() => setAspectRatio(value)}><i style={{ aspectRatio: aspectStyle(value) }} /><span>{value}</span></button>)}</div>
 
           <section className="video-params"><h2>Основные параметры</h2>
-            <div className="video-quality-tabs">{QUALITY_META.map((item) => <button type="button" key={item.id} className={quality === item.id ? 'active' : ''} onClick={() => selectQuality(item.id)}>{item.label}</button>)}</div>
-            <div className="video-options-row">
-              <label><span>Модель</span><select value={selectedModel?.id || ''} onChange={(event) => syncModelDefaults(models.find((item) => item.id === event.target.value))}>{models.map((model) => <option key={model.id} value={model.id}>{model.name}{model.publicPricing?.fromTokens ? ` · от ${model.publicPricing.fromTokens} ток.` : ''}</option>)}</select><small>{selectedModelPrice ? `Стоимость модели: от ${selectedModelPrice} ток.` : 'Цена рассчитывается по параметрам'}</small></label>
+            <div className="video-quality-tabs">{QUALITY_META.map((item) => { const presetModel = qualityChoices[item.id]; return <button type="button" key={item.id} className={quality === item.id ? 'active' : ''} onClick={() => selectQuality(item.id)}><strong>{item.label}</strong><small>{shortModelName(presetModel)}</small><b>{presetModel?.publicPricing?.fromTokens ? `от ${presetModel.publicPricing.fromTokens} ток.` : 'цена по запросу'}</b></button> })}</div>
+            <div className="video-options-row single">
               <label><span>Длительность</span><select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{selectedModel?.supportedDurations.map((value) => <option key={value} value={value}>{value} секунд</option>)}</select></label>
             </div>
-            <div className="video-setting-label">Формат</div>
-            <div className="video-format-tabs">{selectedModel?.supportedAspectRatios.map((value) => <button key={value} type="button" className={aspectRatio === value ? 'active' : ''} onClick={() => setAspectRatio(value)}><i style={{ aspectRatio: aspectStyle(value) }} /><span>{value}</span></button>)}</div>
             <div className="video-setting-label">Качество</div>
             <div className="video-resolution-tabs">{selectedModel?.supportedResolutions.map((value) => <button key={value} type="button" className={resolution === value ? 'active' : ''} onClick={() => setResolution(value)}>{value}</button>)}</div>
             {selectedModel?.generateAudio !== false && <label className="video-audio"><span>{generateAudio ? <Volume2 /> : <VolumeX />}<b>Звук в ролике</b><small>Сгенерировать звук и атмосферу</small></span><input type="checkbox" checked={generateAudio} onChange={(event) => setGenerateAudio(event.target.checked)} /><i /></label>}
             <button type="button" className="video-pro" onClick={() => setProOpen((value) => !value)}><Settings2 /> Профессиональные настройки <ChevronDown className={proOpen ? 'open' : ''} /></button>
-            {proOpen && <div className="video-pro-body">Модель, длительность, формат и звук уже передаются провайдеру напрямую. Дополнительные технические параметры появятся только после проверки их поддержки.</div>}
+            {proOpen && <div className="video-pro-body"><label><span>Модель</span><select value={selectedModel?.id || ''} onChange={(event) => syncModelDefaults(models.find((item) => item.id === event.target.value))}>{models.map((model) => <option key={model.id} value={model.id}>{model.name}{model.publicPricing?.fromTokens ? ` · от ${model.publicPricing.fromTokens} ток.` : ''}</option>)}</select></label><p>{selectedModel?.description || 'Описание модели пока не опубликовано.'}</p><small>{selectedModelPrice ? `Минимальная стоимость: ${selectedModelPrice} ток.` : 'Цена рассчитывается по выбранным параметрам.'}</small></div>}
           </section>
           {error && <div className="video-error">{error}</div>}
           <button className="video-generate" type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{activeJob ? 'Генерация идёт' : 'Создать видео'}</span><b>{estimate ? `${estimate} ток.` : 'Рассчитаем'}</b></button>
-        </> : <div className="video-empty-models">{error || 'Для этого режима пока не включены модели вашего тарифа.'}</div>}
+        </> : <div className="video-empty-models">{error || config?.availability?.[mode]?.reason || 'Для этого режима пока нет доступных моделей.'}</div>}
       </aside>
 
       <section className="video-result">
-        <header className="video-stage-head"><div><h2>Предпросмотр</h2>{shownJob && <span className={`status ${shownJob.status}`}>{statusLabel(shownJob.status)}</span>}</div><div className="video-stage-actions">
-          {shownJob?.videoUrl && <a href={shownJob.videoUrl} download title="Скачать"><Download /> <span>Скачать</span></a>}
-          {shownJob?.videoUrl && <button type="button" onClick={() => void shareVideo(shownJob)}><Share2 /> <span>Поделиться</span></button>}
-          {shownJob?.galleryVideoId && <div className="video-more"><button type="button" title="Другие действия" onClick={() => setMenuOpen((value) => !value)}><MoreVertical /></button>{menuOpen && <div><button type="button" onClick={() => void deleteVideo(shownJob)}><Trash2 /> Удалить видео</button></div>}</div>}
-        </div></header>
         <div className="video-stage-wrap"><div className="video-stage" style={{ aspectRatio: aspectStyle(stageRatio) }}>
+          <div className="video-stage-overlay">
+            <div className="video-stage-caption"><strong>Предпросмотр</strong>{shownJob && <span className={`status ${shownJob.status}`}>{statusLabel(shownJob.status)}</span>}</div>
+            <div className="video-stage-actions">
+              {shownJob?.videoUrl && <a href={shownJob.videoUrl} download title="Скачать"><Download /> <span>Скачать</span></a>}
+              {shownJob?.videoUrl && <button type="button" onClick={() => void shareVideo(shownJob)}><Share2 /> <span>Поделиться</span></button>}
+              {shownJob?.galleryVideoId && <div className="video-more"><button type="button" title="Другие действия" onClick={() => setMenuOpen((value) => !value)}><MoreVertical /></button>{menuOpen && <div><button type="button" onClick={() => void deleteVideo(shownJob)}><Trash2 /> Удалить видео</button></div>}</div>}
+            </div>
+          </div>
           {shownJob?.status === 'completed' && shownJob.videoUrl ? <video key={shownJob.videoUrl} src={shownJob.videoUrl} controls playsInline preload="metadata" />
             : shownJob && !['failed', 'cancelled', 'expired'].includes(shownJob.status) ? <div className="video-progress"><Film /><strong>{statusLabel(shownJob.status)}</strong><p>Можно закрыть страницу. Ролик сохранится в истории и галерее.</p><div><i style={{ width: `${Math.max(8, shownJob.progress || 10)}%` }} /></div><small>{shownJob.progress || 10}%</small></div>
             : shownJob?.error ? <div className="video-stage-message error"><RotateCcw /><strong>Видео не создано</strong><p>{shownJob.error}</p><button type="button" onClick={() => setSelectedJob(null)}>Попробовать снова</button></div>

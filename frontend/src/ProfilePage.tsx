@@ -32,8 +32,8 @@ type PublicModelFormatPricing = {
 type PublicModelPricing = { id: string; label: string; formats: PublicModelFormatPricing[] }
 type BillingPackage = { code: string; name: string; description?: string; price_amount: number; token_amount: number; currency: string }
 type ProfileVideoMode = 'text_to_video' | 'image_to_video' | 'first_last_frame' | 'reference_to_video'
-type ProfileVideoModel = { id: string; name: string; description?: string; publicPricing?: { fromTokens?: number | null }; supportedDurations?: number[]; supportedResolutions?: string[]; supportedAspectRatios?: string[] }
-type ProfileVideoConfig = { modes: Record<ProfileVideoMode, ProfileVideoModel[]> }
+type ProfileVideoModel = { id: string; name: string; description?: string; publicPricing?: { fromTokens?: number | null }; supportedDurations?: number[]; supportedResolutions?: string[]; supportedAspectRatios?: string[]; generateAudio?: boolean | null }
+type ProfileVideoConfig = { modes: Record<ProfileVideoMode, ProfileVideoModel[]>; plan?: string }
 const videoModeLabels: Record<ProfileVideoMode, string> = { text_to_video: 'Текст → видео', image_to_video: 'Изображение → видео', first_last_frame: 'Начало и конец', reference_to_video: 'По референсам' }
 const videoQualityLabels = { fast: 'Быстро', standard: 'Стандарт', max: 'Максимум' } as const
 
@@ -709,7 +709,7 @@ export default function ProfilePage({
                 {(Object.keys(videoModeLabels) as ProfileVideoMode[]).map((mode) => {
                   const models = videoConfig?.modes[mode] || []
                   const visibleCount = visibleVideoModels(mode).length
-                  return <details className="profile-model-group" key={`video-${mode}`} open={mode === 'text_to_video'}>
+                  return <details className="profile-model-group" key={`video-${mode}`}>
                     <summary><strong>{videoModeLabels[mode]}</strong><span>{visibleCount} / {models.length} показано</span></summary>
                     <div className="profile-video-presets" aria-label={`Модели качества: ${videoModeLabels[mode]}`}>
                       {(Object.keys(videoQualityLabels) as Array<keyof typeof videoQualityLabels>).map((qualityId) => {
@@ -725,17 +725,28 @@ export default function ProfilePage({
                     <div className="profile-video-model-list">
                       {models.map((model) => {
                         const visible = videoVisibility[mode]?.[model.id] !== false
-                        return <label className={visible ? 'profile-video-model-row' : 'profile-video-model-row muted'} key={`${mode}-${model.id}`}>
-                          <input type="checkbox" checked={visible} onChange={(event) => toggleVideoModel(mode, model.id, event.currentTarget.checked)} />
-                          <span className="profile-video-model-copy">
-                            <strong>{model.name}</strong>
-                            <small>{model.description || model.id}</small>
-                          </span>
-                          <span className="profile-video-model-meta">
-                            <b>от {model.publicPricing?.fromTokens ?? '—'} ток.</b>
-                            <small>{(model.supportedDurations || []).map((value) => `${value} с`).join(', ') || 'длительность по модели'} · {(model.supportedResolutions || []).join(', ') || 'разрешение по модели'}</small>
-                          </span>
-                        </label>
+                        return <div className={visible ? 'profile-video-model-row' : 'profile-video-model-row muted'} key={`${mode}-${model.id}`}>
+                          <label className="profile-video-model-toggle" title={visible ? 'Скрыть модель в видеогенераторе' : 'Показывать модель в видеогенераторе'}>
+                            <input type="checkbox" checked={visible} onChange={(event) => toggleVideoModel(mode, model.id, event.currentTarget.checked)} />
+                            <span className="visually-hidden">{visible ? 'Модель включена' : 'Модель скрыта'}</span>
+                          </label>
+                          <details className="profile-video-model-details">
+                            <summary>
+                              <span className="profile-video-model-copy"><strong>{model.name}</strong><small>{(model.supportedResolutions || []).join(', ') || 'разрешение по модели'}</small></span>
+                              <span className="profile-video-model-meta"><b>от {model.publicPricing?.fromTokens ?? '—'} ток.</b><small>{(model.supportedDurations || []).map((value) => `${value} с`).join(', ') || 'длительность по модели'} · доступна для {videoConfig?.plan || 'вашего тарифа'}</small></span>
+                            </summary>
+                            <div className="profile-video-model-description">
+                              <p>{model.description || 'Описание модели пока не опубликовано.'}</p>
+                              <dl>
+                                <div><dt>Форматы</dt><dd>{(model.supportedAspectRatios || []).join(', ') || 'по модели'}</dd></div>
+                                <div><dt>Разрешения</dt><dd>{(model.supportedResolutions || []).join(', ') || 'по модели'}</dd></div>
+                                <div><dt>Длительность</dt><dd>{(model.supportedDurations || []).map((value) => `${value} сек.`).join(', ') || 'по модели'}</dd></div>
+                                <div><dt>Звук</dt><dd>{model.generateAudio === true ? 'поддерживается' : model.generateAudio === false ? 'не поддерживается' : 'зависит от модели'}</dd></div>
+                              </dl>
+                              <code>{model.id}</code>
+                            </div>
+                          </details>
+                        </div>
                       })}
                       {!models.length && videoConfig && <p className="profile-model-empty">Для этого режима доступных моделей пока нет.</p>}
                     </div>

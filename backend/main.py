@@ -888,8 +888,11 @@ class TranslateRequest(BaseModel):
 
 
 class ImprovePromptRequest(BaseModel):
-    prompt: str = Field(min_length=1, max_length=2000)
-    mode: Literal["text", "i2i", "edit", "sketch", "mask", "outpaint", "remove_bg"] = "text"
+    prompt: str = Field(min_length=1, max_length=3000)
+    mode: Literal[
+        "text", "i2i", "edit", "sketch", "mask", "outpaint", "remove_bg",
+        "text_to_video", "image_to_video", "first_last_frame", "reference_to_video",
+    ] = "text"
     language: Literal["ru", "en"] = "ru"
     technicalPrompt: str = Field(default="", max_length=4000)
 
@@ -5467,6 +5470,10 @@ PROMPT_IMPROVE_MODE_RULES = {
     "mask": "Опиши только изменение внутри выделенной маски и потребуй естественного соединения с нетронутой частью изображения.",
     "outpaint": "Опиши логичное продолжение сцены за границами кадра с сохранением перспективы, света и целостности пространства.",
     "remove_bg": "Опиши аккуратное сохранение краёв, волос и мелких деталей. Не добавляй посторонних изменений главного объекта.",
+    "text_to_video": "Составь цельный промпт для видео: опиши сцену, действия, движение камеры, темп, свет и атмосферу. Не добавляй новых героев, предметы или события, которых пользователь не просил.",
+    "image_to_video": "Опиши движение исходного кадра: действия объектов, движение камеры и естественную динамику. Обязательно сохрани внешность, композицию и детали загруженного изображения.",
+    "first_last_frame": "Опиши логичный переход между начальным и конечным кадрами, движение объектов и камеры. Не меняй содержимое граничных кадров и не придумывай лишние промежуточные события.",
+    "reference_to_video": "Опиши ролик по загруженным референсам, сохраняя их персонажей, окружение, предметы и стиль. Не назначай референсам роли, которые пользователь не указал.",
 }
 
 DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
@@ -5487,7 +5494,7 @@ DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
         "localTimeoutSeconds": 10,
         "apiTimeoutSeconds": 10,
         "systemPrompt": (
-            "Ты улучшаешь пользовательские промпты для студии генерации изображений. Сохраняй исходный смысл, главные объекты, "
+            "Ты улучшаешь пользовательские промпты для студии генерации изображений и видео. Сохраняй исходный смысл, главные объекты, "
             "их количество, идентичность персонажей, требуемые действия и язык пользователя. Можно уточнять композицию, свет и "
             "визуальное качество, только если это не меняет запрос. Не придумывай одежду, внешность, позу, место, марки камер, "
             "объективы, новые предметы или события. Не добавляй объяснения, служебный текст и Markdown."
@@ -14371,6 +14378,20 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
         "modes": modes,
         "plan": plan,
         "videoSlots": quota["video_slots"],
+        "availability": {
+            mode: {
+                "enabled": len((config.get("enabled") or {}).get(mode) or []),
+                "tariff": len((((config.get("access") or {}).get(mode) or {}).get(plan)) or []),
+                "reason": (
+                    "В админке не включены модели для этого режима."
+                    if not (config.get("enabled") or {}).get(mode)
+                    else f"Для тарифа {plan.title()} не назначены модели этого режима."
+                    if not is_admin and not (((config.get("access") or {}).get(mode) or {}).get(plan))
+                    else ""
+                ),
+            }
+            for mode in OPENROUTER_VIDEO_MODES
+        },
         "economy": economy,
         "exchange": {
             "usdRub": exchange_rate,

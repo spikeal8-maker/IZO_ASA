@@ -468,6 +468,7 @@ type AssistantTestResult = { ok?: boolean; provider?: string; model?: string; im
 
 const ASSISTANT_MODE_LABELS: Record<string, string> = {
   text: 'По тексту', i2i: 'По фото', edit: 'Сборка', sketch: 'Эскиз', mask: 'Маска', outpaint: 'Расширение', remove_bg: 'Удалить фон',
+  text_to_video: 'Видео по тексту', image_to_video: 'Видео по изображению', first_last_frame: 'Видео: начало и конец', reference_to_video: 'Видео по референсам',
 }
 
 const fallbackCapabilityModel = (model: ApiImageModel): ApiImageModel => {

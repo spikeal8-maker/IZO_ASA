@@ -63,6 +63,17 @@ const mePayload = {
   },
 }
 
+const videoModel = {
+  id: 'google/veo-profile-e2e',
+  name: 'Google: Veo Profile E2E',
+  description: 'Полное описание видеомодели открывается только по запросу пользователя.',
+  supportedResolutions: ['720p', '1080p'],
+  supportedAspectRatios: ['16:9', '9:16'],
+  supportedDurations: [4, 6],
+  generateAudio: true,
+  publicPricing: { fromTokens: 7 },
+}
+
 async function mockApi(page) {
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
@@ -102,6 +113,23 @@ async function mockApi(page) {
       await route.fulfill({ json: { ok: true, profiles: [] } })
       return
     }
+    if (url.pathname === '/api/video/config') {
+      await route.fulfill({
+        json: {
+          modes: {
+            text_to_video: [videoModel],
+            image_to_video: [videoModel],
+            first_last_frame: [videoModel],
+            reference_to_video: [videoModel],
+          },
+          plan: 'plus',
+          videoSlots: 20,
+          economy: { tokenRub: 5, minMarginPercent: 40 },
+          availability: {},
+        },
+      })
+      return
+    }
     await route.fulfill({ json: { ok: true, items: [], images: [] } })
   })
 }
@@ -120,10 +148,8 @@ async function run() {
       hasDialog: Boolean(document.querySelector('.auth-modal, [role="dialog"]')),
       hasGuestCopy: document.body.innerText.includes('После входа здесь появятся'),
       hasName: document.body.innerText.includes('Алиса Профиль'),
-      hasEmail: document.body.innerText.includes('profile@example.test'),
+      hasEmail: Array.from(document.querySelectorAll('input')).some((input) => input.value === 'profile@example.test'),
       hasBalance: document.body.innerText.includes('123'),
-      hasDbProfileBadge: document.body.innerText.includes('Профиль из базы'),
-      hasDbTariffBadge: document.body.innerText.includes('Тарифы из базы'),
       avatarSrc: document.querySelector('.profile-avatar img')?.getAttribute('src') || '',
       topbarAvatarSrc: document.querySelector('.account-button .user-glyph img')?.getAttribute('src') || '',
       overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
@@ -134,11 +160,33 @@ async function run() {
     assert(data.hasName, 'Authorized profile did not render display name')
     assert(data.hasEmail, 'Authorized profile did not render email')
     assert(data.hasBalance, 'Authorized profile did not render token balance')
-    assert(data.hasDbProfileBadge, 'Authorized profile did not confirm DB profile state')
-    assert(data.hasDbTariffBadge, 'Authorized profile did not confirm DB tariffs state')
     assert(data.avatarSrc.includes('/media/avatars/alice-profile.webp'), `Profile avatar src is wrong: ${data.avatarSrc}`)
     assert(data.topbarAvatarSrc.includes('/media/avatars/alice-profile.webp'), `Topbar avatar src is wrong: ${data.topbarAvatarSrc}`)
     assert(!data.overflowX, 'Authorized profile overflows horizontally on mobile')
+
+    await page.getByRole('button', { name: 'Модели' }).click()
+    await page.locator('.profile-video-catalog').waitFor()
+    const catalogInitial = await page.evaluate(() => ({
+      groupCount: document.querySelectorAll('.profile-video-catalog > details').length,
+      openGroups: document.querySelectorAll('.profile-video-catalog > details[open]').length,
+      overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
+    }))
+    assert(catalogInitial.groupCount === 4, `Expected four video mode groups, got ${catalogInitial.groupCount}`)
+    assert(catalogInitial.openGroups === 0, 'Video mode groups must be collapsed by default')
+    assert(!catalogInitial.overflowX, 'Video catalog overflows horizontally on mobile')
+
+    await page.locator('.profile-video-catalog > details').first().locator(':scope > summary').click()
+    const modelRow = page.locator('.profile-video-model-row').first()
+    await modelRow.waitFor()
+    assert(await modelRow.getByText('от 7 ток.').isVisible(), 'Compact video model price is missing')
+    assert(!(await modelRow.getByText(videoModel.description).isVisible()), 'Full video model description is open by default')
+    await modelRow.locator('.profile-video-model-details > summary').click()
+    assert(await modelRow.getByText(videoModel.description).isVisible(), 'Full video model description did not open')
+
+    const toggle = modelRow.locator('input[type="checkbox"]')
+    assert(await toggle.isChecked(), 'Video model visibility checkbox is not enabled by default')
+    await toggle.uncheck()
+    assert(!(await toggle.isChecked()), 'Video model visibility checkbox did not switch independently')
 
     console.log('Authorized profile e2e passed.')
   } finally {

@@ -128,6 +128,22 @@ def test_default_prompt_instructions_are_visible_in_russian(prompt_user):
     assert "Составь подробный промпт" in message
 
 
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("text_to_video", "цельный промпт для видео"),
+        ("image_to_video", "движение исходного кадра"),
+        ("first_last_frame", "переход между начальным и конечным"),
+        ("reference_to_video", "загруженным референсам"),
+    ],
+)
+def test_video_prompt_improvement_modes_have_specific_rules(prompt_user, mode, expected):
+    config = main.assistant_models_config()["improve"]
+    request = main.ImprovePromptRequest(prompt="тестовая сцена", mode=mode, language="ru")
+    message = main._improve_system_message(request, config)
+    assert expected in message
+
+
 def test_admin_assistant_catalog_contains_ollama_and_openrouter_prices(prompt_user, monkeypatch):
     with main.db() as conn:
         conn.execute("UPDATE users SET role = 'admin' WHERE internal_user_id = ?", (prompt_user["internal_user_id"],))
