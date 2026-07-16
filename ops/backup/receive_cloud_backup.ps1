@@ -5,8 +5,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$config = Get-Content -LiteralPath $OperationsConfig -Raw | ConvertFrom-Json
-$role = Get-Content -LiteralPath $config.role_config -Raw | ConvertFrom-Json
+$config = Get-Content -LiteralPath $OperationsConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+$role = Get-Content -LiteralPath $config.role_config -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($role.role -ne 'STANDBY' -or $role.databaseWriter -ne $false) {
     throw 'Replica receive is allowed only on STANDBY with databaseWriter=false.'
 }

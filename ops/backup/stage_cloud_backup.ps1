@@ -4,8 +4,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$config = Get-Content -LiteralPath $OperationsConfig -Raw | ConvertFrom-Json
-$role = Get-Content -LiteralPath $config.role_config -Raw | ConvertFrom-Json
+$config = Get-Content -LiteralPath $OperationsConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+$role = Get-Content -LiteralPath $config.role_config -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($role.role -ne 'PRIMARY' -or $role.databaseWriter -ne $true) {
     throw 'Cloud staging is allowed only on PRIMARY.'
 }

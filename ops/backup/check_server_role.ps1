@@ -6,7 +6,7 @@ if (-not (Test-Path -LiteralPath $RoleConfig -PathType Leaf)) {
     Write-Host 'SERVER_ROLE_NOT_CONFIGURED'
     exit 0
 }
-$role = Get-Content -LiteralPath $RoleConfig -Raw | ConvertFrom-Json
+$role = Get-Content -LiteralPath $RoleConfig -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($role.role -ne 'PRIMARY' -or $role.databaseWriter -ne $true) {
     Write-Error 'This computer is not PRIMARY. Refusing to start a writing backend.'
     exit 41

@@ -2,12 +2,12 @@
 param([string]$OperationsConfig = 'C:\IZO_ASA\config\backup-operations.json')
 
 $ErrorActionPreference = 'Stop'
-$config = Get-Content -LiteralPath $OperationsConfig -Raw | ConvertFrom-Json
-$role = Get-Content -LiteralPath $config.role_config -Raw | ConvertFrom-Json
+$config = Get-Content -LiteralPath $OperationsConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+$role = Get-Content -LiteralPath $config.role_config -Raw -Encoding UTF8 | ConvertFrom-Json
 $healthPath = [string]$config.health_file
 $health = @{}
 if (Test-Path -LiteralPath $healthPath) {
-    $document = Get-Content -LiteralPath $healthPath -Raw | ConvertFrom-Json
+    $document = Get-Content -LiteralPath $healthPath -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($property in $document.PSObject.Properties) { $health[$property.Name] = $property.Value }
 }
 $errors = [System.Collections.Generic.List[string]]::new()

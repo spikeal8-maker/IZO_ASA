@@ -127,10 +127,11 @@ if ($PSCmdlet.ShouldProcess($configDir, 'Write role and path-only backup configu
     }
     Write-JsonUtf8NoBom $operationsDocument $operationsConfig
     if (-not (Test-Path -LiteralPath $healthFile)) {
-        $initialHealth = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'backup-current.example.json') -Raw | ConvertFrom-Json
+        $initialHealth = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'backup-current.example.json') -Raw -Encoding UTF8 | ConvertFrom-Json
         Write-JsonUtf8NoBom $initialHealth $healthFile
     }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'run_local_backup.ps1') -Destination $runtimeDir -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'run_local_backup_startup.ps1') -Destination $runtimeDir -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'stage_cloud_backup.ps1') -Destination $runtimeDir -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'receive_cloud_backup.ps1') -Destination $runtimeDir -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'check_backup_health.ps1') -Destination $runtimeDir -Force
@@ -148,10 +149,11 @@ function Register-IzoScheduledTask {
     param(
         [string]$Name,
         [string]$Script,
-        [ValidateSet('MINUTE', 'HOURLY', 'DAILY')]
+        [ValidateSet('MINUTE', 'HOURLY', 'DAILY', 'ONLOGON')]
         [string]$Schedule,
         [int]$Modifier = 1,
-        [string]$StartTime
+        [string]$StartTime,
+        [string]$Delay
     )
     $action = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Script"
     $arguments = @('/Create', '/TN', $Name, '/TR', $action, '/SC', $Schedule, '/RL', $runLevel, '/F')
@@ -160,6 +162,9 @@ function Register-IzoScheduledTask {
     }
     if ($StartTime) {
         $arguments += @('/ST', $StartTime)
+    }
+    if ($Delay) {
+        $arguments += @('/DELAY', $Delay)
     }
     & schtasks.exe @arguments | Write-Host
     if ($LASTEXITCODE -ne 0) {
@@ -177,9 +182,24 @@ if ($Role -eq 'PRIMARY') {
 }
 Register-IzoScheduledTask -Name 'IZO_ASA Backup Health 10m' -Script "$runtimeDir\check_backup_health.ps1" -Schedule MINUTE -Modifier 10
 
+$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+if ($Role -eq 'PRIMARY') {
+    $startupBackup = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' +
+        (Join-Path $runtimeDir 'run_local_backup_startup.ps1') + '"'
+    Set-ItemProperty -Path $runKey -Name 'IZO_ASA_BackupStartup' -Value $startupBackup
+}
+
+$yandexProcess = Get-Process -Name YandexDisk4 -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($yandexProcess -and $yandexProcess.Path) {
+    $yandexExe = $yandexProcess.Path
+    Set-ItemProperty -Path 'HKCU:\Software\Yandex\Yandex.Disk.4' -Name AutoStart -Value 'true'
+    Set-ItemProperty -Path $runKey -Name 'IZO_ASA_YandexDisk4' -Value ('"' + $yandexExe + '"')
+}
+
 foreach ($taskName in $expectedTasks) {
     if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) {
         throw "Scheduled task verification failed: $taskName"
     }
 }
-Write-Host "BACKUP_AUTOMATION_INSTALLED role=$Role computer=$env:COMPUTERNAME runLevel=$runLevel tasks=$($expectedTasks.Count)"
+$startupMode = if ($Role -eq 'PRIMARY') { 'HKCU_RUN_DELAY_5M' } else { 'NONE' }
+Write-Host "BACKUP_AUTOMATION_INSTALLED role=$Role computer=$env:COMPUTERNAME runLevel=$runLevel tasks=$($expectedTasks.Count) startup=$startupMode"
