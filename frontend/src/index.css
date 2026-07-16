@@ -1556,6 +1556,27 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-payment-tariffs { display: flex; flex-wrap: wrap; gap: 8px; }
 .admin-payment-tariffs span { display: flex; align-items: center; gap: 8px; border: 1px solid #303030; background: #141414; border-radius: 8px; padding: 7px 10px; color: #a5a5a5; }
 .admin-payment-tariffs b { color: #f0f0f0; }
+.admin-yookassa-review { display: grid; gap: 12px; border-left: 3px solid #d7b941; }
+.admin-yookassa-review.ready { border-left-color: #5ee87b; }
+.admin-yookassa-review .admin-section-head { margin: 0; }
+.admin-yookassa-review h4 { display: flex; align-items: center; gap: 7px; }
+.admin-review-checks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.admin-review-checks > div { display: flex; align-items: flex-start; gap: 8px; min-width: 0; border: 1px solid #303430; border-radius: 8px; background: #111411; padding: 10px; }
+.admin-review-checks svg { width: 17px; height: 17px; flex: 0 0 auto; margin-top: 1px; }
+.admin-review-checks .ok svg { color: #5ee87b; }
+.admin-review-checks .error svg { color: #ef7474; }
+.admin-review-checks span { display: grid; gap: 3px; min-width: 0; }
+.admin-review-checks b { color: #ededed; font-size: 12px; }
+.admin-review-checks small { color: #919791; line-height: 1.35; }
+.admin-review-links { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.admin-review-links a, .admin-review-links button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #343934; border-radius: 7px; padding: 7px 10px; color: #e8e8e8; background: #171a17; text-decoration: none; }
+.admin-review-links svg { width: 14px; height: 14px; }
+.admin-review-links button { margin-left: auto; }
+.admin-review-note { margin: 0; color: #a8ada8; line-height: 1.45; }
+@media (max-width: 900px) {
+  .admin-review-checks { grid-template-columns: 1fr; }
+  .admin-review-links button { margin-left: 0; }
+}
 .admin-provider-state { border-left: 3px solid #555; padding-left: 8px; }
 .admin-provider-state.ok { border-color: #5ee87b; color: #8feaa2; }
 .admin-provider-state.warn { border-color: #d7b941; color: #d8c36c; }

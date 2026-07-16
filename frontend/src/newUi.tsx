@@ -287,6 +287,13 @@ function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   return { view: 'tabs', tab: 'text' }
 }
 
+function initialProfileTabFromPath(): 'profile' | 'tariffs' | 'earn' | 'models' {
+  const path = typeof window !== 'undefined' ? window.location.pathname.replace(/\/+$/, '') : '/profile'
+  const segment = path.split('/').filter(Boolean).at(-1)
+  if (segment === 'tariffs' || segment === 'earn' || segment === 'models') return segment
+  return 'profile'
+}
+
 type N2Job = GenerationContract
 type N2GalleryImage = GalleryContractItem
 
@@ -1025,7 +1032,7 @@ export default function NewStudio(): ReactElement {
   ))
   const [editExtraOpen, setEditExtraOpen] = useState(false)
   const [editFaceStrengthPct, setEditFaceStrengthPct] = useState(initialStudioDraft.editFaceStrengthPct ?? DEFAULT_FACE_STRENGTH)
-  const [profileTab, setProfileTab] = useState<'profile' | 'tariffs' | 'earn' | 'models'>('profile')
+  const [profileTab, setProfileTab] = useState<'profile' | 'tariffs' | 'earn' | 'models'>(initialProfileTabFromPath)
   const [tariffs, setTariffs] = useState<TariffConfig>(DEFAULT_TARIFFS)
   const [tariffsState, setTariffsState] = useState<'loading' | 'ready' | 'fallback'>('loading')
   const [tokenRub, setTokenRub] = useState(5)

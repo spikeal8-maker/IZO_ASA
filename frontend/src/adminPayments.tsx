@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { CheckCircle2, CircleAlert, ClipboardCopy, ExternalLink, UserRoundCheck } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { adminGet, adminPost, adminPut, type AdminRecord } from './adminApi'
 
 type PaymentStatus = AdminRecord & {
@@ -27,6 +28,7 @@ export default function AdminPayments() {
   const [secretKey, setSecretKey] = useState('')
   const [testMode, setTestMode] = useState(true)
   const [message, setMessage] = useState('')
+  const [reviewMessage, setReviewMessage] = useState('')
   const [legal, setLegal] = useState<AdminRecord>({})
   const load = useCallback(async () => {
     const next = await adminGet<PaymentStatus>('/admin/payments/status-v2')
@@ -69,6 +71,33 @@ export default function AdminPayments() {
 
   const summary = data?.summary || {}
   const config = data?.config || {}
+  const publicSiteUrl = String(legal.site_url || 'https://izo.alikinas.ru').replace(/\/+$/, '')
+  const reviewTemplate = useMemo(() => [
+    'Здравствуйте!',
+    '',
+    'Доступ к личному кабинету покупателя:',
+    `Адрес: ${publicSiteUrl}/profile/tariffs`,
+    'Логин: [укажите email проверочного покупателя]',
+    'Пароль: [укажите временный пароль]',
+    '',
+    `Публичная витрина: ${publicSiteUrl}/tariffs`,
+    `Оферта: ${publicSiteUrl}/legal/offer`,
+    `Условия оплаты: ${publicSiteUrl}/legal/payment`,
+    `Возвраты: ${publicSiteUrl}/legal/refunds`,
+    `Реквизиты и контакты: ${publicSiteUrl}/legal/contacts`,
+    '',
+    'Аккаунт является обычным покупательским аккаунтом без административных прав.',
+  ].join('\n'), [publicSiteUrl])
+
+  const copyReviewTemplate = async () => {
+    try {
+      await navigator.clipboard.writeText(reviewTemplate)
+      setReviewMessage('Шаблон ответа скопирован. Вставьте логин и временный пароль.')
+    } catch {
+      setReviewMessage('Не удалось скопировать автоматически. Используйте инструкцию в docs.')
+    }
+  }
+
   return (
     <div className="admin-section admin-payments-page">
       <div className="admin-section-head">
@@ -79,6 +108,31 @@ export default function AdminPayments() {
       <div className="admin-payment-tariffs">
         {(data?.tariff_products || []).map((item) => <span key={String(item.code)}><b>{String(item.title)}</b>{Number(item.price_amount || 0).toLocaleString('ru-RU')} ₽/мес</span>)}
       </div>
+      <article className={`admin-mail-card admin-yookassa-review ${data?.legal_readiness?.ready ? 'ready' : 'blocked'}`}>
+        <div className="admin-section-head">
+          <div>
+            <h4><UserRoundCheck size={18} /> Проверка личного кабинета ЮKassa</h4>
+            <p>Менеджеру передаётся отдельный обычный аккаунт покупателя. Админский логин и основной пароль владельца передавать нельзя.</p>
+          </div>
+          <span className={data?.legal_readiness?.ready ? 'status ok' : 'status warn'}>{data?.legal_readiness?.ready ? 'можно готовить доступ' : 'сначала заполните реквизиты'}</span>
+        </div>
+        <div className="admin-review-checks">
+          <div className={data?.legal_readiness?.ready ? 'ok' : 'error'}>
+            {data?.legal_readiness?.ready ? <CheckCircle2 /> : <CircleAlert />}
+            <span><b>Публичные реквизиты</b><small>{data?.legal_readiness?.ready ? 'обязательные поля заполнены' : (data?.legal_readiness?.missing || []).join(', ')}</small></span>
+          </div>
+          <div className="ok"><CheckCircle2 /><span><b>Вход покупателя</b><small>регистрация и вход по email доступны</small></span></div>
+          <div className="ok"><CheckCircle2 /><span><b>Маршрут проверки</b><small>кабинет открывается сразу на вкладке тарифов</small></span></div>
+        </div>
+        <div className="admin-review-links">
+          <a href={`${publicSiteUrl}/profile/tariffs`} target="_blank" rel="noreferrer">Кабинет покупателя <ExternalLink /></a>
+          <a href={`${publicSiteUrl}/tariffs`} target="_blank" rel="noreferrer">Витрина <ExternalLink /></a>
+          <a href={`${publicSiteUrl}/legal/contacts`} target="_blank" rel="noreferrer">Реквизиты <ExternalLink /></a>
+          <button className="secondary" type="button" onClick={() => { void copyReviewTemplate() }} disabled={!data?.legal_readiness?.ready}><ClipboardCopy /> Скопировать ответ менеджеру</button>
+        </div>
+        <p className="admin-review-note">Создайте через обычную регистрацию отдельный email-аккаунт, проверьте вход в приватном окне и только затем отправьте менеджеру временный пароль. После проверки пароль нужно заменить.</p>
+        {reviewMessage && <small className="admin-mail-message ok">{reviewMessage}</small>}
+      </article>
       <article className="admin-mail-card admin-legal-settings">
         <div className="admin-section-head"><div><h4>Публичные реквизиты и документы</h4><p>Эти сведения отображаются на витрине, в оферте, правилах оплаты и возврата.</p></div><span className={data?.legal_readiness?.ready ? 'status ok' : 'status warn'}>{data?.legal_readiness?.ready ? 'готово к публикации' : `не заполнено: ${(data?.legal_readiness?.missing || []).join(', ')}`}</span></div>
         <div className="admin-legal-grid">
