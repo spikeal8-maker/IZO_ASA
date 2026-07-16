@@ -513,6 +513,14 @@
 - production-safe snapshot `20260716T005805.698960Z`: DB 565 104 640 байт,
   media 2 436 файлов / 260 170 702 байта, 96 новых objects / 2 340 reuse;
   `BACKUP_VERIFY_OK` и `BACKUP_REHEARSAL_OK` успешны без остановки backend.
+- PRIMARY automation установлена: 15-минутный local backup, hourly cloud stage,
+  10-минутный health, запуск после входа с задержкой 5 минут и три повтора;
+- снимок `20260716T154600.223168Z` прошёл backup/verify/stage, клиент подтвердил
+  HTTP 201 и cloud reaction; локальный receive/rehearsal в отдельный cache успешен;
+- пять cloud snapshot подряд прошли локальный receive/verify/rehearsal; focused
+  backup suite прошёл пять циклов по `17 passed`;
+- обязательные cloud-разделы `database/data/recovery` закреплены локально,
+  `Offline=0`; Яндекс.Диск 4 получил `AutoStart=true`.
 
 Физическое внедрение пока `BLOCKED`, а не объявлено готовым:
 
@@ -521,9 +529,8 @@
   разными невложенными roots `D:\Yandex.Disk` и `C:\Users\spike\YandexDisk`;
 - `disk.yandex.ru:443` доступен через интерфейс `AdGuard VPN`, а требуемый direct
   route ещё не настроен; stage разрешён, но health остаётся `ATTENTION`;
-- папка `D:\Yandex.Disk\IZO_ASA_ServerBackup` обнаружена, но Яндекс 360, режим
-  «Хранить на компьютере», свободное облачное место и отсутствие sync errors не
-  подтверждены;
+- папка `D:\Yandex.Disk\IZO_ASA_ServerBackup` работает и обязательные backup-
+  разделы хранятся локально; Яндекс 360 и свободное облачное место не подтверждены;
 - реальный cloud download на STANDBY, reboot/offline tests и пять полных циклов
   ещё должны быть выполнены по `yandex-disk-backup-runbook-20260716.md`;
 - пользовательские media пока не имеют отдельного end-to-end encryption; решение

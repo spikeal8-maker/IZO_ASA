@@ -1,11 +1,15 @@
 [CmdletBinding()]
 param(
-    [string]$OperationsConfig = 'C:\IZO_ASA\config\backup-operations.json'
+    [string]$OperationsConfig = 'C:\IZO_ASA\config\backup-operations.json',
+    [ValidateRange(1, 4)]
+    [int]$MaxAttempts = 4,
+    [ValidateRange(0, 3600)]
+    [int]$RetryDelaySeconds = 300
 )
 
 $ErrorActionPreference = 'Stop'
-$config = Get-Content -LiteralPath $OperationsConfig -Raw | ConvertFrom-Json
-$role = Get-Content -LiteralPath $config.role_config -Raw | ConvertFrom-Json
+$config = Get-Content -LiteralPath $OperationsConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+$role = Get-Content -LiteralPath $config.role_config -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($role.role -ne 'PRIMARY' -or $role.databaseWriter -ne $true) {
     throw 'Local backup is allowed only on PRIMARY with databaseWriter=true.'
 }
@@ -40,19 +44,29 @@ try {
     $backupTool = Join-Path ([string]$config.active_release) 'tools\backup_production.py'
     $restoreTool = Join-Path ([string]$config.active_release) 'tools\restore_backup.py'
     $transportTool = Join-Path ([string]$config.active_release) 'tools\backup_transport.py'
-    Invoke-CheckedPython -Arguments @($backupTool, '--config', [string]$config.backup_config, '--plan') -Expected 'BACKUP_PLAN_OK'
-    Invoke-CheckedPython -Arguments @($backupTool, '--config', [string]$config.backup_config) -Expected 'BACKUP_OK'
-    Invoke-CheckedPython -Arguments @($restoreTool, '--config', [string]$config.backup_config, '--verify-only') -Expected 'BACKUP_VERIFY_OK'
-    Invoke-CheckedPython -Arguments @(
-        $transportTool, '--role-config', [string]$config.role_config,
-        '--health', [string]$config.health_file,
-        'local-status', '--config', [string]$config.backup_config
-    ) -Expected 'LOCAL_BACKUP_STATUS_OK'
-    Write-Host 'LOCAL_BACKUP_CYCLE_OK'
-    exit 0
-} catch {
-    $_ | Out-String | Tee-Object -FilePath $log -Append | Write-Error
-    exit 2
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            Write-Host "LOCAL_BACKUP_ATTEMPT attempt=$attempt max=$MaxAttempts"
+            Invoke-CheckedPython -Arguments @($backupTool, '--config', [string]$config.backup_config, '--plan') -Expected 'BACKUP_PLAN_OK'
+            Invoke-CheckedPython -Arguments @($backupTool, '--config', [string]$config.backup_config) -Expected 'BACKUP_OK'
+            Invoke-CheckedPython -Arguments @($restoreTool, '--config', [string]$config.backup_config, '--verify-only') -Expected 'BACKUP_VERIFY_OK'
+            Invoke-CheckedPython -Arguments @(
+                $transportTool, '--role-config', [string]$config.role_config,
+                '--health', [string]$config.health_file,
+                'local-status', '--config', [string]$config.backup_config
+            ) -Expected 'LOCAL_BACKUP_STATUS_OK'
+            Write-Host "LOCAL_BACKUP_CYCLE_OK attempt=$attempt"
+            exit 0
+        } catch {
+            $_ | Out-String | Tee-Object -FilePath $log -Append | Write-Warning
+            if ($attempt -ge $MaxAttempts) {
+                Write-Warning "LOCAL_BACKUP_CYCLE_FAILED attempts=$MaxAttempts"
+                exit 2
+            }
+            Write-Warning "LOCAL_BACKUP_RETRY_WAIT seconds=$RetryDelaySeconds next_attempt=$($attempt + 1)"
+            Start-Sleep -Seconds $RetryDelaySeconds
+        }
+    }
 } finally {
     if ($lock) { $lock.Dispose() }
 }
