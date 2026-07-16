@@ -157,6 +157,8 @@ try:
         request_ollama_chat_message,
         request_max_api,
         request_max_bot_me,
+        probe_max_bot,
+        probe_telegram_bot,
         request_openrouter_chat_completion,
         request_openrouter_image,
         submit_openrouter_video,
@@ -213,6 +215,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         request_ollama_chat_message,
         request_max_api,
         request_max_bot_me,
+        probe_max_bot,
+        probe_telegram_bot,
         request_openrouter_chat_completion,
         request_openrouter_image,
         submit_openrouter_video,
@@ -316,6 +320,21 @@ except ImportError:  # Direct `python backend/main.py` execution.
         telegram_answer_payload,
         telegram_message_from_update,
         telegram_user_from_update,
+    )
+
+try:
+    from .app.services.bot_admin import (
+        DEFAULT_BOT_INTEGRATIONS,
+        normalize_bot_integrations,
+        safe_bot_error,
+        webhook_url as configured_bot_webhook_url,
+    )
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.services.bot_admin import (
+        DEFAULT_BOT_INTEGRATIONS,
+        normalize_bot_integrations,
+        safe_bot_error,
+        webhook_url as configured_bot_webhook_url,
     )
 
 try:
@@ -611,9 +630,23 @@ AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 OPENROUTER_SECRET_NAME = "openrouter_api_key"
 SMTP_SECRET_NAME = "smtp_password"
 YOOKASSA_SECRET_NAME = "yookassa_secret_key"
+TELEGRAM_BOT_SECRET_NAME = "telegram_bot_token"
+TELEGRAM_WEBHOOK_SECRET_NAME = "telegram_webhook_secret"
+MAX_BOT_SECRET_NAME = "max_bot_token"
+MAX_WEBHOOK_SECRET_NAME = "max_webhook_secret"
 OPENROUTER_SECRET_STORE_DIR = default_secret_store_dir()
 assert_secret_store_outside_repository(OPENROUTER_SECRET_STORE_DIR, ROOT.parent)
 OPENROUTER_SECRET_STORE = DpapiSecretStore(OPENROUTER_SECRET_STORE_DIR)
+
+
+def initial_runtime_secret(name: str, env_name: str) -> str:
+    from_environment = os.getenv(env_name, "").strip()
+    if from_environment:
+        return from_environment
+    try:
+        return OPENROUTER_SECRET_STORE.get(name)
+    except SecretStoreError:
+        return ""
 
 # Identity Core session service (Phase 4 + 4.1). Keying material for token hashing
 # comes from the environment when available. Only hashes are persisted — raw tokens
@@ -649,20 +682,20 @@ BOT_UPDATES_MODE = BOT_DELIVERY_POLICY.telegram_updates_mode
 BOT_MODE = BOT_UPDATES_MODE
 TELEGRAM_POLLING_ENABLED = BOT_DELIVERY_POLICY.telegram_polling_enabled
 MAX_POLLING_ENABLED = BOT_DELIVERY_POLICY.max_polling_enabled
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
+TELEGRAM_BOT_TOKEN = initial_runtime_secret(TELEGRAM_BOT_SECRET_NAME, "TELEGRAM_BOT_TOKEN")
+TELEGRAM_WEBHOOK_SECRET = initial_runtime_secret(TELEGRAM_WEBHOOK_SECRET_NAME, "TELEGRAM_WEBHOOK_SECRET")
 TELEGRAM_WEBHOOK_MAX_BODY_BYTES = max(1024, min(1024 * 1024, int(os.getenv("TELEGRAM_WEBHOOK_MAX_BODY_BYTES", str(256 * 1024)))))
 TELEGRAM_WEBHOOK_REPLAY_CACHE_SIZE = max(128, min(100_000, int(os.getenv("TELEGRAM_WEBHOOK_REPLAY_CACHE_SIZE", "4096"))))
 _telegram_webhook_replay_guard = WebhookReplayGuard(TELEGRAM_WEBHOOK_REPLAY_CACHE_SIZE)
 TELEGRAM_INIT_DATA_TTL_SECONDS = int(os.getenv("TELEGRAM_INIT_DATA_TTL_SECONDS", str(60 * 60 * 24)))
-MAX_BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
+MAX_BOT_TOKEN = initial_runtime_secret(MAX_BOT_SECRET_NAME, "MAX_BOT_TOKEN")
 MAX_WEB_APP_DATA_TTL_SECONDS = int(os.getenv("MAX_WEB_APP_DATA_TTL_SECONDS", str(60 * 60 * 24)))
 MAX_UPDATES_MODE = BOT_DELIVERY_POLICY.max_updates_mode
 MAX_API_BASE_URL = os.getenv("MAX_API_BASE_URL", "https://platform-api2.max.ru")
 MAX_TLS_TRUST_STORE = normalize_max_tls_trust_store(os.getenv("MAX_TLS_TRUST_STORE", "system"))
 MAX_HTTP_VERIFY = build_max_http_verify(MAX_TLS_TRUST_STORE)
 MAX_WEBHOOK_URL = os.getenv("MAX_WEBHOOK_URL", "")
-MAX_WEBHOOK_SECRET = os.getenv("MAX_WEBHOOK_SECRET", "").strip()
+MAX_WEBHOOK_SECRET = initial_runtime_secret(MAX_WEBHOOK_SECRET_NAME, "MAX_WEBHOOK_SECRET")
 MAX_WEBHOOK_MAX_BODY_BYTES = max(1024, min(1024 * 1024, int(os.getenv("MAX_WEBHOOK_MAX_BODY_BYTES", str(256 * 1024)))))
 _MAX_BOT_DEEP_LINK_CACHE: dict[str, Any] = {
     "attempted": False,
@@ -1335,6 +1368,20 @@ class AdminConfigUiSwitchRequest(BaseModel):
 
 class AdminSecretKeyRequest(BaseModel):
     key: str = Field(min_length=12, max_length=512)
+
+
+class AdminBotTokenV2Request(BaseModel):
+    token: str = Field(min_length=8, max_length=2048)
+    verify: bool = True
+
+
+class AdminBotConfigV2Request(BaseModel):
+    config: dict[str, Any]
+    confirmModeChange: bool = False
+
+
+class AdminBotWebhookActionV2Request(BaseModel):
+    confirm: bool = False
 
 
 class AdminOpenRouterConfigRequest(BaseModel):
@@ -5137,6 +5184,203 @@ def delete_admin_secret(key: str) -> None:
     _admin_models_page_cache["data"] = None
 
 
+def _bot_secret_value(name: str, env_name: str) -> str:
+    return os.getenv(env_name, "").strip() or OPENROUTER_SECRET_STORE.get(name)
+
+
+def _bot_secret_source(name: str, env_name: str) -> str:
+    if os.getenv(env_name, "").strip():
+        return "environment"
+    return "dpapi" if OPENROUTER_SECRET_STORE.exists(name) else "none"
+
+
+def _bot_secret_updated_at(name: str) -> str | None:
+    path = OPENROUTER_SECRET_STORE.path_for(name)
+    if not path.is_file():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        value = document.get("updatedAt")
+        return str(value) if value else None
+    except Exception:
+        return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+
+
+def bot_integrations_config() -> dict[str, Any]:
+    with db() as conn:
+        row = conn.execute(
+            "SELECT value_json FROM admin_settings WHERE key = 'bot_integrations'"
+        ).fetchone()
+    stored = safe_json_load(row["value_json"]) if row else {}
+    try:
+        return normalize_bot_integrations(stored, production=is_production_like_env())
+    except ValueError:
+        return normalize_bot_integrations(DEFAULT_BOT_INTEGRATIONS, production=False)
+
+
+def save_bot_integrations_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = normalize_bot_integrations(
+        config,
+        production=is_production_like_env(),
+    )
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('bot_integrations', ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+            (
+                json.dumps(normalized, ensure_ascii=False),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+    return normalized
+
+
+def has_saved_bot_integrations_config() -> bool:
+    with db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM admin_settings WHERE key = 'bot_integrations'"
+        ).fetchone()
+    return row is not None
+
+
+def bot_diagnostics() -> dict[str, Any]:
+    with db() as conn:
+        row = conn.execute(
+            "SELECT value_json FROM admin_settings WHERE key = 'bot_diagnostics'"
+        ).fetchone()
+    stored = safe_json_load(row["value_json"]) if row else {}
+    return stored if isinstance(stored, dict) else {}
+
+
+def save_bot_diagnostic(provider: str, values: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = bot_diagnostics()
+    current = diagnostics.get(provider)
+    current = current if isinstance(current, dict) else {}
+    diagnostics[provider] = {**current, **values}
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('bot_diagnostics', ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+            (
+                json.dumps(diagnostics, ensure_ascii=False),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+    return diagnostics[provider]
+
+
+def telegram_admin_token() -> str:
+    return _bot_secret_value(TELEGRAM_BOT_SECRET_NAME, "TELEGRAM_BOT_TOKEN")
+
+
+def telegram_admin_webhook_secret() -> str:
+    return _bot_secret_value(
+        TELEGRAM_WEBHOOK_SECRET_NAME,
+        "TELEGRAM_WEBHOOK_SECRET",
+    )
+
+
+def max_admin_token() -> str:
+    return _bot_secret_value(MAX_BOT_SECRET_NAME, "MAX_BOT_TOKEN")
+
+
+def max_admin_webhook_secret() -> str:
+    return _bot_secret_value(MAX_WEBHOOK_SECRET_NAME, "MAX_WEBHOOK_SECRET")
+
+
+def _save_bot_secret(name: str, value: str) -> None:
+    clean = str(value or "").strip()
+    if not clean:
+        raise SecretStoreError("Secret value must not be empty.")
+    OPENROUTER_SECRET_STORE.set(name, clean)
+    if not hmac.compare_digest(OPENROUTER_SECRET_STORE.get(name), clean):
+        raise SecretStoreError("DPAPI secret readback verification failed.")
+
+
+def apply_saved_bot_runtime_configuration() -> dict[str, Any]:
+    global BOT_UPDATES_MODE, BOT_MODE, TELEGRAM_POLLING_ENABLED
+    global MAX_UPDATES_MODE, MAX_POLLING_ENABLED, MAX_API_BASE_URL, MAX_WEBHOOK_URL
+    global TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, MAX_BOT_TOKEN, MAX_WEBHOOK_SECRET
+
+    source = "environment"
+    if has_saved_bot_integrations_config():
+        config = bot_integrations_config()
+        TELEGRAM_BOT_TOKEN = telegram_admin_token()
+        TELEGRAM_WEBHOOK_SECRET = telegram_admin_webhook_secret()
+        MAX_BOT_TOKEN = max_admin_token()
+        MAX_WEBHOOK_SECRET = max_admin_webhook_secret()
+        BOT_UPDATES_MODE = str(config["telegram"]["mode"])
+        BOT_MODE = BOT_UPDATES_MODE
+        TELEGRAM_POLLING_ENABLED = bool(config["telegram"]["pollingEnabled"])
+        MAX_UPDATES_MODE = str(config["max"]["mode"])
+        MAX_POLLING_ENABLED = bool(config["max"]["pollingEnabled"])
+        MAX_API_BASE_URL = str(config["max"]["apiBaseUrl"])
+        MAX_WEBHOOK_URL = configured_bot_webhook_url(config, "max")
+        source = "admin_settings"
+    return {
+        "source": source,
+        "telegramMode": BOT_UPDATES_MODE,
+        "maxMode": MAX_UPDATES_MODE,
+        "telegramTokenConfigured": bool(TELEGRAM_BOT_TOKEN),
+        "maxTokenConfigured": bool(MAX_BOT_TOKEN),
+    }
+
+
+def _bot_config_readiness(
+    provider: str,
+    config: dict[str, Any],
+    *,
+    token_configured: bool,
+    secret_configured: bool,
+) -> dict[str, Any]:
+    current = config[provider]
+    mode = str(current.get("mode") or "disabled")
+    target_webhook_url = configured_bot_webhook_url(config, provider)
+    polling_ready = token_configured and bool(current.get("pollingEnabled"))
+    webhook_ready = (
+        token_configured
+        and secret_configured
+        and target_webhook_url.startswith("https://")
+    )
+    return {
+        "mode": mode,
+        "pollingReady": polling_ready,
+        "webhookReady": webhook_ready,
+        "webhookUrl": target_webhook_url,
+        "restartRequired": (
+            mode != (BOT_UPDATES_MODE if provider == "telegram" else MAX_UPDATES_MODE)
+            or bool(current.get("pollingEnabled"))
+            != (
+                TELEGRAM_POLLING_ENABLED
+                if provider == "telegram"
+                else MAX_POLLING_ENABLED
+            )
+        ),
+    }
+
+
+def _record_bot_admin_audit(
+    admin: dict[str, Any],
+    request: Request,
+    *,
+    action: str,
+    provider: str,
+    ok: bool,
+    details: dict[str, Any] | None = None,
+) -> None:
+    safe_details = {"provider": provider, "ok": bool(ok), **(details or {})}
+    with db() as conn:
+        record_audit_log(
+            conn,
+            action,
+            actor_internal_user_id=admin["internal_user_id"],
+            entity_type="bot_integration",
+            entity_id=provider,
+            after=safe_details,
+            request=request,
+        )
+
+
 def openrouter_api_key_source() -> str:
     if os.getenv("OPENROUTER_API_KEY", "").strip():
         return "env"
@@ -5160,15 +5404,13 @@ def save_openrouter_api_key(value: str) -> None:
     if not hmac.compare_digest(verified.encode("utf-8"), value.encode("utf-8")):
         raise SecretStoreError("OpenRouter DPAPI secret readback verification failed.")
     delete_admin_secret(OPENROUTER_SECRET_NAME)
-    _admin_models_page_cache["ts"] = 0.0
-    _admin_models_page_cache["data"] = None
+    invalidate_openrouter_admin_caches(authorization_changed=True)
 
 
 def delete_openrouter_api_key() -> None:
     OPENROUTER_SECRET_STORE.delete(OPENROUTER_SECRET_NAME)
     delete_admin_secret(OPENROUTER_SECRET_NAME)
-    _admin_models_page_cache["ts"] = 0.0
-    _admin_models_page_cache["data"] = None
+    invalidate_openrouter_admin_caches(authorization_changed=True)
 
 
 def smtp_password() -> str:
@@ -5429,8 +5671,159 @@ def public_site_url(request: Request) -> str:
 OPENROUTER_GENERATION_MODES = {"text_to_image", "image_to_image", "edit"}
 OPENROUTER_VIDEO_MODES = ("text_to_video", "image_to_video", "first_last_frame", "reference_to_video")
 OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS = 6 * 60 * 60
+OPENROUTER_KEY_STATUS_CACHE_TTL_SECONDS = 30
 _openrouter_capability_cache: dict[str, Any] = {"ts": 0.0, "models": []}
 _openrouter_video_catalog_cache: dict[str, Any] = {"ts": 0.0, "models": []}
+_openrouter_key_status_cache: dict[str, Any] = {"ts": 0.0, "data": None, "keyMarker": None}
+_openrouter_catalog_refresh_task: asyncio.Task[Any] | None = None
+_openrouter_catalog_state: dict[str, Any] = {
+    "refreshing": False,
+    "lastAttemptAt": None,
+    "lastSuccessAt": None,
+    "lastError": None,
+    "source": "fallback",
+    "modelCount": 0,
+    "videoModelCount": 0,
+}
+
+
+def invalidate_openrouter_admin_caches(*, authorization_changed: bool = False) -> None:
+    models_page_cache = globals().get("_admin_models_page_cache")
+    if isinstance(models_page_cache, dict):
+        models_page_cache["ts"] = {}
+        models_page_cache["data"] = {}
+    _openrouter_key_status_cache.update({"ts": 0.0, "data": None, "keyMarker": None})
+    if authorization_changed:
+        # Keep the last successful catalog available, but make it immediately stale.
+        _openrouter_capability_cache["ts"] = 0.0
+        _openrouter_video_catalog_cache["ts"] = 0.0
+
+
+def fallback_openrouter_capabilities() -> list[dict[str, Any]]:
+    price_catalog = globals().get("OPENROUTER_PRICE_CATALOG")
+    if not isinstance(price_catalog, dict):
+        return []
+    return [
+        {
+            "id": model.id,
+            "name": model.name,
+            "description": "Встроенный резервный каталог. Возможности endpoint будут уточнены в фоне.",
+            "inputModalities": ["image", "text"],
+            "outputModalities": ["image"],
+            "parameters": [],
+            "parameterDescriptors": {},
+            "maxInputReferences": 1,
+            "supportsStreaming": False,
+            "modes": ["image_to_image", "paint", "text_to_image"],
+            "features": {
+                "seed": False,
+                "quality": False,
+                "aspectRatio": True,
+                "resolution": True,
+                "transparentBackground": False,
+                "multipleOutputs": False,
+            },
+            "endpointVerified": False,
+            "catalogSource": "fallback",
+        }
+        for model in price_catalog.values()
+    ]
+
+
+def openrouter_key_status_snapshot() -> dict[str, Any]:
+    cached = _openrouter_key_status_cache.get("data")
+    if isinstance(cached, dict):
+        return dict(cached)
+    configured = bool(openrouter_api_key())
+    return {
+        "configured": configured,
+        "source": openrouter_api_key_source(),
+        "ok": False,
+        "pending": configured,
+        "error": None if configured else "OPENROUTER_API_KEY не задан",
+    }
+
+
+def openrouter_catalog_snapshot() -> dict[str, Any]:
+    now = time.monotonic()
+    cached_models = _openrouter_capability_cache.get("models")
+    cached_videos = _openrouter_video_catalog_cache.get("models")
+    image_models = list(cached_models) if isinstance(cached_models, list) and cached_models else fallback_openrouter_capabilities()
+    video_models = list(cached_videos) if isinstance(cached_videos, list) else []
+    image_ts = float(_openrouter_capability_cache.get("ts") or 0)
+    source = "live-cache" if cached_models else "fallback"
+    return {
+        "models": image_models,
+        "videoModels": video_models,
+        "meta": {
+            **_openrouter_catalog_state,
+            "source": source,
+            "modelCount": len(image_models),
+            "videoModelCount": len(video_models),
+            "cacheAgeSeconds": int(max(0.0, now - image_ts)) if image_ts else None,
+        },
+    }
+
+
+def openrouter_catalog_refresh_needed(snapshot: dict[str, Any] | None = None) -> bool:
+    current = snapshot or openrouter_catalog_snapshot()
+    meta = current.get("meta") if isinstance(current, dict) else {}
+    age = meta.get("cacheAgeSeconds") if isinstance(meta, dict) else None
+    return (
+        not _openrouter_capability_cache.get("models")
+        or age is None
+        or int(age) >= OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS
+        or bool(openrouter_key_status_snapshot().get("pending"))
+    )
+
+
+async def refresh_openrouter_catalog() -> dict[str, Any]:
+    _openrouter_catalog_state.update(
+        {
+            "refreshing": True,
+            "lastAttemptAt": datetime.now(timezone.utc).isoformat(),
+            "lastError": None,
+        }
+    )
+    results = await asyncio.gather(
+        fetch_openrouter_key_status(force=True),
+        fetch_openrouter_image_capabilities(force=True),
+        fetch_openrouter_video_catalog(force=True),
+        return_exceptions=True,
+    )
+    errors = [
+        safe_bot_error(result)
+        for result in results
+        if isinstance(result, BaseException)
+    ]
+    successful_catalog = any(
+        not isinstance(result, BaseException) and isinstance(result, list)
+        for result in results[1:]
+    )
+    if successful_catalog:
+        _openrouter_catalog_state["lastSuccessAt"] = datetime.now(timezone.utc).isoformat()
+        _openrouter_catalog_state["source"] = "live-api"
+    _openrouter_catalog_state.update(
+        {
+            "refreshing": False,
+            "lastError": "; ".join(errors) if errors else None,
+            "modelCount": len(_openrouter_capability_cache.get("models") or []),
+            "videoModelCount": len(_openrouter_video_catalog_cache.get("models") or []),
+        }
+    )
+    models_page_cache = globals().get("_admin_models_page_cache")
+    if isinstance(models_page_cache, dict):
+        models_page_cache["ts"] = {}
+        models_page_cache["data"] = {}
+    return openrouter_catalog_snapshot()
+
+
+def schedule_openrouter_catalog_refresh() -> bool:
+    global _openrouter_catalog_refresh_task
+    if _openrouter_catalog_refresh_task and not _openrouter_catalog_refresh_task.done():
+        return False
+    _openrouter_catalog_refresh_task = asyncio.create_task(refresh_openrouter_catalog())
+    return True
 
 
 def openrouter_model_capability(model: dict[str, Any]) -> dict[str, Any]:
@@ -5981,10 +6374,28 @@ def _openrouter_public_error(status_code: int, data: dict[str, Any]) -> str:
     )
 
 
-async def fetch_openrouter_key_status() -> dict[str, Any]:
+async def fetch_openrouter_key_status(force: bool = False) -> dict[str, Any]:
+    now = time.monotonic()
     key = openrouter_api_key()
+    source = openrouter_api_key_source()
+    key_marker = (
+        hashlib.sha256(f"{source}\0{key}".encode("utf-8")).hexdigest()[:16]
+        if key
+        else ""
+    )
+    cached = _openrouter_key_status_cache.get("data")
+    if (
+        not force
+        and isinstance(cached, dict)
+        and _openrouter_key_status_cache.get("keyMarker") == key_marker
+        and now - float(_openrouter_key_status_cache.get("ts") or 0)
+        < OPENROUTER_KEY_STATUS_CACHE_TTL_SECONDS
+    ):
+        return dict(cached)
     if not key:
-        return {"configured": False, "ok": False, "error": "OPENROUTER_API_KEY не задан"}
+        result = {"configured": False, "ok": False, "error": "OPENROUTER_API_KEY не задан"}
+        _openrouter_key_status_cache.update({"ts": now, "data": result, "keyMarker": key_marker})
+        return result
     try:
         details = await fetch_openrouter_key_details(
             base_url=OPENROUTER_BASE_URL,
@@ -5992,9 +6403,16 @@ async def fetch_openrouter_key_status() -> dict[str, Any]:
             credits_headers=openrouter_headers(),
             timeout_seconds=15,
         )
-        return {"configured": True, "source": openrouter_api_key_source(), **details}
+        result = {"configured": True, "source": source, **details}
     except Exception as exc:
-        return {"configured": True, "source": openrouter_api_key_source(), "ok": False, "error": str(exc)}
+        result = {
+            "configured": True,
+            "source": source,
+            "ok": False,
+            "error": str(exc),
+        }
+    _openrouter_key_status_cache.update({"ts": now, "data": result, "keyMarker": key_marker})
+    return dict(result)
 
 
 async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> OpenRouterResult:
@@ -6903,6 +7321,15 @@ async def startup() -> None:
     db_guard_preflight()
     validate_session_crypto_config()
     init_db()
+    bot_runtime = apply_saved_bot_runtime_configuration()
+    validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
+    validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
+    print(
+        "bot runtime configuration "
+        f"source={bot_runtime['source']} "
+        f"telegramMode={bot_runtime['telegramMode']} "
+        f"maxMode={bot_runtime['maxMode']}"
+    )
     openrouter_secret_migration = migrate_openrouter_secret_from_sqlite()
     if openrouter_secret_migration != "not_configured":
         print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
@@ -6944,23 +7371,6 @@ async def startup() -> None:
         consumer=worker,
     )
     start_bot_polling_tasks()
-    if BOT_UPDATES_MODE == "webhook":
-        backend_public = os.getenv("BACKEND_PUBLIC_URL", "http://127.0.0.1:8000")
-        if TELEGRAM_BOT_TOKEN and backend_public.startswith("https://"):
-            try:
-                wh_url = f"{backend_public}/api/telegram/webhook"
-                await telegram_api(
-                    "setWebhook",
-                    build_telegram_set_webhook_payload(backend_public, TELEGRAM_WEBHOOK_SECRET),
-                )
-                print(f"Telegram webhook set to {wh_url}")
-            except Exception as exc:
-                print(f"Failed to set Telegram webhook: {exc}")
-    if MAX_UPDATES_MODE == "webhook" and MAX_BOT_TOKEN:
-        try:
-            await configure_max_webhook_subscription()
-        except Exception as exc:
-            print(f"Failed to set MAX webhook subscription: {type(exc).__name__}")
 
 
 @app.get("/api/health")
@@ -12701,6 +13111,629 @@ async def bots_status() -> dict[str, Any]:
     return bot_status_payload()
 
 
+async def _admin_bot_public_https_status(config: dict[str, Any]) -> dict[str, Any]:
+    backend_url = str(config["public"]["backendUrl"]).rstrip("/")
+    if not backend_url.startswith("https://"):
+        return {"ok": False, "url": backend_url, "error": "Публичный HTTPS не настроен."}
+    try:
+        async with httpx.AsyncClient(timeout=3, follow_redirects=True) as client:
+            response = await client.get(f"{backend_url}/api/health")
+        return {
+            "ok": response.status_code < 500,
+            "url": backend_url,
+            "statusCode": response.status_code,
+            "source": "admin_settings",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "url": backend_url,
+            "error": safe_bot_error(exc),
+            "source": "admin_settings",
+        }
+
+
+async def _admin_telegram_probe() -> dict[str, Any]:
+    token = telegram_admin_token()
+    health = await probe_telegram_bot(token=token)
+    result = health.as_dict()
+    if health.ok:
+        try:
+            payload = await request_telegram_bot_api(token=token, method="getMe")
+            profile = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+            result["name"] = str(profile.get("first_name") or "")[:120] or None
+        except Exception:
+            pass
+        try:
+            webhook_payload = await request_telegram_bot_api(token=token, method="getWebhookInfo")
+            webhook = webhook_payload.get("result") if isinstance(webhook_payload.get("result"), dict) else {}
+            result["webhook"] = {
+                "configured": bool(webhook.get("url")),
+                "url": str(webhook.get("url") or "")[:500] or None,
+                "pendingUpdateCount": int(webhook.get("pending_update_count") or 0),
+                "lastErrorDate": webhook.get("last_error_date"),
+            }
+        except Exception:
+            result["webhook"] = {"configured": None, "error": "Статус webhook временно недоступен."}
+    return result
+
+
+async def _admin_max_probe(config: dict[str, Any]) -> dict[str, Any]:
+    token = max_admin_token()
+    base_url = str(config["max"]["apiBaseUrl"])
+    health = await probe_max_bot(
+        token=token,
+        base_url=base_url,
+        verify=MAX_HTTP_VERIFY,
+    )
+    result = health.as_dict()
+    if health.ok:
+        try:
+            profile = await request_max_api(
+                token=token,
+                base_url=base_url,
+                verify=MAX_HTTP_VERIFY,
+                method="GET",
+                path="/me",
+                timeout_seconds=5,
+            )
+            result.update(
+                {
+                    "bot_id": profile.get("id"),
+                    "name": str(profile.get("name") or profile.get("first_name") or "")[:120] or None,
+                    "nickname": str(profile.get("nickname") or profile.get("username") or "")[:120] or None,
+                }
+            )
+        except Exception:
+            pass
+        try:
+            subscriptions = await request_max_api(
+                token=token,
+                base_url=base_url,
+                verify=MAX_HTTP_VERIFY,
+                method="GET",
+                path="/subscriptions",
+                timeout_seconds=5,
+            )
+            raw_items = subscriptions.get("subscriptions")
+            if not isinstance(raw_items, list):
+                raw_items = subscriptions.get("items")
+            result["subscriptions"] = [
+                {
+                    "url": str(item.get("url") or "")[:500],
+                    "updateTypes": item.get("update_types") if isinstance(item.get("update_types"), list) else [],
+                }
+                for item in (raw_items if isinstance(raw_items, list) else [])
+                if isinstance(item, dict)
+            ]
+        except Exception:
+            result["subscriptions"] = None
+    return result
+
+
+def _admin_bots_safe_config(config: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "telegram": dict(config["telegram"]),
+        "max": dict(config["max"]),
+        "public": dict(config["public"]),
+    }
+
+
+@app.get("/api/admin/bots/config-v2")
+async def admin_bots_config_v2(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    config = bot_integrations_config()
+    return {
+        "ok": True,
+        "config": _admin_bots_safe_config(config),
+        "runtime": {
+            "telegram": {
+                "mode": BOT_UPDATES_MODE,
+                "pollingEnabled": TELEGRAM_POLLING_ENABLED,
+            },
+            "max": {
+                "mode": MAX_UPDATES_MODE,
+                "pollingEnabled": MAX_POLLING_ENABLED,
+            },
+        },
+        "restartNote": "Изменение режима применяется только после контролируемого перезапуска backend.",
+    }
+
+
+@app.get("/api/admin/bots/status-v2")
+async def admin_bots_status_v2(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    config = bot_integrations_config()
+    telegram_token = telegram_admin_token()
+    max_token = max_admin_token()
+    telegram_secret = telegram_admin_webhook_secret()
+    max_secret = max_admin_webhook_secret()
+    telegram_probe, max_probe, public_status = await asyncio.gather(
+        _admin_telegram_probe(),
+        _admin_max_probe(config),
+        _admin_bot_public_https_status(config),
+    )
+    diagnostics = bot_diagnostics()
+    telegram_ready = _bot_config_readiness(
+        "telegram",
+        config,
+        token_configured=bool(telegram_token),
+        secret_configured=bool(telegram_secret),
+    )
+    max_ready = _bot_config_readiness(
+        "max",
+        config,
+        token_configured=bool(max_token),
+        secret_configured=bool(max_secret),
+    )
+    return {
+        "ok": True,
+        "telegram": {
+            **telegram_ready,
+            "tokenConfigured": bool(telegram_token),
+            "tokenSource": _bot_secret_source(TELEGRAM_BOT_SECRET_NAME, "TELEGRAM_BOT_TOKEN"),
+            "tokenUpdatedAt": _bot_secret_updated_at(TELEGRAM_BOT_SECRET_NAME),
+            "webhookSecretConfigured": bool(telegram_secret),
+            "webhookSecretSource": _bot_secret_source(TELEGRAM_WEBHOOK_SECRET_NAME, "TELEGRAM_WEBHOOK_SECRET"),
+            "webhookSecretUpdatedAt": _bot_secret_updated_at(TELEGRAM_WEBHOOK_SECRET_NAME),
+            "tokenValid": bool(telegram_probe.get("ok")),
+            "probe": telegram_probe,
+            "pollingActive": bool(
+                bot_polling_tasks.get("telegram")
+                and not bot_polling_tasks["telegram"].done()
+            ),
+            "runtimeMode": BOT_UPDATES_MODE,
+            "lastCheck": diagnostics.get("telegram"),
+            "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
+        },
+        "max": {
+            **max_ready,
+            "tokenConfigured": bool(max_token),
+            "tokenSource": _bot_secret_source(MAX_BOT_SECRET_NAME, "MAX_BOT_TOKEN"),
+            "tokenUpdatedAt": _bot_secret_updated_at(MAX_BOT_SECRET_NAME),
+            "webhookSecretConfigured": bool(max_secret),
+            "webhookSecretSource": _bot_secret_source(MAX_WEBHOOK_SECRET_NAME, "MAX_WEBHOOK_SECRET"),
+            "webhookSecretUpdatedAt": _bot_secret_updated_at(MAX_WEBHOOK_SECRET_NAME),
+            "tokenValid": bool(max_probe.get("ok")),
+            "probe": max_probe,
+            "pollingActive": bool(
+                bot_polling_tasks.get("max")
+                and not bot_polling_tasks["max"].done()
+            ),
+            "runtimeMode": MAX_UPDATES_MODE,
+            "lastCheck": diagnostics.get("max"),
+            "subscriptionStatus": MAX_POLLING_DIAG.get("subscriptionStatus"),
+            "lastPollAt": MAX_POLLING_DIAG.get("lastPollAt"),
+            "lastPollError": MAX_POLLING_DIAG.get("lastPollError"),
+            "lastWebhookAt": MAX_POLLING_DIAG.get("lastWebhookAt"),
+            "lastWebhookError": MAX_POLLING_DIAG.get("lastWebhookError"),
+        },
+        "public": public_status,
+        "config": _admin_bots_safe_config(config),
+        "conflictWarning": (
+            "Убедитесь, что этот бот отключён на старом сервере. Одновременный polling "
+            "или переключение webhook может остановить получение сообщений действующим сервером."
+        ),
+    }
+
+
+@app.put("/api/admin/bots/config-v2")
+async def admin_bots_save_config_v2(
+    req: AdminBotConfigV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    before = bot_integrations_config()
+    try:
+        normalized = normalize_bot_integrations(
+            req.config,
+            production=is_production_like_env(),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    changed_modes = [
+        provider
+        for provider in ("telegram", "max")
+        if normalized[provider]["mode"] != before[provider]["mode"]
+    ]
+    if changed_modes and not req.confirmModeChange:
+        raise HTTPException(
+            409,
+            "Изменение режима требует отдельного подтверждения администратора.",
+        )
+    readiness = {
+        "telegram": _bot_config_readiness(
+            "telegram",
+            normalized,
+            token_configured=bool(telegram_admin_token()),
+            secret_configured=bool(telegram_admin_webhook_secret()),
+        ),
+        "max": _bot_config_readiness(
+            "max",
+            normalized,
+            token_configured=bool(max_admin_token()),
+            secret_configured=bool(max_admin_webhook_secret()),
+        ),
+    }
+    for provider in ("telegram", "max"):
+        mode = normalized[provider]["mode"]
+        if mode == "polling" and not readiness[provider]["pollingReady"]:
+            raise HTTPException(400, f"{provider}: polling не готов — нужен токен и включение polling.")
+        if mode == "webhook" and not readiness[provider]["webhookReady"]:
+            raise HTTPException(400, f"{provider}: webhook не готов — нужны токен, секрет и публичный HTTPS.")
+    saved = save_bot_integrations_config(normalized)
+    _record_bot_admin_audit(
+        admin,
+        request,
+        action="admin_bot_config_changed",
+        provider="all",
+        ok=True,
+        details={"changedModes": changed_modes, "restartRequired": bool(changed_modes)},
+    )
+    return {
+        "ok": True,
+        "config": _admin_bots_safe_config(saved),
+        "restartRequired": bool(changed_modes),
+        "activated": False,
+    }
+
+
+async def _admin_save_bot_token(
+    provider: str,
+    token: str,
+    request: Request,
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    secret_name = TELEGRAM_BOT_SECRET_NAME if provider == "telegram" else MAX_BOT_SECRET_NAME
+    existed = OPENROUTER_SECRET_STORE.exists(secret_name)
+    try:
+        _save_bot_secret(secret_name, token.strip())
+        if not has_saved_bot_integrations_config():
+            save_bot_integrations_config(DEFAULT_BOT_INTEGRATIONS)
+        config = bot_integrations_config()
+        probe = (
+            (await probe_telegram_bot(token=token.strip())).as_dict()
+            if provider == "telegram"
+            else (
+                await probe_max_bot(
+                    token=token.strip(),
+                    base_url=str(config["max"]["apiBaseUrl"]),
+                    verify=MAX_HTTP_VERIFY,
+                )
+            ).as_dict()
+        )
+        checked_at = datetime.now(timezone.utc).isoformat()
+        save_bot_diagnostic(
+            provider,
+            {
+                "checkedAt": checked_at,
+                "ok": bool(probe.get("ok")),
+                "status": probe.get("status"),
+                "error": None if probe.get("ok") else "Проверка подключения не пройдена.",
+            },
+        )
+        _record_bot_admin_audit(
+            admin,
+            request,
+            action="admin_bot_token_replaced" if existed else "admin_bot_token_added",
+            provider=provider,
+            ok=True,
+            details={"verified": bool(probe.get("ok"))},
+        )
+        return {
+            "ok": True,
+            "tokenConfigured": True,
+            "tokenSource": _bot_secret_source(
+                secret_name,
+                "TELEGRAM_BOT_TOKEN" if provider == "telegram" else "MAX_BOT_TOKEN",
+            ),
+            "probe": probe,
+            "activated": False,
+        }
+    except SecretStoreError as exc:
+        _record_bot_admin_audit(
+            admin,
+            request,
+            action="admin_bot_token_save_failed",
+            provider=provider,
+            ok=False,
+        )
+        raise HTTPException(503, "Защищённое хранилище недоступно.") from exc
+
+
+@app.put("/api/admin/bots/telegram/token-v2")
+async def admin_bots_telegram_token_v2(
+    req: AdminBotTokenV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    return await _admin_save_bot_token("telegram", req.token, request)
+
+
+@app.put("/api/admin/bots/max/token-v2")
+async def admin_bots_max_token_v2(
+    req: AdminBotTokenV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    return await _admin_save_bot_token("max", req.token, request)
+
+
+def _admin_delete_bot_token(provider: str, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    name = TELEGRAM_BOT_SECRET_NAME if provider == "telegram" else MAX_BOT_SECRET_NAME
+    try:
+        deleted = OPENROUTER_SECRET_STORE.delete(name)
+    except SecretStoreError as exc:
+        raise HTTPException(503, "Защищённое хранилище недоступно.") from exc
+    _record_bot_admin_audit(
+        admin,
+        request,
+        action="admin_bot_token_deleted",
+        provider=provider,
+        ok=True,
+        details={"deleted": deleted},
+    )
+    return {
+        "ok": True,
+        "deleted": deleted,
+        "tokenConfigured": bool(
+            telegram_admin_token() if provider == "telegram" else max_admin_token()
+        ),
+        "source": _bot_secret_source(
+            name,
+            "TELEGRAM_BOT_TOKEN" if provider == "telegram" else "MAX_BOT_TOKEN",
+        ),
+        "activated": False,
+    }
+
+
+@app.delete("/api/admin/bots/telegram/token-v2")
+async def admin_bots_delete_telegram_token_v2(request: Request) -> dict[str, Any]:
+    return _admin_delete_bot_token("telegram", request)
+
+
+@app.delete("/api/admin/bots/max/token-v2")
+async def admin_bots_delete_max_token_v2(request: Request) -> dict[str, Any]:
+    return _admin_delete_bot_token("max", request)
+
+
+async def _admin_verify_bot(provider: str, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    config = bot_integrations_config()
+    try:
+        probe = (
+            await _admin_telegram_probe()
+            if provider == "telegram"
+            else await _admin_max_probe(config)
+        )
+        checked_at = datetime.now(timezone.utc).isoformat()
+        save_bot_diagnostic(
+            provider,
+            {
+                "checkedAt": checked_at,
+                "ok": bool(probe.get("ok")),
+                "status": probe.get("status"),
+                "error": None if probe.get("ok") else "Проверка подключения не пройдена.",
+            },
+        )
+        _record_bot_admin_audit(
+            admin,
+            request,
+            action="admin_bot_connection_verified",
+            provider=provider,
+            ok=bool(probe.get("ok")),
+            details={"status": probe.get("status")},
+        )
+        return {"ok": bool(probe.get("ok")), "checkedAt": checked_at, "probe": probe}
+    except Exception as exc:
+        message = safe_bot_error(exc)
+        save_bot_diagnostic(
+            provider,
+            {
+                "checkedAt": datetime.now(timezone.utc).isoformat(),
+                "ok": False,
+                "status": "error",
+                "error": message,
+            },
+        )
+        _record_bot_admin_audit(
+            admin,
+            request,
+            action="admin_bot_connection_verified",
+            provider=provider,
+            ok=False,
+        )
+        raise HTTPException(502, message) from exc
+
+
+@app.post("/api/admin/bots/telegram/verify-v2")
+async def admin_bots_verify_telegram_v2(request: Request) -> dict[str, Any]:
+    return await _admin_verify_bot("telegram", request)
+
+
+@app.post("/api/admin/bots/max/verify-v2")
+async def admin_bots_verify_max_v2(request: Request) -> dict[str, Any]:
+    return await _admin_verify_bot("max", request)
+
+
+def _admin_generate_webhook_secret(provider: str, request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    value = secrets.token_urlsafe(36)
+    name = TELEGRAM_WEBHOOK_SECRET_NAME if provider == "telegram" else MAX_WEBHOOK_SECRET_NAME
+    try:
+        if provider == "telegram":
+            validate_telegram_webhook_secret("webhook", value)
+        else:
+            validate_max_webhook_secret("webhook", value)
+        _save_bot_secret(name, value)
+    except (RuntimeError, SecretStoreError) as exc:
+        raise HTTPException(503, "Не удалось сохранить секрет webhook.") from exc
+    _record_bot_admin_audit(
+        admin,
+        request,
+        action="admin_bot_webhook_secret_generated",
+        provider=provider,
+        ok=True,
+    )
+    return {
+        "ok": True,
+        "configured": True,
+        "source": "dpapi",
+        "activated": False,
+    }
+
+
+@app.post("/api/admin/bots/telegram/webhook-secret-v2")
+async def admin_bots_telegram_webhook_secret_v2(request: Request) -> dict[str, Any]:
+    return _admin_generate_webhook_secret("telegram", request)
+
+
+@app.post("/api/admin/bots/max/webhook-secret-v2")
+async def admin_bots_max_webhook_secret_v2(request: Request) -> dict[str, Any]:
+    return _admin_generate_webhook_secret("max", request)
+
+
+@app.post("/api/admin/bots/telegram/set-webhook-v2")
+async def admin_bots_set_telegram_webhook_v2(
+    req: AdminBotWebhookActionV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    if not req.confirm:
+        raise HTTPException(409, "Подтвердите перенос Telegram webhook на этот сервер.")
+    config = bot_integrations_config()
+    token = telegram_admin_token()
+    secret = telegram_admin_webhook_secret()
+    target = configured_bot_webhook_url(config, "telegram")
+    if not token or not secret or not target.startswith("https://"):
+        raise HTTPException(400, "Telegram webhook не готов: нужны токен, секрет и публичный HTTPS.")
+    try:
+        result = await request_telegram_bot_api(
+            token=token,
+            method="setWebhook",
+            payload={"url": target, "secret_token": secret},
+        )
+    except Exception as exc:
+        _record_bot_admin_audit(admin, request, action="admin_bot_webhook_set", provider="telegram", ok=False)
+        raise HTTPException(502, safe_bot_error(exc)) from exc
+    _record_bot_admin_audit(
+        admin,
+        request,
+        action="admin_bot_webhook_set",
+        provider="telegram",
+        ok=True,
+        details={"url": target},
+    )
+    return {"ok": True, "webhookUrl": target, "providerResultOk": bool(result.get("ok"))}
+
+
+@app.post("/api/admin/bots/telegram/delete-webhook-v2")
+async def admin_bots_delete_telegram_webhook_v2(
+    req: AdminBotWebhookActionV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    if not req.confirm:
+        raise HTTPException(409, "Подтвердите удаление Telegram webhook.")
+    try:
+        result = await request_telegram_bot_api(
+            token=telegram_admin_token(),
+            method="deleteWebhook",
+            payload={"drop_pending_updates": False},
+        )
+    except Exception as exc:
+        _record_bot_admin_audit(admin, request, action="admin_bot_webhook_deleted", provider="telegram", ok=False)
+        raise HTTPException(502, safe_bot_error(exc)) from exc
+    _record_bot_admin_audit(admin, request, action="admin_bot_webhook_deleted", provider="telegram", ok=True)
+    return {"ok": True, "providerResultOk": bool(result.get("ok"))}
+
+
+@app.post("/api/admin/bots/telegram/configure-v2")
+async def admin_bots_configure_telegram_v2(request: Request) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    commands = [
+        {"command": "start", "description": "Открыть генератор"},
+        {"command": "app", "description": "Открыть Mini App"},
+        {"command": "help", "description": "Инструкция"},
+        {"command": "gallery", "description": "Последние изображения"},
+        {"command": "settings", "description": "Настройки"},
+    ]
+    try:
+        result = await request_telegram_bot_api(
+            token=telegram_admin_token(),
+            method="setMyCommands",
+            payload={"commands": commands},
+        )
+    except Exception as exc:
+        _record_bot_admin_audit(admin, request, action="admin_bot_commands_configured", provider="telegram", ok=False)
+        raise HTTPException(502, safe_bot_error(exc)) from exc
+    _record_bot_admin_audit(admin, request, action="admin_bot_commands_configured", provider="telegram", ok=True)
+    return {"ok": bool(result.get("ok")), "commands": commands}
+
+
+@app.post("/api/admin/bots/max/set-webhook-v2")
+async def admin_bots_set_max_webhook_v2(
+    req: AdminBotWebhookActionV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    if not req.confirm:
+        raise HTTPException(409, "Подтвердите перенос MAX webhook на этот сервер.")
+    config = bot_integrations_config()
+    target = configured_bot_webhook_url(config, "max")
+    token = max_admin_token()
+    secret = max_admin_webhook_secret()
+    if not token or not secret or not target.startswith("https://"):
+        raise HTTPException(400, "MAX webhook не готов: нужны токен, секрет и публичный HTTPS.")
+    body = build_max_subscription_payload(target, secret, config["max"]["updateTypes"])
+    try:
+        result = await request_max_api(
+            token=token,
+            base_url=config["max"]["apiBaseUrl"],
+            verify=MAX_HTTP_VERIFY,
+            method="POST",
+            path="/subscriptions",
+            payload=body,
+        )
+    except Exception as exc:
+        _record_bot_admin_audit(admin, request, action="admin_bot_webhook_set", provider="max", ok=False)
+        raise HTTPException(502, safe_bot_error(exc)) from exc
+    _record_bot_admin_audit(
+        admin,
+        request,
+        action="admin_bot_webhook_set",
+        provider="max",
+        ok=True,
+        details={"url": target},
+    )
+    return {"ok": True, "webhookUrl": target, "subscription": bool(result)}
+
+
+@app.post("/api/admin/bots/max/delete-webhook-v2")
+async def admin_bots_delete_max_webhook_v2(
+    req: AdminBotWebhookActionV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    if not req.confirm:
+        raise HTTPException(409, "Подтвердите удаление MAX webhook.")
+    config = bot_integrations_config()
+    target = configured_bot_webhook_url(config, "max")
+    try:
+        result = await request_max_api(
+            token=max_admin_token(),
+            base_url=config["max"]["apiBaseUrl"],
+            verify=MAX_HTTP_VERIFY,
+            method="DELETE",
+            path="/subscriptions",
+            params={"url": target},
+        )
+    except Exception as exc:
+        _record_bot_admin_audit(admin, request, action="admin_bot_webhook_deleted", provider="max", ok=False)
+        raise HTTPException(502, safe_bot_error(exc)) from exc
+    _record_bot_admin_audit(admin, request, action="admin_bot_webhook_deleted", provider="max", ok=True)
+    return {"ok": True, "subscription": bool(result)}
+
+
 @app.get("/api/admin/max/status")
 async def admin_max_status(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
@@ -13954,6 +14987,20 @@ async def fetch_usd_rub_rate(force: bool = False) -> dict[str, Any]:
     return {"rate": None, "currency": "USD", "base": "RUB", "source": "none", "sourceUrl": CBR_DAILY_XML_URL, "cache": "error", "error": "; ".join(errors)}
 
 
+def usd_rub_rate_snapshot() -> dict[str, Any]:
+    cached = _saved_setting("exchange_usd_rub")
+    if isinstance(cached.get("rate"), (int, float)):
+        return {**cached, "cache": "snapshot"}
+    return {
+        "rate": None,
+        "currency": "USD",
+        "base": "RUB",
+        "source": "none",
+        "sourceUrl": CBR_DAILY_XML_URL,
+        "cache": "empty",
+    }
+
+
 OPENROUTER_USD_FEE_RATE = 0.30
 OPENROUTER_DEFAULT_TOKEN_RUB = 5.0
 OPENROUTER_DEFAULT_MIN_MARGIN_PERCENT = 40.0
@@ -15163,6 +16210,25 @@ async def admin_openrouter_status(request: Request) -> dict[str, Any]:
     return {"key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config(), "exchange": await fetch_usd_rub_rate()}
 
 
+@app.get("/api/admin/openrouter/catalog/status-v2")
+async def admin_openrouter_catalog_status_v2(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    snapshot = openrouter_catalog_snapshot()
+    return {"ok": True, "catalog": snapshot["meta"]}
+
+
+@app.post("/api/admin/openrouter/catalog/refresh-v2")
+async def admin_openrouter_catalog_refresh_v2(request: Request) -> dict[str, Any]:
+    require_trusted_admin(request)
+    started = schedule_openrouter_catalog_refresh()
+    return {
+        "ok": True,
+        "started": started,
+        "alreadyRunning": not started,
+        "catalog": openrouter_catalog_snapshot()["meta"],
+    }
+
+
 @app.get("/api/admin/openrouter/pricing")
 async def admin_openrouter_pricing(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
@@ -15181,16 +16247,20 @@ async def admin_openrouter_pricing(request: Request) -> dict[str, Any]:
 async def admin_openrouter_refresh_exchange(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
     exchange = await fetch_usd_rub_rate(force=True)
-    _admin_models_page_cache["ts"] = 0.0
-    _admin_models_page_cache["data"] = None
+    invalidate_openrouter_admin_caches()
     return {"ok": isinstance(exchange.get("rate"), (int, float)), "exchange": exchange}
 
 
 @app.post("/api/admin/openrouter/config")
 async def admin_save_openrouter_config(req: AdminOpenRouterConfigRequest, request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
-    capabilities = await fetch_openrouter_image_capabilities()
-    config = filter_openrouter_config_by_capabilities(req.config, capabilities)
+    snapshot = openrouter_catalog_snapshot()
+    capabilities = snapshot["models"]
+    config = (
+        filter_openrouter_config_by_capabilities(req.config, capabilities)
+        if snapshot["meta"].get("source") == "live-cache"
+        else normalize_openrouter_config(req.config)
+    )
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
         conn.execute(
@@ -15198,8 +16268,7 @@ async def admin_save_openrouter_config(req: AdminOpenRouterConfigRequest, reques
             "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
             (json.dumps(config, ensure_ascii=False), now),
         )
-    _admin_models_page_cache["ts"] = 0.0
-    _admin_models_page_cache["data"] = None
+    invalidate_openrouter_admin_caches()
     return {"ok": True, "config": config}
 
 
@@ -15214,7 +16283,14 @@ async def admin_save_openrouter_key(req: AdminSecretKeyRequest, request: Request
     except SecretStoreError as exc:
         raise HTTPException(503, "OpenRouter secret store is unavailable.") from exc
     key_status = await fetch_openrouter_key_status()
-    return {"ok": bool(key_status.get("ok")), "key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config()}
+    refresh_started = schedule_openrouter_catalog_refresh()
+    return {
+        "ok": bool(key_status.get("ok")),
+        "key": key_status,
+        "usage": openrouter_usage_stats(),
+        "config": get_openrouter_config(),
+        "catalogRefreshStarted": refresh_started,
+    }
 
 
 @app.delete("/api/admin/openrouter/key")
@@ -15225,7 +16301,14 @@ async def admin_delete_openrouter_key(request: Request) -> dict[str, Any]:
     except SecretStoreError as exc:
         raise HTTPException(503, "OpenRouter secret store is unavailable.") from exc
     key_status = await fetch_openrouter_key_status()
-    return {"ok": True, "key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config()}
+    refresh_started = schedule_openrouter_catalog_refresh()
+    return {
+        "ok": True,
+        "key": key_status,
+        "usage": openrouter_usage_stats(),
+        "config": get_openrouter_config(),
+        "catalogRefreshStarted": refresh_started,
+    }
 
 
 @app.post("/api/admin/openrouter/test-generate")
@@ -15345,22 +16428,21 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
     routes = (_saved_setting("generation_routes").get("routes") or default_routes(status)) if include_local else []
     matrix = _saved_setting("tariff_matrix").get("matrix") or default_tariff_matrix()
     openrouter_economy = {"minMarginPercent": 40, "tokenRub": 5, **(_saved_setting("openrouter_economy") or {})}
-    openrouter_status = await fetch_openrouter_key_status()
+    openrouter_status = openrouter_key_status_snapshot()
     openrouter_key = bool(openrouter_status.get("configured"))
     openrouter_usage = openrouter_usage_stats()
-    exchange = await fetch_usd_rub_rate()
-    try:
-        openrouter_capabilities = await fetch_openrouter_image_capabilities()
-        openrouter_capability_error = None
-    except Exception as exc:
-        openrouter_capabilities = []
-        openrouter_capability_error = truncate_admin_text(str(exc), 240)
-    try:
-        openrouter_video_catalog = await fetch_openrouter_video_catalog()
-        openrouter_video_error = None
-    except Exception as exc:
-        openrouter_video_catalog = []
-        openrouter_video_error = truncate_admin_text(str(exc), 240)
+    exchange = usd_rub_rate_snapshot()
+    catalog_snapshot = openrouter_catalog_snapshot()
+    openrouter_capabilities = catalog_snapshot["models"]
+    openrouter_video_catalog = catalog_snapshot["videoModels"]
+    catalog_meta = catalog_snapshot["meta"]
+    openrouter_capability_error = catalog_meta.get("lastError")
+    openrouter_video_error = catalog_meta.get("lastError")
+    refresh_started = (
+        schedule_openrouter_catalog_refresh()
+        if openrouter_catalog_refresh_needed(catalog_snapshot)
+        else False
+    )
 
     # Каталог: local (из profiles) + openrouter.
     catalog: list[dict[str, Any]] = []
@@ -15424,6 +16506,10 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
             "capabilityCatalog": openrouter_capabilities,
             "capabilityError": openrouter_capability_error,
             "capabilityCacheTtlSeconds": OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS,
+            "catalogState": {
+                **catalog_meta,
+                "refreshStarted": refresh_started,
+            },
             "videoCatalog": openrouter_video_catalog,
             "videoConfig": normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), openrouter_video_catalog),
             "videoUsage": openrouter_video_usage_stats(),

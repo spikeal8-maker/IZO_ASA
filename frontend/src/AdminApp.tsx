@@ -15,8 +15,9 @@ const AdminAnalyticsV2 = lazy(() => import('./adminAnalytics').then((module) => 
 const AdminModelsV2 = lazy(() => import('./adminModels'))
 const AdminMail = lazy(() => import('./adminMail'))
 const AdminPayments = lazy(() => import('./adminPayments'))
+const AdminBots = lazy(() => import('./adminBots'))
 
-type AdminTab = 'dashboard' | 'crm' | 'models' | 'tariffs' | 'payments' | 'mail' | 'logs'
+type AdminTab = 'dashboard' | 'crm' | 'models' | 'tariffs' | 'payments' | 'mail' | 'bots' | 'logs'
 type AnyRec = Record<string, unknown>
 type SeriesPoint = { date: string; value: number }
 type DashboardRange = 1 | 6 | 12 | 24 | 7 | 30 | 90
@@ -42,6 +43,7 @@ const ADMIN_ROUTES: Array<{ tab: AdminTab; label: string; path: string }> = [
   { tab: 'tariffs', label: 'Тарифы', path: '/admin/tariffs' },
   { tab: 'payments', label: 'Платежи', path: '/admin/payments' },
   { tab: 'mail', label: 'Почта', path: '/admin/mail' },
+  { tab: 'bots', label: 'Боты', path: '/admin/bots' },
   { tab: 'logs', label: 'Логи', path: '/admin/logs' },
 ]
 
@@ -483,6 +485,7 @@ export default function AdminApp() {
           {tab === 'tariffs' && <AdminTokens />}
           {tab === 'payments' && <Suspense fallback={<div className="preview-empty">Загружаем платежи...</div>}><AdminPayments /></Suspense>}
           {tab === 'mail' && <Suspense fallback={<div className="preview-empty">Загружаем почту...</div>}><AdminMail /></Suspense>}
+          {tab === 'bots' && <Suspense fallback={<div className="preview-empty">Загружаем ботов...</div>}><AdminBots /></Suspense>}
           {tab === 'logs' && <AdminLogs logsData={logsData} />}
         </section>
       </main>

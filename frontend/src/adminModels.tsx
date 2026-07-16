@@ -159,6 +159,17 @@ type PageData = {
     capabilityCatalog?: OpenRouterCapabilityModel[]
     capabilityError?: string | null
     capabilityCacheTtlSeconds?: number
+    catalogState?: {
+      refreshing?: boolean
+      refreshStarted?: boolean
+      lastAttemptAt?: string | null
+      lastSuccessAt?: string | null
+      lastError?: string | null
+      source?: string
+      modelCount?: number
+      videoModelCount?: number
+      cacheAgeSeconds?: number | null
+    }
     videoCatalog?: OpenRouterVideoModel[]
     videoConfig?: OpenRouterVideoConfig
     videoUsage?: OpenRouterVideoUsage
@@ -912,6 +923,7 @@ export default function AdminModelsV2() {
   const [videoConfigBusy, setVideoConfigBusy] = useState(false)
   const [openrouterKeyInput, setOpenrouterKeyInput] = useState('')
   const [openrouterBusy, setOpenrouterBusy] = useState(false)
+  const [openrouterCatalogBusy, setOpenrouterCatalogBusy] = useState(false)
   const [openrouterConfigBusy, setOpenrouterConfigBusy] = useState(false)
   const [openrouterTestBusy, setOpenrouterTestBusy] = useState(false)
   const [exchangeBusy, setExchangeBusy] = useState(false)
@@ -1116,6 +1128,35 @@ export default function AdminModelsV2() {
     setOpenrouterKeyInput('')
     await load()
     setMsg(r?.key?.ok ? 'Ключ OpenRouter сохранён и проверен' : `Ключ сохранён, но проверка не прошла: ${String(r?.key?.error || 'unknown')}`)
+  }
+
+  const refreshOpenrouterCatalog = async () => {
+    if (openrouterCatalogBusy) return
+    setOpenrouterCatalogBusy(true)
+    setMsg('Каталог OpenRouter обновляется в фоне…')
+    const started = await amvFetch('/admin/openrouter/catalog/refresh-v2', { method: 'POST' })
+      .then((response) => response.ok ? response.json() : null)
+      .catch(() => null) as { ok?: boolean } | null
+    if (!started?.ok) {
+      setOpenrouterCatalogBusy(false)
+      setMsg('Не удалось запустить обновление каталога')
+      return
+    }
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1000))
+      const status = await amvFetch('/admin/openrouter/catalog/status-v2')
+        .then((response) => response.ok ? response.json() : null)
+        .catch(() => null) as { catalog?: { refreshing?: boolean; lastError?: string | null } } | null
+      if (status?.catalog && !status.catalog.refreshing) {
+        await load()
+        setOpenrouterCatalogBusy(false)
+        setMsg(status.catalog.lastError ? 'Показан последний сохранённый каталог: живое обновление временно недоступно' : 'Каталог OpenRouter обновлён')
+        return
+      }
+    }
+    await load()
+    setOpenrouterCatalogBusy(false)
+    setMsg('Обновление продолжается в фоне; последний каталог остаётся доступен')
   }
 
   const deleteOpenrouterKey = async () => {
@@ -1627,7 +1668,16 @@ export default function AdminModelsV2() {
       <div className="toolbar">
         <input type="search" placeholder="Фильтр по всем карточкам: модель, provider, price, параметр" value={query} onChange={(e) => setQuery(e.target.value)} />
         <button className="ghost" onClick={() => setQuery('')}>Сбросить</button>
+        <button className="ghost" disabled={openrouterCatalogBusy || data.openrouter.catalogState?.refreshing} onClick={() => { void refreshOpenrouterCatalog() }}>
+          {openrouterCatalogBusy || data.openrouter.catalogState?.refreshing ? 'Обновляем каталог…' : 'Обновить каталог'}
+        </button>
       </div>
+      <p className="hint">
+        Каталог: {data.openrouter.catalogState?.modelCount ?? liveCapabilityCatalog.length} моделей
+        {' · '}источник {data.openrouter.catalogState?.source || 'резервный каталог'}
+        {data.openrouter.catalogState?.lastSuccessAt ? ` · обновлён ${new Date(data.openrouter.catalogState.lastSuccessAt).toLocaleString('ru-RU')}` : ''}
+        {typeof data.openrouter.catalogState?.cacheAgeSeconds === 'number' ? ` · возраст ${data.openrouter.catalogState.cacheAgeSeconds} сек.` : ''}
+      </p>
       {!liveCapabilityCatalog.length ? <p className="hint" style={{ color: 'var(--yellow)' }}>Живой каталог возможностей пока не получен. Модели, цены и управление показаны из проверенного резервного каталога; перезапустите backend для автоматического обновления.</p> : null}
       {data.openrouter.capabilityError ? <p className="hint" style={{ color: 'var(--yellow)' }}>Каталог возможностей OpenRouter не загрузился: {data.openrouter.capabilityError}</p> : null}
 
