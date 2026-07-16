@@ -13,11 +13,24 @@ if ($role.role -ne 'PRIMARY' -or $role.databaseWriter -ne $true) {
 $yandex = Get-Process -Name YandexDisk4 -ErrorAction SilentlyContinue
 if (-not $yandex) { throw 'YandexDisk4.exe is not running.' }
 if (Get-Process -Name YandexDisk2 -ErrorAction SilentlyContinue) {
-    throw 'Legacy YandexDisk2.exe is running together with Disk 4. Resolve the client conflict before staging.'
+    $legacyRoot = (Get-ItemProperty 'HKCU:\Software\Yandex\Yandex.Disk.2' -ErrorAction SilentlyContinue).RootFolder
+    $disk4Root = (Get-ItemProperty 'HKCU:\Software\Yandex\Yandex.Disk.4\*' -ErrorAction SilentlyContinue |
+        Where-Object SyncFolder | Select-Object -First 1 -ExpandProperty SyncFolder)
+    if ($legacyRoot -and $disk4Root) {
+        $legacyFull = [IO.Path]::GetFullPath([string]$legacyRoot).TrimEnd('\')
+        $disk4Full = [IO.Path]::GetFullPath([string]$disk4Root).TrimEnd('\')
+        if ($legacyFull.Equals($disk4Full, [StringComparison]::OrdinalIgnoreCase) -or
+            $legacyFull.StartsWith($disk4Full + '\', [StringComparison]::OrdinalIgnoreCase) -or
+            $disk4Full.StartsWith($legacyFull + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Yandex Disk 3.x and 4.x sync roots overlap. Resolve the client conflict before staging.'
+        }
+    }
 }
 $route = Test-NetConnection disk.yandex.ru -Port 443 -InformationLevel Detailed -WarningAction SilentlyContinue
 if (-not $route.TcpTestSucceeded) { throw 'Yandex.Disk HTTPS connectivity check failed.' }
-if ($route.InterfaceAlias -match '(?i)AdGuard.*VPN') { throw 'Yandex.Disk traffic is routed through AdGuard VPN; configure split tunneling first.' }
+if ($route.InterfaceAlias -match '(?i)AdGuard.*VPN') {
+    Write-Warning 'Yandex.Disk traffic is routed through AdGuard VPN. Snapshot staging continues, but health remains ATTENTION until split tunneling is configured.'
+}
 if (-not (Test-Path -LiteralPath $config.cloud_root -PathType Container)) {
     throw 'Configured Yandex.Disk cloud root is unavailable.'
 }

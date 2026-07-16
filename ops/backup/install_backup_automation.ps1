@@ -64,11 +64,26 @@ if ([IO.Path]::GetFullPath($YandexRoot).StartsWith([IO.Path]::GetFullPath($RepoR
 if (-not $WhatIfPreference) {
     if (-not (Test-Path -LiteralPath $YandexRoot -PathType Container)) { throw 'YandexRoot must exist and be fully synchronized before installation.' }
     if (-not (Get-Process -Name YandexDisk4 -ErrorAction SilentlyContinue)) { throw 'YandexDisk4.exe must be running before installation.' }
-    if (Get-Process -Name YandexDisk2 -ErrorAction SilentlyContinue) { throw 'Legacy YandexDisk2.exe must be stopped or removed before Disk 4 backup automation is installed.' }
+    if (Get-Process -Name YandexDisk2 -ErrorAction SilentlyContinue) {
+        $legacyRoot = (Get-ItemProperty 'HKCU:\Software\Yandex\Yandex.Disk.2' -ErrorAction SilentlyContinue).RootFolder
+        $disk4Root = (Get-ItemProperty 'HKCU:\Software\Yandex\Yandex.Disk.4\*' -ErrorAction SilentlyContinue |
+            Where-Object SyncFolder | Select-Object -First 1 -ExpandProperty SyncFolder)
+        if ($legacyRoot -and $disk4Root) {
+            $legacyFull = [IO.Path]::GetFullPath([string]$legacyRoot).TrimEnd('\')
+            $disk4Full = [IO.Path]::GetFullPath([string]$disk4Root).TrimEnd('\')
+            if ($legacyFull.Equals($disk4Full, [StringComparison]::OrdinalIgnoreCase) -or
+                $legacyFull.StartsWith($disk4Full + '\', [StringComparison]::OrdinalIgnoreCase) -or
+                $disk4Full.StartsWith($legacyFull + '\', [StringComparison]::OrdinalIgnoreCase)) {
+                throw 'Yandex Disk 3.x and 4.x sync roots must be different and non-nested.'
+            }
+        }
+    }
     if ((Get-Service cldflt -ErrorAction SilentlyContinue).Status -ne 'Running') { throw 'Windows cldflt service must be running.' }
     $route = Test-NetConnection disk.yandex.ru -Port 443 -InformationLevel Detailed -WarningAction SilentlyContinue
     if (-not $route.TcpTestSucceeded) { throw 'Yandex.Disk HTTPS connectivity check failed.' }
-    if ($route.InterfaceAlias -match '(?i)AdGuard.*VPN') { throw 'Yandex.Disk must be excluded from AdGuard VPN before automation is installed.' }
+    if ($route.InterfaceAlias -match '(?i)AdGuard.*VPN') {
+        Write-Warning 'Yandex.Disk is routed through AdGuard VPN. Automation will be installed, but health remains ATTENTION until split tunneling is configured.'
+    }
 }
 
 $configDir = Join-Path $InstallRoot 'config'
@@ -122,29 +137,49 @@ if ($PSCmdlet.ShouldProcess($configDir, 'Write role and path-only backup configu
 }
 
 if ($WhatIfPreference) { return }
-$principal = New-ScheduledTaskPrincipal -UserId ("$env:USERDOMAIN\$env:USERNAME") -LogonType Interactive -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 5) -StartWhenAvailable
-$powershell = (Get-Command powershell.exe).Source
-if ($Role -eq 'PRIMARY') {
-    $localAction = New-ScheduledTaskAction -Execute $powershell -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runtimeDir\run_local_backup.ps1`""
-    $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 15)
-    $startup = New-ScheduledTaskTrigger -AtStartup
-    $startup.Delay = 'PT5M'
-    Register-ScheduledTask -TaskName 'IZO_ASA Local Backup 15m' -Action $localAction -Trigger @($repeat, $startup) -Settings $settings -Principal $principal -Force | Out-Null
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$isAdministrator = ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator
+)
+$runLevel = if ($isAdministrator) { 'HIGHEST' } else { 'LIMITED' }
+$expectedTasks = [System.Collections.Generic.List[string]]::new()
 
-    $cloudAction = New-ScheduledTaskAction -Execute $powershell -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runtimeDir\stage_cloud_backup.ps1`""
-    $hourly = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Hours 1)
-    Register-ScheduledTask -TaskName 'IZO_ASA Cloud Stage Hourly' -Action $cloudAction -Trigger $hourly -Settings $settings -Principal $principal -Force | Out-Null
-} else {
-    $receiveAction = New-ScheduledTaskAction -Execute $powershell -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runtimeDir\receive_cloud_backup.ps1`""
-    $hourly = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(3) -RepetitionInterval (New-TimeSpan -Hours 1)
-    Register-ScheduledTask -TaskName 'IZO_ASA Replica Receive Hourly' -Action $receiveAction -Trigger $hourly -Settings $settings -Principal $principal -Force | Out-Null
-
-    $rehearseAction = New-ScheduledTaskAction -Execute $powershell -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runtimeDir\receive_cloud_backup.ps1`" -Rehearse"
-    $daily = New-ScheduledTaskTrigger -Daily -At '03:30'
-    Register-ScheduledTask -TaskName 'IZO_ASA Replica Rehearsal Daily' -Action $rehearseAction -Trigger $daily -Settings $settings -Principal $principal -Force | Out-Null
+function Register-IzoScheduledTask {
+    param(
+        [string]$Name,
+        [string]$Script,
+        [ValidateSet('MINUTE', 'HOURLY', 'DAILY')]
+        [string]$Schedule,
+        [int]$Modifier = 1,
+        [string]$StartTime
+    )
+    $action = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Script"
+    $arguments = @('/Create', '/TN', $Name, '/TR', $action, '/SC', $Schedule, '/RL', $runLevel, '/F')
+    if ($Schedule -in @('MINUTE', 'HOURLY')) {
+        $arguments += @('/MO', [string]$Modifier)
+    }
+    if ($StartTime) {
+        $arguments += @('/ST', $StartTime)
+    }
+    & schtasks.exe @arguments | Write-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Scheduled task registration failed: $Name"
+    }
+    $expectedTasks.Add($Name)
 }
-$healthAction = New-ScheduledTaskAction -Execute $powershell -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$runtimeDir\check_backup_health.ps1`""
-$healthTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 10)
-Register-ScheduledTask -TaskName 'IZO_ASA Backup Health 10m' -Action $healthAction -Trigger $healthTrigger -Settings $settings -Principal $principal -Force | Out-Null
-Write-Host "BACKUP_AUTOMATION_INSTALLED role=$Role computer=$env:COMPUTERNAME"
+
+if ($Role -eq 'PRIMARY') {
+    Register-IzoScheduledTask -Name 'IZO_ASA Local Backup 15m' -Script "$runtimeDir\run_local_backup.ps1" -Schedule MINUTE -Modifier 15
+    Register-IzoScheduledTask -Name 'IZO_ASA Cloud Stage Hourly' -Script "$runtimeDir\stage_cloud_backup.ps1" -Schedule HOURLY -Modifier 1
+} else {
+    Register-IzoScheduledTask -Name 'IZO_ASA Replica Receive Hourly' -Script "$runtimeDir\receive_cloud_backup.ps1" -Schedule HOURLY -Modifier 1
+    Register-IzoScheduledTask -Name 'IZO_ASA Replica Rehearsal Daily' -Script "$runtimeDir\receive_cloud_backup.ps1 -Rehearse" -Schedule DAILY -StartTime '03:30'
+}
+Register-IzoScheduledTask -Name 'IZO_ASA Backup Health 10m' -Script "$runtimeDir\check_backup_health.ps1" -Schedule MINUTE -Modifier 10
+
+foreach ($taskName in $expectedTasks) {
+    if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) {
+        throw "Scheduled task verification failed: $taskName"
+    }
+}
+Write-Host "BACKUP_AUTOMATION_INSTALLED role=$Role computer=$env:COMPUTERNAME runLevel=$runLevel tasks=$($expectedTasks.Count)"

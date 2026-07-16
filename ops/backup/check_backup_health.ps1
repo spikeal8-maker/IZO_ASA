@@ -16,28 +16,56 @@ $now = [DateTimeOffset]::UtcNow
 function Test-FreshTimestamp {
     param([object]$Value, [int]$MaximumMinutes, [string]$ErrorCode)
     if (-not $Value) { $errors.Add($ErrorCode); return }
-    try { $age = $now - [DateTimeOffset]::Parse([string]$Value) }
+    try {
+        if ($Value -is [DateTime]) {
+            $timestamp = [DateTimeOffset]::new(([DateTime]$Value).ToUniversalTime())
+        } elseif ($Value -is [DateTimeOffset]) {
+            $timestamp = [DateTimeOffset]$Value
+        } else {
+            $timestamp = [DateTimeOffset]::Parse(
+                [string]$Value,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::RoundtripKind
+            )
+        }
+        $age = $now - $timestamp.ToUniversalTime()
+    }
     catch { $errors.Add($ErrorCode); return }
     if ($age.TotalMinutes -gt $MaximumMinutes) { $errors.Add($ErrorCode) }
 }
 
 $yandexRunning = [bool](Get-Process -Name YandexDisk4 -ErrorAction SilentlyContinue)
 $legacyYandexRunning = [bool](Get-Process -Name YandexDisk2 -ErrorAction SilentlyContinue)
+$legacyRootConflict = $false
+if ($legacyYandexRunning) {
+    $legacyRoot = (Get-ItemProperty 'HKCU:\Software\Yandex\Yandex.Disk.2' -ErrorAction SilentlyContinue).RootFolder
+    $disk4Root = (Get-ItemProperty 'HKCU:\Software\Yandex\Yandex.Disk.4\*' -ErrorAction SilentlyContinue |
+        Where-Object SyncFolder | Select-Object -First 1 -ExpandProperty SyncFolder)
+    if ($legacyRoot -and $disk4Root) {
+        $legacyFull = [IO.Path]::GetFullPath([string]$legacyRoot).TrimEnd('\')
+        $disk4Full = [IO.Path]::GetFullPath([string]$disk4Root).TrimEnd('\')
+        $legacyRootConflict = (
+            $legacyFull.Equals($disk4Full, [StringComparison]::OrdinalIgnoreCase) -or
+            $legacyFull.StartsWith($disk4Full + '\', [StringComparison]::OrdinalIgnoreCase) -or
+            $disk4Full.StartsWith($legacyFull + '\', [StringComparison]::OrdinalIgnoreCase)
+        )
+    }
+}
 $cloudAvailable = Test-Path -LiteralPath $config.cloud_root -PathType Container
 $route = Test-NetConnection disk.yandex.ru -Port 443 -InformationLevel Detailed -WarningAction SilentlyContinue
-$cloudFreeGB = $null
-$cloudFreePercent = $null
+$syncVolumeFreeGB = $null
+$syncVolumeFreePercent = $null
 if ($cloudAvailable) {
     $root = [IO.Path]::GetPathRoot([string]$config.cloud_root).TrimEnd('\')
     $disk = Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='$root'")
     if ($disk) {
-        $cloudFreeGB = [math]::Round($disk.FreeSpace / 1GB, 2)
-        $cloudFreePercent = [math]::Round(100 * $disk.FreeSpace / $disk.Size, 2)
-        if ($cloudFreePercent -lt 15) { $errors.Add('cloud_free_space_below_15_percent') }
+        $syncVolumeFreeGB = [math]::Round($disk.FreeSpace / 1GB, 2)
+        $syncVolumeFreePercent = [math]::Round(100 * $disk.FreeSpace / $disk.Size, 2)
+        if ($syncVolumeFreeGB -lt 50) { $errors.Add('sync_volume_free_space_below_50_gb') }
     }
 }
 if (-not $yandexRunning) { $errors.Add('yandex_disk_not_running') }
-if ($legacyYandexRunning) { $errors.Add('legacy_yandex_disk_running') }
+if ($legacyRootConflict) { $errors.Add('yandex_sync_roots_overlap') }
 if (-not $route.TcpTestSucceeded) { $errors.Add('yandex_https_unavailable') }
 if ($route.InterfaceAlias -match '(?i)AdGuard.*VPN') { $errors.Add('yandex_routed_through_adguard_vpn') }
 if ((Get-Service cldflt -ErrorAction SilentlyContinue).Status -ne 'Running') { $errors.Add('cldflt_not_running') }
@@ -58,8 +86,10 @@ $health['YandexSyncErrors'] = @($errors)
 $health['CloudFolderAvailable'] = $cloudAvailable
 $health['YandexRouteInterface'] = [string]$route.InterfaceAlias
 $health['YandexHttpsReachable'] = [bool]$route.TcpTestSucceeded
-$health['CloudFreeGB'] = $cloudFreeGB
-$health['CloudFreePercent'] = $cloudFreePercent
+$health['CloudFreeGB'] = $null
+$health['CloudFreePercent'] = $null
+$health['SyncVolumeFreeGB'] = $syncVolumeFreeGB
+$health['SyncVolumeFreePercent'] = $syncVolumeFreePercent
 $health['CloudStatus'] = if ($cloudAvailable -and $yandexRunning) { 'AVAILABLE' } else { 'UNAVAILABLE' }
 $health['OverallStatus'] = if ($errors.Count -eq 0) { 'OK' } else { 'ATTENTION' }
 $health['UpdatedAt'] = $now.ToString('o')
