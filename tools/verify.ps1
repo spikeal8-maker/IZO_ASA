@@ -145,10 +145,13 @@ $npm = Resolve-Executable `
 
 $pythonFiles = @(
     Get-ChildItem -LiteralPath $backendDirectory -Recurse -File -Filter "*.py" |
-        Where-Object { $_.FullName -notmatch "[\\/]__pycache__[\\/]" } |
+        Where-Object {
+            $_.FullName -notmatch "[\\/]__pycache__[\\/]" -and
+            $_.FullName -notmatch "[\\/]\.venv[\\/]"
+        } |
         ForEach-Object { $_.FullName }
 )
-$compileArguments = @("-m", "py_compile") + $pythonFiles
+$compileBatchSize = 40
 $quickTests = @(
     "-m", "pytest", "-q",
     "tools/test_generate_backend_map.py",
@@ -200,7 +203,18 @@ if ($usesLiveChecks) {
         -WorkingDirectory $resolvedRoot
 }
 
-Invoke-NativeStep -Name "py_compile" -FilePath $python -ArgumentList $compileArguments -WorkingDirectory $resolvedRoot
+$compileBatchNumber = 0
+for ($offset = 0; $offset -lt $pythonFiles.Count; $offset += $compileBatchSize) {
+    $compileBatchNumber += 1
+    $lastIndex = [Math]::Min($offset + $compileBatchSize - 1, $pythonFiles.Count - 1)
+    $compileBatch = @($pythonFiles[$offset..$lastIndex])
+    $compileArguments = @("-m", "py_compile") + $compileBatch
+    Invoke-NativeStep `
+        -Name "py_compile_$compileBatchNumber" `
+        -FilePath $python `
+        -ArgumentList $compileArguments `
+        -WorkingDirectory $resolvedRoot
+}
 Invoke-NativeStep -Name "backend_map_check" -FilePath $python -ArgumentList @($mapScript, "--check") -WorkingDirectory $resolvedRoot
 
 if ($usesFullSuite) {

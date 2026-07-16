@@ -23,11 +23,12 @@ def run_plan(script: str) -> str:
 
 def test_publish_plan_is_immutable_and_atomic() -> None:
     output = run_plan("publish-frontend-release.ps1")
-    assert "branch=main" in output
+    assert "branch=" in output
     assert "smoke_port=5197" in output
     assert "atomic_manifest=" in output
     assert "retain=2" in output
     script = (ROOT / "tools" / "publish-frontend-release.ps1").read_text(encoding="utf-8")
+    assert '$branch -ne "main" -and -not $PlanOnly' in script
     assert "npm run build" in script
     assert script.index("npm run build") < script.index("e2e:synthetic")
 

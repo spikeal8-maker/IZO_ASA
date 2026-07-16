@@ -17,10 +17,14 @@ $activeManifest = Join-Path $runtime "active-frontend.json"
 if (-not (Test-Path (Join-Path $root "backend\main.py")) -or -not (Test-Path (Join-Path $root "start-public.bat"))) {
     throw "Refusing release outside the canonical project: $root"
 }
-$branch = (& git -C $root branch --show-current).Trim()
-$sha = (& git -C $root rev-parse --short=12 HEAD).Trim()
-$dirty = @(& git -C $root status --porcelain)
-if ($branch -ne "main") { throw "Frontend releases are allowed only from main; current branch: $branch" }
+$branchOutput = @(& git.exe -C $root branch --show-current)
+$branch = if ($branchOutput.Count -gt 0) { ([string]$branchOutput[0]).Trim() } else { "" }
+if (-not $branch) { $branch = "detached" }
+$shaOutput = @(& git.exe -C $root rev-parse --short=12 HEAD)
+if ($LASTEXITCODE -ne 0 -or $shaOutput.Count -eq 0) { throw "Unable to resolve the release commit." }
+$sha = ([string]$shaOutput[0]).Trim()
+$dirty = @(& git.exe -C $root status --porcelain)
+if ($branch -ne "main" -and -not $PlanOnly) { throw "Frontend releases are allowed only from main; current branch: $branch" }
 if ($dirty.Count -gt 0 -and -not $PlanOnly) { throw "Refusing release from a dirty worktree." }
 $releaseId = "$sha-$(Get-Date -Format 'yyyyMMddHHmmss')"
 $releasePath = Join-Path $releases $releaseId
