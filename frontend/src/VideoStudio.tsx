@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, ReactElement } from 'react'
 import {
   ChevronDown, Copy, Download, Film, ImagePlus, Images,
-  Lightbulb, LoaderCircle, Mic2, MoreVertical, Play, RotateCcw, Settings2,
+  HelpCircle, LoaderCircle, Mic2, MoreVertical, Play, RotateCcw, Settings2,
   Share2, Sparkles, Trash2, Upload, Volume2, VolumeX, WandSparkles, X,
 } from 'lucide-react'
 import { ensureSessionRefreshedV2 } from './authV2'
@@ -13,6 +13,13 @@ type VideoQuality = 'fast' | 'standard' | 'max'
 type FrameKey = 'first' | 'last' | 'reference'
 
 type VideoPriceExample = { duration: number; resolution: string; aspectRatio: string; tokens: number }
+type VideoEstimate = {
+  chargedTokens: number
+  estimatedCostRub?: number
+  profitRub?: number
+  rateUsd?: number
+  pricingKey?: string | null
+}
 type VideoModel = {
   id: string
   name: string
@@ -63,6 +70,13 @@ const QUALITY_META: Array<{ id: VideoQuality; label: string }> = [
   { id: 'standard', label: 'Стандарт' },
   { id: 'max', label: 'Максимум' },
 ]
+const EXAMPLE_PROMPTS: Record<VideoMode, string> = {
+  text_to_video: 'На рассвете камера плавно летит над футуристическим городом у моря. На улицах просыпается жизнь, транспорт мягко движется между зданиями, солнечные лучи отражаются в стекле, лёгкий туман растворяется в тёплом свете. Кинематографичная композиция, естественная динамика и реалистичная атмосфера.',
+  image_to_video: 'Камера медленно приближается к главному объекту. Волосы, одежда и детали окружения естественно движутся от лёгкого ветра, свет мягко меняется, исходная композиция и внешность сохраняются.',
+  first_last_frame: 'Создай плавный кинематографичный переход от первого кадра к последнему. Сохрани объекты и композицию, добавь естественное движение камеры, света и окружающей среды без резких скачков.',
+  reference_to_video: 'Собери цельную динамичную сцену по загруженным референсам. Сохрани внешность, предметы и визуальный стиль, добавь естественное движение камеры, реалистичный свет и последовательное действие.',
+}
+const PRIMARY_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:3']
 const DRAFT_KEY = 'izo-video-draft-v2'
 const VISIBILITY_KEY = 'izo:video-model-visibility'
 const QUALITY_MODELS_KEY = 'izo:video-quality-models'
@@ -107,12 +121,15 @@ function shortModelName(model: VideoModel | undefined) {
   if (!model) return 'Нет модели'
   return model.name.replace(/^.*?:\s*/, '').replace(/\s+(Preview|Standard)$/i, ' $1')
 }
-function modelRate(model: VideoModel | undefined) {
+function publicModelRate(model: VideoModel | undefined) {
   const tokens = Number(model?.publicPricing?.fromTokens || 0)
   const seconds = Math.min(...(model?.supportedDurations || []).filter((value) => value > 0))
-  if (!tokens || !Number.isFinite(seconds)) return 'цена по запросу'
+  if (!tokens || !Number.isFinite(seconds)) return 'расчёт после выбора'
   const rate = tokens / seconds
-  return `${Number.isInteger(rate) ? rate : rate.toFixed(1)} ток./с`
+  return `от ${formatTokenRate(rate)} ток./с`
+}
+function formatTokenRate(value: number) {
+  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value)
 }
 export default function VideoStudio(): ReactElement {
   const initialDraft = useMemo(() => readStorage<Record<string, unknown>>(DRAFT_KEY, {}), [])
@@ -132,7 +149,10 @@ export default function VideoStudio(): ReactElement {
   const [history, setHistory] = useState<VideoJob[]>([])
   const [activeJob, setActiveJob] = useState<VideoJob | null>(null)
   const [selectedJob, setSelectedJob] = useState<VideoJob | null>(null)
-  const [estimate, setEstimate] = useState<number | null>(null)
+  const [estimate, setEstimate] = useState<VideoEstimate | null>(null)
+  const [estimateKey, setEstimateKey] = useState('')
+  const [estimateLoading, setEstimateLoading] = useState(false)
+  const [qualityEstimates, setQualityEstimates] = useState<Partial<Record<VideoQuality, VideoEstimate>>>({})
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -141,12 +161,14 @@ export default function VideoStudio(): ReactElement {
   const [galleryLoading, setGalleryLoading] = useState(false)
   const [uploadTarget, setUploadTarget] = useState<FrameKey>('first')
   const [proOpen, setProOpen] = useState(false)
+  const [formatExpanded, setFormatExpanded] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [voiceRecording, setVoiceRecording] = useState(false)
   const [voiceBusy, setVoiceBusy] = useState(false)
   const [improveBusy, setImproveBusy] = useState(false)
   const [lastImprovedPrompt, setLastImprovedPrompt] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null)
   const voiceRecorderRef = useRef<MediaRecorder | null>(null)
   const voiceStreamRef = useRef<MediaStream | null>(null)
   const voiceStartedAtRef = useRef(0)
@@ -163,6 +185,7 @@ export default function VideoStudio(): ReactElement {
     return candidates[Math.floor((candidates.length - 1) / 2)] || candidates[0]
   }, [mode, qualityModels, sortedModels])
   const selectedModel = models.find((item) => item.id === modelId) || qualityModel(quality) || models[0]
+  const qualityChoices = useMemo(() => Object.fromEntries(QUALITY_META.map((item) => [item.id, qualityModel(item.id)])) as Record<VideoQuality, VideoModel | undefined>, [qualityModel])
 
   const syncModelDefaults = useCallback((model: VideoModel | undefined) => {
     if (!model) return
@@ -277,18 +300,86 @@ export default function VideoStudio(): ReactElement {
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
   }, [])
 
-  const requestBody = useMemo(() => selectedModel ? {
-    mode, model: selectedModel.id, prompt: prompt.trim() || 'preview', duration, resolution,
-    aspectRatio, generateAudio, firstFrame: firstFrame || null, lastFrame: lastFrame || null, references,
-  } : null, [mode, selectedModel, prompt, duration, resolution, aspectRatio, generateAudio, firstFrame, lastFrame, references])
+  const requestForModel = useCallback((model: VideoModel | undefined) => {
+    if (!model) return null
+    const nextDuration = model.supportedDurations.includes(duration) ? duration : (model.supportedDurations[0] || 4)
+    const nextResolution = model.supportedResolutions.includes(resolution) ? resolution : (model.supportedResolutions[0] || '720p')
+    const nextAspectRatio = model.supportedAspectRatios.includes(aspectRatio) ? aspectRatio : (model.supportedAspectRatios[0] || '16:9')
+    return {
+      mode,
+      model: model.id,
+      prompt: 'preview',
+      duration: nextDuration,
+      resolution: nextResolution,
+      aspectRatio: nextAspectRatio,
+      generateAudio: model.generateAudio !== false && generateAudio,
+      firstFrame: firstFrame || null,
+      lastFrame: lastFrame || null,
+      references,
+    }
+  }, [aspectRatio, duration, firstFrame, generateAudio, lastFrame, mode, references, resolution])
+  const estimateRequest = useMemo(() => requestForModel(selectedModel), [requestForModel, selectedModel])
+  const estimateRequestKey = useMemo(() => estimateRequest ? JSON.stringify(estimateRequest) : '', [estimateRequest])
+  const requestBody = useMemo(() => {
+    const body = estimateRequest
+    return body ? { ...body, prompt: prompt.trim() || 'preview' } : null
+  }, [estimateRequest, prompt])
   useEffect(() => {
-    if (!requestBody) return
+    if (!estimateRequest) return
+    const requestKey = JSON.stringify(estimateRequest)
+    const controller = new AbortController()
     const timer = window.setTimeout(async () => {
-      const response = await apiFetch('/video/estimate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
-      if (response.ok) { const data = await response.json() as { chargedTokens?: number }; setEstimate(Number(data.chargedTokens || 0) || null) } else setEstimate(null)
-    }, 350)
-    return () => window.clearTimeout(timer)
-  }, [requestBody])
+      setEstimateLoading(true)
+      try {
+        const response = await apiFetch('/video/estimate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(estimateRequest),
+          signal: controller.signal,
+        })
+        if (!response.ok) {
+          setEstimate(null)
+          setEstimateKey(requestKey)
+          return
+        }
+        const data = await response.json() as VideoEstimate
+        setEstimate(Number(data.chargedTokens || 0) > 0 ? data : null)
+        setEstimateKey(requestKey)
+      } catch (reason) {
+        if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
+          setEstimate(null)
+          setEstimateKey(requestKey)
+        }
+      } finally {
+        if (!controller.signal.aborted) setEstimateLoading(false)
+      }
+    }, 250)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [estimateRequest])
+  useEffect(() => {
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      const entries = await Promise.all(QUALITY_META.map(async (item) => {
+        const body = requestForModel(qualityChoices[item.id])
+        if (!body) return [item.id, null] as const
+        try {
+          const response = await apiFetch('/video/estimate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          })
+          if (!response.ok) return [item.id, null] as const
+          const data = await response.json() as VideoEstimate
+          return [item.id, Number(data.chargedTokens || 0) > 0 ? data : null] as const
+        } catch {
+          return [item.id, null] as const
+        }
+      }))
+      if (!controller.signal.aborted) setQualityEstimates(Object.fromEntries(entries.filter((entry) => entry[1])) as Partial<Record<VideoQuality, VideoEstimate>>)
+    }, 320)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [qualityChoices, requestForModel])
 
   const assignImage = (target: FrameKey, value: string) => {
     if (target === 'first') setFirstFrame(value)
@@ -359,15 +450,30 @@ export default function VideoStudio(): ReactElement {
   const shownJob = selectedJob || activeJob
   const modeMeta = MODE_META.find((item) => item.id === mode) || MODE_META[0]
   const stageRatio = shownJob?.aspectRatio || aspectRatio
-  const selectedModelPrice = selectedModel?.publicPricing?.fromTokens
-  const qualityChoices = useMemo(() => Object.fromEntries(QUALITY_META.map((item) => [item.id, qualityModel(item.id)])) as Record<VideoQuality, VideoModel | undefined>, [qualityModel])
+  const orderedAspectRatios = useMemo(() => {
+    const ratios = selectedModel?.supportedAspectRatios || []
+    return [...ratios].sort((a, b) => {
+      const aIndex = PRIMARY_ASPECT_RATIOS.indexOf(a)
+      const bIndex = PRIMARY_ASPECT_RATIOS.indexOf(b)
+      return (aIndex < 0 ? 99 : aIndex) - (bIndex < 0 ? 99 : bIndex)
+    })
+  }, [selectedModel])
+  const primaryAspectRatios = useMemo(() => {
+    const first = orderedAspectRatios.slice(0, 4)
+    if (first.includes(aspectRatio) || !orderedAspectRatios.includes(aspectRatio)) return first
+    return [...first.slice(0, 3), aspectRatio]
+  }, [aspectRatio, orderedAspectRatios])
+  const visibleAspectRatios = formatExpanded ? orderedAspectRatios : primaryAspectRatios
+  const visibleEstimate = estimateKey === estimateRequestKey ? estimate : null
+  const visibleEstimateLoading = Boolean(estimateRequest && (estimateLoading || estimateKey !== estimateRequestKey))
+  const currentRate = visibleEstimate && duration > 0 ? visibleEstimate.chargedTokens / duration : null
 
   return <main className="video-studio">
     <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => void handleFile(event)} />
     <section className="video-shell">
       <aside className="video-composer" aria-label="Настройки видеогенерации">
         <div className="video-composer-scroll">
-          <header className="video-composer-title"><span>Видео</span><h1>Создать ролик</h1></header>
+          <header className="video-composer-title"><h1>Генерация видео</h1></header>
           <div className="video-mode-tabs" role="tablist" aria-label="Способ создания">
             {MODE_META.map((item) => <button key={item.id} type="button" role="tab" aria-selected={mode === item.id} className={mode === item.id ? 'active' : ''} onClick={() => selectMode(item.id)}><strong>{item.label}</strong><small>{item.note}</small></button>)}
           </div>
@@ -379,30 +485,65 @@ export default function VideoStudio(): ReactElement {
             {mode === 'reference_to_video' && <div className="video-reference-inputs">{references.map((value, index) => sourceCard('reference', value, `Референс ${index + 1}`, '', index))}{references.length < 4 && sourceCard('reference', '', 'Добавить референс', 'До четырёх изображений')}</div>}
           </section>}
 
-          <label className="video-prompt"><span><b>Что происходит в кадре?</b><button type="button" title="Подсказки"><Lightbulb /> Подсказки</button></span><textarea value={prompt} maxLength={3000} placeholder="Опишите сцену, действия, движение камеры и атмосферу" onChange={(event) => { setPrompt(event.target.value); setLastImprovedPrompt('') }} /><small>{prompt.length} / 3000</small></label>
+          <section className="video-prompt">
+            <div className="video-prompt-heading">
+              <b>Что происходит в кадре?</b>
+              <button className="video-help-dot" type="button" aria-label="Как составить описание видео">
+                <HelpCircle aria-hidden="true" />
+                <span role="tooltip">Опишите действие, движение камеры, свет и атмосферу. Чем точнее сцена, тем предсказуемее получится ролик.</span>
+              </button>
+            </div>
+            <div className="video-prompt-field">
+              <textarea ref={promptTextareaRef} value={prompt} maxLength={3000} placeholder="Опишите сцену, действия, движение камеры и атмосферу" onChange={(event) => { setPrompt(event.target.value); setLastImprovedPrompt('') }} />
+              <small>{prompt.length} / 3000</small>
+              {prompt && <button className="video-prompt-clear" type="button" title="Очистить промпт" aria-label="Очистить промпт" onClick={() => { setPrompt(''); setLastImprovedPrompt(''); promptTextareaRef.current?.focus() }}><X /></button>}
+            </div>
+          </section>
           <div className="video-prompt-actions">
             <button type="button" className={voiceRecording ? 'recording' : ''} disabled={voiceBusy} aria-pressed={voiceRecording} onClick={() => void toggleVoiceInput()}>{voiceRecording && <i aria-hidden="true" />}<Mic2 /> {voiceBusy ? 'Распознаю…' : voiceRecording ? 'Стоп' : 'Голос'}</button>
             <button type="button" disabled={!prompt.trim() || improveBusy || lastImprovedPrompt === prompt} onClick={() => void improvePrompt()}><WandSparkles /> {improveBusy ? 'Улучшаю…' : lastImprovedPrompt === prompt ? 'Улучшено' : 'Улучшить'}</button>
-            <button type="button" onClick={() => setPrompt('Камера плавно приближается, естественное движение объектов, кинематографичный свет и реалистичная атмосфера.')}><Sparkles /> Пример</button>
+            <button type="button" onClick={() => { setPrompt(EXAMPLE_PROMPTS[mode]); setLastImprovedPrompt('') }}><Sparkles /> Пример</button>
+          </div>
+          <div className="video-timing-row">
+            <label className="video-duration-control">
+              <span>Длительность</span>
+              <select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{selectedModel?.supportedDurations.map((value) => <option key={value} value={value}>{value} секунд</option>)}</select>
+            </label>
+            {selectedModel?.generateAudio !== false && <label className="video-audio-compact">
+              <input type="checkbox" checked={generateAudio} onChange={(event) => setGenerateAudio(event.target.checked)} />
+              <i />
+              <span>{generateAudio ? <Volume2 /> : <VolumeX />}<b>Звук</b></span>
+            </label>}
+            <div className="video-live-price" aria-live="polite">
+              <strong>{visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток.` : '—'}</strong>
+              <small>{currentRate ? `≈ ${formatTokenRate(currentRate)} ток./с` : 'за текущие параметры'}</small>
+            </div>
           </div>
           <div className="video-setting-label">Формат</div>
-          <div className="video-format-tabs">{selectedModel?.supportedAspectRatios.map((value) => <button key={value} type="button" className={aspectRatio === value ? 'active' : ''} onClick={() => setAspectRatio(value)}><i style={{ aspectRatio: aspectStyle(value) }} /><span>{value}</span></button>)}</div>
+          <div className="video-format-tabs">{visibleAspectRatios.map((value) => <button key={value} type="button" className={aspectRatio === value ? 'active' : ''} onClick={() => setAspectRatio(value)}><i style={{ aspectRatio: aspectStyle(value) }} /><span>{value}</span></button>)}</div>
+          {orderedAspectRatios.length > 4 && <button className="video-format-more" type="button" aria-expanded={formatExpanded} onClick={() => setFormatExpanded((value) => !value)}><span>{formatExpanded ? 'Скрыть дополнительные форматы' : `Ещё форматы (${orderedAspectRatios.length - 4})`}</span><ChevronDown className={formatExpanded ? 'open' : ''} /></button>}
 
-          <section className="video-params"><h2>Основные параметры</h2>
-            <div className="video-quality-tabs">{QUALITY_META.map((item) => { const presetModel = qualityChoices[item.id]; return <button type="button" key={item.id} className={quality === item.id ? 'active' : ''} onClick={() => selectQuality(item.id)}><span><strong>{item.label}</strong><b>{modelRate(presetModel)}</b></span><small>{shortModelName(presetModel)}</small></button> })}</div>
-            <div className="video-options-row single">
-              <label><span>Длительность</span><select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{selectedModel?.supportedDurations.map((value) => <option key={value} value={value}>{value} секунд</option>)}</select></label>
-            </div>
-            <div className="video-setting-label">Качество</div>
+          <section className="video-params"><h2>Качество</h2>
+            <div className="video-quality-tabs">{QUALITY_META.map((item) => {
+              const presetModel = qualityChoices[item.id]
+              const presetEstimate = qualityEstimates[item.id]
+              const presetDuration = presetModel?.supportedDurations.includes(duration) ? duration : (presetModel?.supportedDurations[0] || duration)
+              const presetRate = presetEstimate && presetDuration > 0 ? presetEstimate.chargedTokens / presetDuration : null
+              return <button type="button" key={item.id} className={quality === item.id && selectedModel?.id === presetModel?.id ? 'active' : ''} onClick={() => selectQuality(item.id)}>
+                <span><strong>{item.label}</strong><b>{presetRate ? `≈ ${formatTokenRate(presetRate)} ток./с` : 'Считаем…'}</b></span>
+                <small>{shortModelName(presetModel)}</small>
+                <em>{presetEstimate ? `${presetEstimate.chargedTokens} ток. за ${presetDuration} сек.` : 'Цена уточняется'}</em>
+              </button>
+            })}</div>
+            <div className="video-setting-label">Разрешение</div>
             <div className="video-resolution-tabs">{selectedModel?.supportedResolutions.map((value) => <button key={value} type="button" className={resolution === value ? 'active' : ''} onClick={() => setResolution(value)}>{value}</button>)}</div>
-            {selectedModel?.generateAudio !== false && <label className="video-audio"><span>{generateAudio ? <Volume2 /> : <VolumeX />}<b>Звук</b><small>Речь и атмосфера, если модель поддерживает</small></span><input type="checkbox" checked={generateAudio} onChange={(event) => setGenerateAudio(event.target.checked)} /><i /></label>}
-            <button type="button" className="video-pro" onClick={() => setProOpen((value) => !value)}><Settings2 /> Профессиональные настройки <ChevronDown className={proOpen ? 'open' : ''} /></button>
-            {proOpen && <div className="video-pro-body"><label><span>Модель</span><select value={selectedModel?.id || ''} onChange={(event) => syncModelDefaults(models.find((item) => item.id === event.target.value))}>{models.map((model) => <option key={model.id} value={model.id}>{model.name}{model.publicPricing?.fromTokens ? ` · от ${model.publicPricing.fromTokens} ток.` : ''}</option>)}</select></label><p>{selectedModel?.description || 'Описание модели пока не опубликовано.'}</p><small>{selectedModelPrice ? `Минимальная стоимость: ${selectedModelPrice} ток.` : 'Цена рассчитывается по выбранным параметрам.'}</small></div>}
+            <button type="button" className="video-pro" onClick={() => setProOpen((value) => !value)}><Settings2 /><span><b>Выбрать модель</b><small>{shortModelName(selectedModel)} · {publicModelRate(selectedModel)}</small></span><ChevronDown className={proOpen ? 'open' : ''} /></button>
+            {proOpen && <div className="video-model-list">{models.map((model) => <button key={model.id} type="button" className={selectedModel?.id === model.id ? 'active' : ''} onClick={() => syncModelDefaults(model)}><span><strong>{model.name}</strong><b>{publicModelRate(model)}</b></span><p>{model.description || 'Описание модели пока не опубликовано.'}</p><small>{model.supportedResolutions.join(', ')} · {model.supportedDurations.join(', ')} сек.</small></button>)}</div>}
           </section>
           {error && <div className="video-error">{error}</div>}
         </> : <div className="video-empty-models">{error || config?.availability?.[mode]?.reason || 'Для этого режима пока нет доступных моделей.'}</div>}
         </div>
-        {!loading && <button className="video-generate" type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{activeJob ? 'Генерация идёт' : 'Создать видео'}</span><b>{estimate ? `${estimate} ток.` : models.length ? 'Рассчитаем' : 'Нет модели'}</b></button>}
+        {!loading && <button className="video-generate" type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{activeJob ? 'Генерация идёт' : 'Создать видео'}</span><b>{visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток.` : models.length ? '—' : 'Нет модели'}</b></button>}
       </aside>
 
       <section className="video-result">
@@ -424,7 +565,13 @@ export default function VideoStudio(): ReactElement {
           <section className="video-history" aria-label="Предыдущие видео">
             {history.length ? <div className="video-history-list">{history.map((job) => { const jobModel = models.find((item) => item.id === job.model); return <button key={job.id} type="button" className={selectedJob?.id === job.id ? 'active' : ''} onClick={() => setSelectedJob(job)} style={{ aspectRatio: aspectStyle(job.aspectRatio) }}>{job.videoUrl ? <video src={job.videoUrl} muted preload="metadata" /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<span className="video-history-meta"><small>{job.duration || 0} сек.</small><em>{shortModelName(jobModel)}</em></span></button> })}</div> : <p>Здесь появятся созданные видео.</p>}
           </section>
-          <aside className="video-context"><header><h2>Параметры ролика</h2></header>{shownJob ? <><p>{shownJob.prompt || 'Промпт не сохранён'}</p><div className="video-context-tags"><span>{shortModelName(models.find((item) => item.id === shownJob.model))}</span><span>{shownJob.duration} сек.</span><span>{shownJob.aspectRatio}</span><span>{shownJob.resolution}</span>{shownJob.generateAudio && <span><Volume2 /> Звук</span>}</div><div className="video-context-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(shownJob.prompt || '')}><Copy /> Копировать</button><button type="button" onClick={() => applySettings(shownJob)}><Settings2 /> Использовать настройки</button></div></> : <p>Выберите видео, чтобы увидеть его параметры.</p>}</aside>
+          <aside className="video-context">{shownJob ? <>
+            <div className="video-context-prompt"><span>Промпт</span><p>{shownJob.prompt || 'Промпт не сохранён'}</p></div>
+            <div className="video-context-details">
+              <div className="video-context-tags"><span>{shortModelName(models.find((item) => item.id === shownJob.model))}</span><span>{shownJob.duration} сек.</span><span>{shownJob.aspectRatio}</span><span>{shownJob.resolution}</span>{shownJob.generateAudio && <span><Volume2 /> Звук</span>}</div>
+              <div className="video-context-actions"><button type="button" onClick={() => void navigator.clipboard.writeText(shownJob.prompt || '')}><Copy /> Копировать</button><button type="button" onClick={() => applySettings(shownJob)}><Settings2 /> Использовать настройки</button></div>
+            </div>
+          </> : <p>Выберите видео, чтобы увидеть его параметры.</p>}</aside>
         </div>
       </section>
     </section>

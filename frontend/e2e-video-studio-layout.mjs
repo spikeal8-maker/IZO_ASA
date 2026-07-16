@@ -1,6 +1,6 @@
 import { chromium } from 'playwright'
 
-const base = process.env.E2E_BASE_URL || 'http://127.0.0.1:5174'
+const base = process.env.E2E_BASE_URL || 'http://127.0.0.1:5173'
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
@@ -11,7 +11,7 @@ const model = {
   name: 'Google: Veo Layout Test',
   description: 'Тестовая видеомодель для проверки адаптивного интерфейса.',
   supportedResolutions: ['720p', '1080p'],
-  supportedAspectRatios: ['16:9', '9:16', '1:1'],
+  supportedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', '9:21'],
   supportedDurations: [4, 6, 8],
   supportedFrameImages: ['first_frame', 'last_frame'],
   generateAudio: true,
@@ -21,8 +21,8 @@ const model = {
 const history = Array.from({ length: 7 }, (_, index) => ({
   id: `video-layout-${index}`,
   mode: 'text_to_video',
-  status: index ? 'completed' : 'queued',
-  progress: index ? 100 : 44,
+  status: 'completed',
+  progress: 100,
   prompt: `Город будущего, вариант ${index + 1}`,
   createdAt: `2026-07-16T0${index}:00:00Z`,
   model: model.id,
@@ -31,8 +31,8 @@ const history = Array.from({ length: 7 }, (_, index) => ({
   aspectRatio: index % 3 === 1 ? '9:16' : index % 3 === 2 ? '1:1' : '16:9',
   tokenCost: 5,
   generateAudio: true,
-  videoUrl: index ? `/api/video/media/video-layout-${index}` : null,
-  galleryVideoId: index ? `gallery-video-layout-${index}` : null,
+  videoUrl: `/api/video/media/video-layout-${index}`,
+  galleryVideoId: `gallery-video-layout-${index}`,
 }))
 
 async function mockApi(page) {
@@ -61,7 +61,12 @@ async function mockApi(page) {
       },
     })
     if (url.pathname === '/api/video/history') return route.fulfill({ json: { items: history } })
-    if (url.pathname === '/api/video/estimate') return route.fulfill({ json: { chargedTokens: 5 } })
+    if (url.pathname === '/api/video/estimate') {
+      const body = route.request().postDataJSON()
+      const resolutionFactor = body.resolution === '1080p' ? 2 : 1
+      const audioFactor = body.generateAudio ? 1.5 : 1
+      return route.fulfill({ json: { chargedTokens: Math.ceil(Number(body.duration || 4) * resolutionFactor * audioFactor) } })
+    }
     if (url.pathname === '/api/gallery/items') return route.fulfill({ json: { items: [] } })
     if (url.pathname === '/api/tariffs') return route.fulfill({ json: { tariffs: {} } })
     if (url.pathname === '/api/models') return route.fulfill({ json: { ok: true, profiles: [] } })
@@ -76,6 +81,7 @@ async function inspect(browser, viewport) {
   await page.locator('.video-studio').waitFor()
   await page.locator('.video-history-list button').nth(3).click()
   await page.locator('.video-prompt textarea').fill('Плавное приближение камеры к городской сцене, естественное движение людей и транспорта, мягкий дневной свет.')
+  await page.locator('.video-live-price strong').filter({ hasNotText: 'Считаем' }).waitFor()
   const activeMode = page.locator('.video-mode-tabs button.active')
   const activeModeNormal = await activeMode.evaluate((element) => {
     const style = getComputedStyle(element)
@@ -86,6 +92,35 @@ async function inspect(browser, viewport) {
     const style = getComputedStyle(element)
     return { backgroundColor: style.backgroundColor, color: style.color }
   })
+  const generateButton = page.locator('.video-generate')
+  const generateNormal = await generateButton.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { backgroundColor: style.backgroundColor, color: style.color }
+  })
+  await generateButton.hover()
+  const generateHover = await generateButton.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { backgroundColor: style.backgroundColor, color: style.color }
+  })
+  const initialPrice = (await page.locator('.video-live-price strong').textContent()) || ''
+  await page.locator('.video-resolution-tabs button', { hasText: '1080p' }).click()
+  await page.locator('.video-live-price strong').filter({ hasText: '8 ток.' }).waitFor()
+  const resolutionPrice = (await page.locator('.video-live-price strong').textContent()) || ''
+  await page.locator('.video-audio-compact').click()
+  await page.locator('.video-live-price strong').filter({ hasText: '12 ток.' }).waitFor()
+  const audioPrice = (await page.locator('.video-live-price strong').textContent()) || ''
+  await page.locator('.video-format-more').click()
+  assert(await page.locator('.video-format-tabs button').count() === model.supportedAspectRatios.length, 'Additional formats do not expand')
+  await page.locator('.video-format-more').click()
+  await page.evaluate(() => {
+    document.documentElement.style.scrollBehavior = 'auto'
+    document.body.style.scrollBehavior = 'auto'
+    document.querySelector('.video-composer-scroll')?.scrollTo({ top: 0 })
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+    window.scrollTo(0, 0)
+  })
+  await page.waitForTimeout(100)
   const result = await page.evaluate(() => {
     const rect = (selector) => document.querySelector(selector)?.getBoundingClientRect()
     const stage = rect('.video-stage')
@@ -94,7 +129,7 @@ async function inspect(browser, viewport) {
     const resultPanel = rect('.video-result')
     const overlay = rect('.video-stage-overlay')
     const contextActions = rect('.video-context-actions')
-    const durationSelect = rect('.video-options-row.single select')
+    const durationSelect = rect('.video-duration-control select')
     const generateButton = rect('.video-generate')
     const modeTabs = rect('.video-mode-tabs')
     const videoTopTab = document.querySelector('.mode-tabs .tab[aria-label="Генерация видео"]')
@@ -114,8 +149,14 @@ async function inspect(browser, viewport) {
       historyMeta: document.querySelectorAll('.video-history-meta').length,
       historyHeading: document.querySelector('.video-history h2') !== null,
       stageCaption: document.querySelector('.video-stage-caption') !== null,
-      proOpen: document.querySelector('.video-pro-body') !== null,
-      modelSelectVisible: Boolean(document.querySelector('.video-pro-body select')),
+      proOpen: document.querySelector('.video-model-list') !== null,
+      modelSelectVisible: Boolean(document.querySelector('.video-model-list')),
+      helpDot: document.querySelector('.video-help-dot') !== null,
+      promptClear: document.querySelector('.video-prompt-clear') !== null,
+      visibleFormats: document.querySelectorAll('.video-format-tabs button').length,
+      formatMore: document.querySelector('.video-format-more') !== null,
+      currentEstimate: document.querySelector('.video-live-price strong')?.textContent || '',
+      qualityPrices: document.querySelectorAll('.video-quality-tabs em').length,
       modeTabsBorderWidth: modeTabsStyle ? Number.parseFloat(modeTabsStyle.borderTopWidth) : 0,
       videoTopTabDisabled: videoTopTab?.getAttribute('aria-disabled') === 'true' || videoTopTab?.classList.contains('disabled'),
       composerWidth: composer?.width || 0,
@@ -123,6 +164,9 @@ async function inspect(browser, viewport) {
   })
   result.activeModeNormal = activeModeNormal
   result.activeModeHover = activeModeHover
+  result.generateNormal = generateNormal
+  result.generateHover = generateHover
+  result.priceTransition = { initialPrice, resolutionPrice, audioPrice }
   if (process.env.E2E_SCREENSHOT_DIR) {
     await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/video-${viewport.width}x${viewport.height}.png`, fullPage: true })
   }
@@ -149,10 +193,20 @@ async function run() {
     assert(fullHd.modeTabsBorderWidth >= 1, 'Video mode tabs have no visible divider')
     assert(fullHd.activeModeHover.backgroundColor === fullHd.activeModeNormal.backgroundColor, 'Active video mode becomes dark on hover')
     assert(fullHd.activeModeHover.color === fullHd.activeModeNormal.color, 'Active video mode text changes color on hover')
+    assert(fullHd.generateHover.backgroundColor !== 'rgb(0, 0, 0)', 'Create video button becomes black on hover')
+    assert(fullHd.generateHover.color === fullHd.generateNormal.color, 'Create video text changes color on hover')
     assert(fullHd.composerWidth >= 490 && fullHd.composerWidth <= 510, 'Full HD Composer does not match the fluid studio width')
     assert(fullHd.fontSize >= 16, 'Full HD base typography is too small')
     assert(!fullHd.videoTopTabDisabled, 'Video topbar tab is still tariff-gated')
     assert(!fullHd.proOpen && !fullHd.modelSelectVisible, 'Professional model selector is open by default')
+    assert(fullHd.helpDot, 'Prompt help dot is missing')
+    assert(fullHd.promptClear, 'Prompt clear button is missing')
+    assert(fullHd.visibleFormats === 4, 'More than four primary formats are visible by default')
+    assert(fullHd.formatMore, 'Additional-format control is missing')
+    assert(fullHd.qualityPrices === 3, 'Quality cards do not expose calculated prices')
+    assert(/\d+\s*ток/.test(fullHd.currentEstimate), 'Current server estimate is not visible')
+    assert(fullHd.priceTransition.initialPrice !== fullHd.priceTransition.resolutionPrice, 'Resolution does not update the token estimate')
+    assert(fullHd.priceTransition.resolutionPrice !== fullHd.priceTransition.audioPrice, 'Audio does not update the token estimate')
 
     const browserFullHd = await inspect(browser, { width: 1920, height: 900 })
     assert(!browserFullHd.overflowX, 'Browser Full HD has horizontal overflow')
