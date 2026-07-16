@@ -1,4 +1,8 @@
-# Phase 20E.1 Billing Foundation
+# Phase 20E.1 Billing Foundation (historical checkpoint)
+
+> Current payment contracts, simulator and production gate are documented in
+> `billing-readiness-20260716.md`. This file preserves the initial milestone and
+> is not the source of current readiness status.
 
 Verdict: CRM DATA/BILLING P0 READY.
 

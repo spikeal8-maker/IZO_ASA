@@ -22,6 +22,7 @@ from typing import Any, Literal
 
 import hmac
 import hashlib
+from html import escape as html_escape
 from urllib.parse import parse_qs, quote
 
 import httpx
@@ -48,6 +49,11 @@ try:
         PaymentReceiptItem,
         SimulatedPaymentProvider,
         build_yookassa_receipt,
+        claim_pending_messages as claim_payment_notifications,
+        enqueue_payment_notification,
+        ensure_outbox_schema,
+        mark_retry as mark_payment_notification_retry,
+        mark_sent as mark_payment_notification_sent,
     )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.billing import (
@@ -57,6 +63,11 @@ except ImportError:  # Direct `python backend/main.py` execution.
         PaymentReceiptItem,
         SimulatedPaymentProvider,
         build_yookassa_receipt,
+        claim_pending_messages as claim_payment_notifications,
+        enqueue_payment_notification,
+        ensure_outbox_schema,
+        mark_retry as mark_payment_notification_retry,
+        mark_sent as mark_payment_notification_sent,
     )
 
 try:
@@ -1142,6 +1153,11 @@ class BillingSimulationV2Request(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
+class AdminPaymentMaintenanceV2Request(BaseModel):
+    limit: int = Field(default=20, ge=1, le=100)
+    reason: str = Field(min_length=3, max_length=500)
+
+
 class AdminTokenPackageV2Request(BaseModel):
     name: str = Field(min_length=2, max_length=100)
     price_amount: int = Field(ge=1, le=10_000_000)
@@ -1615,6 +1631,7 @@ def init_db() -> None:
             supported_version=LEGACY_BASELINE_MIGRATION.version,
         )
         prepare_core_schema_group(conn)
+        ensure_outbox_schema(conn)
         now = datetime.now(timezone.utc).isoformat()
         seed_core_defaults(conn, now=now)
 
@@ -10876,6 +10893,126 @@ async def admin_simulate_payment_v2(
     return {"ok": True, "payment": _billing_payment_dict(updated), "completed": result}
 
 
+@app.post("/api/admin/payments/reconcile-v2")
+async def admin_reconcile_payments_v2(
+    req: AdminPaymentMaintenanceV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM payments WHERE status='pending' AND provider_payment_id IS NOT NULL "
+            "ORDER BY updated_at, id LIMIT ?",
+            (req.limit,),
+        ).fetchall()
+    report: dict[str, Any] = {"checked": 0, "paid": 0, "canceled": 0, "pending": 0, "errors": []}
+    for payment in rows:
+        report["checked"] += 1
+        try:
+            if payment["provider"] == "simulator":
+                if not billing_simulator_enabled():
+                    raise PaymentProviderError("Payment simulator is disabled.")
+                snapshot = await simulated_payment_provider().fetch_payment(str(payment["provider_payment_id"]))
+                status, paid = snapshot.status, snapshot.paid
+                amount, currency = f"{snapshot.amount:.2f}", snapshot.currency
+            elif payment["provider"] == "yookassa":
+                config = yookassa_config()
+                if not yookassa_checkout_ready(config):
+                    raise PaymentProviderError("YooKassa checkout is not configured.")
+                snapshot = await fetch_yookassa_payment(
+                    str(payment["provider_payment_id"]),
+                    shop_id=str(config["shop_id"]),
+                    secret_key=yookassa_secret_key(),
+                )
+                status, paid = snapshot.status, snapshot.paid
+                amount, currency = snapshot.amount_value, snapshot.currency
+            else:
+                raise PaymentProviderError(f"Unsupported payment provider: {payment['provider']}")
+            if status == "succeeded" and paid:
+                _complete_provider_payment(
+                    str(payment["provider"]),
+                    str(payment["provider_payment_id"]),
+                    verified_amount=amount,
+                    verified_currency=currency,
+                )
+                report["paid"] += 1
+            elif status == "canceled":
+                _cancel_provider_payment(str(payment["provider"]), str(payment["provider_payment_id"]))
+                report["canceled"] += 1
+            else:
+                report["pending"] += 1
+        except (YooKassaError, PaymentProviderError, HTTPException) as exc:
+            report["errors"].append({
+                "payment_id": payment["id"],
+                "error": truncate_admin_text(str(getattr(exc, "detail", exc)), 200),
+            })
+    with db() as conn:
+        record_audit_log(
+            conn,
+            "admin_reconcile_payments",
+            actor_internal_user_id=admin["internal_user_id"],
+            entity_id="payments",
+            after={**report, "reason": req.reason.strip()},
+            request=request,
+        )
+    return {"ok": True, **report}
+
+
+@app.post("/api/admin/payments/notifications/process-v2")
+async def admin_process_payment_notifications_v2(
+    req: AdminPaymentMaintenanceV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    with db() as conn:
+        messages = claim_payment_notifications(conn, limit=req.limit)
+    report: dict[str, Any] = {"checked": len(messages), "sent": 0, "retried": 0, "errors": []}
+    for message in messages:
+        try:
+            if message.channel == "in_app":
+                pass
+            elif message.channel == "email":
+                if not message.destination or not smtp_ready():
+                    raise SmtpError("SMTP is not configured for payment notifications.")
+                payload = message.payload
+                await asyncio.to_thread(
+                    send_smtp_email,
+                    smtp_connection_config(smtp_config()),
+                    SmtpMessage(
+                        to=message.destination,
+                        subject="Оплата в ИЗО АСА подтверждена",
+                        html=(
+                            "<p>Оплата подтверждена.</p>"
+                            f"<p>Счет: {html_escape(str(payload.get('invoice_code') or ''))}<br>"
+                            f"Начислено токенов: {int(payload.get('tokens') or 0)}<br>"
+                            f"Баланс токенов: {int(payload.get('new_token_balance') or 0)}</p>"
+                        ),
+                        sender_name=str(smtp_config().get("sender_name") or "ИЗО АСА"),
+                        sender_email=str(smtp_config().get("sender_email") or ""),
+                    ),
+                )
+            else:
+                raise RuntimeError(f"Unsupported notification channel: {message.channel}")
+            with db() as conn:
+                mark_payment_notification_sent(conn, message.id)
+            report["sent"] += 1
+        except (SmtpError, RuntimeError, ValueError) as exc:
+            with db() as conn:
+                mark_payment_notification_retry(conn, message.id, str(exc))
+            report["retried"] += 1
+            report["errors"].append({"message_id": message.id, "error": truncate_admin_text(str(exc), 200)})
+    with db() as conn:
+        record_audit_log(
+            conn,
+            "admin_process_payment_notifications",
+            actor_internal_user_id=admin["internal_user_id"],
+            entity_id="payment_notification_outbox",
+            after={**report, "reason": req.reason.strip()},
+            request=request,
+        )
+    return {"ok": True, **report}
+
+
 @app.post("/api/admin/users/{internal_user_id}/invoices-v2")
 async def admin_create_invoice_v2(internal_user_id: str, req: BillingCreateInvoiceV2Request, request: Request) -> dict[str, Any]:
     admin = require_trusted_admin(request)
@@ -11667,6 +11804,53 @@ def _cancel_provider_payment(provider: str, provider_payment_id: str) -> None:
         )
 
 
+def _verified_payment_email(conn: sqlite3.Connection, internal_user_id: str) -> str | None:
+    user = conn.execute(
+        "SELECT email, email_verified_at FROM users WHERE internal_user_id=?",
+        (internal_user_id,),
+    ).fetchone()
+    if user is not None and user["email"] and user["email_verified_at"]:
+        return str(user["email"]).strip().lower()
+    identity = conn.execute(
+        """
+        SELECT provider_email FROM auth_identities
+        WHERE internal_user_id=? AND provider_email IS NOT NULL AND verified_at IS NOT NULL
+        ORDER BY last_login_at DESC, linked_at DESC LIMIT 1
+        """,
+        (internal_user_id,),
+    ).fetchone()
+    return str(identity["provider_email"]).strip().lower() if identity else None
+
+
+def _enqueue_payment_success_notifications(
+    conn: sqlite3.Connection,
+    *,
+    payment: sqlite3.Row,
+    invoice: sqlite3.Row,
+    new_token_balance: int,
+    created_at: str,
+) -> None:
+    payload = {
+        "payment_id": payment["id"],
+        "invoice_code": invoice["invoice_code"],
+        "amount": int(payment["amount"] or 0),
+        "currency": payment["currency"],
+        "tokens": int(invoice["tokens_total"] or 0),
+        "new_token_balance": new_token_balance,
+    }
+    common = {
+        "payment_id": payment["id"],
+        "internal_user_id": payment["internal_user_id"],
+        "event_type": "payment_succeeded",
+        "payload": payload,
+        "now": created_at,
+    }
+    enqueue_payment_notification(conn, channel="in_app", destination=None, **common)
+    email = _verified_payment_email(conn, payment["internal_user_id"])
+    if email:
+        enqueue_payment_notification(conn, channel="email", destination=email, **common)
+
+
 def _complete_provider_payment(
     provider: str,
     provider_payment_id: str,
@@ -11726,6 +11910,13 @@ def _complete_provider_payment(
         conn.execute("UPDATE invoices SET status='paid', paid_at=?, updated_at=? WHERE id=?", (now, now, invoice["id"]))
         payment = conn.execute("SELECT * FROM payments WHERE id = ?", (payment["id"],)).fetchone()
         invoice = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice["id"],)).fetchone()
+        _enqueue_payment_success_notifications(
+            conn,
+            payment=payment,
+            invoice=invoice,
+            new_token_balance=new_balance,
+            created_at=now,
+        )
     return {"payment": _billing_payment_dict(payment), "invoice": _billing_invoice_dict(invoice), "new_token_balance": new_balance, "idempotent": False}
 
 

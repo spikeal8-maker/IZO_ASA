@@ -70,9 +70,20 @@ def test_simulator_checkout_success_is_end_to_end_and_idempotent(simulator_app) 
         assert status.json()["payment"]["status"] == "paid"
         assert status.json()["account"]["token_balance"] == 60
 
+        processed = client.post(
+            "/api/admin/payments/notifications/process-v2",
+            json={"limit": 20, "reason": "Проверка очереди уведомлений"},
+            headers=simulator_app["admin"],
+        )
+        assert processed.status_code == 200, processed.text
+        assert processed.json()["sent"] == 1
+
     with main.db() as conn:
         assert conn.execute("SELECT COUNT(*) AS c FROM token_ledger WHERE reason='payment_grant'").fetchone()["c"] == 1
         assert conn.execute("SELECT COUNT(*) AS c FROM audit_logs WHERE action='admin_simulate_payment'").fetchone()["c"] == 1
+        notification = conn.execute("SELECT * FROM payment_notification_outbox").fetchone()
+        assert notification["channel"] == "in_app"
+        assert notification["status"] == "sent"
 
 
 def test_simulator_checkout_cancellation_updates_invoice(simulator_app) -> None:
@@ -98,3 +109,31 @@ def test_simulator_checkout_cancellation_updates_invoice(simulator_app) -> None:
         invoice = conn.execute("SELECT * FROM invoices WHERE id=?", (payment["invoice_id"],)).fetchone()
         assert payment["status"] == "canceled"
         assert invoice["status"] == "cancelled"
+
+
+def test_admin_reconciliation_finishes_pending_simulated_payment(simulator_app) -> None:
+    with TestClient(main.app) as client:
+        checkout = client.post(
+            "/api/billing/checkout-v2",
+            json={
+                "package_code": "tokens_50",
+                "idempotency_key": "simulator-reconcile-0001",
+                "offer_accepted": True,
+                "receipt_contact": "buyer@example.test",
+            },
+            headers=simulator_app["buyer"],
+        ).json()
+        main.simulated_payment_provider().transition(checkout["provider_payment_id"], "succeeded")
+        reconciled = client.post(
+            "/api/admin/payments/reconcile-v2",
+            json={"limit": 20, "reason": "Проверка фоновой сверки"},
+            headers=simulator_app["admin"],
+        )
+        assert reconciled.status_code == 200, reconciled.text
+        assert reconciled.json()["paid"] == 1
+
+    with main.db() as conn:
+        payment = conn.execute("SELECT * FROM payments WHERE id=?", (checkout["payment_id"],)).fetchone()
+        assert payment["status"] == "paid"
+        assert conn.execute("SELECT COUNT(*) AS c FROM token_ledger WHERE reason='payment_grant'").fetchone()["c"] == 1
+        assert conn.execute("SELECT COUNT(*) AS c FROM audit_logs WHERE action='admin_reconcile_payments'").fetchone()["c"] == 1
