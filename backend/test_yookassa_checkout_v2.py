@@ -20,7 +20,16 @@ def checkout_payload(package_code: str, key: str) -> dict:
 def payment_app(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "DB_PATH", tmp_path / "payments.sqlite3")
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
-    monkeypatch.setattr(main, "yookassa_config", lambda: {"shop_id": "test-shop", "test_mode": True})
+    monkeypatch.setattr(
+        main,
+        "yookassa_config",
+        lambda: {
+            "shop_id": "test-shop",
+            "test_mode": True,
+            "receipt_vat_code": 1,
+            "payment_subject": "service",
+        },
+    )
     monkeypatch.setattr(main, "yookassa_secret_key", lambda: "test-secret")
     monkeypatch.setattr(main, "yookassa_ready", lambda config=None: True)
     main.init_db()
@@ -49,6 +58,7 @@ def test_checkout_creates_invoice_and_provider_payment(payment_app):
     assert response.status_code == 200, response.text
     assert response.json()["confirmation_url"] == "https://pay.test/confirm"
     assert captured["return_url"].endswith(f"/payment?payment_id={response.json()['payment_id']}")
+    assert captured["receipt"]["customer"] == {"email": "buyer@example.test"}
     with main.db() as conn:
         payment = conn.execute("SELECT * FROM payments").fetchone()
         invoice = conn.execute("SELECT * FROM invoices").fetchone()

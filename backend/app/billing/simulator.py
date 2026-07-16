@@ -31,9 +31,9 @@ class SimulatedPaymentProvider:
 
         digest = hashlib.sha256(command.idempotency_key.encode("utf-8")).hexdigest()[:24]
         provider_payment_id = f"sim_{digest}"
-        confirmation_url = (
-            f"{self._confirmation_base_url}?"
-            + urlencode({"provider_payment_id": provider_payment_id})
+        separator = "&" if "?" in command.return_url else "?"
+        confirmation_url = command.return_url + separator + urlencode(
+            {"simulator": "1", "payment_id": provider_payment_id}
         )
         snapshot = PaymentSnapshot(
             id=provider_payment_id,

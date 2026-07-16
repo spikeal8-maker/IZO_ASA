@@ -7,6 +7,35 @@ from app.integrations.yookassa import create_yookassa_payment, fetch_yookassa_pa
 from .contracts import PaymentCreateCommand, PaymentProviderError, PaymentSnapshot
 
 
+def build_yookassa_receipt(
+    command: PaymentCreateCommand,
+    *,
+    vat_code: int | None,
+    payment_subject: str = "service",
+) -> dict[str, Any] | None:
+    receipt = command.receipt
+    if receipt is None:
+        return None
+    if vat_code is None:
+        raise PaymentProviderError("YooKassa receipt VAT code is not configured.")
+    contact = receipt.contact.strip()
+    customer = {"email": contact} if "@" in contact else {"phone": contact}
+    return {
+        "customer": customer,
+        "items": [
+            {
+                "description": item.description.strip()[:128],
+                "quantity": f"{item.quantity:.3f}",
+                "amount": {"value": f"{item.amount:.2f}", "currency": item.currency},
+                "vat_code": vat_code,
+                "payment_mode": "full_payment",
+                "payment_subject": payment_subject.strip() or "service",
+            }
+            for item in receipt.items
+        ],
+    }
+
+
 class YooKassaPaymentProvider:
     name = "yookassa"
 
@@ -26,27 +55,11 @@ class YooKassaPaymentProvider:
             raise PaymentProviderError("YooKassa credentials are not configured.")
 
     def _receipt_payload(self, command: PaymentCreateCommand) -> dict[str, Any] | None:
-        receipt = command.receipt
-        if receipt is None:
-            return None
-        if self._receipt_vat_code is None:
-            raise PaymentProviderError("YooKassa receipt VAT code is not configured.")
-        contact = receipt.contact.strip()
-        customer = {"email": contact} if "@" in contact else {"phone": contact}
-        return {
-            "customer": customer,
-            "items": [
-                {
-                    "description": item.description.strip()[:128],
-                    "quantity": f"{item.quantity:.3f}",
-                    "amount": {"value": f"{item.amount:.2f}", "currency": item.currency},
-                    "vat_code": self._receipt_vat_code,
-                    "payment_mode": "full_payment",
-                    "payment_subject": self._payment_subject,
-                }
-                for item in receipt.items
-            ],
-        }
+        return build_yookassa_receipt(
+            command,
+            vat_code=self._receipt_vat_code,
+            payment_subject=self._payment_subject,
+        )
 
     async def create_payment(self, command: PaymentCreateCommand) -> PaymentSnapshot:
         result = await create_yookassa_payment(
