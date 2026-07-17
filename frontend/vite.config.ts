@@ -3,10 +3,22 @@ import react from '@vitejs/plugin-react'
 
 const exactAllowedHosts = ['izo.alikinas.ru'] as const
 const appRelease = process.env.FRONTEND_BUILD_LABEL || process.env.GITHUB_SHA || 'dev'
+const releaseMetaPlugin = {
+  name: 'izo-release-meta',
+  transformIndexHtml() {
+    return [
+      {
+        tag: 'meta',
+        attrs: { name: 'izo-release', content: appRelease },
+        injectTo: 'head' as const,
+      },
+    ]
+  },
+}
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), releaseMetaPlugin],
   define: {
     __APP_RELEASE__: JSON.stringify(appRelease),
   },

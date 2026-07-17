@@ -7,11 +7,13 @@ import json
 import math
 import mimetypes
 import os
+import platform
 import re
 import secrets
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -124,6 +126,7 @@ try:
         load_storage_path_policy,
         validate_production_configuration as validate_config_production_configuration,
     )
+
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.config import (
         env_bool,
@@ -136,6 +139,19 @@ except ImportError:  # Direct `python backend/main.py` execution.
         load_runtime_environment_policy,
         load_storage_path_policy,
         validate_production_configuration as validate_config_production_configuration,
+    )
+
+try:
+    from .app.release_identity import (
+        ReleaseIdentity,
+        assert_release_schema_compatible,
+        load_runtime_release_identity,
+    )
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.release_identity import (
+        ReleaseIdentity,
+        assert_release_schema_compatible,
+        load_runtime_release_identity,
     )
 
 try:
@@ -679,6 +695,15 @@ RUNTIME_ENVIRONMENT_POLICY = load_runtime_environment_policy()
 APP_ENV = RUNTIME_ENVIRONMENT_POLICY.app_env
 ENV_NAME = RUNTIME_ENVIRONMENT_POLICY.environment_name
 MODE_NAME = RUNTIME_ENVIRONMENT_POLICY.mode_name
+RELEASE_IDENTITY: ReleaseIdentity = load_runtime_release_identity(
+    environment=os.environ,
+    repo_root=ROOT.parent,
+    backend_root=ROOT,
+    python_executable=Path(sys.executable),
+    python_version=platform.python_version(),
+)
+APP_BUILD = RELEASE_IDENTITY.release_id
+FRONTEND_BUILD_LABEL = RELEASE_IDENTITY.frontend_build_id
 
 
 def is_production_like_env() -> bool:
@@ -1641,22 +1666,7 @@ STARTED_AT = datetime.now(timezone.utc).isoformat()
 
 
 def safe_backend_commit() -> str | None:
-    env_commit = (os.getenv("GIT_COMMIT") or os.getenv("BACKEND_COMMIT") or "").strip()
-    if env_commit:
-        return env_commit[:40]
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short=12", "HEAD"],
-            cwd=str(ROOT.parent),
-            capture_output=True,
-            text=True,
-            timeout=2,
-            check=False,
-        )
-        value = result.stdout.strip()
-        return value[:40] if value else None
-    except Exception:
-        return None
+    return RELEASE_IDENTITY.git_sha
 
 
 def mask_db_path(path: Path | None = None) -> str:
@@ -7756,6 +7766,10 @@ async def startup() -> None:
     validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
     validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
     db_guard_preflight()
+    if RELEASE_IDENTITY.managed:
+        with db() as conn:
+            schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        assert_release_schema_compatible(RELEASE_IDENTITY, schema_version)
     validate_session_crypto_config()
     init_db()
     video_cleanup = drain_video_file_deletions(limit=200)
@@ -7828,27 +7842,10 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "app": "izo-asa",
-        "version": APP_BUILD,
-        "environment": "production" if is_production_like_env() else "development",
-        "comfyuiBaseUrl": COMFYUI_BASE_URL,
-        "fluxKleinOneNode": await comfyui_available(),
-        "database": {
-            "type": "sqlite",
-            "ready": bool(guard.get("ok")),
-            "path": mask_db_path(DB_PATH),
-            "size_mb": guard.get("db_size_mb", db_size_mb(DB_PATH)),
-            "users_count": guard.get("users_count", 0),
-            "active_admin_count": guard.get("active_admin_count", 0),
-            "migration_status": guard.get("migration_status", "unknown"),
-        },
-        "db_guard": safe_db_guard_payload(guard),
-        "platforms": {"web": True, "telegram": True, "max": True},
+        "release_id": RELEASE_IDENTITY.release_id,
+        "ready": bool(guard.get("ok")),
     }
 
-
-# Minimal, non-sensitive version marker so operators can tell which backend build
-# is actually live. No secrets, no env values, no raw DB URLs.
-APP_BUILD = os.getenv("APP_BUILD", "20E.2E-2026-06-28")
 
 _runtime_error_rate: dict[str, list[float]] = {}
 _runtime_alerted_signatures: dict[str, float] = {}
@@ -7879,18 +7876,11 @@ def _check_runtime_error_rate(request: Request) -> None:
 
 @app.get("/api/version")
 async def version() -> dict[str, Any]:
-    routes = {r.path for r in app.routes}
     return {
         "ok": True,
         "app": "izo-asa",
-        "build": APP_BUILD,
-        "backend_commit": safe_backend_commit(),
-        "frontend_build": os.getenv("FRONTEND_BUILD_LABEL", "unknown"),
+        **RELEASE_IDENTITY.public_payload(),
         "started_at": STARTED_AT,
-        "db_guard": safe_db_guard_payload(DB_GUARD_STATUS),
-        "auth_v2": True,
-        "password_login": "/api/auth/password/login-v2" in routes,
-        "generation_protected": True,  # /api/generate calls require_trusted_user
     }
 
 
@@ -8028,7 +8018,7 @@ async def runtime_synthetic_result(req: SyntheticResultRequest, request: Request
 
 @app.get("/api/admin/runtime-health-v2")
 async def admin_runtime_health_v2(request: Request) -> dict[str, Any]:
-    require_admin(request)
+    require_trusted_admin(request)
     since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     with db() as conn:
         total = conn.execute(
@@ -8061,9 +8051,27 @@ async def admin_runtime_health_v2(request: Request) -> dict[str, Any]:
         latest_synthetic = safe_json_load(synthetic_row["properties_json"]) or {}
         latest_synthetic["event"] = synthetic_row["event_name"]
         latest_synthetic["created_at"] = synthetic_row["created_at"]
+    guard = collect_db_guard_status()
+    DB_GUARD_STATUS.update(guard)
     return {
         "ok": True,
-        "release": {"backend": APP_BUILD, "frontend": os.getenv("FRONTEND_BUILD_LABEL", "unknown")},
+        "release": RELEASE_IDENTITY.public_payload(),
+        "system": {
+            "environment": "production" if is_production_like_env() else "development",
+            "database": {
+                "type": "sqlite",
+                "ready": bool(guard.get("ok")),
+                "path": mask_db_path(DB_PATH),
+                "size_mb": guard.get("db_size_mb", db_size_mb(DB_PATH)),
+                "users_count": guard.get("users_count", 0),
+                "active_admin_count": guard.get("active_admin_count", 0),
+                "migration_status": guard.get("migration_status", "unknown"),
+            },
+            "db_guard": safe_db_guard_payload(guard),
+            "comfyui_base_url": COMFYUI_BASE_URL,
+            "comfyui_ready": await comfyui_available(),
+            "platforms": {"web": True, "telegram": True, "max": True},
+        },
         "runtime_errors_24h": int(total or 0),
         "alert_webhook_configured": bool(os.getenv("RUNTIME_ALERT_WEBHOOK_URL", "").strip()),
         "latest_synthetic": latest_synthetic,

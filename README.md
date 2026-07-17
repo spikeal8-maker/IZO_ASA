@@ -7,6 +7,8 @@ Prototype web / Telegram Mini App / MAX Mini App interface for `FluxKleinOneNode
 Start here when you or another agent joins the project:
 
 - `docs/public-launch.md` — public/live launch flow with `start-public.bat` (запуск и deploy).
+  It also defines the immutable release manifest, project `.venv`, health and
+  controlled rollback boundaries.
 - `docs/engineering-transformation-master-plan-20260717.md` — authoritative current
   audit, decisions and execution order for safe production transformation.
 - `docs/production-hardening-roadmap-20260713.md` — historical roadmap and checkpoint
@@ -87,7 +89,8 @@ The repository has one non-mutating verification entrypoint:
 .\tools\verify.ps1 -Mode Full -RequireStableLiveSource
 ```
 
-`Full` is the default mode. The verifier does not restart processes, delete files,
+`Full` is the default mode and uses `backend/.venv/Scripts/python.exe` when it is
+present. The verifier does not restart processes, delete files,
 or modify production DB/media. Runtime packages still require the separate
 controlled restart and live-smoke procedure documented in the production roadmap.
 Because production remains online, a concurrent user media change is reported as

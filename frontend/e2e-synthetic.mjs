@@ -2,10 +2,12 @@ import { chromium } from 'playwright'
 
 const origin = (process.env.IZO_SYNTHETIC_BASE_URL || 'http://127.0.0.1:5173').replace(/\/$/, '')
 const release = process.env.FRONTEND_BUILD_LABEL || process.env.GITHUB_SHA || 'unknown'
+const allowLegacyRelease = process.env.IZO_ALLOW_LEGACY_RELEASE === '1'
 const routes = ['/', '/feed', '/gallery', '/profile']
 const started = Date.now()
 let status = 'ok'
 let failure
+let observedRelease = null
 
 const browser = await chromium.launch({ headless: true })
 try {
@@ -15,6 +17,12 @@ try {
     if (!response?.ok()) throw new Error(`${route}: HTTP ${response?.status() || 'no-response'}`)
     await page.locator('body').waitFor({ state: 'visible' })
     if (await page.getByText('Студия временно остановлена').count()) throw new Error(`${route}: root ErrorBoundary visible`)
+    const routeRelease = await page.locator('meta[name="izo-release"]').getAttribute('content')
+    if (!routeRelease && !allowLegacyRelease) throw new Error(`${route}: release marker is missing`)
+    if (!allowLegacyRelease && release !== 'unknown' && routeRelease !== release) {
+      throw new Error(`${route}: release marker ${routeRelease} does not match ${release}`)
+    }
+    observedRelease = routeRelease || 'legacy-unmarked'
     await page.close()
   }
 } catch (error) {
@@ -24,7 +32,7 @@ try {
   await browser.close()
 }
 
-const result = { status, release, checked_routes: routes, duration_ms: Date.now() - started }
+const result = { status, release, observed_release: observedRelease, checked_routes: routes, duration_ms: Date.now() - started }
 const key = process.env.IZO_SYNTHETIC_KEY || ''
 if (key) {
   try {

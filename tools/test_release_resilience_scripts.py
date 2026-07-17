@@ -26,10 +26,15 @@ def test_publish_plan_is_immutable_and_atomic() -> None:
     assert "branch=" in output
     assert "smoke_port=5197" in output
     assert "atomic_manifest=" in output
+    assert "release-manifest.json" in output
     assert "retain=2" in output
     script = (ROOT / "tools" / "publish-frontend-release.ps1").read_text(encoding="utf-8")
     assert '$branch -ne "main" -and -not $PlanOnly' in script
     assert "npm run build" in script
+    assert "build_release_manifest.py" in script
+    assert '$env:FRONTEND_BUILD_LABEL = $releaseId' in script
+    assert "--git-sha $fullSha" in script
+    assert "Project Python is missing" in script
     assert script.index("npm run build") < script.index("e2e:synthetic")
     assert "Port 5173 is not owned by the canonical Vite preview" in script
     assert '"--port", "5173", "--strictPort", "--outDir", "`"$releasePath`""' in script
@@ -47,3 +52,4 @@ def test_rollback_validates_candidate_before_port_restart() -> None:
     assert script.index("e2e:synthetic") < script.index("LocalPort 5173")
     assert "refusing to stop it" in script
     assert "ROLLBACK_OK" in script
+    assert "IZO_ALLOW_LEGACY_RELEASE" in script

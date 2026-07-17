@@ -1,8 +1,8 @@
 // Safe live-delivery diagnostics metadata. Keep non-component exports out of
 // diag.tsx so React Fast Refresh can treat that file as component-only.
+import { FRONTEND_RELEASE_ID } from './releaseIdentity'
 
-// Bump this string on every frontend deploy so you can confirm which bundle is live.
-export const APP_BUILD_LABEL = 'FEED-4COL-FULLWIDTH-20260704'
+export const APP_BUILD_LABEL = FRONTEND_RELEASE_ID
 
 export function isDiagMode(): boolean {
   try {

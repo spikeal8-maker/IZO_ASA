@@ -16,14 +16,10 @@ echo|pause >nul 2>nul && (set "HAS_CONSOLE=1") || (set "IZO_NO_PAUSE=1")
 set "ROOT=%~dp0"
 set "ROOT_NO_SLASH=%ROOT:~0,-1%"
 set "BACKEND=%ROOT%backend"
-set "FRONTEND=%ROOT%frontend"
 set "PUBURL=https://izo.alikinas.ru"
 set "LIVE_DB=%BACKEND%\onenode.sqlite3"
+set "PYTHON_EXE=%BACKEND%\.venv\Scripts\python.exe"
 set "APP_ENV=production"
-set "APP_BUILD=FEED-MEDIA-READY-FILTER-20260707"
-set "FRONTEND_BUILD_LABEL=FEED-MEDIA-READY-FILTER-20260707"
-for /f %%I in ('git -C "%ROOT%" rev-parse --short=12 HEAD 2^>nul') do set "APP_BUILD=%%I"
-set "FRONTEND_BUILD_LABEL=%APP_BUILD%"
 set "DATABASE_URL=sqlite:///%LIVE_DB%"
 set "DB_GUARD_ALLOWED_PATHS=%LIVE_DB%"
 set "DB_GUARD_MIN_SIZE_MB=10"
@@ -33,7 +29,6 @@ set "TRUSTED_COOKIE_SECURE=true"
 set "TRUSTED_COOKIE_SAMESITE=none"
 set "TRUSTED_COOKIE_PATH=/"
 set "TRUST_CLOUDFLARE_HEADERS=true"
-set "LOG_DIR=%ROOT%logs"
 REM MAX API2 uses the native system trust store through backend truststore support.
 if "%MAX_API_BASE_URL%"=="" set "MAX_API_BASE_URL=https://platform-api2.max.ru"
 REM Telegram keeps its own mode via BOT_UPDATES_MODE (polling). Do NOT change Telegram.
@@ -41,10 +36,6 @@ if "%BOT_UPDATES_MODE%"=="" set "BOT_UPDATES_MODE=polling"
 REM Keep the currently proven MAX polling path unless webhook mode is set explicitly
 REM together with MAX_WEBHOOK_SECRET. Do not switch delivery modes implicitly.
 if "%MAX_UPDATES_MODE%"=="" set "MAX_UPDATES_MODE=polling"
-
-if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
-for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "LAUNCH_TS=%%I"
-set "BACKEND_LOG=%LOG_DIR%\live_backend_%LAUNCH_TS%.log"
 
 title IZO_ASA PUBLIC launcher
 echo.
@@ -61,9 +52,23 @@ if errorlevel 1 (
   exit /b 1
 )
 
-where python >nul 2>nul || (echo [ERROR] Python not found in PATH. & pause & exit /b 1)
-where node   >nul 2>nul || (echo [ERROR] Node.js not found in PATH. & pause & exit /b 1)
-where npm    >nul 2>nul || (echo [ERROR] npm not found in PATH. & pause & exit /b 1)
+if not exist "%PYTHON_EXE%" (
+  echo [ERROR] Project Python not found: backend\.venv\Scripts\python.exe
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
+where node >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] Node.js not found in PATH.
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
+where npm >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] npm not found in PATH.
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
 
 echo [0/5] Production DB safety preflight...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -75,42 +80,47 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$size=[math]::Round($item.Length/1MB,2);" ^
   "Write-Host ('Live DB confirmed: .../' + (Split-Path (Split-Path $db -Parent) -Leaf) + '/' + (Split-Path $db -Leaf) + ' (' + $size + ' MB)');" ^
   "if ($item.Length -lt 10MB) { Write-Host '[ERROR] Refusing suspiciously small live DB:' $size 'MB'; exit 12 }"
-if errorlevel 1 (echo [ERROR] Production DB preflight failed. Public backend NOT started. & pause & exit /b 1)
+if errorlevel 1 (
+  echo [ERROR] Production DB preflight failed. Public backend NOT started.
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
 
 echo [1/5] Preparing immutable frontend release and running browser smoke...
-powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\publish-frontend-release.ps1" -RepoRoot "%ROOT_NO_SLASH%" -SkipVerify
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\publish-frontend-release.ps1" -RepoRoot "%ROOT_NO_SLASH%" -PythonPath "%PYTHON_EXE%" -SkipVerify
 if errorlevel 1 (
   echo [ERROR] Candidate release failed. The active public release was NOT changed.
   if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1
 )
 for /f "delims=" %%I in ('powershell -NoProfile -Command "(ConvertFrom-Json (Get-Content -LiteralPath '%ROOT%.runtime\active-frontend.json' -Raw)).release_path"') do set "FRONTEND_RELEASE=%%I"
-if not exist "%FRONTEND_RELEASE%\index.html" (echo [ERROR] Active release index.html missing. & pause & exit /b 1)
-
-echo [2/5] Freeing ports 8000 and 5173 (stop old backend/dev/preview)...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 8000,5173 -ErrorAction SilentlyContinue | Where-Object {$_.State -eq 'Listen'} | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }" >nul 2>nul
-
-echo [3/5] Starting backend on 127.0.0.1:8000...
-echo Backend log: %BACKEND_LOG%
-start "IZO_ASA backend :8000" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "$env:APP_ENV='%APP_ENV%'; $env:APP_BUILD='%APP_BUILD%'; $env:FRONTEND_BUILD_LABEL='%FRONTEND_BUILD_LABEL%'; $env:DATABASE_URL='%DATABASE_URL%'; $env:DB_GUARD_ALLOWED_PATHS='%DB_GUARD_ALLOWED_PATHS%'; $env:DB_GUARD_MIN_SIZE_MB='%DB_GUARD_MIN_SIZE_MB%'; $env:DB_GUARD_MIN_USERS='%DB_GUARD_MIN_USERS%'; $env:DB_GUARD_MIN_ACTIVE_ADMINS='%DB_GUARD_MIN_ACTIVE_ADMINS%'; $env:MAX_API_BASE_URL='%MAX_API_BASE_URL%'; $env:BOT_UPDATES_MODE='%BOT_UPDATES_MODE%'; $env:MAX_UPDATES_MODE='%MAX_UPDATES_MODE%'; Set-Location -LiteralPath '%BACKEND%'; python -m uvicorn main:app --host 127.0.0.1 --port 8000 --no-proxy-headers *>> '%BACKEND_LOG%'"
-
-echo Waiting for backend health before starting frontend...
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ok=$false;" ^
-  "for($i=0;$i -lt 40;$i++) { try { $r=Invoke-WebRequest 'http://127.0.0.1:8000/api/health' -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch { Start-Sleep -Seconds 1 } }" ^
-  "if (!$ok) { Write-Host 'BACKEND DOWN: /api/health did not become ready'; exit 30 }" ^
-  "Write-Host 'backend ready: /api/health 200'"
-if errorlevel 1 (
-  echo.
-  echo BACKEND DOWN
-  echo Backend log: %BACKEND_LOG%
-  echo Public launch is NOT healthy.
+for /f "delims=" %%I in ('powershell -NoProfile -Command "(ConvertFrom-Json (Get-Content -LiteralPath '%ROOT%.runtime\active-frontend.json' -Raw)).release_manifest"') do set "RELEASE_MANIFEST=%%I"
+for /f "delims=" %%I in ('powershell -NoProfile -Command "(ConvertFrom-Json (Get-Content -LiteralPath '%ROOT%.runtime\active-frontend.json' -Raw)).active_release"') do set "APP_BUILD=%%I"
+for /f "delims=" %%I in ('powershell -NoProfile -Command "(ConvertFrom-Json (Get-Content -LiteralPath '%ROOT%.runtime\active-frontend.json' -Raw)).previous_release"') do set "PREVIOUS_RELEASE=%%I"
+set "FRONTEND_BUILD_LABEL=%APP_BUILD%"
+if not exist "%FRONTEND_RELEASE%\index.html" (
+  echo [ERROR] Active release index.html missing.
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
+if not exist "%RELEASE_MANIFEST%" (
+  echo [ERROR] Immutable release manifest missing.
   if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1
 )
 
-echo [4/5] Starting verified frontend PREVIEW on 127.0.0.1:5173...
-start "IZO_ASA public frontend :5173" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%FRONTEND%'; npx vite preview --host 127.0.0.1 --port 5173 --strictPort --outDir '%FRONTEND_RELEASE%'"
+echo [2/5] Controlled backend restart from immutable release manifest...
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\restart-backend.ps1" -RepoRoot "%ROOT_NO_SLASH%" -PythonPath "%PYTHON_EXE%" -ReleaseManifestPath "%RELEASE_MANIFEST%" -AllowColdStart
+if errorlevel 1 (
+  echo.
+  echo [ERROR] Production backend release failed; restart script attempted backend rollback.
+  if not "%PREVIOUS_RELEASE%"=="" powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\rollback-frontend-release.ps1" -RepoRoot "%ROOT_NO_SLASH%" -ReleaseId "%PREVIOUS_RELEASE%"
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
+
+echo [3/5] Backend release identity verified by restart-backend.ps1.
+echo [4/5] Immutable frontend release is already active on 127.0.0.1:5173.
 
 echo [5/5] Waiting for frontend, then probing...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -141,10 +151,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "try { $h=Invoke-WebRequest 'http://127.0.0.1:8000/api/health' -UseBasicParsing -TimeoutSec 8; Write-Host ('backend /api/health : ' + $h.StatusCode) } catch { Write-Host 'BACKEND DOWN: /api/health failed'; exit 21 }" ^
   "try { $c=Invoke-WebRequest 'http://127.0.0.1:8000/api/auth/capabilities-v2' -UseBasicParsing -TimeoutSec 8; Write-Host ('backend /api/auth/capabilities-v2 : ' + $c.StatusCode) } catch { Write-Host 'BACKEND DOWN: /api/auth/capabilities-v2 failed'; exit 22 }" ^
   "try { $html=(Invoke-WebRequest 'http://127.0.0.1:5173/' -UseBasicParsing -TimeoutSec 8).Content;" ^
+  "  $releaseMarker='name=' + [char]34 + 'izo-release' + [char]34 + ' content=' + [char]34 + '%APP_BUILD%' + [char]34;" ^
+  "  $releaseMetaMatches=$html.Contains($releaseMarker);" ^
   "  Write-Host ('vite-dev-client present : ' + ($html -match '/@vite/client'));" ^
   "  Write-Host ('raw /src/main present   : ' + ($html -match '/src/main.tsx'));" ^
-  "  Write-Host ('hashed asset present    : ' + ($html -match 'assets/index-')); } catch { Write-Host 'frontend probe failed' }" ^
-  "try { Write-Host ('api/version : ' + (Invoke-WebRequest 'http://127.0.0.1:5173/api/version' -UseBasicParsing -TimeoutSec 8).StatusCode) } catch { Write-Host 'api/version probe failed' }" ^
+  "  Write-Host ('hashed asset present    : ' + ($html -match 'assets/index-'));" ^
+  "  Write-Host ('release meta matches    : ' + $releaseMetaMatches);" ^
+  "  if (!$releaseMetaMatches) { Write-Host 'FRONTEND RELEASE MISMATCH'; exit 25 } } catch { Write-Host 'frontend probe failed'; exit 25 }" ^
+  "try { $v=Invoke-RestMethod 'http://127.0.0.1:5173/api/version' -TimeoutSec 8; Write-Host ('api/version release : ' + $v.release_id); if ($v.release_id -ne '%APP_BUILD%' -or $v.frontend_build -ne '%APP_BUILD%') { Write-Host 'RELEASE IDENTITY MISMATCH'; exit 24 } } catch { Write-Host 'api/version probe failed'; exit 24 }" ^
   "function St($m,$u,$b){ try { $r=Invoke-WebRequest $u -Method $m -UseBasicParsing -TimeoutSec 8 -Body $b -ContentType 'application/json'; return $r.StatusCode } catch { return $_.Exception.Response.StatusCode.value__ } };" ^
   "$generateBody=@{mode='text_to_image'} | ConvertTo-Json -Compress;" ^
   "$generateStatus=St 'POST' 'http://127.0.0.1:5173/api/generate' $generateBody;" ^
@@ -157,7 +171,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 if errorlevel 1 (
   echo.
   echo BACKEND DOWN
-  echo Backend log: %BACKEND_LOG%
   echo Public launch is NOT healthy.
   if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1

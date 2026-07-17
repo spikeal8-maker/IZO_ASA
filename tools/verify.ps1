@@ -128,6 +128,7 @@ $architectureContract = Join-Path $resolvedRoot "architecture\contract.json"
 $architectureInventoryScript = Join-Path $toolsDirectory "generate_architecture_inventory.py"
 $runtimeListenerScript = Join-Path $toolsDirectory "check-runtime-listeners.ps1"
 $restartScript = Join-Path $toolsDirectory "restart-backend.ps1"
+$projectPython = Join-Path $backendDirectory ".venv\Scripts\python.exe"
 
 foreach ($requiredPath in @(
     $mainFile,
@@ -146,7 +147,7 @@ foreach ($requiredPath in @(
 $python = Resolve-Executable `
     -RequestedPath $PythonPath `
     -EnvironmentName "IZO_PYTHON_PATH" `
-    -DefaultPath "C:\Program Files\Python311\python.exe" `
+    -DefaultPath $projectPython `
     -CommandName "python"
 $npm = Resolve-Executable `
     -RequestedPath $NpmPath `
@@ -167,6 +168,7 @@ $quickTests = @(
     "-m", "pytest", "-q",
     "tools/test_generate_backend_map.py",
     "tools/test_generate_architecture_inventory.py",
+    "tools/test_frontend_release_identity.py",
     "tools/test_launchers.py",
     "tools/test_restart_backend_script.py",
     "tools/test_runtime_listener_contract.py",
@@ -194,6 +196,7 @@ if ($PlanOnly) {
         Write-Host "VERIFY_PLAN_STEP pytest scope=backend+tools"
         Write-Host "VERIFY_PLAN_STEP frontend_lint command=npm run lint"
         Write-Host "VERIFY_PLAN_STEP frontend_build command=npm run build"
+        Write-Host "VERIFY_PLAN_STEP frontend_release_identity command=npm run check:release"
         Write-Host "VERIFY_PLAN_STEP frontend_origin_isolation command=npm run check:origin"
         Write-Host "VERIFY_PLAN_STEP frontend_studio_resilience command=npm run e2e:studio-resilience"
     } else {
@@ -249,6 +252,7 @@ if ($usesFullSuite) {
     Invoke-NativeStep -Name "pytest_full" -FilePath $python -ArgumentList $fullTests -WorkingDirectory $resolvedRoot
     Invoke-NativeStep -Name "frontend_lint" -FilePath $npm -ArgumentList @("run", "lint") -WorkingDirectory $frontendDirectory
     Invoke-NativeStep -Name "frontend_build" -FilePath $npm -ArgumentList @("run", "build") -WorkingDirectory $frontendDirectory
+    Invoke-NativeStep -Name "frontend_release_identity" -FilePath $npm -ArgumentList @("run", "check:release") -WorkingDirectory $frontendDirectory
     Invoke-NativeStep -Name "frontend_origin_isolation" -FilePath $npm -ArgumentList @("run", "check:origin") -WorkingDirectory $frontendDirectory
     Invoke-NativeStep -Name "frontend_studio_resilience" -FilePath $npm -ArgumentList @("run", "e2e:studio-resilience") -WorkingDirectory $frontendDirectory
 } else {

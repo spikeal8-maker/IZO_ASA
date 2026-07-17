@@ -16,11 +16,18 @@ def test_vite_uses_one_exact_public_host_allowlist() -> None:
 
 
 def test_all_repository_uvicorn_launchers_disable_implicit_proxy_rewrite() -> None:
-    for relative_path in ("start-public.bat", "start-project-test.bat"):
-        source = (ROOT / relative_path).read_text(encoding="utf-8")
-        commands = [line for line in source.splitlines() if "uvicorn" in line and "main:app" in line]
-        assert commands, relative_path
-        assert all("--no-proxy-headers" in line for line in commands), relative_path
+    public_source = (ROOT / "start-public.bat").read_text(encoding="utf-8")
+    assert "restart-backend.ps1" in public_source
+    assert not [
+        line for line in public_source.splitlines() if "uvicorn" in line and "main:app" in line
+    ]
+
+    direct_source = (ROOT / "start-project-test.bat").read_text(encoding="utf-8")
+    direct_commands = [
+        line for line in direct_source.splitlines() if "uvicorn" in line and "main:app" in line
+    ]
+    assert direct_commands
+    assert all("--no-proxy-headers" in line for line in direct_commands)
 
     restart_source = (ROOT / "tools" / "restart-backend.ps1").read_text(encoding="utf-8")
     assert '"--no-proxy-headers")' in restart_source

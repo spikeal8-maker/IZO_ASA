@@ -124,6 +124,20 @@ def test_restart_script_rejects_explicit_missing_python(tmp_path: Path) -> None:
     assert "Requested Python executable was not found" in result.stderr
 
 
+def test_actual_restart_requires_release_manifest_before_listener_mutation(tmp_path: Path) -> None:
+    repo = _fake_repo(tmp_path)
+
+    result = _run_script(
+        "-RepoRoot",
+        str(repo),
+        "-PythonPath",
+        sys.executable,
+    )
+
+    assert result.returncode != 0
+    assert "ReleaseManifestPath is required" in result.stderr
+
+
 def test_restart_script_checks_exact_listener_command_health_and_logs() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
@@ -136,18 +150,29 @@ def test_restart_script_checks_exact_listener_command_health_and_logs() -> None:
     assert "ProxyHeadersDisabled" in source
     assert "Get-CimInstance Win32_Process" in source
     assert "/api/health" in source
+    assert 'Properties.Name -contains "ready"' in source
     assert '[int]$HealthProbeTimeoutSeconds = 10' in source
-    assert "-TimeoutSec $TimeoutSeconds" in source
-    assert source.count("-TimeoutSeconds $HealthProbeTimeoutSeconds") == 2
+    assert "Invoke-RestMethod -Uri $Uri -TimeoutSec $TimeoutSeconds" in source
+    assert source.count("-TimeoutSeconds $HealthProbeTimeoutSeconds") == 4
     assert "RedirectStandardOutput" in source
     assert "RedirectStandardError" in source
     assert "BACKEND_RESTART_FAILED" in source
+    assert "backend\\.venv\\Scripts\\python.exe" in source
+    assert "Test-BackendReleaseIdentity" in source
+    assert "assert_release_schema_compatible" in source
+    assert "PRAGMA user_version" in source
+    assert "BACKEND_RESTART_ROLLBACK_OK" in source
+    assert "BACKEND_COLD_START" in source
+    assert "AllowColdStart" in source
+    assert "active-backend.json" in source
 
 
 def test_restart_script_preflight_modes_return_before_stop() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     validate_index = source.index("if ($ValidateOnly)")
     preflight_index = source.index("if ($PreflightOnly)")
+    release_preflight_index = source.index("Get-ProductionReleaseContract")
     stop_index = source.index("Stop-Process -Id $oldState.ProcessId")
 
     assert validate_index < preflight_index < stop_index
+    assert release_preflight_index < stop_index

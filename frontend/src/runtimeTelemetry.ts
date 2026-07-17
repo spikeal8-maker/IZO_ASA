@@ -1,6 +1,6 @@
 export type RuntimeRegion = 'root' | 'studio-form' | 'preview' | 'history' | 'gallery-picker' | 'global'
 
-declare const __APP_RELEASE__: string
+import { FRONTEND_RELEASE_ID } from './releaseIdentity'
 
 const API = import.meta.env.VITE_API_BASE_URL || '/api'
 const sent = new Set<string>()
@@ -15,7 +15,7 @@ function hash(value: string): string {
 }
 
 function releaseLabel(): string {
-  return typeof __APP_RELEASE__ === 'string' && __APP_RELEASE__ ? __APP_RELEASE__ : 'unknown'
+  return FRONTEND_RELEASE_ID
 }
 
 function studioMode(): string {

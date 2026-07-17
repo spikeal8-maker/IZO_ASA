@@ -1,124 +1,169 @@
-# Public vs Dev launch
+# IZO_ASA public launch and release identity
 
-Two launchers, clearly separated:
+This is the operational contract for the current Windows single-computer
+production. The domain transport uses the existing FRP path through the VPS. The
+scripts in this repository do not modify the VPS configuration.
 
-| script | purpose | frontend on :5173 |
-|--------|---------|-------------------|
-| `start-project.bat` | **DEV ONLY** (local development) | Vite **dev** server (hot-reload, raw `/src`) |
-| `start-public.bat` | **PUBLIC / LIVE** (tunnel izo.alikinas.ru) | Vite **preview** of built `frontend/dist` |
-| `stop-public.bat` | stop public backend+frontend | — (leaves cloudflared running) |
+## Development and public launchers
 
-## Why this split
-The public tunnel `https://izo.alikinas.ru` routes to port **5173**. If that port runs
-the Vite **dev** server, the live HTML contains `/@vite/client` + raw `/src/main.tsx`:
-- the page blinks / resets state (dev re-transforms modules when files change — e.g.
-  Google Drive sync writes);
-- mobile WebViews (Telegram/MAX) cache stale dev modules → "old version".
-`start-public.bat` serves the immutable, hashed `dist` build instead — stable, cacheable.
+| Script | Purpose | Frontend on 5173 |
+|---|---|---|
+| `start-project.bat` | local development only | Vite dev server |
+| `start-public.bat` | controlled public release | immutable release directory through Vite preview |
+| `start-public-autostart.bat` | public release plus local FRP verification | immutable release directory through Vite preview |
+| `stop-public.bat` | stop local public processes | none |
 
-## start-project.bat (DEV ONLY)
-Unchanged behavior; now prints a DEV-ONLY warning. Starts backend (:8000) + `npm run
-dev` (:5173). Do **not** use while the tunnel is meant to serve the public site.
+Never expose the Vite dev server through the public domain. A public page must
+have hashed assets, no `/@vite/client`, no raw `/src/main.tsx`, and a matching
+`izo-release` meta marker.
 
-## start-public.bat (PUBLIC)
-1. Builds frontend: `npx tsc -b` + `npx vite build` (aborts on failure — public site
-   stays unchanged if the build is broken).
-2. Frees ports 8000 + 5173 (stops old backend/dev/preview; no duplicates).
-3. Starts backend: `uvicorn main:app --host 127.0.0.1 --port 8000
-   --no-proxy-headers`. Uvicorn must not rewrite the socket peer before application
-   proxy trust validation.
-4. Starts frontend: `npx vite preview --host 127.0.0.1 --port 5173` (serves dist).
-   Vite accepts only the exact public hostname `izo.alikinas.ru` (plus Vite's built-in
-   localhost/IP handling); arbitrary hostnames and subdomains receive HTTP 403.
-5. Probes and prints: backend/frontend PIDs, vite-dev-client present (False expected),
-   hashed asset present (True), `/api/version` (200), and no-session
-   generate/gallery/me (401 each). The three auth statuses are blocking: any mismatch
-   exits the launcher with code 23.
-Cloudflared is NOT managed here — it must already point to :5173.
+## Required local runtimes
 
-`TRUST_CLOUDFLARE_HEADERS=true` permits `CF-Connecting-IP` and `CF-IPCountry` only
-when the direct socket peer seen by FastAPI is `127.0.0.1` or `::1`. The generic
-`X-Forwarded-For` path remains separately controlled by `TRUST_PROXY_HEADERS`.
-Header values are validated before analytics use and never authorize a request.
+The tracked pins are authoritative:
 
-The same production Vite config is exercised after every Full/CI build:
+- `.python-version`: Python 3.11.9;
+- `.node-version`: Node.js 24.14.1;
+- backend runtime: `backend/.venv/Scripts/python.exe` only;
+- frontend dependencies: `frontend/node_modules` installed from `package-lock.json`.
+
+Create the backend environment from the repository root:
 
 ```powershell
-cd frontend
-npm run build
-npm run check:origin
+& 'C:\Program Files\Python311\python.exe' -m venv .\backend\.venv
+.\backend\.venv\Scripts\python.exe -m pip install -r .\backend\requirements.txt
+.\backend\.venv\Scripts\python.exe -m pip check
 ```
 
-The probe starts a temporary preview on an ephemeral loopback port and requires
-`200` for the exact public host/loopback and `403` for a subdomain/foreign host.
+Production startup fails before listener mutation if the project environment is
+missing, has the wrong Python version, or a global Python executable is selected.
 
-## Safe backend-only restart
+## Immutable release identity
 
-After a backend-only change that has already passed the full test/build gate, use the
-checked PowerShell helper instead of assembling stop/start commands manually:
+Every public candidate gets a unique directory under
+`.runtime/releases/frontend/<release_id>`. Its `release-manifest.json` contains
+only non-secret build facts:
+
+- manifest version and release ID;
+- full Git SHA and `dirty=false`;
+- UTC build time;
+- deterministic frontend asset count and SHA-256 inventory hash;
+- exact Python and Node.js versions;
+- supported SQLite schema-version range.
+
+The release ID begins with the first 12 characters of the same full Git SHA. The
+manifest filename, parent directory, checkout SHA, clean-worktree state, runtime
+versions, frontend asset contents and SQLite `PRAGMA user_version` are all checked
+before the old backend is stopped. Do not edit a generated release directory.
+
+The frontend build ID has one source: the value injected by Vite into both the JS
+bundle and `<meta name="izo-release">`. There is no manual source-code build label
+to bump.
+
+## Required verification before a public release
+
+From the canonical project directory:
 
 ```powershell
-.\tools\restart-backend.ps1 -PreflightOnly
-.\tools\restart-backend.ps1
+.\tools\verify.ps1 -Mode CI
+.\tools\verify.ps1 -Mode Quick
+git status --short
+git branch --show-current
 ```
 
-The helper is intentionally restricted to `127.0.0.1`. It validates the Python import,
-requires exactly one existing `uvicorn main:app` listener with the expected command,
-checks current health before stopping it, writes separate timestamped stdout/stderr logs,
-waits for the new `/api/health` response, and verifies the new listener PID and
-`--no-proxy-headers` flag. It inherits
-the caller's environment and does not manage frontend, ComfyUI, Ollama or the tunnel.
+The release checkout must be clean and on `main`. `CI` runs the complete isolated
+backend/tools and frontend gates. `Quick` additionally confirms the current local
+listener ownership and live media snapshot without restarting or mutating data.
 
-For a dependency/path check without inspecting or restarting a listener:
+`start-public.bat` currently calls the publisher with `-SkipVerify` because the
+full gate is run explicitly before release. Replacing this with a receipt-bound,
+fail-closed publisher is tracked as `REL-001`; skipping the explicit gate is not
+allowed in the meantime.
+
+## What `start-public.bat` does
+
+1. Verifies the PRIMARY server role and live SQLite path/size guard.
+2. Builds a new frontend candidate with an exact release ID.
+3. Generates and validates `release-manifest.json` from a clean `main` checkout.
+4. Starts an isolated candidate preview on port 5197 and runs browser smoke for
+   `/`, `/feed`, `/gallery` and `/profile`.
+5. Activates the candidate frontend on `127.0.0.1:5173`.
+6. Calls `tools/restart-backend.ps1` with the same manifest and project `.venv`.
+7. Requires the new backend to be ready and to report the exact manifest release,
+   frontend release and full commit.
+8. Verifies the release meta actually served on 5173, `/api/version`, and the
+   expected unauthenticated 401 responses for generation, gallery and identity.
+
+Run it interactively:
 
 ```powershell
-.\tools\restart-backend.ps1 -ValidateOnly
+.\start-public.bat
 ```
 
-`vite preview` is acceptable staging, not a hardened production server; for a final
-setup serve `dist/` via nginx/Caddy with caching.
+For Task Scheduler/Startup-folder execution, `start-public-autostart.bat` sets the
+non-interactive mode and verifies the existing FRP client after local activation.
 
-## Deploy checklist (every change)
-1. Run `start-public.bat` (rebuilds dist + restarts backend + preview). Bump
-   `APP_BUILD_LABEL` in `frontend/src/diag.tsx` so caches/labels are distinguishable.
-2. Open `https://izo.alikinas.ru/` → view source has **no** `/@vite/client`.
-3. `GET /api/version` → 200, `build` matches what you deployed.
-4. `POST /api/generate` (no session) → **401**.
-5. `GET /api/gallery` (no session) → **401**.
-6. Open `https://izo.alikinas.ru/?diag=1` → `isViteDevClientPresent:false`,
-   `frontend.build` correct, `backend.build` correct.
+## Health and diagnostics
 
-## Mobile (Telegram/MAX) note
-If a mobile app still shows an old build after `start-public.bat`: it is platform
-cache, not the server. Force-close the Mini App and re-open from the bot. If MAX Mobile
-won't open at all, check the MAX Mini App URL / domain allowlist / HTTPS / mobile launch
-config (see docs/phase16-live-delivery-stability.md).
-# Windows autostart
+- `GET /api/health` is public and intentionally minimal: application, release ID
+  and readiness only.
+- `GET /api/version` returns only the immutable release identity plus process
+  start time.
+- `GET /api/admin/runtime-health-v2` contains database, environment, ComfyUI and
+  runtime details and requires a trusted administrator session.
 
-Production services are started after the `spike` Windows account logs on by the
-`IZO_ASA_Public_Autostart.bat` Windows Startup-folder launcher. It runs
-`tools/start-production-stack.ps1`, which starts or verifies Ollama, Config UI,
-FRP, backend, frontend and the public endpoint. It intentionally does not start
-Qwen ASR on the shared generation GPU.
-
-The launcher uses the `C:\izo-generator` junction to the canonical repository so
-that `cmd.exe` never has to parse the Cyrillic project path during Windows logon.
-The tracked launcher template is `start-production-autostart.bat`. To restore
-autostart on this machine, create the junction and copy the template:
+Useful read-only checks:
 
 ```powershell
-New-Item -ItemType Junction -Path C:\izo-generator -Target $PWD
-Copy-Item .\start-production-autostart.bat `
-  (Join-Path ([Environment]::GetFolderPath('Startup')) 'IZO_ASA_Public_Autostart.bat')
+Invoke-RestMethod http://127.0.0.1:8000/api/health
+Invoke-RestMethod http://127.0.0.1:8000/api/version
+.\tools\check-runtime-listeners.ps1
 ```
 
-Verify the complete running stack without restarting anything:
+## Backend restart and rollback boundary
+
+Do not run an ad hoc `python -m uvicorn` command for public production. A managed
+restart requires the active manifest:
+
+```powershell
+$active = Get-Content .\.runtime\active-frontend.json -Raw | ConvertFrom-Json
+.\tools\restart-backend.ps1 `
+  -RepoRoot $PWD.Path `
+  -PythonPath .\backend\.venv\Scripts\python.exe `
+  -ReleaseManifestPath $active.release_manifest
+```
+
+The helper validates ownership of the existing `127.0.0.1:8000` listener and
+requires `--no-proxy-headers`. If the replacement fails after the old process was
+stopped, it attempts an availability rollback and reports that rollback explicitly.
+On a true cold boot, only the public launcher passes `-AllowColdStart` after it has
+created and validated the release manifest.
+
+Frontend rollback validates the selected artifact before replacing port 5173:
+
+```powershell
+.\tools\rollback-frontend-release.ps1 -PlanOnly
+.\tools\rollback-frontend-release.ps1 -ReleaseId <previous_release_id>
+```
+
+The remaining transactional activation gaps and API A/B rollback are explicitly
+tracked in `REL-001` and `REL-002`; do not describe them as already solved.
+
+## Windows autostart
+
+`tools/start-production-stack.ps1` starts or verifies Ollama, ComfyUI, FRP and the
+public launcher. It no longer starts an unmanaged bootstrap backend. A cold backend
+is created by the same manifest-controlled path as a normal release.
+
+The Startup-folder launcher runs under the intended Windows account, not `SYSTEM`,
+because CurrentUser DPAPI secrets and local model stores are account-bound. The
+existing `C:\izo-generator` junction may be used to avoid Cyrillic-path parsing
+issues during logon.
+
+Read-only stack verification:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\start-production-stack.ps1 -CheckOnly
 ```
 
-Autostart runs after logon rather than as `SYSTEM`: backend secrets are protected
-by the Windows user profile and Ollama models also live in that profile. Moving
-the same commands to a boot-time `SYSTEM` task would start with the wrong secret
-and model stores.
+Vite preview remains a transitional local server. Replacing it with local Caddy is
+the separate `EDGE-001` package and does not require changing the VPS tunnel.

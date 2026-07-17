@@ -683,7 +683,7 @@ def render_markdown(inventory: dict[str, Any]) -> str:
             "",
             f"- Python: `{release.get('python_version')}` from `{release.get('python_version_file')}`",
             f"- Node.js: `{release.get('node_version')}` from `{release.get('node_version_file')}`",
-            "- Required future manifest fields: " + ", ".join(f"`{item}`" for item in release.get("future_manifest_fields", [])),
+            "- Required manifest fields: " + ", ".join(f"`{item}`" for item in release.get("manifest_fields", [])),
             "- Known gaps:",
         ]
     )

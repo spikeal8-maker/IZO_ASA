@@ -180,6 +180,10 @@ def test_runtime_error_rejects_unapproved_fields() -> None:
 
 
 def test_runtime_health_reports_latest_synthetic(monkeypatch) -> None:
+    async def fake_available() -> bool:
+        return True
+
+    monkeypatch.setattr(main, "comfyui_available", fake_available)
     monkeypatch.setenv("RUNTIME_SYNTHETIC_KEY", "test-monitor-key")
     with TestClient(main.app) as client:
         denied = client.post("/api/runtime/synthetic-result", json={"status": "ok", "duration_ms": 10})
@@ -197,6 +201,9 @@ def test_runtime_health_reports_latest_synthetic(monkeypatch) -> None:
     assert payload["latest_synthetic"]["status"] == "ok"
     assert payload["latest_synthetic"]["release"] == "test-sha"
     assert payload["latest_synthetic"]["checked_routes"] == ["/", "/feed"]
+    assert payload["system"]["database"]["ready"] is True
+    assert payload["system"]["comfyui_ready"] is True
+    assert payload["release"]["release_id"] == main.RELEASE_IDENTITY.release_id
 
 
 BOT_OPERATIONAL_CASES = [
@@ -241,26 +248,34 @@ def test_bot_operational_endpoints_reject_trusted_non_admin() -> None:
             assert response.status_code == 403, f"{method} {path}: {response.status_code}"
 
 
-def test_health_reports_core_fields(monkeypatch) -> None:
-    async def fake_available() -> bool:
-        return True
-
-    monkeypatch.setattr(main, "comfyui_available", fake_available)
+def test_public_health_is_minimal_and_does_not_expose_runtime_details() -> None:
     with TestClient(main.app) as client:
         response = client.get("/api/health")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["ok"] is True
-    assert payload["comfyuiBaseUrl"] == main.COMFYUI_BASE_URL
-    assert payload["fluxKleinOneNode"] is True
-    assert payload["database"]["ready"] is True
-    assert payload["db_guard"]["status"] == "ok"
-    assert payload["database"]["users_count"] >= 1
-    assert payload["database"]["active_admin_count"] >= 1
-    assert "sqlite" in payload["database"]["type"]
-    assert "://" not in payload["database"]["path"]
-    assert payload["platforms"] == {"web": True, "telegram": True, "max": True}
+    assert payload == {
+        "ok": True,
+        "app": "izo-asa",
+        "release_id": main.RELEASE_IDENTITY.release_id,
+        "ready": True,
+    }
+    for forbidden in ("environment", "database", "db_guard", "comfyui", "platforms", "users_count"):
+        assert forbidden not in str(payload).lower()
+
+
+def test_public_version_uses_release_identity_without_mutable_runtime_details() -> None:
+    with TestClient(main.app) as client:
+        response = client.get("/api/version")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["release_id"] == main.RELEASE_IDENTITY.release_id
+    assert payload["backend_commit"] == main.RELEASE_IDENTITY.git_sha
+    assert payload["frontend_build"] == main.RELEASE_IDENTITY.frontend_build_id
+    assert "started_at" in payload
+    for forbidden in ("db_guard", "auth_v2", "password_login", "generation_protected"):
+        assert forbidden not in payload
 
 
 def test_all_generation_modes_complete_and_save_gallery_records(monkeypatch) -> None:

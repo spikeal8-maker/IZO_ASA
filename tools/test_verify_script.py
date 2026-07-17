@@ -79,6 +79,7 @@ def test_full_plan_contains_every_local_gate_without_execution() -> None:
     assert "architecture_inventory_check" in result.stdout
     assert "frontend_lint" in result.stdout
     assert "frontend_build" in result.stdout
+    assert "frontend_release_identity" in result.stdout
     assert "frontend_studio_resilience" in result.stdout
     assert "VERIFY_PLAN_OK mode=Full" in result.stdout
 
@@ -90,6 +91,7 @@ def test_ci_plan_is_deterministic_and_omits_live_runtime_checks() -> None:
     assert "pytest scope=backend+tools" in result.stdout
     assert "frontend_lint" in result.stdout
     assert "frontend_build" in result.stdout
+    assert "frontend_release_identity" in result.stdout
     assert "frontend_studio_resilience" in result.stdout
     assert "source_snapshot" not in result.stdout
     assert "backend_preflight" not in result.stdout
@@ -108,6 +110,7 @@ def test_quick_plan_runs_only_static_and_tool_contract_gates() -> None:
     assert "pytest scope=tool-contracts" in result.stdout
     assert "frontend_lint" not in result.stdout
     assert "frontend_build" not in result.stdout
+    assert "frontend_release_identity" not in result.stdout
     assert "VERIFY_PLAN_OK mode=Quick" in result.stdout
 
 
@@ -133,10 +136,14 @@ def test_verify_script_defaults_to_full_mode() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
     assert '[string]$Mode = "Full"' in source
+    assert '$projectPython = Join-Path $backendDirectory ".venv\\Scripts\\python.exe"' in source
+    assert '-DefaultPath $projectPython' in source
+    assert 'C:\\Program Files\\Python311\\python.exe' not in source
     assert '$fullTests = @("-m", "pytest", "-q", "backend", "tools")' in source
     assert '$usesLiveChecks = $Mode -ne "CI"' in source
     assert '"tools/test_backup_restore.py"' in source
     assert '"tools/test_generate_architecture_inventory.py"' in source
+    assert '"tools/test_frontend_release_identity.py"' in source
     assert '"tools/test_runtime_listener_contract.py"' in source
     assert '"tools/test_ci_workflow.py"' in source
     assert '"tools/test_pytest_collection_contract.py"' in source

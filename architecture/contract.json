@@ -3,12 +3,6 @@
   "default_route_process_role": "all-dev-current-monolith",
   "reviewed_routes": [
     {
-      "method": "GET",
-      "path": "/api/admin/runtime-health-v2",
-      "handler": "admin_runtime_health_v2",
-      "rationale": "The route delegates to the trusted-admin runtime health adapter."
-    },
-    {
       "method": "PUT",
       "path": "/api/admin/bots/telegram/token-v2",
       "handler": "admin_bots_telegram_token_v2",
@@ -350,25 +344,37 @@
     "node_version_file": ".node-version",
     "required_files": [
       ".github/workflows/ci.yml",
+      "backend/app/release_identity.py",
+      "frontend/src/releaseIdentity.ts",
+      "tools/build_release_manifest.py",
+      "tools/check_frontend_release_identity.mjs",
       "tools/verify.ps1",
       "tools/restart-backend.ps1",
       "tools/publish-frontend-release.ps1",
       "tools/rollback-frontend-release.ps1",
+      "tools/start-production-stack.ps1",
       "start-public.bat"
     ],
-    "future_manifest_fields": [
+    "schema_compatibility": {
+      "min_version": 1,
+      "max_version": 1
+    },
+    "manifest_fields": [
+      "manifest_version",
+      "release_id",
       "git_sha",
       "dirty",
       "built_at",
       "frontend_asset_manifest_hash",
       "python_version",
       "node_version",
-      "schema_compatibility"
+      "schema_compatibility",
+      "frontend_asset_count"
     ],
     "known_gaps": [
-      "Backend version is derived from the mutable checkout instead of an immutable release manifest.",
-      "Frontend build identity can be unknown.",
-      "The live backend still uses the global Python runtime."
+      "Backend source is still loaded from the mutable checkout; REL-002 moves API slots to exact release directories.",
+      "start-public.bat still uses SkipVerify; REL-001 introduces a receipt-bound fail-closed publisher.",
+      "Frontend manifest activation and listener replacement are not yet one rollback transaction; REL-001 closes this gap."
     ]
   }
 }

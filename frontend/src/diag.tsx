@@ -75,8 +75,13 @@ export function DiagPanel(): ReactElement {
   const rows: Array<[string, unknown]> = [
     ['frontend.build', APP_BUILD_LABEL],
     ['backend.build', backend?.build ?? '—'],
-    ['backend.auth_v2', backend?.auth_v2 ?? '—'],
-    ['backend.generation_protected', backend?.generation_protected ?? '—'],
+    ['backend.commit', backend?.backend_commit ?? '—'],
+    [
+      'release.match',
+      backend !== null &&
+        backend.release_id === APP_BUILD_LABEL &&
+        backend.frontend_build === APP_BUILD_LABEL,
+    ],
     ['auth.state', status],
     ...Object.entries(deliveryBooleans()),
     ...Object.entries(telegramBooleans()).map(([k, v]) => [`tg.${k}`, v] as [string, unknown]),

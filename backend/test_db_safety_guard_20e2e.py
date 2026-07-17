@@ -98,7 +98,7 @@ def test_db_connection_enables_busy_timeout_foreign_keys_and_wal(monkeypatch, tm
     assert journal_mode in {"wal", "memory"}
 
 
-def test_health_masks_database_info_and_reports_guard(monkeypatch, tmp_path):
+def test_public_health_reports_readiness_without_database_details(monkeypatch, tmp_path):
     db_file = tmp_path / "health.sqlite3"
     make_real_like_db(db_file)
     monkeypatch.setattr(main, "APP_ENV", "development")
@@ -107,11 +107,11 @@ def test_health_masks_database_info_and_reports_guard(monkeypatch, tmp_path):
         res = client.get("/api/health")
     assert res.status_code == 200
     body = res.json()
-    assert body["database"]["path"].startswith(".../")
-    assert str(tmp_path) not in body["database"]["path"]
-    assert "databasePath" not in body
-    assert body["db_guard"]["ok"] is True
+    assert body["ready"] is True
+    assert "database" not in body
+    assert "db_guard" not in body
     dumped = str(body)
+    assert str(tmp_path) not in dumped
     for forbidden in ("password_hash", "session_token_hash", "refresh_token_hash", "cookie", "token"):
         assert forbidden not in dumped
 

@@ -18,8 +18,8 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Static policy | Count |
 |---|---:|
-| REVIEW: admin route without detected gate | 9 |
-| admin | 94 |
+| REVIEW: admin route without detected gate | 8 |
+| admin | 95 |
 | public/optional/review | 60 |
 | session | 1 |
 | user | 55 |
@@ -127,7 +127,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Current | Maximum | Remaining |
 |---|---:|---:|---:|
-| `backend/main.py` | 20027 | 20250 | 223 |
+| `backend/main.py` | 20035 | 20250 | 215 |
 | `backend/static/feed/index.html` | 2110 | 2200 | 90 |
 | `backend/test_feed_v2.py` | 2320 | 2400 | 80 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
@@ -147,8 +147,8 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 - Python: `3.11.9` from `.python-version`
 - Node.js: `24.14.1` from `.node-version`
-- Required future manifest fields: `git_sha`, `dirty`, `built_at`, `frontend_asset_manifest_hash`, `python_version`, `node_version`, `schema_compatibility`
+- Required manifest fields: `manifest_version`, `release_id`, `git_sha`, `dirty`, `built_at`, `frontend_asset_manifest_hash`, `python_version`, `node_version`, `schema_compatibility`, `frontend_asset_count`
 - Known gaps:
-  - Backend version is derived from the mutable checkout instead of an immutable release manifest.
-  - Frontend build identity can be unknown.
-  - The live backend still uses the global Python runtime.
+  - Backend source is still loaded from the mutable checkout; REL-002 moves API slots to exact release directories.
+  - start-public.bat still uses SkipVerify; REL-001 introduces a receipt-bound fail-closed publisher.
+  - Frontend manifest activation and listener replacement are not yet one rollback transaction; REL-001 closes this gap.

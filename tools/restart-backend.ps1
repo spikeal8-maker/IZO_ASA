@@ -2,6 +2,7 @@
 param(
     [string]$RepoRoot = "",
     [string]$PythonPath = "",
+    [string]$ReleaseManifestPath = "",
     [string]$BindAddress = "127.0.0.1",
     [ValidateRange(1, 65535)]
     [int]$Port = 8000,
@@ -13,7 +14,8 @@ param(
     [int]$HealthProbeTimeoutSeconds = 10,
     [string]$LogDirectory = "",
     [switch]$ValidateOnly,
-    [switch]$PreflightOnly
+    [switch]$PreflightOnly,
+    [switch]$AllowColdStart
 )
 
 Set-StrictMode -Version Latest
@@ -107,7 +109,7 @@ function Get-BackendState {
         throw "Listener PID $($listener.OwningProcess) could not be inspected."
     }
     Assert-BackendCommand -CommandLine ([string]$process.CommandLine) -ExpectedPort $ExpectedPort -ExpectedBind $ExpectedBind -RequireProxyIsolation:$RequireProxyIsolation
-    if ($process.ExecutablePath) {
+    if ($ExpectedPython.Trim() -and $process.ExecutablePath) {
         $actualPython = [System.IO.Path]::GetFullPath([string]$process.ExecutablePath)
         $requiredPython = [System.IO.Path]::GetFullPath($ExpectedPython)
         if (-not $actualPython.Equals($requiredPython, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -118,6 +120,7 @@ function Get-BackendState {
         ProcessId = [int]$listener.OwningProcess
         Address = [string]$listener.LocalAddress
         CommandLine = [string]$process.CommandLine
+        ExecutablePath = [string]$process.ExecutablePath
         ProxyHeadersDisabled = [bool]($process.CommandLine -match "(?i)(?:^|\s)--no-proxy-headers(?:\s|$)")
     }
 }
@@ -129,8 +132,11 @@ function Test-BackendHealth {
     )
 
     try {
-        $response = Invoke-WebRequest -UseBasicParsing -Uri $Uri -TimeoutSec $TimeoutSeconds
-        return $response.StatusCode -eq 200
+        $response = Invoke-RestMethod -Uri $Uri -TimeoutSec $TimeoutSeconds
+        if ($response.PSObject.Properties.Name -contains "ready" -and $response.ready -ne $true) {
+            return $false
+        }
+        return $response.ok -eq $true
     } catch {
         return $false
     }
@@ -150,6 +156,104 @@ function Write-LogTail {
     }
 }
 
+function Invoke-WithProcessEnvironment {
+    param(
+        [hashtable]$Values,
+        [scriptblock]$Action
+    )
+
+    $previous = @{}
+    foreach ($name in $Values.Keys) {
+        $previous[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+        [Environment]::SetEnvironmentVariable($name, [string]$Values[$name], "Process")
+    }
+    try {
+        & $Action
+    } finally {
+        foreach ($name in $Values.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $previous[$name], "Process")
+        }
+    }
+}
+
+function Get-ProductionReleaseContract {
+    param(
+        [string]$RequestedManifest,
+        [string]$Root,
+        [string]$BackendDirectory
+    )
+
+    if (-not $RequestedManifest.Trim()) {
+        throw "ReleaseManifestPath is required for an actual production restart."
+    }
+    $manifestPath = (Resolve-Path -LiteralPath $RequestedManifest -ErrorAction Stop).Path
+    $allowedRoot = (Resolve-Path -LiteralPath (Join-Path $Root ".runtime\releases\frontend") -ErrorAction Stop).Path
+    if (-not $manifestPath.StartsWith($allowedRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Release manifest must be inside the canonical runtime release directory."
+    }
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $releaseId = [string]$manifest.release_id
+    $gitSha = [string]$manifest.git_sha
+    if ($manifest.manifest_version -ne 1 -or $releaseId -notmatch "^[0-9a-f]{12}-[0-9]{14}$" -or $gitSha -notmatch "^[0-9a-f]{40}$" -or $manifest.dirty -ne $false) {
+        throw "Release manifest identity is invalid."
+    }
+    $head = ([string](@(& git.exe -C $Root rev-parse HEAD)[0])).Trim()
+    if ($LASTEXITCODE -ne 0 -or $head -ne $gitSha) {
+        throw "Release manifest does not match the current checkout."
+    }
+    if (@(& git.exe -C $Root status --porcelain).Count -gt 0) {
+        throw "Refusing production restart from a dirty checkout."
+    }
+    $databasePath = Join-Path $BackendDirectory "onenode.sqlite3"
+    $telegramMode = if ($env:BOT_UPDATES_MODE -and $env:BOT_UPDATES_MODE.Trim()) { $env:BOT_UPDATES_MODE.Trim() } else { "polling" }
+    $maxMode = if ($env:MAX_UPDATES_MODE -and $env:MAX_UPDATES_MODE.Trim()) { $env:MAX_UPDATES_MODE.Trim() } else { "polling" }
+    $maxApiBaseUrl = if ($env:MAX_API_BASE_URL -and $env:MAX_API_BASE_URL.Trim()) { $env:MAX_API_BASE_URL.Trim() } else { "https://platform-api2.max.ru" }
+    return [pscustomobject]@{
+        ManifestPath = $manifestPath
+        ReleaseId = $releaseId
+        GitSha = $gitSha
+        Environment = @{
+            APP_ENV = "production"
+            IZO_RUNTIME_PROFILE = "production"
+            IZO_RELEASE_MANIFEST = $manifestPath
+            APP_BUILD = $releaseId
+            FRONTEND_BUILD_LABEL = $releaseId
+            DATABASE_URL = "sqlite:///" + $databasePath.Replace("\", "/")
+            DB_GUARD_ALLOWED_PATHS = $databasePath
+            DB_GUARD_MIN_SIZE_MB = "10"
+            DB_GUARD_MIN_USERS = "5"
+            DB_GUARD_MIN_ACTIVE_ADMINS = "1"
+            TRUSTED_COOKIE_SECURE = "true"
+            TRUSTED_COOKIE_SAMESITE = "none"
+            TRUSTED_COOKIE_PATH = "/"
+            TRUST_CLOUDFLARE_HEADERS = "true"
+            BOT_UPDATES_MODE = $telegramMode
+            MAX_UPDATES_MODE = $maxMode
+            MAX_API_BASE_URL = $maxApiBaseUrl
+        }
+    }
+}
+
+function Test-BackendReleaseIdentity {
+    param(
+        [string]$Uri,
+        [string]$ExpectedRelease,
+        [string]$ExpectedGitSha,
+        [int]$TimeoutSeconds
+    )
+
+    try {
+        $payload = Invoke-RestMethod -Uri $Uri -TimeoutSec $TimeoutSeconds
+        return (
+            [string]$payload.release_id -eq $ExpectedRelease -and
+            [string]$payload.frontend_build -eq $ExpectedRelease -and
+            [string]$payload.backend_commit -eq $ExpectedGitSha
+        )
+    } catch {
+        return $false
+    }
+}
+
 $resolvedRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $backendDirectory = Join-Path -Path $resolvedRoot -ChildPath "backend"
 $mainFile = Join-Path -Path $backendDirectory -ChildPath "main.py"
@@ -158,15 +262,51 @@ if (-not (Test-Path -LiteralPath $mainFile -PathType Leaf)) {
 }
 $pythonExecutable = Resolve-PythonExecutable -RequestedPath $PythonPath
 $healthUri = "http://$BindAddress`:$Port/api/health"
+$versionUri = "http://$BindAddress`:$Port/api/version"
+$actualRestart = -not $ValidateOnly -and -not $PreflightOnly
+$releaseContract = $null
 
-Push-Location -LiteralPath $backendDirectory
-try {
-    $preflightOutput = @(& $pythonExecutable -c "import main; assert getattr(main, 'app', None) is not None" 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Backend import preflight failed: $($preflightOutput -join [Environment]::NewLine)"
+if ($actualRestart) {
+    $releaseContract = Get-ProductionReleaseContract `
+        -RequestedManifest $ReleaseManifestPath `
+        -Root $resolvedRoot `
+        -BackendDirectory $backendDirectory
+    $projectPython = Join-Path $backendDirectory ".venv\Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $projectPython -PathType Leaf)) {
+        throw "Project backend virtual environment is required for a production restart."
     }
-} finally {
-    Pop-Location
+    $requiredPython = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $projectPython).Path)
+    $selectedPython = [IO.Path]::GetFullPath($pythonExecutable)
+    if (-not $selectedPython.Equals($requiredPython, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Production restart requires backend\.venv\Scripts\python.exe."
+    }
+}
+
+if ($actualRestart) {
+    $preflightOutput = @(
+        Invoke-WithProcessEnvironment -Values $releaseContract.Environment -Action {
+            Push-Location -LiteralPath $backendDirectory
+            try {
+                $output = @(& $pythonExecutable -c "import main; assert getattr(main, 'app', None) is not None; assert main.RELEASE_IDENTITY.managed; connection = main.db(); schema_version = int(connection.execute('PRAGMA user_version').fetchone()[0]); connection.close(); main.assert_release_schema_compatible(main.RELEASE_IDENTITY, schema_version)" 2>&1)
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Production backend import preflight failed: $($output -join [Environment]::NewLine)"
+                }
+                $output
+            } finally {
+                Pop-Location
+            }
+        }
+    )
+} else {
+    Push-Location -LiteralPath $backendDirectory
+    try {
+        $preflightOutput = @(& $pythonExecutable -c "import main; assert getattr(main, 'app', None) is not None" 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+            throw "Backend import preflight failed: $($preflightOutput -join [Environment]::NewLine)"
+        }
+    } finally {
+        Pop-Location
+    }
 }
 
 if ($ValidateOnly) {
@@ -174,9 +314,16 @@ if ($ValidateOnly) {
     return
 }
 
-$oldState = Get-BackendState -ExpectedPort $Port -ExpectedBind $BindAddress -ExpectedPython $pythonExecutable
-if (-not (Test-BackendHealth -Uri $healthUri -TimeoutSeconds $HealthProbeTimeoutSeconds)) {
-    throw "Current backend failed health preflight: $healthUri"
+$expectedOldPython = if ($PreflightOnly) { $pythonExecutable } else { "" }
+$existingListeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+$oldState = $null
+if ($existingListeners.Count -eq 0 -and $actualRestart -and $AllowColdStart) {
+    Write-Host "BACKEND_COLD_START port=$Port"
+} else {
+    $oldState = Get-BackendState -ExpectedPort $Port -ExpectedBind $BindAddress -ExpectedPython $expectedOldPython -RequireProxyIsolation
+    if (-not (Test-BackendHealth -Uri $healthUri -TimeoutSeconds $HealthProbeTimeoutSeconds)) {
+        throw "Current backend failed health preflight: $healthUri"
+    }
 }
 
 if ($PreflightOnly) {
@@ -192,34 +339,39 @@ $timestamp = Get-Date -Format "yyyyMMdd_HHmmss_fff"
 $stdoutLog = Join-Path -Path $LogDirectory -ChildPath "backend_restart_$timestamp.out.log"
 $stderrLog = Join-Path -Path $LogDirectory -ChildPath "backend_restart_$timestamp.err.log"
 
-Write-Host "Stopping backend PID $($oldState.ProcessId) on $BindAddress`:$Port..."
-Stop-Process -Id $oldState.ProcessId -ErrorAction Stop
-$stopDeadline = (Get-Date).AddSeconds($StopTimeoutSeconds)
-while ((Get-Process -Id $oldState.ProcessId -ErrorAction SilentlyContinue) -and (Get-Date) -lt $stopDeadline) {
-    Start-Sleep -Milliseconds 250
-}
-if (Get-Process -Id $oldState.ProcessId -ErrorAction SilentlyContinue) {
-    Write-Warning "Backend did not stop within $StopTimeoutSeconds seconds; forcing PID $($oldState.ProcessId)."
-    Stop-Process -Id $oldState.ProcessId -Force -ErrorAction Stop
+if ($null -ne $oldState) {
+    Write-Host "Stopping backend PID $($oldState.ProcessId) on $BindAddress`:$Port..."
+    Stop-Process -Id $oldState.ProcessId -ErrorAction Stop
+    $stopDeadline = (Get-Date).AddSeconds($StopTimeoutSeconds)
+    while ((Get-Process -Id $oldState.ProcessId -ErrorAction SilentlyContinue) -and (Get-Date) -lt $stopDeadline) {
+        Start-Sleep -Milliseconds 250
+    }
+    if (Get-Process -Id $oldState.ProcessId -ErrorAction SilentlyContinue) {
+        Write-Warning "Backend did not stop within $StopTimeoutSeconds seconds; forcing PID $($oldState.ProcessId)."
+        Stop-Process -Id $oldState.ProcessId -Force -ErrorAction Stop
+    }
 }
 $portDeadline = (Get-Date).AddSeconds($StopTimeoutSeconds)
 while ((Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) -and (Get-Date) -lt $portDeadline) {
     Start-Sleep -Milliseconds 250
 }
 if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) {
-    throw "Port $Port did not become free after stopping PID $($oldState.ProcessId)."
+    $priorPid = if ($null -ne $oldState) { $oldState.ProcessId } else { "none" }
+    throw "Port $Port did not become free before activation; prior PID: $priorPid."
 }
 
 $newProcess = $null
 try {
-    $newProcess = Start-Process `
-        -FilePath $pythonExecutable `
-        -ArgumentList @("-m", "uvicorn", "main:app", "--host", $BindAddress, "--port", [string]$Port, "--no-proxy-headers") `
-        -WorkingDirectory $backendDirectory `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput $stdoutLog `
-        -RedirectStandardError $stderrLog `
-        -PassThru
+    $newProcess = Invoke-WithProcessEnvironment -Values $releaseContract.Environment -Action {
+        Start-Process `
+            -FilePath $pythonExecutable `
+            -ArgumentList @("-m", "uvicorn", "main:app", "--host", $BindAddress, "--port", [string]$Port, "--no-proxy-headers") `
+            -WorkingDirectory $backendDirectory `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $stdoutLog `
+            -RedirectStandardError $stderrLog `
+            -PassThru
+    }
 
     $startupDeadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
     $healthy = $false
@@ -241,15 +393,81 @@ try {
     if ($newState.ProcessId -ne $newProcess.Id) {
         throw "Listener PID $($newState.ProcessId) does not match started PID $($newProcess.Id)."
     }
-    Write-Host "BACKEND_RESTART_OK oldPid=$($oldState.ProcessId) newPid=$($newState.ProcessId) health=200 bind=$BindAddress port=$Port"
+    if (-not (Test-BackendReleaseIdentity -Uri $versionUri -ExpectedRelease $releaseContract.ReleaseId -ExpectedGitSha $releaseContract.GitSha -TimeoutSeconds $HealthProbeTimeoutSeconds)) {
+        throw "New backend release identity does not match the selected manifest."
+    }
+    $activeBackendPath = Join-Path $resolvedRoot ".runtime\active-backend.json"
+    $activeBackendTemp = "$activeBackendPath.tmp"
+    [ordered]@{
+        release_id = $releaseContract.ReleaseId
+        git_sha = $releaseContract.GitSha
+        release_manifest = $releaseContract.ManifestPath
+        python = $pythonExecutable
+        process_id = $newState.ProcessId
+        activated_at = (Get-Date).ToUniversalTime().ToString("o")
+    } | ConvertTo-Json | Set-Content -LiteralPath $activeBackendTemp -Encoding UTF8
+    Move-Item -LiteralPath $activeBackendTemp -Destination $activeBackendPath -Force
+    $oldPid = if ($null -ne $oldState) { $oldState.ProcessId } else { "none" }
+    Write-Host "BACKEND_RESTART_OK oldPid=$oldPid newPid=$($newState.ProcessId) health=200 release=$($releaseContract.ReleaseId) bind=$BindAddress port=$Port"
     Write-Host "stdout=$stdoutLog"
     Write-Host "stderr=$stderrLog"
 } catch {
-    Write-Error "BACKEND_RESTART_FAILED: $($_.Exception.Message)"
+    $failureMessage = $_.Exception.Message
+    Write-Host "BACKEND_RESTART_FAILED: $failureMessage"
     Write-LogTail -Label "stdout" -Path $stdoutLog
     Write-LogTail -Label "stderr" -Path $stderrLog
     if ($null -ne $newProcess -and -not $newProcess.HasExited) {
         Stop-Process -Id $newProcess.Id -Force -ErrorAction SilentlyContinue
     }
-    throw
+    $rollbackDeadline = (Get-Date).AddSeconds($StopTimeoutSeconds)
+    while ((Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) -and (Get-Date) -lt $rollbackDeadline) {
+        Start-Sleep -Milliseconds 250
+    }
+    if ($null -eq $oldState) {
+        throw "Production cold start failed and no previous backend existed: $failureMessage"
+    }
+    $rollbackPython = if ($oldState.ExecutablePath -and (Test-Path -LiteralPath $oldState.ExecutablePath)) { $oldState.ExecutablePath } else { $pythonExecutable }
+    $rollbackDatabase = Join-Path $backendDirectory "onenode.sqlite3"
+    $rollbackEnvironment = @{
+        APP_ENV = "development"
+        ENV = ""
+        MODE = ""
+        IZO_RUNTIME_PROFILE = ""
+        IZO_RELEASE_MANIFEST = ""
+        APP_BUILD = "rollback-unmanaged"
+        FRONTEND_BUILD_LABEL = "unknown"
+        DATABASE_URL = "sqlite:///" + $rollbackDatabase.Replace("\", "/")
+        DB_GUARD_ALLOWED_PATHS = $rollbackDatabase
+        BOT_UPDATES_MODE = "polling"
+        MAX_UPDATES_MODE = "polling"
+    }
+    $rollbackStdout = Join-Path -Path $LogDirectory -ChildPath "backend_rollback_$timestamp.out.log"
+    $rollbackStderr = Join-Path -Path $LogDirectory -ChildPath "backend_rollback_$timestamp.err.log"
+    $rollbackProcess = Invoke-WithProcessEnvironment -Values $rollbackEnvironment -Action {
+        Start-Process `
+            -FilePath $rollbackPython `
+            -ArgumentList @("-m", "uvicorn", "main:app", "--host", $BindAddress, "--port", [string]$Port, "--no-proxy-headers") `
+            -WorkingDirectory $backendDirectory `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $rollbackStdout `
+            -RedirectStandardError $rollbackStderr `
+            -PassThru
+    }
+    $rollbackHealthy = $false
+    $rollbackDeadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
+    while ((Get-Date) -lt $rollbackDeadline) {
+        if ($rollbackProcess.HasExited) { break }
+        if (Test-BackendHealth -Uri $healthUri -TimeoutSeconds $HealthProbeTimeoutSeconds) {
+            $rollbackHealthy = $true
+            break
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    if ($rollbackHealthy) {
+        Write-Host "BACKEND_RESTART_ROLLBACK_OK pid=$($rollbackProcess.Id) health=200"
+        throw "Production restart failed and legacy runtime was restored: $failureMessage"
+    }
+    Write-LogTail -Label "rollback stdout" -Path $rollbackStdout
+    Write-LogTail -Label "rollback stderr" -Path $rollbackStderr
+    throw "Production restart failed and rollback failed: $failureMessage"
 }

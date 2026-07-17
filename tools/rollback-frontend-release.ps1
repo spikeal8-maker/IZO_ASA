@@ -16,6 +16,8 @@ if (-not $ReleaseId) { $ReleaseId = [string]$manifest.previous_release }
 if (-not $ReleaseId) { throw "No previous release is available." }
 $target = Join-Path $root ".runtime\releases\frontend\$ReleaseId"
 if (-not (Test-Path (Join-Path $target "index.html"))) { throw "Release is incomplete: $ReleaseId" }
+$targetManifest = Join-Path $target "release-manifest.json"
+$legacyRelease = -not (Test-Path -LiteralPath $targetManifest -PathType Leaf)
 if ($PlanOnly) { Write-Host "ROLLBACK_PLAN target=$ReleaseId path=$target smoke=5197 restart=5173"; return }
 
 $frontend = Join-Path $root "frontend"
@@ -28,13 +30,15 @@ try {
         Start-Sleep -Milliseconds 500
     }
     Push-Location $frontend
-    try { $env:IZO_SYNTHETIC_BASE_URL = "http://127.0.0.1:5197"; & npm run e2e:synthetic; if ($LASTEXITCODE -ne 0) { throw "Rollback smoke failed." } }
+    try { $env:IZO_SYNTHETIC_BASE_URL = "http://127.0.0.1:5197"; $env:FRONTEND_BUILD_LABEL = $ReleaseId; $env:IZO_ALLOW_LEGACY_RELEASE = if ($legacyRelease) { "1" } else { "0" }; & npm run e2e:synthetic; if ($LASTEXITCODE -ne 0) { throw "Rollback smoke failed." } }
     finally { Pop-Location }
 } finally { Stop-Process -Id $preview.Id -Force -ErrorAction SilentlyContinue }
 
 $oldActive = [string]$manifest.active_release
 $releaseInfo = Get-Content (Join-Path $target "release.json") -Raw | ConvertFrom-Json
-$next = [ordered]@{ active_release = $ReleaseId; previous_release = $oldActive; release_path = $target; git_sha = $releaseInfo.git_sha; activated_at = (Get-Date).ToUniversalTime().ToString("o"); rollback = $true }
+$releaseManifest = Join-Path $target "release-manifest.json"
+$releaseManifestValue = if (Test-Path -LiteralPath $releaseManifest) { $releaseManifest } else { $null }
+$next = [ordered]@{ active_release = $ReleaseId; previous_release = $oldActive; release_path = $target; release_manifest = $releaseManifestValue; git_sha = $releaseInfo.git_sha; activated_at = (Get-Date).ToUniversalTime().ToString("o"); rollback = $true }
 $temp = "$manifestPath.tmp"
 $next | ConvertTo-Json | Set-Content -LiteralPath $temp -Encoding utf8
 Move-Item -LiteralPath $temp -Destination $manifestPath -Force

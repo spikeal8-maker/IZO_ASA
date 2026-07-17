@@ -54,6 +54,11 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
   startup first applies a secret-free blocking validator for exact environment/cookie/
   CORS/provider/storage invariants, then the existing webhook, DB Guard and session
   secret guards.
+- `backend/app/release_identity.py` owns the import-safe immutable production
+  identity contract. It validates the canonical manifest path, Git/release binding,
+  exact runtime versions, deterministic frontend asset inventory and schema-version
+  compatibility. Production imports fail closed without a valid manifest and the
+  project-local `.venv`; development/test imports are explicitly `unmanaged`.
 - `backend/app/database/connection.py` owns the SQLite connection policy.
 - `backend/app/database/guard.py` owns import-safe DB Guard checks; `main.py` retains compatibility wrappers while the split continues.
 - `backend/app/database/migrations.py` owns validated additive-column primitives,

@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_public_launcher_stops_when_candidate_release_fails() -> None:
     launcher = (ROOT / "start-public.bat").read_text(encoding="utf-8")
     publish_index = launcher.index("publish-frontend-release.ps1")
-    restart_index = launcher.index("Freeing ports 8000 and 5173")
+    restart_index = launcher.index("Controlled backend restart from immutable release manifest")
     gate = launcher[publish_index:restart_index]
 
     assert "if errorlevel 1" in gate
@@ -20,8 +20,39 @@ def test_public_launcher_stops_when_candidate_release_fails() -> None:
 def test_public_launcher_verifies_release_before_restarting_ports() -> None:
     launcher = (ROOT / "start-public.bat").read_text(encoding="utf-8")
 
-    assert launcher.index("publish-frontend-release.ps1") < launcher.index("Freeing ports 8000 and 5173")
-    assert "--outDir '%FRONTEND_RELEASE%'" in launcher
+    assert launcher.index("publish-frontend-release.ps1") < launcher.index("Controlled backend restart from immutable release manifest")
+    assert "restart-backend.ps1" in launcher
+    assert "-ReleaseManifestPath \"%RELEASE_MANIFEST%\"" in launcher
+    assert "-AllowColdStart" in launcher
+    assert "backend\\.venv\\Scripts\\python.exe" in launcher
+    assert "Immutable frontend release is already active" in launcher
+    assert "RELEASE IDENTITY MISMATCH" in launcher
+    assert "FRONTEND RELEASE MISMATCH" in launcher
+    assert "release meta matches" in launcher
+    assert "rollback-frontend-release.ps1" in launcher
+    assert "BACKEND_LOG" not in launcher
+
+
+def test_public_launcher_never_blocks_noninteractive_failures_on_pause() -> None:
+    launcher = (ROOT / "start-public.bat").read_text(encoding="utf-8")
+
+    assert "& pause & exit" not in launcher
+    assert launcher.count('if /I not "%IZO_NO_PAUSE%"=="1" pause') >= 8
+
+
+def test_production_stack_has_no_unmanaged_bootstrap_backend() -> None:
+    launcher = (ROOT / "tools" / "start-production-stack.ps1").read_text(encoding="utf-8")
+
+    assert "Start-BootstrapBackend" not in launcher
+    assert "bootstrap_backend_" not in launcher
+    assert "start-public-autostart.bat" in launcher
+
+
+def test_public_stop_script_describes_the_actual_frp_transport() -> None:
+    launcher = (ROOT / "stop-public.bat").read_text(encoding="utf-8")
+
+    assert "FRP left running" in launcher
+    assert "Cloudflared" not in launcher
 
 
 def test_public_launcher_keeps_max_polling_unless_webhook_is_explicit() -> None:
