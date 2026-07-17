@@ -7,8 +7,10 @@ Prototype web / Telegram Mini App / MAX Mini App interface for `FluxKleinOneNode
 Start here when you or another agent joins the project:
 
 - `docs/public-launch.md` — public/live launch flow with `start-public.bat` (запуск и deploy).
-- `docs/production-hardening-roadmap-20260713.md` — authoritative current status and
-  execution order for security, decomposition, tests and local production hardening.
+- `docs/engineering-transformation-master-plan-20260717.md` — authoritative current
+  audit, decisions and execution order for safe production transformation.
+- `docs/production-hardening-roadmap-20260713.md` — historical roadmap and checkpoint
+  evidence up to the 2026-07-17 audit; it is no longer the current backlog.
 - `docs/production-hardening-master-plan-20260712.md` — historical checkpoint journal
   and original requirements; it is no longer the current backlog.
 - `docs/main-merge-handoff-20260707.md` — current merge/deploy handoff for `/new`, `/feed`,
