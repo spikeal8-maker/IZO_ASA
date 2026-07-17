@@ -20,7 +20,7 @@ export type TariffRule = {
   note: string
   price_rub_month: number
   daily_tokens: number
-  openrouter_monthly_tokens: number
+  monthly_tokens: number
   gallery_slots: number
   quality_label: string
   model_defaults: TariffModelDefaults
@@ -242,11 +242,11 @@ const fullResolutions = resolutionOptions.map((item) => item.id)
 const serverDefaults: TariffModelDefaults = { fast: 'server:local_flux_klein', standard: 'server:local_flux_klein', max: 'server:local_flux_klein' }
 
 export const DEFAULT_TARIFFS: TariffConfig = {
-  free: { title: 'Free', note: 'Базовый доступ', price_rub_month: 0, daily_tokens: 10, openrouter_monthly_tokens: 0, gallery_slots: 20, quality_label: 'SD', model_defaults: serverDefaults, queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: sdResolutions, video_enabled: false, video_slots: 0, image_model_count: 1, video_model_count: 0 },
-  mini: { title: 'Mini', note: 'Оптимальный старт', price_rub_month: 490, daily_tokens: 50, openrouter_monthly_tokens: 100, gallery_slots: 80, quality_label: 'HD', model_defaults: serverDefaults, queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: hdResolutions, video_enabled: true, video_slots: 1, image_model_count: 1, video_model_count: 0 },
-  plus: { title: 'Plus', note: 'Больше возможностей', price_rub_month: 990, daily_tokens: 100, openrouter_monthly_tokens: 250, gallery_slots: 200, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-klein-4b', max: 'openai/gpt-image-1-mini' }, queue_label: 'Ускоренная', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 5, image_model_count: 1, video_model_count: 0 },
-  pro: { title: 'Pro', note: 'Видео и приоритет', price_rub_month: 1990, daily_tokens: 200, openrouter_monthly_tokens: 500, gallery_slots: 500, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-klein-4b', max: 'black-forest-labs/flux.2-pro' }, queue_label: 'Приоритетная', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 10, image_model_count: 1, video_model_count: 0 },
-  business: { title: 'Бизнес', note: 'Для команды и видео', price_rub_month: 4990, daily_tokens: 500, openrouter_monthly_tokens: 1200, gallery_slots: 500, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-pro', max: 'openai/gpt-image-1' }, queue_label: 'Бизнес', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 25, image_model_count: 1, video_model_count: 0 },
+  free: { title: 'Free', note: 'Базовый доступ', price_rub_month: 0, daily_tokens: 10, monthly_tokens: 0, gallery_slots: 20, quality_label: 'SD', model_defaults: serverDefaults, queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: sdResolutions, video_enabled: false, video_slots: 0, image_model_count: 1, video_model_count: 0 },
+  mini: { title: 'Mini', note: 'Оптимальный старт', price_rub_month: 490, daily_tokens: 50, monthly_tokens: 100, gallery_slots: 80, quality_label: 'HD', model_defaults: serverDefaults, queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: hdResolutions, video_enabled: true, video_slots: 1, image_model_count: 1, video_model_count: 0 },
+  plus: { title: 'Plus', note: 'Больше возможностей', price_rub_month: 990, daily_tokens: 100, monthly_tokens: 250, gallery_slots: 200, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-klein-4b', max: 'openai/gpt-image-1-mini' }, queue_label: 'Ускоренная', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 5, image_model_count: 1, video_model_count: 0 },
+  pro: { title: 'Pro', note: 'Видео и приоритет', price_rub_month: 1990, daily_tokens: 200, monthly_tokens: 500, gallery_slots: 500, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-klein-4b', max: 'black-forest-labs/flux.2-pro' }, queue_label: 'Приоритетная', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 10, image_model_count: 1, video_model_count: 0 },
+  business: { title: 'Бизнес', note: 'Для команды и видео', price_rub_month: 4990, daily_tokens: 500, monthly_tokens: 1200, gallery_slots: 500, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-pro', max: 'openai/gpt-image-1' }, queue_label: 'Бизнес', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 25, image_model_count: 1, video_model_count: 0 },
 }
 
 export const AVATAR_PRESET_COUNT = 71
@@ -258,7 +258,7 @@ export const avatarPresets = Array.from({ length: AVATAR_PRESET_COUNT }, (_, ind
 })
 
 export function normalizeTariffs(input: unknown): TariffConfig {
-  const source = (input && typeof input === 'object' ? input : {}) as Partial<Record<TariffKey, Partial<TariffConfig[TariffKey]>>>
+  const source = (input && typeof input === 'object' ? input : {}) as Partial<Record<TariffKey, Partial<TariffConfig[TariffKey]> & { openrouter_monthly_tokens?: number }>>
   return tariffKeys.reduce((acc, key) => {
     const videoSlots = Number(source[key]?.video_slots ?? DEFAULT_TARIFFS[key].video_slots)
     acc[key] = {
@@ -266,7 +266,7 @@ export function normalizeTariffs(input: unknown): TariffConfig {
       note: String(source[key]?.note ?? DEFAULT_TARIFFS[key].note),
       price_rub_month: Number(source[key]?.price_rub_month ?? DEFAULT_TARIFFS[key].price_rub_month),
       daily_tokens: Number(source[key]?.daily_tokens ?? DEFAULT_TARIFFS[key].daily_tokens),
-      openrouter_monthly_tokens: Number(source[key]?.openrouter_monthly_tokens ?? DEFAULT_TARIFFS[key].openrouter_monthly_tokens),
+      monthly_tokens: Number(source[key]?.monthly_tokens ?? source[key]?.openrouter_monthly_tokens ?? DEFAULT_TARIFFS[key].monthly_tokens),
       gallery_slots: Number(source[key]?.gallery_slots ?? DEFAULT_TARIFFS[key].gallery_slots),
       quality_label: String(source[key]?.quality_label ?? DEFAULT_TARIFFS[key].quality_label),
       model_defaults: qualityPresets.reduce((defaults, preset) => {

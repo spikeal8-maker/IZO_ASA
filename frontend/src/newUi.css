@@ -2770,13 +2770,24 @@ button.profile-chip { cursor: pointer; }
 .profile-plan-tabs button { border-radius: 0; border-width: 0 1px 0 0; min-height: 48px; background: rgba(255,255,255,.04); color: #98a19a; }
 .profile-plan-tabs button:last-child { border-right: 0; }
 .profile-plan-tabs button.active { background: var(--n2-lime); color: #071006; }
+.profile-term-selector { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; border: 1px solid #2c332e; border-radius: 9px; background: rgba(255,255,255,.025); }
+.profile-term-selector > span { color: #cbd3ce; font-size: 13px; font-weight: 760; }
+.profile-term-selector > div { display: grid; grid-template-columns: repeat(4, minmax(92px, 1fr)); gap: 6px; }
+.profile-term-selector button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; border: 1px solid #334038; border-radius: 7px; background: #171d19; color: #c6cec8; font-weight: 760; }
+.profile-term-selector button small { color: #8f9992; }
+.profile-term-selector button.active { border-color: var(--n2-lime); background: var(--n2-lime); color: #071006; }
+.profile-term-selector button.active small { color: #384009; }
+.profile-pending-plan { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 14px; border: 1px solid rgba(236,255,47,.3); border-radius: 9px; background: rgba(236,255,47,.055); }
+.profile-pending-plan strong { color: var(--n2-lime); font-size: 13px; }.profile-pending-plan span { color: #aeb7b0; font-size: 12px; }
 .profile-plans { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
 .profile-plan { position: relative; padding: 20px; display: grid; gap: 10px; align-content: start; }
 .profile-plan.active { border-color: rgba(236,255,47,.9); box-shadow: 0 0 0 1px rgba(236,255,47,.26), 0 20px 70px rgba(236,255,47,.1); }
 .profile-plan.current:not(.active) { border-color: rgba(236,255,47,.36); }
 .profile-plan h4 { margin: 0; color: #f2f5ee; font-size: 24px; text-transform: uppercase; }
 .profile-plan p { margin: 0; min-height: 0; color: #98a19a; }
-.profile-plan > strong { color: var(--n2-lime); font-size: 42px; line-height: .9; }
+.profile-plan-price { min-height: 72px; display: grid; gap: 3px; align-content: start; }.profile-plan-price del { color: #77817a; font-size: 13px; }.profile-plan-price strong { color: var(--n2-lime); font-size: 31px; line-height: 1; }.profile-plan-price span { color: #98a19a; font-size: 11px; }
+.profile-plan-saving { color: var(--n2-lime); font-weight: 800; }
+.profile-plan > em { color: #dce5df; font-size: 12px; font-style: normal; line-height: 1.35; }
 .profile-plan > span:not(.profile-chip) { color: #98a19a; font-size: 13px; }
 .profile-plan ul { list-style: none; padding: 0; margin: 6px 0; display: grid; gap: 8px; color: #98a19a; font-size: 14px; }
 .profile-plan li { display: flex; align-items: center; gap: 8px; }
@@ -2907,7 +2918,7 @@ button.profile-chip { cursor: pointer; }
 .profile-stat-card { padding: 22px; display: grid; gap: 8px; align-content: center; min-height: 120px; }
 .profile-stat-card span, .profile-tariff-summary span, .profile-earn-hero span { color: #b4bbb8; font-size: 14px; }
 .profile-stat-card strong, .profile-tariff-summary strong, .profile-earn-hero strong { color: var(--n2-lime); font-size: 30px; line-height: 1; overflow-wrap: anywhere; }
-.profile-tariff-summary { padding: 18px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 18px; align-items: center; }
+.profile-tariff-summary { padding: 18px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 18px; align-items: center; }
 .profile-tariff-summary div { display: grid; gap: 6px; padding-right: 18px; border-right: 1px solid rgba(255,255,255,.08); }
 .profile-tariff-summary div:last-child { border-right: 0; padding-right: 0; }
 .profile-checkout-discount { border: 1px solid rgba(236,255,47,.22); border-radius: 8px; background: rgba(236,255,47,.055); color: #cbd3cd; padding: 9px 12px; font-size: 13px; }
@@ -2946,6 +2957,9 @@ button.profile-chip { cursor: pointer; }
   .profile-tariff-summary { grid-template-columns: 1fr 1fr; gap: 12px; }
   .profile-tariff-summary div { border-right: 0; border-bottom: 1px solid rgba(255,255,255,.08); padding: 0 0 10px; }
   .profile-tariff-summary div:last-child { grid-column: 1 / -1; border-bottom: 0; }
+  .profile-term-selector { align-items: stretch; display: grid; }
+  .profile-term-selector > div { grid-template-columns: repeat(2, 1fr); }
+  .profile-pending-plan { align-items: flex-start; display: grid; }
   .profile-billing-footer { align-items: flex-start; flex-direction: column; gap: 14px; }
   .profile-billing-footer nav { justify-content: flex-start; }
   .profile-checkout-backdrop { align-items: end; padding: 0; }

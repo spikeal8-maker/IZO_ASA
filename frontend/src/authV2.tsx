@@ -376,13 +376,15 @@ export interface MeV2 {
   account?: {
     role?: string | null; plan?: string | null; token_balance?: number | null
     gallery_enabled?: boolean | null; gallery_access?: boolean | null
-    daily_tokens?: number | null; daily_tokens_used?: number | null; openrouter_monthly_tokens?: number | null
-    openrouter_monthly_tokens_used?: number | null; openrouter_monthly_tokens_remaining?: number | null
+    daily_tokens?: number | null; daily_tokens_used?: number | null; monthly_tokens_grant?: number | null
     daily_tokens_limit?: number | null; daily_tokens_remaining?: number | null
     gallery_slots?: number | null; gallery_used?: number | null
     gallery_free?: number | null; gallery_full?: boolean | null
     video_enabled?: boolean | null; video_slots?: number | null
     video_used?: number | null; video_free?: number | null
+    plan_started_at?: string | null; plan_expires_at?: string | null
+    plan_next_token_grant_at?: string | null; plan_term_months?: number | null
+    pending_plan?: { plan?: string; term_months?: number; starts_at?: string } | null
   } | null
   identities?: Array<{ provider?: string; provider_user_id?: string | null; provider_username?: string | null; provider_email?: string | null; provider_first_name?: string | null; provider_last_name?: string | null; provider_avatar_url?: string | null; verified_at?: string | null }>
 }

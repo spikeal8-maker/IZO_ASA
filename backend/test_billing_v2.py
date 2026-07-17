@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -171,3 +172,73 @@ def test_admin_can_update_token_package_but_not_tariff_package(temp_db):
     assert updated.json()["package"]["price_amount"] == 360
     assert updated.json()["package"]["token_amount"] == 80
     assert rejected.status_code == 400
+
+
+def test_extending_current_tariff_restores_next_monthly_grant(temp_db):
+    make_user("iuid-target", "telegram_target")
+    now = datetime(2026, 7, 17, 12, 0, tzinfo=timezone.utc)
+    current_expiry = main.add_calendar_months(now, 1)
+    with main.db() as conn:
+        conn.execute(
+            """
+            UPDATE users
+            SET plan='pro', plan_started_at=?, plan_expires_at=?,
+                plan_next_token_grant_at=NULL, plan_monthly_token_grant=500,
+                plan_term_months=1, pending_plan_json='{"plan":"mini","term_months":1}'
+            WHERE internal_user_id='iuid-target'
+            """,
+            (now.isoformat(), current_expiry.isoformat()),
+        )
+        result = main._schedule_or_activate_paid_tariff(
+            conn,
+            internal_user_id="iuid-target",
+            plan="pro",
+            term_months=3,
+            source="test_payment",
+            source_id="payment-extend",
+            now=now,
+        )
+        row = conn.execute(
+            "SELECT plan_expires_at, plan_next_token_grant_at, plan_term_months, pending_plan_json FROM users WHERE internal_user_id='iuid-target'"
+        ).fetchone()
+
+    assert result["extended"] is True
+    assert row["plan_expires_at"] == main.add_calendar_months(current_expiry, 3).isoformat()
+    assert row["plan_next_token_grant_at"] == current_expiry.isoformat()
+    assert int(row["plan_term_months"]) == 4
+    assert row["pending_plan_json"] is None
+
+
+def test_user_can_schedule_free_without_losing_main_balance(temp_db):
+    make_user("iuid-target", "telegram_target", balance=321)
+    now = datetime.now(timezone.utc)
+    expiry = main.add_calendar_months(now, 1)
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE users SET plan='pro', plan_started_at=?, plan_expires_at=?, plan_monthly_token_grant=500 WHERE internal_user_id='iuid-target'",
+            (now.isoformat(), expiry.isoformat()),
+        )
+    token = main.create_auth_session(
+        "iuid-target",
+        "telegram_target",
+        provider="telegram",
+        platform="telegram_mini_app",
+    )["session_token"]
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/account/tariff-v2/schedule-free",
+            json={"confirm": True},
+            headers=bearer(token),
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["plan"] == "pro"
+    assert body["pending_plan"]["plan"] == "free"
+    assert body["token_balance"] == 321
+    with main.db() as conn:
+        row = conn.execute(
+            "SELECT plan, pending_plan_json, token_balance FROM users WHERE internal_user_id='iuid-target'"
+        ).fetchone()
+    assert row["plan"] == "pro"
+    assert json.loads(row["pending_plan_json"])["plan"] == "free"
+    assert row["token_balance"] == 321

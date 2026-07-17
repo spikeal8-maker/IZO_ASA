@@ -30,7 +30,14 @@ type PublicModelFormatPricing = {
   supported?: boolean
 }
 type PublicModelPricing = { id: string; label: string; formats: PublicModelFormatPricing[] }
-type BillingPackage = { code: string; name: string; description?: string; price_amount: number; base_price_amount?: number; discount_percent?: number; discount_amount?: number; token_amount: number; currency: string }
+type BillingPackage = {
+  code: string; name: string; description?: string; price_amount: number
+  base_price_amount?: number; discount_percent?: number; discount_amount?: number
+  token_amount: number; currency: string; kind?: 'tariff' | 'tokens'; plan?: TariffKey
+  term_months?: number; monthly_price_amount?: number; term_discount_percent?: number
+  term_base_price_amount?: number; term_savings_amount?: number; included_tokens?: number
+  effective_token_price_rub?: number | null; personal_discount_percent?: number
+}
 type BillingLegal = {
   brand_name?: string; seller_name?: string; seller_status?: string; inn?: string; ogrn?: string
   legal_address?: string; support_email?: string; support_phone?: string; support_hours?: string
@@ -168,6 +175,11 @@ export default function ProfilePage({
   const [billingPackages, setBillingPackages] = useState<BillingPackage[]>([])
   const [personalDiscountPercent, setPersonalDiscountPercent] = useState(0)
   const [selectedPackage, setSelectedPackage] = useState('')
+  const [selectedTermMonths, setSelectedTermMonths] = useState(() => {
+    const requestedTerm = Number(new URLSearchParams(window.location.search).get('term') || 1)
+    return [1, 3, 6, 12].includes(requestedTerm) ? requestedTerm : 1
+  })
+  const [scheduleFreeBusy, setScheduleFreeBusy] = useState(false)
   const [checkoutBusy, setCheckoutBusy] = useState(false)
   const [checkoutMessage, setCheckoutMessage] = useState('')
   const [checkoutAccepted, setCheckoutAccepted] = useState(false)
@@ -188,12 +200,10 @@ export default function ProfilePage({
   const planLabel = activePlan.toUpperCase()
   const tokenBalance = Number(account?.token_balance ?? 0)
   const dailyLimit = Number(account?.daily_tokens_limit ?? account?.daily_tokens ?? currentTariff.daily_tokens)
-  const premiumMonthlyTokens = Number(account?.openrouter_monthly_tokens ?? currentTariff.openrouter_monthly_tokens)
+  const monthlyGrant = Number(account?.monthly_tokens_grant ?? currentTariff.monthly_tokens)
   const safeTokenRub = Number.isFinite(tokenRub) && tokenRub > 0 ? tokenRub : 5
   const dailyUsed = Math.max(0, Number(account?.daily_tokens_used ?? 0))
   const dailyAvailable = Math.max(0, Number(account?.daily_tokens_remaining ?? dailyLimit - dailyUsed))
-  const premiumMonthlyUsed = Math.max(0, Number(account?.openrouter_monthly_tokens_used ?? 0))
-  const premiumMonthlyRemaining = Math.max(0, Number(account?.openrouter_monthly_tokens_remaining ?? premiumMonthlyTokens - premiumMonthlyUsed))
   const gallerySlots = Number(account?.gallery_slots ?? currentTariff.gallery_slots)
   const galleryUsed = Number(account?.gallery_used ?? galleryCount)
   const galleryFree = Math.max(0, Number(account?.gallery_free ?? gallerySlots - galleryUsed))
@@ -203,6 +213,8 @@ export default function ProfilePage({
   const feedLikes = Number((account as { feed_likes?: number | null; likes_received?: number | null } | undefined)?.feed_likes ?? (account as { likes_received?: number | null } | undefined)?.likes_received ?? 0)
   const displayEmail = me?.identities?.find((i) => i.provider_email)?.provider_email
   const effectiveReceiptContact = receiptContact ?? String(me?.billing?.receipt_email || displayEmail || '').trim()
+  const planExpiresAt = account?.plan_expires_at || null
+  const pendingPlan = account?.pending_plan || null
   const telegramIdentity = me?.identities?.find((i) => i.provider === 'telegram')
   const maxIdentity = me?.identities?.find((i) => i.provider === 'max')
   const displayNameFallback = me?.profile?.display_name
@@ -277,21 +289,25 @@ export default function ProfilePage({
         const packages = Array.isArray(result?.packages) ? result.packages as BillingPackage[] : []
         setBillingPackages(packages)
         setPersonalDiscountPercent(Math.max(0, Number(result?.personal_discount_percent || 0)))
-        setSelectedPackage((current) => current || packages[0]?.code || '')
+        setSelectedPackage((current) => current || packages.find((item) => item.kind === 'tokens' || item.code.startsWith('tokens_'))?.code || '')
         setBillingLegal((result?.legal || {}) as BillingLegal)
         const savedEmail = String(result?.checkout?.receipt_email || '').trim()
         if (savedEmail) setReceiptContact(savedEmail)
         const requestedPackageCode = new URLSearchParams(window.location.search).get('buy')?.trim()
         const requestedPackage = packages.find((item) => item.code === requestedPackageCode)
         if (requestedPackage) {
+          const isTariff = requestedPackage.kind === 'tariff' || requestedPackage.code.startsWith('tariff_')
           setCheckoutSelection({
             code: requestedPackage.code,
             title: requestedPackage.name,
             price: requestedPackage.price_amount,
-            description: 'Разовое пополнение баланса',
-            benefits: [
+            description: isTariff ? `Доступ на ${requestedPackage.term_months || 1} мес.` : 'Разовое пополнение основного баланса',
+            benefits: isTariff ? [
+              `${requestedPackage.included_tokens || 0} токенов в основной баланс за весь срок`,
+              'Ежемесячное начисление и доступы тарифа включатся автоматически',
+            ] : [
               `${requestedPackage.token_amount} дополнительных токенов`,
-              'Баланс обновится автоматически после подтверждения оплаты',
+              'Основной баланс обновится автоматически после подтверждения оплаты',
             ],
           })
           setCheckoutAccepted(false)
@@ -330,6 +346,24 @@ export default function ProfilePage({
     setCheckoutSelection(selection)
     setCheckoutAccepted(false)
     setCheckoutMessage('')
+  }
+  const scheduleFreeTariff = async () => {
+    setScheduleFreeBusy(true)
+    setCheckoutMessage('')
+    try {
+      const response = await fetch(`${API}/account/tariff-v2/schedule-free`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(String(result?.detail || 'Не удалось запланировать переход на Free'))
+      window.location.reload()
+    } catch (reason) {
+      setCheckoutMessage(reason instanceof Error ? reason.message : 'Не удалось запланировать переход на Free')
+      setScheduleFreeBusy(false)
+    }
   }
   const closeCheckout = () => {
     if (checkoutBusy) return
@@ -412,9 +446,10 @@ export default function ProfilePage({
   }
   const planCards = tariffKeys.map((id) => {
     const tariff = tariffs[id] || DEFAULT_TARIFFS[id]
+    const tariffPackage = billingPackages.find((item) => item.kind === 'tariff' && item.plan === id && Number(item.term_months) === selectedTermMonths)
     const features = [
       `${tariff.daily_tokens} серверных токенов в день`,
-      tariff.openrouter_monthly_tokens > 0 ? `${tariff.openrouter_monthly_tokens} токенов премиум-моделей в месяц` : '',
+      tariff.monthly_tokens > 0 ? `${tariff.monthly_tokens} токенов ежемесячно в основной баланс` : '',
       formatModelCount(tariff.image_model_count, 'для изображений'),
       formatModelCount(tariff.video_model_count, 'для видео'),
       `${tariff.gallery_slots} изображений в галерее`,
@@ -424,18 +459,23 @@ export default function ProfilePage({
       tariff.pro_mode_enabled ? 'Режим профи' : '',
       tariff.queue_label && tariff.queue_label.toLowerCase() !== 'обычная' ? `Очередь: ${tariff.queue_label}` : '',
     ].filter(Boolean)
-    const basePrice = tariff.price_rub_month
-    const discountAmount = Math.round(basePrice * personalDiscountPercent / 100)
+    const baseTotal = Math.max(0, tariff.price_rub_month * selectedTermMonths)
+    const price = tariffPackage?.price_amount ?? Math.max(0, baseTotal - Math.round(baseTotal * personalDiscountPercent / 100))
+    const includedTokens = tariffPackage?.included_tokens ?? tariff.monthly_tokens * selectedTermMonths
+    const savings = Math.max(0, baseTotal - price)
+    const effectiveTokenPrice = includedTokens > 0 ? price / includedTokens : null
     return {
       id,
       title: tariff.title,
       note: tariff.note,
-      price: Math.max(0, basePrice - discountAmount),
-      basePrice,
+      code: tariffPackage?.code || (selectedTermMonths === 1 ? `tariff_${id}` : `tariff_${id}_${selectedTermMonths}m`),
+      price,
+      basePrice: baseTotal,
+      savings,
+      includedTokens,
+      effectiveTokenPrice,
       daily: tariff.daily_tokens,
-      premium: tariff.openrouter_monthly_tokens,
-      premiumValue: tariff.openrouter_monthly_tokens * safeTokenRub,
-      benefit: Math.max(0, tariff.openrouter_monthly_tokens * safeTokenRub - Math.max(0, basePrice - discountAmount)),
+      monthly: tariff.monthly_tokens,
       slots: tariff.gallery_slots,
       quality: tariff.quality_label,
       features,
@@ -444,8 +484,10 @@ export default function ProfilePage({
   const tokenHistoryItems = tokenHistory?.items || []
   const tokenReasonLabel = (item: TokenHistoryItem) => {
     if (item.reason === 'daily_generation') return 'Серверная генерация'
-    if (item.reason === 'openrouter_monthly_generation') return 'Премиум-модель'
+    if (item.reason === 'openrouter_monthly_generation') return 'Генерация (история)'
     if (item.reason === 'generation') return 'Генерация с баланса'
+    if (item.reason === 'tariff_monthly_grant') return 'Ежемесячное начисление тарифа'
+    if (item.reason === 'payment_grant') return 'Покупка токенов'
     if (item.reason.endsWith('_refund')) return 'Возврат токенов'
     if (item.delta > 0) return 'Начисление токенов'
     return item.reason
@@ -456,6 +498,11 @@ export default function ProfilePage({
     } catch {
       return value
     }
+  }
+  const formatPlanDate = (value?: string | null) => {
+    if (!value) return 'без ограничения срока'
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })
   }
 
   return (
@@ -627,42 +674,55 @@ export default function ProfilePage({
           {profileTab === 'tariffs' && <>
             <section className="profile-section">
               <div className="profile-tariff-summary profile-card">
-                <div><span>Текущий тариф</span><strong>{planLabel}</strong></div>
-                <div><span>Токены сегодня</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></div>
-                <div><span>Премиум-модели</span><strong>{premiumMonthlyTokens}</strong><small>токенов в месяц</small></div>
+                <div><span>Текущий тариф</span><strong>{planLabel}</strong><small>{planExpiresAt ? `до ${formatPlanDate(planExpiresAt)}` : 'бесплатный тариф'}</small></div>
+                <div><span>Дневные токены</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>обновляются ежедневно</small></div>
+                <div><span>Основной баланс</span><strong>{tokenBalance}</strong><small>не сгорает при смене тарифа</small></div>
+                <div><span>Начисление тарифа</span><strong>+{monthlyGrant}</strong><small>ежемесячно в основной баланс</small></div>
                 <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
                 <div><span>Видео в галерее</span><strong>{videoUsed}/{videoSlots}</strong><small>свободно {videoFree}</small></div>
               </div>
+              {pendingPlan?.plan && <div className="profile-pending-plan"><strong>Следующий тариф: {String(pendingPlan.plan).toUpperCase()}</strong><span>Включится {formatPlanDate(pendingPlan.starts_at || planExpiresAt)}. До этой даты текущие возможности сохраняются.</span></div>}
+              {checkoutMessage && !checkoutSelection && <div className="profile-checkout-error" role="alert">{checkoutMessage}</div>}
               {personalDiscountPercent > 0 && <div className="profile-checkout-discount">Персональная скидка <strong>{personalDiscountPercent}%</strong> уже учтена в ценах.</div>}
+              <div className="profile-term-selector" aria-label="Срок тарифа">
+                <span>Срок тарифа</span>
+                <div>{[1, 3, 6, 12].map((months) => {
+                  const example = billingPackages.find((item) => item.kind === 'tariff' && Number(item.term_months) === months)
+                  return <button type="button" key={months} className={selectedTermMonths === months ? 'active' : ''} onClick={() => setSelectedTermMonths(months)}>{months === 1 ? '1 месяц' : `${months} мес.`}{Number(example?.term_discount_percent || 0) > 0 && <small>−{example?.term_discount_percent}%</small>}</button>
+                })}</div>
+              </div>
               <div className="profile-plans">
                 {planCards.map((item) => (
                   <article className={`${item.id === activePlan ? 'profile-card profile-plan active current' : 'profile-card profile-plan'}`} key={item.id}>
                     {item.id === activePlan && <span className="profile-chip current">Текущий</span>}
-                    <h4>{item.title}</h4><p>{item.note}</p><strong>{item.price ? `${item.price.toLocaleString('ru-RU')} ₽/мес` : 'Бесплатно'}</strong>{personalDiscountPercent > 0 && item.basePrice > item.price ? <small className="profile-old-price">{item.basePrice.toLocaleString('ru-RU')} ₽ без скидки</small> : null}<span>{item.daily} серверных токенов/день · {item.quality}</span>
-                    {item.premium > 0 ? <em>{item.premium} токенов/мес на премиум-модели</em> : null}
-                    {item.benefit > 0 ? <small>Выгода по токенам: {item.benefit.toLocaleString('ru-RU')} ₽</small> : null}
+                    <h4>{item.title}</h4><p>{item.note}</p>
+                    <div className="profile-plan-price">{item.basePrice > item.price && <del>{item.basePrice.toLocaleString('ru-RU')} ₽</del>}<strong>{item.price ? `${item.price.toLocaleString('ru-RU')} ₽` : 'Бесплатно'}</strong><span>{selectedTermMonths === 1 ? 'за 30 дней' : `за ${selectedTermMonths} мес.`}</span></div>
+                    {item.savings > 0 && <small className="profile-plan-saving">Экономия {item.savings.toLocaleString('ru-RU')} ₽</small>}
+                    <span>{item.daily} серверных токенов/день · {item.quality}</span>
+                    {item.monthly > 0 ? <em>+{item.monthly} токенов в основной баланс каждый месяц</em> : null}
+                    {item.effectiveTokenPrice != null ? <small>Включённый токен: {item.effectiveTokenPrice.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽</small> : null}
                     {item.features.length ? <ul>{item.features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null}
-                    <button type="button" disabled={item.id === activePlan || item.price <= 0} onClick={() => openCheckout({
-                      code: `tariff_${item.id}`,
+                    <button type="button" disabled={(item.id === activePlan && item.price <= 0) || scheduleFreeBusy} onClick={() => item.id === 'free' && activePlan !== 'free' ? void scheduleFreeTariff() : openCheckout({
+                      code: item.code,
                       title: `Тариф ${item.title}`,
                       price: item.price,
-                      description: 'Доступ на 30 дней',
+                      description: item.id === activePlan ? `Продление на ${selectedTermMonths} мес.` : tariffKeys.indexOf(item.id) < tariffKeys.indexOf(activePlan) && planExpiresAt ? `Переход после ${formatPlanDate(planExpiresAt)}` : `Доступ на ${selectedTermMonths} мес.`,
                       benefits: item.features.slice(0, 6),
-                    })}>{item.id === activePlan ? 'Текущий тариф' : item.price <= 0 ? 'Бесплатный доступ' : 'Выбрать тариф'}</button>
+                    })}>{item.id === 'free' && activePlan !== 'free' ? (scheduleFreeBusy ? 'Сохраняем...' : 'Перейти после окончания') : item.price <= 0 ? 'Текущий тариф' : item.id === activePlan ? 'Продлить тариф' : tariffKeys.indexOf(item.id) < tariffKeys.indexOf(activePlan) && planExpiresAt ? 'Купить следующим' : 'Выбрать тариф'}</button>
                   </article>
                 ))}
               </div>
               <article className="profile-card profile-token-buy">
                 <div>
                   <h3>Купить токены</h3>
-                  <p>Дополнительные токены пригодятся для премиум API-моделей сверх месячного пакета тарифа.</p>
+                  <p>Дополнительные токены пополняют основной баланс. Они не сгорают при смене тарифа и расходуются только на доступные вам модели.</p>
                 </div>
                 <div className="profile-token-rate">
                   <span>Стоимость</span>
                   <strong>1 токен = {safeTokenRub.toLocaleString('ru-RU')} ₽</strong>
                 </div>
                 <div className="profile-token-packs" aria-label="Пакеты токенов">
-                  {billingPackages.map((item) => <button type="button" className={selectedPackage === item.code ? 'active' : ''} key={item.code} onClick={() => setSelectedPackage(item.code)}>{item.token_amount} ток. · {item.price_amount.toLocaleString('ru-RU')} ₽{item.base_price_amount && item.base_price_amount > item.price_amount ? <del>{item.base_price_amount.toLocaleString('ru-RU')} ₽</del> : null}</button>)}
+                  {billingPackages.filter((item) => item.kind === 'tokens' || item.code.startsWith('tokens_')).map((item) => <button type="button" className={selectedPackage === item.code ? 'active' : ''} key={item.code} onClick={() => setSelectedPackage(item.code)}>{item.token_amount} ток. · {item.price_amount.toLocaleString('ru-RU')} ₽{item.base_price_amount && item.base_price_amount > item.price_amount ? <del>{item.base_price_amount.toLocaleString('ru-RU')} ₽</del> : null}</button>)}
                 </div>
                 <button type="button" className="profile-primary" disabled={!selectedPackage} onClick={() => {
                   const item = billingPackages.find((candidate) => candidate.code === selectedPackage)
@@ -673,7 +733,7 @@ export default function ProfilePage({
                     description: 'Разовое пополнение баланса',
                     benefits: [
                       `${item.token_amount} дополнительных токенов`,
-                      'Баланс обновится автоматически после подтверждения оплаты',
+                      'Основной баланс обновится автоматически после подтверждения оплаты',
                     ],
                   })
                 }}>Купить токены</button>
@@ -878,10 +938,10 @@ export default function ProfilePage({
                   <div className="profile-usage-filter">{[7, 30, 90].map((days) => <button type="button" key={days} className={tokenHistoryDays === days ? 'active' : ''} onClick={() => setTokenHistoryDays(days)}>{days} дн.</button>)}</div>
                 </div>
                 <div className="profile-usage-stats">
-                  <span>Премиум: <strong>{premiumMonthlyRemaining} / {premiumMonthlyTokens}</strong></span>
+                  <span>Основной баланс: <strong>{tokenBalance}</strong></span>
                   <span>Потрачено за период: <strong>{tokenHistory?.summary?.spentTokens ?? 0}</strong></span>
-                  <span>Из баланса: <strong>{tokenHistory?.summary?.balanceSpentTokens ?? 0}</strong></span>
-                  <span>Из пакетов: <strong>{tokenHistory?.summary?.includedSpentTokens ?? 0}</strong></span>
+                  <span>Из основного баланса: <strong>{tokenHistory?.summary?.balanceSpentTokens ?? 0}</strong></span>
+                  <span>Из дневного лимита: <strong>{tokenHistory?.summary?.includedSpentTokens ?? 0}</strong></span>
                 </div>
                 <div className="profile-usage-list">
                   {tokenHistoryItems.length ? tokenHistoryItems.slice(0, 8).map((item) => (

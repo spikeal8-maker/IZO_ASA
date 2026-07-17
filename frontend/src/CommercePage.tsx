@@ -6,9 +6,18 @@ const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } 
 
 type Tariff = {
   title?: string; note?: string; price_rub_month?: number; daily_tokens?: number
-  openrouter_monthly_tokens?: number; gallery_slots?: number; quality_label?: string
+  monthly_tokens?: number; gallery_slots?: number; quality_label?: string
   pro_mode_enabled?: boolean; video_enabled?: boolean; video_slots?: number; queue_label?: string
   image_model_count?: number; video_model_count?: number
+}
+type TermOffer = {
+  code: string; months: number; monthly_price_rub: number; discount_percent: number
+  base_total_rub: number; price_total_rub: number; savings_rub: number
+  included_tokens: number; effective_token_price_rub?: number | null
+}
+type BillingPackage = {
+  code?: string; name?: string; price_amount?: number; token_amount?: number
+  kind?: 'tariff' | 'tokens'; plan?: string; term_months?: number
 }
 type Legal = {
   brand_name?: string; seller_name?: string; seller_status?: string; inn?: string; ogrn?: string
@@ -16,7 +25,8 @@ type Legal = {
   site_url?: string; service_description?: string; offer_version?: string
 }
 type CommerceData = {
-  tariffs?: Record<string, Tariff>; packages?: Array<{ code?: string; name?: string; price_amount?: number; token_amount?: number }>
+  tariffs?: Record<string, Tariff>; packages?: BillingPackage[]
+  termOffers?: Record<string, TermOffer[]>; tariffTerms?: Record<string, number>
   legal?: Legal; legal_readiness?: { ready?: boolean; missing?: string[] }; payments_available?: boolean
 }
 
@@ -53,14 +63,23 @@ function TariffsPage({ data, loading }: { data: CommerceData; loading: boolean }
   const tariffs = data.tariffs || {}
   const legalReady = Boolean(data.legal_readiness?.ready)
   const canPay = Boolean(data.payments_available && legalReady)
+  const [termMonths, setTermMonths] = useState(1)
+  const tokenPackages = (data.packages || []).filter((item) => item.kind === 'tokens' || String(item.code || '').startsWith('tokens_'))
   return <>
-    <section className="commerce-intro"><span className="commerce-kicker">Тарифы ИЗО АСА</span><h1>Генерация изображений и видео с понятным списанием токенов</h1><p>Серверные генерации входят в дневной пакет. Премиум-модели расходуют месячные токены по цене, показанной до запуска.</p></section>
+    <section className="commerce-intro"><span className="commerce-kicker">Тарифы ИЗО АСА</span><h1>Генерация изображений и видео с понятным списанием токенов</h1><p>В аккаунте два счёта: дневной лимит тарифа и основной баланс. Серверная модель сначала использует дневной лимит, затем основной баланс; API-модели используют основной баланс.</p></section>
     {!loading && !canPay && <div className="commerce-notice"><CircleAlert aria-hidden="true" /><div><strong>Онлайн-оплата временно недоступна</strong><span>Тарифы можно изучить сейчас. Кнопка покупки включится после завершения регистрации магазина и публикации реквизитов.</span></div></div>}
+    <div className="commerce-term-selector" aria-label="Срок тарифа">
+      <span>Срок подписки</span>
+      <div>{[1, 3, 6, 12].map((months) => <button type="button" key={months} className={termMonths === months ? 'active' : ''} onClick={() => setTermMonths(months)}>{months === 1 ? '1 месяц' : `${months} мес.`}{Number(data.tariffTerms?.[String(months)] || 0) > 0 && <small>−{Number(data.tariffTerms?.[String(months)])}%</small>}</button>)}</div>
+    </div>
     <section className="commerce-plans" aria-label="Тарифные планы">{planOrder.map((id) => {
       const tariff = tariffs[id] || {}
+      const offer = (data.termOffers?.[id] || []).find((item) => Number(item.months) === termMonths)
+      const baseTotal = offer?.base_total_rub ?? Number(tariff.price_rub_month || 0) * termMonths
+      const priceTotal = offer?.price_total_rub ?? baseTotal
       const features = [
         `${Number(tariff.daily_tokens || 0)} серверных токенов в день`,
-        Number(tariff.openrouter_monthly_tokens || 0) ? `${Number(tariff.openrouter_monthly_tokens)} токенов премиум-моделей в месяц` : 'Серверная модель ИЗО',
+        Number(tariff.monthly_tokens || 0) ? `${Number(tariff.monthly_tokens)} токенов ежемесячно в основной баланс` : 'Серверная модель ИЗО',
         formatModelCount(Number(tariff.image_model_count || 0), 'для изображений'),
         formatModelCount(Number(tariff.video_model_count || 0), 'для видео'),
         `${Number(tariff.gallery_slots || 0)} изображений в галерее`,
@@ -72,12 +91,17 @@ function TariffsPage({ data, loading }: { data: CommerceData; loading: boolean }
       return <article className={`commerce-plan ${id === 'pro' ? 'featured' : ''}`} key={id}>
         {id === 'pro' && <span className="commerce-plan-badge">Популярный</span>}
         <div><h2>{tariff.title || id.toUpperCase()}</h2><p>{tariff.note || ''}</p></div>
-        <strong className="commerce-price">{Number(tariff.price_rub_month || 0) ? <>{Number(tariff.price_rub_month).toLocaleString('ru-RU')} ₽<small>/ 30 дней</small></> : 'Бесплатно'}</strong>
+        <div className="commerce-plan-price">
+          {baseTotal > priceTotal && <del>{baseTotal.toLocaleString('ru-RU')} ₽</del>}
+          <strong className="commerce-price">{priceTotal ? <>{priceTotal.toLocaleString('ru-RU')} ₽<small>/ {termMonths === 1 ? '30 дней' : `${termMonths} мес.`}</small></> : 'Бесплатно'}</strong>
+          {offer && offer.savings_rub > 0 && <span>Экономия {offer.savings_rub.toLocaleString('ru-RU')} ₽</span>}
+          {offer?.effective_token_price_rub != null && <small>Включённый токен: {Number(offer.effective_token_price_rub).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽</small>}
+        </div>
         <ul>{features.map((feature) => <li key={feature}><Check aria-hidden="true" />{feature}</li>)}</ul>
-        {id === 'free' ? <a href="/profile">Начать бесплатно</a> : <a className={!canPay ? 'disabled' : ''} href={canPay ? '/profile/tariffs' : '/legal/payment'} aria-disabled={!canPay}>{canPay ? 'Выбрать тариф' : 'Скоро доступно'}</a>}
+        {id === 'free' ? <a href="/profile">Начать бесплатно</a> : <a className={!canPay ? 'disabled' : ''} href={canPay ? `/profile/tariffs?term=${termMonths}` : '/legal/payment'} aria-disabled={!canPay}>{canPay ? 'Выбрать тариф' : 'Скоро доступно'}</a>}
       </article>
     })}</section>
-    {!!data.packages?.length && <section className="commerce-token-section"><div><span className="commerce-kicker">Разовое пополнение</span><h2>Дополнительные токены</h2><p>Пакеты не меняют тариф и используются для премиум-моделей сверх месячного лимита.</p></div><div className="commerce-token-list">{data.packages.map((item) => <span key={item.code}><b>{Number(item.token_amount || 0)} ток.</b>{Number(item.price_amount || 0).toLocaleString('ru-RU')} ₽</span>)}</div></section>}
+    {!!tokenPackages.length && <section className="commerce-token-section"><div><span className="commerce-kicker">Разовое пополнение</span><h2>Дополнительные токены</h2><p>Покупка пополняет основной баланс, не меняет тариф и не сгорает при его понижении.</p></div><div className="commerce-token-list">{tokenPackages.map((item) => <span key={item.code}><b>{Number(item.token_amount || 0)} ток.</b>{Number(item.price_amount || 0).toLocaleString('ru-RU')} ₽</span>)}</div></section>}
     <section className="commerce-facts"><article><CreditCard /><h3>Оплата</h3><p>Банковской картой и другими способами, доступными на защищённой странице ЮKassa. Итоговая сумма показывается до подтверждения.</p><a href="/legal/payment">Условия оплаты</a></article><article><ShieldCheck /><h3>Документы</h3><p>Покупка означает принятие публичной оферты. Версия документа фиксируется вместе с платежом.</p><a href="/legal/offer">Открыть оферту</a></article><article><Mail /><h3>Поддержка</h3><p>Вопросы по оплате, начислению токенов и возвратам принимаются по указанным контактам.</p><a href="/legal/contacts">Контакты</a></article></section>
   </>
 }

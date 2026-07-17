@@ -33,6 +33,43 @@ type OpenRouterConfig = {
   enabled?: Record<string, string[]>
   access?: Record<string, Partial<Record<OpenRouterTier, string[]>>>
 }
+type TariffTermSettings = {
+  discount_percent: Record<string, number>
+  estimated_token_cost_rub: number
+}
+type TariffOffer = {
+  code: string
+  months: number
+  monthly_price_rub: number
+  discount_percent: number
+  base_total_rub: number
+  price_total_rub: number
+  savings_rub: number
+  included_tokens: number
+  effective_token_price_rub?: number | null
+  estimated_cost_rub?: number | null
+  estimated_profit_rub?: number | null
+  estimated_margin_percent?: number | null
+}
+
+const DEFAULT_TARIFF_TERM_SETTINGS: TariffTermSettings = {
+  discount_percent: { '1': 0, '3': 5, '6': 10, '12': 15 },
+  estimated_token_cost_rub: 0,
+}
+
+function normalizeTariffTermSettings(value: unknown): TariffTermSettings {
+  const row = value && typeof value === 'object' ? value as Partial<TariffTermSettings> : {}
+  const discounts = row.discount_percent && typeof row.discount_percent === 'object' ? row.discount_percent : {}
+  return {
+    discount_percent: {
+      '1': 0,
+      '3': Number(discounts['3'] ?? DEFAULT_TARIFF_TERM_SETTINGS.discount_percent['3']),
+      '6': Number(discounts['6'] ?? DEFAULT_TARIFF_TERM_SETTINGS.discount_percent['6']),
+      '12': Number(discounts['12'] ?? DEFAULT_TARIFF_TERM_SETTINGS.discount_percent['12']),
+    },
+    estimated_token_cost_rub: Number(row.estimated_token_cost_rub ?? 0),
+  }
+}
 
 const HOURLY_DASHBOARD_RANGES = new Set<DashboardRange>([1, 6, 12, 24])
 
@@ -239,6 +276,8 @@ function AdminDashboard({ summary }: { summary: AnyRec | null }) {
 function AdminTokens() {
   const [tariffs, setTariffs] = useState<TariffConfig>(DEFAULT_TARIFFS)
   const [openrouterConfig, setOpenrouterConfig] = useState<OpenRouterConfig>({})
+  const [termSettings, setTermSettings] = useState<TariffTermSettings>(DEFAULT_TARIFF_TERM_SETTINGS)
+  const [tariffOffers, setTariffOffers] = useState<Record<string, TariffOffer[]>>({})
   const [promos, setPromos] = useState<PromoCode[]>([])
   const [promoDraft, setPromoDraft] = useState({ code: 'START50', tokens: 50, activations: 100 })
   const [msg, setMsg] = useState('')
@@ -250,6 +289,8 @@ function AdminTokens() {
     ])
     if (settings?.tariffs) setTariffs(normalizeTariffs(settings.tariffs as Partial<Record<TariffKey, Partial<TariffConfig[TariffKey]>>>))
     setOpenrouterConfig((settings?.openrouter_models || {}) as OpenRouterConfig)
+    setTermSettings(normalizeTariffTermSettings(settings?.tariff_terms))
+    setTariffOffers((settings?.tariff_offers || {}) as Record<string, TariffOffer[]>)
     setPromos(Array.isArray(promoRows) ? promoRows : [])
   }, [])
 
@@ -273,6 +314,14 @@ function AdminTokens() {
         : currentIds.filter((id) => id !== resolutionId)
       return { ...current, [plan]: { ...current[plan], allowed_resolutions: nextIds } }
     })
+  }
+  const saveTermSettings = async () => {
+    const result = await adminPost<{ ok?: boolean; settings?: TariffTermSettings }>('/admin/settings/tariff_terms', { settings: termSettings })
+    if (result?.ok) {
+      setTermSettings(normalizeTariffTermSettings(result.settings))
+      await load()
+      setMsg('Сроки и экономика тарифов сохранены')
+    } else setMsg('Ошибка сохранения экономики тарифов')
   }
   const tariffModelOptions = useCallback((plan: TariffKey): ModelOption[] => {
     const options = new Map<string, ModelOption>([[SERVER_MODEL_OPTION.id, SERVER_MODEL_OPTION]])
@@ -315,7 +364,7 @@ function AdminTokens() {
               <label>Описание<input value={tariffs[plan].note} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], note: e.target.value } }))} /></label>
               <label>Цена, ₽/мес<input type="number" min="0" value={tariffs[plan].price_rub_month} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], price_rub_month: Number(e.target.value) } }))} /></label>
               <label>Серверных токенов/день<input type="number" min="0" value={tariffs[plan].daily_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], daily_tokens: Number(e.target.value) } }))} /></label>
-              <label>OpenRouter токенов/мес<input type="number" min="0" value={tariffs[plan].openrouter_monthly_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], openrouter_monthly_tokens: Number(e.target.value) } }))} /></label>
+              <label>В основной баланс/мес<input type="number" min="0" value={tariffs[plan].monthly_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], monthly_tokens: Number(e.target.value) } }))} /></label>
               <label>Изображения в галерее<input type="number" min="0" value={tariffs[plan].gallery_slots} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], gallery_slots: Number(e.target.value) } }))} /></label>
               <label>Мест для видео в галерее<input type="number" min="0" value={tariffs[plan].video_slots} onChange={(e) => {
                 const videoSlots = Math.max(0, Number(e.target.value) || 0)
@@ -355,11 +404,39 @@ function AdminTokens() {
                   </label>)}
                 </div>
               </details>
-              <small>{tariffs[plan].title}: {tariffs[plan].daily_tokens} серверных/день · {tariffs[plan].openrouter_monthly_tokens} OpenRouter/мес · {tariffs[plan].gallery_slots} изображений · хранение {tariffs[plan].video_slots} видео · профи {tariffs[plan].pro_mode_enabled ? 'да' : 'нет'}</small>
+              <small>{tariffs[plan].title}: {tariffs[plan].daily_tokens} дневных токенов · +{tariffs[plan].monthly_tokens} в основной баланс/мес · {tariffs[plan].gallery_slots} изображений · хранение {tariffs[plan].video_slots} видео · профи {tariffs[plan].pro_mode_enabled ? 'да' : 'нет'}</small>
             </div>
           ))}
         </div>
       </div>
+      <section className="admin-section admin-tariff-economy">
+        <div className="admin-section-headline">
+          <div><h3>Сроки и экономика тарифов</h3><p>Скидки применяются к полной цене периода. Себестоимость нужна только для внутреннего расчёта прибыли и пользователю не показывается.</p></div>
+          <button className="secondary" onClick={saveTermSettings}>Сохранить экономику</button>
+        </div>
+        <div className="admin-owner-note"><strong>Два счёта пользователя</strong><span>Дневные токены обновляются каждый день. Ежемесячное начисление, покупки и бонусы пополняют один основной баланс.</span></div>
+        <div className="admin-term-settings">
+          {[3, 6, 12].map((months) => <label key={months}>Скидка на {months} мес., %<input type="number" min="0" max="60" value={termSettings.discount_percent[String(months)] || 0} onChange={(event) => setTermSettings((current) => ({ ...current, discount_percent: { ...current.discount_percent, [String(months)]: Number(event.target.value) } }))} /></label>)}
+          <label>Себестоимость 1 токена, ₽<input type="number" min="0" step="0.01" value={termSettings.estimated_token_cost_rub} onChange={(event) => setTermSettings((current) => ({ ...current, estimated_token_cost_rub: Number(event.target.value) }))} /></label>
+        </div>
+        <div className="admin-tariff-economy-table-wrap">
+          <table className="admin-tariff-economy-table">
+            <thead><tr><th>Тариф</th><th>Срок</th><th>Цена</th><th>Без скидки</th><th>Экономия</th><th>Токенов</th><th>Цена токена</th><th>Себестоимость</th><th>Прибыль</th><th>Маржа</th></tr></thead>
+            <tbody>{tariffKeys.filter((plan) => plan !== 'free').flatMap((plan) => (tariffOffers[plan] || []).map((offer) => <tr key={offer.code}>
+              <th>{tariffs[plan].title}</th>
+              <td>{offer.months} мес.</td>
+              <td>{offer.price_total_rub.toLocaleString('ru-RU')} ₽</td>
+              <td>{offer.base_total_rub.toLocaleString('ru-RU')} ₽</td>
+              <td>{offer.savings_rub ? `${offer.savings_rub.toLocaleString('ru-RU')} ₽` : '—'}</td>
+              <td>{offer.included_tokens.toLocaleString('ru-RU')}</td>
+              <td>{offer.effective_token_price_rub == null ? '—' : `${Number(offer.effective_token_price_rub).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} ₽`}</td>
+              <td>{offer.estimated_cost_rub == null ? 'задайте выше' : `${Number(offer.estimated_cost_rub).toLocaleString('ru-RU')} ₽`}</td>
+              <td>{offer.estimated_profit_rub == null ? '—' : `${Number(offer.estimated_profit_rub).toLocaleString('ru-RU')} ₽`}</td>
+              <td>{offer.estimated_margin_percent == null ? '—' : `${Number(offer.estimated_margin_percent).toLocaleString('ru-RU', { maximumFractionDigits: 1 })}%`}</td>
+            </tr>))}</tbody>
+          </table>
+        </div>
+      </section>
       <div className="admin-section">
         <div className="admin-section-headline">
           <div><h3>Бонусы и промокоды</h3><p>Начисляют токены, но не меняют цену или состав тарифа.</p></div>

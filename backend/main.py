@@ -1214,6 +1214,10 @@ class BillingCheckoutV2Request(BaseModel):
     receipt_contact: str | None = Field(default=None, max_length=200)
 
 
+class BillingScheduleFreeV2Request(BaseModel):
+    confirm: bool = True
+
+
 class BillingSimulationV2Request(BaseModel):
     status: Literal["succeeded", "canceled"]
     reason: str = Field(min_length=3, max_length=500)
@@ -3124,9 +3128,17 @@ def _schedule_or_activate_paid_tariff(
         return {"scheduled": True, "starts_at": current_expiry.isoformat(), **pending}
     if current_active and plan == current_plan:
         expires_at = add_calendar_months(current_expiry, term_months)
+        current_next_grant = _as_utc_datetime(row["plan_next_token_grant_at"])
+        next_grant_at = current_next_grant or current_expiry
         conn.execute(
-            "UPDATE users SET plan_expires_at=?, plan_term_months=COALESCE(plan_term_months, 1)+?, plan_grant_source=? WHERE internal_user_id=?",
-            (expires_at.isoformat(), term_months, source, internal_user_id),
+            "UPDATE users SET plan_expires_at=?, plan_next_token_grant_at=?, plan_term_months=COALESCE(plan_term_months, 1)+?, plan_grant_source=?, pending_plan_json=NULL WHERE internal_user_id=?",
+            (
+                expires_at.isoformat(),
+                next_grant_at.isoformat() if next_grant_at < expires_at else None,
+                term_months,
+                source,
+                internal_user_id,
+            ),
         )
         return {"scheduled": False, "extended": True, "plan": plan, "plan_expires_at": expires_at.isoformat()}
     return _activate_tariff_now(
@@ -11613,6 +11625,51 @@ async def billing_packages_v2(request: Request) -> dict[str, Any]:
                 "site_url", "offer_version",
             )
         },
+    }
+
+
+@app.post("/api/account/tariff-v2/schedule-free")
+async def account_schedule_free_v2(req: BillingScheduleFreeV2Request, request: Request) -> dict[str, Any]:
+    """Schedule Free for the end of a paid term without touching the main balance."""
+    trusted = require_trusted_user(request)
+    if not req.confirm:
+        raise HTTPException(400, "Подтвердите переход на бесплатный тариф.")
+    now = datetime.now(timezone.utc)
+    with db() as conn:
+        _reconcile_user_tariff(conn, trusted["internal_user_id"], now=now)
+        row = conn.execute(
+            "SELECT plan, plan_expires_at, token_balance FROM users WHERE internal_user_id=?",
+            (trusted["internal_user_id"],),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Пользователь не найден.")
+        if str(row["plan"] or "free").lower() == "free":
+            return {
+                "ok": True,
+                "already_free": True,
+                "plan": "free",
+                "token_balance": int(row["token_balance"] or 0),
+            }
+        lifecycle = _schedule_or_activate_paid_tariff(
+            conn,
+            internal_user_id=trusted["internal_user_id"],
+            plan="free",
+            term_months=1,
+            source="user_downgrade",
+            source_id=uuid.uuid4().hex,
+            now=now,
+        )
+        updated = conn.execute(
+            "SELECT plan, plan_expires_at, pending_plan_json, token_balance FROM users WHERE internal_user_id=?",
+            (trusted["internal_user_id"],),
+        ).fetchone()
+    return {
+        "ok": True,
+        "plan": str(updated["plan"] or "free"),
+        "plan_expires_at": updated["plan_expires_at"],
+        "pending_plan": safe_json_load(updated["pending_plan_json"]) or None,
+        "token_balance": int(updated["token_balance"] or 0),
+        "lifecycle": lifecycle,
     }
 
 
