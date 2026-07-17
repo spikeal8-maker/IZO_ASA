@@ -109,15 +109,40 @@ function Get-BackendState {
         throw "Listener PID $($listener.OwningProcess) could not be inspected."
     }
     Assert-BackendCommand -CommandLine ([string]$process.CommandLine) -ExpectedPort $ExpectedPort -ExpectedBind $ExpectedBind -RequireProxyIsolation:$RequireProxyIsolation
-    if ($ExpectedPython.Trim() -and $process.ExecutablePath) {
+    $runtimeLauncherProcessId = [int]$listener.OwningProcess
+    $runtimeLauncherExecutablePath = [string]$process.ExecutablePath
+    $runtimeOwnership = "unchecked-listener"
+    if ($ExpectedPython.Trim()) {
+        if (-not $process.ExecutablePath) {
+            throw "Backend listener executable path could not be inspected."
+        }
         $actualPython = [System.IO.Path]::GetFullPath([string]$process.ExecutablePath)
         $requiredPython = [System.IO.Path]::GetFullPath($ExpectedPython)
-        if (-not $actualPython.Equals($requiredPython, [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw "Backend uses an unexpected Python executable: $actualPython"
+        if ($actualPython.Equals($requiredPython, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $runtimeOwnership = "direct-python"
+        } else {
+            if (-not [System.IO.Path]::GetFileName($actualPython).Equals("python.exe", [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "Backend listener is not a Python executable: $actualPython"
+            }
+            $launcherProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$($process.ParentProcessId)" -ErrorAction SilentlyContinue
+            if ($null -eq $launcherProcess -or -not $launcherProcess.ExecutablePath) {
+                throw "Backend listener parent process could not be inspected for project virtual-environment ownership."
+            }
+            $launcherPython = [System.IO.Path]::GetFullPath([string]$launcherProcess.ExecutablePath)
+            if (-not $launcherPython.Equals($requiredPython, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "Backend uses an unexpected Python process chain: listener=$actualPython parent=$launcherPython"
+            }
+            Assert-BackendCommand -CommandLine ([string]$launcherProcess.CommandLine) -ExpectedPort $ExpectedPort -ExpectedBind $ExpectedBind -RequireProxyIsolation:$RequireProxyIsolation
+            $runtimeLauncherProcessId = [int]$launcherProcess.ProcessId
+            $runtimeLauncherExecutablePath = [string]$launcherProcess.ExecutablePath
+            $runtimeOwnership = "windows-venv-child"
         }
     }
     return [pscustomobject]@{
         ProcessId = [int]$listener.OwningProcess
+        RuntimeLauncherProcessId = $runtimeLauncherProcessId
+        RuntimeLauncherExecutablePath = $runtimeLauncherExecutablePath
+        RuntimeOwnership = $runtimeOwnership
         Address = [string]$listener.LocalAddress
         CommandLine = [string]$process.CommandLine
         ExecutablePath = [string]$process.ExecutablePath
@@ -327,7 +352,7 @@ if ($existingListeners.Count -eq 0 -and $actualRestart -and $AllowColdStart) {
 }
 
 if ($PreflightOnly) {
-    Write-Host "BACKEND_RESTART_PREFLIGHT_OK pid=$($oldState.ProcessId) bind=$($oldState.Address) port=$Port proxyHeadersDisabled=$($oldState.ProxyHeadersDisabled)"
+    Write-Host "BACKEND_RESTART_PREFLIGHT_OK pid=$($oldState.ProcessId) launcherPid=$($oldState.RuntimeLauncherProcessId) ownership=$($oldState.RuntimeOwnership) bind=$($oldState.Address) port=$Port proxyHeadersDisabled=$($oldState.ProxyHeadersDisabled)"
     return
 }
 
@@ -361,6 +386,7 @@ if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyCon
 }
 
 $newProcess = $null
+$newState = $null
 try {
     $newProcess = Invoke-WithProcessEnvironment -Values $releaseContract.Environment -Action {
         Start-Process `
@@ -390,8 +416,8 @@ try {
     }
 
     $newState = Get-BackendState -ExpectedPort $Port -ExpectedBind $BindAddress -ExpectedPython $pythonExecutable -RequireProxyIsolation
-    if ($newState.ProcessId -ne $newProcess.Id) {
-        throw "Listener PID $($newState.ProcessId) does not match started PID $($newProcess.Id)."
+    if ($newState.RuntimeLauncherProcessId -ne $newProcess.Id) {
+        throw "Backend runtime launcher PID $($newState.RuntimeLauncherProcessId) does not match started PID $($newProcess.Id); listener PID is $($newState.ProcessId)."
     }
     if (-not (Test-BackendReleaseIdentity -Uri $versionUri -ExpectedRelease $releaseContract.ReleaseId -ExpectedGitSha $releaseContract.GitSha -TimeoutSeconds $HealthProbeTimeoutSeconds)) {
         throw "New backend release identity does not match the selected manifest."
@@ -404,11 +430,14 @@ try {
         release_manifest = $releaseContract.ManifestPath
         python = $pythonExecutable
         process_id = $newState.ProcessId
+        launcher_process_id = $newState.RuntimeLauncherProcessId
+        runtime_ownership = $newState.RuntimeOwnership
+        listener_python = $newState.ExecutablePath
         activated_at = (Get-Date).ToUniversalTime().ToString("o")
     } | ConvertTo-Json | Set-Content -LiteralPath $activeBackendTemp -Encoding UTF8
     Move-Item -LiteralPath $activeBackendTemp -Destination $activeBackendPath -Force
     $oldPid = if ($null -ne $oldState) { $oldState.ProcessId } else { "none" }
-    Write-Host "BACKEND_RESTART_OK oldPid=$oldPid newPid=$($newState.ProcessId) health=200 release=$($releaseContract.ReleaseId) bind=$BindAddress port=$Port"
+    Write-Host "BACKEND_RESTART_OK oldPid=$oldPid newPid=$($newState.ProcessId) launcherPid=$($newState.RuntimeLauncherProcessId) ownership=$($newState.RuntimeOwnership) health=200 release=$($releaseContract.ReleaseId) bind=$BindAddress port=$Port"
     Write-Host "stdout=$stdoutLog"
     Write-Host "stderr=$stderrLog"
 } catch {
@@ -416,6 +445,24 @@ try {
     Write-Host "BACKEND_RESTART_FAILED: $failureMessage"
     Write-LogTail -Label "stdout" -Path $stdoutLog
     Write-LogTail -Label "stderr" -Path $stderrLog
+    if ($null -eq $newState -and $null -ne $newProcess) {
+        try {
+            $inspectedCandidate = Get-BackendState -ExpectedPort $Port -ExpectedBind $BindAddress -ExpectedPython $pythonExecutable -RequireProxyIsolation
+            if ($inspectedCandidate.RuntimeLauncherProcessId -eq $newProcess.Id) {
+                $newState = $inspectedCandidate
+            }
+        } catch {
+            Write-Warning "Candidate backend ownership could not be proven during cleanup: $($_.Exception.Message)"
+        }
+    }
+    if (
+        $null -ne $newState -and
+        $null -ne $newProcess -and
+        $newState.RuntimeLauncherProcessId -eq $newProcess.Id -and
+        $newState.ProcessId -ne $newProcess.Id
+    ) {
+        Stop-Process -Id $newState.ProcessId -Force -ErrorAction SilentlyContinue
+    }
     if ($null -ne $newProcess -and -not $newProcess.HasExited) {
         Stop-Process -Id $newProcess.Id -Force -ErrorAction SilentlyContinue
     }

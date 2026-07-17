@@ -165,6 +165,18 @@ def test_restart_script_checks_exact_listener_command_health_and_logs() -> None:
     assert "BACKEND_COLD_START" in source
     assert "AllowColdStart" in source
     assert "active-backend.json" in source
+    assert "RuntimeLauncherProcessId" in source
+    assert "RuntimeLauncherExecutablePath" in source
+    assert '$runtimeOwnership = "windows-venv-child"' in source
+    assert "GetFileName($actualPython)" in source
+    assert 'ProcessId=$($process.ParentProcessId)' in source
+    assert "Assert-BackendCommand -CommandLine ([string]$launcherProcess.CommandLine)" in source
+    assert "$newState.RuntimeLauncherProcessId -ne $newProcess.Id" in source
+    assert "launcher_process_id = $newState.RuntimeLauncherProcessId" in source
+    assert "runtime_ownership = $newState.RuntimeOwnership" in source
+    assert "listener_python = $newState.ExecutablePath" in source
+    assert "$inspectedCandidate.RuntimeLauncherProcessId -eq $newProcess.Id" in source
+    assert "Stop-Process -Id $newState.ProcessId -Force" in source
 
 
 def test_restart_script_preflight_modes_return_before_stop() -> None:
