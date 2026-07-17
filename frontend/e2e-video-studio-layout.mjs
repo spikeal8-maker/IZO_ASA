@@ -79,19 +79,28 @@ async function inspect(browser, viewport) {
   await mockApi(page)
   await page.goto(`${base}/video?layout_test=${viewport.width}`, { waitUntil: 'networkidle' })
   await page.locator('.video-studio').waitFor()
+  if (process.env.E2E_SCREENSHOT_DIR) {
+    await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/video-initial-${viewport.width}x${viewport.height}.png`, fullPage: true })
+  }
   await page.locator('.video-history-list button').nth(3).click()
   await page.locator('.video-prompt textarea').fill('Плавное приближение камеры к городской сцене, естественное движение людей и транспорта, мягкий дневной свет.')
   await page.locator('.video-live-price strong').filter({ hasNotText: 'Считаем' }).waitFor()
+  const exampleButton = page.locator('.video-prompt-actions button', { hasText: 'Пример' })
+  await exampleButton.click()
+  const firstExample = await page.locator('.video-prompt textarea').inputValue()
+  await exampleButton.click()
+  const secondExample = await page.locator('.video-prompt textarea').inputValue()
+  await page.locator('.video-prompt textarea').fill('Плавное приближение камеры к городской сцене, естественное движение людей и транспорта, мягкий дневной свет.')
   const activeMode = page.locator('.video-mode-tabs button.active')
-  const activeModeNormal = await activeMode.evaluate((element) => {
+  const activeModeNormal = viewport.width >= 821 ? await activeMode.evaluate((element) => {
     const style = getComputedStyle(element)
     return { backgroundColor: style.backgroundColor, color: style.color }
-  })
-  await activeMode.hover()
-  const activeModeHover = await activeMode.evaluate((element) => {
+  }) : null
+  if (viewport.width >= 821) await activeMode.hover()
+  const activeModeHover = viewport.width >= 821 ? await activeMode.evaluate((element) => {
     const style = getComputedStyle(element)
     return { backgroundColor: style.backgroundColor, color: style.color }
-  })
+  }) : null
   const generateButton = page.locator('.video-generate')
   const generateNormal = await generateButton.evaluate((element) => {
     const style = getComputedStyle(element)
@@ -106,8 +115,10 @@ async function inspect(browser, viewport) {
   await page.locator('.video-resolution-tabs button', { hasText: '1080p' }).click()
   await page.locator('.video-live-price strong').filter({ hasText: '8 ток.' }).waitFor()
   const resolutionPrice = (await page.locator('.video-live-price strong').textContent()) || ''
-  await page.locator('.video-audio-compact').click()
+  const durationBeforeAudio = await page.locator('.video-duration-control').boundingBox()
+  await page.locator('.video-audio-switch').click()
   await page.locator('.video-live-price strong').filter({ hasText: '12 ток.' }).waitFor()
+  const durationAfterAudio = await page.locator('.video-duration-control').boundingBox()
   const audioPrice = (await page.locator('.video-live-price strong').textContent()) || ''
   await page.locator('.video-format-more').click()
   assert(await page.locator('.video-format-tabs button').count() === model.supportedAspectRatios.length, 'Additional formats do not expand')
@@ -135,10 +146,12 @@ async function inspect(browser, viewport) {
     const videoTopTab = document.querySelector('.mode-tabs .tab[aria-label="Генерация видео"]')
     const modeTabsStyle = document.querySelector('.video-mode-tabs') ? getComputedStyle(document.querySelector('.video-mode-tabs')) : null
     const prompt = document.querySelector('.video-prompt textarea')
+    const promptRect = prompt?.getBoundingClientRect()
     const promptStyle = prompt ? getComputedStyle(prompt) : null
     const rootStyle = getComputedStyle(document.querySelector('.video-studio'))
     return {
       stage, shelf, composer, resultPanel, overlay, contextActions, durationSelect, generateButton, modeTabs,
+      promptRect,
       fontSize: Number.parseFloat(rootStyle.fontSize),
       promptFontSize: promptStyle ? Number.parseFloat(promptStyle.fontSize) : 0,
       promptFontWeight: promptStyle ? Number.parseInt(promptStyle.fontWeight, 10) : 0,
@@ -160,6 +173,8 @@ async function inspect(browser, viewport) {
       modeTabsBorderWidth: modeTabsStyle ? Number.parseFloat(modeTabsStyle.borderTopWidth) : 0,
       videoTopTabDisabled: videoTopTab?.getAttribute('aria-disabled') === 'true' || videoTopTab?.classList.contains('disabled'),
       composerWidth: composer?.width || 0,
+      mobileModeVisible: Boolean(document.querySelector('.video-mobile-mode') && getComputedStyle(document.querySelector('.video-mobile-mode')).display !== 'none'),
+      desktopModeVisible: Boolean(document.querySelector('.video-mode-tabs') && getComputedStyle(document.querySelector('.video-mode-tabs')).display !== 'none'),
     }
   })
   result.activeModeNormal = activeModeNormal
@@ -167,6 +182,18 @@ async function inspect(browser, viewport) {
   result.generateNormal = generateNormal
   result.generateHover = generateHover
   result.priceTransition = { initialPrice, resolutionPrice, audioPrice }
+  result.examplesDiffer = firstExample !== secondExample
+  result.durationBeforeAudio = durationBeforeAudio
+  result.durationAfterAudio = durationAfterAudio
+  if (viewport.width >= 821) {
+    await page.locator('.video-prompt .video-help-dot').hover()
+    result.helpGeometry = await page.evaluate(() => {
+      const tooltip = document.querySelector('.video-prompt .video-help-dot [role="tooltip"]')?.getBoundingClientRect()
+      const field = document.querySelector('.video-prompt textarea')?.getBoundingClientRect()
+      const topElement = tooltip ? document.elementFromPoint(tooltip.left + 8, tooltip.top + 8) : null
+      return { tooltip, field, topTag: topElement?.tagName || '', topClass: topElement?.className || '', tooltipOnTop: Boolean(tooltip && topElement && document.querySelector('.video-prompt .video-help-dot [role="tooltip"]')?.contains(topElement)) }
+    })
+  }
   if (process.env.E2E_SCREENSHOT_DIR) {
     await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/video-${viewport.width}x${viewport.height}.png`, fullPage: true })
   }
@@ -207,6 +234,10 @@ async function run() {
     assert(/\d+\s*ток/.test(fullHd.currentEstimate), 'Current server estimate is not visible')
     assert(fullHd.priceTransition.initialPrice !== fullHd.priceTransition.resolutionPrice, 'Resolution does not update the token estimate')
     assert(fullHd.priceTransition.resolutionPrice !== fullHd.priceTransition.audioPrice, 'Audio does not update the token estimate')
+    assert(fullHd.examplesDiffer, 'Example button repeats the same prompt')
+    assert(fullHd.durationBeforeAudio && fullHd.durationAfterAudio && Math.abs(fullHd.durationBeforeAudio.x - fullHd.durationAfterAudio.x) < 1 && Math.abs(fullHd.durationBeforeAudio.y - fullHd.durationAfterAudio.y) < 1, 'Audio toggle shifts the duration control')
+    assert(fullHd.helpGeometry?.tooltip && fullHd.helpGeometry?.field && fullHd.helpGeometry.tooltip.bottom > fullHd.helpGeometry.field.top, 'Prompt help does not open over the prompt field')
+    assert(fullHd.helpGeometry?.tooltipOnTop, `Prompt help is rendered behind another element: ${JSON.stringify(fullHd.helpGeometry)}`)
 
     const browserFullHd = await inspect(browser, { width: 1920, height: 900 })
     assert(!browserFullHd.overflowX, 'Browser Full HD has horizontal overflow')
@@ -225,6 +256,9 @@ async function run() {
     assert(mobile.resultBeforeComposer, 'Mobile result must appear before Composer')
     assert(mobile.stage && mobile.stage.width <= 390, 'Mobile stage exceeds viewport width')
     assert(mobile.stage && mobile.stage.height <= mobile.stage.width, 'Mobile landscape video stage is too tall')
+    assert(mobile.mobileModeVisible && !mobile.desktopModeVisible, 'Mobile creation-mode dropdown did not replace desktop tabs')
+    assert(mobile.promptRect && mobile.stage && mobile.promptRect.top >= mobile.stage.bottom, 'Mobile prompt must appear after the video preview')
+    assert(mobile.shelf && mobile.composer && mobile.shelf.top >= mobile.composer.bottom - 1, 'Mobile history must appear after generation settings')
 
     console.log(JSON.stringify({ fullHd, browserFullHd, fourK, mobile }, null, 2))
   } finally {
