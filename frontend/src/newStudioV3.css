@@ -5201,23 +5201,30 @@ font-size: 10.5px;
   .iv3 .top-actions { gap: 4px; }
   .iv3 .top-token-summary { min-height: 32px; height: 32px; border-radius: 7px; }
   .iv3 .top-token-values {
-    width: 43px;
-    min-width: 43px;
-    flex: 0 0 43px;
+    width: 52px;
+    min-width: 52px;
+    flex: 0 0 52px;
     height: 100%;
     display: grid;
     align-content: center;
     gap: 0;
-    padding: 2px 5px;
+    padding: 2px;
+    overflow: hidden;
   }
-  .iv3 .top-token-values.single { width: 41px; min-width: 41px; flex-basis: 41px; padding-inline: 6px; }
-  .iv3 .top-token-item { min-width: 0; min-height: 13px; justify-content: flex-start; gap: 3px; }
-  .iv3 .top-token-item svg { width: 12px; height: 12px; }
-  .iv3 .top-token-copy b { font-size: 10px; }
+  .iv3 .top-token-values.single { width: 47px; min-width: 47px; flex-basis: 47px; padding-inline: 3px; }
+  .iv3 .top-token-item { min-width: 0; min-height: 13px; justify-content: flex-start; gap: 1px; }
+  .iv3 .top-token-item svg { width: 9px; height: 9px; }
+  .iv3 .top-token-copy b { font-size: 9px; font-variant-numeric: tabular-nums; }
   .iv3 .top-token-copy { display: block; }
   .iv3 .top-token-avatar { width: 30px; flex-basis: 30px; margin-left: 0; }
   .iv3 .account-button { min-width: 32px; min-height: 32px; height: 32px; padding: 0 3px; }
   .iv3 .account-button .user-glyph { width: 26px; height: 26px; margin: 0; }
+}
+@media (max-width: 360px) {
+  .iv3 .top-token-values { width: 50px; min-width: 50px; flex-basis: 50px; }
+  .iv3 .top-token-values.single { width: 44px; min-width: 44px; flex-basis: 44px; }
+  .iv3 .top-token-avatar { width: 27px; flex-basis: 27px; }
+  .iv3 .top-token-copy b { font-size: 9px; }
 }
 
 /* 4. «В ленту» в prompt-actions — спокойная фиолетовая, БЕЗ живого эффекта ленты. */
