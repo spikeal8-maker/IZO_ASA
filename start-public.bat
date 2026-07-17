@@ -86,8 +86,8 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [1/5] Preparing immutable frontend release and running browser smoke...
-powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\publish-frontend-release.ps1" -RepoRoot "%ROOT_NO_SLASH%" -PythonPath "%PYTHON_EXE%" -SkipVerify
+echo [1/5] Verifying exact checkout, writing receipt, and preparing immutable frontend release...
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\publish-frontend-release.ps1" -RepoRoot "%ROOT_NO_SLASH%" -PythonPath "%PYTHON_EXE%"
 if errorlevel 1 (
   echo [ERROR] Candidate release failed. The active public release was NOT changed.
   if /I not "%IZO_NO_PAUSE%"=="1" pause

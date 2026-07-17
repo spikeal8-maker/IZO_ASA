@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 
@@ -99,6 +100,41 @@ def test_ci_plan_is_deterministic_and_omits_live_runtime_checks() -> None:
     assert "VERIFY_PLAN_OK mode=CI" in result.stdout
 
 
+def test_full_plan_can_bind_an_exact_sha_release_receipt_without_writing_it() -> None:
+    receipt = ROOT / ".runtime" / "verification" / f"plan-only-{uuid.uuid4().hex}.json"
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(SCRIPT),
+            "-PlanOnly",
+            "-Mode",
+            "Full",
+            "-RepoRoot",
+            str(ROOT),
+            "-PythonPath",
+            sys.executable,
+            "-ReceiptPath",
+            str(receipt),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert receipt.name in result.stdout
+    assert "exactSha=true" in result.stdout
+    assert "ttlHours=4" in result.stdout
+    assert not receipt.exists()
+
+
 def test_quick_plan_runs_only_static_and_tool_contract_gates() -> None:
     result = _plan("Quick")
 
@@ -130,6 +166,9 @@ def test_verify_script_has_no_process_or_file_deletion_commands() -> None:
     assert "runtime_listener_contract" in source
     assert "[Console]::OutputEncoding = $utf8NoBom" in source
     assert '$_.Name -match "^(?i:python' in source
+    assert '[string]$ReceiptPath = ""' in source
+    assert "release_verification_receipt.py" in source
+    assert "VERIFY_RECEIPT_WRITTEN" in source
 
 
 def test_verify_script_defaults_to_full_mode() -> None:

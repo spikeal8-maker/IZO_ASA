@@ -5,6 +5,7 @@ param(
     [string]$RepoRoot = "",
     [string]$PythonPath = "",
     [string]$NpmPath = "",
+    [string]$ReceiptPath = "",
     [switch]$RequireStableLiveSource,
     [switch]$PlanOnly
 )
@@ -128,6 +129,7 @@ $architectureContract = Join-Path $resolvedRoot "architecture\contract.json"
 $architectureInventoryScript = Join-Path $toolsDirectory "generate_architecture_inventory.py"
 $runtimeListenerScript = Join-Path $toolsDirectory "check-runtime-listeners.ps1"
 $restartScript = Join-Path $toolsDirectory "restart-backend.ps1"
+$receiptTool = Join-Path $toolsDirectory "release_verification_receipt.py"
 $projectPython = Join-Path $backendDirectory ".venv\Scripts\python.exe"
 
 foreach ($requiredPath in @(
@@ -137,7 +139,8 @@ foreach ($requiredPath in @(
     $architectureContract,
     $architectureInventoryScript,
     $runtimeListenerScript,
-    $restartScript
+    $restartScript,
+    $receiptTool
 )) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Required verification input was not found: $requiredPath"
@@ -169,6 +172,7 @@ $quickTests = @(
     "tools/test_generate_backend_map.py",
     "tools/test_generate_architecture_inventory.py",
     "tools/test_frontend_release_identity.py",
+    "tools/test_release_verification_receipt.py",
     "tools/test_launchers.py",
     "tools/test_restart_backend_script.py",
     "tools/test_runtime_listener_contract.py",
@@ -181,6 +185,27 @@ $quickTests = @(
 $fullTests = @("-m", "pytest", "-q", "backend", "tools")
 $usesLiveChecks = $Mode -ne "CI"
 $usesFullSuite = $Mode -ne "Quick"
+if ($ReceiptPath.Trim() -and -not $usesFullSuite) {
+    throw "Release receipts require Full or CI verification mode."
+}
+if ($ReceiptPath.Trim()) {
+    $receiptDirectory = [IO.Path]::GetFullPath((Join-Path $resolvedRoot ".runtime\verification")).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $receiptCandidate = if ([IO.Path]::IsPathRooted($ReceiptPath)) {
+        [IO.Path]::GetFullPath($ReceiptPath)
+    } else {
+        [IO.Path]::GetFullPath((Join-Path $resolvedRoot $ReceiptPath))
+    }
+    if (
+        -not $receiptCandidate.StartsWith($receiptDirectory + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+        [IO.Path]::GetExtension($receiptCandidate) -ne ".json"
+    ) {
+        throw "ReceiptPath must be a JSON file inside .runtime\verification."
+    }
+    if (-not $PlanOnly -and (Test-Path -LiteralPath $receiptCandidate)) {
+        throw "Refusing to overwrite an existing release receipt."
+    }
+    $ReceiptPath = $receiptCandidate
+}
 
 if ($PlanOnly) {
     Write-Host "VERIFY_PLAN mode=$Mode root=$resolvedRoot"
@@ -202,8 +227,21 @@ if ($PlanOnly) {
     } else {
         Write-Host "VERIFY_PLAN_STEP pytest scope=tool-contracts"
     }
+    if ($ReceiptPath.Trim()) {
+        Write-Host "VERIFY_PLAN_STEP receipt=$ReceiptPath exactSha=true cleanMain=true ttlHours=4"
+    }
     Write-Host "VERIFY_PLAN_OK mode=$Mode"
     return
+}
+
+if ($ReceiptPath.Trim()) {
+    $receiptBranch = ([string](@(& git.exe -C $resolvedRoot branch --show-current)[0])).Trim()
+    if ($LASTEXITCODE -ne 0 -or $receiptBranch -ne "main") {
+        throw "Release receipt verification requires branch main."
+    }
+    if (@(& git.exe -C $resolvedRoot status --porcelain).Count -gt 0) {
+        throw "Release receipt verification requires a clean checkout."
+    }
 }
 
 $beforeSnapshot = $null
@@ -299,5 +337,22 @@ $summary = [ordered]@{
     sourceBytes = if ($null -ne $afterSnapshot) { $afterSnapshot.Bytes } else { $null }
     sourceSha256 = if ($null -ne $afterSnapshot) { $afterSnapshot.Sha256 } else { $null }
     sourceStable = $sourceStable
+}
+if ($ReceiptPath.Trim()) {
+    $summaryJson = $summary | ConvertTo-Json -Compress
+    $receiptOutput = @(
+        & $python $receiptTool write `
+            --root $resolvedRoot `
+            --output $ReceiptPath `
+            --mode $Mode `
+            --started-at ($startedAt.ToUniversalTime().ToString("o")) `
+            --duration-seconds $duration `
+            --summary-json $summaryJson 2>&1
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw "Release verification receipt creation failed: $($receiptOutput -join [Environment]::NewLine)"
+    }
+    $receiptOutput | Write-Host
+    Write-Host "VERIFY_RECEIPT_WRITTEN path=$ReceiptPath"
 }
 Write-Host "VERIFY_OK $($summary | ConvertTo-Json -Compress)"

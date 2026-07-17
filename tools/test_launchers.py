@@ -15,6 +15,7 @@ def test_public_launcher_stops_when_candidate_release_fails() -> None:
     assert "if errorlevel 1" in gate
     assert "exit /b 1" in gate
     assert "active public release was NOT changed" in gate
+    assert "-SkipVerify" not in launcher
 
 
 def test_public_launcher_verifies_release_before_restarting_ports() -> None:

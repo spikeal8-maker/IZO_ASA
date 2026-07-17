@@ -65,32 +65,39 @@ From the canonical project directory:
 
 ```powershell
 .\tools\verify.ps1 -Mode CI
+.\tools\verify.ps1 -Mode Full
 .\tools\verify.ps1 -Mode Quick
 git status --short
 git branch --show-current
 ```
 
 The release checkout must be clean and on `main`. `CI` runs the complete isolated
-backend/tools and frontend gates. `Quick` additionally confirms the current local
-listener ownership and live media snapshot without restarting or mutating data.
+backend/tools and frontend gates. `Full` runs the same code gates plus read-only
+live listener/media checks. `Quick` runs the smaller contract suite plus those live
+checks without restarting or mutating data.
 
-`start-public.bat` currently calls the publisher with `-SkipVerify` because the
-full gate is run explicitly before release. Replacing this with a receipt-bound,
-fail-closed publisher is tracked as `REL-001`; skipping the explicit gate is not
-allowed in the meantime.
+The normal launcher has no verification bypass. When no receipt is supplied,
+`publish-frontend-release.ps1` runs `Full`, writes a four-hour exact-SHA receipt
+under `.runtime/verification`, validates it, and only then builds a candidate. A
+fresh receipt may be reused for the same clean SHA by setting
+`IZO_VERIFICATION_RECEIPT`; a changed verifier hash, missing gate, dirty checkout,
+different SHA or expired receipt fails before candidate build and listener changes.
 
 ## What `start-public.bat` does
 
 1. Verifies the PRIMARY server role and live SQLite path/size guard.
-2. Builds a new frontend candidate with an exact release ID.
-3. Generates and validates `release-manifest.json` from a clean `main` checkout.
-4. Starts an isolated candidate preview on port 5197 and runs browser smoke for
+2. Runs or validates the exact-SHA verification receipt.
+3. Builds a new frontend candidate with an exact release ID.
+4. Generates and validates `release-manifest.json` from a clean `main` checkout.
+5. Starts an isolated candidate preview on port 5197 and runs browser smoke for
    `/`, `/feed`, `/gallery` and `/profile`.
-5. Activates the candidate frontend on `127.0.0.1:5173`.
-6. Calls `tools/restart-backend.ps1` with the same manifest and project `.venv`.
-7. Requires the new backend to be ready and to report the exact manifest release,
+6. Starts the candidate on `127.0.0.1:5173`, verifies its exact meta, then atomically
+   changes the active manifest. An activation failure restores the previous listener
+   while the old manifest remains active.
+7. Calls `tools/restart-backend.ps1` with the same manifest and project `.venv`.
+8. Requires the new backend to be ready and to report the exact manifest release,
    frontend release and full commit.
-8. Verifies the release meta actually served on 5173, `/api/version`, and the
+9. Verifies the release meta actually served on 5173, `/api/version`, and the
    expected unauthenticated 401 responses for generation, gallery and identity.
    Because `/feed` and `/gallery` are backend-owned static shells, their post-switch
    `X-IZO-Release` headers must also match the same manifest.
@@ -103,6 +110,27 @@ Run it interactively:
 
 For Task Scheduler/Startup-folder execution, `start-public-autostart.bat` sets the
 non-interactive mode and verifies the existing FRP client after local activation.
+
+## Emergency break-glass
+
+Break-glass bypasses only the full test receipt. It does not bypass a clean `main`,
+TypeScript/Vite build, immutable manifest, candidate browser smoke, release identity,
+backend restart checks or final auth smoke. Use it only when waiting for the full
+gate creates a larger incident than an unverified release:
+
+```powershell
+.\tools\publish-frontend-release-break-glass.ps1 `
+  -Operator '<operator>' `
+  -Reason '<at least 20 characters describing the incident>' `
+  -Acknowledgement 'I_ACCEPT_UNVERIFIED_RELEASE_RISK'
+```
+
+The command creates a ten-minute single-use authorization and appends requested plus
+completed/failed events to
+`.runtime/audit/release-break-glass/release-break-glass.jsonl`. It runs the complete
+`start-public.bat` flow and reports success only when active frontend/backend release
+IDs match. Authorization and audit files contain no provider secrets, but they are
+local evidence and must be included in later offsite/observability work.
 
 ## Health and diagnostics
 

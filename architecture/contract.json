@@ -348,9 +348,11 @@
       "frontend/src/releaseIdentity.ts",
       "tools/build_release_manifest.py",
       "tools/check_frontend_release_identity.mjs",
+      "tools/release_verification_receipt.py",
       "tools/verify.ps1",
       "tools/restart-backend.ps1",
       "tools/publish-frontend-release.ps1",
+      "tools/publish-frontend-release-break-glass.ps1",
       "tools/rollback-frontend-release.ps1",
       "tools/start-production-stack.ps1",
       "start-public.bat"
@@ -373,8 +375,8 @@
     ],
     "known_gaps": [
       "Backend source is still loaded from the mutable checkout; REL-002 moves API slots to exact release directories.",
-      "start-public.bat still uses SkipVerify; REL-001 introduces a receipt-bound fail-closed publisher.",
-      "Frontend manifest activation and listener replacement are not yet one rollback transaction; REL-001 closes this gap."
+      "Vite Preview listener replacement now rolls back on activation failure but is not a zero-downtime A/B switch; EDGE-001 and REL-002 close that gap.",
+      "Verification receipts and break-glass audit records are secret-free local integrity evidence, not cryptographically signed remote attestations; CI-001 and observability work retain independent evidence."
     ]
   }
 }

@@ -150,5 +150,5 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 - Required manifest fields: `manifest_version`, `release_id`, `git_sha`, `dirty`, `built_at`, `frontend_asset_manifest_hash`, `python_version`, `node_version`, `schema_compatibility`, `frontend_asset_count`
 - Known gaps:
   - Backend source is still loaded from the mutable checkout; REL-002 moves API slots to exact release directories.
-  - start-public.bat still uses SkipVerify; REL-001 introduces a receipt-bound fail-closed publisher.
-  - Frontend manifest activation and listener replacement are not yet one rollback transaction; REL-001 closes this gap.
+  - Vite Preview listener replacement now rolls back on activation failure but is not a zero-downtime A/B switch; EDGE-001 and REL-002 close that gap.
+  - Verification receipts and break-glass audit records are secret-free local integrity evidence, not cryptographically signed remote attestations; CI-001 and observability work retain independent evidence.
