@@ -2523,9 +2523,16 @@ export default function NewStudio(): ReactElement {
   const currentSupportedResolutionsKey = currentSupportedResolutionIds.join('|')
   useEffect(() => {
     const supported = currentSupportedFormatsKey.split('|').filter(Boolean) as PublicFormatId[]
-    if (supported.includes(currentFormatPricingId) && currentSupportedResolutionIds.includes(resolutionId)) return
-    const nextFormat = supported[0] || 'square'
-    const nextResolutionId = preferredResolutionForModel(currentStudioModel, supported.includes(currentFormatPricingId) ? currentFormatPricingId : nextFormat)
+    const supportedResolutions = currentSupportedResolutionsKey.split('|').filter(Boolean)
+    if (supported.includes(currentFormatPricingId) && supportedResolutions.includes(resolutionId)) return
+    const nextFormat = supported.includes(currentFormatPricingId) ? currentFormatPricingId : supported[0] || 'square'
+    const matchingResolutions = supportedResolutions.filter((id) => {
+      const preset = RESOLUTION_PRESETS.find((item) => item.id === id)
+      return preset && formatPricingId(preset) === nextFormat
+    })
+    const nextResolutionId = matchingResolutions.includes(resolutionId)
+      ? resolutionId
+      : matchingResolutions[0] || supportedResolutions[0] || 'sq-sd'
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
