@@ -1000,6 +1000,9 @@ export default function NewStudio(): ReactElement {
   // Пол из профиля определяет вариант превью стилей (по умолчанию female).
   const previewGender: 'female' | 'male' = me?.profile?.gender === 'male' ? 'male' : 'female'
   const acct = accountInfo(me)
+  const topbarDailyLimit = Math.max(0, Number(me?.account?.daily_tokens_limit ?? me?.account?.daily_tokens ?? 0))
+  const topbarDailyRemaining = Math.max(0, Number(me?.account?.daily_tokens_remaining ?? topbarDailyLimit - Number(me?.account?.daily_tokens_used ?? 0)))
+  const topbarTokenBalance = Math.max(0, Number(me?.account?.token_balance ?? 0))
 
   const [initialStudioDraft] = useState<StudioDraft>(readStudioDraft)
   const [prompts, setPrompts] = useState<Record<StudioMode, string>>({
@@ -4270,6 +4273,9 @@ export default function NewStudio(): ReactElement {
             avatarUrl={authStatus === 'authed' ? topbarAvatarSrc : null}
             userLabel={authStatus === 'authed' ? acct.userLabel : null}
             initials={authStatus === 'authed' ? acct.initials : null}
+            dailyTokensRemaining={authStatus === 'authed' ? topbarDailyRemaining : null}
+            dailyTokensLimit={authStatus === 'authed' ? topbarDailyLimit : null}
+            tokenBalance={authStatus === 'authed' ? topbarTokenBalance : null}
             isAdmin={isAdmin}
             onSelectMode={selectStudioMode}
             onOpenFeed={() => setTab('feed')}

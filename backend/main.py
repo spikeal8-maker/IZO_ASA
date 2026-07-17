@@ -5827,18 +5827,31 @@ def smtp_config() -> dict[str, Any]:
     current = value if isinstance(value, dict) and value.get("provider") == "smtp" else {}
     return {
         "provider": "smtp",
+        "source": "admin" if current else "environment",
         "host": str(current.get("host") or os.getenv("SMTP_HOST", "smtp.mail.ru")).strip(),
         "port": int(current.get("port") or os.getenv("SMTP_PORT", "465")),
         "username": str(current.get("username") or os.getenv("SMTP_USERNAME", "")).strip(),
         "sender_name": str(current.get("sender_name") or os.getenv("SMTP_SENDER_NAME", "ИЗО АСА")).strip(),
         "sender_email": str(current.get("sender_email") or os.getenv("SMTP_SENDER_EMAIL", "")).strip(),
         "use_ssl": bool(current.get("use_ssl", True)),
+        "verified_at": str(current.get("verified_at") or "").strip() or None,
+        "last_error": str(current.get("last_error") or "").strip() or None,
     }
+
+
+def smtp_configured(config: dict[str, Any] | None = None) -> bool:
+    current = config if config is not None else smtp_config()
+    return bool(smtp_password() and current.get("host") and current.get("username") and current.get("sender_email"))
 
 
 def smtp_ready(config: dict[str, Any] | None = None) -> bool:
     current = config if config is not None else smtp_config()
-    return bool(smtp_password() and current.get("host") and current.get("username") and current.get("sender_email"))
+    if not smtp_configured(current):
+        return False
+    # Environment credentials are provisioned outside the admin UI and keep
+    # their previous ready semantics. Credentials entered in the UI become
+    # active only after a successful SMTP handshake.
+    return current.get("source") == "environment" or bool(current.get("verified_at"))
 
 
 def smtp_connection_config(config: dict[str, Any], password: str | None = None) -> SmtpConfig:
@@ -5851,7 +5864,12 @@ def smtp_connection_config(config: dict[str, Any], password: str | None = None) 
     )
 
 
-def save_smtp_config(req: AdminMailConfigV2Request | AdminMailVerifyV2Request) -> None:
+def save_smtp_config(
+    req: AdminMailConfigV2Request | AdminMailVerifyV2Request,
+    *,
+    verified_at: str | None = None,
+    last_error: str | None = None,
+) -> None:
     username = normalize_email(req.username)
     sender_email = normalize_email(req.sender_email)
     if not username or not sender_email:
@@ -5864,7 +5882,23 @@ def save_smtp_config(req: AdminMailConfigV2Request | AdminMailVerifyV2Request) -
         conn.execute(
             "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('mail_provider', ?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
-            (json.dumps({"provider": "smtp", "host": req.host.strip(), "port": req.port, "username": username, "sender_name": req.sender_name.strip(), "sender_email": sender_email, "use_ssl": bool(req.use_ssl)}, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+            (
+                json.dumps(
+                    {
+                        "provider": "smtp",
+                        "host": req.host.strip(),
+                        "port": req.port,
+                        "username": username,
+                        "sender_name": req.sender_name.strip(),
+                        "sender_email": sender_email,
+                        "use_ssl": bool(req.use_ssl),
+                        "verified_at": verified_at,
+                        "last_error": last_error,
+                    },
+                    ensure_ascii=False,
+                ),
+                datetime.now(timezone.utc).isoformat(),
+            ),
         )
 
 
@@ -13465,7 +13499,9 @@ async def admin_mail_status_v2(request: Request) -> dict[str, Any]:
             """
         ).fetchall()
     provider_config = smtp_config()
-    provider = "smtp" if smtp_ready(provider_config) else EMAIL_PROVIDER.strip()
+    configured = smtp_configured(provider_config)
+    verified = smtp_ready(provider_config)
+    provider = "smtp" if configured else EMAIL_PROVIDER.strip()
     production = APP_ENV.lower() == "production"
     delivery_implemented = provider == "smtp" or not (production and bool(provider))
     service_ready = email_otp_available() and delivery_implemented
@@ -13473,7 +13509,7 @@ async def admin_mail_status_v2(request: Request) -> dict[str, Any]:
         "ok": True,
         "generated_at": now.isoformat(),
         "service_ready": service_ready,
-        "status": "ready" if service_ready else ("provider_adapter_missing" if provider else "provider_not_configured"),
+        "status": "ready" if service_ready else ("provider_not_verified" if configured and not verified else ("provider_adapter_missing" if provider else "provider_not_configured")),
         "provider": provider or None,
         "environment": APP_ENV,
         "otp_available": email_otp_available(),
@@ -13481,6 +13517,10 @@ async def admin_mail_status_v2(request: Request) -> dict[str, Any]:
         "debug_return_code": EMAIL_OTP_DEBUG_RETURN_CODE and not production,
         "config": {
             "password": bool(smtp_password()),
+            "configured": configured,
+            "verified": verified,
+            "verified_at": provider_config.get("verified_at"),
+            "last_error": provider_config.get("last_error"),
             "host": provider_config.get("host") or "smtp.mail.ru",
             "port": int(provider_config.get("port") or 465),
             "username": provider_config.get("username") or "",
@@ -14841,7 +14881,7 @@ async def admin_mail_config_v2(req: AdminMailConfigV2Request, request: Request) 
         save_smtp_config(req)
     except (ValueError, SecretStoreError) as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "configured": smtp_ready(), "provider": "smtp"}
+    return {"ok": True, "configured": smtp_configured(), "verified": smtp_ready(), "provider": "smtp"}
 
 
 @app.post("/api/admin/mail/verify-v2")
@@ -14861,14 +14901,23 @@ async def admin_mail_verify_v2(req: AdminMailVerifyV2Request, request: Request) 
     if not candidate_config["username"] or candidate_config["username"] != candidate_config["sender_email"]:
         raise HTTPException(400, "Почтовый ящик и email отправителя должны совпадать.")
     try:
+        if req.save:
+            # Persist first so a failed handshake never erases the form. The
+            # provider remains disabled until the successful verification below.
+            save_smtp_config(req, verified_at=None, last_error=None)
         await asyncio.to_thread(verify_smtp_connection, smtp_connection_config(candidate_config, candidate_password))
         if req.save:
-            save_smtp_config(req)
+            save_smtp_config(req, verified_at=datetime.now(timezone.utc).isoformat(), last_error=None)
     except SmtpError as exc:
+        if req.save:
+            try:
+                save_smtp_config(req, verified_at=None, last_error=str(exc))
+            except (ValueError, SecretStoreError):
+                pass
         raise HTTPException(502, str(exc)) from exc
     except (ValueError, SecretStoreError) as exc:
         raise HTTPException(500, str(exc)) from exc
-    return {"ok": True, "provider": "smtp", "configured": smtp_ready(), "message": "SMTP подключен и настройки сохранены."}
+    return {"ok": True, "provider": "smtp", "configured": smtp_configured(), "verified": smtp_ready(), "message": "SMTP подключен и настройки сохранены."}
 
 
 @app.get("/api/admin/payments/status-v2")

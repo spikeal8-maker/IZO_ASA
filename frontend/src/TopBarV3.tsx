@@ -6,6 +6,8 @@
 // Разметка и классы намеренно совпадают с прототипом, чтобы работал scoped CSS
 // из newStudioV3.css (обёртка .iv3). Никаких legacy-auth: только колбэки.
 
+import { Gem, LogIn, Settings, SunMedium } from 'lucide-react'
+
 export type V3Mode = 'text' | 'i2i' | 'edit' | 'paint' | 'video'
 export type V3Section = V3Mode | 'feed' | 'gallery' | 'profile' | 'admin'
 
@@ -34,6 +36,9 @@ export default function TopBarV3({
   avatarUrl,
   userLabel,
   initials,
+  dailyTokensRemaining,
+  dailyTokensLimit,
+  tokenBalance,
 }: {
   active: V3Section
   onSelectMode?: (mode: V3Mode) => void
@@ -47,7 +52,13 @@ export default function TopBarV3({
   avatarUrl?: string | null
   userLabel?: string | null
   initials?: string | null
+  dailyTokensRemaining?: number | null
+  dailyTokensLimit?: number | null
+  tokenBalance?: number | null
 }) {
+  const dailyRemaining = Math.max(0, Math.floor(Number(dailyTokensRemaining) || 0))
+  const dailyLimit = Math.max(0, Math.floor(Number(dailyTokensLimit) || 0))
+  const balance = Math.max(0, Math.floor(Number(tokenBalance) || 0))
   const selectMode = (mode: V3Mode) => {
     if (onSelectMode) onSelectMode(mode)
     else goto(mode === 'paint' ? '/paint' : mode === 'video' ? '/video' : '/')
@@ -121,20 +132,34 @@ export default function TopBarV3({
           )}
           {isAdmin ? 'Админ' : 'Помощь'}
         </button>
+        {authed && (
+          <button
+            className="top-token-summary"
+            type="button"
+            aria-label={`Дневные токены: ${dailyRemaining} из ${dailyLimit}. Основной баланс: ${balance} токенов`}
+            title="Открыть баланс токенов"
+            onClick={onOpenProfile || (() => goto('/profile'))}
+          >
+            <span className="top-token-item daily">
+              <SunMedium size={15} aria-hidden="true" />
+              <span className="top-token-copy"><b>{dailyRemaining}/{dailyLimit}</b><small>Дневные</small></span>
+            </span>
+            <span className="top-token-divider" aria-hidden="true" />
+            <span className="top-token-item balance">
+              <Gem size={14} aria-hidden="true" />
+              <span className="top-token-copy"><b>{balance}</b><small>Премиум</small></span>
+            </span>
+          </button>
+        )}
         <button
-          className={`account-button${active === 'profile' ? ' active' : ''}`}
+          className={`account-button${authed ? ' authed' : ''}${active === 'profile' ? ' active' : ''}`}
           type="button"
           aria-label="Профиль и настройки"
           title={authed ? (userLabel || 'Профиль и настройки') : 'Войти'}
           onClick={onOpenProfile || (() => goto('/profile'))}
         >
-          <span className="settings-glyph" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M12 8.2a3.8 3.8 0 1 1 0 7.6 3.8 3.8 0 0 1 0-7.6Z" stroke="currentColor" strokeWidth="1.8" />
-              <path d="M19.2 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-1.9-3.2-2.4 1a8 8 0 0 0-2.5-1.4L14 2.8h-4l-.4 2.6a8 8 0 0 0-2.5 1.4l-2.4-1L2.8 9l2 1.5c-.1.5-.1 1-.1 1.5s0 1 .1 1.5l-2 1.5 1.9 3.2 2.4-1a8 8 0 0 0 2.5 1.4l.4 2.6h4l.4-2.6a8 8 0 0 0 2.5-1.4l2.4 1 1.9-3.2-2-1.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-            </svg>
-          </span>
-          {userLabel && <span className="user-label">{userLabel}</span>}
+          <span className="settings-glyph" aria-hidden="true">{authed ? <Settings size={17} /> : <LogIn size={17} />}</span>
+          {!authed && <span className="user-label">Войти</span>}
           <span className={`user-glyph${authed ? ' authed' : ''}`} aria-hidden="true">
             {avatarUrl ? (
               <img src={avatarUrl} alt="" />

@@ -1463,7 +1463,18 @@ function App() {
         <div className="app-shell">
           {isDiagMode() && <DiagPanel />}
           <AuthV2Modal open={authModalOpen} onClose={() => setAuthModalOpen(false)} />
-          <TopBarV3 active="profile" authed={isAuthedV2} avatarUrl={isAuthedV2 ? accountInfo(authMe).avatarUrl : null} userLabel={isAuthedV2 ? accountInfo(authMe).userLabel : null} initials={isAuthedV2 ? accountInfo(authMe).initials : null} onOpenGallery={() => { window.location.href = '/gallery' }} onOpenHelp={() => { window.location.href = '/' }} />
+          <TopBarV3
+            active="profile"
+            authed={isAuthedV2}
+            avatarUrl={isAuthedV2 ? accountInfo(authMe).avatarUrl : null}
+            userLabel={isAuthedV2 ? accountInfo(authMe).userLabel : null}
+            initials={isAuthedV2 ? accountInfo(authMe).initials : null}
+            dailyTokensRemaining={isAuthedV2 ? authMe?.account?.daily_tokens_remaining : null}
+            dailyTokensLimit={isAuthedV2 ? (authMe?.account?.daily_tokens_limit ?? authMe?.account?.daily_tokens) : null}
+            tokenBalance={isAuthedV2 ? authMe?.account?.token_balance : null}
+            onOpenGallery={() => { window.location.href = '/gallery' }}
+            onOpenHelp={() => { window.location.href = '/' }}
+          />
           <main className="new-sub-main">
             <SettingsView copy={copy} lang={lang} onLanguageChange={changeLanguage} tariffs={tariffs} bootstrap={bootstrap} setBootstrap={setBootstrap} openAdmin={openAdminPage} openGallery={() => { window.location.href = '/gallery' }} provider={provider} setProvider={setProvider} width={width} setWidth={setWidth} height={height} setHeight={setHeight} steps={steps} setSteps={setSteps} setCfg={setCfg} isAuthedV2={isAuthedV2} openAuthModal={() => setAuthModalOpen(true)} authMe={authMe} />
           </main>

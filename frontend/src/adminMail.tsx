@@ -26,6 +26,13 @@ export default function AdminMail() {
     setUsername(String(config.username || ''))
     setSenderName(String(config.sender_name || 'ИЗО АСА'))
     setSenderEmail(String(config.sender_email || ''))
+    if (!next?.service_ready && config.last_error) {
+      setConnectionState('error')
+      setConnectionMessage(String(config.last_error))
+    } else if (next?.service_ready) {
+      setConnectionState('ok')
+      setConnectionMessage('Почта подключена и готова к отправке.')
+    }
   }, [])
 
   useEffect(() => {
@@ -59,6 +66,7 @@ export default function AdminMail() {
     } catch (cause) {
       setConnectionState('error')
       setConnectionMessage(cause instanceof Error ? cause.message : 'Не удалось подключить почту')
+      await load().catch(() => undefined)
     }
   }
 
@@ -79,13 +87,14 @@ export default function AdminMail() {
   const summary = (data?.summary || {}) as AdminRecord
   const config = (data?.config || {}) as AdminRecord
   const ready = Boolean(data?.service_ready)
+  const configured = Boolean(config.configured)
   const canConnect = Boolean(host.trim() && port && username.trim() && senderName.trim() && senderEmail.trim() && (password.trim() || config.password))
 
   return (
     <div className="admin-section admin-mail-page">
       <div className="admin-mail-heading">
         <div><h3>Почта ИЗО АСА</h3><p>Системные письма и коды подтверждения отправляются через настроенный SMTP-сервер.</p></div>
-        <span className={`admin-mail-status ${ready ? 'ok' : 'warn'}`}>{ready ? 'Почта работает' : 'Почта не подключена'}</span>
+        <span className={`admin-mail-status ${ready ? 'ok' : 'warn'}`}>{ready ? 'Почта работает' : configured ? 'Сохранено · нужна проверка' : 'Почта не подключена'}</span>
       </div>
       <div className="admin-mail-grid">
         <article className="admin-mail-card admin-mail-connect">
@@ -96,17 +105,17 @@ export default function AdminMail() {
           </div>
           <label>Почтовый ящик<input type="email" value={username} onChange={(event) => { setUsername(event.target.value); if (!senderEmail) setSenderEmail(event.target.value) }} placeholder="mail@alikinas.ru" /></label>
           <label>
-            Пароль SMTP
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={config.password ? 'Пароль сохранён · введите новый только для замены' : 'Введите пароль SMTP'} />
+            Пароль приложения Mail.ru
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={config.password ? 'Пароль сохранён · введите новый только для замены' : 'Введите пароль приложения'} />
             <small>
-              Данные выдаёт администратор SMTP-сервера. Пароль сохраняется в защищённом хранилище и после сохранения больше не отображается.
+              Обычный пароль от почты не подходит. В VK WorkSpace создайте пароль для внешнего приложения с доступом SMTP. Настройки сохранятся даже при неудачной проверке.
             </small>
           </label>
           <div className="admin-mail-server-row sender">
             <label>Имя отправителя<input value={senderName} onChange={(event) => setSenderName(event.target.value)} /></label>
             <label>Email отправителя<input type="email" value={senderEmail} onChange={(event) => setSenderEmail(event.target.value)} placeholder="mail@alikinas.ru" /></label>
           </div>
-          <button className="secondary" disabled={!canConnect || connectionState === 'working'} onClick={saveAndVerify}>{connectionState === 'working' ? 'Проверяем…' : ready ? 'Проверить сохранённые настройки' : 'Сохранить и проверить'}</button>
+          <button className="secondary" disabled={!canConnect || connectionState === 'working'} onClick={saveAndVerify}>{connectionState === 'working' ? 'Проверяем…' : configured ? 'Проверить настройки' : 'Сохранить и проверить'}</button>
           {connectionMessage && <small className={`admin-mail-message ${connectionState}`}>{connectionMessage}</small>}
         </article>
         <article className="admin-mail-card">

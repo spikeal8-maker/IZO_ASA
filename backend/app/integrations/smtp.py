@@ -67,7 +67,10 @@ def _default_client(config: SmtpConfig) -> SmtpClient:
 
 def _smtp_error(exc: BaseException) -> SmtpError:
     if isinstance(exc, smtplib.SMTPAuthenticationError):
-        return SmtpError("SMTP-сервер не принял имя пользователя или пароль.")
+        return SmtpError(
+            "Mail.ru не принял почтовый ящик или пароль приложения. "
+            "Обычный пароль от почты не подходит: создайте пароль для внешнего приложения с доступом SMTP."
+        )
     if isinstance(exc, (TimeoutError, OSError)):
         return SmtpError("Не удалось подключиться к почтовому серверу.")
     return SmtpError("Почтовый сервер отклонил запрос.")

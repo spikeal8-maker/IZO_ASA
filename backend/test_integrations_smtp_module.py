@@ -44,7 +44,7 @@ def test_verify_smtp_connection_logs_in_and_checks_server():
 
 
 def test_verify_smtp_connection_returns_human_auth_error():
-    with pytest.raises(SmtpError, match="SMTP-сервер не принял имя пользователя или пароль"):
+    with pytest.raises(SmtpError, match="пароль приложения"):
         verify_smtp_connection(config(), client_factory=lambda _config: FakeClient(auth_error=True))
 
 
