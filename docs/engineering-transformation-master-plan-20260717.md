@@ -2,7 +2,7 @@
 
 Дата аудита и актуализации: **2026-07-17**
 
-Статус документа: **главный исполняемый план; S0-001 VERIFIED, следующий пакет S0-002**
+Статус документа: **главный исполняемый план; S0-001 и S0-002 VERIFIED, следующий пакет ENV-001**
 
 Предыдущий roadmap: `production-hardening-roadmap-20260713.md` остаётся историей выполненных пакетов и больше не является источником актуального порядка работ.
 
@@ -82,12 +82,12 @@
 | Параметр | Подтверждённый факт |
 |---|---|
 | Ветка | `main` |
-| Проверенный repository baseline | `0acb2992fe37a7ee08e3b9c7c324c868c9784a09` |
-| Production code baseline | `13c8216fbfe9abaf9312f4485b8bf3f608bda4e2`; `0acb299` добавляет только regression test и документацию |
-| Продуктовые/test commits S0-001 | `d3561fe`, `2498f56`, `13c8216`, `0acb299` |
-| Синхронизация baseline | code baseline отправлен в `origin/main` |
-| Worktree checkpoint | продуктовый WIP завершён; обновление этого плана оформляется отдельным документирующим commit |
-| Следующий пакет | `S0-002` — генерируемые архитектурные inventories |
+| Проверенный repository baseline | `8f27dc086aaca381f47d965c82f3a849e5fff493` |
+| Production runtime baseline | backend PID 26004 не перезапускался для S0-002; пакет не меняет ASGI/runtime behavior; актуальная параллельная UI-правка сохранена в `a5474f8` |
+| Проверенные commits Gate 0 | S0-001: `d3561fe`, `2498f56`, `13c8216`, `0acb299`; UI checkpoint: `a5474f8`; S0-002: `8f27dc0` |
+| Синхронизация baseline | `8f27dc0` отправлен в `origin/main` |
+| Worktree checkpoint | реализация S0-002 завершена; точный отчёт оформляется отдельным документирующим commit |
+| Следующий пакет | `ENV-001` — immutable production identity и устранение `development/global Python/unknown frontend build` drift |
 
 На момент первоначального аудита одновременно менялись backend, frontend и static shells. В S0-001 этот WIP был инвентаризирован, исправлен, протестирован, разделён на четыре понятных commits и опубликован. Архитектурные переносы в продуктовые commits не добавлялись.
 
@@ -96,7 +96,7 @@
 | Объект | Snapshot 2026-07-17 | Вывод |
 |---|---:|---|
 | `backend/main.py` | 20 027 физических строк, 721 top-level functions, 81 class, 221 route | главный coordination/ownership риск |
-| `frontend/src/newStudioV3.css` | 5 868 строк | стили смешивают несколько features |
+| `frontend/src/newStudioV3.css` | 5 875 строк | стили смешивают несколько features |
 | `frontend/src/newUi.tsx` | 4 373 строки | API/state/composition/view связаны |
 | `frontend/src/LegacyApp.tsx` | 3 600 строк | legacy требует заморозки и контролируемого удаления |
 | `frontend/src/newUi.css` | 3 096 строк | нужен feature split |
@@ -105,7 +105,7 @@
 | `frontend/src/adminModels.tsx` | 2 016 строк | API/types/hooks/page смешаны |
 | `backend/test_feed_v2.py` | 2 320 строк | тестовый ownership тоже нужно разделять |
 
-`backend/SYMBOL_MAP.md` сгенерирован заново и синхронизирован с code baseline `13c8216`: 721 function, 81 class, 221 route. Большие файлы остаются предметом следующих пакетов; S0-001 не маскируется как их декомпозиция.
+`backend/SYMBOL_MAP.md` и новый architecture inventory синхронизированы с baseline `8f27dc0`: 721 function, 81 class, 221 route. Пороговые guards ограничивают дальнейший рост заранее заданным запасом 750/90/230. Большие файлы остаются предметом следующих пакетов; Gate 0 не маскируется как их декомпозиция.
 
 ### 3.3. Runtime
 
@@ -215,8 +215,9 @@ Branch protection для private repository возвращает HTTP 403 на �
 9. **Live environment drift.** Реальный backend сообщил `development`, frontend build unknown и использует глобальный Python.
 10. **Публичный health раскрывает лишнее.** Environment, DB size, admin/user counts и internal URLs должны быть доступны только trusted admin/ops.
 11. **CSRF policy не выявлена.** При `SameSite=None` нужны unsafe-method Origin/CSRF gates; provider webhooks выделяются в отдельное исключение.
-12. **CI физически не выполняется.** Старые зелёные данные нельзя переносить на новый HEAD.
+12. **CI снова выполняется, но близок к timeout и не сохраняет artifact.** Exact-SHA run S0-002 впервые прошёл все steps, однако job занял 25m45s из лимита 30 минут; нужен запас по длительности и сохраняемый verification manifest/log summary.
 13. **Process role/port collision.** В S0-001 найден осиротевший второй full backend на `127.0.0.1:8001`, подключённый к live DB и Telegram polling, хотя порт зарезервирован для Qwen ASR. Он создавал duplicate polling и доказывает, что candidate/dev процесс нельзя запускать с production roots/workers без role guard.
+14. **Ollama bind drift.** Ollama Desktop сейчас сообщает listener `:::11434`, хотя целевой контракт требует loopback `127.0.0.1:11434`. S0-002 делает это явным warning; изменение работающего Ollama переносится в OPS hardening с health/rollback, а не выполняется скрыто внутри inventory-пакета.
 
 ## 5. Архитектурные решения программы
 
@@ -434,7 +435,9 @@ Checkpoint 2026-07-17:
 
 ### S0-002 — Снимок архитектурных контрактов
 
-Статус: `READY`
+Статус: `VERIFIED`
+
+Implementation commit: `8f27dc086aaca381f47d965c82f3a849e5fff493`, опубликован в `origin/main`.
 
 Создать генерируемые/проверяемые inventories:
 
@@ -449,11 +452,29 @@ Checkpoint 2026-07-17:
 
 CI/verify должны падать при неописанном admin route, новом legacy auth consumer, незарегистрированном worker или рассинхронизации generated map.
 
+Результат:
+
+- `architecture/contract.json` стал reviewed semantic source для route exceptions, пяти legacy identity consumers, восьми `create_task` registrations, десяти integrations, frontend/static entrypoints, process/listener ownership и line/symbol budgets;
+- `tools/generate_architecture_inventory.py` выполняет только AST/source scan, не импортирует `backend.main`, не открывает DB/media/network и детерминированно создаёт JSON/Markdown artifacts;
+- inventory фиксирует 221 route с ролью `all-dev-current-monolith`, 4 постоянных worker, 4 ephemeral task, 52 объявленные SQLite table, 84 index, 0 foreign-key declaration, 102 имени environment inputs, 10 integrations и 25 нормализованных frontend/static API literals;
+- read-only live schema comparison подтвердил все 52 объявления; дополнительные 5 live tables — штатные FTS5 shadows `images_search_*`, missing live table нет;
+- secret inventory содержит только имена переменных и описание DPAPI/env source, значения secrets не сохраняются;
+- `check-runtime-listeners.ps1` read-only проверяет 5173/8000/8001/8188/11434 и запрещает Python `uvicorn main:app` на любом порту, кроме зарегистрированного API 8000;
+- runtime snapshot: один full-app process, API PID 26004 на 8000, Qwen ASR 8001 свободен, ComfyUI 8188 и Ollama 11434 принадлежат ожидаемым процессам; Ollama wildcard bind оставлен явным warning;
+- `verify.ps1` запускает inventory drift check во всех режимах, runtime ownership только локально и никогда в CI; оба новых test modules входят в Quick и Full;
+- focused architecture/verify tests: 19 passed, повторено 5/5; generator drift + live listener ownership: 5/5; Quick verifier: 56 passed;
+- Full verifier: 1461 passed, 92 известных deprecation warnings за 373.16 s; ESLint, TypeScript/Vite production build, origin isolation и studio resilience E2E — PASS; общий verifier 424.89 s;
+- GitHub CI на exact SHA `8f27dc0`: run `29602448159`, job `87957576637`, conclusion `success`; runner выполнил checkout/setup/install и полный `verify -Mode CI`, включая оба generated-map checks, 1461 tests/92 warnings, lint, TypeScript/Vite build, origin isolation и resilience E2E; verifier 1439.47 s, job 25m45s;
+- live media snapshot до/после совпал: 129 files, 1 684 488 bytes, SHA-256 `E2232B6F56094FA00D6D6FAA495D1FCFB240CE133207B903636F5A299428AC04`;
+- API/schema/auth behavior не менялся, миграции и restart/deploy не требовались; `/api/health` и `/api/version` после gate вернули HTTP 200;
+- rollback code point: `a5474f8`; для отката S0-002 достаточно revert `8f27dc0`, production process не переключался;
+- residual risks переданы по владельцам: immutable release identity — ENV-001, process roles/lifespan — ROLE-001, foreign keys/repository boundary — DB wave, Ollama loopback — OPS hardening.
+
 ## 9. Волна A — release truth и безопасный локальный production
 
 ### ENV-001 — Production identity gate
 
-Приоритет: P0. Статус: `READY AFTER GATE 0`.
+Приоритет: P0. Статус: `READY`.
 
 - единый `release-manifest.json`: git SHA, dirty=false, build time, frontend asset manifest hash, Python/Node versions, schema compatibility range;
 - backend `/api/version` берёт только этот manifest;
@@ -464,11 +485,11 @@ CI/verify должны падать при неописанном admin route, �
 
 ### CI-001 — Восстановить выполняющийся CI
 
-Приоритет: P0. Внешний blocker: GitHub billing/spending limit.
+Приоритет: P0. Статус: `IN PROGRESS`; внешний GitHub billing/spending blocker снят, exact-SHA run `29602448159` успешно выполнил все steps.
 
-- владелец устраняет billing/spending blocker;
-- подтвердить, что job получил runner и выполнил steps;
+- подтверждено: job `87957576637` получил Windows runner и выполнил все steps на `8f27dc0`;
 - сохранить exact-SHA artifact с test counts и manifests;
+- вернуть безопасный запас относительно 30-minute timeout без ослабления full gates;
 - добавить dependency audit, secret scan и lightweight SAST;
 - security/payment/video/profile browser suites распределить на обязательные jobs;
 - пока branch protection недоступен, `tools/verify.ps1 -Mode CI` + receipt обязательны перед release;
@@ -1099,13 +1120,12 @@ GPU generation time не смешивается с API latency: отдельно
 
 ## 22. Точный ближайший блок
 
-Следующий исполняемый блок после завершённого S0-001:
+Следующий исполняемый блок после завершённого Gate 0:
 
-1. **S0-002:** сгенерировать route/auth/task/schema/release inventories и архитектурные guards;
-2. **ENV-001:** устранить `development/global Python/unknown frontend build` drift только с готовым rollback;
-3. **CI-001:** владелец устраняет GitHub billing blocker; кодовая часть CI улучшается независимо;
-4. **REL-001:** fail-closed immutable publisher;
-5. затем начинать **SEC-001**, а не произвольный большой перенос строк из `main.py`.
+1. **ENV-001:** устранить `development/global Python/unknown frontend build` drift только с готовым rollback;
+2. **CI-001:** закрепить реально выполняющийся exact-SHA CI и сохраняемый verification artifact;
+3. **REL-001:** fail-closed immutable publisher;
+4. затем начинать **SEC-001**, а не произвольный большой перенос строк из `main.py`.
 
 Первый backend domain extraction после P0 foundation — billing/payments, потому что новые изменения оплаты уже сформировали естественную границу и требуют самых строгих инвариантов.
 
@@ -1146,3 +1166,4 @@ GPU generation time не смешивается с API latency: отдельно
 | 2026-07-17 | Новый source of truth построен после аудита текущего worktree, live runtime/DB, CI, payments, queues, auth, frontend и предоставленных исследований. Старый roadmap переведён в historical status. |
 | 2026-07-17 | S0-001 завершён и проверен на repository baseline `0acb299` / production code baseline `13c8216`: WIP разделён на продуктовые commits, full/focused/frontend gates зелёные, controlled restart и live smoke выполнены; S0-002 переведён в READY. |
 | 2026-07-17 | В live observation найден и graceful остановлен orphan backend на Qwen ASR порту 8001; duplicate Telegram polling прекратился. В S0-002/ROLE-001 добавлены listener ownership и process-role guards. |
+| 2026-07-17 | S0-002 завершён в `8f27dc0`: semantic contract, детерминированные route/auth/task/schema/integration/frontend/release inventories, size/symbol budgets и read-only listener ownership встроены в Quick/Full/CI; focused ×5, полный local gate и exact-SHA GitHub run `29602448159` зелёные, прежний billing blocker снят, Gate 0 закрыт, следующий пакет ENV-001. |
