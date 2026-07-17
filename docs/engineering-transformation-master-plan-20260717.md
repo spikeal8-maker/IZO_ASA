@@ -215,7 +215,7 @@ Branch protection для private repository возвращает HTTP 403 на �
 9. **Live environment drift.** Реальный backend сообщил `development`, frontend build unknown и использует глобальный Python.
 10. **Публичный health раскрывает лишнее.** Environment, DB size, admin/user counts и internal URLs должны быть доступны только trusted admin/ops.
 11. **CSRF policy не выявлена.** При `SameSite=None` нужны unsafe-method Origin/CSRF gates; provider webhooks выделяются в отдельное исключение.
-12. **CI снова выполняется, но близок к timeout и не сохраняет artifact.** Exact-SHA run S0-002 впервые прошёл все steps, однако job занял 25m45s из лимита 30 минут; нужен запас по длительности и сохраняемый verification manifest/log summary.
+12. **CI billing blocker остаётся нестабильным, а выполненный run близок к timeout.** Exact-SHA run S0-002 один раз прошёл все steps за 25m45s из лимита 30 минут, но следующий docs-only run снова был отклонён до первого step из-за account payments/spending limit. Нужны устойчивое billing-разрешение, запас по длительности и сохраняемый verification manifest/log summary.
 13. **Process role/port collision.** В S0-001 найден осиротевший второй full backend на `127.0.0.1:8001`, подключённый к live DB и Telegram polling, хотя порт зарезервирован для Qwen ASR. Он создавал duplicate polling и доказывает, что candidate/dev процесс нельзя запускать с production roots/workers без role guard.
 14. **Ollama bind drift.** Ollama Desktop сейчас сообщает listener `:::11434`, хотя целевой контракт требует loopback `127.0.0.1:11434`. S0-002 делает это явным warning; изменение работающего Ollama переносится в OPS hardening с health/rollback, а не выполняется скрыто внутри inventory-пакета.
 
@@ -485,9 +485,10 @@ CI/verify должны падать при неописанном admin route, �
 
 ### CI-001 — Восстановить выполняющийся CI
 
-Приоритет: P0. Статус: `IN PROGRESS`; внешний GitHub billing/spending blocker снят, exact-SHA run `29602448159` успешно выполнил все steps.
+Приоритет: P0. Статус: `BLOCKED EXTERNALLY`; exact-SHA run `29602448159` успешно выполнил все steps, но следующий run `29604148160` снова не стартовал из-за GitHub account payments/spending limit.
 
 - подтверждено: job `87957576637` получил Windows runner и выполнил все steps на `8f27dc0`;
+- владелец устраняет billing/spending blocker так, чтобы последовательные runs стабильно получали runner;
 - сохранить exact-SHA artifact с test counts и manifests;
 - вернуть безопасный запас относительно 30-minute timeout без ослабления full gates;
 - добавить dependency audit, secret scan и lightweight SAST;
@@ -1166,4 +1167,4 @@ GPU generation time не смешивается с API latency: отдельно
 | 2026-07-17 | Новый source of truth построен после аудита текущего worktree, live runtime/DB, CI, payments, queues, auth, frontend и предоставленных исследований. Старый roadmap переведён в historical status. |
 | 2026-07-17 | S0-001 завершён и проверен на repository baseline `0acb299` / production code baseline `13c8216`: WIP разделён на продуктовые commits, full/focused/frontend gates зелёные, controlled restart и live smoke выполнены; S0-002 переведён в READY. |
 | 2026-07-17 | В live observation найден и graceful остановлен orphan backend на Qwen ASR порту 8001; duplicate Telegram polling прекратился. В S0-002/ROLE-001 добавлены listener ownership и process-role guards. |
-| 2026-07-17 | S0-002 завершён в `8f27dc0`: semantic contract, детерминированные route/auth/task/schema/integration/frontend/release inventories, size/symbol budgets и read-only listener ownership встроены в Quick/Full/CI; focused ×5, полный local gate и exact-SHA GitHub run `29602448159` зелёные, прежний billing blocker снят, Gate 0 закрыт, следующий пакет ENV-001. |
+| 2026-07-17 | S0-002 завершён в `8f27dc0`: semantic contract, детерминированные route/auth/task/schema/integration/frontend/release inventories, size/symbol budgets и read-only listener ownership встроены в Quick/Full/CI; focused ×5, полный local gate и exact-SHA GitHub run `29602448159` зелёные. Следующий run `29604148160` снова заблокирован billing до steps, поэтому внешний blocker остаётся; Gate 0 закрыт, следующий пакет ENV-001. |
