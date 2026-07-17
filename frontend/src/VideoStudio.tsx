@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent, ReactElement } from 'react'
 import {
-  ChevronDown, Clock3, Copy, Download, Film, ImagePlus, Images,
+  ChevronDown, CircleHelp, Clock3, Copy, Download, Film, ImagePlus, Images,
   LoaderCircle, Mic2, MoreVertical, Play, RotateCcw, Settings2,
   Share2, Sparkles, Trash2, Upload, Volume2, VolumeX, WandSparkles, X,
 } from 'lucide-react'
@@ -61,8 +61,8 @@ type VideoJob = {
 type GalleryImage = { id: string; url?: string; src?: string; viewerSrc?: string; thumbnailUrl?: string; width?: number; height?: number; promptOriginal?: string }
 
 const MODE_META: Array<{ id: VideoMode; label: string; note: string; empty: string }> = [
-  { id: 'text_to_video', label: 'Текст → видео', note: 'Создать сцену', empty: 'Опишите сцену, движение камеры и настроение ролика' },
-  { id: 'image_to_video', label: 'Изображение → видео', note: 'Оживить кадр', empty: 'Загрузите исходный кадр и опишите движение' },
+  { id: 'text_to_video', label: 'Текст → видео', note: 'Создать сцену по тексту', empty: 'Опишите сцену, движение камеры и настроение ролика' },
+  { id: 'image_to_video', label: 'Изображение → видео', note: 'Оживить изображение', empty: 'Загрузите исходный кадр и опишите движение' },
   { id: 'first_last_frame', label: 'Начало и конец', note: 'Переход кадров', empty: 'Добавьте начальный и конечный кадры' },
   { id: 'reference_to_video', label: 'По референсам', note: 'Собрать ролик', empty: 'Добавьте изображения героя, предмета или стиля' },
 ]
@@ -149,6 +149,11 @@ function publicModelRate(model: VideoModel | undefined) {
   const rate = tokens / seconds
   return `от ${formatTokenRate(rate)} ток./с`
 }
+function aspectPreviewWidth(value: string) {
+  const [width, height] = value.split(':').map(Number)
+  const ratio = width > 0 && height > 0 ? width / height : 16 / 9
+  return `${Math.round(Math.min(40, Math.max(14, 23 * ratio)))}px`
+}
 function formatTokenRate(value: number) {
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value)
 }
@@ -183,7 +188,6 @@ export default function VideoStudio(): ReactElement {
   const [estimate, setEstimate] = useState<VideoEstimate | null>(null)
   const [estimateKey, setEstimateKey] = useState('')
   const [estimateLoading, setEstimateLoading] = useState(false)
-  const [audioDelta, setAudioDelta] = useState<number | null>(null)
   const [qualityEstimates, setQualityEstimates] = useState<Partial<Record<VideoQuality, VideoEstimate>>>({})
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -196,6 +200,8 @@ export default function VideoStudio(): ReactElement {
   const [formatExpanded, setFormatExpanded] = useState(false)
   const [mobileModeOpen, setMobileModeOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(false)
+  const [previewCleared, setPreviewCleared] = useState(false)
   const [voiceRecording, setVoiceRecording] = useState(false)
   const [voiceBusy, setVoiceBusy] = useState(false)
   const [improveBusy, setImproveBusy] = useState(false)
@@ -347,7 +353,7 @@ export default function VideoStudio(): ReactElement {
     voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
   }, [])
 
-  const requestForModel = useCallback((model: VideoModel | undefined, overrides?: { generateAudio?: boolean }) => {
+  const requestForModel = useCallback((model: VideoModel | undefined) => {
     if (!model) return null
     const nextDuration = model.supportedDurations.includes(duration) ? duration : (model.supportedDurations[0] || 4)
     const nextResolution = model.supportedResolutions.includes(resolution) ? resolution : (model.supportedResolutions[0] || '720p')
@@ -359,7 +365,7 @@ export default function VideoStudio(): ReactElement {
       duration: nextDuration,
       resolution: nextResolution,
       aspectRatio: nextAspectRatio,
-      generateAudio: model.generateAudio !== false && (overrides?.generateAudio ?? generateAudio),
+      generateAudio: model.generateAudio !== false && generateAudio,
       firstFrame: firstFrame || null,
       lastFrame: lastFrame || null,
       references,
@@ -427,30 +433,6 @@ export default function VideoStudio(): ReactElement {
     }, 320)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [qualityChoices, requestForModel])
-  useEffect(() => {
-    if (!selectedModel || selectedModel.generateAudio === false) return
-    const withoutAudio = requestForModel(selectedModel, { generateAudio: false })
-    const withAudio = requestForModel(selectedModel, { generateAudio: true })
-    if (!withoutAudio || !withAudio) return
-    const controller = new AbortController()
-    const timer = window.setTimeout(async () => {
-      try {
-        const [withoutResponse, withResponse] = await Promise.all([withoutAudio, withAudio].map((body) => apiFetch('/video/estimate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        })))
-        if (!withoutResponse.ok || !withResponse.ok) throw new Error('estimate unavailable')
-        const [withoutData, withData] = await Promise.all([withoutResponse.json(), withResponse.json()]) as VideoEstimate[]
-        if (!controller.signal.aborted) setAudioDelta(Math.max(0, Number(withData.chargedTokens || 0) - Number(withoutData.chargedTokens || 0)))
-      } catch {
-        if (!controller.signal.aborted) setAudioDelta(null)
-      }
-    }, 300)
-    return () => { window.clearTimeout(timer); controller.abort() }
-  }, [requestForModel, selectedModel])
-
   const assignImage = (target: FrameKey, value: string) => {
     if (target === 'first') setFirstFrame(value)
     else if (target === 'last') setLastFrame(value)
@@ -480,7 +462,7 @@ export default function VideoStudio(): ReactElement {
   const canSubmit = Boolean(prompt.trim() && selectedModel && !submitting && !activeJob && (mode === 'text_to_video' || (mode === 'image_to_video' && firstFrame) || (mode === 'first_last_frame' && firstFrame && lastFrame) || (mode === 'reference_to_video' && references.length)))
   const submit = async () => {
     if (!requestBody || !canSubmit) return
-    setSubmitting(true); setError('')
+    setSubmitting(true); setError(''); setPreviewCleared(false)
     try {
       const response = await apiFetch('/video/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
       if (!response.ok) throw new Error(await responseError(response, 'Не удалось запустить видео.'))
@@ -490,11 +472,12 @@ export default function VideoStudio(): ReactElement {
     } catch (reason) { setError((reason as Error).message) } finally { setSubmitting(false) }
   }
   const deleteVideo = async (job: VideoJob) => {
-    if (!job.galleryVideoId || !window.confirm('Удалить видео из галереи? Файл будет удалён без восстановления.')) return
+    if (!job.galleryVideoId || !window.confirm('Удалить видео из галереи и хранилища? Файл будет удалён без восстановления.')) return
     const response = await apiFetch(`/gallery/videos/${encodeURIComponent(job.galleryVideoId)}`, { method: 'DELETE' })
     if (!response.ok) { setError(await responseError(response, 'Не удалось удалить видео.')); return }
-    setHistory((items) => items.filter((item) => item.id !== job.id)); setSelectedJob(null); setMenuOpen(false)
+    setHistory((items) => items.filter((item) => item.id !== job.id)); setSelectedJob(null); setPreviewCleared(true); setMenuOpen(false)
   }
+  const clearPreview = () => { setSelectedJob(null); setPreviewCleared(true); setMenuOpen(false) }
   const shareVideo = async (job: VideoJob) => {
     const url = new URL(job.videoUrl || '', window.location.origin).toString()
     if (navigator.share) await navigator.share({ title: 'Видео ИЗО АСА', text: job.prompt, url })
@@ -502,22 +485,33 @@ export default function VideoStudio(): ReactElement {
   }
   const applySettings = (job: VideoJob) => {
     setMode(job.mode); setPrompt(job.prompt || ''); setDuration(Number(job.duration || duration)); setResolution(job.resolution || resolution); setAspectRatio(job.aspectRatio || aspectRatio); setGenerateAudio(Boolean(job.generateAudio));
-    const candidates = config?.modes[job.mode] || []; syncModelDefaults(candidates.find((item) => item.id === job.model) || candidates[0]); window.scrollTo({ top: 0, behavior: 'smooth' })
+    setPreviewCleared(false)
+    const candidates = config?.modes[job.mode] || []; syncModelDefaults(candidates.find((item) => item.id === job.model) || candidates[0])
+    window.setTimeout(() => {
+      if (window.matchMedia('(max-width: 820px)').matches) document.querySelector('.video-composer')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      else promptTextareaRef.current?.focus()
+    }, 0)
   }
 
   const sourceCard = (target: FrameKey, value: string, title: string, note: string, index = -1) => (
-    <div className={`video-source${value ? ' filled' : ''}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void handleDrop(target, event)}>
+    <div key={`${target}-${index}-${title}`} className={`video-source${value ? ' filled' : ' clickable'}`} role={!value ? 'button' : undefined} tabIndex={!value ? 0 : undefined} onClick={!value ? () => openUpload(target) : undefined} onKeyDown={!value ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openUpload(target) } } : undefined} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void handleDrop(target, event)}>
       {value ? <img src={value} alt={title} /> : <ImagePlus aria-hidden="true" />}
       <div><strong>{title}</strong><span>{value ? 'Кадр добавлен' : note}</span></div>
       <div className="video-source-actions">
-        <button type="button" onClick={() => openUpload(target)} title="Загрузить с устройства"><Upload /><span>Загрузить</span></button>
-        <button type="button" onClick={() => void openGallery(target)} title="Выбрать из галереи"><Images /><span>Галерея</span></button>
-        {value && <button type="button" onClick={() => removeImage(target, index)} title="Убрать"><X /></button>}
+        <button type="button" onClick={(event) => { event.stopPropagation(); openUpload(target) }} title="Загрузить с устройства"><Upload /><span>Загрузить</span></button>
+        <button type="button" onClick={(event) => { event.stopPropagation(); void openGallery(target) }} title="Выбрать из галереи"><Images /><span>Галерея</span></button>
+        {value && <button type="button" onClick={(event) => { event.stopPropagation(); removeImage(target, index) }} title="Убрать"><X /></button>}
       </div>
     </div>
   )
 
-  const shownJob = selectedJob || activeJob
+  const sourceInputs = (placement: 'desktop' | 'mobile') => mode !== 'text_to_video' ? <section className={`video-inputs video-${placement}-inputs`}><h2>Исходные материалы</h2>
+    {mode === 'image_to_video' && sourceCard('first', firstFrame, 'Исходный кадр', 'Фото, которое нужно оживить')}
+    {mode === 'first_last_frame' && <div className="video-input-pair">{sourceCard('first', firstFrame, 'Начало', 'Первый кадр')}{sourceCard('last', lastFrame, 'Конец', 'Последний кадр')}</div>}
+    {mode === 'reference_to_video' && <div className="video-reference-inputs">{references.map((value, index) => sourceCard('reference', value, `Референс ${index + 1}`, '', index))}{references.length < 4 && sourceCard('reference', '', 'Добавить референс', 'До четырёх изображений')}</div>}
+  </section> : null
+
+  const shownJob = previewCleared ? null : selectedJob || activeJob
   const modeMeta = MODE_META.find((item) => item.id === mode) || MODE_META[0]
   const stageRatio = shownJob?.aspectRatio || aspectRatio
   const orderedAspectRatios = useMemo(() => {
@@ -554,19 +548,18 @@ export default function VideoStudio(): ReactElement {
           </div>
 
           {loading ? <div className="video-loading"><LoaderCircle className="spin" /> Загружаем модели</div> : models.length ? <>
-          {mode !== 'text_to_video' && <section className="video-inputs"><h2>Исходные материалы</h2>
-            {mode === 'image_to_video' && sourceCard('first', firstFrame, 'Исходный кадр', 'Фото, которое нужно оживить')}
-            {mode === 'first_last_frame' && <div className="video-input-pair">{sourceCard('first', firstFrame, 'Начало', 'Первый кадр')}{sourceCard('last', lastFrame, 'Конец', 'Последний кадр')}</div>}
-            {mode === 'reference_to_video' && <div className="video-reference-inputs">{references.map((value, index) => sourceCard('reference', value, `Референс ${index + 1}`, '', index))}{references.length < 4 && sourceCard('reference', '', 'Добавить референс', 'До четырёх изображений')}</div>}
-          </section>}
+          {sourceInputs('desktop')}
 
           <section className="video-prompt">
             <div className="video-prompt-heading">
               <b>Что происходит в кадре?</b>
-              <button className="video-help-dot" type="button" aria-label="Как составить описание видео">
-                <span className="video-help-symbol" aria-hidden="true">?</span>
-                <span className="video-help-tooltip" role="tooltip">Опишите действие, движение камеры, свет и атмосферу. Чем точнее сцена, тем предсказуемее получится ролик.</span>
-              </button>
+              <div className="video-prompt-heading-controls">
+                <label className="video-duration-control" title="Длительность видео">
+                  <Clock3 aria-hidden="true" />
+                  <select aria-label="Длительность видео" value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{selectedModel?.supportedDurations.map((value) => <option key={value} value={value}>{value} сек.</option>)}</select>
+                </label>
+                <button className="video-guide-button" type="button" aria-label="Инструкция по созданию видео" onClick={() => setGuideOpen(true)}><CircleHelp aria-hidden="true" /></button>
+              </div>
             </div>
             <div className="video-prompt-field">
               <textarea ref={promptTextareaRef} value={prompt} maxLength={3000} placeholder="Опишите сцену, действия, движение камеры и атмосферу" onChange={(event) => { setPrompt(event.target.value); setLastImprovedPrompt('') }} />
@@ -579,40 +572,30 @@ export default function VideoStudio(): ReactElement {
             <button type="button" disabled={!prompt.trim() || improveBusy || lastImprovedPrompt === prompt} onClick={() => void improvePrompt()}><WandSparkles /> {improveBusy ? 'Улучшаю…' : lastImprovedPrompt === prompt ? 'Улучшено' : 'Улучшить'}</button>
             <button type="button" title="Показать следующий пример сцены" onClick={useNextExample}><Sparkles /> Пример</button>
           </div>
-          <section className="video-settings-section video-timing-row" aria-label="Длительность и звук">
-            <label className="video-duration-control">
-              <span><Clock3 aria-hidden="true" /> Длительность видео</span>
-              <select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{selectedModel?.supportedDurations.map((value) => <option key={value} value={value}>{value} секунд</option>)}</select>
-            </label>
-            <div className={`video-audio-control${selectedModel?.generateAudio === false ? ' disabled' : ''}`}>
-              <div className="video-audio-heading">
-                <span>{generateAudio && selectedModel?.generateAudio !== false ? <Volume2 /> : <VolumeX />}<b>Звук</b></span>
-                <button className="video-help-dot compact" type="button" aria-label="Как создаётся звук">
-                  <span className="video-help-symbol" aria-hidden="true">?</span>
-                  <span className="video-help-tooltip" role="tooltip">Звук создаёт выбранная видеомодель вместе с роликом. Он приходит уже встроенным в видео; локальная склейка не выполняется. Доплата зависит от модели и длительности.</span>
-                </button>
-              </div>
+          <section className={`video-audio-row${selectedModel?.generateAudio === false ? ' disabled' : ''}`} aria-label="Звук в ролике">
+            <div className="video-audio-summary">
+              {generateAudio && selectedModel?.generateAudio !== false ? <Volume2 /> : <VolumeX />}
+              <span><b>Звук в ролике</b><small>{selectedModel?.generateAudio === false ? 'Эта модель не поддерживает звук' : `Создаёт ${shortModelName(selectedModel)} вместе с видео`}</small></span>
+            </div>
               <label className="video-audio-switch">
                 <input type="checkbox" checked={generateAudio && selectedModel?.generateAudio !== false} disabled={selectedModel?.generateAudio === false} onChange={(event) => setGenerateAudio(event.target.checked)} />
                 <i />
-                <span>{selectedModel?.generateAudio === false ? 'Недоступен' : generateAudio ? 'Включён' : 'Выключен'}</span>
+                <span>{selectedModel?.generateAudio === false ? 'Недоступно' : generateAudio ? 'Включён' : 'Выключен'}</span>
               </label>
-              <small>{selectedModel?.generateAudio === false ? 'Модель не поддерживает аудио' : audioDelta === null ? 'Цена уточняется' : audioDelta > 0 ? `+${audioDelta} ток. за ролик` : 'Без доплаты'}</small>
-            </div>
             <div className="video-live-price" aria-live="polite">
-              <strong>{visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток.` : '—'}</strong>
-              <small>{currentRate ? `≈ ${formatTokenRate(currentRate)} ток./с` : 'за текущие параметры'}</small>
+              <strong>{visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток. за ${duration} сек.` : '—'}</strong>
+              <small>{currentRate ? `≈ ${formatTokenRate(currentRate)} ток./с` : 'текущая цена'}</small>
             </div>
           </section>
 
-          <section className="video-settings-section">
-            <div className="video-setting-label"><span>Формат</span><button className="video-help-dot compact" type="button" aria-label="О форматах видео"><span className="video-help-symbol" aria-hidden="true">?</span><span className="video-help-tooltip" role="tooltip">Формат задаёт пропорции кадра. Доступные варианты зависят от выбранной модели; неподдерживаемый формат будет заменён ближайшим доступным.</span></button></div>
-            <div className="video-format-tabs">{visibleAspectRatios.map((value) => <button key={value} type="button" className={aspectRatio === value ? 'active' : ''} onClick={() => setAspectRatio(value)} title={`Формат ${value} · качество ${resolution}`}><i style={{ aspectRatio: aspectStyle(value) }} /><span>{value}</span></button>)}</div>
+          <section className="video-settings-section video-visual-settings">
+            <div className="video-setting-label"><span>Формат</span></div>
+            <div className="video-format-tabs">{visibleAspectRatios.map((value) => <button key={value} type="button" className={aspectRatio === value ? 'active' : ''} onClick={() => setAspectRatio(value)} title={`Формат ${value} · качество ${resolution}`}><i style={{ aspectRatio: aspectStyle(value), width: aspectPreviewWidth(value) }} /><span>{value}</span></button>)}</div>
             {orderedAspectRatios.length > 4 && <button className="video-format-more" type="button" aria-expanded={formatExpanded} onClick={() => setFormatExpanded((value) => !value)}><span>{formatExpanded ? 'Скрыть дополнительные форматы' : `Ещё форматы (${orderedAspectRatios.length - 4})`}</span><ChevronDown className={formatExpanded ? 'open' : ''} /></button>}
           </section>
 
           <section className="video-params">
-            <div className="video-setting-label"><span>Качество</span><button className="video-help-dot compact" type="button" aria-label="О качестве видео"><span className="video-help-symbol" aria-hidden="true">?</span><span className="video-help-tooltip" role="tooltip">Качество определяет разрешение видео. Набор значений зависит от модели, а цена пересчитывается для выбранного формата и длительности.</span></button></div>
+            <div className="video-setting-label"><span>Качество</span></div>
             <div className="video-resolution-tabs">{selectedModel?.supportedResolutions.map((value) => <button key={value} type="button" className={resolution === value ? 'active' : ''} onClick={() => setResolution(value)} title={`Качество ${value} · формат ${aspectRatio}`}>{value}</button>)}</div>
             <h2>Модель</h2>
             <div className="video-quality-tabs">{QUALITY_META.map((item) => {
@@ -638,17 +621,18 @@ export default function VideoStudio(): ReactElement {
       <section className="video-result">
         <section className="video-mobile-mode" aria-label="Способ создания видео">
           <button className="video-mobile-mode-trigger" type="button" aria-expanded={mobileModeOpen} onClick={() => setMobileModeOpen((value) => !value)}>
-            <span><small>Способ создания</small><b>{modeMeta.label}</b><em>{modeMeta.note}</em></span>
+            <span><b>{modeMeta.label}</b><em>{modeMeta.note}</em></span>
             <ChevronDown className={mobileModeOpen ? 'open' : ''} />
           </button>
           {mobileModeOpen && <div className="video-mobile-mode-menu" role="listbox">{MODE_META.map((item) => <button key={item.id} type="button" role="option" aria-selected={mode === item.id} className={mode === item.id ? 'active' : ''} onClick={() => selectMode(item.id)}><strong>{item.label}</strong><small>{item.note}</small></button>)}</div>}
         </section>
+        {sourceInputs('mobile')}
         <div className="video-stage-wrap"><div className="video-stage" style={{ aspectRatio: aspectStyle(stageRatio) }}>
           <div className="video-stage-overlay">
             <div className="video-stage-actions">
               {shownJob?.videoUrl && <a href={shownJob.videoUrl} download title="Скачать"><Download /> <span>Скачать</span></a>}
               {shownJob?.videoUrl && <button type="button" onClick={() => void shareVideo(shownJob)}><Share2 /> <span>Поделиться</span></button>}
-              {shownJob?.galleryVideoId && <div className="video-more"><button type="button" title="Другие действия" onClick={() => setMenuOpen((value) => !value)}><MoreVertical /></button>{menuOpen && <div><button type="button" onClick={() => void deleteVideo(shownJob)}><Trash2 /> Удалить видео</button></div>}</div>}
+              {shownJob && <div className="video-more"><button type="button" title="Другие действия" onClick={() => setMenuOpen((value) => !value)}><MoreVertical /></button>{menuOpen && <div><button type="button" onClick={clearPreview}><X /> Очистить предпросмотр</button>{shownJob.galleryVideoId && <button className="destructive" type="button" onClick={() => void deleteVideo(shownJob)}><Trash2 /> Удалить из галереи</button>}</div>}</div>}
             </div>
           </div>
           {shownJob?.status === 'completed' && shownJob.videoUrl ? <video key={shownJob.videoUrl} src={shownJob.videoUrl} controls playsInline preload="metadata" />
@@ -660,7 +644,7 @@ export default function VideoStudio(): ReactElement {
 
         <div className="video-result-shelf">
           <section className="video-history" aria-label="Предыдущие видео">
-            {history.length ? <div className="video-history-list">{history.map((job) => { const jobModel = findJobModel(job); const elapsed = formatElapsed(job.createdAt, job.completedAt); return <button key={job.id} type="button" className={selectedJob?.id === job.id ? 'active' : ''} onClick={() => setSelectedJob(job)} style={{ aspectRatio: aspectStyle(job.aspectRatio) }} title={`${shortModelName(jobModel)} · ${job.duration || 0} сек.${elapsed ? ` · готово за ${elapsed}` : ''}`}>{job.videoUrl ? <video src={job.videoUrl} muted preload="metadata" /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<span className="video-history-meta"><small>{job.duration || 0} сек.</small><em>{shortModelName(jobModel)}</em></span></button> })}</div> : <p>Здесь появятся созданные видео.</p>}
+            {history.length ? <div className="video-history-list">{history.map((job) => { const jobModel = findJobModel(job); const elapsed = formatElapsed(job.createdAt, job.completedAt); return <button key={job.id} type="button" className={!previewCleared && selectedJob?.id === job.id ? 'active' : ''} onClick={() => { setSelectedJob(job); setPreviewCleared(false) }} style={{ aspectRatio: aspectStyle(job.aspectRatio) }} title={`${shortModelName(jobModel)} · ${job.duration || 0} сек.${elapsed ? ` · готово за ${elapsed}` : ''}`}>{job.videoUrl ? <video src={job.videoUrl} muted preload="metadata" /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<span className="video-history-meta"><small>{job.duration || 0} сек.</small><em>{shortModelName(jobModel)}</em></span></button> })}</div> : <p>Здесь появятся созданные видео.</p>}
           </section>
           <aside className="video-context">{shownJob ? <>
             <div className="video-context-prompt"><div><span>Промпт</span><button type="button" title="Копировать промпт" aria-label="Копировать промпт" onClick={() => void navigator.clipboard.writeText(shownJob.prompt || '')}><Copy /></button></div><p>{shownJob.prompt || 'Промпт не сохранён'}</p></div>
@@ -672,6 +656,7 @@ export default function VideoStudio(): ReactElement {
         </div>
     </section>
 
+    {guideOpen && <div className="video-guide-overlay" role="dialog" aria-modal="true" aria-labelledby="video-guide-title" onClick={() => setGuideOpen(false)}><div className="video-guide-dialog" onClick={(event) => event.stopPropagation()}><header><div><Film /><div><span>Краткая инструкция</span><h2 id="video-guide-title">Как создать первое видео</h2></div></div><button type="button" aria-label="Закрыть инструкцию" onClick={() => setGuideOpen(false)}><X /></button></header><ol><li><b>Выберите способ создания.</b><span>Сцену можно описать текстом, оживить изображение, связать первый и последний кадр или использовать несколько референсов.</span></li><li><b>Добавьте исходники, если они нужны.</b><span>Нажмите на всю область загрузки, выберите файл с устройства или изображение из галереи.</span></li><li><b>Опишите движение.</b><span>Укажите, что делает объект, как движется камера, какой нужен свет, темп и атмосфера. Не перечисляйте лишние изменения.</span></li><li><b>Настройте ролик.</b><span>Выберите длительность, звук, формат, качество и модель. Итоговая цена в токенах пересчитывается сервером.</span></li><li><b>Создайте видео.</b><span>Ход генерации появится в предосмотре. Готовый ролик автоматически сохранится в истории и галерее.</span></li></ol><footer><button type="button" onClick={() => setGuideOpen(false)}>Понятно</button></footer></div></div>}
     {galleryOpen && <div className="video-gallery-overlay" role="dialog" aria-modal="true" aria-label="Выбор изображения" onClick={() => setGalleryOpen(null)}><div className="video-gallery-dialog" onClick={(event) => event.stopPropagation()}><header><div><Images /><h2>Выберите изображение</h2></div><button type="button" aria-label="Закрыть" onClick={() => setGalleryOpen(null)}><X /></button></header>{galleryLoading ? <div className="video-loading"><LoaderCircle className="spin" /> Загружаем галерею</div> : gallery.length ? <div className="video-gallery-grid">{gallery.map((item) => { const source = item.url || item.viewerSrc || item.src || item.thumbnailUrl || ''; return <button key={item.id} type="button" disabled={!source} onClick={() => { assignImage(galleryOpen, source); setGalleryOpen(null) }}><img src={item.thumbnailUrl || item.src || source} alt={item.promptOriginal || 'Изображение из галереи'} loading="lazy" /><span>{item.width && item.height ? `${item.width}×${item.height}` : 'Из галереи'}</span></button> })}</div> : <p>В галерее пока нет изображений.</p>}</div></div>}
   </main>
 }

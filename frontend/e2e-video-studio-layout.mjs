@@ -120,9 +120,33 @@ async function inspect(browser, viewport) {
   await page.locator('.video-live-price strong').filter({ hasText: '12 ток.' }).waitFor()
   const durationAfterAudio = await page.locator('.video-duration-control').boundingBox()
   const audioPrice = (await page.locator('.video-live-price strong').textContent()) || ''
+  const guideButtonCount = await page.locator('.video-guide-button').count()
+  await page.locator('.video-guide-button').click()
+  const guideDialog = page.locator('.video-guide-dialog')
+  await guideDialog.waitFor()
+  const guideState = await page.evaluate(() => {
+    const overlay = document.querySelector('.video-guide-overlay')
+    const dialog = document.querySelector('.video-guide-dialog')
+    const prompt = document.querySelector('.video-prompt textarea')
+    return {
+      title: dialog?.querySelector('h2')?.textContent || '',
+      steps: dialog?.querySelectorAll('li').length || 0,
+      overlayZ: overlay ? Number.parseInt(getComputedStyle(overlay).zIndex, 10) : 0,
+      promptZ: prompt ? (Number.parseInt(getComputedStyle(prompt).zIndex || '0', 10) || 0) : 0,
+    }
+  })
+  await guideDialog.locator('button', { hasText: 'Понятно' }).click()
   await page.locator('.video-format-more').click()
   assert(await page.locator('.video-format-tabs button').count() === model.supportedAspectRatios.length, 'Additional formats do not expand')
   await page.locator('.video-format-more').click()
+  if (viewport.width < 821) {
+    await page.locator('.video-mobile-mode-trigger').click()
+    await page.locator('.video-mobile-mode-menu button', { hasText: 'Изображение → видео' }).click()
+    await page.locator('.video-mobile-inputs').waitFor()
+    const chooserPromise = page.waitForEvent('filechooser')
+    await page.locator('.video-mobile-inputs .video-source').click({ position: { x: 12, y: 12 } })
+    await chooserPromise
+  }
   await page.evaluate(() => {
     document.documentElement.style.scrollBehavior = 'auto'
     document.body.style.scrollBehavior = 'auto'
@@ -149,6 +173,15 @@ async function inspect(browser, viewport) {
     const promptRect = prompt?.getBoundingClientRect()
     const promptStyle = prompt ? getComputedStyle(prompt) : null
     const rootStyle = getComputedStyle(document.querySelector('.video-studio'))
+    const mobileSource = rect('.video-mobile-inputs')
+    const format169 = document.querySelector('.video-format-tabs button[title^="Формат 16:9"] i')?.getBoundingClientRect()
+    const format11 = document.querySelector('.video-format-tabs button[title^="Формат 1:1"] i')?.getBoundingClientRect()
+    const generateStyle = document.querySelector('.video-generate') ? getComputedStyle(document.querySelector('.video-generate')) : null
+    const durationControl = document.querySelector('.video-duration-control')
+    const promptHeading = document.querySelector('.video-prompt-heading')
+    const mobileModeStyle = document.querySelector('.video-mobile-mode') ? getComputedStyle(document.querySelector('.video-mobile-mode')) : null
+    const canonicalTopbar = document.querySelector('.iv3 > .app-shell > .topbar')
+    const topbarStyle = canonicalTopbar ? getComputedStyle(canonicalTopbar) : null
     return {
       stage, shelf, composer, resultPanel, overlay, contextActions, durationSelect, generateButton, modeTabs,
       promptRect,
@@ -164,7 +197,8 @@ async function inspect(browser, viewport) {
       stageCaption: document.querySelector('.video-stage-caption') !== null,
       proOpen: document.querySelector('.video-model-list') !== null,
       modelSelectVisible: Boolean(document.querySelector('.video-model-list')),
-      helpDot: document.querySelector('.video-help-dot') !== null,
+      guideButtonCount: document.querySelectorAll('.video-guide-button').length,
+      durationInHeading: Boolean(durationControl && promptHeading?.contains(durationControl)),
       promptClear: document.querySelector('.video-prompt-clear') !== null,
       visibleFormats: document.querySelectorAll('.video-format-tabs button').length,
       formatMore: document.querySelector('.video-format-more') !== null,
@@ -175,6 +209,13 @@ async function inspect(browser, viewport) {
       composerWidth: composer?.width || 0,
       mobileModeVisible: Boolean(document.querySelector('.video-mobile-mode') && getComputedStyle(document.querySelector('.video-mobile-mode')).display !== 'none'),
       desktopModeVisible: Boolean(document.querySelector('.video-mode-tabs') && getComputedStyle(document.querySelector('.video-mode-tabs')).display !== 'none'),
+      mobileModeText: document.querySelector('.video-mobile-mode-trigger')?.textContent || '',
+      mobileSourceBeforeStage: Boolean(mobileSource && stage && mobileSource.bottom <= stage.top + 1),
+      format169Width: format169?.width || 0,
+      format11Width: format11?.width || 0,
+      generatePosition: generateStyle?.position || '',
+      mobileModeZ: mobileModeStyle ? (Number.parseInt(mobileModeStyle.zIndex, 10) || 0) : 0,
+      topbarZ: topbarStyle ? (Number.parseInt(topbarStyle.zIndex, 10) || 0) : 0,
     }
   })
   result.activeModeNormal = activeModeNormal
@@ -185,14 +226,13 @@ async function inspect(browser, viewport) {
   result.examplesDiffer = firstExample !== secondExample
   result.durationBeforeAudio = durationBeforeAudio
   result.durationAfterAudio = durationAfterAudio
+  result.guideButtonCountBeforeOpen = guideButtonCount
+  result.guideState = guideState
   if (viewport.width >= 821) {
-    await page.locator('.video-prompt .video-help-dot').hover()
-    result.helpGeometry = await page.evaluate(() => {
-      const tooltip = document.querySelector('.video-prompt .video-help-dot [role="tooltip"]')?.getBoundingClientRect()
-      const field = document.querySelector('.video-prompt textarea')?.getBoundingClientRect()
-      const topElement = tooltip ? document.elementFromPoint(tooltip.left + 8, tooltip.top + 8) : null
-      return { tooltip, field, topTag: topElement?.tagName || '', topClass: topElement?.className || '', tooltipOnTop: Boolean(tooltip && topElement && document.querySelector('.video-prompt .video-help-dot [role="tooltip"]')?.contains(topElement)) }
-    })
+    await page.locator('.video-more > button').click()
+    await page.locator('.video-more button', { hasText: 'Очистить предпросмотр' }).click()
+    result.clearPreviewKeepsHistory = await page.locator('.video-history-list button').count() === history.length && await page.locator('.video-stage-message').isVisible()
+    await page.locator('.video-history-list button').nth(3).click()
   }
   if (process.env.E2E_SCREENSHOT_DIR) {
     await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/video-${viewport.width}x${viewport.height}.png`, fullPage: true })
@@ -226,7 +266,10 @@ async function run() {
     assert(fullHd.fontSize >= 16, 'Full HD base typography is too small')
     assert(!fullHd.videoTopTabDisabled, 'Video topbar tab is still tariff-gated')
     assert(!fullHd.proOpen && !fullHd.modelSelectVisible, 'Professional model selector is open by default')
-    assert(fullHd.helpDot, 'Prompt help dot is missing')
+    assert(fullHd.guideButtonCount === 1 && fullHd.guideButtonCountBeforeOpen === 1, 'Video page must contain exactly one instruction button')
+    assert(fullHd.guideState.title === 'Как создать первое видео' && fullHd.guideState.steps >= 5, 'Instruction dialog is incomplete')
+    assert(fullHd.guideState.overlayZ > fullHd.guideState.promptZ, 'Instruction dialog is rendered behind the page')
+    assert(fullHd.durationInHeading, 'Duration selector is not placed in the prompt heading')
     assert(fullHd.promptClear, 'Prompt clear button is missing')
     assert(fullHd.visibleFormats === 4, 'More than four primary formats are visible by default')
     assert(fullHd.formatMore, 'Additional-format control is missing')
@@ -236,8 +279,8 @@ async function run() {
     assert(fullHd.priceTransition.resolutionPrice !== fullHd.priceTransition.audioPrice, 'Audio does not update the token estimate')
     assert(fullHd.examplesDiffer, 'Example button repeats the same prompt')
     assert(fullHd.durationBeforeAudio && fullHd.durationAfterAudio && Math.abs(fullHd.durationBeforeAudio.x - fullHd.durationAfterAudio.x) < 1 && Math.abs(fullHd.durationBeforeAudio.y - fullHd.durationAfterAudio.y) < 1, 'Audio toggle shifts the duration control')
-    assert(fullHd.helpGeometry?.tooltip && fullHd.helpGeometry?.field && fullHd.helpGeometry.tooltip.bottom > fullHd.helpGeometry.field.top, 'Prompt help does not open over the prompt field')
-    assert(fullHd.helpGeometry?.tooltipOnTop, `Prompt help is rendered behind another element: ${JSON.stringify(fullHd.helpGeometry)}`)
+    assert(fullHd.format169Width > fullHd.format11Width * 1.35, '16:9 format icon does not look wider than 1:1')
+    assert(fullHd.clearPreviewKeepsHistory, 'Clearing the preview removes history or does not clear the stage')
 
     const browserFullHd = await inspect(browser, { width: 1920, height: 900 })
     assert(!browserFullHd.overflowX, 'Browser Full HD has horizontal overflow')
@@ -257,6 +300,10 @@ async function run() {
     assert(mobile.stage && mobile.stage.width <= 390, 'Mobile stage exceeds viewport width')
     assert(mobile.stage && mobile.stage.height <= mobile.stage.width, 'Mobile landscape video stage is too tall')
     assert(mobile.mobileModeVisible && !mobile.desktopModeVisible, 'Mobile creation-mode dropdown did not replace desktop tabs')
+    assert(!mobile.mobileModeText.includes('Способ создания'), 'Redundant mobile creation-mode label is still visible')
+    assert(mobile.mobileSourceBeforeStage, 'Mobile source upload must appear before the preview')
+    assert(mobile.generatePosition === 'sticky', 'Mobile create button is not pinned to the lower edge')
+    assert(mobile.topbarZ > mobile.mobileModeZ, 'Mobile creation-mode menu can overlap the main navigation')
     assert(mobile.promptRect && mobile.stage && mobile.promptRect.top >= mobile.stage.bottom, 'Mobile prompt must appear after the video preview')
     assert(mobile.shelf && mobile.composer && mobile.shelf.top >= mobile.composer.bottom - 1, 'Mobile history must appear after generation settings')
 
