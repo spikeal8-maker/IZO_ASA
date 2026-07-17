@@ -276,6 +276,25 @@ Run from the repository root:
 ```powershell
 python tools/generate_backend_map.py
 python tools/generate_backend_map.py --check
+python tools/generate_architecture_inventory.py
+python tools/generate_architecture_inventory.py --check
+.\tools\check-runtime-listeners.ps1 -PlanOnly
+.\tools\check-runtime-listeners.ps1
 ```
 
 `backend/SYMBOL_MAP.md` lists top-level classes, functions, routes and a conservative static authorization hint. Rows marked `REVIEW` require a code/test review; the generator does not prove security.
+
+`architecture/contract.json` is the reviewed semantic allowlist for route exceptions,
+legacy identity consumers, workers, integrations, process roles, listeners and size
+budgets. The generator combines it with AST/source scans and writes
+`docs/generated/architecture-inventory.json` plus the readable Markdown snapshot.
+The inventory contains environment variable names and secret sources, never secret
+values. `--check` fails on drift, an unreviewed admin/operational route, a new legacy
+identity consumer, an unregistered `asyncio.create_task`, a stale registration or a
+budget violation.
+
+The runtime listener checker is read-only. It confirms the registered owner of ports
+5173/8000/8001/8188/11434 and rejects a Python `uvicorn main:app` listener anywhere
+except the registered API port 8000. Optional services may be absent. The current
+Ollama Desktop IPv6 wildcard bind is reported as an explicit warning until the
+operations hardening package enforces the desired loopback-only bind.

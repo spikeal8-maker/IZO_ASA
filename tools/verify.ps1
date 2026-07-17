@@ -124,9 +124,20 @@ $toolsDirectory = Join-Path $resolvedRoot "tools"
 $mainFile = Join-Path $backendDirectory "main.py"
 $packageFile = Join-Path $frontendDirectory "package.json"
 $mapScript = Join-Path $toolsDirectory "generate_backend_map.py"
+$architectureContract = Join-Path $resolvedRoot "architecture\contract.json"
+$architectureInventoryScript = Join-Path $toolsDirectory "generate_architecture_inventory.py"
+$runtimeListenerScript = Join-Path $toolsDirectory "check-runtime-listeners.ps1"
 $restartScript = Join-Path $toolsDirectory "restart-backend.ps1"
 
-foreach ($requiredPath in @($mainFile, $packageFile, $mapScript, $restartScript)) {
+foreach ($requiredPath in @(
+    $mainFile,
+    $packageFile,
+    $mapScript,
+    $architectureContract,
+    $architectureInventoryScript,
+    $runtimeListenerScript,
+    $restartScript
+)) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Required verification input was not found: $requiredPath"
     }
@@ -155,8 +166,10 @@ $compileBatchSize = 40
 $quickTests = @(
     "-m", "pytest", "-q",
     "tools/test_generate_backend_map.py",
+    "tools/test_generate_architecture_inventory.py",
     "tools/test_launchers.py",
     "tools/test_restart_backend_script.py",
+    "tools/test_runtime_listener_contract.py",
     "tools/test_verify_script.py",
     "tools/test_backup_restore.py",
     "tools/test_ci_workflow.py",
@@ -171,9 +184,11 @@ if ($PlanOnly) {
     Write-Host "VERIFY_PLAN mode=$Mode root=$resolvedRoot"
     Write-Host "VERIFY_PLAN_STEP py_compile files=$($pythonFiles.Count)"
     Write-Host "VERIFY_PLAN_STEP backend_map_check command=python tools/generate_backend_map.py --check"
+    Write-Host "VERIFY_PLAN_STEP architecture_inventory_check command=python tools/generate_architecture_inventory.py --check"
     if ($usesLiveChecks) {
         Write-Host "VERIFY_PLAN_STEP source_snapshot before_after=true requireStable=$RequireStableLiveSource"
         Write-Host "VERIFY_PLAN_STEP backend_preflight command=restart-backend.ps1 -PreflightOnly"
+        Write-Host "VERIFY_PLAN_STEP runtime_listener_contract command=check-runtime-listeners.ps1"
     }
     if ($usesFullSuite) {
         Write-Host "VERIFY_PLAN_STEP pytest scope=backend+tools"
@@ -216,6 +231,19 @@ for ($offset = 0; $offset -lt $pythonFiles.Count; $offset += $compileBatchSize) 
         -WorkingDirectory $resolvedRoot
 }
 Invoke-NativeStep -Name "backend_map_check" -FilePath $python -ArgumentList @($mapScript, "--check") -WorkingDirectory $resolvedRoot
+Invoke-NativeStep -Name "architecture_inventory_check" -FilePath $python -ArgumentList @($architectureInventoryScript, "--check") -WorkingDirectory $resolvedRoot
+if ($usesLiveChecks) {
+    Invoke-NativeStep `
+        -Name "runtime_listener_contract" `
+        -FilePath "powershell.exe" `
+        -ArgumentList @(
+            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", $runtimeListenerScript,
+            "-RepoRoot", $resolvedRoot,
+            "-ContractPath", $architectureContract
+        ) `
+        -WorkingDirectory $resolvedRoot
+}
 
 if ($usesFullSuite) {
     Invoke-NativeStep -Name "pytest_full" -FilePath $python -ArgumentList $fullTests -WorkingDirectory $resolvedRoot

@@ -71,8 +71,9 @@ The repository has one non-mutating verification entrypoint:
 # Fast static, tooling and production preflight checks.
 .\tools\verify.ps1 -Mode Quick
 
-# Complete local gate: Python compile, generated map, full backend/tools tests,
-# frontend lint/build, live Host isolation and read-only process/source checks.
+# Complete local gate: Python compile, generated architecture maps, full
+# backend/tools tests, frontend lint/build, live Host isolation and read-only
+# process/source/listener checks.
 .\tools\verify.ps1 -Mode Full
 
 # Deterministic checks suitable for CI; does not inspect the live backend/media.
@@ -103,11 +104,11 @@ started manually. It uses the pinned `.python-version` (`3.11.9`),
 .\tools\verify.ps1 -Mode CI
 ```
 
-CI mode compiles Python, checks the generated backend map, runs the complete
-backend/tools suite, frontend lint and production build. It intentionally omits
-production process/source checks and receives no repository secrets. Its DB,
-media and DPAPI roots are under the ephemeral GitHub runner temp directory;
-Telegram/MAX update modes and real ComfyUI are disabled.
+CI mode compiles Python, checks the generated backend and architecture inventories,
+runs the complete backend/tools suite, frontend lint and production build. It
+intentionally omits production process/source/listener checks and receives no
+repository secrets. Its DB, media and DPAPI roots are under the ephemeral GitHub
+runner temp directory; Telegram/MAX update modes and real ComfyUI are disabled.
 
 The official checkout/setup actions are pinned to full commit SHAs. Update those
 pins only after reading the corresponding official release notes and repeating

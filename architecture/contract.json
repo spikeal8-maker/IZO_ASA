@@ -1,0 +1,374 @@
+{
+  "schema_version": 1,
+  "default_route_process_role": "all-dev-current-monolith",
+  "reviewed_routes": [
+    {
+      "method": "GET",
+      "path": "/api/admin/runtime-health-v2",
+      "handler": "admin_runtime_health_v2",
+      "rationale": "The route delegates to the trusted-admin runtime health adapter."
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/bots/telegram/token-v2",
+      "handler": "admin_bots_telegram_token_v2",
+      "rationale": "The v2 wrapper delegates to a provider-specific trusted-admin mutation."
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/bots/max/token-v2",
+      "handler": "admin_bots_max_token_v2",
+      "rationale": "The v2 wrapper delegates to a provider-specific trusted-admin mutation."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/bots/telegram/token-v2",
+      "handler": "admin_bots_delete_telegram_token_v2",
+      "rationale": "The v2 wrapper delegates to a provider-specific trusted-admin mutation."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/bots/max/token-v2",
+      "handler": "admin_bots_delete_max_token_v2",
+      "rationale": "The v2 wrapper delegates to a provider-specific trusted-admin mutation."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/bots/telegram/verify-v2",
+      "handler": "admin_bots_verify_telegram_v2",
+      "rationale": "The v2 wrapper delegates to a provider-specific trusted-admin operation."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/bots/max/verify-v2",
+      "handler": "admin_bots_verify_max_v2",
+      "rationale": "The v2 wrapper delegates to a provider-specific trusted-admin operation."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/bots/telegram/webhook-secret-v2",
+      "handler": "admin_bots_telegram_webhook_secret_v2",
+      "rationale": "The v2 wrapper delegates to a provider-specific trusted-admin mutation."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/bots/max/webhook-secret-v2",
+      "handler": "admin_bots_max_webhook_secret_v2",
+      "rationale": "The v2 wrapper delegates to a provider-specific trusted-admin mutation."
+    }
+  ],
+  "legacy_auth_consumers": [
+    {
+      "source": "backend/main.py",
+      "symbol": "request_user_id",
+      "operation": "header_read",
+      "input": "x-onenode-user",
+      "rationale": "Frozen compatibility helper; protected v2 routes must not call it."
+    },
+    {
+      "source": "backend/main.py",
+      "symbol": "request_user_id",
+      "operation": "cookie_read",
+      "input": "onenode_user",
+      "rationale": "Frozen compatibility helper; protected v2 routes must not call it."
+    },
+    {
+      "source": "backend/main.py",
+      "symbol": "bootstrap",
+      "operation": "cookie_set",
+      "input": "onenode_user",
+      "rationale": "Legacy Mini App compatibility output; it is not a trusted session credential."
+    },
+    {
+      "source": "backend/main.py",
+      "symbol": "web_login",
+      "operation": "cookie_delete",
+      "input": "onenode_user",
+      "rationale": "Trusted web login deletes the obsolete compatibility cookie."
+    },
+    {
+      "source": "backend/app/security/permissions.py",
+      "symbol": "resolve_trusted_identity",
+      "operation": "header_read",
+      "input": "x-onenode-user",
+      "rationale": "The value is read only to audit spoof attempts after trusted session resolution."
+    }
+  ],
+  "task_registrations": [
+    {
+      "id": "generation-consumer",
+      "call_source": "backend/app/services/generation_queue.py",
+      "target": "consumer",
+      "kind": "worker",
+      "owner": "backend.app.services.generation_queue",
+      "role": "all-dev-current-monolith",
+      "persistence": "SQLite jobs plus an in-process asyncio queue",
+      "startup": "main.startup -> main.start_worker",
+      "recovery": "backend.app.services.generation_recovery",
+      "watchdog": "missing"
+    },
+    {
+      "id": "telegram-polling",
+      "call_source": "backend/main.py",
+      "target": "telegram_polling_worker",
+      "kind": "worker",
+      "owner": "backend.main",
+      "role": "all-dev-current-monolith",
+      "persistence": "SQLite bot_polling_state cursor",
+      "startup": "main.startup -> start_bot_polling_tasks",
+      "recovery": "cursor resumes after process restart",
+      "watchdog": "bounded retry loop; no independent supervisor"
+    },
+    {
+      "id": "max-polling",
+      "call_source": "backend/main.py",
+      "target": "max_polling_worker",
+      "kind": "worker",
+      "owner": "backend.main",
+      "role": "all-dev-current-monolith",
+      "persistence": "SQLite bot_polling_state marker",
+      "startup": "main.startup -> start_bot_polling_tasks",
+      "recovery": "marker resumes after process restart",
+      "watchdog": "bounded retry loop; no independent supervisor"
+    },
+    {
+      "id": "feed-video-publication",
+      "call_source": "backend/main.py",
+      "target": "feed_video_publication_worker",
+      "kind": "worker",
+      "owner": "backend.main",
+      "role": "all-dev-current-monolith",
+      "persistence": "SQLite feed_publications status plus an in-process asyncio queue",
+      "startup": "main.startup -> start_feed_video_publication_worker",
+      "recovery": "startup requeues rows in preparing status",
+      "watchdog": "missing"
+    },
+    {
+      "id": "avatar-cache",
+      "call_source": "backend/main.py",
+      "target": "ensure_user_avatar_cached",
+      "kind": "ephemeral",
+      "owner": "backend.main",
+      "role": "request-side-effect",
+      "persistence": "avatar file and user metadata",
+      "startup": "request path",
+      "recovery": "later request may retry",
+      "watchdog": "not applicable"
+    },
+    {
+      "id": "openrouter-catalog-refresh",
+      "call_source": "backend/main.py",
+      "target": "refresh_openrouter_catalog",
+      "kind": "ephemeral",
+      "owner": "backend.main",
+      "role": "admin-cache-refresh",
+      "persistence": "process cache",
+      "startup": "admin/models request schedules refresh",
+      "recovery": "later request may retry",
+      "watchdog": "single task handle"
+    },
+    {
+      "id": "gallery-storage-optimization",
+      "call_source": "backend/main.py",
+      "target": "asyncio.to_thread:optimize_existing_gallery_storage",
+      "kind": "ephemeral",
+      "owner": "backend.main",
+      "role": "startup-maintenance",
+      "persistence": "SQLite and media files",
+      "startup": "main.startup when maintenance policy allows",
+      "recovery": "next startup may retry",
+      "watchdog": "missing"
+    },
+    {
+      "id": "runtime-alert",
+      "call_source": "backend/main.py",
+      "target": "_send_runtime_alert",
+      "kind": "ephemeral",
+      "owner": "backend.main",
+      "role": "request-observability",
+      "persistence": "external webhook only",
+      "startup": "client/synthetic error path",
+      "recovery": "none",
+      "watchdog": "none"
+    }
+  ],
+  "listeners": [
+    {
+      "id": "frontend-preview",
+      "bind": "127.0.0.1",
+      "port": 5173,
+      "required_local": false,
+      "process_names": ["node.exe"],
+      "command_contains": ["vite", "preview", "--port", "5173"],
+      "evidence_files": ["tools/publish-frontend-release.ps1"]
+    },
+    {
+      "id": "api",
+      "bind": "127.0.0.1",
+      "port": 8000,
+      "required_local": true,
+      "process_names": ["python.exe"],
+      "command_contains": ["-m", "uvicorn", "main:app", "--port", "8000", "--no-proxy-headers"],
+      "evidence_files": ["tools/restart-backend.ps1", "tools/start-production-stack.ps1"]
+    },
+    {
+      "id": "qwen-asr",
+      "bind": "127.0.0.1",
+      "port": 8001,
+      "required_local": false,
+      "process_names": ["python.exe"],
+      "command_contains": ["qwen_asr_service.py", "--port", "8001"],
+      "evidence_files": ["tools/start-qwen-asr.ps1", "tools/qwen_asr_service.py"]
+    },
+    {
+      "id": "comfyui",
+      "bind": "127.0.0.1",
+      "port": 8188,
+      "required_local": false,
+      "process_names": ["python.exe"],
+      "command_contains": [],
+      "evidence_files": ["tools/start-production-stack.ps1"]
+    },
+    {
+      "id": "ollama",
+      "bind": "127.0.0.1",
+      "port": 11434,
+      "required_local": false,
+      "bind_enforcement": "warn",
+      "bind_rationale": "The current Ollama Desktop listener may report an IPv6 wildcard bind; keep the desired loopback target visible until OPS hardening closes the gap.",
+      "process_names": ["ollama.exe"],
+      "command_contains": ["serve"],
+      "evidence_files": ["tools/start-production-stack.ps1"]
+    }
+  ],
+  "runtime_guards": {
+    "full_app_process_names": ["python.exe"],
+    "full_app_command_contains": ["-m", "uvicorn", "main:app"],
+    "allowed_full_app_listener_ids": ["api"]
+  },
+  "integrations": [
+    {
+      "id": "comfyui",
+      "source": "backend/app/integrations/comfyui_client.py",
+      "endpoint_env": ["COMFYUI_BASE_URL"],
+      "secret_env": [],
+      "secret_source": "none"
+    },
+    {
+      "id": "ollama",
+      "source": "backend/app/integrations/ollama.py",
+      "endpoint_env": ["OLLAMA_BASE_URL"],
+      "secret_env": [],
+      "secret_source": "none"
+    },
+    {
+      "id": "qwen-asr",
+      "source": "backend/app/integrations/qwen_asr.py",
+      "endpoint_env": ["QWEN_ASR_BASE_URL"],
+      "secret_env": [],
+      "secret_source": "none"
+    },
+    {
+      "id": "openrouter",
+      "source": "backend/app/integrations/openrouter.py",
+      "endpoint_env": ["OPENROUTER_BASE_URL"],
+      "secret_env": ["OPENROUTER_API_KEY"],
+      "secret_source": "CurrentUser DPAPI with environment fallback"
+    },
+    {
+      "id": "telegram",
+      "source": "backend/app/integrations/telegram.py",
+      "endpoint_env": [],
+      "secret_env": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET"],
+      "secret_source": "CurrentUser DPAPI with environment fallback"
+    },
+    {
+      "id": "max",
+      "source": "backend/app/integrations/max_client.py",
+      "endpoint_env": ["MAX_API_BASE_URL"],
+      "secret_env": ["MAX_BOT_TOKEN", "MAX_WEBHOOK_SECRET"],
+      "secret_source": "CurrentUser DPAPI with environment fallback"
+    },
+    {
+      "id": "yookassa",
+      "source": "backend/app/integrations/yookassa.py",
+      "endpoint_env": [],
+      "secret_env": ["YOOKASSA_SECRET_KEY"],
+      "secret_source": "CurrentUser DPAPI with environment fallback"
+    },
+    {
+      "id": "smtp",
+      "source": "backend/app/integrations/smtp.py",
+      "endpoint_env": ["SMTP_HOST", "SMTP_PORT"],
+      "secret_env": ["SMTP_PASSWORD"],
+      "secret_source": "CurrentUser DPAPI with environment fallback"
+    },
+    {
+      "id": "runtime-alert-webhook",
+      "source": "backend/main.py",
+      "endpoint_env": ["RUNTIME_ALERT_WEBHOOK_URL"],
+      "secret_env": [],
+      "secret_source": "environment configuration"
+    },
+    {
+      "id": "frp-domain-transport",
+      "source": "tools/start-production-stack.ps1",
+      "endpoint_env": [],
+      "secret_env": [],
+      "secret_source": "external C:\\frp\\frpc.toml; VPS configuration is out of scope"
+    }
+  ],
+  "frontend_entrypoints": [
+    "frontend/src/main.tsx",
+    "frontend/src/App.tsx",
+    "frontend/src/newUi.tsx",
+    "frontend/src/LegacyApp.tsx",
+    "backend/static/feed/index.html",
+    "backend/static/gallery/index.html"
+  ],
+  "file_limits": [
+    {"path": "backend/main.py", "max_lines": 20250},
+    {"path": "frontend/src/newStudioV3.css", "max_lines": 6000},
+    {"path": "frontend/src/newUi.tsx", "max_lines": 4500},
+    {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700},
+    {"path": "frontend/src/newUi.css", "max_lines": 3200},
+    {"path": "frontend/src/index.css", "max_lines": 2400},
+    {"path": "backend/static/feed/index.html", "max_lines": 2200},
+    {"path": "frontend/src/adminModels.tsx", "max_lines": 2100},
+    {"path": "backend/test_feed_v2.py", "max_lines": 2400}
+  ],
+  "symbol_limits": [
+    {
+      "path": "backend/main.py",
+      "max_top_level_functions": 750,
+      "max_top_level_classes": 90,
+      "max_routes": 230
+    }
+  ],
+  "release_contract": {
+    "python_version_file": ".python-version",
+    "node_version_file": ".node-version",
+    "required_files": [
+      ".github/workflows/ci.yml",
+      "tools/verify.ps1",
+      "tools/restart-backend.ps1",
+      "tools/publish-frontend-release.ps1",
+      "tools/rollback-frontend-release.ps1",
+      "start-public.bat"
+    ],
+    "future_manifest_fields": [
+      "git_sha",
+      "dirty",
+      "built_at",
+      "frontend_asset_manifest_hash",
+      "python_version",
+      "node_version",
+      "schema_compatibility"
+    ],
+    "known_gaps": [
+      "Backend version is derived from the mutable checkout instead of an immutable release manifest.",
+      "Frontend build identity can be unknown.",
+      "The live backend still uses the global Python runtime."
+    ]
+  }
+}
