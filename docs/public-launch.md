@@ -140,6 +140,12 @@ stopped, it attempts an availability rollback and reports that rollback explicit
 On a true cold boot, only the public launcher passes `-AllowColdStart` after it has
 created and validated the release manifest.
 
+On Windows, the virtual-environment redirector remains as the launcher while its
+base `python.exe` child owns the listening socket. This is accepted only when the
+listener's direct parent is the exact project `.venv` executable and both processes
+carry the expected bind, port and `--no-proxy-headers` Uvicorn command. The active
+backend receipt records both PIDs and `runtime_ownership=windows-venv-child`.
+
 Frontend rollback validates the selected artifact before replacing port 5173:
 
 ```powershell

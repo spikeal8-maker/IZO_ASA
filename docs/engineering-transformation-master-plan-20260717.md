@@ -2,7 +2,7 @@
 
 Дата аудита и актуализации: **2026-07-17**
 
-Статус документа: **главный исполняемый план; S0-001 и S0-002 VERIFIED, следующий пакет ENV-001**
+Статус документа: **главный исполняемый план; S0-001, S0-002 и ENV-001 VERIFIED; CI-001 заблокирован внешним billing; следующий реализуемый пакет REL-001**
 
 Предыдущий roadmap: `production-hardening-roadmap-20260713.md` остаётся историей выполненных пакетов и больше не является источником актуального порядка работ.
 
@@ -82,14 +82,14 @@
 | Параметр | Подтверждённый факт |
 |---|---|
 | Ветка | `main` |
-| Проверенный repository baseline | `8f27dc086aaca381f47d965c82f3a849e5fff493` |
-| Production runtime baseline | backend PID 26004 не перезапускался для S0-002; пакет не меняет ASGI/runtime behavior; актуальная параллельная UI-правка сохранена в `a5474f8` |
-| Проверенные commits Gate 0 | S0-001: `d3561fe`, `2498f56`, `13c8216`, `0acb299`; UI checkpoint: `a5474f8`; S0-002: `8f27dc0` |
-| Синхронизация baseline | `8f27dc0` отправлен в `origin/main` |
-| Worktree checkpoint | реализация S0-002 завершена; точный отчёт оформляется отдельным документирующим commit |
-| Следующий пакет | `ENV-001` — immutable production identity и устранение `development/global Python/unknown frontend build` drift |
+| Проверенный repository baseline | ENV-001 code baseline `2e447828be098a58513c978bc07aa64e4f694b4b` |
+| Production runtime baseline | release `2e447828be09-20260717233010`; backend listener PID 46484, project-venv launcher PID 40124; frontend PID 34620 |
+| Проверенные commits | S0-001: `d3561fe`, `2498f56`, `13c8216`, `0acb299`; UI checkpoint: `a5474f8`; S0-002: `8f27dc0`; ENV-001: `87c5d0c`, `29fb7ed`, `2e44782` |
+| Синхронизация baseline | `2e44782` отправлен в `origin/main`; следующий documentation-only checkpoint не требует restart |
+| Worktree checkpoint | ENV-001 реализован, развёрнут и проверен; [точный отчёт](env-001-release-identity-checkpoint-20260717.md) |
+| Следующий пакет | `REL-001` — убрать штатный `-SkipVerify` и сделать публикацию полностью fail-closed; CI-001 остаётся внешним действием владельца |
 
-На момент первоначального аудита одновременно менялись backend, frontend и static shells. В S0-001 этот WIP был инвентаризирован, исправлен, протестирован, разделён на четыре понятных commits и опубликован. Архитектурные переносы в продуктовые commits не добавлялись.
+На момент первоначального аудита одновременно менялись backend, frontend и static shells. В S0-001 этот WIP был инвентаризирован, исправлен, протестирован, разделён на четыре понятных commits и опубликован. S0-002 закрепил архитектурные контракты, а ENV-001 устранил недоказуемую runtime identity без изменения VPS/FRP.
 
 ### 3.2. Размер и форма кода
 
@@ -111,17 +111,17 @@
 
 | Компонент | Факт |
 |---|---|
-| Backend | production Uvicorn на `127.0.0.1:8000`; обнаруженный в S0-001 orphan backend на зарезервированном `8001` остановлен |
-| Frontend | `vite preview` |
+| Backend | manifest-controlled Uvicorn на `127.0.0.1:8000`; listener PID 46484, Windows venv launcher PID 40124; порт `8001` свободен |
+| Frontend | immutable release `2e447828be09-20260717233010` через `vite preview`; PID 34620 |
 | ComfyUI | локально на `8188` |
 | Ollama | локально на `11434` |
 | GPU | RTX 3090, driver snapshot `610.47` |
 | Python/Node/Git | Python 3.11.9, Node 24.14.1, npm 11.12.1, Git 2.55 |
-| Backend version | после controlled restart процесс импортировал baseline `13c8216fbfe9`; frontend build identity пока `unknown` |
-| Backend environment | live `/api/health` сообщил `development` |
-| Python isolation | live Uvicorn запущен глобальным Python, не project `.venv` |
+| Release identity | backend commit `2e447828be098a58513c978bc07aa64e4f694b4b`; backend/frontend/meta/static-shell IDs совпадают |
+| Health exposure | public `/api/health` минимален; manifest details доступны через `/api/version`, runtime details вынесены в trusted-admin route |
+| Python isolation | launcher — `backend/.venv/Scripts/python.exe`; listener — штатный дочерний base Python Windows, ownership цепочки проверяется fail-closed |
 
-Это означает: сайт работает, но идентичность запущенного release и production-policy сейчас не доказаны. Официальный `start-public.bat` задаёт production environment, следовательно live процесс был запущен другим путём или потерял конфигурацию.
+Release identity теперь доказана manifest, PID ownership и live smoke. Оставшийся production-serving риск — `vite preview` и отсутствие API A/B drain; они принадлежат REL-001/EDGE-001/REL-002, а не ENV-001.
 
 ### 3.4. Тесты и сборка
 
@@ -136,14 +136,17 @@
 | Frontend integration gates | origin isolation PASS; studio resilience PASS; video publication PASS на 1920×1080, 1920×900, 3840×2160 и 390×844 |
 | Warnings | остаются deprecated FastAPI `on_event` и cookie deprecation в TestClient; вынесены в последующие пакеты |
 | npm production audit | 0 production vulnerabilities |
-| `pip check` | global environment конфликтует с посторонними пакетами; это не результат чистой project `.venv` |
+| Project `.venv` | Python 3.11.9; exact `backend/requirements.txt`; `pip check` PASS |
+| ENV-001 focused gates | critical 58 ×5; launcher 23 ×5; mixed-route 14 ×5; final Windows venv regression 19 ×5; candidate browser smoke ×5 |
+| ENV-001 final full gate | **1497 passed**, 92 известных warnings; lint/build/release/origin/browser gates PASS; verifier 431.11 s |
+| ENV-001 post-deploy Quick | **63 passed**; live listener ownership `windows-venv-child`; source snapshot stable; verifier 27.85 s |
 | Остаточные pytest-процессы | после gate отсутствовали |
 
-S0-001 закрыл первоначальный build blocker и дал новый проверенный baseline. Это не устраняет `development` environment, global Python и `frontend_build=unknown`: эти риски остаются предметом ENV-001.
+S0-001 закрыл первоначальный build blocker, S0-002 закрепил контракты, ENV-001 устранил `development/global Python/unknown frontend build` drift. Следующий release-risk — штатный `-SkipVerify` — закрывается отдельно в REL-001.
 
 ### 3.5. GitHub Actions
 
-Последние workflow runs на `main`, включая exact HEAD run `29585296500`, завершились за несколько секунд без runner и без шагов. Причина из GitHub annotation: неудавшиеся платежи аккаунта либо spending limit. Это **инфраструктурная блокировка CI**, а не падение тестов.
+Exact-SHA run `29602448159` на `8f27dc0` ранее полностью выполнил все steps и был зелёным. Последний code-bearing run `29611341429` на deployed SHA `2e44782` завершился за 4 секунды: job `87986493899` содержит 0 steps, annotation снова указывает failed account payments/spending limit. Это **инфраструктурная блокировка CI**, а не падение кода; полный локальный gate на том же SHA зелёный.
 
 Branch protection для private repository возвращает HTTP 403 на текущем GitHub plan. Поэтому до изменения тарифа/visibility:
 
@@ -431,7 +434,7 @@ Checkpoint 2026-07-17:
 - observation: после restart накопилось 93 `TelegramTransportError`; token probe `getMe` вернул 200, причиной оказался orphan full backend PID 39824 на зарезервированном Qwen ASR порту 8001 с той же live DB и polling;
 - operational correction: при нулевых active jobs/preparing publications и отсутствии TCP-клиентов orphan PID 39824 остановлен graceful; 8001 освобождён, production PID 26004 остался healthy, за последующие 45 секунд новых Telegram polling errors — 0;
 - rollback: не потребовался; предыдущая code point `2498f56` сохранена в Git;
-- residual risk: runtime всё ещё сообщает `development`, global Python и `frontend_build=unknown`; исправляется в ENV-001, а не скрывается статусом S0-001.
+- historical residual на момент S0-001: runtime сообщал `development`, global Python и `frontend_build=unknown`; риск закрыт последующим ENV-001, а не статусом S0-001.
 
 ### S0-002 — Снимок архитектурных контрактов
 
@@ -468,13 +471,15 @@ CI/verify должны падать при неописанном admin route, �
 - live media snapshot до/после совпал: 129 files, 1 684 488 bytes, SHA-256 `E2232B6F56094FA00D6D6FAA495D1FCFB240CE133207B903636F5A299428AC04`;
 - API/schema/auth behavior не менялся, миграции и restart/deploy не требовались; `/api/health` и `/api/version` после gate вернули HTTP 200;
 - rollback code point: `a5474f8`; для отката S0-002 достаточно revert `8f27dc0`, production process не переключался;
-- residual risks переданы по владельцам: immutable release identity — ENV-001, process roles/lifespan — ROLE-001, foreign keys/repository boundary — DB wave, Ollama loopback — OPS hardening.
+- residual risks были переданы по владельцам: immutable release identity закрыта ENV-001; process roles/lifespan — ROLE-001, foreign keys/repository boundary — DB wave, Ollama loopback — OPS hardening.
 
 ## 9. Волна A — release truth и безопасный локальный production
 
 ### ENV-001 — Production identity gate
 
-Приоритет: P0. Статус: `READY`.
+Приоритет: P0. Статус: `VERIFIED`.
+
+Implementation commits: `87c5d0c`, `29fb7ed`, `2e44782`; deployed release: `2e447828be09-20260717233010`. [Подробный verification receipt](env-001-release-identity-checkpoint-20260717.md).
 
 - единый `release-manifest.json`: git SHA, dirty=false, build time, frontend asset manifest hash, Python/Node versions, schema compatibility range;
 - backend `/api/version` берёт только этот manifest;
@@ -483,9 +488,17 @@ CI/verify должны падать при неописанном admin route, �
 - public health не раскрывает детали; подробный status только trusted admin;
 - smoke сравнивает backend и frontend release IDs.
 
+Результат:
+
+- все пункты выше реализованы и проверены на локальном и публичном URL;
+- Windows venv redirector учитывается только как строгая цепочка exact project-venv parent → Python listener с той же Uvicorn command line;
+- две найденные ошибки candidate activation завершились штатным fail-closed/rollback без потери доступности и затем были закрыты тестами;
+- VPS и FRP-конфигурация не изменялись;
+- transactional publisher, managed rollback artifact и API A/B switch намеренно остаются REL-001/REL-002.
+
 ### CI-001 — Восстановить выполняющийся CI
 
-Приоритет: P0. Статус: `BLOCKED EXTERNALLY`; exact-SHA run `29602448159` успешно выполнил все steps, но следующий run `29604148160` снова не стартовал из-за GitHub account payments/spending limit.
+Приоритет: P0. Статус: `BLOCKED EXTERNALLY`; exact-SHA run `29602448159` успешно выполнил все steps, но code-bearing run `29611341429` на deployed `2e44782` снова не стартовал из-за GitHub account payments/spending limit (job `87986493899`, 0 steps).
 
 - подтверждено: job `87957576637` получил Windows runner и выполнил все steps на `8f27dc0`;
 - владелец устраняет billing/spending blocker так, чтобы последовательные runs стабильно получали runner;
@@ -1121,11 +1134,11 @@ GPU generation time не смешивается с API latency: отдельно
 
 ## 22. Точный ближайший блок
 
-Следующий исполняемый блок после завершённого Gate 0:
+После VERIFIED ENV-001 ближайший порядок такой:
 
-1. **ENV-001:** устранить `development/global Python/unknown frontend build` drift только с готовым rollback;
-2. **CI-001:** закрепить реально выполняющийся exact-SHA CI и сохраняемый verification artifact;
-3. **REL-001:** fail-closed immutable publisher;
+1. **CI-001 (действие владельца):** устранить GitHub billing/spending blocker; до этого local `verify -Mode CI` и receipt обязательны;
+2. **REL-001 (следующий реализуемый пакет):** убрать штатный `-SkipVerify`, добавить receipt-bound fail-closed publication и audited break-glass;
+3. **EDGE-001 / REL-002:** заменить Vite Preview локальным Caddy и получить API A/B switch/drain/rollback без изменения VPS;
 4. затем начинать **SEC-001**, а не произвольный большой перенос строк из `main.py`.
 
 Первый backend domain extraction после P0 foundation — billing/payments, потому что новые изменения оплаты уже сформировали естественную границу и требуют самых строгих инвариантов.
@@ -1168,3 +1181,4 @@ GPU generation time не смешивается с API latency: отдельно
 | 2026-07-17 | S0-001 завершён и проверен на repository baseline `0acb299` / production code baseline `13c8216`: WIP разделён на продуктовые commits, full/focused/frontend gates зелёные, controlled restart и live smoke выполнены; S0-002 переведён в READY. |
 | 2026-07-17 | В live observation найден и graceful остановлен orphan backend на Qwen ASR порту 8001; duplicate Telegram polling прекратился. В S0-002/ROLE-001 добавлены listener ownership и process-role guards. |
 | 2026-07-17 | S0-002 завершён в `8f27dc0`: semantic contract, детерминированные route/auth/task/schema/integration/frontend/release inventories, size/symbol budgets и read-only listener ownership встроены в Quick/Full/CI; focused ×5, полный local gate и exact-SHA GitHub run `29602448159` зелёные. Следующий run `29604148160` снова заблокирован billing до steps, поэтому внешний blocker остаётся; Gate 0 закрыт, следующий пакет ENV-001. |
+| 2026-07-17 | ENV-001 завершён commits `87c5d0c`, `29fb7ed`, `2e44782` и развёрнут как `2e447828be09-20260717233010`: immutable manifest, exact backend/frontend identity, minimal health, trusted-admin runtime health и project `.venv` ownership проверены локально и через FRP. Focused gates ×5, full 1497/1497 и post-deploy Quick 63/63 зелёные. Два candidate-дефекта безопасно откатились и исправлены. GitHub run `29611341429` не получил runner (0 steps, billing annotation), поэтому CI-001 остаётся внешне заблокирован, следующий реализуемый пакет — REL-001. |
