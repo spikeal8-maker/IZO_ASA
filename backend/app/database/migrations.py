@@ -47,6 +47,12 @@ LEGACY_BASELINE_MIGRATION = MigrationDefinition(
 USER_EARLY_ADDITIVE_COLUMNS = {
     "plan": "TEXT NOT NULL DEFAULT 'mini'",
     "plan_expires_at": "TEXT",
+    "plan_started_at": "TEXT",
+    "plan_next_token_grant_at": "TEXT",
+    "plan_monthly_token_grant": "INTEGER NOT NULL DEFAULT 0",
+    "plan_term_months": "INTEGER NOT NULL DEFAULT 1",
+    "plan_grant_source": "TEXT",
+    "pending_plan_json": "TEXT",
     "token_balance": "INTEGER NOT NULL DEFAULT 50",
     "gallery_enabled": "INTEGER NOT NULL DEFAULT 1",
     "phone": "TEXT",

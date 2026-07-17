@@ -1,5 +1,6 @@
 import { Check, ChevronLeft, CircleAlert, CreditCard, Mail, ShieldCheck } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { formatModelCount } from './profileSupport'
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 
@@ -7,6 +8,7 @@ type Tariff = {
   title?: string; note?: string; price_rub_month?: number; daily_tokens?: number
   openrouter_monthly_tokens?: number; gallery_slots?: number; quality_label?: string
   pro_mode_enabled?: boolean; video_enabled?: boolean; video_slots?: number; queue_label?: string
+  image_model_count?: number; video_model_count?: number
 }
 type Legal = {
   brand_name?: string; seller_name?: string; seller_status?: string; inn?: string; ogrn?: string
@@ -52,17 +54,20 @@ function TariffsPage({ data, loading }: { data: CommerceData; loading: boolean }
   const legalReady = Boolean(data.legal_readiness?.ready)
   const canPay = Boolean(data.payments_available && legalReady)
   return <>
-    <section className="commerce-intro"><span className="commerce-kicker">Тарифы ИЗО АСА</span><h1>Генерация изображений с понятным списанием токенов</h1><p>Серверные генерации входят в дневной пакет. Премиум-модели расходуют месячные токены по цене, показанной до запуска.</p></section>
+    <section className="commerce-intro"><span className="commerce-kicker">Тарифы ИЗО АСА</span><h1>Генерация изображений и видео с понятным списанием токенов</h1><p>Серверные генерации входят в дневной пакет. Премиум-модели расходуют месячные токены по цене, показанной до запуска.</p></section>
     {!loading && !canPay && <div className="commerce-notice"><CircleAlert aria-hidden="true" /><div><strong>Онлайн-оплата временно недоступна</strong><span>Тарифы можно изучить сейчас. Кнопка покупки включится после завершения регистрации магазина и публикации реквизитов.</span></div></div>}
     <section className="commerce-plans" aria-label="Тарифные планы">{planOrder.map((id) => {
       const tariff = tariffs[id] || {}
       const features = [
         `${Number(tariff.daily_tokens || 0)} серверных токенов в день`,
         Number(tariff.openrouter_monthly_tokens || 0) ? `${Number(tariff.openrouter_monthly_tokens)} токенов премиум-моделей в месяц` : 'Серверная модель ИЗО',
-        `${Number(tariff.gallery_slots || 0)} работ в галерее`,
+        formatModelCount(Number(tariff.image_model_count || 0), 'для изображений'),
+        formatModelCount(Number(tariff.video_model_count || 0), 'для видео'),
+        `${Number(tariff.gallery_slots || 0)} изображений в галерее`,
+        Number(tariff.video_slots || 0) > 0 ? `Хранение до ${Number(tariff.video_slots)} видео в галерее` : 'Хранение видео не входит',
+        'Скачивание своих файлов без ограничений',
         `Качество до ${tariff.quality_label || 'SD'}`,
         tariff.pro_mode_enabled ? 'Режим профи и выбор моделей' : '',
-        'Видеогенерация: модели по тарифу',
       ].filter(Boolean)
       return <article className={`commerce-plan ${id === 'pro' ? 'featured' : ''}`} key={id}>
         {id === 'pro' && <span className="commerce-plan-badge">Популярный</span>}

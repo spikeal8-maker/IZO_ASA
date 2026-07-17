@@ -164,7 +164,9 @@ def test_paid_tariff_changes_plan_and_sets_expiry(payment_app):
     assert webhook.status_code == 200, webhook.text
     with main.db() as conn:
         user = conn.execute("SELECT plan, plan_expires_at, token_balance FROM users WHERE internal_user_id='iuid-buyer'").fetchone()
-    assert user["plan"] == "plus" and user["plan_expires_at"] and user["token_balance"] == 10
+    # Paid tariff activation credits the included monthly tokens to the one
+    # persistent balance instead of maintaining a third premium wallet.
+    assert user["plan"] == "plus" and user["plan_expires_at"] and user["token_balance"] == 260
 
 
 def test_payment_result_reconciles_pending_payment(payment_app):

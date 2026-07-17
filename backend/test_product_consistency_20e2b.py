@@ -121,11 +121,11 @@ def test_tariff_defaults_and_admin_settings_normalize(temp_db):
     assert [tariffs[plan]["gallery_slots"] for plan in main.PLAN_ORDER] == [20, 80, 200, 500, 500]
     assert [tariffs[plan]["daily_tokens"] for plan in main.PLAN_ORDER] == [10, 50, 100, 200, 500]
     assert tariffs["free"]["allowed_resolutions"] == ["sq-sd", "v-sd", "h-sd", "p-sd"]
-    assert tariffs["pro"]["video_enabled"] == 1 and tariffs["pro"]["video_slots"] == 10
-    assert tariffs["business"]["video_enabled"] == 1 and tariffs["business"]["video_slots"] == 50
+    assert [tariffs[plan]["video_slots"] for plan in main.PLAN_ORDER] == [0, 1, 5, 10, 25]
+    assert [tariffs[plan]["video_enabled"] for plan in main.PLAN_ORDER] == [0, 1, 1, 1, 1]
     assert settings.status_code == 200
     assert settings.json()["tariffs"]["pro"]["gallery_slots"] == 500
-    assert settings.json()["tariffs"]["business"]["video_slots"] == 50
+    assert settings.json()["tariffs"]["business"]["video_slots"] == 25
 
 
 def test_tariff_settings_persist_and_read_from_admin_settings(temp_db):
@@ -135,7 +135,7 @@ def test_tariff_settings_persist_and_read_from_admin_settings(temp_db):
         "mini": {"daily_tokens": 55, "gallery_slots": 12},
         "plus": {"daily_tokens": 110, "gallery_slots": 52},
         "pro": {"daily_tokens": 220, "gallery_slots": 102, "video_enabled": 1, "video_slots": 10},
-        "business": {"daily_tokens": 500, "gallery_slots": 500, "video_enabled": 1, "video_slots": 50},
+        "business": {"daily_tokens": 500, "gallery_slots": 500, "video_enabled": 1, "video_slots": 25},
     }
     expected = main.normalize_tariffs(payload)
     with TestClient(main.app) as c:
@@ -143,7 +143,16 @@ def test_tariff_settings_persist_and_read_from_admin_settings(temp_db):
         public = c.get("/api/tariffs")
     assert saved.status_code == 200, saved.text
     assert saved.json()["settings"] == expected
-    assert public.json()["tariffs"] == expected
+    public_tariffs = public.json()["tariffs"]
+    for plan in main.PLAN_ORDER:
+        persisted = {
+            key: value
+            for key, value in public_tariffs[plan].items()
+            if key not in {"image_model_count", "video_model_count"}
+        }
+        assert persisted == expected[plan]
+        assert public_tariffs[plan]["image_model_count"] >= 1
+        assert public_tariffs[plan]["video_model_count"] >= 0
     with main.db() as conn:
         row = conn.execute("SELECT value_json FROM admin_settings WHERE key='tariffs'").fetchone()
         assert row is not None
@@ -200,7 +209,8 @@ def test_generation_replaces_oldest_gallery_slot_when_full(temp_db):
     })
     with main.db() as conn:
         conn.execute(
-            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('tariffs', ?, '2026-01-01')",
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('tariffs', ?, '2026-01-01') "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at",
             (json.dumps(tariffs, ensure_ascii=False),),
         )
     token = main.create_auth_session("iuid-free-gen", "web_free_gen", provider="web_email", platform="web")["session_token"]

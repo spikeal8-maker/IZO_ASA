@@ -82,6 +82,18 @@ CREATE TABLE IF NOT EXISTS users (
             CREATE INDEX IF NOT EXISTS idx_videos_job
                 ON videos(job_id);
 
+            CREATE TABLE IF NOT EXISTS video_file_deletions (
+                id TEXT PRIMARY KEY,
+                video_id TEXT,
+                job_id TEXT,
+                filename TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_video_file_deletions_created
+                ON video_file_deletions(created_at, id);
+
             CREATE TABLE IF NOT EXISTS image_sources (
                 id TEXT PRIMARY KEY,
                 image_id TEXT NOT NULL,
@@ -215,6 +227,22 @@ CREATE TABLE IF NOT EXISTS users (
                 meta_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS tariff_token_grants (
+                id TEXT PRIMARY KEY,
+                internal_user_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                grant_key TEXT NOT NULL UNIQUE,
+                plan TEXT NOT NULL,
+                amount INTEGER NOT NULL DEFAULT 0,
+                source TEXT NOT NULL,
+                source_id TEXT,
+                period_start TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_tariff_token_grants_user_created
+                ON tariff_token_grants(internal_user_id, created_at);
 
             CREATE TABLE IF NOT EXISTS billing_packages (
                 id TEXT PRIMARY KEY,

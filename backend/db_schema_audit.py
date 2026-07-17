@@ -67,6 +67,8 @@ EXPECTED_TABLES = {
     "feed_view_events",
     "feed_engagement_events",
     "feed_subscription_reads",
+    "videos",
+    "video_file_deletions",
 }
 
 EXPECTED_INDEXES: dict[str, str] = {
@@ -85,6 +87,9 @@ EXPECTED_INDEXES: dict[str, str] = {
     "idx_images_job_id": "images",
     "idx_jobs_user_created": "jobs",
     "idx_jobs_result_image": "jobs",
+    "idx_videos_user_created": "videos",
+    "idx_videos_job": "videos",
+    "idx_video_file_deletions_created": "video_file_deletions",
 }
 
 

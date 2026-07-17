@@ -59,7 +59,7 @@ Check:
 - `https://izo.alikinas.ru/new`
 - `https://izo.alikinas.ru/feed`
 - `https://izo.alikinas.ru/gallery`
-- `https://izo.alikinas.ru/static/feed/assets/mode_text.webp`
+- `https://izo.alikinas.ru/api/feed?type=fresh&limit=1`
 - `https://izo.alikinas.ru/api/version`
 
 ## Current Risk Notes

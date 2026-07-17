@@ -8,7 +8,7 @@ import {
 import { DiagPanel } from './diag'
 import { isDiagMode } from './diagMeta'
 import { adminGet, adminPost } from './adminApi'
-import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, modelOptionById, normalizeTariffs, qualityPresetLabels, qualityPresets, resolutionOptions, tariffKeys, type ModelOption, type TariffConfig, type TariffKey } from './profileSupport'
+import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, formatModelCount, modelOptionById, normalizeTariffs, qualityPresetLabels, qualityPresets, resolutionOptions, tariffKeys, type ModelOption, type TariffConfig, type TariffKey } from './profileSupport'
 import './index.css'
 
 const AdminAnalyticsV2 = lazy(() => import('./adminAnalytics').then((module) => ({ default: module.AdminAnalyticsV2 })))
@@ -261,6 +261,7 @@ function AdminTokens() {
     const result = await adminPost<{ ok?: boolean; settings?: Partial<Record<TariffKey, Partial<TariffConfig[TariffKey]>>> }>('/admin/settings/tariffs', { settings: tariffs })
     if (result?.ok) {
       setTariffs(normalizeTariffs(result.settings))
+      await load()
       setMsg('Тарифы сохранены')
     } else setMsg('Ошибка сохранения тарифов')
   }
@@ -315,7 +316,16 @@ function AdminTokens() {
               <label>Цена, ₽/мес<input type="number" min="0" value={tariffs[plan].price_rub_month} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], price_rub_month: Number(e.target.value) } }))} /></label>
               <label>Серверных токенов/день<input type="number" min="0" value={tariffs[plan].daily_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], daily_tokens: Number(e.target.value) } }))} /></label>
               <label>OpenRouter токенов/мес<input type="number" min="0" value={tariffs[plan].openrouter_monthly_tokens} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], openrouter_monthly_tokens: Number(e.target.value) } }))} /></label>
-              <label>Слоты галереи<input type="number" min="0" value={tariffs[plan].gallery_slots} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], gallery_slots: Number(e.target.value) } }))} /></label>
+              <label>Изображения в галерее<input type="number" min="0" value={tariffs[plan].gallery_slots} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], gallery_slots: Number(e.target.value) } }))} /></label>
+              <label>Мест для видео в галерее<input type="number" min="0" value={tariffs[plan].video_slots} onChange={(e) => {
+                const videoSlots = Math.max(0, Number(e.target.value) || 0)
+                setTariffs((current) => ({ ...current, [plan]: { ...current[plan], video_slots: videoSlots, video_enabled: videoSlots > 0 } }))
+              }} /><small>Одновременно хранимые ролики. Скачивание не ограничивается.</small></label>
+              <div className="admin-tariff-model-counts" aria-label="Доступные модели тарифа">
+                <span><small>Для изображений</small><strong>{tariffs[plan].image_model_count}</strong></span>
+                <span><small>Для видео</small><strong>{tariffs[plan].video_model_count}</strong></span>
+              </div>
+              <small className="admin-tariff-model-note">{formatModelCount(tariffs[plan].image_model_count, 'для изображений')} · {formatModelCount(tariffs[plan].video_model_count, 'для видео')}. Считаются по доступам во вкладке «Модели».</small>
               <label>Качество в карточке<input value={tariffs[plan].quality_label} onChange={(e) => setTariffs((current) => ({ ...current, [plan]: { ...current[plan], quality_label: e.target.value } }))} /></label>
               <details className="admin-resolution-picker" open>
                 <summary>Модели качества</summary>
@@ -345,7 +355,7 @@ function AdminTokens() {
                   </label>)}
                 </div>
               </details>
-              <small>{tariffs[plan].title}: {tariffs[plan].daily_tokens} серверных/день · {tariffs[plan].openrouter_monthly_tokens} OpenRouter/мес · {tariffs[plan].gallery_slots} работ · профи {tariffs[plan].pro_mode_enabled ? 'да' : 'нет'} · видеомодели настраиваются во вкладке Модели</small>
+              <small>{tariffs[plan].title}: {tariffs[plan].daily_tokens} серверных/день · {tariffs[plan].openrouter_monthly_tokens} OpenRouter/мес · {tariffs[plan].gallery_slots} изображений · хранение {tariffs[plan].video_slots} видео · профи {tariffs[plan].pro_mode_enabled ? 'да' : 'нет'}</small>
             </div>
           ))}
         </div>

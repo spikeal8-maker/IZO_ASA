@@ -29,7 +29,7 @@ def build_gallery_quota(
     return {
         "plan": plan,
         "daily_tokens": int(tariff["daily_tokens"]),
-        "openrouter_monthly_tokens": int(tariff.get("openrouter_monthly_tokens") or 0),
+        "monthly_tokens": int(tariff.get("monthly_tokens") or tariff.get("openrouter_monthly_tokens") or 0),
         "gallery_slots": total,
         "video_enabled": bool(tariff.get("video_enabled")),
         "video_slots": int(tariff.get("video_slots") or 0),

@@ -1662,6 +1662,11 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-tariff-card > label:not(.admin-checkline) { display: grid; grid-template-columns: minmax(92px, .85fr) minmax(118px, 1.15fr); align-items: center; gap: 8px; color: #a0a0a0; letter-spacing: 0; text-transform: none; }
 .admin-tariff-card > label input, .admin-tariff-card > label select { color: #f2f2f2; font-weight: 750; }
 .admin-tariff-card .admin-resolution-picker { margin-top: 2px; }
+.admin-tariff-model-counts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.admin-tariff-model-counts > span { min-width: 0; padding: 9px 10px; border: 1px solid #303530; border-radius: 6px; background: #121613; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+.admin-tariff-model-counts small { color: #a9b0aa; font-size: 11px; }
+.admin-tariff-model-counts strong { color: var(--acid); font-size: 18px; }
+.admin-tariff-model-note { color: #8f9891; line-height: 1.4; }
 .admin-promo-create { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: end; border: 1px solid #303030; background: #151515; border-radius: 10px; padding: 12px; }
 .admin-promo-create label { display: grid; gap: 5px; color: #a0a0a0; letter-spacing: 0; }
 .admin-healthline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

@@ -61,7 +61,8 @@ def test_user_tariffs_and_model_access_follow_admin_settings(temp_db):
     }
     with main.db() as conn:
         conn.execute(
-            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('tariffs', ?, '2026-01-01')",
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('tariffs', ?, '2026-01-01') "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at",
             (json.dumps(tariffs, ensure_ascii=False),),
         )
         conn.execute(
@@ -161,10 +162,12 @@ def test_account_token_history_counts_balance_and_included_usage(temp_db):
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["summary"]["spentTokens"] == 6
+    # Historical zero-delta package rows stay in the included subtotal. New
+    # generations use only the two-account contract and never create them.
     assert data["summary"]["includedSpentTokens"] == 4
     assert data["summary"]["balanceSpentTokens"] == 2
     assert any(item["jobId"] == main.short_public_id("job_paid") and item["spentTokens"] == 2 for item in data["items"])
-    assert any(item["source"] == "премиум-пакет" and item["model"] == "FLUX.2 Pro" for item in data["items"])
+    assert any(item["source"] == "основной баланс" and item["model"] == "FLUX.2 Pro" for item in data["items"])
 
 
 def test_openrouter_generation_rejects_model_not_enabled_for_tariff(temp_db, monkeypatch):
@@ -204,16 +207,17 @@ def test_openrouter_generation_rejects_model_not_enabled_for_tariff(temp_db, mon
         assert conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"] == 0
 
 
-def test_openrouter_generation_uses_monthly_package_before_balance(temp_db, monkeypatch):
+def test_openrouter_generation_uses_main_balance_only(temp_db, monkeypatch):
     make_user("iuid-user", "web_user", plan="pro", balance=25)
     token = main.create_auth_session("iuid-user", "web_user", provider="web_email", platform="web")["session_token"]
     tariffs = main.normalize_tariffs({
         **main.DEFAULT_TARIFFS,
-        "pro": {**main.DEFAULT_TARIFFS["pro"], "openrouter_monthly_tokens": 5},
+        "pro": {**main.DEFAULT_TARIFFS["pro"], "monthly_tokens": 5},
     })
     with main.db() as conn:
         conn.execute(
-            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('tariffs', ?, '2026-01-01')",
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('tariffs', ?, '2026-01-01') "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at",
             (json.dumps(tariffs, ensure_ascii=False),),
         )
         conn.execute(
@@ -247,19 +251,20 @@ def test_openrouter_generation_uses_monthly_package_before_balance(temp_db, monk
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["tokenCost"] == 3
-    assert body["tokenBalance"] == 25
-    assert body["openrouterMonthlyTokensUsed"] == 3
-    assert body["openrouterMonthlyTokensRemaining"] == 2
+    assert body["tokenBalance"] == 22
+    assert body["mainBalanceTokens"] == 22
+    assert body["dailyTokenPart"] == 0
+    assert body["mainBalanceTokenPart"] == 3
     assert history.status_code == 200
-    assert history.json()["summary"]["includedSpentTokens"] == 3
-    assert history.json()["summary"]["balanceSpentTokens"] == 0
+    assert history.json()["summary"]["includedSpentTokens"] == 0
+    assert history.json()["summary"]["balanceSpentTokens"] == 3
     with main.db() as conn:
         user = conn.execute("SELECT token_balance, openrouter_monthly_tokens_used FROM users WHERE id = 'web_user'").fetchone()
         ledger = conn.execute("SELECT delta, reason, meta_json FROM token_ledger").fetchone()
-    assert int(user["token_balance"]) == 25
-    assert int(user["openrouter_monthly_tokens_used"]) == 3
-    assert int(ledger["delta"]) == 0
-    assert ledger["reason"] == "openrouter_monthly_generation"
+    assert int(user["token_balance"]) == 22
+    assert int(user["openrouter_monthly_tokens_used"]) == 0
+    assert int(ledger["delta"]) == -3
+    assert ledger["reason"] == "generation"
     assert json.loads(ledger["meta_json"])["token_cost"] == 3
 
 

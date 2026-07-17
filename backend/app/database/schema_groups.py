@@ -255,6 +255,15 @@ def finalize_identity_schema_group(
 
 def initialize_media_schema_group(conn: sqlite3.Connection) -> None:
     """Apply feed, gallery search, image-source and job indexing schema."""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS video_file_deletions ("
+        "id TEXT PRIMARY KEY, video_id TEXT, job_id TEXT, filename TEXT NOT NULL, "
+        "attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at TEXT NOT NULL)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_video_file_deletions_created "
+        "ON video_file_deletions(created_at, id)"
+    )
     add_missing_columns(conn, "feed_publications", FEED_PUBLICATION_ADDITIVE_COLUMNS)
     rebuild_feed_publications_media_neutral(conn)
     conn.execute(

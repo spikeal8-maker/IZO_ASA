@@ -41,6 +41,14 @@ def test_gallery_cards_defer_offscreen_render_and_masonry_reuses_spans():
     assert "content-visibility:auto" in styles
 
 
+def test_gallery_videos_only_load_near_the_viewport():
+    script = (GALLERY_DIR / "gallery.js").read_text(encoding="utf-8")
+    assert "videoLoadObserver = 'IntersectionObserver' in window ? new IntersectionObserver" in script
+    assert 'data-src="${escapeHtml(item.viewerSrc)}"' in script
+    assert "video.src = src" in script
+    assert "hydrateLazyVideos" in script
+
+
 def test_gallery_defers_secondary_sections_and_uses_small_pages():
     script = (GALLERY_DIR / "gallery.js").read_text(encoding="utf-8")
     assert "? 12 : 24" in script

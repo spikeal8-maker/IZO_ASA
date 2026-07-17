@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
 import { Copy, Link as LinkIcon, Lock, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles, X } from 'lucide-react'
 import type { AuthStatusV2, MeV2 } from './authV2'
-import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, avatarPresets, modelAccessOption, modelModeOrder, modelOptions, modelPublicInfo, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
+import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, avatarPresets, formatModelCount, modelAccessOption, modelModeOrder, modelOptions, modelPublicInfo, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
 
 type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
 type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
@@ -181,7 +181,7 @@ export default function ProfilePage({
   const [videoQualityModels, setVideoQualityModels] = useState<Record<string, Record<string, string>>>(() => {
     try { return JSON.parse(localStorage.getItem('izo:video-quality-models') || '{}') as Record<string, Record<string, string>> } catch { return {} }
   })
-  const [receiptContact, setReceiptContact] = useState(() => me?.billing?.receipt_email || me?.identities?.find((identity) => identity.provider_email)?.provider_email || '')
+  const [receiptContact, setReceiptContact] = useState<string | null>(null)
   const account = me?.account
   const activePlan = (tariffKeys.includes(String(account?.plan || 'mini').toLowerCase() as TariffKey) ? String(account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
   const currentTariff = tariffs[activePlan] || DEFAULT_TARIFFS[activePlan]
@@ -197,8 +197,12 @@ export default function ProfilePage({
   const gallerySlots = Number(account?.gallery_slots ?? currentTariff.gallery_slots)
   const galleryUsed = Number(account?.gallery_used ?? galleryCount)
   const galleryFree = Math.max(0, Number(account?.gallery_free ?? gallerySlots - galleryUsed))
+  const videoSlots = Math.max(0, Number(account?.video_slots ?? currentTariff.video_slots))
+  const videoUsed = Math.max(0, Number(account?.video_used ?? 0))
+  const videoFree = Math.max(0, Number(account?.video_free ?? videoSlots - videoUsed))
   const feedLikes = Number((account as { feed_likes?: number | null; likes_received?: number | null } | undefined)?.feed_likes ?? (account as { likes_received?: number | null } | undefined)?.likes_received ?? 0)
   const displayEmail = me?.identities?.find((i) => i.provider_email)?.provider_email
+  const effectiveReceiptContact = receiptContact ?? String(me?.billing?.receipt_email || displayEmail || '').trim()
   const telegramIdentity = me?.identities?.find((i) => i.provider === 'telegram')
   const maxIdentity = me?.identities?.find((i) => i.provider === 'max')
   const displayNameFallback = me?.profile?.display_name
@@ -301,11 +305,6 @@ export default function ProfilePage({
     return () => { cancelled = true }
   }, [authStatus, profileTab])
   useEffect(() => {
-    const profileEmail = String(me?.billing?.receipt_email || '').trim()
-    const identityEmail = String(me?.identities?.find((identity) => identity.provider_email)?.provider_email || '').trim()
-    if (!receiptContact.trim() && (profileEmail || identityEmail)) setReceiptContact(profileEmail || identityEmail)
-  }, [me, receiptContact])
-  useEffect(() => {
     if (authStatus !== 'authed' || profileTab !== 'models') return
     let cancelled = false
     fetch(`${API}/video/config`, { credentials: 'include' })
@@ -361,7 +360,7 @@ export default function ProfilePage({
   }, [checkoutBusy, checkoutSelection])
   const startCheckout = async (packageCode = checkoutSelection?.code || selectedPackage) => {
     if (!packageCode || checkoutBusy) return
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receiptContact.trim())) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(effectiveReceiptContact.trim())) {
       setCheckoutMessage('Введите корректный email для получения чека.')
       return
     }
@@ -378,7 +377,7 @@ export default function ProfilePage({
           package_code: packageCode,
           idempotency_key: `checkout-${crypto.randomUUID()}`,
           offer_accepted: checkoutAccepted,
-          receipt_contact: receiptContact.trim(),
+          receipt_contact: effectiveReceiptContact.trim(),
         }),
       })
       const result = await response.json().catch(() => ({}))
@@ -416,11 +415,14 @@ export default function ProfilePage({
     const features = [
       `${tariff.daily_tokens} серверных токенов в день`,
       tariff.openrouter_monthly_tokens > 0 ? `${tariff.openrouter_monthly_tokens} токенов премиум-моделей в месяц` : '',
-      `${tariff.gallery_slots} работ в галерее`,
+      formatModelCount(tariff.image_model_count, 'для изображений'),
+      formatModelCount(tariff.video_model_count, 'для видео'),
+      `${tariff.gallery_slots} изображений в галерее`,
+      tariff.video_slots > 0 ? `Хранение до ${tariff.video_slots} видео в галерее` : 'Хранение видео не входит',
+      'Скачивание своих файлов без ограничений',
       `Качество: ${tariff.quality_label}`,
       tariff.pro_mode_enabled ? 'Режим профи' : '',
       tariff.queue_label && tariff.queue_label.toLowerCase() !== 'обычная' ? `Очередь: ${tariff.queue_label}` : '',
-      tariff.video_enabled ? `${tariff.video_slots} видео-экспортов/мес` : '',
     ].filter(Boolean)
     const basePrice = tariff.price_rub_month
     const discountAmount = Math.round(basePrice * personalDiscountPercent / 100)
@@ -629,7 +631,7 @@ export default function ProfilePage({
                 <div><span>Токены сегодня</span><strong>{dailyAvailable} / {dailyLimit}</strong><small>потрачено {dailyUsed}</small></div>
                 <div><span>Премиум-модели</span><strong>{premiumMonthlyTokens}</strong><small>токенов в месяц</small></div>
                 <div><span>Галерея</span><strong>{galleryUsed}/{gallerySlots}</strong><small>свободно {galleryFree}</small></div>
-                <div><span>Видео</span><strong>Доступно</strong><small>модели зависят от тарифа</small></div>
+                <div><span>Видео в галерее</span><strong>{videoUsed}/{videoSlots}</strong><small>свободно {videoFree}</small></div>
               </div>
               {personalDiscountPercent > 0 && <div className="profile-checkout-discount">Персональная скидка <strong>{personalDiscountPercent}%</strong> уже учтена в ценах.</div>}
               <div className="profile-plans">
@@ -706,7 +708,7 @@ export default function ProfilePage({
                 </ul> : null}
                 <label className="profile-checkout-email">
                   <span>Email для чека</span>
-                  <input type="email" value={receiptContact} onChange={(event) => { setReceiptContact(event.target.value); setCheckoutMessage('') }} placeholder="name@example.ru" autoComplete="email" />
+                  <input type="email" value={effectiveReceiptContact} onChange={(event) => { setReceiptContact(event.target.value); setCheckoutMessage('') }} placeholder="name@example.ru" autoComplete="email" />
                   <small>Чек придёт на эту почту. Адрес сохраним для следующей покупки.</small>
                 </label>
                 <label className="profile-checkout-checkbox">

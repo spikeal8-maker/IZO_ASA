@@ -16,7 +16,7 @@ PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
 def tariff(*, slots: int = 20) -> dict:
     return {
         "daily_tokens": 10,
-        "openrouter_monthly_tokens": 30,
+        "monthly_tokens": 30,
         "gallery_slots": slots,
         "video_enabled": 1,
         "video_slots": 4,
@@ -42,7 +42,7 @@ def test_quota_payload_preserves_exact_legacy_fields_below_limit() -> None:
     assert build_gallery_quota(plan="free", tariff=tariff(slots=20), gallery_used=3) == {
         "plan": "free",
         "daily_tokens": 10,
-        "openrouter_monthly_tokens": 30,
+        "monthly_tokens": 30,
         "gallery_slots": 20,
         "video_enabled": True,
         "video_slots": 4,

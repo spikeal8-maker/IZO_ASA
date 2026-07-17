@@ -29,6 +29,8 @@ export type TariffRule = {
   allowed_resolutions: string[]
   video_enabled: boolean
   video_slots: number
+  image_model_count: number
+  video_model_count: number
 }
 export type TariffConfig = Record<TariffKey, TariffRule>
 export type ModelGenerationContract = {
@@ -240,11 +242,11 @@ const fullResolutions = resolutionOptions.map((item) => item.id)
 const serverDefaults: TariffModelDefaults = { fast: 'server:local_flux_klein', standard: 'server:local_flux_klein', max: 'server:local_flux_klein' }
 
 export const DEFAULT_TARIFFS: TariffConfig = {
-  free: { title: 'Free', note: 'Базовый доступ', price_rub_month: 0, daily_tokens: 10, openrouter_monthly_tokens: 0, gallery_slots: 20, quality_label: 'SD', model_defaults: serverDefaults, queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: sdResolutions, video_enabled: false, video_slots: 0 },
-  mini: { title: 'Mini', note: 'Оптимальный старт', price_rub_month: 490, daily_tokens: 50, openrouter_monthly_tokens: 100, gallery_slots: 80, quality_label: 'HD', model_defaults: serverDefaults, queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: hdResolutions, video_enabled: false, video_slots: 0 },
-  plus: { title: 'Plus', note: 'Больше возможностей', price_rub_month: 990, daily_tokens: 100, openrouter_monthly_tokens: 250, gallery_slots: 200, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-klein-4b', max: 'openai/gpt-image-1-mini' }, queue_label: 'Ускоренная', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: false, video_slots: 0 },
-  pro: { title: 'Pro', note: 'Видео и приоритет', price_rub_month: 1990, daily_tokens: 200, openrouter_monthly_tokens: 500, gallery_slots: 500, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-klein-4b', max: 'black-forest-labs/flux.2-pro' }, queue_label: 'Приоритетная', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 10 },
-  business: { title: 'Бизнес', note: 'Для команды и видео', price_rub_month: 4990, daily_tokens: 500, openrouter_monthly_tokens: 1200, gallery_slots: 500, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-pro', max: 'openai/gpt-image-1' }, queue_label: 'Бизнес', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 50 },
+  free: { title: 'Free', note: 'Базовый доступ', price_rub_month: 0, daily_tokens: 10, openrouter_monthly_tokens: 0, gallery_slots: 20, quality_label: 'SD', model_defaults: serverDefaults, queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: sdResolutions, video_enabled: false, video_slots: 0, image_model_count: 1, video_model_count: 0 },
+  mini: { title: 'Mini', note: 'Оптимальный старт', price_rub_month: 490, daily_tokens: 50, openrouter_monthly_tokens: 100, gallery_slots: 80, quality_label: 'HD', model_defaults: serverDefaults, queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: hdResolutions, video_enabled: true, video_slots: 1, image_model_count: 1, video_model_count: 0 },
+  plus: { title: 'Plus', note: 'Больше возможностей', price_rub_month: 990, daily_tokens: 100, openrouter_monthly_tokens: 250, gallery_slots: 200, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-klein-4b', max: 'openai/gpt-image-1-mini' }, queue_label: 'Ускоренная', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 5, image_model_count: 1, video_model_count: 0 },
+  pro: { title: 'Pro', note: 'Видео и приоритет', price_rub_month: 1990, daily_tokens: 200, openrouter_monthly_tokens: 500, gallery_slots: 500, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-klein-4b', max: 'black-forest-labs/flux.2-pro' }, queue_label: 'Приоритетная', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 10, image_model_count: 1, video_model_count: 0 },
+  business: { title: 'Бизнес', note: 'Для команды и видео', price_rub_month: 4990, daily_tokens: 500, openrouter_monthly_tokens: 1200, gallery_slots: 500, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-pro', max: 'openai/gpt-image-1' }, queue_label: 'Бизнес', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 25, image_model_count: 1, video_model_count: 0 },
 }
 
 export const AVATAR_PRESET_COUNT = 71
@@ -258,6 +260,7 @@ export const avatarPresets = Array.from({ length: AVATAR_PRESET_COUNT }, (_, ind
 export function normalizeTariffs(input: unknown): TariffConfig {
   const source = (input && typeof input === 'object' ? input : {}) as Partial<Record<TariffKey, Partial<TariffConfig[TariffKey]>>>
   return tariffKeys.reduce((acc, key) => {
+    const videoSlots = Number(source[key]?.video_slots ?? DEFAULT_TARIFFS[key].video_slots)
     acc[key] = {
       title: String(source[key]?.title ?? DEFAULT_TARIFFS[key].title),
       note: String(source[key]?.note ?? DEFAULT_TARIFFS[key].note),
@@ -274,11 +277,21 @@ export function normalizeTariffs(input: unknown): TariffConfig {
       queue_label: String(source[key]?.queue_label ?? DEFAULT_TARIFFS[key].queue_label),
       pro_mode_enabled: Boolean(source[key]?.pro_mode_enabled ?? DEFAULT_TARIFFS[key].pro_mode_enabled),
       allowed_resolutions: normalizeResolutionIds(source[key]?.allowed_resolutions, DEFAULT_TARIFFS[key].allowed_resolutions),
-      video_enabled: Boolean(source[key]?.video_enabled ?? DEFAULT_TARIFFS[key].video_enabled),
-      video_slots: Number(source[key]?.video_slots ?? DEFAULT_TARIFFS[key].video_slots),
+      video_enabled: videoSlots > 0,
+      video_slots: videoSlots,
+      image_model_count: Math.max(0, Number(source[key]?.image_model_count ?? DEFAULT_TARIFFS[key].image_model_count)),
+      video_model_count: Math.max(0, Number(source[key]?.video_model_count ?? DEFAULT_TARIFFS[key].video_model_count)),
     }
     return acc
   }, { ...DEFAULT_TARIFFS } as TariffConfig)
+}
+
+export function formatModelCount(value: number, suffix: string): string {
+  const count = Math.max(0, Math.trunc(Number(value) || 0))
+  const mod100 = count % 100
+  const mod10 = count % 10
+  const noun = mod100 >= 11 && mod100 <= 14 ? 'моделей' : mod10 === 1 ? 'модель' : mod10 >= 2 && mod10 <= 4 ? 'модели' : 'моделей'
+  return `${count} ${noun} ${suffix}`
 }
 
 export function modelOptionById(id: string) {

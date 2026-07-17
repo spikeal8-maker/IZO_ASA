@@ -13,6 +13,7 @@ import gallery_original_audit
 import media_cleanup_plan
 import media_storage_audit
 import user_gallery_link_audit
+import video_storage_audit
 
 FEED_HARD_ISSUES = {"published_not_ready", "published_missing_sources", "published_deleted_sources", "missing_files"}
 
@@ -23,6 +24,7 @@ def run_media_health_check(*, item_limit: int = 50) -> dict[str, Any]:
     gallery_originals = gallery_original_audit.audit_gallery_originals(item_limit=item_limit)
     storage = media_storage_audit.audit_media_storage(item_limit=item_limit)
     users = user_gallery_link_audit.audit_user_gallery_links(item_limit=item_limit)
+    videos = video_storage_audit.audit_video_storage(item_limit=item_limit)
     cleanup = media_cleanup_plan.build_cleanup_plan(item_limit=item_limit)
 
     issues: list[str] = []
@@ -35,6 +37,7 @@ def run_media_health_check(*, item_limit: int = 50) -> dict[str, Any]:
         ("gallery_originals", gallery_originals),
         ("storage", storage),
         ("users", users),
+        ("videos", videos),
     ):
         for issue in report.get("issues", []):
             issues.append(f"{prefix}:{issue}")
@@ -65,6 +68,11 @@ def run_media_health_check(*, item_limit: int = 50) -> dict[str, Any]:
                 "by_bucket": gallery_originals.get("by_bucket", {}),
             },
             "users": users.get("totals", {}),
+            "videos": {
+                "totals": videos.get("totals", {}),
+                "over_limit_users": len(videos.get("over_limit_users", [])),
+                "warnings": videos.get("warnings", []),
+            },
             "cleanup": cleanup.get("candidate_summary", {}),
         },
         "reports": {
@@ -73,6 +81,7 @@ def run_media_health_check(*, item_limit: int = 50) -> dict[str, Any]:
             "gallery_originals": gallery_originals,
             "storage": storage,
             "users": users,
+            "videos": videos,
             "cleanup": cleanup,
         },
     }

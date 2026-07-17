@@ -91,6 +91,27 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
 
 try:
+    from .app.services.tariff_lifecycle import (
+        TERM_MONTHS,
+        add_calendar_months,
+        build_offer,
+        normalize_term_settings,
+        package_code as tariff_package_code,
+        parse_package_code as parse_tariff_package_code,
+        prorated_monthly_tokens,
+    )
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.services.tariff_lifecycle import (
+        TERM_MONTHS,
+        add_calendar_months,
+        build_offer,
+        normalize_term_settings,
+        package_code as tariff_package_code,
+        parse_package_code as parse_tariff_package_code,
+        prorated_monthly_tokens,
+    )
+
+try:
     from .app.config import (
         env_bool,
         is_production_like_environment,
@@ -265,6 +286,7 @@ try:
         gallery_query,
         gallery_presentation,
         gallery_items,
+        video_storage,
         feed_presentation,
         feed_sources,
         feed_downloads,
@@ -302,6 +324,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         gallery_query,
         gallery_presentation,
         gallery_items,
+        video_storage,
         feed_presentation,
         feed_sources,
         feed_downloads,
@@ -1094,6 +1117,7 @@ class AdminDiscountV2Request(BaseModel):
 
 class AdminPlanV2Request(BaseModel):
     plan: Literal["free", "mini", "plus", "pro", "business"]
+    duration_days: int = Field(default=30, ge=1, le=3660)
     reason: str = ""
 
 
@@ -1414,12 +1438,14 @@ rate_limits = {"hourly": 0, "daily": 0}
 PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
 DEFAULT_TARIFFS: dict[str, dict[str, Any]] = {
-    "free": {"title": "Free", "note": "Базовый доступ", "price_rub_month": 0, "daily_tokens": 10, "openrouter_monthly_tokens": 0, "gallery_slots": 20, "quality_label": "SD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-sd", "v-sd", "h-sd", "p-sd"], "video_enabled": 0, "video_slots": 0},
-    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "openrouter_monthly_tokens": 100, "gallery_slots": 80, "quality_label": "HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "full_hd"], "video_enabled": 0, "video_slots": 0},
-    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "openrouter_monthly_tokens": 250, "gallery_slots": 200, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "openai/gpt-image-1-mini"}, "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 0, "video_slots": 0},
-    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "openrouter_monthly_tokens": 500, "gallery_slots": 500, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "black-forest-labs/flux.2-pro"}, "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 10},
-    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "openrouter_monthly_tokens": 1200, "gallery_slots": 500, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-pro", "max": "openai/gpt-image-1"}, "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 50},
+    "free": {"title": "Free", "note": "Базовый доступ", "price_rub_month": 0, "daily_tokens": 10, "monthly_tokens": 0, "gallery_slots": 20, "quality_label": "SD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-sd", "v-sd", "h-sd", "p-sd"], "video_enabled": 0, "video_slots": 0},
+    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "monthly_tokens": 100, "gallery_slots": 80, "quality_label": "HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "full_hd"], "video_enabled": 1, "video_slots": 1},
+    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "monthly_tokens": 250, "gallery_slots": 200, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "openai/gpt-image-1-mini"}, "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 5},
+    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "monthly_tokens": 500, "gallery_slots": 500, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "black-forest-labs/flux.2-pro"}, "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 10},
+    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "monthly_tokens": 1200, "gallery_slots": 500, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-pro", "max": "openai/gpt-image-1"}, "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 25},
 }
+VIDEO_STORAGE_TARIFF_LIMITS = {"free": 0, "mini": 1, "plus": 5, "pro": 10, "business": 25}
+VIDEO_STORAGE_TARIFF_MIGRATION_KEY = "video_storage_tariffs_v1"
 
 
 @dataclass
@@ -1701,6 +1727,7 @@ def init_db() -> None:
         prepare_identity_schema_group(conn, now=now)
 
         initialize_media_schema_group(conn)
+        migrate_video_storage_tariffs(conn, now=now)
         seed_default_challenge(conn, now=now)
         if is_production_like_env():
             report = restore_demo_feed_bundle(conn, MEDIA, apply=True)
@@ -2080,6 +2107,7 @@ def telegram_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now
         (uuid.uuid4().hex, internal_user_id, legacy_user_id, pid, username, first, last, photo, lang, raw_profile, now, now, now),
     )
     _fill_user_profile_if_empty(conn, legacy_user_id, user)
+    _initialize_intro_tariff_if_new(conn, legacy_user_id, now)
     return internal_user_id, legacy_user_id
 
 
@@ -2161,6 +2189,7 @@ def max_upsert_identity(conn: sqlite3.Connection, user: dict[str, Any], now: str
         (uuid.uuid4().hex, internal_user_id, legacy_user_id, pid, username, first, last, photo, lang, raw_profile, now, now, now),
     )
     _fill_user_profile_if_empty(conn, legacy_user_id, user)
+    _initialize_intro_tariff_if_new(conn, legacy_user_id, now)
     return internal_user_id, legacy_user_id
 
 
@@ -2727,6 +2756,7 @@ def email_otp_upsert_identity(conn: sqlite3.Connection, email_norm: str, now: st
         (uuid.uuid4().hex, internal_user_id, legacy_user_id, email_norm, email_norm,
          json.dumps({"email": email_norm}, ensure_ascii=False), now, now, now),
     )
+    _initialize_intro_tariff_if_new(conn, legacy_user_id, now)
     return internal_user_id, legacy_user_id
 
 
@@ -2794,14 +2824,16 @@ def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[s
         source = data.get(plan) if isinstance(data.get(plan), dict) else {}
         price = source.get("price_rub_month", source.get("priceRubMonth", DEFAULT_TARIFFS[plan]["price_rub_month"]))
         daily = source.get("daily_tokens", source.get("dailyTokens", DEFAULT_TARIFFS[plan]["daily_tokens"]))
-        openrouter_monthly = source.get("openrouter_monthly_tokens", source.get("openrouterMonthlyTokens", DEFAULT_TARIFFS[plan]["openrouter_monthly_tokens"]))
+        monthly = source.get("monthly_tokens", source.get("monthlyTokens", source.get("openrouter_monthly_tokens", source.get("openrouterMonthlyTokens", DEFAULT_TARIFFS[plan]["monthly_tokens"]))))
         slots = source.get("gallery_slots", source.get("gallerySlots", DEFAULT_TARIFFS[plan]["gallery_slots"]))
-        video_enabled = source.get("video_enabled", source.get("videoEnabled", DEFAULT_TARIFFS[plan]["video_enabled"]))
-        video_slots = source.get("video_slots", source.get("videoSlots", DEFAULT_TARIFFS[plan]["video_slots"]))
+        video_slots = source.get(
+            "video_slots",
+            source.get("video_storage_slots", source.get("videoSlots", DEFAULT_TARIFFS[plan]["video_slots"])),
+        )
         try:
             price_int = int(price)
             daily_int = int(daily)
-            openrouter_monthly_int = int(openrouter_monthly)
+            monthly_int = int(monthly)
             slots_int = int(slots)
             video_slots_int = int(video_slots)
         except (TypeError, ValueError):
@@ -2809,24 +2841,26 @@ def normalize_tariffs(raw: Any | None = None, *, strict: bool = False) -> dict[s
                 raise HTTPException(400, f"Invalid tariff values for {plan}.")
             price_int = DEFAULT_TARIFFS[plan]["price_rub_month"]
             daily_int = DEFAULT_TARIFFS[plan]["daily_tokens"]
-            openrouter_monthly_int = DEFAULT_TARIFFS[plan]["openrouter_monthly_tokens"]
+            monthly_int = DEFAULT_TARIFFS[plan]["monthly_tokens"]
             slots_int = DEFAULT_TARIFFS[plan]["gallery_slots"]
             video_slots_int = DEFAULT_TARIFFS[plan]["video_slots"]
-        if strict and (price_int < 0 or daily_int < 0 or openrouter_monthly_int < 0 or slots_int < 0 or video_slots_int < 0):
+        if strict and (price_int < 0 or daily_int < 0 or monthly_int < 0 or slots_int < 0 or video_slots_int < 0):
             raise HTTPException(400, f"Tariff values for {plan} must be non-negative.")
         result[plan] = {
             "title": _tariff_text(source, plan, "title", max_len=40),
             "note": _tariff_text(source, plan, "note", max_len=160),
             "price_rub_month": max(0, min(price_int, 10_000_000)),
             "daily_tokens": max(0, min(daily_int, 100_000)),
-            "openrouter_monthly_tokens": max(0, min(openrouter_monthly_int, 100_000)),
+            "monthly_tokens": max(0, min(monthly_int, 100_000)),
+            # Temporary read alias for older clients. This is not a third balance.
+            "openrouter_monthly_tokens": max(0, min(monthly_int, 100_000)),
             "gallery_slots": max(0, min(slots_int, 100_000)),
             "quality_label": _tariff_text(source, plan, "quality_label", max_len=80),
             "model_defaults": _tariff_model_defaults(source, plan),
             "queue_label": _tariff_text(source, plan, "queue_label", max_len=80),
             "pro_mode_enabled": 1 if _boolish(source.get("pro_mode_enabled", source.get("proModeEnabled", DEFAULT_TARIFFS[plan]["pro_mode_enabled"]))) else 0,
             "allowed_resolutions": _tariff_resolutions(source, plan),
-            "video_enabled": 1 if _boolish(video_enabled) else 0,
+            "video_enabled": 1 if video_slots_int > 0 else 0,
             "video_slots": max(0, min(video_slots_int, 100_000)),
         }
     return result
@@ -2853,6 +2887,344 @@ def get_tariff_config(conn: sqlite3.Connection | None = None) -> dict[str, dict[
         return normalize_tariffs()
 
 
+def get_tariff_term_settings(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
+    def load(current_conn: sqlite3.Connection) -> dict[str, Any]:
+        row = current_conn.execute(
+            "SELECT value_json FROM admin_settings WHERE key='tariff_terms'"
+        ).fetchone()
+        return normalize_term_settings(json.loads(row["value_json"] or "{}") if row else {})
+
+    try:
+        if conn is not None:
+            return load(conn)
+        with db() as local_conn:
+            return load(local_conn)
+    except Exception:
+        return normalize_term_settings({})
+
+
+def tariff_term_offers(conn: sqlite3.Connection | None = None) -> dict[str, list[dict[str, Any]]]:
+    tariffs = get_tariff_config(conn)
+    settings = get_tariff_term_settings(conn)
+    discounts = settings["discount_percent"]
+    estimated_cost = float(settings["estimated_token_cost_rub"] or 0)
+    return {
+        plan: [
+            {
+                "code": tariff_package_code(plan, months),
+                **build_offer(
+                    monthly_price_rub=int(tariffs[plan]["price_rub_month"]),
+                    monthly_tokens=int(tariffs[plan]["monthly_tokens"]),
+                    months=months,
+                    discount_percent=int(discounts[str(months)]),
+                    estimated_token_cost_rub=estimated_cost,
+                ).as_dict(),
+            }
+            for months in TERM_MONTHS
+        ]
+        for plan in ("mini", "plus", "pro", "business")
+    }
+
+
+def public_tariff_term_offers(conn: sqlite3.Connection | None = None) -> dict[str, list[dict[str, Any]]]:
+    private_fields = {"estimated_cost_rub", "estimated_profit_rub", "estimated_margin_percent"}
+    return {
+        plan: [
+            {key: value for key, value in offer.items() if key not in private_fields}
+            for offer in offers
+        ]
+        for plan, offers in tariff_term_offers(conn).items()
+    }
+
+
+def _as_utc_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _grant_tariff_tokens(
+    conn: sqlite3.Connection,
+    *,
+    user_row: sqlite3.Row,
+    plan: str,
+    amount: int,
+    grant_key: str,
+    source: str,
+    source_id: str | None,
+    period_start: datetime,
+) -> bool:
+    amount = max(0, int(amount))
+    if amount <= 0:
+        return False
+    now = datetime.now(timezone.utc).isoformat()
+    grant_id = uuid.uuid4().hex
+    cursor = conn.execute(
+        """
+        INSERT OR IGNORE INTO tariff_token_grants
+            (id, internal_user_id, user_id, grant_key, plan, amount, source, source_id, period_start, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            grant_id,
+            user_row["internal_user_id"],
+            user_row["id"],
+            grant_key,
+            plan,
+            amount,
+            source,
+            source_id,
+            period_start.isoformat(),
+            now,
+        ),
+    )
+    if cursor.rowcount != 1:
+        return False
+    conn.execute(
+        "UPDATE users SET token_balance=token_balance+? WHERE internal_user_id=?",
+        (amount, user_row["internal_user_id"]),
+    )
+    conn.execute(
+        "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, 'tariff_monthly_grant', ?, ?)",
+        (
+            uuid.uuid4().hex,
+            user_row["id"],
+            amount,
+            json.dumps(
+                {
+                    "plan": plan,
+                    "grant_key": grant_key,
+                    "source": source,
+                    "source_id": source_id,
+                    "period_start": period_start.isoformat(),
+                },
+                ensure_ascii=False,
+            ),
+            now,
+        ),
+    )
+    return True
+
+
+def _activate_tariff_now(
+    conn: sqlite3.Connection,
+    *,
+    internal_user_id: str,
+    plan: str,
+    now: datetime,
+    source: str,
+    source_id: str | None = None,
+    term_months: int = 1,
+    duration_days: int | None = None,
+    reset_balance: bool = False,
+) -> dict[str, Any]:
+    if plan not in PLAN_ORDER:
+        raise ValueError("unknown tariff plan")
+    row = conn.execute(
+        "SELECT * FROM users WHERE internal_user_id=?", (internal_user_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError("user not found")
+    tariffs = get_tariff_config(conn)
+    monthly_amount = int(tariffs[plan]["monthly_tokens"])
+    if plan == "free":
+        monthly_amount = 0
+        expires_at = None
+        next_grant_at = None
+        term_months = 1
+    elif duration_days is not None:
+        days = max(1, min(int(duration_days), 3660))
+        expires_at = now + timedelta(days=days)
+        next_grant_at = add_calendar_months(now, 1) if days > 30 else None
+        monthly_amount = prorated_monthly_tokens(monthly_amount, days) if days < 30 else monthly_amount
+        term_months = max(1, int(round(days / 30)))
+    else:
+        if term_months not in TERM_MONTHS:
+            raise ValueError("unsupported tariff term")
+        expires_at = add_calendar_months(now, term_months)
+        next_grant_at = add_calendar_months(now, 1)
+    if reset_balance:
+        conn.execute("UPDATE users SET token_balance=0 WHERE internal_user_id=?", (internal_user_id,))
+        row = conn.execute("SELECT * FROM users WHERE internal_user_id=?", (internal_user_id,)).fetchone()
+    conn.execute(
+        """
+        UPDATE users SET
+            plan=?, plan_started_at=?, plan_expires_at=?, plan_next_token_grant_at=?,
+            plan_monthly_token_grant=?, plan_term_months=?, plan_grant_source=?,
+            pending_plan_json=NULL, gallery_enabled=1, daily_tokens_used=0, last_daily_reset=?,
+            openrouter_monthly_tokens_used=0, last_openrouter_month_reset=?
+        WHERE internal_user_id=?
+        """,
+        (
+            plan,
+            now.isoformat(),
+            expires_at.isoformat() if expires_at else None,
+            next_grant_at.isoformat() if next_grant_at and expires_at and next_grant_at < expires_at else None,
+            int(tariffs[plan]["monthly_tokens"]) if plan != "free" else 0,
+            term_months,
+            source,
+            now.date().isoformat(),
+            now.strftime("%Y-%m"),
+            internal_user_id,
+        ),
+    )
+    grant_key = f"tariff:{source}:{source_id or internal_user_id}:{now.isoformat()}"
+    granted = _grant_tariff_tokens(
+        conn,
+        user_row=row,
+        plan=plan,
+        amount=monthly_amount,
+        grant_key=grant_key,
+        source=source,
+        source_id=source_id,
+        period_start=now,
+    )
+    return {
+        "plan": plan,
+        "plan_started_at": now.isoformat(),
+        "plan_expires_at": expires_at.isoformat() if expires_at else None,
+        "monthly_tokens_granted": monthly_amount if granted else 0,
+        "term_months": term_months,
+    }
+
+
+def _schedule_or_activate_paid_tariff(
+    conn: sqlite3.Connection,
+    *,
+    internal_user_id: str,
+    plan: str,
+    term_months: int,
+    source: str,
+    source_id: str,
+    now: datetime,
+) -> dict[str, Any]:
+    row = conn.execute("SELECT * FROM users WHERE internal_user_id=?", (internal_user_id,)).fetchone()
+    if row is None:
+        raise ValueError("user not found")
+    current_plan = str(row["plan"] or "free").lower()
+    current_expiry = _as_utc_datetime(row["plan_expires_at"])
+    current_active = current_plan != "free" and current_expiry is not None and current_expiry > now
+    if current_active and PLAN_ORDER.index(plan) < PLAN_ORDER.index(current_plan):
+        pending = {
+            "plan": plan,
+            "term_months": term_months,
+            "source": source,
+            "source_id": source_id,
+        }
+        conn.execute(
+            "UPDATE users SET pending_plan_json=? WHERE internal_user_id=?",
+            (json.dumps(pending, ensure_ascii=False), internal_user_id),
+        )
+        return {"scheduled": True, "starts_at": current_expiry.isoformat(), **pending}
+    if current_active and plan == current_plan:
+        expires_at = add_calendar_months(current_expiry, term_months)
+        conn.execute(
+            "UPDATE users SET plan_expires_at=?, plan_term_months=COALESCE(plan_term_months, 1)+?, plan_grant_source=? WHERE internal_user_id=?",
+            (expires_at.isoformat(), term_months, source, internal_user_id),
+        )
+        return {"scheduled": False, "extended": True, "plan": plan, "plan_expires_at": expires_at.isoformat()}
+    return _activate_tariff_now(
+        conn,
+        internal_user_id=internal_user_id,
+        plan=plan,
+        term_months=term_months,
+        source=source,
+        source_id=source_id,
+        now=now,
+    )
+
+
+def _reconcile_user_tariff(conn: sqlite3.Connection, internal_user_id: str, *, now: datetime | None = None) -> dict[str, Any]:
+    now = now or datetime.now(timezone.utc)
+    row = conn.execute("SELECT * FROM users WHERE internal_user_id=?", (internal_user_id,)).fetchone()
+    if row is None:
+        return {"changed": False}
+    plan = str(row["plan"] or "free").lower()
+    expiry = _as_utc_datetime(row["plan_expires_at"])
+    next_grant = _as_utc_datetime(row["plan_next_token_grant_at"])
+    monthly_amount = max(0, int(row["plan_monthly_token_grant"] or 0))
+    grants = 0
+    while plan != "free" and expiry and next_grant and next_grant < expiry and next_grant <= now:
+        key = f"tariff:period:{internal_user_id}:{next_grant.isoformat()}"
+        if _grant_tariff_tokens(
+            conn,
+            user_row=row,
+            plan=plan,
+            amount=monthly_amount,
+            grant_key=key,
+            source="recurring",
+            source_id=None,
+            period_start=next_grant,
+        ):
+            grants += 1
+        next_grant = add_calendar_months(next_grant, 1)
+        conn.execute(
+            "UPDATE users SET plan_next_token_grant_at=? WHERE internal_user_id=?",
+            (next_grant.isoformat() if next_grant < expiry else None, internal_user_id),
+        )
+    if plan != "free" and expiry and expiry <= now:
+        pending_raw = row["pending_plan_json"]
+        pending = None
+        if pending_raw:
+            try:
+                pending = json.loads(pending_raw)
+            except (TypeError, ValueError):
+                pending = None
+        if isinstance(pending, dict) and pending.get("plan") in PLAN_ORDER:
+            activated = _activate_tariff_now(
+                conn,
+                internal_user_id=internal_user_id,
+                plan=str(pending["plan"]),
+                term_months=int(pending.get("term_months") or 1),
+                source=str(pending.get("source") or "scheduled"),
+                source_id=str(pending.get("source_id") or "") or None,
+                now=now,
+            )
+            return {"changed": True, "grants": grants, "activated": activated}
+        conn.execute(
+            """
+            UPDATE users SET plan='free', plan_started_at=?, plan_expires_at=NULL,
+                plan_next_token_grant_at=NULL, plan_monthly_token_grant=0,
+                plan_term_months=1, plan_grant_source='expiry', pending_plan_json=NULL
+            WHERE internal_user_id=?
+            """,
+            (now.isoformat(), internal_user_id),
+        )
+        return {"changed": True, "grants": grants, "plan": "free"}
+    return {"changed": grants > 0, "grants": grants, "plan": plan}
+
+
+def _initialize_intro_tariff_if_new(conn: sqlite3.Connection, legacy_user_id: str, created_at: str) -> bool:
+    row = conn.execute(
+        "SELECT internal_user_id, created_at, plan_started_at FROM users WHERE id=?",
+        (legacy_user_id,),
+    ).fetchone()
+    if (
+        row is None
+        or not row["internal_user_id"]
+        or str(row["created_at"] or "") != str(created_at)
+        or row["plan_started_at"]
+    ):
+        return False
+    _activate_tariff_now(
+        conn,
+        internal_user_id=row["internal_user_id"],
+        plan="mini",
+        term_months=1,
+        source="signup",
+        source_id=row["internal_user_id"],
+        now=_as_utc_datetime(created_at) or datetime.now(timezone.utc),
+        reset_balance=True,
+    )
+    return True
+
+
 def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | None, legacy_user_id: str | None = None) -> dict[str, Any]:
     plan = gallery_policy.normalize_gallery_plan(_row_get(user_row, "plan"), PLAN_ORDER)
     tariff = get_tariff_config(conn)[plan]
@@ -2861,6 +3233,22 @@ def gallery_quota_for_user(conn: sqlite3.Connection, user_row: sqlite3.Row | Non
     if user_id:
         used = storage_count_active_gallery_images(conn, user_id)
     return gallery_policy.build_gallery_quota(plan=plan, tariff=tariff, gallery_used=used)
+
+
+def video_storage_state_for_user(
+    conn: sqlite3.Connection,
+    user_row: sqlite3.Row | None,
+    legacy_user_id: str,
+    *,
+    exclude_job_id: str | None = None,
+) -> video_storage.VideoStorageState:
+    quota = gallery_quota_for_user(conn, user_row, legacy_user_id)
+    return video_storage.storage_state(
+        conn,
+        legacy_user_id,
+        limit=int(quota["video_slots"] or 0),
+        exclude_job_id=exclude_job_id,
+    )
 
 
 ACTIVE_IMAGE_WHERE = "deleted_at IS NULL"
@@ -3120,22 +3508,9 @@ def resolve_trusted_user(request: Request) -> dict[str, Any]:
 
 
 def expire_paid_plan_if_needed(internal_user_id: str) -> bool:
-    now = datetime.now(timezone.utc)
     with db() as conn:
-        row = conn.execute("SELECT plan, plan_expires_at FROM users WHERE internal_user_id = ?", (internal_user_id,)).fetchone()
-        if row is None or not row["plan_expires_at"] or str(row["plan"] or "free") == "free":
-            return False
-        try:
-            expires_at = datetime.fromisoformat(str(row["plan_expires_at"]))
-        except ValueError:
-            return False
-        if expires_at > now:
-            return False
-        conn.execute(
-            "UPDATE users SET plan='free', plan_expires_at=NULL, openrouter_monthly_tokens_used=0, last_openrouter_month_reset=? WHERE internal_user_id=?",
-            (now.strftime("%Y-%m"), internal_user_id),
-        )
-    return True
+        result = _reconcile_user_tariff(conn, internal_user_id)
+    return bool(result.get("changed"))
 
 
 def require_trusted_user(request: Request) -> dict[str, Any]:
@@ -3698,10 +4073,8 @@ def _gallery_page_limits(
         """,
         (legacy_user_id,),
     ).fetchone()["c"])
-    video_used = int(conn.execute(
-        "SELECT COUNT(*) AS c FROM videos WHERE user_id = ? AND deleted_at IS NULL",
-        (legacy_user_id,),
-    ).fetchone()["c"])
+    video_state = video_storage_state_for_user(conn, user_row, legacy_user_id)
+    video_used = video_state.active
     video_favorites_used = int(conn.execute(
         "SELECT COUNT(*) AS c FROM videos WHERE user_id = ? AND is_favorite = 1 AND deleted_at IS NULL",
         (legacy_user_id,),
@@ -3740,8 +4113,10 @@ def _gallery_page_limits(
         },
         "videos": {
             "used": video_used,
-            "limit": int(quota["video_slots"] or 0),
-            "free": max(0, int(quota["video_slots"] or 0) - video_used),
+            "limit": video_state.limit,
+            "free": video_state.free,
+            "full": video_state.full,
+            "storedBytes": video_state.stored_bytes,
         },
     }
 
@@ -4119,11 +4494,12 @@ def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
     user_id = f"{auth.platform}_{raw_id}" if raw_id else "demo_user"
     with db() as conn:
         avatar_url, avatar_preset = random_avatar_choice()
+        internal_user_id = uuid.uuid4().hex
         conn.execute(
             """
             INSERT INTO users (id, telegram_id, max_id, username, first_name, last_name, middle_name, phone, email, language, role, plan, gallery_enabled, created_at, last_login_at,
-                               country, city, timezone, ref_code, last_user_agent, last_screen, last_seen_at, avatar_url, avatar_preset)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 'mini', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               country, city, timezone, ref_code, last_user_agent, last_screen, last_seen_at, avatar_url, avatar_preset, internal_user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 'mini', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 username=COALESCE(excluded.username, users.username),
                 first_name=COALESCE(excluded.first_name, users.first_name),
@@ -4163,8 +4539,13 @@ def upsert_user(auth: MiniAppAuthRequest) -> dict[str, Any]:
                 now,
                 avatar_url,
                 avatar_preset,
+                internal_user_id,
             ),
         )
+        assigned = conn.execute("SELECT internal_user_id FROM users WHERE id=?", (user_id,)).fetchone()
+        if assigned is not None and not assigned["internal_user_id"]:
+            conn.execute("UPDATE users SET internal_user_id=? WHERE id=?", (internal_user_id, user_id))
+        _initialize_intro_tariff_if_new(conn, user_id, now)
         row = conn.execute(
             "SELECT username, first_name, last_name, middle_name, phone, email, language, role, plan, token_balance, gallery_enabled, country, city, timezone, total_time_seconds, generation_count, tokens_used, promo_used_count, referrals_count, banned FROM users WHERE id = ?",
             (user_id,),
@@ -4223,89 +4604,65 @@ def estimate_token_cost(req: GenerateRequest) -> int:
 def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost: int, job_id: str, req: GenerateRequest, billing_snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     """Reserve tokens for a generation after request validation has passed.
 
-    Daily tariff tokens are a daily included budget, not a balance top-up. The
-    ledger records both paths: `daily_generation` for included daily budget
-    consumption, and `generation` for paid balance spend.
+    There are exactly two accounts: the daily tariff allowance and the main
+    balance. Local server generations consume daily tokens first and then the
+    main balance. API generations consume the main balance only.
     """
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
     today = now.strftime("%Y-%m-%d")
-    month_key = now.strftime("%Y-%m")
     user_row = conn.execute(
-        "SELECT id, token_balance, plan, daily_tokens_used, last_daily_reset, openrouter_monthly_tokens_used, last_openrouter_month_reset FROM users WHERE id = ?",
+        "SELECT id, internal_user_id, token_balance, plan, daily_tokens_used, last_daily_reset FROM users WHERE id = ?",
         (user_id,),
     ).fetchone()
     if user_row is None:
         raise HTTPException(404, "User not found.")
+    if user_row["internal_user_id"]:
+        _reconcile_user_tariff(conn, str(user_row["internal_user_id"]), now=now)
+        user_row = conn.execute(
+            "SELECT id, internal_user_id, token_balance, plan, daily_tokens_used, last_daily_reset FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
 
     old_balance = int(user_row["token_balance"] or 0)
     daily_limit = 0
-    daily_used_before = 0
-    daily_used_after = 0
-    openrouter_monthly_limit = 0
-    openrouter_monthly_used_before = 0
-    openrouter_monthly_used_after = 0
-    used_openrouter_monthly = False
-    used_daily = False
-    balance_delta = 0
-    ledger_reason = "generation"
+    daily_used_before = int(user_row["daily_tokens_used"] or 0)
+    if user_row["last_daily_reset"] != today:
+        daily_used_before = 0
+    daily_part = 0
+    balance_part = 0
 
     if user_id != "demo_user":
-        daily_used_before = int(user_row["daily_tokens_used"] or 0)
-        if user_row["last_daily_reset"] != today:
-            daily_used_before = 0
         tariff = get_tariff_config(conn)[str(user_row["plan"] or "mini").lower()]
         daily_limit = int(tariff["daily_tokens"])
-        openrouter_monthly_limit = int(tariff.get("openrouter_monthly_tokens") or 0)
-        openrouter_monthly_used_before = int(user_row["openrouter_monthly_tokens_used"] or 0)
-        if user_row["last_openrouter_month_reset"] != month_key:
-            openrouter_monthly_used_before = 0
-        openrouter_monthly_used_after = openrouter_monthly_used_before
-        if req.provider == "openrouter":
-            remaining_monthly = max(0, openrouter_monthly_limit - openrouter_monthly_used_before)
-            monthly_part = min(token_cost, remaining_monthly)
-            balance_delta = max(0, token_cost - monthly_part)
-            openrouter_monthly_used_after = openrouter_monthly_used_before + monthly_part
-            daily_used_after = daily_used_before
-            used_openrouter_monthly = monthly_part > 0
-            ledger_reason = "openrouter_monthly_generation" if monthly_part > 0 else "generation"
-            if old_balance < balance_delta:
-                raise HTTPException(402, "Not enough tokens.")
-        elif daily_used_before + token_cost <= daily_limit:
-            used_daily = True
-            daily_used_after = daily_used_before + token_cost
-            ledger_reason = "daily_generation"
-        else:
-            daily_used_after = daily_used_before
-            if old_balance < token_cost:
-                raise HTTPException(402, "Not enough tokens.")
-            balance_delta = token_cost
-    else:
-        if old_balance < token_cost:
+        if req.provider != "openrouter":
+            daily_part = min(token_cost, max(0, daily_limit - daily_used_before))
+        balance_part = max(0, token_cost - daily_part)
+        if old_balance < balance_part:
             raise HTTPException(402, "Not enough tokens.")
 
-    new_balance = old_balance - balance_delta if user_id != "demo_user" else old_balance
+    daily_used_after = daily_used_before + daily_part
+    new_balance = old_balance - balance_part if user_id != "demo_user" else old_balance
+    ledger_reason = "daily_generation" if daily_part > 0 and balance_part == 0 else "generation"
     conn.execute(
         """
         UPDATE users
         SET token_balance = ?,
             daily_tokens_used = ?,
             last_daily_reset = ?,
-            openrouter_monthly_tokens_used = ?,
-            last_openrouter_month_reset = ?,
             tokens_used = tokens_used + ?,
             generation_count = generation_count + 1,
             last_seen_at = ?
         WHERE id = ?
         """,
-        (new_balance, daily_used_after, today, openrouter_monthly_used_after, month_key, token_cost, now_iso, user_id),
+        (new_balance, daily_used_after, today, token_cost, now_iso, user_id),
     )
     conn.execute(
         "INSERT INTO token_ledger (id, user_id, delta, reason, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         (
             str(uuid.uuid4()),
             user_id,
-            -balance_delta,
+            -balance_part,
             ledger_reason,
             json.dumps(
                 {
@@ -4314,15 +4671,13 @@ def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost:
                     "provider": req.provider,
                     "token_cost": token_cost,
                     "billing": billing_snapshot or None,
-                    "used_daily_budget": used_daily,
-                    "used_openrouter_monthly": used_openrouter_monthly,
+                    "used_daily_budget": daily_part > 0,
+                    "daily_part": daily_part,
+                    "balance_part": balance_part,
                     "daily_tokens_used_before": daily_used_before,
                     "daily_tokens_used_after": daily_used_after,
                     "daily_tokens_limit": daily_limit,
-                    "openrouter_monthly_used_before": openrouter_monthly_used_before,
-                    "openrouter_monthly_used_after": openrouter_monthly_used_after,
-                    "openrouter_monthly_limit": openrouter_monthly_limit,
-                    "balance_delta": -balance_delta,
+                    "balance_delta": -balance_part,
                 },
                 ensure_ascii=False,
             ),
@@ -4330,16 +4685,15 @@ def charge_generation_tokens(conn: sqlite3.Connection, user_id: str, token_cost:
         ),
     )
     return {
-        "used_daily": used_daily,
+        "used_daily": daily_part > 0,
         "old_balance": old_balance,
         "new_balance": new_balance,
-        "balance_delta": -balance_delta,
+        "balance_delta": -balance_part,
+        "daily_part": daily_part,
+        "balance_part": balance_part,
         "daily_tokens_used": daily_used_after,
         "daily_tokens_limit": daily_limit,
         "daily_tokens_remaining": max(0, daily_limit - daily_used_after),
-        "openrouter_monthly_tokens_used": openrouter_monthly_used_after,
-        "openrouter_monthly_tokens_limit": openrouter_monthly_limit,
-        "openrouter_monthly_tokens_remaining": max(0, openrouter_monthly_limit - openrouter_monthly_used_after),
     }
 
 
@@ -4368,7 +4722,26 @@ def refund_generation_tokens(conn: sqlite3.Connection, job_id: str, *, reason: s
     now_iso = now.isoformat()
     today = now.strftime("%Y-%m-%d")
     month_key = now.strftime("%Y-%m")
-    if charge["reason"] == "daily_generation":
+    if "daily_part" in meta or "balance_part" in meta:
+        daily_part = max(0, int(meta.get("daily_part") or 0))
+        balance_part = max(0, int(meta.get("balance_part") or 0))
+        user_row = conn.execute(
+            "SELECT daily_tokens_used, last_daily_reset FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if user_row is not None and user_row["last_daily_reset"] == today and daily_part > 0:
+            conn.execute(
+                "UPDATE users SET daily_tokens_used = MAX(0, daily_tokens_used - ?) WHERE id = ?",
+                (daily_part, user_id),
+            )
+        if balance_part > 0:
+            conn.execute(
+                "UPDATE users SET token_balance = token_balance + ? WHERE id = ?",
+                (balance_part, user_id),
+            )
+        refund_delta = balance_part
+        refund_reason = "generation_refund" if balance_part > 0 else "daily_generation_refund"
+    elif charge["reason"] == "daily_generation":
         user_row = conn.execute("SELECT daily_tokens_used, last_daily_reset FROM users WHERE id = ?", (user_id,)).fetchone()
         if user_row is not None and user_row["last_daily_reset"] == today and token_cost > 0:
             new_daily = max(0, int(user_row["daily_tokens_used"] or 0) - token_cost)
@@ -4407,7 +4780,17 @@ def refund_generation_tokens(conn: sqlite3.Connection, job_id: str, *, reason: s
             user_id,
             refund_delta,
             refund_reason,
-            json.dumps({"jobId": job_id, "reason": reason, "refunded_ledger_id": charge["id"], "token_cost": token_cost}, ensure_ascii=False),
+            json.dumps(
+                {
+                    "jobId": job_id,
+                    "reason": reason,
+                    "refunded_ledger_id": charge["id"],
+                    "token_cost": token_cost,
+                    "daily_part": max(0, int(meta.get("daily_part") or 0)),
+                    "balance_part": refund_delta,
+                },
+                ensure_ascii=False,
+            ),
             now_iso,
         ),
     )
@@ -7329,6 +7712,9 @@ async def startup() -> None:
     db_guard_preflight()
     validate_session_crypto_config()
     init_db()
+    video_cleanup = drain_video_file_deletions(limit=200)
+    if video_cleanup["checked"]:
+        print(f"video file deletion queue: {video_cleanup}")
     bot_runtime = apply_saved_bot_runtime_configuration()
     validate_telegram_webhook_secret(BOT_UPDATES_MODE, TELEGRAM_WEBHOOK_SECRET)
     validate_max_webhook_secret(MAX_UPDATES_MODE, MAX_WEBHOOK_SECRET)
@@ -7774,12 +8160,12 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
         "tokenCost": token_cost,
         "usedDailyBudget": token_charge["used_daily"],
         "tokenBalance": token_charge["new_balance"],
+        "mainBalanceTokens": token_charge["new_balance"],
+        "dailyTokenPart": token_charge["daily_part"],
+        "mainBalanceTokenPart": token_charge["balance_part"],
         "dailyTokensUsed": token_charge["daily_tokens_used"],
         "dailyTokensLimit": token_charge["daily_tokens_limit"],
         "dailyTokensRemaining": token_charge["daily_tokens_remaining"],
-        "openrouterMonthlyTokensUsed": token_charge["openrouter_monthly_tokens_used"],
-        "openrouterMonthlyTokensLimit": token_charge["openrouter_monthly_tokens_limit"],
-        "openrouterMonthlyTokensRemaining": token_charge["openrouter_monthly_tokens_remaining"],
     }
 
 
@@ -7901,7 +8287,9 @@ async def tariffs(request: Request) -> dict[str, Any]:
         capability_catalog = []
     return {
         "ok": True,
-        "tariffs": get_tariff_config(),
+        "tariffs": tariff_config_with_model_counts(),
+        "termOffers": public_tariff_term_offers(),
+        "tariffTerms": get_tariff_term_settings()["discount_percent"],
         "modelAccess": public_model_access_for_plan(plan, capability_catalog),
         "openrouterPricing": public_openrouter_pricing(exchange),
         "economy": {
@@ -7915,14 +8303,17 @@ async def public_commerce_v2() -> dict[str, Any]:
     """Public storefront data without credentials or user-specific fields."""
     with db() as conn:
         _sync_tariff_billing_packages(conn)
-        tariffs_config = get_tariff_config(conn)
+        tariffs_config = tariff_config_with_model_counts(conn)
         packages = conn.execute(
-            "SELECT * FROM billing_packages WHERE is_active = 1 AND code LIKE 'tokens_%' ORDER BY sort_order, price_amount"
+            "SELECT * FROM billing_packages WHERE is_active = 1 AND (code LIKE 'tokens_%' OR code LIKE 'tariff_%') ORDER BY sort_order, price_amount"
         ).fetchall()
         public_legal = legal_settings(conn)
+        term_offers = public_tariff_term_offers(conn)
     return {
         "ok": True,
         "tariffs": tariffs_config,
+        "termOffers": term_offers,
+        "tariffTerms": get_tariff_term_settings()["discount_percent"],
         "packages": [_billing_package_dict(row) for row in packages],
         "legal": public_legal,
         "legal_readiness": legal_readiness(public_legal),
@@ -9585,6 +9976,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
     iuid = user["internal_user_id"]
     legacy = user["legacy_user_id"]
     with db() as conn:
+        _reconcile_user_tariff(conn, iuid)
         sess = conn.execute(
             "SELECT provider, platform, expires_at, refresh_expires_at FROM auth_sessions WHERE id = ?",
             (user["session_id"],),
@@ -9598,18 +9990,15 @@ async def me_v2(request: Request) -> dict[str, Any]:
         ).fetchall()
         gallery_access = bool(user_gallery_allowed(conn, iuid, legacy))
         gallery_quota = gallery_quota_for_user(conn, urow, legacy)
+        video_state = video_storage_state_for_user(conn, urow, legacy)
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        month_key = datetime.now(timezone.utc).strftime("%Y-%m")
         daily_tokens_used = int(_row_get(urow, "daily_tokens_used") or 0)
         if _row_get(urow, "last_daily_reset") != today:
             daily_tokens_used = 0
         daily_tokens_limit = int(gallery_quota["daily_tokens"])
         daily_tokens_remaining = max(0, daily_tokens_limit - daily_tokens_used)
-        openrouter_monthly_limit = int(gallery_quota.get("openrouter_monthly_tokens", 0) or 0)
-        openrouter_monthly_used = int(_row_get(urow, "openrouter_monthly_tokens_used") or 0)
-        if _row_get(urow, "last_openrouter_month_reset") != month_key:
-            openrouter_monthly_used = 0
-        openrouter_monthly_remaining = max(0, openrouter_monthly_limit - openrouter_monthly_used)
+        monthly_tokens_grant = int(gallery_quota.get("monthly_tokens", 0) or 0)
+        pending_plan = safe_json_load(_row_get(urow, "pending_plan_json")) or None
 
     primary_identity = identities[0] if identities else None
     # Fall back to a provider avatar URL when the user has no local avatar yet.
@@ -9667,17 +10056,20 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
             "gallery_access": gallery_access,
             "daily_tokens": daily_tokens_limit,
-            "openrouter_monthly_tokens": openrouter_monthly_limit,
-            "openrouter_monthly_tokens_used": openrouter_monthly_used,
-            "openrouter_monthly_tokens_remaining": openrouter_monthly_remaining,
+            "monthly_tokens_grant": monthly_tokens_grant,
+            "plan_started_at": _row_get(urow, "plan_started_at"),
+            "plan_expires_at": _row_get(urow, "plan_expires_at"),
+            "plan_next_token_grant_at": _row_get(urow, "plan_next_token_grant_at"),
+            "plan_term_months": int(_row_get(urow, "plan_term_months") or 1),
+            "pending_plan": pending_plan if isinstance(pending_plan, dict) else None,
             "gallery_slots": gallery_quota["gallery_slots"],
             "gallery_used": gallery_quota["gallery_used"],
             "gallery_free": gallery_quota["gallery_free"],
             "gallery_full": gallery_quota["gallery_full"],
             "video_enabled": gallery_quota["video_enabled"],
             "video_slots": gallery_quota["video_slots"],
-            "video_used": 0,
-            "video_free": gallery_quota["video_slots"],
+            "video_used": video_state.active,
+            "video_free": video_state.free,
         },
         "session": {
             "session_id": user["session_id"],
@@ -9720,13 +10112,14 @@ TOKEN_HISTORY_REASONS = {
     "bonus_grant",
     "promo_apply",
     "referral_reward",
+    "tariff_monthly_grant",
 }
 
 
 def _token_history_spent(row: sqlite3.Row, meta: dict[str, Any]) -> int:
     delta = int(row["delta"] or 0)
     reason = str(row["reason"] or "")
-    if reason in {"daily_generation", "openrouter_monthly_generation"}:
+    if reason in {"generation", "daily_generation", "openrouter_monthly_generation"} and meta.get("token_cost") is not None:
         return max(0, int(meta.get("token_cost") or 0))
     if delta < 0:
         return abs(delta)
@@ -9739,12 +10132,14 @@ def _token_history_source(row: sqlite3.Row, meta: dict[str, Any]) -> str:
     if reason == "daily_generation":
         return "дневной пакет"
     if reason == "openrouter_monthly_generation":
-        return "премиум-пакет"
+        return "основной баланс"
+    if reason == "tariff_monthly_grant":
+        return "тарифное начисление"
     if provider == "openrouter":
         return "баланс токенов"
     if reason.endswith("_refund"):
         return "возврат"
-    if reason in {"payment_grant", "bonus_grant", "promo_apply", "referral_reward", "admin_register", "admin_adjust"}:
+    if reason in {"payment_grant", "bonus_grant", "promo_apply", "referral_reward", "admin_register", "admin_adjust", "tariff_monthly_grant"}:
         return "начисление"
     return "баланс токенов"
 
@@ -9785,6 +10180,7 @@ async def account_token_history_v2(request: Request, days: int = 30, limit: int 
             spent_total += spent
             if delta < 0:
                 balance_spent += abs(delta)
+                included_spent += max(0, spent - abs(delta))
             else:
                 included_spent += spent
         if delta > 0 and reason.endswith("_refund"):
@@ -9800,7 +10196,6 @@ async def account_token_history_v2(request: Request, days: int = 30, limit: int 
             "provider": meta.get("provider"),
             "jobId": short_public_id(meta.get("jobId") or meta.get("job_id")),
             "model": billing.get("modelName") or billing.get("modelId"),
-            "costRub": billing.get("actualCostRub") or billing.get("estimatedCostRub"),
             "createdAt": row["created_at"],
         })
     return {
@@ -10731,17 +11126,38 @@ def _billing_package_dict(row: sqlite3.Row) -> dict[str, Any]:
 def _sync_tariff_billing_packages(conn: sqlite3.Connection) -> None:
     now = datetime.now(timezone.utc).isoformat()
     tariffs = get_tariff_config(conn)
-    for index, plan in enumerate(("mini", "plus", "pro", "business"), start=1):
+    offers = tariff_term_offers(conn)
+    for plan_index, plan in enumerate(("mini", "plus", "pro", "business"), start=1):
         tariff = tariffs[plan]
+        active_codes: list[str] = []
+        for term_index, offer in enumerate(offers[plan]):
+            code = str(offer["code"])
+            months = int(offer["months"])
+            active_codes.append(code)
+            conn.execute(
+                """
+                INSERT INTO billing_packages
+                    (id, code, name, description, price_amount, currency, token_amount, is_active, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'RUB', 0, 1, ?, ?, ?)
+                ON CONFLICT(code) DO UPDATE SET name=excluded.name, description=excluded.description,
+                    price_amount=excluded.price_amount, token_amount=0, is_active=1,
+                    sort_order=excluded.sort_order, updated_at=excluded.updated_at
+                """,
+                (
+                    uuid.uuid4().hex,
+                    code,
+                    f"Тариф {tariff['title']} на {months} мес.",
+                    f"{tariff['note']} · {months} мес.",
+                    int(offer["price_total_rub"]),
+                    100 + plan_index * 10 + term_index,
+                    now,
+                    now,
+                ),
+            )
+        placeholders = ",".join("?" for _ in active_codes)
         conn.execute(
-            """
-            INSERT INTO billing_packages
-                (id, code, name, description, price_amount, currency, token_amount, is_active, sort_order, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'RUB', 0, 1, ?, ?, ?)
-            ON CONFLICT(code) DO UPDATE SET name=excluded.name, description=excluded.description,
-                price_amount=excluded.price_amount, is_active=1, sort_order=excluded.sort_order, updated_at=excluded.updated_at
-            """,
-            (uuid.uuid4().hex, f"tariff_{plan}", f"Тариф {tariff['title']} на 30 дней", tariff["note"], int(tariff["price_rub_month"]), 100 + index * 10, now, now),
+            f"UPDATE billing_packages SET is_active=0, updated_at=? WHERE code LIKE ? AND code NOT IN ({placeholders})",
+            (now, f"tariff_{plan}%", *active_codes),
         )
 
 
@@ -11055,12 +11471,20 @@ async def admin_plan_v2(internal_user_id: str, req: AdminPlanV2Request, request:
         raise HTTPException(400, "Укажите причину.")
     with db() as conn:
         target = _admin_load_target(conn, internal_user_id)
-        conn.execute("UPDATE users SET plan = ?, gallery_enabled = 1 WHERE internal_user_id = ?",
-                     (req.plan, internal_user_id))
+        activation = _activate_tariff_now(
+            conn,
+            internal_user_id=internal_user_id,
+            plan=req.plan,
+            now=datetime.now(timezone.utc),
+            source="admin",
+            source_id=uuid.uuid4().hex,
+            duration_days=req.duration_days,
+        )
         record_audit_log(conn, "admin_change_plan", actor_internal_user_id=admin["internal_user_id"],
                          target_internal_user_id=internal_user_id, entity_id=target["id"],
-                         before={"plan": target["plan"]}, after={"plan": req.plan, "reason": reason}, request=request)
-    return {"ok": True, "internal_user_id": internal_user_id, "plan": req.plan}
+                         before={"plan": target["plan"]},
+                         after={"plan": req.plan, "duration_days": req.duration_days, "reason": reason}, request=request)
+    return {"ok": True, "internal_user_id": internal_user_id, "plan": req.plan, "activation": activation}
 
 
 @app.post("/api/admin/users/{internal_user_id}/profile-v2")
@@ -11124,11 +11548,19 @@ async def billing_packages_v2(request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
     with db() as conn:
         _sync_tariff_billing_packages(conn)
-        rows = conn.execute("SELECT * FROM billing_packages WHERE is_active = 1 AND code LIKE 'tokens_%' ORDER BY sort_order, price_amount").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM billing_packages WHERE is_active = 1 AND (code LIKE 'tokens_%' OR code LIKE 'tariff_%') ORDER BY sort_order, price_amount"
+        ).fetchall()
         user = _admin_load_target(conn, trusted["internal_user_id"])
+        _reconcile_user_tariff(conn, trusted["internal_user_id"])
         settings = legal_settings(conn)
         receipt_email = billing_profile_email(conn, trusted["internal_user_id"])
         discount_percent = int(user["personal_discount_percent"] or 0)
+        offers_by_code = {
+            str(offer["code"]): (plan, offer)
+            for plan, offers in public_tariff_term_offers(conn).items()
+            for offer in offers
+        }
         packages = []
         for row in rows:
             item = _billing_package_dict(row)
@@ -11141,6 +11573,25 @@ async def billing_packages_v2(request: Request) -> dict[str, Any]:
                     "price_amount": total,
                 }
             )
+            offer_data = offers_by_code.get(str(item["code"]))
+            if offer_data:
+                plan, offer = offer_data
+                item.update(
+                    {
+                        "kind": "tariff",
+                        "plan": plan,
+                        "term_months": int(offer["months"]),
+                        "monthly_price_amount": int(offer["monthly_price_rub"]),
+                        "term_discount_percent": int(offer["discount_percent"]),
+                        "term_base_price_amount": int(offer["base_total_rub"]),
+                        "term_savings_amount": int(offer["savings_rub"]),
+                        "included_tokens": int(offer["included_tokens"]),
+                        "effective_token_price_rub": offer["effective_token_price_rub"],
+                        "personal_discount_percent": discount_percent,
+                    }
+                )
+            else:
+                item["kind"] = "tokens"
             packages.append(item)
     return {
         "ok": True,
@@ -12319,6 +12770,7 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
     device_meta = safe_json_load(_row_get(last_session, "metadata_json")) or {}
     device = device_meta.get("device") if isinstance(device_meta, dict) else {}
     gallery_quota = gallery_quota_for_user(conn, urow, legacy)
+    video_state = video_storage_state_for_user(conn, urow, legacy)
     identity_email = next((str(i["provider_email"]).strip() for i in identities if i["provider_email"]), None)
     identity_username = next((str(i["provider_username"]).strip() for i in identities if i["provider_username"]), None)
     identity_phone = next((str(i["provider_phone"]).strip() for i in identities if i["provider_phone"]), None)
@@ -12362,15 +12814,20 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
         "gallery_access": bool(user_gallery_allowed(conn, iuid, legacy)),
         "daily_tokens": gallery_quota["daily_tokens"],
-        "openrouter_monthly_tokens": gallery_quota.get("openrouter_monthly_tokens", 0),
+        "monthly_tokens": gallery_quota.get("monthly_tokens", 0),
+        "plan_started_at": _row_get(urow, "plan_started_at"),
+        "plan_expires_at": _row_get(urow, "plan_expires_at"),
+        "plan_next_token_grant_at": _row_get(urow, "plan_next_token_grant_at"),
+        "plan_term_months": int(_row_get(urow, "plan_term_months") or 1),
+        "pending_plan": safe_json_load(_row_get(urow, "pending_plan_json")) or None,
         "gallery_slots": gallery_quota["gallery_slots"],
         "gallery_used": gallery_quota["gallery_used"],
         "gallery_free": gallery_quota["gallery_free"],
         "gallery_full": gallery_quota["gallery_full"],
         "video_enabled": gallery_quota["video_enabled"],
         "video_slots": gallery_quota["video_slots"],
-        "video_used": 0,
-        "video_free": gallery_quota["video_slots"],
+        "video_used": video_state.active,
+        "video_free": video_state.free,
         "status": "banned" if _row_get(urow, "banned") else "active",
         "role": _row_get(urow, "role"),
     }
@@ -12479,21 +12936,26 @@ def _complete_provider_payment(
             conn.execute("UPDATE users SET token_balance = ? WHERE internal_user_id = ?", (new_balance, payment["internal_user_id"]))
         item = conn.execute("SELECT package_code FROM invoice_items WHERE invoice_id = ? ORDER BY created_at LIMIT 1", (invoice["id"],)).fetchone()
         package_code = str(_row_get(item, "package_code") or "")
-        if package_code.startswith("tariff_"):
-            plan = package_code.removeprefix("tariff_")
+        parsed_tariff = parse_tariff_package_code(package_code)
+        lifecycle = None
+        if parsed_tariff:
+            plan, term_months = parsed_tariff
             if plan not in PLAN_ORDER or plan == "free":
                 raise HTTPException(409, "Invalid tariff package.")
-            current_expiry = _row_get(target, "plan_expires_at")
-            try:
-                current_expiry_dt = datetime.fromisoformat(str(current_expiry)) if current_expiry else now_dt
-            except ValueError:
-                current_expiry_dt = now_dt
-            base = current_expiry_dt if current_expiry_dt > now_dt else now_dt
-            expires_at = (base + timedelta(days=30)).isoformat()
-            conn.execute(
-                "UPDATE users SET plan=?, plan_expires_at=?, openrouter_monthly_tokens_used=0, last_openrouter_month_reset=? WHERE internal_user_id=?",
-                (plan, expires_at, now_dt.strftime("%Y-%m"), payment["internal_user_id"]),
+            lifecycle = _schedule_or_activate_paid_tariff(
+                conn,
+                internal_user_id=payment["internal_user_id"],
+                plan=plan,
+                term_months=term_months,
+                source="payment",
+                source_id=payment["id"],
+                now=now_dt,
             )
+            current_user = conn.execute(
+                "SELECT token_balance FROM users WHERE internal_user_id=?",
+                (payment["internal_user_id"],),
+            ).fetchone()
+            new_balance = int(_row_get(current_user, "token_balance") or 0)
         conn.execute("UPDATE payments SET status='paid', paid_at=?, token_ledger_id=?, updated_at=? WHERE id=?", (now, ledger_id, now, payment["id"]))
         conn.execute("UPDATE invoices SET status='paid', paid_at=?, updated_at=? WHERE id=?", (now, now, invoice["id"]))
         payment = conn.execute("SELECT * FROM payments WHERE id = ?", (payment["id"],)).fetchone()
@@ -12505,7 +12967,13 @@ def _complete_provider_payment(
             new_token_balance=new_balance,
             created_at=now,
         )
-    return {"payment": _billing_payment_dict(payment), "invoice": _billing_invoice_dict(invoice), "new_token_balance": new_balance, "idempotent": False}
+    return {
+        "payment": _billing_payment_dict(payment),
+        "invoice": _billing_invoice_dict(invoice),
+        "new_token_balance": new_balance,
+        "tariff_lifecycle": lifecycle,
+        "idempotent": False,
+    }
 
 
 @app.get("/api/admin/dashboard-v2")
@@ -13164,6 +13632,36 @@ async def _admin_telegram_probe() -> dict[str, Any]:
         except Exception:
             result["webhook"] = {"configured": None, "error": "Статус webhook временно недоступен."}
     return result
+
+
+def migrate_video_storage_tariffs(conn: sqlite3.Connection, *, now: str) -> bool:
+    """Install the agreed storage limits once without overriding later admin edits."""
+    marker = conn.execute(
+        "SELECT 1 FROM admin_settings WHERE key = ?",
+        (VIDEO_STORAGE_TARIFF_MIGRATION_KEY,),
+    ).fetchone()
+    if marker is not None:
+        return False
+    row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'tariffs'").fetchone()
+    if row is not None:
+        stored = safe_json_load(row["value_json"])
+        tariffs = normalize_tariffs(stored if isinstance(stored, dict) else {})
+        for plan, limit in VIDEO_STORAGE_TARIFF_LIMITS.items():
+            tariffs[plan]["video_slots"] = limit
+            tariffs[plan]["video_enabled"] = 1 if limit > 0 else 0
+        conn.execute(
+            "UPDATE admin_settings SET value_json = ?, updated_at = ? WHERE key = 'tariffs'",
+            (json.dumps(tariffs, ensure_ascii=False), now),
+        )
+    conn.execute(
+        "INSERT INTO admin_settings (key, value_json, updated_at) VALUES (?, ?, ?)",
+        (
+            VIDEO_STORAGE_TARIFF_MIGRATION_KEY,
+            json.dumps({"limits": VIDEO_STORAGE_TARIFF_LIMITS}, ensure_ascii=False),
+            now,
+        ),
+    )
+    return True
 
 
 async def _admin_max_probe(config: dict[str, Any]) -> dict[str, Any]:
@@ -14204,7 +14702,9 @@ async def admin_get_settings(request: Request) -> dict[str, Any]:
     with db() as conn:
         rows = conn.execute("SELECT key, value_json FROM admin_settings").fetchall()
         settings = {row["key"]: json.loads(row["value_json"] or "{}") for row in rows}
-        settings["tariffs"] = get_tariff_config(conn)
+        settings["tariffs"] = tariff_config_with_model_counts(conn)
+        settings["tariff_terms"] = get_tariff_term_settings(conn)
+        settings["tariff_offers"] = tariff_term_offers(conn)
     return settings
 
 
@@ -14213,6 +14713,8 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
     require_trusted_admin(request)
     if key == "tariffs":
         settings = normalize_tariffs(req.settings, strict=True)
+    elif key == "tariff_terms":
+        settings = normalize_term_settings(req.settings)
     elif key == "config_ui_resolution_access":
         raw_plans = req.settings.get("plans") if isinstance(req.settings.get("plans"), dict) else {}
         settings = {"plans": {plan: normalize_resolution_ids(raw_plans.get(plan), DEFAULT_TARIFFS[plan]["allowed_resolutions"]) for plan in PLAN_ORDER}}
@@ -14238,7 +14740,9 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
             """,
             (key, json.dumps(settings, ensure_ascii=False), now),
         )
-    if key in {"generation_routes", "server_model_loras", "server_model_profiles", "models", "tariff_matrix", "user_choice", "tariffs", "config_ui_resolution_access", "openrouter_economy", "openrouter_video_models"}:
+        if key in {"tariffs", "tariff_terms"}:
+            _sync_tariff_billing_packages(conn)
+    if key in {"generation_routes", "server_model_loras", "server_model_profiles", "models", "tariff_matrix", "user_choice", "tariffs", "tariff_terms", "config_ui_resolution_access", "openrouter_economy", "openrouter_video_models"}:
         _admin_models_page_cache["ts"] = 0.0
         _admin_models_page_cache["data"] = None
     return {"ok": True, "key": key, "settings": settings}
@@ -14322,7 +14826,18 @@ async def admin_payments_status_v2(request: Request) -> dict[str, Any]:
         payments = conn.execute("SELECT * FROM payments ORDER BY created_at DESC LIMIT 50").fetchall()
         events = conn.execute("SELECT event_type, provider_payment_id, status, received_at, processed_at, error FROM payment_provider_events ORDER BY received_at DESC LIMIT 50").fetchall()
         packages = conn.execute("SELECT * FROM billing_packages WHERE code LIKE 'tokens_%' ORDER BY sort_order, price_amount").fetchall()
-        tariffs = get_tariff_config(conn)
+        tariffs_config = get_tariff_config(conn)
+        tariff_products = [
+            {
+                **offer,
+                "plan": plan,
+                "title": tariffs_config[plan]["title"],
+                "price_amount": int(offer["price_total_rub"]),
+                "source": "tariffs",
+            }
+            for plan, offers in tariff_term_offers(conn).items()
+            for offer in offers
+        ]
         public_legal = legal_settings(conn)
     return {
         "ok": True,
@@ -14344,15 +14859,7 @@ async def admin_payments_status_v2(request: Request) -> dict[str, Any]:
         "webhook_url": f"{os.getenv('PUBLIC_SITE_URL', 'https://izo.alikinas.ru').rstrip('/')}/api/billing/yookassa/webhook-v2",
         "summary": {"total": int(summary["total"] or 0), "paid": int(summary["paid"] or 0), "pending": int(summary["pending"] or 0), "revenue_rub": int(summary["revenue"] or 0)},
         "packages": [_billing_package_dict(row) for row in packages],
-        "tariff_products": [
-            {
-                "code": f"tariff_{plan}",
-                "title": tariffs[plan]["title"],
-                "price_amount": int(tariffs[plan]["price_rub_month"]),
-                "source": "tariffs",
-            }
-            for plan in ("mini", "plus", "pro", "business")
-        ],
+        "tariff_products": tariff_products,
         "legal": public_legal,
         "legal_readiness": legal_readiness(public_legal),
         "payments": [_billing_payment_dict(row) for row in payments],
@@ -15609,6 +16116,178 @@ def _allowed_video_models(catalog: list[dict[str, Any]], config: dict[str, Any],
     return [model for model in catalog if model.get("id") in allowed and mode in (model.get("modes") or [])]
 
 
+VIDEO_DOWNLOAD_MAX_BYTES = 300 * 1024 * 1024
+VIDEO_FINALIZATION_STALE_SECONDS = 10 * 60
+
+
+def _video_storage_reservation(
+    conn: sqlite3.Connection,
+    user_row: sqlite3.Row | None,
+    user_id: str,
+) -> video_storage.VideoStorageState:
+    quota = gallery_quota_for_user(conn, user_row, user_id)
+    state = video_storage.storage_state(conn, user_id, limit=int(quota["video_slots"] or 0))
+    if not quota["video_enabled"] or state.limit <= 0:
+        raise HTTPException(403, "Хранение видео не входит в ваш тариф.")
+    if not state.can_reserve:
+        raise HTTPException(
+            409,
+            "Все видеослоты защищены сердечком или заняты текущими генерациями. "
+            "Снимите сердечко, удалите видео или дождитесь завершения генерации.",
+        )
+    return state
+
+
+def _queue_video_file_deletion(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    *,
+    now: str,
+) -> None:
+    settings = safe_json_load(row["job_settings"]) or {}
+    filename = str(settings.get("localFile") or "")
+    settings.pop("localFile", None)
+    settings["galleryDeleted"] = True
+    conn.execute(
+        "UPDATE videos SET deleted_at=?,is_favorite=0 WHERE id=? AND user_id=?",
+        (now, row["id"], row["user_id"]),
+    )
+    conn.execute(
+        "UPDATE jobs SET settings_json=? WHERE id=? AND user_id=?",
+        (json.dumps(settings, ensure_ascii=False), row["job_id"], row["user_id"]),
+    )
+    if filename:
+        conn.execute(
+            "INSERT INTO video_file_deletions "
+            "(id,video_id,job_id,filename,attempts,last_error,created_at) "
+            "VALUES (?,?,?,?,0,NULL,?)",
+            (uuid.uuid4().hex, row["id"], row["job_id"], filename, now),
+        )
+
+
+def drain_video_file_deletions(*, limit: int = 50) -> dict[str, int]:
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM video_file_deletions ORDER BY created_at ASC, id ASC LIMIT ?",
+            (max(1, min(int(limit), 500)),),
+        ).fetchall()
+    removed = 0
+    failed = 0
+    for row in rows:
+        try:
+            path = storage_resolve_under_root(MEDIA, str(row["filename"] or ""))
+            if path and path.is_file():
+                path.unlink(missing_ok=True)
+            with db() as conn:
+                conn.execute("DELETE FROM video_file_deletions WHERE id=?", (row["id"],))
+            removed += 1
+        except Exception as exc:  # pragma: no cover - filesystem dependent
+            failed += 1
+            with db() as conn:
+                conn.execute(
+                    "UPDATE video_file_deletions SET attempts=attempts+1,last_error=? WHERE id=?",
+                    (truncate_admin_text(str(exc), 500), row["id"]),
+                )
+    return {"checked": len(rows), "removed": removed, "failed": failed}
+
+
+def _evict_videos_for_new_result(
+    conn: sqlite3.Connection,
+    user_row: sqlite3.Row | None,
+    user_id: str,
+    *,
+    now: str,
+) -> int:
+    quota = gallery_quota_for_user(conn, user_row, user_id)
+    rows = video_storage.select_eviction_candidates(
+        conn,
+        user_id,
+        limit=int(quota["video_slots"] or 0),
+    )
+    for row in rows:
+        _queue_video_file_deletion(conn, row, now=now)
+    return len(rows)
+
+
+def _video_finalization_is_fresh(settings: dict[str, Any]) -> bool:
+    value = str(settings.get("finalizingAt") or "")
+    try:
+        started = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - started).total_seconds() < VIDEO_FINALIZATION_STALE_SECONDS
+
+
+def _claim_video_finalization(job_id: str) -> tuple[bool, sqlite3.Row]:
+    with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        current = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if current is None:
+            raise HTTPException(404, "Видео-задание не найдено.")
+        settings = safe_json_load(current["settings_json"]) or {}
+        if current["status"] == "completed":
+            return False, current
+        if current["status"] == "finalizing" and _video_finalization_is_fresh(settings):
+            return False, current
+        settings["finalizingAt"] = datetime.now(timezone.utc).isoformat()
+        settings.pop("finalizingError", None)
+        conn.execute(
+            "UPDATE jobs SET status='finalizing',progress=90,settings_json=? WHERE id=?",
+            (json.dumps(settings, ensure_ascii=False), job_id),
+        )
+        return True, conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+
+
+def _release_video_finalization(job_id: str, error: str) -> None:
+    with db() as conn:
+        row = conn.execute("SELECT settings_json FROM jobs WHERE id=?", (job_id,)).fetchone()
+        settings = safe_json_load(row["settings_json"]) if row else {}
+        settings = settings if isinstance(settings, dict) else {}
+        settings.pop("finalizingAt", None)
+        settings["finalizingError"] = truncate_admin_text(error, 500)
+        conn.execute(
+            "UPDATE jobs SET status='pending',progress=85,error_message=?,settings_json=? WHERE id=?",
+            (truncate_admin_text(error, 500), json.dumps(settings, ensure_ascii=False), job_id),
+        )
+
+
+async def _download_video_result(url: str, job_id: str) -> tuple[str, int]:
+    filename = f"{job_id}.mp4"
+    target = storage_resolve_under_root(MEDIA, filename)
+    temporary = storage_resolve_under_root(MEDIA, f"{filename}.part")
+    if target is None or temporary is None:
+        raise HTTPException(500, "Некорректный путь хранения видео.")
+    temporary.unlink(missing_ok=True)
+    total = 0
+    try:
+        async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
+            async with client.stream("GET", url, headers=openrouter_headers()) as response:
+                response.raise_for_status()
+                declared = int(response.headers.get("content-length") or 0)
+                if declared > VIDEO_DOWNLOAD_MAX_BYTES:
+                    raise HTTPException(502, "Полученное видео превышает лимит хранения.")
+                with temporary.open("xb") as output:
+                    async for chunk in response.aiter_bytes(1024 * 1024):
+                        total += len(chunk)
+                        if total > VIDEO_DOWNLOAD_MAX_BYTES:
+                            raise HTTPException(502, "Полученное видео превышает лимит хранения.")
+                        output.write(chunk)
+                    output.flush()
+                    os.fsync(output.fileno())
+        if total <= 16:
+            raise HTTPException(502, "Провайдер вернул пустой видеофайл.")
+        with temporary.open("rb") as source:
+            if b"ftyp" not in source.read(64):
+                raise HTTPException(502, "Провайдер вернул файл неизвестного видеоформата.")
+        os.replace(temporary, target)
+        return filename, total
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 @app.get("/api/video/config")
 async def video_generation_config(request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
@@ -15616,6 +16295,11 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
     with db() as conn:
         user = conn.execute("SELECT plan, role FROM users WHERE id = ?", (user_id,)).fetchone()
         quota = gallery_quota_for_user(conn, user, user_id)
+        storage_state = video_storage.storage_state(
+            conn,
+            user_id,
+            limit=int(quota["video_slots"] or 0),
+        )
     plan = str(_row_get(user, "plan") or "free").lower()
     is_admin = str(_row_get(user, "role") or "") == "admin"
     catalog = await fetch_openrouter_video_catalog()
@@ -15639,6 +16323,13 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
         "modes": modes,
         "plan": plan,
         "videoSlots": quota["video_slots"],
+        "videoStorage": {
+            "used": storage_state.active,
+            "limit": storage_state.limit,
+            "free": storage_state.free,
+            "full": storage_state.full,
+            "storedBytes": storage_state.stored_bytes,
+        },
         "availability": {
             mode: {
                 "enabled": len((config.get("enabled") or {}).get(mode) or []),
@@ -15699,6 +16390,9 @@ async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[st
     now = datetime.now(timezone.utc).isoformat()
     try:
         with db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            locked_user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            _video_storage_reservation(conn, locked_user, user_id)
             charge = charge_generation_tokens(conn, user_id, int(billing["chargedTokens"]), job_id, req, billing)
             conn.execute("INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,settings_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (job_id, user_id, req.mode, "openrouter", "submitting", 5, req.prompt.strip(), json.dumps({"openrouterModel": req.model, "duration": req.duration, "resolution": req.resolution, "aspectRatio": req.aspectRatio, "generateAudio": req.generateAudio, "tokenCost": billing["chargedTokens"], "openrouterBilling": billing}, ensure_ascii=False), now))
         submitted = await submit_openrouter_video(base_url=OPENROUTER_BASE_URL, headers=openrouter_headers(), payload=body)
@@ -15740,9 +16434,12 @@ async def estimate_video(req: VideoGenerateRequest, request: Request) -> dict[st
 
 
 async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
-    if row["status"] not in {"submitting", "queued", "pending", "in_progress"}:
+    initial_settings = safe_json_load(row["settings_json"]) or {}
+    if row["status"] == "finalizing" and _video_finalization_is_fresh(initial_settings):
         return row
-    settings = safe_json_load(row["settings_json"]) or {}
+    if row["status"] not in {"submitting", "queued", "pending", "in_progress", "finalizing"}:
+        return row
+    settings = initial_settings
     external_id = str(settings.get("openrouterJobId") or "")
     if not external_id:
         return row
@@ -15754,30 +16451,46 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
     progress = 55 if status == "in_progress" else 15
     completed_at = None
     error = None
+    downloaded_filename: str | None = None
+    stored_bytes: int | None = None
     if status == "completed":
-        progress = 100
         urls = state.get("unsigned_urls") if isinstance(state.get("unsigned_urls"), list) else []
-        if urls:
-            async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
-                response = await client.get(str(urls[0]), headers=openrouter_headers())
-            response.raise_for_status()
-            if len(response.content) > 300 * 1024 * 1024:
-                raise HTTPException(502, "Полученное видео превышает лимит хранения.")
-            filename = f"{row['id']}.mp4"
-            (MEDIA / filename).write_bytes(response.content)
-            settings["localFile"] = filename
+        if not urls:
+            status = "failed"
+            progress = 100
+            error = "Провайдер завершил генерацию без видеофайла."
+            completed_at = datetime.now(timezone.utc).isoformat()
+            with db() as conn:
+                refund_generation_tokens(conn, row["id"], reason="video_missing_result")
+        else:
+            claimed, claimed_row = _claim_video_finalization(row["id"])
+            if not claimed:
+                return claimed_row
+            row = claimed_row
+            settings = safe_json_load(row["settings_json"]) or {}
+            try:
+                downloaded_filename, stored_bytes = await _download_video_result(str(urls[0]), row["id"])
+            except Exception as exc:
+                _release_video_finalization(row["id"], str(exc))
+                if isinstance(exc, HTTPException):
+                    raise
+                raise HTTPException(502, "Не удалось сохранить полученное видео.") from exc
+            progress = 100
+            settings["localFile"] = downloaded_filename
             settings["galleryVideoId"] = f"gallery_{row['id']}"
             settings.pop("galleryDeleted", None)
-        settings["openrouterUsage"] = state.get("usage") or {}
-        settings["openrouterCostUsd"] = (state.get("usage") or {}).get("cost")
-        billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
-        actual = (state.get("usage") or {}).get("cost")
-        if isinstance(actual, (int, float)):
-            actual_rub = float(actual) * float(billing.get("effectiveUsdRub") or 0)
-            actual_tokens = openrouter_tokens_for_cost(actual_rub, 1, {"tokenRub": billing.get("tokenRub", 5), "minMarginPercent": billing.get("minMarginPercent", 40)})
-            with db() as conn:
-                reconcile_openrouter_token_charge(conn, row["id"], actual_tokens)
-        completed_at = datetime.now(timezone.utc).isoformat()
+            settings.pop("finalizingAt", None)
+            settings.pop("finalizingError", None)
+            settings["openrouterUsage"] = state.get("usage") or {}
+            settings["openrouterCostUsd"] = (state.get("usage") or {}).get("cost")
+            billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
+            actual = (state.get("usage") or {}).get("cost")
+            if isinstance(actual, (int, float)):
+                actual_rub = float(actual) * float(billing.get("effectiveUsdRub") or 0)
+                actual_tokens = openrouter_tokens_for_cost(actual_rub, 1, {"tokenRub": billing.get("tokenRub", 5), "minMarginPercent": billing.get("minMarginPercent", 40)})
+                with db() as conn:
+                    reconcile_openrouter_token_charge(conn, row["id"], actual_tokens)
+            completed_at = datetime.now(timezone.utc).isoformat()
     elif status in {"failed", "cancelled", "expired"}:
         progress = 100
         error = str(state.get("error") or "OpenRouter не завершил генерацию видео.")
@@ -15785,38 +16498,50 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
         with db() as conn:
             refund_generation_tokens(conn, row["id"], reason=f"video_{status}")
     settings["pollingUrl"] = state.get("polling_url") or settings.get("pollingUrl")
-    with db() as conn:
-        if status == "completed" and settings.get("localFile"):
-            size = _video_size(
-                {"supportedSizes": []},
-                str(settings.get("resolution") or "720p"),
-                str(settings.get("aspectRatio") or "16:9"),
-            ) or (0, 0)
-            local_path = storage_resolve_under_root(MEDIA, str(settings["localFile"]))
-            stored_bytes = local_path.stat().st_size if local_path and local_path.is_file() else None
-            conn.execute(
-                """
-                INSERT INTO videos (
-                    id, user_id, job_id, url, width, height, duration_seconds,
-                    aspect_ratio, mode, provider, prompt_original, settings_json,
-                    stored_bytes, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(job_id) DO UPDATE SET
-                    url=excluded.url, width=excluded.width, height=excluded.height,
-                    duration_seconds=excluded.duration_seconds, aspect_ratio=excluded.aspect_ratio,
-                    prompt_original=excluded.prompt_original, settings_json=excluded.settings_json,
-                    stored_bytes=excluded.stored_bytes, deleted_at=NULL
-                """,
-                (
-                    settings["galleryVideoId"], row["user_id"], row["id"],
-                    f"/api/video/media/{row['id']}", int(size[0]), int(size[1]),
-                    int(settings.get("duration") or 0), settings.get("aspectRatio"),
-                    row["mode"], "openrouter", row["prompt_original"] or "",
-                    json.dumps(settings, ensure_ascii=False), stored_bytes, row["created_at"],
-                ),
-            )
-        conn.execute("UPDATE jobs SET status=?,progress=?,error_message=?,settings_json=?,completed_at=COALESCE(?,completed_at) WHERE id=?", (status, progress, error, json.dumps(settings, ensure_ascii=False), completed_at, row["id"]))
-        return conn.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone()
+    try:
+        with db() as conn:
+            if status == "completed" and settings.get("localFile"):
+                conn.execute("BEGIN IMMEDIATE")
+                user_row = conn.execute("SELECT * FROM users WHERE id=?", (row["user_id"],)).fetchone()
+                _evict_videos_for_new_result(conn, user_row, row["user_id"], now=completed_at or datetime.now(timezone.utc).isoformat())
+                size = _video_size(
+                    {"supportedSizes": []},
+                    str(settings.get("resolution") or "720p"),
+                    str(settings.get("aspectRatio") or "16:9"),
+                ) or (0, 0)
+                conn.execute(
+                    """
+                    INSERT INTO videos (
+                        id, user_id, job_id, url, width, height, duration_seconds,
+                        aspect_ratio, mode, provider, prompt_original, settings_json,
+                        stored_bytes, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(job_id) DO UPDATE SET
+                        url=excluded.url, width=excluded.width, height=excluded.height,
+                        duration_seconds=excluded.duration_seconds, aspect_ratio=excluded.aspect_ratio,
+                        prompt_original=excluded.prompt_original, settings_json=excluded.settings_json,
+                        stored_bytes=excluded.stored_bytes, deleted_at=NULL
+                    """,
+                    (
+                        settings["galleryVideoId"], row["user_id"], row["id"],
+                        f"/api/video/media/{row['id']}", int(size[0]), int(size[1]),
+                        int(settings.get("duration") or 0), settings.get("aspectRatio"),
+                        row["mode"], "openrouter", row["prompt_original"] or "",
+                        json.dumps(settings, ensure_ascii=False), stored_bytes, row["created_at"],
+                    ),
+                )
+            conn.execute("UPDATE jobs SET status=?,progress=?,error_message=?,settings_json=?,completed_at=COALESCE(?,completed_at) WHERE id=?", (status, progress, error, json.dumps(settings, ensure_ascii=False), completed_at, row["id"]))
+            result = conn.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone()
+    except Exception as exc:
+        if downloaded_filename:
+            path = storage_resolve_under_root(MEDIA, downloaded_filename)
+            if path:
+                path.unlink(missing_ok=True)
+            _release_video_finalization(row["id"], str(exc))
+        raise
+    if status == "completed":
+        drain_video_file_deletions(limit=10)
+    return result
 
 
 @app.get("/api/video/jobs/{job_id}")
@@ -15903,11 +16628,19 @@ async def gallery_video_favorite(video_id: str, req: FavoriteRequest, request: R
     user_id = require_trusted_user(request)["legacy_user_id"]
     with db() as conn:
         row = conn.execute(
-            "SELECT id FROM videos WHERE id=? AND user_id=? AND deleted_at IS NULL",
+            "SELECT id,is_favorite FROM videos WHERE id=? AND user_id=? AND deleted_at IS NULL",
             (video_id, user_id),
         ).fetchone()
         if row is None:
             raise HTTPException(404, "Видео не найдено.")
+        if req.isFavorite and not bool(row["is_favorite"]):
+            user_row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+            state = video_storage_state_for_user(conn, user_row, user_id)
+            if state.limit <= 0 or state.protected >= state.limit:
+                raise HTTPException(
+                    409,
+                    "Нельзя защитить еще одно видео: все видеослоты уже защищены или зарезервированы.",
+                )
         conn.execute(
             "UPDATE videos SET is_favorite=? WHERE id=? AND user_id=?",
             (1 if req.isFavorite else 0, video_id, user_id),
@@ -15920,6 +16653,7 @@ async def gallery_video_delete(video_id: str, request: Request) -> dict[str, Any
     user_id = require_trusted_user(request)["legacy_user_id"]
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT v.*, j.settings_json AS job_settings FROM videos v "
             "LEFT JOIN jobs j ON j.id=v.job_id "
@@ -15928,22 +16662,9 @@ async def gallery_video_delete(video_id: str, request: Request) -> dict[str, Any
         ).fetchone()
         if row is None:
             raise HTTPException(404, "Видео не найдено.")
-        settings = safe_json_load(row["job_settings"]) or {}
-        filename = str(settings.get("localFile") or "")
-        path = storage_resolve_under_root(MEDIA, filename) if filename else None
-        if path and path.is_file():
-            path.unlink(missing_ok=True)
-        settings.pop("localFile", None)
-        settings["galleryDeleted"] = True
-        conn.execute(
-            "UPDATE videos SET deleted_at=?,is_favorite=0 WHERE id=? AND user_id=?",
-            (now, video_id, user_id),
-        )
-        conn.execute(
-            "UPDATE jobs SET settings_json=? WHERE id=? AND user_id=?",
-            (json.dumps(settings, ensure_ascii=False), row["job_id"], user_id),
-        )
-    return {"ok": True, "videoId": video_id}
+        _queue_video_file_deletion(conn, row, now=now)
+    cleanup = drain_video_file_deletions(limit=10)
+    return {"ok": True, "videoId": video_id, "cleanupQueued": cleanup["failed"] > 0}
 
 
 def openrouter_video_usage_stats() -> dict[str, Any]:
@@ -16071,6 +16792,66 @@ def normalize_openrouter_config(config: dict[str, Any]) -> dict[str, Any]:
 
 def get_openrouter_config() -> dict[str, Any]:
     return normalize_openrouter_config(_saved_setting("openrouter_models"))
+
+
+def tariff_model_counts(
+    image_config: dict[str, Any] | None = None,
+    video_config: dict[str, Any] | None = None,
+) -> dict[str, dict[str, int]]:
+    """Derive tariff model totals from the access matrices configured by admins."""
+    normalized_images = normalize_openrouter_config(
+        _saved_setting("openrouter_models") if image_config is None else image_config
+    )
+    raw_video = _saved_setting("openrouter_video_models") if video_config is None else video_config
+    raw_video = raw_video if isinstance(raw_video, dict) else {}
+    image_access = normalized_images.get("access") if isinstance(normalized_images.get("access"), dict) else {}
+    video_enabled = raw_video.get("enabled") if isinstance(raw_video.get("enabled"), dict) else {}
+    video_access = raw_video.get("access") if isinstance(raw_video.get("access"), dict) else {}
+
+    result: dict[str, dict[str, int]] = {}
+    for plan in PLAN_ORDER:
+        image_ids = {"server:local_flux_klein"}
+        if plan != "free":
+            for mode_access in image_access.values():
+                if not isinstance(mode_access, dict):
+                    continue
+                image_ids.update(
+                    model_id
+                    for model_id in mode_access.get(plan, [])
+                    if isinstance(model_id, str) and model_id
+                )
+
+        video_ids: set[str] = set()
+        if plan != "free":
+            for mode in OPENROUTER_VIDEO_MODES:
+                enabled_ids = {
+                    model_id
+                    for model_id in video_enabled.get(mode, [])
+                    if isinstance(model_id, str) and model_id
+                }
+                mode_access = video_access.get(mode) if isinstance(video_access.get(mode), dict) else {}
+                plan_ids = {
+                    model_id
+                    for model_id in mode_access.get(plan, [])
+                    if isinstance(model_id, str) and model_id
+                }
+                video_ids.update(enabled_ids.intersection(plan_ids))
+        result[plan] = {
+            "image_model_count": len(image_ids),
+            "video_model_count": len(video_ids),
+        }
+    return result
+
+
+def tariff_config_with_model_counts(
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, dict[str, Any]]:
+    tariffs = get_tariff_config(conn)
+    counts = tariff_model_counts()
+    return {
+        plan: {**tariff, **counts[plan]}
+        for plan, tariff in tariffs.items()
+    }
 
 
 def filter_openrouter_config_by_capabilities(config: dict[str, Any], catalog: list[dict[str, Any]]) -> dict[str, Any]:

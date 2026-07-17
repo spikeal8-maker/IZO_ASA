@@ -255,8 +255,8 @@ def test_user_detail_analytics_p0_real_data_and_no_secret_leaks(temp_db):
     assert b["recent_generations"][0]["error"] == "Ошибка генерации. Детали скрыты."
     assert b["recent_gallery"][0]["thumbnail_url"].startswith("/api/media/")
     assert all(not g["thumbnail_url"].startswith("C:") for g in b["recent_gallery"])
-    assert b["token_ledger_recent"][0]["delta"] == -12
-    assert b["token_ledger_recent"][0]["job_id"].endswith("…")
+    generation_ledger = next(item for item in b["token_ledger_recent"] if item["delta"] == -12)
+    assert generation_ledger["job_id"].endswith("…")
     assert any(s["device"]["browser"] == "Chrome" for s in b["sessions"])
     assert all(s["device"]["mac_status"] == "MAC: недоступен" for s in b["sessions"])
     assert b["devices"][0]["installation_id"].endswith("…")

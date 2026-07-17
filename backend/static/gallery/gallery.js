@@ -40,6 +40,23 @@ let primaryRequestVersion = 0;
 let secondaryRequestVersion = 0;
 const detailPromises = new Map();
 const API_BASE = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : '';
+const videoLoadObserver = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if(!entry.isIntersecting) return;
+    const video = entry.target;
+    const src = video.dataset.src;
+    if(src && !video.src){ video.src = src; video.load(); }
+    videoLoadObserver.unobserve(video);
+  });
+}, { rootMargin:'320px 0px' }) : null;
+
+function hydrateLazyVideos(root = document){
+  root.querySelectorAll('video[data-src]').forEach(video => {
+    if(video.src) return;
+    if(videoLoadObserver) videoLoadObserver.observe(video);
+    else { video.src = video.dataset.src; video.load(); }
+  });
+}
 
 const heartOutline = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 20.3S4.5 16 3.1 10.4C2.2 6.7 4.5 4 7.7 4c1.8 0 3.3 1 4.3 2.4C13 5 14.5 4 16.3 4c3.2 0 5.5 2.7 4.6 6.4C19.5 16 12 20.3 12 20.3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>`;
 const heartFilled = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21.2 10.7 20C5.4 15.3 2 12.2 2 8.4 2 5.3 4.4 3 7.4 3c1.7 0 3.4.8 4.6 2.1C13.2 3.8 14.9 3 16.6 3 19.6 3 22 5.3 22 8.4c0 3.8-3.4 6.9-8.7 11.6L12 21.2Z"/></svg>`;
@@ -174,7 +191,7 @@ function cardTemplate(raw, context){
   const feedTitle = item.published ? 'Открыть публикацию в общей ленте' : 'Опубликовать в ленту';
   const imgAttrs = item.width && item.height ? ` width="${Number(item.width)}" height="${Number(item.height)}"` : '';
   const media = isVideo
-    ? `<video src="${escapeHtml(item.viewerSrc)}" muted playsinline preload="metadata" aria-label="${escapeHtml(promptText)}"></video><span class="videoDuration">${escapeHtml(item.duration ? `${item.duration} с` : 'Видео')}</span>`
+    ? `<video data-src="${escapeHtml(item.viewerSrc)}" muted playsinline preload="metadata" aria-label="${escapeHtml(promptText)}"></video><span class="videoDuration">${escapeHtml(item.duration ? `${item.duration} с` : 'Видео')}</span>`
     : `<img src="${escapeHtml(item.src)}" alt="${escapeHtml(promptText)}" loading="lazy" decoding="async"${imgAttrs}>`;
   return `<article class="card ${isVideo ? 'videoCard' : ''}" data-id="${escapeHtml(item.id)}" data-context="${context}" data-width="${Number(item.width || 1)}" data-height="${Number(item.height || 1)}" title="${escapeHtml(promptText)}">
     ${media}
@@ -234,6 +251,7 @@ function appendPrimaryCards(rawItems){
   const cards = filteredItems(rawItems);
   if(!cards.length) return;
   galleryGrid.insertAdjacentHTML('beforeend', cards.map(item=>cardTemplate(item,'gallery')).join(''));
+  hydrateLazyVideos(galleryGrid);
   scheduleMasonry();
 }
 function refreshImageCards(id){
@@ -245,6 +263,7 @@ function refreshImageCards(id){
     const raw = context === 'feed' ? feedItem : galleryItem;
     if(raw) card.outerHTML = cardTemplate(raw, context);
   });
+  hydrateLazyVideos(document);
   scheduleMasonry();
 }
 function removeImageCards(id){
@@ -304,6 +323,7 @@ function render({ preservePrimary = false, preserveSecondary = false } = {}){
   loadMoreBtn.hidden = !hasMoreGallery || Boolean(galleryLoadError);
   loadMoreBtn.textContent = galleryLoading ? 'Загружаем...' : 'Показать еще';
   loadMoreBtn.disabled = galleryLoading;
+  hydrateLazyVideos(document);
   scheduleMasonry();
 }
 async function loadGallery({ append = false } = {}){
@@ -721,8 +741,9 @@ function renderThumbs(){
   const prefix = start > 0 ? `<span class="pill" title="Ранее в подборке">+${start}</span>` : '';
   const suffixCount = currentCollection.length - end;
   const suffix = suffixCount > 0 ? `<span class="pill" title="Дальше в подборке">+${suffixCount}</span>` : '';
-  const thumbs = currentCollection.slice(start, end).map((raw,offset)=>{ const idx=start+offset; const item=normalizeItem(raw); const media = item.mediaType === 'video' ? `<video src="${escapeHtml(item.viewerSrc)}" muted playsinline preload="metadata"></video>` : `<img src="${escapeHtml(item.src)}" alt="" loading="lazy" decoding="async">`; return `<button class="thumb ${idx===currentIndex?'active':''}" data-idx="${idx}">${media}</button>`; }).join('');
+  const thumbs = currentCollection.slice(start, end).map((raw,offset)=>{ const idx=start+offset; const item=normalizeItem(raw); const media = item.mediaType === 'video' ? `<video data-src="${escapeHtml(item.viewerSrc)}" muted playsinline preload="metadata"></video>` : `<img src="${escapeHtml(item.src)}" alt="" loading="lazy" decoding="async">`; return `<button class="thumb ${idx===currentIndex?'active':''}" data-idx="${idx}">${media}</button>`; }).join('');
   document.getElementById('thumbRail').innerHTML = `${prefix}${thumbs}${suffix}`;
+  hydrateLazyVideos(document.getElementById('thumbRail'));
 }
 function closeViewer(){ const video=document.getElementById('viewerVideo'); video.pause(); document.getElementById('viewer').classList.remove('open'); document.body.style.overflow = ''; resetViewerZoom(); }
 function stepViewer(dir){ currentIndex = (currentIndex + dir + currentCollection.length) % currentCollection.length; resetViewerZoom(); updateViewer(); }

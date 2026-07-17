@@ -76,6 +76,13 @@ def test_video_config_returns_only_enabled_catalog_models(video_api: TestClient)
     assert response.json()["modes"]["reference_to_video"] == []
     assert response.json()["availability"]["text_to_video"]["enabled"] == 1
     assert response.json()["availability"]["reference_to_video"]["reason"] == "В админке не включены модели для этого режима."
+    assert response.json()["videoStorage"] == {
+        "used": 0,
+        "limit": 25,
+        "free": 25,
+        "full": False,
+        "storedBytes": 0,
+    }
 
 
 def test_video_page_is_available_to_free_plan_and_models_define_access(video_api: TestClient):
@@ -156,5 +163,7 @@ def test_completed_video_is_backfilled_into_gallery_and_can_be_deleted(video_api
     assert video_api.get("/api/gallery/items?filter=video").json()["items"] == []
     with main.db() as conn:
         job_settings = json.loads(conn.execute("SELECT settings_json FROM jobs WHERE id='video-completed'").fetchone()["settings_json"])
+        pending_deletions = conn.execute("SELECT COUNT(*) AS c FROM video_file_deletions").fetchone()["c"]
     assert job_settings["galleryDeleted"] is True
     assert "localFile" not in job_settings
+    assert pending_deletions == 0
