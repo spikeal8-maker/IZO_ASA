@@ -157,7 +157,7 @@ Verified on 2026-07-17:
   actions stay unavailable;
 - the media-neutral shadow migration preserves legacy publication rows and the
   live schema audit reports no missing tables, columns, or indexes;
-- `backend/test_feed_v2.py` passes 62 tests,
+- `backend/test_feed_v2.py` passes 63 tests,
   `backend/test_video_generation_api.py` passes 5 tests, and
   `backend/test_gallery_shell_regressions.py` passes 12 tests;
 - the video-studio browser flow passes at 1920x1080, 1920x900, 3840x2160,

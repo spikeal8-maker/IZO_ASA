@@ -390,6 +390,44 @@ def test_gallery_exposes_completed_video_feed_publication(temp_db, monkeypatch):
         assert feed_item["videoUrl"].endswith(f"/api/feed/video/{publication_id}?variant=full")
 
 
+def test_deleting_private_video_keeps_independent_feed_copy(temp_db, monkeypatch):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-video-feed-copy", "web_video_feed_copy", "Автор копии")
+        make_video("vid-feed-copy", "web_video_feed_copy")
+        private_source = main.MEDIA / "vid-feed-copy.mp4"
+        monkeypatch.setattr(main, "FEED_VIDEO_PUBLICATION_ENABLED", True)
+        monkeypatch.setattr(main, "create_feed_video_assets", fake_feed_video_assets)
+
+        accepted = client.post(
+            "/api/feed/publications",
+            json={"videoId": "vid-feed-copy", "title": "Независимая копия"},
+            headers=bearer(token),
+        )
+        assert accepted.status_code == 202, accepted.text
+        publication_id = accepted.json()["publication"]["id"]
+        wait_for_video_publication(client, token, publication_id, expected_status="published")
+
+        deleted = client.delete("/api/gallery/videos/vid-feed-copy", headers=bearer(token))
+        assert deleted.status_code == 200, deleted.text
+        assert not private_source.exists()
+
+        feed_items = client.get("/api/feed?type=fresh").json()["items"]
+        assert any(item["id"] == publication_id for item in feed_items)
+        assert client.get(f"/api/feed/media/{publication_id}?variant=large").status_code == 200
+        assert client.get(f"/api/feed/video/{publication_id}?variant=preview").status_code == 200
+        assert client.get(f"/api/feed/video/{publication_id}?variant=full").status_code == 200
+
+        with main.db() as conn:
+            private_row = conn.execute("SELECT deleted_at FROM videos WHERE id = ?", ("vid-feed-copy",)).fetchone()
+            publication = conn.execute(
+                "SELECT status, video_full_name FROM feed_publications WHERE id = ?",
+                (publication_id,),
+            ).fetchone()
+        assert private_row["deleted_at"]
+        assert publication["status"] == "published"
+        assert (main.MEDIA / publication["video_full_name"]).is_file()
+
+
 def test_feed_video_publication_failure_is_private_and_retryable(temp_db, monkeypatch):
     with TestClient(main.app) as client:
         owner_token = make_user("iuid-video-failure", "web_video_failure", "Автор видео")
