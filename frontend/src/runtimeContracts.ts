@@ -19,8 +19,10 @@ function finiteNumber(value: unknown): number | undefined {
 
 export interface GalleryContractItem {
   id: string
+  mediaType: 'image' | 'video'
   url: string
   thumbnailUrl: string
+  videoUrl?: string
   mode: string
   promptOriginal: string
   createdAt: string
@@ -36,13 +38,17 @@ export interface GalleryContractItem {
 export function normalizeGalleryItem(value: unknown, index = 0): GalleryContractItem | null {
   const item = record(value)
   if (!item) return null
-  const url = text(item.viewerSrc || item.downloadUrl || item.url || item.src || item.thumbnailUrl)
-  const thumbnailUrl = text(item.thumbnailUrl || item.src || item.viewerSrc || item.downloadUrl || item.url)
+  const url = text(item.videoUrl || item.viewerSrc || item.downloadUrl || item.url || item.src || item.thumbnailUrl)
+  const thumbnailUrl = text(item.thumbnailUrl || item.src || item.videoUrl || item.viewerSrc || item.downloadUrl || item.url)
   if (!url || !thumbnailUrl) return null
+  const explicitMediaType = text(item.mediaType || item.media_type).toLowerCase()
+  const mediaType = explicitMediaType === 'video' || /\.(mp4|webm|mov|m4v)(?:[?#]|$)/i.test(url) ? 'video' : 'image'
   return {
     id: text(item.id || item.imageId) || `gallery-${index}-${thumbnailUrl}`,
+    mediaType,
     url,
     thumbnailUrl,
+    videoUrl: mediaType === 'video' ? url : undefined,
     mode: text(item.mode),
     promptOriginal: text(item.promptOriginal || item.prompt),
     createdAt: text(item.createdAt || item.date),

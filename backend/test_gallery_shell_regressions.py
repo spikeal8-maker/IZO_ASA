@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 from fastapi.testclient import TestClient
 
@@ -7,6 +8,7 @@ import main
 
 GALLERY_DIR = Path(__file__).resolve().parent / "static" / "gallery"
 FEED_DIR = Path(__file__).resolve().parent / "static" / "feed"
+FRONTEND_SRC = Path(__file__).resolve().parent.parent / "frontend" / "src"
 
 
 def test_gallery_shell_keeps_sticky_header_and_five_mobile_tabs():
@@ -29,7 +31,37 @@ def test_gallery_shell_hydrates_avatar_with_initials_fallback():
     assert "profile.avatar_url" in script
     assert "showInitials" in script
     assert "addEventListener('error'" in script
-    assert "gallery-resilience" in page
+    asset_versions = re.findall(r'/static/gallery/gallery\.(?:css|js)\?v=([^"<>]+)', page)
+    assert len(asset_versions) == 2
+    assert asset_versions[0] == asset_versions[1]
+
+
+def test_static_shells_render_compact_token_wallet_from_account_contract():
+    gallery_script = (GALLERY_DIR / "gallery.js").read_text(encoding="utf-8")
+    gallery_styles = (GALLERY_DIR / "gallery.css").read_text(encoding="utf-8")
+    feed_page = (FEED_DIR / "index.html").read_text(encoding="utf-8")
+
+    for source in (gallery_script, feed_page):
+        assert "daily_tokens_remaining" in source
+        assert "daily_tokens_limit" in source
+        assert "token_balance" in source
+        assert "balance > 0" in source
+        assert "top-token-values" in source
+
+    for source in (gallery_styles, feed_page):
+        assert "display:grid;align-content:center" in source
+        assert ".top-token-avatar" in source
+
+
+def test_generator_history_preserves_and_renders_video_media():
+    contracts = (FRONTEND_SRC / "runtimeContracts.ts").read_text(encoding="utf-8")
+    studio = (FRONTEND_SRC / "newUi.tsx").read_text(encoding="utf-8")
+
+    assert "mediaType: 'image' | 'video'" in contracts
+    assert "item.videoUrl || item.viewerSrc" in contracts
+    assert "item.mediaType === 'video'" in studio
+    assert "<video" in studio
+    assert "videoUrl || item.url" in studio
 
 
 def test_gallery_cards_defer_offscreen_render_and_masonry_reuses_spans():

@@ -1470,6 +1470,7 @@ export default function NewStudio(): ReactElement {
         if (cancelled || !data) return
         const mapped: N2GalleryImage[] = normalizeFeedPayload(data).map((item) => ({
           id: `feed-${item.id}`,
+          mediaType: 'image' as const,
           url: item.displayUrl,
           thumbnailUrl: item.thumbnailUrl,
           mode: 'feed',
@@ -2617,6 +2618,34 @@ export default function NewStudio(): ReactElement {
     })
   }
 
+  const shareCurrentResult = async () => {
+    if (!visibleResultUrl) {
+      showToast('Сначала сгенерируйте изображение')
+      return
+    }
+    const url = apiUrl(visibleResultUrl)
+    try {
+      const response = await fetch(url, { credentials: 'include' })
+      if (!response.ok) throw new Error('Не удалось подготовить изображение')
+      const blob = await response.blob()
+      const extension = blob.type.includes('png') ? 'png' : blob.type.includes('webp') ? 'webp' : 'jpg'
+      const file = new File([blob], `izo-asa-result.${extension}`, { type: blob.type || 'image/jpeg' })
+      if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+        await navigator.share({ title: 'Изображение ИЗО АСА', text: promptValue.trim() || undefined, files: [file] })
+      } else if (navigator.share) {
+        await navigator.share({ title: 'Изображение ИЗО АСА', text: promptValue.trim() || undefined, url: new URL(url, window.location.origin).toString() })
+      } else {
+        await navigator.clipboard.writeText(new URL(url, window.location.origin).toString())
+        showToast('Ссылка скопирована')
+      }
+    } catch (reason) {
+      if (reason instanceof DOMException && reason.name === 'AbortError') return
+      showToast('Не удалось поделиться изображением')
+    } finally {
+      setShareOpen(false)
+    }
+  }
+
   // Открыть миниатюру истории в предпросмотре + доке промпта.
   const openHistory = (item: N2GalleryImage) => {
     setResultError(false)
@@ -3705,6 +3734,7 @@ export default function NewStudio(): ReactElement {
                 {shareOpen && (
                   <div className="iv3-share-menu">
                     <button type="button" onClick={() => { setShareOpen(false); if (shareTarget) openPublish(shareTarget); else showToast(visibleResultUrl ? 'Результат ещё сохраняется в галерею. Подождите секунду.' : 'Сначала сгенерируйте изображение') }}>В ленту</button>
+                    <button type="button" onClick={() => void shareCurrentResult()}>Поделиться через устройство</button>
                     <button type="button" onClick={() => { setShareOpen(false); if (visibleResultUrl) copyPrompt(apiUrl(visibleResultUrl)) }}>Скопировать ссылку</button>
                   </div>
                 )}
@@ -3772,23 +3802,49 @@ export default function NewStudio(): ReactElement {
                 {historyItems.map((item) => (
                   <figure
                     key={item.id}
-                    className={`history-item ${historyShape(item)}${dockImage?.id === item.id ? ' active' : ''}`}
+                    className={`history-item ${historyShape(item)}${item.mediaType === 'video' ? ' video' : ''}${dockImage?.id === item.id ? ' active' : ''}`}
                     style={historyAspectRatio(item) ? { aspectRatio: historyAspectRatio(item) } : undefined}
                     role="button"
                     tabIndex={0}
-                    onClick={() => { if (historyDraggedRef.current) { historyDraggedRef.current = false; return } openHistory(item) }}
+                    onClick={(event) => {
+                      if (historyDraggedRef.current) { historyDraggedRef.current = false; return }
+                      if (item.mediaType === 'video') {
+                        const video = event.currentTarget.querySelector('video')
+                        if (video?.paused) void video.play()
+                        else video?.pause()
+                        return
+                      }
+                      openHistory(item)
+                    }}
                   >
-                    <img
-                      src={apiUrl(item.thumbnailUrl || item.url)}
-                      alt={item.promptOriginal.slice(0, 40)}
-                      loading="lazy"
-                      onLoad={(e) => {
-                        const img = e.currentTarget
-                        const frame = img.closest<HTMLElement>('.history-item')
-                        if (!frame || img.naturalWidth <= 0 || img.naturalHeight <= 0) return
-                        frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
-                      }}
-                    />
+                    {item.mediaType === 'video' ? (
+                      <video
+                        src={apiUrl(item.videoUrl || item.url)}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        aria-label={item.promptOriginal.slice(0, 40) || 'Видео из истории'}
+                        onLoadedMetadata={(e) => {
+                          const video = e.currentTarget
+                          const frame = video.closest<HTMLElement>('.history-item')
+                          if (!frame || video.videoWidth <= 0 || video.videoHeight <= 0) return
+                          frame.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`
+                        }}
+                      />
+                    ) : (
+                      <img
+                        src={apiUrl(item.thumbnailUrl || item.url)}
+                        alt={item.promptOriginal.slice(0, 40)}
+                        loading="lazy"
+                        onLoad={(e) => {
+                          const img = e.currentTarget
+                          const frame = img.closest<HTMLElement>('.history-item')
+                          if (!frame || img.naturalWidth <= 0 || img.naturalHeight <= 0) return
+                          frame.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`
+                        }}
+                      />
+                    )}
+                    {item.mediaType === 'video' && <span className="history-video-badge">Видео</span>}
                     {historyIsFeed && <span className="history-feed-badge">Лента</span>}
                   </figure>
                 ))}

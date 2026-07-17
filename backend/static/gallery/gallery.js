@@ -3,6 +3,7 @@ let feedImages = [];
 let uploadedImages = [];
 let uploadedUnavailableCount = 0;
 let limits = { originals:{used:0,limit:0}, feed:{used:0,limit:0}, favorites:{used:0,limit:0}, likes:{used:0}, plan:'mini' };
+let capabilities = { videoFeedPublication:false };
 const galleryGrid = document.getElementById('galleryGrid');
 const feedGrid = document.getElementById('feedGrid');
 const feedSection = document.getElementById('feedSection');
@@ -185,20 +186,25 @@ function filteredItems(base){
 function cardTemplate(raw, context){
   const item = normalizeItem(raw);
   const promptText = item.prompt || 'Промпт не сохранен';
-  const pubPill = item.published && context === 'gallery' ? `<span class="pill feed">В ленте</span>` : '';
+  const publicationStatus = item.publicationStatus || (item.published ? 'published' : '');
+  const pubPill = context === 'gallery' && item.published
+    ? `<span class="pill feed">В ленте</span>`
+    : context === 'gallery' && publicationStatus === 'preparing'
+      ? `<span class="pill feed">Готовим</span>`
+      : '';
   const isVideo = item.mediaType === 'video';
   const heartTitle = item.favorite ? 'Убрать сердечко' : `Поставить сердечко: оставить ${isVideo ? 'видео' : 'изображение'} и защитить от автоудаления`;
-  const feedTitle = item.published ? 'Открыть публикацию в общей ленте' : 'Опубликовать в ленту';
+  const feedTitle = item.published ? 'Открыть публикацию в общей ленте' : publicationStatus === 'preparing' ? 'Публикация готовится' : 'Опубликовать в ленту';
   const imgAttrs = item.width && item.height ? ` width="${Number(item.width)}" height="${Number(item.height)}"` : '';
   const media = isVideo
-    ? `<video data-src="${escapeHtml(item.viewerSrc)}" muted playsinline preload="metadata" aria-label="${escapeHtml(promptText)}"></video><span class="videoDuration">${escapeHtml(item.duration ? `${item.duration} с` : 'Видео')}</span>`
+    ? `<video data-src="${escapeHtml(item.viewerSrc)}"${item.thumbnailUrl ? ` poster="${escapeHtml(apiUrl(item.thumbnailUrl))}"` : ''} muted playsinline preload="metadata" aria-label="${escapeHtml(promptText)}"></video><span class="videoDuration">${escapeHtml(item.duration ? `${item.duration} с` : 'Видео')}</span>`
     : `<img src="${escapeHtml(item.src)}" alt="${escapeHtml(promptText)}" loading="lazy" decoding="async"${imgAttrs}>`;
   return `<article class="card ${isVideo ? 'videoCard' : ''}" data-id="${escapeHtml(item.id)}" data-context="${context}" data-width="${Number(item.width || 1)}" data-height="${Number(item.height || 1)}" title="${escapeHtml(promptText)}">
     ${media}
     <div class="cardTop"><span class="pill" title="Режим генерации">${escapeHtml(item.modeText)}</span>${pubPill}</div>
     <div class="cardBottom"><time class="cardDate">${escapeHtml(item.dateText)}</time><div class="cardActions">
       <button class="action heart ${item.favorite?'active':''}" data-action="heart" title="${heartTitle}" aria-label="${heartTitle}">${item.favorite ? heartFilled : heartOutline}</button>
-      ${isVideo ? '' : `<button class="action feedAct ${item.published?'feedOn':''}" data-action="feed" title="${feedTitle}" aria-label="${feedTitle}">${feedIcon}</button>`}
+      <button class="action feedAct ${item.published?'feedOn':''} ${publicationStatus === 'preparing' ? 'preparing' : ''}" data-action="feed" title="${feedTitle}" aria-label="${feedTitle}" ${publicationStatus === 'preparing' ? 'disabled' : ''}>${feedIcon}</button>
       <button class="action danger" data-action="delete" title="Удалить ${isVideo ? 'видео' : 'изображение'}" aria-label="Удалить ${isVideo ? 'видео' : 'изображение'}">${trashIcon}</button>
     </div></div>
     <div class="listContent"><div class="listPrompt">${escapeHtml(promptText)}</div><div class="listMeta">${escapeHtml(item.dateText)} · ${escapeHtml(item.modeText)}${item.published?' · В ленте':''}</div></div>
@@ -356,6 +362,7 @@ async function loadGallery({ append = false } = {}){
     const data = await api(`/api/gallery/items?${params.toString()}`, { signal:requestController.signal });
     if(requestVersion !== primaryRequestVersion) return;
     limits = data.limits || limits;
+    capabilities = data.capabilities || capabilities;
     const nextImages = (data.items || []).map(normalizeItem);
     const existingIds = new Set(images.map(item=>String(item.id)));
     const uniqueNextImages = append ? nextImages.filter(item=>!existingIds.has(String(item.id))) : nextImages;
@@ -400,6 +407,7 @@ async function loadSecondarySections(){
     const data = await api(`/api/gallery/secondary?${params.toString()}`, { signal:requestController.signal });
     if(requestVersion !== secondaryRequestVersion) return;
     limits = data.limits || limits;
+    capabilities = data.capabilities || capabilities;
     feedImages = (data.feedItems || []).map(normalizeItem);
     uploadedImages = data.uploadedItems || [];
     uploadedUnavailableCount = Number(data.uploadedUnavailableCount || 0);
@@ -432,17 +440,24 @@ async function hydrateProfileLabel(){
     const me = await api('/api/me-v2');
     const profile = me?.profile || {};
     const name = profile.display_name || [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username || 'Профиль';
-    label.textContent = String(name).slice(0, 24);
+    const accountInfo = me?.account || {};
+    const dailyLimit = Math.max(0, Math.floor(Number(accountInfo.daily_tokens_limit ?? accountInfo.daily_tokens ?? 0) || 0));
+    const dailyRemaining = Math.max(0, Math.floor(Number(accountInfo.daily_tokens_remaining ?? dailyLimit - Number(accountInfo.daily_tokens_used || 0)) || 0));
+    const balance = Math.max(0, Math.floor(Number(accountInfo.token_balance || 0) || 0));
     const avatar = String(profile.avatar_url || '').trim();
-    if(glyph && avatar){
-      glyph.innerHTML = `<img src="${escapeHtml(apiUrl(avatar))}" alt="">`;
-      glyph.querySelector('img')?.addEventListener('error', ()=>showInitials(name), { once:true });
-    }else{
-      showInitials(name);
+    const avatarMarkup = avatar ? `<img src="${escapeHtml(apiUrl(avatar))}" alt="">` : `<span class="user-initials">${escapeHtml(initials(name))}</span>`;
+    if(account){
+      account.innerHTML = `<span class="top-token-values${balance > 0 ? '' : ' single'}"><span class="top-token-item daily"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3.6" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span class="top-token-copy"><b>${dailyRemaining}/${dailyLimit}</b><small>Дневные</small></span></span>${balance > 0 ? `<span class="top-token-item balance"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m4 8 4-4h8l4 4-8 12L4 8Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m4 8 8 3 8-3M8 4l4 7 4-7" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="top-token-copy"><b>${balance}</b><small>Основной</small></span></span>` : ''}</span><span class="user-glyph top-token-avatar" aria-hidden="true">${avatarMarkup}</span>`;
+      if(avatar){
+        account.querySelector('.top-token-avatar img')?.addEventListener('error', ()=>{
+          const avatarBox = account.querySelector('.top-token-avatar');
+          if(avatarBox) avatarBox.innerHTML = `<span class="user-initials">${escapeHtml(initials(name))}</span>`;
+        }, { once:true });
+      }
+      account.classList.add('authed', 'top-token-summary');
+      account.setAttribute('title', String(name).slice(0, 24));
+      account.setAttribute('aria-label', `Дневные токены: ${dailyRemaining} из ${dailyLimit}${balance > 0 ? `. Основной баланс: ${balance} токенов` : ''}`);
     }
-    account?.classList.add('authed');
-    account?.setAttribute('title', 'Профиль и настройки');
-    account?.setAttribute('aria-label', 'Профиль и настройки');
   }catch{
     label.textContent = 'Войти';
     showInitials('Войти');
@@ -469,18 +484,27 @@ async function toggleFavorite(id){
 }
 async function feedAction(id){
   const item = originalById(id); if(!item) return;
-  if(item.published){ window.location.href = '/feed'; return; }
+  if(item.published){
+    const publicationId = item.publicationId || item.feedPublicationId;
+    window.location.href = publicationId ? `/feed#work-${encodeURIComponent(publicationId)}` : '/feed';
+    return;
+  }
+  if(item.publicationStatus === 'preparing'){ showToast('Публикация ещё готовится.'); return; }
+  if(item.mediaType === 'video' && !capabilities.videoFeedPublication){ showToast('Публикация видео временно недоступна.'); return; }
   openPublishModal(id);
 }
 function openPublishModal(id){
   const item = originalById(id); if(!item) return;
+  const isVideo = normalizeItem(item).mediaType === 'video';
   publishTargetId = id;
   document.getElementById('publishTitle').value = '';
   document.getElementById('publishDescription').value = '';
   document.getElementById('publishPromptVisibility').value = 'open';
   document.getElementById('publishCategory').value = 'other';
   document.getElementById('publishTags').value = '';
-  document.getElementById('publishAllowRecreate').checked = true;
+  document.getElementById('publishAllowRecreate').checked = !isVideo;
+  document.getElementById('publishAllowRecreate').closest('.publishToggle').hidden = isVideo;
+  document.querySelector('#publishModal h3').textContent = `Публикация ${isVideo ? 'видео' : 'изображения'} в ленту`;
   openSmall('publishModal');
   setTimeout(()=>document.getElementById('publishTitle').focus(), 0);
 }
@@ -497,13 +521,41 @@ async function submitPublish(){
   const submitBtn = document.getElementById('publishSubmitBtn');
   submitBtn.disabled = true;
   try{
-    await api('/api/feed/publications', { method:'POST', body:JSON.stringify({ imageId:id, title, description, promptVisibility, allowRecreate, category, tags }) });
+    const isVideo = normalizeItem(item).mediaType === 'video';
+    const mediaRef = isVideo ? { videoId:id } : { imageId:id };
+    const data = await api('/api/feed/publications', { method:'POST', body:JSON.stringify({ ...mediaRef, title, description, promptVisibility, allowRecreate: isVideo ? false : allowRecreate, category, tags }) });
     closeSmalls();
     await loadGallery();
-    showToast('Изображение опубликовано в ленту.');
+    if(isVideo && data?.publication?.status === 'preparing'){
+      showToast('Видео готовится к публикации.');
+      void waitForVideoPublication(data.publication.id);
+    }else{
+      showToast(`${isVideo ? 'Видео' : 'Изображение'} опубликовано в ленту.`);
+    }
     if(document.getElementById('viewer').classList.contains('open')) updateViewer();
   }catch(err){ showToast('Не удалось опубликовать в ленту.'); console.error(err); }
   finally{ submitBtn.disabled = false; }
+}
+async function waitForVideoPublication(publicationId){
+  for(let attempt = 0; attempt < 80; attempt += 1){
+    await new Promise(resolve=>setTimeout(resolve, 1500));
+    try{
+      const data = await api(`/api/feed/publications/${encodeURIComponent(publicationId)}/status`);
+      const status = data?.publication?.status;
+      if(status === 'published'){
+        await loadGallery();
+        showToast('Видео опубликовано в ленту.');
+        if(document.getElementById('viewer').classList.contains('open')) updateViewer();
+        return;
+      }
+      if(status === 'failed'){
+        await loadGallery();
+        showToast('Не удалось подготовить видео. Можно повторить публикацию.');
+        if(document.getElementById('viewer').classList.contains('open')) updateViewer();
+        return;
+      }
+    }catch(err){ console.error(err); return; }
+  }
 }
 async function deleteImage(id){
   const item = originalById(id); if(!item) return;
@@ -511,7 +563,11 @@ async function deleteImage(id){
   const isVideo = normalizeItem(item).mediaType === 'video';
   document.querySelector('#deleteModal h3').textContent = `Удалить ${isVideo ? 'видео' : 'изображение'}?`;
   document.getElementById('deleteText').textContent = isVideo
-    ? 'Видео будет удалено из галереи и истории генерации.'
+    ? item.published
+      ? 'Приватный оригинал будет удалён из галереи. Уже опубликованная отдельная копия останется в ленте, пока вы не удалите публикацию.'
+      : item.publicationStatus === 'preparing'
+        ? 'Сначала дождитесь подготовки публикации или снимите её с ленты.'
+        : 'Видео будет удалено из галереи и истории генерации.'
     : item.published
     ? 'Изображение будет удалено из галереи, публикация в ленте будет снята, а слот освободится.'
     : 'Изображение будет удалено из галереи, а слот освободится.';
@@ -587,13 +643,15 @@ function updateViewer(){
   heartBtn.textContent = item.favorite ? '♥' : '♡';
   heartBtn.classList.toggle('acid', item.favorite);
   const feedBtn = document.getElementById('feedBtn');
-  feedBtn.textContent = item.published ? '✦ Пост' : '✦ В ленту';
+  feedBtn.textContent = item.published ? '✦ Пост' : item.publicationStatus === 'preparing' ? '✦ Готовим' : '✦ В ленту';
   const publishTopBtn = document.getElementById('viewerPublishBtn');
   publishTopBtn.innerHTML = item.published ? openPostIcon : feedIcon;
-  publishTopBtn.title = item.published ? 'Открыть публикацию в ленте' : 'Опубликовать в ленту';
+  publishTopBtn.title = item.published ? 'Открыть публикацию в ленте' : item.publicationStatus === 'preparing' ? 'Публикация готовится' : 'Опубликовать в ленту';
   publishTopBtn.setAttribute('aria-label', publishTopBtn.title);
-  feedBtn.hidden = isVideo;
-  publishTopBtn.hidden = isVideo;
+  feedBtn.hidden = false;
+  publishTopBtn.hidden = false;
+  feedBtn.disabled = item.publicationStatus === 'preparing';
+  publishTopBtn.disabled = item.publicationStatus === 'preparing';
   document.querySelector('.editZoomRow').hidden = isVideo;
   document.querySelectorAll('.zoomBtn,#zoomResetBtn').forEach(control => { control.hidden = isVideo; });
   const downloadBtn = document.getElementById('downloadBtn');
@@ -675,9 +733,17 @@ async function openSourceImage(sourceId){
 }
 function renderPublication(item){
   const wrap = document.getElementById('publicationContent');
-  if(item.mediaType === 'video'){ wrap.innerHTML = `<p>Публикация видео в ленту появится на следующем этапе. Сейчас ролик хранится в общей галерее.</p>`; return; }
-  if(!item.published){ wrap.innerHTML = `<p>Это изображение пока не опубликовано. При публикации будет создана отдельная WebP-копия для ленты, оригинал останется в галерее.</p><p style="margin-top:10px"><button class="btn acid" id="publishSelectedBtnInline">Опубликовать в ленту</button></p>`; return; }
-  wrap.innerHTML = `<p>Опубликовано: <b>${escapeHtml(formatDate(item.publishedAt || item.createdAt))}</b>. В ленте хранится отдельная WebP-копия.</p><div class="stats"><div class="stat"><strong>${escapeHtml(item.views || 0)}</strong><span>Просмотры</span></div><div class="stat"><strong>${item.likes || 0}</strong><span>Лайки</span></div><div class="stat"><strong>${item.saves || 0}</strong><span>Сохранения</span></div><div class="stat"><strong>${item.remixes || 0}</strong><span>Ремиксы</span></div></div>`;
+  const isVideo = item.mediaType === 'video';
+  if(item.publicationStatus === 'preparing'){
+    wrap.innerHTML = `<p>Готовим отдельные файлы для ленты: обложку, лёгкий предпросмотр и совместимый MP4. Приватный оригинал не изменяется.</p>`;
+    return;
+  }
+  if(item.publicationStatus === 'failed'){
+    wrap.innerHTML = `<p>Не удалось подготовить публичную копию. Приватный оригинал сохранён.</p><p style="margin-top:10px"><button class="btn acid" id="publishSelectedBtnInline">Повторить публикацию</button></p>`;
+    return;
+  }
+  if(!item.published){ wrap.innerHTML = `<p>${isVideo ? 'Это видео' : 'Это изображение'} пока не опубликовано. Для ленты будет создана отдельная публичная копия, оригинал останется в галерее.</p><p style="margin-top:10px"><button class="btn acid" id="publishSelectedBtnInline">Опубликовать в ленту</button></p>`; return; }
+  wrap.innerHTML = `<p>Опубликовано: <b>${escapeHtml(formatDate(item.publishedAt || item.createdAt))}</b>. Публичная копия хранится отдельно от оригинала.</p><div class="stats"><div class="stat"><strong>${escapeHtml(item.views || 0)}</strong><span>Просмотры</span></div><div class="stat"><strong>${item.likes || 0}</strong><span>Лайки</span></div><div class="stat"><strong>${item.saves || 0}</strong><span>Сохранения</span></div><div class="stat"><strong>${item.remixes || 0}</strong><span>Ремиксы</span></div></div>`;
 }
 function formatBytes(value){
   const bytes = Number(value || 0);

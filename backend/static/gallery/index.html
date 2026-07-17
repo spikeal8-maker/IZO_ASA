@@ -47,7 +47,7 @@
   }
 }
 </script>
-<link rel="stylesheet" href="/static/gallery/gallery.css?v=20260715-gallery-resilience">
+<link rel="stylesheet" href="/static/gallery/gallery.css?v=20260717-feed-video-publish">
 </head>
 <body>
 <div class="iv3 topbar-scope">
@@ -180,7 +180,7 @@
   </div>
 </div>
 
-<div id="helpModal" class="smallModal"><div class="smallDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Как устроена галерея</h3><p>Сверху находятся результаты генерации, ниже — публикации и сжатые копии загруженных исходников.</p><ul><li>Сердечко оставляет изображение в галерее и защищает от автоудаления.</li><li>В ленту отправляется отдельная WebP-копия, оригинал остается здесь.</li><li>Загруженный исходник хранится вместе с историей результата и не занимает слот основной галереи.</li><li>При переполнении удаляется самый старый незащищенный результат, два последних не трогаются.</li></ul></div></div>
+<div id="helpModal" class="smallModal"><div class="smallDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Как устроена галерея</h3><p>Сверху находятся результаты генерации, ниже — публикации и сжатые копии загруженных исходников.</p><ul><li>Сердечко оставляет изображение или видео в галерее и защищает от автоудаления.</li><li>В ленту отправляется отдельная публичная копия, приватный оригинал остается здесь.</li><li>Для видео последовательно готовятся обложка, лёгкий предпросмотр и совместимый MP4.</li><li>Загруженный исходник хранится вместе с историей результата и не занимает слот основной галереи.</li></ul></div></div>
 <div id="spaceModal" class="smallModal"><div class="smallDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Место в галерее</h3><div id="spaceText"></div></div></div>
 <div id="publishModal" class="smallModal"><div class="smallDialog publishDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Публикация в ленту</h3><p>Настройте публичную карточку. Параметры генерации будут зафиксированы в момент публикации.</p><form id="publishForm" class="publishForm">
   <label class="fieldLabel">Название публикации<input id="publishTitle" maxlength="120" required autocomplete="off"></label>
@@ -197,6 +197,6 @@
 <div id="sourceDeleteModal" class="smallModal"><div class="smallDialog"><button class="viewerClose" data-close-small title="Закрыть">×</button><h3>Убрать исходник?</h3><p>Изображение исчезнет из раздела загруженных. Сжатая копия останется только в истории результата, пока существует сам результат генерации.</p><div class="publishActions"><button type="button" class="btn" id="sourceDeleteCancelBtn">Отмена</button><button type="button" class="btn acid" id="sourceDeleteConfirmBtn">Убрать</button></div></div></div>
 <div id="toast" class="toast"></div>
 
-<script src="/static/gallery/gallery.js?v=20260715-gallery-resilience"></script>
+<script src="/static/gallery/gallery.js?v=20260717-feed-video-publish"></script>
 </body>
 </html>

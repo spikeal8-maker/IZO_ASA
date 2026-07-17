@@ -136,18 +136,21 @@ export default function TopBarV3({
           <button
             className={`top-token-summary${active === 'profile' ? ' active' : ''}`}
             type="button"
-            aria-label={`Дневные токены: ${dailyRemaining} из ${dailyLimit}. Основной баланс: ${balance} токенов`}
+            aria-label={`Дневные токены: ${dailyRemaining} из ${dailyLimit}${balance > 0 ? `. Основной баланс: ${balance} токенов` : ''}`}
             title={userLabel || 'Профиль и баланс токенов'}
             onClick={onOpenProfile || (() => goto('/profile'))}
           >
-            <span className="top-token-item daily">
-              <SunMedium size={15} aria-hidden="true" />
-              <span className="top-token-copy"><b>{dailyRemaining}/{dailyLimit}</b><small>Дневные</small></span>
-            </span>
-            <span className="top-token-divider" aria-hidden="true" />
-            <span className="top-token-item balance">
-              <Gem size={14} aria-hidden="true" />
-              <span className="top-token-copy"><b>{balance}</b><small>Премиум</small></span>
+            <span className={`top-token-values${balance > 0 ? '' : ' single'}`}>
+              <span className="top-token-item daily">
+                <SunMedium size={15} aria-hidden="true" />
+                <span className="top-token-copy"><b>{dailyRemaining}/{dailyLimit}</b><small>Дневные</small></span>
+              </span>
+              {balance > 0 && (
+                <span className="top-token-item balance">
+                  <Gem size={14} aria-hidden="true" />
+                  <span className="top-token-copy"><b>{balance}</b><small>Основной</small></span>
+                </span>
+              )}
             </span>
             <span className="top-token-avatar" aria-hidden="true">
               {avatarUrl ? (
