@@ -477,7 +477,17 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "max-width:1320px" in r.text
         assert "Math.min(2.25" in r.text
         assert "masonry-col:nth-child" not in r.text
-        assert "border:0;background:#0c110d" in r.text
+        assert "--field:#090e0b;" in r.text
+        assert "--stroke-control:#5d6d62;" in r.text
+        assert "--text-primary:#f3f7f3;" in r.text
+        assert "--accent:#c7f500;" in r.text
+        assert "--purple-soft:rgba(156,88,233,.10);" in r.text
+        assert "rgba(234,255,0" not in r.text
+        assert "background:rgba(14,20,16,.96)" in r.text
+        assert "background:var(--field)" in r.text
+        assert ".filter-btn.active{color:var(--text-primary);background:var(--surface-2)" in r.text
+        assert "background:var(--surface-1);display:flex;flex-direction:column" in r.text
+        assert "border:0;background:var(--media-bg)" in r.text
         assert ".iv3.topbar-scope{--line:" in r.text
         assert "position:sticky;top:0;z-index:160" in r.text
         assert "mobile-bottom-nav" not in r.text

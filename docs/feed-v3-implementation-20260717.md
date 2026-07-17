@@ -22,6 +22,27 @@ understand its author, and continue into creation. Interface chrome must not
 compete with the media. The feed uses one functional lime accent, restrained
 purple for the social section identity, and no permanent glow.
 
+## Color Contract
+
+- The feed follows Design System 2.0 semantic roles instead of page-specific
+  colors: `canvas`, `surface-1`, `surface-2`, `surface-hover`, `field`,
+  `media-bg`, `divider`, `stroke-subtle`, and `stroke-control`.
+- The media canvas remains `#070A08`. Header, mobile navigation, detail panels,
+  and dialogs use `surface-1`; controls and selectable tiles use `surface-2`;
+  inputs use `field`; photo and video letterboxing uses `media-bg`.
+- Primary, secondary, muted, and disabled copy use their matching text tokens.
+  A control border that communicates affordance uses `stroke-control` and must
+  keep at least 3:1 non-text contrast against its surface.
+- Lime is reserved for creation, active selection, focus, progress, and an
+  accepted social action. A selected navigation item also keeps a shape or
+  indicator, so color is never the only signal.
+- Purple is limited to the calm `Лента` section marker and author/social brand
+  context. It must not be used as a general action color or permanent glow.
+- Danger and warning states use their semantic tokens. Image overlays may use
+  black scrims and white copy when required for contrast over arbitrary media.
+- Legacy `rgba(234,255,0,...)` acid values are forbidden in the canonical feed;
+  alpha variants must derive from the `#C7F500` accent family.
+
 ## Desktop Contract
 
 - The entire `rail + canvas` shell is centered as one layout.
