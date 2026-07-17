@@ -6,7 +6,7 @@
 // Разметка и классы намеренно совпадают с прототипом, чтобы работал scoped CSS
 // из newStudioV3.css (обёртка .iv3). Никаких legacy-auth: только колбэки.
 
-import { Gem, LogIn, Settings, SunMedium } from 'lucide-react'
+import { Gem, LogIn, SunMedium } from 'lucide-react'
 
 export type V3Mode = 'text' | 'i2i' | 'edit' | 'paint' | 'video'
 export type V3Section = V3Mode | 'feed' | 'gallery' | 'profile' | 'admin'
@@ -132,12 +132,12 @@ export default function TopBarV3({
           )}
           {isAdmin ? 'Админ' : 'Помощь'}
         </button>
-        {authed && (
+        {authed ? (
           <button
-            className="top-token-summary"
+            className={`top-token-summary${active === 'profile' ? ' active' : ''}`}
             type="button"
             aria-label={`Дневные токены: ${dailyRemaining} из ${dailyLimit}. Основной баланс: ${balance} токенов`}
-            title="Открыть баланс токенов"
+            title={userLabel || 'Профиль и баланс токенов'}
             onClick={onOpenProfile || (() => goto('/profile'))}
           >
             <span className="top-token-item daily">
@@ -149,30 +149,37 @@ export default function TopBarV3({
               <Gem size={14} aria-hidden="true" />
               <span className="top-token-copy"><b>{balance}</b><small>Премиум</small></span>
             </span>
+            <span className="top-token-avatar" aria-hidden="true">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="" />
+              ) : initials ? (
+                <span className="user-initials">{initials}</span>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="8.5" r="3.6" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M5.5 19.5a6.5 6.5 0 0 1 13 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              )}
+            </span>
           </button>
-        )}
-        <button
-          className={`account-button${authed ? ' authed' : ''}${active === 'profile' ? ' active' : ''}`}
-          type="button"
-          aria-label="Профиль и настройки"
-          title={authed ? (userLabel || 'Профиль и настройки') : 'Войти'}
-          onClick={onOpenProfile || (() => goto('/profile'))}
-        >
-          <span className="settings-glyph" aria-hidden="true">{authed ? <Settings size={17} /> : <LogIn size={17} />}</span>
-          {!authed && <span className="user-label">Войти</span>}
-          <span className={`user-glyph${authed ? ' authed' : ''}`} aria-hidden="true">
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="" />
-            ) : initials ? (
-              <span className="user-initials">{initials}</span>
-            ) : (
+        ) : (
+          <button
+            className={`account-button${active === 'profile' ? ' active' : ''}`}
+            type="button"
+            aria-label="Войти"
+            title="Войти"
+            onClick={onOpenProfile || (() => goto('/profile'))}
+          >
+            <span className="settings-glyph" aria-hidden="true"><LogIn size={17} /></span>
+            <span className="user-label">Войти</span>
+            <span className="user-glyph" aria-hidden="true">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="8.5" r="3.6" stroke="currentColor" strokeWidth="1.8" />
                 <path d="M5.5 19.5a6.5 6.5 0 0 1 13 0" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
-            )}
-          </span>
-        </button>
+            </span>
+          </button>
+        )}
       </div>
     </header>
   )

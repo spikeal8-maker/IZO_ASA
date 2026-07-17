@@ -5092,11 +5092,13 @@ font-size: 10.5px;
 /* Compact token wallet in the shared top bar. The two values mirror the only
    two user balances: daily allowance and persistent main balance. */
 .iv3 .top-token-summary {
-  min-height: 38px;
+  min-height: 40px;
+  height: 40px;
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  padding: 4px 10px;
+  padding: 0 0 0 10px;
+  overflow: hidden;
   border: 1px solid rgba(155, 115, 255, .38);
   border-radius: 9px;
   background: rgba(14, 17, 17, .9);
@@ -5107,6 +5109,10 @@ font-size: 10.5px;
 .iv3 .top-token-summary:hover {
   border-color: rgba(155, 115, 255, .72);
   background: rgba(31, 27, 47, .92);
+}
+.iv3 .top-token-summary.active {
+  border-color: rgba(183, 149, 255, .9);
+  box-shadow: 0 0 0 1px rgba(155, 115, 255, .18);
 }
 .iv3 .top-token-item {
   min-width: 52px;
@@ -5123,6 +5129,21 @@ font-size: 10.5px;
 .iv3 .top-token-item.balance b { color: #d8c7ff; }
 .iv3 .top-token-copy small { color: rgba(224, 230, 225, .62); font-size: 8px; font-weight: 550; }
 .iv3 .top-token-divider { width: 1px; height: 24px; background: rgba(255, 255, 255, .1); }
+.iv3 .top-token-avatar {
+  width: 38px;
+  height: 100%;
+  flex: 0 0 38px;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  margin-left: 1px;
+  overflow: hidden;
+  border-left: 1px solid rgba(155, 115, 255, .38);
+  background: rgba(155, 115, 255, .12);
+  color: #efe9ff;
+}
+.iv3 .top-token-avatar img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.iv3 .top-token-avatar .user-initials { font-size: 13px; font-weight: 750; }
 .iv3 .account-button {
   width: auto;
   min-width: 40px;
@@ -5145,19 +5166,21 @@ font-size: 10.5px;
 }
 .iv3 .account-button:not(.authed) .settings-glyph { display: grid; }
 @media (max-width: 1120px) {
-  .iv3 .top-token-summary { min-height: 36px; padding: 3px 7px; gap: 6px; }
+  .iv3 .top-token-summary { min-height: 36px; height: 36px; padding-left: 7px; gap: 6px; }
   .iv3 .top-token-item { min-width: 45px; gap: 4px; }
   .iv3 .top-token-copy small { display: none; }
   .iv3 .top-token-divider { height: 19px; }
+  .iv3 .top-token-avatar { width: 34px; flex-basis: 34px; }
   .iv3 .account-button { min-height: 36px; height: 36px; }
 }
 @media (max-width: 820px) {
   .iv3 .top-actions { gap: 4px; }
-  .iv3 .top-token-summary { min-height: 32px; height: 32px; padding: 2px 5px; border-radius: 7px; }
+  .iv3 .top-token-summary { min-height: 32px; height: 32px; padding: 0 0 0 5px; border-radius: 7px; gap: 4px; }
   .iv3 .top-token-item { min-width: 37px; gap: 3px; }
   .iv3 .top-token-item svg { width: 12px; height: 12px; }
   .iv3 .top-token-copy b { font-size: 10px; }
   .iv3 .top-token-divider { height: 17px; }
+  .iv3 .top-token-avatar { width: 30px; flex-basis: 30px; margin-left: 0; }
   .iv3 .account-button { min-width: 32px; min-height: 32px; height: 32px; padding: 0 3px; }
   .iv3 .account-button .user-glyph { width: 26px; height: 26px; margin: 0; }
 }
