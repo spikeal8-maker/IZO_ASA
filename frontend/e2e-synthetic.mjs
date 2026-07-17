@@ -4,6 +4,7 @@ const origin = (process.env.IZO_SYNTHETIC_BASE_URL || 'http://127.0.0.1:5173').r
 const release = process.env.FRONTEND_BUILD_LABEL || process.env.GITHUB_SHA || 'unknown'
 const allowLegacyRelease = process.env.IZO_ALLOW_LEGACY_RELEASE === '1'
 const routes = ['/', '/feed', '/gallery', '/profile']
+const frontendReleaseRoutes = new Set(['/', '/profile'])
 const started = Date.now()
 let status = 'ok'
 let failure
@@ -17,12 +18,17 @@ try {
     if (!response?.ok()) throw new Error(`${route}: HTTP ${response?.status() || 'no-response'}`)
     await page.locator('body').waitFor({ state: 'visible' })
     if (await page.getByText('Студия временно остановлена').count()) throw new Error(`${route}: root ErrorBoundary visible`)
-    const routeRelease = await page.locator('meta[name="izo-release"]').getAttribute('content')
-    if (!routeRelease && !allowLegacyRelease) throw new Error(`${route}: release marker is missing`)
-    if (!allowLegacyRelease && release !== 'unknown' && routeRelease !== release) {
+    const routeRelease = await page.evaluate(
+      () => document.querySelector('meta[name="izo-release"]')?.getAttribute('content') || null,
+    )
+    const requiresFrontendRelease = frontendReleaseRoutes.has(route)
+    if (requiresFrontendRelease && !routeRelease && !allowLegacyRelease) {
+      throw new Error(`${route}: frontend release marker is missing`)
+    }
+    if (requiresFrontendRelease && !allowLegacyRelease && release !== 'unknown' && routeRelease !== release) {
       throw new Error(`${route}: release marker ${routeRelease} does not match ${release}`)
     }
-    observedRelease = routeRelease || 'legacy-unmarked'
+    if (requiresFrontendRelease) observedRelease = routeRelease || 'legacy-unmarked'
     await page.close()
   }
 } catch (error) {

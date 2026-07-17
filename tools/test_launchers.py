@@ -28,6 +28,8 @@ def test_public_launcher_verifies_release_before_restarting_ports() -> None:
     assert "Immutable frontend release is already active" in launcher
     assert "RELEASE IDENTITY MISMATCH" in launcher
     assert "FRONTEND RELEASE MISMATCH" in launcher
+    assert "STATIC SHELL RELEASE MISMATCH" in launcher
+    assert "X-IZO-Release" in launcher
     assert "release meta matches" in launcher
     assert "rollback-frontend-release.ps1" in launcher
     assert "BACKEND_LOG" not in launcher

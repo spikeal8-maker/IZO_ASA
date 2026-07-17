@@ -864,7 +864,7 @@ async def gallery_page_shell() -> FileResponse:
     return FileResponse(
         GALLERY_PAGE_FILE,
         media_type="text/html; charset=utf-8",
-        headers={"Cache-Control": "no-store"},
+        headers={"Cache-Control": "no-store", "X-IZO-Release": RELEASE_IDENTITY.release_id},
     )
 
 
@@ -880,7 +880,7 @@ async def feed_page_shell() -> FileResponse:
     return FileResponse(
         FEED_PAGE_FILE,
         media_type="text/html; charset=utf-8",
-        headers={"Cache-Control": "no-store"},
+        headers={"Cache-Control": "no-store", "X-IZO-Release": RELEASE_IDENTITY.release_id},
     )
 
 

@@ -92,6 +92,8 @@ allowed in the meantime.
    frontend release and full commit.
 8. Verifies the release meta actually served on 5173, `/api/version`, and the
    expected unauthenticated 401 responses for generation, gallery and identity.
+   Because `/feed` and `/gallery` are backend-owned static shells, their post-switch
+   `X-IZO-Release` headers must also match the same manifest.
 
 Run it interactively:
 

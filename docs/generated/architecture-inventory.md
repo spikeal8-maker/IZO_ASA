@@ -129,7 +129,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 |---|---:|---:|---:|
 | `backend/main.py` | 20035 | 20250 | 215 |
 | `backend/static/feed/index.html` | 2110 | 2200 | 90 |
-| `backend/test_feed_v2.py` | 2320 | 2400 | 80 |
+| `backend/test_feed_v2.py` | 2322 | 2400 | 78 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
 | `frontend/src/adminModels.tsx` | 2016 | 2100 | 84 |
 | `frontend/src/index.css` | 2333 | 2400 | 67 |

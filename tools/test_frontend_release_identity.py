@@ -56,9 +56,12 @@ def test_frontend_build_identity_has_one_injected_source_and_no_hardcoded_label(
     diagnostics = (ROOT / "frontend" / "src" / "diagMeta.ts").read_text(encoding="utf-8")
     telemetry = (ROOT / "frontend" / "src" / "runtimeTelemetry.ts").read_text(encoding="utf-8")
     vite = (ROOT / "frontend" / "vite.config.ts").read_text(encoding="utf-8")
+    synthetic = (ROOT / "frontend" / "e2e-synthetic.mjs").read_text(encoding="utf-8")
 
     assert "__APP_RELEASE__" in identity
     assert "FRONTEND_RELEASE_ID" in diagnostics
     assert "FRONTEND_RELEASE_ID" in telemetry
     assert "FEED-4COL-FULLWIDTH" not in diagnostics
     assert "izo-release" in vite
+    assert "frontendReleaseRoutes = new Set(['/', '/profile'])" in synthetic
+    assert "page.evaluate" in synthetic

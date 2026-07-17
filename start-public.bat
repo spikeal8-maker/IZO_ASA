@@ -158,6 +158,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "  Write-Host ('hashed asset present    : ' + ($html -match 'assets/index-'));" ^
   "  Write-Host ('release meta matches    : ' + $releaseMetaMatches);" ^
   "  if (!$releaseMetaMatches) { Write-Host 'FRONTEND RELEASE MISMATCH'; exit 25 } } catch { Write-Host 'frontend probe failed'; exit 25 }" ^
+  "foreach($route in @('/feed','/gallery')) { try { $shell=Invoke-WebRequest ('http://127.0.0.1:5173' + $route) -UseBasicParsing -TimeoutSec 8; $shellRelease=[string]$shell.Headers['X-IZO-Release']; Write-Host ('shell release ' + $route + ' : ' + $shellRelease); if ($shellRelease -ne '%APP_BUILD%') { Write-Host 'STATIC SHELL RELEASE MISMATCH'; exit 26 } } catch { Write-Host ('static shell probe failed: ' + $route); exit 26 } };" ^
   "try { $v=Invoke-RestMethod 'http://127.0.0.1:5173/api/version' -TimeoutSec 8; Write-Host ('api/version release : ' + $v.release_id); if ($v.release_id -ne '%APP_BUILD%' -or $v.frontend_build -ne '%APP_BUILD%') { Write-Host 'RELEASE IDENTITY MISMATCH'; exit 24 } } catch { Write-Host 'api/version probe failed'; exit 24 }" ^
   "function St($m,$u,$b){ try { $r=Invoke-WebRequest $u -Method $m -UseBasicParsing -TimeoutSec 8 -Body $b -ContentType 'application/json'; return $r.StatusCode } catch { return $_.Exception.Response.StatusCode.value__ } };" ^
   "$generateBody=@{mode='text_to_image'} | ConvertTo-Json -Compress;" ^

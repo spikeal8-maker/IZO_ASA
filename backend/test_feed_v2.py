@@ -603,6 +603,7 @@ def test_gallery_page_shell_serves_installed_visual_file(temp_db):
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
         assert "no-store" in r.headers["cache-control"]
+        assert r.headers["x-izo-release"] == main.RELEASE_IDENTITY.release_id
         assert "galleryGrid" in r.text
         assert "/static/gallery/gallery.js" in r.text
         assert 'href="/#text-to-image"' in r.text
@@ -637,6 +638,7 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
         assert "no-store" in r.headers["cache-control"]
+        assert r.headers["x-izo-release"] == main.RELEASE_IDENTITY.release_id
         assert "/api/feed" in r.text
         assert "/api/gallery/page" not in r.text
         assert "data:image" not in r.text
