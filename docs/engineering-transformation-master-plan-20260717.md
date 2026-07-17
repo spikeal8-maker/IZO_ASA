@@ -2,7 +2,7 @@
 
 Дата аудита и актуализации: **2026-07-17**
 
-Статус документа: **главный исполняемый план после стабилизации текущего WIP**
+Статус документа: **главный исполняемый план; S0-001 VERIFIED, следующий пакет S0-002**
 
 Предыдущий roadmap: `production-hardening-roadmap-20260713.md` остаётся историей выполненных пакетов и больше не является источником актуального порядка работ.
 
@@ -82,40 +82,42 @@
 | Параметр | Подтверждённый факт |
 |---|---|
 | Ветка | `main` |
-| Local/origin commit | `15be9a44f4d614c596e6f26bf584f3e7f8ece3c7` |
-| Синхронизация commit | local HEAD совпадает с `origin/main` |
-| Worktree | содержит незавершённые изменения backend/frontend/static shells/tests |
-| Правило | сначала завершить, проверить и отдельно зафиксировать текущий продуктовый WIP; архитектурные коммиты не смешивать с ним |
+| Проверенный repository baseline | `0acb2992fe37a7ee08e3b9c7c324c868c9784a09` |
+| Production code baseline | `13c8216fbfe9abaf9312f4485b8bf3f608bda4e2`; `0acb299` добавляет только regression test и документацию |
+| Продуктовые/test commits S0-001 | `d3561fe`, `2498f56`, `13c8216`, `0acb299` |
+| Синхронизация baseline | code baseline отправлен в `origin/main` |
+| Worktree checkpoint | продуктовый WIP завершён; обновление этого плана оформляется отдельным документирующим commit |
+| Следующий пакет | `S0-002` — генерируемые архитектурные inventories |
 
-На момент аудита менялись как минимум `backend/main.py`, статические feed/gallery shells, gallery regression test и frontend `TopBarV3`, `newUi`, `newStudioV3.css`, `runtimeContracts`. Это не считается дефектом само по себе, но делает старую зелёную точку неприменимой к worktree.
+На момент первоначального аудита одновременно менялись backend, frontend и static shells. В S0-001 этот WIP был инвентаризирован, исправлен, протестирован, разделён на четыре понятных commits и опубликован. Архитектурные переносы в продуктовые commits не добавлялись.
 
 ### 3.2. Размер и форма кода
 
 | Объект | Snapshot 2026-07-17 | Вывод |
 |---|---:|---|
-| `backend/main.py` | 19 926 физических строк, 721 top-level functions, 81 class, 221 route | главный coordination/ownership риск |
-| `frontend/src/newStudioV3.css` | около 5 792 строк | стили смешивают несколько features |
-| `frontend/src/newUi.tsx` | около 4 149 строк | API/state/composition/view связаны |
-| `frontend/src/LegacyApp.tsx` | около 3 472 строк | legacy требует заморозки и контролируемого удаления |
-| `frontend/src/newUi.css` | около 2 722 строк | нужен feature split |
-| `frontend/src/index.css` | около 2 313 строк | глобальный слой шире своей роли |
-| `backend/static/feed/index.html` | около 2 093 строк | отдельный shell может дрейфовать от React |
-| `frontend/src/adminModels.tsx` | около 1 956 строк | API/types/hooks/page смешаны |
-| `backend/test_feed_v2.py` | более 1 800 строк | тестовый ownership тоже нужно разделять |
+| `backend/main.py` | 20 027 физических строк, 721 top-level functions, 81 class, 221 route | главный coordination/ownership риск |
+| `frontend/src/newStudioV3.css` | 5 868 строк | стили смешивают несколько features |
+| `frontend/src/newUi.tsx` | 4 373 строки | API/state/composition/view связаны |
+| `frontend/src/LegacyApp.tsx` | 3 600 строк | legacy требует заморозки и контролируемого удаления |
+| `frontend/src/newUi.css` | 3 096 строк | нужен feature split |
+| `frontend/src/index.css` | 2 333 строки | глобальный слой шире своей роли |
+| `backend/static/feed/index.html` | 2 110 строк | отдельный shell может дрейфовать от React |
+| `frontend/src/adminModels.tsx` | 2 016 строк | API/types/hooks/page смешаны |
+| `backend/test_feed_v2.py` | 2 320 строк | тестовый ownership тоже нужно разделять |
 
-`backend/SYMBOL_MAP.md` отражает committed HEAD, но закономерно устарел относительно текущего WIP. Его обновление выполняется только вместе с завершением WIP, а не отдельным шумным коммитом.
+`backend/SYMBOL_MAP.md` сгенерирован заново и синхронизирован с code baseline `13c8216`: 721 function, 81 class, 221 route. Большие файлы остаются предметом следующих пакетов; S0-001 не маскируется как их декомпозиция.
 
 ### 3.3. Runtime
 
 | Компонент | Факт |
 |---|---|
-| Backend | один Uvicorn listener на `127.0.0.1:8000` |
+| Backend | production Uvicorn на `127.0.0.1:8000`; обнаруженный в S0-001 orphan backend на зарезервированном `8001` остановлен |
 | Frontend | `vite preview` |
 | ComfyUI | локально на `8188` |
 | Ollama | локально на `11434` |
 | GPU | RTX 3090, driver snapshot `610.47` |
 | Python/Node/Git | Python 3.11.9, Node 24.14.1, npm 11.12.1, Git 2.55 |
-| Backend version | commit `15be9a44f4d6`; frontend build identity `unknown` |
+| Backend version | после controlled restart процесс импортировал baseline `13c8216fbfe9`; frontend build identity пока `unknown` |
 | Backend environment | live `/api/health` сообщил `development` |
 | Python isolation | live Uvicorn запущен глобальным Python, не project `.venv` |
 
@@ -125,14 +127,19 @@
 
 | Проверка | Результат аудита |
 |---|---|
-| Изолированный критический backend-набор | **116 passed**, 28 warnings, 46.80 s |
-| Warnings | deprecated FastAPI `on_event`; cookie deprecation в TestClient |
-| Frontend production build | **FAIL**: `newUi.tsx` использует `GalleryContractItem`, в котором отсутствует `mediaType` |
+| Исходный критический backend-набор аудита | **116 passed**, 28 warnings, 46.80 s |
+| S0-001 полный backend/tools suite | **1448 passed**, 92 warnings, 383.34 s; code/test blob не менялся во время прогона |
+| Focused product gate | 24 backend tests + isolated browser E2E, **5 последовательных проходов** |
+| Worker lifecycle gate | 8 recovery/shutdown tests, **5 последовательных проходов** |
+| Frontend lint | **PASS**, 0 errors, 0 warnings |
+| Frontend production build | **PASS**, `tsc -b && vite build` |
+| Frontend integration gates | origin isolation PASS; studio resilience PASS; video publication PASS на 1920×1080, 1920×900, 3840×2160 и 390×844 |
+| Warnings | остаются deprecated FastAPI `on_event` и cookie deprecation в TestClient; вынесены в последующие пакеты |
 | npm production audit | 0 production vulnerabilities |
 | `pip check` | global environment конфликтует с посторонними пакетами; это не результат чистой project `.venv` |
-| Реальный pytest-процесс | во время проверки отсутствовал |
+| Остаточные pytest-процессы | после gate отсутствовали |
 
-Правило: 116 passed подтверждают только выбранный критический набор. Они не заменяют полный gate и не делают текущий WIP release-ready.
+S0-001 закрыл первоначальный build blocker и дал новый проверенный baseline. Это не устраняет `development` environment, global Python и `frontend_build=unknown`: эти риски остаются предметом ENV-001.
 
 ### 3.5. GitHub Actions
 
@@ -209,6 +216,7 @@ Branch protection для private repository возвращает HTTP 403 на �
 10. **Публичный health раскрывает лишнее.** Environment, DB size, admin/user counts и internal URLs должны быть доступны только trusted admin/ops.
 11. **CSRF policy не выявлена.** При `SameSite=None` нужны unsafe-method Origin/CSRF gates; provider webhooks выделяются в отдельное исключение.
 12. **CI физически не выполняется.** Старые зелёные данные нельзя переносить на новый HEAD.
+13. **Process role/port collision.** В S0-001 найден осиротевший второй full backend на `127.0.0.1:8001`, подключённый к live DB и Telegram polling, хотя порт зарезервирован для Qwen ASR. Он создавал duplicate polling и доказывает, что candidate/dev процесс нельзя запускать с production roots/workers без role guard.
 
 ## 5. Архитектурные решения программы
 
@@ -384,7 +392,9 @@ Downtime — время, когда пользователи не могут и�
 
 ### S0-001 — Завершить текущий продуктовый WIP
 
-Статус: `BLOCKED BY ACTIVE WIP`
+Статус: `VERIFIED`
+
+Проверенный repository baseline: `0acb2992fe37a7ee08e3b9c7c324c868c9784a09`, push в `origin/main` подтверждён 2026-07-17. Production code baseline: `13c8216fbfe9abaf9312f4485b8bf3f608bda4e2`.
 
 Цель: получить понятный, проверенный продуктовый commit без архитектурных переносов.
 
@@ -406,9 +416,25 @@ DoD:
 - test DB/media изолированы;
 - exact commit зафиксирован как новый baseline.
 
+Checkpoint 2026-07-17:
+
+- commits: `d3561fe` — token wallet/static gallery alignment; `2498f56` — безопасная асинхронная публикация видео; `13c8216` — синхронизация symbol map и чистый resolution fallback; `0acb299` — гарантия независимости опубликованной video-копии от удаления приватного оригинала;
+- API impact: публикация видео возвращает асинхронный статус, gallery/history показывают `preparing|published|failed`, capability публикуется явно;
+- schema impact: DDL и destructive migration отсутствуют, используются существующие поля `feed_publications`;
+- auth impact: новые legacy-auth обходы не добавлены, действующие user ownership gates сохранены;
+- task impact: feed-video worker восстанавливает `preparing` после startup, сериализует повторную публикацию и корректно дожидается активной производной при shutdown;
+- focused verification: product gate ×5, worker lifecycle gate ×5 и private-delete/feed-copy regression ×5;
+- full local verification: `python -m pytest -q backend tools` — 1448 passed; frontend lint/build/origin/resilience/video-layout gates — PASS;
+- GitHub CI: run `29598478767`, job `87944577412`; runner не выполнил ни одного step из-за account billing/spending limit, поэтому это инфраструктурная блокировка, а не зелёный или упавший code gate;
+- deploy: controlled backend restart `48536 -> 26004`, новый startup `2026-07-17 19:50:18 +03:00`; `/api/health`, `/api/version`, `/feed`, `/gallery` — HTTP 200;
+- observation: после restart накопилось 93 `TelegramTransportError`; token probe `getMe` вернул 200, причиной оказался orphan full backend PID 39824 на зарезервированном Qwen ASR порту 8001 с той же live DB и polling;
+- operational correction: при нулевых active jobs/preparing publications и отсутствии TCP-клиентов orphan PID 39824 остановлен graceful; 8001 освобождён, production PID 26004 остался healthy, за последующие 45 секунд новых Telegram polling errors — 0;
+- rollback: не потребовался; предыдущая code point `2498f56` сохранена в Git;
+- residual risk: runtime всё ещё сообщает `development`, global Python и `frontend_build=unknown`; исправляется в ENV-001, а не скрывается статусом S0-001.
+
 ### S0-002 — Снимок архитектурных контрактов
 
-Статус: `READY AFTER S0-001`
+Статус: `READY`
 
 Создать генерируемые/проверяемые inventories:
 
@@ -417,6 +443,7 @@ DoD:
 - schema/index/foreign-key snapshot;
 - external integrations and secrets source;
 - frontend entrypoints/API callers/static shells;
+- listener/port ownership: `8000` API, `8001` Qwen ASR, `8188` ComfyUI, `11434` Ollama; незарегистрированный full-app listener считается ошибкой;
 - file-size and symbol thresholds;
 - release manifest baseline.
 
@@ -694,6 +721,8 @@ Claim выполняется атомарно. Просроченный lease б
 - production API не запускает workers;
 - candidate smoke process не потребляет production queue;
 - dev/test могут использовать `all-dev` только на временных roots;
+- startup сверяет process role и listener ownership; full app с live DB не может занять зарезервированный для Qwen ASR порт 8001;
+- preflight/candidate API запускается с отключёнными bot polling и background workers;
 - graceful shutdown перестаёт принимать jobs, завершает/освобождает leases.
 
 ### OPS-001 — Windows Services
@@ -1070,15 +1099,13 @@ GPU generation time не смешивается с API latency: отдельно
 
 ## 22. Точный ближайший блок
 
-Следующий исполняемый блок после утверждения плана:
+Следующий исполняемый блок после завершённого S0-001:
 
-1. **S0-001:** разобраться только с уже существующим WIP и вернуть frontend build/full local gate;
-2. зафиксировать продуктовый commit и push;
-3. **S0-002:** сгенерировать route/auth/task/schema/release inventories;
-4. **ENV-001:** устранить `development/global Python/unknown frontend build` drift без немедленного restart до готового rollback;
-5. **CI-001:** владелец устраняет GitHub billing blocker; кодовая часть CI улучшается независимо;
-6. **REL-001:** fail-closed immutable publisher;
-7. затем начинать **SEC-001**, а не произвольный большой перенос строк из `main.py`.
+1. **S0-002:** сгенерировать route/auth/task/schema/release inventories и архитектурные guards;
+2. **ENV-001:** устранить `development/global Python/unknown frontend build` drift только с готовым rollback;
+3. **CI-001:** владелец устраняет GitHub billing blocker; кодовая часть CI улучшается независимо;
+4. **REL-001:** fail-closed immutable publisher;
+5. затем начинать **SEC-001**, а не произвольный большой перенос строк из `main.py`.
 
 Первый backend domain extraction после P0 foundation — billing/payments, потому что новые изменения оплаты уже сформировали естественную границу и требуют самых строгих инвариантов.
 
@@ -1117,3 +1144,5 @@ GPU generation time не смешивается с API latency: отдельно
 | Дата | Изменение |
 |---|---|
 | 2026-07-17 | Новый source of truth построен после аудита текущего worktree, live runtime/DB, CI, payments, queues, auth, frontend и предоставленных исследований. Старый roadmap переведён в historical status. |
+| 2026-07-17 | S0-001 завершён и проверен на repository baseline `0acb299` / production code baseline `13c8216`: WIP разделён на продуктовые commits, full/focused/frontend gates зелёные, controlled restart и live smoke выполнены; S0-002 переведён в READY. |
+| 2026-07-17 | В live observation найден и graceful остановлен orphan backend на Qwen ASR порту 8001; duplicate Telegram polling прекратился. В S0-002/ROLE-001 добавлены listener ownership и process-role guards. |
