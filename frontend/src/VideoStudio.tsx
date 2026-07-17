@@ -35,6 +35,7 @@ type VideoConfig = {
   modes: Record<VideoMode, VideoModel[]>
   plan: string
   videoSlots: number
+  feedPublicationEnabled?: boolean
   videoStorage?: { used: number; limit: number; free: number; full: boolean; storedBytes: number }
   economy: { tokenRub: number; minMarginPercent: number }
   availability?: Record<VideoMode, { enabled: number; tariff: number; reason?: string }>
@@ -57,6 +58,10 @@ type VideoJob = {
   galleryVideoId?: string | null
   galleryDeleted?: boolean
   generateAudio?: boolean
+  published?: boolean
+  publicationId?: string | null
+  publicationStatus?: 'preparing' | 'published' | 'failed' | 'hidden' | null
+  publicationError?: string | null
 }
 type GalleryImage = { id: string; url?: string; src?: string; viewerSrc?: string; thumbnailUrl?: string; width?: number; height?: number; promptOriginal?: string }
 
@@ -200,6 +205,15 @@ export default function VideoStudio(): ReactElement {
   const [formatExpanded, setFormatExpanded] = useState(false)
   const [mobileModeOpen, setMobileModeOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
+  const [publishJob, setPublishJob] = useState<VideoJob | null>(null)
+  const [publishTitle, setPublishTitle] = useState('')
+  const [publishDescription, setPublishDescription] = useState('')
+  const [publishVisibility, setPublishVisibility] = useState<'open' | 'partial' | 'hidden'>('open')
+  const [publishCategory, setPublishCategory] = useState('other')
+  const [publishTags, setPublishTags] = useState('')
+  const [publishBusy, setPublishBusy] = useState(false)
+  const [notice, setNotice] = useState('')
   const [guideOpen, setGuideOpen] = useState(false)
   const [previewCleared, setPreviewCleared] = useState(false)
   const [voiceRecording, setVoiceRecording] = useState(false)
@@ -270,6 +284,12 @@ export default function VideoStudio(): ReactElement {
 
   useEffect(() => { localStorage.setItem(DRAFT_KEY, JSON.stringify({ mode, quality, prompt, modelId, duration, resolution, aspectRatio, generateAudio })) }, [mode, quality, prompt, modelId, duration, resolution, aspectRatio, generateAudio])
   useEffect(() => { if (!activeJob) return; const timer = window.setInterval(() => void loadHistory(), 8000); return () => window.clearInterval(timer) }, [activeJob, loadHistory])
+  const hasPreparingPublication = history.some((item) => item.publicationStatus === 'preparing')
+  useEffect(() => {
+    if (!hasPreparingPublication) return
+    const timer = window.setInterval(() => void loadHistory(), 2500)
+    return () => window.clearInterval(timer)
+  }, [hasPreparingPublication, loadHistory])
   useEffect(() => {
     if (!activeJob) return
     const timer = window.setInterval(() => setClockNow(Date.now()), 1000)
@@ -478,10 +498,91 @@ export default function VideoStudio(): ReactElement {
     setHistory((items) => items.filter((item) => item.id !== job.id)); setSelectedJob(null); setPreviewCleared(true); setMenuOpen(false)
   }
   const clearPreview = () => { setSelectedJob(null); setPreviewCleared(true); setMenuOpen(false) }
+  const copyVideoLink = async (job: VideoJob) => {
+    const url = new URL(job.videoUrl || '', window.location.origin).toString()
+    await navigator.clipboard.writeText(url)
+    setNotice('Ссылка на видео скопирована.')
+    setShareOpen(false)
+  }
   const shareVideo = async (job: VideoJob) => {
     const url = new URL(job.videoUrl || '', window.location.origin).toString()
-    if (navigator.share) await navigator.share({ title: 'Видео ИЗО АСА', text: job.prompt, url })
-    else { await navigator.clipboard.writeText(url); setError('Ссылка на видео скопирована.') }
+    try {
+      const response = await fetch(url, { credentials: 'include' })
+      if (!response.ok) throw new Error('Не удалось подготовить видео для отправки.')
+      const blob = await response.blob()
+      const file = new File([blob], `izo-asa-${job.id}.mp4`, { type: blob.type || 'video/mp4' })
+      if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+        await navigator.share({ title: 'Видео ИЗО АСА', text: job.prompt, files: [file] })
+      } else if (navigator.share) {
+        await navigator.share({ title: 'Видео ИЗО АСА', text: job.prompt, url })
+      } else {
+        await navigator.clipboard.writeText(url)
+        setNotice('Ссылка на видео скопирована.')
+      }
+    } catch (reason) {
+      if (reason instanceof DOMException && reason.name === 'AbortError') return
+      setError(reason instanceof Error ? reason.message : 'Не удалось поделиться видео.')
+    } finally {
+      setShareOpen(false)
+    }
+  }
+  const openVideoPublish = (job: VideoJob) => {
+    setShareOpen(false)
+    if (job.published && job.publicationId) {
+      window.location.href = `/feed#work-${encodeURIComponent(job.publicationId)}`
+      return
+    }
+    if (job.publicationStatus === 'preparing') {
+      setNotice('Видео уже готовится к публикации.')
+      return
+    }
+    if (!config?.feedPublicationEnabled || !job.galleryVideoId) {
+      setNotice(job.galleryVideoId ? 'Публикация видео временно недоступна.' : 'Дождитесь сохранения видео в галерею.')
+      return
+    }
+    setPublishTitle('')
+    setPublishDescription('')
+    setPublishVisibility('open')
+    setPublishCategory('other')
+    setPublishTags('')
+    setPublishJob(job)
+  }
+  const submitVideoPublish = async () => {
+    if (!publishJob?.galleryVideoId || publishBusy) return
+    const title = publishTitle.trim()
+    if (!title) { setNotice('Укажите название публикации.'); return }
+    setPublishBusy(true); setError('')
+    try {
+      const response = await apiFetch('/feed/publications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoId: publishJob.galleryVideoId,
+          title,
+          description: publishDescription.trim(),
+          promptVisibility: publishVisibility,
+          allowRecreate: false,
+          category: publishCategory,
+          tags: publishTags.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 8),
+        }),
+      })
+      if (!response.ok) throw new Error(await responseError(response, 'Не удалось опубликовать видео.'))
+      const data = await response.json() as { publication?: { id?: string; status?: VideoJob['publicationStatus'] } }
+      const publicationId = data.publication?.id || null
+      const publicationStatus = data.publication?.status || 'preparing'
+      const applyPublication = (item: VideoJob) => item.id === publishJob.id
+        ? { ...item, publicationId, publicationStatus, published: publicationStatus === 'published' }
+        : item
+      setHistory((items) => items.map(applyPublication))
+      setSelectedJob((item) => item ? applyPublication(item) : item)
+      setPublishJob(null)
+      setNotice(publicationStatus === 'published' ? 'Видео опубликовано в ленту.' : 'Видео готовится к публикации. Можно продолжать работу.')
+      await loadHistory()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Не удалось опубликовать видео.')
+    } finally {
+      setPublishBusy(false)
+    }
   }
   const applySettings = (job: VideoJob) => {
     setMode(job.mode); setPrompt(job.prompt || ''); setDuration(Number(job.duration || duration)); setResolution(job.resolution || resolution); setAspectRatio(job.aspectRatio || aspectRatio); setGenerateAudio(Boolean(job.generateAudio));
@@ -535,6 +636,19 @@ export default function VideoStudio(): ReactElement {
   const findJobModel = (job: VideoJob) => config?.modes[job.mode]?.find((item) => item.id === job.model)
 
   return <main className="video-studio">
+    {publishJob && <div className="video-publish-overlay" role="dialog" aria-modal="true" aria-labelledby="video-publish-title" onClick={() => !publishBusy && setPublishJob(null)}><div className="video-publish-dialog" onClick={(event) => event.stopPropagation()}>
+      <header><div><Sparkles /><div><span>Публичная карточка</span><h2 id="video-publish-title">Опубликовать видео в ленту</h2></div></div><button type="button" aria-label="Закрыть" disabled={publishBusy} onClick={() => setPublishJob(null)}><X /></button></header>
+      {publishJob.videoUrl && <video src={publishJob.videoUrl} muted playsInline preload="metadata" />}
+      <label><span>Название публикации</span><input value={publishTitle} maxLength={120} autoFocus onChange={(event) => setPublishTitle(event.target.value)} /></label>
+      <label><span>Описание</span><textarea value={publishDescription} maxLength={700} rows={3} placeholder="Коротко расскажите о работе" onChange={(event) => setPublishDescription(event.target.value)} /></label>
+      <div className="video-publish-grid">
+        <label><span>Промпт</span><select value={publishVisibility} onChange={(event) => setPublishVisibility(event.target.value as 'open' | 'partial' | 'hidden')}><option value="open">Показывать полностью</option><option value="partial">Показывать частично</option><option value="hidden">Скрыть</option></select></label>
+        <label><span>Категория</span><select value={publishCategory} onChange={(event) => setPublishCategory(event.target.value)}><option value="art">Искусство</option><option value="photo">Фото</option><option value="design">Дизайн</option><option value="character">Персонаж</option><option value="product">Продукт</option><option value="architecture">Архитектура</option><option value="other">Другое</option></select></label>
+      </div>
+      <label><span>Теги</span><input value={publishTags} maxLength={200} placeholder="кино, движение, неон" onChange={(event) => setPublishTags(event.target.value)} /></label>
+      <p>Для ленты будет создана отдельная сжатая копия. Приватный оригинал в галерее не изменится.</p>
+      <footer><button type="button" disabled={publishBusy} onClick={() => setPublishJob(null)}>Отмена</button><button className="primary" type="button" disabled={publishBusy || !publishTitle.trim()} onClick={() => void submitVideoPublish()}>{publishBusy ? <LoaderCircle className="spin" /> : <Sparkles />} Опубликовать</button></footer>
+    </div></div>}
     <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => void handleFile(event)} />
     <section className="video-shell">
       <aside className="video-composer" aria-label="Настройки видеогенерации">
@@ -612,6 +726,7 @@ export default function VideoStudio(): ReactElement {
             <button type="button" className="video-pro" onClick={() => setProOpen((value) => !value)}><Settings2 /><span><b>Выбрать модель</b><small>{shortModelName(selectedModel)} · {publicModelRate(selectedModel)}</small></span><ChevronDown className={proOpen ? 'open' : ''} /></button>
             {proOpen && <div className="video-model-list">{models.map((model) => <button key={model.id} type="button" className={selectedModel?.id === model.id ? 'active' : ''} onClick={() => syncModelDefaults(model)}><span><strong>{model.name}</strong><b>{publicModelRate(model)}</b></span><p>{model.description || 'Описание модели пока не опубликовано.'}</p><small>{model.supportedResolutions.join(', ')} · {model.supportedDurations.join(', ')} сек.</small></button>)}</div>}
           </section>
+          {notice && <div className="video-notice">{notice}</div>}
           {error && <div className="video-error">{error}</div>}
         </> : <div className="video-empty-models">{error || config?.availability?.[mode]?.reason || 'Для этого режима пока нет доступных моделей.'}</div>}
         </div>
@@ -631,7 +746,11 @@ export default function VideoStudio(): ReactElement {
           <div className="video-stage-overlay">
             <div className="video-stage-actions">
               {shownJob?.videoUrl && <a href={shownJob.videoUrl} download title="Скачать"><Download /> <span>Скачать</span></a>}
-              {shownJob?.videoUrl && <button type="button" onClick={() => void shareVideo(shownJob)}><Share2 /> <span>Поделиться</span></button>}
+              {shownJob?.videoUrl && <div className="video-share"><button type="button" aria-expanded={shareOpen} onClick={() => setShareOpen((value) => !value)}><Share2 /> <span>Поделиться</span></button>{shareOpen && <div className="video-share-menu">
+                <button type="button" onClick={() => openVideoPublish(shownJob)}><Sparkles /> {shownJob.published ? 'Открыть в ленте' : shownJob.publicationStatus === 'preparing' ? 'Готовим публикацию' : 'В ленту'}</button>
+                <button type="button" onClick={() => void shareVideo(shownJob)}><Share2 /> Поделиться через устройство</button>
+                <button type="button" onClick={() => void copyVideoLink(shownJob)}><Copy /> Копировать ссылку</button>
+              </div>}</div>}
               {shownJob && <div className="video-more"><button type="button" title="Другие действия" onClick={() => setMenuOpen((value) => !value)}><MoreVertical /></button>{menuOpen && <div><button type="button" onClick={clearPreview}><X /> Очистить предпросмотр</button>{shownJob.galleryVideoId && <button className="destructive" type="button" onClick={() => void deleteVideo(shownJob)}><Trash2 /> Удалить из галереи</button>}</div>}</div>}
             </div>
           </div>
@@ -650,7 +769,10 @@ export default function VideoStudio(): ReactElement {
             <div className="video-context-prompt"><div><span>Промпт</span><button type="button" title="Копировать промпт" aria-label="Копировать промпт" onClick={() => void navigator.clipboard.writeText(shownJob.prompt || '')}><Copy /></button></div><p>{shownJob.prompt || 'Промпт не сохранён'}</p></div>
             <div className="video-context-details">
               <div className="video-context-tags"><span>{shortModelName(findJobModel(shownJob))}</span><span>{shownJob.duration} сек.</span><span>{shownJob.aspectRatio}</span><span>{shownJob.resolution}</span>{shownJob.generateAudio && <span><Volume2 /> Звук</span>}{shownElapsed && shownJob.completedAt && <span><Clock3 /> Готово за {shownElapsed}</span>}</div>
-              <div className="video-context-actions"><button type="button" onClick={() => applySettings(shownJob)}><Settings2 /> Повторить с этими настройками</button></div>
+              <div className="video-context-actions">
+                <button className="feed" type="button" disabled={!shownJob.galleryVideoId || shownJob.publicationStatus === 'preparing'} onClick={() => openVideoPublish(shownJob)}><Sparkles /> <span>{shownJob.published ? 'Открыть в ленте' : shownJob.publicationStatus === 'preparing' ? 'Готовим' : 'В ленту'}</span></button>
+                <button className="icon" type="button" title="Повторить с этими настройками" aria-label="Повторить с этими настройками" onClick={() => applySettings(shownJob)}><RotateCcw /></button>
+              </div>
             </div>
           </> : <p>Выберите видео, чтобы увидеть его параметры.</p>}</aside>
         </div>

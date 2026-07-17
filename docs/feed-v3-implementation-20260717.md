@@ -157,8 +157,12 @@ Verified on 2026-07-17:
   actions stay unavailable;
 - the media-neutral shadow migration preserves legacy publication rows and the
   live schema audit reports no missing tables, columns, or indexes;
-- `backend/test_feed_v2.py` passes 56 tests and
-  `backend/test_video_generation_api.py` passes 5 tests;
+- `backend/test_feed_v2.py` passes 62 tests,
+  `backend/test_video_generation_api.py` passes 5 tests, and
+  `backend/test_gallery_shell_regressions.py` passes 12 tests;
+- the video-studio browser flow passes at 1920x1080, 1920x900, 3840x2160,
+  and 390x844, including asynchronous publication through `preparing` to
+  `published`;
 - the verified local data manifest remains 72 publications, 71 published and
   approved, 0 hidden, 1184 reactions, and 4 follows;
 - browser QA recorded impression, detail-open, dwell, video-play, and qualified
@@ -166,6 +170,20 @@ Verified on 2026-07-17:
 - the temporary browser database, synthetic publication, and video derivatives
   were removed after verification.
 
-`FEED_VIDEO_PUBLICATION_ENABLED` remains disabled by default. Production
-enablement is a separate rollout action after deployment health checks; it is
-not implied by merging this implementation.
+Video publication is enabled by default after the bounded background pipeline
+passed the feed, gallery, and real-FFmpeg tests. `FEED_VIDEO_PUBLICATION_ENABLED`
+remains a production kill switch and may be set to `0` without disabling image
+publication.
+
+Publishing never transcodes inside the HTTP request. The request creates or
+reuses one `preparing` publication and places it onto a single in-process queue.
+One low-priority FFmpeg worker uses one encoding thread and atomically produces:
+
+- a compact WebP poster for the initial feed render;
+- a muted three-second MP4 preview loaded only on interaction;
+- a public H.264/AAC MP4 copy capped at a 1920px long edge.
+
+The private gallery original is not modified. The owner can continue working
+while the status endpoint reports `preparing`; success changes the publication
+to `published`, and a failed preparation can be retried. Pending jobs are
+recovered on application startup.

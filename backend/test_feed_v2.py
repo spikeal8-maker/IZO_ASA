@@ -6,9 +6,13 @@ is served only for published items; init_db stays idempotent with feed tables.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import io
 import sqlite3
+import threading
+import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -140,6 +144,128 @@ def fake_feed_video_assets(publication_id: str, _source_path, **_kwargs) -> main
     )
 
 
+def wait_for_video_publication(
+    client: TestClient,
+    token: str,
+    publication_id: str,
+    *,
+    expected_status: str,
+    timeout_seconds: float = 3.0,
+) -> dict:
+    deadline = time.monotonic() + timeout_seconds
+    last_item: dict | None = None
+    while time.monotonic() < deadline:
+        response = client.get(
+            f"/api/feed/publications/{publication_id}/status",
+            headers=bearer(token),
+        )
+        assert response.status_code == 200, response.text
+        last_item = response.json()["publication"]
+        if last_item["status"] == expected_status:
+            return last_item
+        time.sleep(0.01)
+    pytest.fail(
+        f"publication {publication_id} did not reach {expected_status}; "
+        f"last payload={last_item}"
+    )
+
+
+def test_feed_video_derivative_pipeline_creates_atomic_browser_media(temp_db):
+    source = main.MEDIA / "synthetic-feed-source.mp4"
+    main._run_feed_ffmpeg(
+        [
+            "-f", "lavfi", "-i", "testsrc=size=96x160:rate=10",
+            "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-threads", "1", str(source),
+        ],
+        timeout=30,
+    )
+
+    assets = main.create_feed_video_assets(
+        "synthetic-feed-publication",
+        source,
+        width=96,
+        height=160,
+        duration_seconds=1,
+        has_audio=False,
+    )
+
+    assert assets.orientation == "portrait"
+    assert assets.native_aspect_ratio == "3:5"
+    assert assets.duration_ms == 1000
+    assert assets.has_audio is False
+    for relative_name in (assets.poster_name, assets.preview_name, assets.full_name):
+        path = main.MEDIA / relative_name
+        assert path.is_file()
+        assert path.stat().st_size > 16
+    assert list(main.MEDIA.rglob("*.part.*")) == []
+
+
+def test_feed_video_derivative_pipeline_removes_partial_files_on_failure(temp_db, monkeypatch):
+    source = main.MEDIA / "failing-feed-source.mp4"
+    source.write_bytes(b"synthetic-source" * 4)
+    calls = 0
+
+    def fail_after_first_output(arguments: list[str], **_kwargs) -> None:
+        nonlocal calls
+        calls += 1
+        target = Path(arguments[-1])
+        if calls == 1:
+            target.write_bytes(b"partial-poster" * 4)
+            return
+        raise RuntimeError("synthetic ffmpeg failure")
+
+    monkeypatch.setattr(main, "_run_feed_ffmpeg", fail_after_first_output)
+    with pytest.raises(RuntimeError, match="synthetic ffmpeg failure"):
+        main.create_feed_video_assets(
+            "failing-feed-publication",
+            source,
+            width=96,
+            height=160,
+            duration_seconds=1,
+            has_audio=False,
+        )
+
+    assert calls == 2
+    assert list((main.MEDIA / "feed").glob("failing-feed-publication*")) == []
+
+
+def test_feed_video_worker_shutdown_waits_for_active_derivative(temp_db, monkeypatch):
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_prepare(_publication_id: str) -> None:
+        started.set()
+        assert release.wait(timeout=2), "test did not release active derivative"
+
+    monkeypatch.setattr(main, "FEED_VIDEO_PUBLICATION_ENABLED", True)
+    monkeypatch.setattr(main, "_prepare_feed_video_publication", blocking_prepare)
+
+    async def scenario() -> None:
+        main.start_feed_video_publication_worker()
+        await main.enqueue_feed_video_publication("active-publication")
+        deadline = asyncio.get_running_loop().time() + 1
+        while not started.is_set() and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.005)
+        assert started.is_set()
+
+        stop_task = asyncio.create_task(main.stop_feed_video_publication_worker())
+        await asyncio.sleep(0.02)
+        assert not stop_task.done()
+        assert main.feed_video_publication_worker_stopping is True
+        release.set()
+        await asyncio.wait_for(stop_task, timeout=1)
+
+        assert main.feed_video_publication_worker_task is None
+        assert main.feed_video_publication_queue is None
+        assert main.feed_video_publication_worker_stopping is False
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        release.set()
+
+
 def publish(client: TestClient, token: str, image_id: str, visibility: str = "open", title: str = "Маяк") -> dict:
     r = client.post(
         "/api/feed/publications",
@@ -170,9 +296,18 @@ def test_feed_video_publication_contract_is_gated_and_media_neutral(temp_db, mon
             json={"videoId": "vid-feed-1", "title": "Вертикальное видео", "promptVisibility": "open"},
             headers=bearer(token),
         )
-        assert published.status_code == 200, published.text
-        item = published.json()["publication"]
-        publication_id = item["id"]
+        assert published.status_code == 202, published.text
+        accepted_item = published.json()["publication"]
+        publication_id = accepted_item["id"]
+        assert accepted_item["status"] == "preparing"
+        assert accepted_item["media_status"] == "preparing"
+
+        item = wait_for_video_publication(
+            client,
+            token,
+            publication_id,
+            expected_status="published",
+        )
         assert item["media_type"] == "video"
         assert item["image_id"] is None
         assert item["video_id"] == "vid-feed-1"
@@ -219,6 +354,136 @@ def test_feed_video_publication_contract_is_gated_and_media_neutral(temp_db, mon
         assert client.get(f"/api/feed/media/{publication_id}?variant=large").status_code == 404
         assert client.get(f"/api/feed/video/{publication_id}?variant=preview").status_code == 404
         assert client.get(f"/api/feed/video/{publication_id}?variant=full").status_code == 404
+
+
+def test_gallery_exposes_completed_video_feed_publication(temp_db, monkeypatch):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-video-gallery-feed", "web_video_gallery_feed", "Автор галереи")
+        make_video("vid-gallery-feed", "web_video_gallery_feed")
+        monkeypatch.setattr(main, "FEED_VIDEO_PUBLICATION_ENABLED", True)
+        monkeypatch.setattr(main, "create_feed_video_assets", fake_feed_video_assets)
+
+        accepted = client.post(
+            "/api/feed/publications",
+            json={"videoId": "vid-gallery-feed", "title": "Видео из галереи"},
+            headers=bearer(token),
+        )
+        assert accepted.status_code == 202, accepted.text
+        publication_id = accepted.json()["publication"]["id"]
+        wait_for_video_publication(client, token, publication_id, expected_status="published")
+
+        gallery = client.get("/api/gallery/items?filter=video", headers=bearer(token))
+        assert gallery.status_code == 200, gallery.text
+        gallery_payload = gallery.json()
+        assert gallery_payload["capabilities"]["videoFeedPublication"] is True
+        video_item = next(item for item in gallery_payload["items"] if item["id"] == "vid-gallery-feed")
+        assert video_item["mediaType"] == "video"
+        assert video_item["published"] is True
+        assert video_item["publicationId"] == publication_id
+        assert video_item["publicationStatus"] == "published"
+        assert video_item["thumbnailUrl"].endswith(f"/api/feed/media/{publication_id}?variant=large")
+
+        secondary = client.get("/api/gallery/secondary?filter=video", headers=bearer(token))
+        assert secondary.status_code == 200, secondary.text
+        feed_item = next(item for item in secondary.json()["feedItems"] if item["id"] == "vid-gallery-feed")
+        assert feed_item["feedPublicationId"] == publication_id
+        assert feed_item["videoUrl"].endswith(f"/api/feed/video/{publication_id}?variant=full")
+
+
+def test_feed_video_publication_failure_is_private_and_retryable(temp_db, monkeypatch):
+    with TestClient(main.app) as client:
+        owner_token = make_user("iuid-video-failure", "web_video_failure", "Автор видео")
+        other_token = make_user("iuid-video-other", "web_video_other", "Другой автор")
+        make_video("vid-feed-failure", "web_video_failure")
+        source_path = main.MEDIA / "vid-feed-failure.mp4"
+
+        def fail_assets(*_args, **_kwargs):
+            raise RuntimeError("synthetic derivative failure")
+
+        monkeypatch.setattr(main, "FEED_VIDEO_PUBLICATION_ENABLED", True)
+        monkeypatch.setattr(main, "create_feed_video_assets", fail_assets)
+        accepted = client.post(
+            "/api/feed/publications",
+            json={"videoId": "vid-feed-failure", "title": "Повторяемое видео"},
+            headers=bearer(owner_token),
+        )
+        assert accepted.status_code == 202, accepted.text
+        publication_id = accepted.json()["publication"]["id"]
+
+        failed = wait_for_video_publication(
+            client,
+            owner_token,
+            publication_id,
+            expected_status="failed",
+        )
+        assert failed["media_error"] == "video_derivative_failed"
+        assert source_path.is_file()
+        assert client.get(
+            f"/api/feed/publications/{publication_id}/status",
+            headers=bearer(other_token),
+        ).status_code == 404
+        assert all(
+            item["id"] != publication_id
+            for item in client.get("/api/feed?type=fresh").json()["items"]
+        )
+
+        monkeypatch.setattr(main, "create_feed_video_assets", fake_feed_video_assets)
+        retry = client.post(
+            "/api/feed/publications",
+            json={"videoId": "vid-feed-failure", "title": "Повторяемое видео"},
+            headers=bearer(owner_token),
+        )
+        assert retry.status_code == 202, retry.text
+        assert retry.json()["publication"]["id"] == publication_id
+        recovered = wait_for_video_publication(
+            client,
+            owner_token,
+            publication_id,
+            expected_status="published",
+        )
+        assert recovered["video_id"] == "vid-feed-failure"
+        with main.db() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) AS c FROM feed_publications WHERE video_id = ?",
+                ("vid-feed-failure",),
+            ).fetchone()["c"]
+        assert count == 1
+
+
+def test_feed_video_publication_worker_recovers_preparing_row_on_startup(temp_db, monkeypatch):
+    owner_token = make_user("iuid-video-recovery", "web_video_recovery", "Автор восстановления")
+    make_video("vid-feed-recovery", "web_video_recovery")
+    publication_id = "pub-video-recovery"
+    with main.db() as conn:
+        conn.execute(
+            """
+            INSERT INTO feed_publications (
+                id, image_id, video_id, media_type, internal_user_id, legacy_user_id,
+                title, status, created_at, source_job_id, generation_snapshot_json
+            ) VALUES (?, NULL, ?, 'video', ?, ?, ?, 'preparing', ?, ?, '{}')
+            """,
+            (
+                publication_id,
+                "vid-feed-recovery",
+                "iuid-video-recovery",
+                "web_video_recovery",
+                "Видео после перезапуска",
+                "2026-07-17T00:00:00+00:00",
+                "job-vid-feed-recovery",
+            ),
+        )
+
+    monkeypatch.setattr(main, "FEED_VIDEO_PUBLICATION_ENABLED", True)
+    monkeypatch.setattr(main, "create_feed_video_assets", fake_feed_video_assets)
+    with TestClient(main.app) as client:
+        recovered = wait_for_video_publication(
+            client,
+            owner_token,
+            publication_id,
+            expected_status="published",
+        )
+        assert recovered["video_id"] == "vid-feed-recovery"
+        assert recovered["video_preview_url"].endswith("variant=preview")
 
 
 def test_publish_requires_session(temp_db):

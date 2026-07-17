@@ -60,6 +60,28 @@ the real catalog.
 - Gallery cards lazy-load videos near the viewport; the page does not request
   metadata for every stored video at once.
 
+## Publication to the feed
+
+- A completed private gallery video can be published from the video result or
+  from the gallery through the same publication form and API contract.
+- Publication does not move, replace, or recompress the private original. It
+  creates a separate public poster, interaction preview, and compatible MP4
+  under the feed media root.
+- Preparation is asynchronous. The publication has `preparing`, `published`,
+  or `failed` status, and both gallery surfaces poll the owner-only status
+  endpoint until preparation finishes.
+- Encoding is intentionally server-side because generated video is already on
+  the server. Client-side transcoding would download and upload the same file,
+  consume mobile battery and traffic, and produce browser-dependent output.
+- Server load is bounded by one low-priority FFmpeg worker, one encoding thread,
+  atomic `.part` files, a three-second preview, and a 1920px maximum long edge
+  for the public MP4. `FEED_VIDEO_PUBLICATION_ENABLED=0` is the emergency kill
+  switch.
+- Deleting a private original is blocked while its public copy is preparing.
+  After successful publication, deleting the private original leaves the
+  independent feed publication available until the owner or an administrator
+  removes it.
+
 ## Operations
 
 Run the focused audit from the canonical project folder:

@@ -1,6 +1,24 @@
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 
-const base = process.env.E2E_BASE_URL || 'http://127.0.0.1:5173'
+const localPort = 5199
+const localOrigin = `http://127.0.0.1:${localPort}`
+const base = process.env.E2E_BASE_URL || localOrigin
+
+async function waitForPreview(url) {
+  const deadline = Date.now() + 20_000
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url)
+      if (response.ok) return
+    } catch {
+      // Preview is still starting.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  throw new Error(`preview did not start at ${url}`)
+}
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
@@ -36,6 +54,12 @@ const history = Array.from({ length: 7 }, (_, index) => ({
 }))
 
 async function mockApi(page) {
+  const state = {
+    publicationId: null,
+    publicationStatus: null,
+    historyReadsAfterPublish: 0,
+    publishPayload: null,
+  }
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === '/api/auth/bootstrap-v2') return route.fulfill({ json: { installation_id: 'video-layout', anonymous_id: 'video-layout' } })
@@ -56,11 +80,42 @@ async function mockApi(page) {
         modes: { text_to_video: [model], image_to_video: [model], first_last_frame: [model], reference_to_video: [model] },
         plan: 'business',
         videoSlots: 50,
+        feedPublicationEnabled: true,
         economy: { tokenRub: 5, minMarginPercent: 40 },
         availability: {},
       },
     })
-    if (url.pathname === '/api/video/history') return route.fulfill({ json: { items: history } })
+    if (url.pathname === '/api/video/history') {
+      if (state.publicationStatus === 'preparing') {
+        state.historyReadsAfterPublish += 1
+        if (state.historyReadsAfterPublish >= 2) state.publicationStatus = 'published'
+      }
+      const items = history.map((item, index) => index === 3 && state.publicationStatus ? {
+        ...item,
+        publicationId: state.publicationId,
+        publicationStatus: state.publicationStatus,
+        published: state.publicationStatus === 'published',
+      } : item)
+      return route.fulfill({ json: { items } })
+    }
+    if (url.pathname === '/api/feed/publications' && route.request().method() === 'POST') {
+      state.publishPayload = route.request().postDataJSON()
+      state.publicationId = 'publication-layout-video'
+      state.publicationStatus = 'preparing'
+      state.historyReadsAfterPublish = 0
+      return route.fulfill({
+        status: 202,
+        json: {
+          ok: true,
+          publication: {
+            id: state.publicationId,
+            video_id: state.publishPayload.videoId,
+            media_type: 'video',
+            status: 'preparing',
+          },
+        },
+      })
+    }
     if (url.pathname === '/api/video/estimate') {
       const body = route.request().postDataJSON()
       const resolutionFactor = body.resolution === '1080p' ? 2 : 1
@@ -72,11 +127,12 @@ async function mockApi(page) {
     if (url.pathname === '/api/models') return route.fulfill({ json: { ok: true, profiles: [] } })
     return route.fulfill({ json: { ok: true, items: [] } })
   })
+  return state
 }
 
 async function inspect(browser, viewport) {
   const page = await browser.newPage({ viewport, isMobile: viewport.width < 761, hasTouch: viewport.width < 761 })
-  await mockApi(page)
+  const apiState = await mockApi(page)
   await page.goto(`${base}/video?layout_test=${viewport.width}`, { waitUntil: 'networkidle' })
   await page.locator('.video-studio').waitFor()
   if (process.env.E2E_SCREENSHOT_DIR) {
@@ -234,6 +290,23 @@ async function inspect(browser, viewport) {
     result.clearPreviewKeepsHistory = await page.locator('.video-history-list button').count() === history.length && await page.locator('.video-stage-message').isVisible()
     await page.locator('.video-history-list button').nth(3).click()
   }
+  if (viewport.width === 1920 && viewport.height === 1080) {
+    await page.locator('.video-context-actions .feed').click()
+    const dialog = page.locator('.video-publish-dialog')
+    await dialog.waitFor({ state: 'visible' })
+    await dialog.locator('label').filter({ hasText: 'Название публикации' }).locator('input').fill('Видео для ленты')
+    await dialog.locator('label').filter({ hasText: 'Описание' }).locator('textarea').fill('Проверка асинхронной публикации')
+    await dialog.locator('label').filter({ hasText: 'Теги' }).locator('input').fill('тест, видео')
+    await dialog.locator('footer button.primary').click()
+    await dialog.waitFor({ state: 'hidden' })
+    await page.locator('.video-context-actions .feed').filter({ hasText: 'Открыть в ленте' }).waitFor({ timeout: 8_000 })
+    result.publicationWorkflow = {
+      payload: apiState.publishPayload,
+      publicationId: apiState.publicationId,
+      publicationStatus: apiState.publicationStatus,
+      historyReadsAfterPublish: apiState.historyReadsAfterPublish,
+    }
+  }
   if (process.env.E2E_SCREENSHOT_DIR) {
     await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/video-${viewport.width}x${viewport.height}.png`, fullPage: true })
   }
@@ -242,6 +315,15 @@ async function inspect(browser, viewport) {
 }
 
 async function run() {
+  let previewProcess
+  if (!process.env.E2E_BASE_URL) {
+    const viteBin = fileURLToPath(new URL('./node_modules/vite/bin/vite.js', import.meta.url))
+    previewProcess = spawn(process.execPath, [viteBin, 'preview', '--host', '127.0.0.1', '--port', String(localPort), '--strictPort'], {
+      cwd: fileURLToPath(new URL('.', import.meta.url)),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    await waitForPreview(localOrigin)
+  }
   const browser = await chromium.launch()
   try {
     const fullHd = await inspect(browser, { width: 1920, height: 1080 })
@@ -281,11 +363,19 @@ async function run() {
     assert(fullHd.durationBeforeAudio && fullHd.durationAfterAudio && Math.abs(fullHd.durationBeforeAudio.x - fullHd.durationAfterAudio.x) < 1 && Math.abs(fullHd.durationBeforeAudio.y - fullHd.durationAfterAudio.y) < 1, 'Audio toggle shifts the duration control')
     assert(fullHd.format169Width > fullHd.format11Width * 1.35, '16:9 format icon does not look wider than 1:1')
     assert(fullHd.clearPreviewKeepsHistory, 'Clearing the preview removes history or does not clear the stage')
+    assert(fullHd.publicationWorkflow?.payload?.videoId === 'gallery-video-layout-3', 'Video publication uses the wrong gallery video id')
+    assert(fullHd.publicationWorkflow?.payload?.title === 'Видео для ленты', 'Video publication title is missing')
+    assert(fullHd.publicationWorkflow?.payload?.allowRecreate === false, 'Video publication must disable recreation')
+    assert(fullHd.publicationWorkflow?.publicationStatus === 'published', 'Video publication did not transition to published')
+    assert(fullHd.publicationWorkflow?.historyReadsAfterPublish >= 2, 'Video publication did not poll history while preparing')
 
     const browserFullHd = await inspect(browser, { width: 1920, height: 900 })
     assert(!browserFullHd.overflowX, 'Browser Full HD has horizontal overflow')
     assert(browserFullHd.shelf && browserFullHd.shelf.bottom <= browserFullHd.viewportHeight + 1, 'History shelf is outside the browser Full HD viewport')
-    assert(browserFullHd.contextActions && browserFullHd.shelf && browserFullHd.contextActions.bottom <= browserFullHd.shelf.bottom + 1, 'Context actions are clipped in browser Full HD')
+    assert(
+      browserFullHd.contextActions && browserFullHd.shelf && browserFullHd.contextActions.bottom <= browserFullHd.shelf.bottom + 1,
+      `Context actions are clipped in browser Full HD: actions=${JSON.stringify(browserFullHd.contextActions)} shelf=${JSON.stringify(browserFullHd.shelf)}`,
+    )
 
     const fourK = await inspect(browser, { width: 3840, height: 2160 })
     assert(!fourK.overflowX, '4K has horizontal overflow')
@@ -307,9 +397,16 @@ async function run() {
     assert(mobile.promptRect && mobile.stage && mobile.promptRect.top >= mobile.stage.bottom, 'Mobile prompt must appear after the video preview')
     assert(mobile.shelf && mobile.composer && mobile.shelf.top >= mobile.composer.bottom - 1, 'Mobile history must appear after generation settings')
 
-    console.log(JSON.stringify({ fullHd, browserFullHd, fourK, mobile }, null, 2))
+    const report = { fullHd, browserFullHd, fourK, mobile }
+    console.log(JSON.stringify(process.env.E2E_VERBOSE === '1' ? report : {
+      ok: true,
+      viewports: ['1920x1080', '1920x900', '3840x2160', '390x844'],
+      publicationStatus: fullHd.publicationWorkflow?.publicationStatus,
+      publicationHistoryReads: fullHd.publicationWorkflow?.historyReadsAfterPublish,
+    }, null, 2))
   } finally {
     await browser.close()
+    if (previewProcess && !previewProcess.killed) previewProcess.kill()
   }
 }
 
