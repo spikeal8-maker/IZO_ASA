@@ -181,8 +181,9 @@ Frontend rollback validates the selected artifact before replacing port 5173:
 .\tools\rollback-frontend-release.ps1 -ReleaseId <previous_release_id>
 ```
 
-The remaining transactional activation gaps and API A/B rollback are explicitly
-tracked in `REL-001` and `REL-002`; do not describe them as already solved.
+REL-001 now restores the previous frontend when listener activation fails. A true
+zero-downtime edge/API A/B switch and immutable old-backend artifact are still
+tracked in `EDGE-001` and `REL-002`; do not describe those as already solved.
 
 ## Windows autostart
 

@@ -4,6 +4,7 @@
 - Статус: **VERIFIED**
 - Code baseline и развёрнутый commit: `2e447828be098a58513c978bc07aa64e4f694b4b`
 - Развёрнутый release: `2e447828be09-20260717233010`
+- Последующее состояние: publisher-risk закрыт [REL-001 checkpoint](rel-001-fail-closed-publisher-checkpoint-20260718.md); текущий live release указан в master plan
 
 ## Результат
 
@@ -129,11 +130,11 @@ workflow. Run `29611341429` для exact deployed SHA, job `87986493899`, не �
 - Rollback: candidate rejection и frontend/backend availability rollback реально
   сработали. Immutable artifact старого backend и drain switch ещё отсутствуют —
   это REL-002.
-- Publisher: `start-public.bat` пока использует документированный `-SkipVerify`
-  после отдельного operator-run full gate. Удаление обычного bypass и audited
-  break-glass — следующий пакет REL-001.
-- Edge: frontend production всё ещё обслуживает Vite Preview. Замена на Caddy —
-  EDGE-001 после REL-001.
+- Historical publisher residual: на момент ENV-001 `start-public.bat` использовал
+  `-SkipVerify`; обычный bypass удалён последующим REL-001, audited break-glass и
+  exact-SHA receipt реализованы.
+- Edge: frontend production всё ещё обслуживает Vite Preview. После завершённого
+  REL-001 следующий пакет — EDGE-001 с локальным Caddy.
 
 Для documentation-only commit этого checkpoint restart не требуется. Развёрнутый
 application code остаётся точно `2e44782`.
