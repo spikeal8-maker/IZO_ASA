@@ -149,6 +149,10 @@ still required.
 ### Phone
 
 - Keep two balanced masonry columns for visual browsing.
+- Place the five feed sections in a fixed bottom tab bar using the existing
+  cached pager state.
+- Open search on demand instead of reserving a permanent toolbar above the
+  image canvas.
 - Keep only the compact author avatar and name visible without opening a card.
 - Show follower count after opening the author context, not as an image metric.
 - Keep only remix and like as direct card actions.
@@ -159,8 +163,12 @@ still required.
 
 ### Desktop
 
-- Keep dense masonry, but cap extreme wide-screen column count so works remain
-  inspectable.
+- Use an unframed left navigation lane for search, signal filtering, feed
+  sections, and one compact creation call to action.
+- Keep dense masonry at a strict four-column maximum and cap the image canvas at
+  `1320px` so works remain inspectable.
+- Do not restore promotional mode cards, decorative column offsets, or
+  permanent borders around every feed work.
 - Make author identity and follower count visible on hover and keyboard focus.
 - Use the right-side detail view for deep actions; do not duplicate all controls
   on the grid card.

@@ -1,6 +1,6 @@
 # Feed Current Product Plan
 
-Date: 2026-07-15.
+Date: 2026-07-17.
 
 ## Canonical Feed Screen
 
@@ -17,6 +17,16 @@ The older React feed surface was removed from `frontend/src/newUi.tsx`.
 The SPA must not claim `/feed`. Vite dev/preview proxy `/feed` to the backend,
 and the frontend has a fallback guard so stale builds or broken proxy fallback
 show a loading guard instead of reviving a duplicate feed surface.
+
+The current responsive layout contract is documented in
+`docs/feed-layout-redesign-20260716.md`. The canonical feed uses an unframed
+desktop navigation rail, a four-column maximum, a two-column phone canvas,
+fixed mobile feed tabs, and an on-demand mobile search drawer. The removed
+promotional mode cards are not a fallback feed shell.
+
+The normative Feed V3 product, media, video, analytics, and release contract is
+`docs/feed-v3-implementation-20260717.md`. When an older audit or checkpoint
+conflicts with it, the Feed V3 contract wins.
 
 ## Current Goal
 

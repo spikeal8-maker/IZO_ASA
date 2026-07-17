@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import io
+import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,6 +27,11 @@ import media_cleanup_plan
 import media_storage_audit
 import main
 import user_gallery_link_audit
+from app.database.migrations import (
+    FEED_PUBLICATION_ADDITIVE_COLUMNS,
+    add_missing_columns,
+    rebuild_feed_publications_media_neutral,
+)
 
 
 @pytest.fixture
@@ -90,6 +96,50 @@ def make_image(image_id: str, legacy_user: str, prompt: str = "секретны�
         )
 
 
+def make_video(video_id: str, legacy_user: str, prompt: str = "короткое видео про маяк") -> None:
+    source_name = f"{video_id}.mp4"
+    (main.MEDIA / source_name).write_bytes(b"feed-video-source" * 8)
+    job_id = f"job-{video_id}"
+    settings = json.dumps({"localFile": source_name, "generateAudio": True, "resolution": "720p"})
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id, user_id, mode, provider, status, progress, prompt_original, settings_json, created_at, completed_at) "
+            "VALUES (?, ?, 'text_to_video', 'openrouter', 'completed', 100, ?, ?, '2026-07-17', '2026-07-17')",
+            (job_id, legacy_user, prompt, settings),
+        )
+        conn.execute(
+            "INSERT INTO videos (id, user_id, job_id, url, width, height, duration_seconds, aspect_ratio, mode, provider, "
+            "prompt_original, settings_json, stored_bytes, created_at) "
+            "VALUES (?, ?, ?, ?, 720, 1280, 5, '9:16', 'text_to_video', 'openrouter', ?, ?, 256, '2026-07-17')",
+            (video_id, legacy_user, job_id, f"/api/media/{source_name}?userId={legacy_user}", prompt, settings),
+        )
+
+
+def fake_feed_video_assets(publication_id: str, _source_path, **_kwargs) -> main.FeedVideoAssetInfo:
+    feed_dir = main.MEDIA / "feed"
+    feed_dir.mkdir(parents=True, exist_ok=True)
+    poster_name = f"feed/{publication_id}_video_poster.webp"
+    preview_name = f"feed/{publication_id}_video_preview.mp4"
+    full_name = f"feed/{publication_id}_video_full.mp4"
+    Image.new("RGB", (360, 640), (18, 46, 72)).save(main.MEDIA / poster_name, "WEBP")
+    (main.MEDIA / preview_name).write_bytes(b"preview" * 32)
+    (main.MEDIA / full_name).write_bytes(b"full-video" * 64)
+    return main.FeedVideoAssetInfo(
+        poster_name=poster_name,
+        poster_width=360,
+        poster_height=640,
+        poster_bytes=(main.MEDIA / poster_name).stat().st_size,
+        preview_name=preview_name,
+        preview_bytes=(main.MEDIA / preview_name).stat().st_size,
+        full_name=full_name,
+        full_bytes=(main.MEDIA / full_name).stat().st_size,
+        native_aspect_ratio="9:16",
+        orientation="portrait",
+        duration_ms=5000,
+        has_audio=True,
+    )
+
+
 def publish(client: TestClient, token: str, image_id: str, visibility: str = "open", title: str = "Маяк") -> dict:
     r = client.post(
         "/api/feed/publications",
@@ -98,6 +148,77 @@ def publish(client: TestClient, token: str, image_id: str, visibility: str = "op
     )
     assert r.status_code == 200, r.text
     return r.json()["publication"]
+
+
+def test_feed_video_publication_contract_is_gated_and_media_neutral(temp_db, monkeypatch):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-video-feed", "web_video_feed", "Автор видео")
+        make_video("vid-feed-1", "web_video_feed")
+
+        monkeypatch.setattr(main, "FEED_VIDEO_PUBLICATION_ENABLED", False)
+        disabled = client.post(
+            "/api/feed/publications",
+            json={"videoId": "vid-feed-1", "title": "Вертикальное видео"},
+            headers=bearer(token),
+        )
+        assert disabled.status_code == 503
+
+        monkeypatch.setattr(main, "FEED_VIDEO_PUBLICATION_ENABLED", True)
+        monkeypatch.setattr(main, "create_feed_video_assets", fake_feed_video_assets)
+        published = client.post(
+            "/api/feed/publications",
+            json={"videoId": "vid-feed-1", "title": "Вертикальное видео", "promptVisibility": "open"},
+            headers=bearer(token),
+        )
+        assert published.status_code == 200, published.text
+        item = published.json()["publication"]
+        publication_id = item["id"]
+        assert item["media_type"] == "video"
+        assert item["image_id"] is None
+        assert item["video_id"] == "vid-feed-1"
+        assert item["allow_recreate"] is False
+        assert item["video_preview_url"].endswith("variant=preview")
+        assert item["video_url"].endswith("variant=full")
+        assert item["duration_ms"] == 5000
+        assert item["has_audio"] is True
+
+        public_feed = client.get("/api/feed?type=fresh").json()["items"]
+        assert any(entry["id"] == publication_id and entry["media_type"] == "video" for entry in public_feed)
+        assert client.get(f"/api/feed/media/{publication_id}?variant=large").status_code == 200
+        assert client.get(f"/api/feed/video/{publication_id}?variant=preview").status_code == 200
+        full = client.get(f"/api/feed/video/{publication_id}?variant=full", headers={"Range": "bytes=0-9"})
+        assert full.status_code == 206
+        assert len(full.content) == 10
+
+        use_image = client.post(
+            f"/api/feed/publications/{publication_id}/use-as",
+            json={"target": "editor"},
+            headers=bearer(token),
+        )
+        assert use_image.status_code == 400
+        use_prompt = client.post(
+            f"/api/feed/publications/{publication_id}/use-as",
+            json={"target": "prompt"},
+            headers=bearer(token),
+        )
+        assert use_prompt.status_code == 200
+        assert use_prompt.json()["inputImage"] is None
+        remix = client.post(f"/api/feed/publications/{publication_id}/remix/start", headers=bearer(token))
+        assert remix.status_code == 400
+
+        with main.db() as conn:
+            stored = conn.execute(
+                "SELECT video_poster_name, video_preview_name, video_full_name FROM feed_publications WHERE id = ?",
+                (publication_id,),
+            ).fetchone()
+        stored_paths = [main.MEDIA / stored[key] for key in stored.keys()]
+        assert all(path.is_file() for path in stored_paths)
+        deleted = client.delete(f"/api/feed/publications/{publication_id}", headers=bearer(token))
+        assert deleted.status_code == 200, deleted.text
+        assert all(not path.exists() for path in stored_paths)
+        assert client.get(f"/api/feed/media/{publication_id}?variant=large").status_code == 404
+        assert client.get(f"/api/feed/video/{publication_id}?variant=preview").status_code == 404
+        assert client.get(f"/api/feed/video/{publication_id}?variant=full").status_code == 404
 
 
 def test_publish_requires_session(temp_db):
@@ -217,14 +338,36 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "/api/gallery/page" not in r.text
         assert "data:image" not in r.text
         assert "return 6" not in r.text
-        assert "mode-tile" in r.text
-        assert "rail-challenge" in r.text
-        assert "/static/feed/assets/mode_text.webp" in r.text
+        assert "return 5" not in r.text
+        assert "mode-tile" not in r.text
+        assert "rail-challenge" not in r.text
+        assert "create-feed-cta" in r.text
+        assert "Создать работу" in r.text
+        assert "create-picker" in r.text
+        assert "mobile-create-trigger" in r.text
+        assert "bounded-media" in r.text
+        assert 'decoding="async"' in r.text
+        assert 'fetchpriority="${isFirstRow ? \'high\' : \'auto\'}"' in r.text
+        assert "createWorkCard(item, realIndex, index, colsCount)" in r.text
+        assert "trackFeedEvent('impression'" in r.text
+        assert "trackFeedEvent('detail_open'" in r.text
+        assert "trackFeedEvent('dwell'" in r.text
+        assert "trackFeedEvent('creation_entry'" in r.text
+        assert 'id="modalVideo" controls playsinline preload="metadata" hidden' in r.text
+        assert 'preload="none" poster="${escapeHtml(item.src)}" hidden' in r.text
+        assert "function startFeedVideoPreview" in r.text
+        assert "function stopFeedVideoPreview" in r.text
+        assert "stopModalVideo()" in r.text
+        assert "trackFeedEvent('video_play'" in r.text
+        assert "trackFeedEvent('qualified_video_view'" in r.text
+        assert "trackFeedEvent('video_completion'" in r.text
+        assert "Скачать MP4" in r.text
+        assert "position:fixed;z-index:119" not in r.text
+        assert ".iv3.topbar-scope .mode-tabs{display:none}" in r.text
         assert 'href="/#text-to-image"' in r.text
         assert "/new#text-to-image" not in r.text
         assert "legacy-unused-topbar" not in r.text
         assert "n2-tab" not in r.text
-        assert 'data-action="challenge"' in r.text
         assert "downloadCurrent" in r.text
         assert "Скачать JPEG" in r.text
         assert "Скачать PNG" in r.text
@@ -324,16 +467,24 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "скрыт автором" not in r.text
         assert "Работы автора появятся во вкладке Подписки" in r.text
         assert "Снять вашу публикацию с публичной ленты" in r.text
-        assert "feedbar.feedbar-hidden" in r.text
-        assert "updateFeedbarForScroll" in r.text
+        assert "feedbar.feedbar-hidden" not in r.text
+        assert "updateFeedbarForScroll" not in r.text
+        assert 'id="mobileSearchToggle"' in r.text
+        assert 'id="feedSearchPanel"' in r.text
+        assert "function setMobileSearchOpen" in r.text
+        assert "position:fixed;z-index:120;left:0;right:0;bottom:0" in r.text
+        assert "grid-template-columns:repeat(var(--cols,4)" in r.text
+        assert "max-width:1320px" in r.text
+        assert "Math.min(2.25" in r.text
+        assert "masonry-col:nth-child" not in r.text
+        assert "border:0;background:#0c110d" in r.text
         assert ".iv3.topbar-scope{--line:" in r.text
         assert "position:sticky;top:0;z-index:160" in r.text
         assert "mobile-bottom-nav" not in r.text
-        assert "@media (max-width:820px){:root{--top:77px}" in r.text
-        normalized_html = r.text.replace("\r\n", "\n")
-        assert ".mode-feature{\n  position:relative;display:block;width:100%" in normalized_html
-        assert "grid-template-rows:31px 28px" in r.text
-        assert ".iv3.topbar-scope .mode-tabs{grid-column:1/-1;grid-row:2;display:grid" in r.text
+        assert ":root{--rail:1fr;--top:50px;--gap:4px}" in r.text
+        assert '<aside class="rail" aria-label="Навигация ленты">' in r.text
+        assert "grid-template-rows:31px 28px" not in r.text
+        assert ".iv3.topbar-scope .mode-tabs{display:none}" in r.text
         assert 'id="videoTopTab"' in r.text
         assert 'href="/#video"' in r.text
         assert 'id="videoTopTab" class="tab disabled"' not in r.text
@@ -341,9 +492,6 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "videoTopTab.classList.remove('disabled')" not in r.text
         assert '<span class="user-label">Войти</span>' in r.text
 
-        asset = client.get("/static/feed/assets/mode_text.webp")
-        assert asset.status_code == 200
-        assert asset.headers["content-type"] == "image/webp"
         avatar = client.get("/avatars/avatar-001.webp")
         assert avatar.status_code == 200
         assert avatar.headers["content-type"] == "image/webp"
@@ -516,6 +664,53 @@ def test_feed_publication_view_count_is_public_and_deduplicated(temp_db):
         feed = anon.get("/api/feed?type=new").json()
         item = next(i for i in feed["items"] if i["id"] == pub["id"])
         assert item["view_count"] == 2
+
+
+def test_feed_engagement_events_are_public_private_and_deduplicated(temp_db):
+    with TestClient(main.app) as client:
+        token = make_user("iuid-event-author", "web_event_author")
+        make_image("img-event", "web_event_author")
+        pub = publish(client, token, "img-event")
+        headers = {"X-Installation-Id": "install-event-viewer"}
+        payload = {
+            "event_type": "impression",
+            "publication_id": pub["id"],
+            "context": {"surface": "feed_card", "feed_type": "all", "email": "must-not-store@example.com"},
+        }
+
+        first = client.post("/api/feed/events", json=payload, headers=headers)
+        duplicate = client.post("/api/feed/events", json=payload, headers=headers)
+        dwell = client.post(
+            "/api/feed/events",
+            json={"event_type": "dwell", "publication_id": pub["id"], "duration_ms": 2400},
+            headers=headers,
+        )
+        creation = client.post(
+            "/api/feed/events",
+            json={"event_type": "creation_entry", "context": {"surface": "mobile_topbar"}},
+            headers=headers,
+        )
+
+        assert first.status_code == 200
+        assert first.json()["accepted"] is True
+        assert duplicate.json()["accepted"] is False
+        assert dwell.json()["accepted"] is True
+        assert creation.json()["accepted"] is True
+        assert client.post("/api/feed/events", json={"event_type": "unknown"}, headers=headers).status_code == 422
+        assert client.post(
+            "/api/feed/events",
+            json={"event_type": "dwell", "publication_id": pub["id"]},
+            headers=headers,
+        ).status_code == 422
+
+    with main.db() as conn:
+        rows = conn.execute(
+            "SELECT viewer_key, event_type, duration_ms, context_json FROM feed_engagement_events ORDER BY created_at"
+        ).fetchall()
+    assert [row["event_type"] for row in rows] == ["impression", "dwell", "creation_entry"]
+    assert all("install-event-viewer" not in row["viewer_key"] for row in rows)
+    assert rows[1]["duration_ms"] == 2400
+    assert json.loads(rows[0]["context_json"]) == {"surface": "feed_card", "feed_type": "all"}
 
 
 def test_feed_cursor_pagination_search_and_signal_filter(temp_db):
@@ -1608,6 +1803,7 @@ def test_init_db_idempotent_with_feed_tables(temp_db):
             "feed_reactions",
             "feed_author_follows",
             "feed_view_events",
+            "feed_engagement_events",
             "feed_subscription_reads",
         ):
             row = conn.execute(
@@ -1621,6 +1817,8 @@ def test_init_db_has_feed_media_contract_columns(temp_db):
     with main.db() as conn:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()}
     expected = {
+        "media_type",
+        "video_id",
         "feed_thumb_name",
         "feed_large_name",
         "feed_thumb_width",
@@ -1646,8 +1844,51 @@ def test_init_db_has_feed_media_contract_columns(temp_db):
         "moderated_by_internal_user_id",
         "source_job_id",
         "metric_origin",
+        "video_poster_name",
+        "video_poster_width",
+        "video_poster_height",
+        "video_poster_bytes",
+        "video_preview_name",
+        "video_preview_bytes",
+        "video_full_name",
+        "video_full_bytes",
+        "duration_ms",
+        "has_audio",
     }
     assert expected <= columns
+
+
+def test_feed_media_neutral_shadow_migration_preserves_legacy_rows(tmp_path):
+    path = tmp_path / "legacy-feed.sqlite3"
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE feed_publications ("
+        "id TEXT PRIMARY KEY, image_id TEXT NOT NULL UNIQUE, internal_user_id TEXT NOT NULL, "
+        "title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'published', created_at TEXT NOT NULL, "
+        "legacy_marker TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO feed_publications (id,image_id,internal_user_id,title,status,created_at,legacy_marker) "
+        "VALUES ('pub-1','img-1','user-1','До миграции','published','2026-07-17','keep-me')"
+    )
+    add_missing_columns(conn, "feed_publications", FEED_PUBLICATION_ADDITIVE_COLUMNS)
+
+    assert rebuild_feed_publications_media_neutral(conn) is True
+    assert rebuild_feed_publications_media_neutral(conn) is False
+    columns = {row["name"]: row for row in conn.execute("PRAGMA table_info(feed_publications)")}
+    row = conn.execute("SELECT * FROM feed_publications WHERE id='pub-1'").fetchone()
+    assert columns["image_id"]["notnull"] == 0
+    assert row["image_id"] == "img-1"
+    assert row["media_type"] == "image"
+    assert row["legacy_marker"] == "keep-me"
+    conn.execute(
+        "INSERT INTO feed_publications "
+        "(id,image_id,video_id,media_type,internal_user_id,title,status,created_at) "
+        "VALUES ('pub-video',NULL,'video-1','video','user-1','Видео','published','2026-07-17')"
+    )
+    conn.commit()
+    conn.close()
 
 
 def test_init_db_has_media_query_indexes(temp_db):
@@ -1668,9 +1909,13 @@ def test_init_db_has_media_query_indexes(temp_db):
         "idx_feed_publications_category_ready_created",
         "idx_feed_publications_legacy_ready_created",
         "idx_feed_publications_moderation_created",
+        "idx_feed_publications_media_type_ready_created",
         "idx_feed_reactions_viewer_kind",
         "idx_feed_view_events_viewer_recent",
         "idx_feed_view_events_last_viewed",
+        "idx_feed_engagement_events_type_created",
+        "idx_feed_engagement_events_publication_created",
+        "idx_feed_engagement_events_viewer_created",
     }
     assert expected <= indexes
 

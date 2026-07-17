@@ -626,7 +626,9 @@ CREATE TABLE IF NOT EXISTS auth_identities (
             -- prompt_visibility: open | partial | hidden. status: published | hidden.
             CREATE TABLE IF NOT EXISTS feed_publications (
                 id TEXT PRIMARY KEY,
-                image_id TEXT NOT NULL UNIQUE,
+                image_id TEXT UNIQUE,
+                video_id TEXT UNIQUE,
+                media_type TEXT NOT NULL DEFAULT 'image',
                 internal_user_id TEXT NOT NULL,
                 legacy_user_id TEXT,
                 title TEXT NOT NULL,
@@ -641,13 +643,25 @@ CREATE TABLE IF NOT EXISTS auth_identities (
                 moderated_by_internal_user_id TEXT,
                 source_job_id TEXT,
                 metric_origin TEXT NOT NULL DEFAULT 'organic',
-                created_at TEXT NOT NULL
+                video_poster_name TEXT,
+                video_poster_width INTEGER,
+                video_poster_height INTEGER,
+                video_poster_bytes INTEGER,
+                video_preview_name TEXT,
+                video_preview_bytes INTEGER,
+                video_full_name TEXT,
+                video_full_bytes INTEGER,
+                duration_ms INTEGER,
+                has_audio INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                CHECK (media_type IN ('image', 'video')),
+                CHECK ((media_type = 'image' AND image_id IS NOT NULL AND video_id IS NULL)
+                    OR (media_type = 'video' AND video_id IS NOT NULL AND image_id IS NULL))
             );
             CREATE INDEX IF NOT EXISTS idx_feed_publications_status_created
                 ON feed_publications(status, created_at);
             CREATE INDEX IF NOT EXISTS idx_feed_publications_user
                 ON feed_publications(internal_user_id);
-
             CREATE TABLE IF NOT EXISTS feed_reactions (
                 publication_id TEXT NOT NULL,
                 internal_user_id TEXT NOT NULL,
@@ -681,6 +695,22 @@ CREATE TABLE IF NOT EXISTS auth_identities (
                 ON feed_view_events(viewer_key, last_viewed_at DESC, publication_id);
             CREATE INDEX IF NOT EXISTS idx_feed_view_events_last_viewed
                 ON feed_view_events(last_viewed_at);
+
+            CREATE TABLE IF NOT EXISTS feed_engagement_events (
+                id TEXT PRIMARY KEY,
+                publication_id TEXT,
+                viewer_key TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                duration_ms INTEGER,
+                context_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_feed_engagement_events_type_created
+                ON feed_engagement_events(event_type, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_feed_engagement_events_publication_created
+                ON feed_engagement_events(publication_id, event_type, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_feed_engagement_events_viewer_created
+                ON feed_engagement_events(viewer_key, created_at DESC);
 
             CREATE TABLE IF NOT EXISTS feed_subscription_reads (
                 internal_user_id TEXT PRIMARY KEY,

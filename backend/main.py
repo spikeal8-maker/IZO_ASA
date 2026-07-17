@@ -9,6 +9,7 @@ import mimetypes
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import subprocess
 import tempfile
@@ -1307,6 +1308,13 @@ class UseAsRequest(BaseModel):
 class FeedModerationRequest(BaseModel):
     action: Literal["approve", "reject"]
     reason: str = Field(min_length=3, max_length=500)
+
+
+class FeedEngagementEventRequest(BaseModel):
+    event_type: str = Field(min_length=1, max_length=48)
+    publication_id: str | None = Field(default=None, max_length=128)
+    duration_ms: int | None = Field(default=None, ge=0, le=1_800_000)
+    context: dict[str, Any] = Field(default_factory=dict)
 
 
 class AdminLimitRequest(BaseModel):
@@ -16625,6 +16633,7 @@ FEED_PARTIAL_PROMPT_CHARS = 140
 FEED_THUMB_MAX_SIDE = 640
 FEED_LARGE_MAX_SIDE = 1536
 FEED_DISPLAY_POLICY = "preserve_aspect_ratio"
+FEED_VIDEO_PUBLICATION_ENABLED = os.getenv("FEED_VIDEO_PUBLICATION_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
 FEED_VIEWER_VISIBLE_SQL = """
   AND (
     ? IS NULL OR NOT EXISTS (
@@ -16649,6 +16658,22 @@ class FeedAssetInfo:
     feed_large_bytes: int
     native_aspect_ratio: str
     orientation: str
+
+
+@dataclass
+class FeedVideoAssetInfo:
+    poster_name: str
+    poster_width: int
+    poster_height: int
+    poster_bytes: int
+    preview_name: str
+    preview_bytes: int
+    full_name: str
+    full_bytes: int
+    native_aspect_ratio: str
+    orientation: str
+    duration_ms: int
+    has_audio: bool
 
 
 def _feed_orientation(width: int, height: int) -> str:
@@ -16721,6 +16746,93 @@ def create_feed_assets(publication_id: str, source_url: str | None) -> FeedAsset
         feed_large_bytes=lb,
         native_aspect_ratio=native_ratio,
         orientation=orientation,
+    )
+
+
+def _feed_ffmpeg_executable() -> str:
+    configured = str(os.getenv("FFMPEG_BINARY") or "").strip()
+    if configured:
+        return configured
+    try:
+        import imageio_ffmpeg
+
+        return str(imageio_ffmpeg.get_ffmpeg_exe())
+    except Exception as exc:  # pragma: no cover - installation dependent
+        raise RuntimeError("FFmpeg is unavailable for feed video derivatives") from exc
+
+
+def _run_feed_ffmpeg(arguments: list[str], *, timeout: int = 180) -> None:
+    try:
+        subprocess.run(
+            [_feed_ffmpeg_executable(), "-hide_banner", "-loglevel", "error", "-y", *arguments],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError("Feed video derivative generation failed") from exc
+
+
+def create_feed_video_assets(
+    publication_id: str,
+    source_path: Path,
+    *,
+    width: int,
+    height: int,
+    duration_seconds: int,
+    has_audio: bool,
+) -> FeedVideoAssetInfo:
+    if not source_path.is_file():
+        raise FileNotFoundError("Feed source video file not found")
+    target_dir = feed_media_dir()
+    safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", publication_id)
+    poster_rel = f"feed/{safe_id}_video_poster.webp"
+    preview_rel = f"feed/{safe_id}_video_preview.mp4"
+    full_rel = f"feed/{safe_id}_video_full.mp4"
+    poster_path = MEDIA / poster_rel
+    preview_path = MEDIA / preview_rel
+    full_path = MEDIA / full_rel
+    outputs = [poster_path, preview_path, full_path]
+    for path in outputs:
+        path.unlink(missing_ok=True)
+    try:
+        _run_feed_ffmpeg([
+            "-ss", "0.2", "-i", str(source_path), "-frames:v", "1",
+            "-vf", "scale=640:640:force_original_aspect_ratio=decrease",
+            "-c:v", "libwebp", "-quality", "78", str(poster_path),
+        ])
+        preview_seconds = max(1, min(int(duration_seconds or 3), 3))
+        _run_feed_ffmpeg([
+            "-i", str(source_path), "-t", str(preview_seconds), "-an",
+            "-vf", "scale=480:480:force_original_aspect_ratio=decrease:force_divisible_by=2",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "29",
+            "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(preview_path),
+        ])
+        shutil.copy2(source_path, full_path)
+        with Image.open(poster_path) as poster:
+            poster_width, poster_height = poster.size
+        if any(not path.is_file() or path.stat().st_size <= 16 for path in outputs):
+            raise RuntimeError("Feed video derivative is empty")
+    except Exception:
+        for path in outputs:
+            path.unlink(missing_ok=True)
+        raise
+    final_width = int(width or poster_width)
+    final_height = int(height or poster_height)
+    return FeedVideoAssetInfo(
+        poster_name=poster_rel,
+        poster_width=poster_width,
+        poster_height=poster_height,
+        poster_bytes=poster_path.stat().st_size,
+        preview_name=preview_rel,
+        preview_bytes=preview_path.stat().st_size,
+        full_name=full_rel,
+        full_bytes=full_path.stat().st_size,
+        native_aspect_ratio=_feed_aspect_ratio(final_width, final_height),
+        orientation=_feed_orientation(final_width, final_height),
+        duration_ms=max(0, int(duration_seconds or 0) * 1000),
+        has_audio=bool(has_audio),
     )
 
 
@@ -16987,7 +17099,7 @@ def _feed_payload_context(
     viewer_internal_user_id: str | None,
 ) -> dict[str, Any]:
     publication_ids = [str(row["id"]) for row in publications]
-    image_ids = [str(row["image_id"]) for row in publications]
+    image_ids = [str(row["image_id"]) for row in publications if _row_get(row, "image_id")]
     publication_slots = ",".join("?" for _ in publication_ids)
     image_slots = ",".join("?" for _ in image_ids)
     images: dict[str, sqlite3.Row] = {}
@@ -17059,12 +17171,14 @@ def _feed_item_payload(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     context = context or {}
-    image = context.get("images", {}).get(str(pub["image_id"]))
-    if image is None:
+    media_type = str(_row_get(pub, "media_type") or "image")
+    image_id = _row_get(pub, "image_id")
+    image = context.get("images", {}).get(str(image_id)) if image_id else None
+    if image is None and image_id:
         image = conn.execute(
             "SELECT id, url, thumbnail_url, width, height, prompt_original, settings_json, provider, mode, created_at "
             "FROM images WHERE id = ?",
-            (pub["image_id"],),
+            (image_id,),
         ).fetchone()
     settings: dict[str, Any] = {}
     if image is not None:
@@ -17131,17 +17245,25 @@ def _feed_item_payload(
         challenge = _feed_challenge_payload(conn, category)
     source_histories = context.setdefault("source_histories", {})
     source_history = snapshot.get("sourceHistory")
-    if not source_history:
-        if pub["image_id"] not in source_histories:
-            source_histories[pub["image_id"]] = _feed_source_history_payload(conn, pub["image_id"])
-        source_history = source_histories[pub["image_id"]]
+    if not source_history and image_id:
+        if image_id not in source_histories:
+            source_histories[image_id] = _feed_source_history_payload(conn, image_id)
+        source_history = source_histories[image_id]
+    source_history = source_history or []
     return {
         "id": pub["id"],
+        "media_type": media_type,
+        "image_id": image_id,
+        "video_id": _row_get(pub, "video_id"),
         "status": _row_get(pub, "status"),
         "moderation_status": _row_get(pub, "moderation_status") or "approved",
         "moderation_reason": _row_get(pub, "moderation_reason"),
         "image_url": f"/api/feed/media/{pub['id']}?variant=large",
         "thumbnail_url": f"/api/feed/media/{pub['id']}?variant=thumb",
+        "video_preview_url": f"/api/feed/video/{pub['id']}?variant=preview" if media_type == "video" else None,
+        "video_url": f"/api/feed/video/{pub['id']}?variant=full" if media_type == "video" else None,
+        "duration_ms": int(_row_get(pub, "duration_ms") or snapshot.get("durationMs") or 0),
+        "has_audio": bool(_row_get(pub, "has_audio")) if media_type == "video" else False,
         "media_status": "ready" if media_ready else "missing",
         "user_id": pub["internal_user_id"],
         "author": author_profile,
@@ -17168,7 +17290,7 @@ def _feed_item_payload(
         "source_history": source_history,
         "resolution": f"{width}×{height}" if width and height else None,
         "generation_params": snapshot.get("generationParams") or _gallery_public_params(
-            image_id=pub["image_id"],
+            image_id=image_id,
             mode=_row_get(image, "mode"),
             provider=_row_get(image, "provider"),
             width=width,
@@ -17210,6 +17332,19 @@ def _feed_optional_viewer(request: Request) -> str | None:
 FEED_CURSOR_VERSION = 1
 FEED_VIEW_WINDOW = timedelta(hours=6)
 FEED_VIEW_RETENTION = timedelta(days=90)
+FEED_ENGAGEMENT_RETENTION = timedelta(days=90)
+FEED_ENGAGEMENT_EVENT_TYPES = {
+    "impression",
+    "detail_open",
+    "dwell",
+    "remix_start",
+    "remix_completion",
+    "creation_entry",
+    "video_play",
+    "qualified_video_view",
+    "video_completion",
+}
+FEED_PUBLICATION_EVENT_TYPES = FEED_ENGAGEMENT_EVENT_TYPES - {"creation_entry"}
 FEED_SEARCH_MAX_CHARS = 120
 
 
@@ -17495,10 +17630,175 @@ async def feed_list(
     }
 
 
+def _publish_feed_video(
+    *,
+    video_id: str,
+    title: str,
+    description: str | None,
+    visibility: str,
+    category: str,
+    tags: list[str],
+    user: dict[str, Any],
+    request: Request,
+) -> dict[str, Any]:
+    if not FEED_VIDEO_PUBLICATION_ENABLED:
+        raise HTTPException(503, "Video publication is not enabled")
+    with db() as conn:
+        video = conn.execute(
+            """
+            SELECT v.*, j.status AS job_status, j.settings_json AS job_settings
+            FROM videos v
+            JOIN jobs j ON j.id = v.job_id
+            WHERE v.id = ? AND v.deleted_at IS NULL
+            """,
+            (video_id,),
+        ).fetchone()
+    if video is None or video["user_id"] != user["legacy_user_id"]:
+        with db() as conn:
+            record_security_event(
+                conn,
+                "feed_video_publish_denied",
+                internal_user_id=user["internal_user_id"],
+                session_id=user.get("session_id"),
+                request=request,
+            )
+        raise HTTPException(404, "Video not found")
+    if video["job_status"] != "completed":
+        raise HTTPException(400, "Only completed generated videos can be published")
+    settings = safe_json_load(video["job_settings"]) or safe_json_load(video["settings_json"]) or {}
+    source_name = str(settings.get("localFile") or "").strip()
+    source_path = storage_resolve_under_root(MEDIA, source_name) if source_name else None
+    if source_path is None or not source_path.is_file():
+        raise HTTPException(404, "Video file not found")
+
+    with db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM feed_publications WHERE video_id = ?",
+            (video_id,),
+        ).fetchone()
+    pub_id = existing["id"] if existing else uuid.uuid4().hex
+    try:
+        assets = create_feed_video_assets(
+            pub_id,
+            source_path,
+            width=int(video["width"] or 0),
+            height=int(video["height"] or 0),
+            duration_seconds=int(video["duration_seconds"] or 0),
+            has_audio=bool(settings.get("generateAudio")),
+        )
+    except FileNotFoundError:
+        raise HTTPException(404, "Video file not found")
+    except Exception as exc:
+        raise HTTPException(400, "Video cannot be prepared for feed") from exc
+
+    now = datetime.now(timezone.utc).isoformat()
+    snapshot = {
+        "prompt": video["prompt_original"] or "",
+        "mode": video["mode"],
+        "provider": video["provider"],
+        "model": settings.get("openrouterModel") or video["provider"],
+        "width": int(video["width"] or assets.poster_width),
+        "height": int(video["height"] or assets.poster_height),
+        "durationMs": assets.duration_ms,
+        "fileSizeBytes": assets.full_bytes,
+        "generationParams": [
+            {"label": "Модель", "value": settings.get("openrouterModel") or video["provider"]},
+            {"label": "Формат", "value": video["aspect_ratio"] or assets.native_aspect_ratio},
+            {"label": "Длительность", "value": f"{int(video['duration_seconds'] or 0)} сек."},
+            {"label": "Разрешение", "value": settings.get("resolution") or f"{video['width']}×{video['height']}"},
+            {"label": "Звук", "value": "Есть" if assets.has_audio else "Без звука"},
+        ],
+        "sourceHistory": [],
+    }
+    values = {
+        "id": pub_id,
+        "video_id": video_id,
+        "internal_user_id": user["internal_user_id"],
+        "legacy_user_id": user["legacy_user_id"],
+        "title": title,
+        "description": description,
+        "prompt_visibility": visibility,
+        "status": "published",
+        "created_at": now,
+        "poster_name": assets.poster_name,
+        "poster_width": assets.poster_width,
+        "poster_height": assets.poster_height,
+        "poster_bytes": assets.poster_bytes,
+        "preview_name": assets.preview_name,
+        "preview_bytes": assets.preview_bytes,
+        "full_name": assets.full_name,
+        "full_bytes": assets.full_bytes,
+        "duration_ms": assets.duration_ms,
+        "has_audio": int(assets.has_audio),
+        "native_aspect_ratio": assets.native_aspect_ratio,
+        "orientation": assets.orientation,
+        "category": category,
+        "tags_json": json.dumps(tags, ensure_ascii=False),
+        "snapshot_json": json.dumps(snapshot, ensure_ascii=False),
+    }
+    with db() as conn:
+        if existing:
+            conn.execute(
+                """
+                UPDATE feed_publications SET
+                    image_id = NULL, video_id = :video_id, media_type = 'video', title = :title,
+                    description = :description, prompt_visibility = :prompt_visibility,
+                    allow_recreate = 0, status = :status, feed_thumb_name = :poster_name,
+                    feed_large_name = :poster_name, feed_thumb_width = :poster_width,
+                    feed_thumb_height = :poster_height, feed_thumb_bytes = :poster_bytes,
+                    feed_large_width = :poster_width, feed_large_height = :poster_height,
+                    feed_large_bytes = :poster_bytes, video_poster_name = :poster_name,
+                    video_poster_width = :poster_width, video_poster_height = :poster_height,
+                    video_poster_bytes = :poster_bytes, video_preview_name = :preview_name,
+                    video_preview_bytes = :preview_bytes, video_full_name = :full_name,
+                    video_full_bytes = :full_bytes, duration_ms = :duration_ms, has_audio = :has_audio,
+                    media_ready_at = :created_at, media_error = NULL,
+                    native_aspect_ratio = :native_aspect_ratio, orientation = :orientation,
+                    source_type = 'video', source_label = 'Видео', display_policy = :display_policy,
+                    remix_policy = 'disabled', category = :category, tags_json = :tags_json,
+                    generation_snapshot_json = :snapshot_json, moderation_status = 'approved',
+                    moderation_reason = NULL, moderated_at = :created_at,
+                    moderated_by_internal_user_id = NULL, source_job_id = :source_job_id,
+                    updated_at = :created_at
+                WHERE id = :id
+                """,
+                {**values, "display_policy": FEED_DISPLAY_POLICY, "source_job_id": video["job_id"]},
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO feed_publications (
+                    id,image_id,video_id,media_type,internal_user_id,legacy_user_id,title,description,
+                    prompt_visibility,allow_recreate,status,created_at,feed_thumb_name,feed_large_name,
+                    feed_thumb_width,feed_thumb_height,feed_thumb_bytes,feed_large_width,feed_large_height,
+                    feed_large_bytes,media_ready_at,native_aspect_ratio,orientation,source_type,source_label,
+                    display_policy,remix_policy,category,tags_json,generation_snapshot_json,moderation_status,
+                    moderated_at,source_job_id,updated_at,video_poster_name,video_poster_width,
+                    video_poster_height,video_poster_bytes,video_preview_name,video_preview_bytes,
+                    video_full_name,video_full_bytes,duration_ms,has_audio
+                ) VALUES (
+                    :id,NULL,:video_id,'video',:internal_user_id,:legacy_user_id,:title,:description,
+                    :prompt_visibility,0,:status,:created_at,:poster_name,:poster_name,
+                    :poster_width,:poster_height,:poster_bytes,:poster_width,:poster_height,
+                    :poster_bytes,:created_at,:native_aspect_ratio,:orientation,'video','Видео',
+                    :display_policy,'disabled',:category,:tags_json,:snapshot_json,'approved',
+                    :created_at,:source_job_id,:created_at,:poster_name,:poster_width,
+                    :poster_height,:poster_bytes,:preview_name,:preview_bytes,
+                    :full_name,:full_bytes,:duration_ms,:has_audio
+                )
+                """,
+                {**values, "display_policy": FEED_DISPLAY_POLICY, "source_job_id": video["job_id"]},
+            )
+        pub = conn.execute("SELECT * FROM feed_publications WHERE id = ?", (pub_id,)).fetchone()
+        item = _feed_item_payload(conn, pub, user["internal_user_id"])
+    return {"ok": True, "publication": item, "moderation": "approved"}
+
+
 @app.post("/api/feed/publications")
 async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     user = require_trusted_user(request)
     image_id = str(payload.get("imageId") or "").strip()
+    video_id = str(payload.get("videoId") or "").strip()
     title = str(payload.get("title") or "").strip()
     description = str(payload.get("description") or "").strip() or None
     visibility = str(payload.get("promptVisibility") or "open").strip()
@@ -17508,8 +17808,10 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
     if isinstance(raw_tags, str):
         raw_tags = raw_tags.split(",")
     tags = list(dict.fromkeys(str(tag).strip().lstrip("#")[:24] for tag in raw_tags if str(tag).strip()))[:8]
-    if not image_id:
-        raise HTTPException(400, "imageId required")
+    if not image_id and not video_id:
+        raise HTTPException(400, "imageId or videoId required")
+    if image_id and video_id:
+        raise HTTPException(400, "Choose exactly one media item")
     if not title:
         raise HTTPException(400, "title required")
     if len(title) > 120:
@@ -17520,6 +17822,17 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> dict[str, A
         raise HTTPException(400, "invalid promptVisibility")
     if category not in FEED_PUBLICATION_CATEGORIES:
         raise HTTPException(400, "invalid category")
+    if video_id:
+        return _publish_feed_video(
+            video_id=video_id,
+            title=title,
+            description=description,
+            visibility=visibility,
+            category=category,
+            tags=tags,
+            user=user,
+            request=request,
+        )
     with db() as conn:
         image = conn.execute(
             """
@@ -17768,6 +18081,77 @@ async def feed_unsave(publication_id: str, request: Request) -> dict[str, Any]:
     return _feed_reaction_toggle(request, publication_id, "save", False)
 
 
+def _feed_engagement_context(value: dict[str, Any]) -> dict[str, Any]:
+    allowed = {"surface", "feed_type", "media_type", "source", "completion_percent"}
+    result: dict[str, Any] = {}
+    for key, raw in list(value.items())[:12]:
+        key = str(key).strip().lower()
+        if key not in allowed or isinstance(raw, (dict, list, tuple, set)):
+            continue
+        if isinstance(raw, str):
+            result[key] = raw.strip()[:80]
+        elif isinstance(raw, (bool, int, float)):
+            result[key] = raw
+    return result
+
+
+@app.post("/api/feed/events")
+async def feed_engagement_event(payload: FeedEngagementEventRequest, request: Request) -> dict[str, Any]:
+    event_type = payload.event_type.strip().lower()
+    if event_type not in FEED_ENGAGEMENT_EVENT_TYPES:
+        raise HTTPException(422, "Unsupported feed event")
+    publication_id = (payload.publication_id or "").strip() or None
+    if event_type in FEED_PUBLICATION_EVENT_TYPES and publication_id is None:
+        raise HTTPException(422, "publication_id is required")
+    if event_type == "dwell" and payload.duration_ms is None:
+        raise HTTPException(422, "duration_ms is required")
+
+    viewer = _feed_optional_viewer(request)
+    viewer_key = _feed_viewer_key(request, viewer)
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat()
+    dedupe_seconds = {"impression": 6 * 3600, "detail_open": 30 * 60, "creation_entry": 5 * 60}.get(event_type)
+    if dedupe_seconds:
+        bucket = int(now_dt.timestamp() // dedupe_seconds)
+        raw_key = f"{viewer_key}:{publication_id or '-'}:{event_type}:{bucket}"
+        event_id = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+    else:
+        event_id = uuid.uuid4().hex
+    context = _feed_engagement_context(payload.context)
+
+    with db() as conn:
+        if publication_id is not None:
+            exists = conn.execute(
+                "SELECT 1 FROM feed_publications WHERE id = ? AND status = 'published'",
+                (publication_id,),
+            ).fetchone()
+            if exists is None:
+                raise HTTPException(404, "Publication not found")
+        inserted = conn.execute(
+            """
+            INSERT OR IGNORE INTO feed_engagement_events
+                (id, publication_id, viewer_key, event_type, duration_ms, context_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event_id,
+                publication_id,
+                viewer_key,
+                event_type,
+                payload.duration_ms,
+                json.dumps(context, ensure_ascii=False, separators=(",", ":")),
+                now,
+            ),
+        ).rowcount > 0
+        retention_cutoff = (now_dt - FEED_ENGAGEMENT_RETENTION).isoformat()
+        conn.execute(
+            "DELETE FROM feed_engagement_events WHERE rowid IN ("
+            "SELECT rowid FROM feed_engagement_events WHERE created_at < ? LIMIT 200)",
+            (retention_cutoff,),
+        )
+    return {"ok": True, "accepted": inserted, "eventType": event_type}
+
+
 @app.post("/api/feed/publications/{publication_id}/view")
 async def feed_publication_view(publication_id: str, request: Request) -> dict[str, Any]:
     viewer = _feed_optional_viewer(request)
@@ -17862,11 +18246,13 @@ async def feed_publication_use_as(publication_id: str, req: UseAsRequest, reques
         if publication is None:
             raise HTTPException(404, "Publication not found")
         item = _feed_item_payload(conn, publication, None)
+    if item.get("media_type") == "video" and target != "prompt":
+        raise HTTPException(400, "Video publications can only provide a prompt")
     return {
         "ok": True,
         "publicationId": publication_id,
         "target": target,
-        "inputImage": f"/api/feed/media/{publication_id}?variant=large",
+        "inputImage": None if item.get("media_type") == "video" else f"/api/feed/media/{publication_id}?variant=large",
         "prompt": item.get("prompt") if target in {"image", "editor", "prompt"} else None,
         "aspectRatio": item.get("native_aspect_ratio"),
         "source": "feed",
@@ -17996,6 +18382,15 @@ async def feed_challenges(request: Request) -> dict[str, Any]:
 async def feed_recreate_mark(publication_id: str, request: Request) -> dict[str, Any]:
     """Счётчик «Повторить» (remix_count). Только отметка события — генерация
     идёт обычным /api/generate."""
+    with db() as conn:
+        publication = conn.execute(
+            "SELECT media_type, allow_recreate, remix_policy FROM feed_publications WHERE id = ? AND status = 'published'",
+            (publication_id,),
+        ).fetchone()
+    if publication is None:
+        raise HTTPException(404, "Publication not found")
+    if publication["media_type"] != "image" or not publication["allow_recreate"] or publication["remix_policy"] == "disabled":
+        raise HTTPException(400, "Publication cannot be remixed")
     return _feed_reaction_toggle(request, publication_id, "recreate", True)
 
 
@@ -18009,6 +18404,8 @@ async def feed_remix_start(publication_id: str, request: Request) -> dict[str, A
         ).fetchone()
         if pub is None:
             raise HTTPException(404, "Publication not found")
+        if pub["media_type"] != "image" or not pub["allow_recreate"] or pub["remix_policy"] == "disabled":
+            raise HTTPException(400, "Publication cannot be remixed")
         item = _feed_item_payload(conn, pub, user["internal_user_id"])
         conn.execute(
             "INSERT OR IGNORE INTO feed_reactions (publication_id, internal_user_id, kind, created_at) "
@@ -18115,9 +18512,24 @@ async def admin_moderate_feed_publication(
             ),
         )
         if req.action == "reject":
-            rejected_media = [publication["feed_thumb_name"], publication["feed_large_name"]]
+            rejected_media = [
+                publication["feed_thumb_name"],
+                publication["feed_large_name"],
+                _row_get(publication, "video_poster_name"),
+                _row_get(publication, "video_preview_name"),
+                _row_get(publication, "video_full_name"),
+            ]
             conn.execute(
-                "UPDATE feed_publications SET feed_thumb_name = NULL, feed_large_name = NULL, media_ready_at = NULL WHERE id = ?",
+                """
+                UPDATE feed_publications
+                SET feed_thumb_name = NULL,
+                    feed_large_name = NULL,
+                    video_poster_name = NULL,
+                    video_preview_name = NULL,
+                    video_full_name = NULL,
+                    media_ready_at = NULL
+                WHERE id = ?
+                """,
                 (publication_id,),
             )
         record_audit_log(
@@ -18148,8 +18560,9 @@ async def admin_delete_feed_publication_v2(
     with db() as conn:
         pub = conn.execute(
             """
-            SELECT id, image_id, internal_user_id, legacy_user_id, title, status,
-                   feed_thumb_name, feed_large_name, created_at
+            SELECT id, image_id, video_id, media_type, internal_user_id, legacy_user_id, title, status,
+                   feed_thumb_name, feed_large_name, video_poster_name, video_preview_name,
+                   video_full_name, created_at
             FROM feed_publications
             WHERE id = ?
             """,
@@ -18159,12 +18572,20 @@ async def admin_delete_feed_publication_v2(
             raise HTTPException(404, "Publication not found.")
         thumb_name = _row_get(pub, "feed_thumb_name")
         large_name = _row_get(pub, "feed_large_name")
+        video_media_names = {
+            _row_get(pub, "video_poster_name"),
+            _row_get(pub, "video_preview_name"),
+            _row_get(pub, "video_full_name"),
+        }
         conn.execute(
             """
             UPDATE feed_publications
             SET status = 'hidden',
                 feed_thumb_name = NULL,
                 feed_large_name = NULL,
+                video_poster_name = NULL,
+                video_preview_name = NULL,
+                video_full_name = NULL,
                 media_ready_at = NULL,
                 media_error = ?,
                 updated_at = ?
@@ -18201,8 +18622,8 @@ async def admin_delete_feed_publication_v2(
                 "reason": reason,
             },
         )
-    _delete_media_rel(thumb_name)
-    _delete_media_rel(large_name)
+    for media_name in {thumb_name, large_name, *video_media_names}:
+        _delete_media_rel(media_name)
     return {
         "ok": True,
         "publicationId": short_public_id(publication_id),
@@ -18219,8 +18640,9 @@ async def delete_own_feed_publication(publication_id: str, request: Request) -> 
     with db() as conn:
         pub = conn.execute(
             """
-            SELECT id, image_id, internal_user_id, legacy_user_id, title, status,
-                   feed_thumb_name, feed_large_name, created_at
+            SELECT id, image_id, video_id, media_type, internal_user_id, legacy_user_id, title, status,
+                   feed_thumb_name, feed_large_name, video_poster_name, video_preview_name,
+                   video_full_name, created_at
             FROM feed_publications
             WHERE id = ?
             """,
@@ -18245,12 +18667,20 @@ async def delete_own_feed_publication(publication_id: str, request: Request) -> 
 
         thumb_name = _row_get(pub, "feed_thumb_name")
         large_name = _row_get(pub, "feed_large_name")
+        video_media_names = {
+            _row_get(pub, "video_poster_name"),
+            _row_get(pub, "video_preview_name"),
+            _row_get(pub, "video_full_name"),
+        }
         conn.execute(
             """
             UPDATE feed_publications
             SET status = 'hidden',
                 feed_thumb_name = NULL,
                 feed_large_name = NULL,
+                video_poster_name = NULL,
+                video_preview_name = NULL,
+                video_full_name = NULL,
                 media_ready_at = NULL,
                 media_error = ?,
                 updated_at = ?
@@ -18285,8 +18715,8 @@ async def delete_own_feed_publication(publication_id: str, request: Request) -> 
                 "image_id": short_public_id(pub["image_id"]),
             },
         )
-    _delete_media_rel(thumb_name)
-    _delete_media_rel(large_name)
+    for media_name in {thumb_name, large_name, *video_media_names}:
+        _delete_media_rel(media_name)
     return {
         "ok": True,
         "publicationId": short_public_id(publication_id),
@@ -18313,6 +18743,38 @@ async def feed_media(publication_id: str, request: Request, variant: str = "larg
         path,
         media_type="image/webp",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@app.get("/api/feed/video/{publication_id}")
+async def feed_video_media(publication_id: str, request: Request, variant: str = "preview") -> FileResponse:
+    selected = "full" if variant == "full" else "preview"
+    column = "video_full_name" if selected == "full" else "video_preview_name"
+    with db() as conn:
+        publication = conn.execute(
+            f"SELECT media_type, status, media_ready_at, {column} AS media_name "
+            "FROM feed_publications WHERE id = ?",
+            (publication_id,),
+        ).fetchone()
+    if (
+        publication is None
+        or publication["status"] != "published"
+        or publication["media_type"] != "video"
+        or not publication["media_ready_at"]
+    ):
+        raise HTTPException(404, "Video publication not found")
+    media_name = str(publication["media_name"] or "")
+    path = storage_resolve_under_root(MEDIA, media_name) if media_name else None
+    if path is None or not path.is_file() or not media_name.startswith("feed/"):
+        raise HTTPException(404, "Video media not found")
+    return FileResponse(
+        path,
+        media_type="video/mp4",
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "Accept-Ranges": "bytes",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

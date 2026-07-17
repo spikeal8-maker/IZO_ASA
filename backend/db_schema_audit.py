@@ -11,6 +11,8 @@ import main
 
 EXPECTED_COLUMNS: dict[str, set[str]] = {
     "feed_publications": {
+        "media_type",
+        "video_id",
         "feed_thumb_name",
         "feed_large_name",
         "feed_thumb_width",
@@ -36,6 +38,25 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         "moderated_by_internal_user_id",
         "source_job_id",
         "metric_origin",
+        "video_poster_name",
+        "video_poster_width",
+        "video_poster_height",
+        "video_poster_bytes",
+        "video_preview_name",
+        "video_preview_bytes",
+        "video_full_name",
+        "video_full_bytes",
+        "duration_ms",
+        "has_audio",
+    },
+    "feed_engagement_events": {
+        "id",
+        "publication_id",
+        "viewer_key",
+        "event_type",
+        "duration_ms",
+        "context_json",
+        "created_at",
     },
 }
 
@@ -44,6 +65,7 @@ EXPECTED_TABLES = {
     "feed_reactions",
     "feed_author_follows",
     "feed_view_events",
+    "feed_engagement_events",
     "feed_subscription_reads",
 }
 
@@ -52,9 +74,13 @@ EXPECTED_INDEXES: dict[str, str] = {
     "idx_feed_publications_category_ready_created": "feed_publications",
     "idx_feed_publications_legacy_ready_created": "feed_publications",
     "idx_feed_publications_moderation_created": "feed_publications",
+    "idx_feed_publications_media_type_ready_created": "feed_publications",
     "idx_feed_reactions_viewer_kind": "feed_reactions",
     "idx_feed_view_events_viewer_recent": "feed_view_events",
     "idx_feed_view_events_last_viewed": "feed_view_events",
+    "idx_feed_engagement_events_type_created": "feed_engagement_events",
+    "idx_feed_engagement_events_publication_created": "feed_engagement_events",
+    "idx_feed_engagement_events_viewer_created": "feed_engagement_events",
     "idx_images_user_deleted_created": "images",
     "idx_images_job_id": "images",
     "idx_jobs_user_created": "jobs",

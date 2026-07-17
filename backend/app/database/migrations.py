@@ -94,6 +94,8 @@ IMAGE_ADDITIVE_COLUMNS = {
 }
 
 FEED_PUBLICATION_ADDITIVE_COLUMNS = {
+    "media_type": "TEXT NOT NULL DEFAULT 'image'",
+    "video_id": "TEXT",
     "feed_thumb_name": "TEXT",
     "feed_large_name": "TEXT",
     "feed_thumb_width": "INTEGER",
@@ -121,6 +123,16 @@ FEED_PUBLICATION_ADDITIVE_COLUMNS = {
     "moderated_by_internal_user_id": "TEXT",
     "source_job_id": "TEXT",
     "metric_origin": "TEXT NOT NULL DEFAULT 'organic'",
+    "video_poster_name": "TEXT",
+    "video_poster_width": "INTEGER",
+    "video_poster_height": "INTEGER",
+    "video_poster_bytes": "INTEGER",
+    "video_preview_name": "TEXT",
+    "video_preview_bytes": "INTEGER",
+    "video_full_name": "TEXT",
+    "video_full_bytes": "INTEGER",
+    "duration_ms": "INTEGER",
+    "has_audio": "INTEGER NOT NULL DEFAULT 0",
 }
 
 IMAGE_SOURCE_ADDITIVE_COLUMNS = {
@@ -158,6 +170,75 @@ def add_missing_columns(
         existing.add(column)
         added.append(column)
     return added
+
+
+def rebuild_feed_publications_media_neutral(conn: sqlite3.Connection) -> bool:
+    """Make image_id nullable while preserving every existing feed column and row."""
+    columns = conn.execute("PRAGMA table_info(feed_publications)").fetchall()
+    if not columns:
+        return False
+    image_column = next((row for row in columns if row["name"] == "image_id"), None)
+    required = set(FEED_PUBLICATION_ADDITIVE_COLUMNS)
+    names = {str(row["name"]) for row in columns}
+    if image_column is not None and not bool(image_column["notnull"]) and required <= names:
+        return False
+
+    shadow = "feed_publications_v3_shadow"
+    for name in names | {shadow}:
+        if not _SQL_IDENTIFIER.fullmatch(name):
+            raise ValueError(f"Unsafe SQLite identifier: {name!r}")
+
+    definitions: list[str] = []
+    for row in columns:
+        name = str(row["name"])
+        column_type = str(row["type"] or "TEXT")
+        definition = f'"{name}" {column_type}'
+        if bool(row["pk"]):
+            definition += " PRIMARY KEY"
+        elif name != "image_id" and bool(row["notnull"]):
+            definition += " NOT NULL"
+        if row["dflt_value"] is not None:
+            definition += f" DEFAULT {row['dflt_value']}"
+        definitions.append(definition)
+    definitions.extend([
+        "UNIQUE(image_id)",
+        "UNIQUE(video_id)",
+        "CHECK (media_type IN ('image', 'video'))",
+        "CHECK ((media_type = 'image' AND image_id IS NOT NULL AND video_id IS NULL) "
+        "OR (media_type = 'video' AND video_id IS NOT NULL AND image_id IS NULL))",
+    ])
+    quoted_columns = ", ".join(f'"{str(row["name"])}"' for row in columns)
+    before = [
+        tuple(row)
+        for row in conn.execute(
+            f"SELECT {quoted_columns} FROM feed_publications ORDER BY id"
+        ).fetchall()
+    ]
+
+    conn.execute("SAVEPOINT feed_publications_media_neutral")
+    try:
+        conn.execute(f"DROP TABLE IF EXISTS {shadow}")
+        conn.execute(f"CREATE TABLE {shadow} ({', '.join(definitions)})")
+        conn.execute(
+            f"INSERT INTO {shadow} ({quoted_columns}) "
+            f"SELECT {quoted_columns} FROM feed_publications"
+        )
+        after = [
+            tuple(row)
+            for row in conn.execute(
+                f"SELECT {quoted_columns} FROM {shadow} ORDER BY id"
+            ).fetchall()
+        ]
+        if before != after:
+            raise RuntimeError("FEED_MEDIA_NEUTRAL_COPY_AUDIT_FAILED")
+        conn.execute("DROP TABLE feed_publications")
+        conn.execute(f"ALTER TABLE {shadow} RENAME TO feed_publications")
+        conn.execute("RELEASE SAVEPOINT feed_publications_media_neutral")
+    except Exception:
+        conn.execute("ROLLBACK TO SAVEPOINT feed_publications_media_neutral")
+        conn.execute("RELEASE SAVEPOINT feed_publications_media_neutral")
+        raise
+    return True
 
 
 def sqlite_user_version(conn: sqlite3.Connection) -> int:

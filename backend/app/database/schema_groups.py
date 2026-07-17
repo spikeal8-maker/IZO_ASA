@@ -13,6 +13,7 @@ from .migrations import (
     IMAGE_SOURCE_ADDITIVE_COLUMNS,
     USER_EARLY_ADDITIVE_COLUMNS,
     add_missing_columns,
+    rebuild_feed_publications_media_neutral,
 )
 from .schema import BASE_SCHEMA_SQL, IDENTITY_SCHEMA_SQL, IMAGE_SEARCH_SCHEMA_SQL
 
@@ -255,6 +256,19 @@ def finalize_identity_schema_group(
 def initialize_media_schema_group(conn: sqlite3.Connection) -> None:
     """Apply feed, gallery search, image-source and job indexing schema."""
     add_missing_columns(conn, "feed_publications", FEED_PUBLICATION_ADDITIVE_COLUMNS)
+    rebuild_feed_publications_media_neutral(conn)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feed_publications_status_created "
+        "ON feed_publications(status, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feed_publications_user "
+        "ON feed_publications(internal_user_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feed_publications_media_type_ready_created "
+        "ON feed_publications(media_type, status, media_ready_at, created_at)"
+    )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_feed_publications_media_ready "
         "ON feed_publications(status, media_ready_at)"
@@ -289,6 +303,24 @@ def initialize_media_schema_group(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_feed_view_events_last_viewed "
         "ON feed_view_events(last_viewed_at)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS feed_engagement_events ("
+        "id TEXT PRIMARY KEY, publication_id TEXT, viewer_key TEXT NOT NULL, "
+        "event_type TEXT NOT NULL, duration_ms INTEGER, "
+        "context_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feed_engagement_events_type_created "
+        "ON feed_engagement_events(event_type, created_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feed_engagement_events_publication_created "
+        "ON feed_engagement_events(publication_id, event_type, created_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feed_engagement_events_viewer_created "
+        "ON feed_engagement_events(viewer_key, created_at DESC)"
     )
     conn.execute(
         "CREATE TABLE IF NOT EXISTS feed_subscription_reads ("
