@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import os
 import subprocess
 from pathlib import Path
 
@@ -37,6 +39,8 @@ def test_publish_plan_is_immutable_and_atomic() -> None:
     assert "release_verification_receipt.py" in script
     assert "-ReceiptPath" in script
     assert "validate" in script
+    assert "[System.Security.Cryptography.SHA256]::Create()" in script
+    assert "Get-FileHash" not in script
     assert '$env:FRONTEND_BUILD_LABEL = $releaseId' in script
     assert "--git-sha $fullSha" in script
     assert "Project Python is missing" in script
@@ -53,6 +57,34 @@ def test_publish_plan_is_immutable_and_atomic() -> None:
     assert "verification_evidence =" not in public_release_info
     assert "break_glass_operator" not in public_release_info
     assert "path = $releasePath" not in public_release_info
+
+
+def test_publisher_receipt_hash_runs_under_windows_powershell() -> None:
+    script_path = ROOT / "tools" / "publish-frontend-release.ps1"
+    environment = os.environ.copy()
+    environment["IZO_TEST_PUBLISHER"] = str(script_path)
+    command = (
+        "$tokens=$null;$errors=$null;"
+        "$ast=[System.Management.Automation.Language.Parser]::ParseFile($env:IZO_TEST_PUBLISHER,[ref]$tokens,[ref]$errors);"
+        "$node=$ast.Find({param($item) $item -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $item.Name -eq 'Get-FileSha256'},$true);"
+        "if($null -eq $node){throw 'hash function missing'};"
+        ". ([scriptblock]::Create($node.Extent.Text));"
+        "Get-FileSha256 -Path $env:IZO_TEST_PUBLISHER"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    expected = "sha256:" + hashlib.sha256(script_path.read_bytes()).hexdigest()
+    assert result.stdout.strip() == expected
 
 
 def test_break_glass_is_separate_reason_gated_and_audited() -> None:

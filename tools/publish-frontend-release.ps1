@@ -48,7 +48,15 @@ function Test-PathWithin {
 function Get-FileSha256 {
     param([string]$Path)
 
-    return "sha256:" + (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $bytes = $algorithm.ComputeHash($stream)
+        return "sha256:" + (($bytes | ForEach-Object { $_.ToString("x2") }) -join "")
+    } finally {
+        $stream.Dispose()
+        $algorithm.Dispose()
+    }
 }
 
 function Use-BreakGlassAuthorization {
