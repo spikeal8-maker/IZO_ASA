@@ -20,6 +20,13 @@ DEFAULT_CORS_ALLOWED_ORIGINS = (
     "http://127.0.0.1:5173",
     "https://izo.alikinas.ru",
 )
+DEFAULT_TRUSTED_HOSTS = (
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "testserver",
+    "izo.alikinas.ru",
+)
 
 
 @dataclass(frozen=True)
@@ -35,6 +42,7 @@ class HttpSecurityPolicy:
     trust_proxy_headers: bool
     trust_cloudflare_headers: bool
     cors_allowed_origins: tuple[str, ...]
+    trusted_hosts: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -254,6 +262,7 @@ def load_http_security_policy(
     current_app_env = source.get("APP_ENV", "development") if app_env is None else app_env
     secure_default = "true" if current_app_env.lower() == "production" else "false"
     cors_raw = source.get("CORS_ALLOWED_ORIGINS", ",".join(DEFAULT_CORS_ALLOWED_ORIGINS))
+    trusted_hosts_raw = source.get("TRUSTED_HOSTS", ",".join(DEFAULT_TRUSTED_HOSTS))
 
     return HttpSecurityPolicy(
         session_cookie_name=source.get("TRUSTED_SESSION_COOKIE_NAME", "onenode_session"),
@@ -269,6 +278,7 @@ def load_http_security_policy(
         trust_proxy_headers=source.get("TRUST_PROXY_HEADERS", "false").lower() == "true",
         trust_cloudflare_headers=source.get("TRUST_CLOUDFLARE_HEADERS", "false").lower() == "true",
         cors_allowed_origins=tuple(origin.strip() for origin in cors_raw.split(",") if origin.strip()),
+        trusted_hosts=tuple(host.strip() for host in trusted_hosts_raw.split(",") if host.strip()),
     )
 
 
@@ -408,6 +418,10 @@ def production_configuration_errors(
             errors.append("CORS_WILDCARD_FORBIDDEN")
         elif not _valid_cors_origin(origin):
             errors.append(f"CORS_ORIGIN_INVALID_{index}")
+    if not http_security.trusted_hosts:
+        errors.append("TRUSTED_HOSTS_REQUIRED")
+    elif "*" in http_security.trusted_hosts:
+        errors.append("TRUSTED_HOSTS_WILDCARD_FORBIDDEN")
     if providers.comfyui_mock_fallback:
         errors.append("COMFYUI_MOCK_FALLBACK_FORBIDDEN")
     if not _loopback_http_or_https_url(providers.comfyui_base_url):

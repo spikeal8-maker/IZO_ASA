@@ -66,6 +66,55 @@ def test_bot_login_start_creates_challenge_and_cookie(temp_db):
     assert "login_" not in row["token_hash"]
 
 
+def test_bot_login_start_limits_active_challenges_per_ip_and_provider(temp_db, monkeypatch):
+    monkeypatch.setattr(main, "BOT_LOGIN_MAX_ACTIVE_PER_IP_PROVIDER", 3)
+    client = TestClient(main.app)
+
+    for _ in range(3):
+        response = client.post("/api/auth/bot-login/start", json={"provider": "telegram"})
+        assert response.status_code == 200
+
+    blocked = client.post("/api/auth/bot-login/start", json={"provider": "telegram"})
+    assert blocked.status_code == 429
+    with main.db() as conn:
+        pending = conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_login_challenges WHERE provider = 'telegram' AND status = 'pending'"
+        ).fetchone()["c"]
+    assert pending == 3
+
+
+def test_bot_login_start_expires_stale_rows_before_enforcing_active_cap(temp_db, monkeypatch):
+    monkeypatch.setattr(main, "BOT_LOGIN_MAX_ACTIVE_PER_IP_PROVIDER", 1)
+    client = TestClient(main.app)
+    assert client.post("/api/auth/bot-login/start", json={"provider": "telegram"}).status_code == 200
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE auth_login_challenges SET expires_at = ? WHERE provider = 'telegram'",
+            ((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),),
+        )
+
+    response = client.post("/api/auth/bot-login/start", json={"provider": "telegram"})
+
+    assert response.status_code == 200
+    with main.db() as conn:
+        statuses = [row["status"] for row in conn.execute(
+            "SELECT status FROM auth_login_challenges WHERE provider = 'telegram' ORDER BY created_at"
+        ).fetchall()]
+    assert statuses == ["expired", "pending"]
+
+
+def test_pending_max_count_ignores_expired_challenges(temp_db):
+    client = TestClient(main.app)
+    assert client.post("/api/auth/bot-login/start", json={"provider": "max"}).status_code == 200
+    with main.db() as conn:
+        conn.execute(
+            "UPDATE auth_login_challenges SET expires_at = ? WHERE provider = 'max'",
+            ((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),),
+        )
+
+    assert main.pending_max_login_challenges_count() == 0
+
+
 def test_auth_capabilities_report_bot_login_availability(temp_db):
     client = TestClient(main.app)
     payload = client.get("/api/auth/capabilities-v2").json()

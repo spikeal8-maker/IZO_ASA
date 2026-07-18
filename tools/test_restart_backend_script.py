@@ -188,3 +188,13 @@ def test_restart_script_preflight_modes_return_before_stop() -> None:
 
     assert validate_index < preflight_index < stop_index
     assert release_preflight_index < stop_index
+
+
+def test_preflight_can_verify_healthy_service_when_process_metadata_is_opaque() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "AllowOpaqueServiceProcess" in source
+    assert 'Get-Service -Name "IZOBackend"' in source
+    assert 'RuntimeOwnership = "opaque-service-health-verified"' in source
+    assert "-AllowOpaqueServiceProcess:$PreflightOnly" in source
+    assert source.count("AllowOpaqueServiceProcess:$PreflightOnly") == 1

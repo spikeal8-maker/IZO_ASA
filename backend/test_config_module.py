@@ -6,6 +6,7 @@ from pathlib import Path
 
 from backend.app.config import (
     DEFAULT_CORS_ALLOWED_ORIGINS,
+    DEFAULT_TRUSTED_HOSTS,
     env_bool,
     is_production_like_environment,
     load_bot_delivery_policy,
@@ -68,6 +69,7 @@ def test_http_security_policy_development_defaults() -> None:
     assert policy.trust_proxy_headers is False
     assert policy.trust_cloudflare_headers is False
     assert policy.cors_allowed_origins == DEFAULT_CORS_ALLOWED_ORIGINS
+    assert policy.trusted_hosts == DEFAULT_TRUSTED_HOSTS
 
 
 def test_http_security_policy_production_secure_default() -> None:
@@ -89,6 +91,7 @@ def test_http_security_policy_preserves_exact_environment_overrides() -> None:
             "TRUST_PROXY_HEADERS": "true",
             "TRUST_CLOUDFLARE_HEADERS": "true",
             "CORS_ALLOWED_ORIGINS": " https://one.example, ,https://two.example ",
+            "TRUSTED_HOSTS": " one.example, ,two.example ",
         },
         app_env="development",
     )
@@ -104,6 +107,7 @@ def test_http_security_policy_preserves_exact_environment_overrides() -> None:
     assert policy.trust_proxy_headers is True
     assert policy.trust_cloudflare_headers is True
     assert policy.cors_allowed_origins == ("https://one.example", "https://two.example")
+    assert policy.trusted_hosts == ("one.example", "two.example")
 
 
 def test_http_security_policy_does_not_broaden_legacy_true_semantics() -> None:
