@@ -1,6 +1,6 @@
 # IZO ASA: резервирование через Яндекс.Диск
 
-Дата реализации: 2026-07-16
+Дата реализации: 2026-07-16; bounded retention включён 2026-07-18.
 
 ## Статус
 
@@ -20,7 +20,7 @@
 
 - live database: `backend\onenode.sqlite3`, 565104640 байт на момент проверки;
 - live media: `backend\media`;
-- прежний локальный backup: `I:\IZO_ASA_Backups`;
+- локальный backup: `I:\IZO_ASA_Backups` на отдельном USB-диске;
 - `cldflt`: запущена, Automatic;
 - Яндекс.Диск 4.21.2.4570 установлен и после входа запустился;
 - одновременно запущен legacy-клиент `YandexDisk2.exe` версии 3.2.48.5157;
@@ -28,8 +28,8 @@
 - Яндекс.Диск 4 имеет `AutoStart=true` и пользовательский startup-guard;
 - backup после входа запускается через `HKCU Run` с задержкой 5 минут, поскольку
   создание `ONLOGON`-задачи без административных прав Windows отклоняет;
-- interval-задачи: local backup каждые 15 минут, cloud stage каждый час, health
-  каждые 10 минут;
+- interval-задачи: local backup раз в час, cloud stage раз в сутки в 01:00, health
+  каждые 10 минут; все окна PowerShell скрыты;
 - `database`, `data` и `recovery` закреплены локально; проверка дала `Offline=0`;
 - `E:`: FAT32 около 10 ГБ, поэтому путь из ТЗ `E:\Yandex.Disk` здесь использовать
   нельзя;
@@ -98,6 +98,8 @@ Focused suite `tools/test_backup_transport.py` + `tools/test_backup_restore.py`
 - `tools/backup_production.py` — plan и локальный согласованный snapshot.
 - `tools/restore_backup.py` — verify, rehearsal и restore в пустой каталог.
 - `tools/backup_transport.py` — публикация готового snapshot и приём в ReplicaCache.
+- `tools/prune_backup_snapshots.py` — dry-run и bounded retention без удаления
+  общего `media-objects` или посторонних файлов.
 - `ops/backup/run_local_backup.ps1` — PRIMARY-цикл с lock, plan, backup, verify и health.
 - `ops/backup/run_local_backup_startup.ps1` — задержанный запуск после входа.
 - `ops/backup/stage_cloud_backup.ps1` — ночная публикация в Яндекс.Диск.
@@ -170,13 +172,14 @@ C:\IZO_ASA\health\backup-current.json
 
 ## Расписание PRIMARY
 
-- `IZO_ASA Local Backup 15m`: каждые 15 минут и при старте Windows с задержкой 5 минут.
+- `IZO_ASA Local Backup Hourly`: один раз в час и при старте Windows с задержкой
+  5 минут; пропущенный запуск выполняется после входа.
 - `IZO_ASA Cloud Stage Daily 01h`: один раз в сутки в 01:00 по локальному времени;
   если компьютер был выключен, один пропущенный запуск выполняется после входа.
 - `IZO_ASA Backup Health 10m`: каждые 10 минут.
 - ошибки задания повторяются через 5 минут, максимум три раза;
 - параллельный локальный backup блокируется lock-файлом;
-- retention автоматически не включён.
+- после каждого успешного local/cloud цикла применяется bounded retention.
 
 Задания выполняются скрыто от интерактивного Windows-пользователя: это необходимо
 для пользовательского приложения Яндекс.Диск, но окна PowerShell показываться не
@@ -231,7 +234,7 @@ STANDBY:
 `C:\IZO_ASA\health\backup-current.json` получает время последнего local/verified/
 cloud/replica события, snapshot id, размеры, SHA manifest, доступность Яндекс.Диска,
 свободное место и список ошибок. PRIMARY переходит в ATTENTION при local старше
-30 минут или cloud stage старше 90 минут; STANDBY — при replica старше 120 минут.
+2 часов или cloud stage старше 26 часов; STANDBY — при replica старше 120 минут.
 Одновременный запуск `YandexDisk2.exe` также всегда даёт ATTENTION.
 
 ## Последняя локальная проверка
@@ -255,10 +258,20 @@ Health-файл не является распределённой блокир�
 
 ## Retention
 
-Автоматическое удаление намеренно отсутствует до недельного испытания. Это
-соответствует ТЗ: удаление в синхронизируемой папке распространяется на облако и
-STANDBY. После пяти успешных циклов и недели наблюдения retention реализуется
-отдельным изменением с защитой последнего и минимум трёх проверенных снимков.
+Retention включён с обязательной проверкой newest snapshot до и после удаления:
+
+- локально сохраняются последние точки в 24 часовых, 14 дневных и 8 недельных
+  корзинах;
+- в Яндекс.Диске сохраняются последние точки в 30 дневных и 12 месячных корзинах;
+- latest snapshot сохраняется безусловно;
+- незавершённый snapshot удаляется только через 6 часов;
+- общий content-addressed `media-objects` не удаляется автоматически;
+- dry-run и applied-отчёты записываются в `C:\IZO_ASA\logs\retention-*.json`.
+
+Первичная controlled-очистка 2026-07-18 сохранила 26 локальных снимков и удалила
+189 старых/незавершённых snapshot-каталогов, освободив 99,47 ГБ. В облачном корне
+сохранены 3 дневных снимка, удалены 50 прежних почасовых/test snapshots; заявленное
+освобождение 26,31 ГБ. После очистки latest local повторно прошёл `BACKUP_VERIFY_OK`.
 
 ## Персональные данные и шифрование
 

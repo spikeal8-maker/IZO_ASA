@@ -58,7 +58,7 @@
 | CI | GitHub Actions active; exact B8l/remediation run `29321670540` success (`1314 passed`), required branch protection недоступен на текущем private plan |
 | Frontend production server | Vite Preview |
 | Process supervisor | отсутствует; используются launcher/PowerShell processes |
-| Backup | A6 tooling и пять live snapshot готовы; pre-B7a snapshot `20260713T221737.032822Z` verify/rehearsal успешен; schedule/retention ещё не включены |
+| Backup | A6 tooling, hourly local, nightly cloud и bounded retention включены; latest snapshot проверяется до/после cleanup |
 
 ## 4. Реальные размеры крупных файлов
 
@@ -143,7 +143,7 @@
 | OPS-02 | `ЧАСТИЧНО` | Launcher проверяет DB/health/smoke, но release build не атомарный и build label не равен Git commit автоматически |
 | OPS-03 | `НЕ НАЧАТО` | Vite Preview не заменён на Caddy |
 | OPS-04 | `НЕ НАЧАТО` | Backend/Caddy/ComfyUI/Ollama не оформлены как надёжные managed services: два backend PID исчезали без traceback; ComfyUI boot task имеет restart count 0/nonzero last result, а во время B7b процесс был недоступен и менял PID через параллельный launcher |
-| OPS-05 | `ЧАСТИЧНО` | SQLite Backup API + incremental media работают на отдельный физический `I:`; пять live snapshot проверены, но регулярный schedule/retention ещё не настроены |
+| OPS-05 | `ГОТОВО` | SQLite Backup API + content-addressed media работают на отдельном физическом `I:`; hourly/nightly schedule и bounded local/cloud retention проверены |
 | OPS-06 | `ЧАСТИЧНО` | SHA-256, manifest checksum, SQLite `quick_check` и restore rehearsal готовы; encrypted offsite copy ещё не выбрана |
 | OPS-07 | `ЧАСТИЧНО` | Есть health/logs и ручной storage audit, но нет единого monitoring/alerting контура |
 | OPS-08 | `ГОТОВО` | Внешний VPS/tunnel исключён из оптимизационных изменений |
@@ -186,7 +186,7 @@
 | A4 | P0 | `ГОТОВО` — MAX secret: запрещён пустой secret в webhook mode, constant-time comparison, body/mode/negative tests |
 | A4b | P0 | `ГОТОВО` — MAX API2/system trust-store migration, sanitized probe, polling + `/me` live smoke и rollback contract |
 | A5 | P0 | `ГОТОВО` — OpenRouter external CurrentUser DPAPI store, verified SQLite migration/delete, admin configured/source contract и rotation/runbook |
-| A6 | P0 | `ГОТОВО` — SQLite Backup API, SHA-256 media object store/manifest, внешний second-disk config, `quick_check`, verify и restore rehearsal; schedule/retention остаются отдельным operations-пакетом |
+| A6 | P0 | `ГОТОВО` — SQLite Backup API, SHA-256 media object store/manifest, внешний second-disk config, `quick_check`, verify, restore rehearsal, schedule и bounded retention |
 | A7 | P1 | `ГОТОВО` — exact Vite host allowlist, loopback-only validated proxy metadata, Uvicorn `--no-proxy-headers`, automated origin/live smoke |
 
 ### Волна B — завершить backend-декомпозицию
@@ -512,7 +512,7 @@
 - STANDBY получает данные в отдельный ReplicaCache, после чего выполняет полный
   verify и опциональный rehearsal; backend/FRP автоматически не включаются;
 - `ops/backup` содержит role config, fail-closed launcher guard, lock локального
-  backup, 15-минутный local schedule, ночной PRIMARY stage в 01:00, почасовой
+  backup, часовой local schedule, ночной PRIMARY stage в 01:00, почасовой
   STANDBY receive, ежедневный STANDBY rehearsal и 10-минутный health monitor;
 - установщик проверяет NTFS, отдельный backup volume, fixed internal Yandex root,
   наличие live DB/media/Python, `YandexDisk4.exe` и `cldflt`; secrets не записывает;
@@ -520,7 +520,7 @@
 - production-safe snapshot `20260716T005805.698960Z`: DB 565 104 640 байт,
   media 2 436 файлов / 260 170 702 байта, 96 новых objects / 2 340 reuse;
   `BACKUP_VERIFY_OK` и `BACKUP_REHEARSAL_OK` успешны без остановки backend.
-- PRIMARY automation установлена: 15-минутный local backup, cloud stage один раз в
+- PRIMARY automation установлена: часовой local backup, cloud stage один раз в
   сутки в 01:00, 10-минутный health, запуск после входа с задержкой 5 минут и три
   повтора; задания Task Scheduler выполняются со скрытым окном;
 - снимок `20260716T154600.223168Z` прошёл backup/verify/stage, клиент подтвердил
