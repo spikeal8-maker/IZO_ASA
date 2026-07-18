@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -8,6 +9,16 @@ from pathlib import Path
 import pytest
 
 from tools import release_verification_receipt as receipts
+
+
+def test_summary_argument_round_trips_as_base64() -> None:
+    summary = {"ok": True, "mode": "Full", "durationSeconds": 532.5}
+    encoded = base64.b64encode(json.dumps(summary).encode("utf-8")).decode("ascii")
+
+    assert receipts._parse_summary_argument(summary_json=None, summary_base64=encoded) == summary
+
+    with pytest.raises(receipts.ReceiptError, match="Base64"):
+        receipts._parse_summary_argument(summary_json=None, summary_base64="not base64")
 
 
 def _git(repo: Path, *args: str) -> str:

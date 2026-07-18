@@ -8,6 +8,8 @@ control or a cryptographic signature service.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -120,6 +122,22 @@ def _sha256(path: Path) -> str:
 def _payload_digest(payload: dict[str, Any]) -> str:
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _parse_summary_argument(*, summary_json: str | None, summary_base64: str | None) -> dict[str, Any]:
+    raw = summary_json
+    if summary_base64 is not None:
+        try:
+            raw = base64.b64decode(summary_base64, validate=True).decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError) as exc:
+            raise ReceiptError("verification summary Base64 is invalid") from exc
+    try:
+        summary = json.loads(raw or "")
+    except json.JSONDecodeError as exc:
+        raise ReceiptError("verification summary JSON is invalid") from exc
+    if not isinstance(summary, dict):
+        raise ReceiptError("verification summary must be an object")
+    return summary
 
 
 def write_receipt(
@@ -278,7 +296,9 @@ def main() -> int:
     write.add_argument("--mode", choices=("Full", "CI"), required=True)
     write.add_argument("--started-at", required=True)
     write.add_argument("--duration-seconds", type=float, required=True)
-    write.add_argument("--summary-json", required=True)
+    summary_source = write.add_mutually_exclusive_group(required=True)
+    summary_source.add_argument("--summary-json")
+    summary_source.add_argument("--summary-base64")
 
     validate = subparsers.add_parser("validate")
     validate.add_argument("--root", type=Path, required=True)
@@ -288,7 +308,10 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "write":
-            summary = json.loads(args.summary_json)
+            summary = _parse_summary_argument(
+                summary_json=args.summary_json,
+                summary_base64=args.summary_base64,
+            )
             completed = datetime.now(timezone.utc)
             payload = write_receipt(
                 root=args.root,

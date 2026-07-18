@@ -423,6 +423,7 @@ $summary = [ordered]@{
 }
 if ($ReceiptPath.Trim()) {
     $summaryJson = $summary | ConvertTo-Json -Compress
+    $summaryBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($summaryJson))
     $durationArgument = $duration.ToString([Globalization.CultureInfo]::InvariantCulture)
     $receiptOutput = @(
         & $python $receiptTool write `
@@ -431,7 +432,7 @@ if ($ReceiptPath.Trim()) {
             --mode $Mode `
             --started-at ($startedAt.ToUniversalTime().ToString("o")) `
             --duration-seconds $durationArgument `
-            --summary-json $summaryJson 2>&1
+            --summary-base64 $summaryBase64 2>&1
     )
     if ($LASTEXITCODE -ne 0) {
         throw "Release verification receipt creation failed: $($receiptOutput -join [Environment]::NewLine)"
