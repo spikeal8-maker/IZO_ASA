@@ -171,6 +171,19 @@ def _copy_stable_media_object(
     object_store.mkdir(parents=True, exist_ok=True)
     for _attempt in range(attempts):
         before = source.stat()
+        checksum = sha256_file(source)
+        after = source.stat()
+        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            continue
+        object_path = object_store / checksum[:2] / checksum
+        object_path.parent.mkdir(parents=True, exist_ok=True)
+        if object_path.exists():
+            if object_path.stat().st_size != after.st_size or (
+                checksum not in verified_objects and sha256_file(object_path) != checksum
+            ):
+                raise BackupError("existing_media_object_corrupt")
+            verified_objects.add(checksum)
+            return checksum, after.st_size, False
         digest = hashlib.sha256()
         with tempfile.NamedTemporaryFile(prefix=".media-", suffix=".tmp", dir=object_store, delete=False) as output:
             temporary = Path(output.name)
@@ -184,22 +197,13 @@ def _copy_stable_media_object(
             except BaseException:
                 temporary.unlink(missing_ok=True)
                 raise
-        after = source.stat()
-        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        copied_after = source.stat()
+        if (
+            (after.st_size, after.st_mtime_ns) != (copied_after.st_size, copied_after.st_mtime_ns)
+            or digest.hexdigest() != checksum
+        ):
             temporary.unlink(missing_ok=True)
             continue
-        checksum = digest.hexdigest()
-        object_path = object_store / checksum[:2] / checksum
-        object_path.parent.mkdir(parents=True, exist_ok=True)
-        if object_path.exists():
-            if object_path.stat().st_size != after.st_size or (
-                checksum not in verified_objects and sha256_file(object_path) != checksum
-            ):
-                temporary.unlink(missing_ok=True)
-                raise BackupError("existing_media_object_corrupt")
-            verified_objects.add(checksum)
-            temporary.unlink(missing_ok=True)
-            return checksum, after.st_size, False
         os.replace(temporary, object_path)
         verified_objects.add(checksum)
         return checksum, after.st_size, True

@@ -286,6 +286,10 @@ def main() -> int:
             local_root = read_config(args.config).expanduser().resolve()
             result = verify_snapshot(local_root, args.snapshot)
             snapshot_dir = resolve_snapshot(local_root, result.snapshot_id)
+            print(
+                f"BACKUP_VERIFY_OK snapshot={result.snapshot_id} databaseBytes={result.database_bytes} "
+                f"mediaFiles={result.media_files} mediaBytes={result.media_bytes}"
+            )
             update_health(
                 args.health,
                 LastLocalBackup=_utc_now(),

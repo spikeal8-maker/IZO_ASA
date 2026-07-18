@@ -42,19 +42,29 @@ try {
     $env:DATABASE_URL = [string]$config.database_url
     $env:MEDIA_DIR = [string]$config.media_dir
     $backupTool = Join-Path ([string]$config.active_release) 'tools\backup_production.py'
-    $restoreTool = Join-Path ([string]$config.active_release) 'tools\restore_backup.py'
     $transportTool = Join-Path ([string]$config.active_release) 'tools\backup_transport.py'
+    $retentionTool = Join-Path ([string]$config.active_release) 'tools\prune_backup_snapshots.py'
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         try {
             Write-Host "LOCAL_BACKUP_ATTEMPT attempt=$attempt max=$MaxAttempts"
             Invoke-CheckedPython -Arguments @($backupTool, '--config', [string]$config.backup_config, '--plan') -Expected 'BACKUP_PLAN_OK'
             Invoke-CheckedPython -Arguments @($backupTool, '--config', [string]$config.backup_config) -Expected 'BACKUP_OK'
-            Invoke-CheckedPython -Arguments @($restoreTool, '--config', [string]$config.backup_config, '--verify-only') -Expected 'BACKUP_VERIFY_OK'
             Invoke-CheckedPython -Arguments @(
                 $transportTool, '--role-config', [string]$config.role_config,
                 '--health', [string]$config.health_file,
                 'local-status', '--config', [string]$config.backup_config
             ) -Expected 'LOCAL_BACKUP_STATUS_OK'
+            $retentionReport = Join-Path $logDir 'retention-local-latest.json'
+            $retentionArguments = @(
+                $retentionTool, '--scope', 'local', '--config', [string]$config.backup_config,
+                '--report', $retentionReport, '--apply'
+            )
+            $retentionOutput = & $config.python @retentionArguments 2>&1 | Out-String
+            $retentionOutput.TrimEnd() | Tee-Object -FilePath $log -Append | Write-Host
+            if ($LASTEXITCODE -ne 0 -or $retentionOutput -notmatch 'BACKUP_RETENTION_OK') {
+                Write-Warning 'LOCAL_BACKUP_RETENTION_FAILED; the verified snapshot remains available and backup retries are suppressed.'
+                exit 4
+            }
             Write-Host "LOCAL_BACKUP_CYCLE_OK attempt=$attempt"
             exit 0
         } catch {

@@ -72,7 +72,7 @@ if ((Get-Service cldflt -ErrorAction SilentlyContinue).Status -ne 'Running') { $
 if (-not $cloudAvailable) { $errors.Add('cloud_folder_unavailable') }
 
 if ($role.role -eq 'PRIMARY') {
-    Test-FreshTimestamp $health.LastLocalBackup 30 'local_backup_older_than_30_minutes'
+    Test-FreshTimestamp $health.LastLocalBackup 120 'local_backup_older_than_2_hours'
     Test-FreshTimestamp $health.LastCloudStage 1560 'cloud_stage_older_than_26_hours'
 } elseif ($role.role -eq 'STANDBY') {
     Test-FreshTimestamp $health.LastReplicaReceive 120 'replica_older_than_120_minutes'

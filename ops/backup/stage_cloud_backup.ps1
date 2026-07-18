@@ -41,4 +41,12 @@ $tool = Join-Path ([string]$config.active_release) 'tools\backup_transport.py'
     --health $config.health_file `
     stage --config $config.backup_config --cloud-root $config.cloud_root
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$retentionTool = Join-Path ([string]$config.active_release) 'tools\prune_backup_snapshots.py'
+$retentionReport = Join-Path ([string]$config.log_root) 'retention-cloud-latest.json'
+& $config.python $retentionTool `
+    --scope cloud `
+    --cloud-root $config.cloud_root `
+    --report $retentionReport `
+    --apply
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 exit 0

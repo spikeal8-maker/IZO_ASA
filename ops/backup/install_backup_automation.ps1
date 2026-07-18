@@ -184,8 +184,9 @@ function Register-IzoScheduledTask {
 
 $obsoleteTasks = [System.Collections.Generic.List[string]]::new()
 if ($Role -eq 'PRIMARY') {
-    Register-IzoScheduledTask -Name 'IZO_ASA Local Backup 15m' -Script "$runtimeDir\run_local_backup.ps1" -Schedule MINUTE -Modifier 15
+    Register-IzoScheduledTask -Name 'IZO_ASA Local Backup Hourly' -Script "$runtimeDir\run_local_backup.ps1" -Schedule HOURLY -Modifier 1 -StartWhenAvailable
     Register-IzoScheduledTask -Name 'IZO_ASA Cloud Stage Daily 01h' -Script "$runtimeDir\stage_cloud_backup.ps1" -Schedule DAILY -StartTime '01:00' -StartWhenAvailable
+    $obsoleteTasks.Add('IZO_ASA Local Backup 15m')
     $obsoleteTasks.Add('IZO_ASA Cloud Stage Hourly')
 } else {
     Register-IzoScheduledTask -Name 'IZO_ASA Replica Receive Hourly' -Script "$runtimeDir\receive_cloud_backup.ps1" -Schedule HOURLY -Modifier 1
