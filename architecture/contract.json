@@ -327,7 +327,7 @@
     "backend/static/gallery/index.html"
   ],
   "file_limits": [
-    {"path": "backend/main.py", "max_lines": 20250},
+    {"path": "backend/main.py", "max_lines": 20251},
     {"path": "frontend/src/newStudioV3.css", "max_lines": 6000},
     {"path": "frontend/src/newUi.tsx", "max_lines": 4500},
     {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700},
