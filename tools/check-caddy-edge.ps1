@@ -137,6 +137,7 @@ if ([string]$version.release_id -ne $ReleaseId -or [string]$version.frontend_bui
     throw "Caddy API release identity does not match the active frontend."
 }
 
+Add-Type -AssemblyName System.Net.Http
 $httpHandler = New-Object System.Net.Http.HttpClientHandler
 $httpClient = New-Object System.Net.Http.HttpClient($httpHandler)
 try {
