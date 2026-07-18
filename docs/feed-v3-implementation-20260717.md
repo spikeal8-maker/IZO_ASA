@@ -111,7 +111,7 @@ purple for the social section identity, and no permanent glow.
   original source bytes. Existing publications derive the same safe history
   from their saved mode when an older snapshot has no history array.
 - Playback media remains unbranded. `format=mp4` download creates one cached,
-  H.264/AAC-compatible copy with the IZO ASA mark and `alitinizo.ru`; creation
+  H.264/AAC-compatible copy with the IZO ASA mark and `izo.alikinas.ru`; creation
   is serialized, low priority, atomic, and deleted with the publication.
 - Video publication is released behind a dedicated server setting after the
   schema migration, derivative pipeline, and image-only regression suite pass.

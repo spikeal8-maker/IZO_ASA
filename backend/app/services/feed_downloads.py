@@ -13,7 +13,10 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 
 DOWNLOAD_FORMATS = {"jpeg", "png"}
-WATERMARK_VERSION = "v1"
+BRAND_NAME = "ИЗО АСА"
+BRAND_DOMAIN = "izo.alikinas.ru"
+WATERMARK_VERSION = "v2"
+LEGACY_WATERMARK_VERSIONS = ("v1",)
 
 
 class FeedDownloadError(ValueError):
@@ -23,9 +26,17 @@ class FeedDownloadError(ValueError):
 _VIDEO_DOWNLOAD_LOCK = threading.Lock()
 
 
-def video_download_name(publication_id: str) -> str:
+def video_download_name(publication_id: str, *, version: str | None = None) -> str:
     safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", publication_id)
-    return f"feed/{safe_id}_video_download_{WATERMARK_VERSION}.mp4"
+    selected_version = str(version or WATERMARK_VERSION)
+    return f"feed/{safe_id}_video_download_{selected_version}.mp4"
+
+
+def video_download_names(publication_id: str) -> tuple[str, ...]:
+    return (
+        video_download_name(publication_id),
+        *(video_download_name(publication_id, version=version) for version in LEGACY_WATERMARK_VERSIONS),
+    )
 
 
 def normalize_download_format(value: str | None) -> str:
@@ -76,8 +87,8 @@ def render_video_watermark_overlay(
     width: int,
     height: int,
     *,
-    brand_name: str = "ИЗО АСА",
-    domain: str = "alitinizo.ru",
+    brand_name: str = BRAND_NAME,
+    domain: str = BRAND_DOMAIN,
 ) -> bytes:
     short_side = max(1, min(int(width or 0), int(height or 0)))
     mark_size = max(28, min(64, round(short_side * 0.065)))
@@ -129,6 +140,8 @@ def ensure_video_download(
 ) -> Path:
     target_path = media_dir / video_download_name(publication_id)
     with _VIDEO_DOWNLOAD_LOCK:
+        for legacy_version in LEGACY_WATERMARK_VERSIONS:
+            (media_dir / video_download_name(publication_id, version=legacy_version)).unlink(missing_ok=True)
         if target_path.is_file() and target_path.stat().st_size > 16:
             return target_path
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -168,8 +181,8 @@ def render_feed_download(
     source_path: Path,
     *,
     output_format: str = "jpeg",
-    brand_name: str = "ИЗО АСА",
-    domain: str = "alitinizo.ru",
+    brand_name: str = BRAND_NAME,
+    domain: str = BRAND_DOMAIN,
 ) -> bytes:
     selected = normalize_download_format(output_format)
     with Image.open(source_path) as opened:

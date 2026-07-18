@@ -17,6 +17,14 @@ from test_feed_v2 import (
 )
 
 
+def test_feed_watermark_uses_canonical_brand_domain():
+    assert main.feed_downloads.BRAND_NAME == "ИЗО АСА"
+    assert main.feed_downloads.BRAND_DOMAIN == "izo.alikinas.ru"
+    assert main.feed_downloads.WATERMARK_VERSION == "v2"
+    assert main.feed_downloads.render_feed_download.__kwdefaults__["domain"] == "izo.alikinas.ru"
+    assert main.feed_downloads.render_video_watermark_overlay.__kwdefaults__["domain"] == "izo.alikinas.ru"
+
+
 def test_feed_video_download_is_branded_cached_and_deleted_with_publication(temp_db, monkeypatch):
     source = main.MEDIA / "synthetic-branded-source.mp4"
     main._run_feed_ffmpeg(
@@ -49,6 +57,8 @@ def test_feed_video_download_is_branded_cached_and_deleted_with_publication(temp
         assert accepted.status_code == 202, accepted.text
         publication_id = accepted.json()["publication"]["id"]
         wait_for_video_publication(client, token, publication_id, expected_status="published")
+        legacy_path = main.MEDIA / main.feed_downloads.video_download_name(publication_id, version="v1")
+        legacy_path.write_bytes(b"legacy-watermark-cache")
 
         first = client.get(f"/api/feed/publications/{publication_id}/download?format=mp4")
         assert first.status_code == 200, first.text
@@ -57,6 +67,7 @@ def test_feed_video_download_is_branded_cached_and_deleted_with_publication(temp
         assert first.content[4:8] == b"ftyp"
         cached_path = main.MEDIA / main.feed_downloads.video_download_name(publication_id)
         assert cached_path.is_file()
+        assert not legacy_path.exists()
         first_mtime = cached_path.stat().st_mtime_ns
 
         second = client.get(f"/api/feed/publications/{publication_id}/download?format=mp4")
@@ -72,10 +83,12 @@ def test_feed_video_download_is_branded_cached_and_deleted_with_publication(temp
             item["file"] != main.feed_downloads.video_download_name(publication_id)
             for item in storage_audit["largest_unreferenced"]
         )
+        legacy_path.write_bytes(b"legacy-watermark-cache")
 
         deleted = client.delete(f"/api/feed/publications/{publication_id}", headers=bearer(token))
         assert deleted.status_code == 200
         assert not cached_path.exists()
+        assert not legacy_path.exists()
 
 
 def test_feed_media_audit_allows_published_copy_after_source_deletion(temp_db):

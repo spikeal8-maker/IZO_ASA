@@ -19971,7 +19971,7 @@ async def admin_moderate_feed_publication(
                 _row_get(publication, "video_poster_name"),
                 _row_get(publication, "video_preview_name"),
                 _row_get(publication, "video_full_name"),
-                feed_downloads.video_download_name(publication_id),
+                *feed_downloads.video_download_names(publication_id),
             ]
             conn.execute(
                 """
@@ -20030,7 +20030,7 @@ async def admin_delete_feed_publication_v2(
             _row_get(pub, "video_poster_name"),
             _row_get(pub, "video_preview_name"),
             _row_get(pub, "video_full_name"),
-            feed_downloads.video_download_name(publication_id),
+            *feed_downloads.video_download_names(publication_id),
         }
         conn.execute(
             """
@@ -20126,7 +20126,7 @@ async def delete_own_feed_publication(publication_id: str, request: Request) -> 
             _row_get(pub, "video_poster_name"),
             _row_get(pub, "video_preview_name"),
             _row_get(pub, "video_full_name"),
-            feed_downloads.video_download_name(publication_id),
+            *feed_downloads.video_download_names(publication_id),
         }
         conn.execute(
             """

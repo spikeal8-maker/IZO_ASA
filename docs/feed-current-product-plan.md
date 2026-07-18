@@ -117,7 +117,7 @@ pagination, analytics, subscription, database, or layout improvements below.
 - Public downloads now use
   `GET /api/feed/publications/{publication_id}/download?format=jpeg|png`.
   The backend renders a compact ИЗО АСА emblem, product name, and
-  `alitinizo.ru` in the lower-right corner. Preview media remains clean, private
+  `izo.alikinas.ru` in the lower-right corner. Preview media remains clean, private
   gallery originals are never exposed, JPEG is the default interoperable
   download, and PNG is available when transparency or lossless output matters.
 - Publication management and creative reuse are separate actions. Owners use

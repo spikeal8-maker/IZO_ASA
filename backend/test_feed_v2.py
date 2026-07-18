@@ -1333,7 +1333,7 @@ def test_feed_download_is_branded_jpeg_or_png_without_session(temp_db):
         assert jpeg.status_code == 200, jpeg.text
         assert jpeg.headers["content-type"] == "image/jpeg"
         assert jpeg.headers["content-disposition"].endswith('.jpg"')
-        assert jpeg.headers["x-izo-watermark-version"] == "v1"
+        assert jpeg.headers["x-izo-watermark-version"] == main.feed_downloads.WATERMARK_VERSION
         with Image.open(io.BytesIO(jpeg.content)) as downloaded:
             assert downloaded.format == "JPEG"
             assert downloaded.size == (1200, 800)
