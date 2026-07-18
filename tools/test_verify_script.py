@@ -164,7 +164,7 @@ def test_verify_script_has_no_process_or_file_deletion_commands() -> None:
     assert "Remove-Item" not in source
     assert "-PreflightOnly" in source
     assert '$preflightEnvironmentNames = @("IZO_RUNTIME_PROFILE", "APP_ENV", "ENV", "MODE", "IZO_RELEASE_MANIFEST")' in source
-    assert '$testEnvironmentNames = @("IZO_RUNTIME_PROFILE", "APP_ENV", "ENV", "MODE", "IZO_RELEASE_MANIFEST")' in source
+    assert '"IZO_RELEASE_MANIFEST",\n    "DATABASE_URL",\n    "DB_GUARD_ALLOWED_PATHS"' in source
     assert '[Environment]::SetEnvironmentVariable($environmentName, $null, "Process")' in source
     assert "$preflightEnvironment[$environmentName]" in source
     assert "$testEnvironment[$environmentName]" in source

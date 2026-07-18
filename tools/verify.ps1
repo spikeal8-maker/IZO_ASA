@@ -342,7 +342,15 @@ if ($usesLiveChecks) {
         -WorkingDirectory $resolvedRoot
 }
 
-$testEnvironmentNames = @("IZO_RUNTIME_PROFILE", "APP_ENV", "ENV", "MODE", "IZO_RELEASE_MANIFEST")
+$testEnvironmentNames = @(
+    "IZO_RUNTIME_PROFILE",
+    "APP_ENV",
+    "ENV",
+    "MODE",
+    "IZO_RELEASE_MANIFEST",
+    "DATABASE_URL",
+    "DB_GUARD_ALLOWED_PATHS"
+)
 $testEnvironment = @{}
 foreach ($environmentName in $testEnvironmentNames) {
     $testEnvironment[$environmentName] = [Environment]::GetEnvironmentVariable($environmentName, "Process")
