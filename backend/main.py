@@ -41,6 +41,22 @@ try:
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations.smtp import SmtpConfig, SmtpError, SmtpMessage, send_smtp_email, verify_smtp_connection
 try:
+    from .app.integrations.unisender import (
+        UniSenderError,
+        UniSenderMessage,
+        create_unisender_list,
+        get_unisender_lists,
+        send_unisender_email,
+    )
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.integrations.unisender import (
+        UniSenderError,
+        UniSenderMessage,
+        create_unisender_list,
+        get_unisender_lists,
+        send_unisender_email,
+    )
+try:
     from .app.integrations.yookassa import YooKassaError, check_yookassa_connection, create_yookassa_payment, fetch_yookassa_payment
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations.yookassa import YooKassaError, check_yookassa_connection, create_yookassa_payment, fetch_yookassa_payment
@@ -669,6 +685,7 @@ AVATAR_DIR.mkdir(parents=True, exist_ok=True)
 
 OPENROUTER_SECRET_NAME = "openrouter_api_key"
 SMTP_SECRET_NAME = "smtp_password"
+UNISENDER_SECRET_NAME = "unisender_api_key"
 YOOKASSA_SECRET_NAME = "yookassa_secret_key"
 TELEGRAM_BOT_SECRET_NAME = "telegram_bot_token"
 TELEGRAM_WEBHOOK_SECRET_NAME = "telegram_webhook_secret"
@@ -1188,6 +1205,18 @@ class AdminMailVerifyV2Request(BaseModel):
     sender_email: str = Field(min_length=5, max_length=254)
     use_ssl: bool = True
     save: bool = True
+
+
+class AdminUniSenderVerifyV2Request(BaseModel):
+    api_key: str | None = Field(default=None, min_length=8, max_length=512)
+    sender_name: str = Field(default="ИЗО АСА", min_length=1, max_length=100)
+    sender_email: str = Field(min_length=5, max_length=254)
+    list_id: int | None = Field(default=None, ge=1)
+    create_list_if_missing: bool = True
+
+
+class AdminUniSenderListV2Request(BaseModel):
+    title: str = Field(default="Пользователи ИЗО АСА", min_length=1, max_length=200)
 
 
 class BillingInvoiceItemV2Request(BaseModel):
@@ -2610,8 +2639,8 @@ def password_hash_needs_rehash(password_hash: str) -> bool:
 
 def email_provider_configured() -> bool:
     # EMAIL_PROVIDER remains a development-test switch. Production readiness
-    # requires complete SMTP credentials, not only an environment label.
-    return smtp_ready() or (bool(EMAIL_PROVIDER) and APP_ENV.lower() != "production")
+    # requires a verified provider, not only an environment label.
+    return unisender_ready() or smtp_ready() or (bool(EMAIL_PROVIDER) and APP_ENV.lower() != "production")
 
 
 def email_otp_available() -> bool:
@@ -2633,26 +2662,17 @@ def validate_email_otp_config() -> None:
 
 
 def send_email_otp(destination: str, code: str) -> None:
-    config = smtp_config()
-    if smtp_ready(config):
-        try:
-            send_smtp_email(
-                smtp_connection_config(config),
-                SmtpMessage(
-                    to=destination,
-                    subject="Код подтверждения ИЗО АСА",
-                    html=(
-                        "<p>Ваш код подтверждения:</p>"
-                        f"<p style='font-size:28px;font-weight:700;letter-spacing:4px'>{code}</p>"
-                        f"<p>Код действует {max(1, EMAIL_OTP_TTL_SECONDS // 60)} мин.</p>"
-                    ),
-                    sender_name=str(config.get("sender_name") or "ИЗО АСА"),
-                    sender_email=str(config["sender_email"]),
-                ),
-            )
-            return
-        except SmtpError as exc:
-            raise RuntimeError(str(exc)) from exc
+    if unisender_ready() or smtp_ready():
+        send_transactional_email(
+            destination,
+            "Код подтверждения ИЗО АСА",
+            (
+                "<p>Ваш код подтверждения:</p>"
+                f"<p style='font-size:28px;font-weight:700;letter-spacing:4px'>{code}</p>"
+                f"<p>Код действует {max(1, EMAIL_OTP_TTL_SECONDS // 60)} мин.</p>"
+            ),
+        )
+        return
     security_send_email_otp(
         destination,
         code,
@@ -5920,6 +5940,120 @@ def save_smtp_password(value: str) -> None:
     verified = OPENROUTER_SECRET_STORE.get(SMTP_SECRET_NAME)
     if not hmac.compare_digest(verified.encode("utf-8"), clean.encode("utf-8")):
         raise SecretStoreError("Не удалось проверить сохраненный пароль приложения.")
+
+
+def unisender_api_key() -> str:
+    return os.getenv("UNISENDER_API_KEY", "").strip() or OPENROUTER_SECRET_STORE.get(UNISENDER_SECRET_NAME)
+
+
+def unisender_config() -> dict[str, Any]:
+    with db() as conn:
+        row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'mail_provider_unisender'").fetchone()
+    value = safe_json_load(row["value_json"]) if row else {}
+    current = value if isinstance(value, dict) else {}
+    return {
+        "provider": "unisender",
+        "source": "admin" if current else "environment",
+        "sender_name": str(current.get("sender_name") or os.getenv("UNISENDER_SENDER_NAME", "ИЗО АСА")).strip(),
+        "sender_email": str(current.get("sender_email") or os.getenv("UNISENDER_SENDER_EMAIL", "")).strip(),
+        "list_id": int(current.get("list_id") or os.getenv("UNISENDER_LIST_ID", "0") or 0),
+        "verified_at": str(current.get("verified_at") or "").strip() or None,
+        "last_error": str(current.get("last_error") or "").strip() or None,
+    }
+
+
+def unisender_configured(config: dict[str, Any] | None = None) -> bool:
+    current = config if config is not None else unisender_config()
+    return bool(unisender_api_key() and current.get("sender_email") and int(current.get("list_id") or 0) > 0)
+
+
+def unisender_ready(config: dict[str, Any] | None = None) -> bool:
+    current = config if config is not None else unisender_config()
+    if not unisender_configured(current):
+        return False
+    return current.get("source") == "environment" or bool(current.get("verified_at"))
+
+
+def save_unisender_api_key(value: str) -> None:
+    clean = value.strip()
+    if not clean:
+        raise SecretStoreError("API-ключ UniSender пуст.")
+    OPENROUTER_SECRET_STORE.set(UNISENDER_SECRET_NAME, clean)
+    verified = OPENROUTER_SECRET_STORE.get(UNISENDER_SECRET_NAME)
+    if not hmac.compare_digest(verified.encode("utf-8"), clean.encode("utf-8")):
+        raise SecretStoreError("Не удалось проверить сохраненный API-ключ UniSender.")
+
+
+def save_unisender_config(
+    *,
+    sender_name: str,
+    sender_email: str,
+    list_id: int,
+    verified_at: str | None,
+    last_error: str | None,
+) -> None:
+    email = normalize_email(sender_email)
+    if not email:
+        raise ValueError("Введите корректный email отправителя.")
+    if list_id < 0:
+        raise ValueError("Некорректный список контактов UniSender.")
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('mail_provider_unisender', ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+            (
+                json.dumps(
+                    {
+                        "provider": "unisender",
+                        "sender_name": sender_name.strip() or "ИЗО АСА",
+                        "sender_email": email,
+                        "list_id": int(list_id),
+                        "verified_at": verified_at,
+                        "last_error": last_error,
+                    },
+                    ensure_ascii=False,
+                ),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+
+
+def send_transactional_email(destination: str, subject: str, html: str) -> str:
+    recipient = normalize_email(destination)
+    if not recipient:
+        raise RuntimeError("Некорректный email получателя.")
+    uni_config = unisender_config()
+    if unisender_ready(uni_config):
+        try:
+            return send_unisender_email(
+                unisender_api_key(),
+                UniSenderMessage(
+                    to=recipient,
+                    subject=subject,
+                    html=html,
+                    sender_name=str(uni_config.get("sender_name") or "ИЗО АСА"),
+                    sender_email=str(uni_config["sender_email"]),
+                    list_id=int(uni_config["list_id"]),
+                ),
+            )
+        except UniSenderError as exc:
+            raise RuntimeError(str(exc)) from exc
+    smtp_current = smtp_config()
+    if smtp_ready(smtp_current):
+        try:
+            return send_smtp_email(
+                smtp_connection_config(smtp_current),
+                SmtpMessage(
+                    to=recipient,
+                    subject=subject,
+                    html=html,
+                    sender_name=str(smtp_current.get("sender_name") or "ИЗО АСА"),
+                    sender_email=str(smtp_current["sender_email"]),
+                ),
+            )
+        except SmtpError as exc:
+            raise RuntimeError(str(exc)) from exc
+    raise RuntimeError("Почтовый провайдер не подключен.")
 
 
 def yookassa_secret_key() -> str:
@@ -12186,23 +12320,18 @@ async def admin_process_payment_notifications_v2(
             if message.channel == "in_app":
                 pass
             elif message.channel == "email":
-                if not message.destination or not smtp_ready():
-                    raise SmtpError("SMTP is not configured for payment notifications.")
+                if not message.destination or not email_provider_configured():
+                    raise RuntimeError("Почтовый провайдер не подключен для уведомлений об оплате.")
                 payload = message.payload
                 await asyncio.to_thread(
-                    send_smtp_email,
-                    smtp_connection_config(smtp_config()),
-                    SmtpMessage(
-                        to=message.destination,
-                        subject="Оплата в ИЗО АСА подтверждена",
-                        html=(
-                            "<p>Оплата подтверждена.</p>"
-                            f"<p>Счет: {html_escape(str(payload.get('invoice_code') or ''))}<br>"
-                            f"Начислено токенов: {int(payload.get('tokens') or 0)}<br>"
-                            f"Баланс токенов: {int(payload.get('new_token_balance') or 0)}</p>"
-                        ),
-                        sender_name=str(smtp_config().get("sender_name") or "ИЗО АСА"),
-                        sender_email=str(smtp_config().get("sender_email") or ""),
+                    send_transactional_email,
+                    message.destination,
+                    "Оплата в ИЗО АСА подтверждена",
+                    (
+                        "<p>Оплата подтверждена.</p>"
+                        f"<p>Счет: {html_escape(str(payload.get('invoice_code') or ''))}<br>"
+                        f"Начислено токенов: {int(payload.get('tokens') or 0)}<br>"
+                        f"Баланс токенов: {int(payload.get('new_token_balance') or 0)}</p>"
                     ),
                 )
             else:
@@ -13588,13 +13717,22 @@ async def admin_mail_status_v2(request: Request) -> dict[str, Any]:
             LIMIT 20
             """
         ).fetchall()
-    provider_config = smtp_config()
-    configured = smtp_configured(provider_config)
-    verified = smtp_ready(provider_config)
-    provider = "smtp" if configured else EMAIL_PROVIDER.strip()
+    smtp_provider_config = smtp_config()
+    smtp_is_configured = smtp_configured(smtp_provider_config)
+    smtp_is_verified = smtp_ready(smtp_provider_config)
+    unisender_provider_config = unisender_config()
+    unisender_is_configured = unisender_configured(unisender_provider_config)
+    unisender_is_verified = unisender_ready(unisender_provider_config)
+    configured = unisender_is_configured or smtp_is_configured
+    verified = unisender_is_verified or smtp_is_verified
+    provider = (
+        "unisender" if unisender_is_verified or unisender_is_configured
+        else "smtp" if smtp_is_verified or smtp_is_configured
+        else EMAIL_PROVIDER.strip()
+    )
     production = APP_ENV.lower() == "production"
-    delivery_implemented = provider == "smtp" or not (production and bool(provider))
-    service_ready = email_otp_available() and delivery_implemented
+    delivery_implemented = provider in {"unisender", "smtp"} or not (production and bool(provider))
+    service_ready = email_otp_available()
     return {
         "ok": True,
         "generated_at": now.isoformat(),
@@ -13605,18 +13743,43 @@ async def admin_mail_status_v2(request: Request) -> dict[str, Any]:
         "otp_available": email_otp_available(),
         "delivery_implemented": delivery_implemented,
         "debug_return_code": EMAIL_OTP_DEBUG_RETURN_CODE and not production,
+        "providers": {
+            "unisender": {
+                "api_key": bool(unisender_api_key()),
+                "configured": unisender_is_configured,
+                "verified": unisender_is_verified,
+                "verified_at": unisender_provider_config.get("verified_at"),
+                "last_error": unisender_provider_config.get("last_error"),
+                "sender_name": unisender_provider_config.get("sender_name") or "ИЗО АСА",
+                "sender_email": unisender_provider_config.get("sender_email") or "",
+                "list_id": int(unisender_provider_config.get("list_id") or 0),
+            },
+            "smtp": {
+                "password": bool(smtp_password()),
+                "configured": smtp_is_configured,
+                "verified": smtp_is_verified,
+                "verified_at": smtp_provider_config.get("verified_at"),
+                "last_error": smtp_provider_config.get("last_error"),
+                "host": smtp_provider_config.get("host") or "smtp.mail.ru",
+                "port": int(smtp_provider_config.get("port") or 465),
+                "username": smtp_provider_config.get("username") or "",
+                "sender_name": smtp_provider_config.get("sender_name") or "",
+                "sender_email": smtp_provider_config.get("sender_email") or "",
+                "use_ssl": bool(smtp_provider_config.get("use_ssl", True)),
+            },
+        },
         "config": {
             "password": bool(smtp_password()),
-            "configured": configured,
-            "verified": verified,
-            "verified_at": provider_config.get("verified_at"),
-            "last_error": provider_config.get("last_error"),
-            "host": provider_config.get("host") or "smtp.mail.ru",
-            "port": int(provider_config.get("port") or 465),
-            "username": provider_config.get("username") or "",
-            "sender_name": provider_config.get("sender_name") or "",
-            "sender_email": provider_config.get("sender_email") or "",
-            "use_ssl": bool(provider_config.get("use_ssl", True)),
+            "configured": smtp_is_configured,
+            "verified": smtp_is_verified,
+            "verified_at": smtp_provider_config.get("verified_at"),
+            "last_error": smtp_provider_config.get("last_error"),
+            "host": smtp_provider_config.get("host") or "smtp.mail.ru",
+            "port": int(smtp_provider_config.get("port") or 465),
+            "username": smtp_provider_config.get("username") or "",
+            "sender_name": smtp_provider_config.get("sender_name") or "",
+            "sender_email": smtp_provider_config.get("sender_email") or "",
+            "use_ssl": bool(smtp_provider_config.get("use_ssl", True)),
         },
         "summary": {
             "otp_total": int(otp_total or 0),
@@ -15008,6 +15171,104 @@ async def admin_mail_verify_v2(req: AdminMailVerifyV2Request, request: Request) 
     except (ValueError, SecretStoreError) as exc:
         raise HTTPException(500, str(exc)) from exc
     return {"ok": True, "provider": "smtp", "configured": smtp_configured(), "verified": smtp_ready(), "message": "SMTP подключен и настройки сохранены."}
+
+
+@app.post("/api/admin/mail/unisender/verify-v2")
+async def admin_mail_unisender_verify_v2(
+    req: AdminUniSenderVerifyV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    require_trusted_admin(request)
+    sender_email = normalize_email(req.sender_email)
+    if not sender_email:
+        raise HTTPException(400, "Введите корректный email отправителя.")
+    selected_list_id = int(req.list_id or 0)
+    try:
+        if req.api_key:
+            save_unisender_api_key(req.api_key)
+        api_key = unisender_api_key()
+        if not api_key:
+            raise ValueError("Введите API-ключ UniSender.")
+        lists = await asyncio.to_thread(get_unisender_lists, api_key)
+        available_ids = {int(item["id"]) for item in lists}
+        if selected_list_id and selected_list_id not in available_ids:
+            raise ValueError("Выбранный список контактов не найден в UniSender.")
+        if not selected_list_id and lists:
+            selected_list_id = int(lists[0]["id"])
+        if not selected_list_id and req.create_list_if_missing:
+            created = await asyncio.to_thread(create_unisender_list, api_key, "Пользователи ИЗО АСА")
+            lists.append(created)
+            selected_list_id = int(created["id"])
+        if not selected_list_id:
+            raise ValueError("В UniSender нет списка контактов. Разрешите создать список автоматически.")
+
+        # A successful account probe is not enough: this real message also
+        # confirms that UniSender accepts the selected sender address.
+        message_id = await asyncio.to_thread(
+            send_unisender_email,
+            api_key,
+            UniSenderMessage(
+                to=sender_email,
+                subject="Проверка почты ИЗО АСА",
+                html=(
+                    "<p>Почта ИЗО АСА подключена к UniSender.</p>"
+                    "<p>Это автоматическое проверочное письмо из админки.</p>"
+                ),
+                sender_name=req.sender_name.strip() or "ИЗО АСА",
+                sender_email=sender_email,
+                list_id=selected_list_id,
+                reference_key=f"izo-mail-check-{uuid.uuid4().hex}",
+            ),
+        )
+        verified_at = datetime.now(timezone.utc).isoformat()
+        save_unisender_config(
+            sender_name=req.sender_name,
+            sender_email=sender_email,
+            list_id=selected_list_id,
+            verified_at=verified_at,
+            last_error=None,
+        )
+    except (UniSenderError, SecretStoreError, ValueError) as exc:
+        try:
+            save_unisender_config(
+                sender_name=req.sender_name,
+                sender_email=sender_email,
+                list_id=selected_list_id,
+                verified_at=None,
+                last_error=str(exc),
+            )
+        except (ValueError, SecretStoreError):
+            pass
+        status_code = 502 if isinstance(exc, UniSenderError) else 400
+        raise HTTPException(status_code, str(exc)) from exc
+    return {
+        "ok": True,
+        "provider": "unisender",
+        "configured": True,
+        "verified": True,
+        "verified_at": verified_at,
+        "sender_email": sender_email,
+        "list_id": selected_list_id,
+        "lists": lists,
+        "message_id": message_id,
+        "message": "UniSender подключен. Проверочное письмо принято к отправке.",
+    }
+
+
+@app.post("/api/admin/mail/unisender/lists-v2")
+async def admin_mail_unisender_create_list_v2(
+    req: AdminUniSenderListV2Request,
+    request: Request,
+) -> dict[str, Any]:
+    require_trusted_admin(request)
+    api_key = unisender_api_key()
+    if not api_key:
+        raise HTTPException(400, "Сначала сохраните и проверьте API-ключ UniSender.")
+    try:
+        created = await asyncio.to_thread(create_unisender_list, api_key, req.title)
+    except UniSenderError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"ok": True, "provider": "unisender", "list": created}
 
 
 @app.get("/api/admin/payments/status-v2")

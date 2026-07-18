@@ -1638,6 +1638,10 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-mail-message { display: block; border-left: 3px solid #c9d83f; padding: 6px 8px; color: #e1e1d6; }
 .admin-mail-message.ok { border-color: #5ee87b; color: #9aebab; }
 .admin-mail-message.error { border-color: #ef5d5d; color: #ef9b9b; }
+.admin-mail-backup { border: 1px solid #2d2d2d; border-radius: 8px; background: #101210; overflow: hidden; }
+.admin-mail-backup > summary { cursor: pointer; padding: 11px 14px; color: #a5aaa5; font-size: 12px; font-weight: 800; }
+.admin-mail-backup[open] > summary { border-bottom: 1px solid #2d2d2d; color: #e0e2e0; }
+.admin-mail-backup .admin-mail-card { border: 0; border-radius: 0; max-width: 760px; }
 .admin-mail-plan-note { margin-top: 14px; border: 1px solid #303630; border-radius: 8px; background: #121612; padding: 14px 16px; }
 .admin-mail-plan-note h4 { margin: 0 0 8px; color: #efff3d; }
 .admin-mail-plan-note p { margin: 5px 0; color: #aeb4ae; }
