@@ -106,8 +106,32 @@ purple for the social section identity, and no permanent glow.
   rollout. Only one preview may play at a time.
 - Reduced-motion users receive a static poster unless they explicitly start the
   video. Public MP4 responses support byte ranges.
+- Video source history records only the generation mode and semantic frame
+  roles. It must never publish private gallery URLs, uploaded data URLs, or
+  original source bytes. Existing publications derive the same safe history
+  from their saved mode when an older snapshot has no history array.
+- Playback media remains unbranded. `format=mp4` download creates one cached,
+  H.264/AAC-compatible copy with the IZO ASA mark and `alitinizo.ru`; creation
+  is serialized, low priority, atomic, and deleted with the publication.
 - Video publication is released behind a dedicated server setting after the
   schema migration, derivative pipeline, and image-only regression suite pass.
+
+## Publication Continuity Contract
+
+- A successful publication opens `/feed?tab=new#work-{publicationId}`. The
+  `new` query selects the fresh feed before resolving the hash, so the creator
+  sees the exact work rather than an unrelated personalized first page.
+- Video publication may remain `preparing`; the client follows the owner-only
+  status endpoint and opens the exact publication only after it is ready.
+- Feed derivatives are independent public copies. Removing a private gallery
+  source must not hide an otherwise complete public publication.
+- A detached or soft-deleted source is informational audit data only when every
+  required public derivative exists. Missing poster, preview, full MP4, thumb,
+  or large image remains a hard audit failure.
+- Editorial seed gallery rows may point to their exact published feed copy.
+  Audits accept this only for `seed_editorial`, matching publication and image
+  IDs, published readiness, and an existing feed file. The exception never
+  applies to an ordinary active user file.
 
 ## Analytics Contract
 
@@ -187,3 +211,20 @@ The private gallery original is not modified. The owner can continue working
 while the status endpoint reports `preparing`; success changes the publication
 to `published`, and a failed preparation can be retried. Pending jobs are
 recovered on application startup.
+
+## Verified Continuity Update
+
+Verified on 2026-07-18 against the canonical database:
+
+- publication links preserve `tab=new` and the exact `work-{id}` hash for both
+  images and asynchronously prepared video;
+- video publications expose `По тексту`, `По изображению`, `По двум кадрам`,
+  or `По референсам`, with privacy-safe source-history rows;
+- branded MP4 download produces a valid cached MP4, reuses it on the next
+  request, and removes it with the publication;
+- the media health report is `status=ok` with no issues: 75 ready public
+  publications, 42 exact editorial feed-backed rows, no missing public files,
+  and no missing active gallery references;
+- 19 publications whose private image source was removed remain healthy because
+  their independent public derivatives are complete; they are reported as
+  informational detached sources instead of false hard failures.

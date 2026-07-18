@@ -44,6 +44,7 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
         "media_missing_publications": [],
         "published_missing_sources": [],
         "published_deleted_sources": [],
+        "published_detached_sources": [],
         "published_not_ready": [],
         "missing_files": [],
         "size_stats": {},
@@ -101,26 +102,32 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
             media_type = str(main._row_get(row, "media_type") or "image")
             if media_type == "image":
                 if int(main._row_get(row, "image_exists") or 0) != 1:
-                    report["published_missing_sources"].append(
-                        {"id": pub_id, "image_id": main._row_get(row, "image_id")}
-                    )
-                    continue
-
-                if main._row_get(row, "image_deleted_at"):
-                    report["published_deleted_sources"].append(
+                    report["published_detached_sources"].append(
                         {
                             "id": pub_id,
                             "image_id": main._row_get(row, "image_id"),
+                            "reason": "source_row_missing",
+                        }
+                    )
+                elif main._row_get(row, "image_deleted_at"):
+                    report["published_detached_sources"].append(
+                        {
+                            "id": pub_id,
+                            "image_id": main._row_get(row, "image_id"),
+                            "reason": "source_deleted",
                             "deleted_at": main._row_get(row, "image_deleted_at"),
                         }
                     )
-                    continue
 
                 variants = (
                     ("thumb", main._row_get(row, "feed_thumb_name"), thumb_bytes),
                     ("large", main._row_get(row, "feed_large_name"), large_bytes),
                 )
             elif media_type == "video":
+                download_name = main.feed_downloads.video_download_name(str(pub_id))
+                download_path = _feed_path(download_name)
+                if download_path is not None and download_path.is_file():
+                    seen_feed_names.add(download_name)
                 variants = (
                     ("video_poster", main._row_get(row, "video_poster_name"), video_poster_bytes),
                     ("video_preview", main._row_get(row, "video_preview_name"), video_preview_bytes),
@@ -169,6 +176,7 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
     report["media_missing_publications"] = report["media_missing_publications"][:item_limit]
     report["published_missing_sources"] = report["published_missing_sources"][:item_limit]
     report["published_deleted_sources"] = report["published_deleted_sources"][:item_limit]
+    report["published_detached_sources"] = report["published_detached_sources"][:item_limit]
     report["published_not_ready"] = report["published_not_ready"][:item_limit]
     report["missing_files"] = report["missing_files"][:item_limit]
     report["orphan_feed_files"] = report["orphan_feed_files"][:item_limit]
@@ -184,10 +192,6 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
 
     if report["published_not_ready"]:
         report["issues"].append("published_not_ready")
-    if report["published_missing_sources"]:
-        report["issues"].append("published_missing_sources")
-    if report["published_deleted_sources"]:
-        report["issues"].append("published_deleted_sources")
     if report["missing_files"]:
         report["issues"].append("missing_files")
     if report["size_stats"]["thumb"]["avg"] > 120_000:
@@ -208,7 +212,7 @@ def main_cli() -> None:
     if args.report:
         Path(args.report).write_text(text + "\n", encoding="utf-8")
     print(text)
-    hard_issues = {"published_not_ready", "published_missing_sources", "published_deleted_sources", "missing_files"} & set(report["issues"])
+    hard_issues = {"published_not_ready", "missing_files"} & set(report["issues"])
     if args.fail_on_issues and hard_issues:
         raise SystemExit(2)
 

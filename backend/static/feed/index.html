@@ -1238,7 +1238,13 @@ function renderSourceHistory(item){
   }
   modalHistory.innerHTML = history.map((entry, index)=>{
     const label = entry.roleLabel || entry.role || `Исходник ${index + 1}`;
-    const kind = entry.kind === 'gallery_image' ? 'Из галереи' : entry.kind === 'upload' ? 'Загрузка' : 'Медиа';
+    const kind = entry.kind === 'gallery_image'
+      ? 'Из галереи'
+      : entry.kind === 'upload'
+        ? 'Загрузка'
+        : entry.kind === 'generation_input'
+          ? 'Основа генерации'
+          : 'Медиа';
     const size = entry.width && entry.height ? `${entry.width}×${entry.height}` : '';
     const img = entry.thumbUrl ? `<img src="${escapeHtml(entry.thumbUrl)}" alt="">` : '<span></span>';
     return `<div class="history-item">${img}<div><b>${escapeHtml(label)}</b><span>${escapeHtml([kind, size].filter(Boolean).join(' · '))}</span></div></div>`;

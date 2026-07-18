@@ -125,12 +125,11 @@ def audit_media_storage(*, item_limit: int = 50) -> dict[str, Any]:
                 "SELECT s.id, s.thumb_url, s.availability_status, s.library_deleted_at, i.deleted_at FROM image_sources s "
                 "LEFT JOIN images i ON i.id = s.image_id AND i.user_id = s.user_id"
             ).fetchall():
-                parent_deleted = bool(main._row_get(row, "deleted_at"))
                 rel = _media_rel_from_url(row["thumb_url"])
                 source = f"image_sources.thumb_url:{row['id']}"
                 known_unavailable = str(main._row_get(row, "availability_status") or "").lower() in {"missing", "unavailable"}
                 removed_from_library = bool(main._row_get(row, "library_deleted_at"))
-                if parent_deleted and removed_from_library:
+                if removed_from_library:
                     _add_ref(deleted_refs, rel, source)
                 elif known_unavailable:
                     if rel and (main.MEDIA / rel).is_file():
@@ -154,9 +153,27 @@ def audit_media_storage(*, item_limit: int = 50) -> dict[str, Any]:
 
         feed_columns = {row["name"] for row in conn.execute("PRAGMA table_info(feed_publications)").fetchall()}
         if {"feed_thumb_name", "feed_large_name"} <= feed_columns:
-            for row in conn.execute("SELECT id, feed_thumb_name, feed_large_name FROM feed_publications").fetchall():
-                _add_ref(feed_refs, main._row_get(row, "feed_thumb_name"), f"feed.thumb:{row['id']}")
-                _add_ref(feed_refs, main._row_get(row, "feed_large_name"), f"feed.large:{row['id']}")
+            optional_columns = [
+                name
+                for name in ("media_type", "video_poster_name", "video_preview_name", "video_full_name")
+                if name in feed_columns
+            ]
+            select_columns = ", ".join(["id", "feed_thumb_name", "feed_large_name", *optional_columns])
+            for row in conn.execute(f"SELECT {select_columns} FROM feed_publications").fetchall():
+                publication_id = str(row["id"])
+                _add_ref(feed_refs, main._row_get(row, "feed_thumb_name"), f"feed.thumb:{publication_id}")
+                _add_ref(feed_refs, main._row_get(row, "feed_large_name"), f"feed.large:{publication_id}")
+                for field, label in (
+                    ("video_poster_name", "video_poster"),
+                    ("video_preview_name", "video_preview"),
+                    ("video_full_name", "video_full"),
+                ):
+                    if field in feed_columns:
+                        _add_ref(feed_refs, main._row_get(row, field), f"feed.{label}:{publication_id}")
+                if main._row_get(row, "media_type") == "video":
+                    download_name = main.feed_downloads.video_download_name(publication_id)
+                    if (main.MEDIA / download_name).is_file():
+                        _add_ref(feed_refs, download_name, f"feed.video_download:{publication_id}")
         if "jobs" in {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}:
             for row in conn.execute("SELECT id, status, settings_json FROM jobs").fetchall():
                 try:

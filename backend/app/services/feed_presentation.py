@@ -6,6 +6,19 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 
+def video_source_history(mode: str | None) -> list[dict[str, Any]]:
+    if mode == "image_to_video":
+        return [{"kind": "generation_input", "role": "first_frame", "roleLabel": "Исходное изображение"}]
+    if mode == "first_last_frame":
+        return [
+            {"kind": "generation_input", "role": "first_frame", "roleLabel": "Начальный кадр"},
+            {"kind": "generation_input", "role": "last_frame", "roleLabel": "Конечный кадр"},
+        ]
+    if mode == "reference_to_video":
+        return [{"kind": "generation_input", "role": "references", "roleLabel": "Референсы"}]
+    return []
+
+
 def feed_generation_snapshot(
     connection: Any,
     image: Any,

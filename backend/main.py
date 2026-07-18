@@ -17938,6 +17938,10 @@ def _feed_source_label(source_type: str) -> str:
         "faceswap": "Лицо",
         "remix": "Remix",
         "seed": "Выбор редакции",
+        "text_to_video": "По тексту",
+        "image_to_video": "По изображению",
+        "first_last_frame": "По двум кадрам",
+        "reference_to_video": "По референсам",
     }.get(source_type or "", "По тексту")
 
 
@@ -18512,7 +18516,12 @@ def _feed_item_payload(
         if image_id not in source_histories:
             source_histories[image_id] = _feed_source_history_payload(conn, image_id)
         source_history = source_histories[image_id]
+    if not source_history and media_type == "video":
+        source_history = feed_presentation.video_source_history(snapshot.get("mode"))
     source_history = source_history or []
+    stored_source_label = _row_get(pub, "source_label")
+    if media_type == "video" and stored_source_label == "Видео":
+        stored_source_label = None
     return {
         "id": pub["id"],
         "media_type": media_type,
@@ -18545,7 +18554,7 @@ def _feed_item_payload(
         "native_aspect_ratio": native_aspect_ratio,
         "orientation": _row_get(pub, "orientation") or _feed_orientation(width, height),
         "source_type": source_type,
-        "source_label": _row_get(pub, "source_label") or _feed_source_label(source_type),
+        "source_label": stored_source_label or _feed_source_label(source_type),
         "display_policy": _row_get(pub, "display_policy") or FEED_DISPLAY_POLICY,
         "remix_policy": _row_get(pub, "remix_policy") or ("allowed" if bool(pub["allow_recreate"]) else "disabled"),
         "category": _row_get(pub, "category"),
@@ -19104,6 +19113,8 @@ async def _publish_feed_video(
         raise HTTPException(404, "Video file not found")
 
     now = datetime.now(timezone.utc).isoformat()
+    video_mode = str(video["mode"] or "text_to_video")
+    source_label = _feed_source_label(video_mode)
     snapshot = {
         "prompt": video["prompt_original"] or "",
         "mode": video["mode"],
@@ -19114,13 +19125,14 @@ async def _publish_feed_video(
         "durationMs": max(0, int(video["duration_seconds"] or 0) * 1000),
         "fileSizeBytes": source_path.stat().st_size,
         "generationParams": [
+            {"label": "Способ", "value": source_label},
             {"label": "Модель", "value": settings.get("openrouterModel") or video["provider"]},
             {"label": "Формат", "value": video["aspect_ratio"] or _feed_aspect_ratio(int(video["width"] or 0), int(video["height"] or 0))},
             {"label": "Длительность", "value": f"{int(video['duration_seconds'] or 0)} сек."},
             {"label": "Разрешение", "value": settings.get("resolution") or f"{video['width']}×{video['height']}"},
             {"label": "Звук", "value": "Есть" if settings.get("generateAudio") else "Без звука"},
         ],
-        "sourceHistory": [],
+        "sourceHistory": feed_presentation.video_source_history(video_mode),
     }
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -19149,6 +19161,8 @@ async def _publish_feed_video(
             "snapshot_json": json.dumps(snapshot, ensure_ascii=False),
             "display_policy": FEED_DISPLAY_POLICY,
             "source_job_id": video["job_id"],
+            "source_type": video_mode,
+            "source_label": source_label,
         }
         if existing:
             conn.execute(
@@ -19167,7 +19181,7 @@ async def _publish_feed_video(
                     video_full_bytes = NULL, duration_ms = :duration_ms, has_audio = :has_audio,
                     media_ready_at = NULL, media_error = NULL,
                     native_aspect_ratio = :native_aspect_ratio, orientation = :orientation,
-                    source_type = 'video', source_label = 'Видео', display_policy = :display_policy,
+                    source_type = :source_type, source_label = :source_label, display_policy = :display_policy,
                     remix_policy = 'disabled', category = :category, tags_json = :tags_json,
                     generation_snapshot_json = :snapshot_json, moderation_status = 'approved',
                     moderation_reason = NULL, moderated_at = :created_at,
@@ -19187,7 +19201,7 @@ async def _publish_feed_video(
                     moderated_at,source_job_id,updated_at,duration_ms,has_audio
                 ) VALUES (
                     :id,NULL,:video_id,'video',:internal_user_id,:legacy_user_id,:title,:description,
-                    :prompt_visibility,0,'preparing',:created_at,NULL,:native_aspect_ratio,:orientation,'video','Видео',
+                    :prompt_visibility,0,'preparing',:created_at,NULL,:native_aspect_ratio,:orientation,:source_type,:source_label,
                     :display_policy,'disabled',:category,:tags_json,:snapshot_json,'approved',
                     :created_at,:source_job_id,:created_at,:duration_ms,:has_audio
                 )
@@ -19958,6 +19972,7 @@ async def admin_moderate_feed_publication(
                 _row_get(publication, "video_poster_name"),
                 _row_get(publication, "video_preview_name"),
                 _row_get(publication, "video_full_name"),
+                feed_downloads.video_download_name(publication_id),
             ]
             conn.execute(
                 """
@@ -20016,6 +20031,7 @@ async def admin_delete_feed_publication_v2(
             _row_get(pub, "video_poster_name"),
             _row_get(pub, "video_preview_name"),
             _row_get(pub, "video_full_name"),
+            feed_downloads.video_download_name(publication_id),
         }
         conn.execute(
             """
@@ -20111,6 +20127,7 @@ async def delete_own_feed_publication(publication_id: str, request: Request) -> 
             _row_get(pub, "video_poster_name"),
             _row_get(pub, "video_preview_name"),
             _row_get(pub, "video_full_name"),
+            feed_downloads.video_download_name(publication_id),
         }
         conn.execute(
             """
@@ -20220,7 +20237,53 @@ async def feed_video_media(publication_id: str, request: Request, variant: str =
 
 @app.get("/api/feed/publications/{publication_id}/download")
 async def feed_publication_download(publication_id: str, request: Request, format: str = "jpeg") -> Response:
-    """Download a branded JPEG/PNG without exposing the private gallery original."""
+    """Download branded public media without exposing the private gallery original."""
+    requested_format = str(format or "jpeg").strip().lower()
+    if requested_format == "mp4":
+        with db() as conn:
+            publication = conn.execute(
+                """
+                SELECT media_type, status, media_ready_at, video_full_name,
+                       video_poster_width, video_poster_height
+                FROM feed_publications
+                WHERE id = ?
+                """,
+                (publication_id,),
+            ).fetchone()
+        if (
+            publication is None
+            or publication["status"] != "published"
+            or publication["media_type"] != "video"
+            or not publication["media_ready_at"]
+        ):
+            raise HTTPException(404, "Video publication not found")
+        source_name = str(publication["video_full_name"] or "")
+        source_path = storage_resolve_under_root(MEDIA, source_name) if source_name else None
+        if source_path is None or not source_path.is_file() or not source_name.startswith("feed/"):
+            raise HTTPException(404, "Video media not found")
+        try:
+            target_path = await asyncio.to_thread(
+                feed_downloads.ensure_video_download,
+                publication_id,
+                source_path,
+                media_dir=MEDIA,
+                width=int(publication["video_poster_width"] or 1280),
+                height=int(publication["video_poster_height"] or 720),
+                run_ffmpeg=_run_feed_ffmpeg,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(422, "Video cannot be prepared for download") from exc
+        safe_publication_id = re.sub(r"[^a-zA-Z0-9_-]", "-", publication_id)[:80] or "publication"
+        return FileResponse(
+            target_path,
+            media_type="video/mp4",
+            filename=f"izo-asa-{safe_publication_id}.mp4",
+            headers={
+                "Cache-Control": "public, max-age=86400",
+                "X-Content-Type-Options": "nosniff",
+                "X-IZO-Watermark-Version": feed_downloads.WATERMARK_VERSION,
+            },
+        )
     try:
         selected_format = feed_downloads.normalize_download_format(format)
         source_path = storage_resolve_feed_media(

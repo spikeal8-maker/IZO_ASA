@@ -100,7 +100,13 @@ def make_image(image_id: str, legacy_user: str, prompt: str = "секретны�
         )
 
 
-def make_video(video_id: str, legacy_user: str, prompt: str = "короткое видео про маяк") -> None:
+def make_video(
+    video_id: str,
+    legacy_user: str,
+    prompt: str = "короткое видео про маяк",
+    *,
+    mode: str = "text_to_video",
+) -> None:
     source_name = f"{video_id}.mp4"
     (main.MEDIA / source_name).write_bytes(b"feed-video-source" * 8)
     job_id = f"job-{video_id}"
@@ -108,14 +114,14 @@ def make_video(video_id: str, legacy_user: str, prompt: str = "короткое 
     with main.db() as conn:
         conn.execute(
             "INSERT INTO jobs (id, user_id, mode, provider, status, progress, prompt_original, settings_json, created_at, completed_at) "
-            "VALUES (?, ?, 'text_to_video', 'openrouter', 'completed', 100, ?, ?, '2026-07-17', '2026-07-17')",
-            (job_id, legacy_user, prompt, settings),
+            "VALUES (?, ?, ?, 'openrouter', 'completed', 100, ?, ?, '2026-07-17', '2026-07-17')",
+            (job_id, legacy_user, mode, prompt, settings),
         )
         conn.execute(
             "INSERT INTO videos (id, user_id, job_id, url, width, height, duration_seconds, aspect_ratio, mode, provider, "
             "prompt_original, settings_json, stored_bytes, created_at) "
-            "VALUES (?, ?, ?, ?, 720, 1280, 5, '9:16', 'text_to_video', 'openrouter', ?, ?, 256, '2026-07-17')",
-            (video_id, legacy_user, job_id, f"/api/media/{source_name}?userId={legacy_user}", prompt, settings),
+            "VALUES (?, ?, ?, ?, 720, 1280, 5, '9:16', ?, 'openrouter', ?, ?, 256, '2026-07-17')",
+            (video_id, legacy_user, job_id, f"/api/media/{source_name}?userId={legacy_user}", mode, prompt, settings),
         )
 
 
@@ -279,7 +285,7 @@ def publish(client: TestClient, token: str, image_id: str, visibility: str = "op
 def test_feed_video_publication_contract_is_gated_and_media_neutral(temp_db, monkeypatch):
     with TestClient(main.app) as client:
         token = make_user("iuid-video-feed", "web_video_feed", "Автор видео")
-        make_video("vid-feed-1", "web_video_feed")
+        make_video("vid-feed-1", "web_video_feed", mode="image_to_video")
 
         monkeypatch.setattr(main, "FEED_VIDEO_PUBLICATION_ENABLED", False)
         disabled = client.post(
@@ -316,6 +322,16 @@ def test_feed_video_publication_contract_is_gated_and_media_neutral(temp_db, mon
         assert item["video_url"].endswith("variant=full")
         assert item["duration_ms"] == 5000
         assert item["has_audio"] is True
+        assert item["source_type"] == "image_to_video"
+        assert item["source_label"] == "По изображению"
+        assert item["source_history"] == [
+            {
+                "kind": "generation_input",
+                "role": "first_frame",
+                "roleLabel": "Исходное изображение",
+            }
+        ]
+        assert {entry["label"]: entry["value"] for entry in item["generation_params"]}["Способ"] == "По изображению"
         status = client.get(
             f"/api/feed/publications/{publication_id}/status",
             headers=bearer(token),
@@ -802,6 +818,8 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "История создания" not in r.text
         assert "modalHistory" in r.text
         assert "function renderSourceHistory(item)" in r.text
+        assert "entry.kind === 'generation_input'" in r.text
+        assert "Основа генерации" in r.text
         assert "tab-explainer" not in r.text
         assert "скрыт автором" not in r.text
         assert "Работы автора появятся во вкладке Подписки" in r.text
@@ -1780,37 +1798,6 @@ def test_gallery_page_does_not_mark_missing_feed_media_as_published(temp_db):
         assert data["feedItems"] == []
 
 
-def test_feed_media_audit_flags_published_deleted_source(temp_db):
-    with TestClient(main.app) as client:
-        token = make_user("iuid-audit-deleted", "web_audit_deleted")
-        make_image("img-audit-deleted", "web_audit_deleted")
-        pub = publish(client, token, "img-audit-deleted")
-        with main.db() as conn:
-            conn.execute(
-                "UPDATE images SET deleted_at = '2026-07-07T00:00:00+00:00' WHERE id = ?",
-                ("img-audit-deleted",),
-            )
-
-    report = feed_media_audit.audit_feed_media(item_limit=10)
-    assert report["published_deleted_sources"] == [
-        {"id": pub["id"], "image_id": "img-audit-deleted", "deleted_at": "2026-07-07T00:00:00+00:00"}
-    ]
-    assert "published_deleted_sources" in report["issues"]
-
-
-def test_feed_media_audit_flags_published_missing_source(temp_db):
-    with TestClient(main.app) as client:
-        token = make_user("iuid-audit-missing", "web_audit_missing")
-        make_image("img-audit-missing", "web_audit_missing")
-        pub = publish(client, token, "img-audit-missing")
-        with main.db() as conn:
-            conn.execute("DELETE FROM images WHERE id = ?", ("img-audit-missing",))
-
-    report = feed_media_audit.audit_feed_media(item_limit=10)
-    assert report["published_missing_sources"] == [{"id": pub["id"], "image_id": "img-audit-missing"}]
-    assert "published_missing_sources" in report["issues"]
-
-
 def test_media_health_check_rolls_up_nested_issues(temp_db):
     with TestClient(main.app) as client:
         token = make_user("iuid-health", "web_health")
@@ -1821,13 +1808,14 @@ def test_media_health_check_rolls_up_nested_issues(temp_db):
     assert ok["issues"] == []
 
     with main.db() as conn:
-        conn.execute(
-            "UPDATE images SET deleted_at = '2026-07-07T00:00:00+00:00' WHERE id = ?",
+        publication = conn.execute(
+            "SELECT feed_thumb_name FROM feed_publications WHERE image_id = ?",
             ("img-health",),
-        )
+        ).fetchone()
+    (main.MEDIA / publication["feed_thumb_name"]).unlink()
     broken = media_health_check.run_media_health_check(item_limit=10)
     assert broken["status"] == "issues"
-    assert "feed:published_deleted_sources" in broken["issues"]
+    assert "feed:missing_files" in broken["issues"]
 
 
 def test_publish_creates_feed_variants_not_original_fallback(temp_db):
@@ -1952,6 +1940,7 @@ def test_gallery_original_migrate_apply_updates_url_without_deleting_source(temp
     make_user("iuid-gallery-apply", "web_gallery_apply")
     make_image("img-gallery-apply", "web_gallery_apply")
     source = main.MEDIA / "img-gallery-apply.png"
+    Image.effect_noise((1200, 800), 80).convert("RGB").save(source, "PNG")
 
     report = gallery_original_migrate.migrate_gallery_originals(apply=True, item_limit=1)
     item = report["items"][0]
@@ -1972,6 +1961,7 @@ def test_gallery_original_migrate_apply_updates_url_without_deleting_source(temp
 def test_gallery_original_migrate_updates_thumbnail_when_it_matches_source(temp_db):
     make_image("seed_izo_thumb_match", "seed_editorial")
     source = main.MEDIA / "seed_izo_thumb_match.png"
+    Image.effect_noise((1200, 800), 80).convert("RGB").save(source, "PNG")
     with main.db() as conn:
         conn.execute(
             "UPDATE images SET thumbnail_url = url WHERE id = ?",

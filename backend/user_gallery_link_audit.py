@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -37,6 +38,33 @@ def _safe_user_label(row: Any | None) -> dict[str, Any] | None:
     }
 
 
+def _feed_backed_seed_path(image: Any, publications: dict[str, Any]) -> tuple[Path | None, str | None]:
+    match = re.fullmatch(
+        r"/api/feed/media/([^/?#]+)",
+        str(main._row_get(image, "url") or "").split("?", 1)[0],
+    )
+    publication_id = match.group(1) if match else None
+    if str(main._row_get(image, "user_id") or "") != "seed_editorial" or not publication_id:
+        return None, None
+    publication = publications.get(publication_id)
+    if (
+        publication is None
+        or str(main._row_get(publication, "image_id") or "") != str(main._row_get(image, "id") or "")
+        or main._row_get(publication, "status") != "published"
+        or not main._row_get(publication, "media_ready_at")
+    ):
+        return None, publication_id
+    name = str(main._row_get(publication, "feed_large_name") or "")
+    if not name:
+        return None, publication_id
+    path = (main.MEDIA / name).resolve()
+    try:
+        path.relative_to(main.MEDIA.resolve())
+    except ValueError:
+        return None, publication_id
+    return (path if path.is_file() else None), publication_id
+
+
 def audit_user_gallery_links(*, item_limit: int = 50) -> dict[str, Any]:
     main.init_db()
     report: dict[str, Any] = {
@@ -52,6 +80,7 @@ def audit_user_gallery_links(*, item_limit: int = 50) -> dict[str, Any]:
         "job_user_mismatches": [],
         "active_missing_files": [],
         "deleted_missing_files": [],
+        "feed_backed_images": [],
         "per_user": [],
     }
 
@@ -68,6 +97,7 @@ def audit_user_gallery_links(*, item_limit: int = 50) -> dict[str, Any]:
     active_missing_file_count = 0
     deleted_missing_file_count = 0
     job_user_mismatch_count = 0
+    feed_backed_active_count = 0
 
     with main.db() as conn:
         users = {row["id"]: row for row in conn.execute("SELECT * FROM users").fetchall()}
@@ -95,6 +125,12 @@ def audit_user_gallery_links(*, item_limit: int = 50) -> dict[str, Any]:
             """
         ).fetchall()
         job_rows = {row["id"]: row for row in conn.execute("SELECT id, user_id, result_image_id, status FROM jobs").fetchall()}
+        feed_publications = {
+            str(row["id"]): row
+            for row in conn.execute(
+                "SELECT id, image_id, status, media_ready_at, feed_large_name FROM feed_publications"
+            ).fetchall()
+        }
 
         active_images = 0
         deleted_images = 0
@@ -107,6 +143,19 @@ def audit_user_gallery_links(*, item_limit: int = 50) -> dict[str, Any]:
             else:
                 active_images += 1
                 per_user[user_id]["active_images"] += 1
+            feed_path, feed_publication_id = _feed_backed_seed_path(image, feed_publications)
+            if feed_path is not None:
+                if not is_deleted:
+                    feed_backed_active_count += 1
+                if len(report["feed_backed_images"]) < item_limit:
+                    report["feed_backed_images"].append(
+                        {
+                            "image_id": image["id"],
+                            "publication_id": feed_publication_id,
+                            "file": feed_path.relative_to(main.MEDIA).as_posix(),
+                            "deleted": is_deleted,
+                        }
+                    )
 
             if user_id not in users:
                 item = {
@@ -142,6 +191,10 @@ def audit_user_gallery_links(*, item_limit: int = 50) -> dict[str, Any]:
                         )
 
             for field, counter in (("url", "missing_originals"), ("thumbnail_url", "missing_thumbnails")):
+                if feed_path is not None:
+                    if field == "url":
+                        per_user[user_id]["bytes_existing"] += feed_path.stat().st_size
+                    continue
                 rel = _media_rel_from_url(main._row_get(image, field))
                 if rel and _path_exists(rel):
                     path = main.MEDIA / rel
@@ -154,6 +207,8 @@ def audit_user_gallery_links(*, item_limit: int = 50) -> dict[str, Any]:
                     "field": field,
                     "file": rel,
                     "deleted": is_deleted,
+                    "reason": "feed_backing_missing" if feed_publication_id else "missing",
+                    "publication_id": feed_publication_id,
                 }
                 if is_deleted:
                     deleted_missing_file_count += 1
@@ -176,6 +231,7 @@ def audit_user_gallery_links(*, item_limit: int = 50) -> dict[str, Any]:
             "active_missing_file_refs": active_missing_file_count,
             "deleted_missing_file_refs": deleted_missing_file_count,
             "job_user_mismatches": job_user_mismatch_count,
+            "feed_backed_active_images": feed_backed_active_count,
         }
         rows = []
         for user_id, data in per_user.items():

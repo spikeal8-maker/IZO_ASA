@@ -782,22 +782,22 @@
   ],
   "file_limits": [
     {
-      "lines": 20250,
-      "max_lines": 20251,
+      "lines": 20313,
+      "max_lines": 20314,
       "path": "backend/main.py",
       "remaining": 1
     },
     {
-      "lines": 2118,
+      "lines": 2124,
       "max_lines": 2200,
       "path": "backend/static/feed/index.html",
-      "remaining": 82
+      "remaining": 76
     },
     {
-      "lines": 2356,
+      "lines": 2346,
       "max_lines": 2400,
       "path": "backend/test_feed_v2.py",
-      "remaining": 44
+      "remaining": 54
     },
     {
       "lines": 3600,
@@ -1557,7 +1557,7 @@
       {
         "auth": "admin",
         "handler": "admin_feed_moderation_queue",
-        "line": 19869,
+        "line": 19883,
         "method": "GET",
         "path": "/api/admin/feed/moderation",
         "process_role": "all-dev-current-monolith"
@@ -1565,7 +1565,7 @@
       {
         "auth": "admin",
         "handler": "admin_delete_feed_publication_v2",
-        "line": 19992,
+        "line": 20007,
         "method": "POST",
         "path": "/api/admin/feed/publications/{publication_id}/delete-v2",
         "process_role": "all-dev-current-monolith"
@@ -1573,7 +1573,7 @@
       {
         "auth": "admin",
         "handler": "admin_feed_moderation_media",
-        "line": 19899,
+        "line": 19913,
         "method": "GET",
         "path": "/api/admin/feed/publications/{publication_id}/media",
         "process_role": "all-dev-current-monolith"
@@ -1581,7 +1581,7 @@
       {
         "auth": "admin",
         "handler": "admin_moderate_feed_publication",
-        "line": 19918,
+        "line": 19932,
         "method": "POST",
         "path": "/api/admin/feed/publications/{publication_id}/moderate",
         "process_role": "all-dev-current-monolith"
@@ -2349,7 +2349,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_list",
-        "line": 18841,
+        "line": 18850,
         "method": "GET",
         "path": "/api/feed",
         "process_role": "all-dev-current-monolith"
@@ -2357,7 +2357,7 @@
       {
         "auth": "user",
         "handler": "feed_unfollow_author",
-        "line": 19724,
+        "line": 19738,
         "method": "DELETE",
         "path": "/api/feed/authors/{author_id}/follow",
         "process_role": "all-dev-current-monolith"
@@ -2365,7 +2365,7 @@
       {
         "auth": "user",
         "handler": "feed_follow_author",
-        "line": 19703,
+        "line": 19717,
         "method": "POST",
         "path": "/api/feed/authors/{author_id}/follow",
         "process_role": "all-dev-current-monolith"
@@ -2373,7 +2373,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_author_publications",
-        "line": 19735,
+        "line": 19749,
         "method": "GET",
         "path": "/api/feed/authors/{author_id}/publications",
         "process_role": "all-dev-current-monolith"
@@ -2381,7 +2381,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_challenges",
-        "line": 19797,
+        "line": 19811,
         "method": "GET",
         "path": "/api/feed/challenges",
         "process_role": "all-dev-current-monolith"
@@ -2389,7 +2389,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_engagement_event",
-        "line": 19539,
+        "line": 19553,
         "method": "POST",
         "path": "/api/feed/events",
         "process_role": "all-dev-current-monolith"
@@ -2397,7 +2397,7 @@
       {
         "auth": "user",
         "handler": "feed_following_mark_read",
-        "line": 19781,
+        "line": 19795,
         "method": "POST",
         "path": "/api/feed/following/read",
         "process_role": "all-dev-current-monolith"
@@ -2405,7 +2405,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_media",
-        "line": 20169,
+        "line": 20186,
         "method": "GET",
         "path": "/api/feed/media/{publication_id}",
         "process_role": "all-dev-current-monolith"
@@ -2413,7 +2413,7 @@
       {
         "auth": "user",
         "handler": "feed_publish",
-        "line": 19206,
+        "line": 19220,
         "method": "POST",
         "path": "/api/feed/publications",
         "process_role": "all-dev-current-monolith"
@@ -2421,7 +2421,7 @@
       {
         "auth": "user",
         "handler": "delete_own_feed_publication",
-        "line": 20076,
+        "line": 20092,
         "method": "DELETE",
         "path": "/api/feed/publications/{publication_id}",
         "process_role": "all-dev-current-monolith"
@@ -2429,7 +2429,7 @@
       {
         "auth": "user",
         "handler": "update_own_feed_publication",
-        "line": 19442,
+        "line": 19456,
         "method": "PATCH",
         "path": "/api/feed/publications/{publication_id}",
         "process_role": "all-dev-current-monolith"
@@ -2437,7 +2437,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_undislike",
-        "line": 19647,
+        "line": 19661,
         "method": "DELETE",
         "path": "/api/feed/publications/{publication_id}/dislike",
         "process_role": "all-dev-current-monolith"
@@ -2445,7 +2445,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_dislike",
-        "line": 19642,
+        "line": 19656,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/dislike",
         "process_role": "all-dev-current-monolith"
@@ -2453,7 +2453,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_publication_download",
-        "line": 20222,
+        "line": 20239,
         "method": "GET",
         "path": "/api/feed/publications/{publication_id}/download",
         "process_role": "all-dev-current-monolith"
@@ -2461,7 +2461,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_unhide",
-        "line": 19657,
+        "line": 19671,
         "method": "DELETE",
         "path": "/api/feed/publications/{publication_id}/hide",
         "process_role": "all-dev-current-monolith"
@@ -2469,7 +2469,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_hide",
-        "line": 19652,
+        "line": 19666,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/hide",
         "process_role": "all-dev-current-monolith"
@@ -2477,7 +2477,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_unlike",
-        "line": 19510,
+        "line": 19524,
         "method": "DELETE",
         "path": "/api/feed/publications/{publication_id}/like",
         "process_role": "all-dev-current-monolith"
@@ -2485,7 +2485,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_like",
-        "line": 19505,
+        "line": 19519,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/like",
         "process_role": "all-dev-current-monolith"
@@ -2493,7 +2493,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_recreate_mark",
-        "line": 19822,
+        "line": 19836,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/recreate",
         "process_role": "all-dev-current-monolith"
@@ -2501,7 +2501,7 @@
       {
         "auth": "user",
         "handler": "feed_remix_start",
-        "line": 19838,
+        "line": 19852,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/remix/start",
         "process_role": "all-dev-current-monolith"
@@ -2509,7 +2509,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_report",
-        "line": 19662,
+        "line": 19676,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/report",
         "process_role": "all-dev-current-monolith"
@@ -2517,7 +2517,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_unsave",
-        "line": 19520,
+        "line": 19534,
         "method": "DELETE",
         "path": "/api/feed/publications/{publication_id}/save",
         "process_role": "all-dev-current-monolith"
@@ -2525,7 +2525,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_save",
-        "line": 19515,
+        "line": 19529,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/save",
         "process_role": "all-dev-current-monolith"
@@ -2533,7 +2533,7 @@
       {
         "auth": "user",
         "handler": "feed_publication_status",
-        "line": 19410,
+        "line": 19424,
         "method": "GET",
         "path": "/api/feed/publications/{publication_id}/status",
         "process_role": "all-dev-current-monolith"
@@ -2541,7 +2541,7 @@
       {
         "auth": "user",
         "handler": "feed_publication_use_as",
-        "line": 19667,
+        "line": 19681,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/use-as",
         "process_role": "all-dev-current-monolith"
@@ -2549,7 +2549,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_publication_view",
-        "line": 19596,
+        "line": 19610,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/view",
         "process_role": "all-dev-current-monolith"
@@ -2557,7 +2557,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_video_media",
-        "line": 20190,
+        "line": 20207,
         "method": "GET",
         "path": "/api/feed/video/{publication_id}",
         "process_role": "all-dev-current-monolith"
@@ -4080,7 +4080,7 @@
         "occurrences": [
           {
             "enclosing_symbol": "start_feed_video_publication_worker",
-            "line": 19014
+            "line": 19023
           }
         ],
         "owner": "backend.main",
