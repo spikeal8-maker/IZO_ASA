@@ -427,6 +427,28 @@ def test_deleting_private_video_keeps_independent_feed_copy(temp_db, monkeypatch
         assert publication["status"] == "published"
         assert (main.MEDIA / publication["video_full_name"]).is_file()
 
+        audit = feed_media_audit.audit_feed_media(item_limit=10)
+        assert audit["published_missing_sources"] == []
+        assert audit["published_deleted_sources"] == []
+        assert audit["published_not_ready"] == []
+        assert audit["missing_files"] == []
+        assert audit["ready_publications"] == 1
+        assert audit["video_size_stats"]["poster"]["count"] == 1
+        assert audit["video_size_stats"]["preview"]["count"] == 1
+        assert audit["video_size_stats"]["full"]["count"] == 1
+
+        with main.db() as conn:
+            preview_name = conn.execute(
+                "SELECT video_preview_name FROM feed_publications WHERE id = ?",
+                (publication_id,),
+            ).fetchone()["video_preview_name"]
+        (main.MEDIA / preview_name).unlink()
+        broken_audit = feed_media_audit.audit_feed_media(item_limit=10)
+        assert broken_audit["missing_files"] == [
+            {"id": publication_id, "variant": "video_preview", "file": preview_name}
+        ]
+        assert "missing_files" in broken_audit["issues"]
+
 
 def test_feed_video_publication_failure_is_private_and_retryable(temp_db, monkeypatch):
     with TestClient(main.app) as client:

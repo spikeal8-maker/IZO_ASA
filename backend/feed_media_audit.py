@@ -47,12 +47,16 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
         "published_not_ready": [],
         "missing_files": [],
         "size_stats": {},
+        "video_size_stats": {},
         "orphan_feed_files": [],
         "issues": [],
     }
     seen_feed_names: set[str] = set()
     thumb_bytes: list[int] = []
     large_bytes: list[int] = []
+    video_poster_bytes: list[int] = []
+    video_preview_bytes: list[int] = []
+    video_full_bytes: list[int] = []
     with main.db() as conn:
         for row in conn.execute("SELECT status, COUNT(*) AS c FROM feed_publications GROUP BY status ORDER BY status"):
             report["statuses"][row["status"]] = int(row["c"] or 0)
@@ -65,7 +69,8 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
             f"""
             SELECT id, status, feed_thumb_name, feed_large_name, feed_thumb_bytes, feed_large_bytes,
                    media_ready_at, media_error, is_seed, author_type, legacy_user_id,
-                   image_id, image_exists, image_deleted_at
+                   image_id, image_exists, image_deleted_at, media_type, video_id,
+                   video_poster_name, video_preview_name, video_full_name
             FROM (
                 SELECT fp.*, {is_seed_expr}, {author_type_expr}, {legacy_user_expr},
                        CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS image_exists,
@@ -93,24 +98,50 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
             if row["status"] != "published":
                 continue
 
-            if int(main._row_get(row, "image_exists") or 0) != 1:
-                report["published_missing_sources"].append(
-                    {"id": pub_id, "image_id": main._row_get(row, "image_id")}
-                )
-                continue
+            media_type = str(main._row_get(row, "media_type") or "image")
+            if media_type == "image":
+                if int(main._row_get(row, "image_exists") or 0) != 1:
+                    report["published_missing_sources"].append(
+                        {"id": pub_id, "image_id": main._row_get(row, "image_id")}
+                    )
+                    continue
 
-            if main._row_get(row, "image_deleted_at"):
-                report["published_deleted_sources"].append(
-                    {"id": pub_id, "image_id": main._row_get(row, "image_id"), "deleted_at": main._row_get(row, "image_deleted_at")}
-                )
-                continue
+                if main._row_get(row, "image_deleted_at"):
+                    report["published_deleted_sources"].append(
+                        {
+                            "id": pub_id,
+                            "image_id": main._row_get(row, "image_id"),
+                            "deleted_at": main._row_get(row, "image_deleted_at"),
+                        }
+                    )
+                    continue
 
-            thumb_name = main._row_get(row, "feed_thumb_name")
-            large_name = main._row_get(row, "feed_large_name")
-            ready = bool(main._row_get(row, "media_ready_at") and thumb_name and large_name)
+                variants = (
+                    ("thumb", main._row_get(row, "feed_thumb_name"), thumb_bytes),
+                    ("large", main._row_get(row, "feed_large_name"), large_bytes),
+                )
+            elif media_type == "video":
+                variants = (
+                    ("video_poster", main._row_get(row, "video_poster_name"), video_poster_bytes),
+                    ("video_preview", main._row_get(row, "video_preview_name"), video_preview_bytes),
+                    ("video_full", main._row_get(row, "video_full_name"), video_full_bytes),
+                )
+            else:
+                variants = ()
+
+            ready = bool(
+                main._row_get(row, "media_ready_at")
+                and variants
+                and all(name for _, name, _ in variants)
+            )
             if not ready:
                 report["published_not_ready"].append(
-                    {"id": pub_id, "media_ready_at": main._row_get(row, "media_ready_at"), "thumb": thumb_name, "large": large_name}
+                    {
+                        "id": pub_id,
+                        "media_type": media_type,
+                        "media_ready_at": main._row_get(row, "media_ready_at"),
+                        "variants": {kind: name for kind, name, _ in variants},
+                    }
                 )
                 continue
 
@@ -118,21 +149,19 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
             if is_seed:
                 report["seed_ready_publications"] += 1
 
-            for kind, name in (("thumb", thumb_name), ("large", large_name)):
+            for kind, name, byte_values in variants:
                 seen_feed_names.add(str(name))
                 path = _feed_path(str(name))
                 if path is None or not path.exists():
                     report["missing_files"].append({"id": pub_id, "variant": kind, "file": name})
                     continue
-                size = path.stat().st_size
-                if kind == "thumb":
-                    thumb_bytes.append(size)
-                else:
-                    large_bytes.append(size)
+                byte_values.append(path.stat().st_size)
 
         feed_dir = main.MEDIA / "feed"
         if feed_dir.exists():
-            for path in feed_dir.glob("*.webp"):
+            for path in feed_dir.iterdir():
+                if not path.is_file() or path.suffix.lower() not in {".webp", ".mp4"}:
+                    continue
                 rel = path.relative_to(main.MEDIA).as_posix()
                 if rel not in seen_feed_names:
                     report["orphan_feed_files"].append({"file": rel, "bytes": path.stat().st_size})
@@ -146,6 +175,11 @@ def audit_feed_media(*, item_limit: int = 50) -> dict[str, Any]:
     report["size_stats"] = {
         "thumb": _bytes_stats(thumb_bytes),
         "large": _bytes_stats(large_bytes),
+    }
+    report["video_size_stats"] = {
+        "poster": _bytes_stats(video_poster_bytes),
+        "preview": _bytes_stats(video_preview_bytes),
+        "full": _bytes_stats(video_full_bytes),
     }
 
     if report["published_not_ready"]:
