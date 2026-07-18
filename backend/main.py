@@ -33,6 +33,7 @@ from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -158,6 +159,13 @@ except ImportError:  # Direct `python backend/main.py` execution.
         load_storage_path_policy,
         validate_production_configuration as validate_config_production_configuration,
     )
+
+try:
+    from .app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
+    from .app.security.http_requests import AvatarImageError, RequestBodyLimitMiddleware, compress_allowlisted_avatar
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
+    from app.security.http_requests import AvatarImageError, RequestBodyLimitMiddleware, compress_allowlisted_avatar
 
 try:
     from .app.release_identity import (
@@ -810,6 +818,11 @@ TRUSTED_COOKIE_PATH = _HTTP_SECURITY_POLICY.cookie_path
 SESSION_COOKIE_NAME = TRUSTED_SESSION_COOKIE_NAME
 BOT_LOGIN_CHALLENGE_COOKIE_NAME = _HTTP_SECURITY_POLICY.bot_login_challenge_cookie_name
 BOT_LOGIN_CHALLENGE_TTL_SECONDS = _HTTP_SECURITY_POLICY.bot_login_challenge_ttl_seconds
+BOT_LOGIN_REQUEST_WINDOW_SECONDS = max(60, int(os.getenv("BOT_LOGIN_REQUEST_WINDOW_SECONDS", "300")))
+BOT_LOGIN_MAX_REQUESTS_PER_IP_WINDOW = max(1, int(os.getenv("BOT_LOGIN_MAX_REQUESTS_PER_IP_WINDOW", "10")))
+BOT_LOGIN_MAX_ACTIVE_PER_IP_PROVIDER = max(1, int(os.getenv("BOT_LOGIN_MAX_ACTIVE_PER_IP_PROVIDER", "3")))
+BOT_LOGIN_MAX_GLOBAL_PENDING = max(10, int(os.getenv("BOT_LOGIN_MAX_GLOBAL_PENDING", "1000")))
+BOT_LOGIN_RETENTION_SECONDS = max(3600, int(os.getenv("BOT_LOGIN_RETENTION_SECONDS", "86400")))
 TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")
 TELEGRAM_BOT_DEEP_LINK_BASE = os.getenv("TELEGRAM_BOT_DEEP_LINK_BASE", "")
 MAX_BOT_DEEP_LINK_BASE = os.getenv("MAX_BOT_DEEP_LINK_BASE", "")
@@ -825,6 +838,8 @@ TRUST_CLOUDFLARE_HEADERS = _HTTP_SECURITY_POLICY.trust_cloudflare_headers
 # CORS_ALLOWED_ORIGINS (comma-separated) and fall back to the known dev + tunnel
 # origins. allow_credentials stays True so cookie auth works.
 CORS_ALLOWED_ORIGINS = list(_HTTP_SECURITY_POLICY.cors_allowed_origins)
+TRUSTED_HOSTS = list(_HTTP_SECURITY_POLICY.trusted_hosts)
+REQUEST_BODY_MAX_BYTES = max(1024 * 1024, int(os.getenv("REQUEST_BODY_MAX_BYTES", str(128 * 1024 * 1024))))
 
 # Email OTP login (Phase 8). No real email is sent in dev/test; a mock sender is
 # used. EMAIL_OTP_DEBUG_RETURN_CODE may only be enabled outside production.
@@ -855,6 +870,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=TRUSTED_HOSTS)
+app.add_middleware(RequestBodyLimitMiddleware, max_bytes=REQUEST_BODY_MAX_BYTES)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 if AVATAR_PRESET_DIR is not None:
     app.mount("/avatars", StaticFiles(directory=AVATAR_PRESET_DIR), name="avatars")
@@ -3691,9 +3708,16 @@ AVATAR_PRESET_COUNT = 71
 AVATAR_PRESET_IDS = {f"avatar-{i:03d}" for i in range(1, AVATAR_PRESET_COUNT + 1)}
 LEGACY_AVATAR_PRESET_IDS = {f"preset-{i}": f"avatar-{i:03d}" for i in range(1, 11)}
 AVATAR_MAX_BYTES = 8 * 1024 * 1024
+AVATAR_MAX_SIDE = 4096
+AVATAR_MAX_PIXELS = 16 * 1024 * 1024
 AVATAR_OUTPUT_SIZE = 512
 AVATAR_WEBP_QUALITY = 86
 AVATAR_ALLOWED_CONTENT_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+AVATAR_ALLOWED_FORMAT_TYPES = {
+    "PNG": {"image/png"},
+    "JPEG": {"image/jpeg"},
+    "WEBP": {"image/webp"},
+}
 
 
 def random_avatar_choice() -> tuple[str, str]:
@@ -3744,29 +3768,15 @@ def validate_avatar_choice(avatar_url: str | None, avatar_preset: str | None) ->
     return url or None, None
 
 
-def compress_avatar_image(data: bytes) -> bytes:
+def compress_avatar_image(data: bytes, content_type: str | None = None) -> bytes:
     try:
-        with Image.open(io.BytesIO(data)) as img:
-            img = ImageOps.exif_transpose(img)
-            if img.mode not in ("RGB", "RGBA"):
-                img = img.convert("RGBA")
-            if img.mode == "RGBA":
-                bg = Image.new("RGBA", img.size, (18, 22, 20, 255))
-                bg.alpha_composite(img)
-                img = bg.convert("RGB")
-            else:
-                img = img.convert("RGB")
-            img = ImageOps.fit(
-                img,
-                (AVATAR_OUTPUT_SIZE, AVATAR_OUTPUT_SIZE),
-                method=Image.Resampling.LANCZOS,
-                centering=(0.5, 0.5),
-            )
-            out = io.BytesIO()
-            img.save(out, format="WEBP", quality=AVATAR_WEBP_QUALITY, method=6)
-            return out.getvalue()
-    except Exception:
-        raise HTTPException(400, "Avatar file is not a valid image.")
+        return compress_allowlisted_avatar(
+            data, content_type, allowed_format_types=AVATAR_ALLOWED_FORMAT_TYPES,
+            max_side=AVATAR_MAX_SIDE, max_pixels=AVATAR_MAX_PIXELS,
+            output_size=AVATAR_OUTPUT_SIZE, webp_quality=AVATAR_WEBP_QUALITY,
+        )
+    except AvatarImageError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
 
 
 def sanitize_device_metadata(metadata_json: str | None) -> dict[str, Any]:
@@ -5144,10 +5154,40 @@ def set_bot_polling_cursor(provider: Literal["telegram", "max"], cursor: str | i
 
 
 def pending_max_login_challenges_count() -> int:
-    with db() as conn:
-        return conn.execute(
-            "SELECT COUNT(*) AS c FROM auth_login_challenges WHERE provider = 'max' AND status = 'pending'"
-        ).fetchone()["c"]
+    return pending_bot_login_challenges_count(
+        _bot_login_runtime(), "max", retention_seconds=BOT_LOGIN_RETENTION_SECONDS
+    )
+
+
+def _bot_login_runtime() -> BotLoginRuntime:
+    return BotLoginRuntime(db, _client_ip, _hash_user_agent, hash_token, record_security_event)
+
+
+def _bot_login_limits() -> BotLoginRateLimits:
+    return BotLoginRateLimits(
+        BOT_LOGIN_REQUEST_WINDOW_SECONDS, BOT_LOGIN_MAX_REQUESTS_PER_IP_WINDOW,
+        BOT_LOGIN_MAX_ACTIVE_PER_IP_PROVIDER, BOT_LOGIN_MAX_GLOBAL_PENDING,
+        BOT_LOGIN_RETENTION_SECONDS,
+    )
+
+
+def create_bot_login_challenge(
+    provider: Literal["telegram", "max"],
+    request: Request,
+    *,
+    internal_user_id: str | None = None,
+) -> tuple[str, str, str]:
+    token = generate_bot_login_token()
+    nonce = generate_bot_login_token()
+    try:
+        expires_at = security_create_bot_login_challenge(
+            _bot_login_runtime(), _bot_login_limits(), provider, request,
+            token=token, nonce=nonce, ttl_seconds=BOT_LOGIN_CHALLENGE_TTL_SECONDS,
+            internal_user_id=internal_user_id,
+        )
+    except BotLoginAccessError as exc:
+        raise HTTPException(429, "Too many bot login requests. Try again later.", headers={"Retry-After": str(exc.retry_after)}) from exc
+    return token, nonce, expires_at
 
 
 def telegram_update_runtime() -> TelegramUpdateRuntime:
@@ -9417,29 +9457,7 @@ async def auth_bot_login_start(req: BotLoginStartRequest, request: Request, resp
     provider = req.provider
     if not bot_login_available(provider):
         raise HTTPException(503, "provider_not_configured")
-    token = generate_bot_login_token()
-    nonce = generate_bot_login_token()
-    now = datetime.now(timezone.utc)
-    expires_at = (now + timedelta(seconds=BOT_LOGIN_CHALLENGE_TTL_SECONDS)).isoformat()
-    with db() as conn:
-        conn.execute(
-            """
-            INSERT INTO auth_login_challenges
-                (id, provider, token_hash, browser_nonce_hash, status, expires_at,
-                 created_at, created_ip, user_agent)
-            VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
-            """,
-            (
-                uuid.uuid4().hex,
-                provider,
-                hash_token(token),
-                hash_token(nonce),
-                expires_at,
-                now.isoformat(),
-                _client_ip(request),
-                _hash_user_agent(request),
-            ),
-        )
+    token, nonce, expires_at = create_bot_login_challenge(provider, request)
     set_bot_login_cookie(response, provider, nonce, request=request)
     deep_link = bot_login_deep_link(provider, token)
     if provider == "max":
@@ -9459,30 +9477,11 @@ async def auth_bot_link_start(req: BotLoginStartRequest, request: Request, respo
     provider = req.provider
     if not bot_login_available(provider):
         raise HTTPException(503, "provider_not_configured")
-    token = generate_bot_login_token()
-    nonce = generate_bot_login_token()
-    now = datetime.now(timezone.utc)
-    expires_at = (now + timedelta(seconds=BOT_LOGIN_CHALLENGE_TTL_SECONDS)).isoformat()
-    with db() as conn:
-        conn.execute(
-            """
-            INSERT INTO auth_login_challenges
-                (id, provider, token_hash, browser_nonce_hash, status, expires_at,
-                 internal_user_id, created_at, created_ip, user_agent)
-            VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
-            """,
-            (
-                uuid.uuid4().hex,
-                provider,
-                hash_token(token),
-                hash_token(nonce),
-                expires_at,
-                user["internal_user_id"],
-                now.isoformat(),
-                _client_ip(request),
-                _hash_user_agent(request),
-            ),
-        )
+    token, nonce, expires_at = create_bot_login_challenge(
+        provider,
+        request,
+        internal_user_id=user["internal_user_id"],
+    )
     set_bot_login_cookie(response, provider, nonce, request=request)
     return {
         "ok": True,
@@ -10683,7 +10682,7 @@ async def me_avatar_upload_v2(request: Request, file: UploadFile = File(...)) ->
     data = await file.read(AVATAR_MAX_BYTES + 1)
     if len(data) > AVATAR_MAX_BYTES:
         raise HTTPException(413, "Avatar file is too large.")
-    avatar_bytes = compress_avatar_image(data)
+    avatar_bytes = compress_avatar_image(data, content_type)
 
     filename = f"{iuid}-{uuid.uuid4().hex[:12]}.webp"
     dest = AVATAR_DIR / filename

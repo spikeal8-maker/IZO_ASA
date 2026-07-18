@@ -93,7 +93,8 @@ function Get-BackendState {
         [int]$ExpectedPort,
         [string]$ExpectedBind,
         [string]$ExpectedPython,
-        [switch]$RequireProxyIsolation
+        [switch]$RequireProxyIsolation,
+        [switch]$AllowOpaqueServiceProcess
     )
 
     $listeners = @(Get-NetTCPConnection -LocalPort $ExpectedPort -State Listen -ErrorAction SilentlyContinue)
@@ -104,9 +105,25 @@ function Get-BackendState {
     if ($listener.LocalAddress -ne $ExpectedBind) {
         throw "Backend listener is $($listener.LocalAddress):$ExpectedPort, expected ${ExpectedBind}:$ExpectedPort."
     }
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)"
-    if ($null -eq $process) {
-        throw "Listener PID $($listener.OwningProcess) could not be inspected."
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)" -ErrorAction SilentlyContinue
+    if ($null -eq $process -or -not $process.CommandLine -or -not $process.ExecutablePath) {
+        if (-not $AllowOpaqueServiceProcess) {
+            throw "Listener PID $($listener.OwningProcess) could not be inspected."
+        }
+        $service = Get-Service -Name "IZOBackend" -ErrorAction SilentlyContinue
+        if ($null -eq $service -or $service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+            throw "Backend listener metadata is opaque and the IZOBackend service is not running."
+        }
+        return [pscustomobject]@{
+            ProcessId = [int]$listener.OwningProcess
+            RuntimeLauncherProcessId = [int]$listener.OwningProcess
+            RuntimeLauncherExecutablePath = ""
+            RuntimeOwnership = "opaque-service-health-verified"
+            Address = [string]$listener.LocalAddress
+            CommandLine = ""
+            ExecutablePath = ""
+            ProxyHeadersDisabled = $null
+        }
     }
     Assert-BackendCommand -CommandLine ([string]$process.CommandLine) -ExpectedPort $ExpectedPort -ExpectedBind $ExpectedBind -RequireProxyIsolation:$RequireProxyIsolation
     $runtimeLauncherProcessId = [int]$listener.OwningProcess
@@ -345,7 +362,7 @@ $oldState = $null
 if ($existingListeners.Count -eq 0 -and $actualRestart -and $AllowColdStart) {
     Write-Host "BACKEND_COLD_START port=$Port"
 } else {
-    $oldState = Get-BackendState -ExpectedPort $Port -ExpectedBind $BindAddress -ExpectedPython $expectedOldPython -RequireProxyIsolation
+    $oldState = Get-BackendState -ExpectedPort $Port -ExpectedBind $BindAddress -ExpectedPython $expectedOldPython -RequireProxyIsolation -AllowOpaqueServiceProcess:$PreflightOnly
     if (-not (Test-BackendHealth -Uri $healthUri -TimeoutSeconds $HealthProbeTimeoutSeconds)) {
         throw "Current backend failed health preflight: $healthUri"
     }
