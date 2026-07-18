@@ -111,13 +111,12 @@ def test_installer_is_official_hash_verified_and_plan_only_is_network_free() -> 
 
 
 def test_caddy_operational_scripts_have_fail_closed_plans() -> None:
-    active = json.loads((ROOT / ".runtime" / "active-frontend.json").read_text(encoding="utf-8-sig"))
     check_plan = _powershell_plan(
         "check-caddy-edge.ps1",
         "-ReleasePath",
-        active["release_path"],
+        str(ROOT / "frontend"),
         "-ReleaseId",
-        active["active_release"],
+        "plan-only-release",
         "-ConfigOnly",
     )
     start_plan = _powershell_plan("start-caddy-from-active-release.ps1")

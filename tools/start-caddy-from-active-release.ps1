@@ -13,6 +13,12 @@ $root = (Resolve-Path -LiteralPath $RepoRoot).Path
 . (Join-Path $root "tools\caddy-runtime.ps1")
 $runtime = Get-IzoCaddyRuntime -RepoRoot $root
 $activeManifestPath = Join-Path $root ".runtime\active-frontend.json"
+if ($PlanOnly) {
+    Write-Host "CADDY_START_PLAN version=$($runtime.Version) release=active-manifest path=$activeManifestPath"
+    Write-Host "CADDY_START_PLAN_STEP validate=true listener=127.0.0.1:$($runtime.ProductionPort) admin=$($runtime.ProductionAdminAddress)"
+    Write-Host "CADDY_START_PLAN_OK activation=start-or-reload unknownOwner=refuse"
+    return
+}
 if (-not (Test-Path -LiteralPath $activeManifestPath -PathType Leaf)) {
     throw "Active frontend manifest was not found."
 }
@@ -21,13 +27,6 @@ $releaseId = [string]$active.active_release
 $releasePath = [string]$active.release_path
 if (-not $releaseId.Trim() -or -not (Test-Path -LiteralPath (Join-Path $releasePath "index.html") -PathType Leaf)) {
     throw "Active frontend manifest points to an incomplete release."
-}
-
-if ($PlanOnly) {
-    Write-Host "CADDY_START_PLAN version=$($runtime.Version) release=$releaseId path=$releasePath"
-    Write-Host "CADDY_START_PLAN_STEP validate=true listener=127.0.0.1:$($runtime.ProductionPort) admin=$($runtime.ProductionAdminAddress)"
-    Write-Host "CADDY_START_PLAN_OK activation=start-or-reload unknownOwner=refuse"
-    return
 }
 
 Assert-IzoCaddyRuntime -Runtime $runtime

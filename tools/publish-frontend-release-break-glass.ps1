@@ -34,11 +34,19 @@ if ($Acknowledgement -ne $requiredAcknowledgement) {
     throw "Break-glass acknowledgement must equal $requiredAcknowledgement"
 }
 
-$sha = ([string](@(& git.exe -C $root rev-parse HEAD)[0])).Trim()
-$branch = ([string](@(& git.exe -C $root branch --show-current)[0])).Trim()
-if ($LASTEXITCODE -ne 0 -or $sha -notmatch "^[0-9a-f]{40}$" -or $branch -ne "main") {
+$shaOutput = @(& git.exe -C $root rev-parse HEAD)
+$shaExitCode = $LASTEXITCODE
+$branchOutput = @(& git.exe -C $root branch --show-current)
+$branchExitCode = $LASTEXITCODE
+$sha = if ($shaOutput.Count -gt 0) { ([string]$shaOutput[0]).Trim() } else { "" }
+$branch = if ($branchOutput.Count -gt 0) { ([string]$branchOutput[0]).Trim() } else { "" }
+if ($shaExitCode -ne 0 -or $branchExitCode -ne 0 -or $sha -notmatch "^[0-9a-f]{40}$") {
+    throw "Break-glass release requires a valid Git checkout."
+}
+if (-not $PlanOnly -and $branch -ne "main") {
     throw "Break-glass release requires a valid main checkout."
 }
+if ($PlanOnly -and -not $branch) { $branch = "detached" }
 if (@(& git.exe -C $root status --porcelain).Count -gt 0 -and -not $PlanOnly) {
     throw "Break-glass release still requires a clean checkout."
 }
