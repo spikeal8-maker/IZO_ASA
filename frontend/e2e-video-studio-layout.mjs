@@ -30,7 +30,7 @@ const model = {
   description: 'Тестовая видеомодель для проверки адаптивного интерфейса.',
   supportedResolutions: ['720p', '1080p'],
   supportedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', '9:21'],
-  supportedDurations: [4, 6, 8],
+  supportedDurations: [4, 5, 6, 7, 8, 9, 10, 11, 12],
   supportedFrameImages: ['first_frame', 'last_frame'],
   generateAudio: true,
   publicPricing: { fromTokens: 5, examples: [{ duration: 4, resolution: '720p', aspectRatio: '16:9', tokens: 5 }] },
@@ -59,21 +59,27 @@ async function mockApi(page) {
     publicationStatus: null,
     historyReadsAfterPublish: 0,
     publishPayload: null,
+    generatedJob: null,
+    generationBody: null,
+    meReads: 0,
   }
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === '/api/auth/bootstrap-v2') return route.fulfill({ json: { installation_id: 'video-layout', anonymous_id: 'video-layout' } })
-    if (url.pathname === '/api/me-v2') return route.fulfill({
+    if (url.pathname === '/api/me-v2') {
+      state.meReads += 1
+      return route.fulfill({
       json: {
         internal_user_id: 'video-layout',
         legacy_user_id: 'video-layout',
         status: 'active',
-        account: { role: 'admin', plan: 'business', token_balance: 500, daily_tokens_limit: 500, daily_tokens_remaining: 500, gallery_access: true },
+        account: { role: 'admin', plan: 'business', token_balance: state.generatedJob ? 488 : 500, daily_tokens_limit: 500, daily_tokens_remaining: 500, gallery_access: true },
         session: { provider: 'web_email', platform: 'web_desktop', expires_at: '2099-01-01T00:00:00Z', refresh_expires_at: '2099-02-01T00:00:00Z' },
         identities: [],
         profile: { display_name: 'Видео QA', language_code: 'ru', providers: ['web_email'] },
       },
-    })
+      })
+    }
     if (url.pathname === '/api/auth/capabilities-v2') return route.fulfill({ json: { password_login_available: true, email_otp_available: true, bot_login: {} } })
     if (url.pathname === '/api/video/config') return route.fulfill({
       json: {
@@ -90,12 +96,13 @@ async function mockApi(page) {
         state.historyReadsAfterPublish += 1
         if (state.historyReadsAfterPublish >= 2) state.publicationStatus = 'published'
       }
-      const items = history.map((item, index) => index === 3 && state.publicationStatus ? {
+      const completedItems = history.map((item, index) => index === 3 && state.publicationStatus ? {
         ...item,
         publicationId: state.publicationId,
         publicationStatus: state.publicationStatus,
         published: state.publicationStatus === 'published',
       } : item)
+      const items = state.generatedJob ? [state.generatedJob, ...completedItems] : completedItems
       return route.fulfill({ json: { items } })
     }
     if (url.pathname === '/api/feed/publications' && route.request().method() === 'POST') {
@@ -121,6 +128,25 @@ async function mockApi(page) {
       const resolutionFactor = body.resolution === '1080p' ? 2 : 1
       const audioFactor = body.generateAudio ? 1.5 : 1
       return route.fulfill({ json: { chargedTokens: Math.ceil(Number(body.duration || 4) * resolutionFactor * audioFactor) } })
+    }
+    if (url.pathname === '/api/video/generate' && route.request().method() === 'POST') {
+      state.generationBody = route.request().postDataJSON()
+      await new Promise((resolve) => setTimeout(resolve, 850))
+      state.generatedJob = {
+        id: 'video-layout-new',
+        mode: state.generationBody.mode,
+        status: 'queued',
+        progress: 10,
+        prompt: state.generationBody.prompt,
+        createdAt: new Date().toISOString(),
+        model: state.generationBody.model,
+        duration: state.generationBody.duration,
+        resolution: state.generationBody.resolution,
+        aspectRatio: state.generationBody.aspectRatio,
+        tokenCost: 12,
+        generateAudio: state.generationBody.generateAudio,
+      }
+      return route.fulfill({ json: { ...state.generatedJob, tokenBalance: 488 } })
     }
     if (url.pathname === '/api/gallery/items') return route.fulfill({ json: { items: [] } })
     if (url.pathname === '/api/tariffs') return route.fulfill({ json: { tariffs: {} } })
@@ -192,6 +218,19 @@ async function inspect(browser, viewport) {
     }
   })
   await guideDialog.locator('button', { hasText: 'Понятно' }).click()
+  const durationTrigger = page.locator('.video-duration-trigger')
+  await durationTrigger.click()
+  const durationMenuState = await page.locator('.video-duration-menu').evaluate((element) => {
+    const style = getComputedStyle(element)
+    const option = element.querySelector('.video-duration-option')
+    const optionStyle = option ? getComputedStyle(option) : null
+    return {
+      backgroundColor: style.backgroundColor,
+      color: optionStyle?.color || '',
+      labels: Array.from(element.querySelectorAll('.video-duration-option')).map((item) => item.textContent?.trim() || ''),
+    }
+  })
+  await durationTrigger.press('Escape')
   await page.locator('.video-format-more').click()
   assert(await page.locator('.video-format-tabs button').count() === model.supportedAspectRatios.length, 'Additional formats do not expand')
   await page.locator('.video-format-more').click()
@@ -220,7 +259,7 @@ async function inspect(browser, viewport) {
     const resultPanel = rect('.video-result')
     const overlay = rect('.video-stage-overlay')
     const contextActions = rect('.video-context-actions')
-    const durationSelect = rect('.video-duration-control select')
+    const durationTrigger = rect('.video-duration-trigger')
     const generateButton = rect('.video-generate')
     const modeTabs = rect('.video-mode-tabs')
     const videoTopTab = document.querySelector('.mode-tabs .tab[aria-label="Генерация видео"]')
@@ -238,8 +277,12 @@ async function inspect(browser, viewport) {
     const mobileModeStyle = document.querySelector('.video-mobile-mode') ? getComputedStyle(document.querySelector('.video-mobile-mode')) : null
     const canonicalTopbar = document.querySelector('.iv3 > .app-shell > .topbar')
     const topbarStyle = canonicalTopbar ? getComputedStyle(canonicalTopbar) : null
+    const formatControls = rect('.video-format-controls')
+    const formatTabs = rect('.video-format-tabs')
+    const formatMore = rect('.video-format-more')
+    const params = rect('.video-params')
     return {
-      stage, shelf, composer, resultPanel, overlay, contextActions, durationSelect, generateButton, modeTabs,
+      stage, shelf, composer, resultPanel, overlay, contextActions, durationTrigger, generateButton, modeTabs,
       promptRect,
       fontSize: Number.parseFloat(rootStyle.fontSize),
       promptFontSize: promptStyle ? Number.parseFloat(promptStyle.fontSize) : 0,
@@ -258,6 +301,9 @@ async function inspect(browser, viewport) {
       promptClear: document.querySelector('.video-prompt-clear') !== null,
       visibleFormats: document.querySelectorAll('.video-format-tabs button').length,
       formatMore: document.querySelector('.video-format-more') !== null,
+      formatMoreRect: formatMore,
+      formatTabsRect: formatTabs,
+      formatQualityGap: formatControls && params ? params.top - formatControls.bottom : null,
       currentEstimate: document.querySelector('.video-live-price strong')?.textContent || '',
       qualityPrices: document.querySelectorAll('.video-quality-tabs em').length,
       modeTabsBorderWidth: modeTabsStyle ? Number.parseFloat(modeTabsStyle.borderTopWidth) : 0,
@@ -284,6 +330,7 @@ async function inspect(browser, viewport) {
   result.durationAfterAudio = durationAfterAudio
   result.guideButtonCountBeforeOpen = guideButtonCount
   result.guideState = guideState
+  result.durationMenuState = durationMenuState
   if (viewport.width >= 821) {
     await page.locator('.video-more > button').click()
     await page.locator('.video-more button', { hasText: 'Очистить предпросмотр' }).click()
@@ -314,6 +361,41 @@ async function inspect(browser, viewport) {
   return result
 }
 
+async function verifyGenerationFeedback(browser) {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+  const apiState = await mockApi(page)
+  await page.goto(`${base}/video?generation_feedback=1`, { waitUntil: 'networkidle' })
+  await page.locator('.video-studio').waitFor()
+  await page.locator('.video-prompt textarea').fill('Камера плавно движется над вечерним городом.')
+  await page.locator('.video-resolution-tabs button', { hasText: '1080p' }).click()
+  await page.locator('.video-audio-switch').click()
+  await page.locator('.video-live-price strong').filter({ hasText: '12 ток.' }).waitFor()
+  const meReadsBefore = apiState.meReads
+
+  await page.locator('.video-generate').click()
+  await page.locator('.video-progress strong', { hasText: 'Отправляем задачу' }).waitFor({ timeout: 400 })
+  const optimisticCount = await page.locator('.video-history-list button.generating').count()
+  await page.locator('.video-history-list button').nth(1).click()
+  await page.locator('.video-active-return').waitFor()
+  const oldVideoVisible = await page.locator('.video-stage video').isVisible()
+  await page.locator('.video-history-list button.generating').filter({ hasText: '10%' }).waitFor({ timeout: 3_000 })
+  const oldVideoStillVisible = await page.locator('.video-stage video').isVisible()
+  await page.locator('.video-active-return').click()
+  await page.locator('.video-progress strong', { hasText: 'В очереди' }).waitFor()
+
+  const result = {
+    optimisticCount,
+    oldVideoVisible,
+    oldVideoStillVisible,
+    generationBody: apiState.generationBody,
+    balanceRefreshed: apiState.meReads > meReadsBefore,
+    historyCount: await page.locator('.video-history-list button').count(),
+    activeProgress: (await page.locator('.video-progress small').textContent()) || '',
+  }
+  await page.close()
+  return result
+}
+
 async function run() {
   let previewProcess
   if (!process.env.E2E_BASE_URL) {
@@ -336,7 +418,10 @@ async function run() {
     assert(!fullHd.historyHeading, 'Redundant history heading is still visible')
     assert(!fullHd.stageCaption, 'Redundant preview caption is still visible')
     assert(fullHd.promptFontWeight <= 500, 'Prompt text is still too bold')
-    assert(fullHd.durationSelect && fullHd.durationSelect.height <= 44, 'Duration control is too tall')
+    assert(fullHd.durationTrigger && fullHd.durationTrigger.height <= 44, 'Duration control is too tall')
+    assert(fullHd.durationMenuState.backgroundColor !== 'rgb(255, 255, 255)', 'Duration menu has a white background')
+    assert(fullHd.durationMenuState.color !== fullHd.durationMenuState.backgroundColor, 'Duration option text is not readable against its background')
+    assert(fullHd.durationMenuState.labels.every((label) => /секунд|секунда|секунды/.test(label) && !/сек\./.test(label)), 'Duration options use abbreviated or incomplete Russian labels')
     assert(fullHd.generateButton && fullHd.composer && fullHd.generateButton.bottom <= fullHd.composer.bottom + 1, 'Create video button is outside Composer')
     assert(fullHd.generateButton && fullHd.generateButton.height >= 50, 'Create video button is too small')
     assert(fullHd.modeTabsBorderWidth >= 1, 'Video mode tabs have no visible divider')
@@ -355,6 +440,9 @@ async function run() {
     assert(fullHd.promptClear, 'Prompt clear button is missing')
     assert(fullHd.visibleFormats === 4, 'More than four primary formats are visible by default')
     assert(fullHd.formatMore, 'Additional-format control is missing')
+    assert(fullHd.formatMoreRect && fullHd.formatMoreRect.width <= 46, 'Additional-format control is not compact')
+    assert(fullHd.formatTabsRect && fullHd.formatMoreRect && fullHd.formatMoreRect.left >= fullHd.formatTabsRect.right - 1, 'Additional-format control is not placed beside formats')
+    assert(fullHd.formatQualityGap !== null && fullHd.formatQualityGap <= 20, 'Format and quality blocks are too far apart')
     assert(fullHd.qualityPrices === 3, 'Quality cards do not expose calculated prices')
     assert(/\d+\s*ток/.test(fullHd.currentEstimate), 'Current server estimate is not visible')
     assert(fullHd.priceTransition.initialPrice !== fullHd.priceTransition.resolutionPrice, 'Resolution does not update the token estimate')
@@ -392,17 +480,26 @@ async function run() {
     assert(mobile.mobileModeVisible && !mobile.desktopModeVisible, 'Mobile creation-mode dropdown did not replace desktop tabs')
     assert(!mobile.mobileModeText.includes('Способ создания'), 'Redundant mobile creation-mode label is still visible')
     assert(mobile.mobileSourceBeforeStage, 'Mobile source upload must appear before the preview')
-    assert(mobile.generatePosition === 'sticky', 'Mobile create button is not pinned to the lower edge')
+    assert(mobile.generatePosition === 'fixed', 'Mobile create button is not pinned to the lower edge')
     assert(mobile.topbarZ > mobile.mobileModeZ, 'Mobile creation-mode menu can overlap the main navigation')
     assert(mobile.promptRect && mobile.stage && mobile.promptRect.top >= mobile.stage.bottom, 'Mobile prompt must appear after the video preview')
     assert(mobile.shelf && mobile.composer && mobile.shelf.top >= mobile.composer.bottom - 1, 'Mobile history must appear after generation settings')
 
-    const report = { fullHd, browserFullHd, fourK, mobile }
+    const generationFeedback = await verifyGenerationFeedback(browser)
+    assert(generationFeedback.optimisticCount === 1, 'Generation does not appear in history immediately')
+    assert(generationFeedback.oldVideoVisible && generationFeedback.oldVideoStillVisible, 'Older video cannot be previewed while generation is running')
+    assert(generationFeedback.generationBody?.resolution === '1080p' && generationFeedback.generationBody?.generateAudio === true, 'Generation request lost selected parameters')
+    assert(generationFeedback.balanceRefreshed, 'Token balance is not refreshed after the server confirms the charge')
+    assert(generationFeedback.historyCount === history.length + 1, 'Server-confirmed generation is missing from history')
+    assert(generationFeedback.activeProgress === '10%', 'Server-confirmed progress is not shown in preview')
+
+    const report = { fullHd, browserFullHd, fourK, mobile, generationFeedback }
     console.log(JSON.stringify(process.env.E2E_VERBOSE === '1' ? report : {
       ok: true,
       viewports: ['1920x1080', '1920x900', '3840x2160', '390x844'],
       publicationStatus: fullHd.publicationWorkflow?.publicationStatus,
       publicationHistoryReads: fullHd.publicationWorkflow?.historyReadsAfterPublish,
+      generationFeedback: true,
     }, null, 2))
   } finally {
     await browser.close()

@@ -111,16 +111,66 @@ def test_video_generate_persists_external_job_and_server_price(video_api: TestCl
         return {"id": "external-video-1", "status": "pending", "polling_url": "/api/v1/videos/external-video-1"}
 
     monkeypatch.setattr(main, "submit_openrouter_video", submit)
+    estimate = video_api.post("/api/video/estimate", json=payload())
     response = video_api.post("/api/video/generate", json=payload())
 
+    assert estimate.status_code == 200
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
-    assert response.json()["tokenCost"] > 0
+    assert response.json()["tokenCost"] == estimate.json()["chargedTokens"]
+    assert response.json()["tokenBalance"] == 500 - response.json()["tokenCost"]
     assert captured["aspect_ratio"] == "16:9"
     with main.db() as conn:
         row = conn.execute("SELECT status,settings_json FROM jobs WHERE id=?", (response.json()["id"],)).fetchone()
+        user = conn.execute("SELECT token_balance FROM users WHERE id='video-user'").fetchone()
     assert row["status"] == "queued"
     assert "external-video-1" in row["settings_json"]
+    assert user["token_balance"] == response.json()["tokenBalance"]
+
+
+def test_completed_video_keeps_the_quoted_token_price(video_api: TestClient, monkeypatch):
+    async def submit(**_kwargs):
+        return {"id": "external-fixed-price", "status": "pending", "polling_url": "/api/v1/videos/external-fixed-price"}
+
+    async def poll(**_kwargs):
+        return {
+            "id": "external-fixed-price",
+            "status": "completed",
+            "progress": 100,
+            "unsigned_urls": ["https://video.test/result.mp4"],
+            "usage": {"cost": 0.001},
+        }
+
+    async def download(_url: str, job_id: str):
+        filename = f"{job_id}.mp4"
+        (main.MEDIA / filename).write_bytes(b"fixed-price-video")
+        return filename, len(b"fixed-price-video")
+
+    monkeypatch.setattr(main, "submit_openrouter_video", submit)
+    monkeypatch.setattr(main, "poll_openrouter_video", poll)
+    monkeypatch.setattr(main, "_download_video_result", download)
+
+    estimate = video_api.post("/api/video/estimate", json=payload()).json()["chargedTokens"]
+    generated = video_api.post("/api/video/generate", json=payload())
+    assert generated.status_code == 200
+    assert generated.json()["tokenCost"] == estimate
+
+    completed = video_api.get(f"/api/video/jobs/{generated.json()['id']}")
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+    assert completed.json()["tokenCost"] == estimate
+
+    with main.db() as conn:
+        user = conn.execute("SELECT token_balance FROM users WHERE id='video-user'").fetchone()
+        adjustments = conn.execute(
+            "SELECT COUNT(*) AS c FROM token_ledger WHERE reason='openrouter_generation_adjustment'"
+        ).fetchone()
+        row = conn.execute("SELECT settings_json FROM jobs WHERE id=?", (generated.json()["id"],)).fetchone()
+    settings = json.loads(row["settings_json"])
+    assert user["token_balance"] == 500 - estimate
+    assert adjustments["c"] == 0
+    assert settings["openrouterBilling"]["chargedTokens"] == estimate
+    assert settings["openrouterBilling"]["actualCostUsd"] == pytest.approx(0.001)
 
 
 def test_completed_video_is_backfilled_into_gallery_and_can_be_deleted(video_api: TestClient):

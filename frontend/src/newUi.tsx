@@ -4357,7 +4357,7 @@ export default function NewStudio(): ReactElement {
           ) : tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'paint' ? (
             studio
           ) : tab === 'video' ? (
-            <Suspense fallback={<div className="iv3-content"><div className="preview-empty">Загружаем видеостудию…</div></div>}><VideoStudio /></Suspense>
+            <Suspense fallback={<div className="iv3-content"><div className="preview-empty">Загружаем видеостудию…</div></div>}><VideoStudio onTokenBalanceChange={() => { void refreshAuthStateV2() }} /></Suspense>
           ) : (
             placeholderStudio('Видео', 'Выберите режим и доступную вашему тарифу видеомодель.')
           )}

@@ -16924,10 +16924,9 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
             billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
             actual = (state.get("usage") or {}).get("cost")
             if isinstance(actual, (int, float)):
-                actual_rub = float(actual) * float(billing.get("effectiveUsdRub") or 0)
-                actual_tokens = openrouter_tokens_for_cost(actual_rub, 1, {"tokenRub": billing.get("tokenRub", 5), "minMarginPercent": billing.get("minMarginPercent", 40)})
-                with db() as conn:
-                    reconcile_openrouter_token_charge(conn, row["id"], actual_tokens)
+                # Video is sold at the server quote accepted before submission. Keep the
+                # provider's actual cost for margin reporting without changing that price.
+                settings["openrouterBilling"] = finalize_openrouter_billing_snapshot(billing, float(actual))
             completed_at = datetime.now(timezone.utc).isoformat()
     elif status in {"failed", "cancelled", "expired"}:
         progress = 100

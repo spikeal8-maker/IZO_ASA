@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, DragEvent, ReactElement } from 'react'
+import type { ChangeEvent, DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react'
 import {
   ChevronDown, CircleHelp, Clock3, Copy, Download, Film, ImagePlus, Images,
   LoaderCircle, Mic2, MoreVertical, Play, RotateCcw, Settings2,
@@ -64,6 +64,7 @@ type VideoJob = {
   publicationError?: string | null
 }
 type GalleryImage = { id: string; url?: string; src?: string; viewerSrc?: string; thumbnailUrl?: string; width?: number; height?: number; promptOriginal?: string }
+type VideoStudioProps = { onTokenBalanceChange?: (balance: number) => void }
 
 const MODE_META: Array<{ id: VideoMode; label: string; note: string; empty: string }> = [
   { id: 'text_to_video', label: 'Текст → видео', note: 'Создать сцену по тексту', empty: 'Опишите сцену, движение камеры и настроение ролика' },
@@ -131,7 +132,9 @@ function fileAsDataUrl(file: File): Promise<string> {
 function statusLabel(status: string) {
   if (status === 'completed') return 'Готово'
   if (['failed', 'cancelled', 'expired'].includes(status)) return 'Не завершено'
+  if (status === 'submitting') return 'Отправляем задачу'
   if (status === 'in_progress') return 'Создаём видео'
+  if (status === 'saving') return 'Сохраняем видео'
   return 'В очереди'
 }
 function aspectStyle(value: string | undefined) {
@@ -162,17 +165,24 @@ function aspectPreviewWidth(value: string) {
 function formatTokenRate(value: number) {
   return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(value)
 }
+function secondsLabel(value: number) {
+  const total = Math.max(0, Math.round(Number(value) || 0))
+  const lastTwo = total % 100
+  const last = total % 10
+  const word = lastTwo >= 11 && lastTwo <= 14 ? 'секунд' : last === 1 ? 'секунда' : last >= 2 && last <= 4 ? 'секунды' : 'секунд'
+  return `${total} ${word}`
+}
 function formatElapsed(createdAt?: string | null, completedAt?: string | null, now = Date.now()) {
   const started = Date.parse(String(createdAt || ''))
   const finished = completedAt ? Date.parse(completedAt) : now
   if (!Number.isFinite(started) || !Number.isFinite(finished) || finished < started) return ''
   const total = Math.max(0, Math.round((finished - started) / 1000))
-  if (total < 60) return `${total} сек.`
+  if (total < 60) return secondsLabel(total)
   const minutes = Math.floor(total / 60)
   const seconds = total % 60
-  return `${minutes} мин. ${seconds} сек.`
+  return `${minutes} мин. ${secondsLabel(seconds)}`
 }
-export default function VideoStudio(): ReactElement {
+export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps = {}): ReactElement {
   const initialDraft = useMemo(() => readStorage<Record<string, unknown>>(DRAFT_KEY, {}), [])
   const initialMode = (initialDraft.mode as VideoMode) || 'text_to_video'
   const [mode, setMode] = useState<VideoMode>(initialMode)
@@ -203,6 +213,7 @@ export default function VideoStudio(): ReactElement {
   const [uploadTarget, setUploadTarget] = useState<FrameKey>('first')
   const [proOpen, setProOpen] = useState(false)
   const [formatExpanded, setFormatExpanded] = useState(false)
+  const [durationOpen, setDurationOpen] = useState(false)
   const [mobileModeOpen, setMobileModeOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
@@ -223,6 +234,8 @@ export default function VideoStudio(): ReactElement {
   const [clockNow, setClockNow] = useState(() => Date.now())
   const fileRef = useRef<HTMLInputElement>(null)
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const durationMenuRef = useRef<HTMLDivElement>(null)
+  const durationTriggerRef = useRef<HTMLButtonElement>(null)
   const voiceRecorderRef = useRef<MediaRecorder | null>(null)
   const voiceStreamRef = useRef<MediaStream | null>(null)
   const voiceStartedAtRef = useRef(0)
@@ -239,6 +252,7 @@ export default function VideoStudio(): ReactElement {
     return candidates[Math.floor((candidates.length - 1) / 2)] || candidates[0]
   }, [mode, qualityModels, sortedModels])
   const selectedModel = models.find((item) => item.id === modelId) || qualityModel(quality) || models[0]
+  const durationOptions = selectedModel?.supportedDurations || []
   const qualityChoices = useMemo(() => Object.fromEntries(QUALITY_META.map((item) => [item.id, qualityModel(item.id)])) as Record<VideoQuality, VideoModel | undefined>, [qualityModel])
 
   const syncModelDefaults = useCallback((model: VideoModel | undefined) => {
@@ -283,7 +297,7 @@ export default function VideoStudio(): ReactElement {
   }, [initialDraft.modelId, initialDraft.quality, initialMode, syncModelDefaults, visibility])
 
   useEffect(() => { localStorage.setItem(DRAFT_KEY, JSON.stringify({ mode, quality, prompt, modelId, duration, resolution, aspectRatio, generateAudio })) }, [mode, quality, prompt, modelId, duration, resolution, aspectRatio, generateAudio])
-  useEffect(() => { if (!activeJob) return; const timer = window.setInterval(() => void loadHistory(), 8000); return () => window.clearInterval(timer) }, [activeJob, loadHistory])
+  useEffect(() => { if (!activeJob || submitting) return; const timer = window.setInterval(() => void loadHistory(), 3000); return () => window.clearInterval(timer) }, [activeJob, loadHistory, submitting])
   const hasPreparingPublication = history.some((item) => item.publicationStatus === 'preparing')
   useEffect(() => {
     if (!hasPreparingPublication) return
@@ -295,6 +309,14 @@ export default function VideoStudio(): ReactElement {
     const timer = window.setInterval(() => setClockNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [activeJob])
+  useEffect(() => {
+    if (!durationOpen) return
+    const closeOnOutside = (event: PointerEvent) => {
+      if (!durationMenuRef.current?.contains(event.target as Node)) setDurationOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutside)
+    return () => document.removeEventListener('pointerdown', closeOnOutside)
+  }, [durationOpen])
 
   const selectMode = (nextMode: VideoMode) => {
     setMode(nextMode)
@@ -306,6 +328,35 @@ export default function VideoStudio(): ReactElement {
     syncModelDefaults(candidates.find((item) => item.id === stored) || (quality === 'max' ? sorted[sorted.length - 1] : quality === 'standard' ? sorted[Math.floor((sorted.length - 1) / 2)] : sorted[0]))
   }
   const selectQuality = (next: VideoQuality) => { setQuality(next); syncModelDefaults(qualityModel(next)) }
+  const selectDuration = (value: number) => {
+    setDuration(value)
+    setDurationOpen(false)
+    window.setTimeout(() => durationTriggerRef.current?.focus(), 0)
+  }
+  const handleDurationKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setDurationOpen(false)
+      durationTriggerRef.current?.focus()
+      return
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    event.preventDefault()
+    if (!durationOpen) {
+      setDurationOpen(true)
+      window.setTimeout(() => {
+        const options = durationMenuRef.current?.querySelectorAll<HTMLButtonElement>('.video-duration-option')
+        const current = Array.from(options || []).find((option) => Number(option.dataset.value) === duration)
+        current?.focus()
+      }, 0)
+      return
+    }
+    const options = Array.from(durationMenuRef.current?.querySelectorAll<HTMLButtonElement>('.video-duration-option') || [])
+    if (!options.length) return
+    const currentIndex = Math.max(0, options.indexOf(document.activeElement as HTMLButtonElement))
+    const nextIndex = event.key === 'ArrowDown' ? (currentIndex + 1) % options.length : (currentIndex - 1 + options.length) % options.length
+    options[nextIndex]?.focus()
+  }
   const useNextExample = () => {
     const examples = EXAMPLE_PROMPTS[mode]
     const currentIndex = examples.indexOf(prompt)
@@ -482,14 +533,43 @@ export default function VideoStudio(): ReactElement {
   const canSubmit = Boolean(prompt.trim() && selectedModel && !submitting && !activeJob && (mode === 'text_to_video' || (mode === 'image_to_video' && firstFrame) || (mode === 'first_last_frame' && firstFrame && lastFrame) || (mode === 'reference_to_video' && references.length)))
   const submit = async () => {
     if (!requestBody || !canSubmit) return
+    const submittedAt = new Date().toISOString()
+    const optimisticId = `local-video-${Date.now()}`
+    const optimisticJob: VideoJob = {
+      id: optimisticId,
+      mode,
+      status: 'submitting',
+      progress: 4,
+      prompt: prompt.trim(),
+      createdAt: submittedAt,
+      model: selectedModel?.id || modelId,
+      duration,
+      resolution,
+      aspectRatio,
+      generateAudio,
+    }
     setSubmitting(true); setError(''); setPreviewCleared(false)
+    setActiveJob(optimisticJob)
+    setSelectedJob(optimisticJob)
+    setHistory((items) => [optimisticJob, ...items.filter((item) => item.id !== optimisticId)])
     try {
       const response = await apiFetch('/video/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
       if (!response.ok) throw new Error(await responseError(response, 'Не удалось запустить видео.'))
-      const data = await response.json() as VideoJob
-      const job = { ...data, mode, prompt, createdAt: new Date().toISOString(), model: modelId, duration, resolution, aspectRatio, generateAudio }
-      setActiveJob(job); setSelectedJob(job); await loadHistory()
-    } catch (reason) { setError((reason as Error).message) } finally { setSubmitting(false) }
+      const data = await response.json() as VideoJob & { tokenBalance?: number }
+      const job = { ...optimisticJob, ...data, mode, prompt: prompt.trim(), createdAt: submittedAt, model: selectedModel?.id || modelId, duration, resolution, aspectRatio, generateAudio }
+      setActiveJob(job)
+      setSelectedJob((current) => current?.id === optimisticId ? job : current)
+      setHistory((items) => [job, ...items.filter((item) => item.id !== optimisticId && item.id !== job.id)])
+      if (Number.isFinite(Number(data.tokenBalance))) onTokenBalanceChange?.(Number(data.tokenBalance))
+      await loadHistory()
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Не удалось запустить видео.'
+      const failedJob = { ...optimisticJob, status: 'failed', progress: 0, error: message }
+      setActiveJob((current) => current?.id === optimisticId ? null : current)
+      setSelectedJob((current) => current?.id === optimisticId ? failedJob : current)
+      setHistory((items) => items.filter((item) => item.id !== optimisticId))
+      setError(message)
+    } finally { setSubmitting(false) }
   }
   const deleteVideo = async (job: VideoJob) => {
     if (!job.galleryVideoId || !window.confirm('Удалить видео из галереи и хранилища? Файл будет удалён без восстановления.')) return
@@ -653,6 +733,7 @@ export default function VideoStudio(): ReactElement {
   const visibleEstimateLoading = Boolean(estimateRequest && (estimateLoading || estimateKey !== estimateRequestKey))
   const currentRate = visibleEstimate && duration > 0 ? visibleEstimate.chargedTokens / duration : null
   const shownElapsed = formatElapsed(shownJob?.createdAt, shownJob?.completedAt, clockNow)
+  const viewingActiveJob = Boolean(activeJob && shownJob?.id === activeJob.id)
   const findJobModel = (job: VideoJob) => config?.modes[job.mode]?.find((item) => item.id === job.model)
 
   return <main className="video-studio">
@@ -688,10 +769,14 @@ export default function VideoStudio(): ReactElement {
             <div className="video-prompt-heading">
               <b>Что происходит в кадре?</b>
               <div className="video-prompt-heading-controls">
-                <label className="video-duration-control" title="Длительность видео">
-                  <Clock3 aria-hidden="true" />
-                  <select aria-label="Длительность видео" value={duration} onChange={(event) => setDuration(Number(event.target.value))}>{selectedModel?.supportedDurations.map((value) => <option key={value} value={value}>{value} сек.</option>)}</select>
-                </label>
+                <div ref={durationMenuRef} className="video-duration-control" onKeyDown={handleDurationKeyDown}>
+                  <button ref={durationTriggerRef} className="video-duration-trigger" type="button" aria-label={`Длительность видео: ${secondsLabel(duration)}`} aria-haspopup="listbox" aria-expanded={durationOpen} onClick={() => setDurationOpen((value) => !value)}>
+                    <Clock3 aria-hidden="true" /><span>{secondsLabel(duration)}</span><ChevronDown className={durationOpen ? 'open' : ''} aria-hidden="true" />
+                  </button>
+                  {durationOpen && <div className="video-duration-menu" role="listbox" aria-label="Выберите длительность видео">
+                    {durationOptions.map((value) => <button key={value} className="video-duration-option" type="button" role="option" data-value={value} aria-selected={duration === value} onClick={() => selectDuration(value)}><span>{secondsLabel(value)}</span>{duration === value && <i aria-hidden="true" />}</button>)}
+                  </div>}
+                </div>
                 <button className="video-guide-button" type="button" aria-label="Инструкция по созданию видео" onClick={() => setGuideOpen(true)}><CircleHelp aria-hidden="true" /></button>
               </div>
             </div>
@@ -717,15 +802,17 @@ export default function VideoStudio(): ReactElement {
                 <span>{selectedModel?.generateAudio === false ? 'Недоступно' : generateAudio ? 'Включён' : 'Выключен'}</span>
               </label>
             <div className="video-live-price" aria-live="polite">
-              <strong>{visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток. за ${duration} сек.` : '—'}</strong>
+              <strong>{visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток. за ${secondsLabel(duration)}` : '—'}</strong>
               <small>{currentRate ? `≈ ${formatTokenRate(currentRate)} ток./с` : 'текущая цена'}</small>
             </div>
           </section>
 
           <section className="video-settings-section video-visual-settings">
             <div className="video-setting-label"><span>Формат</span></div>
-            <div className="video-format-tabs">{visibleAspectRatios.map((value) => <button key={value} type="button" className={aspectRatio === value ? 'active' : ''} onClick={() => setAspectRatio(value)} title={`Формат ${value} · качество ${resolution}`}><i style={{ aspectRatio: aspectStyle(value), width: aspectPreviewWidth(value) }} /><span>{value}</span></button>)}</div>
-            {orderedAspectRatios.length > 4 && <button className="video-format-more" type="button" aria-expanded={formatExpanded} onClick={() => setFormatExpanded((value) => !value)}><span>{formatExpanded ? 'Скрыть дополнительные форматы' : `Ещё форматы (${orderedAspectRatios.length - 4})`}</span><ChevronDown className={formatExpanded ? 'open' : ''} /></button>}
+            <div className="video-format-controls">
+              <div className="video-format-tabs">{visibleAspectRatios.map((value) => <button key={value} type="button" className={aspectRatio === value ? 'active' : ''} onClick={() => setAspectRatio(value)} title={`Формат ${value} · качество ${resolution}`}><i style={{ aspectRatio: aspectStyle(value), width: aspectPreviewWidth(value) }} /><span>{value}</span></button>)}</div>
+              {orderedAspectRatios.length > 4 && <button className="video-format-more" type="button" aria-label={formatExpanded ? 'Скрыть дополнительные форматы' : `Показать ещё ${orderedAspectRatios.length - 4} формата`} title={formatExpanded ? 'Скрыть дополнительные форматы' : `Показать ещё ${orderedAspectRatios.length - 4} формата`} aria-expanded={formatExpanded} onClick={() => setFormatExpanded((value) => !value)}><span>{orderedAspectRatios.length - 4}</span><ChevronDown className={formatExpanded ? 'open' : ''} /></button>}
+            </div>
           </section>
 
           <section className="video-params">
@@ -740,17 +827,17 @@ export default function VideoStudio(): ReactElement {
               return <button type="button" key={item.id} className={quality === item.id && selectedModel?.id === presetModel?.id ? 'active' : ''} onClick={() => selectQuality(item.id)}>
                 <span><strong>{item.label}</strong><b>{presetRate ? `≈ ${formatTokenRate(presetRate)} ток./с` : 'Считаем…'}</b></span>
                 <small>{shortModelName(presetModel)}</small>
-                <em>{presetEstimate ? `${presetEstimate.chargedTokens} ток. за ${presetDuration} сек.` : 'Цена уточняется'}</em>
+                <em>{presetEstimate ? `${presetEstimate.chargedTokens} ток. за ${secondsLabel(presetDuration)}` : 'Цена уточняется'}</em>
               </button>
             })}</div>
             <button type="button" className="video-pro" onClick={() => setProOpen((value) => !value)}><Settings2 /><span><b>Выбрать модель</b><small>{shortModelName(selectedModel)} · {publicModelRate(selectedModel)}</small></span><ChevronDown className={proOpen ? 'open' : ''} /></button>
-            {proOpen && <div className="video-model-list">{models.map((model) => <button key={model.id} type="button" className={selectedModel?.id === model.id ? 'active' : ''} onClick={() => syncModelDefaults(model)}><span><strong>{model.name}</strong><b>{publicModelRate(model)}</b></span><p>{model.description || 'Описание модели пока не опубликовано.'}</p><small>{model.supportedResolutions.join(', ')} · {model.supportedDurations.join(', ')} сек.</small></button>)}</div>}
+            {proOpen && <div className="video-model-list">{models.map((model) => <button key={model.id} type="button" className={selectedModel?.id === model.id ? 'active' : ''} onClick={() => syncModelDefaults(model)}><span><strong>{model.name}</strong><b>{publicModelRate(model)}</b></span><p>{model.description || 'Описание модели пока не опубликовано.'}</p><small>{model.supportedResolutions.join(', ')} · {model.supportedDurations.map(secondsLabel).join(', ')}</small></button>)}</div>}
           </section>
           {notice && <div className="video-notice">{notice}</div>}
           {error && <div className="video-error">{error}</div>}
         </> : <div className="video-empty-models">{error || config?.availability?.[mode]?.reason || 'Для этого режима пока нет доступных моделей.'}</div>}
         </div>
-        {!loading && <button className="video-generate" type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{activeJob ? 'Генерация идёт' : 'Создать видео'}</span><b>{visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток.` : models.length ? '—' : 'Нет модели'}</b></button>}
+        {!loading && <button className="video-generate" type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{submitting ? 'Отправляем задачу' : activeJob ? 'Генерация идёт' : 'Создать видео'}</span><b>{visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток.` : models.length ? '—' : 'Нет модели'}</b></button>}
       </aside>
 
       <section className="video-result">
@@ -761,9 +848,10 @@ export default function VideoStudio(): ReactElement {
           </button>
           {mobileModeOpen && <div className="video-mobile-mode-menu" role="listbox">{MODE_META.map((item) => <button key={item.id} type="button" role="option" aria-selected={mode === item.id} className={mode === item.id ? 'active' : ''} onClick={() => selectMode(item.id)}><strong>{item.label}</strong><small>{item.note}</small></button>)}</div>}
         </section>
-        {sourceInputs('mobile')}
+          {sourceInputs('mobile')}
         <div className="video-stage-wrap"><div className="video-stage" style={{ aspectRatio: aspectStyle(stageRatio) }}>
           <div className="video-stage-overlay">
+            {activeJob && !viewingActiveJob && <button className="video-active-return" type="button" onClick={() => { setSelectedJob(activeJob); setPreviewCleared(false) }}><LoaderCircle className="spin" /><span>{statusLabel(activeJob.status)} · {Math.max(4, activeJob.progress || 4)}%</span><b>Вернуться</b></button>}
             <div className="video-stage-actions">
               {shownJob?.videoUrl && <a href={shownJob.videoUrl} download title="Скачать"><Download /> <span>Скачать</span></a>}
               {shownJob?.videoUrl && <div className="video-share"><button type="button" aria-expanded={shareOpen} onClick={() => setShareOpen((value) => !value)}><Share2 /> <span>Поделиться</span></button>{shareOpen && <div className="video-share-menu">
@@ -783,12 +871,12 @@ export default function VideoStudio(): ReactElement {
 
         <div className="video-result-shelf">
           <section className="video-history" aria-label="Предыдущие видео">
-            {history.length ? <div className="video-history-list">{history.map((job) => { const jobModel = findJobModel(job); const elapsed = formatElapsed(job.createdAt, job.completedAt); return <button key={job.id} type="button" className={!previewCleared && selectedJob?.id === job.id ? 'active' : ''} onClick={() => { setSelectedJob(job); setPreviewCleared(false) }} style={{ aspectRatio: aspectStyle(job.aspectRatio) }} title={`${shortModelName(jobModel)} · ${job.duration || 0} сек.${elapsed ? ` · готово за ${elapsed}` : ''}`}>{job.videoUrl ? <video src={job.videoUrl} muted preload="metadata" /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<span className="video-history-meta"><small>{job.duration || 0} сек.</small><em>{shortModelName(jobModel)}</em></span></button> })}</div> : <p>Здесь появятся созданные видео.</p>}
+            {history.length ? <div className="video-history-list">{history.map((job) => { const jobModel = findJobModel(job); const elapsed = formatElapsed(job.createdAt, job.completedAt); return <button key={job.id} type="button" className={`${!previewCleared && selectedJob?.id === job.id ? 'active' : ''}${activeJob?.id === job.id ? ' generating' : ''}`} onClick={() => { setSelectedJob(job); setPreviewCleared(false) }} style={{ aspectRatio: aspectStyle(job.aspectRatio) }} title={`${shortModelName(jobModel)} · ${secondsLabel(job.duration || 0)}${elapsed ? ` · готово за ${elapsed}` : ''}`}>{job.videoUrl ? <video src={job.videoUrl} muted preload="metadata" /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<span className="video-history-meta"><small>{activeJob?.id === job.id ? `${Math.max(4, job.progress || 4)}%` : secondsLabel(job.duration || 0)}</small><em>{shortModelName(jobModel)}</em></span></button> })}</div> : <p>Здесь появятся созданные видео.</p>}
           </section>
           <aside className="video-context">{shownJob ? <>
             <div className="video-context-prompt"><div><span>Промпт</span><button type="button" title="Копировать промпт" aria-label="Копировать промпт" onClick={() => void navigator.clipboard.writeText(shownJob.prompt || '')}><Copy /></button></div><p>{shownJob.prompt || 'Промпт не сохранён'}</p></div>
             <div className="video-context-details">
-              <div className="video-context-tags"><span>{shortModelName(findJobModel(shownJob))}</span><span>{shownJob.duration} сек.</span><span>{shownJob.aspectRatio}</span><span>{shownJob.resolution}</span>{shownJob.generateAudio && <span><Volume2 /> Звук</span>}{shownElapsed && shownJob.completedAt && <span><Clock3 /> Готово за {shownElapsed}</span>}</div>
+              <div className="video-context-tags"><span>{shortModelName(findJobModel(shownJob))}</span><span>{secondsLabel(shownJob.duration || 0)}</span><span>{shownJob.aspectRatio}</span><span>{shownJob.resolution}</span>{shownJob.generateAudio && <span><Volume2 /> Звук</span>}{shownElapsed && shownJob.completedAt && <span><Clock3 /> Готово за {shownElapsed}</span>}</div>
               <div className="video-context-actions">
                 <button className="feed" type="button" disabled={!shownJob.galleryVideoId || shownJob.publicationStatus === 'preparing'} onClick={() => openVideoPublish(shownJob)}><Sparkles /> <span>{shownJob.published ? 'Открыть в ленте' : shownJob.publicationStatus === 'preparing' ? 'Готовим' : 'В ленту'}</span></button>
                 <button className="icon" type="button" title="Повторить с этими настройками" aria-label="Повторить с этими настройками" onClick={() => applySettings(shownJob)}><RotateCcw /></button>
