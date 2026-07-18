@@ -342,15 +342,34 @@ if ($usesLiveChecks) {
         -WorkingDirectory $resolvedRoot
 }
 
+$testEnvironmentNames = @("IZO_RUNTIME_PROFILE", "APP_ENV", "ENV", "MODE", "IZO_RELEASE_MANIFEST")
+$testEnvironment = @{}
+foreach ($environmentName in $testEnvironmentNames) {
+    $testEnvironment[$environmentName] = [Environment]::GetEnvironmentVariable($environmentName, "Process")
+    [Environment]::SetEnvironmentVariable($environmentName, $null, "Process")
+}
+try {
+    if ($usesFullSuite) {
+        Invoke-NativeStep -Name "pytest_full" -FilePath $python -ArgumentList $fullTests -WorkingDirectory $resolvedRoot
+    } else {
+        Invoke-NativeStep -Name "pytest_quick" -FilePath $python -ArgumentList $quickTests -WorkingDirectory $resolvedRoot
+    }
+} finally {
+    foreach ($environmentName in $testEnvironmentNames) {
+        [Environment]::SetEnvironmentVariable(
+            $environmentName,
+            $testEnvironment[$environmentName],
+            "Process"
+        )
+    }
+}
+
 if ($usesFullSuite) {
-    Invoke-NativeStep -Name "pytest_full" -FilePath $python -ArgumentList $fullTests -WorkingDirectory $resolvedRoot
     Invoke-NativeStep -Name "frontend_lint" -FilePath $npm -ArgumentList @("run", "lint") -WorkingDirectory $frontendDirectory
     Invoke-NativeStep -Name "frontend_build" -FilePath $npm -ArgumentList @("run", "build") -WorkingDirectory $frontendDirectory
     Invoke-NativeStep -Name "frontend_release_identity" -FilePath $npm -ArgumentList @("run", "check:release") -WorkingDirectory $frontendDirectory
     Invoke-NativeStep -Name "frontend_origin_isolation" -FilePath $npm -ArgumentList @("run", "check:origin") -WorkingDirectory $frontendDirectory
     Invoke-NativeStep -Name "frontend_studio_resilience" -FilePath $npm -ArgumentList @("run", "e2e:studio-resilience") -WorkingDirectory $frontendDirectory
-} else {
-    Invoke-NativeStep -Name "pytest_quick" -FilePath $python -ArgumentList $quickTests -WorkingDirectory $resolvedRoot
 }
 
 $pytestProcesses = @(
