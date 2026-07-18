@@ -316,6 +316,12 @@ def test_feed_video_publication_contract_is_gated_and_media_neutral(temp_db, mon
         assert item["video_url"].endswith("variant=full")
         assert item["duration_ms"] == 5000
         assert item["has_audio"] is True
+        status = client.get(
+            f"/api/feed/publications/{publication_id}/status",
+            headers=bearer(token),
+        )
+        assert status.status_code == 200
+        assert status.json()["publication"]["feed_url"] == f"/feed?tab=new#work-{publication_id}"
 
         public_feed = client.get("/api/feed?type=fresh").json()["items"]
         assert any(entry["id"] == publication_id and entry["media_type"] == "video" for entry in public_feed)
@@ -696,6 +702,12 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
         assert "legacy-unused-topbar" not in r.text
         assert "n2-tab" not in r.text
         assert "downloadCurrent" in r.text
+        assert "feedTabAliases" in r.text
+        assert "new:'fresh'" in r.text
+        assert "syncFeedTabSelection(activeFilter" in r.text
+        assert "loadFeed(feedTypeForFilter(activeFilter))" in r.text
+        assert "${location.pathname}${location.search}#work-${item.id}" in r.text
+        assert "/download?format=mp4" in r.text
         assert "Скачать JPEG" in r.text
         assert "Скачать PNG" in r.text
         assert "modalUseBtn" in r.text

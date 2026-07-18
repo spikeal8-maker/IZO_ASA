@@ -1207,8 +1207,11 @@ export default function NewStudio(): ReactElement {
           ? (feedLang === 'ru' ? 'Отправлено на проверку' : 'Sent for review')
           : (feedLang === 'ru' ? 'Опубликовано в ленту' : 'Published to feed'))
         if (pendingReview) return
+        const publicationId = String(data?.publication?.id || '').trim()
         window.setTimeout(() => {
-          window.location.href = '/feed'
+          window.location.href = publicationId
+            ? `/feed?tab=new#work-${encodeURIComponent(publicationId)}`
+            : '/feed?tab=new'
         }, 250)
       })
       .catch(() => showToast(feedLang === 'ru' ? 'Не удалось опубликовать' : 'Publish failed'))

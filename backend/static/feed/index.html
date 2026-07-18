@@ -503,8 +503,16 @@ button{user-select:none}
   </div>
 </div>
 <script>
+const feedTabAliases = {
+  all:'all', 'for-you':'all', for_you:'all',
+  new:'fresh', fresh:'fresh',
+  remixes:'remix', remix:'remix',
+  challenges:'challenge', challenge:'challenge',
+  subscriptions:'following', following:'following'
+};
+const requestedFeedTab = new URLSearchParams(location.search).get('tab') || '';
 let works = [];
-let activeFilter = 'all';
+let activeFilter = feedTabAliases[requestedFeedTab] || 'all';
 let activeSignalFilter = 'all';
 let currentIndex = 0;
 const masonry = document.querySelector('#masonry');
@@ -1489,7 +1497,7 @@ function openModal(index){
     feed_type:activeFilter,
     media_type:item.mediaType || 'image'
   });
-  history.replaceState(null,'',`#work-${item.id}`);
+  history.replaceState(null,'',`${location.pathname}${location.search}#work-${item.id}`);
   markViewed(item);
 }
 function downloadCurrent(format='jpeg'){
@@ -1497,7 +1505,7 @@ function downloadCurrent(format='jpeg'){
   if(!item?.id) return;
   if(item.mediaType === 'video'){
     const a = document.createElement('a');
-    a.href = item.videoSrc;
+    a.href = `/api/feed/publications/${encodeURIComponent(item.id)}/download?format=mp4`;
     a.download = `izo-asa-${item.id}.mp4`;
     document.body.appendChild(a);
     a.click();
@@ -2103,8 +2111,8 @@ if('IntersectionObserver' in window){
   feedPagerObserver.observe(feedPager);
 }
 loadTopbarUser();
-syncFeedTabSelection('all', { instant:true });
-loadFeed('for_you');
+syncFeedTabSelection(activeFilter, { instant:true });
+loadFeed(feedTypeForFilter(activeFilter));
 </script>
 </body>
 </html>

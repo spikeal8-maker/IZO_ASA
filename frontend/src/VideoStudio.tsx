@@ -526,10 +526,25 @@ export default function VideoStudio(): ReactElement {
       setShareOpen(false)
     }
   }
+  const feedPublicationUrl = (publicationId: string) => `/feed?tab=new#work-${encodeURIComponent(publicationId)}`
+  const waitForFeedPublication = async (publicationId: string) => {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const response = await apiFetch(`/feed/publications/${encodeURIComponent(publicationId)}/status`)
+      if (!response.ok) throw new Error(await responseError(response, 'Не удалось проверить публикацию видео.'))
+      const data = await response.json() as {
+        publication?: { status?: VideoJob['publicationStatus']; feed_url?: string | null; media_error?: string | null }
+      }
+      const status = data.publication?.status
+      if (status === 'published') return data.publication?.feed_url || feedPublicationUrl(publicationId)
+      if (status === 'failed') throw new Error(data.publication?.media_error || 'Не удалось подготовить видео для ленты.')
+      await new Promise((resolve) => window.setTimeout(resolve, 1500))
+    }
+    throw new Error('Подготовка видео заняла слишком много времени. Публикация продолжится в фоне.')
+  }
   const openVideoPublish = (job: VideoJob) => {
     setShareOpen(false)
     if (job.published && job.publicationId) {
-      window.location.href = `/feed#work-${encodeURIComponent(job.publicationId)}`
+      window.location.href = feedPublicationUrl(job.publicationId)
       return
     }
     if (job.publicationStatus === 'preparing') {
@@ -576,8 +591,13 @@ export default function VideoStudio(): ReactElement {
       setHistory((items) => items.map(applyPublication))
       setSelectedJob((item) => item ? applyPublication(item) : item)
       setPublishJob(null)
-      setNotice(publicationStatus === 'published' ? 'Видео опубликовано в ленту.' : 'Видео готовится к публикации. Можно продолжать работу.')
+      setNotice(publicationStatus === 'published' ? 'Видео опубликовано в ленту.' : 'Видео готовится к публикации…')
       await loadHistory()
+      if (!publicationId) throw new Error('Сервер не вернул идентификатор публикации.')
+      const feedUrl = publicationStatus === 'published'
+        ? feedPublicationUrl(publicationId)
+        : await waitForFeedPublication(publicationId)
+      window.location.href = feedUrl
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не удалось опубликовать видео.')
     } finally {

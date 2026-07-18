@@ -18520,6 +18520,7 @@ def _feed_item_payload(
         "image_id": image_id,
         "video_id": _row_get(pub, "video_id"),
         "status": _row_get(pub, "status"),
+        "feed_url": f"/feed?tab=new#work-{pub['id']}" if _feed_publication_ready(pub) else None,
         "moderation_status": _row_get(pub, "moderation_status") or "approved",
         "moderation_reason": _row_get(pub, "moderation_reason"),
         "image_url": f"/api/feed/media/{pub['id']}?variant=large",
@@ -18905,7 +18906,7 @@ def _feed_video_publication_status_payload(publication: sqlite3.Row) -> dict[str
         "status": status,
         "media_status": "ready" if status == "published" and publication["media_ready_at"] else status,
         "media_error": _row_get(publication, "media_error"),
-        "feed_url": f"/feed#work-{publication['id']}" if status == "published" else None,
+        "feed_url": f"/feed?tab=new#work-{publication['id']}" if status == "published" else None,
     }
 
 
