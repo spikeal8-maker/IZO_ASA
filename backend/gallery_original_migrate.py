@@ -101,6 +101,68 @@ def _write_optimized(source_rel: str, target_rel: str) -> dict[str, Any]:
     return {"target_bytes": size, "target_human": _bytes_fmt(size), "target_width": width, "target_height": height}
 
 
+def _replace_media_refs(value: Any, replacements: dict[str, str]) -> tuple[Any, int]:
+    if isinstance(value, dict):
+        changed = 0
+        result: dict[str, Any] = {}
+        for key, child in value.items():
+            result[key], child_changed = _replace_media_refs(child, replacements)
+            changed += child_changed
+        return result, changed
+    if isinstance(value, list):
+        changed = 0
+        result: list[Any] = []
+        for child in value:
+            replaced, child_changed = _replace_media_refs(child, replacements)
+            result.append(replaced)
+            changed += child_changed
+        return result, changed
+    if not isinstance(value, str) or not value:
+        return value, 0
+    normalized = value.replace("\\", "/")
+    exact_target = replacements.get(normalized)
+    if exact_target:
+        return exact_target, 1
+    source_rel = _media_rel_from_url(value)
+    target_rel = replacements.get(source_rel or "")
+    if not target_rel or source_rel not in value:
+        return value, 0
+    return value.replace(source_rel, target_rel), 1
+
+
+def rewrite_migrated_settings(replacements: dict[str, str]) -> dict[str, int]:
+    """Point structured image/job history at verified archive files."""
+    stats = {"rows": 0, "references": 0, "jobs": 0, "images": 0}
+    if not replacements:
+        return stats
+    with main.db() as conn:
+        for table in ("jobs", "images"):
+            columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            if "settings_json" not in columns:
+                continue
+            updates: list[tuple[str, str]] = []
+            references = 0
+            for row in conn.execute(
+                f"SELECT id, settings_json FROM {table} "
+                "WHERE settings_json IS NOT NULL AND settings_json != ''"
+            ).fetchall():
+                try:
+                    settings = json.loads(row["settings_json"])
+                except Exception:
+                    continue
+                replaced, changed = _replace_media_refs(settings, replacements)
+                if not changed:
+                    continue
+                updates.append((json.dumps(replaced, ensure_ascii=False, separators=(",", ":")), row["id"]))
+                references += changed
+            if updates:
+                conn.executemany(f"UPDATE {table} SET settings_json = ? WHERE id = ?", updates)
+            stats[table] = len(updates)
+            stats["rows"] += len(updates)
+            stats["references"] += references
+    return stats
+
+
 def migrate_gallery_originals(
     *,
     apply: bool = False,
@@ -126,6 +188,10 @@ def migrate_gallery_originals(
     for item in candidates:
         if apply:
             details = _write_optimized(str(item["source"]), str(item["target"]))
+            if int(details["target_bytes"]) >= int(item["source_bytes"]):
+                (main.MEDIA / str(item["target"])).unlink(missing_ok=True)
+                skipped.append({**item, **details, "skip_reason": "optimized_not_smaller"})
+                continue
             target_url = main.public_url(main.MEDIA / str(item["target"]), str(item["user_id"]))
             with main.db() as conn:
                 row = conn.execute("SELECT thumbnail_url FROM images WHERE id = ?", (item["image_id"],)).fetchone()
@@ -144,6 +210,10 @@ def migrate_gallery_originals(
             migrated.append({**item, **details, "new_url": target_url, "source_deleted": bool(delete_source)})
         else:
             migrated.append(item)
+
+    settings_rewrite = rewrite_migrated_settings(
+        {str(item["source"]): str(item["target"]) for item in migrated}
+    ) if apply else {"rows": 0, "references": 0, "jobs": 0, "images": 0}
 
     source_bytes = sum(int(item.get("source_bytes") or 0) for item in migrated)
     target_bytes = sum(int(item.get("target_bytes") or 0) for item in migrated)
@@ -165,6 +235,7 @@ def migrate_gallery_originals(
             "estimated_reclaimable_human": _bytes_fmt(source_bytes - target_bytes) if target_bytes else "not measured",
             "skipped": len(skipped),
         },
+        "settings_rewrite": settings_rewrite,
         "items": migrated,
         "skipped": skipped[:item_limit],
     }
