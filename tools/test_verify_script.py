@@ -163,6 +163,9 @@ def test_verify_script_has_no_process_or_file_deletion_commands() -> None:
     assert "Stop-Process" not in source
     assert "Remove-Item" not in source
     assert "-PreflightOnly" in source
+    assert '$preflightEnvironmentNames = @("IZO_RUNTIME_PROFILE", "APP_ENV", "ENV", "MODE", "IZO_RELEASE_MANIFEST")' in source
+    assert '[Environment]::SetEnvironmentVariable($environmentName, $null, "Process")' in source
+    assert "$preflightEnvironment[$environmentName]" in source
     assert "Test-SourceSnapshotEqual" in source
     assert "VERIFY_SOURCE_CONCURRENT_CHANGE" in source
     assert "[switch]$RequireStableLiveSource" in source

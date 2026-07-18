@@ -259,15 +259,33 @@ $beforeSnapshot = $null
 if ($usesLiveChecks) {
     $beforeSnapshot = Get-SourceSnapshot -MediaDirectory (Join-Path $backendDirectory "media")
     Write-Host "VERIFY_SOURCE_BEFORE count=$($beforeSnapshot.Count) bytes=$($beforeSnapshot.Bytes) sha256=$($beforeSnapshot.Sha256)"
-    Invoke-NativeStep `
-        -Name "backend_preflight" `
-        -FilePath "powershell.exe" `
-        -ArgumentList @(
-            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-            "-File", $restartScript,
-            "-PreflightOnly", "-RepoRoot", $resolvedRoot, "-PythonPath", $python
-        ) `
-        -WorkingDirectory $resolvedRoot
+    # The candidate manifest is created only after this source verification. Do
+    # not let a production launcher environment make the preflight require it.
+    $preflightEnvironmentNames = @("IZO_RUNTIME_PROFILE", "APP_ENV", "ENV", "MODE", "IZO_RELEASE_MANIFEST")
+    $preflightEnvironment = @{}
+    foreach ($environmentName in $preflightEnvironmentNames) {
+        $preflightEnvironment[$environmentName] = [Environment]::GetEnvironmentVariable($environmentName, "Process")
+        [Environment]::SetEnvironmentVariable($environmentName, $null, "Process")
+    }
+    try {
+        Invoke-NativeStep `
+            -Name "backend_preflight" `
+            -FilePath "powershell.exe" `
+            -ArgumentList @(
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", $restartScript,
+                "-PreflightOnly", "-RepoRoot", $resolvedRoot, "-PythonPath", $python
+            ) `
+            -WorkingDirectory $resolvedRoot
+    } finally {
+        foreach ($environmentName in $preflightEnvironmentNames) {
+            [Environment]::SetEnvironmentVariable(
+                $environmentName,
+                $preflightEnvironment[$environmentName],
+                "Process"
+            )
+        }
+    }
 }
 
 $compileBatchNumber = 0

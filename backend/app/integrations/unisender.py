@@ -6,9 +6,11 @@ The API key is supplied by the caller and is never retained or logged here.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import httpx
+
+from .smtp import SmtpConfig, SmtpError, SmtpMessage
 
 
 UNISENDER_API_BASE = "https://api.unisender.com/ru/api"
@@ -27,6 +29,74 @@ class UniSenderMessage:
     sender_email: str
     list_id: int
     reference_key: str | None = None
+
+
+def build_unisender_config(raw: Any, environment: Mapping[str, str]) -> dict[str, Any]:
+    current = raw if isinstance(raw, dict) else {}
+    return {
+        "provider": "unisender",
+        "source": "admin" if current else "environment",
+        "sender_name": str(current.get("sender_name") or environment.get("UNISENDER_SENDER_NAME", "ИЗО АСА")).strip(),
+        "sender_email": str(current.get("sender_email") or environment.get("UNISENDER_SENDER_EMAIL", "")).strip(),
+        "list_id": int(current.get("list_id") or environment.get("UNISENDER_LIST_ID", "0") or 0),
+        "verified_at": str(current.get("verified_at") or "").strip() or None,
+        "last_error": str(current.get("last_error") or "").strip() or None,
+    }
+
+
+def is_unisender_configured(api_key: str, config: Mapping[str, Any]) -> bool:
+    return bool(api_key and config.get("sender_email") and int(config.get("list_id") or 0) > 0)
+
+
+def is_unisender_ready(api_key: str, config: Mapping[str, Any]) -> bool:
+    return is_unisender_configured(api_key, config) and (
+        config.get("source") == "environment" or bool(config.get("verified_at"))
+    )
+
+
+def deliver_transactional_email(
+    recipient: str,
+    subject: str,
+    html: str,
+    unisender_api_key: str,
+    unisender_config: Mapping[str, Any] | None,
+    smtp_connection: SmtpConfig | None,
+    smtp_settings: Mapping[str, Any],
+    unisender_sender: Callable[..., str],
+    smtp_sender: Callable[..., str],
+) -> str:
+    if not recipient:
+        raise RuntimeError("Некорректный email получателя.")
+    if unisender_config is not None:
+        try:
+            return unisender_sender(
+                unisender_api_key,
+                UniSenderMessage(
+                    to=recipient,
+                    subject=subject,
+                    html=html,
+                    sender_name=str(unisender_config.get("sender_name") or "ИЗО АСА"),
+                    sender_email=str(unisender_config["sender_email"]),
+                    list_id=int(unisender_config["list_id"]),
+                ),
+            )
+        except UniSenderError as exc:
+            raise RuntimeError(str(exc)) from exc
+    if smtp_connection is not None:
+        try:
+            return smtp_sender(
+                smtp_connection,
+                SmtpMessage(
+                    to=recipient,
+                    subject=subject,
+                    html=html,
+                    sender_name=str(smtp_settings.get("sender_name") or "ИЗО АСА"),
+                    sender_email=str(smtp_settings["sender_email"]),
+                ),
+            )
+        except SmtpError as exc:
+            raise RuntimeError(str(exc)) from exc
+    raise RuntimeError("Почтовый провайдер не подключен.")
 
 
 def _request(

@@ -48,6 +48,7 @@ try:
         get_unisender_lists,
         send_unisender_email,
     )
+    from .app.integrations import unisender as unisender_service
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations.unisender import (
         UniSenderError,
@@ -56,6 +57,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         get_unisender_lists,
         send_unisender_email,
     )
+    from app.integrations import unisender as unisender_service
 try:
     from .app.integrations.yookassa import YooKassaError, check_yookassa_connection, create_yookassa_payment, fetch_yookassa_payment
 except ImportError:  # Direct `python backend/main.py` execution.
@@ -5950,28 +5952,17 @@ def unisender_config() -> dict[str, Any]:
     with db() as conn:
         row = conn.execute("SELECT value_json FROM admin_settings WHERE key = 'mail_provider_unisender'").fetchone()
     value = safe_json_load(row["value_json"]) if row else {}
-    current = value if isinstance(value, dict) else {}
-    return {
-        "provider": "unisender",
-        "source": "admin" if current else "environment",
-        "sender_name": str(current.get("sender_name") or os.getenv("UNISENDER_SENDER_NAME", "ИЗО АСА")).strip(),
-        "sender_email": str(current.get("sender_email") or os.getenv("UNISENDER_SENDER_EMAIL", "")).strip(),
-        "list_id": int(current.get("list_id") or os.getenv("UNISENDER_LIST_ID", "0") or 0),
-        "verified_at": str(current.get("verified_at") or "").strip() or None,
-        "last_error": str(current.get("last_error") or "").strip() or None,
-    }
+    return unisender_service.build_unisender_config(value, os.environ)
 
 
 def unisender_configured(config: dict[str, Any] | None = None) -> bool:
     current = config if config is not None else unisender_config()
-    return bool(unisender_api_key() and current.get("sender_email") and int(current.get("list_id") or 0) > 0)
+    return unisender_service.is_unisender_configured(unisender_api_key(), current)
 
 
 def unisender_ready(config: dict[str, Any] | None = None) -> bool:
     current = config if config is not None else unisender_config()
-    if not unisender_configured(current):
-        return False
-    return current.get("source") == "environment" or bool(current.get("verified_at"))
+    return unisender_service.is_unisender_ready(unisender_api_key(), current)
 
 
 def save_unisender_api_key(value: str) -> None:
@@ -5997,63 +5988,26 @@ def save_unisender_config(
         raise ValueError("Введите корректный email отправителя.")
     if list_id < 0:
         raise ValueError("Некорректный список контактов UniSender.")
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('mail_provider_unisender', ?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
-            (
-                json.dumps(
-                    {
-                        "provider": "unisender",
-                        "sender_name": sender_name.strip() or "ИЗО АСА",
-                        "sender_email": email,
-                        "list_id": int(list_id),
-                        "verified_at": verified_at,
-                        "last_error": last_error,
-                    },
-                    ensure_ascii=False,
-                ),
-                datetime.now(timezone.utc).isoformat(),
-            ),
-        )
+    _save_setting("mail_provider_unisender", {
+        "provider": "unisender",
+        "sender_name": sender_name.strip() or "ИЗО АСА",
+        "sender_email": email,
+        "list_id": int(list_id),
+        "verified_at": verified_at,
+        "last_error": last_error,
+    })
 
 
 def send_transactional_email(destination: str, subject: str, html: str) -> str:
     recipient = normalize_email(destination)
-    if not recipient:
-        raise RuntimeError("Некорректный email получателя.")
     uni_config = unisender_config()
-    if unisender_ready(uni_config):
-        try:
-            return send_unisender_email(
-                unisender_api_key(),
-                UniSenderMessage(
-                    to=recipient,
-                    subject=subject,
-                    html=html,
-                    sender_name=str(uni_config.get("sender_name") or "ИЗО АСА"),
-                    sender_email=str(uni_config["sender_email"]),
-                    list_id=int(uni_config["list_id"]),
-                ),
-            )
-        except UniSenderError as exc:
-            raise RuntimeError(str(exc)) from exc
     smtp_current = smtp_config()
-    if smtp_ready(smtp_current):
-        try:
-            return send_smtp_email(
-                smtp_connection_config(smtp_current),
-                SmtpMessage(
-                    to=recipient,
-                    subject=subject,
-                    html=html,
-                    sender_name=str(smtp_current.get("sender_name") or "ИЗО АСА"),
-                    sender_email=str(smtp_current["sender_email"]),
-                ),
-            )
-        except SmtpError as exc:
-            raise RuntimeError(str(exc)) from exc
-    raise RuntimeError("Почтовый провайдер не подключен.")
+    return unisender_service.deliver_transactional_email(
+        recipient, subject, html, unisender_api_key(),
+        uni_config if unisender_ready(uni_config) else None,
+        smtp_connection_config(smtp_current) if smtp_ready(smtp_current) else None,
+        smtp_current, send_unisender_email, send_smtp_email,
+    )
 
 
 def yookassa_secret_key() -> str:
