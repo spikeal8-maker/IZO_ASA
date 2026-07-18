@@ -38,12 +38,15 @@ def test_listener_contract_reserves_exact_roles_and_full_app_port() -> None:
     listeners = {item["id"]: item for item in contract["listeners"]}
 
     assert {listener_id: item["port"] for listener_id, item in listeners.items()} == {
-        "frontend-preview": 5173,
+        "frontend-edge": 5173,
         "api": 8000,
         "qwen-asr": 8001,
         "comfyui": 8188,
         "ollama": 11434,
     }
+    assert listeners["frontend-edge"]["required_local"] is True
+    assert listeners["frontend-edge"]["process_names"] == ["caddy.exe"]
+    assert listeners["frontend-edge"]["command_contains"] == ["run", "--config", "ops\\caddy\\Caddyfile"]
     assert listeners["api"]["required_local"] is True
     assert listeners["qwen-asr"]["command_contains"] == ["qwen_asr_service.py", "--port", "8001"]
     assert contract["runtime_guards"] == {

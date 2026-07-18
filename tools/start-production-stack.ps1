@@ -20,6 +20,7 @@ $comfyRoot = "C:\LLM\ComfyUI_windows_portable_nvidia_cu126\ComfyUI_windows_porta
 $comfyBat = Join-Path $comfyRoot "run_nvidia_gpu.bat"
 $frpExe = "C:\frp\frpc.exe"
 $frpConfig = "C:\frp\frpc.toml"
+$caddyCheckScript = Join-Path $repoRoot "tools\check-caddy-edge.ps1"
 
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $logPath = Join-Path $logDir ("production-autostart_{0}.log" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
@@ -93,7 +94,7 @@ $components = @(
     @{ Name = "Ollama"; Uri = "http://127.0.0.1:11434/api/tags" },
     @{ Name = "Config UI"; Uri = "http://127.0.0.1:8188/system_stats" },
     @{ Name = "Backend"; Uri = "http://127.0.0.1:8000/api/health" },
-    @{ Name = "Frontend"; Uri = "http://127.0.0.1:5173/" }
+    @{ Name = "Caddy edge"; Uri = "http://127.0.0.1:5173/" }
 )
 
 if ($CheckOnly) {
@@ -110,6 +111,10 @@ if ($CheckOnly) {
     $publicOk = Test-HttpEndpoint -Uri "https://izo.alikinas.ru/api/health"
     Write-StackLog "Public endpoint: $(if ($publicOk) { 'ready' } else { 'offline' })"
     if (-not $publicOk) { $failed += "Public endpoint" }
+    & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $caddyCheckScript -RepoRoot $repoRoot
+    $caddyContractOk = $LASTEXITCODE -eq 0
+    Write-StackLog "Caddy ownership/config contract: $(if ($caddyContractOk) { 'ready' } else { 'failed' })"
+    if (-not $caddyContractOk) { $failed += "Caddy ownership/config contract" }
     if ($failed.Count -gt 0) {
         throw "Production stack is not ready: $($failed -join ', ')"
     }
@@ -146,7 +151,14 @@ if (-not $frp) {
 
 $backendReady = Test-HttpEndpoint -Uri "http://127.0.0.1:8000/api/health"
 $frontendReady = Test-HttpEndpoint -Uri "http://127.0.0.1:5173/"
-if (-not ($backendReady -and $frontendReady)) {
+if ($backendReady -and -not $frontendReady) {
+    $caddyLauncher = Join-Path $repoRoot "tools\start-caddy-from-active-release.ps1"
+    Write-StackLog "Starting Caddy from the active immutable frontend manifest."
+    & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $caddyLauncher -RepoRoot $repoRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Caddy active-release startup failed with exit code $LASTEXITCODE."
+    }
+} elseif (-not ($backendReady -and $frontendReady)) {
     # start-public owns both release activation and backend startup. On a cold
     # boot it validates the frontend candidate first, then starts the backend
     # with the same immutable manifest and the project-local Python runtime.
@@ -158,7 +170,7 @@ if (-not ($backendReady -and $frontendReady)) {
         throw "Public launcher failed with exit code $($launch.ExitCode)."
     }
 } else {
-    Write-StackLog "Backend and frontend already ready."
+    Write-StackLog "Backend and Caddy edge already ready."
 }
 
 $failed = @()
@@ -173,6 +185,12 @@ if (-not (Get-CimInstance Win32_Process -Filter "Name='frpc.exe'" -ErrorAction S
 }
 if (-not (Wait-HttpEndpoint -Name "Public endpoint" -Uri "https://izo.alikinas.ru/api/health" -TimeoutSeconds 60)) {
     $failed += "Public endpoint"
+}
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $caddyCheckScript -RepoRoot $repoRoot
+if ($LASTEXITCODE -ne 0) {
+    $failed += "Caddy ownership/config contract"
+} else {
+    Write-StackLog "Caddy ownership/config contract passed."
 }
 
 if ($failed.Count -gt 0) {

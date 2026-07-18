@@ -43,7 +43,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Role | Bind | Port | Required locally | Owner command requirements |
 |---|---|---:|---|---|
-| frontend-preview | `127.0.0.1` | 5173 | false | node.exe, vite, preview, --port, 5173 |
+| frontend-edge | `127.0.0.1` | 5173 | true | caddy.exe, run, --config, ops\caddy\Caddyfile |
 | api | `127.0.0.1` | 8000 | true | python.exe, -m, uvicorn, main:app, --port, 8000, --no-proxy-headers |
 | qwen-asr | `127.0.0.1` | 8001 | false | python.exe, qwen_asr_service.py, --port, 8001 |
 | comfyui | `127.0.0.1` | 8188 | false | python.exe |
@@ -150,5 +150,5 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 - Required manifest fields: `manifest_version`, `release_id`, `git_sha`, `dirty`, `built_at`, `frontend_asset_manifest_hash`, `python_version`, `node_version`, `schema_compatibility`, `frontend_asset_count`
 - Known gaps:
   - Backend source is still loaded from the mutable checkout; REL-002 moves API slots to exact release directories.
-  - Vite Preview listener replacement now rolls back on activation failure but is not a zero-downtime A/B switch; EDGE-001 and REL-002 close that gap.
+  - Caddy now reloads frontend roots gracefully, but the backend still lacks A/B slots and request draining; REL-002 closes that remaining release gap.
   - Verification receipts and break-glass audit records are secret-free local integrity evidence, not cryptographically signed remote attestations; CI-001 and observability work retain independent evidence.

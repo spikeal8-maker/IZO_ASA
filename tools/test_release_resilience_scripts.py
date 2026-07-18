@@ -45,11 +45,13 @@ def test_publish_plan_is_immutable_and_atomic() -> None:
     assert "--git-sha $fullSha" in script
     assert "Project Python is missing" in script
     assert script.index("npm run build") < script.index("e2e:synthetic")
-    assert "Port 5173 is not owned by the canonical Vite preview" in script
-    assert '"--port", [string]$Port, "--strictPort", "--outDir", "`"$ReleasePath`""' in script
-    assert "Start-FrontendPreview -VitePath $vite -FrontendDirectory $frontend -ReleasePath $releasePath -Port 5173" in script
-    assert "Activated frontend preview did not become ready on port 5173." in script
-    assert script.index("Activated frontend preview did not become ready on port 5173.") < script.index("Move-Item -LiteralPath $tempManifest")
+    assert "Get-IzoFrontendListenerState" in script
+    assert "Caddy candidate did not become ready" in script
+    assert "caddy-reload" in script
+    assert "legacy-vite-to-caddy" in script
+    assert "Start-FrontendPreview" not in script
+    assert "Activated Caddy edge did not serve the candidate release" in script
+    assert script.index("Test-IzoCaddyReleaseReady -Port $caddyRuntime.ProductionPort") < script.index("Move-Item -LiteralPath $tempManifest")
     assert "RELEASE_ACTIVATION_ROLLBACK_OK" in script
     assert "RELEASE_VERIFICATION_RECEIPT_OK" in script
     public_release_info = script[script.index("$releaseInfo = [ordered]@{") : script.index("$releaseInfo | ConvertTo-Json")]
@@ -173,9 +175,11 @@ def test_drill_plan_covers_primary_failure_modes() -> None:
         assert scenario in output
 
 
-def test_rollback_validates_candidate_before_port_restart() -> None:
+def test_rollback_validates_candidate_before_atomic_caddy_reload() -> None:
     script = (ROOT / "tools" / "rollback-frontend-release.ps1").read_text(encoding="utf-8")
-    assert script.index("e2e:synthetic") < script.index("LocalPort 5173")
-    assert "refusing to stop it" in script
+    assert script.index("e2e:synthetic") < script.index("Invoke-IzoCaddyReload -Runtime $runtime -AdminAddress $runtime.ProductionAdminAddress")
+    assert "requires the pinned production Caddy listener" in script
+    assert "Frontend rollback target does not match the active backend release" in script
     assert "ROLLBACK_OK" in script
     assert "IZO_ALLOW_LEGACY_RELEASE" in script
+    assert script.index("Test-IzoCaddyReleaseReady -Port $runtime.ProductionPort") < script.index("Move-Item -LiteralPath $temp -Destination $manifestPath")

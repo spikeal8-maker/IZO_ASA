@@ -68,7 +68,7 @@ def test_repository_inventory_is_valid_deterministic_and_semantically_complete()
     assert first["schema"]["foreign_key_declarations"] == []
     listener_ports = {item["id"]: item["port"] for item in first["listeners"]}
     assert listener_ports == {
-        "frontend-preview": 5173,
+        "frontend-edge": 5173,
         "api": 8000,
         "qwen-asr": 8001,
         "comfyui": 8188,
@@ -77,6 +77,12 @@ def test_repository_inventory_is_valid_deterministic_and_semantically_complete()
     assert first["runtime_guards"]["allowed_full_app_listener_ids"] == ["api"]
     assert first["release_contract"]["python_version"] == "3.11.9"
     assert first["release_contract"]["node_version"] == "24.14.1"
+    assert first["release_contract"]["edge_server"] == {
+        "name": "caddy",
+        "version": "2.11.4",
+        "runtime_spec": "ops/caddy/runtime.json",
+        "config": "ops/caddy/Caddyfile",
+    }
     assert all("value" not in item for item in first["environment"])
 
 

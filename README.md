@@ -108,7 +108,8 @@ started manually. It uses the pinned `.python-version` (`3.11.9`),
 ```
 
 CI mode compiles Python, checks the generated backend and architecture inventories,
-runs the complete backend/tools suite, frontend lint and production build. It
+verifies the pinned Caddy binary/configuration, runs the complete backend/tools
+suite, frontend lint and production build. It
 intentionally omits production process/source/listener checks and receives no
 repository secrets. Its DB, media and DPAPI roots are under the ephemeral GitHub
 runner temp directory; Telegram/MAX update modes and real ComfyUI are disabled.

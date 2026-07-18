@@ -26,7 +26,7 @@ def test_public_launcher_verifies_release_before_restarting_ports() -> None:
     assert "-ReleaseManifestPath \"%RELEASE_MANIFEST%\"" in launcher
     assert "-AllowColdStart" in launcher
     assert "backend\\.venv\\Scripts\\python.exe" in launcher
-    assert "Immutable frontend release is already active" in launcher
+    assert "Immutable frontend release is active through local Caddy" in launcher
     assert "RELEASE IDENTITY MISMATCH" in launcher
     assert "FRONTEND RELEASE MISMATCH" in launcher
     assert "STATIC SHELL RELEASE MISMATCH" in launcher
@@ -49,6 +49,8 @@ def test_production_stack_has_no_unmanaged_bootstrap_backend() -> None:
     assert "Start-BootstrapBackend" not in launcher
     assert "bootstrap_backend_" not in launcher
     assert "start-public-autostart.bat" in launcher
+    assert "start-caddy-from-active-release.ps1" in launcher
+    assert "check-caddy-edge.ps1" in launcher
 
 
 def test_public_stop_script_describes_the_actual_frp_transport() -> None:
@@ -56,6 +58,9 @@ def test_public_stop_script_describes_the_actual_frp_transport() -> None:
 
     assert "FRP left running" in launcher
     assert "Cloudflared" not in launcher
+    assert "local Caddy edge" in launcher
+    assert "stop-caddy.ps1" in launcher
+    assert "LocalPort 8000,5173" not in launcher
 
 
 def test_public_launcher_keeps_max_polling_unless_webhook_is_explicit() -> None:

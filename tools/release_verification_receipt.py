@@ -29,6 +29,8 @@ REQUIRED_RELEASE_GATES = (
     "py_compile",
     "backend_map_check",
     "architecture_inventory_check",
+    "caddy_runtime_integrity",
+    "caddy_config_validation",
     "pytest_full",
     "frontend_lint",
     "frontend_build",
@@ -39,6 +41,7 @@ REQUIRED_RELEASE_GATES = (
 FULL_ONLY_GATES = (
     "backend_preflight",
     "runtime_listener_contract",
+    "caddy_edge_live",
     "source_snapshot",
 )
 

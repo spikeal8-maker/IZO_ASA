@@ -1,8 +1,9 @@
 @echo off
 REM ==========================================================================
 REM  PUBLIC / LIVE launcher for the tunnel https://izo.alikinas.ru
-REM  Serves the BUILT frontend/dist via `vite preview` (no /@vite/client, no
-REM  hot-reload). Backend = uvicorn on 127.0.0.1:8000. The autostart wrapper
+REM  Serves the immutable frontend release through pinned local Caddy on
+REM  127.0.0.1:5173 (no /@vite/client, no hot-reload). Backend = uvicorn on
+REM  127.0.0.1:8000. The autostart wrapper
 REM  starts and verifies the FRP tunnel after this launcher becomes healthy.
 REM  Re-run this after ANY frontend or backend code change.
 REM ==========================================================================
@@ -86,7 +87,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [1/5] Verifying exact checkout, writing receipt, and preparing immutable frontend release...
+echo [1/5] Verifying exact checkout, writing receipt, and preparing immutable Caddy release...
 powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\publish-frontend-release.ps1" -RepoRoot "%ROOT_NO_SLASH%" -PythonPath "%PYTHON_EXE%"
 if errorlevel 1 (
   echo [ERROR] Candidate release failed. The active public release was NOT changed.
@@ -120,7 +121,7 @@ if errorlevel 1 (
 )
 
 echo [3/5] Backend release identity verified by restart-backend.ps1.
-echo [4/5] Immutable frontend release is already active on 127.0.0.1:5173.
+echo [4/5] Immutable frontend release is active through local Caddy on 127.0.0.1:5173.
 
 echo [5/5] Waiting for frontend, then probing...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -140,7 +141,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$be=(Get-NetTCPConnection -LocalPort 8000 -State Listen -EA SilentlyContinue).OwningProcess | Select-Object -Unique;" ^
   "$fe=(Get-NetTCPConnection -LocalPort 5173 -State Listen -EA SilentlyContinue).OwningProcess | Select-Object -Unique;" ^
   "Write-Host ('backend PID  : ' + $be);" ^
-  "Write-Host ('frontend PID : ' + $fe);" ^
+  "Write-Host ('Caddy edge PID: ' + $fe);" ^
   "Write-Host ('MAX_BOT_TOKEN set          : ' + [bool]$env:MAX_BOT_TOKEN);" ^
   "Write-Host ('MAX_BOT_DEEP_LINK_BASE set : ' + [bool]$env:MAX_BOT_DEEP_LINK_BASE);" ^
   "Write-Host ('MAX_API_BASE_URL           : ' + $env:MAX_API_BASE_URL);" ^
@@ -153,7 +154,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "try { $html=(Invoke-WebRequest 'http://127.0.0.1:5173/' -UseBasicParsing -TimeoutSec 8).Content;" ^
   "  $releaseMarker='name=' + [char]34 + 'izo-release' + [char]34 + ' content=' + [char]34 + '%APP_BUILD%' + [char]34;" ^
   "  $releaseMetaMatches=$html.Contains($releaseMarker);" ^
-  "  Write-Host ('vite-dev-client present : ' + ($html -match '/@vite/client'));" ^
+  "  Write-Host ('dev-client present      : ' + ($html -match '/@vite/client'));" ^
   "  Write-Host ('raw /src/main present   : ' + ($html -match '/src/main.tsx'));" ^
   "  Write-Host ('hashed asset present    : ' + ($html -match 'assets/index-'));" ^
   "  Write-Host ('release meta matches    : ' + $releaseMetaMatches);" ^
@@ -179,9 +180,9 @@ if errorlevel 1 (
 
 echo.
 echo ==========================================
-echo   PUBLIC mode started (dist via vite preview).
+echo   PUBLIC mode started (immutable dist via local Caddy).
 echo   Public URL: %PUBURL%
-echo   Expect: vite-dev-client=False, hashed asset=True, api/version=200,
+echo   Expect: dev-client=False, hashed asset=True, api/version=200,
 echo           generate/gallery/me no-session=401.
 echo   NOTE: frontend code changes require re-running start-public.bat.
 echo   FRP tunnel is managed and verified by start-public-autostart.bat.

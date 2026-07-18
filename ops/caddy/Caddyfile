@@ -1,0 +1,108 @@
+{
+	admin {$IZO_CADDY_ADMIN_ADDRESS}
+	persist_config off
+	default_bind 127.0.0.1
+	grace_period 10s
+
+	log default {
+		output file "{$IZO_CADDY_RUNTIME_LOG}" {
+			roll_at 00:00
+			roll_size 20MiB
+			roll_keep 10
+			roll_keep_for 720h
+		}
+		format json
+		level INFO
+	}
+
+	servers 127.0.0.1:{$IZO_CADDY_PORT} {
+		timeouts {
+			read_body 5m
+			read_header 10s
+			write 15m
+			idle 2m
+		}
+		keepalive_interval 30s
+		max_header_size 64KiB
+		trusted_proxies static 127.0.0.1/32
+		trusted_proxies_strict
+		client_ip_headers X-Forwarded-For
+	}
+}
+
+http://:{$IZO_CADDY_PORT} {
+	log {
+		output file "{$IZO_CADDY_ACCESS_LOG}" {
+			roll_at 00:00
+			roll_size 50MiB
+			roll_keep 14
+			roll_keep_for 720h
+		}
+		format filter {
+			wrap json
+			request>headers>Authorization delete
+			request>headers>Cookie delete
+			request>headers>X-IZO-Synthetic-Key delete
+			request>uri query {
+				replace token REDACTED
+				replace access_token REDACTED
+				replace refresh_token REDACTED
+				replace code REDACTED
+				replace initData REDACTED
+				hash userId
+			}
+		}
+	}
+
+	route {
+		header {
+			-Server
+			X-Content-Type-Options nosniff
+			Referrer-Policy strict-origin-when-cross-origin
+			X-Frame-Options SAMEORIGIN
+			X-Permitted-Cross-Domain-Policies none
+		}
+		encode zstd gzip
+
+		@blocked_host {
+			not host izo.alikinas.ru 127.0.0.1 localhost
+		}
+		respond @blocked_host 421
+
+		request_body {
+			max_size 128MiB
+		}
+
+		@backend_owned path /api /api/* /media /media/* /feed /feed/* /gallery /gallery/* /static /static/*
+		handle @backend_owned {
+			reverse_proxy {$IZO_CADDY_BACKEND_ADDRESS} {
+				transport http {
+					dial_timeout 3s
+					response_header_timeout 10m
+				}
+			}
+		}
+
+		handle {
+			root * "{$IZO_FRONTEND_ROOT}"
+
+			@immutable_assets path /assets/*
+			handle @immutable_assets {
+				header >Cache-Control "public, max-age=31536000, immutable"
+				file_server
+			}
+
+			@release_static path /avatars/* /preset-previews/* /app-icons/* /favicon.svg /icons.svg /manifest.webmanifest /robots.txt /sitemap.xml
+			handle @release_static {
+				header >Cache-Control "public, max-age=86400"
+				file_server
+			}
+
+			handle {
+				try_files {path} /index.html
+				header >Cache-Control "no-store"
+				file_server
+			}
+		}
+	}
+}

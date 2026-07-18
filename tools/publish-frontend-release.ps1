@@ -17,7 +17,13 @@ $releases = Join-Path $runtime "releases\frontend"
 $activeManifest = Join-Path $runtime "active-frontend.json"
 $manifestBuilder = Join-Path $root "tools\build_release_manifest.py"
 $receiptTool = Join-Path $root "tools\release_verification_receipt.py"
+$caddyHelper = Join-Path $root "tools\caddy-runtime.ps1"
 $projectPython = Join-Path $root "backend\.venv\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $caddyHelper -PathType Leaf)) {
+    throw "Caddy runtime helper was not found."
+}
+. $caddyHelper
+$caddyRuntime = Get-IzoCaddyRuntime -RepoRoot $root
 if ($PythonPath.Trim()) {
     if (-not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) { throw "Requested release Python was not found." }
     $python = (Resolve-Path -LiteralPath $PythonPath).Path
@@ -114,7 +120,7 @@ function Use-BreakGlassAuthorization {
     }
 }
 
-function Start-FrontendPreview {
+function Start-LegacyViteRollback {
     param(
         [string]$VitePath,
         [string]$FrontendDirectory,
@@ -123,41 +129,6 @@ function Start-FrontendPreview {
     )
 
     return Start-Process -FilePath "node.exe" -ArgumentList @("`"$VitePath`"", "preview", "--host", "127.0.0.1", "--port", [string]$Port, "--strictPort", "--outDir", "`"$ReleasePath`"") -WorkingDirectory $FrontendDirectory -WindowStyle Hidden -PassThru
-}
-
-function Test-FrontendReleaseReady {
-    param(
-        [int]$Port,
-        [string]$ReleaseId,
-        [int]$Attempts
-    )
-
-    $marker = 'name=' + [char]34 + 'izo-release' + [char]34 + ' content=' + [char]34 + $ReleaseId + [char]34
-    for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
-        try {
-            $response = Invoke-WebRequest "http://127.0.0.1:$Port/" -UseBasicParsing -TimeoutSec 2
-            if ($response.StatusCode -eq 200 -and $response.Content.Contains($marker)) {
-                return $true
-            }
-        } catch {}
-        Start-Sleep -Milliseconds 500
-    }
-    return $false
-}
-
-function Wait-FrontendPortFree {
-    param(
-        [int]$Port,
-        [int]$Attempts = 60
-    )
-
-    for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
-        if (-not (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)) {
-            return $true
-        }
-        Start-Sleep -Milliseconds 250
-    }
-    return $false
 }
 
 function Remove-ReleaseCandidate {
@@ -189,7 +160,7 @@ $releaseId = "$sha-$(Get-Date -Format 'yyyyMMddHHmmss')"
 $releasePath = Join-Path $releases $releaseId
 
 if ($PlanOnly) {
-    Write-Host "RELEASE_PLAN root=$root branch=$branch sha=$fullSha python=$python"
+    Write-Host "RELEASE_PLAN root=$root branch=$branch sha=$fullSha python=$python edge=caddy-$($caddyRuntime.Version)"
     if ($BreakGlassAuthorizationPath.Trim()) {
         Write-Host "RELEASE_PLAN_STEP verification=break-glass authorization=$BreakGlassAuthorizationPath audited=true"
     } elseif ($VerificationReceiptPath.Trim()) {
@@ -199,8 +170,9 @@ if ($PlanOnly) {
     }
     Write-Host "RELEASE_PLAN_STEP build=$releasePath"
     Write-Host "RELEASE_PLAN_STEP manifest=$(Join-Path $releasePath 'release-manifest.json')"
-    Write-Host "RELEASE_PLAN_STEP smoke_port=5197 routes=/,/feed,/gallery,/profile"
-    Write-Host "RELEASE_PLAN_STEP atomic_manifest=$activeManifest retain=2"
+    Write-Host "RELEASE_PLAN_STEP caddy_validate=true smoke_port=$($caddyRuntime.CandidatePort) routes=/,/feed,/gallery,/profile"
+    Write-Host "RELEASE_PLAN_STEP activation=graceful-reload-or-one-time-vite-migration port=$($caddyRuntime.ProductionPort)"
+    Write-Host "RELEASE_PLAN_STEP atomic_manifest=$activeManifest retain=2 rollback=previous-caddy-root"
     return
 }
 
@@ -213,6 +185,7 @@ if (-not (Test-Path -LiteralPath $manifestBuilder -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $receiptTool -PathType Leaf)) {
     throw "Release verification receipt tool was not found."
 }
+Assert-IzoCaddyRuntime -Runtime $caddyRuntime
 
 New-Item -ItemType Directory -Force -Path $releases | Out-Null
 if (-not (Test-Path (Join-Path $frontend "node_modules"))) {
@@ -285,17 +258,31 @@ try {
 }
 
 $vite = Join-Path $frontend "node_modules\vite\bin\vite.js"
-$preview = Start-FrontendPreview -VitePath $vite -FrontendDirectory $frontend -ReleasePath $releasePath -Port 5197
+$candidateProcess = $null
 try {
-    $ready = $false
-    for ($i = 0; $i -lt 40; $i++) {
-        try { if ((Invoke-WebRequest "http://127.0.0.1:5197/" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { $ready = $true; break } } catch {}
-        Start-Sleep -Milliseconds 500
+    if (Get-NetTCPConnection -LocalPort $caddyRuntime.CandidatePort -State Listen -ErrorAction SilentlyContinue) {
+        throw "Caddy candidate port is already occupied."
     }
-    if (-not $ready) { throw "Candidate preview did not become ready." }
+    if (Get-NetTCPConnection -LocalPort ([int]($caddyRuntime.CandidateAdminAddress.Split(":")[-1])) -State Listen -ErrorAction SilentlyContinue) {
+        throw "Caddy candidate admin port is already occupied."
+    }
+    Set-IzoCaddyEnvironment `
+        -Runtime $caddyRuntime `
+        -ReleasePath $releasePath `
+        -ReleaseId $releaseId `
+        -Port $caddyRuntime.CandidatePort `
+        -AdminAddress $caddyRuntime.CandidateAdminAddress `
+        -Scope candidate | Out-Null
+    Invoke-IzoCaddyValidate -Runtime $caddyRuntime
+    $candidatePidDirectory = Join-Path $runtime "caddy"
+    New-Item -ItemType Directory -Force -Path $candidatePidDirectory | Out-Null
+    $candidateProcess = Start-IzoCaddyProcess -Runtime $caddyRuntime -PidFile (Join-Path $candidatePidDirectory "candidate.pid")
+    if (-not (Test-IzoCaddyReleaseReady -Port $caddyRuntime.CandidatePort -ReleaseId $releaseId -Attempts 60)) {
+        throw "Caddy candidate did not become ready."
+    }
     Push-Location $frontend
     try {
-        $env:IZO_SYNTHETIC_BASE_URL = "http://127.0.0.1:5197"
+        $env:IZO_SYNTHETIC_BASE_URL = "http://127.0.0.1:$($caddyRuntime.CandidatePort)"
         $env:FRONTEND_BUILD_LABEL = $releaseId
         & npm run e2e:synthetic
         if ($LASTEXITCODE -ne 0) { throw "Candidate browser smoke failed." }
@@ -304,7 +291,12 @@ try {
     Remove-ReleaseCandidate -Path $releasePath -ReleaseRoot $releases
     throw
 } finally {
-    Stop-Process -Id $preview.Id -Force -ErrorAction SilentlyContinue
+    if ($null -ne $candidateProcess) {
+        Stop-IzoCaddyProcess -Runtime $caddyRuntime -AdminAddress $caddyRuntime.CandidateAdminAddress -Process $candidateProcess
+        if (-not (Wait-IzoFrontendPortFree -Port $caddyRuntime.CandidatePort)) {
+            throw "Caddy candidate port did not become free after smoke."
+        }
+    }
 }
 
 $previousState = $null
@@ -329,60 +321,103 @@ $tempManifest = "$activeManifest.tmp"
 $manifest | ConvertTo-Json | Set-Content -LiteralPath $tempManifest -Encoding utf8
 
 $productionProcess = $null
-$previousListenerStopped = $false
+$legacyListenerStopped = $false
+$caddyConfigurationMayHaveChanged = $false
+$activationMode = ""
+$listenerStateBefore = $null
+$previousPath = if ($null -ne $previousState) { [string]$previousState.release_path } else { "" }
 try {
-    $listeners = @(Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue)
-    $listenerPids = @($listeners.OwningProcess | Select-Object -Unique)
-    if ($listenerPids.Count -gt 1) {
-        throw "Port 5173 has multiple listener owners; refusing activation."
-    }
-    if ($listenerPids.Count -eq 1) {
-        $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($listenerPids[0])"
-        if ($process.CommandLine -notmatch "vite.+preview" -or $process.CommandLine -notlike "*$root*") {
-            throw "Port 5173 is not owned by the canonical Vite preview; refusing to stop it."
+    Set-IzoCaddyEnvironment `
+        -Runtime $caddyRuntime `
+        -ReleasePath $releasePath `
+        -ReleaseId $releaseId `
+        -Port $caddyRuntime.ProductionPort `
+        -AdminAddress $caddyRuntime.ProductionAdminAddress `
+        -Scope production | Out-Null
+    Invoke-IzoCaddyValidate -Runtime $caddyRuntime
+    $listenerStateBefore = Get-IzoFrontendListenerState -Runtime $caddyRuntime -Port $caddyRuntime.ProductionPort
+    if ($listenerStateBefore.Kind -eq "caddy") {
+        $activationMode = "caddy-reload"
+        $caddyConfigurationMayHaveChanged = $true
+        Invoke-IzoCaddyReload -Runtime $caddyRuntime -AdminAddress $caddyRuntime.ProductionAdminAddress
+    } elseif ($listenerStateBefore.Kind -eq "legacy-vite") {
+        $activationMode = "legacy-vite-to-caddy"
+        Stop-Process -Id $listenerStateBefore.Process.ProcessId -Force
+        $legacyListenerStopped = $true
+        if (-not (Wait-IzoFrontendPortFree -Port $caddyRuntime.ProductionPort)) {
+            throw "Legacy Vite listener did not release the production port."
         }
-        Stop-Process -Id $listenerPids[0] -Force
-        $previousListenerStopped = $true
-        if (-not (Wait-FrontendPortFree -Port 5173)) {
-            throw "Previous frontend listener did not release port 5173."
-        }
+        $productionProcess = Start-IzoCaddyProcess -Runtime $caddyRuntime -PidFile (Join-Path $runtime "caddy\production.pid")
+        $caddyConfigurationMayHaveChanged = $true
+    } elseif ($listenerStateBefore.Kind -eq "none") {
+        $activationMode = "cold-caddy-start"
+        $productionProcess = Start-IzoCaddyProcess -Runtime $caddyRuntime -PidFile (Join-Path $runtime "caddy\production.pid")
+        $caddyConfigurationMayHaveChanged = $true
+    } else {
+        throw "Port $($caddyRuntime.ProductionPort) has an untrusted listener owner: kind=$($listenerStateBefore.Kind)"
     }
-    $productionProcess = Start-FrontendPreview -VitePath $vite -FrontendDirectory $frontend -ReleasePath $releasePath -Port 5173
-    if (-not (Test-FrontendReleaseReady -Port 5173 -ReleaseId $releaseId -Attempts 60)) {
-        throw "Activated frontend preview did not become ready on port 5173."
+    if (-not (Test-IzoCaddyReleaseReady -Port $caddyRuntime.ProductionPort -ReleaseId $releaseId -Attempts 60)) {
+        throw "Activated Caddy edge did not serve the candidate release on the production port."
+    }
+    $readyListener = Get-IzoFrontendListenerState -Runtime $caddyRuntime -Port $caddyRuntime.ProductionPort
+    if ($readyListener.Kind -ne "caddy") {
+        throw "Production listener ownership changed before frontend manifest activation."
     }
     Move-Item -LiteralPath $tempManifest -Destination $activeManifest -Force
 } catch {
     $activationFailure = $_.Exception.Message
     Remove-Item -LiteralPath $tempManifest -Force -ErrorAction SilentlyContinue
-    if ($null -ne $productionProcess -and -not $productionProcess.HasExited) {
-        Stop-Process -Id $productionProcess.Id -Force -ErrorAction SilentlyContinue
-    }
-    [void](Wait-FrontendPortFree -Port 5173)
     $rollbackReady = $false
-    if ($null -ne $previousState -and $previous) {
-        $previousPath = [string]$previousState.release_path
-        if (-not $previousListenerStopped) {
-            $rollbackReady = Test-FrontendReleaseReady -Port 5173 -ReleaseId $previous -Attempts 2
-            if ($rollbackReady) {
-                Write-Host "RELEASE_ACTIVATION_ROLLBACK_OK active=$previous listener=preserved"
-            }
-        }
-        if (-not $rollbackReady -and (
-            $previousPath -and
-            (Test-PathWithin -Path $previousPath -Parent $releases) -and
-            (Test-Path -LiteralPath (Join-Path $previousPath "index.html") -PathType Leaf)
-        )) {
-            try {
-                $rollbackProcess = Start-FrontendPreview -VitePath $vite -FrontendDirectory $frontend -ReleasePath $previousPath -Port 5173
-                $rollbackReady = Test-FrontendReleaseReady -Port 5173 -ReleaseId $previous -Attempts 60
-                if ($rollbackReady) {
-                    Write-Host "RELEASE_ACTIVATION_ROLLBACK_OK active=$previous pid=$($rollbackProcess.Id)"
+    $previousReleaseComplete = (
+        $previous -and
+        $previousPath -and
+        (Test-PathWithin -Path $previousPath -Parent $releases) -and
+        (Test-Path -LiteralPath (Join-Path $previousPath "index.html") -PathType Leaf)
+    )
+    if ($previousReleaseComplete) {
+        try {
+            if ($null -ne $productionProcess) {
+                Stop-IzoCaddyProcess -Runtime $caddyRuntime -AdminAddress $caddyRuntime.ProductionAdminAddress -Process $productionProcess
+                if (-not (Wait-IzoFrontendPortFree -Port $caddyRuntime.ProductionPort)) {
+                    throw "Failed Caddy process did not release the production port."
                 }
-            } catch {
-                Write-Warning "Previous frontend release could not be restored: $($_.Exception.Message)"
-                $rollbackReady = $false
             }
+            if ($legacyListenerStopped) {
+                $rollbackProcess = Start-LegacyViteRollback -VitePath $vite -FrontendDirectory $frontend -ReleasePath $previousPath -Port $caddyRuntime.ProductionPort
+                $rollbackReady = Test-IzoCaddyReleaseReady -Port $caddyRuntime.ProductionPort -ReleaseId $previous -Attempts 60
+                if ($rollbackReady) {
+                    Write-Host "RELEASE_ACTIVATION_ROLLBACK_OK active=$previous listener=legacy-vite pid=$($rollbackProcess.Id)"
+                }
+            } elseif ($caddyConfigurationMayHaveChanged) {
+                Set-IzoCaddyEnvironment `
+                    -Runtime $caddyRuntime `
+                    -ReleasePath $previousPath `
+                    -ReleaseId $previous `
+                    -Port $caddyRuntime.ProductionPort `
+                    -AdminAddress $caddyRuntime.ProductionAdminAddress `
+                    -Scope production | Out-Null
+                Invoke-IzoCaddyValidate -Runtime $caddyRuntime
+                $currentState = Get-IzoFrontendListenerState -Runtime $caddyRuntime -Port $caddyRuntime.ProductionPort
+                if ($currentState.Kind -eq "caddy") {
+                    Invoke-IzoCaddyReload -Runtime $caddyRuntime -AdminAddress $caddyRuntime.ProductionAdminAddress
+                } elseif ($currentState.Kind -eq "none") {
+                    $rollbackProcess = Start-IzoCaddyProcess -Runtime $caddyRuntime -PidFile (Join-Path $runtime "caddy\production.pid")
+                } else {
+                    throw "Rollback port has an untrusted listener owner: kind=$($currentState.Kind)"
+                }
+                $rollbackReady = Test-IzoCaddyReleaseReady -Port $caddyRuntime.ProductionPort -ReleaseId $previous -Attempts 60
+                if ($rollbackReady) {
+                    Write-Host "RELEASE_ACTIVATION_ROLLBACK_OK active=$previous listener=caddy"
+                }
+            } else {
+                $rollbackReady = Test-IzoCaddyReleaseReady -Port $caddyRuntime.ProductionPort -ReleaseId $previous -Attempts 2
+                if ($rollbackReady) {
+                    Write-Host "RELEASE_ACTIVATION_ROLLBACK_OK active=$previous listener=preserved"
+                }
+            }
+        } catch {
+            Write-Warning "Previous frontend release could not be restored: $($_.Exception.Message)"
+            $rollbackReady = $false
         }
     }
     Remove-ReleaseCandidate -Path $releasePath -ReleaseRoot $releases
@@ -400,4 +435,4 @@ try {
 } catch {
     Write-Warning "Release retention cleanup failed after successful activation: $($_.Exception.Message)"
 }
-Write-Host "RELEASE_READY id=$releaseId sha=$fullSha path=$releasePath manifest=$releaseManifestPath previous=$previous"
+Write-Host "RELEASE_READY id=$releaseId sha=$fullSha path=$releasePath manifest=$releaseManifestPath previous=$previous edge=caddy-$($caddyRuntime.Version) activation=$activationMode"

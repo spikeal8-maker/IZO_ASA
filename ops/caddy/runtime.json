@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "version": "2.11.4",
+  "platform": "windows_amd64",
+  "release_url": "https://github.com/caddyserver/caddy/releases/tag/v2.11.4",
+  "archive_name": "caddy_2.11.4_windows_amd64.zip",
+  "download_url": "https://github.com/caddyserver/caddy/releases/download/v2.11.4/caddy_2.11.4_windows_amd64.zip",
+  "archive_sha256": "1708333f79e274c7697285afe6d592ab39314e0b131e9ec6bea08ad27df62ebf",
+  "executable_sha256": "5cb9ab71e5756ce72840b8234177a2f40c8b4ab47a806b8e841e2b784e9df62b",
+  "install_relative_path": ".tools/caddy/2.11.4/caddy.exe",
+  "production_port": 5173,
+  "candidate_port": 5197,
+  "production_admin_address": "127.0.0.1:2019",
+  "candidate_admin_address": "127.0.0.1:2020"
+}

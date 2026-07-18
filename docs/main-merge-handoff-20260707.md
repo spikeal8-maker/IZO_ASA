@@ -7,7 +7,8 @@ This project folder is the current integration candidate for the new UI plus bac
 - Project folder: `D:\Google Drive\My progact\Генератор картинок`
 - Branch: `hotfix/live-auth-gallery-faceswap-20260703`
 - Do not use sibling worktrees as deployment sources for this project.
-- Do not leave `frontend/` deleted in this folder. Public launch depends on `frontend/` for `vite build` and `vite preview`.
+- Do not leave `frontend/` deleted in this folder. Public launch depends on
+  `frontend/` for the Vite build and Caddy candidate/browser verification.
 
 ## Integrated Pieces
 
@@ -64,6 +65,8 @@ Check:
 
 ## Current Risk Notes
 
-- `/feed` and `/gallery` are backend static pages proxied through Vite preview on port `5173`.
-- If Vite proxy misses `/feed`, `/gallery`, or `/static`, the domain may show the SPA or a 404 instead of the backend page.
+- `/feed` and `/gallery` are backend static pages proxied through local Caddy on port `5173`.
+- If the Caddy route contract misses `/feed`, `/gallery`, or `/static`, the domain
+  may show the SPA or a 404 instead of the backend page; the EDGE-001 integration
+  test protects this ownership.
 - If backend is not restarted from this project folder, the live site can temporarily run mixed code: new Vite frontend with an older backend process.

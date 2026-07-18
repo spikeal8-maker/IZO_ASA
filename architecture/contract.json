@@ -188,13 +188,19 @@
   ],
   "listeners": [
     {
-      "id": "frontend-preview",
+      "id": "frontend-edge",
       "bind": "127.0.0.1",
       "port": 5173,
-      "required_local": false,
-      "process_names": ["node.exe"],
-      "command_contains": ["vite", "preview", "--port", "5173"],
-      "evidence_files": ["tools/publish-frontend-release.ps1"]
+      "required_local": true,
+      "process_names": ["caddy.exe"],
+      "command_contains": ["run", "--config", "ops\\caddy\\Caddyfile"],
+      "evidence_files": [
+        "ops/caddy/Caddyfile",
+        "ops/caddy/runtime.json",
+        "tools/caddy-runtime.ps1",
+        "tools/check-caddy-edge.ps1",
+        "tools/publish-frontend-release.ps1"
+      ]
     },
     {
       "id": "api",
@@ -342,6 +348,12 @@
   "release_contract": {
     "python_version_file": ".python-version",
     "node_version_file": ".node-version",
+    "edge_server": {
+      "name": "caddy",
+      "version": "2.11.4",
+      "runtime_spec": "ops/caddy/runtime.json",
+      "config": "ops/caddy/Caddyfile"
+    },
     "required_files": [
       ".github/workflows/ci.yml",
       "backend/app/release_identity.py",
@@ -351,10 +363,17 @@
       "tools/release_verification_receipt.py",
       "tools/verify.ps1",
       "tools/restart-backend.ps1",
+      "tools/install-caddy.ps1",
+      "tools/caddy-runtime.ps1",
+      "tools/check-caddy-edge.ps1",
+      "tools/start-caddy-from-active-release.ps1",
+      "tools/stop-caddy.ps1",
       "tools/publish-frontend-release.ps1",
       "tools/publish-frontend-release-break-glass.ps1",
       "tools/rollback-frontend-release.ps1",
       "tools/start-production-stack.ps1",
+      "ops/caddy/runtime.json",
+      "ops/caddy/Caddyfile",
       "start-public.bat"
     ],
     "schema_compatibility": {
@@ -375,7 +394,7 @@
     ],
     "known_gaps": [
       "Backend source is still loaded from the mutable checkout; REL-002 moves API slots to exact release directories.",
-      "Vite Preview listener replacement now rolls back on activation failure but is not a zero-downtime A/B switch; EDGE-001 and REL-002 close that gap.",
+      "Caddy now reloads frontend roots gracefully, but the backend still lacks A/B slots and request draining; REL-002 closes that remaining release gap.",
       "Verification receipts and break-glass audit records are secret-free local integrity evidence, not cryptographically signed remote attestations; CI-001 and observability work retain independent evidence."
     ]
   }

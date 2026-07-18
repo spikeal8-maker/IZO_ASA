@@ -130,6 +130,8 @@ $architectureInventoryScript = Join-Path $toolsDirectory "generate_architecture_
 $runtimeListenerScript = Join-Path $toolsDirectory "check-runtime-listeners.ps1"
 $restartScript = Join-Path $toolsDirectory "restart-backend.ps1"
 $receiptTool = Join-Path $toolsDirectory "release_verification_receipt.py"
+$caddyInstallScript = Join-Path $toolsDirectory "install-caddy.ps1"
+$caddyCheckScript = Join-Path $toolsDirectory "check-caddy-edge.ps1"
 $projectPython = Join-Path $backendDirectory ".venv\Scripts\python.exe"
 
 foreach ($requiredPath in @(
@@ -140,7 +142,9 @@ foreach ($requiredPath in @(
     $architectureInventoryScript,
     $runtimeListenerScript,
     $restartScript,
-    $receiptTool
+    $receiptTool,
+    $caddyInstallScript,
+    $caddyCheckScript
 )) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Required verification input was not found: $requiredPath"
@@ -176,6 +180,8 @@ $quickTests = @(
     "tools/test_launchers.py",
     "tools/test_restart_backend_script.py",
     "tools/test_runtime_listener_contract.py",
+    "tools/test_caddy_edge_contract.py",
+    "tools/test_caddy_edge_integration.py",
     "tools/test_verify_script.py",
     "tools/test_backup_restore.py",
     "tools/test_ci_workflow.py",
@@ -212,10 +218,15 @@ if ($PlanOnly) {
     Write-Host "VERIFY_PLAN_STEP py_compile files=$($pythonFiles.Count)"
     Write-Host "VERIFY_PLAN_STEP backend_map_check command=python tools/generate_backend_map.py --check"
     Write-Host "VERIFY_PLAN_STEP architecture_inventory_check command=python tools/generate_architecture_inventory.py --check"
+    if ($usesFullSuite) {
+        Write-Host "VERIFY_PLAN_STEP caddy_runtime_integrity command=install-caddy.ps1 pinned=true"
+        Write-Host "VERIFY_PLAN_STEP caddy_config_validation command=check-caddy-edge.ps1 -ConfigOnly"
+    }
     if ($usesLiveChecks) {
         Write-Host "VERIFY_PLAN_STEP source_snapshot before_after=true requireStable=$RequireStableLiveSource"
         Write-Host "VERIFY_PLAN_STEP backend_preflight command=restart-backend.ps1 -PreflightOnly"
         Write-Host "VERIFY_PLAN_STEP runtime_listener_contract command=check-runtime-listeners.ps1"
+        Write-Host "VERIFY_PLAN_STEP caddy_edge_live command=check-caddy-edge.ps1"
     }
     if ($usesFullSuite) {
         Write-Host "VERIFY_PLAN_STEP pytest scope=backend+tools"
@@ -273,6 +284,25 @@ for ($offset = 0; $offset -lt $pythonFiles.Count; $offset += $compileBatchSize) 
 }
 Invoke-NativeStep -Name "backend_map_check" -FilePath $python -ArgumentList @($mapScript, "--check") -WorkingDirectory $resolvedRoot
 Invoke-NativeStep -Name "architecture_inventory_check" -FilePath $python -ArgumentList @($architectureInventoryScript, "--check") -WorkingDirectory $resolvedRoot
+if ($usesFullSuite) {
+    Invoke-NativeStep `
+        -Name "caddy_runtime_integrity" `
+        -FilePath "powershell.exe" `
+        -ArgumentList @(
+            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", $caddyInstallScript, "-RepoRoot", $resolvedRoot
+        ) `
+        -WorkingDirectory $resolvedRoot
+    Invoke-NativeStep `
+        -Name "caddy_config_validation" `
+        -FilePath "powershell.exe" `
+        -ArgumentList @(
+            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", $caddyCheckScript, "-RepoRoot", $resolvedRoot,
+            "-ReleasePath", $frontendDirectory, "-ReleaseId", "verification", "-ConfigOnly"
+        ) `
+        -WorkingDirectory $resolvedRoot
+}
 if ($usesLiveChecks) {
     Invoke-NativeStep `
         -Name "runtime_listener_contract" `
@@ -282,6 +312,14 @@ if ($usesLiveChecks) {
             "-File", $runtimeListenerScript,
             "-RepoRoot", $resolvedRoot,
             "-ContractPath", $architectureContract
+        ) `
+        -WorkingDirectory $resolvedRoot
+    Invoke-NativeStep `
+        -Name "caddy_edge_live" `
+        -FilePath "powershell.exe" `
+        -ArgumentList @(
+            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", $caddyCheckScript, "-RepoRoot", $resolvedRoot
         ) `
         -WorkingDirectory $resolvedRoot
 }

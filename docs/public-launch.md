@@ -9,8 +9,8 @@ scripts in this repository do not modify the VPS configuration.
 | Script | Purpose | Frontend on 5173 |
 |---|---|---|
 | `start-project.bat` | local development only | Vite dev server |
-| `start-public.bat` | controlled public release | immutable release directory through Vite preview |
-| `start-public-autostart.bat` | public release plus local FRP verification | immutable release directory through Vite preview |
+| `start-public.bat` | controlled public release | immutable release directory through local Caddy |
+| `start-public-autostart.bat` | public release plus local FRP verification | immutable release directory through local Caddy |
 | `stop-public.bat` | stop local public processes | none |
 
 Never expose the Vite dev server through the public domain. A public page must
@@ -23,6 +23,7 @@ The tracked pins are authoritative:
 
 - `.python-version`: Python 3.11.9;
 - `.node-version`: Node.js 24.14.1;
+- `ops/caddy/runtime.json`: Caddy 2.11.4 with exact archive and executable SHA-256;
 - backend runtime: `backend/.venv/Scripts/python.exe` only;
 - frontend dependencies: `frontend/node_modules` installed from `package-lock.json`.
 
@@ -36,6 +37,19 @@ Create the backend environment from the repository root:
 
 Production startup fails before listener mutation if the project environment is
 missing, has the wrong Python version, or a global Python executable is selected.
+
+Install the pinned project-local Caddy binary once on this PC (and on a new PC)
+from the canonical repository:
+
+```powershell
+.\tools\install-caddy.ps1 -PlanOnly
+.\tools\install-caddy.ps1
+```
+
+The installer downloads only the fixed official GitHub release URL, verifies the
+archive SHA-256 before extraction, verifies the executable SHA-256 and version,
+then installs under `.tools/caddy/2.11.4/`. The binary is runtime tooling and is not
+committed to Git.
 
 ## Immutable release identity
 
@@ -89,11 +103,14 @@ different SHA or expired receipt fails before candidate build and listener chang
 2. Runs or validates the exact-SHA verification receipt.
 3. Builds a new frontend candidate with an exact release ID.
 4. Generates and validates `release-manifest.json` from a clean `main` checkout.
-5. Starts an isolated candidate preview on port 5197 and runs browser smoke for
+5. Validates `ops/caddy/Caddyfile`, starts an isolated Caddy candidate on port 5197 and runs browser smoke for
    `/`, `/feed`, `/gallery` and `/profile`.
-6. Starts the candidate on `127.0.0.1:5173`, verifies its exact meta, then atomically
-   changes the active manifest. An activation failure restores the previous listener
-   while the old manifest remains active.
+6. On the first EDGE-001 migration, replaces the verified canonical Vite listener
+   with Caddy on the same `127.0.0.1:5173`; later releases use Caddy's graceful
+   configuration reload without stopping the listener. The exact release marker is
+   checked before the active manifest changes. An activation failure restores the
+   previous Caddy root (or the one-time migration Vite listener) while the old
+   manifest remains active.
 7. Calls `tools/restart-backend.ps1` with the same manifest and project `.venv`.
 8. Requires the new backend to be ready and to report the exact manifest release,
    frontend release and full commit.
@@ -147,7 +164,18 @@ Useful read-only checks:
 Invoke-RestMethod http://127.0.0.1:8000/api/health
 Invoke-RestMethod http://127.0.0.1:8000/api/version
 .\tools\check-runtime-listeners.ps1
+.\tools\check-caddy-edge.ps1
 ```
+
+The local Caddy edge is HTTP-only and bound strictly to `127.0.0.1:5173`; TLS remains
+on the existing VPS/FRP ingress. The FRP contract stays
+`izo.alikinas.ru -> 127.0.0.1:5173`, so EDGE-001 requires no VPS change. Caddy owns
+`/api`, `/media`, `/feed`, `/gallery` and `/static` proxy routes; all other routes
+use the immutable SPA root. Hashed `/assets/*` are cached for one year as immutable,
+HTML is `no-store`, zstd/gzip and security headers are enabled, request bodies and
+timeouts are bounded, and JSON access/runtime logs rotate under `logs/`. Cookies,
+authorization, synthetic keys and sensitive query parameters are removed or hashed
+before access-log serialization.
 
 ## Backend restart and rollback boundary
 
@@ -174,22 +202,26 @@ listener's direct parent is the exact project `.venv` executable and both proces
 carry the expected bind, port and `--no-proxy-headers` Uvicorn command. The active
 backend receipt records both PIDs and `runtime_ownership=windows-venv-child`.
 
-Frontend rollback validates the selected artifact before replacing port 5173:
+Frontend rollback validates the selected artifact through a Caddy candidate before
+gracefully reloading port 5173:
 
 ```powershell
 .\tools\rollback-frontend-release.ps1 -PlanOnly
 .\tools\rollback-frontend-release.ps1 -ReleaseId <previous_release_id>
 ```
 
-REL-001 now restores the previous frontend when listener activation fails. A true
-zero-downtime edge/API A/B switch and immutable old-backend artifact are still
-tracked in `EDGE-001` and `REL-002`; do not describe those as already solved.
+The rollback refuses to switch the frontend unless the active backend already
+reports the same target release. This prevents a mixed frontend/backend identity;
+the backend rollback must complete first. Caddy frontend reload is graceful, but a
+true API A/B switch, drain and immutable old-backend artifact remain REL-002 work.
 
 ## Windows autostart
 
-`tools/start-production-stack.ps1` starts or verifies Ollama, ComfyUI, FRP and the
-public launcher. It no longer starts an unmanaged bootstrap backend. A cold backend
-is created by the same manifest-controlled path as a normal release.
+`tools/start-production-stack.ps1` starts or verifies Ollama, ComfyUI, FRP, Caddy
+and the public launcher. If only Caddy is offline while the backend is healthy, it
+restores Caddy directly from the active immutable manifest without rebuilding a
+release. It no longer starts an unmanaged bootstrap backend. A cold backend is
+created by the same manifest-controlled path as a normal release.
 
 The Startup-folder launcher runs under the intended Windows account, not `SYSTEM`,
 because CurrentUser DPAPI secrets and local model stores are account-bound. The
@@ -202,5 +234,7 @@ Read-only stack verification:
 powershell -ExecutionPolicy Bypass -File .\tools\start-production-stack.ps1 -CheckOnly
 ```
 
-Vite preview remains a transitional local server. Replacing it with local Caddy is
-the separate `EDGE-001` package and does not require changing the VPS tunnel.
+Vite preview remains available only for explicit development/preview commands. It
+is not used by the normal production serving path after EDGE-001. Windows service
+supervision and reboot/crash recovery with restart backoff remain the separate
+`OPS-001` package.
