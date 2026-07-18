@@ -512,16 +512,17 @@
 - STANDBY получает данные в отдельный ReplicaCache, после чего выполняет полный
   verify и опциональный rehearsal; backend/FRP автоматически не включаются;
 - `ops/backup` содержит role config, fail-closed launcher guard, lock локального
-  backup, 15-минутный local schedule, почасовой stage/receive, ежедневный STANDBY
-  rehearsal и 10-минутный health monitor;
+  backup, 15-минутный local schedule, ночной PRIMARY stage в 01:00, почасовой
+  STANDBY receive, ежедневный STANDBY rehearsal и 10-минутный health monitor;
 - установщик проверяет NTFS, отдельный backup volume, fixed internal Yandex root,
   наличие live DB/media/Python, `YandexDisk4.exe` и `cldflt`; secrets не записывает;
 - contract suite: `17 passed`; все PowerShell-сценарии разобраны parser без ошибок;
 - production-safe snapshot `20260716T005805.698960Z`: DB 565 104 640 байт,
   media 2 436 файлов / 260 170 702 байта, 96 новых objects / 2 340 reuse;
   `BACKUP_VERIFY_OK` и `BACKUP_REHEARSAL_OK` успешны без остановки backend.
-- PRIMARY automation установлена: 15-минутный local backup, hourly cloud stage,
-  10-минутный health, запуск после входа с задержкой 5 минут и три повтора;
+- PRIMARY automation установлена: 15-минутный local backup, cloud stage один раз в
+  сутки в 01:00, 10-минутный health, запуск после входа с задержкой 5 минут и три
+  повтора; задания Task Scheduler выполняются со скрытым окном;
 - снимок `20260716T154600.223168Z` прошёл backup/verify/stage, клиент подтвердил
   HTTP 201 и cloud reaction; локальный receive/rehearsal в отдельный cache успешен;
 - пять cloud snapshot подряд прошли локальный receive/verify/rehearsal; focused

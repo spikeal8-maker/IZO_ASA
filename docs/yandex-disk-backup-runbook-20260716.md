@@ -100,7 +100,7 @@ Focused suite `tools/test_backup_transport.py` + `tools/test_backup_restore.py`
 - `tools/backup_transport.py` — публикация готового snapshot и приём в ReplicaCache.
 - `ops/backup/run_local_backup.ps1` — PRIMARY-цикл с lock, plan, backup, verify и health.
 - `ops/backup/run_local_backup_startup.ps1` — задержанный запуск после входа.
-- `ops/backup/stage_cloud_backup.ps1` — почасовая публикация в Яндекс.Диск.
+- `ops/backup/stage_cloud_backup.ps1` — ночная публикация в Яндекс.Диск.
 - `ops/backup/receive_cloud_backup.ps1` — получение на STANDBY и rehearsal.
 - `ops/backup/check_backup_health.ps1` — freshness/process/space health.
 - `ops/backup/install_backup_automation.ps1` — конфигурация и Task Scheduler.
@@ -171,15 +171,21 @@ C:\IZO_ASA\health\backup-current.json
 ## Расписание PRIMARY
 
 - `IZO_ASA Local Backup 15m`: каждые 15 минут и при старте Windows с задержкой 5 минут.
-- `IZO_ASA Cloud Stage Hourly`: один раз в час.
+- `IZO_ASA Cloud Stage Daily 01h`: один раз в сутки в 01:00 по локальному времени;
+  если компьютер был выключен, один пропущенный запуск выполняется после входа.
 - `IZO_ASA Backup Health 10m`: каждые 10 минут.
 - ошибки задания повторяются через 5 минут, максимум три раза;
 - параллельный локальный backup блокируется lock-файлом;
 - retention автоматически не включён.
 
-Задания выполняются от интерактивного Windows-пользователя: это необходимо для
-пользовательского приложения Яндекс.Диск. После перезагрузки требуется вход этого
-пользователя или отдельно согласованный безопасный автологин.
+Задания выполняются скрыто от интерактивного Windows-пользователя: это необходимо
+для пользовательского приложения Яндекс.Диск, но окна PowerShell показываться не
+должны. После перезагрузки требуется вход этого пользователя или отдельно
+согласованный безопасный автологин.
+
+Только `Cloud Stage Daily 01h` размещает новый snapshot в синхронизируемой папке и
+создаёт заметный облачный трафик. Локальный backup пишет на отдельный локальный диск,
+а health-задача выполняет небольшой HTTPS-тест доступности без отправки архива.
 
 ## Подготовка STANDBY
 

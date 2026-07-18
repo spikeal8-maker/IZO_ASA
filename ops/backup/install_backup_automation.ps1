@@ -149,12 +149,17 @@ function Register-IzoScheduledTask {
     param(
         [string]$Name,
         [string]$Script,
+        [string]$ScriptArguments,
         [ValidateSet('MINUTE', 'HOURLY', 'DAILY')]
         [string]$Schedule,
         [int]$Modifier = 1,
-        [string]$StartTime
+        [string]$StartTime,
+        [switch]$StartWhenAvailable
     )
-    $action = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $Script"
+    $action = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Script + '"'
+    if ($ScriptArguments) {
+        $action += ' ' + $ScriptArguments
+    }
     $arguments = @('/Create', '/TN', $Name, '/TR', $action, '/SC', $Schedule, '/RL', $runLevel, '/F')
     if ($Schedule -in @('MINUTE', 'HOURLY')) {
         $arguments += @('/MO', [string]$Modifier)
@@ -166,15 +171,25 @@ function Register-IzoScheduledTask {
     if ($LASTEXITCODE -ne 0) {
         throw "Scheduled task registration failed: $Name"
     }
+    $settingsArguments = @{
+        Hidden = $true
+        MultipleInstances = 'IgnoreNew'
+    }
+    if ($StartWhenAvailable) {
+        $settingsArguments['StartWhenAvailable'] = $true
+    }
+    Set-ScheduledTask -TaskName $Name -Settings (New-ScheduledTaskSettingsSet @settingsArguments) | Out-Null
     $expectedTasks.Add($Name)
 }
 
+$obsoleteTasks = [System.Collections.Generic.List[string]]::new()
 if ($Role -eq 'PRIMARY') {
     Register-IzoScheduledTask -Name 'IZO_ASA Local Backup 15m' -Script "$runtimeDir\run_local_backup.ps1" -Schedule MINUTE -Modifier 15
-    Register-IzoScheduledTask -Name 'IZO_ASA Cloud Stage Hourly' -Script "$runtimeDir\stage_cloud_backup.ps1" -Schedule HOURLY -Modifier 1
+    Register-IzoScheduledTask -Name 'IZO_ASA Cloud Stage Daily 01h' -Script "$runtimeDir\stage_cloud_backup.ps1" -Schedule DAILY -StartTime '01:00' -StartWhenAvailable
+    $obsoleteTasks.Add('IZO_ASA Cloud Stage Hourly')
 } else {
     Register-IzoScheduledTask -Name 'IZO_ASA Replica Receive Hourly' -Script "$runtimeDir\receive_cloud_backup.ps1" -Schedule HOURLY -Modifier 1
-    Register-IzoScheduledTask -Name 'IZO_ASA Replica Rehearsal Daily' -Script "$runtimeDir\receive_cloud_backup.ps1 -Rehearse" -Schedule DAILY -StartTime '03:30'
+    Register-IzoScheduledTask -Name 'IZO_ASA Replica Rehearsal Daily' -Script "$runtimeDir\receive_cloud_backup.ps1" -ScriptArguments '-Rehearse' -Schedule DAILY -StartTime '03:30' -StartWhenAvailable
 }
 Register-IzoScheduledTask -Name 'IZO_ASA Backup Health 10m' -Script "$runtimeDir\check_backup_health.ps1" -Schedule MINUTE -Modifier 10
 
@@ -195,6 +210,14 @@ if ($yandexProcess -and $yandexProcess.Path) {
 foreach ($taskName in $expectedTasks) {
     if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) {
         throw "Scheduled task verification failed: $taskName"
+    }
+}
+foreach ($taskName in $obsoleteTasks) {
+    if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+        & schtasks.exe /Delete /TN $taskName /F | Write-Host
+        if ($LASTEXITCODE -ne 0) {
+            throw "Obsolete scheduled task removal failed: $taskName"
+        }
     }
 }
 $startupMode = if ($Role -eq 'PRIMARY') { 'HKCU_RUN_DELAY_5M' } else { 'NONE' }
