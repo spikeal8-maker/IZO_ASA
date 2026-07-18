@@ -13,7 +13,8 @@ FRONTEND_SRC = Path(__file__).resolve().parent.parent / "frontend" / "src"
 
 def test_gallery_shell_keeps_sticky_header_and_five_mobile_tabs():
     css = (GALLERY_DIR / "gallery.css").read_text(encoding="utf-8")
-    assert "overflow-x:clip" in css
+    assert "html{overflow-x:clip}" in css
+    assert "body{overflow-x:visible}" in css
     assert ".iv3.topbar-scope" in css and "position:sticky;top:0;z-index:100" in css
     assert "grid-template-columns:repeat(5,minmax(0,1fr))" in css
     assert "grid-template-columns:repeat(6,minmax(0,1fr))" not in css
@@ -62,6 +63,15 @@ def test_generator_history_preserves_and_renders_video_media():
     assert "item.mediaType === 'video'" in studio
     assert "<video" in studio
     assert "videoUrl || item.url" in studio
+
+
+def test_gallery_use_as_verifies_private_media_without_double_api_prefix():
+    studio = (FRONTEND_SRC / "newUi.tsx").read_text(encoding="utf-8")
+    verify_block = studio.split("async function verifyPrivateImage", 1)[1].split("const PRIVATE_ERROR_DETAILS", 1)[0]
+
+    assert "fetch(apiUrl(path), { credentials: 'include' })" in verify_block
+    assert "apiFetch(path)" not in verify_block
+    assert "ensureSessionRefreshedV2()" in verify_block
 
 
 def test_gallery_cards_defer_offscreen_render_and_masonry_reuses_spans():

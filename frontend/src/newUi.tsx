@@ -88,7 +88,9 @@ async function apiFetch(path: string, init: RequestInit = {}) {
 }
 
 async function verifyPrivateImage(path: string): Promise<void> {
-  const response = await apiFetch(path)
+  const request = () => fetch(apiUrl(path), { credentials: 'include' })
+  let response = await request()
+  if (response.status === 401 && await ensureSessionRefreshedV2()) response = await request()
   if (!response.ok) throw new Error(`Image unavailable: ${response.status}`)
   await response.body?.cancel().catch(() => undefined)
 }

@@ -7,6 +7,7 @@ from io import BytesIO
 from PIL import Image
 
 import main
+import gallery_original_migrate
 
 
 def test_older_gallery_images_are_compacted_once(tmp_path, monkeypatch):
@@ -148,3 +149,41 @@ def test_missing_source_thumbnail_is_repaired_without_replacing_row(tmp_path, mo
     assert row["is_favorite"] == 1
     assert row["thumb_url"].endswith(".webp?userId=source-user")
     assert main.local_media_path_from_url(row["thumb_url"]).is_file()
+
+
+def test_gallery_original_history_rewrite_is_structured_and_idempotent(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "DB_PATH", tmp_path / "gallery.sqlite3")
+    monkeypatch.setattr(main, "MEDIA", tmp_path / "media")
+    main.MEDIA.mkdir()
+    main.init_db()
+    old_url = "/api/media/legacy.png?userId=archive-user"
+    settings = json.dumps(
+        {
+            "resultUrl": old_url,
+            "nested": {"inputImage1": old_url},
+            "workflowImage": "legacy.png",
+            "note": "legacy.png is descriptive text, not a media URL",
+        }
+    )
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO users (id, language, role, created_at, last_login_at) "
+            "VALUES ('archive-user', 'ru', 'user', '2026-01-01', '2026-01-01')"
+        )
+        conn.execute(
+            "INSERT INTO jobs (id, user_id, mode, provider, status, settings_json, created_at) "
+            "VALUES ('archive-job', 'archive-user', 'image_to_image', 'comfyui', 'completed', ?, '2026-01-01')",
+            (settings,),
+        )
+
+    first = gallery_original_migrate.rewrite_migrated_settings({"legacy.png": "legacy.webp"})
+    second = gallery_original_migrate.rewrite_migrated_settings({"legacy.png": "legacy.webp"})
+
+    assert first == {"rows": 1, "references": 3, "jobs": 1, "images": 0}
+    assert second == {"rows": 0, "references": 0, "jobs": 0, "images": 0}
+    with main.db() as conn:
+        stored = json.loads(conn.execute("SELECT settings_json FROM jobs WHERE id = 'archive-job'").fetchone()[0])
+    assert stored["resultUrl"] == "/api/media/legacy.webp?userId=archive-user"
+    assert stored["nested"]["inputImage1"] == "/api/media/legacy.webp?userId=archive-user"
+    assert stored["workflowImage"] == "legacy.webp"
+    assert stored["note"] == "legacy.png is descriptive text, not a media URL"
