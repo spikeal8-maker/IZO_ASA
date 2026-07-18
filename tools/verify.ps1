@@ -423,13 +423,14 @@ $summary = [ordered]@{
 }
 if ($ReceiptPath.Trim()) {
     $summaryJson = $summary | ConvertTo-Json -Compress
+    $durationArgument = $duration.ToString([Globalization.CultureInfo]::InvariantCulture)
     $receiptOutput = @(
         & $python $receiptTool write `
             --root $resolvedRoot `
             --output $ReceiptPath `
             --mode $Mode `
             --started-at ($startedAt.ToUniversalTime().ToString("o")) `
-            --duration-seconds $duration `
+            --duration-seconds $durationArgument `
             --summary-json $summaryJson 2>&1
     )
     if ($LASTEXITCODE -ne 0) {

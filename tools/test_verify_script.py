@@ -184,6 +184,8 @@ def test_verify_script_has_no_process_or_file_deletion_commands() -> None:
     assert '[string]$ReceiptPath = ""' in source
     assert "release_verification_receipt.py" in source
     assert "VERIFY_RECEIPT_WRITTEN" in source
+    assert "$duration.ToString([Globalization.CultureInfo]::InvariantCulture)" in source
+    assert "--duration-seconds $durationArgument" in source
 
 
 def test_verify_script_defaults_to_full_mode() -> None:
