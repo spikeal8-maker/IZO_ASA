@@ -2,7 +2,7 @@
 
 Дата исходного аудита: **2026-07-17**. Последняя актуализация: **2026-07-18**.
 
-Статус документа: **главный исполняемый план; S0-001, S0-002, ENV-001 и REL-001 VERIFIED; CI-001 заблокирован внешним billing; следующий реализуемый пакет EDGE-001**
+Статус документа: **главный исполняемый план; S0-001, S0-002, ENV-001 и REL-001 VERIFIED; EDGE-001 CODE COMPLETE и ожидает clean-main receipt/deploy; CI-001 заблокирован внешним billing**
 
 Предыдущий roadmap: `production-hardening-roadmap-20260713.md` остаётся историей выполненных пакетов и больше не является источником актуального порядка работ.
 
@@ -82,12 +82,12 @@
 | Параметр | Подтверждённый факт |
 |---|---|
 | Ветка | `main` |
-| Проверенный repository baseline | REL-001 code baseline `07528be0aa53166418f312cbe4586f351a0e2715` |
+| Проверенный repository baseline | EDGE-001 code baseline `01fd5ab8e7bc16ca43608f4c2c5411e70e22ab79` |
 | Production runtime baseline | release `07528be0aa53-20260718002811`; backend listener PID 49468, project-venv launcher PID 45576; frontend PID 14784 |
-| Проверенные commits | S0-001: `d3561fe`, `2498f56`, `13c8216`, `0acb299`; UI: `a5474f8`; S0-002: `8f27dc0`; ENV-001: `87c5d0c`, `29fb7ed`, `2e44782`; REL-001: `3747ee1`, `07528be` |
-| Синхронизация baseline | `07528be` отправлен в `origin/main`; следующий documentation-only checkpoint не требует restart |
-| Worktree checkpoint | REL-001 реализован, развёрнут и проверен; [точный отчёт](rel-001-fail-closed-publisher-checkpoint-20260718.md) |
-| Следующий пакет | `EDGE-001` — локальный Caddy вместо Vite Preview без изменения VPS/FRP; CI-001 остаётся внешним действием владельца |
+| Проверенные commits | S0-001: `d3561fe`, `2498f56`, `13c8216`, `0acb299`; UI: `a5474f8`; S0-002: `8f27dc0`; ENV-001: `87c5d0c`, `29fb7ed`, `2e44782`; REL-001: `3747ee1`, `07528be`; EDGE-001: `c278fa5`, `01fd5ab` |
+| Синхронизация baseline | `01fd5ab` отправлен в `origin/main`; GitHub run `29647536931` получил 0 steps из-за внешнего billing blocker |
+| Worktree checkpoint | EDGE-001 реализован и опубликован в Git, но не развёрнут: clean-main receipt блокирует параллельный незакоммиченный mail/UniSender WIP; [точный отчёт](edge-001-caddy-checkpoint-20260718.md) |
+| Следующее действие | После отдельного commit mail/UniSender WIP: полный exact-SHA receipt на объединённом clean `main`, controlled migration `5173` Vite -> Caddy, live/public smoke; VPS/FRP не менять |
 
 На момент первоначального аудита одновременно менялись backend, frontend и static shells. В S0-001 этот WIP был инвентаризирован, исправлен, протестирован, разделён на четыре понятных commits и опубликован. S0-002 закрепил архитектурные контракты, ENV-001 устранил недоказуемую runtime identity, REL-001 сделал обычный publisher receipt-bound и fail-closed без изменения VPS/FRP.
 
@@ -121,7 +121,7 @@
 | Health exposure | public `/api/health` минимален; manifest details доступны через `/api/version`, runtime details вынесены в trusted-admin route |
 | Python isolation | launcher — `backend/.venv/Scripts/python.exe`; listener — штатный дочерний base Python Windows, ownership цепочки проверяется fail-closed |
 
-Release identity теперь доказана manifest, exact-SHA receipt, PID ownership и live smoke. Оставшийся production-serving риск — `vite preview` и отсутствие API A/B drain; они принадлежат EDGE-001/REL-002.
+Release identity теперь доказана manifest, exact-SHA receipt, PID ownership и live smoke. EDGE-001 уже подготовил замену production-serving слоя, но live всё ещё принадлежит Vite Preview до clean-main receipt и controlled migration; API A/B drain остаётся REL-002.
 
 ### 3.4. Тесты и сборка
 
@@ -143,13 +143,15 @@ Release identity теперь доказана manifest, exact-SHA receipt, PID 
 | REL-001 focused gates | 38 ×5; после Windows PowerShell correction 39 ×5; architecture drift PASS в каждом исходном прогоне |
 | REL-001 exact-SHA Full receipt gate | **1506 passed**, 92 известных warnings; live ownership/media, lint/build/release/origin/browser PASS; 441.34 s |
 | REL-001 post-deploy Quick | **69 passed**; receipt release live, source snapshot stable; 33.11 s |
+| EDGE-001 focused gates | **47 passed ×5**; Caddy contract/integration, publisher/rollback, launchers, listener/inventory/verify contracts |
+| EDGE-001 clean audit gate | На `01fd5ab`: **1514 passed**, 92 известных warnings; lint/build/release identity/origin isolation/studio resilience PASS. Итоговый global process guard намеренно отказал из-за параллельного mail pytest `58520/63460`, не созданного этим прогоном; после него отдельный mail suite завершился 1420/1420 |
 | Остаточные pytest-процессы | после gate отсутствовали |
 
 S0-001 закрыл первоначальный build blocker, S0-002 закрепил контракты, ENV-001 устранил runtime identity drift, REL-001 удалил штатный `SkipVerify` и связал публикацию с exact-SHA receipt. Следующий инфраструктурный риск — Vite Preview — закрывается EDGE-001.
 
 ### 3.5. GitHub Actions
 
-Exact-SHA run `29602448159` на `8f27dc0` ранее полностью выполнил все steps и был зелёным. Последний code-bearing run `29614346436` на deployed SHA `07528be` завершился за 5 секунд: job `87996034524` содержит 0 steps, annotation снова указывает failed account payments/spending limit. Это **инфраструктурная блокировка CI**, а не падение кода; полный локальный receipt gate на том же SHA зелёный.
+Exact-SHA run `29602448159` на `8f27dc0` ранее полностью выполнил все steps и был зелёным. EDGE-001 run `29647536931` на `01fd5ab`, job `88088183806`, завершился за 3 секунды и содержит 0 steps; это тот же внешний account billing/spending blocker. Это **инфраструктурная блокировка CI**, а не падение кода; локальные clean-SHA functional gates зелёные, а production receipt намеренно отложен до clean canonical `main`.
 
 Branch protection для private repository возвращает HTTP 403 на текущем GitHub plan. Поэтому до изменения тарифа/visibility:
 
@@ -539,6 +541,12 @@ Implementation commits: `3747ee1`, `07528be`; deployed release: `07528be0aa53-20
 
 Приоритет: P1, после REL-001.
 
+Статус на 2026-07-18: **CODE COMPLETE, NOT DEPLOYED**. Commits `c278fa5`,
+`01fd5ab` находятся в `origin/main`. Live listener `127.0.0.1:5173` пока остаётся
+каноническим Vite PID 14784; Caddy проверен только на candidate-порту и в
+изолированной интеграции. Причина остановки — незакоммиченный параллельный
+mail/UniSender WIP: normal publisher и receipt обязаны требовать clean `main`.
+
 - зафиксировать текущий local FRP ingress contract без изменения VPS;
 - Caddyfile: frontend root, `/api` proxy, protected media routing, legacy routes;
 - compression, cache policy для hashed assets, no-cache для HTML;
@@ -547,6 +555,25 @@ Implementation commits: `3747ee1`, `07528be`; deployed release: `07528be0aa53-20
 - structured access/error logs с rotation;
 - config validate + local Host/TLS/header smoke;
 - Vite Preview удалить из production launcher, оставить dev/preview only.
+
+Реализовано в code baseline:
+
+- закреплён официальный Caddy `2.11.4` с SHA-256 архива и executable;
+- project-local installer, config validation, ownership-aware start/reload/stop и
+  live contract checker;
+- loopback-only Caddyfile с точным Host allowlist, routing ownership, 128 MiB body
+  limit, security/cache/compression policy и redacted rotating JSON logs;
+- publisher выполняет candidate smoke на 5197 и graceful Caddy reload; первая
+  миграция умеет fail-closed восстановить прежний Vite listener;
+- frontend manifest меняется только после exact release readiness; rollback
+  запрещает смешивать frontend с несовпадающим backend release до REL-002;
+- `verify.ps1`, architecture contract, launchers, runbook и тесты обновлены;
+- FRP `izo.alikinas.ru -> 127.0.0.1:5173`, VPS и tunnel config не изменялись.
+
+Оставшийся EDGE acceptance: получить receipt на clean объединённом SHA, выполнить
+controlled migration, подтвердить local/public Host/headers/cache/log redaction,
+Quick gate, PID ownership и отсутствие остаточных test/candidate процессов. Только
+после этого статус меняется на `VERIFIED`.
 
 ### REL-002 — API A/B switch и rollback
 
@@ -1148,11 +1175,11 @@ GPU generation time не смешивается с API latency: отдельно
 
 ## 22. Точный ближайший блок
 
-После VERIFIED REL-001 ближайший порядок такой:
+После CODE COMPLETE EDGE-001 ближайший порядок такой:
 
 1. **CI-001 (действие владельца):** устранить GitHub billing/spending blocker; до этого local `verify -Mode CI` и receipt обязательны;
-2. **EDGE-001 (следующий реализуемый пакет):** заменить Vite Preview локальным Caddy без изменения VPS/FRP;
-3. **REL-002:** получить API A/B switch/drain/rollback и immutable backend artifact;
+2. **EDGE-001 deploy closure:** после отдельного commit параллельного mail WIP выпустить clean-main exact-SHA receipt, заменить Vite Preview локальным Caddy и доказать live/public состояние без изменения VPS/FRP;
+3. **REL-002:** только после VERIFIED EDGE-001 получить API A/B switch/drain/rollback и immutable backend artifact;
 4. затем начинать **SEC-001**, а не произвольный большой перенос строк из `main.py`.
 
 Первый backend domain extraction после P0 foundation — billing/payments, потому что новые изменения оплаты уже сформировали естественную границу и требуют самых строгих инвариантов.
@@ -1197,3 +1224,4 @@ GPU generation time не смешивается с API latency: отдельно
 | 2026-07-17 | S0-002 завершён в `8f27dc0`: semantic contract, детерминированные route/auth/task/schema/integration/frontend/release inventories, size/symbol budgets и read-only listener ownership встроены в Quick/Full/CI; focused ×5, полный local gate и exact-SHA GitHub run `29602448159` зелёные. Следующий run `29604148160` снова заблокирован billing до steps, поэтому внешний blocker остаётся; Gate 0 закрыт, следующий пакет ENV-001. |
 | 2026-07-17 | ENV-001 завершён commits `87c5d0c`, `29fb7ed`, `2e44782` и развёрнут как `2e447828be09-20260717233010`: immutable manifest, exact backend/frontend identity, minimal health, trusted-admin runtime health и project `.venv` ownership проверены локально и через FRP. Focused gates ×5, full 1497/1497 и post-deploy Quick 63/63 зелёные. Два candidate-дефекта безопасно откатились и исправлены. GitHub run `29611341429` не получил runner (0 steps, billing annotation), поэтому CI-001 остаётся внешне заблокирован, следующий реализуемый пакет — REL-001. |
 | 2026-07-18 | REL-001 завершён commits `3747ee1`, `07528be` и развёрнут как `07528be0aa53-20260718002811`: normal path теперь exact-SHA receipt-bound без `SkipVerify`, frontend activation rollback fail-closed, break-glass reason/operator/single-use/audit-gated. Focused 38×5 и 39×5, final Full 1506/1506, Quick 69/69, local/public identity зелёные. Первая попытка безопасно остановилась до candidate из-за несовместимого `Get-FileHash`; .NET correction доказана Windows PowerShell test. GitHub run `29614346436` — 0 steps из-за billing, поэтому CI-001 остаётся внешним blocker; следующий пакет EDGE-001. |
+| 2026-07-18 | EDGE-001 CODE COMPLETE commits `c278fa5`, `01fd5ab` и отправлен в `origin/main`: pinned Caddy 2.11.4, loopback/Host boundary, routing, cache/security/compression/logging, candidate validation, graceful reload, first-migration Vite recovery и fail-closed rollback реализованы. Focused 47×5. Clean SHA gate прошёл 1514/1514, lint/build/release/origin/browser; общий verifier не выдал receipt только из-за одновременно запущенного отдельного mail pytest, затем завершившегося 1420/1420. Live остаётся на release `07528be0aa53-20260718002811`/Vite PID 14784 до clean-main deploy closure; VPS/FRP не менялись. GitHub run `29647536931` — 0 steps из-за billing. |
