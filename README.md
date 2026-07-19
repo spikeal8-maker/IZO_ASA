@@ -6,11 +6,17 @@ Prototype web / Telegram Mini App / MAX Mini App interface for `FluxKleinOneNode
 
 Start here when you or another agent joins the project:
 
+- `AGENTS.md` — authoritative repository rules for every coding agent, including
+  production safety, modularization, tests, commits and release ownership.
+- `docs/engineering-optimization-master-plan-20260719.md` — authoritative current
+  execution order for optimization of the live product.
+- `docs/agent-compliance-audit-20260719.md` — current evidence audit of recent
+  agent work, architecture, live runtime and confirmed risks.
 - `docs/public-launch.md` — public/live launch flow with `start-public.bat` (запуск и deploy).
   It also defines the immutable release manifest, project `.venv`, health and
   controlled rollback boundaries.
-- `docs/engineering-transformation-master-plan-20260717.md` — authoritative current
-  audit, decisions and execution order for safe production transformation.
+- `docs/engineering-transformation-master-plan-20260717.md` — historical
+  transformation checkpoint superseded by the 2026-07-19 optimization plan.
 - `docs/production-hardening-roadmap-20260713.md` — historical roadmap and checkpoint
   evidence up to the 2026-07-17 audit; it is no longer the current backlog.
 - `docs/production-hardening-master-plan-20260712.md` — historical checkpoint journal
