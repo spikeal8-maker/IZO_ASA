@@ -176,7 +176,13 @@ def test_video_model_parser_normalizes_capabilities_prices_and_evidence():
         "supported_frame_images": ["first_frame", "last_frame"],
         "generate_audio": True,
         "seed": False,
-        "pricing_skus": {"duration_seconds_720p": "0.08", "bad": "unknown", "negative": -1},
+        "pricing_skus": {
+            "duration_seconds_720p": "0.08",
+            "cents_per_video_output_second_480p": "5",
+            "cents_per_image_input": "0.2",
+            "bad": "unknown",
+            "negative": -1,
+        },
         "allowed_passthrough_parameters": ["seed", "generate_audio"],
     }, {"name": "missing id"}, "bad-row"]}
 
@@ -187,7 +193,11 @@ def test_video_model_parser_normalizes_capabilities_prices_and_evidence():
     assert model["id"] == "vendor/video-pro"
     assert model["created"] == 0
     assert model["supportedDurations"] == [5, 10]
-    assert model["pricingSkus"] == {"duration_seconds_720p": 0.08}
+    assert model["pricingSkus"] == {
+        "duration_seconds_720p": 0.08,
+        "cents_per_video_output_second_480p": 5.0,
+        "cents_per_image_input": 0.2,
+    }
     assert model["modes"] == ["text_to_video", "image_to_video", "first_last_frame", "reference_to_video"]
     assert model["referenceEvidence"] == "description"
 

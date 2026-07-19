@@ -103,6 +103,92 @@ def test_video_estimate_rejects_unsupported_resolution(video_api: TestClient):
     assert "разрешение" in generated.json()["detail"].lower()
 
 
+def test_video_estimate_accepts_current_openrouter_cent_pricing(video_api: TestClient, monkeypatch):
+    current_model = {
+        **MODEL,
+        "pricingSkus": {
+            "cents_per_video_output_second_720p": 7.0,
+            "cents_per_image_input": 0.2,
+        },
+    }
+
+    async def catalog(force: bool = False):
+        del force
+        return [current_model]
+
+    monkeypatch.setattr(main, "fetch_openrouter_video_catalog", catalog)
+    response = video_api.post("/api/video/estimate", json=payload())
+
+    assert response.status_code == 200
+    estimate = response.json()
+    assert estimate["pricingKey"] == "cents_per_video_output_second_720p"
+    assert estimate["pricingSource"] == "catalog"
+    assert estimate["pricingFallback"] is False
+    assert estimate["estimatedCostUsd"] == pytest.approx(0.28)
+    assert estimate["chargedTokens"] == 10
+
+
+def test_unpriced_video_model_uses_startup_price_and_can_generate(video_api: TestClient, monkeypatch):
+    unpriced_model = {**MODEL, "pricingSkus": {}}
+
+    async def catalog(force: bool = False):
+        del force
+        return [unpriced_model]
+
+    async def submit(**_kwargs):
+        return {"id": "external-unpriced", "status": "pending", "polling_url": "/api/v1/videos/external-unpriced"}
+
+    monkeypatch.setattr(main, "fetch_openrouter_video_catalog", catalog)
+    monkeypatch.setattr(main, "submit_openrouter_video", submit)
+
+    config = video_api.get("/api/video/config")
+    estimate = video_api.post("/api/video/estimate", json=payload())
+    generated = video_api.post("/api/video/generate", json=payload())
+
+    assert config.status_code == 200
+    assert config.json()["modes"]["text_to_video"][0]["publicPricing"]["fromTokens"] > 0
+    assert config.json()["modes"]["text_to_video"][0]["publicPricing"]["estimated"] is True
+    assert estimate.status_code == 200
+    assert estimate.json()["pricingSource"] == "startup_baseline"
+    assert estimate.json()["pricingFallback"] is True
+    assert estimate.json()["chargedTokens"] == 14
+    assert generated.status_code == 200
+    assert generated.json()["tokenCost"] == estimate.json()["chargedTokens"]
+
+
+def test_unpriced_video_model_recalibrates_from_actual_history(video_api: TestClient, monkeypatch):
+    unpriced_model = {**MODEL, "pricingSkus": {}}
+
+    async def catalog(force: bool = False):
+        del force
+        return [unpriced_model]
+
+    monkeypatch.setattr(main, "fetch_openrouter_video_catalog", catalog)
+    with main.db() as conn:
+        for index in range(3):
+            settings = {
+                "openrouterModel": MODEL["id"],
+                "duration": 4,
+                "resolution": "720p",
+                "aspectRatio": "16:9",
+                "generateAudio": False,
+                "openrouterCostUsd": 0.04,
+            }
+            conn.execute(
+                "INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,settings_json,created_at,completed_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (f"historical-video-{index}", "video-user", "text_to_video", "openrouter", "completed", 100, "history", json.dumps(settings), f"2026-07-15T00:0{index}:00+00:00", f"2026-07-15T00:0{index}:10+00:00"),
+            )
+
+    response = video_api.post("/api/video/estimate", json=payload())
+
+    assert response.status_code == 200
+    estimate = response.json()
+    assert estimate["pricingSource"] == "model_history"
+    assert estimate["pricingSampleCount"] == 3
+    assert estimate["rateUsd"] == pytest.approx(0.025)
+    assert estimate["chargedTokens"] == 4
+
+
 def test_video_generate_persists_external_job_and_server_price(video_api: TestClient, monkeypatch):
     captured = {}
 

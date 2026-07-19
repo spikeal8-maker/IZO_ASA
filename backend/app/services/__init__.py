@@ -12,6 +12,7 @@ from . import gallery_eviction
 from . import gallery_query
 from . import gallery_presentation
 from . import gallery_items
+from . import video_pricing
 from . import feed_presentation
 from . import feed_sources
 from . import feed_downloads
@@ -52,6 +53,7 @@ __all__ = [
     "gallery_query",
     "gallery_presentation",
     "gallery_items",
+    "video_pricing",
     "feed_presentation",
     "feed_sources",
     "feed_downloads",

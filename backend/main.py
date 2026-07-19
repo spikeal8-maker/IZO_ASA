@@ -329,6 +329,7 @@ try:
         gallery_presentation,
         gallery_items,
         video_storage,
+        video_pricing,
         feed_presentation,
         feed_sources,
         feed_downloads,
@@ -367,6 +368,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         gallery_presentation,
         gallery_items,
         video_storage,
+        video_pricing,
         feed_presentation,
         feed_sources,
         feed_downloads,
@@ -16346,30 +16348,6 @@ def openrouter_usage_stats() -> dict[str, Any]:
     }
 
 
-def _video_pricing_rate(model: dict[str, Any], req: VideoGenerateRequest) -> tuple[float, str, str | None]:
-    pricing = model.get("pricingSkus") if isinstance(model.get("pricingSkus"), dict) else {}
-    resolution = req.resolution.lower()
-    prefix = "text_to_video_duration_seconds" if req.mode == "text_to_video" else "image_to_video_duration_seconds"
-    preferred = [
-        f"{prefix}_{resolution}",
-        f"duration_seconds_{'with' if req.generateAudio else 'without'}_audio_{resolution}",
-        f"duration_seconds_{resolution}",
-        prefix,
-        f"duration_seconds_{'with' if req.generateAudio else 'without'}_audio",
-        "duration_seconds",
-    ]
-    for key in preferred:
-        if isinstance(pricing.get(key), (int, float)):
-            return float(pricing[key]), "second", key
-    token_key = "video_tokens" if req.generateAudio or not isinstance(pricing.get("video_tokens_without_audio"), (int, float)) else "video_tokens_without_audio"
-    if isinstance(pricing.get(token_key), (int, float)):
-        return float(pricing[token_key]), "video_token", token_key
-    generic = next(((str(key), float(value)) for key, value in pricing.items() if isinstance(value, (int, float)) and "duration" in str(key)), None)
-    if generic:
-        return generic[1], "second", generic[0]
-    raise HTTPException(422, "Для выбранной видеомодели нет проверенной ставки.")
-
-
 def _video_size(model: dict[str, Any], resolution: str, aspect_ratio: str) -> tuple[int, int] | None:
     ratio_parts = [int(value) for value in aspect_ratio.split(":") if value.isdigit()]
     target_ratio = ratio_parts[0] / ratio_parts[1] if len(ratio_parts) == 2 and ratio_parts[1] else None
@@ -16394,8 +16372,15 @@ def _openrouter_video_billing_from_exchange(
     *,
     rate: float,
     economy: dict[str, float],
+    pricing_history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    rate_usd, unit, source_key = _video_pricing_rate(model, req)
+    pricing_rate = video_pricing.resolve_video_rate(
+        model,
+        model_id=str(model.get("id") or req.model), mode=req.mode, resolution=req.resolution,
+        aspect_ratio=req.aspectRatio, generate_audio=req.generateAudio,
+        samples=pricing_history if pricing_history is not None else video_pricing.load_actual_pricing_samples(db, safe_json_load),
+    )
+    rate_usd, unit = pricing_rate.usd_rate, pricing_rate.unit
     billed_units = float(req.duration)
     size = _video_size(model, req.resolution, req.aspectRatio)
     if unit == "video_token":
@@ -16410,7 +16395,10 @@ def _openrouter_video_billing_from_exchange(
     tokens = openrouter_tokens_for_cost(cost_rub, 1, economy)
     revenue = tokens * float(economy["tokenRub"])
     return {
-        "billingStatus": "estimated", "modelId": model["id"], "pricingKey": source_key,
+        "billingStatus": "estimated", "modelId": model["id"], "pricingKey": pricing_rate.source_key,
+        "pricingSource": pricing_rate.source,
+        "pricingFallback": pricing_rate.fallback,
+        "pricingSampleCount": pricing_rate.sample_count,
         "unit": unit, "rateUsd": rate_usd, "billedUnits": round(billed_units, 4),
         "estimatedCostUsd": round(cost_usd, 6), "estimatedCostRub": round(cost_rub, 4),
         "effectiveUsdRub": round(effective_rate, 6), "exchangeRate": float(rate),
@@ -16420,7 +16408,9 @@ def _openrouter_video_billing_from_exchange(
     }
 
 
-async def estimate_openrouter_video_billing(model: dict[str, Any], req: VideoGenerateRequest) -> dict[str, Any]:
+async def estimate_openrouter_video_billing(
+    model: dict[str, Any], req: VideoGenerateRequest, *, pricing_history: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     exchange = await fetch_usd_rub_rate()
     rate = exchange.get("rate")
     if not isinstance(rate, (int, float)):
@@ -16430,6 +16420,7 @@ async def estimate_openrouter_video_billing(model: dict[str, Any], req: VideoGen
         req,
         rate=float(rate),
         economy=openrouter_economy_settings(),
+        pricing_history=pricing_history,
     )
 
 
@@ -16439,6 +16430,7 @@ def _video_model_public_pricing(
     *,
     rate: float | None,
     economy: dict[str, float],
+    pricing_history: list[dict[str, Any]],
 ) -> dict[str, Any]:
     durations = [int(value) for value in (model.get("supportedDurations") or []) if int(value) > 0]
     resolutions = [str(value) for value in (model.get("supportedResolutions") or []) if str(value)]
@@ -16461,7 +16453,13 @@ def _video_model_public_pricing(
                     lastFrame="preview" if mode == "first_last_frame" else None,
                     references=["preview"] if mode == "reference_to_video" else [],
                 )
-                billing = _openrouter_video_billing_from_exchange(model, sample, rate=rate, economy=economy)
+                billing = _openrouter_video_billing_from_exchange(
+                    model,
+                    sample,
+                    rate=rate,
+                    economy=economy,
+                    pricing_history=pricing_history,
+                )
             except (HTTPException, ValueError, TypeError):
                 continue
             examples.append({
@@ -16469,10 +16467,12 @@ def _video_model_public_pricing(
                 "resolution": resolution,
                 "aspectRatio": ratios[0],
                 "tokens": int(billing["chargedTokens"]),
+                "pricingSource": billing["pricingSource"],
             })
     return {
         "fromTokens": min((item["tokens"] for item in examples), default=None),
         "examples": examples,
+        "estimated": any(item["pricingSource"] != "catalog" for item in examples),
     }
 
 
@@ -16744,6 +16744,7 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
     exchange = await fetch_usd_rub_rate()
     exchange_rate = exchange.get("rate") if isinstance(exchange.get("rate"), (int, float)) else None
     economy = openrouter_economy_settings()
+    pricing_history = video_pricing.load_actual_pricing_samples(db, safe_json_load)
     modes: dict[str, list[dict[str, Any]]] = {}
     for mode in OPENROUTER_VIDEO_MODES:
         modes[mode] = []
@@ -16754,6 +16755,7 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
                 mode,
                 rate=float(exchange_rate) if exchange_rate is not None else None,
                 economy=economy,
+                pricing_history=pricing_history,
             )
             modes[mode].append(public_model)
     return {
