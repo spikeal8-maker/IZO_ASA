@@ -568,6 +568,11 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
 
 try:
+    from .app.security.account_password import PasswordChangeRuntime, install_password_change_route, password_is_configured
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.security.account_password import PasswordChangeRuntime, install_password_change_route, password_is_configured
+
+try:
     from .app.storage import (
         PrivateMediaAccessError,
         PrivateMediaRuntime,
@@ -2636,26 +2641,10 @@ _password_hasher = SECURITY_PASSWORD_HASHER
 _DUMMY_PASSWORD_HASH = SECURITY_DUMMY_PASSWORD_HASH
 
 
-def validate_password_policy(password: str) -> list[str]:
-    """Return machine-readable error codes (empty list = OK). No complexity rules yet."""
-    return security_validate_password_policy(password)
-
-
-def hash_password_argon2(password: str) -> str:
-    """Hash a password with Argon2id. Rejects empty/too-short/too-long before hashing.
-    Never logs the password or the resulting hash."""
-    return security_hash_password(password)
-
-
-def verify_password_argon2(password: str, password_hash: str) -> bool:
-    """Constant-time verify via argon2. Returns False on mismatch or any invalid/
-    malformed hash — never raises to the caller, never logs password/hash."""
-    return security_verify_password(password, password_hash)
-
-
-def password_hash_needs_rehash(password_hash: str) -> bool:
-    """True if the stored hash should be re-hashed with current parameters."""
-    return security_password_hash_needs_rehash(password_hash)
+validate_password_policy = security_validate_password_policy
+hash_password_argon2 = security_hash_password
+verify_password_argon2 = security_verify_password
+password_hash_needs_rehash = security_password_hash_needs_rehash
 
 
 def email_provider_configured() -> bool:
@@ -10193,6 +10182,12 @@ async def auth_password_login_v2(req: PasswordLoginV2Request, request: Request, 
     return {"ok": True, "internal_user_id": internal_user_id, "legacy_user_id": legacy_user_id, "profile_completed": False}
 
 
+install_password_change_route(app, PasswordChangeRuntime(
+    db, require_trusted_user, validate_password_policy, verify_password_argon2, hash_password_argon2,
+    record_security_event, revoke_auth_session, record_event_log,
+))
+
+
 @app.get("/api/me-v2")
 async def me_v2(request: Request) -> dict[str, Any]:
     """Current user, resolved strictly from the trusted session. Exposes no token
@@ -10213,6 +10208,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "SELECT provider, provider_user_id, provider_username, provider_email, provider_first_name, provider_last_name, provider_avatar_url, verified_at, linked_at, last_login_at FROM auth_identities WHERE internal_user_id = ?",
             (iuid,),
         ).fetchall()
+        password_configured = password_is_configured(conn, iuid)
         gallery_access = bool(user_gallery_allowed(conn, iuid, legacy))
         gallery_quota = gallery_quota_for_user(conn, urow, legacy)
         video_state = video_storage_state_for_user(conn, urow, legacy)
@@ -10295,6 +10291,7 @@ async def me_v2(request: Request) -> dict[str, Any]:
             "video_slots": gallery_quota["video_slots"],
             "video_used": video_state.active,
             "video_free": video_state.free,
+            "password_configured": password_configured,
         },
         "session": {
             "session_id": user["session_id"],

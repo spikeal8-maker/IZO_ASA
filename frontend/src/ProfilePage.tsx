@@ -1,7 +1,8 @@
 import { useEffect, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react'
-import { Copy, Link as LinkIcon, Lock, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles, X } from 'lucide-react'
-import type { AuthStatusV2, MeV2 } from './authV2'
+import { ArrowRight, Copy, KeyRound, Link as LinkIcon, Lock, LogOut, Plus, Save, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Upload, WandSparkles, X } from 'lucide-react'
+import { changePasswordV2, type AuthStatusV2, type MeV2 } from './authV2'
 import { DEFAULT_TARIFFS, SERVER_MODEL_OPTION, avatarPresets, formatModelCount, modelAccessOption, modelModeOrder, modelOptions, modelPublicInfo, qualityPresetLabels, qualityPresets, tariffKeys, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
+import './profileAccount.css'
 
 type ProfileTab = 'profile' | 'tariffs' | 'earn' | 'models'
 type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
@@ -163,6 +164,7 @@ export default function ProfilePage({
   linkBusy,
   linkMsg,
   onOpenAuth,
+  onBackToGeneration,
   onSaveProfile,
   onLogout,
   onApplyPromo,
@@ -194,6 +196,12 @@ export default function ProfilePage({
     try { return JSON.parse(localStorage.getItem('izo:video-quality-models') || '{}') as Record<string, Record<string, string>> } catch { return {} }
   })
   const [receiptContact, setReceiptContact] = useState<string | null>(null)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newPasswordRepeat, setNewPasswordRepeat] = useState('')
+  const [passwordBusy, setPasswordBusy] = useState(false)
+  const [passwordMessage, setPasswordMessage] = useState('')
+  const [profileNow] = useState(() => Date.now())
   const account = me?.account
   const activePlan = (tariffKeys.includes(String(account?.plan || 'mini').toLowerCase() as TariffKey) ? String(account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
   const currentTariff = tariffs[activePlan] || DEFAULT_TARIFFS[activePlan]
@@ -210,10 +218,17 @@ export default function ProfilePage({
   const videoSlots = Math.max(0, Number(account?.video_slots ?? currentTariff.video_slots))
   const videoUsed = Math.max(0, Number(account?.video_used ?? 0))
   const videoFree = Math.max(0, Number(account?.video_free ?? videoSlots - videoUsed))
-  const feedLikes = Number((account as { feed_likes?: number | null; likes_received?: number | null } | undefined)?.feed_likes ?? (account as { likes_received?: number | null } | undefined)?.likes_received ?? 0)
   const displayEmail = me?.identities?.find((i) => i.provider_email)?.provider_email
   const effectiveReceiptContact = receiptContact ?? String(me?.billing?.receipt_email || displayEmail || '').trim()
   const planExpiresAt = account?.plan_expires_at || null
+  const registeredAt = me?.created_at || null
+  const planExpiryTimestamp = planExpiresAt ? new Date(planExpiresAt).getTime() : Number.NaN
+  const planDaysRemaining = Number.isFinite(planExpiryTimestamp)
+    ? Math.max(0, Math.ceil((planExpiryTimestamp - profileNow) / 86_400_000))
+    : null
+  const planStatus = activePlan === 'mini' && planExpiresAt
+    ? `Пробный период · ${planDaysRemaining ?? '—'} дн.`
+    : planExpiresAt ? `Активен ещё ${planDaysRemaining ?? '—'} дн.` : 'Без ограничения срока'
   const pendingPlan = account?.pending_plan || null
   const telegramIdentity = me?.identities?.find((i) => i.provider === 'telegram')
   const maxIdentity = me?.identities?.find((i) => i.provider === 'max')
@@ -505,6 +520,29 @@ export default function ProfilePage({
     return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })
   }
 
+  const submitPasswordChange = async () => {
+    setPasswordMessage('')
+    if (newPassword.length < 8 || newPassword.length > 128) {
+      setPasswordMessage('Новый пароль должен быть от 8 до 128 символов.')
+      return
+    }
+    if (newPassword !== newPasswordRepeat) {
+      setPasswordMessage('Новые пароли не совпадают.')
+      return
+    }
+    setPasswordBusy(true)
+    const result = await changePasswordV2(currentPassword, newPassword, newPasswordRepeat)
+    setPasswordBusy(false)
+    if (!result.ok) {
+      setPasswordMessage(result.detail || 'Не удалось изменить пароль.')
+      return
+    }
+    setCurrentPassword('')
+    setNewPassword('')
+    setNewPasswordRepeat('')
+    setPasswordMessage(result.revokedSessions ? `Пароль изменён. Завершено других сессий: ${result.revokedSessions}.` : 'Пароль изменён.')
+  }
+
   return (
     <section className="profile-page">
       {authStatus === 'loading' ? (
@@ -540,36 +578,133 @@ export default function ProfilePage({
           </nav>
 
           {profileTab === 'profile' && <>
-            <section className="profile-card profile-hero">
-              <div className="profile-avatar-block">
-                <div className="profile-avatar" aria-label="Аватар пользователя">
+            <section className="account-page" aria-label="Профиль пользователя">
+              <header className="account-overview">
+                <button className="account-avatar" type="button" onClick={() => setAvatarChooserOpen(true)} disabled={avatarBusy} aria-label="Изменить аватар">
                   {avatarSrc ? <img src={avatarSrc} alt="" /> : <span>{userInitials}</span>}
-                </div>
-                <button className="profile-avatar-upload" type="button" onClick={() => setAvatarChooserOpen(true)} disabled={avatarBusy}>{avatarBusy ? 'Сохраняем...' : 'Выбрать'}</button>
-                {avatarMsg && <small className={avatarMsg.includes('сохран') || avatarMsg.includes('загруж') ? 'profile-save-ok' : 'profile-save-err'}>{avatarMsg}</small>}
-              </div>
-              <div className="profile-hero-main">
-                <div className="profile-hero-top">
-                  <div className="profile-identity">
-                    <h3>{displayNameFallback}</h3>
-                    <div className="profile-identity-meta">
-                      <button className="profile-chip current" type="button" onClick={() => setProfileTab('tariffs')} title="Открыть тарифы">{planLabel}</button>
-                      <a className="profile-chip green" href="/gallery" title="Открыть галерею"><span className="galleryFull">Галерея {galleryUsed}/{gallerySlots}</span><span className="galleryShort">{galleryUsed}/{gallerySlots}</span></a>
-                      <button className={codeCopied ? 'profile-code copied' : 'profile-code'} type="button" onClick={copyPublicCode} title="Скопировать код">
-                        <span><span className="codeLabel">Код: </span>{publicCode || 'GUEST'}</span>
-                        <Copy size={14} aria-hidden="true" />
-                        <em aria-live="polite">{codeCopied ? 'Скопировано' : ''}</em>
-                      </button>
-                    </div>
+                  <em>{avatarBusy ? '...' : 'Изменить'}</em>
+                </button>
+                <div className="account-heading">
+                  <div className="account-name-line">
+                    <h2>{displayNameFallback}</h2>
+                    <button type="button" className="account-plan-pill" onClick={() => setProfileTab('tariffs')}>{planLabel}</button>
                   </div>
+                  <p>{displayEmail || 'Аккаунт без email'}</p>
+                  <button className={codeCopied ? 'account-code copied' : 'account-code'} type="button" onClick={copyPublicCode}>
+                    {publicCode || 'GUEST'} <Copy size={13} /> <span aria-live="polite">{codeCopied ? 'Скопировано' : ''}</span>
+                  </button>
+                  {avatarMsg && <small className={avatarMsg.includes('сохран') || avatarMsg.includes('загруж') ? 'profile-save-ok' : 'profile-save-err'}>{avatarMsg}</small>}
                 </div>
-                <div className="profile-metrics">
-                  <div><strong>{dailyAvailable}/{dailyLimit}</strong><span>Токены</span><small>потрачено {dailyUsed}</small></div>
-                  <div><strong>{tokenBalance}</strong><span>Баланс</span><small>доступно</small></div>
-                  <div><strong>{galleryUsed}/{gallerySlots}</strong><span>Галерея</span><small>свободно {galleryFree}</small></div>
-                  <div><strong>{feedLikes}</strong><span>Лайки</span><small>в ленте</small></div>
-                  <div><strong>+50</strong><span>Бонусы</span><small>промо</small></div>
+                <div className="account-overview-actions">
+                  <button className="account-primary" type="button" onClick={onBackToGeneration}>Создать изображение <ArrowRight size={17} /></button>
+                  <a className="account-secondary" href="/gallery">Галерея · {galleryUsed}/{gallerySlots}</a>
                 </div>
+              </header>
+
+              <section className="account-status-band" aria-label="Баланс и тариф">
+                <div className="account-balance-item">
+                  <span>Дневные токены</span>
+                  <strong>{dailyAvailable}<small> / {dailyLimit}</small></strong>
+                  <p>Обновляются каждый день</p>
+                </div>
+                <div className="account-balance-item">
+                  <span>Основной баланс</span>
+                  <strong>{tokenBalance}</strong>
+                  <p>Не сгорает при смене тарифа</p>
+                </div>
+                <div className="account-plan-status">
+                  <div><span>{activePlan === 'mini' && planExpiresAt ? 'Пробный тариф' : 'Текущий тариф'}</span><strong>{planLabel}</strong></div>
+                  <p>{planStatus}</p>
+                  <dl>
+                    <div><dt>Зарегистрирован</dt><dd>{formatPlanDate(registeredAt)}</dd></div>
+                    <div><dt>{activePlan === 'mini' && planExpiresAt ? 'Пробный период до' : 'Тариф действует до'}</dt><dd>{formatPlanDate(planExpiresAt)}</dd></div>
+                  </dl>
+                  <button type="button" onClick={() => setProfileTab('tariffs')}>Управлять тарифом</button>
+                </div>
+              </section>
+
+              <div className="account-content">
+                <main className="account-main">
+                  <section className="account-section">
+                    <div className="account-section-head">
+                      <div><h3>Личные данные</h3><p>Имя видно в интерфейсе и ваших публикациях.</p></div>
+                    </div>
+                    <div className="account-form-grid">
+                      <label><span>Имя</span><input type="text" value={displayName} onChange={(e) => { setDisplayName(e.target.value); setSaveMsg('') }} placeholder="Ваше имя" maxLength={80} /></label>
+                      <label><span>Email</span><input type="email" value={displayEmail || ''} placeholder="Email не указан" readOnly /></label>
+                    </div>
+                    <div className="account-actions">
+                      <button className="account-primary" type="button" onClick={onSaveProfile} disabled={!displayName.trim()}><Save size={16} />Сохранить</button>
+                      {saveMsg && <small className={saveMsg === 'Сохранено' ? 'profile-save-ok' : 'profile-save-err'}>{saveMsg}</small>}
+                    </div>
+                  </section>
+
+                  <details className="account-disclosure">
+                    <summary><span><KeyRound size={18} /><b>Безопасность</b><small>Пароль и активные сессии</small></span></summary>
+                    <div className="account-disclosure-body">
+                      {account?.password_configured ? <>
+                        <p>После смены пароля остальные активные сессии будут завершены.</p>
+                        <div className="account-password-grid">
+                          <label><span>Текущий пароль</span><input type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => { setCurrentPassword(e.target.value); setPasswordMessage('') }} /></label>
+                          <label><span>Новый пароль</span><input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => { setNewPassword(e.target.value); setPasswordMessage('') }} /></label>
+                          <label><span>Повторите новый пароль</span><input type="password" autoComplete="new-password" value={newPasswordRepeat} onChange={(e) => { setNewPasswordRepeat(e.target.value); setPasswordMessage('') }} /></label>
+                        </div>
+                        <div className="account-actions">
+                          <button className="account-secondary" type="button" onClick={() => void submitPasswordChange()} disabled={passwordBusy || !currentPassword || !newPassword || !newPasswordRepeat}>{passwordBusy ? 'Изменяем...' : 'Изменить пароль'}</button>
+                          {passwordMessage && <small className={passwordMessage.startsWith('Пароль изменён') ? 'profile-save-ok' : 'profile-save-err'}>{passwordMessage}</small>}
+                        </div>
+                      </> : <p>Этот аккаунт использует вход через подключённый сервис. Пароль можно изменить только для аккаунта с входом по email.</p>}
+                    </div>
+                  </details>
+
+                  <details className="account-disclosure">
+                    <summary><span><LinkIcon size={18} /><b>Публичный профиль</b><small>Информация для ленты, если вы захотите её показывать</small></span></summary>
+                    <div className="account-disclosure-body">
+                      <div className="account-form-grid">
+                        <label className="account-wide"><span>О себе</span><textarea value={publicAbout} onChange={(e) => { setPublicAbout(e.target.value); setSaveMsg('') }} placeholder="Коротко расскажите о себе и своих работах" maxLength={700} rows={4} /><small>{publicAbout.length}/700</small></label>
+                        <label><span>Чем занимаетесь</span><input type="text" value={publicFocus} onChange={(e) => { setPublicFocus(e.target.value); setSaveMsg('') }} placeholder="Дизайнер, фотограф" maxLength={120} /></label>
+                        <label><span>Кто вы</span><select value={profileGender} onChange={(e) => { setProfileGender(e.target.value === 'male' ? 'male' : 'female'); setSaveMsg('') }}><option value="female">Женщина</option><option value="male">Мужчина</option></select></label>
+                        <label><span>Возраст</span><input type="number" min="13" max="120" value={profileAge} onChange={(e) => { setProfileAge(e.target.value); setSaveMsg('') }} placeholder="28" /></label>
+                        <label><span>Сайт</span><input type="url" value={publicWebsite} onChange={(e) => { setPublicWebsite(e.target.value); setSaveMsg('') }} placeholder="https://..." maxLength={240} /></label>
+                        <label><span>Телефон для связи</span><input type="tel" value={publicPhone} onChange={(e) => { setPublicPhone(e.target.value); setSaveMsg('') }} placeholder="+7 900 000-00-00" maxLength={40} /></label>
+                      </div>
+                      <div className="account-links">
+                        <div><strong>Ссылки</strong><button className="account-text-button" type="button" onClick={addPublicLink} disabled={publicLinks.length >= 6}><Plus size={15} />Добавить</button></div>
+                        {publicLinks.map((item, index) => <div className="account-link-row" key={index}>
+                          <input value={item.label} onChange={(e) => updatePublicLink(index, { label: e.target.value })} placeholder="Название" maxLength={40} aria-label="Название публичной ссылки" />
+                          <input value={item.url} onChange={(e) => updatePublicLink(index, { url: e.target.value })} placeholder="https://..." maxLength={240} aria-label="URL публичной ссылки" />
+                          <button type="button" onClick={() => removePublicLink(index)} aria-label="Удалить ссылку"><Trash2 size={16} /></button>
+                        </div>)}
+                      </div>
+                      <div className="account-actions"><button className="account-primary" type="button" onClick={onSaveProfile} disabled={!displayName.trim()}><Save size={16} />Сохранить публичные данные</button></div>
+                    </div>
+                  </details>
+                </main>
+
+                <aside className="account-side">
+                  <section className="account-section account-access">
+                    <div className="account-section-head"><div><h3>Способы входа</h3><p>Подключите удобный способ и не потеряйте доступ.</p></div><ShieldCheck size={20} /></div>
+                    <div className="account-provider">
+                      <div><b>Telegram</b><span>{telegramIdentity ? `Подключен${telegramIdentity.provider_username ? ` · @${telegramIdentity.provider_username}` : ''}` : 'Не подключен'}</span></div>
+                      {!telegramIdentity && authCaps.telegram_bot_login_available && <button type="button" onClick={() => onLinkBot('telegram')} disabled={linkBusy}>Подключить</button>}
+                    </div>
+                    <div className="account-provider">
+                      <div><b>MAX</b><span>{maxIdentity ? `Подключен${maxIdentity.provider_username ? ` · ${maxIdentity.provider_username}` : ''}` : 'Не подключен'}</span></div>
+                      {!maxIdentity && authCaps.max_bot_login_available && <button type="button" onClick={() => onLinkBot('max')} disabled={linkBusy}>Подключить</button>}
+                    </div>
+                    {linkMsg && <small className={linkMsg.includes('подключ') || linkMsg.includes('отправлен') ? 'profile-save-ok' : 'profile-save-err'}>{linkMsg}</small>}
+                  </section>
+                  <section className="account-section account-usage">
+                    <h3>Возможности тарифа</h3>
+                    <dl>
+                      <div><dt>Галерея</dt><dd>{galleryUsed}/{gallerySlots}</dd></div>
+                      <div><dt>Свободно мест</dt><dd>{galleryFree}</dd></div>
+                      <div><dt>Видео</dt><dd>{videoUsed}/{videoSlots}</dd></div>
+                      <div><dt>Токенов в месяц</dt><dd>{monthlyGrant}</dd></div>
+                    </dl>
+                  </section>
+                  <button className="account-logout" type="button" onClick={onLogout}><LogOut size={16} />Выйти из аккаунта</button>
+                </aside>
               </div>
             </section>
             {avatarChooserOpen && (
@@ -594,81 +729,6 @@ export default function ProfilePage({
                 </div>
               </div>
             )}
-            <section className="profile-card profile-profile">
-              <label>Имя<input type="text" value={displayName} onChange={(e) => { setDisplayName(e.target.value); setSaveMsg('') }} placeholder="Ваше имя" maxLength={80} /></label>
-              <label>Email<input type="email" value={displayEmail || ''} placeholder="Email не указан" readOnly /></label>
-              <div className="profile-auth-inline">
-                <div>
-                  <strong>Способы входа</strong>
-                  <span>Подключения помогают нам точнее видеть активность аккаунта и не терять доступ.</span>
-                </div>
-                <article>
-                  <b>Telegram</b>
-                  <p>{telegramIdentity ? `Подключен${telegramIdentity.provider_username ? `: @${telegramIdentity.provider_username}` : ''}` : 'Не подключен'}</p>
-                  {!telegramIdentity && authCaps.telegram_bot_login_available && <button className="profile-secondary" type="button" onClick={() => onLinkBot('telegram')} disabled={linkBusy}>Подключить</button>}
-                </article>
-                <article>
-                  <b>MAX</b>
-                  <p>{maxIdentity ? `Подключен${maxIdentity.provider_username ? `: ${maxIdentity.provider_username}` : ''}` : 'Не подключен'}</p>
-                  {!maxIdentity && authCaps.max_bot_login_available && <button className="profile-secondary" type="button" onClick={() => onLinkBot('max')} disabled={linkBusy}>Подключить</button>}
-                </article>
-              </div>
-              <div className="profile-profile-actions">
-                <button className="profile-primary" type="button" onClick={onSaveProfile} disabled={!displayName.trim()}>Сохранить профиль</button>
-                <button className="profile-ghost" type="button" onClick={onLogout}><Lock size={14} />Выйти</button>
-                {saveMsg && <small className={saveMsg === 'Сохранено' ? 'profile-save-ok' : 'profile-save-err'}>{saveMsg}</small>}
-                {linkMsg && <small className={linkMsg.includes('подключ') || linkMsg.includes('отправлен') ? 'profile-save-ok' : 'profile-save-err'}>{linkMsg}</small>}
-              </div>
-            </section>
-            <section className="profile-card profile-public">
-              <div className="profile-public-head">
-                <div>
-                  <h3>Публичные данные</h3>
-                  <p>Эта информация нужна только для ленты и публичного профиля автора. Можно оставить пустым, если вы не хотите рассказывать о себе.</p>
-                </div>
-                <span>для ленты</span>
-              </div>
-              <div className="profile-public-grid">
-                <label className="profile-public-wide profile-about-field">
-                  <span>О себе</span>
-                  <span className="profile-about-input">
-                    <textarea value={publicAbout} onChange={(e) => { setPublicAbout(e.target.value); setSaveMsg('') }} placeholder="Расскажите, чем занимаетесь, что создаёте, чем можете быть полезны аудитории" maxLength={700} rows={4} />
-                    <small>{publicAbout.length}/700</small>
-                  </span>
-                </label>
-                <label>Чем занимаетесь<input type="text" value={publicFocus} onChange={(e) => { setPublicFocus(e.target.value); setSaveMsg('') }} placeholder="Дизайнер, фотограф, бренд одежды" maxLength={120} /></label>
-                <label>Кто вы
-                  <select value={profileGender} onChange={(e) => { setProfileGender(e.target.value === 'male' ? 'male' : 'female'); setSaveMsg('') }}>
-                    <option value="female">Женщина</option>
-                    <option value="male">Мужчина</option>
-                  </select>
-                </label>
-                <label>Возраст<input type="number" min="13" max="120" value={profileAge} onChange={(e) => { setProfileAge(e.target.value); setSaveMsg('') }} placeholder="Например, 28" /></label>
-                <label>Основной сайт<input type="url" value={publicWebsite} onChange={(e) => { setPublicWebsite(e.target.value); setSaveMsg('') }} placeholder="site.ru или https://..." maxLength={240} /></label>
-                <label>Телефон для связи<input type="tel" value={publicPhone} onChange={(e) => { setPublicPhone(e.target.value); setSaveMsg('') }} placeholder="+7 900 000-00-00" maxLength={40} /></label>
-              </div>
-              <div className="profile-public-links">
-                <div className="profile-public-links-head">
-                  <strong><LinkIcon size={16} />Соцсети и ссылки</strong>
-                  <button className="profile-secondary" type="button" onClick={addPublicLink} disabled={publicLinks.length >= 6}><Plus size={15} />Добавить</button>
-                </div>
-                <div className="profile-public-link-list">
-                  {publicLinks.length ? publicLinks.map((item, index) => (
-                    <div className="profile-public-link-row" key={index}>
-                      <input value={item.label} onChange={(e) => updatePublicLink(index, { label: e.target.value })} placeholder="Название: Telegram, VK, Portfolio" maxLength={40} aria-label="Название публичной ссылки" />
-                      <input value={item.url} onChange={(e) => updatePublicLink(index, { url: e.target.value })} placeholder="https://..." maxLength={240} aria-label="URL публичной ссылки" />
-                      <button type="button" onClick={() => removePublicLink(index)} aria-label="Удалить ссылку"><Trash2 size={16} /></button>
-                    </div>
-                  )) : (
-                    <div className="profile-public-empty">Добавьте ссылки на соцсети, портфолио или сайт, если хотите показывать их в публичном профиле.</div>
-                  )}
-                </div>
-              </div>
-              <div className="profile-profile-actions">
-                <button className="profile-primary" type="button" onClick={onSaveProfile} disabled={!displayName.trim()}>Сохранить публичные данные</button>
-                {saveMsg && <small className={saveMsg === 'Сохранено' ? 'profile-save-ok' : 'profile-save-err'}>{saveMsg}</small>}
-              </div>
-            </section>
           </>}
 
           {profileTab === 'tariffs' && <>

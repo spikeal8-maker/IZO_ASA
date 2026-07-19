@@ -19,6 +19,7 @@ import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import { Lock, X } from 'lucide-react'
 import { normalizeAuthSessions } from './runtimeContracts'
+import './authV2.css'
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
 const INSTALL_KEY = 'onenode_installation_id'
@@ -299,6 +300,27 @@ export async function passwordRegisterV2(
   return { ok: res.ok, status: res.status, requiresEmailVerification }
 }
 
+export async function changePasswordV2(
+  currentPassword: string,
+  newPassword: string,
+  newPasswordRepeat: string,
+): Promise<{ ok: boolean; detail?: string; revokedSessions?: number }> {
+  const res = await authFetch('/auth/password/change-v2', {
+    method: 'POST',
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+      new_password_repeat: newPasswordRepeat,
+    }),
+  })
+  const data = await res.json().catch(() => ({})) as { detail?: unknown; revoked_sessions?: number }
+  return {
+    ok: res.ok,
+    detail: typeof data.detail === 'string' ? data.detail : undefined,
+    revokedSessions: Number(data.revoked_sessions || 0),
+  }
+}
+
 export async function verifyEmailCodeV2(challengeId: string, code: string): Promise<boolean> {
   const res = await authFetch('/auth/email/verify-code-v2', {
     method: 'POST',
@@ -385,8 +407,11 @@ export interface MeV2 {
     plan_started_at?: string | null; plan_expires_at?: string | null
     plan_next_token_grant_at?: string | null; plan_term_months?: number | null
     pending_plan?: { plan?: string; term_months?: number; starts_at?: string } | null
+    password_configured?: boolean | null
   } | null
   identities?: Array<{ provider?: string; provider_user_id?: string | null; provider_username?: string | null; provider_email?: string | null; provider_first_name?: string | null; provider_last_name?: string | null; provider_avatar_url?: string | null; verified_at?: string | null }>
+  created_at?: string | null
+  last_seen_at?: string | null
 }
 
 export interface SessionInfoV2 {
@@ -600,6 +625,13 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     setBotProvider(''); setBotDeepLink(''); setBotPollMs(2000)
     onClose()
   }, [onClose])
+  const finishAuthentication = useCallback(async () => {
+    const me = await refreshAuthStateV2()
+    if (!me) return false
+    handleClose()
+    window.location.assign('/#text-to-image')
+    return true
+  }, [handleClose])
 
   useEffect(() => {
     if (!open) return
@@ -655,19 +687,15 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
       if (result.status === 'authenticated') {
         stopped = true
         window.clearInterval(timer)
-        const me = await refreshAuthStateV2()
-        if (me) handleClose()
-        else setError('Вход подтверждён, но браузер не сохранил сессию. Обновите страницу и попробуйте снова.')
+        if (!(await finishAuthentication())) setError('Вход подтверждён, но браузер не сохранил сессию. Обновите страницу и попробуйте снова.')
       } else if (result.status === 'expired') {
         stopped = true
         window.clearInterval(timer)
         setError('Ссылка входа устарела. Попробуйте снова.')
       } else if (result.status === 'error') {
-        const me = await refreshAuthStateV2()
-        if (me) {
+        if (await finishAuthentication()) {
           stopped = true
           window.clearInterval(timer)
-          handleClose()
         } else {
           setError('Не удалось проверить вход. Попробуйте снова.')
         }
@@ -679,7 +707,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
       stopped = true
       window.clearInterval(timer)
     }
-  }, [open, phase, botPollMs, handleClose])
+  }, [open, phase, botPollMs, finishAuthentication])
 
   if (!open) return null
   const tgAvail = telegramAvailable()
@@ -708,8 +736,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
       return
     }
     if (!result.ok) { setError('Неверная почта или пароль'); return }
-    await refreshAuthStateV2()
-    onClose()
+    if (!(await finishAuthentication())) setError('Не удалось открыть аккаунт. Обновите страницу и попробуйте снова.')
   }
   const onRegister = async () => {
     setError('')
@@ -729,16 +756,14 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
       await beginEmailVerification(email)
       return
     }
-    await refreshAuthStateV2()
-    handleClose()
+    if (!(await finishAuthentication())) setError('Аккаунт создан, но сессия не сохранилась. Войдите ещё раз.')
   }
   const onVerifyEmail = async () => {
     setError(''); setBusy(true)
     const ok = await verifyEmailCodeV2(challengeId, code.trim())
     setBusy(false)
     if (!ok) { setError('Неверный или просроченный код.'); return }
-    await refreshAuthStateV2() // trusted session set by backend on verify
-    handleClose()
+    if (!(await finishAuthentication())) setError('Email подтверждён, но сессия не сохранилась. Войдите ещё раз.')
   }
   const onResendCode = async () => {
     if (resendIn > 0) return
@@ -751,12 +776,12 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   }
   const onTelegram = async () => {
     setError('')
-    if (await loginTelegramV2()) { await refreshAuthStateV2(); onClose() }
+    if (await loginTelegramV2()) { if (!(await finishAuthentication())) setError('Не удалось открыть аккаунт.') }
     else setError('Telegram доступен в мини-приложении')
   }
   const onMax = async () => {
     setError('')
-    if (await loginMaxV2()) { await refreshAuthStateV2(); onClose() }
+    if (await loginMaxV2()) { if (!(await finishAuthentication())) setError('Не удалось открыть аккаунт.') }
     else setError('MAX доступен в мини-приложении')
   }
   const onBotLogin = async (provider: 'telegram' | 'max') => {
@@ -785,8 +810,13 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     <div className="auth-modal-overlay" onClick={handleClose}>
       <div className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" onClick={(e) => e.stopPropagation()}>
         <button className="auth-modal-close" aria-label="Закрыть" onClick={handleClose}><X size={20} /></button>
-        <h2 id="auth-modal-title"><Lock size={18} /> Войдите, чтобы генерировать</h2>
-        <p className="auth-modal-sub">Аккаунт создаётся автоматически после первого входа</p>
+        <div className="auth-modal-heading">
+          <span className="auth-modal-mark"><Lock size={18} /></span>
+          <div>
+            <h2 id="auth-modal-title">{tab === 'register' ? 'Создайте аккаунт' : 'Вход в ИЗО АСА'}</h2>
+            <p className="auth-modal-sub">Сохраняйте работы, тариф и настройки в одном аккаунте.</p>
+          </div>
+        </div>
         {phase === 'form' && (
           <div className="auth-modal-tabs">
             <button className={`auth-modal-tab ${tab === 'login' ? 'active' : ''}`} onClick={() => { setTab('login'); setError('') }}>Вход</button>
@@ -816,17 +846,17 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
           <>
             <label>Email<input type="email" value={email} placeholder="you@example.com" onChange={(e) => setEmail(e.target.value)} /></label>
             <label>Пароль<input type="password" value={password} placeholder="········" onChange={(e) => setPassword(e.target.value)} /></label>
-            <p className="auth-modal-hint">Введите пароль от аккаунта.</p>
+            <p className="auth-modal-hint">После входа откроется генератор.</p>
             <button className="generate small-action" onClick={onLogin} disabled={!email.trim() || !password || busy}>Войти</button>
           </>
         ) : (
           <>
             <label>Email<input type="email" value={email} placeholder="you@example.com" onChange={(e) => setEmail(e.target.value)} /></label>
             <label>Пароль<input type="password" value={password} placeholder="········" onChange={(e) => setPassword(e.target.value)} /></label>
-            <p className="auth-modal-hint">Минимум 8 символов.</p>
+            <p className="auth-modal-hint">Используйте не меньше 8 символов.</p>
             <label>Повторите пароль<input type="password" value={passwordRepeat} placeholder="········" onChange={(e) => setPasswordRepeat(e.target.value)} /></label>
             <p className="auth-modal-consent">Нажимая кнопку, вы принимаете <a href="/legal/terms" target="_blank" rel="noreferrer">Пользовательское соглашение</a>, <a href="/legal/privacy" target="_blank" rel="noreferrer">Политику конфиденциальности</a> и <a href="/legal/consent" target="_blank" rel="noreferrer">согласие на обработку персональных данных</a>.</p>
-            <button className="generate small-action" onClick={onRegister} disabled={!email.trim() || !password || !passwordRepeat || busy}>Создать аккаунт и принять условия</button>
+            <button className="generate small-action" onClick={onRegister} disabled={!email.trim() || !password || !passwordRepeat || busy}>Создать аккаунт</button>
           </>
         )}
         {hasProviderActions && (
