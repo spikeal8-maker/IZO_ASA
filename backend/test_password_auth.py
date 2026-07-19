@@ -49,6 +49,14 @@ def login(client, email, password=PW):
     return client.post("/api/auth/password/login-v2", json={"email": email, "password": password, "platform": "web_desktop"})
 
 
+def change_password(client, current_password=PW, new_password="N3w-Secure-Password!"):
+    return client.post("/api/auth/password/change-v2", json={
+        "current_password": current_password,
+        "new_password": new_password,
+        "new_password_repeat": new_password,
+    })
+
+
 def request_code(client, email):
     return client.post("/api/auth/email/request-code-v2", json={"email": email, "platform": "web_desktop"})
 
@@ -276,3 +284,53 @@ def test_capabilities_keep_password_registration_available_without_email_provide
     assert r.status_code == 200
     assert r.json()["password_register_available"] is True
     assert r.json()["email_otp_available"] is False
+
+
+def test_change_password_keeps_current_session_and_revokes_other_sessions(temp_db):
+    new_password = "N3w-Secure-Password!"
+    with TestClient(main.app) as current_client:
+        registered = register(current_client, "change-password@example.com")
+        assert registered.status_code == 200
+
+        # A plain secondary client keeps a second cookie jar without starting a
+        # nested application lifespan (the feed worker is process-global).
+        other_client = TestClient(main.app)
+        second_login = login(other_client, "change-password@example.com")
+        assert second_login.status_code == 200
+
+        changed = change_password(current_client, new_password=new_password)
+        assert changed.status_code == 200
+        assert changed.json() == {"ok": True, "revoked_sessions": 1}
+
+        assert current_client.get("/api/me-v2").status_code == 200
+        assert other_client.get("/api/me-v2").status_code == 401
+
+    with TestClient(main.app) as old_password_client:
+        assert login(old_password_client, "change-password@example.com").status_code == 401
+    with TestClient(main.app) as new_password_client:
+        assert login(new_password_client, "change-password@example.com", password=new_password).status_code == 200
+
+
+def test_change_password_rejects_wrong_current_and_reused_password(temp_db):
+    with TestClient(main.app) as client:
+        assert register(client, "password-validation@example.com").status_code == 200
+
+        wrong = change_password(client, current_password="incorrect-password")
+        assert wrong.status_code == 400
+        assert wrong.json()["detail"] == "Текущий пароль указан неверно."
+
+        reused = change_password(client, new_password=PW)
+        assert reused.status_code == 400
+        assert reused.json()["detail"] == "Новый пароль должен отличаться от текущего."
+
+
+def test_me_v2_reports_password_and_registration_metadata(temp_db):
+    with TestClient(main.app) as client:
+        registered = register(client, "profile-metadata@example.com")
+        assert registered.status_code == 200
+        me = client.get("/api/me-v2")
+
+    assert me.status_code == 200
+    payload = me.json()
+    assert payload["account"]["password_configured"] is True
+    assert payload["created_at"]

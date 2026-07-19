@@ -24,6 +24,13 @@ const mePayload = {
     gallery_full: false,
     gallery_access: true,
     gallery_enabled: true,
+    password_configured: true,
+    monthly_tokens_grant: 250,
+    plan_started_at: '2026-07-01T00:00:00Z',
+    plan_expires_at: '2026-10-01T00:00:00Z',
+    video_slots: 20,
+    video_used: 2,
+    video_free: 18,
   },
   session: {
     provider: 'web_email',
@@ -61,6 +68,8 @@ const mePayload = {
     age: 28,
     providers: ['web_email', 'telegram'],
   },
+  created_at: '2026-06-26T04:15:07Z',
+  last_seen_at: '2026-07-19T10:00:00Z',
 }
 
 const videoModel = {
@@ -74,7 +83,14 @@ const videoModel = {
   publicPricing: { fromTokens: 7 },
 }
 
-async function mockApi(page) {
+async function mockApi(page, { authenticated = true } = {}) {
+  const authState = { authenticated }
+  await page.route('**/media/avatars/**', async (route) => {
+    await route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect width="160" height="160" fill="#151d17"/><circle cx="80" cy="64" r="34" fill="#c7f500"/><path d="M28 150c8-36 30-54 52-54s44 18 52 54" fill="#c4cec6"/></svg>',
+    })
+  })
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === '/api/auth/bootstrap-v2') {
@@ -82,7 +98,16 @@ async function mockApi(page) {
       return
     }
     if (url.pathname === '/api/me-v2') {
+      if (!authState.authenticated) {
+        await route.fulfill({ status: 401, json: { detail: 'Not authenticated' } })
+        return
+      }
       await route.fulfill({ json: mePayload })
+      return
+    }
+    if (url.pathname === '/api/auth/password/login-v2') {
+      authState.authenticated = true
+      await route.fulfill({ json: { ok: true } })
       return
     }
     if (url.pathname === '/api/auth/capabilities-v2') {
@@ -132,63 +157,111 @@ async function mockApi(page) {
     }
     await route.fulfill({ json: { ok: true, items: [], images: [] } })
   })
+  return authState
 }
 
 async function run() {
   const browser = await chromium.launch()
   try {
-    const page = await browser.newPage({ viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true })
-    page.setDefaultTimeout(20000)
-    await mockApi(page)
+    for (const device of [
+      { name: 'desktop', viewport: { width: 1440, height: 1000 }, isMobile: false },
+      { name: 'mobile', viewport: { width: 390, height: 844 }, isMobile: true },
+    ]) {
+      const page = await browser.newPage({ viewport: device.viewport, isMobile: device.isMobile, hasTouch: device.isMobile })
+      page.setDefaultTimeout(20000)
+      await mockApi(page)
 
-    await page.goto(`${base}/profile?profile_auth=${Date.now()}`, { waitUntil: 'networkidle' })
-    await page.locator('.profile-page').waitFor()
+      await page.goto(`${base}/profile?profile_auth=${Date.now()}`, { waitUntil: 'networkidle' })
+      await page.locator('.account-page').waitFor()
 
-    const data = await page.evaluate(() => ({
-      hasDialog: Boolean(document.querySelector('.auth-modal, [role="dialog"]')),
-      hasGuestCopy: document.body.innerText.includes('После входа здесь появятся'),
-      hasName: document.body.innerText.includes('Алиса Профиль'),
-      hasEmail: Array.from(document.querySelectorAll('input')).some((input) => input.value === 'profile@example.test'),
-      hasBalance: document.body.innerText.includes('123'),
-      avatarSrc: document.querySelector('.profile-avatar img')?.getAttribute('src') || '',
-      topbarAvatarSrc: document.querySelector('.account-button .user-glyph img')?.getAttribute('src') || '',
-      overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
-    }))
+      const data = await page.evaluate(() => ({
+        hasDialog: Boolean(document.querySelector('.auth-modal, [role="dialog"]')),
+        hasGuestCopy: document.body.innerText.includes('После входа здесь появятся'),
+        hasName: document.body.innerText.includes('Алиса Профиль'),
+        hasEmail: Array.from(document.querySelectorAll('input')).some((input) => input.value === 'profile@example.test'),
+        hasBalance: document.body.innerText.includes('123'),
+        hasRegistrationDate: document.body.innerText.includes('26 июня 2026'),
+        hasExpiryDate: document.body.innerText.includes('01 октября 2026'),
+        hasIrrelevantMetrics: document.body.innerText.includes('Лайки') || document.body.innerText.includes('Подписчики') || document.body.innerText.includes('Бонусы'),
+        avatarSrc: document.querySelector('.account-avatar img')?.getAttribute('src') || '',
+        overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
+      }))
 
-    assert(!data.hasDialog, 'Authorized profile opened an auth dialog')
-    assert(!data.hasGuestCopy, 'Authorized profile rendered guest login copy')
-    assert(data.hasName, 'Authorized profile did not render display name')
-    assert(data.hasEmail, 'Authorized profile did not render email')
-    assert(data.hasBalance, 'Authorized profile did not render token balance')
-    assert(data.avatarSrc.includes('/media/avatars/alice-profile.webp'), `Profile avatar src is wrong: ${data.avatarSrc}`)
-    assert(data.topbarAvatarSrc.includes('/media/avatars/alice-profile.webp'), `Topbar avatar src is wrong: ${data.topbarAvatarSrc}`)
-    assert(!data.overflowX, 'Authorized profile overflows horizontally on mobile')
+      assert(!data.hasDialog, `Authorized ${device.name} profile opened an auth dialog`)
+      assert(!data.hasGuestCopy, `Authorized ${device.name} profile rendered guest login copy`)
+      assert(data.hasName, `Authorized ${device.name} profile did not render display name`)
+      assert(data.hasEmail, `Authorized ${device.name} profile did not render email`)
+      assert(data.hasBalance, `Authorized ${device.name} profile did not render token balance`)
+      assert(data.hasRegistrationDate, `Authorized ${device.name} profile did not render registration date`)
+      assert(data.hasExpiryDate, `Authorized ${device.name} profile did not render plan expiry`)
+      assert(!data.hasIrrelevantMetrics, `Authorized ${device.name} profile rendered removed metrics`)
+      assert(data.avatarSrc.includes('/media/avatars/alice-profile.webp'), `Profile avatar src is wrong: ${data.avatarSrc}`)
+      assert(!data.overflowX, `Authorized ${device.name} profile overflows horizontally`)
 
-    await page.getByRole('button', { name: 'Модели' }).click()
-    await page.locator('.profile-video-catalog').waitFor()
-    const catalogInitial = await page.evaluate(() => ({
-      groupCount: document.querySelectorAll('.profile-video-catalog > details').length,
-      openGroups: document.querySelectorAll('.profile-video-catalog > details[open]').length,
-      overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
-    }))
-    assert(catalogInitial.groupCount === 4, `Expected four video mode groups, got ${catalogInitial.groupCount}`)
-    assert(catalogInitial.openGroups === 0, 'Video mode groups must be collapsed by default')
-    assert(!catalogInitial.overflowX, 'Video catalog overflows horizontally on mobile')
+      await page.screenshot({ path: `artifacts/profile-redesign-${device.name}.png`, fullPage: true })
 
-    await page.locator('.profile-video-catalog > details').first().locator(':scope > summary').click()
-    const modelRow = page.locator('.profile-video-model-row').first()
-    await modelRow.waitFor()
-    assert(await modelRow.getByText('от 7 ток.').isVisible(), 'Compact video model price is missing')
-    assert(!(await modelRow.getByText(videoModel.description).isVisible()), 'Full video model description is open by default')
-    await modelRow.locator('.profile-video-model-details > summary').click()
-    assert(await modelRow.getByText(videoModel.description).isVisible(), 'Full video model description did not open')
+      if (device.name === 'desktop') {
+        await page.getByText('Безопасность', { exact: true }).click()
+        await page.getByLabel('Текущий пароль').waitFor()
+        await page.screenshot({ path: 'artifacts/profile-redesign-security.png', fullPage: true })
+      }
 
-    const toggle = modelRow.locator('input[type="checkbox"]')
-    assert(await toggle.isChecked(), 'Video model visibility checkbox is not enabled by default')
-    await toggle.uncheck()
-    assert(!(await toggle.isChecked()), 'Video model visibility checkbox did not switch independently')
+      if (device.name === 'mobile') {
+        await page.getByRole('button', { name: 'Модели' }).click()
+        await page.locator('.profile-video-catalog').waitFor()
+        const catalogInitial = await page.evaluate(() => ({
+          groupCount: document.querySelectorAll('.profile-video-catalog > details').length,
+          openGroups: document.querySelectorAll('.profile-video-catalog > details[open]').length,
+          overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
+        }))
+        assert(catalogInitial.groupCount === 4, `Expected four video mode groups, got ${catalogInitial.groupCount}`)
+        assert(catalogInitial.openGroups === 0, 'Video mode groups must be collapsed by default')
+        assert(!catalogInitial.overflowX, 'Video catalog overflows horizontally on mobile')
 
-    console.log('Authorized profile e2e passed.')
+        await page.locator('.profile-video-catalog > details').first().locator(':scope > summary').click()
+        const modelRow = page.locator('.profile-video-model-row').first()
+        await modelRow.waitFor()
+        assert(await modelRow.getByText('от 7 ток.').isVisible(), 'Compact video model price is missing')
+        assert(!(await modelRow.getByText(videoModel.description).isVisible()), 'Full video model description is open by default')
+        await modelRow.locator('.profile-video-model-details > summary').click()
+        assert(await modelRow.getByText(videoModel.description).isVisible(), 'Full video model description did not open')
+
+        const toggle = modelRow.locator('input[type="checkbox"]')
+        assert(await toggle.isChecked(), 'Video model visibility checkbox is not enabled by default')
+        await toggle.uncheck()
+        assert(!(await toggle.isChecked()), 'Video model visibility checkbox did not switch independently')
+      }
+
+      await page.close()
+    }
+
+    for (const device of [
+      { name: 'desktop', viewport: { width: 1440, height: 1000 }, isMobile: false },
+      { name: 'mobile', viewport: { width: 390, height: 844 }, isMobile: true },
+    ]) {
+      const page = await browser.newPage({ viewport: device.viewport, isMobile: device.isMobile, hasTouch: device.isMobile })
+      page.setDefaultTimeout(20000)
+      await mockApi(page, { authenticated: false })
+
+      await page.goto(`${base}/profile?guest_auth=${Date.now()}`, { waitUntil: 'networkidle' })
+      await page.locator('.profile-primary').getByText('Войти', { exact: true }).click()
+      const dialog = page.getByRole('dialog')
+      await dialog.waitFor()
+      assert(await dialog.getByRole('heading', { name: 'Вход в ИЗО АСА' }).isVisible(), `${device.name} login heading is missing`)
+      assert(!(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2)), `${device.name} login overflows horizontally`)
+      await page.screenshot({ path: `artifacts/auth-redesign-${device.name}.png`, fullPage: true })
+
+      if (device.name === 'desktop') {
+        await dialog.getByLabel('Email').fill('profile@example.test')
+        await dialog.getByLabel('Пароль').fill('correct-password')
+        await dialog.getByRole('button', { name: 'Войти', exact: true }).click()
+        await page.waitForURL((url) => url.pathname === '/' && url.hash === '#text-to-image')
+      }
+
+      await page.close()
+    }
+
+    console.log('Profile and auth desktop/mobile e2e passed.')
   } finally {
     await browser.close()
   }
