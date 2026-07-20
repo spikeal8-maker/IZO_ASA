@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 from app.security.webhooks import (
@@ -98,7 +99,7 @@ def test_subscription_configuration_sends_validated_secret(monkeypatch):
 
 def test_polling_mode_disables_max_webhook_receiver(monkeypatch):
     monkeypatch.setattr(main, "MAX_UPDATES_MODE", "polling")
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
 
     response = client.post(
         "/api/max/webhook",
@@ -118,7 +119,7 @@ def test_max_webhook_rejects_missing_or_invalid_secret(header_value, monkeypatch
 
     monkeypatch.setattr(main, "handle_max_update", fake_handler)
     headers = {SECRET_HEADER: header_value} if header_value is not None else {}
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
 
     response = client.post(
         "/api/max/webhook",
@@ -132,7 +133,7 @@ def test_max_webhook_rejects_missing_or_invalid_secret(header_value, monkeypatch
 
 def test_max_webhook_rejects_runtime_misconfiguration(monkeypatch):
     monkeypatch.setattr(main, "MAX_WEBHOOK_SECRET", "")
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
 
     response = client.post("/api/max/webhook", json={"message": {}})
 
@@ -146,7 +147,7 @@ def test_max_webhook_enforces_body_limit_and_json_object(monkeypatch):
         calls.append(payload)
 
     monkeypatch.setattr(main, "handle_max_update", fake_handler)
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     headers = {SECRET_HEADER: TEST_SECRET, "Content-Type": "application/json"}
 
     oversized = client.post(
@@ -168,7 +169,7 @@ def test_valid_max_update_is_handled_without_logging_secret(monkeypatch, capsys)
         calls.append((payload, send_replies))
 
     monkeypatch.setattr(main, "handle_max_update", fake_handler)
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     payload = {"message": {"body": {"text": "/app"}, "sender": {"user_id": "u1"}}}
 
     response = client.post(

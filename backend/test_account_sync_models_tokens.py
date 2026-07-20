@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -70,7 +71,7 @@ def test_user_tariffs_and_model_access_follow_admin_settings(temp_db):
             (json.dumps(openrouter, ensure_ascii=False),),
         )
 
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         tariffs_response = client.get("/api/tariffs", headers=bearer(token))
         access_response = client.get("/api/model-access", headers=bearer(token))
 
@@ -108,7 +109,7 @@ def test_job_status_restores_completed_result_from_database(temp_db):
         )
     main.jobs.clear()
 
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/jobs/job_db_result", headers=bearer(token))
 
     assert response.status_code == 200, response.text
@@ -156,7 +157,7 @@ def test_account_token_history_counts_balance_and_included_usage(temp_db):
             ),
         )
 
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/account/token-history-v2?days=365", headers=bearer(token))
 
     assert response.status_code == 200, response.text
@@ -186,7 +187,7 @@ def test_openrouter_generation_rejects_model_not_enabled_for_tariff(temp_db, mon
         return {"chargedTokens": 3, "modelName": "FLUX.2 Max", "estimatedCostRub": 7.0}
 
     monkeypatch.setattr(main, "estimate_openrouter_billing", fake_billing)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/generate",
             headers=bearer(token),
@@ -232,7 +233,7 @@ def test_openrouter_generation_uses_main_balance_only(temp_db, monkeypatch):
         return {"chargedTokens": 3, "modelName": "FLUX.2 Pro", "estimatedCostRub": 3.5}
 
     monkeypatch.setattr(main, "estimate_openrouter_billing", fake_billing)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/generate",
             headers=bearer(token),
@@ -292,7 +293,7 @@ def test_openrouter_non_text_mode_requires_live_model_capability_before_billing(
 
     monkeypatch.setattr(main, "estimate_openrouter_billing", fake_billing)
     monkeypatch.setattr(main, "fetch_openrouter_image_capabilities", text_only_capabilities)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/generate",
             headers=bearer(token),

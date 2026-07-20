@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 from app.security import webhooks
@@ -98,7 +99,7 @@ def test_startup_rejects_missing_secret_before_database_preflight(monkeypatch):
 
 def test_polling_mode_disables_public_webhook_receiver(monkeypatch):
     monkeypatch.setattr(main, "BOT_UPDATES_MODE", "polling")
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
 
     response = client.post(
         "/api/telegram/webhook",
@@ -118,7 +119,7 @@ def test_webhook_rejects_missing_or_invalid_secret(header_value, monkeypatch):
 
     monkeypatch.setattr(main, "handle_telegram_update", fake_handler)
     headers = {SECRET_HEADER: header_value} if header_value is not None else {}
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
 
     response = client.post("/api/telegram/webhook", json={"update_id": 2}, headers=headers)
 
@@ -128,7 +129,7 @@ def test_webhook_rejects_missing_or_invalid_secret(header_value, monkeypatch):
 
 def test_webhook_rejects_runtime_misconfiguration(monkeypatch):
     monkeypatch.setattr(main, "TELEGRAM_WEBHOOK_SECRET", "")
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
 
     response = client.post("/api/telegram/webhook", json={"update_id": 3})
 
@@ -142,7 +143,7 @@ def test_webhook_enforces_actual_body_limit_before_json_handling(monkeypatch):
         calls.append(payload)
 
     monkeypatch.setattr(main, "handle_telegram_update", fake_handler)
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
 
     response = client.post(
         "/api/telegram/webhook",
@@ -165,7 +166,7 @@ def test_webhook_rejects_invalid_or_non_object_json(body, monkeypatch):
         calls.append(payload)
 
     monkeypatch.setattr(main, "handle_telegram_update", fake_handler)
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
 
     response = client.post(
         "/api/telegram/webhook",
@@ -184,7 +185,7 @@ def test_valid_update_is_handled_once_and_replay_is_acknowledged(monkeypatch):
         calls.append((payload, send_replies))
 
     monkeypatch.setattr(main, "handle_telegram_update", fake_handler)
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     payload = {"update_id": 777, "message": {"text": "/app", "chat": {"id": 42}}}
     headers = {SECRET_HEADER: TEST_SECRET}
 

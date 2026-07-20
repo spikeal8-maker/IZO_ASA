@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -42,7 +43,7 @@ def temp_db(tmp_path: Path, monkeypatch):
 
 
 def admin_client() -> TestClient:
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     client.cookies.set(main.TRUSTED_SESSION_COOKIE_NAME, _ADMIN_SESSION["token"])
     return client
 
@@ -60,19 +61,19 @@ def login(client, email, password=PW):
 
 # --- 1. Active user can register and login ---
 def test_active_user_register_and_login(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "lifecycle@test.local")
     assert r.status_code == 200 and r.json()["ok"] is True
-    with TestClient(main.app) as c2:
+    with BrowserTestClient(main.app) as c2:
         r = login(c2, "lifecycle@test.local")
     assert r.status_code == 200 and r.json()["ok"] is True
 
 
 # --- 2. Wrong password returns 401 generic ---
 def test_wrong_password_401(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "wp@test.local")
-    with TestClient(main.app) as c2:
+    with BrowserTestClient(main.app) as c2:
         r = login(c2, "wp@test.local", password="totally-wrong")
     assert r.status_code == 401
     assert r.json()["detail"] == "Неверная почта или пароль."
@@ -80,7 +81,7 @@ def test_wrong_password_401(temp_db):
 
 # --- 3. Unknown email returns same 401 generic ---
 def test_unknown_email_401(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = login(c, "unknown@test.local")
     assert r.status_code == 401
     assert r.json()["detail"] == "Неверная почта или пароль."
@@ -88,19 +89,19 @@ def test_unknown_email_401(temp_db):
 
 # --- 4. Banned user cannot login (403) ---
 def test_banned_user_login_403(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "ban@test.local")
         iuid = r.json()["internal_user_id"]
     with main.db() as conn:
         conn.execute("UPDATE users SET banned=1 WHERE internal_user_id=?", (iuid,))
-    with TestClient(main.app) as c2:
+    with BrowserTestClient(main.app) as c2:
         r = login(c2, "ban@test.local")
     assert r.status_code == 403
 
 
 # --- 5. Admin disable revokes sessions ---
 def test_admin_disable_revokes_sessions(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "revoke@test.local")
         legacy = r.json()["legacy_user_id"]
         iuid = r.json()["internal_user_id"]
@@ -116,7 +117,7 @@ def test_admin_disable_revokes_sessions(temp_db):
 
 # --- 6. Admin disable disables active password ---
 def test_admin_disable_disables_password(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "pwdisable@test.local")
         legacy = r.json()["legacy_user_id"]
         iuid = r.json()["internal_user_id"]
@@ -129,7 +130,7 @@ def test_admin_disable_disables_password(temp_db):
 
 # --- 7. Registering same disabled email returns 409 ---
 def test_register_disabled_email_409(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "disabled@test.local")
         legacy = r.json()["legacy_user_id"]
     # Admin disable
@@ -137,7 +138,7 @@ def test_register_disabled_email_409(temp_db):
         response = c2.delete(f"/api/admin/users/{legacy}")
     assert response.status_code == 200
     # Try re-register
-    with TestClient(main.app) as c3:
+    with BrowserTestClient(main.app) as c3:
         r = register(c3, "disabled@test.local")
     assert r.status_code == 409
 
@@ -148,7 +149,7 @@ def test_orphan_identity_cannot_login(temp_db):
     with main.db() as conn:
         conn.execute("INSERT INTO auth_identities (id, internal_user_id, provider, provider_user_id, linked_at) VALUES (?, ?, 'web_email', ?, ?)",
                      ("oid-orphan", "iuid-orphan", "orphan@test.local", now))
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = login(c, "orphan@test.local")
     assert r.status_code == 401
     assert r.json()["detail"] == "Неверная почта или пароль."
@@ -164,7 +165,7 @@ def test_orphan_password_cannot_login(temp_db):
                      ("oid-pw", "iuid-pw-orphan", "pworphan@test.local", now))
         conn.execute("INSERT INTO auth_passwords (id, internal_user_id, password_hash, algorithm, created_at, updated_at) VALUES (?, ?, ?, 'argon2id', ?, ?)",
                      ("pw-orphan", "iuid-pw-orphan", main._DUMMY_PASSWORD_HASH, now, now))
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = login(c, "pworphan@test.local")
     assert r.status_code == 401
 
@@ -176,7 +177,7 @@ def test_orphan_register_no_duplicate(temp_db):
         conn.execute("INSERT INTO auth_identities (id, internal_user_id, provider, provider_user_id, linked_at) VALUES (?, ?, 'web_email', ?, ?)",
                      ("oid-dup", "iuid-dup", "nouser@test.local", now))
     before = count("users")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "nouser@test.local")
     assert r.status_code == 409
     assert count("users") == before
@@ -185,7 +186,7 @@ def test_orphan_register_no_duplicate(temp_db):
 
 # --- 11. No raw password logged ---
 def test_no_raw_password_logged(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "nolog@test.local")
     with main.db() as conn:
         for table in ("security_events", "event_logs"):
@@ -196,7 +197,7 @@ def test_no_raw_password_logged(temp_db):
 
 # --- 12. No password_hash logged ---
 def test_no_password_hash_logged(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "nohash@test.local")
         iuid = r.json()["internal_user_id"]
     with main.db() as conn:
@@ -215,7 +216,7 @@ def test_users_id_unchanged(temp_db):
     with main.db() as conn:
         conn.execute("INSERT INTO users (id, internal_user_id, language, role, created_at, last_login_at) VALUES ('telegram_legacy2','iuid-leg2','ru','user','2026-01-01','2026-01-01')")
         before = sorted(r["id"] for r in conn.execute("SELECT id FROM users"))
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "idtest@test.local")
     with main.db() as conn:
         after = sorted(r["id"] for r in conn.execute("SELECT id FROM users"))

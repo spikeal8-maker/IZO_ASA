@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -31,7 +32,7 @@ def client(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", True)  # …but debug path on
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)  # http TestClient resends the cookie
     main.init_db()
-    return TestClient(main.app)
+    return BrowserTestClient(main.app)
 
 
 REG = {
@@ -111,7 +112,7 @@ def test_password_login_not_broken(client):
     challenge_id, code = _request_code(client, REG["email"])
     client.post("/api/auth/email/verify-code-v2", json={"challenge_id": challenge_id, "code": code, "platform": "web_desktop"})
     # A fresh client (no cookies) can still log in with the password.
-    fresh = TestClient(main.app)
+    fresh = BrowserTestClient(main.app)
     lr = fresh.post(
         "/api/auth/password/login-v2",
         json={"email": REG["email"], "password": REG["password"], "platform": "web_desktop"},

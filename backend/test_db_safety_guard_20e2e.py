@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -103,7 +104,7 @@ def test_public_health_reports_readiness_without_database_details(monkeypatch, t
     make_real_like_db(db_file)
     monkeypatch.setattr(main, "APP_ENV", "development")
     monkeypatch.setattr(main, "DB_PATH", db_file)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         res = client.get("/api/health")
     assert res.status_code == 200
     body = res.json()

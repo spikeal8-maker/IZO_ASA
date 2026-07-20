@@ -7,6 +7,7 @@ from io import BytesIO
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 from PIL import Image
 
 import main
@@ -127,7 +128,7 @@ def isolated_db(tmp_path, monkeypatch):
 
 def authed_client() -> TestClient:
     """TestClient carrying the trusted session cookie + matching legacy header."""
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     client.cookies.set(main.TRUSTED_SESSION_COOKIE_NAME, _SESSION["session_token"])
     client.headers.update({"X-OneNode-User": _SESSION["legacy_user_id"]})
     return client
@@ -146,7 +147,7 @@ def test_runtime_error_ingestion_is_sanitized(monkeypatch) -> None:
         "release": "test-sha",
         "kind": "TypeError",
     }
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post("/api/client-errors", json=payload)
     assert response.status_code == 202
     with main.db() as conn:
@@ -174,7 +175,7 @@ def test_runtime_error_rejects_unapproved_fields() -> None:
         "route": "/",
         "stack": "must never be accepted",
     }
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post("/api/client-errors", json=payload)
     assert response.status_code == 422
 
@@ -185,7 +186,7 @@ def test_runtime_health_reports_latest_synthetic(monkeypatch) -> None:
 
     monkeypatch.setattr(main, "comfyui_available", fake_available)
     monkeypatch.setenv("RUNTIME_SYNTHETIC_KEY", "test-monitor-key")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         denied = client.post("/api/runtime/synthetic-result", json={"status": "ok", "duration_ms": 10})
         accepted = client.post(
             "/api/runtime/synthetic-result",
@@ -222,7 +223,7 @@ BOT_OPERATIONAL_CASES = [
 
 @pytest.mark.parametrize(("method", "path", "payload"), BOT_OPERATIONAL_CASES)
 def test_bot_operational_endpoints_require_trusted_admin(method, path, payload) -> None:
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.request(method, path, json=payload)
     assert response.status_code == 401
 
@@ -241,7 +242,7 @@ def test_bot_operational_endpoints_reject_trusted_non_admin() -> None:
             (now,),
         )
     session = main.create_auth_session("iuid-bot-user", "web_bot_user", provider="web_email", platform="web_desktop")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.cookies.set(main.TRUSTED_SESSION_COOKIE_NAME, session["session_token"])
         for method, path, payload in BOT_OPERATIONAL_CASES:
             response = client.request(method, path, json=payload)
@@ -249,7 +250,7 @@ def test_bot_operational_endpoints_reject_trusted_non_admin() -> None:
 
 
 def test_public_health_is_minimal_and_does_not_expose_runtime_details() -> None:
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/health")
 
     assert response.status_code == 200
@@ -265,7 +266,7 @@ def test_public_health_is_minimal_and_does_not_expose_runtime_details() -> None:
 
 
 def test_public_version_uses_release_identity_without_mutable_runtime_details() -> None:
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/version")
 
     assert response.status_code == 200
@@ -454,7 +455,7 @@ def test_translate_presets_webhooks_and_admin(monkeypatch) -> None:
 
 
 def test_stage1_bootstrap_platforms_and_database_are_ready() -> None:
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         web = client.post("/api/app/bootstrap", json={"platform": "web", "language": "ru"}).json()
         telegram = client.post(
             "/api/app/bootstrap",
@@ -499,7 +500,7 @@ def test_bootstrap_includes_flux_klein_runtime_data(monkeypatch) -> None:
     monkeypatch.setattr(main, "get_comfyui_models", fake_models)
     monkeypatch.setattr(main, "get_flux_bgremoval_models", fake_bgremoval)
 
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         payload = client.post("/api/app/bootstrap", json={"platform": "web", "language": "ru"}).json()
 
     assert payload["features"]["modes"] == ["text_to_image", "image_to_image", "edit", "paint", "faceswap"]
@@ -799,7 +800,7 @@ def test_bot_webhook_endpoints_still_handle_commands(monkeypatch) -> None:
     monkeypatch.setattr(main, "MAX_UPDATES_MODE", "webhook")
     monkeypatch.setattr(main, "MAX_WEBHOOK_SECRET", "max_api-test-secret")
 
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     tg = client.post(
         "/api/telegram/webhook",
         json={"update_id": 1, "message": {"text": "/app", "chat": {"id": 777}}},

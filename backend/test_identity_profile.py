@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 from PIL import Image
 
 import main
@@ -79,7 +80,7 @@ def test_max_login_captures_profile_and_caches_avatar(temp_db, monkeypatch):
     monkeypatch.setattr(main, "max_api", fake_max_api)
     monkeypatch.setattr(main, "_download_avatar_bytes", fake_download)
 
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     started = client.post("/api/auth/bot-login/start", json={"provider": "max"}).json()
     token = _login_token_from_deep_link(started["deep_link"])
 
@@ -163,7 +164,7 @@ def _authenticate_telegram(client: TestClient, monkeypatch, user_id: int = 777) 
 
 
 def test_me_v2_avatar_falls_back_to_provider(temp_db, monkeypatch):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     _authenticate_telegram(client, monkeypatch)
     # Telegram bot login has no avatar; inject a provider avatar and clear users.avatar_url.
     with main.db() as conn:
@@ -177,12 +178,12 @@ def test_me_v2_avatar_falls_back_to_provider(temp_db, monkeypatch):
 # --- Phase 2: sessions list + revoke --------------------------------------
 
 def test_sessions_requires_auth(temp_db):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     assert client.get("/api/auth/sessions").status_code == 401
 
 
 def test_sessions_list_shows_current_and_revoke_others(temp_db, monkeypatch):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     _authenticate_telegram(client, monkeypatch)
     data = client.get("/api/auth/sessions").json()
     assert data["ok"] is True
@@ -197,7 +198,7 @@ def test_sessions_list_shows_current_and_revoke_others(temp_db, monkeypatch):
 
 
 def test_revoke_foreign_session_is_rejected(temp_db, monkeypatch):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     _authenticate_telegram(client, monkeypatch)
     resp = client.post("/api/auth/sessions/non-existent-id/revoke")
     assert resp.status_code == 404
@@ -206,7 +207,7 @@ def test_revoke_foreign_session_is_rejected(temp_db, monkeypatch):
 # --- Phase 3: activity summary --------------------------------------------
 
 def test_activity_v2_reports_logins_and_methods(temp_db, monkeypatch):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     _authenticate_telegram(client, monkeypatch)
     data = client.get("/api/account/activity-v2").json()
     assert data["ok"] is True
@@ -218,5 +219,5 @@ def test_activity_v2_reports_logins_and_methods(temp_db, monkeypatch):
 
 
 def test_activity_v2_requires_auth(temp_db):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     assert client.get("/api/account/activity-v2").status_code == 401

@@ -2,6 +2,7 @@ from pathlib import Path
 import re
 
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -137,7 +138,7 @@ def test_gallery_and_feed_shells_expose_the_shared_favicon():
 
 
 def test_shared_favicon_is_served_by_backend():
-    response = TestClient(main.app).get("/favicon.svg")
+    response = BrowserTestClient(main.app).get("/favicon.svg")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/svg+xml")

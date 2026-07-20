@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -55,7 +56,7 @@ def video_api(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(main, "fetch_usd_rub_rate", exchange)
     monkeypatch.setattr(main, "openrouter_headers", lambda: {"Authorization": "Bearer test"})
     monkeypatch.setattr(main, "_saved_setting", lambda key: {"enabled": {"text_to_video": [MODEL["id"]], "image_to_video": [MODEL["id"]], "first_last_frame": [MODEL["id"]]}} if key == "openrouter_video_models" else {})
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     client.cookies.set("onenode_session", session["session_token"])
     return client
 

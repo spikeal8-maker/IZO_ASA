@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -48,7 +49,7 @@ def request_code(client, email, **body):
 
 # 1
 def test_first_request_allowed(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "first@example.com")
     assert r.status_code == 200
     assert "challenge_id" in r.json()
@@ -56,7 +57,7 @@ def test_first_request_allowed(temp_db):
 
 # 2,3,4,5,6
 def test_cooldown_blocks_second_request(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r1 = request_code(client, "cool@example.com")
         assert r1.status_code == 200
         before_challenges = count("auth_otp_challenges")
@@ -75,7 +76,7 @@ def test_email_window_limit(temp_db, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_OTP_REQUEST_COOLDOWN_SECONDS", 0)  # disable cooldown
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_REQUESTS_PER_EMAIL_WINDOW", 3)
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_EMAIL", 99)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         for _ in range(3):
             assert request_code(client, "win@example.com").status_code == 200
         blocked = request_code(client, "win@example.com")
@@ -85,7 +86,7 @@ def test_email_window_limit(temp_db, monkeypatch):
 # 8
 def test_ip_window_limit(temp_db, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_REQUESTS_PER_IP_WINDOW", 3)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         # distinct emails to avoid cooldown/email-window; same IP (testclient)
         for i in range(3):
             assert request_code(client, f"ip{i}@example.com").status_code == 200
@@ -99,7 +100,7 @@ def test_max_active_challenges(temp_db, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_REQUESTS_PER_EMAIL_WINDOW", 99)
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_REQUESTS_PER_IP_WINDOW", 99)
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_EMAIL", 3)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         for _ in range(3):
             assert request_code(client, "active@example.com").status_code == 200
         blocked = request_code(client, "active@example.com")
@@ -113,7 +114,7 @@ def test_rate_limit_does_not_reveal_user_existence(temp_db, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_EMAIL", 1)
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_REQUESTS_PER_EMAIL_WINDOW", 99)
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_REQUESTS_PER_IP_WINDOW", 99)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         # create an account for existing@
         r = request_code(client, "existing@example.com")
         main_code = r.json()["debug_code"]
@@ -130,7 +131,7 @@ def test_rate_limit_does_not_reveal_user_existence(temp_db, monkeypatch):
 
 # 11, 12
 def test_rate_limit_does_not_store_or_log_raw_otp(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r1 = request_code(client, "raw@example.com")
         code = r1.json()["debug_code"]
         request_code(client, "raw@example.com")  # cooldown 429
@@ -176,14 +177,14 @@ def test_cleanup_removes_stale_keeps_active(temp_db):
 # 16
 def test_request_after_cleanup_still_works(temp_db):
     main.cleanup_expired_otp_challenges()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "after-clean@example.com")
     assert r.status_code == 200
 
 
 # 17
 def test_invalid_email_400_and_not_counted(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         bad = request_code(client, "not-an-email")
         assert bad.status_code == 400
         assert count("auth_otp_challenges") == 0

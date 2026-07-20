@@ -5,6 +5,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -65,7 +66,7 @@ def _seed_gallery(tmp_path, monkeypatch, count: int) -> str:
 @pytest.mark.parametrize("count", [10, 100, 500])
 def test_gallery_cursor_load_profiles(tmp_path, monkeypatch, count, capsys):
     token = _seed_gallery(tmp_path, monkeypatch, count)
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     headers = {"Authorization": f"Bearer {token}"}
 
     started = time.perf_counter()

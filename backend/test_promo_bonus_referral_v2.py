@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -45,7 +46,7 @@ def test_loyalty_requires_trusted_admin(temp_db):
     make_user("iuid-user", "telegram_user")
     make_user("iuid-target", "telegram_target")
     user_token = main.create_auth_session("iuid-user", "telegram_user", provider="telegram", platform="telegram_mini_app")["session_token"]
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         assert c.get("/api/admin/users/iuid-target/promos-v2").status_code == 401
         assert c.get("/api/admin/users/iuid-target/promos-v2", headers=bearer(user_token)).status_code == 403
         assert c.post("/api/admin/users/iuid-target/bonus-v2", json={"token_amount": 10, "reason": "x"}, headers=bearer(user_token)).status_code == 403
@@ -55,7 +56,7 @@ def test_bonus_grant_idempotent_cancel_and_users_id_safe(temp_db):
     token = admin_token()
     make_user("iuid-target", "telegram_target", balance=20)
     body = {"token_amount": 100, "bonus_type": "manual", "reason": "support bonus", "idempotency_key": "bonus-1"}
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         first = c.post("/api/admin/users/iuid-target/bonus-v2", json=body, headers=bearer(token))
         again = c.post("/api/admin/users/iuid-target/bonus-v2", json=body, headers=bearer(token))
         bonus_id = first.json()["bonus"]["id"]
@@ -77,7 +78,7 @@ def test_bonus_grant_idempotent_cancel_and_users_id_safe(temp_db):
 def test_bonus_cancel_blocked_when_balance_insufficient(temp_db):
     token = admin_token()
     make_user("iuid-target", "telegram_target", balance=0)
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/admin/users/iuid-target/bonus-v2", json={"token_amount": 100, "reason": "x", "idempotency_key": "bonus-low"}, headers=bearer(token))
         bonus_id = r.json()["bonus"]["id"]
         c.post("/api/admin/users/iuid-target/tokens-v2", json={"delta": -100, "reason": "spent elsewhere"}, headers=bearer(token))
@@ -90,7 +91,7 @@ def test_apply_promo_duplicate_blocked_and_safe(temp_db):
     make_user("iuid-target", "telegram_target", balance=10)
     with main.db() as conn:
         conn.execute("INSERT INTO promo_codes (code, tokens, activation_limit, activation_count, enabled, created_at, updated_at) VALUES ('WELCOME', 25, 10, 0, 1, '2026-01-01', '2026-01-01')")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         first = c.post("/api/admin/users/iuid-target/apply-promo-v2", json={"promo_code": "welcome", "reason": "manual apply", "idempotency_key": "promo-1"}, headers=bearer(token))
         idem = c.post("/api/admin/users/iuid-target/apply-promo-v2", json={"promo_code": "WELCOME", "reason": "manual apply", "idempotency_key": "promo-1"}, headers=bearer(token))
         duplicate = c.post("/api/admin/users/iuid-target/apply-promo-v2", json={"promo_code": "WELCOME", "reason": "manual apply", "idempotency_key": "promo-2"}, headers=bearer(token))
@@ -112,7 +113,7 @@ def test_user_apply_promo_grants_50_once_and_writes_clear_ledger(temp_db):
     user_token = main.create_auth_session("iuid-user", "web_user", provider="web_email", platform="web")["session_token"]
     with main.db() as conn:
         conn.execute("INSERT INTO promo_codes (code, tokens, activation_limit, activation_count, enabled, created_at, updated_at) VALUES ('FRIEND50', 5, 10, 0, 1, '2026-01-01', '2026-01-01')")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         first = c.post("/api/account/apply-promo-v2", json={"promo_code": "friend50"}, headers=bearer(user_token))
         duplicate = c.post("/api/account/apply-promo-v2", json={"promo_code": "FRIEND50"}, headers=bearer(user_token))
     assert first.status_code == 200, first.text
@@ -137,7 +138,7 @@ def test_referral_reward_writes_reward_and_ledger(temp_db):
             "INSERT INTO referral_relations (id, parent_internal_user_id, child_internal_user_id, referral_code, status, created_at) VALUES ('rel1','iuid-parent','iuid-child','REF-PARENT','active','2026-01-01')"
         )
     body = {"token_amount": 0, "referral_relation_id": "rel1", "reason": "friend signup", "idempotency_key": "reward-1"}
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         first = c.post("/api/admin/users/iuid-parent/referral-reward-v2", json=body, headers=bearer(token))
         again = c.post("/api/admin/users/iuid-parent/referral-reward-v2", json=body, headers=bearer(token))
         refs = c.get("/api/admin/users/iuid-parent/referrals-v2", headers=bearer(token))

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -58,7 +59,7 @@ def bearer(token):
 
 # 1
 def test_me_v2_without_session_401(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me-v2")
     assert r.status_code == 401
 
@@ -68,7 +69,7 @@ def test_me_v2_with_valid_session(temp_db):
     make_user("iuid-1", "telegram_1", username="ann")
     make_identity("iuid-1", "telegram_1", provider="telegram", pid="1", username="ann")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me-v2", headers=bearer(s["session_token"]))
     assert r.status_code == 200
     b = r.json()
@@ -86,7 +87,7 @@ def test_me_v2_with_valid_session(temp_db):
 # 3
 def test_me_v2_does_not_use_header_without_session(temp_db):
     make_user("iuid-admin", "admin", role="admin")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me-v2", headers={"X-OneNode-User": "admin"})
     assert r.status_code == 401
 
@@ -96,7 +97,7 @@ def test_me_v2_ignores_header_spoof_and_logs(temp_db):
     make_user("iuid-1", "telegram_1")
     make_user("iuid-admin", "admin", role="admin")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me-v2", headers={**bearer(s["session_token"]), "X-OneNode-User": "admin"})
     assert r.status_code == 200
     assert r.json()["legacy_user_id"] == "telegram_1"  # not 'admin'
@@ -108,7 +109,7 @@ def test_me_v2_ignores_cookie_spoof(temp_db):
     make_user("iuid-1", "telegram_1")
     make_user("iuid-admin", "admin", role="admin")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.cookies.set("onenode_user", "admin")
         r = client.get("/api/me-v2", headers=bearer(s["session_token"]))
     assert r.status_code == 200
@@ -119,7 +120,7 @@ def test_me_v2_ignores_cookie_spoof(temp_db):
 def test_me_v2_ignores_query_user_id(temp_db):
     make_user("iuid-1", "telegram_1")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me-v2?user_id=admin&internal_user_id=iuid-admin", headers=bearer(s["session_token"]))
     assert r.status_code == 200
     assert r.json()["internal_user_id"] == "iuid-1"
@@ -130,7 +131,7 @@ def test_revoked_session_401(temp_db):
     make_user("iuid-1", "telegram_1")
     s = session_for("iuid-1", "telegram_1")
     main.revoke_auth_session(s["session_id"], reason="manual")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me-v2", headers=bearer(s["session_token"]))
     assert r.status_code == 401
 
@@ -141,7 +142,7 @@ def test_expired_session_401(temp_db):
     s = session_for("iuid-1", "telegram_1")
     with main.db() as conn:
         conn.execute("UPDATE auth_sessions SET expires_at='2000-01-01T00:00:00+00:00' WHERE id=?", (s["session_id"],))
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me-v2", headers=bearer(s["session_token"]))
     assert r.status_code == 401
 
@@ -150,7 +151,7 @@ def test_expired_session_401(temp_db):
 def test_banned_user_403(temp_db):
     make_user("iuid-ban", "telegram_ban", banned=1)
     s = session_for("iuid-ban", "telegram_ban")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me-v2", headers=bearer(s["session_token"]))
     assert r.status_code == 403
 
@@ -160,7 +161,7 @@ def test_deleted_user_403(temp_db):
     s = session_for("iuid-del", "telegram_del")
     with main.db() as conn:
         conn.execute("DELETE FROM users WHERE id='telegram_del'")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me-v2", headers=bearer(s["session_token"]))
     assert r.status_code == 403
 
@@ -170,7 +171,7 @@ def test_response_does_not_expose_secrets(temp_db):
     make_user("iuid-1", "telegram_1")
     make_identity("iuid-1", "telegram_1")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me-v2", headers=bearer(s["session_token"]))
     text = r.text
     assert "session_token_hash" not in text
@@ -192,7 +193,7 @@ def test_identities_for_trusted_user_only(temp_db):
     make_identity("iuid-1", "telegram_1", provider="telegram", pid="1", email=None, username="me")
     make_identity("iuid-2", "telegram_2", provider="telegram", pid="2", email="other@x.com", username="other")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me-v2", headers=bearer(s["session_token"]))
     idents = r.json()["identities"]
     assert len(idents) == 1
@@ -205,7 +206,7 @@ def test_user_a_cannot_get_user_b(temp_db):
     make_user("iuid-a", "telegram_a", username="aaa")
     make_user("iuid-b", "telegram_b", username="bbb")
     sa = session_for("iuid-a", "telegram_a")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         # A authenticates but tries to impersonate B via headers/cookies/query
         client.cookies.set("onenode_user", "telegram_b")
         r = client.get("/api/me-v2?user_id=telegram_b&internal_user_id=iuid-b",

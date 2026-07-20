@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -69,7 +70,7 @@ def post(client, web_app_data=None, **body):
 
 # 1
 def test_valid_login_returns_session_tokens(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, make_web_app_data())
     assert r.status_code == 200, r.text
     b = r.json()
@@ -82,7 +83,7 @@ def test_valid_login_returns_session_tokens(temp_db):
 
 # 2
 def test_valid_login_creates_max_identity(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, make_web_app_data(user={"id": 555, "first_name": "Bo"}))
     with main.db() as conn:
         row = conn.execute("SELECT * FROM auth_identities WHERE provider='max' AND provider_user_id='555'").fetchone()
@@ -93,7 +94,7 @@ def test_valid_login_creates_max_identity(temp_db):
 
 # 3
 def test_session_created_with_hashes_only(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, make_web_app_data())
     b = r.json()
     with main.db() as conn:
@@ -106,7 +107,7 @@ def test_session_created_with_hashes_only(temp_db):
 
 # 4 & 5
 def test_repeated_login_reuses_internal_id_no_dup(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r1 = post(client, make_web_app_data(user={"id": 777, "first_name": "C"}))
         r2 = post(client, make_web_app_data(user={"id": 777, "first_name": "C2"}))
     assert r1.json()["internal_user_id"] == r2.json()["internal_user_id"]
@@ -120,7 +121,7 @@ def test_login_links_existing_legacy_user(temp_db):
             "INSERT INTO users (id, max_id, internal_user_id, language, role, created_at, last_login_at) "
             "VALUES ('max_999', '999', 'legacy-iuid-max', 'ru', 'user', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')"
         )
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, make_web_app_data(user={"id": 999, "first_name": "Leg"}))
     b = r.json()
     assert b["legacy_user_id"] == "max_999"
@@ -131,7 +132,7 @@ def test_login_links_existing_legacy_user(temp_db):
 # 7
 def test_login_creates_new_user_when_no_legacy(temp_db):
     before = count("users")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, make_web_app_data(user={"id": 4242, "first_name": "New"}))
     assert count("users") == before + 1
     assert r.json()["legacy_user_id"] == "max_4242"
@@ -139,7 +140,7 @@ def test_login_creates_new_user_when_no_legacy(temp_db):
 
 # 8
 def test_missing_web_app_data_returns_401(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, web_app_data="")
     assert r.status_code == 401
 
@@ -148,7 +149,7 @@ def test_missing_web_app_data_returns_401(temp_db):
 def test_missing_hash_returns_401(temp_db):
     fields = {"auth_date": str(int(time.time())), "user": json.dumps({"id": 1, "first_name": "A"}), "query_id": "x"}
     no_hash = urlencode(fields)  # no hash key at all
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, no_hash)
     assert r.status_code == 401
 
@@ -157,7 +158,7 @@ def test_missing_hash_returns_401(temp_db):
 def test_duplicate_hash_returns_401(temp_db):
     signed = make_web_app_data()
     dup = signed + "&hash=deadbeef"
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, dup)
     assert r.status_code == 401
 
@@ -166,7 +167,7 @@ def test_duplicate_hash_returns_401(temp_db):
 def test_invalid_signature_returns_401(temp_db):
     good = make_web_app_data()
     tampered = good[:-1] + ("0" if good[-1] != "0" else "1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, tampered)
     assert r.status_code == 401
 
@@ -174,7 +175,7 @@ def test_invalid_signature_returns_401(temp_db):
 # 12
 def test_expired_auth_date_returns_401(temp_db):
     stale = make_web_app_data(auth_date=int(time.time()) - 90000)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, stale)
     assert r.status_code == 401
     assert count("security_events", "WHERE event_type='expired_init_data'") == 1
@@ -183,7 +184,7 @@ def test_expired_auth_date_returns_401(temp_db):
 # 13
 def test_missing_auth_date_returns_401(temp_db):
     data = make_web_app_data(include_auth_date=False)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, data)
     assert r.status_code == 401
     assert count("security_events", "WHERE event_type='max_auth_date_missing'") == 1
@@ -192,7 +193,7 @@ def test_missing_auth_date_returns_401(temp_db):
 # 14
 def test_missing_user_returns_401(temp_db):
     data = make_web_app_data(include_user=False)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, data)
     assert r.status_code == 401
     assert count("security_events", "WHERE event_type='max_user_missing'") == 1
@@ -200,7 +201,7 @@ def test_missing_user_returns_401(temp_db):
 
 # 15
 def test_frontend_user_id_in_body_ignored(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, make_web_app_data(user={"id": 100, "first_name": "Real"}),
                  user_id="admin", internal_user_id="iuid-injected", legacy_user_id="max_admin", role="admin")
     b = r.json()
@@ -210,7 +211,7 @@ def test_frontend_user_id_in_body_ignored(temp_db):
 
 # 16
 def test_x_onenode_user_header_ignored(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/auth/max-v2",
                         json={"platform": "max_mini_app", "web_app_data": make_web_app_data(user={"id": 321, "first_name": "H"})},
                         headers={"X-OneNode-User": "admin"})
@@ -220,7 +221,7 @@ def test_x_onenode_user_header_ignored(temp_db):
 
 # 17
 def test_onenode_user_cookie_ignored(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.cookies.set("onenode_user", "admin")
         r = post(client, make_web_app_data(user={"id": 654, "first_name": "K"}))
     assert r.status_code == 200
@@ -230,7 +231,7 @@ def test_onenode_user_cookie_ignored(temp_db):
 # 18
 def test_raw_web_app_data_not_stored_in_logs(temp_db):
     web_app_data = make_web_app_data(user={"id": 909, "first_name": "Log"})
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, web_app_data)
     with main.db() as conn:
         for table in ("event_logs", "security_events", "auth_login_attempts"):
@@ -242,7 +243,7 @@ def test_raw_web_app_data_not_stored_in_logs(temp_db):
 
 # 19
 def test_raw_tokens_not_stored(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, make_web_app_data())
     b = r.json()
     with main.db() as conn:
@@ -255,14 +256,14 @@ def test_raw_tokens_not_stored(temp_db):
 def test_security_event_for_invalid_signature(temp_db):
     good = make_web_app_data()
     tampered = good[:-1] + ("0" if good[-1] != "0" else "1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, tampered)
     assert count("security_events", "WHERE event_type='invalid_max_signature'") == 1
 
 
 # 21
 def test_login_attempt_success_row(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, make_web_app_data(user={"id": 191, "first_name": "S"}))
     assert count("auth_login_attempts", "WHERE provider='max' AND success=1 AND identifier='191'") == 1
 
@@ -271,14 +272,14 @@ def test_login_attempt_success_row(temp_db):
 def test_login_attempt_failure_row(temp_db):
     good = make_web_app_data()
     tampered = good[:-1] + ("0" if good[-1] != "0" else "1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, tampered)
     assert count("auth_login_attempts", "WHERE provider='max' AND success=0") == 1
 
 
 # 23
 def test_event_log_login_succeeded(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, make_web_app_data())
     assert count("event_logs", "WHERE event_name='login_succeeded'") == 1
 
@@ -287,14 +288,14 @@ def test_event_log_login_succeeded(temp_db):
 def test_event_log_login_failed(temp_db):
     good = make_web_app_data()
     tampered = good[:-1] + ("0" if good[-1] != "0" else "1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, tampered)
     assert count("event_logs", "WHERE event_name='login_failed'") == 1
 
 
 # 25
 def test_device_installation_linked(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, make_web_app_data(user={"id": 818, "first_name": "D"}), installation_id="inst-max-1", anonymous_id="anon-1")
     iuid = r.json()["internal_user_id"]
     with main.db() as conn:
@@ -306,7 +307,7 @@ def test_device_installation_linked(temp_db):
 # extra: wrong bot token must fail
 def test_wrong_bot_token_fails(temp_db):
     forged = make_web_app_data(token="max-000000:WRONG")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, forged)
     assert r.status_code == 401
     assert count("security_events", "WHERE event_type='invalid_max_signature'") == 1

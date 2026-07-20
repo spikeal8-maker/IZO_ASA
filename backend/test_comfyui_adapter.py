@@ -5,6 +5,7 @@ import base64
 from io import BytesIO
 
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 from PIL import Image
 import pytest
 
@@ -126,7 +127,7 @@ def test_models_endpoint_reports_selected_models(monkeypatch) -> None:
         }
 
     monkeypatch.setattr(main, "get_comfyui_models", fake_models)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         payload = client.get("/api/models").json()
 
     assert payload["ok"] is True

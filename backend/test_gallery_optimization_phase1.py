@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PIL import Image
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -74,7 +75,7 @@ def test_primary_items_endpoint_has_small_independent_contract(tmp_path, monkeyp
                 ),
             )
     token = main.create_auth_session("phase-iuid", "phase-user", provider="web", platform="web")["session_token"]
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/gallery/items?limit=12", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     payload = response.json()
@@ -93,7 +94,7 @@ def test_primary_items_search_uses_fts_index(tmp_path, monkeypatch):
             "WHERE id = 'phase-image'"
         )
     token = main.create_auth_session("phase-iuid", "phase-user", provider="web", platform="web")["session_token"]
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/gallery/items?limit=12&q=маяк", headers={"Authorization": f"Bearer {token}"})
         model_response = client.get("/api/gallery/items?limit=12&q=gpt-image", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200

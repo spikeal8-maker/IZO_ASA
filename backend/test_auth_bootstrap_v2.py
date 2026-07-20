@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -32,7 +33,7 @@ def post(client, body=None, headers=None, cookies=None):
 
 # 1
 def test_missing_installation_id_is_generated(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, {"platform": "web_desktop"})
     assert r.status_code == 200
     assert r.json()["installation_id"]
@@ -40,7 +41,7 @@ def test_missing_installation_id_is_generated(temp_db):
 
 # 2
 def test_missing_anonymous_id_is_generated(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, {"platform": "web_desktop"})
     assert r.json()["anonymous_id"]
 
@@ -48,28 +49,28 @@ def test_missing_anonymous_id_is_generated(temp_db):
 # 3
 def test_does_not_create_users(temp_db):
     before = count("users")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, {"platform": "web_mobile"})
     assert count("users") == before
 
 
 # 4
 def test_does_not_create_auth_identities(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, {"platform": "web_mobile"})
     assert count("auth_identities") == 0
 
 
 # 5
 def test_does_not_create_auth_sessions(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, {"platform": "web_mobile"})
     assert count("auth_sessions") == 0
 
 
 # 6
 def test_creates_device_installation_row(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, {"platform": "pwa", "installation_id": "inst-1"})
     assert count("device_installations", "WHERE installation_id = 'inst-1'") == 1
     with main.db() as conn:
@@ -83,7 +84,7 @@ def test_creates_device_installation_row(temp_db):
 
 # 7
 def test_repeated_same_installation_updates_not_duplicates(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r1 = post(client, {"platform": "web_desktop", "installation_id": "inst-x"})
         first_seen = None
         with main.db() as conn:
@@ -101,7 +102,7 @@ def test_repeated_same_installation_updates_not_duplicates(temp_db):
 
 # 8
 def test_body_identity_fields_are_ignored(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, {
             "platform": "web_desktop",
             "installation_id": "inst-id8",
@@ -123,7 +124,7 @@ def test_body_identity_fields_are_ignored(temp_db):
 
 # 9
 def test_x_onenode_user_header_is_ignored(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, {"platform": "web_desktop"}, headers={"X-OneNode-User": "admin"})
     assert r.status_code == 200
     assert r.json()["is_authenticated"] is False
@@ -132,7 +133,7 @@ def test_x_onenode_user_header_is_ignored(temp_db):
 
 # 10
 def test_onenode_user_cookie_is_ignored(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.cookies.set("onenode_user", "admin")
         r = post(client, {"platform": "web_desktop"})
     assert r.status_code == 200
@@ -141,14 +142,14 @@ def test_onenode_user_cookie_is_ignored(temp_db):
 
 # 11
 def test_is_authenticated_false(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, {"platform": "telegram_mini_app"})
     assert r.json()["is_authenticated"] is False
 
 
 # 12
 def test_response_contains_required_consents(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, {"platform": "web_desktop"})
     consents = r.json()["required_consents"]
     for c in ["terms", "privacy", "personal_data_processing", "cookies"]:
@@ -159,7 +160,7 @@ def test_response_contains_required_consents(temp_db):
 def test_response_contains_auth_methods(temp_db, monkeypatch):
     # email_otp is advertised only when actually deliverable; configure a provider.
     monkeypatch.setattr(main, "EMAIL_PROVIDER", "smtp")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         tg = post(client, {"platform": "telegram_mini_app"}).json()
         mx = post(client, {"platform": "max_mini_app"}).json()
         web = post(client, {"platform": "web_desktop"}).json()
@@ -173,14 +174,14 @@ def test_event_logs_table_exists(temp_db):
     with main.db() as conn:
         tables = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "event_logs" in tables
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, {"platform": "web_desktop"})
     assert r.status_code == 200
 
 
 # server_time present and ISO-like
 def test_server_time_present(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, {"platform": "unknown"})
     assert "T" in r.json()["server_time"]
 
@@ -193,7 +194,7 @@ def test_metadata_captures_client_and_utm(temp_db):
         "client": {"language": "ru", "timezone": "Europe/Moscow", "screen_width": 1440},
         "utm": {"source": "tg", "medium": "cpc", "campaign": "spring"},
     }
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, body)
     import json as _json
     with main.db() as conn:
@@ -239,7 +240,7 @@ def test_init_db_idempotent_with_event_logs(temp_db):
 
 # 3,4,5,6
 def test_bootstrap_writes_app_opened_event(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = post(client, {"platform": "telegram_mini_app", "installation_id": "inst-evt"})
     body = r.json()
     rows = get_app_opened("inst-evt")
@@ -258,14 +259,14 @@ def test_bootstrap_writes_app_opened_event(temp_db):
 # 7
 def test_app_opened_does_not_create_user(temp_db):
     before = count("users")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, {"platform": "web_desktop"})
     assert count("users") == before
 
 
 # 8
 def test_app_opened_does_not_create_session(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, {"platform": "web_desktop"})
     assert count("auth_sessions") == 0
 
@@ -274,7 +275,7 @@ def test_app_opened_does_not_create_session(temp_db):
 def test_app_opened_does_not_store_sensitive_data(temp_db):
     secret_auth = "Bearer super-secret-access-token"
     secret_cookie = "onenode_session=raw-session-value; onenode_user=admin"
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.cookies.set("onenode_user", "admin")
         post(
             client,
@@ -294,7 +295,7 @@ def test_app_opened_does_not_store_sensitive_data(temp_db):
 
 # 12
 def test_repeated_bootstrap_writes_another_event_no_device_dup(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         post(client, {"platform": "web_desktop", "installation_id": "inst-rep"})
         post(client, {"platform": "web_mobile", "installation_id": "inst-rep"})
     assert len(get_app_opened("inst-rep")) == 2

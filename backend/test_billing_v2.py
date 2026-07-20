@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -62,7 +63,7 @@ def test_billing_requires_trusted_admin(temp_db):
     make_user("iuid-user", "telegram_user")
     make_user("iuid-target", "telegram_target")
     user_token = main.create_auth_session("iuid-user", "telegram_user", provider="telegram", platform="telegram_mini_app")["session_token"]
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         assert c.get("/api/admin/users/iuid-target/billing-v2").status_code == 401
         assert c.get("/api/admin/users/iuid-target/billing-v2", headers=bearer(user_token)).status_code == 403
         assert c.post("/api/admin/users/iuid-target/invoices-v2", json=invoice_payload(), headers=bearer(user_token)).status_code == 403
@@ -71,7 +72,7 @@ def test_billing_requires_trusted_admin(temp_db):
 def test_create_invoice_writes_rows_audit_event_and_keeps_users_id(temp_db):
     token = admin_token()
     make_user("iuid-target", "telegram_target")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         invoice = create_invoice(c, token, "iuid-target")
     assert invoice["status"] == "issued"
     assert invoice["total_amount"] == 1200
@@ -87,7 +88,7 @@ def test_create_invoice_writes_rows_audit_event_and_keeps_users_id(temp_db):
 def test_mark_paid_grants_tokens_once_through_ledger(temp_db):
     token = admin_token()
     make_user("iuid-target", "telegram_target", balance=10)
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         invoice = create_invoice(c, token, "iuid-target", amount=900, tokens=300)
         body = {"amount": 900, "method": "manual", "reason": "cash received", "idempotency_key": "pay-1"}
         paid = c.post(f"/api/admin/invoices/{invoice['id']}/mark-paid-v2", json=body, headers=bearer(token))
@@ -108,7 +109,7 @@ def test_mark_paid_grants_tokens_once_through_ledger(temp_db):
 def test_cancel_unpaid_and_cannot_cancel_paid(temp_db):
     token = admin_token()
     make_user("iuid-target", "telegram_target")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         unpaid = create_invoice(c, token, "iuid-target", amount=100, tokens=0)
         cancel = c.post(f"/api/admin/invoices/{unpaid['id']}/cancel-v2", json={"reason": "client changed mind"}, headers=bearer(token))
         paid_invoice = create_invoice(c, token, "iuid-target", amount=100, tokens=0)
@@ -121,7 +122,7 @@ def test_cancel_unpaid_and_cannot_cancel_paid(temp_db):
 def test_refund_limits_and_analytics_safe(temp_db):
     token = admin_token()
     make_user("iuid-target", "telegram_target")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         invoice = create_invoice(c, token, "iuid-target", amount=500, tokens=0)
         pay = c.post(f"/api/admin/invoices/{invoice['id']}/mark-paid-v2", json={"amount": 500, "reason": "paid", "idempotency_key": "pay-ref"}, headers=bearer(token)).json()["payment"]
         too_much = c.post(f"/api/admin/payments/{pay['id']}/refund-v2", json={"amount": 600, "reason": "refund", "idempotency_key": "ref-big"}, headers=bearer(token))
@@ -142,7 +143,7 @@ def test_refund_limits_and_analytics_safe(temp_db):
 def test_yookassa_refund_cannot_be_falsely_completed_only_in_local_db(temp_db):
     token = admin_token()
     make_user("iuid-target", "telegram_target")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         invoice = create_invoice(c, token, "iuid-target", amount=500, tokens=0)
         payment = c.post(
             f"/api/admin/invoices/{invoice['id']}/mark-paid-v2",
@@ -165,7 +166,7 @@ def test_yookassa_refund_cannot_be_falsely_completed_only_in_local_db(temp_db):
 def test_admin_can_update_token_package_but_not_tariff_package(temp_db):
     token = admin_token()
     body = {"name": "80 токенов", "price_amount": 360, "token_amount": 80, "is_active": True}
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         updated = client.put("/api/admin/payments/packages/tokens_50-v2", json=body, headers=bearer(token))
         rejected = client.put("/api/admin/payments/packages/tariff_pro-v2", json=body, headers=bearer(token))
     assert updated.status_code == 200, updated.text
@@ -224,7 +225,7 @@ def test_user_can_schedule_free_without_losing_main_balance(temp_db):
         provider="telegram",
         platform="telegram_mini_app",
     )["session_token"]
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/account/tariff-v2/schedule-free",
             json={"confirm": True},

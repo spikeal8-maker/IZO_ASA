@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -74,7 +75,7 @@ def test_create_session_stores_only_hashes(temp_db):
 def test_resolve_valid_session(temp_db):
     iuid, legacy = make_user()
     created = main.create_auth_session(iuid, legacy)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/auth/sessions-v2", headers={"Authorization": f"Bearer {created['session_token']}"})
     assert r.status_code == 200
     body = r.json()
@@ -84,7 +85,7 @@ def test_resolve_valid_session(temp_db):
 # 7
 def test_resolve_invalid_session_fails(temp_db):
     make_user()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/auth/sessions-v2", headers={"Authorization": "Bearer not-a-real-token"})
     assert r.status_code == 401
     assert count("security_events", "WHERE event_type = 'session_invalid'") == 1
@@ -97,7 +98,7 @@ def test_expired_session_fails(temp_db):
     past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     with main.db() as conn:
         conn.execute("UPDATE auth_sessions SET expires_at = ? WHERE id = ?", (past, created["session_id"]))
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/auth/sessions-v2", headers={"Authorization": f"Bearer {created['session_token']}"})
     assert r.status_code == 401
     assert count("security_events", "WHERE event_type = 'session_expired'") == 1
@@ -108,7 +109,7 @@ def test_revoked_session_cannot_be_resolved(temp_db):
     iuid, legacy = make_user()
     created = main.create_auth_session(iuid, legacy)
     main.revoke_auth_session(created["session_id"], reason="manual")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/auth/sessions-v2", headers={"Authorization": f"Bearer {created['session_token']}"})
     assert r.status_code == 401
     assert count("security_events", "WHERE event_type = 'session_revoked'") == 1
@@ -118,7 +119,7 @@ def test_revoked_session_cannot_be_resolved(temp_db):
 def test_refresh_returns_new_tokens(temp_db):
     iuid, legacy = make_user()
     created = main.create_auth_session(iuid, legacy)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/auth/session/refresh-v2", json={"refresh_token": created["refresh_token"]})
     assert r.status_code == 200
     body = r.json()
@@ -131,7 +132,7 @@ def test_refresh_returns_new_tokens(temp_db):
 def test_old_refresh_token_cannot_be_reused(temp_db):
     iuid, legacy = make_user()
     created = main.create_auth_session(iuid, legacy)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         first = client.post("/api/auth/session/refresh-v2", json={"refresh_token": created["refresh_token"]})
         assert first.status_code == 200
         # reusing the old refresh token must now fail
@@ -143,7 +144,7 @@ def test_old_refresh_token_cannot_be_reused(temp_db):
 def test_logout_revokes_session(temp_db):
     iuid, legacy = make_user()
     created = main.create_auth_session(iuid, legacy)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/auth/session/logout-v2", json={"session_token": created["session_token"]})
         assert r.status_code == 200
         assert r.json()["ok"] is True
@@ -159,7 +160,7 @@ def test_logout_revokes_session(temp_db):
 def test_banned_user_cannot_refresh(temp_db):
     iuid, legacy = make_user(internal_user_id="iuid-ban", legacy_user_id="telegram_ban", banned=1)
     created = main.create_auth_session(iuid, legacy)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/auth/session/refresh-v2", json={"refresh_token": created["refresh_token"]})
     assert r.status_code == 403
     assert count("security_events", "WHERE event_type = 'refresh_user_banned'") == 1
@@ -169,7 +170,7 @@ def test_banned_user_cannot_refresh(temp_db):
 def test_sessions_v2_does_not_expose_token_hashes(temp_db):
     iuid, legacy = make_user()
     created = main.create_auth_session(iuid, legacy)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/auth/sessions-v2", headers={"Authorization": f"Bearer {created['session_token']}"})
     body = r.json()
     assert body["sessions"]
@@ -188,11 +189,11 @@ def test_security_events_written_for_failures(temp_db):
     iuid, legacy = make_user()
     created = main.create_auth_session(iuid, legacy)
     # invalid
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.get("/api/auth/sessions-v2", headers={"Authorization": "Bearer wrong"})
     # revoked
     main.revoke_auth_session(created["session_id"], reason="manual")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.get("/api/auth/sessions-v2", headers={"Authorization": f"Bearer {created['session_token']}"})
     assert count("security_events", "WHERE event_type = 'session_invalid'") == 1
     assert count("security_events", "WHERE event_type = 'session_revoked'") == 1
@@ -203,12 +204,12 @@ def test_session_events_lifecycle(temp_db):
     iuid, legacy = make_user()
     created = main.create_auth_session(iuid, legacy)
     assert count("session_events", "WHERE event_type = 'created'") == 1
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.post("/api/auth/session/refresh-v2", json={"refresh_token": created["refresh_token"]})
     assert count("session_events", "WHERE event_type = 'refreshed'") == 1
     # the rotated-new session also logs a 'created'
     assert count("session_events", "WHERE event_type = 'created'") == 2
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         # logout the new (current) session via a fresh create to isolate
         c2 = main.create_auth_session(iuid, legacy)
         client.post("/api/auth/session/logout-v2", json={"session_token": c2["session_token"]})
@@ -218,7 +219,7 @@ def test_session_events_lifecycle(temp_db):
 # Extra: resolver must ignore X-OneNode-User / legacy cookie entirely.
 def test_resolver_ignores_legacy_identity_headers(temp_db):
     make_user(internal_user_id="iuid-admin", legacy_user_id="admin")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get(
             "/api/auth/sessions-v2",
             headers={"X-OneNode-User": "admin"},
@@ -278,7 +279,7 @@ def test_expired_access_still_allows_refresh(temp_db, monkeypatch):
     monkeypatch.setattr(main, "SESSION_REFRESH_TTL_SECONDS", 2592000)
     iuid, legacy = make_user()
     created = main.create_auth_session(iuid, legacy)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         # access token is expired -> resolve fails
         resolve = client.get("/api/auth/sessions-v2", headers={"Authorization": f"Bearer {created['session_token']}"})
         assert resolve.status_code == 401
@@ -293,7 +294,7 @@ def test_expired_refresh_cannot_refresh(temp_db, monkeypatch):
     monkeypatch.setattr(main, "SESSION_REFRESH_TTL_SECONDS", -1)  # refresh already expired
     iuid, legacy = make_user()
     created = main.create_auth_session(iuid, legacy)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/auth/session/refresh-v2", json={"refresh_token": created["refresh_token"]})
     assert r.status_code == 401
     assert count("security_events", "WHERE event_type = 'refresh_expired'") == 1

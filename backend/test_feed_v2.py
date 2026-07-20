@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 from PIL import Image
 
 import db_schema_audit
@@ -283,7 +284,7 @@ def publish(client: TestClient, token: str, image_id: str, visibility: str = "op
 
 
 def test_feed_video_publication_contract_is_gated_and_media_neutral(temp_db, monkeypatch):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-video-feed", "web_video_feed", "Автор видео")
         make_video("vid-feed-1", "web_video_feed", mode="image_to_video")
 
@@ -379,7 +380,7 @@ def test_feed_video_publication_contract_is_gated_and_media_neutral(temp_db, mon
 
 
 def test_gallery_exposes_completed_video_feed_publication(temp_db, monkeypatch):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-video-gallery-feed", "web_video_gallery_feed", "Автор галереи")
         make_video("vid-gallery-feed", "web_video_gallery_feed")
         monkeypatch.setattr(main, "FEED_VIDEO_PUBLICATION_ENABLED", True)
@@ -413,7 +414,7 @@ def test_gallery_exposes_completed_video_feed_publication(temp_db, monkeypatch):
 
 
 def test_deleting_private_video_keeps_independent_feed_copy(temp_db, monkeypatch):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-video-feed-copy", "web_video_feed_copy", "Автор копии")
         make_video("vid-feed-copy", "web_video_feed_copy")
         private_source = main.MEDIA / "vid-feed-copy.mp4"
@@ -473,7 +474,7 @@ def test_deleting_private_video_keeps_independent_feed_copy(temp_db, monkeypatch
 
 
 def test_feed_video_publication_failure_is_private_and_retryable(temp_db, monkeypatch):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         owner_token = make_user("iuid-video-failure", "web_video_failure", "Автор видео")
         other_token = make_user("iuid-video-other", "web_video_other", "Другой автор")
         make_video("vid-feed-failure", "web_video_failure")
@@ -557,7 +558,7 @@ def test_feed_video_publication_worker_recovers_preparing_row_on_startup(temp_db
 
     monkeypatch.setattr(main, "FEED_VIDEO_PUBLICATION_ENABLED", True)
     monkeypatch.setattr(main, "create_feed_video_assets", fake_feed_video_assets)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         recovered = wait_for_video_publication(
             client,
             owner_token,
@@ -569,13 +570,13 @@ def test_feed_video_publication_worker_recovers_preparing_row_on_startup(temp_db
 
 
 def test_publish_requires_session(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/feed/publications", json={"imageId": "img-1", "title": "X"})
         assert r.status_code == 401
 
 
 def test_feed_publish_requires_verified_generation_and_blocks_unsafe_source_modes(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-policy", "web_policy")
         make_image("img-policy-missing", "web_policy")
         with main.db() as conn:
@@ -603,7 +604,7 @@ def test_feed_publish_requires_verified_generation_and_blocks_unsafe_source_mode
 
 
 def test_feed_risky_mode_waits_for_admin_moderation(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         owner_token = make_user("iuid-review-owner", "web_review_owner")
         admin_token = make_admin("iuid-review-admin", "web_review_admin")
         make_image("img-review", "web_review_owner")
@@ -642,7 +643,7 @@ def test_feed_risky_mode_waits_for_admin_moderation(temp_db):
 
 
 def test_gallery_page_shell_serves_installed_visual_file(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/gallery")
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
@@ -669,7 +670,7 @@ def test_gallery_page_shell_serves_installed_visual_file(temp_db):
 
 
 def test_home_page_serves_gallery_as_primary_page(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/")
         assert r.status_code == 200
         assert "galleryGrid" in r.text
@@ -677,7 +678,7 @@ def test_home_page_serves_gallery_as_primary_page(temp_db):
 
 
 def test_feed_page_shell_serves_installed_visual_file(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/feed")
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
@@ -865,7 +866,7 @@ def test_feed_page_shell_serves_installed_visual_file(temp_db):
 
 
 def test_publish_foreign_image_denied_and_logged(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         owner_token = make_user("iuid-owner", "web_owner")
         make_user("iuid-thief", "web_thief")
         thief_token = main.create_auth_session("iuid-thief", "web_thief", provider="web", platform="web")["session_token"]
@@ -888,7 +889,7 @@ def test_publish_foreign_image_denied_and_logged(temp_db):
 
 
 def test_publish_keeps_generation_snapshot_and_public_controls(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-snapshot", "web_snapshot")
         make_image("img-snapshot", "web_snapshot", prompt="исходный промпт для снимка")
         response = client.post(
@@ -934,7 +935,7 @@ def test_publish_keeps_generation_snapshot_and_public_controls(temp_db):
 
 
 def test_feed_public_read_and_prompt_visibility(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-a", "web_a")
         with main.db() as conn:
             conn.execute(
@@ -958,7 +959,7 @@ def test_feed_public_read_and_prompt_visibility(temp_db):
         publish(client, token, "img-open", visibility="open", title="Открытая")
         publish(client, token, "img-hidden", visibility="hidden", title="Скрытая")
     # Новый клиент без сессии: лента читается, hidden-промпт не утёк.
-    with TestClient(main.app) as anon:
+    with BrowserTestClient(main.app) as anon:
         r = anon.get("/api/feed?type=new")
         assert r.status_code == 200
         items = {i["title"]: i for i in r.json()["items"]}
@@ -985,7 +986,7 @@ def test_feed_public_read_and_prompt_visibility(temp_db):
 
 
 def test_reactions_require_session_and_toggle(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-b", "web_b")
         make_image("img-b", "web_b")
         pub = publish(client, token, "img-b")
@@ -1008,12 +1009,12 @@ def test_reactions_require_session_and_toggle(temp_db):
 
 
 def test_feed_publication_view_count_is_public_and_deduplicated(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-view-author", "web_view_author")
         make_image("img-view", "web_view_author")
         pub = publish(client, token, "img-view")
 
-    with TestClient(main.app) as anon:
+    with BrowserTestClient(main.app) as anon:
         headers = {"X-Installation-Id": "install-viewer-a"}
         r = anon.post(f"/api/feed/publications/{pub['id']}/view", headers=headers)
         assert r.status_code == 200
@@ -1034,7 +1035,7 @@ def test_feed_publication_view_count_is_public_and_deduplicated(temp_db):
 
 
 def test_feed_engagement_events_are_public_private_and_deduplicated(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-event-author", "web_event_author")
         make_image("img-event", "web_event_author")
         pub = publish(client, token, "img-event")
@@ -1081,7 +1082,7 @@ def test_feed_engagement_events_are_public_private_and_deduplicated(temp_db):
 
 
 def test_feed_cursor_pagination_search_and_signal_filter(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-pages", "web_pages", display_name="Автор Пагинации")
         with main.db() as conn:
             image_rows = []
@@ -1148,7 +1149,7 @@ def test_feed_cursor_pagination_search_and_signal_filter(temp_db):
 
 
 def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         author_token = make_user("iuid-author-tabs", "web_author_tabs", display_name="Тимур Ким")
         viewer_token = make_user("iuid-viewer-tabs", "web_viewer_tabs", display_name="Зритель")
         make_image("img-tabs-a", "web_author_tabs", prompt="Москва 2120, город будущего")
@@ -1253,7 +1254,7 @@ def test_feed_tabs_follow_challenge_and_remix_start(temp_db):
 
 
 def test_generate_rejects_missing_media_input_before_job_created(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-gen-missing", "web_gen_missing")
         with main.db() as conn:
             before_jobs = conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"]
@@ -1278,7 +1279,7 @@ def test_generate_rejects_missing_media_input_before_job_created(temp_db):
 
 
 def test_generate_rejects_foreign_media_input(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         make_user("iuid-gen-owner", "web_gen_owner")
         make_user("iuid-gen-other", "web_gen_other")
         make_image("img-gen-owner", "web_gen_owner")
@@ -1302,11 +1303,11 @@ def test_generate_rejects_foreign_media_input(temp_db):
 
 
 def test_feed_media_served_only_for_published(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-c", "web_c")
         make_image("img-c", "web_c")
         pub = publish(client, token, "img-c")
-    with TestClient(main.app) as anon:
+    with BrowserTestClient(main.app) as anon:
         # Публичный доступ к опубликованному файлу (без сессии, без владения).
         r = anon.get(f"/api/feed/media/{pub['id']}")
         assert r.status_code == 200
@@ -1324,7 +1325,7 @@ def test_feed_media_served_only_for_published(temp_db):
 
 
 def test_feed_download_is_branded_jpeg_or_png_without_session(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-download", "web_download")
         make_image("img-download", "web_download")
         pub = publish(client, token, "img-download")
@@ -1351,7 +1352,7 @@ def test_feed_download_is_branded_jpeg_or_png_without_session(temp_db):
 
 
 def test_feed_use_as_requires_session_and_returns_server_selected_media(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-use-feed", "web_use_feed")
         make_image("img-use-feed", "web_use_feed", prompt="город из стекла")
         pub = publish(client, token, "img-use-feed")
@@ -1385,7 +1386,7 @@ def test_feed_use_as_requires_session_and_returns_server_selected_media(temp_db)
 
 
 def test_gallery_delete_retires_feed_publication_and_variants(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-delete-feed", "web_delete_feed")
         make_image("img-delete-feed", "web_delete_feed")
         pub = publish(client, token, "img-delete-feed")
@@ -1421,7 +1422,7 @@ def test_gallery_delete_retires_feed_publication_and_variants(temp_db):
 
 
 def test_gallery_quota_eviction_preserves_feed_publication_and_variants(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-quota-feed", "web_quota_feed")
         make_image("img-quota-feed", "web_quota_feed")
         pub = publish(client, token, "img-quota-feed", title="Остаётся в ленте")
@@ -1458,7 +1459,7 @@ def test_gallery_quota_eviction_preserves_feed_publication_and_variants(temp_db)
 
 
 def test_admin_can_delete_feed_publication_without_deleting_gallery_source(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         owner_token = make_user("iuid-admin-feed-owner", "web_admin_feed_owner")
         non_admin_token = make_user("iuid-admin-feed-user", "web_admin_feed_user")
         admin_token = make_admin()
@@ -1527,7 +1528,7 @@ def test_admin_can_delete_feed_publication_without_deleting_gallery_source(temp_
 
 
 def test_owner_can_delete_feed_publication_without_deleting_gallery_source(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         owner_token = make_user("iuid-owner-feed-delete", "web_owner_feed_delete")
         other_token = make_user("iuid-other-feed-delete", "web_other_feed_delete")
         make_image("img-owner-feed-delete", "web_owner_feed_delete")
@@ -1584,7 +1585,7 @@ def test_owner_can_delete_feed_publication_without_deleting_gallery_source(temp_
 
 
 def test_owner_can_update_feed_publication_title(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         owner_token = make_user("iuid-owner-feed-edit", "web_owner_feed_edit")
         other_token = make_user("iuid-other-feed-edit", "web_other_feed_edit")
         make_image("img-owner-feed-edit", "web_owner_feed_edit")
@@ -1621,7 +1622,7 @@ def test_owner_can_update_feed_publication_title(temp_db):
 
 
 def test_feed_payload_marks_owner_and_admin_delete_capability(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         owner_token = make_user("iuid-feed-delete-owner", "web_feed_delete_owner")
         other_token = make_user("iuid-feed-delete-other", "web_feed_delete_other")
         admin_token = make_admin("iuid-feed-delete-admin", "web_feed_delete_admin")
@@ -1645,7 +1646,7 @@ def test_feed_payload_marks_owner_and_admin_delete_capability(temp_db):
 
 
 def test_feed_payload_exposes_author_avatar(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-feed-avatar", "web_feed_avatar", display_name="Алекс")
         with main.db() as conn:
             conn.execute(
@@ -1662,7 +1663,7 @@ def test_feed_payload_exposes_author_avatar(temp_db):
 
 
 def test_feed_payload_exposes_creation_history(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-feed-history", "web_feed_history")
         make_image("img-feed-history", "web_feed_history")
         with main.db() as conn:
@@ -1685,7 +1686,7 @@ def test_feed_payload_exposes_creation_history(temp_db):
 
 
 def test_gallery_page_returns_visual_shell_contract(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-gallery-page", "web_gallery_page")
         make_image("img-gallery-page", "web_gallery_page", prompt="город на рассвете")
         with main.db() as conn:
@@ -1757,7 +1758,7 @@ def test_gallery_page_returns_visual_shell_contract(temp_db):
 
 
 def test_gallery_page_feed_items_are_not_limited_to_visible_original_page(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-gallery-feed-page", "web_gallery_feed_page")
         for index in range(5):
             image_id = f"img-gallery-feed-page-{index}"
@@ -1776,7 +1777,7 @@ def test_gallery_page_feed_items_are_not_limited_to_visible_original_page(temp_d
 
 
 def test_gallery_page_does_not_mark_missing_feed_media_as_published(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-gallery-missing-feed", "web_gallery_missing_feed")
         make_image("img-gallery-missing-feed", "web_gallery_missing_feed", prompt="город в тумане")
         pub = publish(client, token, "img-gallery-missing-feed", title="Туман")
@@ -1799,7 +1800,7 @@ def test_gallery_page_does_not_mark_missing_feed_media_as_published(temp_db):
 
 
 def test_media_health_check_rolls_up_nested_issues(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-health", "web_health")
         make_image("img-health", "web_health")
         publish(client, token, "img-health")
@@ -1819,7 +1820,7 @@ def test_media_health_check_rolls_up_nested_issues(temp_db):
 
 
 def test_publish_creates_feed_variants_not_original_fallback(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-d", "web_d")
         make_image("img-d", "web_d")
         original = main.MEDIA / "img-d.png"
@@ -1853,7 +1854,7 @@ def test_publish_creates_feed_variants_not_original_fallback(temp_db):
 
 
 def test_feed_ignores_published_without_ready_media(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-ready", "web_ready")
         make_image("img-ready", "web_ready")
         pub = publish(client, token, "img-ready", title="Готовая")
@@ -1869,7 +1870,7 @@ def test_feed_ignores_published_without_ready_media(temp_db):
 
 
 def test_feed_media_migrate_filters_targeted_rows(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-migrate", "web_migrate")
         make_image("img-migrate-ready", "web_migrate")
         make_image("img-migrate-missing", "web_migrate")

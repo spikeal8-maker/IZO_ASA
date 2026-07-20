@@ -12,6 +12,7 @@ import json
 import re
 
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -53,7 +54,7 @@ def _all_keys(payload: object) -> set[str]:
 
 
 def test_platforms_payload_is_product_safe() -> None:
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/platforms")
     assert response.status_code == 200
     payload = response.json()
@@ -72,7 +73,7 @@ def test_platforms_payload_is_product_safe() -> None:
 
 
 def test_bots_status_payload_is_minimal_public_product_status() -> None:
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/bots/status")
     assert response.status_code == 200
     payload = response.json()
@@ -93,7 +94,7 @@ def test_bots_status_payload_is_minimal_public_product_status() -> None:
 
 def test_public_payload_hides_configured_internal_urls(monkeypatch) -> None:
     monkeypatch.setenv("BACKEND_PUBLIC_URL", "http://10.20.30.40:8000")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         platforms = client.get("/api/platforms").json()
         bots = client.get("/api/bots/status").json()
     combined = json.dumps([platforms, bots], ensure_ascii=False)
@@ -103,6 +104,6 @@ def test_public_payload_hides_configured_internal_urls(monkeypatch) -> None:
 
 
 def test_admin_bot_diagnostics_require_trusted_admin() -> None:
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/admin/bots/status-v2")
     assert response.status_code == 401

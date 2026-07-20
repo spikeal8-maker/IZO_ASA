@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -68,7 +69,7 @@ def test_request_user_id_none_request_unchanged(temp_db, monkeypatch):
 
 def test_bootstrap_dev_fallback_unchanged(temp_db, monkeypatch):
     monkeypatch.setattr(main, "APP_ENV", "development")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/app/bootstrap", json={
             "platform": "web",
             "userId": "",
@@ -100,7 +101,7 @@ def temp_db_prod(tmp_path: Path, monkeypatch):
 
 
 def test_bootstrap_prod_no_user_id_401(temp_db_prod):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/app/bootstrap", json={
             "platform": "web",
             "userId": "",
@@ -109,7 +110,7 @@ def test_bootstrap_prod_no_user_id_401(temp_db_prod):
 
 
 def test_bootstrap_prod_demo_user_id_401(temp_db_prod):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/app/bootstrap", json={
             "platform": "web",
             "userId": "demo_user",
@@ -118,7 +119,7 @@ def test_bootstrap_prod_demo_user_id_401(temp_db_prod):
 
 
 def test_bootstrap_prod_with_real_user_works(temp_db_prod):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/app/bootstrap", json={
             "platform": "web",
             "userId": "web_real_user",

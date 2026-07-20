@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 import pytest
 
 import main
@@ -43,7 +44,7 @@ def test_simulator_checkout_success_is_end_to_end_and_idempotent(simulator_app) 
         "offer_accepted": True,
         "receipt_contact": "buyer@example.test",
     }
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         checkout = client.post("/api/billing/checkout-v2", json=body, headers=simulator_app["buyer"])
         assert checkout.status_code == 200, checkout.text
         payload = checkout.json()
@@ -87,7 +88,7 @@ def test_simulator_checkout_success_is_end_to_end_and_idempotent(simulator_app) 
 
 
 def test_simulator_checkout_cancellation_updates_invoice(simulator_app) -> None:
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         checkout = client.post(
             "/api/billing/checkout-v2",
             json={
@@ -112,7 +113,7 @@ def test_simulator_checkout_cancellation_updates_invoice(simulator_app) -> None:
 
 
 def test_admin_reconciliation_finishes_pending_simulated_payment(simulator_app) -> None:
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         checkout = client.post(
             "/api/billing/checkout-v2",
             json={

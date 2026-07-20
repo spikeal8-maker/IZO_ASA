@@ -5,6 +5,7 @@ import pytest
 import asyncio
 import json
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 from test_api import fake_send_to_comfyui, wait_for_terminal_job
@@ -45,7 +46,7 @@ def admin_token() -> str:
 
 
 def test_password_registration_defaults_to_mini_and_gallery_enabled(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/auth/password/register-v2", json={
             "email": "mini-default@example.com",
             "password": PW,
@@ -65,7 +66,7 @@ def test_password_registration_defaults_to_mini_and_gallery_enabled(temp_db):
 def test_plan_v2_updates_canonical_field_and_analytics_reads_it(temp_db):
     token = admin_token()
     make_user("iuid-target", "telegram_target", plan="mini")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/admin/users/iuid-target/plan-v2", json={"plan": "pro", "reason": "upgrade"}, headers=bearer(token))
         table = c.get("/api/admin/users-analytics-v2", headers=bearer(token))
         card = c.get("/api/admin/users/iuid-target/analytics-v2", headers=bearer(token))
@@ -87,7 +88,7 @@ def test_gallery_access_matches_plan_and_soft_delete_keeps_db_row(temp_db):
             "VALUES ('img1','web_mini','job1','/api/media/img1.png','/api/media/thumb1.png',512,512,'text_to_image','test','prompt','','{}',0,'2026-01-02')"
         )
     main.load_db_state()
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         free = c.get("/api/gallery", headers=bearer(free_token))
         before = c.get("/api/gallery", headers=bearer(mini_token))
         deleted = c.delete("/api/gallery/img1", headers=bearer(mini_token))
@@ -113,7 +114,7 @@ def test_mini_gallery_access_ignores_stale_disabled_flag(temp_db):
 
 def test_tariff_defaults_and_admin_settings_normalize(temp_db):
     token = admin_token()
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         public = c.get("/api/tariffs")
         settings = c.get("/api/admin/settings", headers=bearer(token))
     assert public.status_code == 200
@@ -138,7 +139,7 @@ def test_tariff_settings_persist_and_read_from_admin_settings(temp_db):
         "business": {"daily_tokens": 500, "gallery_slots": 500, "video_enabled": 1, "video_slots": 25},
     }
     expected = main.normalize_tariffs(payload)
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         saved = c.post("/api/admin/settings/tariffs", json={"settings": payload}, headers=bearer(token))
         public = c.get("/api/tariffs")
     assert saved.status_code == 200, saved.text
@@ -163,7 +164,7 @@ def test_tariff_settings_reject_invalid_and_unauthorized(temp_db):
     admin = admin_token()
     make_user("iuid-user", "web_user", role="user", plan="mini")
     user = main.create_auth_session("iuid-user", "web_user", provider="web_email", platform="web")["session_token"]
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         assert c.post("/api/admin/settings/tariffs", json={"settings": main.DEFAULT_TARIFFS}).status_code in {401, 403}
         assert c.post("/api/admin/settings/tariffs", json={"settings": main.DEFAULT_TARIFFS}, headers=bearer(user)).status_code == 403
         assert c.post("/api/admin/settings/tariffs", json={"settings": {}}, headers=bearer(admin)).status_code == 400
@@ -186,7 +187,7 @@ def test_gallery_quota_free_slot_and_soft_delete(temp_db):
     assert quota["gallery_used"] == 1
     assert quota["gallery_full"] is False
     main.load_db_state()
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         deleted = c.delete("/api/gallery/img-free-1", headers=bearer(token))
         me = c.get("/api/me-v2", headers=bearer(token))
     assert deleted.status_code == 200
@@ -224,7 +225,7 @@ def test_generation_replaces_oldest_gallery_slot_when_full(temp_db):
         "cfg": 1,
         "loras": [],
     }
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         c.cookies.set("onenode_session", token)
         first = c.post("/api/generate", json=payload, headers=bearer(token))
         assert first.status_code == 200, first.text
@@ -251,7 +252,7 @@ def test_deactivate_blocks_login_and_audits(temp_db):
     token = admin_token()
     make_user("iuid-target", "telegram_target", plan="mini")
     session = main.create_auth_session("iuid-target", "telegram_target", provider="telegram", platform="telegram_mini_app")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/admin/users/iuid-target/block-v2", json={"reason": "deactivate disposable"}, headers=bearer(token))
         me = c.get("/api/me-v2", headers=bearer(session["session_token"]))
     assert r.status_code == 200
@@ -264,7 +265,7 @@ def test_deactivate_blocks_login_and_audits(temp_db):
 def test_bonus_type_compensation_visible_in_row(temp_db):
     token = admin_token()
     make_user("iuid-target", "telegram_target", plan="mini")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/admin/users/iuid-target/bonus-v2", json={
             "token_amount": 1,
             "bonus_type": "compensation",

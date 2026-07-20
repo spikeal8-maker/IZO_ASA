@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -32,7 +33,7 @@ def prompt_user(tmp_path: Path, monkeypatch):
 
 
 def test_prompt_improvement_requires_trusted_session(prompt_user):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post("/api/tools/improve-prompt", json={"prompt": "красная машина", "mode": "text"})
     assert response.status_code == 401
 
@@ -50,7 +51,7 @@ def test_prompt_improvement_replaces_text_and_records_sanitized_usage(prompt_use
         )
 
     monkeypatch.setattr(main, "improve_prompt_routed", fake_improve)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/tools/improve-prompt",
             json={"prompt": "красная машина", "mode": "text", "language": "ru"},
@@ -73,7 +74,7 @@ def test_prompt_improvement_provider_error_does_not_echo_or_replace_prompt(promp
         raise RuntimeError("OpenRouter временно недоступен")
 
     monkeypatch.setattr(main, "improve_prompt_routed", failed_improve)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/tools/improve-prompt",
             json={"prompt": "исходный пользовательский текст", "mode": "i2i"},
@@ -164,7 +165,7 @@ def test_admin_assistant_catalog_contains_ollama_and_openrouter_prices(prompt_us
     monkeypatch.setattr(main, "qwen_asr_status", fake_qwen)
     monkeypatch.setattr(main, "openrouter_text_models", fake_openrouter_models)
     monkeypatch.setattr(main, "openrouter_audio_models", fake_openrouter_audio_models)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/admin/assistants", cookies={"onenode_session": prompt_user["cookie"]})
     assert response.status_code == 200, response.text
     body = response.json()
@@ -185,7 +186,7 @@ def test_admin_voice_test_uses_unsaved_selected_route(prompt_user, monkeypatch):
         return "точная проверка", {"usage": {}}, "api", "google/gemini-audio"
 
     monkeypatch.setattr(main, "transcribe_audio_routed", fake_routed)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/admin/assistants/voice-test?provider=auto&language=ru",
             files={"file": ("voice.wav", b"test-wav", "audio/wav")},
@@ -198,7 +199,7 @@ def test_admin_voice_test_uses_unsaved_selected_route(prompt_user, monkeypatch):
 
 
 def test_voice_transcription_rejects_too_short_recording(prompt_user):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/tools/transcribe?duration_ms=400&language=ru",
             files={"file": ("voice.webm", b"audio", "audio/webm")},
@@ -216,7 +217,7 @@ def test_voice_transcription_returns_provider_text(prompt_user, monkeypatch):
         return "девушка у вечернего окна", {"usage": {"cost": 0.0002}}
 
     monkeypatch.setattr(main, "transcribe_audio_openrouter", fake_transcribe)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/tools/transcribe?duration_ms=1400&language=ru",
             files={"file": ("voice.webm", b"not-real-audio", "audio/webm")},
@@ -239,7 +240,7 @@ def test_voice_transcription_uses_local_ollama_route(prompt_user, monkeypatch):
         return "локальная расшифровка", {"message": {"content": "локальная расшифровка"}}
 
     monkeypatch.setattr(main, "transcribe_audio_ollama", fake_local)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/tools/transcribe?duration_ms=1600&language=ru",
             files={"file": ("voice.webm", b"not-real-audio", "audio/webm")},
@@ -263,7 +264,7 @@ def test_voice_transcription_uses_qwen_service_route(prompt_user, monkeypatch):
         return "Qwen расшифровка", {"usage": {}}
 
     monkeypatch.setattr(main, "transcribe_audio_qwen", fake_qwen)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/tools/transcribe?duration_ms=1600&language=ru",
             files={"file": ("voice.webm", b"not-real-audio", "audio/webm")},

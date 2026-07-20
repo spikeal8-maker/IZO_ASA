@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -67,7 +68,7 @@ def verify_code(client, challenge_id, code):
 
 # 1, 2, 3, 4
 def test_register_creates_identity_password_consents_cookies(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "user@example.com")
     assert r.status_code == 200 and r.json()["ok"] is True
     iuid = r.json()["internal_user_id"]
@@ -85,37 +86,37 @@ def test_register_creates_identity_password_consents_cookies(temp_db):
 
 # 5
 def test_register_existing_email_generic_409(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "dup@example.com")
-    with TestClient(main.app) as c2:
+    with BrowserTestClient(main.app) as c2:
         r = register(c2, "dup@example.com")
     assert r.status_code == 409
     assert "уже существует" in r.json()["detail"].lower() or "некоррект" in r.json()["detail"].lower()
 
 
 def test_register_password_mismatch_400(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "mm@example.com", password=PW, repeat="different-pass")
     assert r.status_code == 400
 
 
 def test_register_requires_consent(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/auth/password/register-v2", json={"email": "nc@example.com", "password": PW, "password_repeat": PW, "accepted_terms": True, "accepted_privacy": False, "accepted_personal_data": True})
     assert r.status_code == 400
 
 
 # 6
 def test_login_correct_sets_cookies(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "login@example.com")
-    with TestClient(main.app) as c2:
+    with BrowserTestClient(main.app) as c2:
         r = login(c2, "login@example.com")
     assert r.status_code == 200 and r.json()["ok"] is True
     sc = set_cookies(r)
     assert "onenode_session=" in sc and "onenode_refresh=" in sc and "httponly" in sc
     # cookie session actually authenticates
-    with TestClient(main.app) as c3:
+    with BrowserTestClient(main.app) as c3:
         register(c3, "login2@example.com")
         me = c3.get("/api/me-v2")
         assert me.status_code == 200
@@ -123,9 +124,9 @@ def test_login_correct_sets_cookies(temp_db):
 
 # 7, 8, 9
 def test_login_wrong_and_unknown_same_generic_401(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "real@example.com")
-    with TestClient(main.app) as c2:
+    with BrowserTestClient(main.app) as c2:
         wrong = login(c2, "real@example.com", password="totally-wrong-pass")
         unknown = login(c2, "ghost@example.com", password=PW)
     assert wrong.status_code == 401 and unknown.status_code == 401
@@ -134,21 +135,21 @@ def test_login_wrong_and_unknown_same_generic_401(temp_db):
 
 # 10
 def test_banned_user_login_403(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "ban@example.com")
         iuid = r.json()["internal_user_id"]
     with main.db() as conn:
         conn.execute("UPDATE users SET banned=1 WHERE internal_user_id=?", (iuid,))
-    with TestClient(main.app) as c2:
+    with BrowserTestClient(main.app) as c2:
         r = login(c2, "ban@example.com")
     assert r.status_code == 403
 
 
 # 11, 12
 def test_failed_login_logs_and_success_event(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "logs@example.com")
-    with TestClient(main.app) as c2:
+    with BrowserTestClient(main.app) as c2:
         login(c2, "logs@example.com", password="bad")
         login(c2, "logs@example.com")
     assert count("auth_login_attempts", "WHERE provider='web_email' AND success=0") >= 1
@@ -159,7 +160,7 @@ def test_failed_login_logs_and_success_event(temp_db):
 
 # 13, 14
 def test_raw_password_and_tokens_not_in_db(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "secrets@example.com")
     body = r.json()
     with main.db() as conn:
@@ -178,7 +179,7 @@ def test_users_id_unchanged(temp_db):
     with main.db() as conn:
         conn.execute("INSERT INTO users (id, internal_user_id, language, role, created_at, last_login_at) VALUES ('telegram_legacy','iuid-legacy','ru','user','2026-01-01','2026-01-01')")
         before = sorted(r["id"] for r in conn.execute("SELECT id FROM users"))
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "newuser@example.com")
     with main.db() as conn:
         after = sorted(r["id"] for r in conn.execute("SELECT id FROM users"))
@@ -190,7 +191,7 @@ def test_users_id_unchanged(temp_db):
 def test_register_with_email_provider_login_before_verify_is_blocked(temp_db, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_PROVIDER", "smtp")
     monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", True)
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "pending@example.com")
         assert r.status_code == 200
         assert r.json()["requires_email_verification"] is True
@@ -210,7 +211,7 @@ def test_register_with_email_provider_login_before_verify_is_blocked(temp_db, mo
 def test_register_verify_code_then_me_v2_is_authenticated(temp_db, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_PROVIDER", "smtp")
     monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", True)
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "verify@example.com")
         assert r.status_code == 200
         challenge = request_code(c, "verify@example.com")
@@ -225,11 +226,11 @@ def test_register_verify_code_then_me_v2_is_authenticated(temp_db, monkeypatch):
 def test_register_verify_code_then_password_login_works(temp_db, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_PROVIDER", "smtp")
     monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", True)
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "verified-login@example.com")
         challenge = request_code(c, "verified-login@example.com")
         verify_code(c, challenge.json()["challenge_id"], challenge.json()["debug_code"])
-    with TestClient(main.app) as c2:
+    with BrowserTestClient(main.app) as c2:
         logged_in = login(c2, "verified-login@example.com")
         me = c2.get("/api/me-v2")
     assert logged_in.status_code == 200
@@ -238,26 +239,26 @@ def test_register_verify_code_then_password_login_works(temp_db, monkeypatch):
 
 
 def test_password_login_existing_verified_user_works_with_provider(temp_db, monkeypatch):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "old-verified@example.com")
     iuid = r.json()["internal_user_id"]
     with main.db() as conn:
         conn.execute("UPDATE users SET email_verified_at='2026-01-01T00:00:00+00:00' WHERE internal_user_id=?", (iuid,))
     monkeypatch.setattr(main, "EMAIL_PROVIDER", "smtp")
-    with TestClient(main.app) as c2:
+    with BrowserTestClient(main.app) as c2:
         logged_in = login(c2, "old-verified@example.com")
     assert logged_in.status_code == 200
     assert "onenode_session=" in set_cookies(logged_in)
 
 
 def test_no_provider_dev_password_register_login_still_works(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = register(c, "dev-no-provider@example.com")
         me_after_register = c.get("/api/me-v2")
     assert r.status_code == 200
     assert r.json()["requires_email_verification"] is False
     assert me_after_register.status_code == 200
-    with TestClient(main.app) as c2:
+    with BrowserTestClient(main.app) as c2:
         logged_in = login(c2, "dev-no-provider@example.com")
     assert logged_in.status_code == 200
 
@@ -266,7 +267,7 @@ def test_production_without_email_provider_password_register_creates_session(tem
     monkeypatch.setattr(main, "APP_ENV", "production")
     monkeypatch.setattr(main, "EMAIL_PROVIDER", "")
     monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", False)
-    c = TestClient(main.app)
+    c = BrowserTestClient(main.app)
     r = register(c, "prod-no-provider@example.com")
     me = c.get("/api/me-v2")
     assert r.status_code == 200
@@ -279,7 +280,7 @@ def test_capabilities_keep_password_registration_available_without_email_provide
     monkeypatch.setattr(main, "APP_ENV", "production")
     monkeypatch.setattr(main, "EMAIL_PROVIDER", "")
     monkeypatch.setattr(main, "EMAIL_OTP_DEBUG_RETURN_CODE", False)
-    c = TestClient(main.app)
+    c = BrowserTestClient(main.app)
     r = c.get("/api/auth/capabilities-v2")
     assert r.status_code == 200
     assert r.json()["password_register_available"] is True
@@ -288,13 +289,13 @@ def test_capabilities_keep_password_registration_available_without_email_provide
 
 def test_change_password_keeps_current_session_and_revokes_other_sessions(temp_db):
     new_password = "N3w-Secure-Password!"
-    with TestClient(main.app) as current_client:
+    with BrowserTestClient(main.app) as current_client:
         registered = register(current_client, "change-password@example.com")
         assert registered.status_code == 200
 
         # A plain secondary client keeps a second cookie jar without starting a
         # nested application lifespan (the feed worker is process-global).
-        other_client = TestClient(main.app)
+        other_client = BrowserTestClient(main.app)
         second_login = login(other_client, "change-password@example.com")
         assert second_login.status_code == 200
 
@@ -305,14 +306,14 @@ def test_change_password_keeps_current_session_and_revokes_other_sessions(temp_d
         assert current_client.get("/api/me-v2").status_code == 200
         assert other_client.get("/api/me-v2").status_code == 401
 
-    with TestClient(main.app) as old_password_client:
+    with BrowserTestClient(main.app) as old_password_client:
         assert login(old_password_client, "change-password@example.com").status_code == 401
-    with TestClient(main.app) as new_password_client:
+    with BrowserTestClient(main.app) as new_password_client:
         assert login(new_password_client, "change-password@example.com", password=new_password).status_code == 200
 
 
 def test_change_password_rejects_wrong_current_and_reused_password(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         assert register(client, "password-validation@example.com").status_code == 200
 
         wrong = change_password(client, current_password="incorrect-password")
@@ -325,7 +326,7 @@ def test_change_password_rejects_wrong_current_and_reused_password(temp_db):
 
 
 def test_me_v2_reports_password_and_registration_metadata(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         registered = register(client, "profile-metadata@example.com")
         assert registered.status_code == 200
         me = client.get("/api/me-v2")

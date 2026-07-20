@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -47,7 +48,7 @@ def register(c, email):
 
 # 1, 2, 3
 def test_public_code_assigned_stable_unique_prefixed(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "a@example.com")
         register(c, "b@example.com")
     with main.db() as conn:
@@ -81,7 +82,7 @@ def test_display_name_priority(temp_db):
 
 # 5
 def test_password_login_updates_session_platform_lastseen(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "act@example.com")
     with main.db() as conn:
         u = conn.execute("SELECT internal_user_id, last_seen_at FROM users WHERE email='act@example.com' OR id IN (SELECT legacy_user_id FROM auth_identities WHERE provider_user_id='act@example.com')").fetchone()
@@ -114,10 +115,10 @@ def test_get_client_ip_trust(temp_db, monkeypatch):
 
 # 10, 11
 def test_dashboard_requires_admin(temp_db):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         assert c.get("/api/admin/dashboard-v2").status_code == 401
     # non-admin
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "nonadmin@example.com")
         r = c.get("/api/admin/dashboard-v2")
     assert r.status_code == 403
@@ -126,7 +127,7 @@ def test_dashboard_requires_admin(temp_db):
 # 12
 def test_dashboard_counts(temp_db):
     tok = make_admin()
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "u1@example.com")
         register(c, "u2@example.com")
         r = c.get("/api/admin/dashboard-v2", headers=bearer(tok))
@@ -141,7 +142,7 @@ def test_dashboard_counts(temp_db):
 # 13, 14
 def test_users_analytics_no_hashes_and_clean_ids(temp_db):
     tok = make_admin()
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "clean@example.com")
         r = c.get("/api/admin/users-analytics-v2", headers=bearer(tok))
     text = r.text
@@ -157,7 +158,7 @@ def test_users_analytics_no_hashes_and_clean_ids(temp_db):
 
 def test_trusted_crm_full_contacts_search_sort_and_groups(temp_db):
     tok = make_admin()
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "support.lookup@example.com")
         with main.db() as conn:
             identity = conn.execute(
@@ -190,7 +191,7 @@ def test_trusted_crm_full_contacts_search_sort_and_groups(temp_db):
 # 15
 def test_user_detail_analytics_safe(temp_db):
     tok = make_admin()
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "detail@example.com")
         iuid = None
         with main.db() as conn:
@@ -207,7 +208,7 @@ def test_user_detail_analytics_safe(temp_db):
 def test_user_detail_analytics_p0_real_data_and_no_secret_leaks(temp_db):
     tok = make_admin()
     long_prompt = "cinematic neon city " * 30
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         register(c, "p0@example.com")
         with main.db() as conn:
             u = conn.execute("SELECT id, internal_user_id FROM auth_identities WHERE provider_user_id='p0@example.com'").fetchone()

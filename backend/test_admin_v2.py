@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -86,7 +87,7 @@ ADMIN_GET = [
 
 # 1
 def test_admin_v2_without_session_401(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         for path in ADMIN_GET:
             assert client.get(path).status_code == 401
         assert client.post("/api/admin/users/iuid-x/block-v2", json={"reason": "x"}).status_code == 401
@@ -95,7 +96,7 @@ def test_admin_v2_without_session_401(temp_db):
 def test_admin_openrouter_status_without_key(temp_db, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     sess = admin_session()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/admin/openrouter/status", cookies={"onenode_session": sess["session_token"]})
     assert response.status_code == 200
     payload = response.json()
@@ -111,11 +112,11 @@ def test_admin_can_save_openrouter_key_without_exposing_secret(temp_db, monkeypa
 
     monkeypatch.setattr(main, "fetch_openrouter_key_status", fake_status)
     sess = admin_session()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         cookies = {"onenode_session": sess["session_token"]}
-        saved = client.put("/api/admin/openrouter/key", json={"key": "sk-or-test-secret-123"}, cookies=cookies, headers=BROWSER_ORIGIN)
+        saved = client.put("/api/admin/openrouter/key", json={"key": "sk-or-test-secret-123"}, cookies=cookies)
         settings = client.get("/api/admin/settings", cookies=cookies)
-        deleted = client.delete("/api/admin/openrouter/key", cookies=cookies, headers=BROWSER_ORIGIN)
+        deleted = client.delete("/api/admin/openrouter/key", cookies=cookies)
 
     assert saved.status_code == 200
     assert saved.json()["key"]["ok"] is True
@@ -130,13 +131,11 @@ def test_admin_can_save_openrouter_key_without_exposing_secret(temp_db, monkeypa
 
 def test_admin_can_save_openrouter_model_config(temp_db):
     sess = admin_session()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/admin/openrouter/config",
             json={"config": {"enabled": {"text_to_image": ["black-forest-labs/flux.2-klein-4b", "bad"]}, "defaults": {"text_to_image": "black-forest-labs/flux.2-klein-4b"}}},
-            cookies={"onenode_session": sess["session_token"]},
-            headers=BROWSER_ORIGIN,
-        )
+            cookies={"onenode_session": sess["session_token"]})
     assert response.status_code == 200
     payload = response.json()
     assert payload["config"]["enabled"]["text_to_image"] == ["black-forest-labs/flux.2-klein-4b"]
@@ -160,13 +159,11 @@ def test_admin_openrouter_test_generate_records_cost(temp_db, monkeypatch):
 
     monkeypatch.setattr(main, "send_to_openrouter", fake_send)
     sess = admin_session()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/admin/openrouter/test-generate",
             json={"model": "black-forest-labs/flux.2-klein-4b", "width": 1024, "height": 1024},
-            cookies={"onenode_session": sess["session_token"]},
-            headers=BROWSER_ORIGIN,
-        )
+            cookies={"onenode_session": sess["session_token"]})
     assert response.status_code == 200
     payload = response.json()
     assert payload["costUsd"] == 0.014
@@ -195,8 +192,8 @@ def test_admin_can_refresh_openrouter_exchange_rate(temp_db, monkeypatch):
 
     monkeypatch.setattr(main.httpx, "AsyncClient", FakeClient)
     sess = admin_session()
-    with TestClient(main.app) as client:
-        response = client.post("/api/admin/openrouter/exchange/refresh", cookies={"onenode_session": sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with BrowserTestClient(main.app) as client:
+        response = client.post("/api/admin/openrouter/exchange/refresh", cookies={"onenode_session": sess["session_token"]})
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
@@ -235,8 +232,8 @@ def test_admin_exchange_rate_uses_fallback_when_cbr_fails(temp_db, monkeypatch):
 
     monkeypatch.setattr(main.httpx, "AsyncClient", FakeClient)
     sess = admin_session()
-    with TestClient(main.app) as client:
-        response = client.post("/api/admin/openrouter/exchange/refresh", cookies={"onenode_session": sess["session_token"]}, headers=BROWSER_ORIGIN)
+    with BrowserTestClient(main.app) as client:
+        response = client.post("/api/admin/openrouter/exchange/refresh", cookies={"onenode_session": sess["session_token"]})
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
@@ -246,7 +243,7 @@ def test_admin_exchange_rate_uses_fallback_when_cbr_fails(temp_db, monkeypatch):
 
 def test_web_login_requires_explicit_admin_code(temp_db, monkeypatch):
     monkeypatch.delenv("ADMIN_ONE_TIME_CODE", raising=False)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/auth/web-login", json={"code": "admin-demo"})
     assert r.status_code == 503
     assert find_cookie(r, "onenode_session") is None
@@ -256,7 +253,7 @@ def test_web_login_requires_explicit_admin_code(temp_db, monkeypatch):
 def test_web_login_issues_trusted_admin_session(temp_db, monkeypatch):
     monkeypatch.setenv("ADMIN_ONE_TIME_CODE", "one-time-admin-code")
     monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/auth/web-login", json={"code": "one-time-admin-code"})
         assert r.status_code == 200
         assert find_cookie(r, "onenode_session")
@@ -271,7 +268,7 @@ def test_web_login_issues_trusted_admin_session(temp_db, monkeypatch):
 def test_admin_v2_non_admin_403(temp_db):
     make_user("iuid-u", "telegram_u", role="user")
     s = session_for("iuid-u", "telegram_u")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         for path in ADMIN_GET:
             assert client.get(path, headers=bearer(s["session_token"])).status_code == 403
 
@@ -281,7 +278,7 @@ def test_x_onenode_user_spoof_does_not_grant_admin(temp_db):
     make_user("iuid-u", "telegram_u", role="user")
     make_user("iuid-admin", "telegram_admin", role="admin")
     s = session_for("iuid-u", "telegram_u")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/admin/users-v2", headers={**bearer(s["session_token"]), "X-OneNode-User": "telegram_admin"})
     assert r.status_code == 403
 
@@ -291,7 +288,7 @@ def test_cookie_spoof_does_not_grant_admin(temp_db):
     make_user("iuid-u", "telegram_u", role="user")
     make_user("iuid-admin", "telegram_admin", role="admin")
     s = session_for("iuid-u", "telegram_u")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.cookies.set("onenode_user", "telegram_admin")
         r = client.get("/api/admin/users-v2", headers=bearer(s["session_token"]))
     assert r.status_code == 403
@@ -310,7 +307,7 @@ def test_admin_can_list_users_no_secrets(temp_db):
             "VALUES ('c1','email','a@x.com','SECRET_CODE_HASH','login',0,5, ?, ?)",
             (NOW, NOW),
         )
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/admin/users-v2", headers=bearer(s["session_token"]))
     assert r.status_code == 200
     body = r.json()
@@ -330,7 +327,7 @@ def test_users_list_filters(temp_db):
     make_identity("iuid-1", "telegram_1", provider="telegram", pid="1", username="findme")
     make_user("iuid-2", "max_2")
     make_identity("iuid-2", "max_2", provider="max", pid="2")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         prov = client.get("/api/admin/users-v2?provider=max", headers=bearer(s["session_token"])).json()
         q = client.get("/api/admin/users-v2?q=findme", headers=bearer(s["session_token"])).json()
     assert [i["internal_user_id"] for i in prov["items"]] == ["iuid-2"]
@@ -343,7 +340,7 @@ def test_admin_user_detail(temp_db):
     make_user("iuid-1", "telegram_1", username="ann")
     make_identity("iuid-1", "telegram_1", provider="web_email", pid="ann@example.com", email="ann@example.com")
     sess = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/admin/users/iuid-1/v2", headers=bearer(s["session_token"]))
     assert r.status_code == 200
     body = r.json()
@@ -360,7 +357,7 @@ def test_admin_user_detail(temp_db):
 
 def test_admin_user_detail_404(temp_db):
     s = admin_session()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/admin/users/nope/v2", headers=bearer(s["session_token"]))
     assert r.status_code == 404
 
@@ -369,7 +366,7 @@ def test_admin_user_detail_404(temp_db):
 def test_security_events_requires_admin(temp_db):
     make_user("iuid-u", "telegram_u", role="user")
     s = session_for("iuid-u", "telegram_u")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         assert client.get("/api/admin/security-events-v2", headers=bearer(s["session_token"])).status_code == 403
 
 
@@ -377,7 +374,7 @@ def test_security_events_requires_admin(temp_db):
 def test_audit_logs_requires_admin(temp_db):
     make_user("iuid-u", "telegram_u", role="user")
     s = session_for("iuid-u", "telegram_u")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         assert client.get("/api/admin/audit-logs-v2", headers=bearer(s["session_token"])).status_code == 403
 
 
@@ -385,7 +382,7 @@ def test_audit_logs_requires_admin(temp_db):
 def test_block_requires_reason(temp_db):
     s = admin_session()
     make_user("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/admin/users/iuid-1/block-v2", json={"reason": "   "}, headers=bearer(s["session_token"]))
     assert r.status_code == 400
 
@@ -393,7 +390,7 @@ def test_block_requires_reason(temp_db):
 # 15
 def test_block_forbids_self_block(temp_db):
     s = admin_session()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/admin/users/iuid-admin/block-v2", json={"reason": "x"}, headers=bearer(s["session_token"]))
     assert r.status_code == 403
 
@@ -403,7 +400,7 @@ def test_block_sets_banned_revokes_sessions_and_logs(temp_db):
     s = admin_session()
     make_user("iuid-1", "telegram_1")
     target_sess = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/admin/users/iuid-1/block-v2", json={"reason": "abuse"}, headers=bearer(s["session_token"]))
     assert r.status_code == 200
     with main.db() as conn:
@@ -420,7 +417,7 @@ def test_blocked_user_cannot_refresh(temp_db):
     s = admin_session()
     make_user("iuid-1", "telegram_1")
     target = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.post("/api/admin/users/iuid-1/block-v2", json={"reason": "abuse"}, headers=bearer(s["session_token"]))
         # the target session is revoked AND the user is banned
         r = client.post("/api/auth/session/refresh-v2", json={"refresh_token": target["refresh_token"]})
@@ -434,7 +431,7 @@ def test_unblock_flow(temp_db):
     # a previously revoked session
     revoked = session_for("iuid-1", "telegram_1")
     main.revoke_auth_session(revoked["session_id"], reason="admin_block")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         # 21: reason required
         assert client.post("/api/admin/users/iuid-1/unblock-v2", json={"reason": ""}, headers=bearer(s["session_token"])).status_code == 400
         r = client.post("/api/admin/users/iuid-1/unblock-v2", json={"reason": "appeal granted"}, headers=bearer(s["session_token"]))
@@ -453,7 +450,7 @@ def test_users_list_q_filter_is_injection_safe(temp_db):
     make_user("iuid-1", "telegram_1", username="ann")
     make_identity("iuid-1", "telegram_1", provider="telegram", pid="1", username="ann")
     malicious = "'; DROP TABLE users; --"
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/admin/users-v2", params={"q": malicious}, headers=bearer(s["session_token"]))
     assert r.status_code == 200          # no SQL error
     assert r.json()["items"] == []        # no rows match the literal string
@@ -465,7 +462,7 @@ def test_users_list_q_filter_is_injection_safe(temp_db):
 # Audit hardening: limit is clamped to <= 200.
 def test_users_list_limit_clamped(temp_db):
     s = admin_session()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/admin/users-v2", params={"limit": 99999}, headers=bearer(s["session_token"]))
     assert r.json()["limit"] == 200
 
@@ -510,12 +507,12 @@ def patch_config_ui_dependencies(monkeypatch, *, comfy_up=True, interrupted=None
 
 
 def test_config_ui_status_requires_admin(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         assert client.get("/api/admin/config-ui/status-v2").status_code == 401
 
     make_user("iuid-u", "telegram_u", role="user")
     s = session_for("iuid-u", "telegram_u")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         assert client.get("/api/admin/config-ui/status-v2", headers=bearer(s["session_token"])).status_code == 403
 
 
@@ -533,7 +530,7 @@ def test_config_ui_status_reports_config_models_nodes_and_jobs(temp_db, monkeypa
     }
     try:
         s = admin_session()
-        with TestClient(main.app) as client:
+        with BrowserTestClient(main.app) as client:
             main.jobs["job-1"] = {
                 "id": "job-1",
                 "status": "running",
@@ -562,7 +559,7 @@ def test_config_ui_reload_requires_reason_clears_cache_and_logs(temp_db, monkeyp
     main._admin_models_page_cache["ts"] = 123.0
     main._admin_models_page_cache["data"] = {"cached": True}
     s = admin_session()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         empty = client.post("/api/admin/config-ui/reload-v2", json={"reason": "  "}, headers=bearer(s["session_token"]))
         r = client.post("/api/admin/config-ui/reload-v2", json={"reason": "config api завис"}, headers=bearer(s["session_token"]))
 
@@ -581,7 +578,7 @@ def test_config_ui_interrupt_requires_reason_calls_comfy_and_logs(temp_db, monke
     main.jobs["job-2"] = {"id": "job-2", "status": "sent_to_comfyui"}
     try:
         s = admin_session()
-        with TestClient(main.app) as client:
+        with BrowserTestClient(main.app) as client:
             empty = client.post("/api/admin/config-ui/interrupt-v2", json={"reason": ""}, headers=bearer(s["session_token"]))
             main.jobs["job-2"] = {"id": "job-2", "status": "sent_to_comfyui"}
             r = client.post("/api/admin/config-ui/interrupt-v2", json={"reason": "ручной interrupt"}, headers=bearer(s["session_token"]))
@@ -600,7 +597,7 @@ def test_config_ui_switch_updates_global_profile_and_routes(temp_db, monkeypatch
     patch_config_ui_dependencies(monkeypatch)
     main._save_setting("generation_routes", {"routes": [{"routeId": "text_to_image", "provider": "local", "modelProfileId": "flux_klein_9b"}]})
     s = admin_session()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post("/api/admin/config-ui/switch-v2", json={"profileId": "flux_klein_4b", "reason": "снижаю нагрузку"}, headers=bearer(s["session_token"]))
 
     assert response.status_code == 200

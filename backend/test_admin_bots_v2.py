@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -77,7 +78,7 @@ def healthy(**values):
 
 
 def test_bots_admin_requires_trusted_admin(bot_admin_env):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         assert client.get("/api/admin/bots/config-v2").status_code == 401
         assert client.get("/api/admin/bots/status-v2").status_code == 401
 
@@ -89,7 +90,7 @@ def test_default_modes_are_disabled_and_token_save_is_inert(bot_admin_env, monke
 
     monkeypatch.setattr(main, "probe_telegram_bot", fake_probe)
     started_before = dict(main.bot_polling_tasks)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         config = client.get("/api/admin/bots/config-v2", cookies=bot_admin_env["cookies"])
         saved = client.put(
             "/api/admin/bots/telegram/token-v2",
@@ -118,7 +119,7 @@ def test_bot_secret_can_be_replaced_and_deleted(bot_admin_env, monkeypatch):
         return healthy(bot_id=7, username="safe_bot")
 
     monkeypatch.setattr(main, "probe_telegram_bot", fake_probe)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         for token in ("telegram-token-one", "telegram-token-two"):
             response = client.put(
                 "/api/admin/bots/telegram/token-v2",
@@ -140,7 +141,7 @@ def test_max_token_is_saved_without_exposure(bot_admin_env, monkeypatch):
         return healthy()
 
     monkeypatch.setattr(main, "probe_max_bot", fake_probe)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.put(
             "/api/admin/bots/max/token-v2",
             json={"token": "max-private-test-token"},
@@ -190,7 +191,7 @@ def test_safe_status_contains_diagnostics_but_no_secrets(bot_admin_env, monkeypa
     monkeypatch.setattr(main, "_admin_telegram_probe", telegram_probe)
     monkeypatch.setattr(main, "_admin_max_probe", max_probe)
     monkeypatch.setattr(main, "_admin_bot_public_https_status", public_status)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get(
             "/api/admin/bots/status-v2",
             cookies=bot_admin_env["cookies"],
@@ -253,7 +254,7 @@ def test_polling_and_webhook_require_complete_configuration(bot_admin_env):
         },
         production=False,
     )
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         polling = client.put(
             "/api/admin/bots/config-v2",
             json={"config": polling_config, "confirmModeChange": True},
@@ -277,7 +278,7 @@ def test_mode_change_requires_explicit_confirmation(bot_admin_env):
             "pollingEnabled": True,
         },
     }
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.put(
             "/api/admin/bots/config-v2",
             json={"config": config, "confirmModeChange": False},
@@ -287,7 +288,7 @@ def test_mode_change_requires_explicit_confirmation(bot_admin_env):
 
 
 def test_generated_webhook_secret_is_never_returned(bot_admin_env):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/admin/bots/max/webhook-secret-v2",
             cookies=bot_admin_env["cookies"],
@@ -329,7 +330,7 @@ def test_secret_store_failure_returns_safe_error(bot_admin_env, monkeypatch):
         raise main.SecretStoreError("sensitive internal failure")
 
     monkeypatch.setattr(bot_admin_env["store"], "set", fail_set)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.put(
             "/api/admin/bots/max/token-v2",
             json={"token": "max-test-token"},

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -58,28 +59,28 @@ def authed_user(temp_db):
 
 # 1
 def test_generate_no_session_401(temp_db, authed_user):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1})
     assert r.status_code == 401
 
 
 # 2
 def test_generate_x_onenode_user_no_session_401(temp_db, authed_user):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, headers={"X-OneNode-User": authed_user["legacy_user_id"]})
     assert r.status_code == 401
 
 
 # 3
 def test_generate_onenode_user_cookie_no_session_401(temp_db, authed_user):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, cookies={"onenode_user": authed_user["legacy_user_id"]})
     assert r.status_code == 401
 
 
 # 4 — spoofed body user_id is irrelevant for v2 (no such field in GenerateRequest)
 def test_generate_spoofed_body_ignored(temp_db, authed_user):
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1, "userId": authed_user["legacy_user_id"]})
     assert r.status_code == 401
 
@@ -87,7 +88,7 @@ def test_generate_spoofed_body_ignored(temp_db, authed_user):
 # 5
 def test_generate_with_valid_session_reaches_worker(temp_db, authed_user):
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
     assert r.status_code == 200
     body = r.json()
@@ -100,7 +101,7 @@ def test_generate_with_valid_session_reaches_worker(temp_db, authed_user):
 
 def test_local_text_generation_is_normalized_to_four_steps(temp_db, authed_user):
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         response = c.post(
             "/api/generate",
             json={"mode": "text_to_image", "provider": "comfyui", "prompt": "four steps", "width": 704, "height": 704, "steps": 10},
@@ -172,7 +173,7 @@ def test_similar_filename_does_not_cross_generation_ownership_boundary(temp_db, 
 # 6 — trusted session overrides any spoofed header
 def test_trusted_session_overrides_spoofed_header(temp_db, authed_user):
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, cookies={"onenode_session": sess["session_token"]}, headers={"X-OneNode-User": "hacker"})
     assert r.status_code == 200
     assert r.json()["userId"] == authed_user["legacy_user_id"]
@@ -183,7 +184,7 @@ def test_banned_user_403(temp_db, authed_user):
     with main.db() as conn:
         conn.execute("UPDATE users SET banned=1 WHERE internal_user_id=?", (authed_user["internal_user_id"],))
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
     assert r.status_code == 403
 
@@ -191,7 +192,7 @@ def test_banned_user_403(temp_db, authed_user):
 # 8
 def test_unauthenticated_creates_no_job(temp_db, authed_user):
     before = count("jobs")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1})
     assert r.status_code == 401
     assert count("jobs") == before
@@ -200,7 +201,7 @@ def test_unauthenticated_creates_no_job(temp_db, authed_user):
 # 9 — unauthenticated creates no image (images table unchanged)
 def test_unauthenticated_creates_no_image(temp_db, authed_user):
     before = count("images")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1})
     assert r.status_code == 401
     assert count("images") == before
@@ -209,7 +210,7 @@ def test_unauthenticated_creates_no_image(temp_db, authed_user):
 # 10 — unauthenticated spends no tokens
 def test_unauthenticated_spends_no_tokens(temp_db, authed_user):
     before = count("token_ledger")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1})
     assert r.status_code == 401
     assert count("token_ledger") == before
@@ -218,7 +219,7 @@ def test_unauthenticated_spends_no_tokens(temp_db, authed_user):
 # 11
 def test_successful_generation_writes_event_log(temp_db, authed_user):
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
     assert r.status_code == 200
     ec = count("event_logs", "WHERE event_name='generation_started' AND internal_user_id=?", (authed_user["internal_user_id"],))
@@ -229,7 +230,7 @@ def test_successful_generation_writes_event_log(temp_db, authed_user):
 def test_prompt_not_in_event_logs(temp_db, authed_user):
     prompt = "a very specific cat drawing"
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": prompt, "width": 704, "height": 704, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
     assert r.status_code == 200
     with main.db() as conn:
@@ -242,7 +243,7 @@ def test_prompt_not_in_event_logs(temp_db, authed_user):
 # 13 — raw cookies/tokens not logged
 def test_raw_tokens_not_logged_for_generation(temp_db, authed_user):
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
     assert r.status_code == 200
     raw = sess["session_token"]
@@ -276,7 +277,7 @@ def test_users_id_unchanged_after_generation(temp_db, authed_user):
         conn.execute("INSERT INTO users (id, internal_user_id, language, role, created_at, last_login_at) VALUES ('telegram_legacy','iuid-legacy','ru','user','2026-01-01','2026-01-01')")
         before = sorted(r["id"] for r in conn.execute("SELECT id FROM users"))
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
     assert r.status_code == 200
     with main.db() as conn:
@@ -288,7 +289,7 @@ def test_users_id_unchanged_after_generation(temp_db, authed_user):
 def test_generation_uses_daily_budget_without_balance_spend(temp_db, authed_user):
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
     assert r.status_code == 200
     body = r.json()
@@ -312,7 +313,7 @@ def test_generation_spends_balance_after_daily_budget_exhausted(temp_db, authed_
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     with main.db() as conn:
         conn.execute("UPDATE users SET token_balance=5, plan='free', daily_tokens_used=10, last_daily_reset=? WHERE id=?", (today, authed_user["legacy_user_id"]))
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
     assert r.status_code == 200
     assert r.json()["usedDailyBudget"] is False
@@ -340,7 +341,7 @@ def test_default_hourly_job_counter_does_not_block_generation(temp_db, authed_us
                 """,
                 (f"existing_job_{i}", authed_user["legacy_user_id"], now),
             )
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post(
             "/api/generate",
             json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1},
@@ -353,7 +354,7 @@ def test_faceswap_without_explicit_lora_uses_worker_autoselection(temp_db, authe
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
     before_jobs = count("jobs")
     before_ledger = count("token_ledger")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "faceswap", "prompt": "a cat", "width": 704, "height": 704, "steps": 1, "loras": []}, cookies={"onenode_session": sess["session_token"]})
     assert r.status_code == 200
     assert count("jobs") == before_jobs + 1
@@ -372,7 +373,7 @@ def test_insufficient_balance_after_daily_budget_creates_no_job_or_ledger(temp_d
         conn.execute("UPDATE users SET token_balance=0, plan='free', daily_tokens_used=10, last_daily_reset=? WHERE id=?", (today, authed_user["legacy_user_id"]))
     before_jobs = count("jobs")
     before_ledger = count("token_ledger")
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
     assert r.status_code == 402
     assert count("jobs") == before_jobs
@@ -384,7 +385,7 @@ def test_generation_refund_restores_balance_spend(temp_db, authed_user):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     with main.db() as conn:
         conn.execute("UPDATE users SET token_balance=5, plan='free', daily_tokens_used=10, last_daily_reset=? WHERE id=?", (today, authed_user["legacy_user_id"]))
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
     assert r.status_code == 200
     job_id = r.json()["id"]
@@ -402,7 +403,7 @@ def test_generation_refund_restores_balance_spend(temp_db, authed_user):
 
 def test_daily_generation_refund_restores_daily_budget(temp_db, authed_user):
     sess = make_trusted_session(authed_user["internal_user_id"], authed_user["legacy_user_id"])
-    with TestClient(main.app) as c:
+    with BrowserTestClient(main.app) as c:
         r = c.post("/api/generate", json={"mode": "text_to_image", "prompt": "a cat", "width": 704, "height": 704, "steps": 1}, cookies={"onenode_session": sess["session_token"]})
     assert r.status_code == 200
     job_id = r.json()["id"]

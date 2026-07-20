@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -67,7 +68,7 @@ def count(table, where="", params=()):
 
 # 1
 def test_profile_without_session_401(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         assert client.get("/api/me/profile-v2").status_code == 401
 
 
@@ -76,7 +77,7 @@ def test_profile_valid_session(temp_db):
     make_user("iuid-1", "telegram_1", username="ann")
     make_identity("iuid-1", "telegram_1", username="ann", email="a@x.com")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me/profile-v2", headers=bearer(s["session_token"]))
     assert r.status_code == 200
     b = r.json()
@@ -90,7 +91,7 @@ def test_x_header_spoof_ignored(temp_db):
     make_user("iuid-1", "telegram_1", username="real")
     make_user("iuid-admin", "admin", role="admin", username="boss")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me/profile-v2", headers={**bearer(s["session_token"]), "X-OneNode-User": "admin"})
     assert r.json()["internal_user_id"] == "iuid-1"
 
@@ -100,7 +101,7 @@ def test_cookie_spoof_ignored(temp_db):
     make_user("iuid-1", "telegram_1")
     make_user("iuid-admin", "admin", role="admin")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.cookies.set("onenode_user", "admin")
         r = client.get("/api/me/profile-v2", headers=bearer(s["session_token"]))
     assert r.json()["internal_user_id"] == "iuid-1"
@@ -111,7 +112,7 @@ def test_query_body_user_id_ignored(temp_db):
     make_user("iuid-1", "telegram_1")
     make_user("iuid-2", "telegram_2")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me/profile-v2?user_id=iuid-2&internal_user_id=iuid-2", headers=bearer(s["session_token"]))
     assert r.json()["internal_user_id"] == "iuid-1"
 
@@ -121,7 +122,7 @@ def test_profile_no_secret_fields(temp_db):
     make_user("iuid-1", "telegram_1")
     make_identity("iuid-1", "telegram_1")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me/profile-v2", headers=bearer(s["session_token"]))
     text = r.text
     for forbidden in ("session_token_hash", "refresh_token_hash", "raw_profile_json", "code_hash"):
@@ -133,7 +134,7 @@ def test_profile_no_secret_fields(temp_db):
 def test_patch_updates_allowed_fields(temp_db):
     make_user("iuid-1", "telegram_1", username="old")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.patch(
             "/api/me/profile-v2",
             json={
@@ -187,7 +188,7 @@ def test_patch_updates_allowed_fields(temp_db):
 def test_patch_cannot_change_protected_fields(temp_db):
     make_user("iuid-1", "telegram_1", role="user", banned=0)
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.patch("/api/me/profile-v2",
                          json={"role": "admin", "banned": 1, "internal_user_id": "iuid-hacked", "id": "telegram_hacked", "first_name": "Ok"},
                          headers=bearer(s["session_token"]))
@@ -205,7 +206,7 @@ def test_patch_cannot_change_protected_fields(temp_db):
 def test_patch_writes_event_log(temp_db):
     make_user("iuid-1", "telegram_1")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.patch("/api/me/profile-v2", json={"first_name": "Z"}, headers=bearer(s["session_token"]))
     assert count("event_logs", "WHERE event_name='profile_updated'") == 1
 
@@ -217,7 +218,7 @@ def test_devices_only_current_user_sanitized(temp_db):
     make_device("iuid-1", "telegram_1", "inst-1", metadata={"client": {"language": "ru", "timezone": "UTC", "app_version": "1.2", "screen_width": 1440}, "utm": {"source": "x"}})
     make_device("iuid-2", "telegram_2", "inst-2")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me/devices-v2", headers=bearer(s["session_token"]))
     items = r.json()["items"]
     assert len(items) == 1
@@ -234,7 +235,7 @@ def test_sessions_only_current_user_no_hashes(temp_db):
     s1 = session_for("iuid-1", "telegram_1")
     session_for("iuid-1", "telegram_1")  # second session for user 1
     session_for("iuid-2", "telegram_2")  # other user
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me/sessions-v2", headers=bearer(s1["session_token"]))
     items = r.json()["items"]
     assert len(items) == 2  # only user 1's sessions
@@ -248,7 +249,7 @@ def test_sessions_only_current_user_no_hashes(temp_db):
 def test_consents_initially_empty(temp_db):
     make_user("iuid-1", "telegram_1")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.get("/api/me/consents-v2", headers=bearer(s["session_token"]))
     assert r.json()["items"] == []
 
@@ -257,7 +258,7 @@ def test_consents_initially_empty(temp_db):
 def test_post_consent_accepted(temp_db):
     make_user("iuid-1", "telegram_1")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/me/consents-v2", json={"consent_type": "terms", "document_version": "v1", "accepted": True},
                         headers=bearer(s["session_token"]))
     assert r.status_code == 200
@@ -270,7 +271,7 @@ def test_post_consent_accepted(temp_db):
 def test_post_consent_revoked(temp_db):
     make_user("iuid-1", "telegram_1")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         # accept then revoke -> two historical rows, never overwritten
         client.post("/api/me/consents-v2", json={"consent_type": "marketing", "document_version": "v1", "accepted": True}, headers=bearer(s["session_token"]))
         r = client.post("/api/me/consents-v2", json={"consent_type": "marketing", "document_version": "v1", "accepted": False}, headers=bearer(s["session_token"]))
@@ -283,7 +284,7 @@ def test_post_consent_revoked(temp_db):
 def test_invalid_consent_type_400(temp_db):
     make_user("iuid-1", "telegram_1")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/me/consents-v2", json={"consent_type": "totally_made_up", "document_version": "v1"}, headers=bearer(s["session_token"]))
     assert r.status_code == 400
 
@@ -292,7 +293,7 @@ def test_invalid_consent_type_400(temp_db):
 def test_missing_document_version_400(temp_db):
     make_user("iuid-1", "telegram_1")
     s = session_for("iuid-1", "telegram_1")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/me/consents-v2", json={"consent_type": "terms", "document_version": "   "}, headers=bearer(s["session_token"]))
     assert r.status_code == 400
 
@@ -307,7 +308,7 @@ def test_user_a_cannot_see_user_b_data(temp_db):
         conn.execute("INSERT INTO user_consents (id, internal_user_id, consent_type, document_version, accepted, accepted_at) "
                      "VALUES ('cb','iuid-b','terms','v1',1, ?)", (NOW,))
     sa = session_for("iuid-a", "telegram_a")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         h = {**bearer(sa["session_token"]), "X-OneNode-User": "telegram_b"}
         client.cookies.set("onenode_user", "telegram_b")
         devices = client.get("/api/me/devices-v2?internal_user_id=iuid-b", headers=h).json()["items"]
@@ -323,7 +324,7 @@ def test_patch_cannot_affect_other_user(temp_db):
     make_user("iuid-a", "telegram_a", first_name="A-orig")
     make_user("iuid-b", "telegram_b", first_name="B-orig")
     sa = session_for("iuid-a", "telegram_a")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.cookies.set("onenode_user", "telegram_b")
         client.patch("/api/me/profile-v2?internal_user_id=iuid-b",
                      json={"first_name": "HACKED", "internal_user_id": "iuid-b"},
@@ -340,7 +341,7 @@ def test_patch_enforces_max_length(temp_db):
     make_user("iuid-1", "telegram_1")
     s = session_for("iuid-1", "telegram_1")
     long = "x" * 5000
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.patch("/api/me/profile-v2", json={"display_name": long}, headers=bearer(s["session_token"]))
     assert r.status_code == 200
     assert len(r.json()["profile"]["display_name"]) == 200
@@ -351,7 +352,7 @@ def test_consent_attributed_to_trusted_user_only(temp_db):
     make_user("iuid-a", "telegram_a")
     make_user("iuid-b", "telegram_b")
     sa = session_for("iuid-a", "telegram_a")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.cookies.set("onenode_user", "telegram_b")
         client.post("/api/me/consents-v2?internal_user_id=iuid-b",
                     json={"consent_type": "terms", "document_version": "v1", "accepted": True, "internal_user_id": "iuid-b"},

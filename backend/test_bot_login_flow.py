@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -52,7 +53,7 @@ def test_plain_start_returns_welcome_and_button(temp_db):
 
 
 def test_bot_login_start_creates_challenge_and_cookie(temp_db):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     response = client.post("/api/auth/bot-login/start", json={"provider": "telegram"})
     assert response.status_code == 200
     payload = response.json()
@@ -68,7 +69,7 @@ def test_bot_login_start_creates_challenge_and_cookie(temp_db):
 
 def test_bot_login_start_limits_active_challenges_per_ip_and_provider(temp_db, monkeypatch):
     monkeypatch.setattr(main, "BOT_LOGIN_MAX_ACTIVE_PER_IP_PROVIDER", 3)
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
 
     for _ in range(3):
         response = client.post("/api/auth/bot-login/start", json={"provider": "telegram"})
@@ -85,7 +86,7 @@ def test_bot_login_start_limits_active_challenges_per_ip_and_provider(temp_db, m
 
 def test_bot_login_start_expires_stale_rows_before_enforcing_active_cap(temp_db, monkeypatch):
     monkeypatch.setattr(main, "BOT_LOGIN_MAX_ACTIVE_PER_IP_PROVIDER", 1)
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     assert client.post("/api/auth/bot-login/start", json={"provider": "telegram"}).status_code == 200
     with main.db() as conn:
         conn.execute(
@@ -104,7 +105,7 @@ def test_bot_login_start_expires_stale_rows_before_enforcing_active_cap(temp_db,
 
 
 def test_pending_max_count_ignores_expired_challenges(temp_db):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     assert client.post("/api/auth/bot-login/start", json={"provider": "max"}).status_code == 200
     with main.db() as conn:
         conn.execute(
@@ -116,7 +117,7 @@ def test_pending_max_count_ignores_expired_challenges(temp_db):
 
 
 def test_auth_capabilities_report_bot_login_availability(temp_db):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     payload = client.get("/api/auth/capabilities-v2").json()
     assert payload["password_login_available"] is True
     assert payload["password_register_available"] is True
@@ -128,7 +129,7 @@ def test_auth_capabilities_report_bot_login_availability(temp_db):
 def test_bot_login_start_without_provider_config_returns_503(temp_db, monkeypatch):
     monkeypatch.setattr(main, "TELEGRAM_BOT_USERNAME", "")
     monkeypatch.setattr(main, "TELEGRAM_BOT_DEEP_LINK_BASE", "")
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     response = client.post("/api/auth/bot-login/start", json={"provider": "telegram"})
     assert response.status_code == 503
     assert response.json()["detail"] == "provider_not_configured"
@@ -144,14 +145,14 @@ def test_bot_login_capabilities_false_without_deep_link_config(temp_db, monkeypa
     monkeypatch.setattr(main, "MAX_BOT_DEEP_LINK_BASE", "")
     monkeypatch.setattr(main, "MAX_BOT_TOKEN", "")
     _reset_max_deep_link_cache()
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     payload = client.get("/api/auth/capabilities-v2").json()
     assert payload["bot_login"]["telegram_bot_login_available"] is False
     assert payload["bot_login"]["max_bot_login_available"] is False
 
 
 def test_max_capability_true_when_explicit_deep_link_base_exists(temp_db):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     payload = client.get("/api/auth/capabilities-v2").json()
     assert payload["bot_login"]["max_bot_login_available"] is True
 
@@ -197,7 +198,7 @@ def test_max_capability_resolves_deep_link_base_from_api_me(temp_db, monkeypatch
     _FakeMaxClient.response = _FakeMaxResponse(200, {"username": "real_max_bot"})
     _reset_max_deep_link_cache()
 
-    payload = TestClient(main.app).get("/api/auth/capabilities-v2").json()
+    payload = BrowserTestClient(main.app).get("/api/auth/capabilities-v2").json()
 
     assert payload["bot_login"]["max_bot_login_available"] is True
     assert main._MAX_BOT_DEEP_LINK_CACHE["source"] == "api"
@@ -215,7 +216,7 @@ def test_max_capability_false_when_api_me_has_no_nickname(temp_db, monkeypatch, 
     _FakeMaxClient.response = _FakeMaxResponse(200, {"id": "bot-1", "name": "No public nickname"})
     _reset_max_deep_link_cache()
 
-    payload = TestClient(main.app).get("/api/auth/capabilities-v2").json()
+    payload = BrowserTestClient(main.app).get("/api/auth/capabilities-v2").json()
 
     assert payload["bot_login"]["max_bot_login_available"] is False
     assert main._MAX_BOT_DEEP_LINK_CACHE["source"] == "failed"
@@ -232,7 +233,7 @@ def test_max_bot_login_start_resolves_api_deep_link_without_token_leak(temp_db, 
     _FakeMaxClient.response = _FakeMaxResponse(200, {"bot": {"username": "real_max_bot"}})
     _reset_max_deep_link_cache()
 
-    response = TestClient(main.app).post("/api/auth/bot-login/start", json={"provider": "max"})
+    response = BrowserTestClient(main.app).post("/api/auth/bot-login/start", json={"provider": "max"})
 
     assert response.status_code == 200
     payload = response.json()
@@ -251,7 +252,7 @@ def test_max_deep_link_rejects_payload_over_limit(temp_db):
 def test_bots_status_is_public_product_safe(temp_db):
     # SEC-DIAG-001: MAX delivery diagnostics moved to the trusted-admin
     # status endpoint; the anonymous payload keeps only product capability.
-    payload = TestClient(main.app).get("/api/bots/status").json()
+    payload = BrowserTestClient(main.app).get("/api/bots/status").json()
     max_status = payload["platforms"]["max"]
     assert max_status["ready"] is True
     assert max_status["commands"] == ["/start", "/app", "/help", "/gallery", "/settings"]
@@ -262,14 +263,14 @@ def test_bots_status_is_public_product_safe(temp_db):
 
 
 def test_bot_login_status_without_cookie_does_not_create_session(temp_db):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     response = client.get("/api/auth/bot-login/status")
     assert response.status_code == 401
     assert main.TRUSTED_SESSION_COOKIE_NAME not in client.cookies
 
 
 def test_telegram_start_login_only_shows_confirmation(temp_db):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     started = client.post("/api/auth/bot-login/start", json={"provider": "telegram"}).json()
     token = _login_token(started["deep_link"])
 
@@ -285,7 +286,7 @@ def test_telegram_callback_approve_then_status_creates_session(temp_db, monkeypa
         return {"ok": True, "result": {"method": method, "payload": payload}}
 
     monkeypatch.setattr(main, "telegram_api", fake_telegram_api)
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     started = client.post("/api/auth/bot-login/start", json={"provider": "telegram"}).json()
     token = _login_token(started["deep_link"])
 
@@ -311,7 +312,7 @@ def test_max_bot_started_login_then_approve_then_status_creates_session(temp_db,
         return {"ok": True, "path": path, "payload": payload, "params": params}
 
     monkeypatch.setattr(main, "max_api", fake_max_api)
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     started = client.post("/api/auth/bot-login/start", json={"provider": "max"}).json()
     token = _login_token(started["deep_link"])
 
@@ -355,7 +356,7 @@ def test_max_message_payload_uses_inline_callback_button(temp_db):
 
 
 def test_expired_challenge_cannot_authenticate(temp_db):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     client.post("/api/auth/bot-login/start", json={"provider": "telegram"})
     past = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
     with main.db() as conn:
@@ -367,7 +368,7 @@ def test_expired_challenge_cannot_authenticate(temp_db):
 
 
 def test_consumed_challenge_cannot_be_reused(temp_db):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     started = client.post("/api/auth/bot-login/start", json={"provider": "telegram"}).json()
     challenge_cookie = client.cookies.get(main.BOT_LOGIN_CHALLENGE_COOKIE_NAME)
     token = _login_token(started["deep_link"])
@@ -379,7 +380,7 @@ def test_consumed_challenge_cannot_be_reused(temp_db):
 
 
 def test_client_userid_or_username_does_not_create_session(temp_db):
-    client = TestClient(main.app)
+    client = BrowserTestClient(main.app)
     response = client.post("/api/auth/bot-login/start", json={"provider": "telegram", "userId": "telegram_1", "username": "fake"})
     assert response.status_code == 200
     status = client.get("/api/auth/bot-login/status")

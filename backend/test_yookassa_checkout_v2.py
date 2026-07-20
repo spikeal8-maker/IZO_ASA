@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 import pytest
 
 import main
@@ -54,7 +55,7 @@ def test_checkout_creates_invoice_and_provider_payment(payment_app):
         return YooKassaPayment("provider-1", "pending", "250.00", "RUB", "https://pay.test/confirm", False)
 
     payment_app["monkeypatch"].setattr(main, "create_yookassa_payment", create)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post("/api/billing/checkout-v2", json=checkout_payload("tokens_50", "checkout-test-0001"), headers=payment_app["headers"])
     assert response.status_code == 200, response.text
     assert response.json()["confirmation_url"] == "https://pay.test/confirm"
@@ -82,7 +83,7 @@ def test_personal_discount_changes_invoice_payment_and_receipt(payment_app):
         conn.execute(
             "UPDATE users SET personal_discount_percent=20 WHERE internal_user_id='iuid-buyer'"
         )
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         packages = client.get("/api/billing/packages-v2", headers=payment_app["headers"])
         response = client.post(
             "/api/billing/checkout-v2",
@@ -114,7 +115,7 @@ def test_verified_webhook_grants_tokens_exactly_once(payment_app):
 
     payment_app["monkeypatch"].setattr(main, "create_yookassa_payment", create)
     payment_app["monkeypatch"].setattr(main, "fetch_yookassa_payment", fetch)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         checkout = client.post("/api/billing/checkout-v2", json=checkout_payload("tokens_50", "checkout-test-0002"), headers=payment_app["headers"])
         assert checkout.status_code == 200
         body = {"event": "payment.succeeded", "object": {"id": "provider-2"}}
@@ -138,7 +139,7 @@ def test_webhook_rejects_amount_mismatch_without_tokens(payment_app):
 
     payment_app["monkeypatch"].setattr(main, "create_yookassa_payment", create)
     payment_app["monkeypatch"].setattr(main, "fetch_yookassa_payment", fetch)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.post("/api/billing/checkout-v2", json=checkout_payload("tokens_50", "checkout-test-0003"), headers=payment_app["headers"])
         webhook = client.post("/api/billing/yookassa/webhook-v2", json={"event": "payment.succeeded", "object": {"id": "provider-3"}})
     assert webhook.status_code == 502
@@ -157,7 +158,7 @@ def test_paid_tariff_changes_plan_and_sets_expiry(payment_app):
 
     payment_app["monkeypatch"].setattr(main, "create_yookassa_payment", create)
     payment_app["monkeypatch"].setattr(main, "fetch_yookassa_payment", fetch)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         checkout = client.post("/api/billing/checkout-v2", json=checkout_payload("tariff_plus", "checkout-plan-0001"), headers=payment_app["headers"])
         assert checkout.status_code == 200, checkout.text
         webhook = client.post("/api/billing/yookassa/webhook-v2", json={"event": "payment.succeeded", "object": {"id": "provider-plan"}})
@@ -178,7 +179,7 @@ def test_payment_result_reconciles_pending_payment(payment_app):
 
     payment_app["monkeypatch"].setattr(main, "create_yookassa_payment", create)
     payment_app["monkeypatch"].setattr(main, "fetch_yookassa_payment", fetch)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         checkout = client.post("/api/billing/checkout-v2", json=checkout_payload("tokens_50", "checkout-result-0001"), headers=payment_app["headers"])
         result = client.get(f"/api/billing/payments/{checkout.json()['payment_id']}/status-v2", headers=payment_app["headers"])
     assert result.status_code == 200, result.text
@@ -187,13 +188,13 @@ def test_payment_result_reconciles_pending_payment(payment_app):
 
 
 def test_payment_result_requires_owner_session(payment_app):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         result = client.get("/api/billing/payments/not-mine/status-v2")
     assert result.status_code == 401
 
 
 def test_checkout_requires_offer_and_receipt_contact(payment_app):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         no_offer = client.post("/api/billing/checkout-v2", json={"package_code": "tokens_50", "idempotency_key": "checkout-no-offer"}, headers=payment_app["headers"])
         no_contact = client.post("/api/billing/checkout-v2", json={"package_code": "tokens_50", "idempotency_key": "checkout-no-contact", "offer_accepted": True}, headers=payment_app["headers"])
     assert no_offer.status_code == 400
@@ -213,7 +214,7 @@ def test_self_employed_checkout_saves_email_without_yookassa_receipt(payment_app
             "UPDATE admin_settings SET value_json=? WHERE key='legal'",
             ('{"seller_name":"Тестовый продавец","seller_status":"Самозанятый, НПД","inn":"123456789012","legal_address":"Тестовый адрес","support_email":"buyer@example.test"}',),
         )
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         checkout = client.post(
             "/api/billing/checkout-v2",
             json=checkout_payload("tokens_50", "checkout-self-employed-0001"),
@@ -237,14 +238,14 @@ def test_self_employed_checkout_rejects_phone_as_receipt_contact(payment_app):
         )
     payload = checkout_payload("tokens_50", "checkout-self-employed-phone")
     payload["receipt_contact"] = "+7 900 000-00-00"
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post("/api/billing/checkout-v2", json=payload, headers=payment_app["headers"])
     assert response.status_code == 400
     assert "email" in response.json()["detail"].lower()
 
 
 def test_public_commerce_exposes_tariffs_documents_and_readiness(payment_app):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/public/commerce-v2")
     assert response.status_code == 200, response.text
     body = response.json()
@@ -257,7 +258,7 @@ def test_public_commerce_exposes_tariffs_documents_and_readiness(payment_app):
 def test_expired_paid_plan_falls_back_to_free(payment_app):
     with main.db() as conn:
         conn.execute("UPDATE users SET plan='pro', plan_expires_at='2020-01-01T00:00:00+00:00' WHERE internal_user_id='iuid-buyer'")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/billing/packages-v2", headers=payment_app["headers"])
     assert response.status_code == 200
     with main.db() as conn:

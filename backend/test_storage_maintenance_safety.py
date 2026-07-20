@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 from app.storage.maintenance import startup_storage_maintenance_allowed
@@ -44,5 +45,5 @@ def test_testclient_startup_skips_all_storage_maintenance(tmp_path: Path, monkey
     ):
         monkeypatch.setattr(main, name, forbidden)
 
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         assert client.get("/api/health").status_code == 200

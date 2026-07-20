@@ -5,6 +5,7 @@ import asyncio
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 from app.integrations.yookassa import YooKassaError, check_yookassa_connection
@@ -68,7 +69,7 @@ def test_admin_connection_check_persists_success(admin_app) -> None:
         return Result()
 
     admin_app["monkeypatch"].setattr(main, "check_yookassa_connection", successful_check)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post("/api/admin/payments/check-v2", json={}, headers=admin_app["headers"])
         status = client.get("/api/admin/payments/status-v2", headers=admin_app["headers"])
     assert response.status_code == 200, response.text
@@ -82,7 +83,7 @@ def test_admin_connection_check_persists_failure(admin_app) -> None:
         raise YooKassaError("ЮKassa не приняла shopId или секретный ключ.")
 
     admin_app["monkeypatch"].setattr(main, "check_yookassa_connection", failed_check)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post("/api/admin/payments/check-v2", json={}, headers=admin_app["headers"])
         status = client.get("/api/admin/payments/status-v2", headers=admin_app["headers"])
     assert response.status_code == 502

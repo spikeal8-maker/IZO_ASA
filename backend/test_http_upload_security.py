@@ -5,6 +5,8 @@ import io
 import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
+from app.security.http_requests import RequestBodyLimitMiddleware
 from PIL import Image
 
 import main
@@ -76,14 +78,14 @@ def test_avatar_compressor_rejects_excessive_pixel_dimensions(monkeypatch) -> No
 
 
 def test_backend_rejects_untrusted_host_header() -> None:
-    response = TestClient(main.app).get("/api/health", headers={"host": "attacker.example"})
+    response = BrowserTestClient(main.app).get("/api/health", headers={"host": "attacker.example"})
 
     assert response.status_code == 400
 
 
 def test_request_body_limit_rejects_declared_oversized_payload() -> None:
     limited_app = FastAPI()
-    limited_app.add_middleware(main.RequestBodyLimitMiddleware, max_bytes=4)
+    limited_app.add_middleware(RequestBodyLimitMiddleware, max_bytes=4)
 
     @limited_app.post("/echo")
     async def echo(request: Request) -> dict[str, int]:
@@ -97,7 +99,7 @@ def test_request_body_limit_rejects_declared_oversized_payload() -> None:
 
 def test_request_body_limit_counts_streamed_payload_without_content_length() -> None:
     limited_app = FastAPI()
-    limited_app.add_middleware(main.RequestBodyLimitMiddleware, max_bytes=4)
+    limited_app.add_middleware(RequestBodyLimitMiddleware, max_bytes=4)
 
     @limited_app.post("/echo")
     async def echo(request: Request) -> dict[str, int]:

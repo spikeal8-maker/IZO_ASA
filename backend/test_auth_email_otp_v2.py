@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -48,7 +49,7 @@ def verify_code(client, challenge_id, code, **body):
 
 # 1, 2
 def test_request_code_creates_challenge_with_hash_only(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "person@example.com")
     assert r.status_code == 200
     code = r.json()["debug_code"]
@@ -62,7 +63,7 @@ def test_request_code_creates_challenge_with_hash_only(temp_db):
 
 # 3
 def test_request_code_normalizes_email(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         request_code(client, "  PaDDed@Example.COM ")
     with main.db() as conn:
         dest = conn.execute("SELECT destination FROM auth_otp_challenges").fetchone()["destination"]
@@ -71,7 +72,7 @@ def test_request_code_normalizes_email(temp_db):
 
 # 4
 def test_request_code_rejects_invalid_email(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         for bad in ["", "   ", "no-at-symbol", "a@b", "a@b@c.com"]:
             r = request_code(client, bad)
             assert r.status_code == 400, bad
@@ -80,7 +81,7 @@ def test_request_code_rejects_invalid_email(temp_db):
 # 5
 def test_response_shape_same_regardless_of_user_existence(temp_db, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_OTP_REQUEST_COOLDOWN_SECONDS", 0)  # not testing rate limits here
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         # first login creates the user
         r1 = request_code(client, "exists@example.com")
         code = r1.json()["debug_code"]
@@ -95,7 +96,7 @@ def test_response_shape_same_regardless_of_user_existence(temp_db, monkeypatch):
 
 # 6
 def test_login_started_event_without_otp(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "evt@example.com")
         code = r.json()["debug_code"]
     assert count("event_logs", "WHERE event_name='login_started'") == 1
@@ -106,7 +107,7 @@ def test_login_started_event_without_otp(temp_db):
 
 # 7
 def test_no_real_email_sent_in_dev(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         request_code(client, "mock@example.com")
     assert len(main._mock_email_outbox) == 1
     entry = main._mock_email_outbox[0]
@@ -116,7 +117,7 @@ def test_no_real_email_sent_in_dev(temp_db):
 
 # 8, 9, 10
 def test_verify_creates_user_identity_and_session(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "new@example.com")
         code = r.json()["debug_code"]
         v = verify_code(client, r.json()["challenge_id"], code)
@@ -137,7 +138,7 @@ def test_verify_creates_user_identity_and_session(temp_db):
 # 11, 12
 def test_repeated_login_same_email_reuses_internal_id(temp_db, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_OTP_REQUEST_COOLDOWN_SECONDS", 0)  # not testing rate limits here
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r1 = request_code(client, "same@example.com")
         b1 = verify_code(client, r1.json()["challenge_id"], r1.json()["debug_code"]).json()
         r2 = request_code(client, "same@example.com")
@@ -148,7 +149,7 @@ def test_repeated_login_same_email_reuses_internal_id(temp_db, monkeypatch):
 
 # 13, 14, 15
 def test_invalid_code_increments_attempts_and_logs(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "wrong@example.com")
         cid = r.json()["challenge_id"]
         bad = verify_code(client, cid, "000000" if r.json()["debug_code"] != "000000" else "111111")
@@ -162,7 +163,7 @@ def test_invalid_code_increments_attempts_and_logs(temp_db):
 
 # 16
 def test_expired_code_returns_401(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "expired@example.com")
         cid = r.json()["challenge_id"]
         code = r.json()["debug_code"]
@@ -175,7 +176,7 @@ def test_expired_code_returns_401(temp_db):
 
 # 17
 def test_consumed_code_reuse_returns_401(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "reuse@example.com")
         cid, code = r.json()["challenge_id"], r.json()["debug_code"]
         first = verify_code(client, cid, code)
@@ -187,7 +188,7 @@ def test_consumed_code_reuse_returns_401(temp_db):
 
 # 18
 def test_max_attempts_returns_429(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "brute@example.com")
         cid, code = r.json()["challenge_id"], r.json()["debug_code"]
         wrong = "000000" if code != "000000" else "111111"
@@ -200,14 +201,14 @@ def test_max_attempts_returns_429(temp_db):
 
 # 19
 def test_missing_challenge_returns_401(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         v = verify_code(client, "does-not-exist", "123456")
     assert v.status_code == 401
 
 
 # 20
 def test_frontend_user_id_in_body_ignored(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "ignore@example.com")
         b = verify_code(client, r.json()["challenge_id"], r.json()["debug_code"],
                         user_id="admin", internal_user_id="iuid-injected", legacy_user_id="web_admin").json()
@@ -217,7 +218,7 @@ def test_frontend_user_id_in_body_ignored(temp_db):
 
 # 21
 def test_x_onenode_user_header_ignored(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = client.post("/api/auth/email/request-code-v2",
                         json={"platform": "web_desktop", "email": "hdr@example.com"},
                         headers={"X-OneNode-User": "admin"})
@@ -231,7 +232,7 @@ def test_x_onenode_user_header_ignored(temp_db):
 
 # 22
 def test_onenode_user_cookie_ignored(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.cookies.set("onenode_user", "admin")
         r = request_code(client, "cookie@example.com")
         v = verify_code(client, r.json()["challenge_id"], r.json()["debug_code"])
@@ -241,7 +242,7 @@ def test_onenode_user_cookie_ignored(temp_db):
 
 # 23
 def test_raw_otp_not_in_any_log_table(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "secret@example.com")
         cid, code = r.json()["challenge_id"], r.json()["debug_code"]
         verify_code(client, cid, "999999" if code != "999999" else "888888")  # a failure path too
@@ -254,7 +255,7 @@ def test_raw_otp_not_in_any_log_table(temp_db):
 
 # 24
 def test_raw_tokens_not_stored(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "tok@example.com")
         b = verify_code(client, r.json()["challenge_id"], r.json()["debug_code"]).json()
     with main.db() as conn:
@@ -265,7 +266,7 @@ def test_raw_tokens_not_stored(temp_db):
 
 # 25
 def test_event_log_login_succeeded(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "ok@example.com")
         verify_code(client, r.json()["challenge_id"], r.json()["debug_code"])
     assert count("event_logs", "WHERE event_name='login_succeeded'") == 1
@@ -273,7 +274,7 @@ def test_event_log_login_succeeded(temp_db):
 
 # 26
 def test_event_log_login_failed(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "fail@example.com")
         code = r.json()["debug_code"]
         verify_code(client, r.json()["challenge_id"], "000000" if code != "000000" else "111111")
@@ -282,7 +283,7 @@ def test_event_log_login_failed(temp_db):
 
 # 27
 def test_device_installation_linked(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "dev@example.com", installation_id="inst-eml-1", anonymous_id="anon-1")
         b = verify_code(client, r.json()["challenge_id"], r.json()["debug_code"],
                         installation_id="inst-eml-1", anonymous_id="anon-1").json()
@@ -301,7 +302,7 @@ def test_production_debug_return_code_fails_config(temp_db, monkeypatch):
     monkeypatch.setattr(main, "enforce_db_guard_after_migrations", lambda: None)
     with pytest.raises(RuntimeError):
         main.validate_email_otp_config()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "prod@example.com")
     assert r.status_code == 503
     assert count("auth_otp_challenges") == 0  # no challenge created
@@ -318,7 +319,7 @@ def test_production_without_provider_fails_safely(temp_db, monkeypatch):
     with pytest.raises(RuntimeError):
         main.validate_email_otp_config()
     main._mock_email_outbox.clear()
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "prod2@example.com")
     assert r.status_code == 503
     assert count("auth_otp_challenges") == 0

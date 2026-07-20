@@ -1,5 +1,6 @@
 """Feed media continuity tests kept separate from the primary API contract suite."""
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import feed_media_audit
 import gallery_original_audit
@@ -46,7 +47,7 @@ def test_feed_video_download_is_branded_cached_and_deleted_with_publication(temp
     monkeypatch.setattr(main, "FEED_VIDEO_PUBLICATION_ENABLED", True)
     monkeypatch.setattr(main, "create_feed_video_assets", lambda *_args, **_kwargs: assets)
 
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-video-download", "web_video_download", "Автор MP4")
         make_video("vid-feed-download", "web_video_download")
         accepted = client.post(
@@ -92,7 +93,7 @@ def test_feed_video_download_is_branded_cached_and_deleted_with_publication(temp
 
 
 def test_feed_media_audit_allows_published_copy_after_source_deletion(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-audit-deleted", "web_audit_deleted")
         make_image("img-audit-deleted", "web_audit_deleted")
         pub = publish(client, token, "img-audit-deleted")
@@ -118,7 +119,7 @@ def test_feed_media_audit_allows_published_copy_after_source_deletion(temp_db):
 
 
 def test_feed_media_audit_allows_published_copy_after_source_row_removal(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-audit-missing", "web_audit_missing")
         make_image("img-audit-missing", "web_audit_missing")
         pub = publish(client, token, "img-audit-missing")
@@ -162,7 +163,7 @@ def test_media_storage_audit_does_not_require_removed_source_library_thumb(temp_
 
 
 def test_gallery_audits_accept_exact_seed_feed_backing_but_keep_public_file_guard(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         token = make_user("iuid-seed-backing", "web_seed_backing")
         make_image("img-seed-backing", "web_seed_backing")
         pub = publish(client, token, "img-seed-backing", title="Демо-публикация")

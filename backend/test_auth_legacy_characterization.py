@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 
 import main
 
@@ -44,13 +45,13 @@ def temp_db(tmp_path: Path, monkeypatch):
 # --- 1-4: spoofed legacy header/cookie never authorize user or admin routes ---
 
 def test_spoofed_header_does_not_grant_user_route(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.get("/api/me-v2", headers={"X-OneNode-User": SPOOF_ADMIN_ID})
     assert response.status_code == 401
 
 
 def test_spoofed_header_with_admin_id_does_not_grant_admin_route(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         read = client.get("/api/admin/users-v2", headers={"X-OneNode-User": SPOOF_ADMIN_ID})
         mutation = client.put(
             "/api/admin/bots/config-v2",
@@ -62,14 +63,14 @@ def test_spoofed_header_with_admin_id_does_not_grant_admin_route(temp_db):
 
 
 def test_spoofed_cookie_does_not_grant_user_route(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.cookies.set("onenode_user", SPOOF_ADMIN_ID)
         response = client.get("/api/me-v2")
     assert response.status_code == 401
 
 
 def test_spoofed_cookie_with_admin_id_does_not_grant_admin_route(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         client.cookies.set("onenode_user", SPOOF_ADMIN_ID)
         read = client.get("/api/admin/users-v2")
         mutation = client.put("/api/admin/bots/config-v2", json={"config": {}})
@@ -82,7 +83,7 @@ def test_spoofed_cookie_with_admin_id_does_not_grant_admin_route(temp_db):
 def test_unsigned_or_corrupted_telegram_init_data_creates_no_identity(temp_db):
     assert main.validate_telegram_init_data("user=%7B%22id%22%3A1%7D&auth_date=1") is None
     assert main.validate_telegram_init_data("user=x&auth_date=1&hash=deadbeef") is None
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/auth/telegram-v2",
             json={"platform": "telegram_mini_app", "init_data": "user=x&auth_date=1&hash=deadbeef"},
@@ -95,7 +96,7 @@ def test_unsigned_or_corrupted_telegram_init_data_creates_no_identity(temp_db):
 def test_unverified_or_corrupted_max_web_app_data_creates_no_identity(temp_db):
     with pytest.raises(main.MaxAuthError):
         main.validate_max_web_app_data_strict("user=x&auth_date=1&hash=deadbeef")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/auth/max-v2",
             json={"platform": "max_mini_app", "web_app_data": "user=x&auth_date=1&hash=deadbeef"},
@@ -108,13 +109,13 @@ def test_unverified_or_corrupted_max_web_app_data_creates_no_identity(temp_db):
 # --- 7-8: protected mutations without trusted sessions are rejected ---
 
 def test_protected_mutation_without_session_is_rejected(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post("/api/generate", json={"mode": "text_to_image", "prompt": "x"})
     assert response.status_code == 401
 
 
 def test_admin_mutation_without_trusted_admin_session_is_rejected(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.put("/api/admin/bots/config-v2", json={"config": {}})
     assert response.status_code == 401
 
@@ -122,12 +123,12 @@ def test_admin_mutation_without_trusted_admin_session_is_rejected(temp_db):
 # --- 9: webhooks keep a provider-secret boundary, legacy id is irrelevant ---
 
 def test_telegram_webhook_requires_provider_secret_not_legacy_id(temp_db, monkeypatch):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         disabled = client.post("/api/telegram/webhook", json={}, headers={"X-OneNode-User": SPOOF_ADMIN_ID})
         assert disabled.status_code == 404, "polling mode must keep the receiver disabled"
     monkeypatch.setattr(main, "BOT_UPDATES_MODE", "webhook")
     monkeypatch.setattr(main, "TELEGRAM_WEBHOOK_SECRET", "expected-telegram-secret")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         spoofed = client.post(
             "/api/telegram/webhook",
             json={},
@@ -142,7 +143,7 @@ def test_telegram_webhook_requires_provider_secret_not_legacy_id(temp_db, monkey
 def test_max_webhook_requires_provider_secret_not_legacy_id(temp_db, monkeypatch):
     monkeypatch.setattr(main, "MAX_UPDATES_MODE", "webhook")
     monkeypatch.setattr(main, "MAX_WEBHOOK_SECRET", "expected-max-secret-value")
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         spoofed = client.post(
             "/api/max/webhook",
             json={},
@@ -152,7 +153,7 @@ def test_max_webhook_requires_provider_secret_not_legacy_id(temp_db, monkeypatch
 
 
 def test_yookassa_webhook_ignores_legacy_id(temp_db):
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/billing/yookassa/webhook-v2",
             json={"event": "", "object": {}},

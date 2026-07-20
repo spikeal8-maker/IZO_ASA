@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from fastapi.testclient import TestClient
+from test_support.browser_client import BrowserTestClient
 import pytest
 
 import main
@@ -43,7 +44,7 @@ def test_failed_verification_keeps_config_but_does_not_enable_mail(admin_mail_ap
         raise SmtpError("Mail.ru не принял пароль приложения.")
 
     admin_mail_app["monkeypatch"].setattr(main, "verify_smtp_connection", fail)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post("/api/admin/mail/verify-v2", json=mail_payload(), headers=admin_mail_app["headers"])
         status = client.get("/api/admin/mail/status-v2", headers=admin_mail_app["headers"])
 
@@ -65,7 +66,7 @@ def test_failed_verification_keeps_config_but_does_not_enable_mail(admin_mail_ap
 
 def test_successful_verification_activates_saved_mail(admin_mail_app) -> None:
     admin_mail_app["monkeypatch"].setattr(main, "verify_smtp_connection", lambda _config: None)
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post("/api/admin/mail/verify-v2", json=mail_payload(), headers=admin_mail_app["headers"])
         status = client.get("/api/admin/mail/status-v2", headers=admin_mail_app["headers"])
 
@@ -96,7 +97,7 @@ def test_unisender_verification_creates_list_and_sends_real_probe(admin_mail_app
         lambda _key, message: sent.append(message) or "mail-77",
     )
 
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/admin/mail/unisender/verify-v2",
             json={
@@ -136,7 +137,7 @@ def test_unisender_failed_probe_preserves_auto_created_list(admin_mail_app) -> N
         lambda _key, _message: (_ for _ in ()).throw(main.UniSenderError("Отправитель не подтвержден.")),
     )
 
-    with TestClient(main.app) as client:
+    with BrowserTestClient(main.app) as client:
         response = client.post(
             "/api/admin/mail/unisender/verify-v2",
             json={
