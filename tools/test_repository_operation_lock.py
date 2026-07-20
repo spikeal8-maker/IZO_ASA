@@ -128,13 +128,31 @@ def test_concurrent_acquire_has_exactly_one_winner(tmp_path: Path) -> None:
 
 
 def test_second_full_verify_fails_fast_without_running_steps(tmp_path: Path) -> None:
-    token_file = tmp_path / "verify.token"
-    acquired = _acquire_cli(ROOT, "full-verify", token_file)
-    assert acquired.returncode == 0, acquired.stderr
-    token = token_file.read_text(encoding="ascii")
+    # This test itself runs inside `verify.ps1 -Mode Full`, in which case the
+    # outer verifier legitimately holds the full-verify lock already. Use that
+    # busy state as-is; acquire the lock ourselves only when it is free.
+    status = _run(
+        ["-File", str(HELPER), "-Action", "status", "-Kind", "full-verify", "-RepoRoot", str(ROOT)]
+    )
+    assert status.returncode == 0, status.stderr
+    already_held = (
+        "REPOSITORY_OPERATION_LOCK_HELD" in status.stdout and "stale=False" in status.stdout
+    )
+    token = ""
+    if not already_held:
+        token_file = tmp_path / "verify.token"
+        acquired = _acquire_cli(ROOT, "full-verify", token_file)
+        assert acquired.returncode == 0, acquired.stderr
+        token = token_file.read_text(encoding="ascii")
+    # A foreign agent has no re-entrancy token; strip any inherited one.
+    child_env = {
+        name: value
+        for name, value in os.environ.items()
+        if name != "IZO_REPO_LOCK_TOKEN_FULL_VERIFY"
+    }
     try:
         started = time.monotonic()
-        verify = _run(["-File", str(ROOT / "tools" / "verify.ps1"), "-Mode", "Full"])
+        verify = _run(["-File", str(ROOT / "tools" / "verify.ps1"), "-Mode", "Full"], env=child_env)
         duration = time.monotonic() - started
         assert verify.returncode != 0
         combined = verify.stdout + verify.stderr
@@ -142,8 +160,9 @@ def test_second_full_verify_fails_fast_without_running_steps(tmp_path: Path) -> 
         assert "VERIFY_STEP_START" not in combined
         assert duration < 60, f"lock refusal must be fast, took {duration:.1f}s"
     finally:
-        released = _release_cli(ROOT, "full-verify", token)
-        assert released.returncode == 0, released.stderr
+        if token:
+            released = _release_cli(ROOT, "full-verify", token)
+            assert released.returncode == 0, released.stderr
 
 
 def test_stale_lock_with_dead_pid_is_recovered(tmp_path: Path) -> None:
