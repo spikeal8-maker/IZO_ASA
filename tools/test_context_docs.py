@@ -1,0 +1,61 @@
+"""CTX-001 contracts: scoped context docs and the generated frontend map.
+
+Keeps the three context documents honest (size bounds, referenced files
+exist) and makes the frontend map impossible to forget: the generated files
+must exist, parse, and the --check step must be wired into verify.ps1.
+"""
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+CONTEXT_DOCS = [
+    ROOT / "docs" / "context" / "backend-auth-bots.md",
+    ROOT / "docs" / "context" / "frontend-studio.md",
+    ROOT / "docs" / "context" / "video-gallery-feed.md",
+]
+
+PATH_PATTERN = re.compile(
+    r"`((?:backend|frontend|tools|docs|ops|architecture)/[\w./\-]+\.(?:py|tsx|ts|css|md|mjs|ps1|json|html))`"
+)
+
+
+def test_context_docs_exist_within_size_bounds() -> None:
+    for doc in CONTEXT_DOCS:
+        assert doc.is_file(), f"missing context doc: {doc.name}"
+        lines = doc.read_text(encoding="utf-8").count("\n") + 1
+        assert 100 <= lines <= 250, f"{doc.name} must stay 100-250 lines, has {lines}"
+
+
+def test_context_docs_reference_only_existing_files() -> None:
+    for doc in CONTEXT_DOCS:
+        text = doc.read_text(encoding="utf-8")
+        for referenced in PATH_PATTERN.findall(text):
+            assert (ROOT / referenced).exists(), f"{doc.name} references missing {referenced}"
+
+
+def test_frontend_map_files_exist_and_parse() -> None:
+    json_path = ROOT / "docs" / "generated" / "frontend-map.json"
+    md_path = ROOT / "docs" / "generated" / "frontend-map.md"
+    assert json_path.is_file() and md_path.is_file()
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["version"] == 1
+    assert payload["routes"], "frontend map must contain route groups"
+    entries = {route["entry"] for route in payload["routes"]}
+    assert "frontend/src/newUi.tsx" in entries
+    for route in payload["routes"]:
+        for referenced in [route["entry"], *route["components"], *route["css"], *route["tests"]]:
+            if referenced.endswith((".tsx", ".ts", ".css", ".mjs", ".html")):
+                assert (ROOT / referenced).exists(), f"frontend map references missing {referenced}"
+    for shell in payload["static_shells"]:
+        assert (ROOT / shell["shell"]).exists()
+
+
+def test_frontend_map_check_is_wired_into_verification() -> None:
+    verify = (ROOT / "tools" / "verify.ps1").read_text(encoding="utf-8")
+    assert "generate_frontend_map.mjs" in verify
+    assert 'Invoke-NativeStep -Name "frontend_map_check"' in verify
+    assert verify.count('"frontend_map_check"') >= 1

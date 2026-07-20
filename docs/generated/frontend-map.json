@@ -1,0 +1,343 @@
+{
+  "version": 1,
+  "generated_by": "tools/generate_frontend_map.mjs",
+  "source_of_truth": "frontend/src/App.tsx",
+  "routes": [
+    {
+      "paths": [
+        "/payment",
+        "/payment/",
+        "/payment/result",
+        "/payment/result/"
+      ],
+      "predicate": "isPaymentRoute",
+      "entry": "frontend/src/PaymentResultPage.tsx",
+      "components": [
+        "frontend/src/PaymentResultPage.tsx"
+      ],
+      "hooks": [
+        "useCallback",
+        "useEffect",
+        "useState"
+      ],
+      "api": [
+        "/api/billing/payments/"
+      ],
+      "css": [
+        "frontend/src/paymentResult.css"
+      ],
+      "tests": []
+    },
+    {
+      "paths": [
+        "/consent",
+        "/contacts",
+        "/cookies",
+        "/legal",
+        "/legal/",
+        "/offer",
+        "/payment",
+        "/privacy",
+        "/refunds",
+        "/tariffs",
+        "/tariffs/",
+        "/terms"
+      ],
+      "predicate": "isCommerceRoute",
+      "entry": "frontend/src/CommercePage.tsx",
+      "components": [
+        "frontend/src/CommercePage.tsx",
+        "frontend/src/profileSupport.ts",
+        "frontend/src/resolutionPolicy.ts"
+      ],
+      "hooks": [
+        "useEffect",
+        "useMemo",
+        "useState"
+      ],
+      "api": [
+        "/api/public/commerce-v2"
+      ],
+      "css": [],
+      "tests": []
+    },
+    {
+      "paths": [
+        "/",
+        "/paint",
+        "/paint/",
+        "/profile",
+        "/profile/",
+        "/video",
+        "/video/"
+      ],
+      "predicate": "isNewStudioRoute",
+      "entry": "frontend/src/newUi.tsx",
+      "components": [
+        "frontend/src/PaintWorkbench.tsx",
+        "frontend/src/ProfilePage.tsx",
+        "frontend/src/RuntimeBoundary.tsx",
+        "frontend/src/TopBarV3.tsx",
+        "frontend/src/VideoStudio.tsx",
+        "frontend/src/assets/preview-placeholder.jpg",
+        "frontend/src/authV2.tsx",
+        "frontend/src/editPrompt.ts",
+        "frontend/src/newUi.tsx",
+        "frontend/src/paintTypes.ts",
+        "frontend/src/profileSupport.ts",
+        "frontend/src/releaseIdentity.ts",
+        "frontend/src/resolutionPolicy.ts",
+        "frontend/src/runtimeContracts.ts",
+        "frontend/src/runtimeTelemetry.ts",
+        "frontend/src/seo.ts",
+        "frontend/src/stylePresets.ts",
+        "frontend/src/topbarUtils.ts"
+      ],
+      "hooks": [
+        "useAsSource",
+        "useAuthV2",
+        "useCallback",
+        "useCurrentPreviewInPaint",
+        "useEffect",
+        "useImperativeHandle",
+        "useMemo",
+        "useNextExample",
+        "useRef",
+        "useState",
+        "useStyle",
+        "useSyncExternalStore"
+      ],
+      "api": [
+        "/api/account/apply-promo-v2",
+        "/api/account/tariff-v2/schedule-free",
+        "/api/account/token-history-v2",
+        "/api/billing/checkout-v2",
+        "/api/billing/packages-v2",
+        "/api/client-errors",
+        "/api/feed",
+        "/api/feed/publications",
+        "/api/feed/publications/",
+        "/api/gallery/",
+        "/api/gallery/items",
+        "/api/gallery/secondary",
+        "/api/gallery/videos/",
+        "/api/generate",
+        "/api/jobs/",
+        "/api/me/avatar-upload-v2",
+        "/api/model-access",
+        "/api/models",
+        "/api/tariffs",
+        "/api/tools/improve-prompt",
+        "/api/tools/transcribe",
+        "/api/video/config",
+        "/api/video/estimate",
+        "/api/video/generate",
+        "/api/video/history"
+      ],
+      "css": [
+        "frontend/src/authV2.css",
+        "frontend/src/newStudioV3.css",
+        "frontend/src/newUi.css",
+        "frontend/src/paymentCheckout.css",
+        "frontend/src/profileAccount.css",
+        "frontend/src/videoStudio.css"
+      ],
+      "tests": [
+        "frontend/e2e-critical-prompts.mjs",
+        "frontend/e2e-critical-tools.mjs",
+        "frontend/e2e-paint-workbench.mjs",
+        "frontend/e2e-profile-auth.mjs",
+        "frontend/e2e-responsive-layout.mjs",
+        "frontend/e2e-result-layout.mjs",
+        "frontend/e2e-stage1.mjs",
+        "frontend/e2e-studio-resilience.mjs",
+        "frontend/e2e-ui.mjs",
+        "frontend/e2e-video-studio-layout.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "/admin",
+        "/admin/"
+      ],
+      "predicate": "isAdminRoute",
+      "entry": "frontend/src/AdminApp.tsx",
+      "components": [
+        "frontend/src/AdminApp.tsx",
+        "frontend/src/adminAnalytics.tsx",
+        "frontend/src/adminApi.ts",
+        "frontend/src/adminBots.tsx",
+        "frontend/src/adminMail.tsx",
+        "frontend/src/adminModels.tsx",
+        "frontend/src/adminPayments.tsx",
+        "frontend/src/adminVoice.tsx",
+        "frontend/src/authV2.tsx",
+        "frontend/src/diag.tsx",
+        "frontend/src/diagMeta.ts",
+        "frontend/src/profileSupport.ts",
+        "frontend/src/releaseIdentity.ts",
+        "frontend/src/resolutionPolicy.ts",
+        "frontend/src/runtimeContracts.ts"
+      ],
+      "hooks": [
+        "useAuthV2",
+        "useCallback",
+        "useEffect",
+        "useMemo",
+        "useRef",
+        "useState",
+        "useSyncExternalStore"
+      ],
+      "api": [
+        "/api/admin/users/",
+        "/api/version"
+      ],
+      "css": [
+        "frontend/src/authV2.css",
+        "frontend/src/crmViewport.css",
+        "frontend/src/index.css"
+      ],
+      "tests": [
+        "frontend/e2e-security-admin.mjs",
+        "frontend/smoke-admin-analytics.mjs",
+        "frontend/visual-admin-parity.mjs"
+      ]
+    },
+    {
+      "paths": [
+        "/legacy",
+        "/old",
+        "/v1"
+      ],
+      "predicate": "isLegacyRoute",
+      "entry": "frontend/src/LegacyApp.tsx",
+      "components": [
+        "frontend/src/LegacyApp.tsx",
+        "frontend/src/PaintWorkbench.tsx",
+        "frontend/src/ProfilePage.tsx",
+        "frontend/src/RuntimeBoundary.tsx",
+        "frontend/src/TopBarV3.tsx",
+        "frontend/src/VideoStudio.tsx",
+        "frontend/src/adminAnalytics.tsx",
+        "frontend/src/adminModels.tsx",
+        "frontend/src/adminVoice.tsx",
+        "frontend/src/assets/preview-placeholder.jpg",
+        "frontend/src/authV2.tsx",
+        "frontend/src/diag.tsx",
+        "frontend/src/diagMeta.ts",
+        "frontend/src/editPrompt.ts",
+        "frontend/src/newUi.tsx",
+        "frontend/src/paintTypes.ts",
+        "frontend/src/profileSupport.ts",
+        "frontend/src/releaseIdentity.ts",
+        "frontend/src/resolutionPolicy.ts",
+        "frontend/src/runtimeContracts.ts",
+        "frontend/src/runtimeTelemetry.ts",
+        "frontend/src/seo.ts",
+        "frontend/src/stylePresets.ts",
+        "frontend/src/topbarUtils.ts"
+      ],
+      "hooks": [
+        "useAs",
+        "useAsEditOne",
+        "useAsEditTwo",
+        "useAsFaceSource",
+        "useAsFaceTarget",
+        "useAsImageToImage",
+        "useAsInpaint",
+        "useAsOutpaint",
+        "useAsPaint",
+        "useAsRemoveBackground",
+        "useAsSource",
+        "useAsTextureTransfer",
+        "useAsTryOn",
+        "useAuthV2",
+        "useCallback",
+        "useCurrentPreviewInPaint",
+        "useEffect",
+        "useImageAs",
+        "useImperativeHandle",
+        "useLast",
+        "useMemo",
+        "useNextExample",
+        "useOptions",
+        "useRef",
+        "useState",
+        "useStyle",
+        "useSyncExternalStore"
+      ],
+      "api": [
+        "/api/account/apply-promo-v2",
+        "/api/account/tariff-v2/schedule-free",
+        "/api/account/token-history-v2",
+        "/api/admin/limits",
+        "/api/admin/logs-v2",
+        "/api/admin/mail/status-v2",
+        "/api/admin/mail/test-v2",
+        "/api/admin/promos",
+        "/api/admin/settings",
+        "/api/admin/settings/finance",
+        "/api/admin/settings/tariffs",
+        "/api/admin/summary",
+        "/api/admin/users/",
+        "/api/app/bootstrap",
+        "/api/app/heartbeat",
+        "/api/billing/checkout-v2",
+        "/api/billing/packages-v2",
+        "/api/client-errors",
+        "/api/feed",
+        "/api/feed/publications",
+        "/api/feed/publications/",
+        "/api/flux-klein/bgremoval-models",
+        "/api/flux-klein/config",
+        "/api/flux-klein/lora-triggers",
+        "/api/gallery",
+        "/api/gallery/",
+        "/api/gallery/items",
+        "/api/gallery/secondary",
+        "/api/gallery/videos/",
+        "/api/generate",
+        "/api/jobs/",
+        "/api/me/avatar-upload-v2",
+        "/api/model-access",
+        "/api/models",
+        "/api/tariffs",
+        "/api/tools/improve-prompt",
+        "/api/tools/transcribe",
+        "/api/translate",
+        "/api/version",
+        "/api/video/config",
+        "/api/video/estimate",
+        "/api/video/generate",
+        "/api/video/history"
+      ],
+      "css": [
+        "frontend/src/authV2.css",
+        "frontend/src/crmViewport.css",
+        "frontend/src/index.css",
+        "frontend/src/newStudioV3.css",
+        "frontend/src/newUi.css",
+        "frontend/src/paymentCheckout.css",
+        "frontend/src/profileAccount.css",
+        "frontend/src/videoStudio.css"
+      ],
+      "tests": []
+    }
+  ],
+  "static_shells": [
+    {
+      "paths": [
+        "/feed",
+        "/feed/"
+      ],
+      "shell": "backend/static/feed/index.html"
+    },
+    {
+      "paths": [
+        "/gallery",
+        "/gallery/"
+      ],
+      "shell": "backend/static/gallery/index.html"
+    }
+  ]
+}
