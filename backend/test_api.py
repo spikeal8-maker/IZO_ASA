@@ -750,7 +750,10 @@ def test_bot_polling_start_respects_mode_and_guard(monkeypatch) -> None:
     created = []
 
     class FakeTask:
-        pass
+        def done(self) -> bool:
+            # A live polling owner: BOT-TG-001 start guard must never
+            # replace or duplicate it.
+            return False
 
     def fake_create_task(coro):
         coro.close()
@@ -759,6 +762,7 @@ def test_bot_polling_start_respects_mode_and_guard(monkeypatch) -> None:
         return task
 
     monkeypatch.setattr(main.asyncio, "create_task", fake_create_task)
+    monkeypatch.setattr(main, "bot_polling_tasks", {})
     monkeypatch.setattr(main, "BOT_UPDATES_MODE", "webhook")
     monkeypatch.setattr(main, "MAX_UPDATES_MODE", "webhook")
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "tg")

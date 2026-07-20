@@ -392,13 +392,27 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.services.platform_status import (
+        mini_app_public_url,
         public_bots_status_payload,
         public_platforms_payload,
     )
+    from .app.services.polling_health import (
+        PollingHealthRegistry,
+        compute_poll_backoff,
+        is_auth_polling_error,
+        polling_retry_after,
+    )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.platform_status import (
+        mini_app_public_url,
         public_bots_status_payload,
         public_platforms_payload,
+    )
+    from app.services.polling_health import (
+        PollingHealthRegistry,
+        compute_poll_backoff,
+        is_auth_polling_error,
+        polling_retry_after,
     )
 
 try:
@@ -4853,9 +4867,7 @@ def refund_generation_tokens(conn: sqlite3.Connection, job_id: str, *, reason: s
     return True
 
 
-def mini_app_url(platform: str = "web") -> str:
-    base = os.getenv("APP_PUBLIC_URL", "http://127.0.0.1:5173")
-    return f"{base}?platform={platform}"
+mini_app_url = mini_app_public_url
 
 
 def bot_command_response(platform: Literal["telegram", "max"], command: str) -> dict[str, Any]:
@@ -5181,39 +5193,6 @@ async def handle_max_update(update: dict[str, Any], send_replies: bool) -> dict[
     return await handle_max_update_with_runtime(update, send_replies, max_update_runtime())
 
 
-def polling_retry_after(exc: Exception, default: float = 5.0) -> float:
-    typed_retry_after = getattr(exc, "retry_after", None)
-    if typed_retry_after is not None:
-        try:
-            return float(typed_retry_after)
-        except (TypeError, ValueError):
-            return default
-    response = getattr(exc, "response", None)
-    if response is None:
-        return default
-    try:
-        payload = response.json()
-        retry_after = payload.get("parameters", {}).get("retry_after") or payload.get("retry_after")
-        if retry_after:
-            return float(retry_after)
-    except Exception:
-        pass
-    header_value = getattr(response, "headers", {}).get("Retry-After") if getattr(response, "headers", None) else None
-    if header_value:
-        try:
-            return float(header_value)
-        except ValueError:
-            return default
-    return default
-
-
-def is_auth_polling_error(exc: Exception) -> bool:
-    if getattr(exc, "status_code", None) in {401, 403}:
-        return True
-    response = getattr(exc, "response", None)
-    return bool(response is not None and getattr(response, "status_code", None) in {401, 403})
-
-
 async def telegram_poll_once_from_api(timeout: int = 0, limit: int = 10) -> dict[str, Any]:
     cursor = get_bot_polling_cursor("telegram")
     payload: dict[str, Any] = {
@@ -5274,39 +5253,58 @@ async def max_poll_once_from_api(timeout: int = 0, limit: int = 10) -> dict[str,
         raise
 
 
+POLLING_HEALTH = PollingHealthRegistry()
+
+
+async def _provider_polling_cycle(provider: Literal["telegram", "max"], poll: Any) -> bool:
+    """One worker cycle feeding POLLING_HEALTH; False = stop (auth error)."""
+    try:
+        await poll(timeout=25, limit=20)
+    except Exception as exc:
+        if is_auth_polling_error(exc):
+            POLLING_HEALTH.record_failure(provider, exc)
+            with db() as conn:
+                record_security_event(conn, f"{provider}_polling_auth_error", severity="critical")
+            print(f"{provider} polling stopped after auth error")
+            return False
+        alerted = POLLING_HEALTH.record_failure(provider, exc)
+        health = POLLING_HEALTH.snapshot(provider)
+        if alerted:
+            print(f"BOT_POLLING_ALERT provider={provider} consecutiveFailures={health['consecutiveFailures']} class={type(exc).__name__}")
+        delay = compute_poll_backoff(
+            health["consecutiveFailures"],
+            provider_retry_after=polling_retry_after(exc, default=0.0) or None,
+        )
+        print(f"{provider} polling error {type(exc).__name__} backoff={delay:.1f}s")
+        await asyncio.sleep(delay)
+        return True
+    if POLLING_HEALTH.record_success(provider):
+        print(f"BOT_POLLING_RECOVERED provider={provider}")
+    return True
+
+
 async def telegram_polling_worker() -> None:
+    POLLING_HEALTH.record_worker_started("telegram")
     while BOT_UPDATES_MODE == "polling" and TELEGRAM_POLLING_ENABLED and TELEGRAM_BOT_TOKEN:
-        try:
-            await telegram_poll_once_from_api(timeout=25, limit=20)
-        except Exception as exc:
-            if is_auth_polling_error(exc):
-                with db() as conn:
-                    record_security_event(conn, "telegram_polling_auth_error", severity="critical")
-                print("telegram polling stopped after auth error")
-                break
-            delay = polling_retry_after(exc)
-            print("telegram polling error", type(exc).__name__)
-            await asyncio.sleep(delay)
+        if not await _provider_polling_cycle("telegram", telegram_poll_once_from_api):
+            break
 
 
 async def max_polling_worker() -> None:
+    POLLING_HEALTH.record_worker_started("max")
     while MAX_UPDATES_MODE == "polling" and MAX_POLLING_ENABLED and MAX_BOT_TOKEN and MAX_API_BASE_URL:
-        try:
-            await max_poll_once_from_api(timeout=25, limit=20)
-        except Exception as exc:
-            if is_auth_polling_error(exc):
-                with db() as conn:
-                    record_security_event(conn, "max_polling_auth_error", severity="critical")
-                print("max polling stopped after auth error")
-                break
-            delay = polling_retry_after(exc)
-            print("max polling error", type(exc).__name__)
-            await asyncio.sleep(delay)
+        if not await _provider_polling_cycle("max", max_poll_once_from_api):
+            break
 
 
 def start_bot_polling_tasks() -> list[str]:
     global bot_polling_started
     started: list[str] = []
+    # A live task is never duplicated; a finished one may be replaced here.
+    for provider in ("telegram", "max"):
+        existing_task = bot_polling_tasks.get(provider)
+        if existing_task is not None and existing_task.done():
+            bot_polling_tasks.pop(provider, None)
     if BOT_UPDATES_MODE == "polling" and TELEGRAM_POLLING_ENABLED and TELEGRAM_BOT_TOKEN and "telegram" not in bot_polling_tasks:
         bot_polling_tasks["telegram"] = asyncio.create_task(telegram_polling_worker())
         started.append("telegram")
@@ -13826,8 +13824,7 @@ async def auth_sessions_list_v2(request: Request) -> dict[str, Any]:
 
 @app.get("/api/platforms")
 async def platforms() -> dict[str, Any]:
-    # SEC-DIAG-001: product capability data only; operator diagnostics live in
-    # /api/admin/bots/status-v2 behind require_trusted_admin.
+    # Product capability only; operator diagnostics stay admin-only.
     return public_platforms_payload()
 
 
@@ -14039,6 +14036,7 @@ async def admin_bots_status_v2(request: Request) -> dict[str, Any]:
             ),
             "runtimeMode": BOT_UPDATES_MODE,
             "lastCheck": diagnostics.get("telegram"),
+            "pollingHealth": POLLING_HEALTH.snapshot("telegram"),
             "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
         },
         "max": {
@@ -14057,6 +14055,7 @@ async def admin_bots_status_v2(request: Request) -> dict[str, Any]:
             ),
             "runtimeMode": MAX_UPDATES_MODE,
             "lastCheck": diagnostics.get("max"),
+            "pollingHealth": POLLING_HEALTH.snapshot("max"),
             "subscriptionStatus": MAX_POLLING_DIAG.get("subscriptionStatus"),
             "lastPollAt": MAX_POLLING_DIAG.get("lastPollAt"),
             "lastPollError": MAX_POLLING_DIAG.get("lastPollError"),

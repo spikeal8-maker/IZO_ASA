@@ -92,7 +92,7 @@ mail `OPERATIONALLY VERIFIED`, а HTTP 200 не доказывает корре�
 | 0 | `GOV-001` | P0 | единые правила и новый plan/audit | `VERIFIED` |
 | 1 | `REL-LOCK-001` | P0 | один publisher/Full verifier, no race | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
 | 2 | `SEC-DIAG-001` | P0 | public API не раскрывает operator details | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
-| 3 | `BOT-TG-001` | P0 | Telegram polling operational health доказан | `TODO` |
+| 3 | `BOT-TG-001` | P0 | Telegram polling operational health доказан | `CODE COMPLETE` → deploy in progress |
 | 4 | `BACKUP-NET-001` | P1 | backup health зелёный с approved route | `TODO` |
 | 5 | `MAIL-OPS-001` | P1 | UniSender delivery подтверждён | `TODO` |
 | 6 | `AUTH-LEGACY-001` | P1 | legacy auth consumers безопасно сокращаются | `TODO` |
@@ -342,6 +342,40 @@ recovery, duplicate-owner prevention. Real verification не удаляет webh
 сбрасывает cursor автоматически.
 
 Acceptance: redacted `getMe`/poll cycle success и controlled restart evidence.
+
+Реализация 2026-07-20:
+
+- новый seam `backend/app/services/polling_health.py`: `PollingHealthRegistry`
+  (last success/failure timestamps, safe error class, consecutive failures,
+  alert exactly-once на пороге, recovery event), `compute_poll_backoff`
+  (bounded exponential + jitter; более длинный provider Retry-After всегда
+  уважается), сюда же перенесены `polling_retry_after` /
+  `is_auth_polling_error`;
+- worker'ы Telegram/MAX используют общий `_provider_polling_cycle`: health на
+  каждом цикле, лог-маркеры `BOT_POLLING_ALERT`/`BOT_POLLING_RECOVERED` только
+  с классом исключения; auth-ошибка по-прежнему останавливает worker и пишет
+  `security_events`;
+- `start_bot_polling_tasks`: живой owner никогда не дублируется; завершённый
+  task заменяется только явным вызовом start (restart recovery);
+- admin `/api/admin/bots/status-v2` получил `pollingHealth` для обоих
+  провайдеров; public API не изменился (минимальный после SEC-DIAG-001);
+- webhook не удаляется, cursor не сбрасывается — нигде автоматически;
+- `mini_app_url` дедуплицирован в `platform_status.mini_app_public_url`;
+  budgets ratcheted: max_lines 20258→20257, functions 727→725.
+
+Verification evidence:
+
+- `backend/test_polling_health.py`: 10 tests (bounded backoff+jitter;
+  provider Retry-After; классификаторы на fake transport/429/5xx/auth;
+  alert exactly-once + recovery; snapshot без секретов; worker cycle с
+  ростом backoff и recovery; auth-stop с security_event; duplicate-owner
+  prevention; restart recovery; cursor advance + идемпотентность пустого
+  poll) — `10 passed` в пяти последовательных запусках;
+- focused (polling_health+api+bot_login+admin_bots+integrations):
+  131 passed; исправлен `FakeTask` в `test_api.py` (нужен `done()`);
+- `tools/verify.ps1 -Mode Quick`: 88 passed, 65.01 s, source stable;
+- generated maps/inventory в том же commit;
+- deploy/operational evidence: см. ниже.
 
 ## 7. P1: backup, mail и операционная устойчивость
 
