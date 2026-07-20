@@ -91,7 +91,7 @@ mail `OPERATIONALLY VERIFIED`, а HTTP 200 не доказывает корре�
 |---:|---|---|---|---|
 | 0 | `GOV-001` | P0 | единые правила и новый plan/audit | `VERIFIED` |
 | 1 | `REL-LOCK-001` | P0 | один publisher/Full verifier, no race | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
-| 2 | `SEC-DIAG-001` | P0 | public API не раскрывает operator details | `TODO` |
+| 2 | `SEC-DIAG-001` | P0 | public API не раскрывает operator details | `CODE COMPLETE` → deploy in progress |
 | 3 | `BOT-TG-001` | P0 | Telegram polling operational health доказан | `TODO` |
 | 4 | `BACKUP-NET-001` | P1 | backup health зелёный с approved route | `TODO` |
 | 5 | `MAIL-OPS-001` | P1 | UniSender delivery подтверждён | `TODO` |
@@ -265,6 +265,35 @@ Tests:
 
 Acceptance: public redaction verified local/public; exact SHA deployed только
 после authorized release.
+
+Реализация 2026-07-20:
+
+- новый seam `backend/app/services/platform_status.py`:
+  `public_platforms_payload()` и `public_bots_status_payload()` — только
+  product capability (ready/url/commands/buttonText); маршруты в `main.py`
+  стали thin adapters;
+- `bot_status_payload()` удалён из `main.py`; operator diagnostics существуют
+  только в `/api/admin/bots/status-v2` (`require_trusted_admin`, 401 anonymous);
+- из `/api/platforms` удалён блок `database` (абсолютный `DB_PATH` и
+  existence); из `/api/bots/status` удалены tokens/mode/publicUrls/webhook/
+  TLS/polling диагностика;
+- consumers проверены до изменения: единственный frontend consumer —
+  `frontend/e2e-stage1.mjs` (обновлён; UI не использует эти поля), README
+  обновлён; admin UI использует `status-v2`;
+- новый `backend/test_public_status_redaction.py` (4 теста: product-safe
+  platforms; минимальный bots status без operator-ключей; сконфигурированный
+  internal `BACKEND_PUBLIC_URL` не протекает; admin diagnostics 401);
+- обновлены `test_api.py`, `test_bot_login_flow.py` под новый контракт;
+- budgets ratcheted down в том же commit: `main.py` max_lines 20314→20258,
+  functions 750→727, classes 90→83, routes 230→223.
+
+Verification evidence:
+
+- focused: 88 passed (redaction+api+bot_login+admin_bots); redaction file —
+  5 последовательных запусков 4 passed;
+- `tools/verify.ps1 -Mode Quick`: 88 passed, 52.76 s, source stable;
+- generated maps/inventory регенерированы в том же commit;
+- deploy/live redaction: см. deployment evidence ниже.
 
 ### BOT-TG-001 — Telegram operational recovery
 

@@ -327,7 +327,7 @@
     "backend/static/gallery/index.html"
   ],
   "file_limits": [
-    {"path": "backend/main.py", "max_lines": 20314},
+    {"path": "backend/main.py", "max_lines": 20258},
     {"path": "frontend/src/newStudioV3.css", "max_lines": 6000},
     {"path": "frontend/src/newUi.tsx", "max_lines": 4500},
     {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700},
@@ -340,9 +340,9 @@
   "symbol_limits": [
     {
       "path": "backend/main.py",
-      "max_top_level_functions": 750,
-      "max_top_level_classes": 90,
-      "max_routes": 230
+      "max_top_level_functions": 727,
+      "max_top_level_classes": 83,
+      "max_routes": 223
     }
   ],
   "release_contract": {

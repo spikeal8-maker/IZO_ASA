@@ -475,7 +475,9 @@ def test_stage1_bootstrap_platforms_and_database_are_ready() -> None:
     assert platforms["web"]["ready"] is True
     assert platforms["telegram"]["ready"] is True
     assert platforms["max"]["ready"] is True
-    assert platforms["database"]["ready"] is True
+    # SEC-DIAG-001: database location/existence is operator data and must not
+    # appear on the anonymous platforms payload.
+    assert "database" not in platforms
 
 
 def test_bootstrap_includes_flux_klein_runtime_data(monkeypatch) -> None:
@@ -520,10 +522,12 @@ def test_bot_adapters_work_without_domain_in_local_mode(monkeypatch) -> None:
         max_app = client.post("/api/bots/local-command", json={"platform": "max", "text": "/settings", "chatId": "2"}).json()
         missing_token = client.post("/api/telegram/send-message", json={"chatId": "1", "text": "hello"})
 
-    assert status["mode"] == "local"
-    assert status["domainRequired"] is False
-    assert status["telegram"]["local"] is True
-    assert status["telegram"]["pollingReady"] is False
+    # SEC-DIAG-001: the public bot status stays product-safe even in local
+    # mode — no runtime mode, no token-derived readiness flags.
+    assert status["ok"] is True
+    assert status["platforms"]["telegram"]["ready"] is True
+    assert "mode" not in status
+    assert "tokens" not in status
     assert telegram["delivery"] == "local"
     assert telegram["buttons"][0]["url"].endswith("?platform=telegram")
     assert max_app["buttons"][0]["url"].endswith("?platform=max#settings")

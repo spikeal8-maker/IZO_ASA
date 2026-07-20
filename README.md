@@ -259,7 +259,9 @@ response body. Emergency rollback is explicit: restore
 `MAX_TLS_TRUST_STORE=certifi`, restart the backend, then confirm polling status
 200. Do not leave the rollback in place past the provider migration window.
 
-Useful local checks:
+Useful local checks (`/api/bots/status` is a minimal public product status;
+full operator diagnostics require a trusted admin session on
+`/api/admin/bots/status-v2`):
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/api/bots/status

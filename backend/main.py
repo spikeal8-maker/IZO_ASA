@@ -391,6 +391,17 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
 
 try:
+    from .app.services.platform_status import (
+        public_bots_status_payload,
+        public_platforms_payload,
+    )
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.services.platform_status import (
+        public_bots_status_payload,
+        public_platforms_payload,
+    )
+
+try:
     from .app.services.bot_admin import (
         DEFAULT_BOT_INTEGRATIONS,
         normalize_bot_integrations,
@@ -4874,57 +4885,6 @@ def bot_command_response(platform: Literal["telegram", "max"], command: str) -> 
         text = "Команда не распознана. Используйте /app, /help, /gallery или /settings."
         buttons = [{"text": "Открыть генератор", "url": app_url}]
     return {"ok": True, "platform": platform, "command": normalized, "text": text, "buttons": buttons}
-
-
-def bot_status_payload() -> dict[str, Any]:
-    backend_public = os.getenv("BACKEND_PUBLIC_URL", "http://127.0.0.1:8000")
-    app_public = os.getenv("APP_PUBLIC_URL", "http://127.0.0.1:5173")
-    max_deep_link_base = resolve_max_bot_deep_link_base() if MAX_BOT_TOKEN else None
-    return {
-        "mode": BOT_MODE,
-        "domainRequired": BOT_MODE == "webhook",
-        "tokens": {
-            "telegram": bool(TELEGRAM_BOT_TOKEN),
-            "max": bool(MAX_BOT_TOKEN),
-        },
-        "publicUrls": {
-            "backend": backend_public,
-            "app": app_public,
-            "telegramWebhook": f"{backend_public}/api/telegram/webhook",
-            "maxWebhook": f"{backend_public}/api/max/webhook",
-        },
-        "manualWebhookDisable": {
-            "telegram": "POST /api/telegram/delete-webhook, only as an explicit admin/operator action.",
-            "max": "Disable the MAX subscription in the MAX bot console/API before enabling polling.",
-            "autoDisable": False,
-        },
-        "telegram": {
-            "local": True,
-            "pollingReady": bool(TELEGRAM_BOT_TOKEN),
-            "webhookReady": bool(TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET and backend_public.startswith("https://")),
-            "webhookSecretConfigured": bool(TELEGRAM_WEBHOOK_SECRET),
-            "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
-        },
-        "max": {
-            "local": True,
-            "mode": MAX_UPDATES_MODE,
-            "apiBaseUrl": MAX_API_BASE_URL,
-            "tlsTrustStore": MAX_TLS_TRUST_STORE,
-            "pollingReady": bool(MAX_BOT_TOKEN and MAX_API_BASE_URL),
-            "webhookReady": bool(MAX_BOT_TOKEN and MAX_WEBHOOK_SECRET and MAX_API_BASE_URL and backend_public.startswith("https://")),
-            "webhookSecretConfigured": bool(MAX_WEBHOOK_SECRET),
-            "botNicknameResolved": bool(max_deep_link_base),
-            "deepLinkBaseSource": _MAX_BOT_DEEP_LINK_CACHE.get("source"),
-            "apiMeStatus": _MAX_BOT_DEEP_LINK_CACHE.get("api_status"),
-            "updatesStatus": MAX_POLLING_DIAG.get("lastPollStatus"),
-            "lastUpdatesError": MAX_POLLING_DIAG.get("lastPollError"),
-            "webhookConfigured": MAX_POLLING_DIAG.get("webhookConfigured"),
-            "webhookUrlSet": MAX_POLLING_DIAG.get("webhookUrlSet"),
-            "subscriptionStatus": MAX_POLLING_DIAG.get("subscriptionStatus"),
-            "updateTypes": MAX_POLLING_DIAG.get("updateTypes"),
-            "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
-        },
-    }
 
 
 async def telegram_api(method: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -13866,27 +13826,14 @@ async def auth_sessions_list_v2(request: Request) -> dict[str, Any]:
 
 @app.get("/api/platforms")
 async def platforms() -> dict[str, Any]:
-    return {
-        "web": {"ready": True, "url": mini_app_url("web")},
-        "telegram": {
-            "ready": True,
-            "url": mini_app_url("telegram"),
-            "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
-            "buttonText": "Открыть генератор",
-        },
-        "max": {
-            "ready": True,
-            "url": mini_app_url("max"),
-            "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
-            "buttonText": "Открыть генератор",
-        },
-        "database": {"ready": DB_PATH.exists(), "path": str(DB_PATH)},
-    }
+    # SEC-DIAG-001: product capability data only; operator diagnostics live in
+    # /api/admin/bots/status-v2 behind require_trusted_admin.
+    return public_platforms_payload()
 
 
 @app.get("/api/bots/status")
 async def bots_status() -> dict[str, Any]:
-    return bot_status_payload()
+    return public_bots_status_payload()
 
 
 async def _admin_bot_public_https_status(config: dict[str, Any]) -> dict[str, Any]:

@@ -248,14 +248,16 @@ def test_max_deep_link_rejects_payload_over_limit(temp_db):
     assert getattr(exc.value, "detail", "") == "config_error"
 
 
-def test_bots_status_reports_safe_max_delivery_fields(temp_db):
+def test_bots_status_is_public_product_safe(temp_db):
+    # SEC-DIAG-001: MAX delivery diagnostics moved to the trusted-admin
+    # status endpoint; the anonymous payload keeps only product capability.
     payload = TestClient(main.app).get("/api/bots/status").json()
-    max_status = payload["max"]
-    assert max_status["apiBaseUrl"].startswith("https://")
-    assert max_status["mode"] in {"webhook", "polling", "disabled"}
-    assert "webhookConfigured" in max_status
-    assert "subscriptionStatus" in max_status
-    assert "updateTypes" in max_status
+    max_status = payload["platforms"]["max"]
+    assert max_status["ready"] is True
+    assert max_status["commands"] == ["/start", "/app", "/help", "/gallery", "/settings"]
+    assert "apiBaseUrl" not in max_status
+    assert "mode" not in max_status
+    assert "webhookConfigured" not in max_status
     assert "test-max-token" not in str(payload)
 
 

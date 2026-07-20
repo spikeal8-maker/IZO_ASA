@@ -25,7 +25,7 @@ async function run() {
     assert(platforms.web.ready, 'Web platform is not ready')
     assert(platforms.telegram.ready, 'Telegram platform is not ready')
     assert(platforms.max.ready, 'MAX platform is not ready')
-    assert(platforms.database.ready, 'Database is not ready')
+    assert(!platforms.database, 'Database block must not be exposed on the public platforms payload')
     assert(platforms.telegram.commands.join(',') === '/start,/app,/help,/gallery,/settings', 'Telegram commands are incomplete')
     assert(platforms.max.commands.join(',') === '/start,/app,/help,/gallery,/settings', 'MAX commands are incomplete')
 
