@@ -91,7 +91,7 @@ mail `OPERATIONALLY VERIFIED`, а HTTP 200 не доказывает корре�
 |---:|---|---|---|---|
 | 0 | `GOV-001` | P0 | единые правила и новый plan/audit | `VERIFIED` |
 | 1 | `REL-LOCK-001` | P0 | один publisher/Full verifier, no race | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
-| 2 | `SEC-DIAG-001` | P0 | public API не раскрывает operator details | `CODE COMPLETE` → deploy in progress |
+| 2 | `SEC-DIAG-001` | P0 | public API не раскрывает operator details | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
 | 3 | `BOT-TG-001` | P0 | Telegram polling operational health доказан | `TODO` |
 | 4 | `BACKUP-NET-001` | P1 | backup health зелёный с approved route | `TODO` |
 | 5 | `MAIL-OPS-001` | P1 | UniSender delivery подтверждён | `TODO` |
@@ -293,7 +293,27 @@ Verification evidence:
   5 последовательных запусков 4 passed;
 - `tools/verify.ps1 -Mode Quick`: 88 passed, 52.76 s, source stable;
 - generated maps/inventory регенерированы в том же commit;
-- deploy/live redaction: см. deployment evidence ниже.
+- Full receipt на clean SHA `432f9b38199d…`: 1568 passed + все frontend gates,
+  receipt `432f9b38199d-20260720112049-secdiag.json`.
+
+Deployment evidence 2026-07-20 (рестарт разрешён владельцем, окно спокойное —
+0 active jobs, 0 preparing publications):
+
+- release `432f9b38199d-20260720112903` через locked pipeline: receipt принят
+  без второго Full, candidate smoke OK, `caddy-reload`, backend
+  oldPid=64648 → newPid=47856, previous release сохранён;
+- локальные пробы: health/api 200, release identity совпадает,
+  generate/gallery/me-v2 no-session = 401;
+- публичный домен: `/`, `/feed`, `/gallery`, `/api/health` 200,
+  `/api/version` = `432f9b38199d-20260720112903`;
+- live redaction на `https://izo.alikinas.ru`: `/api/platforms` keys =
+  web/telegram/max (без `database`), `/api/bots/status` keys = ok/platforms;
+  в сериализованных payload нет drive letter, sqlite, token, webhook,
+  `127.0.0.1:8000`, `platform-api`; anonymous `/api/admin/bots/status-v2` = 401;
+- свежий backend лог: 0 error-строк; оба lock FREE; порт 8000 — один
+  владелец 47856; 8001 свободен.
+
+Статус пакета: `VERIFIED` (код + public redaction в production).
 
 ### BOT-TG-001 — Telegram operational recovery
 
