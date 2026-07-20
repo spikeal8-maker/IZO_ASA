@@ -55,11 +55,6 @@ def bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-# AUTH-LEGACY-001B: browsers always send Origin on unsafe methods; cookie-auth
-# mutations must present an allowlisted Origin to pass the CSRF boundary.
-BROWSER_ORIGIN = {"Origin": "https://izo.alikinas.ru"}
-
-
 def set_cookie_headers(resp):
     return resp.headers.get_list("set-cookie") if hasattr(resp.headers, "get_list") else resp.headers.get("set-cookie", "").split(", ")
 
@@ -113,9 +108,9 @@ def test_admin_can_save_openrouter_key_without_exposing_secret(temp_db, monkeypa
     sess = admin_session()
     with TestClient(main.app) as client:
         cookies = {"onenode_session": sess["session_token"]}
-        saved = client.put("/api/admin/openrouter/key", json={"key": "sk-or-test-secret-123"}, cookies=cookies, headers=BROWSER_ORIGIN)
+        saved = client.put("/api/admin/openrouter/key", json={"key": "sk-or-test-secret-123"}, cookies=cookies)
         settings = client.get("/api/admin/settings", cookies=cookies)
-        deleted = client.delete("/api/admin/openrouter/key", cookies=cookies, headers=BROWSER_ORIGIN)
+        deleted = client.delete("/api/admin/openrouter/key", cookies=cookies)
 
     assert saved.status_code == 200
     assert saved.json()["key"]["ok"] is True
@@ -135,7 +130,6 @@ def test_admin_can_save_openrouter_model_config(temp_db):
             "/api/admin/openrouter/config",
             json={"config": {"enabled": {"text_to_image": ["black-forest-labs/flux.2-klein-4b", "bad"]}, "defaults": {"text_to_image": "black-forest-labs/flux.2-klein-4b"}}},
             cookies={"onenode_session": sess["session_token"]},
-            headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 200
     payload = response.json()
@@ -165,7 +159,6 @@ def test_admin_openrouter_test_generate_records_cost(temp_db, monkeypatch):
             "/api/admin/openrouter/test-generate",
             json={"model": "black-forest-labs/flux.2-klein-4b", "width": 1024, "height": 1024},
             cookies={"onenode_session": sess["session_token"]},
-            headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 200
     payload = response.json()
@@ -196,7 +189,7 @@ def test_admin_can_refresh_openrouter_exchange_rate(temp_db, monkeypatch):
     monkeypatch.setattr(main.httpx, "AsyncClient", FakeClient)
     sess = admin_session()
     with TestClient(main.app) as client:
-        response = client.post("/api/admin/openrouter/exchange/refresh", cookies={"onenode_session": sess["session_token"]}, headers=BROWSER_ORIGIN)
+        response = client.post("/api/admin/openrouter/exchange/refresh", cookies={"onenode_session": sess["session_token"]})
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
@@ -236,7 +229,7 @@ def test_admin_exchange_rate_uses_fallback_when_cbr_fails(temp_db, monkeypatch):
     monkeypatch.setattr(main.httpx, "AsyncClient", FakeClient)
     sess = admin_session()
     with TestClient(main.app) as client:
-        response = client.post("/api/admin/openrouter/exchange/refresh", cookies={"onenode_session": sess["session_token"]}, headers=BROWSER_ORIGIN)
+        response = client.post("/api/admin/openrouter/exchange/refresh", cookies={"onenode_session": sess["session_token"]})
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True

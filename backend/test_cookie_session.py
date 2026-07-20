@@ -20,9 +20,6 @@ import main
 
 TG_TOKEN = "13579:TEST-tg-token"
 MAX_TOKEN = "max-2468:TEST-max-token"
-# AUTH-LEGACY-001B: browsers always send Origin on unsafe methods; cookie-auth
-# mutations must present an allowlisted Origin to pass the CSRF boundary.
-BROWSER_ORIGIN = {"Origin": "https://izo.alikinas.ru"}
 
 
 @pytest.fixture
@@ -133,7 +130,7 @@ def test_refresh_uses_cookie_when_body_missing(temp_db):
     with TestClient(main.app) as client:
         client.post("/api/auth/telegram-v2", json={"init_data": tg_init_data(), "platform": "telegram_mini_app"})
         # refresh cookie now stored in the client; send empty body
-        r = client.post("/api/auth/session/refresh-v2", json={}, headers=BROWSER_ORIGIN)
+        r = client.post("/api/auth/session/refresh-v2", json={})
     assert r.status_code == 200
     assert r.json()["session_token"]
 
@@ -143,7 +140,7 @@ def test_refresh_rotates_cookies(temp_db):
     with TestClient(main.app) as client:
         client.post("/api/auth/telegram-v2", json={"init_data": tg_init_data(), "platform": "telegram_mini_app"})
         old_refresh = client.cookies.get("onenode_refresh")
-        r = client.post("/api/auth/session/refresh-v2", json={}, headers=BROWSER_ORIGIN)
+        r = client.post("/api/auth/session/refresh-v2", json={})
         new_refresh = client.cookies.get("onenode_refresh")
     assert r.status_code == 200
     assert new_refresh and new_refresh != old_refresh
@@ -154,9 +151,9 @@ def test_old_refresh_cookie_cannot_be_reused(temp_db):
     with TestClient(main.app) as client:
         login = client.post("/api/auth/telegram-v2", json={"init_data": tg_init_data(), "platform": "telegram_mini_app"})
         old_refresh = login.json()["refresh_token"]
-        first = client.post("/api/auth/session/refresh-v2", json={}, headers=BROWSER_ORIGIN)
+        first = client.post("/api/auth/session/refresh-v2", json={})
         assert first.status_code == 200
-        reuse = client.post("/api/auth/session/refresh-v2", json={"refresh_token": old_refresh}, headers=BROWSER_ORIGIN)
+        reuse = client.post("/api/auth/session/refresh-v2", json={"refresh_token": old_refresh})
     assert reuse.status_code == 401
 
 
@@ -165,7 +162,7 @@ def test_logout_clears_cookies_using_cookie(temp_db):
     with TestClient(main.app) as client:
         client.post("/api/auth/telegram-v2", json={"init_data": tg_init_data(), "platform": "telegram_mini_app"})
         # logout with empty body -> uses session cookie
-        r = client.post("/api/auth/session/logout-v2", json={}, headers=BROWSER_ORIGIN)
+        r = client.post("/api/auth/session/logout-v2", json={})
         assert r.status_code == 200 and r.json()["ok"] is True
         # Set-Cookie clears both (max-age=0 / empty value)
         cleared = " ".join(set_cookie_headers(r)).lower()
