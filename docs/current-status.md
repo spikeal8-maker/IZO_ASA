@@ -21,7 +21,8 @@
 
 ## Активный и следующий пакет
 
-- Active package: none.
+- Active package: `AUTH-LEGACY-001B` — CSRF boundary + вынос HTTP middleware
+  composition из `main.py` (по команде владельца; deploy в пакет не входит).
 - `AUTH-LEGACY-001A` = `CODE COMPLETE` (route matrix
   [auth-legacy-route-matrix-20260720.md](auth-legacy-route-matrix-20260720.md),
   15 characterization tests; runtime не менялся; deploy не требуется).
