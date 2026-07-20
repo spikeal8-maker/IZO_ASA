@@ -8,6 +8,10 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import main
+# AUTH-LEGACY-001B moved HTTP middleware composition into
+# app/security/http_middleware.py, so RequestBodyLimitMiddleware is imported
+# from its home module instead of the main namespace. Behavior is unchanged.
+from app.security.http_requests import RequestBodyLimitMiddleware
 
 
 def _image_bytes(image_format: str = "PNG", size: tuple[int, int] = (32, 32)) -> bytes:
@@ -83,7 +87,7 @@ def test_backend_rejects_untrusted_host_header() -> None:
 
 def test_request_body_limit_rejects_declared_oversized_payload() -> None:
     limited_app = FastAPI()
-    limited_app.add_middleware(main.RequestBodyLimitMiddleware, max_bytes=4)
+    limited_app.add_middleware(RequestBodyLimitMiddleware, max_bytes=4)
 
     @limited_app.post("/echo")
     async def echo(request: Request) -> dict[str, int]:
@@ -97,7 +101,7 @@ def test_request_body_limit_rejects_declared_oversized_payload() -> None:
 
 def test_request_body_limit_counts_streamed_payload_without_content_length() -> None:
     limited_app = FastAPI()
-    limited_app.add_middleware(main.RequestBodyLimitMiddleware, max_bytes=4)
+    limited_app.add_middleware(RequestBodyLimitMiddleware, max_bytes=4)
 
     @limited_app.post("/echo")
     async def echo(request: Request) -> dict[str, int]:

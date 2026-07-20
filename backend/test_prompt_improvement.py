@@ -6,6 +6,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+# Browser-faithful contract: cookie-auth mutations carry an allowlisted Origin
+# to pass the CSRF boundary (AUTH-LEGACY-001B). GET requests stay untouched.
+from test_support.browser_origin import BROWSER_ORIGIN
 
 
 @pytest.fixture
@@ -55,6 +58,7 @@ def test_prompt_improvement_replaces_text_and_records_sanitized_usage(prompt_use
             "/api/tools/improve-prompt",
             json={"prompt": "красная машина", "mode": "text", "language": "ru"},
             cookies={"onenode_session": prompt_user["cookie"]},
+            headers=BROWSER_ORIGIN,
         )
 
     assert response.status_code == 200, response.text
@@ -78,6 +82,7 @@ def test_prompt_improvement_provider_error_does_not_echo_or_replace_prompt(promp
             "/api/tools/improve-prompt",
             json={"prompt": "исходный пользовательский текст", "mode": "i2i"},
             cookies={"onenode_session": prompt_user["cookie"]},
+            headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 502
     assert "исходный пользовательский текст" not in response.text
@@ -190,6 +195,7 @@ def test_admin_voice_test_uses_unsaved_selected_route(prompt_user, monkeypatch):
             "/api/admin/assistants/voice-test?provider=auto&language=ru",
             files={"file": ("voice.wav", b"test-wav", "audio/wav")},
             cookies={"onenode_session": prompt_user["cookie"]},
+            headers=BROWSER_ORIGIN,
         )
 
     assert response.status_code == 200, response.text
@@ -203,6 +209,7 @@ def test_voice_transcription_rejects_too_short_recording(prompt_user):
             "/api/tools/transcribe?duration_ms=400&language=ru",
             files={"file": ("voice.webm", b"audio", "audio/webm")},
             cookies={"onenode_session": prompt_user["cookie"]},
+            headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 400
     assert "не меньше" in response.text
@@ -221,6 +228,7 @@ def test_voice_transcription_returns_provider_text(prompt_user, monkeypatch):
             "/api/tools/transcribe?duration_ms=1400&language=ru",
             files={"file": ("voice.webm", b"not-real-audio", "audio/webm")},
             cookies={"onenode_session": prompt_user["cookie"]},
+            headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 200, response.text
     assert response.json()["text"] == "девушка у вечернего окна"
@@ -244,6 +252,7 @@ def test_voice_transcription_uses_local_ollama_route(prompt_user, monkeypatch):
             "/api/tools/transcribe?duration_ms=1600&language=ru",
             files={"file": ("voice.webm", b"not-real-audio", "audio/webm")},
             cookies={"onenode_session": prompt_user["cookie"]},
+            headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 200, response.text
     assert response.json()["provider"] == "local"
@@ -268,6 +277,7 @@ def test_voice_transcription_uses_qwen_service_route(prompt_user, monkeypatch):
             "/api/tools/transcribe?duration_ms=1600&language=ru",
             files={"file": ("voice.webm", b"not-real-audio", "audio/webm")},
             cookies={"onenode_session": prompt_user["cookie"]},
+            headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 200, response.text
     assert response.json()["provider"] == "qwen"

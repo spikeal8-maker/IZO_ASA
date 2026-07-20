@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from test_support.browser_origin import BROWSER_ORIGIN
 
 PW = "S3cret-Password!"
 
@@ -41,8 +42,11 @@ def bearer(t):
 
 
 def register(c, email):
+    # Repeated calls on a shared client carry the session cookie set by the
+    # first register, so an allowlisted Origin is needed to pass the CSRF
+    # boundary (AUTH-LEGACY-001B); a real browser always sends it.
     return c.post("/api/auth/password/register-v2", json={"email": email, "password": PW, "password_repeat": PW,
-                  "accepted_terms": True, "accepted_privacy": True, "accepted_personal_data": True, "platform": "web_desktop"})
+                  "accepted_terms": True, "accepted_privacy": True, "accepted_personal_data": True, "platform": "web_desktop"}, headers=BROWSER_ORIGIN)
 
 
 # 1, 2, 3

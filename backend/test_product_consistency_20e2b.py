@@ -8,6 +8,10 @@ from fastapi.testclient import TestClient
 
 import main
 from test_api import fake_send_to_comfyui, wait_for_terminal_job
+# A browser attaching the session cookie also sends an allowlisted Origin; the
+# Authorization header does not bypass CSRF while a sensitive cookie is present
+# (AUTH-LEGACY-001B).
+from test_support.browser_origin import BROWSER_ORIGIN
 
 PW = "S3cret-Password!"
 
@@ -226,10 +230,10 @@ def test_generation_replaces_oldest_gallery_slot_when_full(temp_db):
     }
     with TestClient(main.app) as c:
         c.cookies.set("onenode_session", token)
-        first = c.post("/api/generate", json=payload, headers=bearer(token))
+        first = c.post("/api/generate", json=payload, headers={**bearer(token), **BROWSER_ORIGIN})
         assert first.status_code == 200, first.text
         first_final = wait_for_terminal_job(c, first.json()["id"])
-        second = c.post("/api/generate", json=payload, headers=bearer(token))
+        second = c.post("/api/generate", json=payload, headers={**bearer(token), **BROWSER_ORIGIN})
         assert second.status_code == 200, second.text
         second_final = wait_for_terminal_job(c, second.json()["id"])
     assert first_final["status"] == "completed"
