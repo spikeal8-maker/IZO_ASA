@@ -90,7 +90,7 @@ mail `OPERATIONALLY VERIFIED`, а HTTP 200 не доказывает корре�
 | Порядок | ID | Приоритет | Результат | Статус |
 |---:|---|---|---|---|
 | 0 | `GOV-001` | P0 | единые правила и новый plan/audit | `VERIFIED` |
-| 1 | `REL-LOCK-001` | P0 | один publisher/Full verifier, no race | `TODO`, следующий пакет |
+| 1 | `REL-LOCK-001` | P0 | один publisher/Full verifier, no race | `CODE COMPLETE` (evidence в секции пакета) |
 | 2 | `SEC-DIAG-001` | P0 | public API не раскрывает operator details | `TODO` |
 | 3 | `BOT-TG-001` | P0 | Telegram polling operational health доказан | `TODO` |
 | 4 | `BACKUP-NET-001` | P1 | backup health зелёный с approved route | `TODO` |
@@ -179,6 +179,36 @@ release step после code verification, не для проверки само
 
 Rollback: удалить wiring на helper, сохранив прежние launch commands; lock
 directories безопасно остаются runtime evidence.
+
+Реализация 2026-07-20:
+
+- `tools/repository-operation-lock.ps1`: dot-sourceable библиотека
+  (`Lock-IzoRepositoryOperation` / `Unlock-IzoRepositoryOperation`) + CLI
+  (`acquire`/`release`/`status`) для batch launchers; атомарность через staging
+  directory и `Directory.Move`; владелец фиксируется как PID + точное UTC время
+  старта процесса; stale recovery только при мёртвом PID или PID reuse; TTL не
+  применяется к живому владельцу; re-entrancy через env token
+  `IZO_REPO_LOCK_TOKEN_<KIND>`.
+- `tools/verify.ps1 -Mode Full` берёт `full-verify` до любых
+  pytest/build/runtime шагов и освобождает в `finally`; Quick/CI не блокируются.
+- `tools/publish-frontend-release.ps1` берёт `public-release` (re-entrant из
+  `start-public.bat`) и `full-verify`, экспортирует token дочернему verifier.
+- `start-public.bat` владеет `public-release` на всё время запуска; владелец —
+  cmd-процесс launcher, поэтому crash восстанавливается автоматически; release
+  на всех exit paths через `:release_lock`.
+
+Verification evidence:
+
+- `tools/test_repository_operation_lock.py`: 9 tests
+  (concurrent single winner; second Full verify fails fast без единого
+  VERIFY_STEP; stale dead PID recovery; PID reuse отклонён по start time;
+  живой owner не отбирается; exception освобождает lock; re-entrant без
+  deadlock и без освобождения внешнего lock; чужой token не может release;
+  wiring всех трёх entrypoints) — `9 passed` в пяти последовательных запусках;
+- `tools/verify.ps1 -Mode Quick`: 79 passed, 48.75 s, source stable;
+- contract-тесты verify/launchers/collection после включения нового файла в
+  Quick-набор: 26 passed;
+- Full receipt: см. финальную запись evidence ниже после commit на clean SHA.
 
 ### SEC-DIAG-001 — минимальные публичные status endpoints
 
@@ -630,18 +660,18 @@ Full receipt выполняется один раз на clean release candidate
 
 ## 15. Точное следующее действие
 
-После завершения и push `GOV-001` начать только `REL-LOCK-001`:
+`REL-LOCK-001` реализован и закоммичен (см. evidence в его секции). Следующий
+пакет — только `SEC-DIAG-001`:
 
 1. повторить canonical/process preflight;
-2. написать failing concurrency tests;
-3. реализовать общий operation lock;
-4. подключить publisher и Full verifier;
-5. выполнить focused suite 5x;
-6. выполнить Quick;
-7. обновить generated maps/docs при необходимости;
-8. commit/push;
-9. только затем, при отдельном разрешении, один Full receipt и controlled deploy.
+2. зафиксировать текущие payload `/api/platforms` и `/api/bots/status`
+   characterization-тестами;
+3. убрать operator intelligence из anonymous payload;
+4. перевести полные diagnostics под `require_trusted_admin`;
+5. проверить frontend/static consumers до изменения контракта;
+6. focused tests + Quick;
+7. commit/push; deploy — отдельным разрешённым шагом.
 
-Это следующий пакет не потому, что он «красивее» остальных, а потому что текущая
-гонка уже была воспроизведена на работающем компьютере и делает все последующие
-release evidence менее надёжными.
+Историческая заметка REL-LOCK-001: гонка двух publisher была воспроизведена на
+работающем компьютере; теперь второй owner обязан завершиться до
+tests/build/runtime mutation с ясной ошибкой `REPOSITORY_OPERATION_LOCK_BUSY`.

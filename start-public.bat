@@ -71,6 +71,25 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM REL-LOCK-001: single-flight public release. This launcher owns the
+REM public-release lock for its whole lifetime; the publisher re-enters it
+REM through the exported token instead of failing. A crashed launcher is
+REM recovered automatically because the lock records this cmd PID/start time.
+set "LOCK_TOKEN_FILE=%TEMP%\izo-public-release-lock-%RANDOM%%RANDOM%.token"
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\repository-operation-lock.ps1" -Action acquire -Kind public-release -RepoRoot "%ROOT_NO_SLASH%" -Command "start-public.bat" -TokenOutFile "%LOCK_TOKEN_FILE%"
+if errorlevel 1 (
+  echo [ERROR] Another release/launch operation is already running. Refusing a second concurrent public launch.
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
+set /p IZO_REPO_LOCK_TOKEN_PUBLIC_RELEASE=<"%LOCK_TOKEN_FILE%"
+del "%LOCK_TOKEN_FILE%" >nul 2>nul
+if "%IZO_REPO_LOCK_TOKEN_PUBLIC_RELEASE%"=="" (
+  echo [ERROR] Repository operation lock token was not captured.
+  if /I not "%IZO_NO_PAUSE%"=="1" pause
+  exit /b 1
+)
+
 echo [0/5] Production DB safety preflight...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$db='%LIVE_DB%';" ^
@@ -83,6 +102,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "if ($item.Length -lt 10MB) { Write-Host '[ERROR] Refusing suspiciously small live DB:' $size 'MB'; exit 12 }"
 if errorlevel 1 (
   echo [ERROR] Production DB preflight failed. Public backend NOT started.
+  call :release_lock
   if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1
 )
@@ -91,6 +111,7 @@ echo [1/5] Verifying exact checkout, writing receipt, and preparing immutable Ca
 powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\publish-frontend-release.ps1" -RepoRoot "%ROOT_NO_SLASH%" -PythonPath "%PYTHON_EXE%"
 if errorlevel 1 (
   echo [ERROR] Candidate release failed. The active public release was NOT changed.
+  call :release_lock
   if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1
 )
@@ -101,11 +122,13 @@ for /f "delims=" %%I in ('powershell -NoProfile -Command "(ConvertFrom-Json (Get
 set "FRONTEND_BUILD_LABEL=%APP_BUILD%"
 if not exist "%FRONTEND_RELEASE%\index.html" (
   echo [ERROR] Active release index.html missing.
+  call :release_lock
   if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1
 )
 if not exist "%RELEASE_MANIFEST%" (
   echo [ERROR] Immutable release manifest missing.
+  call :release_lock
   if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1
 )
@@ -116,6 +139,7 @@ if errorlevel 1 (
   echo.
   echo [ERROR] Production backend release failed; restart script attempted backend rollback.
   if not "%PREVIOUS_RELEASE%"=="" powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\rollback-frontend-release.ps1" -RepoRoot "%ROOT_NO_SLASH%" -ReleaseId "%PREVIOUS_RELEASE%"
+  call :release_lock
   if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1
 )
@@ -133,6 +157,7 @@ if errorlevel 1 (
   echo.
   echo FRONTEND DOWN
   echo Public launch is NOT healthy.
+  call :release_lock
   if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1
 )
@@ -174,6 +199,7 @@ if errorlevel 1 (
   echo.
   echo BACKEND DOWN
   echo Public launch is NOT healthy.
+  call :release_lock
   if /I not "%IZO_NO_PAUSE%"=="1" pause
   exit /b 1
 )
@@ -188,4 +214,11 @@ echo   NOTE: frontend code changes require re-running start-public.bat.
 echo   FRP tunnel is managed and verified by start-public-autostart.bat.
 echo ==========================================
 echo.
+call :release_lock
 if /I not "%IZO_NO_PAUSE%"=="1" pause
+exit /b 0
+
+:release_lock
+powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%ROOT%tools\repository-operation-lock.ps1" -Action release -Kind public-release -RepoRoot "%ROOT_NO_SLASH%" -Token "%IZO_REPO_LOCK_TOKEN_PUBLIC_RELEASE%"
+set "IZO_REPO_LOCK_TOKEN_PUBLIC_RELEASE="
+exit /b 0

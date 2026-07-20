@@ -178,6 +178,7 @@ $quickTests = @(
     "tools/test_frontend_release_identity.py",
     "tools/test_release_verification_receipt.py",
     "tools/test_launchers.py",
+    "tools/test_repository_operation_lock.py",
     "tools/test_restart_backend_script.py",
     "tools/test_runtime_listener_contract.py",
     "tools/test_caddy_edge_contract.py",
@@ -244,6 +245,19 @@ if ($PlanOnly) {
     Write-Host "VERIFY_PLAN_OK mode=$Mode"
     return
 }
+
+# REL-LOCK-001: a Full verification is single-flight per repository. A second
+# concurrent Full run must fail here, before any pytest/build/runtime work.
+# CI mode runs on isolated GitHub runners and does not take the local lock.
+$operationLock = $null
+if ($Mode -eq "Full") {
+    . (Join-Path $toolsDirectory "repository-operation-lock.ps1")
+    $operationLock = Lock-IzoRepositoryOperation `
+        -RepoRoot $resolvedRoot `
+        -Kind "full-verify" `
+        -OperationCommand "verify.ps1 -Mode $Mode"
+}
+try {
 
 if ($ReceiptPath.Trim()) {
     $receiptBranch = ([string](@(& git.exe -C $resolvedRoot branch --show-current)[0])).Trim()
@@ -441,3 +455,9 @@ if ($ReceiptPath.Trim()) {
     Write-Host "VERIFY_RECEIPT_WRITTEN path=$ReceiptPath"
 }
 Write-Host "VERIFY_OK $($summary | ConvertTo-Json -Compress)"
+
+} finally {
+    if ($null -ne $operationLock) {
+        Unlock-IzoRepositoryOperation -Handle $operationLock
+    }
+}

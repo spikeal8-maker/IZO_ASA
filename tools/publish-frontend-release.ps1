@@ -176,6 +176,28 @@ if ($PlanOnly) {
     return
 }
 
+# REL-LOCK-001: only one publisher may run at a time. The public-release lock
+# is re-entrant when start-public.bat already holds it and exported its token.
+# The full-verify lock is taken here and its token is exported so the child
+# verify.ps1 -Mode Full re-enters instead of deadlocking.
+. (Join-Path $root "tools\repository-operation-lock.ps1")
+$publicReleaseLock = Lock-IzoRepositoryOperation `
+    -RepoRoot $root `
+    -Kind "public-release" `
+    -OperationCommand "publish-frontend-release.ps1"
+$fullVerifyLock = $null
+try {
+    $fullVerifyLock = Lock-IzoRepositoryOperation `
+        -RepoRoot $root `
+        -Kind "full-verify" `
+        -OperationCommand "publish-frontend-release.ps1 (release verification)"
+    [Environment]::SetEnvironmentVariable($fullVerifyLock.TokenVariable, $fullVerifyLock.Token, "Process")
+} catch {
+    Unlock-IzoRepositoryOperation -Handle $publicReleaseLock
+    throw
+}
+try {
+
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "Project Python is missing. Create backend\.venv with Python from .python-version before publishing."
 }
@@ -436,3 +458,11 @@ try {
     Write-Warning "Release retention cleanup failed after successful activation: $($_.Exception.Message)"
 }
 Write-Host "RELEASE_READY id=$releaseId sha=$fullSha path=$releasePath manifest=$releaseManifestPath previous=$previous edge=caddy-$($caddyRuntime.Version) activation=$activationMode"
+
+} finally {
+    if ($null -ne $fullVerifyLock -and -not $fullVerifyLock.Reentrant) {
+        [Environment]::SetEnvironmentVariable($fullVerifyLock.TokenVariable, $null, "Process")
+    }
+    Unlock-IzoRepositoryOperation -Handle $fullVerifyLock
+    Unlock-IzoRepositoryOperation -Handle $publicReleaseLock
+}
