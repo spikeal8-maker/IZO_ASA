@@ -1,6 +1,6 @@
 # IZO_ASA — текущий статус (обновляется каждым пакетом)
 
-Обновлено: 2026-07-20 (старт AUTH-LEGACY-001A).
+Обновлено: 2026-07-20 (AUTH-LEGACY-001A завершён).
 Исполняемая очередь: [optimization-and-decomposition-plan-20260720.md](optimization-and-decomposition-plan-20260720.md).
 Подробное историческое evidence остаётся в
 [engineering-optimization-master-plan-20260719.md](engineering-optimization-master-plan-20260719.md)
@@ -21,10 +21,12 @@
 
 ## Активный и следующий пакет
 
-- Active package: `AUTH-LEGACY-001A` — characterization и route matrix
-  (запущен по команде владельца 2026-07-20; runtime-поведение не меняется).
-- Next package after acceptance: `AUTH-LEGACY-001B` — НЕ начинать без
-  отдельной команды владельца.
+- Active package: none.
+- `AUTH-LEGACY-001A` = `CODE COMPLETE` (route matrix
+  [auth-legacy-route-matrix-20260720.md](auth-legacy-route-matrix-20260720.md),
+  15 characterization tests; runtime не менялся; deploy не требуется).
+- Next package: `AUTH-LEGACY-001B` — НЕ начинать без отдельной команды
+  владельца.
 
 ## Завершённые пакеты (VERIFIED)
 
