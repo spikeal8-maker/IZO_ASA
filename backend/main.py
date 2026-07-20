@@ -30,10 +30,8 @@ from urllib.parse import parse_qs, quote
 
 import httpx
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -162,10 +160,12 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
-    from .app.security.http_requests import AvatarImageError, RequestBodyLimitMiddleware, compress_allowlisted_avatar
+    from .app.security.http_requests import AvatarImageError, compress_allowlisted_avatar
+    from .app.security.http_middleware import install_http_security_middleware
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
-    from app.security.http_requests import AvatarImageError, RequestBodyLimitMiddleware, compress_allowlisted_avatar
+    from app.security.http_requests import AvatarImageError, compress_allowlisted_avatar
+    from app.security.http_middleware import install_http_security_middleware
 
 try:
     from .app.release_identity import (
@@ -865,10 +865,8 @@ MAX_BOT_DEEP_LINK_BASE = os.getenv("MAX_BOT_DEEP_LINK_BASE", "")
 TRUST_PROXY_HEADERS = _HTTP_SECURITY_POLICY.trust_proxy_headers
 TRUST_CLOUDFLARE_HEADERS = _HTTP_SECURITY_POLICY.trust_cloudflare_headers
 
-# Phase 13.2: explicit CORS origins. A wildcard origin together with credentials is
-# rejected by browsers and is unsafe, so we read an explicit allowlist from
-# CORS_ALLOWED_ORIGINS (comma-separated) and fall back to the known dev + tunnel
-# origins. allow_credentials stays True so cookie auth works.
+# CORS/TrustedHost/body-limit/CSRF composition lives in
+# app/security/http_middleware.py (AUTH-LEGACY-001B seam).
 CORS_ALLOWED_ORIGINS = list(_HTTP_SECURITY_POLICY.cors_allowed_origins)
 TRUSTED_HOSTS = list(_HTTP_SECURITY_POLICY.trusted_hosts)
 REQUEST_BODY_MAX_BYTES = max(1024 * 1024, int(os.getenv("REQUEST_BODY_MAX_BYTES", str(128 * 1024 * 1024))))
@@ -895,15 +893,9 @@ EMAIL_OTP_CLEANUP_EXPIRED_AFTER_SECONDS = int(os.getenv("EMAIL_OTP_CLEANUP_EXPIR
 _mock_email_outbox: list[dict[str, str]] = []
 
 app = FastAPI(title="OneNode Image Studio API", version="0.1.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+install_http_security_middleware(
+    app, policy=_HTTP_SECURITY_POLICY, request_body_max_bytes=REQUEST_BODY_MAX_BYTES
 )
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=TRUSTED_HOSTS)
-app.add_middleware(RequestBodyLimitMiddleware, max_bytes=REQUEST_BODY_MAX_BYTES)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 if AVATAR_PRESET_DIR is not None:
     app.mount("/avatars", StaticFiles(directory=AVATAR_PRESET_DIR), name="avatars")
