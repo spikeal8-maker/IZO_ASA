@@ -92,7 +92,7 @@ mail `OPERATIONALLY VERIFIED`, а HTTP 200 не доказывает корре�
 | 0 | `GOV-001` | P0 | единые правила и новый plan/audit | `VERIFIED` |
 | 1 | `REL-LOCK-001` | P0 | один publisher/Full verifier, no race | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
 | 2 | `SEC-DIAG-001` | P0 | public API не раскрывает operator details | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
-| 3 | `BOT-TG-001` | P0 | Telegram polling operational health доказан | `CODE COMPLETE` → deploy in progress |
+| 3 | `BOT-TG-001` | P0 | Telegram polling operational health доказан | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
 | 4 | `BACKUP-NET-001` | P1 | backup health зелёный с approved route | `TODO` |
 | 5 | `MAIL-OPS-001` | P1 | UniSender delivery подтверждён | `TODO` |
 | 6 | `AUTH-LEGACY-001` | P1 | legacy auth consumers безопасно сокращаются | `TODO` |
@@ -375,7 +375,27 @@ Verification evidence:
   131 passed; исправлен `FakeTask` в `test_api.py` (нужен `done()`);
 - `tools/verify.ps1 -Mode Quick`: 88 passed, 65.01 s, source stable;
 - generated maps/inventory в том же commit;
-- deploy/operational evidence: см. ниже.
+- Full receipt на clean SHA `263377ff0d5d…`: 1578 passed + все frontend gates,
+  receipt `263377ff0d5d-20260720114925-bottg.json`.
+
+Deployment/operational evidence 2026-07-20 (рестарт разрешён владельцем, окно
+спокойное — 0 active jobs, 0 preparing publications):
+
+- release `263377ff0d5d-20260720115826` через locked pipeline
+  (`caddy-reload`); backend oldPid=47856 → newPid=64648, start 11:58:50;
+- публичный smoke: `/`, `/api/health` 200; `/api/version` =
+  `263377ff0d5d-20260720115826`; no-session generate/gallery/me-v2 = 401;
+- стартовый лог: `telegramMode=polling maxMode=polling`;
+- окно наблюдения 8+ минут: 0 `TelegramTransportError`, 0
+  `telegram polling error`, 0 `BOT_POLLING_ALERT`, err-лог пуст — при
+  long-poll timeout 25 s это ≥19 успешных Telegram-циклов, так как каждый
+  сбой обязан оставить лог-строку с backoff;
+- MAX: 19 × `MAX_POLL_RESPONSE status=200` за то же окно (прямое evidence);
+- порт 8000 — один владелец 64648; оба operation lock FREE;
+- webhook не удалялся, cursor не сбрасывался.
+
+Статус пакета: `VERIFIED`; polling health `OPERATIONALLY VERIFIED` в окне
+наблюдения (redacted log evidence без token/URL).
 
 ## 7. P1: backup, mail и операционная устойчивость
 
