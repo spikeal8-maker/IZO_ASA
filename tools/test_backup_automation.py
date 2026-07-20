@@ -40,3 +40,19 @@ def test_local_backup_is_hourly_and_old_quarter_hour_task_is_removed() -> None:
     assert "-Schedule HOURLY -Modifier 1 -StartWhenAvailable" in installer
     assert "$obsoleteTasks.Add('IZO_ASA Local Backup 15m')" in installer
     assert "LastLocalBackup 120 'local_backup_older_than_2_hours'" in health
+
+
+def test_yandex_route_check_requires_proven_egress_split() -> None:
+    """BACKUP-NET-001: the owner-approved AdGuard exclusion splits traffic
+    inside the tunnel, so the check must prove the split functionally and
+    fail closed when either egress probe is unavailable."""
+    health = (ROOT / "ops" / "backup" / "check_backup_health.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "$routedViaAdguardVpn -and $yandexEgressSplit -ne $true" in health
+    assert "'yandex_routed_through_adguard_vpn'" in health
+    assert "YandexEgressSplitActive" in health
+    # Raw egress addresses are compared in memory only, never persisted.
+    assert "$health['YandexEgress']" not in health
+    assert "generalEgress'] =" not in health

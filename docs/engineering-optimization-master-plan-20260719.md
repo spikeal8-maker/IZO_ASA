@@ -93,7 +93,7 @@ mail `OPERATIONALLY VERIFIED`, а HTTP 200 не доказывает корре�
 | 1 | `REL-LOCK-001` | P0 | один publisher/Full verifier, no race | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
 | 2 | `SEC-DIAG-001` | P0 | public API не раскрывает operator details | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
 | 3 | `BOT-TG-001` | P0 | Telegram polling operational health доказан | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
-| 4 | `BACKUP-NET-001` | P1 | backup health зелёный с approved route | `TODO` |
+| 4 | `BACKUP-NET-001` | P1 | backup health зелёный с approved route | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
 | 5 | `MAIL-OPS-001` | P1 | UniSender delivery подтверждён | `TODO` |
 | 6 | `AUTH-LEGACY-001` | P1 | legacy auth consumers безопасно сокращаются | `TODO` |
 | 7 | `OPS-001` | P1 | service supervision и reboot/crash recovery | `TODO` |
@@ -416,6 +416,34 @@ Deployment/operational evidence 2026-07-20 (рестарт разрешён вл
 
 Acceptance: task last result 0, `OverallStatus=OK`, fresh local/cloud snapshot,
 verified manifest и successful restore rehearsal.
+
+Реализация и evidence 2026-07-20:
+
+- owner decision: Яндекс Диск внесён в exclusions AdGuard VPN; функциональная
+  проверка подтвердила in-tunnel split — egress, который видит Яндекс,
+  отличается от общего VPN egress (адреса сравнивались только в памяти и не
+  сохранялись);
+- policy `ops/backup/check_backup_health.ps1` обновлена по owner decision:
+  ошибка `yandex_routed_through_adguard_vpn` ставится только когда маршрут
+  идёт через AdGuard И split НЕ доказан (fail-closed при недоступности любой
+  из двух egress-проб); в health добавлен boolean `YandexEgressSplitActive`;
+  firewall/listeners не менялись;
+- runtime-копия `C:\IZO_ASA\runtime\check_backup_health.ps1` синхронизирована;
+  scheduled task `IZO_ASA Backup Health 10m` запущена штатно: Last Result 0;
+- `C:\IZO_ASA\health\backup-current.json`: `OverallStatus=OK`,
+  `YandexSyncErrors=[]`, `YandexEgressSplitActive=true`, свежие
+  `LastLocalBackup` (hourly) и `LastCloudStage` (daily 01:00);
+- verify-only: `BACKUP_VERIFY_OK` + `LOCAL_BACKUP_STATUS_OK`
+  (snapshot 565 MB DB, 1175 media files, manifest sha в health);
+- rehearsal restore: `REHEARSAL_RESTORE_OK` новейшего snapshot в
+  `D:\IZO_ASA_RestoreTest` (snapshot читался, production не затрагивался);
+- новый contract-тест `test_yandex_route_check_requires_proven_egress_split`
+  в `tools/test_backup_automation.py`; backup-тесты 17 passed; Quick 88
+  passed;
+- health evidence хранится вне Git и не содержит секретов/адресов.
+
+Статус пакета: `VERIFIED`; маршрут `OPERATIONALLY VERIFIED` (split доказан
+на живом соединении).
 
 ### MAIL-OPS-001 — UniSender от настройки до доставки
 
