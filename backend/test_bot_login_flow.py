@@ -9,6 +9,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+# Browser-faithful contract: repeated bot-login/start calls carry the challenge
+# cookie, so they present an allowlisted Origin to pass CSRF (AUTH-LEGACY-001B).
+from test_support.browser_origin import BROWSER_ORIGIN
 
 
 def _reset_max_deep_link_cache() -> None:
@@ -71,10 +74,12 @@ def test_bot_login_start_limits_active_challenges_per_ip_and_provider(temp_db, m
     client = TestClient(main.app)
 
     for _ in range(3):
-        response = client.post("/api/auth/bot-login/start", json={"provider": "telegram"})
+        # Repeated starts carry the challenge cookie set by the first call, so
+        # the browser-sent Origin is required to pass CSRF (AUTH-LEGACY-001B).
+        response = client.post("/api/auth/bot-login/start", json={"provider": "telegram"}, headers=BROWSER_ORIGIN)
         assert response.status_code == 200
 
-    blocked = client.post("/api/auth/bot-login/start", json={"provider": "telegram"})
+    blocked = client.post("/api/auth/bot-login/start", json={"provider": "telegram"}, headers=BROWSER_ORIGIN)
     assert blocked.status_code == 429
     with main.db() as conn:
         pending = conn.execute(
@@ -86,14 +91,14 @@ def test_bot_login_start_limits_active_challenges_per_ip_and_provider(temp_db, m
 def test_bot_login_start_expires_stale_rows_before_enforcing_active_cap(temp_db, monkeypatch):
     monkeypatch.setattr(main, "BOT_LOGIN_MAX_ACTIVE_PER_IP_PROVIDER", 1)
     client = TestClient(main.app)
-    assert client.post("/api/auth/bot-login/start", json={"provider": "telegram"}).status_code == 200
+    assert client.post("/api/auth/bot-login/start", json={"provider": "telegram"}, headers=BROWSER_ORIGIN).status_code == 200
     with main.db() as conn:
         conn.execute(
             "UPDATE auth_login_challenges SET expires_at = ? WHERE provider = 'telegram'",
             ((datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),),
         )
 
-    response = client.post("/api/auth/bot-login/start", json={"provider": "telegram"})
+    response = client.post("/api/auth/bot-login/start", json={"provider": "telegram"}, headers=BROWSER_ORIGIN)
 
     assert response.status_code == 200
     with main.db() as conn:

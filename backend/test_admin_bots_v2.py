@@ -7,6 +7,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+# Browser-faithful contract: cookie-auth mutations carry an allowlisted Origin
+# to pass the CSRF boundary (AUTH-LEGACY-001B). GET requests stay untouched.
+from test_support.browser_origin import BROWSER_ORIGIN
 
 
 NOW = "2026-07-16T00:00:00+00:00"
@@ -95,6 +98,7 @@ def test_default_modes_are_disabled_and_token_save_is_inert(bot_admin_env, monke
             "/api/admin/bots/telegram/token-v2",
             json={"token": "telegram-test-token", "verify": True},
             cookies=bot_admin_env["cookies"],
+            headers=BROWSER_ORIGIN,
         )
 
     assert config.status_code == 200
@@ -124,12 +128,14 @@ def test_bot_secret_can_be_replaced_and_deleted(bot_admin_env, monkeypatch):
                 "/api/admin/bots/telegram/token-v2",
                 json={"token": token},
                 cookies=bot_admin_env["cookies"],
+            headers=BROWSER_ORIGIN,
             )
             assert response.status_code == 200
             assert token not in response.text
         deleted = client.delete(
             "/api/admin/bots/telegram/token-v2",
             cookies=bot_admin_env["cookies"],
+            headers=BROWSER_ORIGIN,
         )
     assert deleted.status_code == 200
     assert bot_admin_env["store"].get(main.TELEGRAM_BOT_SECRET_NAME) == ""
@@ -145,6 +151,7 @@ def test_max_token_is_saved_without_exposure(bot_admin_env, monkeypatch):
             "/api/admin/bots/max/token-v2",
             json={"token": "max-private-test-token"},
             cookies=bot_admin_env["cookies"],
+            headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 200
     assert response.json()["activated"] is False
@@ -258,11 +265,13 @@ def test_polling_and_webhook_require_complete_configuration(bot_admin_env):
             "/api/admin/bots/config-v2",
             json={"config": polling_config, "confirmModeChange": True},
             cookies=bot_admin_env["cookies"],
+            headers=BROWSER_ORIGIN,
         )
         webhook = client.put(
             "/api/admin/bots/config-v2",
             json={"config": webhook_config, "confirmModeChange": True},
             cookies=bot_admin_env["cookies"],
+            headers=BROWSER_ORIGIN,
         )
     assert polling.status_code == 400
     assert webhook.status_code == 400
@@ -282,6 +291,7 @@ def test_mode_change_requires_explicit_confirmation(bot_admin_env):
             "/api/admin/bots/config-v2",
             json={"config": config, "confirmModeChange": False},
             cookies=bot_admin_env["cookies"],
+            headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 409
 
@@ -291,6 +301,7 @@ def test_generated_webhook_secret_is_never_returned(bot_admin_env):
         response = client.post(
             "/api/admin/bots/max/webhook-secret-v2",
             cookies=bot_admin_env["cookies"],
+            headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 200
     assert response.json()["configured"] is True
@@ -334,6 +345,7 @@ def test_secret_store_failure_returns_safe_error(bot_admin_env, monkeypatch):
             "/api/admin/bots/max/token-v2",
             json={"token": "max-test-token"},
             cookies=bot_admin_env["cookies"],
+            headers=BROWSER_ORIGIN,
         )
     assert response.status_code == 503
     assert "sensitive internal failure" not in response.text

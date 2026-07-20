@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from test_support.browser_origin import BROWSER_ORIGIN
 
 
 def count(table, where="", params=()):
@@ -44,6 +45,9 @@ def temp_db(tmp_path: Path, monkeypatch):
 def admin_client() -> TestClient:
     client = TestClient(main.app)
     client.cookies.set(main.TRUSTED_SESSION_COOKIE_NAME, _ADMIN_SESSION["token"])
+    # Browser-faithful: cookie-auth unsafe methods carry an allowlisted Origin
+    # to pass the CSRF boundary (AUTH-LEGACY-001B).
+    client.headers.update(BROWSER_ORIGIN)
     return client
 
 

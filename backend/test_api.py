@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import main
+from test_support.browser_origin import BROWSER_ORIGIN
 
 
 MODES = [
@@ -126,10 +127,14 @@ def isolated_db(tmp_path, monkeypatch):
 
 
 def authed_client() -> TestClient:
-    """TestClient carrying the trusted session cookie + matching legacy header."""
+    """TestClient carrying the trusted session cookie + matching legacy header.
+
+    Browsers send an allowlisted Origin on unsafe methods, so this browser-like
+    client carries it by default to pass the CSRF boundary (AUTH-LEGACY-001B).
+    """
     client = TestClient(main.app)
     client.cookies.set(main.TRUSTED_SESSION_COOKIE_NAME, _SESSION["session_token"])
-    client.headers.update({"X-OneNode-User": _SESSION["legacy_user_id"]})
+    client.headers.update({"X-OneNode-User": _SESSION["legacy_user_id"], **BROWSER_ORIGIN})
     return client
 
 
@@ -244,7 +249,8 @@ def test_bot_operational_endpoints_reject_trusted_non_admin() -> None:
     with TestClient(main.app) as client:
         client.cookies.set(main.TRUSTED_SESSION_COOKIE_NAME, session["session_token"])
         for method, path, payload in BOT_OPERATIONAL_CASES:
-            response = client.request(method, path, json=payload)
+            # Allowlisted Origin keeps the 403 coming from authorization, not CSRF.
+            response = client.request(method, path, json=payload, headers=BROWSER_ORIGIN)
             assert response.status_code == 403, f"{method} {path}: {response.status_code}"
 
 

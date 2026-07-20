@@ -10,6 +10,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+# Browser-faithful contract: cookie-auth mutations carry an allowlisted Origin
+# to pass the CSRF boundary (AUTH-LEGACY-001B). change-password always runs on
+# an authenticated (cookie-bearing) client; register/login carry the cookie on
+# repeated calls against a shared client.
+from test_support.browser_origin import BROWSER_ORIGIN
 
 PW = "S3cret-Password!"
 
@@ -42,11 +47,11 @@ def register(client, email, password=PW, repeat=None):
     return client.post("/api/auth/password/register-v2", json={
         "email": email, "password": password, "password_repeat": repeat if repeat is not None else password,
         "accepted_terms": True, "accepted_privacy": True, "accepted_personal_data": True, "platform": "web_desktop",
-    })
+    }, headers=BROWSER_ORIGIN)
 
 
 def login(client, email, password=PW):
-    return client.post("/api/auth/password/login-v2", json={"email": email, "password": password, "platform": "web_desktop"})
+    return client.post("/api/auth/password/login-v2", json={"email": email, "password": password, "platform": "web_desktop"}, headers=BROWSER_ORIGIN)
 
 
 def change_password(client, current_password=PW, new_password="N3w-Secure-Password!"):
@@ -54,7 +59,7 @@ def change_password(client, current_password=PW, new_password="N3w-Secure-Passwo
         "current_password": current_password,
         "new_password": new_password,
         "new_password_repeat": new_password,
-    })
+    }, headers=BROWSER_ORIGIN)
 
 
 def request_code(client, email):
