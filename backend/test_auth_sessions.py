@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from test_support.browser_client import BrowserTestClient
 
 
 NOW = "2026-06-25T00:00:00+00:00"
@@ -131,7 +132,9 @@ def test_refresh_returns_new_tokens(temp_db):
 def test_old_refresh_token_cannot_be_reused(temp_db):
     iuid, legacy = make_user()
     created = main.create_auth_session(iuid, legacy)
-    with TestClient(main.app) as client:
+    # Browser flow: the first refresh stores rotated cookies, the second
+    # refresh is an unsafe request from the same browser (AUTH-LEGACY-001B).
+    with BrowserTestClient(main.app) as client:
         first = client.post("/api/auth/session/refresh-v2", json={"refresh_token": created["refresh_token"]})
         assert first.status_code == 200
         # reusing the old refresh token must now fail

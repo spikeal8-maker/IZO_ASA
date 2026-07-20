@@ -19,6 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from test_support.browser_client import BrowserTestClient
 
 
 TEST_BOT_TOKEN = "max-987654:TEST-bot-token-for-unit-tests"
@@ -106,7 +107,9 @@ def test_session_created_with_hashes_only(temp_db):
 
 # 4 & 5
 def test_repeated_login_reuses_internal_id_no_dup(temp_db):
-    with TestClient(main.app) as client:
+    # Browser flow: login stores the session cookie, the second login is an
+    # unsafe request from the same browser (AUTH-LEGACY-001B).
+    with BrowserTestClient(main.app) as client:
         r1 = post(client, make_web_app_data(user={"id": 777, "first_name": "C"}))
         r2 = post(client, make_web_app_data(user={"id": 777, "first_name": "C2"}))
     assert r1.json()["internal_user_id"] == r2.json()["internal_user_id"]
