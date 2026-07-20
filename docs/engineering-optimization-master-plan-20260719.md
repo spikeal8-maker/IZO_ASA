@@ -1,7 +1,8 @@
 # IZO_ASA — актуальный master plan оптимизации production
 
 Дата новой базовой проверки: **2026-07-19**
-Статус: **единственный текущий исполняемый backlog**
+Статус: **спецификации и evidence; исполняемая очередь с 2026-07-20 —
+[optimization-and-decomposition-plan-20260720.md](optimization-and-decomposition-plan-20260720.md)**
 Фактический аудит: [agent-compliance-audit-20260719.md](agent-compliance-audit-20260719.md)
 Предыдущий план: `engineering-transformation-master-plan-20260717.md` — исторический checkpoint, не текущая очередь.
 
@@ -94,8 +95,8 @@ mail `OPERATIONALLY VERIFIED`, а HTTP 200 не доказывает корре�
 | 2 | `SEC-DIAG-001` | P0 | public API не раскрывает operator details | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
 | 3 | `BOT-TG-001` | P0 | Telegram polling operational health доказан | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
 | 4 | `BACKUP-NET-001` | P1 | backup health зелёный с approved route | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
-| 5 | `MAIL-OPS-001` | P1 | UniSender delivery подтверждён | `TODO` |
-| 6 | `AUTH-LEGACY-001` | P1 | legacy auth consumers безопасно сокращаются | `TODO` |
+| 5 | `MAIL-OPS-001` | P1 | UniSender delivery подтверждён | `DEFERRED_BY_OWNER` 2026-07-20 |
+| 6 | `AUTH-LEGACY-001` | P1 | legacy auth consumers безопасно сокращаются | WIP сохранён как handoff (см. current-status); active code package отсутствует; далее `AUTH-LEGACY-001A` по плану 20260720 |
 | 7 | `OPS-001` | P1 | service supervision и reboot/crash recovery | `TODO` |
 | 8 | `REL-002` | P1 | immutable backend A/B switch + drain | `TODO` |
 | 9 | `OBS-001` | P1 | actionable health/metrics/receipt evidence | `TODO` |
@@ -468,6 +469,10 @@ Operator gate:
 Acceptance: unit/integration tests + один полученный test email =
 `OPERATIONALLY VERIFIED`. Без inbox evidence статус не выше `DEPLOYED`.
 
+2026-07-20: `DEFERRED_BY_OWNER` («работу с почтой пропускаем»). UniSender-код
+остаётся `DEPLOYED`; доставка не доказывалась; operator gate не выполнялся.
+Возобновление возможно с той же спецификацией.
+
 ### AUTH-LEGACY-001 — закрытие compatibility authorization
 
 Цель: legacy идентификаторы никогда не дают доступ к protected state.
@@ -820,17 +825,11 @@ Full receipt выполняется один раз на clean release candidate
 
 ## 15. Точное следующее действие
 
-`REL-LOCK-001` реализован и закоммичен (см. evidence в его секции). Следующий
-пакет — только `SEC-DIAG-001`:
-
-1. повторить canonical/process preflight;
-2. зафиксировать текущие payload `/api/platforms` и `/api/bots/status`
-   characterization-тестами;
-3. убрать operator intelligence из anonymous payload;
-4. перевести полные diagnostics под `require_trusted_admin`;
-5. проверить frontend/static consumers до изменения контракта;
-6. focused tests + Quick;
-7. commit/push; deploy — отдельным разрешённым шагом.
+2026-07-20 (PLAN-SYNC-001): исполняемая очередь перенесена в
+[optimization-and-decomposition-plan-20260720.md](optimization-and-decomposition-plan-20260720.md),
+краткий фактический статус — в [current-status.md](current-status.md).
+Этот документ остаётся хранилищем спецификаций пакетов и verified evidence;
+его прежние «следующие шаги» больше не являются очередью.
 
 Историческая заметка REL-LOCK-001: гонка двух publisher была воспроизведена на
 работающем компьютере; теперь второй owner обязан завершиться до
