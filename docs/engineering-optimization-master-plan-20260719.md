@@ -90,7 +90,7 @@ mail `OPERATIONALLY VERIFIED`, а HTTP 200 не доказывает корре�
 | Порядок | ID | Приоритет | Результат | Статус |
 |---:|---|---|---|---|
 | 0 | `GOV-001` | P0 | единые правила и новый plan/audit | `VERIFIED` |
-| 1 | `REL-LOCK-001` | P0 | один publisher/Full verifier, no race | `CODE COMPLETE` (evidence в секции пакета) |
+| 1 | `REL-LOCK-001` | P0 | один publisher/Full verifier, no race | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
 | 2 | `SEC-DIAG-001` | P0 | public API не раскрывает operator details | `TODO` |
 | 3 | `BOT-TG-001` | P0 | Telegram polling operational health доказан | `TODO` |
 | 4 | `BACKUP-NET-001` | P1 | backup health зелёный с approved route | `TODO` |
@@ -208,7 +208,36 @@ Verification evidence:
 - `tools/verify.ps1 -Mode Quick`: 79 passed, 48.75 s, source stable;
 - contract-тесты verify/launchers/collection после включения нового файла в
   Quick-набор: 26 passed;
-- Full receipt: см. финальную запись evidence ниже после commit на clean SHA.
+- первый Full запуск честно упал: новый тест был негерметичен (пытался взять
+  `full-verify`, который законно держал внешний verifier); исправлено commit
+  `3fc06fe` — тест переиспользует живой busy state и убирает re-entrancy token
+  у дочернего verifier; lock при падении корректно освобождён `finally`,
+  остаточных pytest не было;
+- Full receipt на clean SHA `3fc06fef0b58…`: 1564 passed, frontend
+  lint/build/identity/origin/resilience PASS, receipt
+  `3fc06fef0b58-20260720105555-rellock.json`;
+- live proof: работающий Full держал `full-verify` (owner PID 15704,
+  stale=False), статус после — FREE.
+
+Deployment evidence 2026-07-20 (рестарт явно разрешён владельцем):
+
+- окно спокойное: active jobs 0, `preparing` feed publications 0 (read-only);
+- `start-public.bat` владел `public-release` (owner cmd PID 29472); publisher
+  re-entered по token, принял exact-SHA receipt без второго Full;
+- candidate smoke на 5197 OK, активация `caddy-reload`, release
+  `3fc06fef0b58-20260720110528`, previous `dbb1ca253dfe-20260719043420`
+  сохранён для rollback;
+- controlled backend restart: oldPid=28452 → newPid=64648, start 11:05:52;
+- локальные пробы: health/capabilities 200; dev-client=False; hashed
+  asset=True; release meta/shell `/feed` `/gallery`/api-version совпадают;
+  generate/gallery/me-v2 no-session = 401;
+- публичный домен: `/`, `/feed`, `/gallery`, `/api/health` 200,
+  `/api/version` = `3fc06fef0b58-20260720110528`;
+- оба lock освобождены (FREE); порт 8000 — один владелец 64648; 8001 свободен;
+- свежий backend лог: 0 error-строк, 0 `TelegramTransportError`, MAX polling
+  200.
+
+Статус пакета: `VERIFIED` (код + acceptance в production окружении).
 
 ### SEC-DIAG-001 — минимальные публичные status endpoints
 
