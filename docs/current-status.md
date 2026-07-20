@@ -1,6 +1,6 @@
 # IZO_ASA — текущий статус (обновляется каждым пакетом)
 
-Обновлено: 2026-07-20 (AUTH-LEGACY-001A завершён).
+Обновлено: 2026-07-20 (AUTH-LEGACY-001B завершён).
 Исполняемая очередь: [optimization-and-decomposition-plan-20260720.md](optimization-and-decomposition-plan-20260720.md).
 Подробное историческое evidence остаётся в
 [engineering-optimization-master-plan-20260719.md](engineering-optimization-master-plan-20260719.md)
@@ -21,12 +21,17 @@
 
 ## Активный и следующий пакет
 
-- Active package: `AUTH-LEGACY-001B` — CSRF boundary + вынос HTTP middleware
-  composition из `main.py` (по команде владельца; deploy в пакет не входит).
+- Active package: none.
+- `AUTH-LEGACY-001B` = `CODE COMPLETE`: CSRF origin boundary
+  (`app/security/csrf.py`) + вынос HTTP middleware composition
+  (`app/security/http_middleware.py`); `main.py` 20257→20249. Full зелёный
+  1631 passed на code SHA `0a3a780d77edaf2d6e6ee2c66cb464e60a8ade8e`
+  (source stable, frontend gates PASS). Deployment: `NOT DEPLOYED` — CSRF
+  включается в production отдельной командой владельца после review.
 - `AUTH-LEGACY-001A` = `CODE COMPLETE` (route matrix
   [auth-legacy-route-matrix-20260720.md](auth-legacy-route-matrix-20260720.md),
-  15 characterization tests; runtime не менялся; deploy не требуется).
-- Next package: `AUTH-LEGACY-001B` — НЕ начинать без отдельной команды
+  15 characterization tests).
+- Next package: `AUTH-LEGACY-001C` — НЕ начинать без отдельной команды
   владельца.
 
 ## Завершённые пакеты (VERIFIED)
