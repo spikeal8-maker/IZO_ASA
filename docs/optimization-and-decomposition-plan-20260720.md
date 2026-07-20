@@ -78,6 +78,10 @@ Deployment required: yes/no
 8. Production DB/media/secrets/providers не используются в тестах.
 9. Deploy/restart выполняется только по отдельному явному разрешению владельца.
 10. После extraction исходный монолит и его budget должны реально уменьшиться.
+11. Для code-bearing package обязателен порядок: local clean commit →
+    targeted/Quick → один Full на чистом локальном SHA → push ТОЛЬКО после
+    зелёного Full → deploy отдельным разрешением. Нельзя пушить code commit в
+    `main` до зелёного Full (targeted/Quick не заменяют Full).
 
 ---
 
