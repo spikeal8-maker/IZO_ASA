@@ -1,6 +1,6 @@
 # IZO_ASA — текущий статус (обновляется каждым пакетом)
 
-Обновлено: 2026-07-20 (PLAN-SYNC-001).
+Обновлено: 2026-07-20 (старт AUTH-LEGACY-001A).
 Исполняемая очередь: [optimization-and-decomposition-plan-20260720.md](optimization-and-decomposition-plan-20260720.md).
 Подробное историческое evidence остаётся в
 [engineering-optimization-master-plan-20260719.md](engineering-optimization-master-plan-20260719.md)
@@ -8,8 +8,10 @@
 
 ## Git и release
 
-- Current `main` SHA: `5507757d01098dbb10c965a35fcadad0fe50c7b1`
-  (`main == origin/main`, worktree чист).
+- Status baseline: `bd7b5ab8e9cbe11e72051560cd3aab833ea3bcb9` — SHA, на
+  котором начат активный пакет.
+- Authoritative current HEAD: определяется командой `git rev-parse HEAD`
+  (не фиксируется здесь, чтобы поле не устаревало после каждого commit).
 - Current live release: `263377ff0d5d-20260720115826`
   (backend + frontend identity совпадают; активирован 2026-07-20 через
   locked publisher по exact-SHA receipt).
@@ -19,10 +21,10 @@
 
 ## Активный и следующий пакет
 
-- Active package: `PLAN-SYNC-001` (этот commit).
-- Next package: `CTX-001` (context docs + frontend map).
-- После него: `AUTH-LEGACY-001A` — запускать ТОЛЬКО после завершения
-  `CTX-001` и отдельной команды владельца.
+- Active package: `AUTH-LEGACY-001A` — characterization и route matrix
+  (запущен по команде владельца 2026-07-20; runtime-поведение не меняется).
+- Next package after acceptance: `AUTH-LEGACY-001B` — НЕ начинать без
+  отдельной команды владельца.
 
 ## Завершённые пакеты (VERIFIED)
 
@@ -35,6 +37,8 @@
 | `BACKUP-NET-001` | 2026-07-20 | backup route зелёный, restore rehearsal OK |
 | `PLAN-WIP-001` | 2026-07-20 | AUTH-WIP разобран и описан |
 | `WIP-ISOLATE-001` | 2026-07-20 | AUTH-WIP сохранён в handoff, worktree чист |
+| `PLAN-SYNC-001` | 2026-07-20 | current-status.md, статусы приведены к факту |
+| `CTX-001` | 2026-07-20 | context docs + детерминированный frontend map в Quick |
 
 ## Отложенные пакеты
 
