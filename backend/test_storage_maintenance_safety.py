@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import main
+from app.services import bot_workers
 from app.storage.maintenance import startup_storage_maintenance_allowed
 
 
@@ -28,7 +29,11 @@ def test_testclient_startup_skips_all_storage_maintenance(tmp_path: Path, monkey
     monkeypatch.setattr(main, "worker_started", True)
     monkeypatch.setattr(main, "BOT_UPDATES_MODE", "disabled")
     monkeypatch.setattr(main, "MAX_UPDATES_MODE", "disabled")
-    monkeypatch.setattr(main, "start_bot_polling_tasks", lambda: [])
+    monkeypatch.setattr(
+        bot_workers,
+        "start_bot_polling_tasks",
+        lambda *args, **kwargs: [],
+    )
 
     def forbidden(*args, **kwargs):
         raise AssertionError("pytest startup must not run storage maintenance")
