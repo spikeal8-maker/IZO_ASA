@@ -41,749 +41,96 @@ import TopBarV3 from './TopBarV3'
 import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import ProfilePage, { type PublicProfileLink } from './ProfilePage'
-import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelOptions, modelPublicInfo, normalizeModelAccess, normalizeTariffs, type ModelModeKey, type ModelOption, type QualityPreset, type TariffConfig, type TariffKey, type TariffModelDefaults, type UserModelAccess } from './profileSupport'
-import { FORMAT_TO_PRICING_ID, IMAGE_RESOLUTIONS, normalizeResolutionId, type ImageResolution } from './resolutionPolicy'
+import { DEFAULT_TARIFFS, avatarPresets, modelAccessOption, modelOptions, modelPublicInfo, type ModelModeKey, type ModelOption, type QualityPreset, type TariffKey } from './profileSupport'
+import { normalizeResolutionId } from './resolutionPolicy'
 import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, PaintTool } from './paintTypes'
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
-import { applyClientSeo, currentSeoLocale, type SeoMeta } from './seo'
+import { applyClientSeo } from './seo'
 import ResilientRegion from './RuntimeBoundary'
 import {
   normalizeFeedPayload,
   normalizeGalleryPayload,
   normalizeGeneration,
-  normalizeModels,
-  type GalleryContractItem,
-  type GenerationContract,
 } from './runtimeContracts'
 import './newUi.css'
 import './paymentCheckout.css'
 import './newStudioV3.css'
 import previewPlaceholderUrl from './assets/preview-placeholder.jpg'
+import {
+  API,
+  apiErrorText,
+  apiFetch,
+  apiUrl,
+  userMediaUrl,
+  verifyPrivateImage,
+} from './studio/studioApi'
+import {
+  coreModeFromTab,
+  comfySafeGenerationSize,
+  composePaintPrompt,
+  createOutpaintPreview,
+  createPaintMask,
+  DEFAULT_FACE_STRENGTH,
+  DEFAULT_PAINT_MASK_PROMPT,
+  DEFAULT_PAINT_OUTPAINT_PROMPT,
+  DEFAULT_PAINT_SKETCH_PROMPT,
+  emptyPreview,
+  EMPTY_EDIT_SLOTS,
+  FALLBACK_LORA_OPTIONS,
+  faceStrengthPrompt,
+  FEED_I18N,
+  formatName,
+  formatPricingId,
+  historyAspectRatio,
+  historyShape,
+  I2I_STYLE_PREFIX,
+  imageRequestSizeFromSource,
+  initialProfileTabFromPath,
+  initialViewFromPath,
+  isRasterOpenRouterModel,
+  JOB_ACTIVE,
+  loadHtmlImage,
+  loadImageShape,
+  modelModeFromStudio,
+  newClientRequestId,
+  paintStageForResolution,
+  PROMPT_APPEND_PREFIX,
+  QUALITY,
+  randomOf,
+  randomSeed,
+  readStudioDraft,
+  resizeUploadImage,
+  RESOLUTION_PRESETS,
+  sameGenerationSize,
+  shapeFromSize,
+  STYLE_PREFIX,
+  studioSeoMeta,
+} from './studio/studioHelpers'
+import type {
+  CoreStudioMode,
+  FeedLang,
+  GalleryPickerTab,
+  InspectPreview,
+  LastI2ISubmit,
+  LastTextSubmit,
+  LoraOption,
+  N2GalleryImage,
+  N2Job,
+  N2Tab,
+  N2View,
+  PreviewShape,
+  PublicFormatId,
+  StudioDraft,
+  StudioMode,
+  StudioModelSort,
+  StudioPreviewState,
+  UploadedSourceImage,
+  UploadTarget,
+} from './studio/studioTypes'
+import { useModelPreferences, useStudioBackendData, useStudioDraftAutosave } from './studio/useStudioState'
 
 const PaintWorkbench = lazy(() => import('./PaintWorkbench'))
 const VideoStudio = lazy(() => import('./VideoStudio'))
-
-const API = import.meta.env.VITE_API_BASE_URL || '/api'
-// Origin API-сервера для относительных media-URL из ответов backend
-// (в проде API='/api' → origin пуст и URL остаются относительными).
-const API_ORIGIN = API.endsWith('/api') ? API.slice(0, -'/api'.length) : ''
-
-function apiUrl(path: unknown): string {
-  if (typeof path !== 'string' || !path) return ''
-  return path.startsWith('/') ? `${API_ORIGIN}${path}` : path
-}
-
-function userMediaUrl(path: string | null | undefined): string | null {
-  if (!path) return null
-  return path.startsWith('/media/') ? apiUrl(path) : path
-}
-
-// Auth: только trusted cookie session (credentials: include). Никаких legacy
-// заголовков, кук или клиентских идентификаторов — см. docs/new-ui-v2-plan.md.
-async function apiFetch(path: string, init: RequestInit = {}) {
-  const request = () => fetch(`${API}${path}`, { ...init, credentials: 'include' })
-  let response = await request()
-  if (response.status === 401 && await ensureSessionRefreshedV2()) response = await request()
-  return response
-}
-
-async function verifyPrivateImage(path: string): Promise<void> {
-  const request = () => fetch(apiUrl(path), { credentials: 'include' })
-  let response = await request()
-  if (response.status === 401 && await ensureSessionRefreshedV2()) response = await request()
-  if (!response.ok) throw new Error(`Image unavailable: ${response.status}`)
-  await response.body?.cancel().catch(() => undefined)
-}
-
-const PRIVATE_ERROR_DETAILS = /(?:openai|openrouter|comfy\s*ui|coffee\s*ui|api[\s_-]*key|provider|endpoint|traceback|stack trace|insufficient[_\s-]*(?:credits?|quota)|billing|authentication failed|connection refused|econnrefused)/i
-
-function publicErrorText(message: string, fallback: string): string {
-  const normalized = message.trim()
-  if (!normalized || PRIVATE_ERROR_DETAILS.test(normalized)) return fallback
-  return normalized
-}
-
-function apiErrorText(detail: unknown, fallback: string): string {
-  if (typeof detail === 'string' && detail.trim()) return publicErrorText(detail, fallback)
-  if (Array.isArray(detail)) {
-    const messages = detail
-      .map((item) => item && typeof item === 'object' && 'msg' in item ? String(item.msg || '') : '')
-      .filter(Boolean)
-    if (messages.length) return publicErrorText(messages.join('. '), fallback)
-  }
-  if (detail && typeof detail === 'object') {
-    const value = detail as { code?: unknown; field?: unknown; message?: unknown }
-    if (typeof value.message === 'string' && value.message.trim()) return publicErrorText(value.message, fallback)
-    const field = typeof value.field === 'string' ? value.field : 'изображение'
-    if (value.code === 'input_media_missing') return `Файл для поля «${field}» больше не найден. Выберите изображение заново.`
-    if (value.code === 'input_media_unavailable') return `Изображение для поля «${field}» недоступно. Выберите свой файл или изображение из галереи.`
-  }
-  return fallback
-}
-
-type N2Tab = 'feed' | 'text' | 'i2i' | 'edit' | 'paint' | 'video'
-// tabs — генератор/лента; gallery и profile — отдельные канонические страницы.
-type N2View = 'tabs' | 'profile'
-type StudioMode = 'text' | 'i2i' | 'edit' | 'paint'
-type CoreStudioMode = Exclude<StudioMode, 'paint'>
-type UploadTarget = { kind: 'i2i' } | { kind: 'edit'; index: number } | { kind: 'paint' } | { kind: 'paintSketch' }
-type InspectPreview = { url: string; title: string }
-type PreviewShape = 'square' | 'wide' | 'tall'
-type StudioPreviewState = {
-  kind: 'empty' | 'inspect' | 'result' | 'history'
-  url?: string
-  sourceUrl?: string
-  shape?: PreviewShape
-  title?: string
-  galleryId?: string
-  promptOriginal?: string
-  resultImageId?: string
-  width?: number
-  height?: number
-  error?: boolean
-}
-type ModelsPayload = { loras?: string[] }
-type LoraOption = { id: string; label: string; triggerWord: string; strength: number }
-type UserModelChoices = Partial<Record<ModelModeKey, Partial<TariffModelDefaults>>>
-type StudioModelSort = 'name-asc' | 'name-desc' | 'tokens-asc' | 'tokens-desc'
-type LastTextSubmit = { prompt: string; model: string; width: number; height: number }
-type LastI2ISubmit = LastTextSubmit & { source: string }
-type StudioDraft = {
-  prompts?: Partial<Record<StudioMode, string>>
-  styleId?: string
-  resolutionId?: string
-  quality?: string
-  seed?: number
-  strengthPct?: number
-  sourceImage?: string
-  editSlots?: EditSlot[]
-  editFaceStrengthPct?: number
-}
-
-const STUDIO_DRAFT_KEY = 'izo:studio-draft-v1'
-
-function readStudioDraft(): StudioDraft {
-  try {
-    const value = window.sessionStorage.getItem(STUDIO_DRAFT_KEY)
-    return value ? JSON.parse(value) as StudioDraft : {}
-  } catch {
-    return {}
-  }
-}
-
-function writeStudioDraft(draft: StudioDraft): void {
-  try {
-    window.sessionStorage.setItem(STUDIO_DRAFT_KEY, JSON.stringify(draft))
-  } catch {
-    const lightweight = {
-      ...draft,
-      sourceImage: draft.sourceImage?.startsWith('data:') ? undefined : draft.sourceImage,
-      editSlots: draft.editSlots?.map((slot) => ({
-        ...slot,
-        image: slot.image?.startsWith('data:') ? undefined : slot.image,
-      })),
-    }
-    try {
-      window.sessionStorage.setItem(STUDIO_DRAFT_KEY, JSON.stringify(lightweight))
-    } catch {
-      // Storage may be disabled; generation remains usable without recovery.
-    }
-  }
-}
-type PublicModelFormatPricing = {
-  id: string
-  label: string
-  short: string
-  tokens?: number | null
-  requestSize?: string
-  billingWidth?: number
-  billingHeight?: number
-  supported?: boolean
-}
-type PublicModelPricing = { id: string; label: string; formats: PublicModelFormatPricing[]; resolutions?: PublicModelFormatPricing[] }
-type PublicOpenRouterPricing = { models?: PublicModelPricing[] }
-type PublicFormatId = 'square' | 'portrait' | 'wide' | 'soft_wide'
-
-function coreModeFromTab(tab: N2Tab): CoreStudioMode | null {
-  if (tab === 'text' || tab === 'i2i' || tab === 'edit') return tab
-  return null
-}
-
-function modelModeFromStudio(mode: StudioMode, paintMode: PaintSubMode): ModelModeKey {
-  if (mode === 'text') return 'text_to_image'
-  if (mode === 'i2i') return 'image_to_image'
-  if (mode === 'edit') return 'edit'
-  if (paintMode === 'mask') return 'inpaint'
-  if (paintMode === 'outpaint') return 'outpaint'
-  if (paintMode === 'remove_bg') return 'remove_background'
-  return 'paint'
-}
-
-function emptyPreview(): StudioPreviewState {
-  return { kind: 'empty' }
-}
-
-function shapeFromSize(width?: number, height?: number): PreviewShape {
-  if (!width || !height) return 'square'
-  const ratio = width / height
-  if (ratio > 1.18) return 'wide'
-  if (ratio < 0.82) return 'tall'
-  return 'square'
-}
-
-function pricingMapFromPayload(payload: unknown): Record<string, PublicModelPricing> {
-  const source = payload && typeof payload === 'object' ? payload as PublicOpenRouterPricing : {}
-  const models = Array.isArray(source.models) ? source.models : []
-  return models.reduce((acc, model) => {
-    if (model?.id) acc[model.id] = { ...model, formats: Array.isArray(model.formats) ? model.formats : [] }
-    return acc
-  }, {} as Record<string, PublicModelPricing>)
-}
-
-function formatPricingId(resolution: ResolutionPreset) {
-  return FORMAT_TO_PRICING_ID[resolution.format]
-}
-
-function formatName(formatId: string) {
-  if (formatId === 'portrait') return '9:16'
-  if (formatId === 'wide') return '16:9'
-  if (formatId === 'soft_wide') return '3:2'
-  return '1:1'
-}
-
-function isRasterOpenRouterModel(model: ModelOption) {
-  if (model.provider !== 'openrouter') return true
-  return !/vector/i.test(model.id)
-}
-
-function loadImageShape(url: string): Promise<PreviewShape> {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => resolve(shapeFromSize(img.naturalWidth, img.naturalHeight))
-    img.onerror = () => resolve('square')
-    img.src = apiUrl(url)
-  })
-}
-
-const EMPTY_EDIT_SLOTS: EditSlot[] = Array.from({ length: EDIT_SLOT_COUNT }, () => ({ image: undefined, role: '', takeNote: '' }))
-const DEFAULT_PAINT_SKETCH_PROMPT = 'Transform this sketch into a hyper-realistic cinematic scene. Interpret the lines as real-world objects with high-quality textures, cinematic lighting, natural shadows, depth, realistic materials and clean composition. Preserve the exact composition, silhouettes, poses, proportions and spatial relationships from the sketch. Scene description:'
-const DEFAULT_PAINT_MASK_PROMPT = 'Edit only the masked area and follow the user instruction literally for that selected region. Seamlessly blend the change with the surrounding scene while preserving lighting, shadows, perspective, depth of field and photo grain. Do not change unmasked areas.'
-const DEFAULT_PAINT_OUTPAINT_PROMPT = 'Extend the composition of this image. Replace black or empty spaces with a logical continuation of the background and foreground. Match perspective, lighting, color palette and texture so the transition is invisible. Scene description:'
-
-// Начальное состояние из URL. Статические /feed и /gallery отдаются backend,
-// а hash-ссылки из этих страниц возвращают пользователя в нужный режим UI 2.0.
-function initialViewFromPath(): { view: N2View; tab: N2Tab } {
-  const p = typeof window !== 'undefined' ? window.location.pathname : '/feed'
-  const h = typeof window !== 'undefined' ? window.location.hash : ''
-  if (p === '/gallery' || p.startsWith('/gallery') || p.startsWith('/new/gallery')) return { view: 'tabs', tab: 'text' }
-  if (p === '/profile' || p.startsWith('/profile') || p.startsWith('/new/profile')) return { view: 'profile', tab: 'feed' }
-  if (h === '#image-to-image') return { view: 'tabs', tab: 'i2i' }
-  if (h === '#editor') return { view: 'tabs', tab: 'edit' }
-  if (h === '#face' || h === '#face-to-image') return { view: 'tabs', tab: 'edit' }
-  if (h === '#draw' || h === '#drawing' || h === '#paint') return { view: 'tabs', tab: 'paint' }
-  if (h === '#video') return { view: 'tabs', tab: 'video' }
-  if (h === '#text-to-image') return { view: 'tabs', tab: 'text' }
-  if (p === '/paint' || p.startsWith('/paint/') || p === '/new/paint' || p.startsWith('/new/paint/')) return { view: 'tabs', tab: 'paint' }
-  if (p === '/video' || p.startsWith('/video/') || p === '/new/video' || p.startsWith('/new/video/')) return { view: 'tabs', tab: 'video' }
-  // /feed is owned by backend/static/feed/index.html. If the SPA is ever served
-  // for that path by a stale build or broken proxy, do not revive the old React feed.
-  return { view: 'tabs', tab: 'text' }
-}
-
-function initialProfileTabFromPath(): 'profile' | 'tariffs' | 'earn' | 'models' {
-  const path = typeof window !== 'undefined' ? window.location.pathname.replace(/\/+$/, '') : '/profile'
-  const segment = path.split('/').filter(Boolean).at(-1)
-  if (segment === 'tariffs' || segment === 'earn' || segment === 'models') return segment
-  return 'profile'
-}
-
-type N2Job = GenerationContract
-type N2GalleryImage = GalleryContractItem
-
-type UploadedSourceImage = {
-  id: string
-  thumbnailUrl: string
-  width: number
-  height: number
-  roleLabel?: string
-  createdAt?: string
-}
-
-type GalleryPickerTab = 'generated' | 'uploaded'
-
-// Форма миниатюры истории по реальным размерам/соотношению; квадрат — фолбэк.
-function historyShape(item: N2GalleryImage): 'square' | 'tall' | 'wide' {
-  if (item.width && item.height) {
-    if (item.width === item.height) return 'square'
-    return item.width > item.height ? 'wide' : 'tall'
-  }
-  if (item.aspectRatio) return feedShape(item.aspectRatio)
-  return 'square'
-}
-
-function historyAspectRatio(item: N2GalleryImage): string | undefined {
-  if (item.width && item.height) return `${item.width} / ${item.height}`
-  if (item.aspectRatio) {
-    const parts = item.aspectRatio.split(':').map((x) => Number(x))
-    if (parts.length === 2 && parts[0] > 0 && parts[1] > 0) return `${parts[0]} / ${parts[1]}`
-  }
-  return undefined
-}
-
-const QUALITY: Array<{ id: string; label: string; steps: number }> = [
-  { id: 'fast', label: 'Быстро', steps: 4 },
-  { id: 'standard', label: 'Стандарт', steps: 6 },
-  { id: 'max', label: 'Максимум', steps: 10 },
-]
-
-// Заготовленные разрешения системы. Источник данных — resolutionPresets
-// основного интерфейса (App.tsx) + средний размер 1536 (максимум генерации,
-// см. fitGenerationDimension). Перенесены данные, не вёрстка.
-type FormatId = 'square' | 'vertical' | 'horizontal'
-
-interface ResolutionPreset extends ImageResolution {
-  name: string
-  quality: string
-  kind: FormatId
-}
-
-const RESOLUTION_PRESETS: ResolutionPreset[] = IMAGE_RESOLUTIONS.map((item) => ({
-  ...item,
-  name: item.formatLabel,
-  quality: item.tierLabel,
-  kind: item.format === 'square' ? 'square' : item.format === 'portrait' ? 'vertical' : 'horizontal',
-}))
-
-const DEFAULT_FACE_STRENGTH = 75
-const FALLBACK_LORA_OPTIONS: LoraOption[] = [
-  { id: 'none', label: 'None', triggerWord: '', strength: 0 },
-  { id: 'lora_arcane', label: 'arcane style · 0.8', triggerWord: 'arcane style', strength: 0.8 },
-  { id: 'product_photo', label: 'product photo · 0.6', triggerWord: 'product photo', strength: 0.6 },
-]
-
-function faceStrengthPrompt(value: number): string {
-  if (value >= 85) return 'Face transfer strength: very strong. Prioritize the face identity from Image 2 clearly and recognizably while preserving the target scene from Image 1.'
-  if (value >= 60) return 'Face transfer strength: strong. Transfer the face identity from Image 2, but keep lighting, pose, clothing, and background from Image 1 natural.'
-  if (value >= 35) return 'Face transfer strength: balanced. Blend the face identity from Image 2 naturally with the head angle, lighting, and style of Image 1.'
-  return 'Face transfer strength: subtle. Keep most of the original target face structure from Image 1 and add only a light resemblance from Image 2.'
-}
-
-function fitGenerationDimension(value: number) {
-  return Math.max(512, Math.min(1536, Math.round(value / 16) * 16))
-}
-
-function comfySafeGenerationSize(size: { width: number; height: number }) {
-  const width = Math.max(512, size.width)
-  const height = Math.max(512, size.height)
-  const maxPixels = 2_050_000
-  const maxSide = 1792
-  const scale = Math.min(1, maxSide / Math.max(width, height), Math.sqrt(maxPixels / Math.max(1, width * height)))
-  return {
-    width: Math.max(512, Math.round((width * scale) / 16) * 16),
-    height: Math.max(512, Math.round((height * scale) / 16) * 16),
-  }
-}
-
-function sameGenerationSize(a: { width: number; height: number }, b: { width: number; height: number }) {
-  return a.width === b.width && a.height === b.height
-}
-
-async function resizeUploadImage(file: File): Promise<string> {
-  const sourceUrl = URL.createObjectURL(file)
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image()
-      img.onload = () => resolve(img)
-      img.onerror = reject
-      img.src = sourceUrl
-    })
-    const maxSide = Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height)
-    const scale = Math.min(1, 1536 / Math.max(1, maxSide))
-    const width = Math.max(16, Math.round(((image.naturalWidth || image.width) * scale) / 16) * 16)
-    const height = Math.max(16, Math.round(((image.naturalHeight || image.height) * scale) / 16) * 16)
-    const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('canvas_unavailable')
-    ctx.drawImage(image, 0, 0, width, height)
-    return canvas.toDataURL('image/jpeg', 0.9)
-  } finally {
-    URL.revokeObjectURL(sourceUrl)
-  }
-}
-
-async function imageRequestSizeFromSource(source: string | undefined, fallback: { width: number; height: number }) {
-  if (!source) return fallback
-  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = reject
-    img.src = source
-  }).catch(() => undefined)
-  const sourceWidth = image?.naturalWidth || fallback.width
-  const sourceHeight = image?.naturalHeight || fallback.height
-  const maxSide = 1536
-  const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight))
-  return {
-    width: fitGenerationDimension(sourceWidth * scale),
-    height: fitGenerationDimension(sourceHeight * scale),
-  }
-}
-
-async function loadHtmlImage(source: string): Promise<HTMLImageElement | undefined> {
-  return new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = reject
-    img.src = source
-  }).catch(() => undefined)
-}
-
-async function createPaintMask(inputImage: string | undefined, lines: PaintLine[], stageSize: { width: number; height: number }) {
-  if (!inputImage) return undefined
-  const image = await loadHtmlImage(inputImage)
-  if (!image) return undefined
-  const canvas = document.createElement('canvas')
-  canvas.width = image.naturalWidth || image.width
-  canvas.height = image.naturalHeight || image.height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return undefined
-  ctx.fillStyle = '#000'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  const scale = Math.min(stageSize.width / canvas.width, stageSize.height / canvas.height)
-  const offsetX = (stageSize.width - canvas.width * scale) / 2
-  const offsetY = (stageSize.height - canvas.height * scale) / 2
-  const map = (x: number, y: number) => [
-    Math.max(0, Math.min(canvas.width, (x - offsetX) / scale)),
-    Math.max(0, Math.min(canvas.height, (y - offsetY) / scale)),
-  ]
-  for (const line of lines) {
-    ctx.save()
-    ctx.strokeStyle = line.tool === 'eraser' ? '#000' : '#fff'
-    ctx.fillStyle = line.tool === 'eraser' ? '#000' : '#fff'
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.lineWidth = Math.max(1, line.strokeWidth / Math.max(0.1, scale))
-    if (line.kind === 'rect' || line.kind === 'circle') {
-      const [x1 = 0, y1 = 0, x2 = x1, y2 = y1] = line.points
-      const [mx1, my1] = map(x1, y1)
-      const [mx2, my2] = map(x2, y2)
-      const x = Math.min(mx1, mx2)
-      const y = Math.min(my1, my2)
-      const w = Math.abs(mx2 - mx1)
-      const h = Math.abs(my2 - my1)
-      if (line.kind === 'circle') {
-        ctx.beginPath()
-        ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2)
-        if (line.fill === false) ctx.stroke()
-        else ctx.fill()
-      } else if (line.fill === false) ctx.strokeRect(x, y, w, h)
-      else ctx.fillRect(x, y, w, h)
-    } else {
-      ctx.beginPath()
-      for (let i = 0; i < line.points.length; i += 2) {
-        const [x, y] = map(line.points[i] || 0, line.points[i + 1] || 0)
-        if (i === 0) ctx.moveTo(x, y)
-        else ctx.lineTo(x, y)
-      }
-      ctx.stroke()
-    }
-    ctx.restore()
-  }
-  return canvas.toDataURL('image/png')
-}
-
-async function createOutpaintPreview(inputImage: string | undefined, placement: PaintOutpaintPlacement, target: { width: number; height: number }) {
-  if (!inputImage) return undefined
-  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = reject
-    img.src = inputImage
-  }).catch(() => undefined)
-  if (!image) return undefined
-  const sourceWidth = image.naturalWidth || image.width
-  const sourceHeight = image.naturalHeight || image.height
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.max(256, Math.round(target.width || 1024))
-  canvas.height = Math.max(256, Math.round(target.height || 1024))
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return undefined
-  ctx.fillStyle = '#030403'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  ctx.fillStyle = 'rgba(182, 207, 18, .08)'
-  for (let x = -canvas.height; x < canvas.width; x += 24) ctx.fillRect(x, 0, 10, canvas.height)
-  const hasPlacement = typeof placement.sourceX === 'number'
-    && typeof placement.sourceY === 'number'
-    && typeof placement.sourceW === 'number'
-    && typeof placement.sourceH === 'number'
-  const frameW = Math.max(1, placement.frameW || target.width || canvas.width)
-  const frameH = Math.max(1, placement.frameH || target.height || canvas.height)
-  const scaleX = canvas.width / frameW
-  const scaleY = canvas.height / frameH
-  const finalWidth = Math.max(1, sourceWidth + Math.max(0, placement.left) + Math.max(0, placement.right))
-  const finalHeight = Math.max(1, sourceHeight + Math.max(0, placement.top) + Math.max(0, placement.bottom))
-  const x = hasPlacement ? Math.round((placement.sourceX || 0) * scaleX) : Math.round(Math.max(0, placement.left) * canvas.width / finalWidth)
-  const y = hasPlacement ? Math.round((placement.sourceY || 0) * scaleY) : Math.round(Math.max(0, placement.top) * canvas.height / finalHeight)
-  const w = hasPlacement ? Math.max(1, Math.round((placement.sourceW || frameW) * scaleX)) : Math.max(1, Math.round(sourceWidth * canvas.width / finalWidth))
-  const h = hasPlacement ? Math.max(1, Math.round((placement.sourceH || frameH) * scaleY)) : Math.max(1, Math.round(sourceHeight * canvas.height / finalHeight))
-  ctx.drawImage(image, x, y, w, h)
-  ctx.strokeStyle = '#b6cf12'
-  ctx.lineWidth = Math.max(2, Math.round(Math.min(canvas.width, canvas.height) / 240))
-  ctx.strokeRect(x + 1, y + 1, Math.max(1, w - 2), Math.max(1, h - 2))
-  return canvas.toDataURL('image/jpeg', 0.9)
-}
-
-type FeedLang = 'ru' | 'en'
-
-// RU/EN тексты ленты. Главная кнопка по ТЗ: «Повторить» / "Recreate"
-// (не Remix); в detail — «Сделать похожее» / "Make similar".
-const FEED_I18N: Record<FeedLang, Record<string, string>> = {
-  ru: {
-    feed: 'Лента',
-    forYou: 'Для вас',
-    fresh: 'Новое',
-    top: 'Популярное',
-    challenges: 'Челленджи',
-    follows: 'Подписки',
-    recreate: 'Ремикс',
-    makeSimilar: 'Сделать ремикс',
-    remixHint: 'Создать свою версию на основе этой работы',
-    save: 'Сохранить',
-    saved: 'Сохранено',
-    useStyle: 'Взять стиль',
-    publish: 'Опубликовать в ленту',
-    like: 'Нравится',
-    follow: 'Подписаться',
-    followed: 'Вы подписаны',
-    promptOpen: 'Промпт (открыт)',
-    promptPartial: 'Промпт частично',
-    promptHidden: 'Промпт скрыт автором',
-    showFull: 'Показать полностью',
-    collapse: 'Свернуть',
-    emptyTitle: 'Лента пока пустая',
-    emptyText: 'Публикации появятся здесь сразу после первого поста из Галереи.',
-    notAuthTitle: 'Публикация доступна после входа',
-    notAuthText: 'Смотреть ленту можно без аккаунта.',
-    login: 'Войти',
-    createImage: 'Создать изображение',
-    errorTitle: 'Не удалось загрузить ленту',
-    retry: 'Повторить попытку',
-    generate: 'Сгенерировать',
-    openGallery: 'Открыть галерею',
-    soonTitle: 'Скоро',
-    gallery: 'Галерея',
-    profile: 'Профиль',
-    myGallery: 'Моя галерея',
-    myWorks: 'Мои публикации',
-    useAsSource: 'Использовать как основу',
-    download: 'Скачать',
-    del: 'Удалить',
-    signOut: 'Выйти',
-    tokens: 'Тарифы',
-    plan: 'Тариф',
-    account: 'Аккаунт',
-    language: 'Язык',
-    galleryHint: 'Ваши генерации: открыть, использовать как основу или опубликовать в ленту.',
-    galleryGuest: 'Лента открыта всем, личная галерея — после входа.',
-    profileGuest: 'Войдите, чтобы увидеть профиль, баланс и свои работы.',
-    deleteConfirm: 'Удалить изображение из галереи?',
-    open: 'Открыть',
-    role: 'Статус',
-  },
-  en: {
-    feed: 'Feed',
-    forYou: 'For you',
-    fresh: 'New',
-    top: 'Top',
-    challenges: 'Challenges',
-    follows: 'Following',
-    recreate: 'Remix',
-    makeSimilar: 'Remix this',
-    remixHint: 'Create your own version from this image',
-    save: 'Save',
-    saved: 'Saved',
-    useStyle: 'Use style',
-    publish: 'Publish to feed',
-    like: 'Like',
-    follow: 'Follow',
-    followed: 'Following',
-    promptOpen: 'Prompt (open)',
-    promptPartial: 'Prompt partially open',
-    promptHidden: 'Prompt hidden by author',
-    showFull: 'Show full',
-    collapse: 'Collapse',
-    emptyTitle: 'The feed is empty for now',
-    emptyText: 'Posts will appear here after the first Gallery publication.',
-    notAuthTitle: 'Sign in to publish',
-    notAuthText: 'You can browse the feed without an account.',
-    login: 'Sign in',
-    createImage: 'Create image',
-    errorTitle: 'Failed to load the feed',
-    retry: 'Retry',
-    generate: 'Generate',
-    openGallery: 'Open gallery',
-    soonTitle: 'Soon',
-    gallery: 'Gallery',
-    profile: 'Profile',
-    myGallery: 'My gallery',
-    myWorks: 'My posts',
-    useAsSource: 'Use as source',
-    download: 'Download',
-    del: 'Delete',
-    signOut: 'Sign out',
-    tokens: 'Tariffs',
-    plan: 'Plan',
-    account: 'Account',
-    language: 'Language',
-    galleryHint: 'Your generations: open, use as a source or publish to the feed.',
-    galleryGuest: 'The feed is public; your personal gallery needs sign-in.',
-    profileGuest: 'Sign in to see your profile, balance and works.',
-    deleteConfirm: 'Delete this image from the gallery?',
-    open: 'Open',
-    role: 'Status',
-  },
-}
-
-// Форма карточки по соотношению сторон публикации.
-function feedShape(ratio: string): 'tall' | 'wide' | 'square' {
-  const parts = ratio.split(':').map(Number)
-  const w = parts[0]
-  const h = parts[1]
-  if (!w || !h || w === h) return 'square'
-  return w > h ? 'wide' : 'tall'
-}
-
-const JOB_ACTIVE = ['queued', 'running', 'uploading', 'sent_to_comfyui', 'sent_to_openrouter']
-
-// Приписка стиля в промпте (По тексту). Через маркер её можно заменить при
-// выборе другого стиля, не трогая пользовательский текст.
-const STYLE_PREFIX = '\n\nСтиль: '
-const I2I_STYLE_PREFIX = '\n\nСтиль преобразования: '
-const PROMPT_APPEND_PREFIX = '\n\n'
-
-// Вне компонента: react-hooks/purity запрещает impure-вызовы в теле компонента.
-function randomOf<T>(items: T[]): T {
-  return items[Math.floor(Math.random() * items.length)]
-}
-
-function randomSeed(): number {
-  return Math.floor(Math.random() * 999999999)
-}
-
-function newClientRequestId(): string {
-  return typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
-function paintStageForResolution(resolution: { width: number; height: number }) {
-  const maxSide = 1024
-  const width = Math.max(1, resolution.width)
-  const height = Math.max(1, resolution.height)
-  if (width >= height) {
-    return { width: maxSide, height: Math.max(256, Math.round((maxSide * height) / width)) }
-  }
-  return { width: Math.max(256, Math.round((maxSide * width) / height)), height: maxSide }
-}
-
-function composePaintPrompt(basePrompt: string, userPrompt: string) {
-  const base = basePrompt.trim()
-  const user = userPrompt.trim()
-  if (!user) return base
-  const normalizedUser = user.toLowerCase()
-  const baseLead = base.slice(0, 42).toLowerCase()
-  return normalizedUser.includes(baseLead) ? user : `${base}\n\n${user}`
-}
-
-function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
-  const locale = currentSeoLocale()
-  const path = view === 'profile' ? '/profile' : tab === 'paint' ? '/paint' : tab === 'video' ? '/video' : '/'
-  const canonical = `https://izo.alikinas.ru${path}`
-
-  if (view === 'profile') {
-    return locale === 'en'
-      ? {
-        title: 'Profile and settings — IZO ASA',
-        description: 'Manage your IZO ASA profile, avatar, accounts, tariffs, bonuses and generation history settings.',
-        canonical,
-        robots: 'noindex, nofollow',
-      }
-      : {
-        title: 'Профиль и настройки — ИЗО АСА',
-        description: 'Управляйте профилем ИЗО АСА: аватаром, аккаунтами, тарифами, бонусами и настройками истории генераций.',
-        canonical,
-        robots: 'noindex, nofollow',
-      }
-  }
-
-  const ru: Record<N2Tab, SeoMeta> = {
-    feed: {
-      title: 'ИЗО АСА — лента AI-изображений',
-      description: 'Смотрите публичную ленту изображений, промптов и идей пользователей ИЗО АСА.',
-      canonical: 'https://izo.alikinas.ru/feed',
-    },
-    text: {
-      title: 'По тексту — ИЗО АСА',
-      description: 'Создавайте изображения нейросетью по текстовому описанию: выбирайте стиль, формат, качество и публикуйте результат в ленту.',
-      canonical,
-    },
-    i2i: {
-      title: 'По фото — ИЗО АСА',
-      description: 'Преобразуйте исходное изображение по промпту и стилю, управляйте влиянием описания и сохраняйте результат в галерею.',
-      canonical,
-    },
-    edit: {
-      title: 'Сборка изображения — ИЗО АСА',
-      description: 'Объединяйте несколько изображений, переносите одежду, фон, стиль и детали с референсов через AI-редактор ИЗО АСА.',
-      canonical,
-    },
-    paint: {
-      title: 'Редактор изображения — ИЗО АСА',
-      description: 'Редактируйте изображения: рисуйте эскиз, работайте с маской, расширением холста и AI-дорисовкой.',
-      canonical,
-    },
-    video: {
-      title: 'Видео — ИЗО АСА',
-      description: 'Создавайте видео по тексту, изображению, начальному и конечному кадру или набору референсов.',
-      canonical,
-    },
-  }
-  const en: Record<N2Tab, SeoMeta> = {
-    feed: {
-      title: 'AI image feed — IZO ASA',
-      description: 'Explore public AI images, prompts, ideas and remixes from IZO ASA users.',
-      canonical: 'https://izo.alikinas.ru/feed',
-    },
-    text: {
-      title: 'By text — IZO ASA',
-      description: 'Create AI images from text prompts, choose styles, aspect ratios and quality, then publish results to the feed.',
-      canonical,
-    },
-    i2i: {
-      title: 'By photo — IZO ASA',
-      description: 'Transform a source image with a prompt and style, control prompt influence and save results to your gallery.',
-      canonical,
-    },
-    edit: {
-      title: 'Image assembly — IZO ASA',
-      description: 'Combine multiple images, transfer clothes, background, style and details from references with the IZO ASA editor.',
-      canonical,
-    },
-    paint: {
-      title: 'Image editor — IZO ASA',
-      description: 'Edit images with sketches, masks, outpainting and AI-assisted canvas tools.',
-      canonical,
-    },
-    video: {
-      title: 'Video — IZO ASA',
-      description: 'Create videos from text, images, first and last frames, or visual references.',
-      canonical,
-    },
-  }
-  return locale === 'en' ? en[tab] : ru[tab]
-}
 
 export default function NewStudio(): ReactElement {
   // Route: /paint — отдельная страница режима «Редактор»; остальные режимы генератора
@@ -996,7 +343,6 @@ export default function NewStudio(): ReactElement {
   const [galleryPickerLoading, setGalleryPickerLoading] = useState(false)
   const [galleryPickerError, setGalleryPickerError] = useState('')
   const [uploadTarget, setUploadTarget] = useState<UploadTarget | null>(null)
-  const [modelsPayload, setModelsPayload] = useState<ModelsPayload>()
   const [loraTriggers] = useState<Record<string, string>>({})
 
   // Пол из профиля определяет вариант превью стилей (по умолчанию female).
@@ -1038,30 +384,11 @@ export default function NewStudio(): ReactElement {
   const [editExtraOpen, setEditExtraOpen] = useState(false)
   const [editFaceStrengthPct, setEditFaceStrengthPct] = useState(initialStudioDraft.editFaceStrengthPct ?? DEFAULT_FACE_STRENGTH)
   const [profileTab, setProfileTab] = useState<'profile' | 'tariffs' | 'earn' | 'models'>(initialProfileTabFromPath)
-  const [tariffs, setTariffs] = useState<TariffConfig>(DEFAULT_TARIFFS)
-  const [tariffsState, setTariffsState] = useState<'loading' | 'ready' | 'fallback'>('loading')
-  const [tokenRub, setTokenRub] = useState(5)
-  const [modelAccess, setModelAccess] = useState<UserModelAccess>(() => normalizeModelAccess(null))
-  const [openrouterPricing, setOpenrouterPricing] = useState<Record<string, PublicModelPricing>>({})
+  const { modelsPayload, tariffs, tariffsState, tokenRub, modelAccess, openrouterPricing } = useStudioBackendData(me)
   const activeTariffKey = (String(me?.account?.plan || 'mini').toLowerCase() in tariffs ? String(me?.account?.plan || 'mini').toLowerCase() : 'mini') as TariffKey
   const activeTariff = tariffs[activeTariffKey] || DEFAULT_TARIFFS[activeTariffKey] || DEFAULT_TARIFFS.mini
   const effectiveProMode = proMode
-  const [userModelChoices, setUserModelChoices] = useState<UserModelChoices>(() => {
-    try {
-      const raw = window.localStorage.getItem('izo:user-model-choices')
-      return raw ? JSON.parse(raw) as UserModelChoices : {}
-    } catch {
-      return {}
-    }
-  })
-  const [userModelVisibility, setUserModelVisibility] = useState<Partial<Record<ModelModeKey, Record<string, boolean>>>>(() => {
-    try {
-      const raw = window.localStorage.getItem('izo:user-model-visibility')
-      return raw ? JSON.parse(raw) as Partial<Record<ModelModeKey, Record<string, boolean>>> : {}
-    } catch {
-      return {}
-    }
-  })
+  const { userModelChoices, setUserModelChoices, userModelVisibility, setUserModelVisibility } = useModelPreferences()
   const [displayName, setDisplayName] = useState(me?.profile?.display_name || '')
   const [profileGender, setProfileGender] = useState<'female' | 'male'>(me?.profile?.gender === 'male' ? 'male' : 'female')
   const [profileAge, setProfileAge] = useState(me?.profile?.age ? String(me.profile.age) : '')
@@ -1332,84 +659,7 @@ export default function NewStudio(): ReactElement {
     document.title = 'ИЗО АСА — новый интерфейс'
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-    apiFetch('/models')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled && data && data?.ok !== false) setModelsPayload(normalizeModels(data))
-      })
-      .catch(() => undefined)
-    return () => { cancelled = true }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    apiFetch('/tariffs')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (cancelled) return
-        if (data?.tariffs) {
-          setTariffs(normalizeTariffs(data.tariffs))
-          if (data.openrouterPricing) setOpenrouterPricing(pricingMapFromPayload(data.openrouterPricing))
-          if (typeof data.economy?.tokenRub === 'number' && data.economy.tokenRub > 0) setTokenRub(data.economy.tokenRub)
-          setTariffsState('ready')
-        } else {
-          setTariffsState('fallback')
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setTariffsState('fallback')
-      })
-    return () => { cancelled = true }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    apiFetch('/model-access')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled && data?.ok) {
-          setModelAccess(normalizeModelAccess(data, (me?.account?.plan || 'mini') as TariffKey))
-          if (data.openrouterPricing) setOpenrouterPricing(pricingMapFromPayload(data.openrouterPricing))
-        }
-      })
-      .catch(() => undefined)
-    return () => { cancelled = true }
-  }, [me?.account?.plan])
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('izo:user-model-choices', JSON.stringify(userModelChoices))
-    } catch {
-      // localStorage can be blocked; server-side access rules still apply.
-    }
-  }, [userModelChoices])
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('izo:user-model-visibility', JSON.stringify(userModelVisibility))
-    } catch {
-      // localStorage can be blocked; tariff access rules still apply.
-    }
-  }, [userModelVisibility])
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      writeStudioDraft({
-        prompts,
-        styleId,
-        resolutionId,
-        quality,
-        seed,
-        strengthPct,
-        sourceImage,
-        editSlots,
-        editFaceStrengthPct,
-      })
-    }, 120)
-    return () => window.clearTimeout(timer)
-  }, [editFaceStrengthPct, editSlots, prompts, quality, resolutionId, seed, sourceImage, strengthPct, styleId])
+  useStudioDraftAutosave({ prompts, styleId, resolutionId, quality, seed, strengthPct, sourceImage, editSlots, editFaceStrengthPct })
 
   useEffect(() => {
     queueMicrotask(() => {
