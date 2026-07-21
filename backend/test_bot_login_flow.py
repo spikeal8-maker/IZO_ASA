@@ -15,7 +15,7 @@ from test_support.browser_origin import BROWSER_ORIGIN
 
 
 def _reset_max_deep_link_cache() -> None:
-    main._MAX_BOT_DEEP_LINK_CACHE.update({
+    main.BOT_RUNTIME.max_deep_link_cache.update({
         "attempted": False,
         "base": None,
         "source": "unresolved",
@@ -205,8 +205,8 @@ def test_max_capability_resolves_deep_link_base_from_api_me(temp_db, monkeypatch
     payload = TestClient(main.app).get("/api/auth/capabilities-v2").json()
 
     assert payload["bot_login"]["max_bot_login_available"] is True
-    assert main._MAX_BOT_DEEP_LINK_CACHE["source"] == "api"
-    assert main._MAX_BOT_DEEP_LINK_CACHE["base"] == "https://max.ru/real_max_bot"
+    assert main.BOT_RUNTIME.max_deep_link_cache["source"] == "api"
+    assert main.BOT_RUNTIME.max_deep_link_cache["base"] == "https://max.ru/real_max_bot"
     assert _FakeMaxClient.verify is main.MAX_HTTP_VERIFY
     assert _FakeMaxClient.calls[0]["url"].endswith("/me")
     assert "secret-max-token" not in capsys.readouterr().out
@@ -223,7 +223,7 @@ def test_max_capability_false_when_api_me_has_no_nickname(temp_db, monkeypatch, 
     payload = TestClient(main.app).get("/api/auth/capabilities-v2").json()
 
     assert payload["bot_login"]["max_bot_login_available"] is False
-    assert main._MAX_BOT_DEEP_LINK_CACHE["source"] == "failed"
+    assert main.BOT_RUNTIME.max_deep_link_cache["source"] == "failed"
     output = capsys.readouterr().out
     assert "secret-max-token" not in output
     assert "fields=" in output

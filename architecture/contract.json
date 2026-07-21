@@ -102,27 +102,15 @@
       "watchdog": "missing"
     },
     {
-      "id": "telegram-polling",
-      "call_source": "backend/main.py",
-      "target": "telegram_polling_worker",
+      "id": "bot-polling",
+      "call_source": "backend/app/services/bot_workers.py",
+      "target": "run_provider_polling",
       "kind": "worker",
-      "owner": "backend.main",
+      "owner": "backend.app.services.bot_workers",
       "role": "all-dev-current-monolith",
-      "persistence": "SQLite bot_polling_state cursor",
-      "startup": "main.startup -> start_bot_polling_tasks",
-      "recovery": "cursor resumes after process restart",
-      "watchdog": "bounded retry loop; no independent supervisor"
-    },
-    {
-      "id": "max-polling",
-      "call_source": "backend/main.py",
-      "target": "max_polling_worker",
-      "kind": "worker",
-      "owner": "backend.main",
-      "role": "all-dev-current-monolith",
-      "persistence": "SQLite bot_polling_state marker",
-      "startup": "main.startup -> start_bot_polling_tasks",
-      "recovery": "marker resumes after process restart",
+      "persistence": "SQLite bot_polling_state cursor/marker per provider on BotRuntime",
+      "startup": "main.startup -> start_bot_workers -> bot_workers.start_bot_polling_tasks (telegram + max)",
+      "recovery": "cursor/marker resumes after process restart",
       "watchdog": "bounded retry loop; no independent supervisor"
     },
     {

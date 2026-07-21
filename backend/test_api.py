@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import main
+from app.services import bot_workers
 from test_support.browser_origin import BROWSER_ORIGIN
 
 
@@ -97,8 +98,8 @@ def isolated_db(tmp_path, monkeypatch):
     main.images.clear()
     main.queue = asyncio.Queue()
     main.worker_started = False
-    main.bot_polling_started = False
-    main.bot_polling_tasks.clear()
+    main.BOT_RUNTIME.polling_started = False
+    main.BOT_RUNTIME.polling_tasks.clear()
     main._telegram_webhook_replay_guard.clear()
     main._runtime_error_rate.clear()
     main._runtime_alerted_signatures.clear()
@@ -767,21 +768,29 @@ def test_bot_polling_start_respects_mode_and_guard(monkeypatch) -> None:
         created.append(task)
         return task
 
-    monkeypatch.setattr(main.asyncio, "create_task", fake_create_task)
-    monkeypatch.setattr(main, "bot_polling_tasks", {})
+    async def dummy_poll(timeout: int = 0, limit: int = 0) -> dict:  # pragma: no cover
+        return {"ok": True}
+
+    def start():
+        return bot_workers.start_bot_polling_tasks(
+            main.BOT_RUNTIME, telegram_poll=dummy_poll, max_poll=dummy_poll
+        )
+
+    monkeypatch.setattr(bot_workers.asyncio, "create_task", fake_create_task)
+    monkeypatch.setattr(main.BOT_RUNTIME, "polling_tasks", {})
     monkeypatch.setattr(main, "BOT_UPDATES_MODE", "webhook")
     monkeypatch.setattr(main, "MAX_UPDATES_MODE", "webhook")
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "tg")
     monkeypatch.setattr(main, "MAX_BOT_TOKEN", "max")
-    assert main.start_bot_polling_tasks() == []
+    assert start() == []
     assert created == []
 
     monkeypatch.setattr(main, "BOT_UPDATES_MODE", "polling")
     monkeypatch.setattr(main, "MAX_UPDATES_MODE", "polling")
-    started = main.start_bot_polling_tasks()
+    started = start()
     assert started == ["telegram", "max"]
     assert len(created) == 2
-    assert main.start_bot_polling_tasks() == []
+    assert start() == []
     assert len(created) == 2
 
 

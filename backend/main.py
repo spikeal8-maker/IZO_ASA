@@ -398,10 +398,16 @@ try:
     )
     from .app.services.polling_health import (
         PollingHealthRegistry,
-        compute_poll_backoff,
         is_auth_polling_error,
         polling_retry_after,
     )
+    from .app.services.bot_workers import (
+        BotRuntime,
+        BotRuntimeDependencies,
+        ProviderConfigSnapshot,
+        create_bot_runtime,
+    )
+    from .app.lifespan.worker_registry import start_bot_workers, stop_bot_workers
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.platform_status import (
         mini_app_public_url,
@@ -410,10 +416,16 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
     from app.services.polling_health import (
         PollingHealthRegistry,
-        compute_poll_backoff,
         is_auth_polling_error,
         polling_retry_after,
     )
+    from app.services.bot_workers import (
+        BotRuntime,
+        BotRuntimeDependencies,
+        ProviderConfigSnapshot,
+        create_bot_runtime,
+    )
+    from app.lifespan.worker_registry import start_bot_workers, stop_bot_workers
 
 try:
     from .app.services.bot_admin import (
@@ -805,30 +817,9 @@ MAX_HTTP_VERIFY = build_max_http_verify(MAX_TLS_TRUST_STORE)
 MAX_WEBHOOK_URL = os.getenv("MAX_WEBHOOK_URL", "")
 MAX_WEBHOOK_SECRET = initial_runtime_secret(MAX_WEBHOOK_SECRET_NAME, "MAX_WEBHOOK_SECRET")
 MAX_WEBHOOK_MAX_BODY_BYTES = max(1024, min(1024 * 1024, int(os.getenv("MAX_WEBHOOK_MAX_BODY_BYTES", str(256 * 1024)))))
-_MAX_BOT_DEEP_LINK_CACHE: dict[str, Any] = {
-    "attempted": False,
-    "base": None,
-    "source": "unresolved",
-    "resolved": False,
-    "api_status": None,
-    "fields": [],
-}
-MAX_POLLING_DIAG: dict[str, Any] = {
-    "lastPollAt": None,
-    "lastPollStatus": None,
-    "lastPollError": None,
-    "lastPollMarker": None,
-    "lastPollNextMarker": None,
-    "lastRawCount": None,
-    "lastBotStartedAt": None,
-    "lastCallbackAt": None,
-    "lastWebhookAt": None,
-    "lastWebhookError": None,
-    "subscriptionStatus": None,
-    "webhookConfigured": False,
-    "webhookUrlSet": False,
-    "updateTypes": [],
-}
+# MAX deep-link cache and MAX polling diagnostics are worker-owned mutable
+# state; they live on BOT_RUNTIME.max_deep_link_cache / .max_polling_diag
+# (ARCH-BE-BOTS-001).
 DEFAULT_NEG_PROMPT = "low quality, deformed, blurry, watermark, ugly, bad anatomy, disfigured, mutated, extra limbs, poorly drawn face, bad proportions, jpeg artifacts"
 SESSION_HMAC_SECRET = os.getenv("SESSION_HMAC_SECRET", "")
 # Backward-compatible fallback default for the access/session lifetime.
@@ -1566,8 +1557,8 @@ jobs: dict[str, dict[str, Any]] = {}
 images: dict[str, dict[str, Any]] = {}
 queue: asyncio.Queue[str] = asyncio.Queue()
 worker_started = False
-bot_polling_started = False
-bot_polling_tasks: dict[str, asyncio.Task] = {}
+# bot_polling_started / bot_polling_tasks are worker-owned mutable state on
+# BOT_RUNTIME.polling_started / .polling_tasks (ARCH-BE-BOTS-001).
 
 
 def request_user_id(request: Request | None = None) -> str:
@@ -2355,9 +2346,10 @@ def _max_base_from_me_payload(payload: dict[str, Any]) -> str | None:
 
 
 def resolve_max_bot_deep_link_base() -> str | None:
+    cache = BOT_RUNTIME.max_deep_link_cache
     explicit = MAX_BOT_DEEP_LINK_BASE.strip()
     if explicit:
-        _MAX_BOT_DEEP_LINK_CACHE.update({
+        cache.update({
             "attempted": True,
             "base": explicit,
             "source": "env",
@@ -2367,7 +2359,7 @@ def resolve_max_bot_deep_link_base() -> str | None:
         })
         return explicit
     if not MAX_BOT_TOKEN:
-        _MAX_BOT_DEEP_LINK_CACHE.update({
+        cache.update({
             "attempted": True,
             "base": None,
             "source": "failed",
@@ -2376,8 +2368,8 @@ def resolve_max_bot_deep_link_base() -> str | None:
             "fields": [],
         })
         return None
-    if _MAX_BOT_DEEP_LINK_CACHE.get("attempted"):
-        return _MAX_BOT_DEEP_LINK_CACHE.get("base")
+    if cache.get("attempted"):
+        return cache.get("base")
     status: int | None = None
     fields: list[str] = []
     try:
@@ -2389,7 +2381,7 @@ def resolve_max_bot_deep_link_base() -> str | None:
         fields = sorted(set(_flatten_field_names(payload)))[:80]
         base = _max_base_from_me_payload(payload if isinstance(payload, dict) else {})
         if base:
-            _MAX_BOT_DEEP_LINK_CACHE.update({
+            cache.update({
                 "attempted": True,
                 "base": base,
                 "source": "api",
@@ -2404,7 +2396,7 @@ def resolve_max_bot_deep_link_base() -> str | None:
         if isinstance(typed_status, int):
             status = typed_status
         print(f"MAX deep link base source=failed; MAX bot nickname resolved=false; MAX API /me status={status}; error={type(exc).__name__}")
-        _MAX_BOT_DEEP_LINK_CACHE.update({
+        cache.update({
             "attempted": True,
             "base": None,
             "source": "failed",
@@ -2414,7 +2406,7 @@ def resolve_max_bot_deep_link_base() -> str | None:
         })
         return None
     print(f"MAX deep link base source=failed; MAX bot nickname resolved=false; MAX API /me status={status}; fields={fields}")
-    _MAX_BOT_DEEP_LINK_CACHE.update({
+    cache.update({
         "attempted": True,
         "base": None,
         "source": "failed",
@@ -5049,10 +5041,11 @@ def max_webhook_url() -> str:
 
 
 async def configure_max_webhook_subscription() -> dict[str, Any]:
+    diag = BOT_RUNTIME.max_polling_diag
     validate_max_webhook_secret("webhook", MAX_WEBHOOK_SECRET)
     wh_url = max_webhook_url()
     if not wh_url.startswith("https://"):
-        MAX_POLLING_DIAG.update({
+        diag.update({
             "webhookConfigured": False,
             "webhookUrlSet": False,
             "subscriptionStatus": "missing_https_url",
@@ -5066,7 +5059,7 @@ async def configure_max_webhook_subscription() -> dict[str, Any]:
     )
     try:
         result = await max_api("POST", "/subscriptions", body)
-        MAX_POLLING_DIAG.update({
+        diag.update({
             "webhookConfigured": True,
             "webhookUrlSet": True,
             "subscriptionStatus": "ok",
@@ -5077,7 +5070,7 @@ async def configure_max_webhook_subscription() -> dict[str, Any]:
     except Exception as exc:
         response = getattr(exc, "response", None)
         status = getattr(response, "status_code", None)
-        MAX_POLLING_DIAG.update({
+        diag.update({
             "webhookConfigured": False,
             "webhookUrlSet": True,
             "subscriptionStatus": f"error:{status or type(exc).__name__}",
@@ -5172,7 +5165,7 @@ def max_update_runtime() -> MaxUpdateRuntime:
         schedule_avatar=lambda provider_user_id: schedule_avatar_cache("max", provider_user_id),
         command_response=lambda text: bot_command_response("max", text),
         now_iso=lambda: datetime.now(timezone.utc).isoformat(),
-        set_diagnostic=lambda key, value: MAX_POLLING_DIAG.__setitem__(key, value),
+        set_diagnostic=lambda key, value: BOT_RUNTIME.max_polling_diag.__setitem__(key, value),
         log=print,
     )
 
@@ -5207,12 +5200,13 @@ async def telegram_poll_once_from_api(timeout: int = 0, limit: int = 10) -> dict
 
 
 async def max_poll_once_from_api(timeout: int = 0, limit: int = 10) -> dict[str, Any]:
+    diag = BOT_RUNTIME.max_polling_diag
     now_iso = datetime.now(timezone.utc).isoformat()
     params: dict[str, Any] = {"limit": limit, "timeout": timeout}
     marker = get_bot_polling_cursor("max")
     if marker:
         params["marker"] = marker
-    MAX_POLLING_DIAG.update({
+    diag.update({
         "lastPollAt": now_iso,
         "lastPollMarker": marker,
         "lastPollError": None,
@@ -5225,7 +5219,7 @@ async def max_poll_once_from_api(timeout: int = 0, limit: int = 10) -> dict[str,
         response_marker = data.get("marker")
         if response_marker:
             set_bot_polling_cursor("max", response_marker)
-        MAX_POLLING_DIAG.update({
+        diag.update({
             "lastPollStatus": 200,
             "lastPollError": None,
             "lastPollNextMarker": response_marker,
@@ -5236,7 +5230,7 @@ async def max_poll_once_from_api(timeout: int = 0, limit: int = 10) -> dict[str,
     except Exception as exc:
         response = getattr(exc, "response", None)
         status = getattr(response, "status_code", None)
-        MAX_POLLING_DIAG.update({
+        diag.update({
             "lastPollStatus": status,
             "lastPollError": type(exc).__name__,
             "lastRawCount": None,
@@ -5245,66 +5239,52 @@ async def max_poll_once_from_api(timeout: int = 0, limit: int = 10) -> dict[str,
         raise
 
 
-POLLING_HEALTH = PollingHealthRegistry()
+def bot_provider_config(provider: str) -> ProviderConfigSnapshot:
+    """Point-in-time provider config read from the canonical main globals.
 
-
-async def _provider_polling_cycle(provider: Literal["telegram", "max"], poll: Any) -> bool:
-    """One worker cycle feeding POLLING_HEALTH; False = stop (auth error)."""
-    try:
-        await poll(timeout=25, limit=20)
-    except Exception as exc:
-        if is_auth_polling_error(exc):
-            POLLING_HEALTH.record_failure(provider, exc)
-            with db() as conn:
-                record_security_event(conn, f"{provider}_polling_auth_error", severity="critical")
-            print(f"{provider} polling stopped after auth error")
-            return False
-        alerted = POLLING_HEALTH.record_failure(provider, exc)
-        health = POLLING_HEALTH.snapshot(provider)
-        if alerted:
-            print(f"BOT_POLLING_ALERT provider={provider} consecutiveFailures={health['consecutiveFailures']} class={type(exc).__name__}")
-        delay = compute_poll_backoff(
-            health["consecutiveFailures"],
-            provider_retry_after=polling_retry_after(exc, default=0.0) or None,
+    Provider configuration stays canonical in main.py for commit 1; workers
+    read this snapshot each start/cycle so runtime config changes (admin
+    settings) keep their existing dynamic effect. Token stays out of repr.
+    """
+    if provider == "telegram":
+        return ProviderConfigSnapshot(
+            provider="telegram",
+            mode=BOT_UPDATES_MODE,
+            polling_enabled=TELEGRAM_POLLING_ENABLED,
+            token=TELEGRAM_BOT_TOKEN,
         )
-        print(f"{provider} polling error {type(exc).__name__} backoff={delay:.1f}s")
-        await asyncio.sleep(delay)
-        return True
-    if POLLING_HEALTH.record_success(provider):
-        print(f"BOT_POLLING_RECOVERED provider={provider}")
-    return True
+    if provider == "max":
+        return ProviderConfigSnapshot(
+            provider="max",
+            mode=MAX_UPDATES_MODE,
+            polling_enabled=MAX_POLLING_ENABLED,
+            token=MAX_BOT_TOKEN,
+            api_base_url=MAX_API_BASE_URL,
+            webhook_url=MAX_WEBHOOK_URL,
+        )
+    raise KeyError(f"Unknown bot provider: {provider}")
 
 
-async def telegram_polling_worker() -> None:
-    POLLING_HEALTH.record_worker_started("telegram")
-    while BOT_UPDATES_MODE == "polling" and TELEGRAM_POLLING_ENABLED and TELEGRAM_BOT_TOKEN:
-        if not await _provider_polling_cycle("telegram", telegram_poll_once_from_api):
-            break
+def build_bot_runtime() -> BotRuntime:
+    """Construct the single shared worker runtime (ARCH-BE-BOTS-001, commit 1).
+
+    Owns only mutable worker state (health/tasks/diag/cache). Provider config
+    is not mirrored here; it is read on demand via `bot_provider_config`.
+    """
+    dependencies = BotRuntimeDependencies(
+        connect=db,
+        record_security_event=record_security_event,
+        get_provider_config=bot_provider_config,
+        now_iso=lambda: datetime.now(timezone.utc).isoformat(),
+        log=print,
+    )
+    return create_bot_runtime(
+        polling_health=PollingHealthRegistry(),
+        dependencies=dependencies,
+    )
 
 
-async def max_polling_worker() -> None:
-    POLLING_HEALTH.record_worker_started("max")
-    while MAX_UPDATES_MODE == "polling" and MAX_POLLING_ENABLED and MAX_BOT_TOKEN and MAX_API_BASE_URL:
-        if not await _provider_polling_cycle("max", max_poll_once_from_api):
-            break
-
-
-def start_bot_polling_tasks() -> list[str]:
-    global bot_polling_started
-    started: list[str] = []
-    # A live task is never duplicated; a finished one may be replaced here.
-    for provider in ("telegram", "max"):
-        existing_task = bot_polling_tasks.get(provider)
-        if existing_task is not None and existing_task.done():
-            bot_polling_tasks.pop(provider, None)
-    if BOT_UPDATES_MODE == "polling" and TELEGRAM_POLLING_ENABLED and TELEGRAM_BOT_TOKEN and "telegram" not in bot_polling_tasks:
-        bot_polling_tasks["telegram"] = asyncio.create_task(telegram_polling_worker())
-        started.append("telegram")
-    if MAX_UPDATES_MODE == "polling" and MAX_POLLING_ENABLED and MAX_BOT_TOKEN and MAX_API_BASE_URL and "max" not in bot_polling_tasks:
-        bot_polling_tasks["max"] = asyncio.create_task(max_polling_worker())
-        started.append("max")
-    bot_polling_started = bool(bot_polling_tasks)
-    return started
+BOT_RUNTIME = build_bot_runtime()
 
 
 def public_url(path: Path, user_id: str = "demo_user") -> str:
@@ -7825,7 +7805,7 @@ async def worker() -> None:
 
 @app.on_event("startup")
 async def startup() -> None:
-    global worker_started, bot_polling_started
+    global worker_started
     validate_config_production_configuration(
         runtime=RUNTIME_ENVIRONMENT_POLICY,
         http_security=_HTTP_SECURITY_POLICY,
@@ -7896,12 +7876,17 @@ async def startup() -> None:
         create_task=asyncio.create_task,
         consumer=worker,
     )
-    start_bot_polling_tasks()
+    start_bot_workers(
+        BOT_RUNTIME,
+        telegram_poll=telegram_poll_once_from_api,
+        max_poll=max_poll_once_from_api,
+    )
 
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
     await stop_feed_video_publication_worker()
+    await stop_bot_workers(BOT_RUNTIME)
 
 
 @app.get("/api/health")
@@ -14023,12 +14008,12 @@ async def admin_bots_status_v2(request: Request) -> dict[str, Any]:
             "tokenValid": bool(telegram_probe.get("ok")),
             "probe": telegram_probe,
             "pollingActive": bool(
-                bot_polling_tasks.get("telegram")
-                and not bot_polling_tasks["telegram"].done()
+                BOT_RUNTIME.polling_tasks.get("telegram")
+                and not BOT_RUNTIME.polling_tasks["telegram"].done()
             ),
             "runtimeMode": BOT_UPDATES_MODE,
             "lastCheck": diagnostics.get("telegram"),
-            "pollingHealth": POLLING_HEALTH.snapshot("telegram"),
+            "pollingHealth": BOT_RUNTIME.polling_health.snapshot("telegram"),
             "commands": ["/start", "/app", "/help", "/gallery", "/settings"],
         },
         "max": {
@@ -14042,17 +14027,17 @@ async def admin_bots_status_v2(request: Request) -> dict[str, Any]:
             "tokenValid": bool(max_probe.get("ok")),
             "probe": max_probe,
             "pollingActive": bool(
-                bot_polling_tasks.get("max")
-                and not bot_polling_tasks["max"].done()
+                BOT_RUNTIME.polling_tasks.get("max")
+                and not BOT_RUNTIME.polling_tasks["max"].done()
             ),
             "runtimeMode": MAX_UPDATES_MODE,
             "lastCheck": diagnostics.get("max"),
-            "pollingHealth": POLLING_HEALTH.snapshot("max"),
-            "subscriptionStatus": MAX_POLLING_DIAG.get("subscriptionStatus"),
-            "lastPollAt": MAX_POLLING_DIAG.get("lastPollAt"),
-            "lastPollError": MAX_POLLING_DIAG.get("lastPollError"),
-            "lastWebhookAt": MAX_POLLING_DIAG.get("lastWebhookAt"),
-            "lastWebhookError": MAX_POLLING_DIAG.get("lastWebhookError"),
+            "pollingHealth": BOT_RUNTIME.polling_health.snapshot("max"),
+            "subscriptionStatus": BOT_RUNTIME.max_polling_diag.get("subscriptionStatus"),
+            "lastPollAt": BOT_RUNTIME.max_polling_diag.get("lastPollAt"),
+            "lastPollError": BOT_RUNTIME.max_polling_diag.get("lastPollError"),
+            "lastWebhookAt": BOT_RUNTIME.max_polling_diag.get("lastWebhookAt"),
+            "lastWebhookError": BOT_RUNTIME.max_polling_diag.get("lastWebhookError"),
         },
         "public": public_status,
         "config": _admin_bots_safe_config(config),
@@ -14483,27 +14468,28 @@ async def admin_bots_delete_max_webhook_v2(
 @app.get("/api/admin/max/status")
 async def admin_max_status(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
+    diag = BOT_RUNTIME.max_polling_diag
     return {
         "ok": True,
         "tokenSet": bool(MAX_BOT_TOKEN),
         "botNicknameResolved": bool(resolve_max_bot_deep_link_base()),
-        "deepLinkBaseSource": _MAX_BOT_DEEP_LINK_CACHE.get("source"),
+        "deepLinkBaseSource": BOT_RUNTIME.max_deep_link_cache.get("source"),
         "apiBaseUrl": MAX_API_BASE_URL,
         "tlsTrustStore": MAX_TLS_TRUST_STORE,
         "mode": MAX_UPDATES_MODE,
         "pollingReady": bool(MAX_BOT_TOKEN and MAX_API_BASE_URL),
         "webhookSecretConfigured": bool(MAX_WEBHOOK_SECRET),
-        "webhookConfigured": bool(MAX_POLLING_DIAG.get("webhookConfigured")),
-        "webhookUrlSet": bool(MAX_POLLING_DIAG.get("webhookUrlSet")),
-        "subscriptionStatus": MAX_POLLING_DIAG.get("subscriptionStatus"),
-        "updateTypes": MAX_POLLING_DIAG.get("updateTypes"),
-        "lastPollAt": MAX_POLLING_DIAG.get("lastPollAt"),
-        "lastPollStatus": MAX_POLLING_DIAG.get("lastPollStatus"),
-        "lastPollError": MAX_POLLING_DIAG.get("lastPollError"),
-        "lastRawCount": MAX_POLLING_DIAG.get("lastRawCount"),
-        "lastBotStartedAt": MAX_POLLING_DIAG.get("lastBotStartedAt"),
-        "lastCallbackAt": MAX_POLLING_DIAG.get("lastCallbackAt"),
-        "lastWebhookAt": MAX_POLLING_DIAG.get("lastWebhookAt"),
+        "webhookConfigured": bool(diag.get("webhookConfigured")),
+        "webhookUrlSet": bool(diag.get("webhookUrlSet")),
+        "subscriptionStatus": diag.get("subscriptionStatus"),
+        "updateTypes": diag.get("updateTypes"),
+        "lastPollAt": diag.get("lastPollAt"),
+        "lastPollStatus": diag.get("lastPollStatus"),
+        "lastPollError": diag.get("lastPollError"),
+        "lastRawCount": diag.get("lastRawCount"),
+        "lastBotStartedAt": diag.get("lastBotStartedAt"),
+        "lastCallbackAt": diag.get("lastCallbackAt"),
+        "lastWebhookAt": diag.get("lastWebhookAt"),
         "pendingLoginChallengesCount": pending_max_login_challenges_count(),
     }
 
@@ -17782,13 +17768,13 @@ async def max_webhook(request: Request) -> dict[str, Any]:
         )
     except WebhookPayloadError as exc:
         raise HTTPException(exc.status_code, exc.message) from exc
-    MAX_POLLING_DIAG["lastWebhookAt"] = datetime.now(timezone.utc).isoformat()
-    MAX_POLLING_DIAG["lastWebhookError"] = None
+    BOT_RUNTIME.max_polling_diag["lastWebhookAt"] = datetime.now(timezone.utc).isoformat()
+    BOT_RUNTIME.max_polling_diag["lastWebhookError"] = None
     print(f"MAX webhook update received type={max_update_type(payload)}")
     try:
         await handle_max_update(payload, send_replies=True)
     except Exception as exc:
-        MAX_POLLING_DIAG["lastWebhookError"] = type(exc).__name__
+        BOT_RUNTIME.max_polling_diag["lastWebhookError"] = type(exc).__name__
         print("max webhook handler error", type(exc).__name__)
     return {"ok": True}
 

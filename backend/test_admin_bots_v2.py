@@ -52,7 +52,7 @@ def bot_admin_env(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(main, "MAX_UPDATES_MODE", "disabled")
     monkeypatch.setattr(main, "TELEGRAM_POLLING_ENABLED", False)
     monkeypatch.setattr(main, "MAX_POLLING_ENABLED", False)
-    monkeypatch.setattr(main, "bot_polling_tasks", {})
+    monkeypatch.setattr(main.BOT_RUNTIME, "polling_tasks", {})
     main.init_db()
 
     with main.db() as conn:
@@ -91,7 +91,7 @@ def test_default_modes_are_disabled_and_token_save_is_inert(bot_admin_env, monke
         return healthy(bot_id=42, username="izo_test_bot")
 
     monkeypatch.setattr(main, "probe_telegram_bot", fake_probe)
-    started_before = dict(main.bot_polling_tasks)
+    started_before = dict(main.BOT_RUNTIME.polling_tasks)
     with TestClient(main.app) as client:
         config = client.get("/api/admin/bots/config-v2", cookies=bot_admin_env["cookies"])
         saved = client.put(
@@ -106,7 +106,7 @@ def test_default_modes_are_disabled_and_token_save_is_inert(bot_admin_env, monke
     assert config.json()["config"]["max"]["mode"] == "disabled"
     assert saved.status_code == 200
     assert saved.json()["activated"] is False
-    assert main.bot_polling_tasks == started_before
+    assert main.BOT_RUNTIME.polling_tasks == started_before
     assert bot_admin_env["store"].get(main.TELEGRAM_BOT_SECRET_NAME) == "telegram-test-token"
     assert "telegram-test-token" not in saved.text
 

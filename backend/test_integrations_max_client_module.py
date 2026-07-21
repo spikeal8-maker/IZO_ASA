@@ -217,7 +217,7 @@ def test_main_deep_link_cache_preserves_typed_http_status(monkeypatch, capsys) -
     monkeypatch.setattr(main, "MAX_BOT_DEEP_LINK_BASE", "")
     monkeypatch.setattr(main, "MAX_BOT_TOKEN", "max_test_token")
     monkeypatch.setattr(main, "request_max_bot_me", fake_me)
-    main._MAX_BOT_DEEP_LINK_CACHE.update({
+    main.BOT_RUNTIME.max_deep_link_cache.update({
         "attempted": False,
         "base": None,
         "source": None,
@@ -227,7 +227,7 @@ def test_main_deep_link_cache_preserves_typed_http_status(monkeypatch, capsys) -
     })
 
     assert main.resolve_max_bot_deep_link_base() is None
-    assert main._MAX_BOT_DEEP_LINK_CACHE["api_status"] == 403
+    assert main.BOT_RUNTIME.max_deep_link_cache["api_status"] == 403
     output = capsys.readouterr().out
     assert "status=403" in output
     assert "max_test_token" not in output
