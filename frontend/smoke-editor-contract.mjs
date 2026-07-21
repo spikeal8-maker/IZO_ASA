@@ -1,12 +1,16 @@
 import { readFileSync } from 'node:fs'
 
 const studio = readFileSync(new URL('./src/newUi.tsx', import.meta.url), 'utf8')
+const studioHelpers = readFileSync(new URL('./src/studio/studioHelpers.ts', import.meta.url), 'utf8')
+const studioNavigation = readFileSync(new URL('./src/studio/studioNavigation.ts', import.meta.url), 'utf8')
+const studioTypes = readFileSync(new URL('./src/studio/studioTypes.ts', import.meta.url), 'utf8')
 const topBar = readFileSync(new URL('./src/TopBarV3.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('./src/newStudioV3.css', import.meta.url), 'utf8')
+const studioContract = `${studio}\n${studioTypes}`
 const failures = []
 const ok = (condition, message) => { if (!condition) failures.push(message) }
 
-ok(studio.includes('const DEFAULT_FACE_STRENGTH = 75'), 'face reference default must remain 75%')
+ok(studioHelpers.includes('export const DEFAULT_FACE_STRENGTH = 75'), 'face reference default must remain 75%')
 ok(studio.includes('<span>Что взять из картинки</span>'), 'face reference must keep the role label')
 ok(studio.includes('className="editor-face-range"'), 'face reference range is missing')
 ok(studio.includes('className="editor-face-value"'), 'separate face percentage button is missing')
@@ -20,9 +24,9 @@ ok(/\.editor-face-range\s*\{[^}]*min-height:\s*0/s.test(css), 'face range must r
 ok(/\.editor-face-range\s*\{[^}]*border:\s*0/s.test(css), 'face range must not inherit the global input border')
 ok(/\.editor-face-range\s*\{[^}]*box-shadow:\s*none/s.test(css), 'face range must not inherit form-field shadow')
 ok(!topBar.includes("{ id: 'face'"), 'standalone Face tab must not return to the top navigation')
-ok(!studio.includes("| 'face' |"), 'standalone Face studio mode must not return')
-ok(!studio.includes("? 'faceswap'"), 'standalone Face generation route must not return')
-ok(studio.includes("if (h === '#face' || h === '#face-to-image') return { view: 'tabs', tab: 'edit' }"), 'old Face links must redirect to Assembly')
+ok(!studioContract.includes("| 'face' |"), 'standalone Face studio mode must not return')
+ok(!studioContract.includes("? 'faceswap'"), 'standalone Face generation route must not return')
+ok(studioNavigation.includes("if (h === '#face' || h === '#face-to-image') return { view: 'tabs', tab: 'edit' }"), 'old Face links must redirect to Assembly')
 
 if (failures.length) {
   console.error('smoke-editor-contract FAILED:')

@@ -317,7 +317,7 @@
   "file_limits": [
     {"path": "backend/main.py", "max_lines": 19521},
     {"path": "frontend/src/newStudioV3.css", "max_lines": 6000},
-    {"path": "frontend/src/newUi.tsx", "max_lines": 4500},
+    {"path": "frontend/src/newUi.tsx", "max_lines": 3628},
     {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700},
     {"path": "frontend/src/newUi.css", "max_lines": 3200},
     {"path": "frontend/src/index.css", "max_lines": 2400},

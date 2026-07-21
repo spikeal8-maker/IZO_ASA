@@ -66,8 +66,10 @@ def test_generator_history_preserves_and_renders_video_media():
 
 
 def test_gallery_use_as_verifies_private_media_without_double_api_prefix():
-    studio = (FRONTEND_SRC / "newUi.tsx").read_text(encoding="utf-8")
-    verify_block = studio.split("async function verifyPrivateImage", 1)[1].split("const PRIVATE_ERROR_DETAILS", 1)[0]
+    studio_api = (FRONTEND_SRC / "studio" / "studioApi.ts").read_text(encoding="utf-8")
+    verify_block = studio_api.split(
+        "export async function verifyPrivateImage", 1
+    )[1].split("export const PRIVATE_ERROR_DETAILS", 1)[0]
 
     assert "fetch(apiUrl(path), { credentials: 'include' })" in verify_block
     assert "apiFetch(path)" not in verify_block

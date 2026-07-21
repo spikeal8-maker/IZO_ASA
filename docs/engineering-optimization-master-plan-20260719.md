@@ -61,6 +61,7 @@ Baseline подтверждает текущее состояние, но не �
 |---|---|
 | `TODO` | пакет ещё не начат |
 | `ACTIVE` | есть один назначенный owner и текущий WIP |
+| `IN REVIEW` | bounded package реализован в ветке и проходит review/acceptance gates |
 | `CODE COMPLETE` | код/документация реализованы и targeted tests зелёные |
 | `DEPLOYED` | exact SHA/release активен в production |
 | `VERIFIED` | все acceptance gates пакета подтверждены evidence |
@@ -104,7 +105,7 @@ mail `OPERATIONALLY VERIFIED`, а HTTP 200 не доказывает корре�
 | 11 | `WORK-001` | P1 | persistent leasing/recovery/watchdogs | `TODO` |
 | 12 | `BILL-001` | P1 | единая финансовая transaction boundary | `TODO` |
 | 13 | `ARCH-BE-A..G` | P2 | `main.py` становится composition shell | `TODO` |
-| 14 | `ARCH-FE-A..E` | P2 | frontend/CSS делятся по features | `TODO` |
+| 14 | `ARCH-FE-A..E` | P2 | frontend/CSS делятся по features | `ARCH-FE-A / Wave 1 — IN REVIEW`; `ARCH-FE-B..E — TODO` |
 | 15 | `PORT-001` | P2 | воспроизводимый новый Windows host/standby | `TODO` |
 | 16 | `SCALE-001` | trigger-based | Linux/PostgreSQL/queue readiness | `NOT TRIGGERED` |
 
@@ -708,6 +709,30 @@ Acceptance каждой волны:
 - единые loading/error/empty contracts.
 
 Target: `newUi.tsx` постепенно <= 800 строк; feature module обычно <= 500.
+
+#### ARCH-FE-A / Wave 1
+
+| Поле | Значение |
+|---|---|
+| Package | `ARCH-FE-STUDIO-001A` |
+| Branch | `arch/fe-studio-001a` |
+| PR | `#9` |
+| Status | `IN REVIEW` |
+| Result | `newUi.tsx` 4,378 -> 3,628 строк |
+
+Scope волны:
+
+- types;
+- API;
+- bounded state hooks;
+- draft storage;
+- image/canvas processing;
+- navigation/SEO;
+- shared presentation helpers.
+
+Дальнейшее уменьшение `newUi.tsx` является следующей отдельной волной, а не
+незаконченной частью PR #9. CI-статус фиксируется в review evidence после
+выполнения acceptance gate и не подразумевается статусом `IN REVIEW`.
 
 ### ARCH-FE-B — `newStudioV3.css` и `newUi.css`
 
