@@ -512,7 +512,15 @@ def validate_policy_files(root: Path, policy: dict[str, Any], environment_names:
 def build_inventory(root: Path, policy: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     root = root.resolve()
     python_sources = production_python_sources(root)
+    # Routes live in main.py (@app) and in extracted router factories under
+    # backend/app/api (@router). Both are scanned so the reviewed-route contract
+    # keeps covering handlers after they move out of main.py.
     _, routes = parse_source(root / "backend" / "main.py")
+    for router_source in sorted((root / "backend" / "app" / "api").rglob("*.py")):
+        if "__pycache__" in router_source.parts:
+            continue
+        _, router_routes = parse_source(router_source)
+        routes.extend(router_routes)
     routes = sorted(routes, key=lambda route: (route.path, route.method, route.handler))
     task_calls = collect_task_calls(root, python_sources)
     legacy_uses = collect_legacy_auth_uses(root, python_sources)

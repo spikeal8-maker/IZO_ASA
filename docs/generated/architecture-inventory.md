@@ -6,7 +6,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 ## Summary
 
 - Routes: 223
-- Registered workers: 4
+- Registered workers: 3
 - Registered ephemeral tasks: 4
 - SQLite tables: 52
 - SQLite indexes: 84
@@ -31,8 +31,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | ID | Kind | Owner | Persistence | Recovery | Watchdog |
 |---|---|---|---|---|---|
 | generation-consumer | worker | backend.app.services.generation_queue | SQLite jobs plus an in-process asyncio queue | backend.app.services.generation_recovery | missing |
-| telegram-polling | worker | backend.main | SQLite bot_polling_state cursor | cursor resumes after process restart | bounded retry loop; no independent supervisor |
-| max-polling | worker | backend.main | SQLite bot_polling_state marker | marker resumes after process restart | bounded retry loop; no independent supervisor |
+| bot-polling | worker | backend.app.services.bot_workers | SQLite bot_polling_state cursor/marker per provider on BotRuntime | cursor/marker resumes after process restart | bounded retry loop; no independent supervisor |
 | feed-video-publication | worker | backend.main | SQLite feed_publications status plus an in-process asyncio queue | startup requeues rows in preparing status | missing |
 | avatar-cache | ephemeral | backend.main | avatar file and user metadata | later request may retry | not applicable |
 | openrouter-catalog-refresh | ephemeral | backend.main | process cache | later request may retry | single task handle |
@@ -127,7 +126,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Current | Maximum | Remaining |
 |---|---:|---:|---:|
-| `backend/main.py` | 20249 | 20249 | 0 |
+| `backend/main.py` | 19521 | 19521 | 0 |
 | `backend/static/feed/index.html` | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | 2346 | 2400 | 54 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
@@ -141,7 +140,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Functions | Maximum | Classes | Maximum | Routes | Maximum |
 |---|---:|---:|---:|---:|---:|---:|
-| `backend/main.py` | 725 | 725 | 83 | 83 | 223 | 223 |
+| `backend/main.py` | 683 | 725 | 78 | 83 | 192 | 223 |
 
 ## Release identity baseline
 

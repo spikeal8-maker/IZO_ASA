@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from app.api.routers import bots_public
 from app.security import webhooks
 from app.security.webhooks import (
     WebhookReplayGuard,
@@ -25,8 +26,8 @@ def isolated_webhook_state(monkeypatch):
     monkeypatch.setattr(main, "BOT_MODE", "webhook")
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "test-token")
     monkeypatch.setattr(main, "TELEGRAM_WEBHOOK_SECRET", TEST_SECRET)
-    monkeypatch.setattr(main, "TELEGRAM_WEBHOOK_MAX_BODY_BYTES", 256)
-    main._telegram_webhook_replay_guard.clear()
+    monkeypatch.setattr(bots_public, "TELEGRAM_WEBHOOK_MAX_BODY_BYTES", 256)
+    bots_public._telegram_webhook_replay_guard.clear()
 
 
 def test_webhook_secret_is_required_only_in_webhook_mode():

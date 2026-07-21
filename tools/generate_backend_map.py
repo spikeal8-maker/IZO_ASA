@@ -79,28 +79,47 @@ def infer_auth(function: ast.FunctionDef | ast.AsyncFunctionDef, path: str) -> s
     return "public/optional/review"
 
 
+# Objects whose ``.<method>`` decorators register HTTP routes. ``app`` is the
+# FastAPI app in main.py; ``router`` is an APIRouter built inside an extracted
+# router factory (ARCH-BE-BOTS-001) and its routes are decorated on functions
+# nested inside that factory, so route discovery walks the whole tree.
+ROUTE_DECORATOR_BASES = {"app", "router"}
+
+
+def _route_from_function(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Route | None:
+    for decorator in node.decorator_list:
+        if not isinstance(decorator, ast.Call):
+            continue
+        decorator_name = dotted_name(decorator.func)
+        if "." not in decorator_name:
+            continue
+        base, method = decorator_name.split(".")[0], decorator_name.rsplit(".", 1)[-1].lower()
+        if base not in ROUTE_DECORATOR_BASES or method not in HTTP_METHODS:
+            continue
+        path = literal_string(decorator.args[0] if decorator.args else None)
+        return Route(method.upper(), path, node.name, node.lineno, infer_auth(node, path))
+    return None
+
+
 def parse_source(source_path: Path) -> tuple[list[Symbol], list[Route]]:
     tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
     symbols: list[Symbol] = []
     routes: list[Route] = []
 
+    # Symbols stay top-level: the map is a navigation aid for module structure.
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             kind = "async function" if isinstance(node, ast.AsyncFunctionDef) else "function"
             symbols.append(Symbol(kind, node.name, node.lineno, node.end_lineno or node.lineno))
-            for decorator in node.decorator_list:
-                if not isinstance(decorator, ast.Call):
-                    continue
-                decorator_name = dotted_name(decorator.func)
-                if not decorator_name.startswith("app."):
-                    continue
-                method = decorator_name.rsplit(".", 1)[-1].lower()
-                if method not in HTTP_METHODS:
-                    continue
-                path = literal_string(decorator.args[0] if decorator.args else None)
-                routes.append(Route(method.upper(), path, node.name, node.lineno, infer_auth(node, path)))
         elif isinstance(node, ast.ClassDef):
             symbols.append(Symbol("class", node.name, node.lineno, node.end_lineno or node.lineno))
+
+    # Routes may be nested inside a factory function, so walk every function.
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            route = _route_from_function(node)
+            if route is not None:
+                routes.append(route)
 
     return symbols, routes
 
@@ -168,6 +187,16 @@ def main() -> int:
     args = parser.parse_args()
 
     symbols, routes = parse_source(args.source)
+    # Routes extracted into @router factories under backend/app/api still belong
+    # in the route/auth map so the reviewed-route security contract keeps
+    # covering them after they leave main.py (ARCH-BE-BOTS-001).
+    router_dir = args.source.parent / "app" / "api"
+    if router_dir.is_dir():
+        for router_source in sorted(router_dir.rglob("*.py")):
+            if "__pycache__" in router_source.parts:
+                continue
+            _, router_routes = parse_source(router_source)
+            routes.extend(router_routes)
     rendered = render(args.source, symbols, routes)
     if args.check:
         current = args.output.read_text(encoding="utf-8") if args.output.exists() else ""

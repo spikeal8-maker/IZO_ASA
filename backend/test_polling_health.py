@@ -19,6 +19,7 @@ from app.services.polling_health import (
     is_auth_polling_error,
     polling_retry_after,
 )
+from app.services import bot_workers
 
 
 class FakeTransportError(Exception):
@@ -100,13 +101,13 @@ def test_health_snapshot_contains_no_secret_material() -> None:
 
 def test_worker_cycle_records_failure_backoff_then_recovery(monkeypatch, temp_db) -> None:
     registry = PollingHealthRegistry(alert_threshold=2)
-    monkeypatch.setattr(main, "POLLING_HEALTH", registry)
+    monkeypatch.setattr(main.BOT_RUNTIME, "polling_health", registry)
     sleeps: list[float] = []
 
     async def fake_sleep(delay: float) -> None:
         sleeps.append(delay)
 
-    monkeypatch.setattr(main.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(bot_workers.asyncio, "sleep", fake_sleep)
     calls = {"count": 0}
 
     async def flaky_poll(timeout: int = 0, limit: int = 0) -> dict:
@@ -117,7 +118,7 @@ def test_worker_cycle_records_failure_backoff_then_recovery(monkeypatch, temp_db
 
     async def scenario() -> None:
         for _ in range(3):
-            assert await main._provider_polling_cycle("telegram", flaky_poll) is True
+            assert await bot_workers.provider_polling_cycle(main.BOT_RUNTIME, "telegram", flaky_poll) is True
 
     asyncio.run(scenario())
 
@@ -131,12 +132,12 @@ def test_worker_cycle_records_failure_backoff_then_recovery(monkeypatch, temp_db
 
 def test_worker_cycle_stops_on_auth_error_and_records_event(monkeypatch, temp_db) -> None:
     registry = PollingHealthRegistry()
-    monkeypatch.setattr(main, "POLLING_HEALTH", registry)
+    monkeypatch.setattr(main.BOT_RUNTIME, "polling_health", registry)
 
     async def auth_poll(timeout: int = 0, limit: int = 0) -> dict:
         raise FakeHttpError(401)
 
-    assert asyncio.run(main._provider_polling_cycle("telegram", auth_poll)) is False
+    assert asyncio.run(bot_workers.provider_polling_cycle(main.BOT_RUNTIME, "telegram", auth_poll)) is False
     assert registry.snapshot("telegram")["lastErrorClass"] == "FakeHttpError"
     with main.db() as conn:
         row = conn.execute(
@@ -150,24 +151,30 @@ def test_start_bot_polling_tasks_never_duplicates_a_live_owner(monkeypatch, temp
     monkeypatch.setattr(main, "TELEGRAM_POLLING_ENABLED", True)
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "fake-token")
     monkeypatch.setattr(main, "MAX_UPDATES_MODE", "disabled")
-    monkeypatch.setattr(main, "bot_polling_tasks", {})
+    monkeypatch.setattr(main.BOT_RUNTIME, "polling_tasks", {})
 
     async def scenario() -> None:
         forever = asyncio.Event()
 
-        async def blocked_worker() -> None:
+        async def blocked_poll(timeout: int = 0, limit: int = 0) -> dict:
             await forever.wait()
+            return {"ok": True}
 
-        monkeypatch.setattr(main, "telegram_polling_worker", blocked_worker)
-        first = main.start_bot_polling_tasks()
-        second = main.start_bot_polling_tasks()
+        async def unused_poll(timeout: int = 0, limit: int = 0) -> dict:  # pragma: no cover
+            return {"ok": True}
+
+        first = bot_workers.start_bot_polling_tasks(main.BOT_RUNTIME, telegram_poll=blocked_poll, max_poll=unused_poll)
+        second = bot_workers.start_bot_polling_tasks(main.BOT_RUNTIME, telegram_poll=blocked_poll, max_poll=unused_poll)
         try:
             assert first == ["telegram"]
             assert second == [], "a live polling owner must never be duplicated"
-            assert len(main.bot_polling_tasks) == 1
+            assert len(main.BOT_RUNTIME.polling_tasks) == 1
         finally:
-            forever.set()
-            await main.bot_polling_tasks["telegram"]
+            # The blocked live owner is stopped by cancellation (the same path
+            # shutdown uses); it must not be awaited to natural completion,
+            # which would re-enter the loop and spin.
+            await bot_workers.stop_bot_polling_tasks(main.BOT_RUNTIME)
+        assert main.BOT_RUNTIME.polling_tasks == {}
 
     asyncio.run(scenario())
 
@@ -177,20 +184,26 @@ def test_start_bot_polling_tasks_replaces_finished_owner(monkeypatch, temp_db) -
     monkeypatch.setattr(main, "TELEGRAM_POLLING_ENABLED", True)
     monkeypatch.setattr(main, "TELEGRAM_BOT_TOKEN", "fake-token")
     monkeypatch.setattr(main, "MAX_UPDATES_MODE", "disabled")
-    monkeypatch.setattr(main, "bot_polling_tasks", {})
+    monkeypatch.setattr(main.BOT_RUNTIME, "polling_tasks", {})
 
     async def scenario() -> None:
-        async def crashed_worker() -> None:
-            return None
+        # A poll that returns immediately (with polling disabled after one pass)
+        # lets run_provider_polling finish so the task is replaceable.
+        async def one_shot_poll(timeout: int = 0, limit: int = 0) -> dict:
+            monkeypatch.setattr(main, "TELEGRAM_POLLING_ENABLED", False)
+            return {"ok": True}
 
-        monkeypatch.setattr(main, "telegram_polling_worker", crashed_worker)
-        first = main.start_bot_polling_tasks()
+        async def unused_poll(timeout: int = 0, limit: int = 0) -> dict:  # pragma: no cover
+            return {"ok": True}
+
+        first = bot_workers.start_bot_polling_tasks(main.BOT_RUNTIME, telegram_poll=one_shot_poll, max_poll=unused_poll)
         assert first == ["telegram"]
-        await main.bot_polling_tasks["telegram"]
+        await main.BOT_RUNTIME.polling_tasks["telegram"]
 
-        restarted = main.start_bot_polling_tasks()
+        monkeypatch.setattr(main, "TELEGRAM_POLLING_ENABLED", True)
+        restarted = bot_workers.start_bot_polling_tasks(main.BOT_RUNTIME, telegram_poll=one_shot_poll, max_poll=unused_poll)
         assert restarted == ["telegram"], "an explicit start call may replace a finished owner"
-        await main.bot_polling_tasks["telegram"]
+        await main.BOT_RUNTIME.polling_tasks["telegram"]
 
     asyncio.run(scenario())
 
