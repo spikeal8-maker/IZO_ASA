@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from test_support.browser_client import BrowserTestClient
 
 
 @pytest.fixture
@@ -113,7 +114,10 @@ def test_rate_limit_does_not_reveal_user_existence(temp_db, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_EMAIL", 1)
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_REQUESTS_PER_EMAIL_WINDOW", 99)
     monkeypatch.setattr(main, "EMAIL_OTP_MAX_REQUESTS_PER_IP_WINDOW", 99)
-    with TestClient(main.app) as client:
+    # Browser flow: verify stores the session cookie, later request_code posts
+    # are unsafe requests from the same browser and must reach the rate limiter
+    # (AUTH-LEGACY-001B).
+    with BrowserTestClient(main.app) as client:
         # create an account for existing@
         r = request_code(client, "existing@example.com")
         main_code = r.json()["debug_code"]
