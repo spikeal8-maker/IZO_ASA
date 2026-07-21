@@ -187,6 +187,16 @@ def main() -> int:
     args = parser.parse_args()
 
     symbols, routes = parse_source(args.source)
+    # Routes extracted into @router factories under backend/app/api still belong
+    # in the route/auth map so the reviewed-route security contract keeps
+    # covering them after they leave main.py (ARCH-BE-BOTS-001).
+    router_dir = args.source.parent / "app" / "api"
+    if router_dir.is_dir():
+        for router_source in sorted(router_dir.rglob("*.py")):
+            if "__pycache__" in router_source.parts:
+                continue
+            _, router_routes = parse_source(router_source)
+            routes.extend(router_routes)
     rendered = render(args.source, symbols, routes)
     if args.check:
         current = args.output.read_text(encoding="utf-8") if args.output.exists() else ""

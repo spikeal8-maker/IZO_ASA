@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from app.api.routers import bots_public
 from app.security.webhooks import (
     build_max_subscription_payload,
     validate_max_webhook_secret,
@@ -21,7 +22,7 @@ def isolated_max_webhook_config(monkeypatch):
     monkeypatch.setattr(main, "MAX_UPDATES_MODE", "webhook")
     monkeypatch.setattr(main, "MAX_BOT_TOKEN", "test-max-token")
     monkeypatch.setattr(main, "MAX_WEBHOOK_SECRET", TEST_SECRET)
-    monkeypatch.setattr(main, "MAX_WEBHOOK_MAX_BODY_BYTES", 256)
+    monkeypatch.setattr(bots_public, "MAX_WEBHOOK_MAX_BODY_BYTES", 256)
     main.BOT_RUNTIME.max_polling_diag["lastWebhookAt"] = None
     main.BOT_RUNTIME.max_polling_diag["lastWebhookError"] = None
 

@@ -11,6 +11,7 @@ from PIL import Image
 
 import main
 from app.services import bot_workers
+from app.api.routers import bots_public
 from test_support.browser_origin import BROWSER_ORIGIN
 
 
@@ -100,7 +101,7 @@ def isolated_db(tmp_path, monkeypatch):
     main.worker_started = False
     main.BOT_RUNTIME.polling_started = False
     main.BOT_RUNTIME.polling_tasks.clear()
-    main._telegram_webhook_replay_guard.clear()
+    bots_public._telegram_webhook_replay_guard.clear()
     main._runtime_error_rate.clear()
     main._runtime_alerted_signatures.clear()
     main._runtime_error_window.clear()
