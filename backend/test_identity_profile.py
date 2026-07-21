@@ -9,6 +9,9 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import main
+# Browser-faithful contract: authenticated cookie-auth mutations carry an
+# allowlisted Origin to pass the CSRF boundary (AUTH-LEGACY-001B).
+from test_support.browser_origin import BROWSER_ORIGIN
 
 
 @pytest.fixture
@@ -191,7 +194,7 @@ def test_sessions_list_shows_current_and_revoke_others(temp_db, monkeypatch):
     assert len(current) == 1
     assert current[0]["provider"] == "telegram"
     # revoke-others should not touch the current session
-    revoked = client.post("/api/auth/sessions/revoke-others").json()
+    revoked = client.post("/api/auth/sessions/revoke-others", headers=BROWSER_ORIGIN).json()
     assert revoked["ok"] is True
     assert client.get("/api/me-v2").status_code == 200
 
@@ -199,7 +202,7 @@ def test_sessions_list_shows_current_and_revoke_others(temp_db, monkeypatch):
 def test_revoke_foreign_session_is_rejected(temp_db, monkeypatch):
     client = TestClient(main.app)
     _authenticate_telegram(client, monkeypatch)
-    resp = client.post("/api/auth/sessions/non-existent-id/revoke")
+    resp = client.post("/api/auth/sessions/non-existent-id/revoke", headers=BROWSER_ORIGIN)
     assert resp.status_code == 404
 
 

@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from test_support.browser_origin import BROWSER_ORIGIN
 
 
 MODEL = {
@@ -57,6 +58,9 @@ def video_api(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(main, "_saved_setting", lambda key: {"enabled": {"text_to_video": [MODEL["id"]], "image_to_video": [MODEL["id"]], "first_last_frame": [MODEL["id"]]}} if key == "openrouter_video_models" else {})
     client = TestClient(main.app)
     client.cookies.set("onenode_session", session["session_token"])
+    # Browser-faithful: cookie-auth unsafe methods carry an allowlisted Origin
+    # to pass the CSRF boundary (AUTH-LEGACY-001B).
+    client.headers.update(BROWSER_ORIGIN)
     return client
 
 

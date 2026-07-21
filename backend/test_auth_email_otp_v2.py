@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from test_support.browser_client import BrowserTestClient
 
 
 @pytest.fixture
@@ -80,7 +81,9 @@ def test_request_code_rejects_invalid_email(temp_db):
 # 5
 def test_response_shape_same_regardless_of_user_existence(temp_db, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_OTP_REQUEST_COOLDOWN_SECONDS", 0)  # not testing rate limits here
-    with TestClient(main.app) as client:
+    # Browser flow: verify stores the session cookie, later request_code posts
+    # are unsafe requests from the same browser (AUTH-LEGACY-001B).
+    with BrowserTestClient(main.app) as client:
         # first login creates the user
         r1 = request_code(client, "exists@example.com")
         code = r1.json()["debug_code"]
@@ -137,7 +140,9 @@ def test_verify_creates_user_identity_and_session(temp_db):
 # 11, 12
 def test_repeated_login_same_email_reuses_internal_id(temp_db, monkeypatch):
     monkeypatch.setattr(main, "EMAIL_OTP_REQUEST_COOLDOWN_SECONDS", 0)  # not testing rate limits here
-    with TestClient(main.app) as client:
+    # Browser flow: verify stores the session cookie, the second login is an
+    # unsafe request from the same browser (AUTH-LEGACY-001B).
+    with BrowserTestClient(main.app) as client:
         r1 = request_code(client, "same@example.com")
         b1 = verify_code(client, r1.json()["challenge_id"], r1.json()["debug_code"]).json()
         r2 = request_code(client, "same@example.com")
@@ -175,7 +180,9 @@ def test_expired_code_returns_401(temp_db):
 
 # 17
 def test_consumed_code_reuse_returns_401(temp_db):
-    with TestClient(main.app) as client:
+    # Browser flow: the first verify stores the session cookie, the second
+    # verify is an unsafe request from the same browser (AUTH-LEGACY-001B).
+    with BrowserTestClient(main.app) as client:
         r = request_code(client, "reuse@example.com")
         cid, code = r.json()["challenge_id"], r.json()["debug_code"]
         first = verify_code(client, cid, code)

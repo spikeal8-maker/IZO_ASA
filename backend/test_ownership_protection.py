@@ -11,6 +11,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+# Browser-faithful contract: cookie-auth mutations carry an allowlisted Origin
+# to pass the CSRF boundary (AUTH-LEGACY-001B). GET requests stay untouched.
+from test_support.browser_origin import BROWSER_ORIGIN
 
 
 def count(table, where="", params=()):
@@ -144,7 +147,7 @@ def test_cancel_own_job_200(temp_db, two_users):
                 "'2026-01-01T03:00:00+00:00')"
             )
         main.load_db_state()
-        r = c.post("/api/jobs/job-a-cancel/cancel", cookies={"onenode_session": sa["session_token"]})
+        r = c.post("/api/jobs/job-a-cancel/cancel", cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
     assert r.status_code == 200
     assert r.json()["status"] == "cancelled"
 
@@ -153,7 +156,7 @@ def test_cancel_own_job_200(temp_db, two_users):
 def test_cancel_other_job_404(temp_db, two_users):
     sb = sess_b(two_users)
     with TestClient(main.app) as c:
-        r = c.post("/api/jobs/job-a-001/cancel", cookies={"onenode_session": sb["session_token"]})
+        r = c.post("/api/jobs/job-a-001/cancel", cookies={"onenode_session": sb["session_token"]}, headers=BROWSER_ORIGIN)
     assert r.status_code == 404
 
 
@@ -261,7 +264,7 @@ def test_gallery_own_images_only(temp_db, two_users):
 def test_favorite_own_image_200(temp_db, two_users):
     sa = sess_a(two_users)
     with TestClient(main.app) as c:
-        r = c.post("/api/gallery/img-a-001/favorite", json={"isFavorite": True}, cookies={"onenode_session": sa["session_token"]})
+        r = c.post("/api/gallery/img-a-001/favorite", json={"isFavorite": True}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
     assert r.status_code == 200
     assert r.json()["isFavorite"] is True
 
@@ -270,7 +273,7 @@ def test_favorite_own_image_200(temp_db, two_users):
 def test_favorite_other_image_404(temp_db, two_users):
     sa = sess_a(two_users)
     with TestClient(main.app) as c:
-        r = c.post("/api/gallery/img-b-001/favorite", json={"isFavorite": True}, cookies={"onenode_session": sa["session_token"]})
+        r = c.post("/api/gallery/img-b-001/favorite", json={"isFavorite": True}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
     assert r.status_code == 404
 
 
@@ -278,7 +281,7 @@ def test_favorite_other_image_404(temp_db, two_users):
 def test_delete_own_image_200(temp_db, two_users):
     sa = sess_a(two_users)
     with TestClient(main.app) as c:
-        r = c.delete("/api/gallery/img-a-001", cookies={"onenode_session": sa["session_token"]})
+        r = c.delete("/api/gallery/img-a-001", cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
@@ -287,7 +290,7 @@ def test_delete_own_image_200(temp_db, two_users):
 def test_delete_other_image_404(temp_db, two_users):
     sa = sess_a(two_users)
     with TestClient(main.app) as c:
-        r = c.delete("/api/gallery/img-b-001", cookies={"onenode_session": sa["session_token"]})
+        r = c.delete("/api/gallery/img-b-001", cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
     assert r.status_code == 404
 
 
@@ -295,7 +298,7 @@ def test_delete_other_image_404(temp_db, two_users):
 def test_use_as_own_image_200(temp_db, two_users):
     sa = sess_a(two_users)
     with TestClient(main.app) as c:
-        r = c.post("/api/gallery/img-a-001/use-as", json={"target": "image_to_image"}, cookies={"onenode_session": sa["session_token"]})
+        r = c.post("/api/gallery/img-a-001/use-as", json={"target": "image_to_image"}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
@@ -304,7 +307,7 @@ def test_use_as_own_image_200(temp_db, two_users):
 def test_use_as_other_image_404(temp_db, two_users):
     sa = sess_a(two_users)
     with TestClient(main.app) as c:
-        r = c.post("/api/gallery/img-b-001/use-as", json={"target": "image_to_image"}, cookies={"onenode_session": sa["session_token"]})
+        r = c.post("/api/gallery/img-b-001/use-as", json={"target": "image_to_image"}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
     assert r.status_code == 404
 
 
@@ -336,6 +339,7 @@ def test_source_library_item_remains_usable_after_parent_gallery_image_is_delete
             "/api/gallery/sources/source-a-001/use-as",
             json={"target": "image_to_image"},
             cookies={"onenode_session": sa["session_token"]},
+            headers=BROWSER_ORIGIN,
         )
         media = c.get(
             "/api/media/source-a.webp?userId=web_a",
@@ -352,7 +356,7 @@ def test_source_library_item_remains_usable_after_parent_gallery_image_is_delete
 def test_send_own_image_200(temp_db, two_users):
     sa = sess_a(two_users)
     with TestClient(main.app) as c:
-        r = c.post("/api/gallery/img-a-001/send", json={"platform": "telegram"}, cookies={"onenode_session": sa["session_token"]})
+        r = c.post("/api/gallery/img-a-001/send", json={"platform": "telegram"}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
     assert r.status_code == 200
     assert r.json()["ok"] is True
 
@@ -361,7 +365,7 @@ def test_send_own_image_200(temp_db, two_users):
 def test_send_other_image_404(temp_db, two_users):
     sa = sess_a(two_users)
     with TestClient(main.app) as c:
-        r = c.post("/api/gallery/img-b-001/send", json={"platform": "telegram"}, cookies={"onenode_session": sa["session_token"]})
+        r = c.post("/api/gallery/img-b-001/send", json={"platform": "telegram"}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
     assert r.status_code == 404
 
 
@@ -410,7 +414,7 @@ def test_users_id_unchanged(temp_db, two_users):
     sa = sess_a(two_users)
     with TestClient(main.app) as c:
         c.get("/api/gallery", cookies={"onenode_session": sa["session_token"]})
-        c.post("/api/gallery/img-a-001/favorite", json={"isFavorite": True}, cookies={"onenode_session": sa["session_token"]})
+        c.post("/api/gallery/img-a-001/favorite", json={"isFavorite": True}, cookies={"onenode_session": sa["session_token"]}, headers=BROWSER_ORIGIN)
     with main.db() as conn:
         after = sorted(r["id"] for r in conn.execute("SELECT id FROM users"))
     assert "telegram_legacy" in after
