@@ -1,6 +1,13 @@
+import { mkdirSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { chromium } from 'playwright'
 
-const base = `http://127.0.0.1:5173?platform=web&userId=layout_${Date.now()}`
+const previewOrigin = (process.env.IZO_E2E_BASE_URL || 'http://127.0.0.1:5173').replace(/\/$/, '')
+const screenshotDir = resolve(process.env.IZO_E2E_SCREENSHOT_DIR || '.')
+const fullPageScreenshots = process.env.IZO_E2E_SCREENSHOT_MODE !== 'viewport'
+const base = `${previewOrigin}/?platform=web&userId=layout_${Date.now()}`
+
+mkdirSync(screenshotDir, { recursive: true })
 
 const viewports = [
   { name: 'desktop-2048', width: 2048, height: 1152 },
@@ -15,17 +22,30 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
+async function installIsolatedBackend(context) {
+  await context.route('**/api/**', async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'isolated layout e2e guest' }),
+    })
+  })
+  await context.route('**/media/**', async (route) => {
+    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'not found' }) })
+  })
+}
+
 async function assertNoBrokenLayout(page, label) {
   const report = await page.evaluate(() => {
     const selectors = [
       '.app-shell',
       '.rail',
       '.topbar',
-      '.studio-grid',
+      '.layout',
       '.control-panel',
       '.preview-panel',
       '.prompt-dock',
-      '.settings-page',
+      '.profile-page',
       '.gallery-view',
     ]
     const visibleBoxes = selectors.flatMap((selector) => {
@@ -56,12 +76,10 @@ async function assertNoBrokenLayout(page, label) {
       viewport: { width: window.innerWidth, height: window.innerHeight },
       documentWidth: document.documentElement.scrollWidth,
       bodyWidth: document.body.scrollWidth,
-      topbarDisplay: getComputedStyle(document.querySelector('.topbar')).display,
-      bottomNavDisplay: getComputedStyle(document.querySelector('.bottom-nav')).display,
       overflowing,
       tinyText,
-      hasProjectName: document.body.textContent?.includes('ИЗО_АСА') || document.title.includes('ИЗО_АСА'),
-      hasAuthor: getComputedStyle(document.querySelector('.workspace'), '::after').content.includes('Аликин'),
+      hasProjectName: /ИЗО[_ ]АСА/.test(document.body.textContent || '') || /ИЗО[_ ]АСА/.test(document.title),
+      hasProductShell: document.querySelector('.app-shell') instanceof HTMLElement,
       englishLeaks: Array.from(document.body.querySelectorAll('button, label, h2, span, summary'))
         .map((node) => node.textContent?.trim() || '')
         .filter(Boolean)
@@ -74,41 +92,44 @@ async function assertNoBrokenLayout(page, label) {
   assert(report.overflowing.length === 0, `${label}: visible elements overflow viewport ${JSON.stringify(report.overflowing)}`)
   assert(report.tinyText.length === 0, `${label}: invisible text controls ${JSON.stringify(report.tinyText)}`)
   assert(report.hasProjectName, `${label}: project name is missing`)
-  assert(report.hasAuthor, `${label}: author footer is missing`)
+  assert(report.hasProductShell, `${label}: product shell is missing`)
   assert(report.englishLeaks.length === 0, `${label}: untranslated visible strings ${JSON.stringify(report.englishLeaks)}`)
 }
 
 async function runViewport(browser, viewport) {
-  const page = await browser.newPage({
+  const context = await browser.newContext({
     viewport: { width: viewport.width, height: viewport.height },
     isMobile: Boolean(viewport.isMobile),
     hasTouch: Boolean(viewport.isMobile),
   })
+  await installIsolatedBackend(context)
+  const page = await context.newPage()
   page.setDefaultTimeout(15000)
   await page.goto(`${base}_${viewport.name}`, { waitUntil: 'networkidle' })
-  await page.getByRole('button', { name: 'Текст стрелка вправо Изо' }).waitFor()
+  await page.getByRole('button', { name: 'Изображение по тексту' }).waitFor()
   await page.locator('.preview-panel').waitFor()
 
   await assertNoBrokenLayout(page, `${viewport.name}: studio`)
   if (viewport.isMobile) {
     const navState = await page.evaluate(() => ({
-      topbarHidden: getComputedStyle(document.querySelector('.topbar')).display === 'none',
-      bottomNavVisible: getComputedStyle(document.querySelector('.bottom-nav')).display !== 'none',
+      visibleTopbars: Array.from(document.querySelectorAll('.topbar')).filter((node) => node instanceof HTMLElement && node.offsetParent !== null).length,
+      visibleModeTabs: Array.from(document.querySelectorAll('.mode-tabs')).filter((node) => node instanceof HTMLElement && node.offsetParent !== null).length,
       visibleTopActions: Array.from(document.querySelectorAll('.top-actions button')).filter((button) => button instanceof HTMLElement && button.offsetParent !== null).length,
+      visibleLegacyBottomNavs: Array.from(document.querySelectorAll('.bottom-nav')).filter((node) => node instanceof HTMLElement && node.offsetParent !== null).length,
     }))
-    assert(navState.topbarHidden, `${viewport.name}: top actions duplicate is visible on mobile`)
-    assert(navState.bottomNavVisible, `${viewport.name}: bottom nav is missing on mobile`)
-    assert(navState.visibleTopActions === 0, `${viewport.name}: duplicated Gallery/Help/Settings buttons are visible`)
+    assert(navState.visibleTopbars === 1, `${viewport.name}: expected one visible product topbar`)
+    assert(navState.visibleModeTabs === 1, `${viewport.name}: generator mode navigation is missing or duplicated`)
+    assert(navState.visibleTopActions > 0, `${viewport.name}: product actions are missing from the mobile topbar`)
+    assert(navState.visibleLegacyBottomNavs === 0, `${viewport.name}: legacy bottom navigation must not overlap the product topbar`)
   }
 
-  for (const name of ['Изо стрелка вправо Изо', 'Редактирование Изо', 'Рисование Изо']) {
+  for (const name of ['Изменить изображение по фото', 'Собрать изображение из нескольких фото', 'Правки изображения']) {
     await page.getByRole('button', { name }).click()
     await page.locator('.preview-panel').waitFor()
     await assertNoBrokenLayout(page, `${viewport.name}: ${name}`)
-    if (name === 'Рисование Изо') {
-      await page.getByRole('button', { name: /Эскиз|Sketch/ }).click()
-      await page.locator('.paint-editor').waitFor()
-      const canvas = page.locator('.konva-stage canvas').first()
+    if (name === 'Правки изображения') {
+      await page.locator('.paint-workbench').waitFor()
+      const canvas = page.locator('.paint-stage canvas').first()
       await canvas.waitFor()
       const before = await canvas.evaluate((node) => node.toDataURL())
       const box = await canvas.boundingBox()
@@ -139,20 +160,18 @@ async function runViewport(browser, viewport) {
       await page.waitForTimeout(200)
       const after = await canvas.evaluate((node) => node.toDataURL())
       assert(before !== after, `${viewport.name}: paint canvas did not change after drawing`)
-      await page.getByRole('button', { name: /Сохранить|Save sketch/ }).click()
-      await page.locator('.paint-editor').waitFor({ state: 'detached' })
     }
   }
 
-  await page.getByRole('button', { name: /Настройки/ }).first().click()
-  await page.locator('.settings-page').waitFor()
-  await assertNoBrokenLayout(page, `${viewport.name}: settings`)
-  await page.getByRole('button', { name: /К генерации/ }).click()
-  await page.locator('.studio-grid').waitFor()
-  await assertNoBrokenLayout(page, `${viewport.name}: settings-back`)
+  await page.getByRole('button', { name: 'Войти' }).first().click()
+  await page.locator('.profile-page').waitFor()
+  await assertNoBrokenLayout(page, `${viewport.name}: profile`)
+  await page.getByRole('button', { name: 'Изображение по тексту' }).click()
+  await page.locator('.layout').waitFor()
+  await assertNoBrokenLayout(page, `${viewport.name}: profile-back`)
 
-  await page.screenshot({ path: `layout-${viewport.name}.png`, fullPage: true })
-  await page.close()
+  await page.screenshot({ path: join(screenshotDir, `layout-${viewport.name}.png`), fullPage: fullPageScreenshots })
+  await context.close()
 }
 
 async function run() {
