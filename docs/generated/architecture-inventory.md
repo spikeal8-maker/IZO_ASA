@@ -11,7 +11,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 - SQLite tables: 52
 - SQLite indexes: 84
 - Foreign-key declarations: 0
-- Frontend/static API literals: 25
+- Frontend/static API literals: 26
 - Route process role: `all-dev-current-monolith`
 
 ## Route authorization
@@ -120,6 +120,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `/api/generate` | frontend/src/newUi.tsx |
 | `/api/jobs` | frontend/src/newUi.tsx |
 | `/api/me-v2` | backend/static/feed/index.html, backend/static/gallery/gallery.js, frontend/src/authV2.tsx |
+| `/api/media/` | backend/static/gallery/gallery.js, frontend/src/studio/videoSourceHandoff.ts |
 | `/api/version` | frontend/src/diag.tsx |
 
 ## Large-file budgets
@@ -132,7 +133,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
 | `frontend/src/adminModels.tsx` | 2016 | 2100 | 84 |
 | `frontend/src/index.css` | 2337 | 2400 | 63 |
-| `frontend/src/newStudioV3.css` | 5875 | 6000 | 125 |
+| `frontend/src/newStudioV3.css` | 5876 | 6000 | 124 |
 | `frontend/src/newUi.css` | 3096 | 3200 | 104 |
 | `frontend/src/newUi.tsx` | 3628 | 3628 | 0 |
 

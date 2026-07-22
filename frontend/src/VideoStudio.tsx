@@ -6,6 +6,14 @@ import {
   Share2, Sparkles, Trash2, Upload, Volume2, VolumeX, WandSparkles, X,
 } from 'lucide-react'
 import { ensureSessionRefreshedV2 } from './authV2'
+import { apiUrl, verifyPrivateImage } from './studio/studioApi'
+import {
+  VIDEO_SOURCE_DEFAULT_PROMPT,
+  clearVideoSourceHandoff,
+  closestVideoAspectRatio,
+  readVideoSourceHandoff,
+  resolveVerifiedVideoSource,
+} from './studio/videoSourceHandoff'
 import './videoStudio.css'
 
 type VideoMode = 'text_to_video' | 'image_to_video' | 'first_last_frame' | 'reference_to_video'
@@ -184,10 +192,12 @@ function formatElapsed(createdAt?: string | null, completedAt?: string | null, n
 }
 export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps = {}): ReactElement {
   const initialDraft = useMemo(() => readStorage<Record<string, unknown>>(DRAFT_KEY, {}), [])
-  const initialMode = (initialDraft.mode as VideoMode) || 'text_to_video'
+  const initialVideoSource = useMemo(() => readVideoSourceHandoff(), [])
+  const initialMode = initialVideoSource ? 'image_to_video' : (initialDraft.mode as VideoMode) || 'text_to_video'
+  const initialPrompt = String(initialDraft.prompt || '')
   const [mode, setMode] = useState<VideoMode>(initialMode)
   const [quality, setQuality] = useState<VideoQuality>((initialDraft.quality as VideoQuality) || 'fast')
-  const [prompt, setPrompt] = useState(String(initialDraft.prompt || ''))
+  const [prompt, setPrompt] = useState(initialPrompt.trim() ? initialPrompt : initialVideoSource ? VIDEO_SOURCE_DEFAULT_PROMPT : '')
   const [config, setConfig] = useState<VideoConfig | null>(null)
   const [modelId, setModelId] = useState(String(initialDraft.modelId || ''))
   const [duration, setDuration] = useState(Number(initialDraft.duration || 0))
@@ -285,6 +295,8 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
       const ranked = [...candidates].sort((a, b) => Number(a.publicPricing?.fromTokens ?? 999999) - Number(b.publicPricing?.fromTokens ?? 999999))
       const preferred = storedModel || (initialDraft.quality === 'max' ? ranked[ranked.length - 1] : initialDraft.quality === 'standard' ? ranked[Math.floor((ranked.length - 1) / 2)] : ranked[0])
       syncModelDefaults(preferred)
+      const inheritedAspectRatio = initialVideoSource ? closestVideoAspectRatio(initialVideoSource, preferred?.supportedAspectRatios || []) : null
+      if (inheritedAspectRatio) setAspectRatio(inheritedAspectRatio)
       if (historyResponse.ok) {
         const data = await historyResponse.json() as { items?: VideoJob[] }
         const items = (data.items || []).filter((item) => !item.galleryDeleted)
@@ -294,7 +306,19 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
         setSelectedJob(items.find((item) => item.status === 'completed') || running || null)
       }
     }).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false))
-  }, [initialDraft.modelId, initialDraft.quality, initialMode, syncModelDefaults, visibility])
+  }, [initialDraft.modelId, initialDraft.quality, initialMode, initialVideoSource, syncModelDefaults, visibility])
+
+  useEffect(() => {
+    if (!initialVideoSource) return undefined
+    let cancelled = false
+    void resolveVerifiedVideoSource(initialVideoSource, verifyPrivateImage).then((result) => {
+      if (cancelled) return
+      clearVideoSourceHandoff()
+      if (result.ok) { setFirstFrame(apiUrl(result.source.mediaUrl)); setError('') }
+      else { setFirstFrame(''); setError(result.message) }
+    })
+    return () => { cancelled = true }
+  }, [initialVideoSource])
 
   useEffect(() => { localStorage.setItem(DRAFT_KEY, JSON.stringify({ mode, quality, prompt, modelId, duration, resolution, aspectRatio, generateAudio })) }, [mode, quality, prompt, modelId, duration, resolution, aspectRatio, generateAudio])
   useEffect(() => { if (!activeJob || submitting) return; const timer = window.setInterval(() => void loadHistory(), 3000); return () => window.clearInterval(timer) }, [activeJob, loadHistory, submitting])
@@ -865,7 +889,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
           {shownJob?.status === 'completed' && shownJob.videoUrl ? <video key={shownJob.videoUrl} src={shownJob.videoUrl} controls playsInline preload="metadata" />
             : shownJob && !['failed', 'cancelled', 'expired'].includes(shownJob.status) ? <div className="video-progress"><Film /><strong>{statusLabel(shownJob.status)}</strong><p>Прошло {shownElapsed || 'несколько секунд'}. Ролик сохранится в истории и галерее.</p><div><i style={{ width: `${Math.max(8, shownJob.progress || 10)}%` }} /></div><small>{shownJob.progress || 10}%</small></div>
             : shownJob?.error ? <div className="video-stage-message error"><RotateCcw /><strong>Видео не создано</strong><p>{shownJob.error}</p><button type="button" onClick={() => setSelectedJob(null)}>Попробовать снова</button></div>
-            : <div className="video-stage-message"><Play /><strong>{modeMeta.empty}</strong><p>Выберите параметры и создайте видео</p></div>}
+            : <div className="video-stage-message"><Play /><strong>{mode === 'image_to_video' && firstFrame ? 'Исходный кадр добавлен' : modeMeta.empty}</strong><p>{mode === 'image_to_video' && firstFrame ? 'Опишите движение и выберите параметры' : 'Выберите параметры и создайте видео'}</p></div>}
         </div></div>
       </section>
 

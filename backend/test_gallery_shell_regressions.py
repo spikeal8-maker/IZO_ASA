@@ -76,6 +76,39 @@ def test_gallery_use_as_verifies_private_media_without_double_api_prefix():
     assert "ensureSessionRefreshedV2()" in verify_block
 
 
+def test_gallery_animate_action_uses_owner_checked_one_tab_handoff():
+    page = (GALLERY_DIR / "index.html").read_text(encoding="utf-8")
+    script = (GALLERY_DIR / "gallery.js").read_text(encoding="utf-8")
+    animate_block = script.split("async function animateCurrentImage", 1)[1].split(
+        "async function useCurrentAs", 1
+    )[0]
+
+    assert 'id="animateBtn"' in page and "Оживить" in page
+    assert "/use-as" in animate_block
+    assert "credentials:'include'" in script
+    assert "VIDEO_SOURCE_HANDOFF_KEY = 'izo:video-source-v1'" in script
+    assert "sessionStorage.setItem(VIDEO_SOURCE_HANDOFF_KEY" in animate_block
+    assert "window.location.assign('/video')" in animate_block
+    assert "item.mediaType === 'video'" in animate_block
+    assert "URLSearchParams" not in animate_block
+
+
+def test_video_studio_rechecks_and_consumes_private_image_handoff():
+    studio = (FRONTEND_SRC / "VideoStudio.tsx").read_text(encoding="utf-8")
+    handoff = (FRONTEND_SRC / "studio" / "videoSourceHandoff.ts").read_text(encoding="utf-8")
+    new_ui = (FRONTEND_SRC / "newUi.tsx").read_text(encoding="utf-8")
+
+    assert "readVideoSourceHandoff" in studio
+    assert "resolveVerifiedVideoSource(initialVideoSource, verifyPrivateImage)" in studio
+    assert "clearVideoSourceHandoff()" in studio
+    assert "setFirstFrame(apiUrl(result.source.mediaUrl))" in studio
+    assert "VIDEO_SOURCE_DEFAULT_PROMPT" in studio
+    assert "VIDEO_SOURCE_HANDOFF_KEY = 'izo:video-source-v1'" in handoff
+    assert "candidate.startsWith('/')" in handoff
+    assert "writeVideoSourceHandoff" in new_ui and ">Оживить</button>" in new_ui
+    assert "X-OneNode-User" not in handoff
+
+
 def test_gallery_cards_defer_offscreen_render_and_masonry_reuses_spans():
     script = (GALLERY_DIR / "gallery.js").read_text(encoding="utf-8")
     styles = (GALLERY_DIR / "gallery.css").read_text(encoding="utf-8")

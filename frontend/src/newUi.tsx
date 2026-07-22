@@ -11,7 +11,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react'
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun, Trash2, Undo2, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Film, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun, Trash2, Undo2, X } from 'lucide-react'
 import {
   AuthV2Modal,
   ensureSessionRefreshedV2,
@@ -106,6 +106,7 @@ import {
   sameGenerationSize,
 } from './studio/studioImageProcessing'
 import { initialProfileTabFromPath, initialViewFromPath, studioSeoMeta } from './studio/studioNavigation'
+import { normalizePrivateMediaPath, writeVideoSourceHandoff } from './studio/videoSourceHandoff'
 import type {
   CoreStudioMode,
   FeedLang,
@@ -128,7 +129,6 @@ import type {
   UploadTarget,
 } from './studio/studioTypes'
 import { useModelPreferences, useStudioBackendData, useStudioDraftAutosave } from './studio/useStudioState'
-
 const PaintWorkbench = lazy(() => import('./PaintWorkbench'))
 const VideoStudio = lazy(() => import('./VideoStudio'))
 
@@ -1806,7 +1806,6 @@ export default function NewStudio(): ReactElement {
   const availableEditSlots = editSlots.slice(0, editReferenceLimit)
   const visibleEditSlots = editExtraOpen ? availableEditSlots : availableEditSlots.slice(0, 2)
   const editFilledCount = availableEditSlots.filter((slot) => slot.image).length
-
   // Док «Промпт изображения»: если пользователь выбрал миниатюру — берём её из
   // видимой истории (своя или лента), чтобы клик по ленте синхронизировал промпт.
   // Без явного выбора показываем свою последнюю генерацию (но НЕ ленту, чтобы
@@ -2979,6 +2978,7 @@ export default function NewStudio(): ReactElement {
                     Скачать
                   </a>
                 )}
+                {normalizePrivateMediaPath(visibleResultUrl) && <button className="image-action animate-image-action" type="button" onClick={() => { try { writeVideoSourceHandoff({ galleryImageId: activeCorePreview?.galleryId || activeCorePreview?.resultImageId || visibleGalleryImage?.id, mediaUrl: visibleResultUrl, thumbnailUrl: visibleGalleryImage?.thumbnailUrl, width: visibleResultWidth, height: visibleResultHeight, imagePrompt: activeCorePreview?.promptOriginal || visibleGalleryImage?.promptOriginal }); setTab('video') } catch { showToast('Не удалось подготовить изображение для видео') } }}><Film aria-hidden="true" />Оживить</button>}
                 {visibleResultSource && (
                   <button className={`image-action compare-toggle${compareEnabled ? ' active' : ''}`} type="button" aria-pressed={compareEnabled} onClick={() => setCompareEnabled((value) => !value)}>
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
