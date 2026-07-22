@@ -5,6 +5,30 @@ import './index.css'
 import App from './App.tsx'
 import { installGlobalRuntimeTelemetry, reportRuntimeError } from './runtimeTelemetry'
 
+const STALE_CHUNK_RELOAD_KEY = 'izo_stale_chunk_reload_at'
+const STALE_CHUNK_RELOAD_GUARD_MS = 30_000
+
+// A tab can remain open while an immutable frontend release is switched. If
+// that old tab later requests a lazy chunk which no longer belongs to the
+// active release, refresh once so the no-store HTML loads the current graph.
+// A short session guard prevents a broken deployment from creating a reload
+// loop; the normal error boundary handles any repeated failure.
+window.addEventListener('vite:preloadError', (event: Event) => {
+  const now = Date.now()
+  let shouldReload = true
+  try {
+    const previous = Number(window.sessionStorage.getItem(STALE_CHUNK_RELOAD_KEY) || '0')
+    shouldReload = !Number.isFinite(previous) || now - previous > STALE_CHUNK_RELOAD_GUARD_MS
+    if (shouldReload) window.sessionStorage.setItem(STALE_CHUNK_RELOAD_KEY, String(now))
+  } catch {
+    // Storage may be unavailable in a restricted WebView; one reload is still
+    // the safest recovery for an obsolete module graph.
+  }
+  if (!shouldReload) return
+  event.preventDefault()
+  window.location.reload()
+})
+
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; incidentId: string; revision: number }> {
   constructor(props: { children: ReactNode }) {
     super(props)
