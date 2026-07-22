@@ -713,8 +713,8 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   const tgAvail = telegramAvailable()
   const maxAvail = maxAvailable()
   const isMiniApp = tgAvail || maxAvail
-  const showTelegramBotLogin = !isMiniApp && authCaps.telegram_bot_login_available
-  const showMaxBotLogin = !isMiniApp && authCaps.max_bot_login_available
+  const showTelegramBotLogin = !isMiniApp
+  const showMaxBotLogin = !isMiniApp
   const hasProviderActions = showTelegramBotLogin || showMaxBotLogin || tgAvail || maxAvail
 
   const beginEmailVerification = async (targetEmail: string) => {
@@ -861,13 +861,16 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
         )}
         {hasProviderActions && (
           <div className="auth-modal-providers">
+            {!isMiniApp && authCaps.capabilities_loaded && !authCaps.telegram_bot_login_available && !authCaps.max_bot_login_available && (
+              <small className="auth-modal-hint">Вход через ботов временно недоступен. Можно войти по email и паролю.</small>
+            )}
             {showTelegramBotLogin && (
-              <button className="secondary" onClick={() => onBotLogin('telegram')} disabled={busy}>
+              <button className="secondary" onClick={() => onBotLogin('telegram')} disabled={busy || !authCaps.telegram_bot_login_available}>
                 Войти через Telegram-бота
               </button>
             )}
             {showMaxBotLogin && (
-              <button className="secondary" onClick={() => onBotLogin('max')} disabled={busy}>
+              <button className="secondary" onClick={() => onBotLogin('max')} disabled={busy || !authCaps.max_bot_login_available}>
                 Войти через MAX
               </button>
             )}

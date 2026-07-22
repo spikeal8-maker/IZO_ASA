@@ -69,6 +69,10 @@ async function request(path: string, init: RequestInit = {}) {
   const response = await adminFetch(path, init)
   const payload = await response.json().catch(() => ({})) as AdminRecord
   if (!response.ok) throw new Error(String(payload.detail || 'Операция не выполнена'))
+  if (payload.ok === false) {
+    const probe = (payload.probe || {}) as AdminRecord
+    throw new Error(String(payload.detail || statusLabel(probe.status) || 'Проверка подключения не пройдена'))
+  }
   return payload
 }
 

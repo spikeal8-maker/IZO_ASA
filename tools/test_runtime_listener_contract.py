@@ -47,8 +47,17 @@ def test_listener_contract_reserves_exact_roles_and_full_app_port() -> None:
     assert listeners["frontend-edge"]["required_local"] is True
     assert listeners["frontend-edge"]["process_names"] == ["caddy.exe"]
     assert listeners["frontend-edge"]["command_contains"] == ["run", "--config", "ops\\caddy\\Caddyfile"]
+    assert listeners["frontend-edge"]["windows_service_fallback"] == {
+        "name": "IZOCaddy",
+        "arguments_contains": ["run", "--config", r"C:\IZO_ASA\config\Caddyfile", "--adapter", "caddyfile"],
+    }
     assert listeners["api"]["required_local"] is True
+    assert listeners["api"]["windows_service_fallback"]["name"] == "IZOBackend"
     assert listeners["qwen-asr"]["command_contains"] == ["qwen_asr_service.py", "--port", "8001"]
+    assert listeners["ollama"]["windows_service_fallback"] == {
+        "name": "IZOOllama",
+        "arguments_contains": ["serve"],
+    }
     assert contract["runtime_guards"] == {
         "full_app_process_names": ["python.exe"],
         "full_app_command_contains": ["-m", "uvicorn", "main:app"],
@@ -77,6 +86,10 @@ def test_runtime_checker_is_read_only_and_fail_closed() -> None:
         assert forbidden not in source
     assert "Get-NetTCPConnection" in source
     assert "Get-CimInstance Win32_Process" in source
+    assert "Get-CimInstance Win32_Service" in source
+    assert "Get-ProcessAncestryIds" in source
+    assert "service config id does not match" in source
+    assert "RUNTIME_LISTENER_SERVICE_VERIFIED" in source
     assert "full application owns forbidden listener" in source
     assert "required listener is absent" in source
     assert "listener process mismatch" in source

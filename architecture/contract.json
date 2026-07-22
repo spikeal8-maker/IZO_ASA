@@ -182,6 +182,10 @@
       "required_local": true,
       "process_names": ["caddy.exe"],
       "command_contains": ["run", "--config", "ops\\caddy\\Caddyfile"],
+      "windows_service_fallback": {
+        "name": "IZOCaddy",
+        "arguments_contains": ["run", "--config", "C:\\IZO_ASA\\config\\Caddyfile", "--adapter", "caddyfile"]
+      },
       "evidence_files": [
         "ops/caddy/Caddyfile",
         "ops/caddy/runtime.json",
@@ -197,6 +201,10 @@
       "required_local": true,
       "process_names": ["python.exe"],
       "command_contains": ["-m", "uvicorn", "main:app", "--port", "8000", "--no-proxy-headers"],
+      "windows_service_fallback": {
+        "name": "IZOBackend",
+        "arguments_contains": ["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000", "--no-proxy-headers"]
+      },
       "evidence_files": ["tools/restart-backend.ps1", "tools/start-production-stack.ps1"]
     },
     {
@@ -226,6 +234,10 @@
       "bind_rationale": "The current Ollama Desktop listener may report an IPv6 wildcard bind; keep the desired loopback target visible until OPS hardening closes the gap.",
       "process_names": ["ollama.exe"],
       "command_contains": ["serve"],
+      "windows_service_fallback": {
+        "name": "IZOOllama",
+        "arguments_contains": ["serve"]
+      },
       "evidence_files": ["tools/start-production-stack.ps1"]
     }
   ],

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ssl
 
 import pytest
 
 import main
-from app.integrations.max_tls import build_max_http_verify, normalize_max_tls_trust_store
+from app.integrations.max_tls import MAX_BUNDLED_CA_PATH, build_max_http_verify, normalize_max_tls_trust_store
 
 
 @pytest.mark.parametrize(
@@ -27,16 +28,49 @@ def test_invalid_trust_store_mode_fails_fast():
         normalize_max_tls_trust_store("disabled")
 
 
-def test_system_mode_builds_native_context_with_tls_client_protocol():
+def test_bundled_max_ca_has_reviewed_certificate_fingerprint():
+    der = ssl.PEM_cert_to_DER_cert(MAX_BUNDLED_CA_PATH.read_text(encoding="ascii"))
+    assert hashlib.sha1(der).hexdigest() == "8ff915ccab7bc16f8c5c8099d53e0e115b3aec2f"
+
+
+def test_system_mode_builds_native_context_and_adds_bundled_ca(tmp_path):
     calls: list[object] = []
-    sentinel = object()
+    ca_path = tmp_path / "max-root.pem"
+    ca_path.write_text("test-ca", encoding="ascii")
+
+    class FakeContext:
+        def __init__(self):
+            self.loaded_cafile = None
+
+        def load_verify_locations(self, *, cafile):
+            self.loaded_cafile = cafile
+
+    sentinel = FakeContext()
 
     def factory(protocol):
         calls.append(protocol)
         return sentinel
 
-    assert build_max_http_verify("system", system_context_factory=factory) is sentinel
+    assert build_max_http_verify(
+        "system",
+        system_context_factory=factory,
+        bundled_ca_path=ca_path,
+    ) is sentinel
     assert calls == [ssl.PROTOCOL_TLS_CLIENT]
+    assert sentinel.loaded_cafile == str(ca_path)
+
+
+def test_system_mode_fails_closed_when_bundled_ca_is_missing(tmp_path):
+    class FakeContext:
+        def load_verify_locations(self, *, cafile):
+            raise AssertionError(f"unexpected CA load: {cafile}")
+
+    with pytest.raises(RuntimeError, match="Bundled MAX CA certificate is missing"):
+        build_max_http_verify(
+            "system",
+            system_context_factory=lambda _protocol: FakeContext(),
+            bundled_ca_path=tmp_path / "missing.pem",
+        )
 
 
 def test_certifi_mode_preserves_httpx_default_verification():

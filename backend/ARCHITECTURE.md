@@ -100,7 +100,7 @@ It is a navigation aid, not a new architecture contract. Runtime behavior remain
 - `backend/app/storage/input_validation.py` owns owner-scoped generation media validation and typed `missing`/`unavailable` errors; `main.py` only collects request fields and maps typed errors to HTTP 400.
 - `backend/app/storage/backup.py` owns application-independent SQLite Backup API snapshots, SHA-256 content-addressed incremental media objects, manifests, verification and restore-to-new-directory rehearsal. It is invoked only by operator tools and never imported by the ASGI runtime.
 - `backend/app/integrations/ollama.py` owns Ollama base-URL normalization, bounded `/api/tags` discovery and the shared `/api/chat` HTTP/response parsing boundary used by prompt improvement and voice transcription; `main.py` still owns request bodies, timeout policy, concurrency, application parsing, audio-model guards and voice preprocessing.
-- `backend/app/integrations/max_tls.py` owns the MAX `system`/`certifi` trust-store policy; both async API calls and synchronous `/me` discovery receive the same native-system SSL context from `main.py`.
+- `backend/app/integrations/max_tls.py` owns the MAX `system`/`certifi` trust-store policy; system mode augments only the dedicated MAX client context with the reviewed bundled Russian Trusted Root CA, while both async API calls and synchronous `/me` discovery receive that same context from `main.py`.
 - `backend/app/integrations/max_client.py` owns async MAX API calls, synchronous
   startup `/me` discovery, token-redacted typed configuration/transport/response
   errors and a response-body-free health probe. `main.max_api()` keeps the legacy

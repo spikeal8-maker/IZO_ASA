@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 
 const auth = readFileSync(new URL('./src/authV2.tsx', import.meta.url), 'utf8')
+const adminBots = readFileSync(new URL('./src/adminBots.tsx', import.meta.url), 'utf8')
 const studio = readFileSync(new URL('./src/newUi.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('./src/index.css', import.meta.url), 'utf8')
 const authCode = auth.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
@@ -31,6 +32,9 @@ ok(!authCode.includes('sessionStorage'), 'auth-v2 must not use sessionStorage')
 ok(auth.includes('createPortal(') && auth.includes('document.body'), 'auth modal must render through a body portal')
 ok(auth.includes('role="dialog"') && auth.includes('aria-modal="true"'), 'auth modal must expose dialog semantics')
 ok(auth.includes("e.key === 'Escape'"), 'auth modal must close on Escape')
+ok(auth.includes("const showTelegramBotLogin = !isMiniApp") && auth.includes("const showMaxBotLogin = !isMiniApp"), 'browser login must keep Telegram and MAX actions visible')
+ok(auth.includes("busy || !authCaps.telegram_bot_login_available") && auth.includes("busy || !authCaps.max_bot_login_available"), 'unavailable bot login actions must fail visibly closed')
+ok(adminBots.includes('if (payload.ok === false)') && adminBots.includes('statusLabel(probe.status)'), 'admin bot verification must reject HTTP 200 provider failures')
 ok(/\.auth-modal-overlay\s*\{[^}]*position:\s*fixed/.test(css), 'auth modal overlay must remain fixed')
 
 if (failures.length) {

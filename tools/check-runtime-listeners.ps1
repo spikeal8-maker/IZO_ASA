@@ -58,6 +58,91 @@ function Test-ContainsAllInsensitive {
     return $true
 }
 
+function Get-ProcessAncestryIds {
+    param(
+        [int]$ProcessId,
+        [int]$MaximumDepth = 8
+    )
+
+    $ids = New-Object System.Collections.Generic.List[int]
+    $seen = @{}
+    $currentId = $ProcessId
+    for ($depth = 0; $depth -lt $MaximumDepth -and $currentId -gt 0; $depth += 1) {
+        if ($seen.ContainsKey($currentId)) {
+            break
+        }
+        $seen[$currentId] = $true
+        $ids.Add($currentId)
+        $current = Get-CimInstance Win32_Process -Filter "ProcessId=$currentId" -ErrorAction SilentlyContinue
+        if ($null -eq $current) {
+            break
+        }
+        $currentId = [int]$current.ParentProcessId
+    }
+    return @($ids)
+}
+
+function Test-WindowsServiceFallback {
+    param(
+        [object]$Fallback,
+        [object]$ListenerProcess,
+        [object[]]$AllowedProcessNames
+    )
+
+    $serviceName = [string](Get-OptionalProperty -InputObject $Fallback -Name "name" -DefaultValue "")
+    $requiredArguments = @((Get-OptionalProperty -InputObject $Fallback -Name "arguments_contains" -DefaultValue @()))
+    if (-not $serviceName.Trim()) {
+        return [pscustomobject]@{ Ok = $false; Reason = "service fallback has no name"; FullApp = $false }
+    }
+
+    $escapedServiceName = $serviceName.Replace("'", "''")
+    $service = Get-CimInstance Win32_Service -Filter "Name='$escapedServiceName'" -ErrorAction SilentlyContinue
+    if ($null -eq $service -or [string]$service.State -ne "Running" -or [int]$service.ProcessId -le 0) {
+        return [pscustomobject]@{ Ok = $false; Reason = "service $serviceName is not running"; FullApp = $false }
+    }
+
+    $ancestryIds = @(Get-ProcessAncestryIds -ProcessId ([int]$ListenerProcess.ProcessId))
+    if ([int]$service.ProcessId -notin $ancestryIds) {
+        return [pscustomobject]@{ Ok = $false; Reason = "listener is not a descendant of service $serviceName"; FullApp = $false }
+    }
+
+    $servicePath = ([string]$service.PathName).Trim().Trim('"')
+    if (-not $servicePath.Trim()) {
+        return [pscustomobject]@{ Ok = $false; Reason = "service $serviceName has no executable path"; FullApp = $false }
+    }
+    $serviceConfigPath = [System.IO.Path]::ChangeExtension($servicePath, ".xml")
+    if (-not (Test-Path -LiteralPath $serviceConfigPath -PathType Leaf)) {
+        return [pscustomobject]@{ Ok = $false; Reason = "service config is absent: $serviceConfigPath"; FullApp = $false }
+    }
+
+    try {
+        [xml]$serviceConfig = Get-Content -LiteralPath $serviceConfigPath -Raw -Encoding UTF8
+    } catch {
+        return [pscustomobject]@{ Ok = $false; Reason = "service config is invalid XML: $serviceConfigPath"; FullApp = $false }
+    }
+    if ([string]$serviceConfig.service.id -ne $serviceName) {
+        return [pscustomobject]@{ Ok = $false; Reason = "service config id does not match $serviceName"; FullApp = $false }
+    }
+
+    $configuredExecutableName = [System.IO.Path]::GetFileName([string]$serviceConfig.service.executable)
+    if (-not $configuredExecutableName -or $configuredExecutableName -notin @($AllowedProcessNames)) {
+        return [pscustomobject]@{ Ok = $false; Reason = "service executable is not allowed: $configuredExecutableName"; FullApp = $false }
+    }
+    $configuredArguments = [string]$serviceConfig.service.arguments
+    if (-not (Test-ContainsAllInsensitive -Text $configuredArguments -Fragments $requiredArguments)) {
+        return [pscustomobject]@{ Ok = $false; Reason = "service arguments do not match $serviceName"; FullApp = $false }
+    }
+
+    $isFullApp = Test-ContainsAllInsensitive -Text $configuredArguments -Fragments $fullAppSignature
+    return [pscustomobject]@{
+        Ok = $true
+        Reason = ""
+        FullApp = $isFullApp
+        Name = $serviceName
+        ConfigPath = $serviceConfigPath
+    }
+}
+
 $contract = Get-Content -LiteralPath $ContractPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $listeners = @($contract.listeners | Sort-Object { [int]$_.port })
 if ($listeners.Count -eq 0) {
@@ -106,8 +191,10 @@ if ($PlanOnly) {
         $required = [bool]$listenerConfig.required_local
         $processNames = @($listenerConfig.process_names) -join ","
         $commandContains = @($listenerConfig.command_contains) -join ","
+        $serviceFallback = Get-OptionalProperty -InputObject $listenerConfig -Name "windows_service_fallback" -DefaultValue $null
+        $serviceName = if ($null -eq $serviceFallback) { "" } else { [string]$serviceFallback.name }
         $bindEnforcement = [string](Get-OptionalProperty -InputObject $listenerConfig -Name "bind_enforcement" -DefaultValue "error")
-        Write-Host "RUNTIME_LISTENER_PLAN_ROLE id=$($listenerConfig.id) bind=$($listenerConfig.bind) port=$($listenerConfig.port) required=$required bindEnforcement=$bindEnforcement process=$processNames command=$commandContains"
+        Write-Host "RUNTIME_LISTENER_PLAN_ROLE id=$($listenerConfig.id) bind=$($listenerConfig.bind) port=$($listenerConfig.port) required=$required bindEnforcement=$bindEnforcement process=$processNames command=$commandContains serviceFallback=$serviceName"
     }
     Write-Host "RUNTIME_LISTENER_PLAN_FULL_APP process=$($fullAppProcessNames -join ',') allowedPorts=$((@($allowedFullAppPorts.Keys) | Sort-Object) -join ',') signature=$($fullAppSignature -join ',')"
     Write-Host "RUNTIME_LISTENER_PLAN_OK roles=$($listeners.Count)"
@@ -118,6 +205,7 @@ $errors = New-Object System.Collections.Generic.List[string]
 [int]$warningCount = 0
 [int]$presentCount = 0
 [int]$absentCount = 0
+$serviceVerifiedFullAppPids = @{}
 
 foreach ($listenerConfig in $listeners) {
     $listenerId = [string]$listenerConfig.id
@@ -168,7 +256,20 @@ foreach ($listenerConfig in $listeners) {
     $commandFragments = @($listenerConfig.command_contains)
     $commandLine = [string]$process.CommandLine
     if ($commandFragments.Count -gt 0 -and -not (Test-ContainsAllInsensitive -Text $commandLine -Fragments $commandFragments)) {
-        $errors.Add("listener command mismatch: id=$listenerId pid=$($process.ProcessId) required=$($commandFragments -join ',')")
+        $fallback = Get-OptionalProperty -InputObject $listenerConfig -Name "windows_service_fallback" -DefaultValue $null
+        if ($null -eq $fallback) {
+            $errors.Add("listener command mismatch: id=$listenerId pid=$($process.ProcessId) required=$($commandFragments -join ',')")
+        } else {
+            $fallbackResult = Test-WindowsServiceFallback -Fallback $fallback -ListenerProcess $process -AllowedProcessNames $allowedProcessNames
+            if (-not $fallbackResult.Ok) {
+                $errors.Add("listener command mismatch: id=$listenerId pid=$($process.ProcessId) required=$($commandFragments -join ',') fallback=$($fallbackResult.Reason)")
+            } else {
+                if ($fallbackResult.FullApp) {
+                    $serviceVerifiedFullAppPids[[int]$process.ProcessId] = $true
+                }
+                Write-Host "RUNTIME_LISTENER_SERVICE_VERIFIED id=$listenerId service=$($fallbackResult.Name) config=$($fallbackResult.ConfigPath)"
+            }
+        }
     }
 
     Write-Host "RUNTIME_LISTENER_PRESENT id=$listenerId bind=${actualBind}:$port pid=$($process.ProcessId) process=$($process.Name)"
@@ -183,6 +284,12 @@ $fullAppProcesses = @(
             (Test-ContainsAllInsensitive -Text ([string]$_.CommandLine) -Fragments $fullAppSignature)
         }
 )
+foreach ($processId in @($serviceVerifiedFullAppPids.Keys)) {
+    $serviceProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$processId" -ErrorAction SilentlyContinue
+    if ($null -ne $serviceProcess -and -not @($fullAppProcesses | Where-Object { [int]$_.ProcessId -eq [int]$processId })) {
+        $fullAppProcesses += $serviceProcess
+    }
+}
 foreach ($process in $fullAppProcesses) {
     $ownedListeners = @($allTcpListeners | Where-Object { $_.OwningProcess -eq $process.ProcessId })
     foreach ($tcpListener in $ownedListeners) {
