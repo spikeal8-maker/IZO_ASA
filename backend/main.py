@@ -5619,8 +5619,7 @@ def _save_bot_secret(name: str, value: str) -> None:
 def apply_saved_bot_runtime_configuration() -> dict[str, Any]:
     global BOT_UPDATES_MODE, BOT_MODE, TELEGRAM_POLLING_ENABLED
     global MAX_UPDATES_MODE, MAX_POLLING_ENABLED, MAX_API_BASE_URL, MAX_WEBHOOK_URL
-    global TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, MAX_BOT_TOKEN, MAX_WEBHOOK_SECRET
-
+    global TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, TELEGRAM_BOT_USERNAME, TELEGRAM_BOT_DEEP_LINK_BASE, MAX_BOT_TOKEN, MAX_WEBHOOK_SECRET, MAX_BOT_DEEP_LINK_BASE
     source = "environment"
     if has_saved_bot_integrations_config():
         config = bot_integrations_config()
@@ -5631,9 +5630,10 @@ def apply_saved_bot_runtime_configuration() -> dict[str, Any]:
         BOT_UPDATES_MODE = str(config["telegram"]["mode"])
         BOT_MODE = BOT_UPDATES_MODE
         TELEGRAM_POLLING_ENABLED = bool(config["telegram"]["pollingEnabled"])
+        TELEGRAM_BOT_USERNAME, TELEGRAM_BOT_DEEP_LINK_BASE = str(config["telegram"]["botUsername"] or os.getenv("TELEGRAM_BOT_USERNAME", "")), str(config["telegram"]["deepLinkBase"] or os.getenv("TELEGRAM_BOT_DEEP_LINK_BASE", ""))
         MAX_UPDATES_MODE = str(config["max"]["mode"])
         MAX_POLLING_ENABLED = bool(config["max"]["pollingEnabled"])
-        MAX_API_BASE_URL = str(config["max"]["apiBaseUrl"])
+        MAX_API_BASE_URL, MAX_BOT_DEEP_LINK_BASE = str(config["max"]["apiBaseUrl"]), str(config["max"]["deepLinkBase"] or os.getenv("MAX_BOT_DEEP_LINK_BASE", ""))
         MAX_WEBHOOK_URL = configured_bot_webhook_url(config, "max")
         source = "admin_settings"
     return {

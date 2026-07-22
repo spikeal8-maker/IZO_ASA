@@ -1175,7 +1175,17 @@
       "process_names": [
         "caddy.exe"
       ],
-      "required_local": true
+      "required_local": true,
+      "windows_service_fallback": {
+        "arguments_contains": [
+          "run",
+          "--config",
+          "C:\\IZO_ASA\\config\\Caddyfile",
+          "--adapter",
+          "caddyfile"
+        ],
+        "name": "IZOCaddy"
+      }
     },
     {
       "bind": "127.0.0.1",
@@ -1196,7 +1206,20 @@
       "process_names": [
         "python.exe"
       ],
-      "required_local": true
+      "required_local": true,
+      "windows_service_fallback": {
+        "arguments_contains": [
+          "-m",
+          "uvicorn",
+          "main:app",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "8000",
+          "--no-proxy-headers"
+        ],
+        "name": "IZOBackend"
+      }
     },
     {
       "bind": "127.0.0.1",
@@ -1244,7 +1267,13 @@
       "process_names": [
         "ollama.exe"
       ],
-      "required_local": false
+      "required_local": false,
+      "windows_service_fallback": {
+        "arguments_contains": [
+          "serve"
+        ],
+        "name": "IZOOllama"
+      }
     }
   ],
   "release_contract": {

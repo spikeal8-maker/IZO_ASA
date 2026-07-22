@@ -214,7 +214,15 @@ def test_safe_status_contains_diagnostics_but_no_secrets(bot_admin_env, monkeypa
         assert secret not in response.text
 
 
-def test_saved_runtime_config_reads_dpapi_after_restart(bot_admin_env):
+def test_saved_runtime_config_reads_dpapi_after_restart(bot_admin_env, monkeypatch):
+    for name in (
+        "TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_BOT_USERNAME",
+        "TELEGRAM_BOT_DEEP_LINK_BASE", "MAX_BOT_TOKEN", "MAX_WEBHOOK_SECRET",
+        "MAX_BOT_DEEP_LINK_BASE", "BOT_UPDATES_MODE", "BOT_MODE",
+        "TELEGRAM_POLLING_ENABLED", "MAX_UPDATES_MODE", "MAX_POLLING_ENABLED",
+        "MAX_API_BASE_URL", "MAX_WEBHOOK_URL",
+    ):
+        monkeypatch.setattr(main, name, getattr(main, name))
     bot_admin_env["store"].set(main.TELEGRAM_BOT_SECRET_NAME, "telegram-runtime-token")
     bot_admin_env["store"].set(main.MAX_BOT_SECRET_NAME, "max-runtime-token")
     main.save_bot_integrations_config(
@@ -223,10 +231,13 @@ def test_saved_runtime_config_reads_dpapi_after_restart(bot_admin_env):
             "telegram": {
                 **main.DEFAULT_BOT_INTEGRATIONS["telegram"],
                 "mode": "disabled",
+                "botUsername": "saved_telegram_bot",
+                "deepLinkBase": "https://t.me/saved_telegram_bot",
             },
             "max": {
                 **main.DEFAULT_BOT_INTEGRATIONS["max"],
                 "mode": "disabled",
+                "deepLinkBase": "https://max.ru/saved_max_bot",
             },
         }
     )
@@ -234,6 +245,9 @@ def test_saved_runtime_config_reads_dpapi_after_restart(bot_admin_env):
     assert applied["source"] == "admin_settings"
     assert main.TELEGRAM_BOT_TOKEN == "telegram-runtime-token"
     assert main.MAX_BOT_TOKEN == "max-runtime-token"
+    assert main.TELEGRAM_BOT_USERNAME == "saved_telegram_bot"
+    assert main.TELEGRAM_BOT_DEEP_LINK_BASE == "https://t.me/saved_telegram_bot"
+    assert main.MAX_BOT_DEEP_LINK_BASE == "https://max.ru/saved_max_bot"
     assert main.BOT_UPDATES_MODE == "disabled"
     assert main.MAX_UPDATES_MODE == "disabled"
 

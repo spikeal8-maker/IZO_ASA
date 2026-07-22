@@ -6,6 +6,35 @@
 Фактический аудит: [agent-compliance-audit-20260719.md](agent-compliance-audit-20260719.md)
 Предыдущий план: `engineering-transformation-master-plan-20260717.md` — исторический checkpoint, не текущая очередь.
 
+## Экстренный пакет `AUTH-BOT-P0-20260723`
+
+Статус: **CODE COMPLETE**. Пакет имеет приоритет над плановой очередью, потому что
+новые и вышедшие пользователи потеряли вход через Telegram/MAX, а устаревший
+HTML мог оставлять уже открытый браузер на пустом экране после выпуска.
+
+Область пакета:
+
+- сохранённые в админке username/deep-link ботов применяются при старте backend
+  вместе с DPAPI-токенами;
+- выделенный MAX TLS-контекст получает проверенный корневой сертификат без
+  установки системного CA и без отключения TLS-проверки;
+- кнопки Telegram/MAX остаются видимыми и явно отключёнными, если provider ещё
+  не готов, вместо бесследного исчезновения;
+- отрицательный ответ проверки бота (`HTTP 200`, `ok=false`) больше не
+  показывается админке как успех;
+- production HTML получает `Cache-Control: no-store`, а hashed assets —
+  `immutable`;
+- acceptance: focused auth tests 5 раз, backend bot/TLS suites, frontend
+  smoke/lint/build, Quick, один Full на точном release SHA, затем desktop/mobile
+  и реальные Telegram/MAX provider checks с редактированным evidence.
+
+Code evidence 2026-07-23: focused auth повторён 5 раз; bot/TLS suites — `44
+passed`; полный изолированный release-контур — `1644 passed`, frontend
+lint/build/release-identity/origin-isolation/studio-resilience — зелёные; живые
+listener owners 5173/8000/8188/11434 подтверждены через WinSW ancestry и
+service XML. Статусы `DEPLOYED`, `VERIFIED` и `OPERATIONALLY VERIFIED` ставятся
+только после установки точного SHA и внешних desktop/mobile/provider проверок.
+
 ## 0. Ответ: готов ли этот план к реализации
 
 Да. План разбит на ограниченные пакеты с порядком, областью изменения,
