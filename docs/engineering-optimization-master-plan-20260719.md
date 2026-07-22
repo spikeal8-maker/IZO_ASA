@@ -513,6 +513,14 @@ Acceptance: least-privilege account, delayed dependency ordering, restart
 backoff, log rotation, crash rehearsal, full reboot rehearsal, exact release
 identity, DPAPI read, local/public smoke. VPS/FRP configuration не меняется.
 
+2026-07-22 cold-start hardening: интерактивный production orchestrator создаёт
+exact-SHA CI verification receipt, когда backend ещё не имеет listener после
+перезагрузки, и передаёт её штатному immutable publisher. Это устраняет
+циклическую зависимость «backend должен работать до собственного запуска».
+Полный запуск до входа пользователя остаётся в OPS-001: он требует отдельной
+Windows service identity и подтверждённого доступа этой identity к DPAPI,
+моделям и GPU runtime; Startup-folder сценарий выполняется только после входа.
+
 ### REL-002 — immutable backend A/B
 
 Цель: release не зависит от mutable checkout после activation.

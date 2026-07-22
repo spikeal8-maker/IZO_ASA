@@ -51,6 +51,10 @@ def test_production_stack_has_no_unmanaged_bootstrap_backend() -> None:
     assert "start-public-autostart.bat" in launcher
     assert "start-caddy-from-active-release.ps1" in launcher
     assert "check-caddy-edge.ps1" in launcher
+    assert '"tools\\verify.ps1"' in launcher
+    assert "-Mode CI" in launcher
+    assert "IZO_VERIFICATION_RECEIPT" in launcher
+    assert "cold-start verification" in launcher
 
 
 def test_public_stop_script_describes_the_actual_frp_transport() -> None:

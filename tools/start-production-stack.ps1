@@ -21,6 +21,9 @@ $comfyBat = Join-Path $comfyRoot "run_nvidia_gpu.bat"
 $frpExe = "C:\frp\frpc.exe"
 $frpConfig = "C:\frp\frpc.toml"
 $caddyCheckScript = Join-Path $repoRoot "tools\check-caddy-edge.ps1"
+$verifyScript = Join-Path $repoRoot "tools\verify.ps1"
+$projectPython = Join-Path $repoRoot "backend\.venv\Scripts\python.exe"
+$verificationDirectory = Join-Path $repoRoot ".runtime\verification"
 
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $logPath = Join-Path $logDir ("production-autostart_{0}.log" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
@@ -160,11 +163,36 @@ if ($backendReady -and -not $frontendReady) {
     }
 } elseif (-not ($backendReady -and $frontendReady)) {
     # start-public owns both release activation and backend startup. On a cold
-    # boot it validates the frontend candidate first, then starts the backend
-    # with the same immutable manifest and the project-local Python runtime.
+    # boot there is no live backend to preflight, so create an exact-SHA CI
+    # receipt first. The publisher validates that receipt, activates Caddy and
+    # starts the backend with the same immutable manifest.
     $launcher = Join-Path $repoRoot "start-public-autostart.bat"
+    $verificationReceipt = ""
+    if (-not $backendReady) {
+        New-Item -ItemType Directory -Force -Path $verificationDirectory | Out-Null
+        $gitSha = ([string](@(& git.exe -C $repoRoot rev-parse HEAD)[0])).Trim()
+        if ($LASTEXITCODE -ne 0 -or $gitSha -notmatch "^[0-9a-f]{40}$") {
+            throw "Could not resolve the exact checkout SHA for cold-start verification."
+        }
+        $verificationReceipt = Join-Path $verificationDirectory ("{0}-{1}-cold-start.json" -f $gitSha.Substring(0, 12), (Get-Date -Format "yyyyMMddHHmmss"))
+        Write-StackLog "Backend is offline; running exact-SHA cold-start verification."
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $verifyScript `
+            -Mode CI -RepoRoot $repoRoot -PythonPath $projectPython -ReceiptPath $verificationReceipt
+        if ($LASTEXITCODE -ne 0) {
+            throw "Cold-start verification failed with exit code $LASTEXITCODE."
+        }
+        Write-StackLog "Cold-start verification receipt is ready."
+    }
     Write-StackLog "Starting public backend and frontend via $launcher"
-    $launch = Start-Process -FilePath "cmd.exe" -ArgumentList @("/d", "/c", "`"$launcher`"") -WorkingDirectory $repoRoot -WindowStyle Hidden -Wait -PassThru
+    $previousReceipt = [Environment]::GetEnvironmentVariable("IZO_VERIFICATION_RECEIPT", "Process")
+    try {
+        if ($verificationReceipt) {
+            [Environment]::SetEnvironmentVariable("IZO_VERIFICATION_RECEIPT", $verificationReceipt, "Process")
+        }
+        $launch = Start-Process -FilePath "cmd.exe" -ArgumentList @("/d", "/c", "`"$launcher`"") -WorkingDirectory $repoRoot -WindowStyle Hidden -Wait -PassThru
+    } finally {
+        [Environment]::SetEnvironmentVariable("IZO_VERIFICATION_RECEIPT", $previousReceipt, "Process")
+    }
     Write-StackLog "Public launcher finished with exit code $($launch.ExitCode)."
     if ($launch.ExitCode -ne 0) {
         throw "Public launcher failed with exit code $($launch.ExitCode)."
