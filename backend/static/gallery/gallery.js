@@ -41,6 +41,8 @@ let primaryRequestVersion = 0;
 let secondaryRequestVersion = 0;
 const detailPromises = new Map();
 const API_BASE = location.protocol === 'file:' ? 'http://127.0.0.1:8000' : '';
+const VIDEO_SOURCE_HANDOFF_KEY = 'izo:video-source-v1';
+const VIDEO_SOURCE_HANDOFF_VERSION = 1;
 const videoLoadObserver = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
   entries.forEach(entry => {
     if(!entry.isIntersecting) return;
@@ -653,6 +655,7 @@ function updateViewer(){
   feedBtn.disabled = item.publicationStatus === 'preparing';
   publishTopBtn.disabled = item.publicationStatus === 'preparing';
   document.querySelector('.editZoomRow').hidden = isVideo;
+  document.getElementById('animateBtn').hidden = isVideo || !(item.viewerSrc || item.src);
   document.querySelectorAll('.zoomBtn,#zoomResetBtn').forEach(control => { control.hidden = isVideo; });
   const downloadBtn = document.getElementById('downloadBtn');
   downloadBtn.href = item.viewerSrc || item.src;
@@ -870,6 +873,32 @@ async function shareCurrent(kind){
   if(kind === 'max') return copyText(url, 'Ссылка для MAX скопирована.');
   window.open(links[kind] || url, '_blank', 'noopener,noreferrer');
 }
+function privateMediaPath(value){
+  const candidate = String(value || '').trim();
+  if(!candidate.startsWith('/') || candidate.startsWith('//')) return '';
+  try{
+    const parsed = new URL(candidate, window.location.origin);
+    const privatePath = parsed.pathname.startsWith('/api/media/') || (parsed.pathname.startsWith('/media/') && !parsed.pathname.startsWith('/media/avatars/'));
+    return parsed.origin === window.location.origin && privatePath ? parsed.pathname : '';
+  }catch{ return ''; }
+}
+async function animateCurrentImage(){
+  const item = currentItem();
+  if(!item || item.mediaType === 'video' || !(item.viewerSrc || item.src)) return;
+  const button = document.getElementById('animateBtn');
+  button.disabled = true;
+  try{
+    const data = await api(`/api/gallery/${encodeURIComponent(item.imageId || item.id)}/use-as`, { method:'POST', body:JSON.stringify({ target:'image' }) });
+    const mediaUrl = privateMediaPath(data.inputImage);
+    if(!mediaUrl) throw new Error('Unsafe video source');
+    const thumbnailUrl = privateMediaPath(item.thumbnailUrl || item.src);
+    sessionStorage.setItem(VIDEO_SOURCE_HANDOFF_KEY, JSON.stringify({ version:VIDEO_SOURCE_HANDOFF_VERSION, createdAt:Date.now(), galleryImageId:String(data.imageId || item.imageId || item.id), mediaUrl, thumbnailUrl:thumbnailUrl || undefined, width:Number(data.width || item.width || 0) || undefined, height:Number(data.height || item.height || 0) || undefined, imagePrompt:String(data.prompt || itemPrompt(item) || '').trim() || undefined }));
+    window.location.assign('/video');
+  }catch(err){
+    showToast('Не удалось подготовить изображение для видео.');
+    console.error(err);
+  }finally{ button.disabled = false; }
+}
 async function useCurrentAs(target){
   const item = currentItem(); if(!item) return;
   try{
@@ -998,6 +1027,7 @@ document.getElementById('heartBtn').addEventListener('click', ()=>toggleFavorite
 document.getElementById('feedBtn').addEventListener('click', ()=>feedAction(currentCollection[currentIndex]?.id));
 document.getElementById('viewerPublishBtn').addEventListener('click', ()=>feedAction(currentCollection[currentIndex]?.id));
 document.getElementById('deleteBtn').addEventListener('click', ()=>deleteImage(currentCollection[currentIndex]?.id));
+document.getElementById('animateBtn').addEventListener('click', animateCurrentImage);
 document.getElementById('viewerDeleteBtn').addEventListener('click', ()=>deleteImage(currentCollection[currentIndex]?.id));
 document.getElementById('publishSelectedBtn').addEventListener('click', ()=>feedAction(currentCollection[currentIndex]?.id || images[0]?.id));
 document.getElementById('publicationContent').addEventListener('click', e=>{ if(e.target.closest('#publishSelectedBtnInline')) feedAction(currentCollection[currentIndex]?.id); });

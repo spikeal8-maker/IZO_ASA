@@ -5322,6 +5322,7 @@ font-weight: 850;
 .iv3 .iv3-share-menu button:first-child:hover { background: rgba(120, 70, 210, .42); }
 @media (max-width: 820px) {
   .iv3 .iv3-share-menu { min-width: 150px; bottom: 50px; right: 10px; }
+  .iv3 .image-actions { width: calc(100% - 16px); justify-content: center; flex-wrap: wrap; }
 }
 
 /* 7b. Publish modal аккуратнее на мобильном. */

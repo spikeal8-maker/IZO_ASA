@@ -97,6 +97,7 @@
         "frontend/src/studio/studioNavigation.ts",
         "frontend/src/studio/studioTypes.ts",
         "frontend/src/studio/useStudioState.ts",
+        "frontend/src/studio/videoSourceHandoff.ts",
         "frontend/src/stylePresets.ts",
         "frontend/src/topbarUtils.ts"
       ],
@@ -135,6 +136,7 @@
         "/api/generate",
         "/api/jobs/",
         "/api/me/avatar-upload-v2",
+        "/api/media/",
         "/api/model-access",
         "/api/models",
         "/api/tariffs",
@@ -252,6 +254,7 @@
         "frontend/src/studio/studioNavigation.ts",
         "frontend/src/studio/studioTypes.ts",
         "frontend/src/studio/useStudioState.ts",
+        "frontend/src/studio/videoSourceHandoff.ts",
         "frontend/src/stylePresets.ts",
         "frontend/src/topbarUtils.ts"
       ],
@@ -321,6 +324,7 @@
         "/api/generate",
         "/api/jobs/",
         "/api/me/avatar-upload-v2",
+        "/api/media/",
         "/api/model-access",
         "/api/models",
         "/api/tariffs",

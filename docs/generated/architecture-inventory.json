@@ -820,10 +820,10 @@
       "remaining": 63
     },
     {
-      "lines": 5875,
+      "lines": 5876,
       "max_lines": 6000,
       "path": "frontend/src/newStudioV3.css",
-      "remaining": 125
+      "remaining": 124
     },
     {
       "lines": 3096,
@@ -991,6 +991,13 @@
           "backend/static/feed/index.html",
           "backend/static/gallery/gallery.js",
           "frontend/src/authV2.tsx"
+        ]
+      },
+      {
+        "path": "/api/media/",
+        "sources": [
+          "backend/static/gallery/gallery.js",
+          "frontend/src/studio/videoSourceHandoff.ts"
         ]
       },
       {

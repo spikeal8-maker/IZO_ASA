@@ -32,6 +32,8 @@
     "e2e:synthetic": "node e2e-synthetic.mjs",
     "e2e:paint-workbench": "node e2e-paint-workbench.mjs",
     "e2e:video-layout": "node e2e-video-studio-layout.mjs",
+    "e2e:video-handoff": "node e2e-video-image-handoff.mjs",
+    "test:video-handoff": "node videoSourceHandoff.test.ts",
     "e2e:real25": "node e2e-real-generations-25.mjs",
     "preview": "vite preview",
     "check:origin": "node ../tools/check_frontend_origin_isolation.mjs"
