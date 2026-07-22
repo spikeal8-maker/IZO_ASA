@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 
 const auth = readFileSync(new URL('./src/authV2.tsx', import.meta.url), 'utf8')
 const adminBots = readFileSync(new URL('./src/adminBots.tsx', import.meta.url), 'utf8')
+const entrypoint = readFileSync(new URL('./src/main.tsx', import.meta.url), 'utf8')
 const studio = readFileSync(new URL('./src/newUi.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('./src/index.css', import.meta.url), 'utf8')
 const authCode = auth.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
@@ -35,6 +36,7 @@ ok(auth.includes("e.key === 'Escape'"), 'auth modal must close on Escape')
 ok(auth.includes("const showTelegramBotLogin = !isMiniApp") && auth.includes("const showMaxBotLogin = !isMiniApp"), 'browser login must keep Telegram and MAX actions visible')
 ok(auth.includes("busy || !authCaps.telegram_bot_login_available") && auth.includes("busy || !authCaps.max_bot_login_available"), 'unavailable bot login actions must fail visibly closed')
 ok(adminBots.includes('if (payload.ok === false)') && adminBots.includes('statusLabel(probe.status)'), 'admin bot verification must reject HTTP 200 provider failures')
+ok(entrypoint.includes("'vite:preloadError'") && entrypoint.includes('STALE_CHUNK_RELOAD_GUARD_MS') && entrypoint.includes('window.location.reload()'), 'stale lazy chunks must trigger a guarded release refresh')
 ok(/\.auth-modal-overlay\s*\{[^}]*position:\s*fixed/.test(css), 'auth modal overlay must remain fixed')
 
 if (failures.length) {
