@@ -8,6 +8,10 @@ Start here when you or another agent joins the project:
 
 - `AGENTS.md` — authoritative repository rules for every coding agent, including
   production safety, modularization, tests, commits and release ownership.
+- `docs/system-overview.md` — current human-readable architecture overview and
+  the boundary between source, deployment and operational evidence.
+- `docs/current-machine-handoff-20260722.md` — migration checklist for restoring
+  the canonical Windows runtime on another computer without copying live state.
 - `docs/engineering-optimization-master-plan-20260719.md` — authoritative current
   execution order for optimization of the live product.
 - `docs/agent-compliance-audit-20260719.md` — current evidence audit of recent
