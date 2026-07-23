@@ -59,3 +59,36 @@ def test_prepare_reference_image_caps_face_and_does_not_enlarge_small_input(tmp_
     with Image.open(prepared_large) as image:
         assert image.size == (512, 656)
     assert prepared_small == small
+
+
+def test_prepare_mask_image_matches_prepared_reference_exactly(tmp_path: Path) -> None:
+    reference = tmp_path / "reference.png"
+    mask = tmp_path / "mask.png"
+    Image.new("RGB", (512, 256), "white").save(reference)
+    Image.new("L", (512, 512), 127).save(mask)
+
+    prepared = comfyui_inputs.prepare_mask_image(
+        mask,
+        reference,
+        output_directory=tmp_path,
+        prefix="aligned",
+    )
+
+    assert prepared is not None and prepared != mask
+    with Image.open(prepared) as image:
+        assert image.size == (512, 256)
+        assert image.mode == "RGB"
+
+
+def test_prepare_mask_image_preserves_already_matching_mask(tmp_path: Path) -> None:
+    reference = tmp_path / "reference.png"
+    mask = tmp_path / "mask.png"
+    Image.new("RGB", (512, 256), "white").save(reference)
+    Image.new("RGB", (512, 256), "black").save(mask)
+
+    assert comfyui_inputs.prepare_mask_image(
+        mask,
+        reference,
+        output_directory=tmp_path,
+        prefix="aligned",
+    ) == mask

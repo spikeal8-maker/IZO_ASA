@@ -221,6 +221,46 @@ def test_mode_builder_patches_image_to_image_and_remove_background() -> None:
     assert remove_graph["rmbg:img"]["inputs"]["image"] == "source.png"
 
 
+def test_lightweight_9b_faceswap_reorders_face_before_body_and_sets_prompt() -> None:
+    graph = {
+        **shared_graph(),
+        **{
+            node_id: {"inputs": {}}
+            for node_id in (
+                "FK:169", "FK:91", "FK:88", "FK:163", "FK:163b",
+                "FK:132", "FK:133", "FK:131", "FK:232", "FK:233", "FK:231",
+            )
+        },
+    }
+    request = workflow_request(
+        "faceswap",
+        loras=[
+            SimpleNamespace(
+                id="face_swap_flux_klein_9b_r32_800.safetensors",
+                strength=1.0,
+            )
+        ],
+    )
+
+    comfyui_workflows.patch_mode_nodes(
+        graph,
+        request,
+        {"input1": "body.png", "input2": "face.png"},
+        "flux-klein-9b.safetensors",
+        "qwen",
+        "vae",
+        default_negative_prompt="neg",
+        model_profiles=MODEL_PROFILES,
+    )
+
+    assert graph["FK:91"]["inputs"]["image"] == "face.png"
+    assert graph["FK:88"]["inputs"]["image"] == "body.png"
+    assert graph["FK:166"]["inputs"]["text"].startswith("face_swap:")
+    assert graph["FK:admin_lora"]["inputs"]["lora_name"] == (
+        "face_swap_flux_klein_9b_r32_800.safetensors"
+    )
+
+
 @pytest.mark.parametrize(("mode", "prefix"), [("inpaint", "FKI"), ("outpaint", "FKO")])
 def test_mode_builder_patches_inpaint_and_outpaint_contracts(mode: str, prefix: str) -> None:
     graph = {
@@ -288,34 +328,77 @@ def outpaint_models() -> dict[str, list[str]]:
     }
 
 
+def build_outpaint(
+    graph: dict,
+    models: dict[str, list[str]],
+    *,
+    model: str = "flux-2-klein-4b-fp8.safetensors",
+):
+    is_4b = "4b" in model
+    return comfyui_workflows.build_outpaint_workflow(
+        graph,
+        models,
+        workflow_request("outpaint"),
+        {"input1": "canvas.png", "mask": "mask.png"},
+        model=model,
+        text_encoder="qwen_3_4b.safetensors" if is_4b else "qwen_3_8b_fp8mixed.safetensors",
+        vae="flux2-vae.safetensors",
+        lora_enabled=lambda _name: True,
+        default_negative_prompt="neg",
+        model_profiles=MODEL_PROFILES,
+    )
+
+
 def test_outpaint_builder_rejects_missing_or_disabled_dependencies() -> None:
     missing = outpaint_models()
-    missing["vaes"] = []
-    with pytest.raises(RuntimeError, match="Flux2 VAE"):
-        comfyui_workflows.build_outpaint_workflow(
-            outpaint_graph(), missing, workflow_request("outpaint"), {"input1": "canvas.png"},
-            lora_enabled=lambda _name: True, default_negative_prompt="neg", model_profiles=MODEL_PROFILES,
-        )
-    with pytest.raises(RuntimeError, match="выключена администратором"):
+    missing["loras"] = []
+    with pytest.raises(RuntimeError, match="Outpaint LoRA is missing"):
+        build_outpaint(outpaint_graph(), missing)
+    with pytest.raises(RuntimeError, match="disabled by the administrator"):
         comfyui_workflows.build_outpaint_workflow(
             outpaint_graph(), outpaint_models(), workflow_request("outpaint"), {"input1": "canvas.png"},
+            model="flux-2-klein-4b-fp8.safetensors",
+            text_encoder="qwen_3_4b.safetensors",
+            vae="flux2-vae.safetensors",
             lora_enabled=lambda _name: False, default_negative_prompt="neg", model_profiles=MODEL_PROFILES,
         )
 
 
 def test_outpaint_builder_removes_kv_cache_and_wires_lora_and_mask() -> None:
     graph = outpaint_graph()
-    result = comfyui_workflows.build_outpaint_workflow(
-        graph,
-        outpaint_models(),
-        workflow_request("outpaint"),
-        {"input1": "canvas.png", "mask": "mask.png"},
-        lora_enabled=lambda _name: True,
-        default_negative_prompt="neg",
-        model_profiles=MODEL_PROFILES,
-    )
+    result = build_outpaint(graph, outpaint_models())
     assert result is graph and "FKO:216" not in graph
     assert graph["FKO:194"]["inputs"]["unet_name"] == "flux-2-klein-4b-fp8.safetensors"
     assert graph["FKO:outpaint_lora"]["inputs"]["lora_name"] == "flux2_klein_4b_outpaint_comfy.safetensors"
     assert graph["FKO:163"]["inputs"]["model"] == ["FKO:outpaint_lora", 0]
     assert graph["FKO:maskload"]["inputs"]["image"] == "mask.png"
+
+
+def test_outpaint_builder_keeps_kv_cache_for_selected_9b_profile() -> None:
+    graph = outpaint_graph()
+    graph["FKO:216"]["inputs"]["model"] = ["old", 0]
+    models = outpaint_models()
+    models["diffusion_models"].extend(
+        [
+            "flux-2-klein-9b-fp8.safetensors",
+            "flux-2-klein-9b-kv-fp8.safetensors",
+        ]
+    )
+    models["text_encoders"].append("qwen_3_8b_fp8mixed.safetensors")
+
+    result = build_outpaint(graph, models, model="flux-2-klein-9b-fp8.safetensors")
+
+    assert result is graph and "FKO:216" in graph
+    assert graph["FKO:194"]["inputs"]["unet_name"] == "flux-2-klein-9b-kv-fp8.safetensors"
+    assert graph["FKO:216"]["inputs"]["model"] == ["FKO:194", 0]
+    assert graph["FKO:163"]["inputs"]["model"] == ["FKO:216", 0]
+    assert "FKO:outpaint_lora" not in graph
+
+
+def test_outpaint_builder_rejects_selected_9b_without_kv_checkpoint() -> None:
+    with pytest.raises(RuntimeError, match="Klein 9B KV FP8 checkpoint is missing"):
+        build_outpaint(
+            outpaint_graph(),
+            outpaint_models(),
+            model="flux-2-klein-9b-fp8.safetensors",
+        )
