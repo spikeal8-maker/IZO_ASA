@@ -150,6 +150,18 @@
       "watchdog": "single task handle"
     },
     {
+      "id": "openrouter-catalog-daily",
+      "call_source": "backend/app/integrations/openrouter_catalog.py",
+      "target": "_run",
+      "kind": "worker",
+      "owner": "backend.app.integrations.openrouter_catalog.DailyCatalogWorker",
+      "role": "all-dev-current-monolith",
+      "persistence": "SQLite admin_settings openrouter_catalog_lifecycle snapshot",
+      "startup": "main.startup -> start_openrouter_catalog_daily_worker",
+      "recovery": "durable refreshedAt prevents duplicate refresh after restart",
+      "watchdog": "hourly wake-up, single task handle, lastError in catalog state"
+    },
+    {
       "id": "gallery-storage-optimization",
       "call_source": "backend/main.py",
       "target": "asyncio.to_thread:optimize_existing_gallery_storage",
@@ -327,7 +339,7 @@
     "backend/static/gallery/index.html"
   ],
   "file_limits": [
-    {"path": "backend/main.py", "max_lines": 19521},
+    {"path": "backend/main.py", "max_lines": 19517},
     {"path": "frontend/src/newStudioV3.css", "max_lines": 6000},
     {"path": "frontend/src/newUi.tsx", "max_lines": 3628},
     {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700},

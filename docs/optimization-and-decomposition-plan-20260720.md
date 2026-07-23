@@ -508,6 +508,48 @@ backend/main.py ≈ composition root <= 2000 строк
 
 ---
 
+# 16A. OR-CATALOG-DAILY-001 — суточный каталог OpenRouter
+
+Статус на 2026-07-24: `CODE COMPLETE · VERIFIED (CI) · NOT DEPLOYED`,
+ветка `codex/openrouter-catalog-daily-001`.
+
+Evidence:
+
+- focused backend: `115 passed`;
+- single-owner worker test: `5/5 passed`;
+- `VERIFY_OK mode=CI`, `1665 passed`;
+- frontend lint/build, release identity, origin isolation и studio resilience
+  зелёные;
+- Quick runtime gate заблокирован ожидаемым test-stack состоянием:
+  `127.0.0.1:5173` принадлежит Vite, а production-contract требует Caddy.
+  Работающий test UI не останавливался и production не переключался.
+
+Цель:
+
+- обновлять каталоги изображений и видео не чаще одного раза в 24 часа;
+- хранить durable snapshot в `admin_settings`, чтобы рестарт не обнулял срок;
+- показывать новые, удалённые, переоценённые и неоценённые модели;
+- читать только явно опубликованную endpoint-цену и не придумывать цену;
+- не включать новую модель автоматически в тарифы;
+- блокировать включение/генерацию без backend billing price;
+- вынести OpenRouter из перегруженного `/admin/models` в
+  `/admin/openrouter`;
+- показывать изображения и видео через единую сводку каталога и одинаковые
+  статусы допуска.
+
+Acceptance:
+
+- interval = `86400` секунд;
+- refresh worker имеет одного owner и durable `refreshedAt`;
+- provider failure сохраняет последний успешный snapshot;
+- `added/removed/priceChanged/unpriced` покрыты pure tests;
+- живые endpoint prices проходят numeric sanitization;
+- OpenRouter page доступна отдельной admin-вкладкой;
+- targeted backend tests, frontend production build и Quick зелёные;
+- новые модели остаются выключенными до явного решения администратора.
+
+---
+
 # 17. Команда для бота прямо сейчас
 
 Передать боту дословно:

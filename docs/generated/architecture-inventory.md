@@ -6,7 +6,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 ## Summary
 
 - Routes: 223
-- Registered workers: 3
+- Registered workers: 4
 - Registered ephemeral tasks: 4
 - SQLite tables: 52
 - SQLite indexes: 84
@@ -35,6 +35,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | feed-video-publication | worker | backend.main | SQLite feed_publications status plus an in-process asyncio queue | startup requeues rows in preparing status | missing |
 | avatar-cache | ephemeral | backend.main | avatar file and user metadata | later request may retry | not applicable |
 | openrouter-catalog-refresh | ephemeral | backend.main | process cache | later request may retry | single task handle |
+| openrouter-catalog-daily | worker | backend.app.integrations.openrouter_catalog.DailyCatalogWorker | SQLite admin_settings openrouter_catalog_lifecycle snapshot | durable refreshedAt prevents duplicate refresh after restart | hourly wake-up, single task handle, lastError in catalog state |
 | gallery-storage-optimization | ephemeral | backend.main | SQLite and media files | next startup may retry | missing |
 | runtime-alert | ephemeral | backend.main | external webhook only | none | none |
 
@@ -127,11 +128,11 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Current | Maximum | Remaining |
 |---|---:|---:|---:|
-| `backend/main.py` | 19516 | 19521 | 5 |
+| `backend/main.py` | 19512 | 19517 | 5 |
 | `backend/static/feed/index.html` | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | 2346 | 2400 | 54 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
-| `frontend/src/adminModels.tsx` | 2016 | 2100 | 84 |
+| `frontend/src/adminModels.tsx` | 2053 | 2100 | 47 |
 | `frontend/src/index.css` | 2337 | 2400 | 63 |
 | `frontend/src/newStudioV3.css` | 5876 | 6000 | 124 |
 | `frontend/src/newUi.css` | 3096 | 3200 | 104 |
@@ -141,7 +142,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Functions | Maximum | Classes | Maximum | Routes | Maximum |
 |---|---:|---:|---:|---:|---:|---:|
-| `backend/main.py` | 679 | 725 | 78 | 83 | 192 | 223 |
+| `backend/main.py` | 683 | 725 | 78 | 83 | 192 | 223 |
 
 ## Release identity baseline
 

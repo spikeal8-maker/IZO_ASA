@@ -17,7 +17,7 @@ const AdminMail = lazy(() => import('./adminMail'))
 const AdminPayments = lazy(() => import('./adminPayments'))
 const AdminBots = lazy(() => import('./adminBots'))
 
-type AdminTab = 'dashboard' | 'crm' | 'models' | 'tariffs' | 'payments' | 'mail' | 'bots' | 'logs'
+type AdminTab = 'dashboard' | 'crm' | 'models' | 'openrouter' | 'tariffs' | 'payments' | 'mail' | 'bots' | 'logs'
 type AnyRec = Record<string, unknown>
 type SeriesPoint = { date: string; value: number }
 type DashboardRange = 1 | 6 | 12 | 24 | 7 | 30 | 90
@@ -77,6 +77,7 @@ const ADMIN_ROUTES: Array<{ tab: AdminTab; label: string; path: string }> = [
   { tab: 'dashboard', label: 'Дашборд', path: '/admin/dashboard' },
   { tab: 'crm', label: 'CRM', path: '/admin/crm' },
   { tab: 'models', label: 'Модели', path: '/admin/models' },
+  { tab: 'openrouter', label: 'OpenRouter', path: '/admin/openrouter' },
   { tab: 'tariffs', label: 'Тарифы', path: '/admin/tariffs' },
   { tab: 'payments', label: 'Платежи', path: '/admin/payments' },
   { tab: 'mail', label: 'Почта', path: '/admin/mail' },
@@ -569,6 +570,7 @@ export default function AdminApp() {
           {tab === 'dashboard' && <AdminDashboard summary={summary} />}
           {tab === 'crm' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем CRM...</div>}><AdminAnalyticsV2 /></Suspense></div>}
           {tab === 'models' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем модели...</div>}><AdminModelsV2 /></Suspense></div>}
+          {tab === 'openrouter' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем OpenRouter...</div>}><AdminModelsV2 openrouterOnly /></Suspense></div>}
           {tab === 'tariffs' && <AdminTokens />}
           {tab === 'payments' && <Suspense fallback={<div className="preview-empty">Загружаем платежи...</div>}><AdminPayments /></Suspense>}
           {tab === 'mail' && <Suspense fallback={<div className="preview-empty">Загружаем почту...</div>}><AdminMail /></Suspense>}

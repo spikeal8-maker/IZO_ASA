@@ -36,6 +36,11 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, ConfigDict, Field
 
 try:
+    from .app.integrations.openrouter_catalog import DAILY_REFRESH_SECONDS as OPENROUTER_CATALOG_REFRESH_SECONDS, DailyCatalogWorker, build_catalog_lifecycle, catalog_refresh_needed, catalog_snapshot, fallback_image_capabilities, key_status_snapshot, live_image_price_specs
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.integrations.openrouter_catalog import DAILY_REFRESH_SECONDS as OPENROUTER_CATALOG_REFRESH_SECONDS, DailyCatalogWorker, build_catalog_lifecycle, catalog_refresh_needed, catalog_snapshot, fallback_image_capabilities, key_status_snapshot, live_image_price_specs
+
+try:
     from .app.integrations.smtp import SmtpConfig, SmtpError, SmtpMessage, send_smtp_email, verify_smtp_connection
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations.smtp import SmtpConfig, SmtpError, SmtpMessage, send_smtp_email, verify_smtp_connection
@@ -6058,22 +6063,14 @@ def public_site_url(request: Request) -> str:
 
 OPENROUTER_GENERATION_MODES = {"text_to_image", "image_to_image", "edit"}
 OPENROUTER_VIDEO_MODES = ("text_to_video", "image_to_video", "first_last_frame", "reference_to_video")
-OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS = 6 * 60 * 60
+OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS = OPENROUTER_CATALOG_REFRESH_SECONDS
 OPENROUTER_KEY_STATUS_CACHE_TTL_SECONDS = 30
 _openrouter_capability_cache: dict[str, Any] = {"ts": 0.0, "models": []}
 _openrouter_video_catalog_cache: dict[str, Any] = {"ts": 0.0, "models": []}
 _openrouter_key_status_cache: dict[str, Any] = {"ts": 0.0, "data": None, "keyMarker": None}
 _openrouter_catalog_refresh_task: asyncio.Task[Any] | None = None
-_openrouter_catalog_state: dict[str, Any] = {
-    "refreshing": False,
-    "lastAttemptAt": None,
-    "lastSuccessAt": None,
-    "lastError": None,
-    "source": "fallback",
-    "modelCount": 0,
-    "videoModelCount": 0,
-}
-
+_openrouter_catalog_daily_worker = DailyCatalogWorker()
+_openrouter_catalog_state: dict[str, Any] = {"refreshing": False, "lastAttemptAt": None, "lastSuccessAt": None, "lastError": None, "source": "fallback", "modelCount": 0, "videoModelCount": 0}
 
 def invalidate_openrouter_admin_caches(*, authorization_changed: bool = False) -> None:
     models_page_cache = globals().get("_admin_models_page_cache")
@@ -6091,77 +6088,33 @@ def fallback_openrouter_capabilities() -> list[dict[str, Any]]:
     price_catalog = globals().get("OPENROUTER_PRICE_CATALOG")
     if not isinstance(price_catalog, dict):
         return []
-    return [
-        {
-            "id": model.id,
-            "name": model.name,
-            "description": "Встроенный резервный каталог. Возможности endpoint будут уточнены в фоне.",
-            "inputModalities": ["image", "text"],
-            "outputModalities": ["image"],
-            "parameters": [],
-            "parameterDescriptors": {},
-            "maxInputReferences": 1,
-            "supportsStreaming": False,
-            "modes": ["image_to_image", "paint", "text_to_image"],
-            "features": {
-                "seed": False,
-                "quality": False,
-                "aspectRatio": True,
-                "resolution": True,
-                "transparentBackground": False,
-                "multipleOutputs": False,
-            },
-            "endpointVerified": False,
-            "catalogSource": "fallback",
-        }
-        for model in price_catalog.values()
-    ]
-
+    return fallback_image_capabilities(price_catalog.values())
 
 def openrouter_key_status_snapshot() -> dict[str, Any]:
-    cached = _openrouter_key_status_cache.get("data")
-    if isinstance(cached, dict):
-        return dict(cached)
-    configured = bool(openrouter_api_key())
-    return {
-        "configured": configured,
-        "source": openrouter_api_key_source(),
-        "ok": False,
-        "pending": configured,
-        "error": None if configured else "OPENROUTER_API_KEY не задан",
-    }
+    return key_status_snapshot(
+        _openrouter_key_status_cache.get("data"),
+        configured=bool(openrouter_api_key()),
+        source=openrouter_api_key_source(),
+    )
 
 
 def openrouter_catalog_snapshot() -> dict[str, Any]:
-    now = time.monotonic()
-    cached_models = _openrouter_capability_cache.get("models")
-    cached_videos = _openrouter_video_catalog_cache.get("models")
-    image_models = list(cached_models) if isinstance(cached_models, list) and cached_models else fallback_openrouter_capabilities()
-    video_models = list(cached_videos) if isinstance(cached_videos, list) else []
-    image_ts = float(_openrouter_capability_cache.get("ts") or 0)
-    source = "live-cache" if cached_models else "fallback"
-    return {
-        "models": image_models,
-        "videoModels": video_models,
-        "meta": {
-            **_openrouter_catalog_state,
-            "source": source,
-            "modelCount": len(image_models),
-            "videoModelCount": len(video_models),
-            "cacheAgeSeconds": int(max(0.0, now - image_ts)) if image_ts else None,
-        },
-    }
+    load_setting = globals().get("_saved_setting")
+    persisted_lifecycle = load_setting("openrouter_catalog_lifecycle") if callable(load_setting) else {}
+    return catalog_snapshot(
+        _openrouter_capability_cache, _openrouter_video_catalog_cache,
+        _openrouter_catalog_state, fallback_openrouter_capabilities(),
+        persisted_lifecycle, monotonic_now=time.monotonic(),
+    )
 
 
 def openrouter_catalog_refresh_needed(snapshot: dict[str, Any] | None = None) -> bool:
     current = snapshot or openrouter_catalog_snapshot()
-    meta = current.get("meta") if isinstance(current, dict) else {}
-    age = meta.get("cacheAgeSeconds") if isinstance(meta, dict) else None
-    return (
-        not _openrouter_capability_cache.get("models")
-        or age is None
-        or int(age) >= OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS
-        or bool(openrouter_key_status_snapshot().get("pending"))
+    return catalog_refresh_needed(
+        current,
+        has_cached_images=bool(_openrouter_capability_cache.get("models")),
+        key_pending=bool(openrouter_key_status_snapshot().get("pending")),
+        ttl_seconds=OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS,
     )
 
 
@@ -6191,6 +6144,20 @@ async def refresh_openrouter_catalog() -> dict[str, Any]:
     if successful_catalog:
         _openrouter_catalog_state["lastSuccessAt"] = datetime.now(timezone.utc).isoformat()
         _openrouter_catalog_state["source"] = "live-api"
+        persist_lifecycle = globals().get("_persist_openrouter_catalog_lifecycle")
+        if callable(persist_lifecycle):
+            try:
+                lifecycle = persist_lifecycle(
+                    _openrouter_capability_cache.get("models") or [],
+                    _openrouter_video_catalog_cache.get("models") or [],
+                )
+                _openrouter_catalog_state["lifecycle"] = {
+                    "refreshedAt": lifecycle.get("refreshedAt"),
+                    "refreshIntervalSeconds": lifecycle.get("refreshIntervalSeconds"),
+                    "changes": lifecycle.get("changes"),
+                }
+            except Exception as exc:
+                _openrouter_catalog_state["lifecyclePersistenceError"] = safe_bot_error(exc)
     _openrouter_catalog_state.update(
         {
             "refreshing": False,
@@ -6212,6 +6179,21 @@ def schedule_openrouter_catalog_refresh() -> bool:
         return False
     _openrouter_catalog_refresh_task = asyncio.create_task(refresh_openrouter_catalog())
     return True
+
+
+def start_openrouter_catalog_daily_worker() -> bool:
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return False
+    return _openrouter_catalog_daily_worker.start(
+        load_lifecycle=lambda: _saved_setting("openrouter_catalog_lifecycle"),
+        key_configured=lambda: bool(openrouter_api_key()),
+        refresh=refresh_openrouter_catalog,
+        report_error=lambda exc: _openrouter_catalog_state.update(lastError=safe_bot_error(exc)),
+    )
+
+
+async def stop_openrouter_catalog_daily_worker() -> None:
+    await _openrouter_catalog_daily_worker.stop()
 
 
 def openrouter_model_capability(model: dict[str, Any]) -> dict[str, Any]:
@@ -7718,6 +7700,7 @@ async def startup() -> None:
     openrouter_secret_migration = migrate_openrouter_secret_from_sqlite()
     if openrouter_secret_migration != "not_configured":
         print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
+    start_openrouter_catalog_daily_worker()
     enforce_db_guard_after_migrations()
     generation_recovery_report = reconcile_stale_generation_state()
     if generation_recovery_report["checked"]:
@@ -7767,6 +7750,7 @@ async def startup() -> None:
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    await stop_openrouter_catalog_daily_worker()
     await stop_feed_video_publication_worker()
     await stop_bot_workers(BOT_RUNTIME)
 
@@ -15144,6 +15128,12 @@ def _save_setting(key: str, value: dict[str, Any]) -> None:
         )
 
 
+def _persist_openrouter_catalog_lifecycle(image_models: list[dict[str, Any]], video_models: list[dict[str, Any]]) -> dict[str, Any]:
+    lifecycle = build_catalog_lifecycle(image_models, video_models, _saved_setting("openrouter_catalog_lifecycle"))
+    _save_setting("openrouter_catalog_lifecycle", lifecycle)
+    return lifecycle
+
+
 async def fetch_usd_rub_rate(force: bool = False) -> dict[str, Any]:
     cached = _saved_setting("exchange_usd_rub")
     today = datetime.now(timezone.utc).date().isoformat()
@@ -15286,6 +15276,12 @@ OPENROUTER_PRICE_CATALOG: dict[str, OpenRouterPriceModel] = {
 }
 
 
+def openrouter_effective_price_catalog() -> dict[str, OpenRouterPriceModel]:
+    catalog = dict(OPENROUTER_PRICE_CATALOG)
+    additions = (spec for spec in live_image_price_specs(_openrouter_capability_cache.get("models") or []) if spec["id"] not in catalog)
+    catalog.update((spec["id"], OpenRouterPriceModel(**spec)) for spec in additions)
+    return catalog
+
 def openrouter_economy_settings() -> dict[str, float]:
     raw = _saved_setting("openrouter_economy")
     try:
@@ -15367,7 +15363,7 @@ def openrouter_admin_pricing_rows(exchange: dict[str, Any], economy: dict[str, f
     rate = exchange.get("rate")
     effective_rate = float(rate) * (1 + OPENROUTER_USD_FEE_RATE) if isinstance(rate, (int, float)) else None
     rows: list[dict[str, Any]] = []
-    for model in OPENROUTER_PRICE_CATALOG.values():
+    for model in openrouter_effective_price_catalog().values():
         item = model.model_dump()
         item["formats"] = [
             openrouter_format_economics(model, fmt, effective_rate, economy)
@@ -15426,7 +15422,7 @@ def public_openrouter_pricing(exchange: dict[str, Any]) -> dict[str, Any]:
 
 async def estimate_openrouter_billing(req: GenerateRequest) -> dict[str, Any]:
     model_id = resolve_openrouter_model(req)
-    model = OPENROUTER_PRICE_CATALOG.get(model_id)
+    model = openrouter_effective_price_catalog().get(model_id)
     if model is None:
         raise HTTPException(400, f"OpenRouter model has no billing price: {model_id}")
     exchange = await fetch_usd_rub_rate()
@@ -15483,7 +15479,7 @@ def finalize_openrouter_billing_snapshot(snapshot: dict[str, Any], actual_cost_u
     economy = {"tokenRub": result.get("tokenRub", OPENROUTER_DEFAULT_TOKEN_RUB), "minMarginPercent": result.get("minMarginPercent", OPENROUTER_DEFAULT_MIN_MARGIN_PERCENT)}
     try:
         actual_rub = float(actual_cost_usd) * float(effective_rate)
-        min_tokens = OPENROUTER_PRICE_CATALOG.get(str(result.get("modelId") or ""), OpenRouterPriceModel(id="unknown", name="unknown", provider="unknown", pricing_type="image", usd=0, min_tokens=1)).min_tokens
+        min_tokens = openrouter_effective_price_catalog().get(str(result.get("modelId") or ""), OpenRouterPriceModel(id="unknown", name="unknown", provider="unknown", pricing_type="image", usd=0, min_tokens=1)).min_tokens
         actual_tokens = openrouter_tokens_for_cost(actual_rub, min_tokens, economy)
         charged_tokens = int(result.get("chargedTokens") or 0)
         revenue_rub = charged_tokens * float(economy["tokenRub"])
@@ -16654,7 +16650,7 @@ def _public_model_option(model_id: str, capability: dict[str, Any] | None = None
                 "maxInputReferences": 4,
             },
         }
-    price = OPENROUTER_PRICE_CATALOG.get(model_id)
+    price = openrouter_effective_price_catalog().get(model_id)
     return {
         "id": model_id,
         "label": price.name if price else model_id.split("/")[-1].replace("-", " ").title(),
@@ -16758,7 +16754,7 @@ async def admin_openrouter_pricing(request: Request) -> dict[str, Any]:
         "exchange": exchange,
         "economy": economy,
         "fee": {"usdFeePercent": economy["usdFeePercent"]},
-        "models": [model.model_dump() for model in OPENROUTER_PRICE_CATALOG.values()],
+        "models": [model.model_dump() for model in openrouter_effective_price_catalog().values()],
     }
 
 
