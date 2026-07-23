@@ -15,6 +15,7 @@ from .guard import (
     safe_guard_payload,
 )
 from .migrations import (
+    ADMIN_NOTIFICATIONS_MIGRATION,
     FEED_PUBLICATION_ADDITIVE_COLUMNS,
     IMAGE_ADDITIVE_COLUMNS,
     IMAGE_SOURCE_ADDITIVE_COLUMNS,
@@ -23,6 +24,7 @@ from .migrations import (
     MigrationDefinition,
     USER_EARLY_ADDITIVE_COLUMNS,
     add_missing_columns,
+    apply_admin_notifications_migration,
     ensure_migration_ledger,
     finalize_legacy_schema_baseline,
     record_applied_migration,
@@ -53,6 +55,7 @@ __all__ = [
     "seed_core_defaults",
     "seed_default_challenge",
     "LEGACY_BASELINE_MIGRATION",
+    "ADMIN_NOTIFICATIONS_MIGRATION",
     "MIGRATION_LEDGER_SQL",
     "MigrationDefinition",
     "FEED_PUBLICATION_ADDITIVE_COLUMNS",
@@ -60,6 +63,7 @@ __all__ = [
     "IMAGE_SOURCE_ADDITIVE_COLUMNS",
     "USER_EARLY_ADDITIVE_COLUMNS",
     "add_missing_columns",
+    "apply_admin_notifications_migration",
     "collect_sqlite_guard_status",
     "database_size_mb",
     "ensure_migration_ledger",

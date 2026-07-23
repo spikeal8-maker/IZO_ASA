@@ -44,6 +44,63 @@ LEGACY_BASELINE_MIGRATION = MigrationDefinition(
 )
 
 
+ADMIN_NOTIFICATIONS_MIGRATION = MigrationDefinition(
+    version=2,
+    name="admin_notifications_and_social_outbox",
+    checksum="sha256:117d2bec74e8cd7c20fddc339a715f2cb6b929f9489c5fb8f68be81baa4dd94b",
+)
+
+
+ADMIN_NOTIFICATIONS_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS admin_notifications (
+    id TEXT PRIMARY KEY,
+    dedupe_key TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL,
+    severity TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    action_url TEXT,
+    created_at TEXT NOT NULL,
+    read_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_admin_notifications_unread
+    ON admin_notifications(read_at, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS social_delivery_outbox (
+    id TEXT PRIMARY KEY,
+    publication_id TEXT NOT NULL,
+    network TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL,
+    external_id TEXT,
+    external_url TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    sent_at TEXT,
+    UNIQUE(publication_id, network)
+);
+CREATE INDEX IF NOT EXISTS idx_social_delivery_outbox_pending
+    ON social_delivery_outbox(status, next_attempt_at, created_at);
+"""
+
+
+def apply_admin_notifications_migration(
+    conn: sqlite3.Connection,
+    *,
+    applied_at: str,
+) -> bool:
+    """Apply the additive notification/social-outbox schema exactly once."""
+
+    conn.executescript(ADMIN_NOTIFICATIONS_SCHEMA_SQL)
+    return record_applied_migration(
+        conn,
+        ADMIN_NOTIFICATIONS_MIGRATION,
+        applied_at=applied_at,
+    )
+
+
 USER_EARLY_ADDITIVE_COLUMNS = {
     "plan": "TEXT NOT NULL DEFAULT 'mini'",
     "plan_expires_at": "TEXT",
@@ -303,6 +360,19 @@ def finalize_legacy_schema_baseline(
     *,
     applied_at: str,
 ) -> bool:
+    if sqlite_user_version(conn) > LEGACY_BASELINE_MIGRATION.version:
+        existing = conn.execute(
+            "SELECT name, checksum FROM schema_migrations WHERE version = ?",
+            (LEGACY_BASELINE_MIGRATION.version,),
+        ).fetchone()
+        if existing is None:
+            raise RuntimeError("LEGACY_BASELINE_MISSING")
+        if (
+            existing["name"] != LEGACY_BASELINE_MIGRATION.name
+            or existing["checksum"] != LEGACY_BASELINE_MIGRATION.checksum
+        ):
+            raise RuntimeError("MIGRATION_DEFINITION_MISMATCH")
+        return False
     return record_applied_migration(
         conn,
         LEGACY_BASELINE_MIGRATION,

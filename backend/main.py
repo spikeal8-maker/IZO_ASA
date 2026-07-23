@@ -434,6 +434,7 @@ try:
         BotPublicTransport,
         create_bots_public_router,
     )
+    from .app.api.routers.admin_operations import AdminOperationsDependencies, create_admin_operations_router
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.platform_status import (
         mini_app_public_url,
@@ -467,6 +468,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         BotPublicTransport,
         create_bots_public_router,
     )
+    from app.api.routers.admin_operations import AdminOperationsDependencies, create_admin_operations_router
 
 try:
     from .app.services.bot_admin import (
@@ -485,8 +487,10 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.database import (
+        ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
+        apply_admin_notifications_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -507,8 +511,10 @@ try:
 
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.database import (
+        ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
+        apply_admin_notifications_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -526,6 +532,11 @@ except ImportError:  # Direct `python backend/main.py` execution.
         seed_core_defaults,
         seed_default_challenge,
     )
+
+try:
+    from .app.services.admin_notifications import enqueue_configured_social_deliveries
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.services.admin_notifications import enqueue_configured_social_deliveries
 
 try:
     from .app.database.demo_feed import restore_demo_feed_bundle
@@ -1818,7 +1829,7 @@ def init_db() -> None:
     with db() as conn:
         ensure_migration_ledger(
             conn,
-            supported_version=LEGACY_BASELINE_MIGRATION.version,
+            supported_version=ADMIN_NOTIFICATIONS_MIGRATION.version,
         )
         prepare_core_schema_group(conn)
         ensure_outbox_schema(conn)
@@ -1840,6 +1851,7 @@ def init_db() -> None:
             ensure_public_user_code=ensure_public_user_code,
         )
         finalize_legacy_schema_baseline(conn, applied_at=now)
+        apply_admin_notifications_migration(conn, applied_at=now)
 
 
 PROVIDER_CODE_PREFIX = {"web_email": "WEB", "telegram": "TG", "max": "MAX"}
@@ -16727,44 +16739,21 @@ async def model_access(request: Request) -> dict[str, Any]:
     return {"ok": True, **public_model_access_for_plan(plan, capability_catalog), "openrouterPricing": public_openrouter_pricing(await fetch_usd_rub_rate())}
 
 
-@app.get("/api/admin/openrouter/status")
-async def admin_openrouter_status(request: Request) -> dict[str, Any]:
-    require_trusted_admin(request)
-    key_status = await fetch_openrouter_key_status()
-    return {"key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config(), "exchange": await fetch_usd_rub_rate()}
-
-
-@app.get("/api/admin/openrouter/catalog/status-v2")
-async def admin_openrouter_catalog_status_v2(request: Request) -> dict[str, Any]:
-    require_trusted_admin(request)
-    snapshot = openrouter_catalog_snapshot()
-    return {"ok": True, "catalog": snapshot["meta"]}
-
-
-@app.post("/api/admin/openrouter/catalog/refresh-v2")
-async def admin_openrouter_catalog_refresh_v2(request: Request) -> dict[str, Any]:
-    require_trusted_admin(request)
-    started = schedule_openrouter_catalog_refresh()
-    return {
-        "ok": True,
-        "started": started,
-        "alreadyRunning": not started,
-        "catalog": openrouter_catalog_snapshot()["meta"],
-    }
-
-
-@app.get("/api/admin/openrouter/pricing")
-async def admin_openrouter_pricing(request: Request) -> dict[str, Any]:
-    require_trusted_admin(request)
-    exchange = await fetch_usd_rub_rate()
-    economy = openrouter_economy_settings()
-    return {
-        "ok": True,
-        "exchange": exchange,
-        "economy": economy,
-        "fee": {"usdFeePercent": economy["usdFeePercent"]},
-        "models": [model.model_dump() for model in OPENROUTER_PRICE_CATALOG.values()],
-    }
+app.include_router(create_admin_operations_router(AdminOperationsDependencies(
+    db=db,
+    require_admin=require_trusted_admin,
+    saved_setting=_saved_setting,
+    save_setting=_save_setting,
+    record_audit=record_audit_log,
+    fetch_openrouter_key_status=fetch_openrouter_key_status,
+    openrouter_usage_stats=openrouter_usage_stats,
+    get_openrouter_config=get_openrouter_config,
+    fetch_usd_rub_rate=fetch_usd_rub_rate,
+    openrouter_catalog_snapshot=openrouter_catalog_snapshot,
+    schedule_openrouter_catalog_refresh=schedule_openrouter_catalog_refresh,
+    openrouter_economy_settings=openrouter_economy_settings,
+    openrouter_price_catalog=lambda: OPENROUTER_PRICE_CATALOG,
+)))
 
 
 @app.post("/api/admin/openrouter/exchange/refresh")
@@ -18190,6 +18179,9 @@ def _prepare_feed_video_publication(publication_id: str) -> None:
         if updated.rowcount != 1:
             for media_name in {assets.poster_name, assets.preview_name, assets.full_name}:
                 _delete_media_rel(media_name)
+        else:
+            with db() as conn:
+                enqueue_configured_social_deliveries(conn, publication_id)
     except Exception as exc:
         if assets is not None:
             for media_name in {assets.poster_name, assets.preview_name, assets.full_name}:
@@ -18625,6 +18617,8 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> Any:
             )
         pub = conn.execute("SELECT * FROM feed_publications WHERE id = ?", (pub_id,)).fetchone()
         item = _feed_item_payload(conn, pub, user["internal_user_id"])
+        if publication_status == "published":
+            enqueue_configured_social_deliveries(conn, pub_id)
     return {"ok": True, "publication": item, "moderation": moderation_status}
 
 
