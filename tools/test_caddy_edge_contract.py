@@ -79,6 +79,9 @@ def test_caddyfile_is_loopback_only_and_preserves_route_ownership() -> None:
 def test_caddyfile_has_bounded_requests_security_cache_and_redacted_json_logs() -> None:
     source = CADDYFILE.read_text(encoding="utf-8")
 
+    assert "trusted_proxies static 127.0.0.1/32" in source
+    assert "trusted_proxies_strict" in source
+    assert "client_ip_headers X-Forwarded-For" in source
     assert "max_size 128MiB" in source
     assert "read_header 10s" in source
     assert "response_header_timeout 10m" in source

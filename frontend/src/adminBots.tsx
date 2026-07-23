@@ -242,7 +242,7 @@ export default function AdminBots() {
           </label>
           <div className="admin-bot-actions">
             <button className="secondary" disabled={!tokens[provider].trim() || busy === `${provider}-token`} onClick={() => { void saveToken(provider) }}><Save /> Сохранить и проверить</button>
-            <button className="secondary" disabled={!item.tokenConfigured || busy === `${provider}-verify`} onClick={() => { void verify(provider) }}><RefreshCw /> Проверить</button>
+            <button className="secondary" disabled={!item.tokenConfigured || Boolean(busy)} onClick={() => { void verify(provider) }}><RefreshCw /> {busy === `${provider}-verify` ? 'Проверяем…' : 'Проверить'}</button>
             <button className="danger" disabled={!item.tokenConfigured || busy === `${provider}-delete-token`} onClick={() => { void deleteToken(provider) }}><Trash2 /> Удалить токен</button>
           </div>
           <small><KeyRound /> Значение не возвращается из API и после сохранения не показывается.</small>
@@ -273,9 +273,9 @@ export default function AdminBots() {
           {isTelegram && Boolean((probe.webhook as AdminRecord | undefined)?.configured) && <p className="admin-bot-restart"><ShieldAlert /> У Telegram уже установлен webhook: {String((probe.webhook as AdminRecord).url || 'адрес скрыт')}.</p>}
           {!isTelegram && Array.isArray(probe.subscriptions) && probe.subscriptions.length > 0 && <p className="admin-bot-restart"><ShieldAlert /> В MAX уже есть активные подписки: {probe.subscriptions.length}.</p>}
           <div className="admin-bot-actions">
-            <button className="secondary" onClick={() => { void generateSecret(provider) }}>Сгенерировать секрет</button>
-            <button className="secondary" disabled={!item.webhookReady} onClick={() => { void webhookAction(provider, 'set') }}>Зарегистрировать webhook</button>
-            <button className="danger" disabled={!item.tokenConfigured} onClick={() => { void webhookAction(provider, 'delete') }}>Удалить webhook</button>
+            <button className="secondary" disabled={Boolean(busy)} onClick={() => { void generateSecret(provider) }}>{busy === `${provider}-secret` ? 'Создаём…' : 'Сгенерировать секрет'}</button>
+            <button className="secondary" disabled={!item.webhookReady || Boolean(busy)} onClick={() => { void webhookAction(provider, 'set') }}>{busy === `${provider}-set-webhook` ? 'Регистрируем…' : 'Зарегистрировать webhook'}</button>
+            <button className="danger" disabled={!item.tokenConfigured || Boolean(busy)} onClick={() => { void webhookAction(provider, 'delete') }}>{busy === `${provider}-delete-webhook` ? 'Удаляем…' : 'Удалить webhook'}</button>
             {isTelegram && <button className="secondary" disabled={!item.tokenConfigured} onClick={() => { void run('telegram-configure', () => request('/admin/bots/telegram/configure-v2', { method: 'POST' }), 'Команды Telegram настроены.') }}>Настроить команды</button>}
           </div>
         </section>
@@ -308,7 +308,7 @@ export default function AdminBots() {
 
       <div className="admin-bot-grid">{renderProvider('telegram')}{renderProvider('max')}</div>
 
-      <div className="admin-bot-savebar">
+      <div className="admin-bot-savebar" aria-live="polite">
         <span>{message || error || 'Сохранение настроек не включает polling и не регистрирует webhook.'}</span>
         <button className="secondary" disabled={busy === 'config'} onClick={() => { void saveConfig() }}><Save /> Сохранить настройки</button>
       </div>

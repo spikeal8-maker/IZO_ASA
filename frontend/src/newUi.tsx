@@ -47,6 +47,7 @@ import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, Pa
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
 import { applyClientSeo } from './seo'
 import ResilientRegion from './RuntimeBoundary'
+import { useProfileAuthNavigation } from './useProfileAuthNavigation'
 import {
   normalizeFeedPayload,
   normalizeGalleryPayload,
@@ -203,10 +204,7 @@ export default function NewStudio(): ReactElement {
     setAuthOpen(true)
     return false
   }, [authStatus])
-  const openProfilePage = useCallback(() => {
-    goProfile()
-    if (authStatus === 'loading') void initAuthV2()
-  }, [authStatus, goProfile])
+  const openProfilePage = useProfileAuthNavigation({ authStatus, view, setView, setTab: setTabState, goProfile, setAuthOpen })
   const onSaveProfile = async () => {
     const trimmed = displayName.trim()
     if (!trimmed) { setSaveMsg('Введите имя'); return }

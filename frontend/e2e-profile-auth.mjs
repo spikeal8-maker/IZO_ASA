@@ -110,6 +110,15 @@ async function mockApi(page, { authenticated = true } = {}) {
       await route.fulfill({ json: { ok: true } })
       return
     }
+    if (url.pathname === '/api/auth/bot-login/status') {
+      await route.fulfill({ status: 401, json: { detail: 'bot_login_challenge_missing' } })
+      return
+    }
+    if (url.pathname === '/api/auth/bot-login/start') {
+      const provider = (route.request().postDataJSON() || {}).provider || 'telegram'
+      await route.fulfill({ json: { deep_link: `about:blank#${provider}-login-e2e`, poll_interval_ms: 2000 } })
+      return
+    }
     if (url.pathname === '/api/auth/capabilities-v2') {
       await route.fulfill({
         json: {
@@ -244,11 +253,23 @@ async function run() {
       await mockApi(page, { authenticated: false })
 
       await page.goto(`${base}/profile?guest_auth=${Date.now()}`, { waitUntil: 'networkidle' })
-      await page.locator('.profile-primary').getByText('Войти', { exact: true }).click()
       const dialog = page.getByRole('dialog')
       await dialog.waitFor()
+      assert(new URL(page.url()).pathname === '/', `${device.name} guest profile kept the intermediary /profile page`)
+      assert((await page.locator('.account-page').count()) === 0, `${device.name} guest profile rendered the intermediary account page`)
       assert(await dialog.getByRole('heading', { name: 'Вход в ИЗО АСА' }).isVisible(), `${device.name} login heading is missing`)
       assert(!(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2)), `${device.name} login overflows horizontally`)
+
+      const provider = device.name === 'desktop' ? 'telegram' : 'max'
+      const providerButton = provider === 'telegram' ? 'Войти через Telegram-бота' : 'Войти через MAX'
+      const popupPromise = page.waitForEvent('popup')
+      await dialog.getByRole('button', { name: providerButton, exact: true }).click()
+      const popup = await popupPromise
+      await popup.waitForURL(`about:blank#${provider}-login-e2e`)
+      assert(await dialog.getByText(`Подтвердите вход в ${provider === 'telegram' ? 'Telegram' : 'MAX'}-боте.`, { exact: false }).isVisible(), `${device.name} bot login did not enter confirmation phase`)
+      await popup.close()
+      await dialog.getByRole('button', { name: 'Попробовать снова', exact: true }).click()
+
       await page.screenshot({ path: `artifacts/auth-redesign-${device.name}.png`, fullPage: true })
 
       if (device.name === 'desktop') {

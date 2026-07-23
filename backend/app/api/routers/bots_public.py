@@ -275,7 +275,9 @@ def create_bots_public_router(
         try:
             await m.handle_telegram_update(payload, send_replies=True)
         except Exception as exc:
+            _telegram_webhook_replay_guard.release(payload.get("update_id"))
             print("telegram webhook handler error", type(exc).__name__)
+            raise HTTPException(503, "Telegram webhook processing failed.") from exc
         return {"ok": True}
 
     @router.post("/api/max/webhook")
@@ -311,6 +313,7 @@ def create_bots_public_router(
         except Exception as exc:
             runtime.max_polling_diag["lastWebhookError"] = type(exc).__name__
             print("max webhook handler error", type(exc).__name__)
+            raise HTTPException(503, "MAX webhook processing failed.") from exc
         return {"ok": True}
 
     return router

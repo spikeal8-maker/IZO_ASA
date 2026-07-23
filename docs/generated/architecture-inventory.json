@@ -832,10 +832,10 @@
       "remaining": 104
     },
     {
-      "lines": 3628,
+      "lines": 3626,
       "max_lines": 3628,
       "path": "frontend/src/newUi.tsx",
-      "remaining": 0
+      "remaining": 2
     }
   ],
   "frontend": {
@@ -2803,7 +2803,7 @@
       {
         "auth": "webhook: MAX secret conditional",
         "handler": "max_webhook",
-        "line": 282,
+        "line": 284,
         "method": "POST",
         "path": "/api/max/webhook",
         "process_role": "all-dev-current-monolith"

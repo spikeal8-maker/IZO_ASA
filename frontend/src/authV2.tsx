@@ -199,21 +199,26 @@ export async function getAuthCapabilitiesV2(): Promise<AuthCapabilitiesV2> {
   }
 }
 
-export async function startBotLoginV2(provider: 'telegram' | 'max'): Promise<{ ok: true; deep_link: string; poll_interval_ms: number } | { ok: false; reason: string }> {
+export async function startBotLoginV2(provider: 'telegram' | 'max'): Promise<{ ok: true; deep_link: string; poll_interval_ms: number } | { ok: false; reason: string; retry_after_seconds?: number }> {
   try {
     const res = await authFetch('/auth/bot-login/start', {
       method: 'POST',
       body: JSON.stringify({ provider }),
     })
     if (!res.ok) {
-      let reason = res.status === 503 ? 'provider_not_configured' : 'bot_login_disabled'
+      let reason = res.status === 429 ? 'rate_limited' : res.status === 503 ? 'provider_not_configured' : 'bot_login_disabled'
       try {
         const data = (await res.json()) as { detail?: string }
-        if (data.detail) reason = data.detail
+        if (data.detail && res.status !== 429) reason = data.detail
       } catch {
         /* keep safe reason */
       }
-      return { ok: false, reason }
+      const retryAfter = Number.parseInt(res.headers.get('Retry-After') || '', 10)
+      return {
+        ok: false,
+        reason,
+        retry_after_seconds: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+      }
     }
     const data = (await res.json()) as { deep_link: string; poll_interval_ms: number }
     return { ok: true, deep_link: data.deep_link, poll_interval_ms: data.poll_interval_ms }
@@ -233,6 +238,18 @@ export async function pollBotLoginStatusV2(): Promise<{ status: 'pending' | 'app
     return me ? { status: 'authenticated' } : { status: 'error' }
   }
   return (await res.json()) as { status: 'pending' | 'approved' | 'expired' | 'authenticated' | 'conflict' }
+}
+
+async function resumeApprovedBotLoginV2(): Promise<MeV2 | null> {
+  try {
+    const res = await authFetch('/auth/bot-login/status')
+    if (!res.ok) return null
+    const payload = (await res.json()) as { status?: string }
+    if (payload.status !== 'authenticated' && payload.status !== 'approved') return null
+    return await fetchMeV2()
+  } catch {
+    return null
+  }
 }
 
 export async function requestEmailCodeV2(email: string): Promise<{ challenge_id: string; debug_code?: string } | null> {
@@ -578,6 +595,7 @@ export function initAuthV2(): Promise<void> {
     initAuthPromise = (async () => {
       await bootstrapV2()
       let me = await fetchMeV2()
+      if (!me) me = await resumeApprovedBotLoginV2()
       if (!me) {
         const ok = (await loginTelegramV2()) || (await loginMaxV2())
         me = ok ? await fetchMeV2() : null
@@ -786,15 +804,33 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   }
   const onBotLogin = async (provider: 'telegram' | 'max') => {
     setError('')
+    let botWindow: Window | null = null
+    try {
+      botWindow = window.open('about:blank', '_blank')
+      if (botWindow) botWindow.opener = null
+    } catch {
+      /* Popup blocked: continue with the same-tab fallback below. */
+    }
     setBusy(true)
+    const resumed = await resumeApprovedBotLoginV2()
+    if (resumed) {
+      botWindow?.close()
+      setBusy(false)
+      if (!(await finishAuthentication())) setError('Вход подтверждён, но браузер не сохранил сессию. Обновите страницу и попробуйте снова.')
+      return
+    }
     const started = await startBotLoginV2(provider)
     setBusy(false)
     if (!started.ok) {
+      botWindow?.close()
       const labels: Record<string, string> = {
         provider_not_configured: 'Этот способ входа сейчас недоступен.',
         bot_login_disabled: 'Этот способ входа сейчас недоступен.',
         network_error: 'Сеть недоступна. Проверьте соединение и попробуйте снова.',
         expired: 'Ссылка входа устарела. Попробуйте снова.',
+        rate_limited: started.retry_after_seconds
+          ? `Слишком много попыток. Повторите через ${started.retry_after_seconds} сек.`
+          : 'Слишком много попыток. Подождите немного и попробуйте снова.',
       }
       setError(labels[started.reason] || 'Не удалось начать вход через бота. Попробуйте позже.')
       return
@@ -803,7 +839,8 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     setBotDeepLink(started.deep_link)
     setBotPollMs(started.poll_interval_ms || 2000)
     setPhase('bot')
-    window.open(started.deep_link, '_blank', 'noopener,noreferrer')
+    if (botWindow && !botWindow.closed) botWindow.location.replace(started.deep_link)
+    else window.location.assign(started.deep_link)
   }
 
   return createPortal(

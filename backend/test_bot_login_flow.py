@@ -69,8 +69,9 @@ def test_bot_login_start_creates_challenge_and_cookie(temp_db):
     assert "login_" not in row["token_hash"]
 
 
-def test_bot_login_start_limits_active_challenges_per_ip_and_provider(temp_db, monkeypatch):
-    monkeypatch.setattr(main, "BOT_LOGIN_MAX_ACTIVE_PER_IP_PROVIDER", 3)
+def test_repeated_bot_login_start_replaces_same_browser_challenge(temp_db, monkeypatch):
+    monkeypatch.setattr(main, "BOT_LOGIN_MAX_ACTIVE_PER_IP_PROVIDER", 1)
+    monkeypatch.setattr(main, "BOT_LOGIN_MAX_REQUESTS_PER_IP_WINDOW", 99)
     client = TestClient(main.app)
 
     for _ in range(3):
@@ -79,13 +80,43 @@ def test_bot_login_start_limits_active_challenges_per_ip_and_provider(temp_db, m
         response = client.post("/api/auth/bot-login/start", json={"provider": "telegram"}, headers=BROWSER_ORIGIN)
         assert response.status_code == 200
 
-    blocked = client.post("/api/auth/bot-login/start", json={"provider": "telegram"}, headers=BROWSER_ORIGIN)
-    assert blocked.status_code == 429
+    with main.db() as conn:
+        statuses = [row["status"] for row in conn.execute(
+            "SELECT status FROM auth_login_challenges WHERE provider = 'telegram' ORDER BY created_at"
+        ).fetchall()]
+    assert statuses == ["expired", "expired", "pending"]
+
+
+def test_bot_login_start_limits_distinct_browsers_per_ip_and_provider(temp_db, monkeypatch):
+    monkeypatch.setattr(main, "BOT_LOGIN_MAX_ACTIVE_PER_IP_PROVIDER", 3)
+    clients = [TestClient(main.app) for _ in range(4)]
+    try:
+        for client in clients[:3]:
+            assert client.post("/api/auth/bot-login/start", json={"provider": "telegram"}).status_code == 200
+        blocked = clients[3].post("/api/auth/bot-login/start", json={"provider": "telegram"})
+        assert blocked.status_code == 429
+    finally:
+        for client in clients:
+            client.close()
     with main.db() as conn:
         pending = conn.execute(
             "SELECT COUNT(*) AS c FROM auth_login_challenges WHERE provider = 'telegram' AND status = 'pending'"
         ).fetchone()["c"]
     assert pending == 3
+
+
+def test_bot_login_rate_limit_uses_trusted_real_ip_per_public_client(temp_db, monkeypatch):
+    monkeypatch.setattr(main, "TRUST_PROXY_HEADERS", True)
+    monkeypatch.setattr(main, "BOT_LOGIN_MAX_ACTIVE_PER_IP_PROVIDER", 1)
+    first = TestClient(main.app, client=("127.0.0.1", 50001))
+    second = TestClient(main.app, client=("127.0.0.1", 50002))
+    duplicate_first = TestClient(main.app, client=("127.0.0.1", 50003))
+    headers_a = {"X-Real-IP": "198.51.100.10"}
+    headers_b = {"X-Real-IP": "198.51.100.11"}
+
+    assert first.post("/api/auth/bot-login/start", json={"provider": "telegram"}, headers=headers_a).status_code == 200
+    assert second.post("/api/auth/bot-login/start", json={"provider": "telegram"}, headers=headers_b).status_code == 200
+    assert duplicate_first.post("/api/auth/bot-login/start", json={"provider": "telegram"}, headers=headers_a).status_code == 429
 
 
 def test_bot_login_start_expires_stale_rows_before_enforcing_active_cap(temp_db, monkeypatch):
@@ -309,6 +340,19 @@ def test_telegram_callback_approve_then_status_creates_session(temp_db, monkeypa
     assert status.status_code == 200
     assert status.json()["status"] == "authenticated"
     assert main.TRUSTED_SESSION_COOKIE_NAME in client.cookies
+
+
+def test_bot_login_approval_is_idempotent_for_provider_retry(temp_db):
+    client = TestClient(main.app)
+    started = client.post("/api/auth/bot-login/start", json={"provider": "telegram"}).json()
+    token = _login_token(started["deep_link"])
+    provider_user = {"id": 991, "username": "retry_user", "first_name": "Retry"}
+
+    assert main.approve_bot_login_challenge("telegram", token, provider_user) is True
+    assert main.approve_bot_login_challenge("telegram", token, provider_user) is True
+    assert main.approve_bot_login_challenge("telegram", token, {**provider_user, "id": 992}) is False
+    assert client.get("/api/auth/bot-login/status").json()["status"] == "authenticated"
+    assert main.approve_bot_login_challenge("telegram", token, provider_user) is True
 
 
 def test_max_bot_started_login_then_approve_then_status_creates_session(temp_db, monkeypatch):

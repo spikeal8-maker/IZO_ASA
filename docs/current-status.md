@@ -1,6 +1,6 @@
 # IZO_ASA — текущий статус (обновляется каждым пакетом)
 
-Обновлено: 2026-07-21 (AUTH-LEGACY-001B code gate зелёный на feature-ветке).
+Обновлено: 2026-07-23 (экстренный AUTH-BOT-P0 code gate зелёный на feature-ветке).
 Исполняемая очередь: [optimization-and-decomposition-plan-20260720.md](optimization-and-decomposition-plan-20260720.md).
 Подробное историческое evidence остаётся в
 [engineering-optimization-master-plan-20260719.md](engineering-optimization-master-plan-20260719.md)
@@ -8,20 +8,27 @@
 
 ## Git и release
 
-- Status baseline: `bd7b5ab8e9cbe11e72051560cd3aab833ea3bcb9` — SHA, на
+- Status baseline: `777bd66f2b2b07594c9dde9f25fd665151efc5d8` — SHA, на
   котором начат активный пакет.
 - Authoritative current HEAD: определяется командой `git rev-parse HEAD`
   (не фиксируется здесь, чтобы поле не устаревало после каждого commit).
-- Current live release: `263377ff0d5d-20260720115826`
-  (backend + frontend identity совпадают; активирован 2026-07-20 через
-  locked publisher по exact-SHA receipt).
+- Current live release до закрытия пакета: cutover release
+  `777bd66f2b2b07594c9dde9f25fd665151efc5d8`; следующий exact SHA фиксируется
+  здесь только после controlled promotion и public smoke.
 - Release owner: single-flight через `tools/repository-operation-lock.ps1`
   (`public-release` / `full-verify`); второй параллельный publisher или Full
   verifier физически блокируется.
 
 ## Активный и следующий пакет
 
-- Active package: none.
+- Active package: `AUTH-BOT-P0-20260723` = `CODE COMPLETE`, `NOT DEPLOYED`.
+  - Branch: `agent/auth-reliability-p0-20260723` от `777bd66`.
+  - Причины и rollback: [auth-bot-login-reliability-20260723.md](auth-bot-login-reliability-20260723.md).
+  - Focused bot/proxy/webhook suite: 54 passed; high-risk selection 9×5;
+    frontend smoke/lint/build и desktop/mobile bot-popup E2E — PASS.
+  - Quick из secondary worktree дошёл до live Caddy gate и ожидаемо остановился:
+    active cutover release не имеет manifest в пути feature-worktree. Clean-SHA
+    CI/Full, merge, deployment и real Telegram/MAX acceptance ещё обязательны.
 - `AUTH-LEGACY-001B` = `CODE COMPLETE`.
   - Branch: `auth/csrf-001b-clean` (от восстановленного `origin/main`
     `056b736`; экспериментальная `auth/csrf-repair-001b` не сливалась).

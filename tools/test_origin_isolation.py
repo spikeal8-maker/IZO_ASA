@@ -32,6 +32,7 @@ def test_all_repository_uvicorn_launchers_disable_implicit_proxy_rewrite() -> No
     restart_source = (ROOT / "tools" / "restart-backend.ps1").read_text(encoding="utf-8")
     assert '"--no-proxy-headers")' in restart_source
     assert "RequireProxyIsolation" in restart_source
+    assert 'TRUST_PROXY_HEADERS = "true"' in restart_source
 
 
 def test_origin_probe_is_a_post_build_full_and_ci_gate() -> None:

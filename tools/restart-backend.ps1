@@ -269,6 +269,7 @@ function Get-ProductionReleaseContract {
             TRUSTED_COOKIE_SAMESITE = "none"
             TRUSTED_COOKIE_PATH = "/"
             TRUST_CLOUDFLARE_HEADERS = "true"
+            TRUST_PROXY_HEADERS = "true"
             BOT_UPDATES_MODE = $telegramMode
             MAX_UPDATES_MODE = $maxMode
             MAX_API_BASE_URL = $maxApiBaseUrl
