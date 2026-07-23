@@ -36,6 +36,8 @@ ok(auth.includes('role="dialog"') && auth.includes('aria-modal="true"'), 'auth m
 ok(auth.includes("e.key === 'Escape'"), 'auth modal must close on Escape')
 ok(auth.includes("const showTelegramBotLogin = !isMiniApp") && auth.includes("const showMaxBotLogin = !isMiniApp"), 'browser login must keep Telegram and MAX actions visible')
 ok(auth.includes("busy || !authCaps.telegram_bot_login_available") && auth.includes("busy || !authCaps.max_bot_login_available"), 'unavailable bot login actions must fail visibly closed')
+ok(auth.includes('authCapabilitiesRetryDelayMs') && auth.includes('AUTH_CAPABILITIES_REQUEST_TIMEOUT_MS'), 'auth capabilities must retry with a bounded request timeout')
+ok(auth.includes('setCapabilitiesReload((value) => value + 1)') && auth.includes('Повторить сейчас'), 'auth capabilities failure must expose an immediate retry')
 ok(auth.includes("window.open('about:blank', '_blank')") && auth.includes('botWindow.location.replace(started.deep_link)'), 'bot login must reserve its provider window during the user gesture')
 ok(auth.includes('resumeApprovedBotLoginV2()'), 'bot login must resume an approved challenge after navigation or reload')
 ok(profileAuthNavigation.includes("window.history.replaceState(null, '', '/')") && profileAuthNavigation.includes('setAuthOpen(true)'), 'anonymous /profile must open the login modal without an intermediary page')

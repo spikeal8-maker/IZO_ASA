@@ -178,6 +178,28 @@
   background: #151d17;
 }
 
+.auth-capabilities-recovery {
+  display: grid;
+  gap: 7px;
+}
+
+.auth-modal .auth-capabilities-retry {
+  width: fit-content;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 107, 107, 0.55);
+  border-radius: 7px;
+  background: rgba(255, 107, 107, 0.08);
+  color: #ff9292;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.auth-modal .auth-capabilities-retry:hover {
+  border-color: #ff9292;
+  background: rgba(255, 107, 107, 0.14);
+}
+
 .auth-modal .auth-modal-hint,
 .auth-modal .consent-check,
 .auth-modal .auth-modal-back {

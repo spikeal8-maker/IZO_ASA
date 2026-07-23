@@ -172,9 +172,17 @@ export interface AuthCapabilitiesV2 {
   capabilities_status?: number
 }
 
-export async function getAuthCapabilitiesV2(): Promise<AuthCapabilitiesV2> {
+const AUTH_CAPABILITIES_RETRY_DELAYS_MS = [1000, 2000, 5000, 10_000] as const
+const AUTH_CAPABILITIES_REQUEST_TIMEOUT_MS = 8000
+
+export function authCapabilitiesRetryDelayMs(attempt: number): number {
+  const index = Math.max(0, Math.min(Math.trunc(attempt), AUTH_CAPABILITIES_RETRY_DELAYS_MS.length - 1))
+  return AUTH_CAPABILITIES_RETRY_DELAYS_MS[index]
+}
+
+export async function getAuthCapabilitiesV2(signal?: AbortSignal): Promise<AuthCapabilitiesV2> {
   try {
-    const res = await authFetch('/auth/capabilities-v2')
+    const res = await authFetch('/auth/capabilities-v2', { signal })
     if (!res.ok) throw Object.assign(new Error('capabilities_failed'), { status: res.status })
     const data = (await res.json()) as Partial<AuthCapabilitiesV2> & { bot_login?: Partial<AuthCapabilitiesV2> }
     return {
@@ -630,6 +638,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   const [botProvider, setBotProvider] = useState<'telegram' | 'max' | ''>('')
   const [botDeepLink, setBotDeepLink] = useState('')
   const [botPollMs, setBotPollMs] = useState(2000)
+  const [capabilitiesReload, setCapabilitiesReload] = useState(0)
   const [authCaps, setAuthCaps] = useState<AuthCapabilitiesV2>({
     password_login_available: true,
     password_register_available: true,
@@ -670,13 +679,35 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    void getAuthCapabilitiesV2().then((caps) => {
-      if (!cancelled) setAuthCaps(caps)
-    })
+    let retryAttempt = 0
+    let retryTimer = 0
+    let requestTimer = 0
+    let activeController: AbortController | null = null
+
+    const loadCapabilities = async () => {
+      activeController?.abort()
+      const controller = new AbortController()
+      activeController = controller
+      requestTimer = window.setTimeout(() => controller.abort(), AUTH_CAPABILITIES_REQUEST_TIMEOUT_MS)
+      const caps = await getAuthCapabilitiesV2(controller.signal)
+      window.clearTimeout(requestTimer)
+      if (cancelled) return
+      setAuthCaps(caps)
+      if (caps.capabilities_loaded === false) {
+        const delay = authCapabilitiesRetryDelayMs(retryAttempt)
+        retryAttempt += 1
+        retryTimer = window.setTimeout(() => void loadCapabilities(), delay)
+      }
+    }
+
+    void loadCapabilities()
     return () => {
       cancelled = true
+      activeController?.abort()
+      window.clearTimeout(requestTimer)
+      window.clearTimeout(retryTimer)
     }
-  }, [open])
+  }, [open, capabilitiesReload])
 
   useEffect(() => {
     if (tab === 'register' && authCaps.password_register_available === false) {
@@ -862,7 +893,14 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
             )}
           </div>
         )}
-        {authCaps.capabilities_loaded === false && <p className="auth-v2-error">Сервер авторизации недоступен. Обновите страницу или обратитесь к администратору.</p>}
+        {authCaps.capabilities_loaded === false && (
+          <div className="auth-capabilities-recovery" role="status">
+            <p className="auth-v2-error">Сервер авторизации временно недоступен. Повторяем подключение автоматически.</p>
+            <button type="button" className="auth-capabilities-retry" onClick={() => setCapabilitiesReload((value) => value + 1)}>
+              Повторить сейчас
+            </button>
+          </div>
+        )}
         {error && <p className="auth-v2-error">{error}</p>}
         {phase === 'bot' ? (
           <>

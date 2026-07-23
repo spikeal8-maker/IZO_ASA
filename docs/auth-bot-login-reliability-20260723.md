@@ -77,3 +77,25 @@
 
 Rollback boundary: previous immutable release, предыдущие service XML/Caddy
 config и DB snapshot promotion pipeline. Схема БД не меняется.
+
+## Availability follow-up: `AUTH-OUTAGE-P0-20260723`
+
+At 10:43 MSK on 2026-07-23, the release promoter stopped the backend before
+copying the rollback database. The copy took about 3.5 minutes. During that
+window Caddy returned `502` for `/api/auth/capabilities-v2`; every already-open
+login modal kept the failed capability result and left Telegram/MAX disabled
+even after the backend recovered.
+
+Closure requirements:
+
+- create the rollback database with the SQLite online Backup API before the
+  service switch; never hold the authentication service offline for the
+  duration of a multi-gigabyte file copy;
+- keep the rollback snapshot immutable and do not overwrite the live database
+  automatically during an ordinary additive-schema rollback;
+- make the login modal retry the capability request with bounded timeouts and
+  backoff, plus an explicit “Повторить сейчас” action;
+- regression-test a `502 -> 502 -> 200` sequence and prove that both bot-login
+  buttons recover without a page reload;
+- after deployment, verify the exact release in desktop, Telegram Web and MAX
+  Web contexts and retain only redacted evidence.
