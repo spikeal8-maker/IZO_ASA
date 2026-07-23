@@ -53,6 +53,45 @@ export function maxAvailable(): boolean {
   return !!(w.MAX?.WebApp?.webAppData || w.MAX?.WebApp?.initData || w.maxWebApp?.webAppData)
 }
 
+export function maxBotStartCommand(deepLink: string): string {
+  try {
+    const payload = new URL(deepLink, 'https://max.ru/').searchParams.get('start')?.trim() || ''
+    if (!/^login_[A-Za-z0-9_-]{8,128}$/.test(payload)) return ''
+    return `/start ${payload}`
+  } catch {
+    return ''
+  }
+}
+
+async function copyTextToClipboard(value: string): Promise<boolean> {
+  if (!value) return false
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value)
+      return true
+    }
+  } catch {
+    // Fall through to the selection-based fallback for browsers that deny the
+    // asynchronous clipboard API even after a direct user click.
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  textarea.style.pointerEvents = 'none'
+  document.body.appendChild(textarea)
+  try {
+    textarea.select()
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    textarea.remove()
+  }
+}
+
 // Diagnostics return ONLY booleans — never a user id, initData, or WebAppData.
 export function telegramDiagnostics(): { hasTelegram: boolean; hasWebApp: boolean; hasInitData: boolean } {
   const tg = (window as WindowGlobals).Telegram
@@ -638,6 +677,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   const [botProvider, setBotProvider] = useState<'telegram' | 'max' | ''>('')
   const [botDeepLink, setBotDeepLink] = useState('')
   const [botPollMs, setBotPollMs] = useState(2000)
+  const [botCopyState, setBotCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [capabilitiesReload, setCapabilitiesReload] = useState(0)
   const [authCaps, setAuthCaps] = useState<AuthCapabilitiesV2>({
     password_login_available: true,
@@ -649,7 +689,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   })
   const handleClose = useCallback(() => {
     setPhase('form'); setCode(''); setChallengeId(''); setDebugCode(undefined); setResendIn(0); setError('')
-    setBotProvider(''); setBotDeepLink(''); setBotPollMs(2000)
+    setBotProvider(''); setBotDeepLink(''); setBotPollMs(2000); setBotCopyState('idle')
     onClose()
   }, [onClose])
   const finishAuthentication = useCallback(async () => {
@@ -765,6 +805,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   const showTelegramBotLogin = !isMiniApp
   const showMaxBotLogin = !isMiniApp
   const hasProviderActions = showTelegramBotLogin || showMaxBotLogin || tgAvail || maxAvail
+  const maxWebCommand = botProvider === 'max' ? maxBotStartCommand(botDeepLink) : ''
 
   const beginEmailVerification = async (targetEmail: string) => {
     const normalized = targetEmail.trim()
@@ -835,6 +876,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
   }
   const onBotLogin = async (provider: 'telegram' | 'max') => {
     setError('')
+    setBotCopyState('idle')
     let botWindow: Window | null = null
     try {
       botWindow = window.open('about:blank', '_blank')
@@ -871,7 +913,12 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
     setBotPollMs(started.poll_interval_ms || 2000)
     setPhase('bot')
     if (botWindow && !botWindow.closed) botWindow.location.replace(started.deep_link)
-    else window.location.assign(started.deep_link)
+    // If the browser blocks the pre-opened tab, keep this page and its polling
+    // challenge alive. The visible link remains a direct user action and can
+    // open the provider without navigating the login page away.
+  }
+  const onCopyMaxWebCommand = async () => {
+    setBotCopyState((await copyTextToClipboard(maxWebCommand)) ? 'copied' : 'failed')
   }
 
   return createPortal(
@@ -904,9 +951,43 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
         {error && <p className="auth-v2-error">{error}</p>}
         {phase === 'bot' ? (
           <>
-            <p className="auth-modal-sub">Подтвердите вход в {botProvider === 'telegram' ? 'Telegram' : 'MAX'}-боте. После подтверждения это окно закроется автоматически.</p>
-            <a className="generate small-action" href={botDeepLink} target="_blank" rel="noreferrer">Открыть бота</a>
-            <button className="secondary" onClick={() => { setPhase('form'); setError('') }}>Попробовать снова</button>
+            <p className="auth-modal-sub">
+              {botProvider === 'max'
+                ? 'Подтвердите вход в MAX-боте. В MAX Web сообщение может появиться не сразу; после подтверждения это окно закроется автоматически.'
+                : 'Подтвердите вход в Telegram-боте. После подтверждения это окно закроется автоматически.'}
+            </p>
+            <a className="generate small-action" href={botDeepLink} target="_blank" rel="noreferrer">
+              {botProvider === 'max' ? 'Открыть MAX-бота' : 'Открыть Telegram-бота'}
+            </a>
+            {botProvider === 'max' && maxWebCommand && (
+              <div className="auth-max-web-fallback">
+                <strong>Если в MAX Web нет сообщения</strong>
+                <p>Скопируйте команду, вставьте её в чат с ботом и отправьте.</p>
+                <span className="auth-max-command-label">Команда для MAX Web</span>
+                <div className="auth-max-command">
+                  <input
+                    aria-label="Команда для MAX Web"
+                    readOnly
+                    value={maxWebCommand}
+                    onFocus={(event) => event.currentTarget.select()}
+                  />
+                  <button type="button" className="secondary" onClick={onCopyMaxWebCommand}>
+                    {botCopyState === 'copied' ? 'Скопировано' : 'Копировать'}
+                  </button>
+                </div>
+                {botCopyState === 'copied' && (
+                  <p className="auth-max-copy-status" role="status">Вставьте команду в чат MAX и отправьте её.</p>
+                )}
+                {botCopyState === 'failed' && (
+                  <p className="auth-max-copy-status auth-max-copy-error" role="status">
+                    Автокопирование недоступно. Выделите команду в поле и скопируйте вручную.
+                  </p>
+                )}
+              </div>
+            )}
+            <button className="secondary" onClick={() => {
+              setPhase('form'); setError(''); setBotProvider(''); setBotDeepLink(''); setBotCopyState('idle')
+            }}>Попробовать снова</button>
           </>
         ) : phase === 'verify' ? (
           <>
