@@ -56,6 +56,18 @@ def test_workflow_endpoint_mapping_preserves_all_modes_and_default() -> None:
     assert comfyui_workflows.workflow_endpoint_for_mode("unknown") == "workflow_t2i"
 
 
+def test_builtin_model_profiles_have_database_independent_fallbacks() -> None:
+    assert comfyui_workflows.fallback_model_for_profile("flux_klein_4b") == (
+        "flux-2-klein-4b-fp8.safetensors"
+    )
+    assert comfyui_workflows.fallback_model_for_profile("flux_klein_9b") == (
+        "flux-2-klein-9b-fp8.safetensors"
+    )
+    assert comfyui_workflows.fallback_model_for_profile("custom.safetensors") == (
+        "custom.safetensors"
+    )
+
+
 def test_set_input_only_mutates_existing_node() -> None:
     graph = {"node": {}}
 

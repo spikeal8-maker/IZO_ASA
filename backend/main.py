@@ -6890,7 +6890,7 @@ def resolve_profile_model(requested: str) -> str:
             return row["model_name"]
     except Exception:
         pass
-    return requested
+    return comfyui_workflows.fallback_model_for_profile(requested)
 
 
 def get_model_settings() -> dict[str, Any]:

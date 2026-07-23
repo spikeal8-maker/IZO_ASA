@@ -83,3 +83,32 @@ deployment checkout.
 8. Persistent queued jobs remain present and resume in order after ComfyUI is
    healthy.
 9. Video generation behavior and timeouts remain unchanged.
+
+## Compatibility validation 2026-07-24
+
+The local ComfyUI inventory contains both Klein checkpoints and their matching
+text encoders:
+
+- `flux-2-klein-4b-fp8.safetensors` with `qwen_3_4b.safetensors`;
+- `flux-2-klein-9b-fp8.safetensors` with
+  `qwen_3_8b_fp8mixed.safetensors`;
+- the shared `flux2-vae.safetensors`;
+- matching 4B and 9B face LoRAs;
+- the installed 4B-specific outpaint LoRA.
+
+Local contract coverage verifies:
+
+- the Config UI switch persists and routes both `4B -> 9B` transitions;
+- explicit 4B and 9B profiles select the matching checkpoint and encoder;
+- built-in 4B/9B profile IDs still resolve correctly when the optional
+  `model_profiles` database catalog is unavailable, preventing an accidental
+  4B-to-9B fallback;
+- image-to-image keeps its source node and denoise control;
+- Assembly serializes and wires one, two, three and four images in order;
+- prepared source and mask images keep identical bounded dimensions for
+  inpaint;
+- outpaint produces a target-sized canvas and mask, preserves source aspect
+  ratio during editor zoom and supports desktop/mobile positioning;
+- the outpaint workflow deliberately uses the installed 4B outpaint LoRA even
+  when the global default is 9B, because no compatible 9B outpaint dependency
+  is installed. Other local image modes follow the global 4B/9B selection.

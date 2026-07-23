@@ -601,13 +601,17 @@ def test_config_ui_switch_updates_global_profile_and_routes(temp_db, monkeypatch
     main._save_setting("generation_routes", {"routes": [{"routeId": "text_to_image", "provider": "local", "modelProfileId": "flux_klein_9b"}]})
     s = admin_session()
     with TestClient(main.app) as client:
-        response = client.post("/api/admin/config-ui/switch-v2", json={"profileId": "flux_klein_4b", "reason": "снижаю нагрузку"}, headers=bearer(s["session_token"]))
+        response_4b = client.post("/api/admin/config-ui/switch-v2", json={"profileId": "flux_klein_4b", "reason": "снижаю нагрузку"}, headers=bearer(s["session_token"]))
+        response_9b = client.post("/api/admin/config-ui/switch-v2", json={"profileId": "flux_klein_9b", "reason": "возвращаю качество"}, headers=bearer(s["session_token"]))
 
-    assert response.status_code == 200
-    assert response.json()["profileId"] == "flux_klein_4b"
-    assert main.get_model_settings()["editModelProfile"] == "flux_klein_4b"
-    assert main._saved_setting("generation_routes")["routes"][0]["modelProfileId"] == "flux_klein_4b"
-    assert count("audit_logs", "WHERE action='admin_config_ui_switch'") == 1
+    assert response_4b.status_code == 200
+    assert response_4b.json()["profileId"] == "flux_klein_4b"
+    assert response_9b.status_code == 200
+    assert response_9b.json()["profileId"] == "flux_klein_9b"
+    assert main.get_model_settings()["editModelProfile"] == "flux_klein_9b"
+    assert main.get_model_settings()["poseModelProfile"] == "flux_klein_9b"
+    assert main._saved_setting("generation_routes")["routes"][0]["modelProfileId"] == "flux_klein_9b"
+    assert count("audit_logs", "WHERE action='admin_config_ui_switch'") == 2
 
 
 # 25, 26

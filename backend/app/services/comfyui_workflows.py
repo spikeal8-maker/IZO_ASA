@@ -38,6 +38,17 @@ WORKFLOW_ENDPOINTS = {
     "texture_transfer": "workflow_edit",
 }
 
+PROFILE_MODEL_FALLBACKS = {
+    "flux_klein_4b": "flux-2-klein-4b-fp8.safetensors",
+    "flux_klein_9b": "flux-2-klein-9b-fp8.safetensors",
+}
+
+
+def fallback_model_for_profile(profile_id: str) -> str:
+    """Resolve built-in profiles even when the optional DB catalog is unavailable."""
+
+    return PROFILE_MODEL_FALLBACKS.get(profile_id, profile_id)
+
 
 def select_faceswap_lora(
     available_loras: Sequence[str],
