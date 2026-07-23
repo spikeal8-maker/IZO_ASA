@@ -584,3 +584,34 @@ restart, webhook switch или real provider action.
 
 Не переходи к следующему пакету без моего подтверждения.
 ```
+## ADMIN-NOTIFY-SOCIAL-001 — центр событий и durable social outbox
+
+Статус 2026-07-24: `CODE COMPLETE · VERIFIED (CI) · NOT DEPLOYED`.
+
+Scope первого безопасного пакета:
+
+- additive migration v2 создаёт `admin_notifications` и
+  `social_delivery_outbox`;
+- ежедневный lifecycle OpenRouter создаёт дедуплицированную сводку только при
+  реальных изменениях каталога;
+- trusted-admin API поддерживает чтение, mark-all/selected read и настройки
+  каналов с audit log;
+- `/admin/notifications` показывает журнал и настройки;
+- `/admin/social` хранит подготовительную конфигурацию Telegram/VK/Instagram/OK
+  и показывает durable очередь;
+- опубликованное изображение или полностью подготовленное видео создаёт не
+  более одного задания на сеть;
+- внешняя доставка и `masterEnabled` принудительно выключены, пока отдельный
+  provider package не добавит DPAPI credentials, retry worker и operator test.
+
+Acceptance:
+
+- migration idempotent и отклоняет неизвестную более новую схему;
+- notification/social dedupe подтверждён тестами;
+- `backend/main.py` не превышает budget 19 517 строк;
+- frontend production build и архитектурные карты зелёные;
+- реальные сообщения и публикации не отправляются в тестах.
+
+Evidence: focused backend `116 passed`; social outbox idempotency `5/5`;
+`VERIFY_OK mode=CI`, full suite `1668 passed`; frontend lint/build,
+release-identity, origin-isolation и studio-resilience green.

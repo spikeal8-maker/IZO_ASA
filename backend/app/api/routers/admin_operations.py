@@ -1,0 +1,155 @@
+"""Admin notification center and social-syndication configuration routes."""
+
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Callable
+from contextlib import AbstractContextManager
+from dataclasses import dataclass
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from ...services.admin_notifications import list_notifications, mark_notifications_read
+
+
+class NotificationsReadRequest(BaseModel):
+    ids: list[str] = Field(default_factory=list, max_length=200)
+
+
+class SettingsRequest(BaseModel):
+    settings: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class AdminOperationsDependencies:
+    db: Callable[[], AbstractContextManager[sqlite3.Connection]]
+    require_admin: Callable[[Request], dict[str, Any]]
+    saved_setting: Callable[[str], dict[str, Any]]
+    save_setting: Callable[[str, dict[str, Any]], None]
+    record_audit: Callable[..., None]
+
+
+def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRouter:
+    router = APIRouter(prefix="/api/admin")
+
+    @router.get("/notifications-v2")
+    async def notifications(
+        request: Request, unread_only: bool = False, limit: int = 100
+    ) -> dict[str, Any]:
+        deps.require_admin(request)
+        with deps.db() as conn:
+            return {"ok": True, **list_notifications(conn, unread_only=unread_only, limit=limit)}
+
+    @router.post("/notifications/read-v2")
+    async def notifications_read(req: NotificationsReadRequest, request: Request) -> dict[str, Any]:
+        actor = deps.require_admin(request)
+        with deps.db() as conn:
+            changed = mark_notifications_read(conn, req.ids)
+            deps.record_audit(
+                conn,
+                "admin_notifications_mark_read",
+                actor_internal_user_id=actor.get("internal_user_id"),
+                entity_type="admin_notification",
+                after={"ids": req.ids, "changed": changed},
+                request=request,
+            )
+            unread = list_notifications(conn, unread_only=True, limit=1)["unread"]
+        return {"ok": True, "changed": changed, "unread": unread}
+
+    @router.get("/notifications/settings-v2")
+    async def notification_settings(request: Request) -> dict[str, Any]:
+        deps.require_admin(request)
+        saved = deps.saved_setting("admin_notification_settings")
+        return {"ok": True, "settings": {
+            "inAppEnabled": bool(saved.get("inAppEnabled", True)),
+            "telegramEnabled": bool(saved.get("telegramEnabled", False)),
+            "emailEnabled": bool(saved.get("emailEnabled", False)),
+            "minimumSeverity": str(saved.get("minimumSeverity") or "info"),
+            "digestMode": str(saved.get("digestMode") or "immediate"),
+            "quietHours": saved.get("quietHours") or {
+                "enabled": False, "from": "22:00", "to": "08:00"
+            },
+            "categories": saved.get("categories") or {},
+        }}
+
+    @router.put("/notifications/settings-v2")
+    async def save_notification_settings(req: SettingsRequest, request: Request) -> dict[str, Any]:
+        actor = deps.require_admin(request)
+        settings = {
+            "inAppEnabled": bool(req.settings.get("inAppEnabled", True)),
+            "telegramEnabled": bool(req.settings.get("telegramEnabled", False)),
+            "emailEnabled": bool(req.settings.get("emailEnabled", False)),
+            "minimumSeverity": str(req.settings.get("minimumSeverity") or "info"),
+            "digestMode": str(req.settings.get("digestMode") or "immediate"),
+            "quietHours": req.settings.get("quietHours") or {
+                "enabled": False, "from": "22:00", "to": "08:00"
+            },
+            "categories": req.settings.get("categories") or {},
+        }
+        if settings["minimumSeverity"] not in {"info", "warning", "critical"}:
+            raise HTTPException(400, "Некорректный уровень уведомлений.")
+        if settings["digestMode"] not in {"immediate", "daily"}:
+            raise HTTPException(400, "Некорректный режим доставки.")
+        deps.save_setting("admin_notification_settings", settings)
+        with deps.db() as conn:
+            deps.record_audit(
+                conn, "admin_notification_settings_update",
+                actor_internal_user_id=actor.get("internal_user_id"),
+                entity_type="admin_settings", entity_id="admin_notification_settings",
+                after=settings, request=request,
+            )
+        return {"ok": True, "settings": settings}
+
+    @router.get("/social-v2")
+    async def social(request: Request) -> dict[str, Any]:
+        deps.require_admin(request)
+        saved = deps.saved_setting("social_syndication")
+        networks = saved.get("networks") if isinstance(saved.get("networks"), dict) else {}
+        with deps.db() as conn:
+            rows = conn.execute(
+                "SELECT network, status, COUNT(*) AS count FROM social_delivery_outbox "
+                "GROUP BY network, status ORDER BY network, status"
+            ).fetchall()
+        return {
+            "ok": True,
+            "settings": {
+                "masterEnabled": bool(saved.get("masterEnabled", False)),
+                "autoPublish": bool(saved.get("autoPublish", False)),
+                "networks": {
+                    name: {"enabled": bool((networks.get(name) or {}).get("enabled", False))}
+                    for name in ("telegram", "vk", "instagram", "ok")
+                },
+            },
+            "queue": [dict(row) for row in rows],
+            "operational": False,
+            "message": "Внешняя доставка выключена до подключения провайдеров.",
+        }
+
+    @router.put("/social-v2")
+    async def save_social(req: SettingsRequest, request: Request) -> dict[str, Any]:
+        actor = deps.require_admin(request)
+        source = req.settings.get("networks") if isinstance(req.settings.get("networks"), dict) else {}
+        settings = {
+            "masterEnabled": False,
+            "autoPublish": bool(req.settings.get("autoPublish", False)),
+            "networks": {
+                name: {"enabled": bool((source.get(name) or {}).get("enabled", False))}
+                for name in ("telegram", "vk", "instagram", "ok")
+            },
+        }
+        deps.save_setting("social_syndication", settings)
+        with deps.db() as conn:
+            deps.record_audit(
+                conn, "admin_social_settings_update",
+                actor_internal_user_id=actor.get("internal_user_id"),
+                entity_type="admin_settings", entity_id="social_syndication",
+                after=settings, request=request,
+            )
+        return {
+            "ok": True, "settings": settings, "operational": False,
+            "message": "Настройки сохранены без включения внешней доставки.",
+        }
+
+    return router
