@@ -18,6 +18,23 @@ STARTING_USD_PER_SECOND = {
 }
 
 
+def allowed_models(
+    catalog: list[dict[str, Any]],
+    config: dict[str, Any],
+    mode: str,
+    plan: str,
+    is_admin: bool,
+) -> list[dict[str, Any]]:
+    enabled = set((config.get("enabled") or {}).get(mode) or [])
+    tier = set((((config.get("access") or {}).get(mode) or {}).get(plan)) or [])
+    allowed = enabled if is_admin else enabled.intersection(tier)
+    return [
+        model
+        for model in catalog
+        if model.get("id") in allowed and mode in (model.get("modes") or [])
+    ]
+
+
 @dataclass(frozen=True)
 class VideoFallbackRate:
     usd_per_second: float

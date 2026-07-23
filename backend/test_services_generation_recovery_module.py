@@ -6,6 +6,7 @@ import pytest
 
 from app.services.generation_recovery import (
     ACTIVE_GENERATION_STATUSES,
+    RESUMABLE_VIDEO_PROVIDERS,
     STARTUP_INTERRUPTION_MESSAGE,
     reconcile_stale_generation_jobs,
 )
@@ -23,6 +24,7 @@ def connection() -> sqlite3.Connection:
             id TEXT PRIMARY KEY,
             user_id TEXT,
             status TEXT NOT NULL,
+            provider TEXT,
             progress INTEGER NOT NULL,
             result_image_id TEXT,
             error_message TEXT,
@@ -41,10 +43,16 @@ def connection() -> sqlite3.Connection:
     return conn
 
 
-def insert_job(conn: sqlite3.Connection, job_id: str, status: str) -> None:
+def insert_job(
+    conn: sqlite3.Connection,
+    job_id: str,
+    status: str,
+    provider: str | None = None,
+) -> None:
     conn.execute(
-        "INSERT INTO jobs (id, user_id, status, progress, created_at) VALUES (?, 'user-1', ?, 24, ?)",
-        (job_id, status, NOW),
+        "INSERT INTO jobs (id, user_id, status, provider, progress, created_at) "
+        "VALUES (?, 'user-1', ?, ?, 24, ?)",
+        (job_id, status, provider, NOW),
     )
 
 
@@ -57,6 +65,23 @@ def test_active_status_contract_is_explicit_and_stable() -> None:
         "sent_to_openrouter",
     )
     assert STARTUP_INTERRUPTION_MESSAGE == "Генерация прервана перезапуском сервиса. Токены возвращены."
+    assert RESUMABLE_VIDEO_PROVIDERS == ("openrouter", "local_ltx")
+
+
+def test_resumable_video_jobs_survive_startup_reconciliation() -> None:
+    conn = connection()
+    for provider in RESUMABLE_VIDEO_PROVIDERS:
+        insert_job(conn, f"video-{provider}", "queued", provider)
+
+    report = reconcile_stale_generation_jobs(
+        conn,
+        completed_at=NOW,
+        refund_job=lambda *_args: pytest.fail("resumable video must not refund"),
+    )
+
+    assert report.checked == 0
+    statuses = conn.execute("SELECT status FROM jobs ORDER BY id").fetchall()
+    assert [row["status"] for row in statuses] == ["queued", "queued"]
 
 
 def test_all_orphaned_active_states_fail_and_request_refund() -> None:
