@@ -6,6 +6,28 @@
 Фактический аудит: [agent-compliance-audit-20260719.md](agent-compliance-audit-20260719.md)
 Предыдущий план: `engineering-transformation-master-plan-20260717.md` — исторический checkpoint, не текущая очередь.
 
+## Пакет `VIDEO-LTX23-LOCAL-001`
+
+Статус: **CODE COMPLETE, OPERATIONAL VERIFICATION BLOCKED**.
+
+- существующий контракт `/api/video/*`, история и галерея расширены локальным
+  провайдером без второй видеосистемы;
+- стартовые профили ограничены T2V, 2/4 секундами, 16:9 480p, без звука и с
+  concurrency 1;
+- локальная цена фиксируется до запуска и списывает дневные токены прежде
+  основного баланса;
+- workflow принадлежит серверу и не принимается от браузера;
+- активные LTX/OpenRouter video jobs сохраняются при рестарте backend и
+  продолжают опрос provider id;
+- включение защищено `LOCAL_LTX_ENABLED=false` по умолчанию;
+- инструкции и границы переноса:
+  [local-ltx23-video-provider.md](local-ltx23-video-provider.md);
+- live GPU smoke заблокирован на тестовой машине: ComfyUI сообщает
+  `No CUDA GPUs are available`.
+- 34 focused tests green; concurrency/restart checks green 5 повторов;
+  repository Quick gate blocked только runtime-listener contract тестового Vite
+  на 5173 против production Caddy.
+
 ## Экстренный пакет `AUTH-BOT-P0-20260723`
 
 Статус: **CODE COMPLETE**. Пакет имеет приоритет над плановой очередью, потому что

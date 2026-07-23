@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 
@@ -19,6 +20,17 @@ VIDEO_RESERVED_STATUSES = (
     "in_progress",
     "finalizing",
 )
+
+
+def finalization_is_fresh(settings: dict[str, Any], *, stale_seconds: int) -> bool:
+    value = str(settings.get("finalizingAt") or "")
+    try:
+        started = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - started).total_seconds() < stale_seconds
 
 
 class VideoStorageConnection(Protocol):
