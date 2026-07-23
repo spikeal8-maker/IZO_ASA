@@ -197,8 +197,10 @@ $safeEnvironment = [ordered]@{
     UNISENDER_API_KEY = " "
     YOOKASSA_SHOP_ID = " "
     YOOKASSA_SECRET_KEY = " "
-    EMAIL_PROVIDER = "mock"
-    EMAIL_OTP_DEBUG_RETURN_CODE = "true"
+    # Local testing must remain usable without a configured outbound mail service.
+    # Password authentication stays enabled; email OTP is not advertised.
+    EMAIL_PROVIDER = ""
+    EMAIL_OTP_DEBUG_RETURN_CODE = "false"
     BILLING_SIMULATOR_ENABLED = "true"
     COMFYUI_REQUIRED = "false"
     COMFYUI_MOCK_FALLBACK = "true"
@@ -267,6 +269,9 @@ try {
         $capabilities.bot_login.max_bot_login_available
     ) {
         throw "Real bot login capability leaked into the isolated test backend."
+    }
+    if ($capabilities.email_otp_available) {
+        throw "Email OTP capability leaked into the isolated test backend."
     }
 
     $frontendProcess = Start-Process `

@@ -69,7 +69,9 @@ For an isolated local development stack on Windows, use:
 This launcher uses the project virtual environment, refuses occupied ports,
 stores its SQLite database and media under `.runtime/local-test`, isolates the
 DPAPI secret directory, disables real bot/provider delivery, and enables only
-development fakes. Stop it without deleting test data with:
+development fakes. Email OTP is disabled in this isolated mode, so existing
+accounts sign in with email and password without waiting for a mail provider.
+Stop it without deleting test data with:
 
 ```powershell
 .\stop-project-test.bat

@@ -24,13 +24,15 @@ def test_local_test_launcher_isolated_from_live_data_and_providers() -> None:
     assert 'MAX_BOT_TOKEN = " "' in source
     assert 'MAX_API_BASE_URL = "http://127.0.0.1:9"' in source
     assert 'BILLING_SIMULATOR_ENABLED = "true"' in source
-    assert 'EMAIL_PROVIDER = "mock"' in source
+    assert 'EMAIL_PROVIDER = ""' in source
+    assert 'EMAIL_OTP_DEBUG_RETURN_CODE = "false"' in source
     assert 'COMFYUI_MOCK_FALLBACK = "true"' in source
     assert "backend\\onenode.sqlite3" not in source
     assert "backend\\media" not in source
     assert "start-public" not in source
     assert "frpc" not in source.lower()
     assert "Real bot login capability leaked" in source
+    assert "Email OTP capability leaked" in source
 
 
 def test_local_test_launcher_blocks_every_machine_local_env_fallback() -> None:
