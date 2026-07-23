@@ -62,15 +62,15 @@ def select_faceswap_lora(
     candidate = requested_id.strip()
     if candidate and candidate != "none" and target_tag in candidate.lower() and candidate in available_loras and enabled(candidate):
         return candidate, requested_strength
-    match = next(
-        (
-            item for item in available_loras
-            if target_tag in item.lower()
-            and enabled(item)
-            and any(keyword in item.lower() for keyword in ("bfs", "face", "head"))
-        ),
-        "",
-    )
+    matches = [
+        item for item in available_loras
+        if target_tag in item.lower()
+        and enabled(item)
+        and any(keyword in item.lower() for keyword in ("bfs", "face", "head"))
+    ]
+    if target_tag == "9b":
+        matches.sort(key=lambda item: ("face_swap" not in item.lower(), item.lower()))
+    match = matches[0] if matches else ""
     if not match:
         raise RuntimeError(
             f"Face LoRA для Flux Klein {target_tag.upper()} не установлена "
@@ -222,6 +222,17 @@ def patch_mode_nodes(
         image_files = [uploads.get(f"input{index}") for index in range(1, 5)]
         if request.mode in {"edit", "faceswap"}:
             patch_optional_lora(prompt, request.loras[0] if request.loras else None)
+        lora_id = request.loras[0].id.lower() if request.loras else ""
+        if request.mode == "faceswap" and "face_swap_flux_klein_9b" in lora_id:
+            image_files[:2] = [image_files[1], image_files[0]]
+            set_input(
+                prompt,
+                "FK:166",
+                "text",
+                "face_swap: take the face from Picture 1 and swap it onto the person in Picture 2. "
+                "Preserve the exact face and features from Picture 1 and the body, pose, lighting, "
+                f"and scene from Picture 2. {request.prompt}".strip(),
+            )
         patch_edit_reference_chain(prompt, image_files, edit_reference_megapixels)
     elif request.mode == "inpaint":
         for node_id, key, value in (
@@ -279,29 +290,46 @@ def build_outpaint_workflow(
     request: WorkflowRequest,
     uploads: Mapping[str, str],
     *,
+    model: str,
+    text_encoder: str,
+    vae: str,
     lora_enabled: Callable[[str], bool],
     default_negative_prompt: str,
     model_profiles: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
-    model = next((name for name in models.get("diffusion_models", []) if "klein-4b" in name.lower() and "base" not in name.lower()), "")
-    text_encoder = next((name for name in models.get("text_encoders", []) if "qwen_3_4b" in name.lower()), "")
-    vae = "flux2-vae.safetensors" if "flux2-vae.safetensors" in models.get("vaes", []) else ""
-    outpaint_lora = next((name for name in models.get("loras", []) if "4b" in name.lower() and "outpaint" in name.lower()), "")
-    missing = [label for label, value in (("Klein 4B", model), ("Qwen 3 4B", text_encoder), ("Flux2 VAE", vae), ("Outpaint LoRA", outpaint_lora)) if not value]
-    if missing:
-        raise RuntimeError(f"Outpaint 4B не готов: отсутствует {', '.join(missing)}.")
-    if not lora_enabled(outpaint_lora):
-        raise RuntimeError("Outpaint 4B LoRA выключена администратором.")
-    graph.pop("FKO:216", None)
-    graph["FKO:194"]["inputs"].update({"unet_name": model, "weight_dtype": "default"})
-    graph["FKO:195"]["inputs"]["clip_name"] = text_encoder
-    graph["FKO:196"]["inputs"]["vae_name"] = vae
-    graph["FKO:outpaint_lora"] = {
-        "class_type": "LoraLoaderModelOnly",
-        "inputs": {"model": ["FKO:194", 0], "lora_name": outpaint_lora, "strength_model": 1},
-        "_meta": {"title": "Klein 4B Outpaint LoRA"},
-    }
-    graph["FKO:163"]["inputs"]["model"] = ["FKO:outpaint_lora", 0]
+    if "4b" in model.lower():
+        outpaint_lora = next(
+            (name for name in models.get("loras", []) if "4b" in name.lower() and "outpaint" in name.lower()),
+            "",
+        )
+        if not outpaint_lora:
+            raise RuntimeError("Outpaint 4B is not ready: the compatible Outpaint LoRA is missing.")
+        if not lora_enabled(outpaint_lora):
+            raise RuntimeError("Outpaint 4B LoRA is disabled by the administrator.")
+        graph.pop("FKO:216", None)
+        graph["FKO:194"]["inputs"].update({"unet_name": model, "weight_dtype": "default"})
+        graph["FKO:outpaint_lora"] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {"model": ["FKO:194", 0], "lora_name": outpaint_lora, "strength_model": 1},
+            "_meta": {"title": "Klein 4B Outpaint LoRA"},
+        }
+        graph["FKO:163"]["inputs"]["model"] = ["FKO:outpaint_lora", 0]
+    else:
+        kv_model = next(
+            (
+                name
+                for name in models.get("diffusion_models", [])
+                if "klein-9b-kv" in name.lower() and "fp8" in name.lower()
+            ),
+            "",
+        )
+        if not kv_model:
+            raise RuntimeError("Outpaint 9B is not ready: the Klein 9B KV FP8 checkpoint is missing.")
+        model = kv_model
+        graph.pop("FKO:outpaint_lora", None)
+        graph["FKO:194"]["inputs"].update({"unet_name": model, "weight_dtype": "default"})
+        graph["FKO:216"]["inputs"]["model"] = ["FKO:194", 0]
+        graph["FKO:163"]["inputs"]["model"] = ["FKO:216", 0]
     patch_mode_nodes(
         graph,
         request,

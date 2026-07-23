@@ -58,6 +58,10 @@ and gates later submissions until a privileged ComfyUI-only restart is healthy.
 The recovery helper does not mutate the persistent application queue. Design,
 installation and acceptance evidence are recorded in
 [comfyui-image-vram-watchdog-20260723.md](comfyui-image-vram-watchdog-20260723.md).
+The 2026-07-24 follow-up also closes the model-switch gap in outpaint: 4B keeps
+its compatible LoRA path, while 9B now has the official KV FP8 checkpoint and
+retains `FluxKVCache`. A real local 9B outpaint completed in 52.3 seconds
+without cancelling or reordering the next application job.
 
 ## 0. Ответ: готов ли этот план к реализации
 

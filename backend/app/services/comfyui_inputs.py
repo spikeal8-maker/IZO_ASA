@@ -129,3 +129,36 @@ def prepare_reference_image(
     except Exception as exc:
         emit(f"comfyui input resize skipped {image_path.name}: {type(exc).__name__}")
         return image_path
+
+
+def prepare_mask_image(
+    mask_path: Path | None,
+    reference_path: Path | None,
+    *,
+    output_directory: Path,
+    prefix: str,
+    log: Callable[[str], None] | None = None,
+) -> Path | None:
+    """Force an inpaint/outpaint mask to the exact prepared-image dimensions."""
+
+    if not mask_path or not mask_path.exists() or not reference_path or not reference_path.exists():
+        return mask_path
+    emit = log or (lambda _message: None)
+    try:
+        with Image.open(reference_path) as reference, Image.open(mask_path) as opened_mask:
+            target_size = ImageOps.exif_transpose(reference).size
+            mask = ImageOps.exif_transpose(opened_mask).convert("RGB")
+            if mask.size == target_size:
+                return mask_path
+            resample = Image.Resampling.NEAREST if hasattr(Image, "Resampling") else Image.NEAREST
+            resized = mask.resize(target_size, resample)
+            output = output_directory / f"{prefix}_{uuid4().hex}_comfy_mask.png"
+            resized.save(output, "PNG", optimize=True)
+            emit(
+                f"comfyui mask aligned {mask_path.name}: "
+                f"{mask.size[0]}x{mask.size[1]} -> {target_size[0]}x{target_size[1]}"
+            )
+            return output
+    except Exception as exc:
+        emit(f"comfyui mask alignment skipped {mask_path.name}: {type(exc).__name__}")
+        return mask_path

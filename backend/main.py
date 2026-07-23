@@ -7002,17 +7002,14 @@ def build_pose_workflow(models: dict[str, list[str]], profile: dict[str, Any], r
 
 
 def build_outpaint_workflow(graph: dict[str, Any], models: dict[str, list[str]], req: GenerateRequest, uploads: dict[str, str]) -> dict[str, Any]:
-    """Patch the stock outpaint graph to the installed 4B Outpaint LoRA.
-
-    The stock custom-node graph expects a separate 9B KV checkpoint that is not
-    installed. The published LoRA targets the distilled Klein 4B model, so this
-    graph removes the unavailable KV-cache node and wires the LoRA directly.
-    """
+    """Patch outpaint for the globally selected Klein profile."""
+    model, text_encoder, vae = choose_model(models, effective_edit_profile(req.modelProfile))
     return comfyui_workflows.build_outpaint_workflow(
         graph,
         models,
         req,
         uploads,
+        model=model, text_encoder=text_encoder, vae=vae,
         lora_enabled=server_lora_enabled,
         default_negative_prompt=DEFAULT_NEG_PROMPT,
         model_profiles=get_server_model_profiles(),
@@ -7473,7 +7470,9 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
         uploads["input2"] = await upload_to_comfyui(input2_path)
     if payload.mode in {"inpaint", "outpaint"} and mask_path:
         if payload.mode != "outpaint" or not outpaint_generated_mask:
-            mask_path = prepare_comfyui_input_image(mask_path, f"{job['id']}_mask", payload)
+            mask_path = comfyui_inputs.prepare_mask_image(
+                mask_path, primary_input, output_directory=MEDIA, prefix=f"{job['id']}_mask", log=print,
+            )
         uploads["mask"] = await upload_to_comfyui(mask_path)
 
     if special_edit_graph is not None:

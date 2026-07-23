@@ -1,5 +1,5 @@
 {
-  "snapshotDate": "2026-07-11",
+  "snapshotDate": "2026-07-24",
   "targetDirectory": "ComfyUI/models/loras",
   "items": [
     {
@@ -11,6 +11,31 @@
       "file": "flux2_klein_4b_outpaint_comfy.safetensors",
       "workflowReady": true,
       "workflowSource": "backend outpaint graph patched for distilled Klein 4B"
+    },
+    {
+      "profile": "9B Base",
+      "purpose": "face swap",
+      "repo": "ilkerzgi/face-swap",
+      "sourceFile": "FS2_V2_r32_800_pytorch_lora_weights.safetensors",
+      "file": "face_swap_flux_klein_9b_r32_800.safetensors",
+      "sizeBytes": 126670920,
+      "sha256": "40ad042e09c938cc587864b896690daf4f30abda86c24812d6a074aa041c25ec",
+      "license": "flux-non-commercial-license",
+      "workflowReady": true,
+      "workflowSource": "stock edit graph with face-source-first reference order"
+    }
+  ],
+  "diffusionModels": [
+    {
+      "profile": "9B KV FP8",
+      "purpose": "outpaint and accelerated multi-reference editing",
+      "repo": "black-forest-labs/FLUX.2-klein-9b-kv-fp8",
+      "file": "flux-2-klein-9b-kv-fp8.safetensors",
+      "sizeBytes": 9818935984,
+      "sha256": "33f7da5625a00798349a719742999d3c7dd20c1a7eda14663922c363640728f1",
+      "license": "flux-non-commercial-license",
+      "workflowReady": true,
+      "workflowSource": "stock outpaint graph with FluxKVCache"
     }
   ]
 }

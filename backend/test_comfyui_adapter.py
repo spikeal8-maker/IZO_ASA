@@ -127,6 +127,19 @@ def test_choose_faceswap_lora_prefers_matching_9b_face_lora() -> None:
     assert selected.strength == 0.72
 
 
+def test_choose_faceswap_lora_prefers_lightweight_9b_face_swap_lora() -> None:
+    selected = main.choose_faceswap_lora(
+        [
+            "bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors",
+            "face_swap_flux_klein_9b_r32_800.safetensors",
+        ],
+        None,
+        "flux-2-klein-9b-fp8.safetensors",
+    )
+
+    assert selected.id == "face_swap_flux_klein_9b_r32_800.safetensors"
+
+
 def test_choose_faceswap_lora_rejects_admin_disabled_lora() -> None:
     file_name = "bfs_head_v1_flux-klein_4b.safetensors"
     main._save_setting("server_model_loras", {"enabled": {file_name: False}})
@@ -494,6 +507,15 @@ def test_outpaint_uses_installed_4b_lora_without_missing_kv_model(monkeypatch) -
     }
     req = main.GenerateRequest(mode="outpaint", prompt="extend the forest", seed=9, width=1024, height=1024)
 
+    monkeypatch.setattr(
+        main,
+        "choose_model",
+        lambda _models, _profile: (
+            "flux-2-klein-4b-fp8.safetensors",
+            "qwen_3_4b.safetensors",
+            "flux2-vae.safetensors",
+        ),
+    )
     result = main.build_outpaint_workflow(graph, models, req, {"input1": "canvas.png", "mask": "mask.png"})
 
     assert "FKO:216" not in result
