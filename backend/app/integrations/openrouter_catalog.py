@@ -66,6 +66,28 @@ def reviewed_image_price_specs() -> list[dict[str, Any]]:
     ]
 
 
+def normalize_economy_settings(
+    raw: dict[str, Any],
+    *,
+    default_margin_percent: float,
+    default_token_rub: float,
+    usd_fee_rate: float,
+) -> dict[str, float]:
+    try:
+        margin = float(raw.get("minMarginPercent", default_margin_percent))
+    except (TypeError, ValueError):
+        margin = default_margin_percent
+    try:
+        token_rub = float(raw.get("tokenRub", default_token_rub))
+    except (TypeError, ValueError):
+        token_rub = default_token_rub
+    return {
+        "minMarginPercent": max(0.0, min(95.0, margin)),
+        "tokenRub": max(0.01, min(100000.0, token_rub)),
+        "usdFeePercent": usd_fee_rate * 100,
+    }
+
+
 class DailyCatalogWorker:
     """Single-owner hourly wake-up for a durable once-per-day refresh."""
 
