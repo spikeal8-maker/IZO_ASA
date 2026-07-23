@@ -116,7 +116,10 @@ async function mockApi(page, { authenticated = true } = {}) {
     }
     if (url.pathname === '/api/auth/bot-login/start') {
       const provider = (route.request().postDataJSON() || {}).provider || 'telegram'
-      await route.fulfill({ json: { deep_link: `about:blank#${provider}-login-e2e`, poll_interval_ms: 2000 } })
+      const deepLink = provider === 'max'
+        ? 'about:blank?start=login_max_web_e2e#max-login-e2e'
+        : 'about:blank#telegram-login-e2e'
+      await route.fulfill({ json: { deep_link: deepLink, poll_interval_ms: 2000 } })
       return
     }
     if (url.pathname === '/api/auth/capabilities-v2') {
@@ -250,6 +253,16 @@ async function run() {
     ]) {
       const page = await browser.newPage({ viewport: device.viewport, isMobile: device.isMobile, hasTouch: device.isMobile })
       page.setDefaultTimeout(20000)
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: {
+            writeText: async (value) => {
+              window.__authV2CopiedText = String(value)
+            },
+          },
+        })
+      })
       await mockApi(page, { authenticated: false })
 
       await page.goto(`${base}/profile?guest_auth=${Date.now()}`, { waitUntil: 'networkidle' })
@@ -265,8 +278,22 @@ async function run() {
       const popupPromise = page.waitForEvent('popup')
       await dialog.getByRole('button', { name: providerButton, exact: true }).click()
       const popup = await popupPromise
-      await popup.waitForURL(`about:blank#${provider}-login-e2e`)
+      const expectedPopupUrl = provider === 'max'
+        ? 'about:blank?start=login_max_web_e2e#max-login-e2e'
+        : 'about:blank#telegram-login-e2e'
+      await popup.waitForURL(expectedPopupUrl)
       assert(await dialog.getByText(`Подтвердите вход в ${provider === 'telegram' ? 'Telegram' : 'MAX'}-боте.`, { exact: false }).isVisible(), `${device.name} bot login did not enter confirmation phase`)
+      if (provider === 'max') {
+        assert(await dialog.getByText('Если в MAX Web нет сообщения', { exact: true }).isVisible(), 'MAX Web fallback guidance is missing')
+        const commandInput = dialog.getByLabel('Команда для MAX Web', { exact: true })
+        assert(await commandInput.inputValue() === '/start login_max_web_e2e', 'MAX Web fallback command is incorrect')
+        await dialog.getByRole('button', { name: 'Копировать', exact: true }).click()
+        assert(await page.evaluate(() => window.__authV2CopiedText) === '/start login_max_web_e2e', 'MAX Web fallback command was not copied')
+        assert(await dialog.getByText('Вставьте команду в чат MAX и отправьте её.', { exact: true }).isVisible(), 'MAX Web copy confirmation is missing')
+        await page.screenshot({ path: `artifacts/auth-max-web-fallback-${device.name}.png`, fullPage: true })
+      } else {
+        assert((await dialog.getByText('Если в MAX Web нет сообщения', { exact: true }).count()) === 0, 'Telegram login rendered MAX-only guidance')
+      }
       await popup.close()
       await dialog.getByRole('button', { name: 'Попробовать снова', exact: true }).click()
 
@@ -281,6 +308,23 @@ async function run() {
 
       await page.close()
     }
+
+    const popupBlockedPage = await browser.newPage({ viewport: { width: 1280, height: 900 } })
+    popupBlockedPage.setDefaultTimeout(20000)
+    await mockApi(popupBlockedPage, { authenticated: false })
+    await popupBlockedPage.goto(`${base}/profile?blocked_popup_auth=${Date.now()}`, { waitUntil: 'networkidle' })
+    const blockedDialog = popupBlockedPage.getByRole('dialog')
+    await blockedDialog.waitFor()
+    await popupBlockedPage.evaluate(() => {
+      window.open = () => null
+    })
+    const urlBeforeBlockedPopup = new URL(popupBlockedPage.url())
+    await blockedDialog.getByRole('button', { name: 'Войти через MAX', exact: true }).click()
+    await blockedDialog.getByText('Если в MAX Web нет сообщения', { exact: true }).waitFor()
+    const urlAfterBlockedPopup = new URL(popupBlockedPage.url())
+    assert(urlAfterBlockedPopup.origin === urlBeforeBlockedPopup.origin && urlAfterBlockedPopup.pathname === '/', 'Popup-blocked MAX login navigated the site away')
+    assert(await blockedDialog.getByRole('link', { name: 'Открыть MAX-бота', exact: true }).isVisible(), 'Popup-blocked MAX login lost the manual open link')
+    await popupBlockedPage.close()
 
     console.log('Profile and auth desktop/mobile e2e passed.')
   } finally {

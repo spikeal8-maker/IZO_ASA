@@ -42,6 +42,7 @@ logs/
 
 # Generated test and visual artifacts
 frontend/*.png
+frontend/artifacts/
 frontend/full-ui-transcript.txt
 frontend/visual-out/
 frontend/real-generation-results/

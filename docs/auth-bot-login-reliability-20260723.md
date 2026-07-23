@@ -99,3 +99,27 @@ Closure requirements:
   buttons recover without a page reload;
 - after deployment, verify the exact release in desktop, Telegram Web and MAX
   Web contexts and retain only redacted evidence.
+
+## MAX Web fallback follow-up: `AUTH-MAX-WEB-P0-20260723`
+
+Real-provider acceptance showed that MAX mobile deep links deliver the
+`bot_started` payload, while MAX Web can update the chat late enough that a
+desktop user reasonably assumes the button did nothing. The official MAX
+[deep-link compatibility note](https://dev.max.ru/help/deeplinks) lists iOS
+and Android support; the documented bot format remains
+`https://max.ru/<botName>?start=<payload>`.
+
+The browser login phase therefore keeps the normal deep link as the primary
+path and adds a desktop fallback:
+
+- show a read-only `/start login_<one-time-payload>` command only for MAX;
+- copy it with one explicit user click and tell the user to paste/send it in
+  the already-open bot chat;
+- keep polling the same HttpOnly-bound challenge, so both the deep link and
+  the fallback approve one identical login attempt;
+- if the provider popup is blocked, keep the site and polling page open instead
+  of navigating the current tab away;
+- never log, persist or include the one-time payload in diagnostics.
+
+Acceptance requires the normal MAX deep link and the copied-command fallback
+to both complete a real login, with Telegram unchanged.
