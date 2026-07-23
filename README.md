@@ -60,6 +60,24 @@ the current working rules should be read from the files listed above first.
 
 ## Run
 
+For an isolated local development stack on Windows, use:
+
+```powershell
+.\start-project-test.bat
+```
+
+This launcher uses the project virtual environment, refuses occupied ports,
+stores its SQLite database and media under `.runtime/local-test`, isolates the
+DPAPI secret directory, disables real bot/provider delivery, and enables only
+development fakes. Stop it without deleting test data with:
+
+```powershell
+.\stop-project-test.bat
+```
+
+The lower-level commands below are useful for manual development, but callers
+must provide isolated `DATABASE_URL`, `MEDIA_DIR`, and `IZO_SECRET_DIR` values.
+
 ```powershell
 cd backend
 python -m venv .venv

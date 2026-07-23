@@ -22,12 +22,19 @@ def test_all_repository_uvicorn_launchers_disable_implicit_proxy_rewrite() -> No
         line for line in public_source.splitlines() if "uvicorn" in line and "main:app" in line
     ]
 
-    direct_source = (ROOT / "start-project-test.bat").read_text(encoding="utf-8")
+    direct_source = (ROOT / "tools" / "start-local-test-stack.ps1").read_text(
+        encoding="utf-8"
+    )
     direct_commands = [
         line for line in direct_source.splitlines() if "uvicorn" in line and "main:app" in line
     ]
     assert direct_commands
-    assert all("--no-proxy-headers" in line for line in direct_commands)
+    start_block = direct_source[
+        direct_source.index("$backendProcess = Start-Process") :
+        direct_source.index("$health = Wait-HttpJson")
+    ]
+    assert "--no-proxy-headers" in start_block
+    assert "--proxy-headers" not in start_block.replace("--no-proxy-headers", "")
 
     restart_source = (ROOT / "tools" / "restart-backend.ps1").read_text(encoding="utf-8")
     assert '"--no-proxy-headers")' in restart_source
