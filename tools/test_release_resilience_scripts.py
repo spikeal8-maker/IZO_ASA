@@ -89,6 +89,46 @@ def test_publisher_receipt_hash_runs_under_windows_powershell() -> None:
     assert result.stdout.strip() == expected
 
 
+def test_project_promoter_keeps_backend_online_during_rollback_snapshot() -> None:
+    script_path = ROOT / "ops" / "release" / "promote-project-release.ps1"
+    script = script_path.read_text(encoding="utf-8")
+
+    online_backup = '& "$newRelease\\backend\\.venv\\Scripts\\python.exe" $hotBackupTool'
+    backend_stop = "& $backendExe stop"
+    assert online_backup in script
+    assert script.index(online_backup) < script.index(backend_stop)
+    assert "tools\\sqlite_hot_backup.py" in script
+    assert "Copy-Item -LiteralPath $database -Destination" not in script
+    assert "Copy-Item -LiteralPath $databaseRollback -Destination $database" not in script
+    assert "Start-Service -Name $serviceName" in script
+    assert "Global\\IZO_ASA_ProjectReleasePromotion" in script
+
+    environment = os.environ.copy()
+    environment["IZO_TEST_PROMOTER"] = str(script_path)
+    parse = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            (
+                "$tokens=$null;$errors=$null;"
+                "[void][System.Management.Automation.Language.Parser]::ParseFile("
+                "$env:IZO_TEST_PROMOTER,[ref]$tokens,[ref]$errors);"
+                "if($errors.Count){$errors | ForEach-Object {$_.Message}; exit 1}"
+            ),
+        ],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+    assert parse.returncode == 0, parse.stdout + parse.stderr
+
+
 def test_break_glass_is_separate_reason_gated_and_audited() -> None:
     script_path = ROOT / "tools" / "publish-frontend-release-break-glass.ps1"
     script = script_path.read_text(encoding="utf-8")

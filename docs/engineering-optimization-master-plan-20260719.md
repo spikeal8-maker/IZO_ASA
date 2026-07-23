@@ -41,6 +41,14 @@ Follow-up reliability closure 2026-07-23: подтверждены незави�
 rollback boundary и production acceptance вынесены в
 [auth-bot-login-reliability-20260723.md](auth-bot-login-reliability-20260723.md).
 
+Availability follow-up `AUTH-OUTAGE-P0-20260723`: a release rollback snapshot
+held the backend offline for about 3.5 minutes and exposed `502` responses to
+the login capability probe. The corrective package moves the database snapshot
+to the SQLite online Backup API and makes the login modal recover automatically
+from a transient capability-probe failure. Evidence and acceptance criteria are
+recorded in
+[auth-bot-login-reliability-20260723.md](auth-bot-login-reliability-20260723.md).
+
 ## 0. Ответ: готов ли этот план к реализации
 
 Да. План разбит на ограниченные пакеты с порядком, областью изменения,
