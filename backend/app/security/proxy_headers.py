@@ -57,6 +57,9 @@ def resolve_client_ip(
             return cloudflare_ip
 
     if trust_forwarded:
+        real_ip = _valid_ip(request.headers.get("x-real-ip"))
+        if real_ip:
+            return real_ip
         forwarded = request.headers.get("x-forwarded-for")
         forwarded_ip = _valid_ip(forwarded.split(",", 1)[0] if forwarded else None)
         if forwarded_ip:

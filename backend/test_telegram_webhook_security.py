@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -78,6 +79,8 @@ def test_replay_guard_is_bounded_and_ignores_missing_ids():
     assert guard.claim(10) is False
     assert guard.claim(11) is True
     assert guard.claim(12) is True
+    assert guard.claim(10) is True
+    guard.release(10)
     assert guard.claim(10) is True
     assert len(guard) == 2
 
@@ -197,3 +200,69 @@ def test_valid_update_is_handled_once_and_replay_is_acknowledged(monkeypatch):
     assert replay.status_code == 200
     assert replay.json() == {"ok": True, "duplicate": True}
     assert calls == [(payload, True)]
+
+
+def test_failed_update_is_released_for_provider_retry(monkeypatch):
+    calls: list[dict] = []
+
+    async def flaky_handler(payload, send_replies):
+        calls.append(payload)
+        if len(calls) == 1:
+            raise RuntimeError("temporary provider failure")
+
+    monkeypatch.setattr(main, "handle_telegram_update", flaky_handler)
+    client = TestClient(main.app)
+    payload = {"update_id": 778, "message": {"text": "/start", "chat": {"id": 42}}}
+    headers = {SECRET_HEADER: TEST_SECRET}
+
+    failed = client.post("/api/telegram/webhook", json=payload, headers=headers)
+    retried = client.post("/api/telegram/webhook", json=payload, headers=headers)
+    duplicate = client.post("/api/telegram/webhook", json=payload, headers=headers)
+
+    assert failed.status_code == 503
+    assert retried.status_code == 200
+    assert duplicate.json() == {"ok": True, "duplicate": True}
+    assert calls == [payload, payload]
+
+
+def test_provider_retry_after_post_approval_send_failure_is_idempotent(tmp_path, monkeypatch):
+    send_attempts = 0
+    monkeypatch.setattr(main, "DB_PATH", tmp_path / "telegram-retry.sqlite3")
+    monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
+    monkeypatch.setattr(main, "APP_ENV", "development")
+    monkeypatch.setattr(main, "TELEGRAM_BOT_USERNAME", "OneNodeTestBot")
+    main.init_db()
+
+    async def flaky_telegram_api(method, payload=None):
+        nonlocal send_attempts
+        if method == "sendMessage":
+            send_attempts += 1
+            if send_attempts == 1:
+                raise RuntimeError("temporary send failure")
+        return {"ok": True, "result": {}}
+
+    monkeypatch.setattr(main, "telegram_api", flaky_telegram_api)
+    client = TestClient(main.app)
+    started = client.post("/api/auth/bot-login/start", json={"provider": "telegram"}).json()
+    payload_value = parse_qs(urlparse(started["deep_link"]).query)["start"][0]
+    update = {
+        "update_id": 779,
+        "callback_query": {
+            "id": "retry-callback",
+            "data": f"approve:{payload_value}",
+            "from": {"id": 909, "username": "retry_user", "first_name": "Retry"},
+            "message": {"chat": {"id": 909}},
+        },
+    }
+    headers = {SECRET_HEADER: TEST_SECRET}
+    provider_client = TestClient(main.app)
+
+    assert provider_client.post("/api/telegram/webhook", json=update, headers=headers).status_code == 503
+    assert provider_client.post("/api/telegram/webhook", json=update, headers=headers).status_code == 200
+    assert send_attempts == 2
+    assert client.get("/api/auth/bot-login/status").json()["status"] == "authenticated"
+    with main.db() as conn:
+        attempts = conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_login_attempts WHERE provider = 'telegram' AND identifier = '909' AND success = 1"
+        ).fetchone()["c"]
+    assert attempts == 1

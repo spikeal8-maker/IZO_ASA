@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -183,3 +184,68 @@ def test_valid_max_update_is_handled_without_logging_secret(monkeypatch, capsys)
     assert calls == [(payload, True)]
     assert TEST_SECRET not in capsys.readouterr().out
     assert main.BOT_RUNTIME.max_polling_diag["lastWebhookAt"] is not None
+
+
+def test_failed_max_update_returns_retryable_status_then_recovers(monkeypatch):
+    calls = 0
+
+    async def flaky_handler(payload, send_replies):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("temporary provider failure")
+
+    monkeypatch.setattr(main, "handle_max_update", flaky_handler)
+    client = TestClient(main.app)
+    payload = {"message": {"body": {"text": "/start"}, "sender": {"user_id": "u1"}}}
+    headers = {SECRET_HEADER: TEST_SECRET}
+
+    failed = client.post("/api/max/webhook", json=payload, headers=headers)
+    assert failed.status_code == 503
+    assert main.BOT_RUNTIME.max_polling_diag["lastWebhookError"] == "RuntimeError"
+
+    retried = client.post("/api/max/webhook", json=payload, headers=headers)
+    assert retried.status_code == 200
+    assert calls == 2
+    assert main.BOT_RUNTIME.max_polling_diag["lastWebhookError"] is None
+
+
+def test_max_provider_retry_after_post_approval_send_failure_is_idempotent(tmp_path, monkeypatch):
+    send_attempts = 0
+    monkeypatch.setattr(main, "DB_PATH", tmp_path / "max-retry.sqlite3")
+    monkeypatch.setattr(main, "TRUSTED_COOKIE_SECURE", False)
+    monkeypatch.setattr(main, "APP_ENV", "development")
+    monkeypatch.setattr(main, "MAX_BOT_DEEP_LINK_BASE", "https://max.ru/onenode-test")
+    main.init_db()
+
+    async def flaky_max_api(method, path, payload=None, params=None):
+        nonlocal send_attempts
+        if method == "POST" and path == "/messages":
+            send_attempts += 1
+            if send_attempts == 1:
+                raise RuntimeError("temporary send failure")
+        return {"ok": True}
+
+    monkeypatch.setattr(main, "max_api", flaky_max_api)
+    client = TestClient(main.app)
+    started = client.post("/api/auth/bot-login/start", json={"provider": "max"}).json()
+    payload_value = parse_qs(urlparse(started["deep_link"]).query)["start"][0]
+    update = {
+        "message_callback": {
+            "payload": f"approve:{payload_value}",
+            "user": {"user_id": "mx-retry", "username": "mx_retry"},
+            "message": {"recipient": {"user_id": "mx-retry"}},
+        },
+    }
+    headers = {SECRET_HEADER: TEST_SECRET}
+    provider_client = TestClient(main.app)
+
+    assert provider_client.post("/api/max/webhook", json=update, headers=headers).status_code == 503
+    assert provider_client.post("/api/max/webhook", json=update, headers=headers).status_code == 200
+    assert send_attempts == 2
+    assert client.get("/api/auth/bot-login/status").json()["status"] == "authenticated"
+    with main.db() as conn:
+        attempts = conn.execute(
+            "SELECT COUNT(*) AS c FROM auth_login_attempts WHERE provider = 'max' AND identifier = 'mx-retry' AND success = 1"
+        ).fetchone()["c"]
+    assert attempts == 1

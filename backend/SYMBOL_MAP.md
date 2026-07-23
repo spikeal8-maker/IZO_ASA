@@ -238,7 +238,7 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | POST | `/api/max/poll-once` | `max_poll_once` | 231 | admin |
 | POST | `/api/max/set-webhook` | `max_set_webhook` | 238 | admin |
 | POST | `/api/telegram/webhook` | `telegram_webhook` | 248 | webhook: telegram secret required |
-| POST | `/api/max/webhook` | `max_webhook` | 282 | webhook: MAX secret conditional |
+| POST | `/api/max/webhook` | `max_webhook` | 284 | webhook: MAX secret conditional |
 
 ## Classes
 

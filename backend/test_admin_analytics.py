@@ -114,6 +114,8 @@ def test_get_client_ip_trust(temp_db, monkeypatch):
     monkeypatch.setattr(main, "TRUST_CLOUDFLARE_HEADERS", False)
     monkeypatch.setattr(main, "TRUST_PROXY_HEADERS", True)
     assert main.get_client_ip(Req({"x-forwarded-for": "9.9.9.9, 10.0.0.1"}, host="127.0.0.1")) == "9.9.9.9"
+    assert main.get_client_ip(Req({"x-real-ip": "7.7.7.7", "x-forwarded-for": "9.9.9.9, 10.0.0.1"}, host="127.0.0.1")) == "7.7.7.7"
+    assert main.get_client_ip(Req({"x-real-ip": "7.7.7.7"}, host="1.2.3.4")) == "1.2.3.4"
 
 
 # 10, 11

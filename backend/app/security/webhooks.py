@@ -38,6 +38,12 @@ class WebhookReplayGuard:
             self._seen.popitem(last=False)
         return True
 
+    def release(self, update_id: Any) -> None:
+        """Allow a provider retry after a handler failed before acknowledgement."""
+        if isinstance(update_id, bool) or not isinstance(update_id, int):
+            return
+        self._seen.pop(update_id, None)
+
     def clear(self) -> None:
         self._seen.clear()
 

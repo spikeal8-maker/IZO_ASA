@@ -159,11 +159,11 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
 
 try:
-    from .app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
+    from .app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, bot_login_approval_retry_result, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
     from .app.security.http_requests import AvatarImageError, compress_allowlisted_avatar
     from .app.security.http_middleware import install_http_security_middleware
 except ImportError:  # Direct `python backend/main.py` execution.
-    from app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
+    from app.security.bot_login import BotLoginAccessError, BotLoginRateLimits, BotLoginRuntime, bot_login_approval_retry_result, create_bot_login_challenge as security_create_bot_login_challenge, pending_bot_login_challenges_count
     from app.security.http_requests import AvatarImageError, compress_allowlisted_avatar
     from app.security.http_middleware import install_http_security_middleware
 
@@ -2483,17 +2483,17 @@ def approve_bot_login_challenge(
     token: str,
     provider_user: dict[str, Any],
 ) -> bool:
-    provider_user_id = str(provider_user.get("id") or "")
-    if not provider_user_id:
+    if not (provider_user_id := str(provider_user.get("id") or "")):
         return False
     now = datetime.now(timezone.utc).isoformat()
     with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT * FROM auth_login_challenges WHERE provider = ? AND token_hash = ?",
             (provider, hash_token(token)),
         ).fetchone()
-        if not row or row["status"] != "pending" or row["expires_at"] <= now:
-            return False
+        if (retry_result := bot_login_approval_retry_result(row, provider_user_id=provider_user_id, now=now)) is not None:
+            return retry_result
         target_internal_user_id = _row_get(row, "internal_user_id")
         if target_internal_user_id:
             linked = link_verified_provider_identity(conn, target_internal_user_id, provider, provider_user, now)
@@ -5074,13 +5074,13 @@ def create_bot_login_challenge(
     *,
     internal_user_id: str | None = None,
 ) -> tuple[str, str, str]:
-    token = generate_bot_login_token()
-    nonce = generate_bot_login_token()
+    token, nonce = generate_bot_login_token(), generate_bot_login_token()
     try:
         expires_at = security_create_bot_login_challenge(
             _bot_login_runtime(), _bot_login_limits(), provider, request,
             token=token, nonce=nonce, ttl_seconds=BOT_LOGIN_CHALLENGE_TTL_SECONDS,
             internal_user_id=internal_user_id,
+            previous_browser_challenge=parse_bot_login_cookie(request),
         )
     except BotLoginAccessError as exc:
         raise HTTPException(429, "Too many bot login requests. Try again later.", headers={"Retry-After": str(exc.retry_after)}) from exc

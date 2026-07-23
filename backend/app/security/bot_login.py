@@ -35,6 +35,23 @@ class BotLoginAccessError(RuntimeError):
         self.retry_after = retry_after
 
 
+def bot_login_approval_retry_result(
+    row: Any | None,
+    *,
+    provider_user_id: str,
+    now: str,
+) -> bool | None:
+    """Return a retry result, or None when a pending challenge needs handling."""
+    if not row or row["expires_at"] <= now:
+        return False
+    status = row["status"]
+    if status == "pending":
+        return None
+    if status in {"approved", "consumed"}:
+        return str(row["provider_user_id"] or "") == provider_user_id
+    return False
+
+
 def cleanup_bot_login_challenges(
     conn: sqlite3.Connection,
     *,
@@ -80,6 +97,7 @@ def create_bot_login_challenge(
     nonce: str,
     ttl_seconds: int,
     internal_user_id: str | None = None,
+    previous_browser_challenge: tuple[str, str] | None = None,
 ) -> str:
     now_dt = datetime.now(timezone.utc)
     now = now_dt.isoformat()
@@ -90,6 +108,12 @@ def create_bot_login_challenge(
     with runtime.connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
         cleanup_bot_login_challenges(conn, now=now, retention_seconds=limits.retention_seconds)
+        if previous_browser_challenge and previous_browser_challenge[0] == provider:
+            conn.execute(
+                "UPDATE auth_login_challenges SET status = 'expired' "
+                "WHERE provider = ? AND browser_nonce_hash = ? AND status = 'pending'",
+                (provider, runtime.hash_token(previous_browser_challenge[1])),
+            )
         recent_count = conn.execute(
             "SELECT COUNT(*) AS c FROM auth_login_challenges WHERE created_ip IS ? AND created_at >= ?",
             (ip_address, window_start),

@@ -35,6 +35,12 @@ listener owners 5173/8000/8188/11434 подтверждены через WinSW a
 service XML. Статусы `DEPLOYED`, `VERIFIED` и `OPERATIONALLY VERIFIED` ставятся
 только после установки точного SHA и внешних desktop/mobile/provider проверок.
 
+Follow-up reliability closure 2026-07-23: подтверждены независимые причины
+`429` за FRP, накопление/перезапись challenge, потеря provider retry после
+ошибки handler и блокировка popup после `await`. Реализация, redacted evidence,
+rollback boundary и production acceptance вынесены в
+[auth-bot-login-reliability-20260723.md](auth-bot-login-reliability-20260723.md).
+
 ## 0. Ответ: готов ли этот план к реализации
 
 Да. План разбит на ограниченные пакеты с порядком, областью изменения,
