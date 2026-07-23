@@ -1542,6 +1542,11 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-notification.read { opacity: .66; }
 .admin-social-warning, .admin-social-note { padding: 12px 14px; border: 1px solid #79651f; border-radius: 12px; background: #241f0e; color: #ead77b; }
 .admin-social-grid article { display: grid; gap: 8px; padding: 16px; border: 1px solid #303830; border-radius: 14px; background: #101510; }
+.admin-social-grid article.verified { border-color: #789800; box-shadow: inset 0 0 0 1px #78980044; }
+.admin-social-title { display: flex; align-items: center; gap: 8px; }
+.admin-social-title span { margin-left: auto; color: #a9c43b; font-size: 12px; }
+.admin-social-grid article > label:not(:has(input[type="checkbox"])) { display: grid; gap: 5px; color: #aeb6ae; }
+.admin-social-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .admin-social-grid small { color: #858d85; }
 .admin-social-grid label { display: flex; align-items: center; gap: 8px; }
 .admin-section > h3, .admin-two-col h3 { margin: 0; color: var(--acid); }

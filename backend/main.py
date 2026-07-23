@@ -535,8 +535,10 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.services.admin_notifications import enqueue_configured_social_deliveries
+    from .app.integrations.social_providers import probe_social_provider
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.admin_notifications import enqueue_configured_social_deliveries
+    from app.integrations.social_providers import probe_social_provider
 
 try:
     from .app.database.demo_feed import restore_demo_feed_bundle
@@ -16753,6 +16755,11 @@ app.include_router(create_admin_operations_router(AdminOperationsDependencies(
     schedule_openrouter_catalog_refresh=schedule_openrouter_catalog_refresh,
     openrouter_economy_settings=openrouter_economy_settings,
     openrouter_price_catalog=lambda: OPENROUTER_PRICE_CATALOG,
+    secret_exists=OPENROUTER_SECRET_STORE.exists,
+    secret_get=OPENROUTER_SECRET_STORE.get,
+    secret_set=_save_bot_secret,
+    secret_delete=OPENROUTER_SECRET_STORE.delete,
+    probe_social=probe_social_provider,
 )))
 
 
@@ -18176,12 +18183,11 @@ def _prepare_feed_video_publication(publication_id: str) -> None:
                     json.dumps(snapshot, ensure_ascii=False), now, publication_id,
                 ),
             )
+            if updated.rowcount == 1:
+                enqueue_configured_social_deliveries(conn, publication_id)
         if updated.rowcount != 1:
             for media_name in {assets.poster_name, assets.preview_name, assets.full_name}:
                 _delete_media_rel(media_name)
-        else:
-            with db() as conn:
-                enqueue_configured_social_deliveries(conn, publication_id)
     except Exception as exc:
         if assets is not None:
             for media_name in {assets.poster_name, assets.preview_name, assets.full_name}:
