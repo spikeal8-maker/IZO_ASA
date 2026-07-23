@@ -51,15 +51,16 @@ def test_repository_inventory_is_valid_deterministic_and_semantically_complete()
     assert {item["process_role"] for item in first["routes"]["items"]} == {
         "all-dev-current-monolith"
     }
-    assert first["tasks"]["worker_count"] == 3
+    assert first["tasks"]["worker_count"] == 4
     assert first["tasks"]["ephemeral_count"] == 4
     assert {item["id"] for item in first["tasks"]["items"]} == {
         "generation-consumer",
         "bot-polling",
         "feed-video-publication",
-        "avatar-cache",
-        "openrouter-catalog-refresh",
-        "gallery-storage-optimization",
+            "avatar-cache",
+            "openrouter-catalog-refresh",
+            "openrouter-catalog-daily",
+            "gallery-storage-optimization",
         "runtime-alert",
     }
     table_names = {item["name"] for item in first["schema"]["tables"]}

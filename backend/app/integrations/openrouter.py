@@ -84,12 +84,23 @@ def normalize_openrouter_endpoint_capability(
         **model,
         "supported_parameters": endpoint.get("supported_parameters") or {},
     })
+    raw_pricing = endpoint.get("pricing") if isinstance(endpoint.get("pricing"), dict) else {}
+    pricing: dict[str, float | str] = {}
+    for key, value in raw_pricing.items():
+        if isinstance(value, bool):
+            continue
+        try:
+            amount = float(value)
+        except (TypeError, ValueError):
+            continue
+        if amount >= 0:
+            pricing[str(key)] = value
     capability.update({
         "endpointVerified": True,
         "providerName": str(endpoint.get("provider_name") or ""),
         "providerSlug": str(endpoint.get("provider_slug") or ""),
         "providerTag": str(endpoint.get("provider_tag") or ""),
-        "pricing": endpoint.get("pricing") if isinstance(endpoint.get("pricing"), list) else [],
+        "pricing": pricing if pricing else [],
         "allowedPassthroughParameters": endpoint.get("allowed_passthrough_parameters") if isinstance(endpoint.get("allowed_passthrough_parameters"), list) else [],
     })
     return capability

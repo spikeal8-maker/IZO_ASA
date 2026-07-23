@@ -169,6 +169,14 @@ type PageData = {
       modelCount?: number
       videoModelCount?: number
       cacheAgeSeconds?: number | null
+      lifecycle?: {
+        refreshedAt?: string | null
+        refreshIntervalSeconds?: number
+        changes?: {
+          images?: { added?: string[]; removed?: string[]; priceChanged?: string[]; unpriced?: string[] }
+          videos?: { added?: string[]; removed?: string[]; priceChanged?: string[]; unpriced?: string[] }
+        }
+      } | null
     }
     videoCatalog?: OpenRouterVideoModel[]
     videoConfig?: OpenRouterVideoConfig
@@ -703,6 +711,11 @@ const CSS = `
 .amv2 .page-tabs{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto}
 .amv2 .page-tabs button{min-height:38px;border:1px solid var(--line-strong);border-radius:var(--radius);padding:0 14px;background:rgba(255,255,255,.04);color:var(--muted);font-weight:650;white-space:nowrap}
 .amv2 .page-tabs button.active{background:var(--lime);border-color:var(--lime);color:#080a07}
+.amv2 .openrouter-page-title{display:flex;align-items:center;min-height:38px;font-size:16px}
+.amv2 .catalog-overview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:10px 0 12px}
+.amv2 .catalog-overview>div{display:grid;grid-template-columns:1fr auto;gap:5px 12px;padding:12px;border:1px solid var(--line);border-radius:var(--radius);background:rgba(255,255,255,.025)}
+.amv2 .catalog-overview strong{font-size:14px}.amv2 .catalog-overview span,.amv2 .catalog-overview small{color:var(--muted)}
+.amv2 .catalog-overview small{grid-column:1/-1}.amv2 .catalog-overview .warn{color:var(--yellow)}
 .amv2 .tab-status{margin-left:auto;display:flex;align-items:center;gap:8px;white-space:nowrap}
 .amv2 .status-dot{width:9px;height:9px;border-radius:50%;background:var(--red);box-shadow:0 0 0 3px rgba(255,116,121,.12)}
 .amv2 .status-dot.ok{background:var(--green);box-shadow:0 0 0 3px rgba(112,221,120,.12)}
@@ -902,13 +915,14 @@ const CSS = `
 .amv2 .mobile-model{border:1px solid var(--line);border-radius:var(--radius);padding:12px;background:rgba(255,255,255,.035);display:grid;gap:10px}
 @media (max-width:1360px){.amv2 .dashboard,.amv2 .server-layout{grid-template-columns:1fr}.amv2 .metric-grid,.amv2 .lora-grid,.amv2 .status-grid,.amv2 .mode-board{grid-template-columns:repeat(2,minmax(0,1fr))}.amv2 .api-section-head{grid-template-columns:minmax(220px,1.4fr) repeat(3,minmax(100px,.8fr)) minmax(150px,1fr)}.amv2 .grid-main{grid-template-columns:1fr}.amv2 .side-panel{position:static}}
 @media (max-width:880px){.amv2 .route-row,.amv2 .toolbar,.amv2 .ops-row,.amv2 .job-row,.amv2 .api-key-panel,.amv2 .or-stats,.amv2 .api-section-head,.amv2 .assistant-config{grid-template-columns:1fr}.amv2 .server-command{align-items:stretch;flex-wrap:wrap}.amv2 .server-command .server-title{width:100%}.amv2 .profile-switch{flex:1}.amv2 .lora-columns,.amv2 .config-profiles{grid-template-columns:1fr}.amv2 .lora-row{grid-template-columns:28px 1fr 80px}.amv2 .lora-row>div:nth-child(3),.amv2 .lora-row>div:nth-child(4){grid-column:2 / -1}.amv2 .tab-status{margin-left:0;width:100%;flex-wrap:wrap}.amv2 .page-tabs{flex-wrap:wrap}.amv2 .matrix-wrap{overflow-x:auto}.amv2 .matrix-wrap table{min-width:980px}.amv2 .matrix-wrap .api-table{min-width:760px}.amv2 .matrix-wrap .api-table.format-table{min-width:1500px}.amv2 .mobile-models{display:grid}}
+@media (max-width:880px){.amv2 .catalog-overview{grid-template-columns:1fr}}
 @media (max-width:580px){.amv2 .metric-grid,.amv2 .two-col,.amv2 .price-row,.amv2 .lora-grid,.amv2 .advanced-grid,.amv2 .status-grid,.amv2 .mode-board,.amv2 .or-stats,.amv2 .server-overview,.amv2 .assistant-summary{grid-template-columns:1fr}.amv2 .profile-switch{width:100%}.amv2 .server-restart{width:100%}}
 @media (max-width:880px){.amv2 .video-catalog-card{width:calc(100vw - 40px);max-width:calc(100vw - 40px)}.amv2 .video-mode-finance-head{grid-template-columns:1fr 1fr}.amv2 .video-mode-finance-head>div:first-child,.amv2 .video-mode-count{grid-column:1 / -1}.amv2 .video-catalog-head{align-items:flex-start;flex-direction:column}.amv2 .video-catalog-meta{width:100%;justify-content:flex-start}.amv2 .video-model-detail{overflow-wrap:anywhere}.amv2 .video-economy-note{display:grid;gap:5px}}
 `
 
-export default function AdminModelsV2() {
+export default function AdminModelsV2({ openrouterOnly = false }: { openrouterOnly?: boolean }) {
   const [data, setData] = useState<PageData | null>(null)
-  const [pageTab, setPageTab] = useState<'config' | 'api' | 'voice' | 'improve'>('api')
+  const [pageTab, setPageTab] = useState<'config' | 'api' | 'voice' | 'improve'>(openrouterOnly ? 'api' : 'config')
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
   const [routes, setRoutes] = useState<Route[]>([])
   const [query, setQuery] = useState('')
@@ -1459,10 +1473,13 @@ export default function AdminModelsV2() {
     <style>{CSS}</style>
     {msg && <p style={{ color: 'var(--lime)', fontSize: 12, margin: '0 0 8px' }}>{msg}</p>}
     <div className="page-tabs" aria-label="Разделы моделей">
-      <button className={pageTab === 'api' ? 'active' : ''} onClick={() => setPageTab('api')}>OpenRouter</button>
-      <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Config UI</button>
-      <button className={pageTab === 'voice' ? 'active' : ''} onClick={() => setPageTab('voice')}>Голосовой ввод</button>
-      <button className={pageTab === 'improve' ? 'active' : ''} onClick={() => setPageTab('improve')}>Улучшение промпта</button>
+      {openrouterOnly
+        ? <strong className="openrouter-page-title">OpenRouter · изображения и видео</strong>
+        : <>
+          <button className={pageTab === 'config' ? 'active' : ''} onClick={() => setPageTab('config')}>Config UI</button>
+          <button className={pageTab === 'voice' ? 'active' : ''} onClick={() => setPageTab('voice')}>Голосовой ввод</button>
+          <button className={pageTab === 'improve' ? 'active' : ''} onClick={() => setPageTab('improve')}>Улучшение промпта</button>
+        </>}
       {pageTab === 'api' && <div className="tab-status">
         <span className={`status-dot ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : ''}`} aria-hidden="true" />
         <span className={`state ${orStatus.ok ? 'ok' : data.openrouter.keyConfigured ? 'warn' : 'bad'}`}>{orStatus.ok ? 'ключ работает' : data.openrouter.keyConfigured ? 'проверить ключ' : 'нет ключа'}</span>
@@ -1677,7 +1694,27 @@ export default function AdminModelsV2() {
         {' · '}источник {data.openrouter.catalogState?.source || 'резервный каталог'}
         {data.openrouter.catalogState?.lastSuccessAt ? ` · обновлён ${new Date(data.openrouter.catalogState.lastSuccessAt).toLocaleString('ru-RU')}` : ''}
         {typeof data.openrouter.catalogState?.cacheAgeSeconds === 'number' ? ` · возраст ${data.openrouter.catalogState.cacheAgeSeconds} сек.` : ''}
+        {' · '}автопроверка раз в сутки
       </p>
+      <div className="catalog-overview" aria-label="Состояние каталога OpenRouter">
+        {(['images', 'videos'] as const).map((kind) => {
+          const changes = data.openrouter.catalogState?.lifecycle?.changes?.[kind]
+          const count = kind === 'images'
+            ? (data.openrouter.catalogState?.modelCount ?? liveCapabilityCatalog.length)
+            : (data.openrouter.catalogState?.videoModelCount ?? data.openrouter.videoCatalog?.length ?? 0)
+          const unpriced = changes?.unpriced?.length || 0
+          return <div key={kind}>
+            <strong>{kind === 'images' ? 'Изображения' : 'Видео'}</strong>
+            <span>{count} моделей</span>
+            <small>
+              новых: {changes?.added?.length || 0}
+              {' · '}цена изменилась: {changes?.priceChanged?.length || 0}
+              {' · '}удалено: {changes?.removed?.length || 0}
+              {' · '}<b className={unpriced ? 'warn' : ''}>без цены: {unpriced}</b>
+            </small>
+          </div>
+        })}
+      </div>
       {!liveCapabilityCatalog.length ? <p className="hint" style={{ color: 'var(--yellow)' }}>Живой каталог возможностей пока не получен. Модели, цены и управление показаны из проверенного резервного каталога; перезапустите backend для автоматического обновления.</p> : null}
       {data.openrouter.capabilityError ? <p className="hint" style={{ color: 'var(--yellow)' }}>Каталог возможностей OpenRouter не загрузился: {data.openrouter.capabilityError}</p> : null}
 

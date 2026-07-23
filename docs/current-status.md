@@ -99,3 +99,15 @@
   backup contract 17.
 - Backup: health task Last Result 0, `OverallStatus=OK`,
   verify-only + rehearsal restore успешны (2026-07-20).
+
+## Активный пакет 2026-07-24
+
+- `OR-CATALOG-DAILY-001` — `CODE COMPLETE · VERIFIED (CI) · NOT DEPLOYED`, ветка
+  `codex/openrouter-catalog-daily-001`.
+- Scope: суточное обнаружение/переоценка OpenRouter, durable diff,
+  безопасное billing-состояние и отдельная `/admin/openrouter`.
+- Focused backend `115 passed`; single-owner worker `5/5`; общий
+  `VERIFY_OK mode=CI`, `1665 passed`; frontend lint/build и E2E green.
+- Quick runtime gate не является code failure: локальный test-stack держит
+  порт 5173 через Vite, тогда как production-contract ожидает Caddy.
+- Production release не изменён; deploy/restart не выполнялись.
