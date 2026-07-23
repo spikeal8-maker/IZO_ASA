@@ -615,3 +615,22 @@ Acceptance:
 Evidence: focused backend `116 passed`; social outbox idempotency `5/5`;
 `VERIFY_OK mode=CI`, full suite `1668 passed`; frontend lint/build,
 release-identity, origin-isolation и studio-resilience green.
+
+### SOCIAL-ACCESS-001 — безопасная настройка доступов
+
+Статус 2026-07-24: `CODE COMPLETE · VERIFIED (CI) · NOT DEPLOYED`.
+
+- `/admin/social` содержит write-only поля ключей, идентификаторы
+  канала/группы/аккаунта, save/check/delete и статусы configured/verified;
+- access tokens и OK session secret хранятся только в Windows CurrentUser
+  DPAPI вне репозитория; API возвращает только безопасные признаки;
+- Telegram проверяется через `getMe` + `getChat`, VK через read-only lookup
+  группы, Instagram через read-only profile lookup;
+- для OK сохраняются token/application key/session secret/group ID, но
+  operational verification остаётся выключенной до отдельного подписанного
+  OK API adapter;
+- проверки соединения ничего не публикуют и не отправляют пользователям.
+
+Evidence: fake-provider/API `18 passed`; write-only credential lifecycle
+`5/5`; `VERIFY_OK mode=CI`, full suite `1672 passed`; frontend
+lint/build/E2E green.

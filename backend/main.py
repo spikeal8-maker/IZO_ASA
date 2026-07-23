@@ -36,9 +36,9 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, ConfigDict, Field
 
 try:
-    from .app.integrations.openrouter_catalog import DAILY_REFRESH_SECONDS as OPENROUTER_CATALOG_REFRESH_SECONDS, DailyCatalogWorker, build_catalog_lifecycle, catalog_refresh_needed, catalog_snapshot, fallback_image_capabilities, key_status_snapshot, live_image_price_specs, reviewed_image_price_specs
+    from .app.integrations.openrouter_catalog import DAILY_REFRESH_SECONDS as OPENROUTER_CATALOG_REFRESH_SECONDS, DailyCatalogWorker, build_catalog_lifecycle, catalog_refresh_needed, catalog_snapshot, fallback_image_capabilities, key_status_snapshot, live_image_price_specs, normalize_economy_settings, reviewed_image_price_specs
 except ImportError:  # Direct `python backend/main.py` execution.
-    from app.integrations.openrouter_catalog import DAILY_REFRESH_SECONDS as OPENROUTER_CATALOG_REFRESH_SECONDS, DailyCatalogWorker, build_catalog_lifecycle, catalog_refresh_needed, catalog_snapshot, fallback_image_capabilities, key_status_snapshot, live_image_price_specs, reviewed_image_price_specs
+    from app.integrations.openrouter_catalog import DAILY_REFRESH_SECONDS as OPENROUTER_CATALOG_REFRESH_SECONDS, DailyCatalogWorker, build_catalog_lifecycle, catalog_refresh_needed, catalog_snapshot, fallback_image_capabilities, key_status_snapshot, live_image_price_specs, normalize_economy_settings, reviewed_image_price_specs
 
 try:
     from .app.integrations.smtp import SmtpConfig, SmtpError, SmtpMessage, send_smtp_email, verify_smtp_connection
@@ -548,11 +548,13 @@ try:
         enqueue_configured_social_deliveries,
         openrouter_change_notification,
     )
+    from .app.integrations.social_providers import probe_social_provider
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.admin_notifications import (
         enqueue_configured_social_deliveries,
         openrouter_change_notification,
     )
+    from app.integrations.social_providers import probe_social_provider
 
 try:
     from .app.database.demo_feed import restore_demo_feed_bundle
@@ -15269,20 +15271,12 @@ def openrouter_effective_price_catalog() -> dict[str, OpenRouterPriceModel]:
     return catalog
 
 def openrouter_economy_settings() -> dict[str, float]:
-    raw = _saved_setting("openrouter_economy")
-    try:
-        min_margin = float(raw.get("minMarginPercent", OPENROUTER_DEFAULT_MIN_MARGIN_PERCENT))
-    except (TypeError, ValueError):
-        min_margin = OPENROUTER_DEFAULT_MIN_MARGIN_PERCENT
-    try:
-        token_rub = float(raw.get("tokenRub", OPENROUTER_DEFAULT_TOKEN_RUB))
-    except (TypeError, ValueError):
-        token_rub = OPENROUTER_DEFAULT_TOKEN_RUB
-    return {
-        "minMarginPercent": max(0.0, min(95.0, min_margin)),
-        "tokenRub": max(0.01, min(100000.0, token_rub)),
-        "usdFeePercent": OPENROUTER_USD_FEE_RATE * 100,
-    }
+    return normalize_economy_settings(
+        _saved_setting("openrouter_economy"),
+        default_margin_percent=OPENROUTER_DEFAULT_MIN_MARGIN_PERCENT,
+        default_token_rub=OPENROUTER_DEFAULT_TOKEN_RUB,
+        usd_fee_rate=OPENROUTER_USD_FEE_RATE,
+    )
 
 
 def openrouter_requested_megapixels(req: GenerateRequest) -> float:
@@ -16717,6 +16711,11 @@ app.include_router(create_admin_operations_router(AdminOperationsDependencies(
     saved_setting=_saved_setting,
     save_setting=_save_setting,
     record_audit=record_audit_log,
+    secret_exists=OPENROUTER_SECRET_STORE.exists,
+    secret_get=OPENROUTER_SECRET_STORE.get,
+    secret_set=_save_bot_secret,
+    secret_delete=OPENROUTER_SECRET_STORE.delete,
+    probe_social=probe_social_provider,
 )))
 
 

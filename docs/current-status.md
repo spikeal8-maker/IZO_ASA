@@ -125,3 +125,14 @@
 - Evidence: backend focused `116 passed`, migration/database focused
   `29 passed`, social outbox idempotency `5/5`, `VERIFY_OK mode=CI`,
   `1668 passed`; frontend lint/build/E2E green.
+
+## Настройка доступов соцсетей
+
+- `SOCIAL-ACCESS-001` — `CODE COMPLETE · VERIFIED (CI) · NOT DEPLOYED`.
+- В `/admin/social` добавлены ключи, получатели, сохранение в DPAPI,
+  проверка и удаление для Telegram/VK/Instagram/OK.
+- Секреты write-only: backend не возвращает их frontend.
+- Telegram/VK/Instagram имеют read-only connection probe. OK credentials
+  сохраняются, но signed OK API verification ещё не operational.
+- Evidence: fake-provider/API `18 passed`, credential lifecycle `5/5`,
+  `VERIFY_OK mode=CI`, `1672 passed`; frontend lint/build/E2E green.
