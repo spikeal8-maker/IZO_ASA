@@ -43,6 +43,70 @@ def test_choose_model_prefers_installed_flux_klein_9b_fp8() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("profile_id", "expected_model", "expected_encoder"),
+    [
+        (
+            "flux_klein_4b",
+            "flux-2-klein-4b-fp8.safetensors",
+            "qwen_3_4b.safetensors",
+        ),
+        (
+            "flux_klein_9b",
+            "flux-2-klein-9b-fp8.safetensors",
+            "qwen_3_8b_fp8mixed.safetensors",
+        ),
+    ],
+)
+def test_choose_model_obeys_explicit_admin_klein_profile(
+    profile_id: str,
+    expected_model: str,
+    expected_encoder: str,
+) -> None:
+    selected = main.choose_model(
+        {
+            "diffusion_models": [
+                "flux-2-klein-4b-fp8.safetensors",
+                "flux-2-klein-9b-fp8.safetensors",
+            ],
+            "text_encoders": [
+                "qwen_3_4b.safetensors",
+                "qwen_3_8b_fp8mixed.safetensors",
+            ],
+            "vaes": ["flux2-vae.safetensors"],
+        },
+        profile_id,
+    )
+
+    assert selected == (expected_model, expected_encoder, "flux2-vae.safetensors")
+
+
+def test_choose_model_keeps_4b_switch_when_profile_database_is_unavailable(monkeypatch) -> None:
+    def unavailable_db():
+        raise RuntimeError("profile catalog unavailable")
+
+    monkeypatch.setattr(main, "db", unavailable_db)
+    selected = main.choose_model(
+        {
+            "diffusion_models": [
+                "flux-2-klein-4b-fp8.safetensors",
+                "flux-2-klein-9b-fp8.safetensors",
+            ],
+            "text_encoders": [
+                "qwen_3_4b.safetensors",
+                "qwen_3_8b_fp8mixed.safetensors",
+            ],
+            "vaes": ["flux2-vae.safetensors"],
+        },
+        "flux_klein_4b",
+    )
+
+    assert selected[:2] == (
+        "flux-2-klein-4b-fp8.safetensors",
+        "qwen_3_4b.safetensors",
+    )
+
+
 def test_effective_face_profile_follows_global_klein_profile() -> None:
     main._save_setting("models", {"editModelProfile": "flux_klein_4b", "poseModelProfile": "flux_klein_4b"})
     assert main.effective_face_profile("flux_klein_4b") == "flux_klein_4b"
@@ -278,6 +342,23 @@ def test_prepare_comfyui_face_input_uses_smaller_safe_limit(tmp_path, monkeypatc
         assert max(image.size) <= 1024
 
 
+def test_inpaint_source_and_mask_keep_identical_bounded_resolution(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "MEDIA", tmp_path)
+    source = tmp_path / "large_inpaint_source.png"
+    mask = tmp_path / "large_inpaint_mask.png"
+    Image.new("RGB", (3000, 2000), "#336699").save(source, "PNG")
+    Image.new("RGB", (3000, 2000), "white").save(mask, "PNG")
+    req = main.GenerateRequest(mode="inpaint", width=1024, height=1024)
+
+    prepared_source = main.prepare_comfyui_input_image(source, "inpaint_source", req)
+    prepared_mask = main.prepare_comfyui_input_image(mask, "inpaint_mask", req)
+
+    assert prepared_source is not None and prepared_mask is not None
+    with Image.open(prepared_source) as source_image, Image.open(prepared_mask) as mask_image:
+        assert source_image.size == mask_image.size == (1024, 672)
+        assert max(source_image.size) <= main.COMFYUI_INPUT_MAX_SIDE
+
+
 def test_prepare_comfyui_outpaint_inputs_builds_canvas_and_mask(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(main, "MEDIA", tmp_path)
     source = tmp_path / "source.png"
@@ -467,6 +548,26 @@ def test_edit_two_images_rewires_sampler_to_second_reference() -> None:
     assert wf["FK:171"]["inputs"]["positive"] == ["FK:233", 0]
     assert wf["FK:171"]["inputs"]["negative"] == ["FK:231", 0]
     assert wf["FK:171"]["inputs"]["denoise"] == 1
+
+
+def test_edit_three_images_builds_and_uses_third_reference() -> None:
+    wf = _edit_workflow_template()
+    req = main.GenerateRequest(mode="edit", prompt="three references")
+    main.patch_mode_nodes(
+        wf,
+        req,
+        {"input1": "base.png", "input2": "ref1.png", "input3": "ref2.png"},
+        "m",
+        "t",
+        "v",
+        edit_reference_megapixels=[0.25, 0.2, 0.15],
+    )
+
+    assert wf["FKE:301"]["inputs"]["image"] == "ref2.png"
+    assert wf["FKE:303"]["inputs"]["megapixels"] == 0.15
+    assert wf["FK:171"]["inputs"]["positive"] == ["FKE:307", 0]
+    assert wf["FK:171"]["inputs"]["negative"] == ["FKE:309", 0]
+    assert "FKE:401" not in wf
 
 
 def test_edit_four_images_builds_full_reference_chain() -> None:

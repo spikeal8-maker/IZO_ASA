@@ -141,7 +141,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Functions | Maximum | Classes | Maximum | Routes | Maximum |
 |---|---:|---:|---:|---:|---:|---:|
-| `backend/main.py` | 683 | 725 | 78 | 83 | 192 | 223 |
+| `backend/main.py` | 681 | 725 | 78 | 83 | 192 | 223 |
 
 ## Release identity baseline
 

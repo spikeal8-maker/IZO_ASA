@@ -317,6 +317,8 @@ try:
         MaxUpdateRuntime,
         TelegramUpdateRuntime,
         comfyui_results,
+        comfyui_inputs,
+        comfyui_watchdog,
         comfyui_workflows,
         generation_jobs,
         generation_recovery,
@@ -356,6 +358,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         MaxUpdateRuntime,
         TelegramUpdateRuntime,
         comfyui_results,
+        comfyui_inputs,
+        comfyui_watchdog,
         comfyui_workflows,
         generation_jobs,
         generation_recovery,
@@ -817,6 +821,11 @@ COMFYUI_REQUIRED = PROVIDER_ENDPOINT_POLICY.comfyui_required
 COMFYUI_MOCK_FALLBACK = PROVIDER_ENDPOINT_POLICY.comfyui_mock_fallback
 COMFYUI_TIMEOUT_SECONDS = PROVIDER_ENDPOINT_POLICY.comfyui_timeout_seconds
 COMFYUI_FACE_TIMEOUT_SECONDS = PROVIDER_ENDPOINT_POLICY.comfyui_face_timeout_seconds
+COMFYUI_IMAGE_TIMEOUT_SECONDS = PROVIDER_ENDPOINT_POLICY.comfyui_image_timeout_seconds
+COMFYUI_HISTORY_REQUEST_TIMEOUT_SECONDS = PROVIDER_ENDPOINT_POLICY.comfyui_history_request_timeout_seconds
+COMFYUI_RECOVERY_WAIT_SECONDS = PROVIDER_ENDPOINT_POLICY.comfyui_recovery_wait_seconds
+COMFYUI_WATCHDOG_REQUEST_PATH = comfyui_watchdog.default_restart_request_path()
+COMFYUI_RECOVERY_GATE = comfyui_watchdog.RecoveryGate(COMFYUI_WATCHDOG_REQUEST_PATH, COMFYUI_RECOVERY_WAIT_SECONDS)
 OPENROUTER_BASE_URL = PROVIDER_ENDPOINT_POLICY.openrouter_base_url
 OPENROUTER_TIMEOUT_SECONDS = PROVIDER_ENDPOINT_POLICY.openrouter_timeout_seconds
 PROMPT_IMPROVE_MODEL = PROVIDER_ENDPOINT_POLICY.prompt_improve_model
@@ -6881,7 +6890,7 @@ def resolve_profile_model(requested: str) -> str:
             return row["model_name"]
     except Exception:
         pass
-    return requested
+    return comfyui_workflows.fallback_model_for_profile(requested)
 
 
 def get_model_settings() -> dict[str, Any]:
@@ -7039,109 +7048,37 @@ def choose_model(models: dict[str, list[str]], requested: str) -> tuple[str, str
 
 
 def choose_faceswap_lora(available_loras: list[str], requested: Lora | None, model: str) -> Lora:
-    """Return the face/head LoRA matching the loaded Flux Klein variant."""
-    target_tag = "4b" if "4b" in model.lower() else "9b"
-    requested_strength = requested.strength if requested else 1.0
-    requested_id = (requested.id if requested else "").strip()
-    if requested_id and requested_id != "none" and target_tag in requested_id.lower() and requested_id in available_loras and server_lora_enabled(requested_id):
-        return Lora(id=requested_id, strength=requested_strength)
-    match = next(
-        (
-            item for item in available_loras
-            if target_tag in item.lower() and server_lora_enabled(item) and any(kw in item.lower() for kw in ("bfs", "face", "head"))
-        ),
-        "",
+    selected_id, strength = comfyui_workflows.select_faceswap_lora(
+        available_loras,
+        requested.id if requested else "",
+        requested.strength if requested else 1.0,
+        model,
+        enabled=server_lora_enabled,
     )
-    if not match:
-        raise RuntimeError(f"Face LoRA для Flux Klein {target_tag.upper()} не установлена или выключена в Config UI.")
-    return Lora(id=match, strength=requested_strength)
+    return Lora(id=selected_id, strength=strength)
 
 
 async def upload_to_comfyui(path: Path) -> str:
     return await integration_upload_comfyui_image(base_url=COMFYUI_BASE_URL, path=path)
 
 
-def _fit_comfyui_input_size(source_size: tuple[int, int], target_box: tuple[int, int] | None = None, max_side: int | None = None) -> tuple[int, int]:
-    source_w, source_h = source_size
-    if source_w <= 0 or source_h <= 0:
-        return (1024, 1024)
-    limit = max(COMFYUI_INPUT_MIN_SIDE, min(COMFYUI_INPUT_MAX_SIDE, int(max_side or COMFYUI_INPUT_MAX_SIDE)))
-    box_w = target_box[0] if target_box else COMFYUI_INPUT_MAX_SIDE
-    box_h = target_box[1] if target_box else COMFYUI_INPUT_MAX_SIDE
-    box_w = max(COMFYUI_INPUT_MIN_SIDE, min(limit, int(box_w or limit)))
-    box_h = max(COMFYUI_INPUT_MIN_SIDE, min(limit, int(box_h or limit)))
-    scale = min(1.0, box_w / source_w, box_h / source_h, limit / max(source_w, source_h))
-    width = max(16, int(round((source_w * scale) / 16) * 16))
-    height = max(16, int(round((source_h * scale) / 16) * 16))
-    if max(width, height) > limit:
-        scale = limit / max(width, height)
-        width = max(16, int(round((width * scale) / 16) * 16))
-        height = max(16, int(round((height * scale) / 16) * 16))
-    return width, height
-
-
-def prepare_comfyui_input_image(image_path: Path | None, prefix: str, req: GenerateRequest, max_side: int | None = None) -> Path | None:
-    """Return an input image safe for ComfyUI VRAM: same aspect, bounded size."""
-    if not image_path or not image_path.exists():
-        return image_path
-    try:
-        with Image.open(image_path) as opened:
-            image = ImageOps.exif_transpose(opened)
-            target_size = _fit_comfyui_input_size(image.size, (req.width, req.height), max_side=max_side)
-            if image.size == target_size:
-                return image_path
-            resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
-            resized = image.resize(target_size, resample)
-            if resized.mode not in ("RGB", "RGBA"):
-                resized = resized.convert("RGBA" if "A" in resized.getbands() else "RGB")
-            out = MEDIA / f"{prefix}_{uuid.uuid4().hex}_comfy.png"
-            resized.save(out, "PNG", optimize=True)
-            print(f"comfyui input resized {image_path.name}: {image.size[0]}x{image.size[1]} -> {target_size[0]}x{target_size[1]}")
-            return out
-    except Exception as exc:
-        print(f"comfyui input resize skipped {image_path.name}: {type(exc).__name__}")
-        return image_path
-
-
-def _outpaint_padding(req: GenerateRequest) -> dict[str, int]:
-    raw = req.outpaint or {}
-    padding: dict[str, int] = {}
-    for key in ("left", "right", "top", "bottom"):
-        try:
-            value = int(raw.get(key, 0))
-        except Exception:
-            value = 0
-        padding[key] = max(0, min(8192, value))
-    return padding
-
-
-def _outpaint_int(raw: dict[str, Any], key: str, default: int = 0) -> int:
-    try:
-        value = raw.get(key, default)
-        if isinstance(value, bool):
-            return default
-        return int(value)
-    except Exception:
-        return default
-
-
-def _outpaint_placement(req: GenerateRequest, target_w: int, target_h: int) -> dict[str, int] | None:
-    raw = req.outpaint or {}
-    required = ("sourceX", "sourceY", "sourceW", "sourceH")
-    if not all(key in raw for key in required):
-        return None
-    frame_w = max(1, _outpaint_int(raw, "frameW", req.width or target_w))
-    frame_h = max(1, _outpaint_int(raw, "frameH", req.height or target_h))
-    source_w = max(1, _outpaint_int(raw, "sourceW", frame_w))
-    source_h = max(1, _outpaint_int(raw, "sourceH", frame_h))
-    scale_x = target_w / frame_w
-    scale_y = target_h / frame_h
-    return {
-        "x": int(round(_outpaint_int(raw, "sourceX", 0) * scale_x)),
-        "y": int(round(_outpaint_int(raw, "sourceY", 0) * scale_y)),
-        "w": max(1, int(round(source_w * scale_x))),
-        "h": max(1, int(round(source_h * scale_y))),
-    }
+def prepare_comfyui_input_image(
+    image_path: Path | None,
+    prefix: str,
+    req: GenerateRequest,
+    max_side: int | None = None,
+    max_megapixels: float | None = None,
+) -> Path | None:
+    return comfyui_inputs.prepare_reference_image(
+        image_path,
+        output_directory=MEDIA,
+        prefix=prefix,
+        target_box=(req.width, req.height),
+        max_side=min(COMFYUI_INPUT_MAX_SIDE, int(max_side or COMFYUI_INPUT_MAX_SIDE)),
+        minimum_side=COMFYUI_INPUT_MIN_SIDE,
+        max_megapixels=max_megapixels,
+        log=print,
+    )
 
 
 def prepare_comfyui_outpaint_inputs(input_path: Path | None, prefix: str, req: GenerateRequest) -> tuple[Path | None, Path | None]:
@@ -7153,7 +7090,7 @@ def prepare_comfyui_outpaint_inputs(input_path: Path | None, prefix: str, req: G
     """
     if not input_path or not input_path.exists():
         return input_path, None
-    padding = _outpaint_padding(req)
+    padding = comfyui_inputs.outpaint_padding(req.outpaint or {})
     if not any(padding.values()):
         prepared = prepare_comfyui_input_image(input_path, prefix, req)
         return prepared, None
@@ -7167,7 +7104,11 @@ def prepare_comfyui_outpaint_inputs(input_path: Path | None, prefix: str, req: G
             target_h = max(16, int(round(req.height / 16) * 16))
             target_w = min(COMFYUI_INPUT_MAX_SIDE, max(COMFYUI_INPUT_MIN_SIDE, target_w))
             target_h = min(COMFYUI_INPUT_MAX_SIDE, max(COMFYUI_INPUT_MIN_SIDE, target_h))
-            placement = _outpaint_placement(req, target_w, target_h)
+            placement = comfyui_inputs.outpaint_placement(
+                req.outpaint or {},
+                target_size=(target_w, target_h),
+                default_frame_size=(req.width or target_w, req.height or target_h),
+            )
             if placement is not None:
                 resample = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
                 resized = source.resize((placement["w"], placement["h"]), resample)
@@ -7301,7 +7242,16 @@ def patch_edit_reference_chain(prompt: dict[str, Any], image_files: list[str]) -
     comfyui_workflows.patch_edit_reference_chain(prompt, image_files)
 
 
-def patch_mode_nodes(prompt: dict[str, Any], req: GenerateRequest, uploads: dict[str, str], model: str, text_encoder: str, vae: str) -> None:
+def patch_mode_nodes(
+    prompt: dict[str, Any],
+    req: GenerateRequest,
+    uploads: dict[str, str],
+    model: str,
+    text_encoder: str,
+    vae: str,
+    *,
+    edit_reference_megapixels: list[float | None] | None = None,
+) -> None:
     comfyui_workflows.patch_mode_nodes(
         prompt,
         req,
@@ -7311,6 +7261,7 @@ def patch_mode_nodes(prompt: dict[str, Any], req: GenerateRequest, uploads: dict
         vae,
         default_negative_prompt=DEFAULT_NEG_PROMPT,
         model_profiles=get_server_model_profiles(),
+        edit_reference_megapixels=edit_reference_megapixels,
     )
 
 
@@ -7332,24 +7283,50 @@ async def interrupt_comfyui_prompt() -> None:
         pass
 
 
+async def wait_for_comfyui_recovery_gate() -> None:
+    await COMFYUI_RECOVERY_GATE.wait(available=comfyui_available, sleep=asyncio.sleep)
+
+
+async def recover_timed_out_comfyui_image(
+    prompt_id: str,
+    job: dict[str, Any],
+    reason: str,
+) -> None:
+    await COMFYUI_RECOVERY_GATE.recover(
+        prompt_id=prompt_id,
+        job_id=str(job.get("id") or ""),
+        reason=reason,
+        interrupt=interrupt_comfyui_prompt,
+        free_memory=lambda: integration_free_comfyui_memory(base_url=COMFYUI_BASE_URL),
+        available=comfyui_available,
+        monotonic=time.monotonic,
+        sleep=asyncio.sleep,
+    )
+
+
 def extract_images_from_history(history: dict[str, Any]) -> list[dict[str, str]]:
     return comfyui_results.extract_images_from_history(history)
 
 
 async def wait_for_history(prompt_id: str, job: dict[str, Any]) -> dict[str, Any]:
-    timeout = COMFYUI_FACE_TIMEOUT_SECONDS if job.get("mode") == "faceswap" else COMFYUI_TIMEOUT_SECONDS
-    deadline = time.monotonic() + timeout
-    async with IntegrationComfyUIHistoryClient(base_url=COMFYUI_BASE_URL) as history_client:
-        while time.monotonic() < deadline:
-            if job.get("status") == "cancelled":
-                raise RuntimeError("Задача отменена")
-            payload = await history_client.fetch(prompt_id)
-            if prompt_id in payload:
-                return payload[prompt_id]
-            job["progress"] = min(94, int(job.get("progress", 24)) + 2)
-            await asyncio.sleep(2)
-    await interrupt_comfyui_prompt()
-    raise TimeoutError("ComfyUI не вернул результат до истечения таймаута.")
+    async with IntegrationComfyUIHistoryClient(
+        base_url=COMFYUI_BASE_URL,
+        timeout_seconds=COMFYUI_HISTORY_REQUEST_TIMEOUT_SECONDS,
+    ) as history_client:
+        return await comfyui_watchdog.poll_prompt_history(
+            prompt_id=prompt_id,
+            job=job,
+            timeout_seconds=COMFYUI_IMAGE_TIMEOUT_SECONDS,
+            fetch=history_client.fetch,
+            recover=lambda reason: recover_timed_out_comfyui_image(
+                prompt_id,
+                job,
+                reason,
+            ),
+            monotonic=time.monotonic,
+            sleep=asyncio.sleep,
+            transient_errors=(httpx.TimeoutException,),
+        )
 
 
 async def download_comfyui_image(image: dict[str, str], job_id: str) -> tuple[Path, Path]:
@@ -7363,6 +7340,7 @@ async def download_comfyui_image(image: dict[str, str], job_id: str) -> tuple[Pa
 
 
 async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> ComfyUIResult | None:
+    await wait_for_comfyui_recovery_gate()
     if not await comfyui_available():
         if COMFYUI_REQUIRED:
             raise RuntimeError("FluxKleinOneNode не найден или ComfyUI недоступен. Проверьте установку custom node.")
@@ -7410,6 +7388,7 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
     canvas_path = save_canvas_json(payload.canvas, f"{job['id']}_canvas")
     primary_input = input1_path or canvas_path
     outpaint_generated_mask = False
+    edit_reference_megapixels: list[float | None] = []
     if payload.mode == "edit":
         # До 4 изображений. Источник — payload.inputImages (новый формат) или legacy inputImage1/2.
         edit_sources: list[tuple[str, str]] = []
@@ -7428,7 +7407,20 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             slot_path = local_media_path_from_url(src) or save_data_url(src, f"{job['id']}_edit{i + 1}")
             if not slot_path:
                 continue
-            slot_path = prepare_comfyui_input_image(slot_path, f"{job['id']}_edit{i + 1}", payload)
+            slot_path = prepare_comfyui_input_image(
+                slot_path,
+                f"{job['id']}_edit{i + 1}",
+                payload,
+                max_megapixels=COMFYUI_FACE_SOURCE_MEGAPIXELS if role == "face" else None,
+            )
+            if slot_path:
+                try:
+                    with Image.open(slot_path) as prepared:
+                        edit_reference_megapixels.append(
+                            comfyui_inputs.image_megapixels(prepared.size)
+                        )
+                except Exception:
+                    edit_reference_megapixels.append(None)
             uploads[f"input{i + 1}"] = await upload_to_comfyui(slot_path)
             edit_roles.append(role or ("base" if i == 0 else "?"))
             if role == "pose" and i > 0:
@@ -7489,7 +7481,15 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
     elif payload.mode == "outpaint":
         workflow = build_outpaint_workflow(workflow, models, payload, uploads)
     else:
-        patch_mode_nodes(workflow, payload, uploads, model, text_encoder, vae)
+        patch_mode_nodes(
+            workflow,
+            payload,
+            uploads,
+            model,
+            text_encoder,
+            vae,
+            edit_reference_megapixels=edit_reference_megapixels or None,
+        )
     try:
         prompt_id, history, output_images = await submit_workflow(workflow, job)
     except Exception as exc:

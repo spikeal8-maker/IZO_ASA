@@ -49,6 +49,16 @@ from a transient capability-probe failure. Evidence and acceptance criteria are
 recorded in
 [auth-bot-login-reliability-20260723.md](auth-bot-login-reliability-20260723.md).
 
+Availability follow-up `IMG-WATCHDOG-P0-20260723`: an image-edit prompt could
+fill VRAM, outlive an application-side history request timeout and leave
+ComfyUI running while the application queue advanced. The corrective package
+keeps the selected model, prevents reference upscaling, enforces the existing
+face megapixel budget, separates the five-minute image deadline from video,
+and gates later submissions until a privileged ComfyUI-only restart is healthy.
+The recovery helper does not mutate the persistent application queue. Design,
+installation and acceptance evidence are recorded in
+[comfyui-image-vram-watchdog-20260723.md](comfyui-image-vram-watchdog-20260723.md).
+
 ## 0. Ответ: готов ли этот план к реализации
 
 Да. План разбит на ограниченные пакеты с порядком, областью изменения,

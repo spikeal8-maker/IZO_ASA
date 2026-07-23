@@ -27,6 +27,11 @@ ok(!topBar.includes("{ id: 'face'"), 'standalone Face tab must not return to the
 ok(!studioContract.includes("| 'face' |"), 'standalone Face studio mode must not return')
 ok(!studioContract.includes("? 'faceswap'"), 'standalone Face generation route must not return')
 ok(studioNavigation.includes("if (h === '#face' || h === '#face-to-image') return { view: 'tabs', tab: 'edit' }"), 'old Face links must redirect to Assembly')
+ok(studio.includes("inputImages: mode === 'edit'"), 'Assembly must send the inputImages collection')
+ok(studio.includes(".filter(({ slot }) => slot.image)"), 'Assembly must send every filled reference slot')
+ok(studio.includes("index: index + 1"), 'Assembly must preserve one-based reference ordering')
+ok(studio.includes("visibleEditSlots.map(renderEditorSlot)"), 'Assembly must render the configured multi-reference slots')
+ok(studio.includes("editReferenceLimit > 2"), 'Assembly must expose the third and fourth reference slots')
 
 if (failures.length) {
   console.error('smoke-editor-contract FAILED:')
