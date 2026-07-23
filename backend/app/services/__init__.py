@@ -2,6 +2,8 @@
 
 from . import comfyui_workflows
 from . import comfyui_results
+from . import comfyui_inputs
+from . import comfyui_watchdog
 from . import generation_recovery
 from . import generation_jobs
 from . import generation_results
@@ -43,6 +45,8 @@ from .max_updates import (
 __all__ = [
     "comfyui_workflows",
     "comfyui_results",
+    "comfyui_inputs",
+    "comfyui_watchdog",
     "generation_recovery",
     "generation_jobs",
     "generation_results",

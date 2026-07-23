@@ -12,8 +12,9 @@ def test_wait_for_history_reuses_one_client_until_prompt_completes(monkeypatch) 
     responses = [{}, {"prompt-1": {"outputs": {"save": {"images": []}}}}]
 
     class FakeHistoryClient:
-        def __init__(self, *, base_url: str) -> None:
+        def __init__(self, *, base_url: str, timeout_seconds: float) -> None:
             assert base_url == main.COMFYUI_BASE_URL
+            assert timeout_seconds == main.COMFYUI_HISTORY_REQUEST_TIMEOUT_SECONDS
 
         async def __aenter__(self) -> "FakeHistoryClient":
             state["entered"] += 1
@@ -46,8 +47,9 @@ def test_wait_for_history_checks_cancellation_before_network(monkeypatch) -> Non
     state = {"fetches": 0, "exited": 0}
 
     class FakeHistoryClient:
-        def __init__(self, *, base_url: str) -> None:
+        def __init__(self, *, base_url: str, timeout_seconds: float) -> None:
             assert base_url == main.COMFYUI_BASE_URL
+            assert timeout_seconds == main.COMFYUI_HISTORY_REQUEST_TIMEOUT_SECONDS
 
         async def __aenter__(self) -> "FakeHistoryClient":
             return self
@@ -60,6 +62,10 @@ def test_wait_for_history_checks_cancellation_before_network(monkeypatch) -> Non
             return {}
 
     monkeypatch.setattr(main, "IntegrationComfyUIHistoryClient", FakeHistoryClient)
+    async def fake_recover(_prompt_id: str, _job: dict, reason: str) -> None:
+        assert reason == "cancelled"
+
+    monkeypatch.setattr(main, "recover_timed_out_comfyui_image", fake_recover)
 
     with pytest.raises(RuntimeError, match="Задача отменена"):
         asyncio.run(main.wait_for_history("prompt-1", {"status": "cancelled", "mode": "text_to_image"}))

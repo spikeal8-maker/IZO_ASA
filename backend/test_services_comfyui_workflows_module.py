@@ -134,7 +134,11 @@ def test_optional_lora_patches_existing_loader_or_inserts_model_only_loader() ->
 def test_edit_reference_chain_builds_four_slots_and_rewires_sampler() -> None:
     graph = {"FK:171": {"inputs": {}}}
 
-    comfyui_workflows.patch_edit_reference_chain(graph, ["base.png", "face.png", "style.png", "object.png"])
+    comfyui_workflows.patch_edit_reference_chain(
+        graph,
+        ["base.png", "face.png", "style.png", "object.png"],
+        [0.116736, 0.335872, 0.5, 0.25],
+    )
 
     assert graph["FK:91"]["inputs"]["image"] == "base.png"
     assert graph["FK:88"]["inputs"]["image"] == "face.png"
@@ -146,6 +150,23 @@ def test_edit_reference_chain_builds_four_slots_and_rewires_sampler() -> None:
     assert graph["FK:171"]["inputs"]["positive"] == ["FKE:407", 0]
     assert graph["FK:171"]["inputs"]["negative"] == ["FKE:409", 0]
     assert graph["FK:171"]["inputs"]["denoise"] == 1
+    assert graph["FK:163"]["inputs"]["megapixels"] == 0.116736
+    assert graph["FK:163b"]["inputs"]["megapixels"] == 0.335872
+
+
+def test_edit_reference_sizes_follow_present_files_when_an_upload_slot_is_empty() -> None:
+    graph = {"FK:171": {"inputs": {}}}
+
+    comfyui_workflows.patch_edit_reference_chain(
+        graph,
+        [None, "face.png", "style.png"],
+        [0.335872, 0.25],
+    )
+
+    assert graph["FK:91"]["inputs"]["image"] == "face.png"
+    assert graph["FK:163"]["inputs"]["megapixels"] == 0.335872
+    assert graph["FK:88"]["inputs"]["image"] == "style.png"
+    assert graph["FK:163b"]["inputs"]["megapixels"] == 0.25
 
 
 def test_edit_reference_chain_removes_unused_slots_and_requires_base() -> None:

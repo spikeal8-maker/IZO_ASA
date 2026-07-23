@@ -52,6 +52,9 @@ class ProviderEndpointPolicy:
     comfyui_mock_fallback: bool
     comfyui_timeout_seconds: int
     comfyui_face_timeout_seconds: int
+    comfyui_image_timeout_seconds: int
+    comfyui_history_request_timeout_seconds: int
+    comfyui_recovery_wait_seconds: int
     openrouter_base_url: str
     openrouter_timeout_seconds: int
     prompt_improve_model: str
@@ -295,6 +298,13 @@ def load_provider_endpoint_policy(
 
     source = os.environ if environment is None else environment
     comfyui_timeout_seconds = int(source.get("COMFYUI_TIMEOUT_SECONDS", "900"))
+    comfyui_image_timeout_seconds = max(
+        60,
+        min(
+            comfyui_timeout_seconds,
+            int(source.get("COMFYUI_IMAGE_TIMEOUT_SECONDS", "300")),
+        ),
+    )
     comfyui_face_timeout_seconds = max(
         60,
         min(
@@ -309,6 +319,15 @@ def load_provider_endpoint_policy(
         comfyui_mock_fallback=source.get("COMFYUI_MOCK_FALLBACK", "false").lower() == "true",
         comfyui_timeout_seconds=comfyui_timeout_seconds,
         comfyui_face_timeout_seconds=comfyui_face_timeout_seconds,
+        comfyui_image_timeout_seconds=comfyui_image_timeout_seconds,
+        comfyui_history_request_timeout_seconds=max(
+            2,
+            min(30, int(source.get("COMFYUI_HISTORY_REQUEST_TIMEOUT_SECONDS", "10"))),
+        ),
+        comfyui_recovery_wait_seconds=max(
+            30,
+            min(600, int(source.get("COMFYUI_RECOVERY_WAIT_SECONDS", "180"))),
+        ),
         openrouter_base_url=source.get(
             "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
         ).rstrip("/"),

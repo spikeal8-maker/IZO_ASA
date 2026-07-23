@@ -39,6 +39,35 @@ WORKFLOW_ENDPOINTS = {
 }
 
 
+def select_faceswap_lora(
+    available_loras: Sequence[str],
+    requested_id: str,
+    requested_strength: float,
+    model: str,
+    *,
+    enabled: Callable[[str], bool],
+) -> tuple[str, float]:
+    target_tag = "4b" if "4b" in model.lower() else "9b"
+    candidate = requested_id.strip()
+    if candidate and candidate != "none" and target_tag in candidate.lower() and candidate in available_loras and enabled(candidate):
+        return candidate, requested_strength
+    match = next(
+        (
+            item for item in available_loras
+            if target_tag in item.lower()
+            and enabled(item)
+            and any(keyword in item.lower() for keyword in ("bfs", "face", "head"))
+        ),
+        "",
+    )
+    if not match:
+        raise RuntimeError(
+            f"Face LoRA для Flux Klein {target_tag.upper()} не установлена "
+            "или выключена в Config UI."
+        )
+    return match, requested_strength
+
+
 EDIT_SLOT_NODES = (
     {"load": "FK:91", "scale": "FK:163", "vae": "FK:132", "pos": "FK:133", "neg": "FK:131"},
     {"load": "FK:88", "scale": "FK:163b", "vae": "FK:232", "pos": "FK:233", "neg": "FK:231"},
@@ -110,21 +139,35 @@ def _ensure_edit_slot_nodes(prompt: dict[str, Any], slot: int) -> None:
     nodes = EDIT_SLOT_NODES[slot]
     number = slot + 1
     prompt.setdefault(nodes["load"], {"class_type": "LoadImage", "inputs": {"image": "placeholder.png"}, "_meta": {"title": f"Load Image {number}"}})
-    prompt.setdefault(nodes["scale"], {"class_type": "ImageScaleToTotalPixels", "inputs": {"image": [nodes["load"], 0], "upscale_method": "nearest-exact", "megapixels": 1, "resolution_steps": 1}, "_meta": {"title": f"Scale Image {number} to 1MP"}})
+    prompt.setdefault(nodes["scale"], {"class_type": "ImageScaleToTotalPixels", "inputs": {"image": [nodes["load"], 0], "upscale_method": "nearest-exact", "megapixels": 1, "resolution_steps": 1}, "_meta": {"title": f"Scale Image {number} to bounded size"}})
     prompt.setdefault(nodes["vae"], {"class_type": "VAEEncode", "inputs": {"pixels": [nodes["scale"], 0], "vae": ["FK:153", 0]}, "_meta": {"title": f"VAE Encode Image {number}"}})
     prompt.setdefault(nodes["pos"], {"class_type": "ReferenceLatent", "inputs": {"conditioning": ["FK:166", 0], "latent": [nodes["vae"], 0]}, "_meta": {"title": f"Reference Latent Positive Img{number}"}})
     prompt.setdefault(nodes["neg"], {"class_type": "ReferenceLatent", "inputs": {"conditioning": ["FK:156", 0], "latent": [nodes["vae"], 0]}, "_meta": {"title": f"Reference Latent Negative Img{number}"}})
 
 
-def patch_edit_reference_chain(prompt: dict[str, Any], image_files: Sequence[str | None]) -> None:
-    present = [file_name for file_name in image_files if file_name][:4]
+def patch_edit_reference_chain(
+    prompt: dict[str, Any],
+    image_files: Sequence[str | None],
+    reference_megapixels: Sequence[float | None] | None = None,
+) -> None:
+    sizes = list(reference_megapixels or ())
+    present_files = [file_name for file_name in image_files if file_name][:4]
+    present = [
+        (file_name, sizes[index] if index < len(sizes) else None)
+        for index, file_name in enumerate(present_files)
+    ]
     if not present:
         raise RuntimeError("Для редактирования нужно хотя бы одно изображение (основа).")
     previous_positive, previous_negative = "FK:166", "FK:156"
-    for index, file_name in enumerate(present):
+    for index, (file_name, megapixels) in enumerate(present):
         _ensure_edit_slot_nodes(prompt, index)
         nodes = EDIT_SLOT_NODES[index]
         set_input(prompt, nodes["load"], "image", file_name)
+        if megapixels is not None:
+            set_input(prompt, nodes["scale"], "megapixels", round(max(0.001, megapixels), 6))
+            prompt[nodes["scale"]].setdefault("_meta", {})["title"] = (
+                f"Keep Image {index + 1} at bounded source size"
+            )
         set_input(prompt, nodes["pos"], "conditioning", [previous_positive, 0])
         set_input(prompt, nodes["neg"], "conditioning", [previous_negative, 0])
         previous_positive, previous_negative = nodes["pos"], nodes["neg"]
@@ -146,6 +189,7 @@ def patch_mode_nodes(
     *,
     default_negative_prompt: str,
     model_profiles: Mapping[str, Mapping[str, Any]],
+    edit_reference_megapixels: Sequence[float | None] | None = None,
 ) -> None:
     patch_shared_flux_nodes(
         prompt,
@@ -167,7 +211,7 @@ def patch_mode_nodes(
         image_files = [uploads.get(f"input{index}") for index in range(1, 5)]
         if request.mode in {"edit", "faceswap"}:
             patch_optional_lora(prompt, request.loras[0] if request.loras else None)
-        patch_edit_reference_chain(prompt, image_files)
+        patch_edit_reference_chain(prompt, image_files, edit_reference_megapixels)
     elif request.mode == "inpaint":
         for node_id, key, value in (
             ("FKI:194", "unet_name", model), ("FKI:195", "clip_name", text_encoder),

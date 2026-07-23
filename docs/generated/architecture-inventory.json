@@ -130,6 +130,20 @@
       ]
     },
     {
+      "name": "COMFYUI_HISTORY_REQUEST_TIMEOUT_SECONDS",
+      "secret": false,
+      "sources": [
+        "backend/app/config.py"
+      ]
+    },
+    {
+      "name": "COMFYUI_IMAGE_TIMEOUT_SECONDS",
+      "secret": false,
+      "sources": [
+        "backend/app/config.py"
+      ]
+    },
+    {
       "name": "COMFYUI_INPUT_MAX_SIDE",
       "secret": false,
       "sources": [
@@ -138,6 +152,13 @@
     },
     {
       "name": "COMFYUI_MOCK_FALLBACK",
+      "secret": false,
+      "sources": [
+        "backend/app/config.py"
+      ]
+    },
+    {
+      "name": "COMFYUI_RECOVERY_WAIT_SECONDS",
       "secret": false,
       "sources": [
         "backend/app/config.py"
@@ -155,6 +176,13 @@
       "secret": false,
       "sources": [
         "backend/app/config.py"
+      ]
+    },
+    {
+      "name": "COMFYUI_WATCHDOG_REQUEST_PATH",
+      "secret": false,
+      "sources": [
+        "backend/app/services/comfyui_watchdog.py"
       ]
     },
     {
@@ -1127,14 +1155,14 @@
       },
       {
         "input": "onenode_user",
-        "line": 1565,
+        "line": 1574,
         "operation": "cookie_read",
         "source": "backend/main.py",
         "symbol": "request_user_id"
       },
       {
         "input": "x-onenode-user",
-        "line": 1565,
+        "line": 1574,
         "operation": "header_read",
         "source": "backend/main.py",
         "symbol": "request_user_id"
@@ -1347,7 +1375,7 @@
       {
         "auth": "public/optional/review",
         "handler": "home_page_shell",
-        "line": 931,
+        "line": 940,
         "method": "GET",
         "path": "/",
         "process_role": "all-dev-current-monolith"
@@ -3075,7 +3103,7 @@
       {
         "auth": "public/optional/review",
         "handler": "favicon",
-        "line": 920,
+        "line": 929,
         "method": "GET",
         "path": "/favicon.svg",
         "process_role": "all-dev-current-monolith"
@@ -3083,7 +3111,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_page_shell",
-        "line": 952,
+        "line": 961,
         "method": "GET",
         "path": "/feed",
         "process_role": "all-dev-current-monolith"
@@ -3091,7 +3119,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_page_shell_slash",
-        "line": 963,
+        "line": 972,
         "method": "GET",
         "path": "/feed/",
         "process_role": "all-dev-current-monolith"
@@ -3099,7 +3127,7 @@
       {
         "auth": "public/optional/review",
         "handler": "gallery_page_shell",
-        "line": 936,
+        "line": 945,
         "method": "GET",
         "path": "/gallery",
         "process_role": "all-dev-current-monolith"
@@ -3107,7 +3135,7 @@
       {
         "auth": "public/optional/review",
         "handler": "gallery_page_shell_slash",
-        "line": 947,
+        "line": 956,
         "method": "GET",
         "path": "/gallery/",
         "process_role": "all-dev-current-monolith"
@@ -4048,10 +4076,10 @@
       "path": "backend/main.py",
       "remaining_routes": 31,
       "remaining_top_level_classes": 5,
-      "remaining_top_level_functions": 42,
+      "remaining_top_level_functions": 44,
       "routes": 192,
       "top_level_classes": 78,
-      "top_level_functions": 683
+      "top_level_functions": 681
     }
   ],
   "tasks": {
@@ -4118,7 +4146,7 @@
         "occurrences": [
           {
             "enclosing_symbol": "schedule_avatar_cache",
-            "line": 4925
+            "line": 4934
           }
         ],
         "owner": "backend.main",
@@ -4136,7 +4164,7 @@
         "occurrences": [
           {
             "enclosing_symbol": "schedule_openrouter_catalog_refresh",
-            "line": 6189
+            "line": 6198
           }
         ],
         "owner": "backend.main",

@@ -133,6 +133,9 @@ def test_provider_endpoint_policy_defaults_match_legacy_main_contract() -> None:
     assert policy.comfyui_mock_fallback is False
     assert policy.comfyui_timeout_seconds == 900
     assert policy.comfyui_face_timeout_seconds == 240
+    assert policy.comfyui_image_timeout_seconds == 300
+    assert policy.comfyui_history_request_timeout_seconds == 10
+    assert policy.comfyui_recovery_wait_seconds == 180
     assert policy.openrouter_base_url == "https://openrouter.ai/api/v1"
     assert policy.openrouter_timeout_seconds == 120
     assert policy.prompt_improve_model == "deepseek/deepseek-v4-flash"
@@ -149,6 +152,9 @@ def test_provider_endpoint_policy_preserves_legacy_normalization_and_bounds() ->
             "COMFYUI_MOCK_FALLBACK": "1",
             "COMFYUI_TIMEOUT_SECONDS": "100",
             "COMFYUI_FACE_TIMEOUT_SECONDS": "200",
+            "COMFYUI_IMAGE_TIMEOUT_SECONDS": "999",
+            "COMFYUI_HISTORY_REQUEST_TIMEOUT_SECONDS": "99",
+            "COMFYUI_RECOVERY_WAIT_SECONDS": "999",
             "OPENROUTER_BASE_URL": "https://router.example///",
             "OPENROUTER_TIMEOUT_SECONDS": "999",
             "PROMPT_IMPROVE_MODEL": "  provider/model  ",
@@ -163,6 +169,9 @@ def test_provider_endpoint_policy_preserves_legacy_normalization_and_bounds() ->
     assert policy.comfyui_mock_fallback is False
     assert policy.comfyui_timeout_seconds == 100
     assert policy.comfyui_face_timeout_seconds == 100
+    assert policy.comfyui_image_timeout_seconds == 100
+    assert policy.comfyui_history_request_timeout_seconds == 30
+    assert policy.comfyui_recovery_wait_seconds == 600
     assert policy.openrouter_base_url == "https://router.example"
     assert policy.openrouter_timeout_seconds == 300
     assert policy.prompt_improve_model == "provider/model"
@@ -181,6 +190,7 @@ def test_provider_endpoint_policy_preserves_face_timeout_floor_order() -> None:
 
     assert policy.comfyui_timeout_seconds == 50
     assert policy.comfyui_face_timeout_seconds == 60
+    assert policy.comfyui_image_timeout_seconds == 60
 
 
 def test_provider_endpoint_policy_rejects_invalid_integer_like_legacy_main() -> None:
