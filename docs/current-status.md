@@ -111,3 +111,17 @@
 - Quick runtime gate не является code failure: локальный test-stack держит
   порт 5173 через Vite, тогда как production-contract ожидает Caddy.
 - Production release не изменён; deploy/restart не выполнялись.
+
+## Подготовленный пакет уведомлений и соцсетей
+
+- `ADMIN-NOTIFY-SOCIAL-001` —
+  `CODE COMPLETE · VERIFIED (CI) · NOT DEPLOYED`.
+- Добавлены durable уведомления администратора, OpenRouter-сводки,
+  `/admin/notifications`, подготовительная `/admin/social` и идемпотентный
+  social outbox.
+- Внешние Telegram/VK/Instagram/OK отправки ещё не включены: credentials,
+  delivery worker и реальный operator test являются следующим отдельным
+  пакетом. Поэтому UI честно показывает `operational=false`.
+- Evidence: backend focused `116 passed`, migration/database focused
+  `29 passed`, social outbox idempotency `5/5`, `VERIFY_OK mode=CI`,
+  `1668 passed`; frontend lint/build/E2E green.

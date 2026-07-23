@@ -1530,6 +1530,20 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-bot-savebar { position: sticky; bottom: 8px; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #383838; background: rgba(12, 12, 12, .96); box-shadow: 0 8px 28px #000; border-radius: 10px; padding: 9px 10px; }
 .admin-bot-savebar span { color: #aaa; font-size: 12px; }
 .admin-section { display: grid; gap: 16px; }
+.admin-notification-settings, .admin-social-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; padding: 14px; border: 1px solid #303830; border-radius: 14px; background: #101510; }
+.admin-notification-settings label, .admin-social-auto { display: grid; gap: 6px; color: #c9d0c9; }
+.admin-notification-settings label:has(input[type="checkbox"]), .admin-social-auto { display: flex; align-items: center; gap: 8px; }
+.admin-notification-list { display: grid; gap: 9px; }
+.admin-notification { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start; padding: 14px; border: 1px solid #2b332b; border-radius: 12px; background: #101310; }
+.admin-notification p { margin: 4px 0; color: #b8beb8; }
+.admin-notification small { color: #778077; }
+.admin-notification.warning { border-color: #76611d; }
+.admin-notification.critical { border-color: #8b3030; }
+.admin-notification.read { opacity: .66; }
+.admin-social-warning, .admin-social-note { padding: 12px 14px; border: 1px solid #79651f; border-radius: 12px; background: #241f0e; color: #ead77b; }
+.admin-social-grid article { display: grid; gap: 8px; padding: 16px; border: 1px solid #303830; border-radius: 14px; background: #101510; }
+.admin-social-grid small { color: #858d85; }
+.admin-social-grid label { display: flex; align-items: center; gap: 8px; }
 .admin-section > h3, .admin-two-col h3 { margin: 0; color: var(--acid); }
 .admin-grid div { display: grid; gap: 6px; min-height: 96px; align-content: start; }
 .admin-grid.admin-grid-compact div { min-height: 68px; padding: 10px 12px; }

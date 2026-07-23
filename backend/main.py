@@ -36,9 +36,9 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel, ConfigDict, Field
 
 try:
-    from .app.integrations.openrouter_catalog import DAILY_REFRESH_SECONDS as OPENROUTER_CATALOG_REFRESH_SECONDS, DailyCatalogWorker, build_catalog_lifecycle, catalog_refresh_needed, catalog_snapshot, fallback_image_capabilities, key_status_snapshot, live_image_price_specs
+    from .app.integrations.openrouter_catalog import DAILY_REFRESH_SECONDS as OPENROUTER_CATALOG_REFRESH_SECONDS, DailyCatalogWorker, build_catalog_lifecycle, catalog_refresh_needed, catalog_snapshot, fallback_image_capabilities, key_status_snapshot, live_image_price_specs, reviewed_image_price_specs
 except ImportError:  # Direct `python backend/main.py` execution.
-    from app.integrations.openrouter_catalog import DAILY_REFRESH_SECONDS as OPENROUTER_CATALOG_REFRESH_SECONDS, DailyCatalogWorker, build_catalog_lifecycle, catalog_refresh_needed, catalog_snapshot, fallback_image_capabilities, key_status_snapshot, live_image_price_specs
+    from app.integrations.openrouter_catalog import DAILY_REFRESH_SECONDS as OPENROUTER_CATALOG_REFRESH_SECONDS, DailyCatalogWorker, build_catalog_lifecycle, catalog_refresh_needed, catalog_snapshot, fallback_image_capabilities, key_status_snapshot, live_image_price_specs, reviewed_image_price_specs
 
 try:
     from .app.integrations.smtp import SmtpConfig, SmtpError, SmtpMessage, send_smtp_email, verify_smtp_connection
@@ -428,6 +428,10 @@ try:
         BotPublicTransport,
         create_bots_public_router,
     )
+    from .app.api.routers.admin_operations import (
+        AdminOperationsDependencies,
+        create_admin_operations_router,
+    )
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.platform_status import (
         mini_app_public_url,
@@ -461,6 +465,10 @@ except ImportError:  # Direct `python backend/main.py` execution.
         BotPublicTransport,
         create_bots_public_router,
     )
+    from app.api.routers.admin_operations import (
+        AdminOperationsDependencies,
+        create_admin_operations_router,
+    )
 
 try:
     from .app.services.bot_admin import (
@@ -479,8 +487,10 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.database import (
+        ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
+        apply_admin_notifications_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -501,8 +511,10 @@ try:
 
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.database import (
+        ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
+        apply_admin_notifications_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -519,6 +531,17 @@ except ImportError:  # Direct `python backend/main.py` execution.
         safe_guard_payload,
         seed_core_defaults,
         seed_default_challenge,
+    )
+
+try:
+    from .app.services.admin_notifications import (
+        enqueue_configured_social_deliveries,
+        openrouter_change_notification,
+    )
+except ImportError:  # Direct `python backend/main.py` execution.
+    from app.services.admin_notifications import (
+        enqueue_configured_social_deliveries,
+        openrouter_change_notification,
     )
 
 try:
@@ -1797,7 +1820,7 @@ def init_db() -> None:
     with db() as conn:
         ensure_migration_ledger(
             conn,
-            supported_version=LEGACY_BASELINE_MIGRATION.version,
+            supported_version=ADMIN_NOTIFICATIONS_MIGRATION.version,
         )
         prepare_core_schema_group(conn)
         ensure_outbox_schema(conn)
@@ -1819,6 +1842,7 @@ def init_db() -> None:
             ensure_public_user_code=ensure_public_user_code,
         )
         finalize_legacy_schema_baseline(conn, applied_at=now)
+        apply_admin_notifications_migration(conn, applied_at=now)
 
 
 PROVIDER_CODE_PREFIX = {"web_email": "WEB", "telegram": "TG", "max": "MAX"}
@@ -15117,6 +15141,8 @@ def _save_setting(key: str, value: dict[str, Any]) -> None:
 def _persist_openrouter_catalog_lifecycle(image_models: list[dict[str, Any]], video_models: list[dict[str, Any]]) -> dict[str, Any]:
     lifecycle = build_catalog_lifecycle(image_models, video_models, _saved_setting("openrouter_catalog_lifecycle"))
     _save_setting("openrouter_catalog_lifecycle", lifecycle)
+    with db() as conn:
+        openrouter_change_notification(conn, lifecycle)
     return lifecycle
 
 
@@ -15219,47 +15245,7 @@ OPENROUTER_RESOLUTION_FORMATS: list[dict[str, Any]] = [
 ]
 
 
-OPENROUTER_PRICE_CATALOG: dict[str, OpenRouterPriceModel] = {
-    "black-forest-labs/flux.2-klein-4b": OpenRouterPriceModel(id="black-forest-labs/flux.2-klein-4b", name="FLUX.2 Klein 4B", provider="BFL", pricing_type="mp", usd=0.014, min_tokens=1),
-    "black-forest-labs/flux.2-pro": OpenRouterPriceModel(id="black-forest-labs/flux.2-pro", name="FLUX.2 Pro", provider="BFL", pricing_type="mp", usd=0.03, min_tokens=2),
-    "black-forest-labs/flux.2-max": OpenRouterPriceModel(id="black-forest-labs/flux.2-max", name="FLUX.2 Max", provider="BFL", pricing_type="mp", usd=0.07, min_tokens=3),
-    "black-forest-labs/flux.2-flex": OpenRouterPriceModel(id="black-forest-labs/flux.2-flex", name="FLUX.2 Flex", provider="BFL", pricing_type="mp", usd=0.12, min_tokens=4),
-    "openai/gpt-image-1-mini": OpenRouterPriceModel(id="openai/gpt-image-1-mini", name="GPT Image 1 Mini", provider="OpenAI", pricing_type="token_estimate", usd=0.000008, min_tokens=1),
-    "openai/gpt-5-image-mini": OpenRouterPriceModel(id="openai/gpt-5-image-mini", name="GPT-5 Image Mini", provider="OpenAI", pricing_type="token_estimate", usd=0.000008, min_tokens=1),
-    "openai/gpt-image-1": OpenRouterPriceModel(id="openai/gpt-image-1", name="GPT Image 1", provider="OpenAI", pricing_type="token_estimate", usd=0.00004, min_tokens=2),
-    "openai/gpt-5-image": OpenRouterPriceModel(id="openai/gpt-5-image", name="GPT-5 Image", provider="OpenAI", pricing_type="token_estimate", usd=0.00004, min_tokens=2),
-    "openai/gpt-image-2": OpenRouterPriceModel(id="openai/gpt-image-2", name="GPT Image 2", provider="OpenAI", pricing_type="token_estimate", usd=0.00003, min_tokens=1),
-    "openai/gpt-5.4-image-2": OpenRouterPriceModel(id="openai/gpt-5.4-image-2", name="GPT-5.4 Image 2", provider="OpenAI", pricing_type="token_estimate", usd=0.00003, min_tokens=1),
-    "google/gemini-3.1-flash-lite-image": OpenRouterPriceModel(id="google/gemini-3.1-flash-lite-image", name="Nano Banana 2 Lite", provider="Google Vertex", pricing_type="token_estimate", usd=0.00003, min_tokens=1),
-    "google/gemini-3.1-flash-image": OpenRouterPriceModel(id="google/gemini-3.1-flash-image", name="Nano Banana 2", provider="Google Vertex", pricing_type="token_estimate", usd=0.00006, min_tokens=2),
-    "google/gemini-3.1-flash-image-preview": OpenRouterPriceModel(id="google/gemini-3.1-flash-image-preview", name="Nano Banana 2 Preview", provider="Google Vertex", pricing_type="token_estimate", usd=0.00006, min_tokens=2, source="market_estimate_2026-07-10"),
-    "google/gemini-3-pro-image": OpenRouterPriceModel(id="google/gemini-3-pro-image", name="Nano Banana Pro", provider="Google Vertex", pricing_type="token_estimate", usd=0.00012, min_tokens=4),
-    "google/gemini-3-pro-image-preview": OpenRouterPriceModel(id="google/gemini-3-pro-image-preview", name="Nano Banana Pro Preview", provider="Google Vertex", pricing_type="token_estimate", usd=0.00012, min_tokens=4, source="market_estimate_2026-07-10"),
-    "google/gemini-2.5-flash-image": OpenRouterPriceModel(id="google/gemini-2.5-flash-image", name="Gemini 2.5 Flash Image", provider="Google", pricing_type="token_estimate", usd=0.00006, min_tokens=2, source="market_estimate_2026-07-10"),
-    "google/gemini-2.5-flash-image-preview": OpenRouterPriceModel(id="google/gemini-2.5-flash-image-preview", name="Gemini 2.5 Flash Image Preview", provider="Google", pricing_type="token_estimate", usd=0.00006, min_tokens=2, source="market_estimate_2026-07-10"),
-    "microsoft/mai-image-2.5": OpenRouterPriceModel(id="microsoft/mai-image-2.5", name="MAI-Image-2.5", provider="Microsoft", pricing_type="token_estimate", usd=0.00006, min_tokens=2, source="market_estimate_2026-07-10"),
-    "x-ai/grok-imagine-image-quality": OpenRouterPriceModel(id="x-ai/grok-imagine-image-quality", name="Grok Imagine Image Quality", provider="xAI", pricing_type="image", usd=0.07, min_tokens=3, source="market_estimate_2026-07-10"),
-    "recraft/recraft-v4.1": OpenRouterPriceModel(id="recraft/recraft-v4.1", name="Recraft V4.1", provider="Recraft", pricing_type="image", usd=0.035, min_tokens=1),
-    "recraft/recraft-v4.1-utility": OpenRouterPriceModel(id="recraft/recraft-v4.1-utility", name="Recraft V4.1 Utility", provider="Recraft", pricing_type="image", usd=0.035, min_tokens=1),
-    "recraft/recraft-v4.1-pro": OpenRouterPriceModel(id="recraft/recraft-v4.1-pro", name="Recraft V4.1 Pro", provider="Recraft", pricing_type="image", usd=0.21, min_tokens=6),
-    "recraft/recraft-v4.1-utility-pro": OpenRouterPriceModel(id="recraft/recraft-v4.1-utility-pro", name="Recraft V4.1 Utility Pro", provider="Recraft", pricing_type="image", usd=0.21, min_tokens=6),
-    "recraft/recraft-v4.1-vector": OpenRouterPriceModel(id="recraft/recraft-v4.1-vector", name="Recraft V4.1 Vector", provider="Recraft", pricing_type="image", usd=0.08, min_tokens=3),
-    "recraft/recraft-v4.1-pro-vector": OpenRouterPriceModel(id="recraft/recraft-v4.1-pro-vector", name="Recraft V4.1 Pro Vector", provider="Recraft", pricing_type="image", usd=0.30, min_tokens=8),
-    "recraft/recraft-v4": OpenRouterPriceModel(id="recraft/recraft-v4", name="Recraft V4", provider="Recraft", pricing_type="image", usd=0.04, min_tokens=1),
-    "recraft/recraft-v4-pro": OpenRouterPriceModel(id="recraft/recraft-v4-pro", name="Recraft V4 Pro", provider="Recraft", pricing_type="image", usd=0.25, min_tokens=7),
-    "recraft/recraft-v4-vector": OpenRouterPriceModel(id="recraft/recraft-v4-vector", name="Recraft V4 Vector", provider="Recraft", pricing_type="image", usd=0.08, min_tokens=3),
-    "recraft/recraft-v4-pro-vector": OpenRouterPriceModel(id="recraft/recraft-v4-pro-vector", name="Recraft V4 Pro Vector", provider="Recraft", pricing_type="image", usd=0.30, min_tokens=8),
-    "recraft/recraft-v3": OpenRouterPriceModel(id="recraft/recraft-v3", name="Recraft V3", provider="Recraft", pricing_type="image", usd=0.04, min_tokens=1),
-    "sourceful/riverflow-v2-fast": OpenRouterPriceModel(id="sourceful/riverflow-v2-fast", name="Riverflow V2 Fast", provider="Sourceful", pricing_type="image", usd=0.04, min_tokens=1, source="market_estimate_2026-07-10"),
-    "sourceful/riverflow-v2-pro": OpenRouterPriceModel(id="sourceful/riverflow-v2-pro", name="Riverflow V2 Pro", provider="Sourceful", pricing_type="image", usd=0.13, min_tokens=3, source="market_estimate_2026-07-10"),
-    "sourceful/riverflow-v2.5-fast": OpenRouterPriceModel(id="sourceful/riverflow-v2.5-fast", name="Riverflow V2.5 Fast", provider="Sourceful", pricing_type="image", usd=0.019, min_tokens=1),
-    "sourceful/riverflow-v2.5-pro": OpenRouterPriceModel(id="sourceful/riverflow-v2.5-pro", name="Riverflow V2.5 Pro", provider="Sourceful", pricing_type="image", usd=0.13, min_tokens=3),
-    "sourceful/riverflow-v2-fast-preview": OpenRouterPriceModel(id="sourceful/riverflow-v2-fast-preview", name="Riverflow V2 Fast Preview", provider="Sourceful", pricing_type="image", usd=0.04, min_tokens=1, source="market_estimate_2026-07-10"),
-    "sourceful/riverflow-v2-standard-preview": OpenRouterPriceModel(id="sourceful/riverflow-v2-standard-preview", name="Riverflow V2 Standard Preview", provider="Sourceful", pricing_type="image", usd=0.08, min_tokens=2, source="market_estimate_2026-07-10"),
-    "sourceful/riverflow-v2-max-preview": OpenRouterPriceModel(id="sourceful/riverflow-v2-max-preview", name="Riverflow V2 Max Preview", provider="Sourceful", pricing_type="image", usd=0.13, min_tokens=3, source="market_estimate_2026-07-10"),
-    "bytedance-seed/seedream-4.5": OpenRouterPriceModel(id="bytedance-seed/seedream-4.5", name="Seedream 4.5", provider="ByteDance Seed", pricing_type="image", usd=0.04, min_tokens=1),
-    "openrouter/auto": OpenRouterPriceModel(id="openrouter/auto", name="Auto Router", provider="OpenRouter", pricing_type="image", usd=0.15, min_tokens=4, source="market_estimate_2026-07-10"),
-}
+OPENROUTER_PRICE_CATALOG: dict[str, OpenRouterPriceModel] = {spec["id"]: OpenRouterPriceModel(**spec) for spec in reviewed_image_price_specs()}
 
 
 def openrouter_effective_price_catalog() -> dict[str, OpenRouterPriceModel]:
@@ -16730,6 +16716,15 @@ async def admin_openrouter_status(request: Request) -> dict[str, Any]:
     return {"key": key_status, "usage": openrouter_usage_stats(), "config": get_openrouter_config(), "exchange": await fetch_usd_rub_rate()}
 
 
+app.include_router(create_admin_operations_router(AdminOperationsDependencies(
+    db=db,
+    require_admin=require_trusted_admin,
+    saved_setting=_saved_setting,
+    save_setting=_save_setting,
+    record_audit=record_audit_log,
+)))
+
+
 @app.get("/api/admin/openrouter/catalog/status-v2")
 async def admin_openrouter_catalog_status_v2(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
@@ -18186,6 +18181,9 @@ def _prepare_feed_video_publication(publication_id: str) -> None:
         if updated.rowcount != 1:
             for media_name in {assets.poster_name, assets.preview_name, assets.full_name}:
                 _delete_media_rel(media_name)
+        else:
+            with db() as conn:
+                enqueue_configured_social_deliveries(conn, publication_id)
     except Exception as exc:
         if assets is not None:
             for media_name in {assets.poster_name, assets.preview_name, assets.full_name}:
@@ -18621,6 +18619,8 @@ async def feed_publish(payload: dict[str, Any], request: Request) -> Any:
             )
         pub = conn.execute("SELECT * FROM feed_publications WHERE id = ?", (pub_id,)).fetchone()
         item = _feed_item_payload(conn, pub, user["internal_user_id"])
+        if publication_status == "published":
+            enqueue_configured_social_deliveries(conn, pub_id)
     return {"ok": True, "publication": item, "moderation": moderation_status}
 
 

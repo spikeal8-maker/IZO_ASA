@@ -34,7 +34,7 @@ static import closure (components, hooks, `/api/*` literals, CSS, tests).
 ## /admin, /admin/ → `frontend/src/AdminApp.tsx`
 
 - predicate: `isAdminRoute`
-- components (15): `frontend/src/AdminApp.tsx`, `frontend/src/adminAnalytics.tsx`, `frontend/src/adminApi.ts`, `frontend/src/adminBots.tsx`, `frontend/src/adminMail.tsx`, `frontend/src/adminModels.tsx`, `frontend/src/adminPayments.tsx`, `frontend/src/adminVoice.tsx`, `frontend/src/authV2.tsx`, `frontend/src/diag.tsx`, `frontend/src/diagMeta.ts`, `frontend/src/profileSupport.ts`, `frontend/src/releaseIdentity.ts`, `frontend/src/resolutionPolicy.ts`, `frontend/src/runtimeContracts.ts`
+- components (17): `frontend/src/AdminApp.tsx`, `frontend/src/adminAnalytics.tsx`, `frontend/src/adminApi.ts`, `frontend/src/adminBots.tsx`, `frontend/src/adminMail.tsx`, `frontend/src/adminModels.tsx`, `frontend/src/adminNotifications.tsx`, `frontend/src/adminPayments.tsx`, `frontend/src/adminSocial.tsx`, `frontend/src/adminVoice.tsx`, `frontend/src/authV2.tsx`, `frontend/src/diag.tsx`, `frontend/src/diagMeta.ts`, `frontend/src/profileSupport.ts`, `frontend/src/releaseIdentity.ts`, `frontend/src/resolutionPolicy.ts`, `frontend/src/runtimeContracts.ts`
 - hooks (7): useAuthV2, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 - api (2): `/api/admin/users/`, `/api/version`
 - css: `frontend/src/authV2.css`, `frontend/src/crmViewport.css`, `frontend/src/index.css`

@@ -15,6 +15,57 @@ from typing import Any, Awaitable, Callable, Iterable
 DAILY_REFRESH_SECONDS = 24 * 60 * 60
 
 
+def reviewed_image_price_specs() -> list[dict[str, Any]]:
+    """Operator-reviewed prices; these always win over live discovery data."""
+
+    rows = [
+        ("black-forest-labs/flux.2-klein-4b", "FLUX.2 Klein 4B", "BFL", "mp", .014, 1, "reviewed"),
+        ("black-forest-labs/flux.2-pro", "FLUX.2 Pro", "BFL", "mp", .03, 2, "reviewed"),
+        ("black-forest-labs/flux.2-max", "FLUX.2 Max", "BFL", "mp", .07, 3, "reviewed"),
+        ("black-forest-labs/flux.2-flex", "FLUX.2 Flex", "BFL", "mp", .12, 4, "reviewed"),
+        ("openai/gpt-image-1-mini", "GPT Image 1 Mini", "OpenAI", "token_estimate", .000008, 1, "reviewed"),
+        ("openai/gpt-5-image-mini", "GPT-5 Image Mini", "OpenAI", "token_estimate", .000008, 1, "reviewed"),
+        ("openai/gpt-image-1", "GPT Image 1", "OpenAI", "token_estimate", .00004, 2, "reviewed"),
+        ("openai/gpt-5-image", "GPT-5 Image", "OpenAI", "token_estimate", .00004, 2, "reviewed"),
+        ("openai/gpt-image-2", "GPT Image 2", "OpenAI", "token_estimate", .00003, 1, "reviewed"),
+        ("openai/gpt-5.4-image-2", "GPT-5.4 Image 2", "OpenAI", "token_estimate", .00003, 1, "reviewed"),
+        ("google/gemini-3.1-flash-lite-image", "Nano Banana 2 Lite", "Google Vertex", "token_estimate", .00003, 1, "reviewed"),
+        ("google/gemini-3.1-flash-image", "Nano Banana 2", "Google Vertex", "token_estimate", .00006, 2, "reviewed"),
+        ("google/gemini-3.1-flash-image-preview", "Nano Banana 2 Preview", "Google Vertex", "token_estimate", .00006, 2, "market_estimate_2026-07-10"),
+        ("google/gemini-3-pro-image", "Nano Banana Pro", "Google Vertex", "token_estimate", .00012, 4, "reviewed"),
+        ("google/gemini-3-pro-image-preview", "Nano Banana Pro Preview", "Google Vertex", "token_estimate", .00012, 4, "market_estimate_2026-07-10"),
+        ("google/gemini-2.5-flash-image", "Gemini 2.5 Flash Image", "Google", "token_estimate", .00006, 2, "market_estimate_2026-07-10"),
+        ("google/gemini-2.5-flash-image-preview", "Gemini 2.5 Flash Image Preview", "Google", "token_estimate", .00006, 2, "market_estimate_2026-07-10"),
+        ("microsoft/mai-image-2.5", "MAI-Image-2.5", "Microsoft", "token_estimate", .00006, 2, "market_estimate_2026-07-10"),
+        ("x-ai/grok-imagine-image-quality", "Grok Imagine Image Quality", "xAI", "image", .07, 3, "market_estimate_2026-07-10"),
+        ("recraft/recraft-v4.1", "Recraft V4.1", "Recraft", "image", .035, 1, "reviewed"),
+        ("recraft/recraft-v4.1-utility", "Recraft V4.1 Utility", "Recraft", "image", .035, 1, "reviewed"),
+        ("recraft/recraft-v4.1-pro", "Recraft V4.1 Pro", "Recraft", "image", .21, 6, "reviewed"),
+        ("recraft/recraft-v4.1-utility-pro", "Recraft V4.1 Utility Pro", "Recraft", "image", .21, 6, "reviewed"),
+        ("recraft/recraft-v4.1-vector", "Recraft V4.1 Vector", "Recraft", "image", .08, 3, "reviewed"),
+        ("recraft/recraft-v4.1-pro-vector", "Recraft V4.1 Pro Vector", "Recraft", "image", .30, 8, "reviewed"),
+        ("recraft/recraft-v4", "Recraft V4", "Recraft", "image", .04, 1, "reviewed"),
+        ("recraft/recraft-v4-pro", "Recraft V4 Pro", "Recraft", "image", .25, 7, "reviewed"),
+        ("recraft/recraft-v4-vector", "Recraft V4 Vector", "Recraft", "image", .08, 3, "reviewed"),
+        ("recraft/recraft-v4-pro-vector", "Recraft V4 Pro Vector", "Recraft", "image", .30, 8, "reviewed"),
+        ("recraft/recraft-v3", "Recraft V3", "Recraft", "image", .04, 1, "reviewed"),
+        ("sourceful/riverflow-v2-fast", "Riverflow V2 Fast", "Sourceful", "image", .04, 1, "market_estimate_2026-07-10"),
+        ("sourceful/riverflow-v2-pro", "Riverflow V2 Pro", "Sourceful", "image", .13, 3, "market_estimate_2026-07-10"),
+        ("sourceful/riverflow-v2.5-fast", "Riverflow V2.5 Fast", "Sourceful", "image", .019, 1, "reviewed"),
+        ("sourceful/riverflow-v2.5-pro", "Riverflow V2.5 Pro", "Sourceful", "image", .13, 3, "reviewed"),
+        ("sourceful/riverflow-v2-fast-preview", "Riverflow V2 Fast Preview", "Sourceful", "image", .04, 1, "market_estimate_2026-07-10"),
+        ("sourceful/riverflow-v2-standard-preview", "Riverflow V2 Standard Preview", "Sourceful", "image", .08, 2, "market_estimate_2026-07-10"),
+        ("sourceful/riverflow-v2-max-preview", "Riverflow V2 Max Preview", "Sourceful", "image", .13, 3, "market_estimate_2026-07-10"),
+        ("bytedance-seed/seedream-4.5", "Seedream 4.5", "ByteDance Seed", "image", .04, 1, "reviewed"),
+        ("openrouter/auto", "Auto Router", "OpenRouter", "image", .15, 4, "market_estimate_2026-07-10"),
+    ]
+    return [
+        {"id": row[0], "name": row[1], "provider": row[2], "pricing_type": row[3],
+         "usd": row[4], "min_tokens": row[5], "source": row[6]}
+        for row in rows
+    ]
+
+
 class DailyCatalogWorker:
     """Single-owner hourly wake-up for a durable once-per-day refresh."""
 
