@@ -66,14 +66,18 @@ $gitExe = $gitCandidates | Select-Object -First 1
 if ($SkipCommits) {
     Write-Host "SKIP git commit checks"
 } elseif ($gitExe) {
-    $comfyCommit = (& $gitExe -C $comfy rev-parse HEAD 2>$null).Trim()
+    $comfyCommitOutput = @(& $gitExe -C $comfy rev-parse HEAD 2>$null)
+    $comfyCommit = [string]($comfyCommitOutput | Select-Object -First 1)
+    $comfyCommit = $comfyCommit.Trim()
     Add-Check ($comfyCommit -eq [string]$manifest.runtime.comfyui_commit) "ComfyUI commit"
     foreach ($node in $manifest.custom_nodes) {
         $nodePath = Join-Path $comfy ("custom_nodes\" + [string]$node.directory)
         $exists = Test-Path -LiteralPath $nodePath -PathType Container
         Add-Check $exists "custom node $($node.directory) exists"
         if (-not $exists) { continue }
-        $actualCommit = (& $gitExe -C $nodePath rev-parse HEAD 2>$null).Trim()
+        $actualCommitOutput = @(& $gitExe -C $nodePath rev-parse HEAD 2>$null)
+        $actualCommit = [string]($actualCommitOutput | Select-Object -First 1)
+        $actualCommit = $actualCommit.Trim()
         Add-Check ($actualCommit -eq [string]$node.commit) "custom node $($node.directory) commit"
     }
 } else {

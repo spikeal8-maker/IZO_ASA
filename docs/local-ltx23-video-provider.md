@@ -31,12 +31,25 @@ them only with a measured GPU benchmark and a corresponding test update.
 ```text
 LOCAL_LTX_ENABLED=true
 LOCAL_LTX_WORKFLOW_API_PATH=D:\path\to\ltx23_t2v_api.json
-COMFYUI_BASE_URL=http://127.0.0.1:8188
+LOCAL_LTX_COMFYUI_BASE_URL=http://127.0.0.1:8190
 ```
 
 `LOCAL_LTX_ENABLED` is false by default. The workflow must be exported from
 ComfyUI in API format and stored on the server. The browser never sends a
 workflow or model filename.
+
+Start the dedicated video runtime with
+`ops/ltx23/start-local-ltx-comfyui.ps1`. It uses low-VRAM weight offloading,
+reserves 1 GB for VAE decoding, and loads only the four custom-node packages
+required by LTX. Do not submit this workflow to an image runtime started with
+`--gpu-only`: diffusion fits in 24 GB, but final VAE decoding can exhaust the
+remaining VRAM.
+
+After a terminal local-video state, the backend calls ComfyUI `/free`. The
+current Windows GGUF runtime may terminate while unloading native model state;
+the launcher therefore supervises the dedicated process and restarts it after
+two seconds. This hard reset releases VRAM without interrupting the separate
+image queue on port 8188.
 
 The API workflow must contain at least two `CLIPTextEncode` nodes, exactly one
 `EmptyLTXVLatentVideo`, an `LTXVScheduler` when steps are configurable, and
@@ -49,24 +62,24 @@ satisfies `(frames - 1) % 8 == 0`.
 
 ## Test-machine evidence
 
-The inspected ComfyUI root is:
+The operational ComfyUI root is:
 
 ```text
-C:\LLM\ComfyUI_windows_portable_nvidia_cu126\ComfyUI_windows_portable
+F:\AI\ComfyUI\ComfyUI_windows_portable\ComfyUI
 ```
 
 It contains ComfyUI-GGUF, ComfyUI-LTXVideo, ComfyUI-VideoHelperSuite, Q3/Q4
 LTX 2.3 weights, Gemma 3 12B, projection, video VAE and upscalers. Existing UI
 workflows are not automatically trusted as API workflows.
 
-On 2026-07-24 this computer failed ComfyUI startup with:
+On 2026-07-24 the Q3 2-second profile completed locally in the dedicated
+low-VRAM runtime and produced an 832x480, 24 fps H.264 MP4. The same workflow
+submitted to the image runtime with `--gpu-only` completed diffusion but failed
+during VAE decoding because the model retained 23.17 GiB of VRAM.
 
-```text
-RuntimeError: No CUDA GPUs are available
-```
-
-Code and fake-provider tests can run here, but real LTX generation cannot be
-called operationally verified until Windows and ComfyUI see the NVIDIA GPU.
+The video runtime must not load `ComfyUI-AutoFreeMemory20s`. The launcher uses
+`--disable-all-custom-nodes` plus a four-package whitelist, then supervises the
+process because native GGUF unloading can terminate Python after `/free`.
 
 Repository evidence on 2026-07-24:
 

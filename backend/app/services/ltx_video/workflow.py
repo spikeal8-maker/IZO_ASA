@@ -13,6 +13,12 @@ class LtxWorkflowError(RuntimeError):
     pass
 
 
+_UNET_BY_QUANTIZATION = {
+    "Q3_K_M": "ltx-2.3-22b-distilled-1.1-Q3_K_M.gguf",
+    "Q4_K_M": "ltx-2.3-22b-distilled-1.1-Q4_K_M.gguf",
+}
+
+
 def _api_prompt(document: dict[str, Any]) -> dict[str, Any]:
     if document and all(
         isinstance(value, dict) and "class_type" in value for value in document.values()
@@ -45,6 +51,17 @@ def build_ltx_prompt(
     except (OSError, json.JSONDecodeError) as exc:
         raise LtxWorkflowError(f"Cannot read LTX workflow: {exc}") from exc
     prompt = copy.deepcopy(_api_prompt(document))
+
+    unet_nodes = _nodes(prompt, "UnetLoaderGGUF")
+    if len(unet_nodes) != 1:
+        raise LtxWorkflowError("LTX workflow must contain exactly one GGUF model loader")
+    try:
+        unet_name = _UNET_BY_QUANTIZATION[profile.quantization]
+    except KeyError as exc:
+        raise LtxWorkflowError(
+            f"Unsupported LTX quantization: {profile.quantization}"
+        ) from exc
+    unet_nodes[0].setdefault("inputs", {})["unet_name"] = unet_name
 
     text_nodes = _nodes(prompt, "CLIPTextEncode")
     if len(text_nodes) < 2:

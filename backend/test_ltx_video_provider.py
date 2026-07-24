@@ -38,6 +38,10 @@ def test_local_billing_uses_fixed_daily_token_quote():
 
 def test_workflow_is_server_owned_and_only_patches_allowed_inputs(tmp_path):
     workflow = {
+        "0": {
+            "class_type": "UnetLoaderGGUF",
+            "inputs": {"unet_name": "unsafe.gguf"},
+        },
         "1": {"class_type": "CLIPTextEncode", "inputs": {"text": "positive text is longer"}},
         "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "bad"}},
         "3": {"class_type": "INTConstant", "inputs": {"value": 49}},
@@ -65,6 +69,7 @@ def test_workflow_is_server_owned_and_only_patches_allowed_inputs(tmp_path):
         filename_prefix="izo/ltx/job",
     )
 
+    assert prompt["0"]["inputs"]["unet_name"] == "ltx-2.3-22b-distilled-1.1-Q3_K_M.gguf"
     assert prompt["1"]["inputs"]["text"] == "новая сцена"
     assert prompt["2"]["inputs"]["text"] == "bad"
     assert prompt["3"]["inputs"]["value"] == 49
@@ -74,6 +79,19 @@ def test_workflow_is_server_owned_and_only_patches_allowed_inputs(tmp_path):
     assert prompt["7"]["inputs"]["filename_prefix"] == "izo/ltx/job"
     assert prompt["7"]["inputs"]["format"] == "video/h264-mp4"
     assert prompt["7"]["inputs"]["frame_rate"] == 24
+
+    standard = resolve_local_ltx_profile("local/ltx-2.3-standard-q4")
+    assert standard is not None
+    q4_prompt = build_ltx_prompt(
+        path,
+        profile=standard,
+        text="новая сцена",
+        duration=4,
+        filename_prefix="izo/ltx/job-q4",
+    )
+    assert q4_prompt["0"]["inputs"]["unet_name"] == "ltx-2.3-22b-distilled-1.1-Q4_K_M.gguf"
+    assert q4_prompt["3"]["inputs"]["value"] == 97
+    assert q4_prompt["5"]["inputs"]["steps"] == 12
 
 
 def test_comfy_client_requires_a_gpu_for_readiness(monkeypatch):
@@ -90,3 +108,22 @@ def test_comfy_client_requires_a_gpu_for_readiness(monkeypatch):
     )
     status = asyncio.run(ComfyLtxClient("http://comfy.test").readiness())
     assert status["ready"] is False
+
+
+def test_comfy_client_releases_models_and_vram(monkeypatch):
+    original_client = httpx.AsyncClient
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/free"
+        assert json.loads(request.content) == {
+            "unload_models": True,
+            "free_memory": True,
+        }
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **_kwargs: original_client(transport=httpx.MockTransport(handler)),
+    )
+    asyncio.run(ComfyLtxClient("http://comfy.test").free_memory())

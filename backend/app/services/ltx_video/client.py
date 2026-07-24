@@ -71,6 +71,17 @@ class ComfyLtxClient:
             return {"status": "completed", "progress": 100, "output": output}
         return {"status": "in_progress", "progress": 55}
 
+    async def free_memory(self) -> None:
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                response = await client.post(
+                    f"{self.base_url.rstrip('/')}/free",
+                    json={"unload_models": True, "free_memory": True},
+                )
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise LtxComfyError(f"Cannot release LTX GPU memory: {exc}") from exc
+
     def view_url(self, output: dict[str, str]) -> str:
         filename = quote(output["filename"], safe="")
         subfolder = quote(output.get("subfolder") or "", safe="")

@@ -224,6 +224,10 @@ def test_local_ltx_uses_existing_video_api_and_daily_tokens(
     tmp_path: Path,
 ):
     workflow = {
+        "0": {
+            "class_type": "UnetLoaderGGUF",
+            "inputs": {"unet_name": "ltx-2.3-22b-distilled-1.1-Q3_K_M.gguf"},
+        },
         "1": {"class_type": "CLIPTextEncode", "inputs": {"text": "positive prompt"}},
         "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "bad"}},
         "3": {"class_type": "INTConstant", "inputs": {"value": 49}},

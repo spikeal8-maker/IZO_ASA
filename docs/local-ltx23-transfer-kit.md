@@ -111,7 +111,7 @@ Use:
 ```text
 LOCAL_LTX_ENABLED=true
 LOCAL_LTX_WORKFLOW_API_PATH=<repo>\backend\workflows\ltx23_t2v_api.json
-COMFYUI_BASE_URL=http://127.0.0.1:8188
+LOCAL_LTX_COMFYUI_BASE_URL=http://127.0.0.1:8190
 ```
 
 Do not enable I2V, generated audio, upscaling or parallel LTX jobs in this

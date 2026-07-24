@@ -78,6 +78,8 @@ def _run(tmp_path: Path, *, stale: bool = False) -> subprocess.CompletedProcess[
     command = [
         POWERSHELL,
         "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
         "-File",
         str(SCRIPT),
         "-ComfyRoot",
