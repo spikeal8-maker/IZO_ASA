@@ -1163,14 +1163,14 @@
       },
       {
         "input": "onenode_user",
-        "line": 1621,
+        "line": 1617,
         "operation": "cookie_read",
         "source": "backend/main.py",
         "symbol": "request_user_id"
       },
       {
         "input": "x-onenode-user",
-        "line": 1621,
+        "line": 1617,
         "operation": "header_read",
         "source": "backend/main.py",
         "symbol": "request_user_id"
@@ -1383,7 +1383,7 @@
       {
         "auth": "public/optional/review",
         "handler": "home_page_shell",
-        "line": 985,
+        "line": 981,
         "method": "GET",
         "path": "/",
         "process_role": "all-dev-current-monolith"
@@ -3111,7 +3111,7 @@
       {
         "auth": "public/optional/review",
         "handler": "favicon",
-        "line": 974,
+        "line": 970,
         "method": "GET",
         "path": "/favicon.svg",
         "process_role": "all-dev-current-monolith"
@@ -3119,7 +3119,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_page_shell",
-        "line": 1006,
+        "line": 1002,
         "method": "GET",
         "path": "/feed",
         "process_role": "all-dev-current-monolith"
@@ -3127,7 +3127,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_page_shell_slash",
-        "line": 1017,
+        "line": 1013,
         "method": "GET",
         "path": "/feed/",
         "process_role": "all-dev-current-monolith"
@@ -3135,7 +3135,7 @@
       {
         "auth": "public/optional/review",
         "handler": "gallery_page_shell",
-        "line": 990,
+        "line": 986,
         "method": "GET",
         "path": "/gallery",
         "process_role": "all-dev-current-monolith"
@@ -3143,7 +3143,7 @@
       {
         "auth": "public/optional/review",
         "handler": "gallery_page_shell_slash",
-        "line": 1001,
+        "line": 997,
         "method": "GET",
         "path": "/gallery/",
         "process_role": "all-dev-current-monolith"
@@ -3167,7 +3167,7 @@
       {
         "auth": "public/optional/review",
         "handler": "notifications",
-        "line": 71,
+        "line": 77,
         "method": "GET",
         "path": "/notifications-v2",
         "process_role": "all-dev-current-monolith"
@@ -3175,7 +3175,7 @@
       {
         "auth": "public/optional/review",
         "handler": "notifications_read",
-        "line": 79,
+        "line": 85,
         "method": "POST",
         "path": "/notifications/read-v2",
         "process_role": "all-dev-current-monolith"
@@ -3183,7 +3183,7 @@
       {
         "auth": "public/optional/review",
         "handler": "notification_settings",
-        "line": 95,
+        "line": 101,
         "method": "GET",
         "path": "/notifications/settings-v2",
         "process_role": "all-dev-current-monolith"
@@ -3191,7 +3191,7 @@
       {
         "auth": "public/optional/review",
         "handler": "save_notification_settings",
-        "line": 120,
+        "line": 126,
         "method": "PUT",
         "path": "/notifications/settings-v2",
         "process_role": "all-dev-current-monolith"
@@ -3199,7 +3199,7 @@
       {
         "auth": "public/optional/review",
         "handler": "social",
-        "line": 156,
+        "line": 162,
         "method": "GET",
         "path": "/social-v2",
         "process_role": "all-dev-current-monolith"
@@ -3207,7 +3207,7 @@
       {
         "auth": "public/optional/review",
         "handler": "save_social",
-        "line": 193,
+        "line": 213,
         "method": "PUT",
         "path": "/social-v2",
         "process_role": "all-dev-current-monolith"
@@ -3215,7 +3215,7 @@
       {
         "auth": "public/optional/review",
         "handler": "check_social_credentials",
-        "line": 279,
+        "line": 335,
         "method": "POST",
         "path": "/social/{network}/check-v2",
         "process_role": "all-dev-current-monolith"
@@ -3223,7 +3223,7 @@
       {
         "auth": "public/optional/review",
         "handler": "delete_social_credentials",
-        "line": 257,
+        "line": 313,
         "method": "DELETE",
         "path": "/social/{network}/credentials-v2",
         "process_role": "all-dev-current-monolith"
@@ -3231,7 +3231,7 @@
       {
         "auth": "public/optional/review",
         "handler": "save_social_credentials",
-        "line": 223,
+        "line": 279,
         "method": "PUT",
         "path": "/social/{network}/credentials-v2",
         "process_role": "all-dev-current-monolith"
@@ -4267,7 +4267,7 @@
         "occurrences": [
           {
             "enclosing_symbol": "schedule_avatar_cache",
-            "line": 4982
+            "line": 4978
           }
         ],
         "owner": "backend.main",
@@ -4285,7 +4285,7 @@
         "occurrences": [
           {
             "enclosing_symbol": "schedule_openrouter_catalog_refresh",
-            "line": 6210
+            "line": 6208
           }
         ],
         "owner": "backend.main",
@@ -4333,13 +4333,31 @@
         "watchdog": "single task handle, bounded loop, last success/error timestamps exposed to trusted admin"
       },
       {
+        "call_source": "backend/app/services/social_delivery.py",
+        "id": "social-telegram-delivery",
+        "kind": "worker",
+        "occurrences": [
+          {
+            "enclosing_symbol": "start",
+            "line": 322
+          }
+        ],
+        "owner": "backend.app.services.social_delivery.SocialDeliveryWorker",
+        "persistence": "SQLite social_delivery_outbox with lease, retry and terminal failed state",
+        "recovery": "expired Telegram processing leases and pending/retry rows are reclaimed after restart",
+        "role": "all-dev-current-monolith",
+        "startup": "main.startup -> SocialDeliveryWorker.start",
+        "target": "run",
+        "watchdog": "single task handle, bounded loop, last success/error timestamps exposed to trusted admin"
+      },
+      {
         "call_source": "backend/main.py",
         "id": "gallery-storage-optimization",
         "kind": "ephemeral",
         "occurrences": [
           {
             "enclosing_symbol": "startup",
-            "line": 7769
+            "line": 7768
           }
         ],
         "owner": "backend.main",
@@ -4377,8 +4395,8 @@
         "watchdog": "none"
       }
     ],
-    "registered_count": 9,
-    "worker_count": 5
+    "registered_count": 10,
+    "worker_count": 6
   },
   "validation": {
     "error_count": 0,

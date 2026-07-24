@@ -669,3 +669,40 @@ Evidence: focused backend `56 passed`; lease/idempotency `5/5`;
 `VERIFY_OK mode=CI`, full suite `1700 passed`; frontend lint/build,
 release identity, origin isolation и studio resilience green; generated
 backend/frontend maps и architecture inventory актуальны.
+
+## SOCIAL-DELIVERY-TELEGRAM-001 — доставка публикаций ленты в Telegram
+
+Статус 2026-07-24: `CODE COMPLETE · VERIFIED (CI) · NOT DEPLOYED`.
+
+Scope:
+
+- single-owner worker обрабатывает только Telegram-задания существующего
+  `social_delivery_outbox`; VK/Instagram/OK остаются нетронутыми;
+- SQLite claim выполняется через `BEGIN IMMEDIATE`, processing lease
+  восстанавливается после рестарта, ошибки получают exponential retry и
+  terminal `failed` после пяти попыток;
+- перед отправкой повторно проверяются `published`, `approved` и
+  `media_ready_at`, поэтому скрытая или ещё не готовая работа наружу не уйдёт;
+- Telegram получает публичный HTTPS URL отдельного feed derivative через
+  `sendPhoto` или `sendVideo`, а не приватный оригинал пользователя;
+- постановка и доставка требуют одновременно `masterEnabled`, `autoPublish`,
+  enabled/verified Telegram, сохранённый DPAPI token и проверенный target ID;
+- изменение target ID или application key сбрасывает verification;
+- trusted-admin UI показывает общий выключатель, operational state, worker
+  health и durable queue counts;
+- автоматические тесты используют только fake Telegram transport.
+
+Acceptance:
+
+- focused claim/lease/retry/provider/admin tests проходят пять раз;
+- frontend lint/build и архитектурные карты зелёные;
+- `backend/main.py` не превышает ratcheted budget `19 511`;
+- один `tools/verify.ps1 -Mode CI` зелёный;
+- commit/push выполнены без deploy/restart и без реальной публикации.
+
+Следующие отдельные пакеты: `SOCIAL-DELIVERY-VK-001`, затем
+operator-controlled Telegram test и явный production deploy.
+
+Evidence: focused backend/admin `17 passed`; claim/lease/retry `5/5`;
+frontend lint/build green; architecture inventory обновлён до шести
+single-owner workers; `VERIFY_OK mode=CI`, full suite `1708 passed`.

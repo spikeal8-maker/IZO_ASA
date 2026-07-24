@@ -152,3 +152,17 @@
   `VERIFY_OK mode=CI`, `1700 passed`; frontend lint/build, release identity,
   origin isolation и studio resilience green; карты обновлены.
 - Production release и origin/main не изменены; deploy/restart не выполнялись.
+
+## Активный пакет Telegram-доставки публикаций
+
+- `SOCIAL-DELIVERY-TELEGRAM-001` —
+  `CODE COMPLETE · VERIFIED (CI) · NOT DEPLOYED`.
+- Добавлены durable claim/lease/retry, проверка публичного состояния
+  публикации и fake-tested `sendPhoto`/`sendVideo` по публичному HTTPS URL.
+- В `/admin/social` появился общий выключатель, operational state и
+  состояние single-owner worker.
+- Worker обрабатывает только Telegram. VK/Instagram/OK остаются выключенными
+  до отдельных provider-пакетов.
+- Реальные сообщения не отправлялись; production stack не перезапускался.
+- Evidence: focused backend/admin `17 passed`, claim/lease/retry `5/5`,
+  frontend lint/build green, `VERIFY_OK mode=CI`, `1708 passed`.

@@ -545,17 +545,13 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.services.admin_notification_delivery import AdminNotificationDeliveryWorker, build_admin_delivery_transports
-    from .app.services.admin_notifications import (
-        enqueue_configured_social_deliveries,
-        openrouter_change_notification,
-    )
+    from .app.services.social_delivery import SocialDeliveryWorker, build_telegram_social_sender
+    from .app.services.admin_notifications import enqueue_configured_social_deliveries, openrouter_change_notification
     from .app.integrations.social_providers import probe_social_provider
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.admin_notification_delivery import AdminNotificationDeliveryWorker, build_admin_delivery_transports
-    from app.services.admin_notifications import (
-        enqueue_configured_social_deliveries,
-        openrouter_change_notification,
-    )
+    from app.services.social_delivery import SocialDeliveryWorker, build_telegram_social_sender
+    from app.services.admin_notifications import enqueue_configured_social_deliveries, openrouter_change_notification
     from app.integrations.social_providers import probe_social_provider
 
 try:
@@ -5898,6 +5894,8 @@ def send_transactional_email(destination: str, subject: str, html: str) -> str:
 
 ADMIN_NOTIFICATION_DELIVERY_WORKER = AdminNotificationDeliveryWorker()
 send_admin_telegram_notification, send_admin_email_notification = build_admin_delivery_transports(telegram_api=telegram_api, send_transactional_email=send_transactional_email, html_escape=html_escape)
+SOCIAL_DELIVERY_WORKER = SocialDeliveryWorker()
+send_social_telegram_publication = build_telegram_social_sender(telegram_api=request_telegram_bot_api, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_telegram_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
 def yookassa_secret_key() -> str:
     return os.getenv("YOOKASSA_SECRET_KEY", "").strip() or OPENROUTER_SECRET_STORE.get(YOOKASSA_SECRET_NAME)
 
@@ -7732,6 +7730,7 @@ async def startup() -> None:
         print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
     start_openrouter_catalog_daily_worker()
     ADMIN_NOTIFICATION_DELIVERY_WORKER.start(connection_factory=db, send_telegram=send_admin_telegram_notification, send_email=send_admin_email_notification)
+    SOCIAL_DELIVERY_WORKER.start(connection_factory=db, send_telegram=send_social_telegram_publication)
     enforce_db_guard_after_migrations()
     generation_recovery_report = reconcile_stale_generation_state()
     if generation_recovery_report["checked"]:
@@ -7783,6 +7782,7 @@ async def startup() -> None:
 async def shutdown() -> None:
     await stop_openrouter_catalog_daily_worker()
     await ADMIN_NOTIFICATION_DELIVERY_WORKER.stop()
+    await SOCIAL_DELIVERY_WORKER.stop()
     await stop_feed_video_publication_worker()
     await stop_bot_workers(BOT_RUNTIME)
 
@@ -16715,7 +16715,7 @@ app.include_router(create_admin_operations_router(AdminOperationsDependencies(
     db, require_trusted_admin, _saved_setting, _save_setting, record_audit_log,
     OPENROUTER_SECRET_STORE.exists, OPENROUTER_SECRET_STORE.get, _save_bot_secret,
     OPENROUTER_SECRET_STORE.delete, probe_social_provider,
-    ADMIN_NOTIFICATION_DELIVERY_WORKER.status,
+    ADMIN_NOTIFICATION_DELIVERY_WORKER.status, SOCIAL_DELIVERY_WORKER.status,
 )))
 
 

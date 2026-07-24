@@ -62,6 +62,12 @@ class AdminOperationsDependencies:
         "lastErrorAt": None,
         "lastError": None,
     }
+    social_worker_status: Callable[[], dict[str, Any]] = lambda: {
+        "running": False,
+        "lastSuccessAt": None,
+        "lastErrorAt": None,
+        "lastError": None,
+    }
 
 
 def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRouter:
@@ -166,6 +172,15 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
             name: deps.secret_exists(f"social_{name}_access_token")
             for name in ("telegram", "vk", "instagram", "ok")
         }
+        telegram = networks.get("telegram") or {}
+        operational = bool(
+            saved.get("masterEnabled")
+            and saved.get("autoPublish")
+            and telegram.get("enabled")
+            and telegram.get("verified")
+            and configured["telegram"]
+            and str(telegram.get("targetId") or "").strip()
+        )
         return {
             "ok": True,
             "settings": {
@@ -185,23 +200,58 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
                 },
             },
             "queue": [dict(row) for row in rows],
-            "operational": False,
-            "message": "Внешняя доставка выключена до подключения провайдеров.",
+            "worker": deps.social_worker_status(),
+            "operational": operational,
+            "message": (
+                "Telegram-автопубликация включена."
+                if operational
+                else "Автопубликация выключена или Telegram не готов."
+            ),
         }
 
     @router.put("/social-v2")
     async def save_social(req: SettingsRequest, request: Request) -> dict[str, Any]:
         actor = deps.require_admin(request)
         source = req.settings.get("networks") if isinstance(req.settings.get("networks"), dict) else {}
+        master_enabled = bool(req.settings.get("masterEnabled", False))
+        telegram_source = source.get("telegram") or {}
+        previous = deps.saved_setting("social_syndication")
+        previous_networks = (
+            previous.get("networks")
+            if isinstance(previous.get("networks"), dict)
+            else {}
+        )
+        telegram_previous = previous_networks.get("telegram") or {}
+        telegram_target = str(telegram_source.get("targetId") or "").strip()
+        if master_enabled and not (
+            bool(telegram_source.get("enabled"))
+            and bool(telegram_previous.get("verified"))
+            and deps.secret_exists("social_telegram_access_token")
+            and telegram_target
+            and telegram_target
+            == str(telegram_previous.get("targetId") or "").strip()
+        ):
+            raise HTTPException(
+                400,
+                "Для общего включения сначала проверьте Telegram, "
+                "укажите получателя и включите сеть.",
+            )
         settings = {
-            "masterEnabled": False,
+            "masterEnabled": master_enabled,
             "autoPublish": bool(req.settings.get("autoPublish", False)),
             "networks": {
                 name: {
-                    **(deps.saved_setting("social_syndication").get("networks", {}).get(name, {})),
+                    **(previous_networks.get(name, {})),
                     "enabled": bool((source.get(name) or {}).get("enabled", False)),
                     "targetId": str((source.get(name) or {}).get("targetId") or ""),
                     "applicationKey": str((source.get(name) or {}).get("applicationKey") or ""),
+                    "verified": bool(
+                        (previous_networks.get(name) or {}).get("verified")
+                        and str((source.get(name) or {}).get("targetId") or "")
+                        == str((previous_networks.get(name) or {}).get("targetId") or "")
+                        and str((source.get(name) or {}).get("applicationKey") or "")
+                        == str((previous_networks.get(name) or {}).get("applicationKey") or "")
+                    ),
                 }
                 for name in ("telegram", "vk", "instagram", "ok")
             },
@@ -215,8 +265,14 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
                 after=settings, request=request,
             )
         return {
-            "ok": True, "settings": settings, "operational": False,
-            "message": "Настройки сохранены. Публикация включается после проверки доступов.",
+            "ok": True,
+            "settings": settings,
+            "operational": master_enabled and settings["autoPublish"],
+            "message": (
+                "Telegram-автопубликация включена."
+                if master_enabled and settings["autoPublish"]
+                else "Настройки сохранены, внешняя отправка выключена."
+            ),
         }
 
     @router.put("/social/{network}/credentials-v2")

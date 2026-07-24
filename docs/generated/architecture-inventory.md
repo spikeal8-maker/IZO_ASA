@@ -6,7 +6,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 ## Summary
 
 - Routes: 232
-- Registered workers: 5
+- Registered workers: 6
 - Registered ephemeral tasks: 4
 - SQLite tables: 55
 - SQLite indexes: 87
@@ -37,6 +37,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | openrouter-catalog-refresh | ephemeral | backend.main | process cache | later request may retry | single task handle |
 | openrouter-catalog-daily | worker | backend.app.integrations.openrouter_catalog.DailyCatalogWorker | SQLite admin_settings openrouter_catalog_lifecycle snapshot | durable refreshedAt prevents duplicate refresh after restart | hourly wake-up, single task handle, lastError in catalog state |
 | admin-notification-delivery | worker | backend.app.services.admin_notification_delivery.AdminNotificationDeliveryWorker | SQLite admin_notification_delivery_outbox with lease, retry and terminal failed state | expired processing leases and pending/retry rows are reclaimed after restart | single task handle, bounded loop, last success/error timestamps exposed to trusted admin |
+| social-telegram-delivery | worker | backend.app.services.social_delivery.SocialDeliveryWorker | SQLite social_delivery_outbox with lease, retry and terminal failed state | expired Telegram processing leases and pending/retry rows are reclaimed after restart | single task handle, bounded loop, last success/error timestamps exposed to trusted admin |
 | gallery-storage-optimization | ephemeral | backend.main | SQLite and media files | next startup may retry | missing |
 | runtime-alert | ephemeral | backend.main | external webhook only | none | none |
 
