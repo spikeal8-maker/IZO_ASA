@@ -78,6 +78,11 @@ Repository evidence on 2026-07-24:
 
 ## Repeatable validation
 
+The complete cross-machine manifest, checksum checker, pinned custom-node
+commits and API-workflow export procedure are in
+[local-ltx23-transfer-kit.md](local-ltx23-transfer-kit.md). Run that preflight
+before enabling this provider on another computer.
+
 1. Confirm `nvidia-smi` sees the intended GPU.
 2. Start ComfyUI and verify `/system_stats` reports a non-CPU device.
 3. Export the selected Q3 workflow in API format to the configured path.

@@ -28,6 +28,21 @@
   repository Quick gate blocked только runtime-listener contract тестового Vite
   на 5173 против production Caddy.
 
+## Пакет `VIDEO-LTX23-LOCAL-002`
+
+Статус: **CODE COMPLETE, OPERATIONAL VERIFICATION BLOCKED**.
+
+- добавлен переносимый manifest с точными версиями runtime, commit custom nodes,
+  размерами и SHA-256 пяти обязательных моделей;
+- добавлен PowerShell preflight для нового Windows-хоста: модели, workflow,
+  версии Python/Torch/CUDA, CUDA-доступность и опциональный `/system_stats`;
+- preflight отвергает сохранённый UI-граф с устаревшей ссылкой на отсутствующий
+  vocoder и требует успешно экспортированный серверный API workflow;
+- инструкция переноса и acceptance matrix:
+  [local-ltx23-transfer-kit.md](local-ltx23-transfer-kit.md);
+- operational gate остаётся заблокирован до появления CUDA в Torch на этой
+  машине и реального Q3/Q4 smoke на новом сервере.
+
 ## Экстренный пакет `AUTH-BOT-P0-20260723`
 
 Статус: **CODE COMPLETE**. Пакет имеет приоритет над плановой очередью, потому что
