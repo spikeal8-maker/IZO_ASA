@@ -18,6 +18,7 @@ import tempfile
 import time
 import uuid
 import xml.etree.ElementTree as ET
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -833,10 +834,7 @@ COMFYUI_RECOVERY_WAIT_SECONDS = PROVIDER_ENDPOINT_POLICY.comfyui_recovery_wait_s
 COMFYUI_WATCHDOG_REQUEST_PATH = comfyui_watchdog.default_restart_request_path()
 COMFYUI_RECOVERY_GATE = comfyui_watchdog.RecoveryGate(COMFYUI_WATCHDOG_REQUEST_PATH, COMFYUI_RECOVERY_WAIT_SECONDS)
 LOCAL_LTX_ENABLED = env_bool("LOCAL_LTX_ENABLED", False)
-LOCAL_LTX_COMFYUI_BASE_URL = os.getenv(
-    "LOCAL_LTX_COMFYUI_BASE_URL",
-    COMFYUI_BASE_URL,
-).rstrip("/")
+LOCAL_LTX_COMFYUI_BASE_URL = os.getenv("LOCAL_LTX_COMFYUI_BASE_URL", COMFYUI_BASE_URL).rstrip("/")
 LOCAL_LTX_WORKFLOW_API_PATH = Path(
     os.getenv(
         "LOCAL_LTX_WORKFLOW_API_PATH",
@@ -16010,10 +16008,7 @@ async def _generate_local_ltx_video(
     user_id: str,
     profile: ltx_video.LtxProfile,
 ) -> dict[str, Any]:
-    client = ltx_video.ComfyLtxClient(
-        LOCAL_LTX_COMFYUI_BASE_URL,
-        COMFYUI_TIMEOUT_SECONDS,
-    )
+    client = ltx_video.ComfyLtxClient(LOCAL_LTX_COMFYUI_BASE_URL, COMFYUI_TIMEOUT_SECONDS)
     try:
         return await ltx_video.validate_and_submit_local_ltx_job(
             req, user_id=user_id, profile=profile,
@@ -16147,10 +16142,7 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
         return row
     try:
         if is_local_ltx:
-            local_client = ltx_video.ComfyLtxClient(
-                LOCAL_LTX_COMFYUI_BASE_URL,
-                COMFYUI_TIMEOUT_SECONDS,
-            )
+            local_client = ltx_video.ComfyLtxClient(LOCAL_LTX_COMFYUI_BASE_URL, COMFYUI_TIMEOUT_SECONDS)
             state = await local_client.status(external_id)
         else:
             state = await poll_openrouter_video(base_url=OPENROUTER_BASE_URL, headers=openrouter_headers(), job_id=external_id, polling_url=settings.get("pollingUrl"))
@@ -16264,10 +16256,8 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
     if status == "completed":
         drain_video_file_deletions(limit=10)
     if is_local_ltx and status in {"completed", "failed", "cancelled", "expired"}:
-        try:
+        with suppress(Exception):
             await local_client.free_memory()
-        except Exception:
-            pass
     return result
 
 
