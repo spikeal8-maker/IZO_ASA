@@ -127,7 +127,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Current | Maximum | Remaining |
 |---|---:|---:|---:|
-| `backend/main.py` | 19520 | 19521 | 1 |
+| `backend/main.py` | 19516 | 19521 | 5 |
 | `backend/static/feed/index.html` | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | 2346 | 2400 | 54 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
@@ -141,7 +141,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Functions | Maximum | Classes | Maximum | Routes | Maximum |
 |---|---:|---:|---:|---:|---:|---:|
-| `backend/main.py` | 681 | 725 | 78 | 83 | 192 | 223 |
+| `backend/main.py` | 679 | 725 | 78 | 83 | 192 | 223 |
 
 ## Release identity baseline
 

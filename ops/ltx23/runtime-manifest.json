@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "package": "VIDEO-LTX23-LOCAL-002",
+  "generated_at": "2026-07-24",
+  "runtime": {
+    "python": "3.12.10",
+    "torch": "2.11.0+cu126",
+    "cuda_runtime": "12.6",
+    "comfyui_commit": "3086026401180c9216bcb6ace442a4e3587d2c66"
+  },
+  "custom_nodes": [
+    {
+      "directory": "ComfyUI-GGUF",
+      "repository": "https://github.com/city96/ComfyUI-GGUF.git",
+      "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a"
+    },
+    {
+      "directory": "ComfyUI-LTXVideo",
+      "repository": "https://github.com/Lightricks/ComfyUI-LTXVideo.git",
+      "commit": "229437c6b65796d6a7a63ae34be2bd5ba31fa543"
+    },
+    {
+      "directory": "ComfyUI-VideoHelperSuite",
+      "repository": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
+      "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b"
+    },
+    {
+      "directory": "ComfyUI-KJNodes",
+      "repository": "https://github.com/kijai/ComfyUI-KJNodes.git",
+      "commit": "7f43f2ce910a27971bdbbf3fb5a52081457f32e2"
+    },
+    {
+      "directory": "rgthree-comfy",
+      "repository": "https://github.com/rgthree/rgthree-comfy.git",
+      "commit": "27b4f4cdcf3b127c29d5d8135ac1536ecbd4c383"
+    }
+  ],
+  "required_models": [
+    {
+      "role": "ltx_q3_unet",
+      "path": "models/unet/ltx-2.3-22b-distilled-1.1-Q3_K_M.gguf",
+      "bytes": 10629508128,
+      "sha256": "F58CBBE86BFFECC5779170142FCACF13B1EADF31940EA6945A03F07F2791940D",
+      "source_repository": "https://huggingface.co/unsloth/LTX-2.3-GGUF",
+      "source_revision": "96e8ed4925ead3db9ff4d0084f165ef6a74f28d0",
+      "source_path": "distilled-1.1/ltx-2.3-22b-distilled-1.1-Q3_K_M.gguf"
+    },
+    {
+      "role": "ltx_q4_unet",
+      "path": "models/unet/ltx-2.3-22b-distilled-1.1-Q4_K_M.gguf",
+      "bytes": 14194441248,
+      "sha256": "5D09EFDC0B8EC2054C44A05366CD7C6634FFA333B379B1F8BAF018A78974B73D",
+      "source_repository": "https://huggingface.co/unsloth/LTX-2.3-GGUF",
+      "source_revision": null,
+      "source_path": "distilled-1.1/ltx-2.3-22b-distilled-1.1-Q4_K_M.gguf"
+    },
+    {
+      "role": "gemma_text_encoder",
+      "path": "models/text_encoders/gemma-3-12b-it-Q4_K_M.gguf",
+      "bytes": 7300778336,
+      "sha256": "15B8FD9D8672CD4240C178C217CA781409291F34E353D2E913B29C7602CEB3FF",
+      "source_repository": "https://huggingface.co/unsloth/gemma-3-12b-it-GGUF",
+      "source_revision": null,
+      "source_path": "gemma-3-12b-it-Q4_K_M.gguf"
+    },
+    {
+      "role": "ltx_text_projection",
+      "path": "models/text_encoders/ltx-2.3_text_projection_bf16.safetensors",
+      "bytes": 2312149072,
+      "sha256": "911D59BB4CB7708179C9A0045EA0FE41212ECFB77AED3A02702B7C0A8274911F",
+      "source_repository": "https://huggingface.co/Kijai/LTX2.3_comfy",
+      "source_revision": "8e1eabef8e2d67e71bb02baedf12c98805ac36f3",
+      "source_path": "text_encoders/ltx-2.3_text_projection_bf16.safetensors"
+    },
+    {
+      "role": "ltx_video_vae",
+      "path": "models/vae/LTX23_video_vae_bf16.safetensors",
+      "bytes": 1452258578,
+      "sha256": "01EA62D09BC139F95C5DEE7B5C062AD6A3E6CD8BE910A1983AC02E7EB5B8EE3B",
+      "source_repository": "https://huggingface.co/Kijai/LTX2.3_comfy",
+      "source_revision": null,
+      "source_path": "vae/LTX23_video_vae_bf16.safetensors"
+    }
+  ],
+  "workflow": {
+    "repository_path": "backend/workflows/ltx23_t2v_api.json",
+    "required_class_types": [
+      "CLIPTextEncode",
+      "EmptyLTXVLatentVideo",
+      "VHS_VideoCombine"
+    ],
+    "required_text_nodes": 2,
+    "forbidden_references": [
+      "ltx-av-step-1751000_vocoder_24K.safetensors"
+    ]
+  },
+  "tested_profile": {
+    "width": 832,
+    "height": 480,
+    "frames": 49,
+    "fps": 24,
+    "steps": 8,
+    "audio": false,
+    "concurrency": 1
+  }
+}

@@ -330,8 +330,11 @@ try:
         gallery_query,
         gallery_presentation,
         gallery_items,
+        ltx_video,
         video_storage,
         video_pricing,
+        video_presentation,
+        video_download,
         feed_presentation,
         feed_sources,
         feed_downloads,
@@ -371,8 +374,11 @@ except ImportError:  # Direct `python backend/main.py` execution.
         gallery_query,
         gallery_presentation,
         gallery_items,
+        ltx_video,
         video_storage,
         video_pricing,
+        video_presentation,
+        video_download,
         feed_presentation,
         feed_sources,
         feed_downloads,
@@ -826,6 +832,17 @@ COMFYUI_HISTORY_REQUEST_TIMEOUT_SECONDS = PROVIDER_ENDPOINT_POLICY.comfyui_histo
 COMFYUI_RECOVERY_WAIT_SECONDS = PROVIDER_ENDPOINT_POLICY.comfyui_recovery_wait_seconds
 COMFYUI_WATCHDOG_REQUEST_PATH = comfyui_watchdog.default_restart_request_path()
 COMFYUI_RECOVERY_GATE = comfyui_watchdog.RecoveryGate(COMFYUI_WATCHDOG_REQUEST_PATH, COMFYUI_RECOVERY_WAIT_SECONDS)
+LOCAL_LTX_ENABLED = env_bool("LOCAL_LTX_ENABLED", False)
+LOCAL_LTX_COMFYUI_BASE_URL = os.getenv(
+    "LOCAL_LTX_COMFYUI_BASE_URL",
+    COMFYUI_BASE_URL,
+).rstrip("/")
+LOCAL_LTX_WORKFLOW_API_PATH = Path(
+    os.getenv(
+        "LOCAL_LTX_WORKFLOW_API_PATH",
+        str(ROOT / "workflows" / "ltx23_t2v_api.json"),
+    )
+).expanduser()
 OPENROUTER_BASE_URL = PROVIDER_ENDPOINT_POLICY.openrouter_base_url
 OPENROUTER_TIMEOUT_SECONDS = PROVIDER_ENDPOINT_POLICY.openrouter_timeout_seconds
 PROMPT_IMPROVE_MODEL = PROVIDER_ENDPOINT_POLICY.prompt_improve_model
@@ -1025,6 +1042,8 @@ class VideoGenerateRequest(BaseModel):
 
     @property
     def provider(self) -> str:
+        if self.model.startswith(ltx_video.LOCAL_LTX_MODEL_PREFIX):
+            return "local_ltx"
         return "openrouter"
 
 
@@ -15753,34 +15772,12 @@ def _video_model_public_pricing(
     }
 
 
-def _video_publication_fields(publication: sqlite3.Row | None) -> dict[str, Any]:
-    status = str(_row_get(publication, "status") or "") if publication is not None else ""
-    ready = bool(publication is not None and _feed_publication_ready(publication))
-    return {
-        "published": ready,
-        "publicationId": _row_get(publication, "id") if publication is not None else None,
-        "publicationStatus": "published" if ready else (status or None),
-        "publicationError": _row_get(publication, "media_error") if publication is not None else None,
-    }
-
-
 def _video_job_payload(row: sqlite3.Row, publication: sqlite3.Row | None = None) -> dict[str, Any]:
     settings = safe_json_load(row["settings_json"]) or {}
-    return {
-        "id": row["id"], "mode": row["mode"], "status": row["status"],
-        "progress": int(row["progress"] or 0), "prompt": row["prompt_original"] or "",
-        "error": row["error_message"], "createdAt": row["created_at"],
-        "completedAt": row["completed_at"], "model": settings.get("openrouterModel"),
-        "duration": settings.get("duration"), "resolution": settings.get("resolution"),
-        "aspectRatio": settings.get("aspectRatio"), "tokenCost": settings.get("tokenCost"),
-        "videoUrl": f"/api/video/media/{row['id']}" if settings.get("localFile") else None,
-        "galleryVideoId": settings.get("galleryVideoId"),
-        "galleryDeleted": bool(settings.get("galleryDeleted")),
-        "generateAudio": bool(settings.get("generateAudio")),
-        **_video_publication_fields(publication),
-    }
-
-
+    return video_presentation.job_payload(
+        row, settings, publication=publication,
+        row_get=_row_get, publication_ready=_feed_publication_ready,
+    )
 def _video_gallery_item(
     row: sqlite3.Row,
     publication: sqlite3.Row | None = None,
@@ -15788,52 +15785,14 @@ def _video_gallery_item(
     include_feed_media: bool = False,
 ) -> dict[str, Any]:
     settings = safe_json_load(row["settings_json"]) or {}
-    publication_fields = _video_publication_fields(publication)
-    publication_id = publication_fields["publicationId"]
-    use_feed_media = bool(include_feed_media and publication_fields["published"] and publication_id)
-    private_url = row["url"]
-    video_url = f"/api/feed/video/{publication_id}?variant=full" if use_feed_media else private_url
-    poster_url = f"/api/feed/media/{publication_id}?variant=large" if publication_fields["published"] and publication_id else None
-    return {
-        "id": row["id"],
-        "mediaType": "video",
-        "videoUrl": video_url,
-        "viewerSrc": video_url,
-        "downloadUrl": video_url,
-        "thumbnailUrl": poster_url,
-        "width": int(row["width"] or 0),
-        "height": int(row["height"] or 0),
-        "duration": int(row["duration_seconds"] or 0),
-        "aspectRatio": row["aspect_ratio"],
-        "mode": row["mode"],
-        "modeLabel": "Видео",
-        "provider": row["provider"],
-        "model": settings.get("openrouterModel"),
-        "prompt": row["prompt_original"] or "",
-        "promptOriginal": row["prompt_original"] or "",
-        "settings": settings,
-        "favorite": bool(row["is_favorite"]),
-        **publication_fields,
-        "feedPublicationId": publication_id,
-        "publishedAt": _row_get(publication, "created_at") if publication_fields["published"] else None,
-        "feedMediaStatus": "ready" if publication_fields["published"] else publication_fields["publicationStatus"],
-        "views": int(_row_get(publication, "view_count") or 0) if publication is not None else 0,
-        "createdAt": row["created_at"],
-        "storedBytes": int(row["stored_bytes"] or 0),
-    }
-
-
-def _allowed_video_models(catalog: list[dict[str, Any]], config: dict[str, Any], mode: str, plan: str, is_admin: bool) -> list[dict[str, Any]]:
-    enabled = set((config.get("enabled") or {}).get(mode) or [])
-    tier = set((((config.get("access") or {}).get(mode) or {}).get(plan)) or [])
-    allowed = enabled if is_admin else enabled.intersection(tier)
-    return [model for model in catalog if model.get("id") in allowed and mode in (model.get("modes") or [])]
-
-
+    return video_presentation.gallery_item(
+        row, settings, publication=publication,
+        include_feed_media=include_feed_media,
+        row_get=_row_get,
+        publication_ready=_feed_publication_ready,
+    )
 VIDEO_DOWNLOAD_MAX_BYTES = 300 * 1024 * 1024
 VIDEO_FINALIZATION_STALE_SECONDS = 10 * 60
-
-
 def _video_storage_reservation(
     conn: sqlite3.Connection,
     user_row: sqlite3.Row | None,
@@ -15923,17 +15882,6 @@ def _evict_videos_for_new_result(
     return len(rows)
 
 
-def _video_finalization_is_fresh(settings: dict[str, Any]) -> bool:
-    value = str(settings.get("finalizingAt") or "")
-    try:
-        started = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - started).total_seconds() < VIDEO_FINALIZATION_STALE_SECONDS
-
-
 def _claim_video_finalization(job_id: str) -> tuple[bool, sqlite3.Row]:
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -15943,7 +15891,9 @@ def _claim_video_finalization(job_id: str) -> tuple[bool, sqlite3.Row]:
         settings = safe_json_load(current["settings_json"]) or {}
         if current["status"] == "completed":
             return False, current
-        if current["status"] == "finalizing" and _video_finalization_is_fresh(settings):
+        if current["status"] == "finalizing" and video_storage.finalization_is_fresh(
+            settings, stale_seconds=VIDEO_FINALIZATION_STALE_SECONDS
+        ):
             return False, current
         settings["finalizingAt"] = datetime.now(timezone.utc).isoformat()
         settings.pop("finalizingError", None)
@@ -15967,39 +15917,23 @@ def _release_video_finalization(job_id: str, error: str) -> None:
         )
 
 
-async def _download_video_result(url: str, job_id: str) -> tuple[str, int]:
+async def _download_video_result(
+    url: str,
+    job_id: str,
+    *,
+    use_openrouter_auth: bool = True,
+) -> tuple[str, int]:
     filename = f"{job_id}.mp4"
     target = storage_resolve_under_root(MEDIA, filename)
     temporary = storage_resolve_under_root(MEDIA, f"{filename}.part")
     if target is None or temporary is None:
         raise HTTPException(500, "Некорректный путь хранения видео.")
-    temporary.unlink(missing_ok=True)
-    total = 0
-    try:
-        async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
-            async with client.stream("GET", url, headers=openrouter_headers()) as response:
-                response.raise_for_status()
-                declared = int(response.headers.get("content-length") or 0)
-                if declared > VIDEO_DOWNLOAD_MAX_BYTES:
-                    raise HTTPException(502, "Полученное видео превышает лимит хранения.")
-                with temporary.open("xb") as output:
-                    async for chunk in response.aiter_bytes(1024 * 1024):
-                        total += len(chunk)
-                        if total > VIDEO_DOWNLOAD_MAX_BYTES:
-                            raise HTTPException(502, "Полученное видео превышает лимит хранения.")
-                        output.write(chunk)
-                    output.flush()
-                    os.fsync(output.fileno())
-        if total <= 16:
-            raise HTTPException(502, "Провайдер вернул пустой видеофайл.")
-        with temporary.open("rb") as source:
-            if b"ftyp" not in source.read(64):
-                raise HTTPException(502, "Провайдер вернул файл неизвестного видеоформата.")
-        os.replace(temporary, target)
-        return filename, total
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
+    total, _path = await video_download.download_video(
+        url, target=target, temporary=temporary, max_bytes=VIDEO_DOWNLOAD_MAX_BYTES,
+        headers=openrouter_headers() if use_openrouter_auth else {},
+        error_factory=HTTPException,
+    )
+    return filename, total
 
 
 @app.get("/api/video/config")
@@ -16024,8 +15958,8 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
     pricing_history = video_pricing.load_actual_pricing_samples(db, safe_json_load)
     modes: dict[str, list[dict[str, Any]]] = {}
     for mode in OPENROUTER_VIDEO_MODES:
-        modes[mode] = []
-        for model in _allowed_video_models(catalog, config, mode, plan, is_admin):
+        modes[mode] = ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED)
+        for model in video_pricing.allowed_models(catalog, config, mode, plan, is_admin):
             public_model = dict(model)
             public_model["publicPricing"] = _video_model_public_pricing(
                 model,
@@ -16049,13 +15983,13 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
         },
         "availability": {
             mode: {
-                "enabled": len((config.get("enabled") or {}).get(mode) or []),
-                "tariff": len((((config.get("access") or {}).get(mode) or {}).get(plan)) or []),
+                "enabled": len((config.get("enabled") or {}).get(mode) or []) + len(ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED)),
+                "tariff": len((((config.get("access") or {}).get(mode) or {}).get(plan)) or []) + len(ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED)),
                 "reason": (
                     "В админке не включены модели для этого режима."
-                    if not (config.get("enabled") or {}).get(mode)
+                    if not (config.get("enabled") or {}).get(mode) and not ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED)
                     else f"Для тарифа {plan.title()} не назначены модели этого режима."
-                    if not is_admin and not (((config.get("access") or {}).get(mode) or {}).get(plan))
+                    if not is_admin and not (((config.get("access") or {}).get(mode) or {}).get(plan)) and not ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED)
                     else ""
                 ),
             }
@@ -16070,6 +16004,29 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
     }
 
 
+async def _generate_local_ltx_video(
+    req: VideoGenerateRequest,
+    *,
+    user_id: str,
+    profile: ltx_video.LtxProfile,
+) -> dict[str, Any]:
+    client = ltx_video.ComfyLtxClient(
+        LOCAL_LTX_COMFYUI_BASE_URL,
+        COMFYUI_TIMEOUT_SECONDS,
+    )
+    try:
+        return await ltx_video.validate_and_submit_local_ltx_job(
+            req, user_id=user_id, profile=profile,
+            workflow_path=LOCAL_LTX_WORKFLOW_API_PATH, client=client,
+            open_db=db, reserve_storage=_video_storage_reservation,
+            charge_tokens=charge_generation_tokens, refund_tokens=refund_generation_tokens,
+        )
+    except Exception as exc:
+        if isinstance(exc, ltx_video.LocalLtxRequestError):
+            raise HTTPException(exc.status_code, str(exc)) from exc
+        raise HTTPException(502, f"Не удалось запустить LTX: {truncate_admin_text(str(exc), 300)}") from exc
+
+
 @app.post("/api/video/generate")
 async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
@@ -16078,9 +16035,19 @@ async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[st
         user = conn.execute("SELECT plan, role FROM users WHERE id = ?", (user_id,)).fetchone()
     plan = str(_row_get(user, "plan") or "free").lower()
     is_admin = str(_row_get(user, "role") or "") == "admin"
+    local = ltx_video.resolve_catalog_model(
+        req.model, req.mode, enabled=LOCAL_LTX_ENABLED
+    )
+    if local is not None:
+        _local_model, profile = local
+        return await _generate_local_ltx_video(
+            req,
+            user_id=user_id,
+            profile=profile,
+        )
     catalog = await fetch_openrouter_video_catalog()
     config = normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), catalog)
-    model = next((item for item in _allowed_video_models(catalog, config, req.mode, plan, is_admin) if item.get("id") == req.model), None)
+    model = next((item for item in video_pricing.allowed_models(catalog, config, req.mode, plan, is_admin) if item.get("id") == req.model), None)
     if model is None:
         raise HTTPException(403, "Эта видеомодель недоступна для режима и тарифа.")
     if req.duration not in (model.get("supportedDurations") or []):
@@ -16136,9 +16103,23 @@ async def estimate_video(req: VideoGenerateRequest, request: Request) -> dict[st
         user = conn.execute("SELECT plan, role FROM users WHERE id = ?", (user_id,)).fetchone()
     plan = str(_row_get(user, "plan") or "free").lower()
     is_admin = str(_row_get(user, "role") or "") == "admin"
+    local = ltx_video.resolve_catalog_model(
+        req.model, req.mode, enabled=LOCAL_LTX_ENABLED
+    )
+    if local is not None:
+        model, profile = local
+        if req.duration not in model["supportedDurations"]:
+            raise HTTPException(422, "Локальный LTX поддерживает ролики длительностью 2 или 4 секунды.")
+        if req.resolution not in model["supportedResolutions"]:
+            raise HTTPException(422, "Локальный LTX сейчас работает в 480p.")
+        if req.aspectRatio not in model["supportedAspectRatios"]:
+            raise HTTPException(422, "Локальный LTX сейчас работает в формате 16:9.")
+        if req.generateAudio:
+            raise HTTPException(422, "Локальный LTX пока работает без генерации звука.")
+        return ltx_video.estimate_local_ltx_billing(profile, duration=req.duration)
     catalog = await fetch_openrouter_video_catalog()
     config = normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), catalog)
-    model = next((item for item in _allowed_video_models(catalog, config, req.mode, plan, is_admin) if item.get("id") == req.model), None)
+    model = next((item for item in video_pricing.allowed_models(catalog, config, req.mode, plan, is_admin) if item.get("id") == req.model), None)
     if model is None:
         raise HTTPException(403, "Эта видеомодель недоступна для режима и тарифа.")
     if req.duration not in (model.get("supportedDurations") or []):
@@ -16152,16 +16133,27 @@ async def estimate_video(req: VideoGenerateRequest, request: Request) -> dict[st
 
 async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
     initial_settings = safe_json_load(row["settings_json"]) or {}
-    if row["status"] == "finalizing" and _video_finalization_is_fresh(initial_settings):
+    if row["status"] == "finalizing" and video_storage.finalization_is_fresh(
+        initial_settings, stale_seconds=VIDEO_FINALIZATION_STALE_SECONDS
+    ):
         return row
     if row["status"] not in {"submitting", "queued", "pending", "in_progress", "finalizing"}:
         return row
     settings = initial_settings
-    external_id = str(settings.get("openrouterJobId") or "")
+    is_local_ltx = str(row["provider"] or "") == "local_ltx"
+    external_key = "comfyPromptId" if is_local_ltx else "openrouterJobId"
+    external_id = str(settings.get(external_key) or "")
     if not external_id:
         return row
     try:
-        state = await poll_openrouter_video(base_url=OPENROUTER_BASE_URL, headers=openrouter_headers(), job_id=external_id, polling_url=settings.get("pollingUrl"))
+        if is_local_ltx:
+            local_client = ltx_video.ComfyLtxClient(
+                LOCAL_LTX_COMFYUI_BASE_URL,
+                COMFYUI_TIMEOUT_SECONDS,
+            )
+            state = await local_client.status(external_id)
+        else:
+            state = await poll_openrouter_video(base_url=OPENROUTER_BASE_URL, headers=openrouter_headers(), job_id=external_id, polling_url=settings.get("pollingUrl"))
     except Exception:
         return row
     status = str(state.get("status") or "pending")
@@ -16171,7 +16163,10 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
     downloaded_filename: str | None = None
     stored_bytes: int | None = None
     if status == "completed":
-        urls = state.get("unsigned_urls") if isinstance(state.get("unsigned_urls"), list) else []
+        if is_local_ltx and isinstance(state.get("output"), dict):
+            urls = [local_client.view_url(state["output"])]
+        else:
+            urls = state.get("unsigned_urls") if isinstance(state.get("unsigned_urls"), list) else []
         if not urls:
             status = "failed"
             progress = 100
@@ -16186,7 +16181,17 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
             row = claimed_row
             settings = safe_json_load(row["settings_json"]) or {}
             try:
-                downloaded_filename, stored_bytes = await _download_video_result(str(urls[0]), row["id"])
+                if is_local_ltx:
+                    downloaded_filename, stored_bytes = await _download_video_result(
+                        str(urls[0]),
+                        row["id"],
+                        use_openrouter_auth=False,
+                    )
+                else:
+                    downloaded_filename, stored_bytes = await _download_video_result(
+                        str(urls[0]),
+                        row["id"],
+                    )
             except Exception as exc:
                 _release_video_finalization(row["id"], str(exc))
                 if isinstance(exc, HTTPException):
@@ -16198,18 +16203,19 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
             settings.pop("galleryDeleted", None)
             settings.pop("finalizingAt", None)
             settings.pop("finalizingError", None)
-            settings["openrouterUsage"] = state.get("usage") or {}
-            settings["openrouterCostUsd"] = (state.get("usage") or {}).get("cost")
-            billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
-            actual = (state.get("usage") or {}).get("cost")
-            if isinstance(actual, (int, float)):
-                # Video is sold at the server quote accepted before submission. Keep the
-                # provider's actual cost for margin reporting without changing that price.
-                settings["openrouterBilling"] = finalize_openrouter_billing_snapshot(billing, float(actual))
+            if not is_local_ltx:
+                settings["openrouterUsage"] = state.get("usage") or {}
+                settings["openrouterCostUsd"] = (state.get("usage") or {}).get("cost")
+                billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
+                actual = (state.get("usage") or {}).get("cost")
+                if isinstance(actual, (int, float)):
+                    # Video is sold at the server quote accepted before submission. Keep the
+                    # provider's actual cost for margin reporting without changing that price.
+                    settings["openrouterBilling"] = finalize_openrouter_billing_snapshot(billing, float(actual))
             completed_at = datetime.now(timezone.utc).isoformat()
     elif status in {"failed", "cancelled", "expired"}:
         progress = 100
-        error = str(state.get("error") or "OpenRouter не завершил генерацию видео.")
+        error = str(state.get("error") or "Провайдер не завершил генерацию видео.")
         completed_at = datetime.now(timezone.utc).isoformat()
         with db() as conn:
             refund_generation_tokens(conn, row["id"], reason=f"video_{status}")
@@ -16242,7 +16248,7 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
                         settings["galleryVideoId"], row["user_id"], row["id"],
                         f"/api/video/media/{row['id']}", int(size[0]), int(size[1]),
                         int(settings.get("duration") or 0), settings.get("aspectRatio"),
-                        row["mode"], "openrouter", row["prompt_original"] or "",
+                        row["mode"], str(row["provider"] or "openrouter"), row["prompt_original"] or "",
                         json.dumps(settings, ensure_ascii=False), stored_bytes, row["created_at"],
                     ),
                 )
@@ -16257,6 +16263,11 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
         raise
     if status == "completed":
         drain_video_file_deletions(limit=10)
+    if is_local_ltx and status in {"completed", "failed", "cancelled", "expired"}:
+        try:
+            await local_client.free_memory()
+        except Exception:
+            pass
     return result
 
 
@@ -16302,7 +16313,7 @@ def _backfill_completed_video_gallery(conn: sqlite3.Connection, user_id: str) ->
             (
                 gallery_id, user_id, row["id"], f"/api/video/media/{row['id']}",
                 int(size[0]), int(size[1]), int(settings.get("duration") or 0),
-                settings.get("aspectRatio"), row["mode"], "openrouter",
+                settings.get("aspectRatio"), row["mode"], str(row["provider"] or "openrouter"),
                 row["prompt_original"] or "", json.dumps(settings, ensure_ascii=False),
                 path.stat().st_size, row["created_at"],
             ),

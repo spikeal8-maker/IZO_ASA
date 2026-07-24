@@ -13,6 +13,7 @@ ACTIVE_GENERATION_STATUSES = (
     "sent_to_comfyui",
     "sent_to_openrouter",
 )
+RESUMABLE_VIDEO_PROVIDERS = ("openrouter", "local_ltx")
 STARTUP_INTERRUPTION_MESSAGE = "Генерация прервана перезапуском сервиса. Токены возвращены."
 
 
@@ -62,8 +63,14 @@ def reconcile_stale_generation_jobs(
 
     placeholders = ",".join("?" for _ in ACTIVE_GENERATION_STATUSES)
     rows = conn.execute(
-        f"SELECT id, user_id FROM jobs WHERE status IN ({placeholders}) ORDER BY created_at, id",
-        ACTIVE_GENERATION_STATUSES,
+        f"""
+        SELECT id, user_id
+        FROM jobs
+        WHERE status IN ({placeholders})
+          AND COALESCE(provider, '') NOT IN (?, ?)
+        ORDER BY created_at, id
+        """,
+        (*ACTIVE_GENERATION_STATUSES, *RESUMABLE_VIDEO_PROVIDERS),
     ).fetchall()
     completed_from_images = 0
     failed = 0
