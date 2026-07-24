@@ -6,8 +6,10 @@ may add instructions, but they may not weaken or contradict this file.
 
 ## 1. Scope and canonical workspace
 
-- The only canonical integration and deployment source is
-  `D:\Google Drive\My progact\Генератор картинок`.
+- The only canonical integration and deployment source on this computer is
+  `E:\Yandex.Disk\IZO_ASA`.
+- Do not delete files or directories from `E:\Yandex.Disk` during project
+  implementation, synchronization or deployment.
 - Do not deploy from a sibling copy, attachment, temporary worktree or resolved
   symlink target. Inspect `git worktree list` and resolve reparse points when the
   source is uncertain.
