@@ -80,6 +80,9 @@ during VAE decoding because the model retained 23.17 GiB of VRAM.
 The video runtime must not load `ComfyUI-AutoFreeMemory20s`. The launcher uses
 `--disable-all-custom-nodes` plus a four-package whitelist, then supervises the
 process because native GGUF unloading can terminate Python after `/free`.
+For persistent operation, the release promotion copies the launcher to
+`C:\IZO_ASA\runtime`, and `ops/ltx23/install-local-ltx-task.ps1` registers the
+supervisor to start at Windows logon.
 
 Repository evidence on 2026-07-24:
 
