@@ -634,3 +634,38 @@ release-identity, origin-isolation и studio-resilience green.
 Evidence: fake-provider/API `18 passed`; write-only credential lifecycle
 `5/5`; `VERIFY_OK mode=CI`, full suite `1672 passed`; frontend
 lint/build/E2E green.
+
+## ADMIN-NOTIFICATION-DELIVERY-001 — внешняя доставка администратору
+
+Статус 2026-07-24: `CODE COMPLETE · VERIFIED (CI) · NOT DEPLOYED`.
+
+Scope:
+
+- additive migration v3 создаёт отдельный
+  `admin_notification_delivery_outbox`;
+- запись уведомления и обязательств Telegram/email выполняется в одной
+  SQLite-транзакции;
+- настройки содержат конкретный Telegram chat ID и email получателя;
+- включить канал без валидного получателя нельзя;
+- minimum severity и явное отключение категории применяются до постановки;
+- `immediate` доступен сразу, `daily` получает durable задержку 24 часа;
+- single-owner worker использует lease, exponential retry и terminal `failed`;
+- после рестарта pending/retry и просроченные processing lease восстанавливаются;
+- транспорты используют существующие Telegram Bot API и transactional mail
+  adapters; автоматические тесты подставляют только fake transports;
+- trusted-admin UI показывает состояние очереди и worker health.
+
+Acceptance:
+
+- миграция идемпотентна и checksum закреплён;
+- одно событие не создаёт повторную доставку одному получателю/каналу;
+- lease/idempotency тест проходит пять раз;
+- ни один тест не отправляет реальное письмо или Telegram-сообщение;
+- `backend/main.py` остаётся в budget `19 511`;
+- focused backend, frontend lint/build, generated maps и CI зелёные;
+- deploy/restart и operator send являются отдельным явным действием.
+
+Evidence: focused backend `56 passed`; lease/idempotency `5/5`;
+`VERIFY_OK mode=CI`, full suite `1700 passed`; frontend lint/build,
+release identity, origin isolation и studio resilience green; generated
+backend/frontend maps и architecture inventory актуальны.

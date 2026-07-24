@@ -52,6 +52,20 @@ def create_notification(
         ),
     )
     if cursor.rowcount:
+        from .admin_notification_delivery import (
+            enqueue_configured_admin_deliveries,
+        )
+
+        enqueue_configured_admin_deliveries(
+            conn,
+            notification_id=notification_id,
+            category=category.strip(),
+            severity=severity,
+            title=title.strip(),
+            message=message.strip(),
+            action_url=action_url,
+            created_at=created_at or utc_now(),
+        )
         return notification_id, True
     row = conn.execute(
         "SELECT id FROM admin_notifications WHERE dedupe_key = ?",

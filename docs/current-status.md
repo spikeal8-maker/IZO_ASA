@@ -136,3 +136,19 @@
   сохраняются, но signed OK API verification ещё не operational.
 - Evidence: fake-provider/API `18 passed`, credential lifecycle `5/5`,
   `VERIFY_OK mode=CI`, `1672 passed`; frontend lint/build/E2E green.
+
+## Активный пакет доставки уведомлений
+
+- `ADMIN-NOTIFICATION-DELIVERY-001` —
+  `CODE COMPLETE · VERIFIED (CI) · NOT DEPLOYED`.
+- Добавлена additive migration v3 и durable outbox Telegram/email.
+- Настройки получателей доступны в `/admin/notifications`; канал нельзя
+  включить без Telegram chat ID или корректного email.
+- Single-owner worker использует SQLite lease, exponential retry и terminal
+  `failed`; очередь и health видны trusted admin.
+- Реальные provider-вызовы в тестах не выполняются; используются fake
+  transports.
+- Evidence: focused backend `56 passed`, lease/idempotency `5/5`,
+  `VERIFY_OK mode=CI`, `1700 passed`; frontend lint/build, release identity,
+  origin isolation и studio resilience green; карты обновлены.
+- Production release и origin/main не изменены; deploy/restart не выполнялись.

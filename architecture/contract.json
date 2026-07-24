@@ -162,6 +162,18 @@
       "watchdog": "hourly wake-up, single task handle, lastError in catalog state"
     },
     {
+      "id": "admin-notification-delivery",
+      "call_source": "backend/app/services/admin_notification_delivery.py",
+      "target": "run",
+      "kind": "worker",
+      "owner": "backend.app.services.admin_notification_delivery.AdminNotificationDeliveryWorker",
+      "role": "all-dev-current-monolith",
+      "persistence": "SQLite admin_notification_delivery_outbox with lease, retry and terminal failed state",
+      "startup": "main.startup -> AdminNotificationDeliveryWorker.start",
+      "recovery": "expired processing leases and pending/retry rows are reclaimed after restart",
+      "watchdog": "single task handle, bounded loop, last success/error timestamps exposed to trusted admin"
+    },
+    {
       "id": "gallery-storage-optimization",
       "call_source": "backend/main.py",
       "target": "asyncio.to_thread:optimize_existing_gallery_storage",

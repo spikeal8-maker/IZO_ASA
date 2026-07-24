@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -23,6 +24,19 @@ class SettingsRequest(BaseModel):
     settings: dict[str, Any]
 
 
+def _valid_email(value: str) -> bool:
+    return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value))
+
+
+def _notification_delivery_status(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT channel, status, COUNT(*) AS count, MAX(sent_at) AS last_sent_at "
+        "FROM admin_notification_delivery_outbox "
+        "GROUP BY channel, status ORDER BY channel, status"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 class SocialCredentialsRequest(BaseModel):
     token: str = Field(default="", max_length=4096)
     targetId: str = Field(default="", max_length=300)
@@ -42,6 +56,12 @@ class AdminOperationsDependencies:
     secret_set: Callable[[str, str], None]
     secret_delete: Callable[[str], bool]
     probe_social: Callable[..., Any]
+    notification_worker_status: Callable[[], dict[str, Any]] = lambda: {
+        "running": False,
+        "lastSuccessAt": None,
+        "lastErrorAt": None,
+        "lastError": None,
+    }
 
 
 def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRouter:
@@ -75,25 +95,38 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
     async def notification_settings(request: Request) -> dict[str, Any]:
         deps.require_admin(request)
         saved = deps.saved_setting("admin_notification_settings")
-        return {"ok": True, "settings": {
-            "inAppEnabled": bool(saved.get("inAppEnabled", True)),
-            "telegramEnabled": bool(saved.get("telegramEnabled", False)),
-            "emailEnabled": bool(saved.get("emailEnabled", False)),
-            "minimumSeverity": str(saved.get("minimumSeverity") or "info"),
-            "digestMode": str(saved.get("digestMode") or "immediate"),
-            "quietHours": saved.get("quietHours") or {
-                "enabled": False, "from": "22:00", "to": "08:00"
+        with deps.db() as conn:
+            delivery = _notification_delivery_status(conn)
+        return {
+            "ok": True,
+            "settings": {
+                "inAppEnabled": bool(saved.get("inAppEnabled", True)),
+                "telegramEnabled": bool(saved.get("telegramEnabled", False)),
+                "telegramChatId": str(saved.get("telegramChatId") or ""),
+                "emailEnabled": bool(saved.get("emailEnabled", False)),
+                "emailAddress": str(saved.get("emailAddress") or ""),
+                "minimumSeverity": str(saved.get("minimumSeverity") or "info"),
+                "digestMode": str(saved.get("digestMode") or "immediate"),
+                "quietHours": saved.get("quietHours") or {
+                    "enabled": False, "from": "22:00", "to": "08:00"
+                },
+                "categories": saved.get("categories") or {},
             },
-            "categories": saved.get("categories") or {},
-        }}
+            "delivery": delivery,
+            "worker": deps.notification_worker_status(),
+        }
 
     @router.put("/notifications/settings-v2")
     async def save_notification_settings(req: SettingsRequest, request: Request) -> dict[str, Any]:
         actor = deps.require_admin(request)
+        telegram_chat_id = str(req.settings.get("telegramChatId") or "").strip()
+        email_address = str(req.settings.get("emailAddress") or "").strip().lower()
         settings = {
             "inAppEnabled": bool(req.settings.get("inAppEnabled", True)),
             "telegramEnabled": bool(req.settings.get("telegramEnabled", False)),
+            "telegramChatId": telegram_chat_id,
             "emailEnabled": bool(req.settings.get("emailEnabled", False)),
+            "emailAddress": email_address,
             "minimumSeverity": str(req.settings.get("minimumSeverity") or "info"),
             "digestMode": str(req.settings.get("digestMode") or "immediate"),
             "quietHours": req.settings.get("quietHours") or {
@@ -105,6 +138,10 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
             raise HTTPException(400, "Некорректный уровень уведомлений.")
         if settings["digestMode"] not in {"immediate", "daily"}:
             raise HTTPException(400, "Некорректный режим доставки.")
+        if settings["telegramEnabled"] and not telegram_chat_id:
+            raise HTTPException(400, "Укажите Telegram chat ID администратора.")
+        if settings["emailEnabled"] and not _valid_email(email_address):
+            raise HTTPException(400, "Укажите корректный email администратора.")
         deps.save_setting("admin_notification_settings", settings)
         with deps.db() as conn:
             deps.record_audit(

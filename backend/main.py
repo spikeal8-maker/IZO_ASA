@@ -497,10 +497,10 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.database import (
-        ADMIN_NOTIFICATIONS_MIGRATION,
+        ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
-        apply_admin_notifications_migration,
+        apply_admin_notification_delivery_migration, apply_admin_notifications_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -521,10 +521,10 @@ try:
 
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.database import (
-        ADMIN_NOTIFICATIONS_MIGRATION,
+        ADMIN_NOTIFICATION_DELIVERY_MIGRATION, ADMIN_NOTIFICATIONS_MIGRATION,
         DbGuardError,
         LEGACY_BASELINE_MIGRATION,
-        apply_admin_notifications_migration,
+        apply_admin_notification_delivery_migration, apply_admin_notifications_migration,
         backfill_identity_core,
         collect_sqlite_guard_status,
         database_size_mb,
@@ -544,12 +544,14 @@ except ImportError:  # Direct `python backend/main.py` execution.
     )
 
 try:
+    from .app.services.admin_notification_delivery import AdminNotificationDeliveryWorker, build_admin_delivery_transports
     from .app.services.admin_notifications import (
         enqueue_configured_social_deliveries,
         openrouter_change_notification,
     )
     from .app.integrations.social_providers import probe_social_provider
 except ImportError:  # Direct `python backend/main.py` execution.
+    from app.services.admin_notification_delivery import AdminNotificationDeliveryWorker, build_admin_delivery_transports
     from app.services.admin_notifications import (
         enqueue_configured_social_deliveries,
         openrouter_change_notification,
@@ -1846,7 +1848,7 @@ def init_db() -> None:
     with db() as conn:
         ensure_migration_ledger(
             conn,
-            supported_version=ADMIN_NOTIFICATIONS_MIGRATION.version,
+            supported_version=ADMIN_NOTIFICATION_DELIVERY_MIGRATION.version,
         )
         prepare_core_schema_group(conn)
         ensure_outbox_schema(conn)
@@ -1869,7 +1871,7 @@ def init_db() -> None:
         )
         finalize_legacy_schema_baseline(conn, applied_at=now)
         apply_admin_notifications_migration(conn, applied_at=now)
-
+        apply_admin_notification_delivery_migration(conn, applied_at=now)
 
 PROVIDER_CODE_PREFIX = {"web_email": "WEB", "telegram": "TG", "max": "MAX"}
 
@@ -5894,6 +5896,8 @@ def send_transactional_email(destination: str, subject: str, html: str) -> str:
     )
 
 
+ADMIN_NOTIFICATION_DELIVERY_WORKER = AdminNotificationDeliveryWorker()
+send_admin_telegram_notification, send_admin_email_notification = build_admin_delivery_transports(telegram_api=telegram_api, send_transactional_email=send_transactional_email, html_escape=html_escape)
 def yookassa_secret_key() -> str:
     return os.getenv("YOOKASSA_SECRET_KEY", "").strip() or OPENROUTER_SECRET_STORE.get(YOOKASSA_SECRET_NAME)
 
@@ -7727,6 +7731,7 @@ async def startup() -> None:
     if openrouter_secret_migration != "not_configured":
         print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
     start_openrouter_catalog_daily_worker()
+    ADMIN_NOTIFICATION_DELIVERY_WORKER.start(connection_factory=db, send_telegram=send_admin_telegram_notification, send_email=send_admin_email_notification)
     enforce_db_guard_after_migrations()
     generation_recovery_report = reconcile_stale_generation_state()
     if generation_recovery_report["checked"]:
@@ -7777,6 +7782,7 @@ async def startup() -> None:
 @app.on_event("shutdown")
 async def shutdown() -> None:
     await stop_openrouter_catalog_daily_worker()
+    await ADMIN_NOTIFICATION_DELIVERY_WORKER.stop()
     await stop_feed_video_publication_worker()
     await stop_bot_workers(BOT_RUNTIME)
 
@@ -16706,16 +16712,10 @@ async def admin_openrouter_status(request: Request) -> dict[str, Any]:
 
 
 app.include_router(create_admin_operations_router(AdminOperationsDependencies(
-    db=db,
-    require_admin=require_trusted_admin,
-    saved_setting=_saved_setting,
-    save_setting=_save_setting,
-    record_audit=record_audit_log,
-    secret_exists=OPENROUTER_SECRET_STORE.exists,
-    secret_get=OPENROUTER_SECRET_STORE.get,
-    secret_set=_save_bot_secret,
-    secret_delete=OPENROUTER_SECRET_STORE.delete,
-    probe_social=probe_social_provider,
+    db, require_trusted_admin, _saved_setting, _save_setting, record_audit_log,
+    OPENROUTER_SECRET_STORE.exists, OPENROUTER_SECRET_STORE.get, _save_bot_secret,
+    OPENROUTER_SECRET_STORE.delete, probe_social_provider,
+    ADMIN_NOTIFICATION_DELIVERY_WORKER.status,
 )))
 
 

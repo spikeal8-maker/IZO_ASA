@@ -11,7 +11,10 @@ from app.api.routers.admin_operations import (
     AdminOperationsDependencies,
     create_admin_operations_router,
 )
-from app.database.migrations import apply_admin_notifications_migration
+from app.database.migrations import (
+    apply_admin_notification_delivery_migration,
+    apply_admin_notifications_migration,
+)
 from app.integrations.social_providers import SocialProviderError, probe_social_provider
 
 
@@ -67,6 +70,9 @@ def test_social_admin_credentials_are_write_only_and_deletable():
     conn.row_factory = sqlite3.Row
     conn.execute("CREATE TABLE admin_settings (key TEXT PRIMARY KEY, value_json TEXT, updated_at TEXT)")
     apply_admin_notifications_migration(conn, applied_at="2026-07-24T00:00:00+00:00")
+    apply_admin_notification_delivery_migration(
+        conn, applied_at="2026-07-24T00:00:01+00:00"
+    )
     settings_store = {}
     secrets = {}
 
@@ -106,3 +112,30 @@ def test_social_admin_credentials_are_write_only_and_deletable():
     assert client.post("/api/admin/social/telegram/check-v2").status_code == 200
     assert client.delete("/api/admin/social/telegram/credentials-v2").json()["deleted"] is True
     assert "social_telegram_access_token" not in secrets
+
+    invalid = client.put("/api/admin/notifications/settings-v2", json={
+        "settings": {
+            "telegramEnabled": True,
+            "telegramChatId": "",
+            "emailEnabled": True,
+            "emailAddress": "not-an-email",
+        }
+    })
+    assert invalid.status_code == 400
+    valid = client.put("/api/admin/notifications/settings-v2", json={
+        "settings": {
+            "telegramEnabled": True,
+            "telegramChatId": "-1001",
+            "emailEnabled": True,
+            "emailAddress": "Admin@Example.test",
+            "minimumSeverity": "warning",
+            "digestMode": "immediate",
+        }
+    })
+    assert valid.status_code == 200
+    notification_status = client.get(
+        "/api/admin/notifications/settings-v2"
+    ).json()
+    assert notification_status["settings"]["telegramChatId"] == "-1001"
+    assert notification_status["settings"]["emailAddress"] == "admin@example.test"
+    assert notification_status["worker"]["running"] is False
