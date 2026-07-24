@@ -51,6 +51,13 @@ ADMIN_NOTIFICATIONS_MIGRATION = MigrationDefinition(
 )
 
 
+ADMIN_NOTIFICATION_DELIVERY_MIGRATION = MigrationDefinition(
+    version=3,
+    name="admin_notification_delivery_outbox",
+    checksum="sha256:03fb62b844266d345247b1a1bbc9e4b048eefd7193c24456eb25bb1371f8597c",
+)
+
+
 ADMIN_NOTIFICATIONS_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS admin_notifications (
     id TEXT PRIMARY KEY,
@@ -86,6 +93,29 @@ CREATE INDEX IF NOT EXISTS idx_social_delivery_outbox_pending
 """
 
 
+ADMIN_NOTIFICATION_DELIVERY_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS admin_notification_delivery_outbox (
+    id TEXT PRIMARY KEY,
+    notification_id TEXT NOT NULL,
+    channel TEXT NOT NULL CHECK (channel IN ('telegram', 'email')),
+    destination TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'processing', 'retry', 'sent', 'failed')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    external_id TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    sent_at TEXT,
+    UNIQUE(notification_id, channel, destination),
+    FOREIGN KEY(notification_id) REFERENCES admin_notifications(id)
+);
+CREATE INDEX IF NOT EXISTS idx_admin_notification_delivery_pending
+    ON admin_notification_delivery_outbox(status, next_attempt_at, created_at);
+"""
+
+
 def apply_admin_notifications_migration(
     conn: sqlite3.Connection,
     *,
@@ -97,6 +127,21 @@ def apply_admin_notifications_migration(
     return record_applied_migration(
         conn,
         ADMIN_NOTIFICATIONS_MIGRATION,
+        applied_at=applied_at,
+    )
+
+
+def apply_admin_notification_delivery_migration(
+    conn: sqlite3.Connection,
+    *,
+    applied_at: str,
+) -> bool:
+    """Apply the additive durable administrator-delivery queue once."""
+
+    conn.executescript(ADMIN_NOTIFICATION_DELIVERY_SCHEMA_SQL)
+    return record_applied_migration(
+        conn,
+        ADMIN_NOTIFICATION_DELIVERY_MIGRATION,
         applied_at=applied_at,
     )
 
@@ -329,11 +374,18 @@ def record_applied_migration(
     *,
     applied_at: str,
 ) -> bool:
-    ensure_migration_ledger(conn, supported_version=migration.version)
-    existing = conn.execute(
-        "SELECT name, checksum FROM schema_migrations WHERE version = ?",
-        (migration.version,),
+    ledger_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master "
+        "WHERE type='table' AND name='schema_migrations'"
     ).fetchone()
+    existing = (
+        conn.execute(
+            "SELECT name, checksum FROM schema_migrations WHERE version = ?",
+            (migration.version,),
+        ).fetchone()
+        if ledger_exists
+        else None
+    )
     if existing is not None:
         if existing["name"] != migration.name or existing["checksum"] != migration.checksum:
             raise RuntimeError("MIGRATION_DEFINITION_MISMATCH")
@@ -341,6 +393,7 @@ def record_applied_migration(
             conn.execute(f"PRAGMA user_version = {migration.version}")
         return False
 
+    ensure_migration_ledger(conn, supported_version=migration.version)
     reused_name = conn.execute(
         "SELECT version FROM schema_migrations WHERE name = ?",
         (migration.name,),

@@ -51,7 +51,7 @@ def test_repository_inventory_is_valid_deterministic_and_semantically_complete()
     assert {item["process_role"] for item in first["routes"]["items"]} == {
         "all-dev-current-monolith"
     }
-    assert first["tasks"]["worker_count"] == 3
+    assert first["tasks"]["worker_count"] == 4
     assert first["tasks"]["ephemeral_count"] == 4
     assert {item["id"] for item in first["tasks"]["items"]} == {
         "generation-consumer",
@@ -59,12 +59,16 @@ def test_repository_inventory_is_valid_deterministic_and_semantically_complete()
         "feed-video-publication",
         "avatar-cache",
         "openrouter-catalog-refresh",
+        "admin-notification-delivery",
         "gallery-storage-optimization",
         "runtime-alert",
     }
     table_names = {item["name"] for item in first["schema"]["tables"]}
     assert {"users", "auth_sessions", "payments", "token_ledger", "images", "feed_publications"} <= table_names
-    assert first["schema"]["foreign_key_declarations"] == []
+    assert len(first["schema"]["foreign_key_declarations"]) == 1
+    assert first["schema"]["foreign_key_declarations"][0]["source"] == (
+        "backend/app/database/migrations.py"
+    )
     listener_ports = {item["id"]: item["port"] for item in first["listeners"]}
     assert listener_ports == {
         "frontend-edge": 5173,

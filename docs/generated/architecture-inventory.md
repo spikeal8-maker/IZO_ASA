@@ -6,11 +6,11 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 ## Summary
 
 - Routes: 232
-- Registered workers: 3
+- Registered workers: 4
 - Registered ephemeral tasks: 4
-- SQLite tables: 54
-- SQLite indexes: 86
-- Foreign-key declarations: 0
+- SQLite tables: 55
+- SQLite indexes: 87
+- Foreign-key declarations: 1
 - Frontend/static API literals: 26
 - Route process role: `all-dev-current-monolith`
 
@@ -19,8 +19,8 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | Static policy | Count |
 |---|---:|
 | REVIEW: admin route without detected gate | 8 |
-| admin | 93 |
-| public/optional/review | 73 |
+| admin | 92 |
+| public/optional/review | 74 |
 | session | 1 |
 | user | 55 |
 | webhook: MAX secret conditional | 1 |
@@ -35,6 +35,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | feed-video-publication | worker | backend.main | SQLite feed_publications status plus an in-process asyncio queue | startup requeues rows in preparing status | missing |
 | avatar-cache | ephemeral | backend.main | avatar file and user metadata | later request may retry | not applicable |
 | openrouter-catalog-refresh | ephemeral | backend.main | process cache | later request may retry | single task handle |
+| admin-notification-delivery | worker | backend.app.services.admin_notification_delivery.AdminNotificationDeliveryWorker | SQLite admin_notification_delivery_outbox with lease, retry and terminal failed state | expired processing leases and pending/retry rows are reclaimed after restart | single task handle, bounded loop, last success/error timestamps exposed to trusted admin |
 | gallery-storage-optimization | ephemeral | backend.main | SQLite and media files | next startup may retry | missing |
 | runtime-alert | ephemeral | backend.main | external webhook only | none | none |
 
@@ -52,11 +53,11 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ### Tables
 
-`admin_notifications`, `admin_secrets`, `admin_settings`, `audit_logs`, `auth_identities`, `auth_login_attempts`, `auth_login_challenges`, `auth_otp_challenges`, `auth_passwords`, `auth_sessions`, `billing_packages`, `bonus_grants`, `bot_polling_state`, `challenge_entries`, `challenges`, `device_installations`, `event_logs`, `feed_author_follows`, `feed_engagement_events`, `feed_publications`, `feed_reactions`, `feed_subscription_reads`, `feed_view_events`, `image_sources`, `images`, `images_search`, `invoice_items`, `invoices`, `jobs`, `legal_acceptances`, `loras`, `model_profiles`, `password_reset_challenges`, `payment_notification_outbox`, `payment_provider_events`, `payments`, `presets`, `promo_codes`, `promo_redemptions`, `referral_links`, `referral_relations`, `referral_rewards`, `refunds`, `schema_migrations`, `security_events`, `session_events`, `social_delivery_outbox`, `tariff_token_grants`, `token_ledger`, `user_billing_profiles`, `user_consents`, `users`, `video_file_deletions`, `videos`
+`admin_notification_delivery_outbox`, `admin_notifications`, `admin_secrets`, `admin_settings`, `audit_logs`, `auth_identities`, `auth_login_attempts`, `auth_login_challenges`, `auth_otp_challenges`, `auth_passwords`, `auth_sessions`, `billing_packages`, `bonus_grants`, `bot_polling_state`, `challenge_entries`, `challenges`, `device_installations`, `event_logs`, `feed_author_follows`, `feed_engagement_events`, `feed_publications`, `feed_reactions`, `feed_subscription_reads`, `feed_view_events`, `image_sources`, `images`, `images_search`, `invoice_items`, `invoices`, `jobs`, `legal_acceptances`, `loras`, `model_profiles`, `password_reset_challenges`, `payment_notification_outbox`, `payment_provider_events`, `payments`, `presets`, `promo_codes`, `promo_redemptions`, `referral_links`, `referral_relations`, `referral_rewards`, `refunds`, `schema_migrations`, `security_events`, `session_events`, `social_delivery_outbox`, `tariff_token_grants`, `token_ledger`, `user_billing_profiles`, `user_consents`, `users`, `video_file_deletions`, `videos`
 
 ### Indexes
 
-`idx_admin_notifications_unread`, `idx_audit_actor`, `idx_audit_created`, `idx_audit_target`, `idx_auth_identities_internal`, `idx_auth_identities_legacy`, `idx_auth_login_challenges_expires`, `idx_auth_login_challenges_provider_status`, `idx_auth_passwords_internal_user_id`, `idx_auth_sessions_expires`, `idx_auth_sessions_internal`, `idx_auth_sessions_revoked`, `idx_bonus_grants_user_created`, `idx_challenge_entries_challenge`, `idx_consents_internal`, `idx_consents_type`, `idx_device_internal`, `idx_event_logs_anonymous`, `idx_event_logs_created`, `idx_event_logs_event_name`, `idx_event_logs_installation`, `idx_event_logs_internal`, `idx_event_logs_platform`, `idx_feed_author_follows_author`, `idx_feed_engagement_events_publication_created`, `idx_feed_engagement_events_type_created`, `idx_feed_engagement_events_viewer_created`, `idx_feed_publications_category_ready_created`, `idx_feed_publications_legacy_ready_created`, `idx_feed_publications_media_ready`, `idx_feed_publications_media_type_ready_created`, `idx_feed_publications_moderation_created`, `idx_feed_publications_status_created`, `idx_feed_publications_user`, `idx_feed_reactions_publication`, `idx_feed_reactions_viewer_kind`, `idx_feed_view_events_last_viewed`, `idx_feed_view_events_viewer_recent`, `idx_image_sources_image`, `idx_image_sources_library_available`, `idx_image_sources_user`, `idx_images_active_user_created`, `idx_images_job_id`, `idx_images_user_deleted_created`, `idx_images_user_favorite_deleted_created`, `idx_invoice_items_invoice`, `idx_invoices_status_created`, `idx_invoices_user_created`, `idx_jobs_result_image`, `idx_jobs_user_created`, `idx_legal_acceptances_user_time`, `idx_login_attempts_created`, `idx_login_attempts_ip`, `idx_login_attempts_provider_ident`, `idx_otp_destination`, `idx_otp_expires`, `idx_password_reset_expires_at`, `idx_password_reset_internal_user_id`, `idx_password_reset_token_hash`, `idx_payment_notification_outbox_pending`, `idx_payment_provider_events_received`, `idx_payments_invoice`, `idx_payments_user_created`, `idx_promo_redemptions_user_created`, `idx_referral_links_code`, `idx_referral_relations_child_created`, `idx_referral_relations_parent_created`, `idx_referral_rewards_parent_created`, `idx_refunds_user_created`, `idx_security_events_created`, `idx_security_events_internal`, `idx_security_events_type`, `idx_session_events_internal`, `idx_session_events_session`, `idx_social_delivery_outbox_pending`, `idx_tariff_token_grants_user_created`, `idx_users_internal_user_id`, `idx_video_file_deletions_created`, `idx_videos_active_user_created`, `idx_videos_job`, `idx_videos_job_id`, `idx_videos_user_created`, `ux_auth_passwords_active`, `ux_payments_provider_payment`, `ux_users_internal_user_id`, `ux_users_public_user_code`
+`idx_admin_notification_delivery_pending`, `idx_admin_notifications_unread`, `idx_audit_actor`, `idx_audit_created`, `idx_audit_target`, `idx_auth_identities_internal`, `idx_auth_identities_legacy`, `idx_auth_login_challenges_expires`, `idx_auth_login_challenges_provider_status`, `idx_auth_passwords_internal_user_id`, `idx_auth_sessions_expires`, `idx_auth_sessions_internal`, `idx_auth_sessions_revoked`, `idx_bonus_grants_user_created`, `idx_challenge_entries_challenge`, `idx_consents_internal`, `idx_consents_type`, `idx_device_internal`, `idx_event_logs_anonymous`, `idx_event_logs_created`, `idx_event_logs_event_name`, `idx_event_logs_installation`, `idx_event_logs_internal`, `idx_event_logs_platform`, `idx_feed_author_follows_author`, `idx_feed_engagement_events_publication_created`, `idx_feed_engagement_events_type_created`, `idx_feed_engagement_events_viewer_created`, `idx_feed_publications_category_ready_created`, `idx_feed_publications_legacy_ready_created`, `idx_feed_publications_media_ready`, `idx_feed_publications_media_type_ready_created`, `idx_feed_publications_moderation_created`, `idx_feed_publications_status_created`, `idx_feed_publications_user`, `idx_feed_reactions_publication`, `idx_feed_reactions_viewer_kind`, `idx_feed_view_events_last_viewed`, `idx_feed_view_events_viewer_recent`, `idx_image_sources_image`, `idx_image_sources_library_available`, `idx_image_sources_user`, `idx_images_active_user_created`, `idx_images_job_id`, `idx_images_user_deleted_created`, `idx_images_user_favorite_deleted_created`, `idx_invoice_items_invoice`, `idx_invoices_status_created`, `idx_invoices_user_created`, `idx_jobs_result_image`, `idx_jobs_user_created`, `idx_legal_acceptances_user_time`, `idx_login_attempts_created`, `idx_login_attempts_ip`, `idx_login_attempts_provider_ident`, `idx_otp_destination`, `idx_otp_expires`, `idx_password_reset_expires_at`, `idx_password_reset_internal_user_id`, `idx_password_reset_token_hash`, `idx_payment_notification_outbox_pending`, `idx_payment_provider_events_received`, `idx_payments_invoice`, `idx_payments_user_created`, `idx_promo_redemptions_user_created`, `idx_referral_links_code`, `idx_referral_relations_child_created`, `idx_referral_relations_parent_created`, `idx_referral_rewards_parent_created`, `idx_refunds_user_created`, `idx_security_events_created`, `idx_security_events_internal`, `idx_security_events_type`, `idx_session_events_internal`, `idx_session_events_session`, `idx_social_delivery_outbox_pending`, `idx_tariff_token_grants_user_created`, `idx_users_internal_user_id`, `idx_video_file_deletions_created`, `idx_videos_active_user_created`, `idx_videos_job`, `idx_videos_job_id`, `idx_videos_user_created`, `ux_auth_passwords_active`, `ux_payments_provider_payment`, `ux_users_internal_user_id`, `ux_users_public_user_code`
 
 ## External integrations and secret sources
 
@@ -141,7 +142,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Functions | Maximum | Classes | Maximum | Routes | Maximum |
 |---|---:|---:|---:|---:|---:|---:|
-| `backend/main.py` | 675 | 725 | 78 | 83 | 188 | 223 |
+| `backend/main.py` | 674 | 725 | 78 | 83 | 187 | 223 |
 
 ## Release identity baseline
 
