@@ -120,6 +120,8 @@ $releaseId = ''
 $manifestPath = ''
 $frontendRoot = Join-Path $newRelease 'frontend\dist'
 $hotBackupTool = Join-Path $newRelease 'tools\sqlite_hot_backup.py'
+$ltxLauncherSource = Join-Path $newRelease 'ops\ltx23\start-local-ltx-comfyui.ps1'
+$ltxLauncherRuntime = 'C:\IZO_ASA\runtime\start-local-ltx-comfyui.ps1'
 
 try {
     foreach ($required in @(
@@ -127,6 +129,7 @@ try {
         "$newRelease\backend\main.py",
         "$newRelease\frontend\dist\index.html",
         $hotBackupTool,
+        $ltxLauncherSource,
         $backendXml, $backendExe, $caddyFile, $caddyExe, $database, $git
     )) {
         if (-not (Test-Path -LiteralPath $required)) {
@@ -252,7 +255,13 @@ try {
         -Value $(if ($releaseId) { $releaseId } else { "local-$short" })
     Set-ServiceEnvironmentValue -Document $xml -Name 'IZO_SECRET_DIR' -Value 'C:\IZO_ASA\secrets'
     Set-ServiceEnvironmentValue -Document $xml -Name 'IZO_RELEASE_MANIFEST' -Value $manifestPath
+    Set-ServiceEnvironmentValue -Document $xml -Name 'LOCAL_LTX_ENABLED' -Value 'true'
+    Set-ServiceEnvironmentValue -Document $xml -Name 'LOCAL_LTX_COMFYUI_BASE_URL' `
+        -Value 'http://127.0.0.1:8190'
+    Set-ServiceEnvironmentValue -Document $xml -Name 'LOCAL_LTX_WORKFLOW_API_PATH' `
+        -Value (Join-Path $newRelease 'backend\workflows\ltx23_t2v_api.json')
     $xml.Save($backendXml)
+    Copy-Item -LiteralPath $ltxLauncherSource -Destination $ltxLauncherRuntime -Force
 
     $caddy = Get-Content -LiteralPath $caddyFile -Raw -Encoding UTF8
     $frontendRootMatch = [regex]::Matches(
