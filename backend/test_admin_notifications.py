@@ -92,12 +92,22 @@ def test_configured_social_outbox_stays_off_until_admin_enables_autopublish():
     apply_admin_notifications_migration(conn, applied_at="2026-07-24T00:00:00+00:00")
     conn.execute(
         "INSERT INTO admin_settings VALUES ('social_syndication', ?)",
-        ('{"autoPublish":false,"networks":{"telegram":{"enabled":true}}}',),
+        ('{"masterEnabled":true,"autoPublish":false,"networks":{"telegram":{"enabled":true,"verified":true}}}',),
     )
     assert enqueue_configured_social_deliveries(conn, "pub-safe") == 0
     conn.execute(
         "UPDATE admin_settings SET value_json = ? WHERE key = 'social_syndication'",
-        ('{"autoPublish":true,"networks":{"telegram":{"enabled":true},"vk":{"enabled":true}}}',),
+        ('{"masterEnabled":false,"autoPublish":true,"networks":{"telegram":{"enabled":true,"verified":true}}}',),
+    )
+    assert enqueue_configured_social_deliveries(conn, "pub-safe") == 0
+    conn.execute(
+        "UPDATE admin_settings SET value_json = ? WHERE key = 'social_syndication'",
+        ('{"masterEnabled":true,"autoPublish":true,"networks":{"telegram":{"enabled":true,"verified":false}}}',),
+    )
+    assert enqueue_configured_social_deliveries(conn, "pub-safe") == 0
+    conn.execute(
+        "UPDATE admin_settings SET value_json = ? WHERE key = 'social_syndication'",
+        ('{"masterEnabled":true,"autoPublish":true,"networks":{"telegram":{"enabled":true,"verified":true},"vk":{"enabled":true,"verified":true}}}',),
     )
     assert enqueue_configured_social_deliveries(conn, "pub-safe") == 2
     assert enqueue_configured_social_deliveries(conn, "pub-safe") == 0

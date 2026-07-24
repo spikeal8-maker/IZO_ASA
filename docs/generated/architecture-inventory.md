@@ -6,7 +6,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 ## Summary
 
 - Routes: 232
-- Registered workers: 4
+- Registered workers: 5
 - Registered ephemeral tasks: 4
 - SQLite tables: 55
 - SQLite indexes: 87
@@ -19,8 +19,8 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | Static policy | Count |
 |---|---:|
 | REVIEW: admin route without detected gate | 8 |
-| admin | 92 |
-| public/optional/review | 74 |
+| admin | 91 |
+| public/optional/review | 75 |
 | session | 1 |
 | user | 55 |
 | webhook: MAX secret conditional | 1 |
@@ -36,6 +36,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | avatar-cache | ephemeral | backend.main | avatar file and user metadata | later request may retry | not applicable |
 | openrouter-catalog-refresh | ephemeral | backend.main | process cache | later request may retry | single task handle |
 | admin-notification-delivery | worker | backend.app.services.admin_notification_delivery.AdminNotificationDeliveryWorker | SQLite admin_notification_delivery_outbox with lease, retry and terminal failed state | expired processing leases and pending/retry rows are reclaimed after restart | single task handle, bounded loop, last success/error timestamps exposed to trusted admin |
+| social-telegram-delivery | worker | backend.app.services.social_delivery.SocialDeliveryWorker | SQLite social_delivery_outbox with lease, retry and terminal failed state | expired Telegram processing leases and pending/retry rows are reclaimed after restart | single task handle, bounded loop, last success/error timestamps exposed to trusted admin |
 | gallery-storage-optimization | ephemeral | backend.main | SQLite and media files | next startup may retry | missing |
 | runtime-alert | ephemeral | backend.main | external webhook only | none | none |
 
@@ -128,7 +129,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Current | Maximum | Remaining |
 |---|---:|---:|---:|
-| `backend/main.py` | 19521 | 19521 | 0 |
+| `backend/main.py` | 19505 | 19521 | 16 |
 | `backend/static/feed/index.html` | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | 2346 | 2400 | 54 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
@@ -142,7 +143,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Functions | Maximum | Classes | Maximum | Routes | Maximum |
 |---|---:|---:|---:|---:|---:|---:|
-| `backend/main.py` | 674 | 725 | 78 | 83 | 187 | 223 |
+| `backend/main.py` | 673 | 725 | 77 | 83 | 186 | 223 |
 
 ## Release identity baseline
 

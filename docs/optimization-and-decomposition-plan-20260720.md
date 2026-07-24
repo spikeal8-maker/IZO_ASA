@@ -542,34 +542,36 @@ restart, webhook switch или real provider action.
 
 Не переходи к следующему пакету без моего подтверждения.
 ```
-## ADMIN-NOTIFY-SOCIAL-001 — центр событий и durable social outbox
+## ADMIN-NOTIFY-SOCIAL-001 — consolidated notification and social delivery
 
-Статус 2026-07-24: `CODE COMPLETE · VERIFIED (CI) · NOT DEPLOYED`.
+Статус 2026-07-26:
+`CODE COMPLETE · VERIFIED (CI) · FULL LIVE EDGE BLOCKED · NOT DEPLOYED`.
 
-Scope первого безопасного пакета:
+Итоговый bounded scope:
 
-- additive migration v2 создаёт `admin_notifications` и
-  `social_delivery_outbox`;
-- ежедневный lifecycle OpenRouter создаёт дедуплицированную сводку только при
-  реальных изменениях каталога;
-- trusted-admin API поддерживает чтение, mark-all/selected read и настройки
-  каналов с audit log;
-- `/admin/notifications` показывает журнал и настройки;
-- `/admin/social` хранит подготовительную конфигурацию Telegram/VK/Instagram/OK
-  и показывает durable очередь;
-- опубликованное изображение или полностью подготовленное видео создаёт не
-  более одного задания на сеть;
-- внешняя доставка и `masterEnabled` принудительно выключены, пока отдельный
-  provider package не добавит DPAPI credentials, retry worker и operator test.
+- additive migrations создают durable admin notification и social outbox;
+- trusted-admin API и UI поддерживают журнал, настройки каналов и безопасную
+  настройку Telegram/VK/Instagram/OK;
+- provider access tokens и session secret остаются write-only DPAPI secrets;
+- read-only provider checks не публикуют контент;
+- admin Telegram/email delivery и Telegram feed delivery используют single
+  worker, lease, retry, terminal failure и idempotent enqueue;
+- `masterEnabled` fail-closed: включение возможно только после успешной
+  Telegram-проверки и при неизменном target;
+- остальные social providers не получают delivery worker в этом пакете.
 
 Acceptance:
 
-- migration idempotent и отклоняет неизвестную более новую схему;
-- notification/social dedupe подтверждён тестами;
-- `backend/main.py` не превышает budget 19 517 строк;
-- frontend production build и архитектурные карты зелёные;
-- реальные сообщения и публикации не отправляются в тестах.
+- focused backend: `43 passed`, повторено пять раз (`215/215`);
+- frontend lint и production build прошли;
+- generated backend/frontend maps и architecture inventory актуальны;
+- `backend/main.py` содержит 19 505 строк при лимите 19 521;
+- `VERIFY_OK mode=CI`, duration 514.04 seconds;
+- тесты используют temporary SQLite, fake secrets/providers и MockTransport;
+  реальные сообщения, публикации и генерации не выполнялись.
 
-Evidence: focused backend `116 passed`; social outbox idempotency `5/5`;
-`VERIFY_OK mode=CI`, full suite `1668 passed`; frontend lint/build,
-release-identity, origin-isolation и studio-resilience green.
+Full live-edge проверка остановилась до тестового набора: source workspace не
+содержит `.runtime/active-frontend.json`, а явная проверка production release
+классифицировала действующий listener как `kind=unknown` относительно pinned
+runtime этого workspace. Production Caddy, manifest и active release не
+изменялись; повторный Full не запускался.

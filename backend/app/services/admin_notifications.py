@@ -154,12 +154,13 @@ def enqueue_configured_social_deliveries(
         "SELECT value_json FROM admin_settings WHERE key = 'social_syndication'"
     ).fetchone()
     settings = json.loads(row["value_json"] or "{}") if row else {}
-    if not settings.get("autoPublish"):
+    if not settings.get("masterEnabled") or not settings.get("autoPublish"):
         return 0
     networks = settings.get("networks") if isinstance(settings.get("networks"), dict) else {}
     enabled = [
         name for name in SOCIAL_NETWORKS
         if bool((networks.get(name) or {}).get("enabled", False))
+        and bool((networks.get(name) or {}).get("verified", False))
     ]
     return enqueue_social_deliveries(
         conn, publication_id=publication_id, networks=enabled

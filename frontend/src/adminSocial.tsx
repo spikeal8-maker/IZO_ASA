@@ -28,14 +28,18 @@ const defaults: SocialSettings = {
 export default function AdminSocial() {
   const [settings, setSettings] = useState(defaults)
   const [queue, setQueue] = useState<Array<{ network: string; status: string; count: number }>>([])
+  const [worker, setWorker] = useState<{ running: boolean; lastSuccessAt?: string | null; lastError?: string | null }>({ running: false })
+  const [operational, setOperational] = useState(false)
   const [message, setMessage] = useState('')
   const [tokens, setTokens] = useState<Record<Network, string>>({ telegram: '', vk: '', instagram: '', ok: '' })
   const [okSessionSecret, setOkSessionSecret] = useState('')
   const [busy, setBusy] = useState('')
   const load = useCallback(async () => {
-    const result = await adminGet<{ settings: SocialSettings; queue: typeof queue; message: string }>('/admin/social-v2')
+    const result = await adminGet<{ settings: SocialSettings; queue: typeof queue; worker: typeof worker; operational: boolean; message: string }>('/admin/social-v2')
     if (result?.settings) setSettings(result.settings)
     setQueue(result?.queue || [])
+    setWorker(result?.worker || { running: false })
+    setOperational(Boolean(result?.operational))
     setMessage(result?.message || '')
   }, [])
   useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
@@ -92,7 +96,8 @@ export default function AdminSocial() {
   }
   return <div className="admin-social-page">
     <div className="admin-section-headline"><div><h3><Share2 size={18} /> Социальные сети</h3><p>Будущее дублирование публичных работ из ленты.</p></div></div>
-    <div className="admin-social-warning">Ключи сохраняются вне Git в DPAPI и никогда не возвращаются в браузер. Автопубликация остаётся выключенной до успешной проверки.</div>
+    <div className="admin-social-warning">Ключи сохраняются вне Git в DPAPI и никогда не возвращаются в браузер. Сейчас реализована доставка только в Telegram; остальные сети не отправляют публикации.</div>
+    <label className="admin-social-auto"><input type="checkbox" checked={settings.masterEnabled} onChange={(e) => setSettings({ ...settings, masterEnabled: e.target.checked })} /> Общее включение внешней публикации</label>
     <label className="admin-social-auto"><input type="checkbox" checked={settings.autoPublish} onChange={(e) => setSettings({ ...settings, autoPublish: e.target.checked })} /> Автоматически ставить публикации ленты в очередь соцсетей</label>
     <div className="admin-social-grid">
       {([
@@ -117,6 +122,7 @@ export default function AdminSocial() {
     </div>
     <button onClick={() => void save()}>Сохранить настройки публикации</button>
     {message && <p className="admin-social-note">{message}</p>}
+    <section><h4>Состояние доставки</h4><p>Telegram: {operational ? 'включён' : 'выключен'} · worker: {worker.running ? 'работает' : 'остановлен'}</p>{worker.lastSuccessAt && <p>Последняя успешная отправка: {worker.lastSuccessAt}</p>}{worker.lastError && <p className="error">Последняя ошибка worker: {worker.lastError}</p>}</section>
     <section><h4>Очередь доставки</h4>{queue.length ? queue.map((row) => <p key={`${row.network}-${row.status}`}>{row.network}: {row.status} — {row.count}</p>) : <p>Заданий пока нет.</p>}</section>
   </div>
 }
