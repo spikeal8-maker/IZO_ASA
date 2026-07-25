@@ -61,13 +61,22 @@ def resolve_local_ltx_profile(model_id: str) -> LtxProfile | None:
 
 
 def local_ltx_catalog(*, enabled: bool) -> list[dict[str, Any]]:
+    return local_ltx_catalog_for_profile(enabled=enabled, profile_model_id=None)
+
+
+def local_ltx_catalog_for_profile(
+    *, enabled: bool, profile_model_id: str | None
+) -> list[dict[str, Any]]:
     if not enabled:
         return []
+    profile = resolve_local_ltx_profile(profile_model_id or "") or _PROFILES[0]
     return [
         {
-            "id": profile.model_id,
-            "name": profile.name,
-            "description": profile.description,
+            # Keep one stable public identity. Q3/Q4 are administrator-selected
+            # execution profiles, not separate user-facing models.
+            "id": _PROFILES[0].model_id,
+            "name": "ИЗО База",
+            "description": "Базовая локальная модель ИЗО АСА для создания коротких видео.",
             "provider": "local_ltx",
             "modes": ["text_to_video"],
             "supportedResolutions": ["480p"],
@@ -99,12 +108,19 @@ def local_ltx_catalog(*, enabled: bool) -> list[dict[str, Any]]:
                 "estimated": False,
             },
         }
-        for profile in _PROFILES[:1]
     ]
 
 
-def catalog_for_mode(mode: str, *, enabled: bool) -> list[dict[str, Any]]:
-    return local_ltx_catalog(enabled=enabled) if mode == "text_to_video" else []
+def catalog_for_mode(
+    mode: str, *, enabled: bool, profile_model_id: str | None = None
+) -> list[dict[str, Any]]:
+    return (
+        local_ltx_catalog_for_profile(
+            enabled=enabled, profile_model_id=profile_model_id
+        )
+        if mode == "text_to_video"
+        else []
+    )
 
 
 def resolve_catalog_model(
@@ -112,12 +128,19 @@ def resolve_catalog_model(
     mode: str,
     *,
     enabled: bool,
+    profile_model_id: str | None = None,
 ) -> tuple[dict[str, Any], LtxProfile] | None:
-    profile = resolve_local_ltx_profile(model_id)
-    if profile is None:
+    if model_id != _PROFILES[0].model_id:
         return None
+    profile = resolve_local_ltx_profile(profile_model_id or "") or _PROFILES[0]
     model = next(
-        (item for item in catalog_for_mode(mode, enabled=enabled) if item["id"] == model_id),
+        (
+            item
+            for item in catalog_for_mode(
+                mode, enabled=enabled, profile_model_id=profile.model_id
+            )
+            if item["id"] == model_id
+        ),
         None,
     )
     return (model, profile) if model is not None else None

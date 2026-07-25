@@ -12,7 +12,9 @@ from app.services.ltx_video import (
     build_ltx_prompt,
     estimate_local_ltx_billing,
     local_ltx_catalog,
+    normalize_runtime_settings,
     recover_missing_job_state,
+    resolve_catalog_model,
     resolve_local_ltx_profile,
 )
 
@@ -21,10 +23,35 @@ def test_local_catalog_is_explicitly_enabled_and_has_bounded_profiles():
     assert local_ltx_catalog(enabled=False) == []
     catalog = local_ltx_catalog(enabled=True)
     assert [model["id"] for model in catalog] == ["local/ltx-2.3-fast-q3"]
+    assert catalog[0]["name"] == "ИЗО База"
     assert catalog[0]["supportedAspectRatios"] == ["16:9", "9:16", "1:1"]
     assert all(model["modes"] == ["text_to_video"] for model in catalog)
     assert all(model["supportedDurations"] == [2, 4] for model in catalog)
     assert all(model["generateAudio"] is False for model in catalog)
+
+
+def test_public_model_can_use_admin_selected_q4_profile():
+    resolved = resolve_catalog_model(
+        "local/ltx-2.3-fast-q3",
+        "text_to_video",
+        enabled=True,
+        profile_model_id="local/ltx-2.3-standard-q4",
+    )
+    assert resolved is not None
+    model, profile = resolved
+    assert model["id"] == "local/ltx-2.3-fast-q3"
+    assert model["name"] == "ИЗО База"
+    assert model["localProfile"]["quantization"] == "Q4_K_M"
+    assert profile.quantization == "Q4_K_M"
+
+
+def test_video_profile_switch_is_blocked_only_while_a_job_is_active():
+    current = {"imageEnabled": True, "videoEnabled": True, "videoProfile": "local/ltx-2.3-fast-q3"}
+    requested = {**current, "videoProfile": "local/ltx-2.3-standard-q4"}
+    assert normalize_runtime_settings(requested, current, has_active_job=False)["videoProfile"].endswith("q4")
+    with pytest.raises(Exception) as exc:
+        normalize_runtime_settings(requested, current, has_active_job=True)
+    assert getattr(exc.value, "status_code", None) == 409
 
 
 def test_local_billing_uses_fixed_daily_token_quote():

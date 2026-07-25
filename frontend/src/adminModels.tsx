@@ -128,11 +128,11 @@ type ConfigStatus = {
   models_api?: { ok?: boolean; error?: string; counts?: Record<string, number> }
   nodes?: { ok?: boolean; count?: number; required?: Record<string, boolean>; error?: string }
   active_jobs?: Array<{ id?: string; status?: string; mode?: string; provider?: string; progress?: number; message?: string }>
-  runtime?: { imageEnabled?: boolean; videoEnabled?: boolean }
+  runtime?: { imageEnabled?: boolean; videoEnabled?: boolean; videoProfile?: string }
   video?: {
     ready?: boolean; enabled?: boolean; base_url?: string; gpu?: string; error?: string
     active_jobs?: Array<{ id?: string; status?: string; progress?: number; created_at?: string }>
-    profiles?: string[]; aspect_ratios?: string[]; resolution?: string
+    profiles?: Array<{ id: string; label: string }>; aspect_ratios?: string[]; resolution?: string
   }
   cache?: { models_page_cached?: boolean; models_page_cached_age_seconds?: number | null; models_page_ttl_seconds?: number }
 }
@@ -916,7 +916,7 @@ export default function AdminModelsV2() {
   const [data, setData] = useState<PageData | null>(null)
   const [pageTab, setPageTab] = useState<'config' | 'api' | 'voice' | 'improve'>('api')
   const [configSection, setConfigSection] = useState<'image' | 'video'>('image')
-  const [configRuntime, setConfigRuntime] = useState({ imageEnabled: true, videoEnabled: true })
+  const [configRuntime, setConfigRuntime] = useState({ imageEnabled: true, videoEnabled: true, videoProfile: 'local/ltx-2.3-fast-q3' })
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
   const [routes, setRoutes] = useState<Route[]>([])
   const [query, setQuery] = useState('')
@@ -992,11 +992,12 @@ export default function AdminModelsV2() {
   }, [])
 
   const loadTariffs = useCallback(async () => {
-    const result = await amvFetch('/admin/settings').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown; config_ui_resolution_access?: unknown; config_ui_runtime?: { imageEnabled?: boolean; videoEnabled?: boolean } } | null
+    const result = await amvFetch('/admin/settings').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown; config_ui_resolution_access?: unknown; config_ui_runtime?: { imageEnabled?: boolean; videoEnabled?: boolean; videoProfile?: string } } | null
     if (result?.tariffs) setTariffs(applyConfigUiResolutionAccess(normalizeTariffs(result.tariffs), result.config_ui_resolution_access))
     if (result?.config_ui_runtime) setConfigRuntime({
       imageEnabled: result.config_ui_runtime.imageEnabled !== false,
       videoEnabled: result.config_ui_runtime.videoEnabled !== false,
+      videoProfile: result.config_ui_runtime.videoProfile || 'local/ltx-2.3-fast-q3',
     })
   }, [])
 
@@ -1077,13 +1078,14 @@ export default function AdminModelsV2() {
     setMsg(`${label} сохранено`)
     return result.settings ?? payload
   }
-  const saveConfigRuntime = async (next: { imageEnabled: boolean; videoEnabled: boolean }) => {
+  const saveConfigRuntime = async (next: { imageEnabled: boolean; videoEnabled: boolean; videoProfile: string }) => {
     setConfigRuntime(next)
     const saved = await saveSetting('config_ui_runtime', next, 'Настройки локальных сервисов')
     if (saved) {
       setConfigRuntime({
         imageEnabled: (saved as { imageEnabled?: boolean }).imageEnabled !== false,
         videoEnabled: (saved as { videoEnabled?: boolean }).videoEnabled !== false,
+        videoProfile: (saved as { videoProfile?: string }).videoProfile || 'local/ltx-2.3-fast-q3',
       })
       await loadConfigStatus()
     }
@@ -1558,9 +1560,20 @@ export default function AdminModelsV2() {
           <div className="server-metric"><span>Форматы</span><strong>{(configStatus?.video?.aspect_ratios || ['16:9', '9:16', '1:1']).join(' · ')}</strong><small>{configStatus?.video?.resolution || '480p'}</small></div>
           <div className="server-metric"><span>Активные видео</span><strong>{configStatus?.video?.active_jobs?.length ?? 0}</strong><small>одна последовательная очередь</small></div>
         </div>
+        <div className="profile-switch" aria-label="Технический профиль локальной видеомодели">
+          {(configStatus?.video?.profiles || [
+            { id: 'local/ltx-2.3-fast-q3', label: 'Q3 — быстрее' },
+            { id: 'local/ltx-2.3-standard-q4', label: 'Q4 — качественнее' },
+          ]).map((profile) => <button
+            key={profile.id}
+            disabled={opsBusy || Boolean(configStatus?.video?.active_jobs?.length)}
+            className={configRuntime.videoProfile === profile.id ? 'active' : ''}
+            onClick={() => void saveConfigRuntime({ ...configRuntime, videoProfile: profile.id })}
+          >{profile.label}</button>)}
+        </div>
         {(configStatus?.video?.active_jobs || []).map((job) => <div className="job-row" key={job.id}><strong>{job.id}</strong><span>{job.status}</span><span>{job.progress ?? 0}%</span><small>{job.created_at}</small></div>)}
         <div className="dependency-note">
-          <div><strong>LTX 2.3</strong><span>Одна модель. Q3/Q4 — технические профили качества этой модели, а не разные модели для пользователя.</span></div>
+          <div><strong>ИЗО База</strong><span>Пользователь видит одну базовую модель. Здесь администратор выбирает её технический профиль Q3 или Q4 для следующих заданий.</span></div>
           <div><strong>Память</strong><span>RTX 4070 работает в low-VRAM режиме и при необходимости переносит веса в оперативную память.</span></div>
         </div>
       </article>

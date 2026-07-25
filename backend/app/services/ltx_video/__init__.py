@@ -5,6 +5,7 @@ from .profiles import (
     catalog_for_mode,
     estimate_local_ltx_billing,
     local_ltx_catalog,
+    local_ltx_catalog_for_profile,
     resolve_catalog_model,
     resolve_local_ltx_profile,
 )
@@ -12,6 +13,7 @@ from .workflow import LtxWorkflowError, build_ltx_prompt
 from .orchestration import (
     LocalLtxRequestError,
     admin_runtime_status,
+    normalize_runtime_settings,
     recover_missing_job_state,
     submit_local_ltx_job,
     validate_and_submit_local_ltx_job,
@@ -27,11 +29,13 @@ __all__ = [
     "catalog_for_mode",
     "estimate_local_ltx_billing",
     "local_ltx_catalog",
+    "local_ltx_catalog_for_profile",
     "resolve_catalog_model",
     "resolve_local_ltx_profile",
     "submit_local_ltx_job",
     "validate_and_submit_local_ltx_job",
     "LocalLtxRequestError",
     "admin_runtime_status",
+    "normalize_runtime_settings",
     "recover_missing_job_state",
 ]

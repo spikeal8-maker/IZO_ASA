@@ -17,6 +17,24 @@ class LocalLtxRequestError(RuntimeError):
         self.status_code = status_code
 
 
+def normalize_runtime_settings(
+    requested: dict[str, Any], current: dict[str, Any], *, has_active_job: bool
+) -> dict[str, Any]:
+    profile = str(requested.get("videoProfile") or "local/ltx-2.3-fast-q3")
+    if profile not in {"local/ltx-2.3-fast-q3", "local/ltx-2.3-standard-q4"}:
+        raise LocalLtxRequestError(422, "Неизвестный профиль локальной видеомодели.")
+    current_profile = str(current.get("videoProfile") or "local/ltx-2.3-fast-q3")
+    if has_active_job and profile != current_profile:
+        raise LocalLtxRequestError(
+            409, "Нельзя переключать Q3/Q4 во время активной видеогенерации."
+        )
+    return {
+        "imageEnabled": requested.get("imageEnabled") is not False,
+        "videoEnabled": requested.get("videoEnabled") is not False,
+        "videoProfile": profile,
+    }
+
+
 def recover_missing_job_state(
     state: dict[str, Any], created_at_value: Any, *, grace_seconds: int = 30 * 60
 ) -> dict[str, Any] | None:
@@ -59,7 +77,10 @@ async def admin_runtime_status(
             "base_url": base_url,
             "gpu": readiness.get("device"),
             "active_jobs": jobs,
-            "profiles": ["Q3_K_M", "Q4_K_M"],
+            "profiles": [
+                {"id": "local/ltx-2.3-fast-q3", "label": "Q3 — быстрее"},
+                {"id": "local/ltx-2.3-standard-q4", "label": "Q4 — качественнее"},
+            ],
             "aspect_ratios": ["16:9", "9:16", "1:1"],
             "resolution": "480p",
         }

@@ -142,8 +142,9 @@ function statusLabel(status: string) {
   if (['failed', 'cancelled', 'expired'].includes(status)) return 'Не завершено'
   if (status === 'submitting') return 'Отправляем задачу'
   if (status === 'in_progress') return 'Создаём видео'
-  if (status === 'saving') return 'Сохраняем видео'
-  return 'В очереди'
+  if (status === 'saving' || status === 'finalizing') return 'Сохраняем и загружаем видео'
+  if (status === 'queued' || status === 'pending') return 'Загружаем модель и готовим генерацию'
+  return 'Подготовка'
 }
 function aspectStyle(value: string | undefined) {
   const [width, height] = String(value || '16:9').split(':').map(Number)
@@ -887,7 +888,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
             </div>
           </div>
           {shownJob?.status === 'completed' && shownJob.videoUrl ? <video key={shownJob.videoUrl} src={shownJob.videoUrl} controls playsInline preload="metadata" />
-            : shownJob && !['failed', 'cancelled', 'expired'].includes(shownJob.status) ? <div className="video-progress"><Film /><strong>{statusLabel(shownJob.status)}</strong><p>Прошло {shownElapsed || 'несколько секунд'}. Ролик сохранится в истории и галерее.</p><div><i style={{ width: `${Math.max(8, shownJob.progress || 10)}%` }} /></div><small>{shownJob.progress || 10}%</small></div>
+            : shownJob && !['failed', 'cancelled', 'expired'].includes(shownJob.status) ? <div className="video-progress"><Film /><strong>{statusLabel(shownJob.status)}</strong><p>С момента нажатия прошло {shownElapsed || 'несколько секунд'}. Время остановится только после загрузки ролика в историю и галерею.</p><div><i style={{ width: `${Math.max(8, shownJob.progress || 10)}%` }} /></div><small>{shownJob.progress || 10}%</small></div>
             : shownJob?.error ? <div className="video-stage-message error"><RotateCcw /><strong>Видео не создано</strong><p>{shownJob.error}</p><button type="button" onClick={() => setSelectedJob(null)}>Попробовать снова</button></div>
             : <div className="video-stage-message"><Play /><strong>{mode === 'image_to_video' && firstFrame ? 'Исходный кадр добавлен' : modeMeta.empty}</strong><p>{mode === 'image_to_video' && firstFrame ? 'Опишите движение и выберите параметры' : 'Выберите параметры и создайте видео'}</p></div>}
         </div></div>

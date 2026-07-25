@@ -14327,6 +14327,11 @@ async def admin_save_settings(key: str, req: AdminSettingsRequest, request: Requ
         except Exception as exc:
             raise HTTPException(status_code=503, detail=f"Каталог видеомоделей временно недоступен: {truncate_admin_text(str(exc), 180)}") from exc
         settings = normalize_openrouter_video_config(req.settings, video_catalog)
+    elif key == "config_ui_runtime":
+        with db() as conn: active_video = conn.execute("SELECT 1 FROM jobs WHERE provider='local_ltx' AND status IN ('submitting','queued','pending','in_progress','finalizing') LIMIT 1").fetchone()
+        try:
+            settings = ltx_video.normalize_runtime_settings(req.settings, _saved_setting("config_ui_runtime"), has_active_job=active_video is not None)
+        except ltx_video.LocalLtxRequestError as exc: raise HTTPException(exc.status_code, str(exc)) from exc
     elif key == "legal":
         settings = normalize_legal_settings(req.settings)
     else:
@@ -15956,9 +15961,10 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
     exchange_rate = exchange.get("rate") if isinstance(exchange.get("rate"), (int, float)) else None
     economy = openrouter_economy_settings()
     pricing_history = video_pricing.load_actual_pricing_samples(db, safe_json_load)
+    runtime_settings = _saved_setting("config_ui_runtime"); local_video_enabled = LOCAL_LTX_ENABLED and runtime_settings.get("videoEnabled") is not False; local_video_profile = str(runtime_settings.get("videoProfile") or "local/ltx-2.3-fast-q3")
     modes: dict[str, list[dict[str, Any]]] = {}
     for mode in OPENROUTER_VIDEO_MODES:
-        modes[mode] = ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False)
+        modes[mode] = ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)
         for model in video_pricing.allowed_models(catalog, config, mode, plan, is_admin):
             public_model = dict(model)
             public_model["publicPricing"] = _video_model_public_pricing(
@@ -15983,13 +15989,13 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
         },
         "availability": {
             mode: {
-                "enabled": len((config.get("enabled") or {}).get(mode) or []) + len(ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False)),
-                "tariff": len((((config.get("access") or {}).get(mode) or {}).get(plan)) or []) + len(ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False)),
+                "enabled": len((config.get("enabled") or {}).get(mode) or []) + len(ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)),
+                "tariff": len((((config.get("access") or {}).get(mode) or {}).get(plan)) or []) + len(ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)),
                 "reason": (
                     "В админке не включены модели для этого режима."
-                    if not (config.get("enabled") or {}).get(mode) and not ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False)
+                    if not (config.get("enabled") or {}).get(mode) and not ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)
                     else f"Для тарифа {plan.title()} не назначены модели этого режима."
-                    if not is_admin and not (((config.get("access") or {}).get(mode) or {}).get(plan)) and not ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False)
+                    if not is_admin and not (((config.get("access") or {}).get(mode) or {}).get(plan)) and not ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)
                     else ""
                 ),
             }
@@ -16028,9 +16034,7 @@ async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[st
         user = conn.execute("SELECT plan, role FROM users WHERE id = ?", (user_id,)).fetchone()
     plan = str(_row_get(user, "plan") or "free").lower()
     is_admin = str(_row_get(user, "role") or "") == "admin"
-    local = ltx_video.resolve_catalog_model(
-        req.model, req.mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False
-    )
+    runtime_settings = _saved_setting("config_ui_runtime"); local = ltx_video.resolve_catalog_model(req.model, req.mode, enabled=LOCAL_LTX_ENABLED and runtime_settings.get("videoEnabled") is not False, profile_model_id=str(runtime_settings.get("videoProfile") or "local/ltx-2.3-fast-q3"))
     if local is not None:
         _local_model, profile = local
         return await _generate_local_ltx_video(
@@ -16094,9 +16098,7 @@ async def estimate_video(req: VideoGenerateRequest, request: Request) -> dict[st
         user = conn.execute("SELECT plan, role FROM users WHERE id = ?", (user_id,)).fetchone()
     plan = str(_row_get(user, "plan") or "free").lower()
     is_admin = str(_row_get(user, "role") or "") == "admin"
-    local = ltx_video.resolve_catalog_model(
-        req.model, req.mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False
-    )
+    runtime_settings = _saved_setting("config_ui_runtime"); local = ltx_video.resolve_catalog_model(req.model, req.mode, enabled=LOCAL_LTX_ENABLED and runtime_settings.get("videoEnabled") is not False, profile_model_id=str(runtime_settings.get("videoProfile") or "local/ltx-2.3-fast-q3"))
     if local is not None:
         model, profile = local
         if req.duration not in model["supportedDurations"]:

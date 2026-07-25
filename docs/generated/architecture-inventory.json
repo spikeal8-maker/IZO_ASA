@@ -826,10 +826,10 @@
   ],
   "file_limits": [
     {
-      "lines": 19519,
+      "lines": 19521,
       "max_lines": 19521,
       "path": "backend/main.py",
-      "remaining": 2
+      "remaining": 0
     },
     {
       "lines": 2124,
@@ -850,10 +850,10 @@
       "remaining": 100
     },
     {
-      "lines": 2073,
+      "lines": 2086,
       "max_lines": 2100,
       "path": "frontend/src/adminModels.tsx",
-      "remaining": 27
+      "remaining": 14
     },
     {
       "lines": 2337,
@@ -1429,7 +1429,7 @@
       {
         "auth": "admin",
         "handler": "admin_assistants",
-        "line": 14353,
+        "line": 14358,
         "method": "GET",
         "path": "/api/admin/assistants",
         "process_role": "all-dev-current-monolith"
@@ -1437,7 +1437,7 @@
       {
         "auth": "admin",
         "handler": "admin_test_assistant",
-        "line": 14647,
+        "line": 14652,
         "method": "POST",
         "path": "/api/admin/assistants/test",
         "process_role": "all-dev-current-monolith"
@@ -1445,7 +1445,7 @@
       {
         "auth": "admin",
         "handler": "admin_test_voice_assistant",
-        "line": 14677,
+        "line": 14682,
         "method": "POST",
         "path": "/api/admin/assistants/voice-test",
         "process_role": "all-dev-current-monolith"
@@ -1589,7 +1589,7 @@
       {
         "auth": "admin",
         "handler": "admin_config_ui_interrupt_v2",
-        "line": 14951,
+        "line": 14956,
         "method": "POST",
         "path": "/api/admin/config-ui/interrupt-v2",
         "process_role": "all-dev-current-monolith"
@@ -1597,7 +1597,7 @@
       {
         "auth": "admin",
         "handler": "admin_config_ui_reload_v2",
-        "line": 14909,
+        "line": 14914,
         "method": "POST",
         "path": "/api/admin/config-ui/reload-v2",
         "process_role": "all-dev-current-monolith"
@@ -1605,7 +1605,7 @@
       {
         "auth": "admin",
         "handler": "admin_config_ui_status_v2",
-        "line": 14903,
+        "line": 14908,
         "method": "GET",
         "path": "/api/admin/config-ui/status-v2",
         "process_role": "all-dev-current-monolith"
@@ -1613,7 +1613,7 @@
       {
         "auth": "admin",
         "handler": "admin_config_ui_switch_v2",
-        "line": 14933,
+        "line": 14938,
         "method": "POST",
         "path": "/api/admin/config-ui/switch-v2",
         "process_role": "all-dev-current-monolith"
@@ -1637,7 +1637,7 @@
       {
         "auth": "admin",
         "handler": "admin_feed_moderation_queue",
-        "line": 19089,
+        "line": 19091,
         "method": "GET",
         "path": "/api/admin/feed/moderation",
         "process_role": "all-dev-current-monolith"
@@ -1645,7 +1645,7 @@
       {
         "auth": "admin",
         "handler": "admin_delete_feed_publication_v2",
-        "line": 19213,
+        "line": 19215,
         "method": "POST",
         "path": "/api/admin/feed/publications/{publication_id}/delete-v2",
         "process_role": "all-dev-current-monolith"
@@ -1653,7 +1653,7 @@
       {
         "auth": "admin",
         "handler": "admin_feed_moderation_media",
-        "line": 19119,
+        "line": 19121,
         "method": "GET",
         "path": "/api/admin/feed/publications/{publication_id}/media",
         "process_role": "all-dev-current-monolith"
@@ -1661,7 +1661,7 @@
       {
         "auth": "admin",
         "handler": "admin_moderate_feed_publication",
-        "line": 19138,
+        "line": 19140,
         "method": "POST",
         "path": "/api/admin/feed/publications/{publication_id}/moderate",
         "process_role": "all-dev-current-monolith"
@@ -1685,7 +1685,7 @@
       {
         "auth": "admin",
         "handler": "admin_jobs",
-        "line": 17054,
+        "line": 17056,
         "method": "GET",
         "path": "/api/admin/jobs",
         "process_role": "all-dev-current-monolith"
@@ -1693,7 +1693,7 @@
       {
         "auth": "admin",
         "handler": "admin_limits",
-        "line": 17060,
+        "line": 17062,
         "method": "POST",
         "path": "/api/admin/limits",
         "process_role": "all-dev-current-monolith"
@@ -1709,7 +1709,7 @@
       {
         "auth": "admin",
         "handler": "admin_loras",
-        "line": 15074,
+        "line": 15079,
         "method": "GET",
         "path": "/api/admin/loras",
         "process_role": "all-dev-current-monolith"
@@ -1717,7 +1717,7 @@
       {
         "auth": "admin",
         "handler": "admin_mail_config_v2",
-        "line": 14382,
+        "line": 14387,
         "method": "PUT",
         "path": "/api/admin/mail/config-v2",
         "process_role": "all-dev-current-monolith"
@@ -1741,7 +1741,7 @@
       {
         "auth": "admin",
         "handler": "admin_mail_unisender_create_list_v2",
-        "line": 14510,
+        "line": 14515,
         "method": "POST",
         "path": "/api/admin/mail/unisender/lists-v2",
         "process_role": "all-dev-current-monolith"
@@ -1749,7 +1749,7 @@
       {
         "auth": "admin",
         "handler": "admin_mail_unisender_verify_v2",
-        "line": 14428,
+        "line": 14433,
         "method": "POST",
         "path": "/api/admin/mail/unisender/verify-v2",
         "process_role": "all-dev-current-monolith"
@@ -1757,7 +1757,7 @@
       {
         "auth": "admin",
         "handler": "admin_mail_verify_v2",
-        "line": 14392,
+        "line": 14397,
         "method": "POST",
         "path": "/api/admin/mail/verify-v2",
         "process_role": "all-dev-current-monolith"
@@ -1773,7 +1773,7 @@
       {
         "auth": "admin",
         "handler": "admin_model_status",
-        "line": 14806,
+        "line": 14811,
         "method": "GET",
         "path": "/api/admin/model-status",
         "process_role": "all-dev-current-monolith"
@@ -1781,7 +1781,7 @@
       {
         "auth": "admin",
         "handler": "admin_models_page",
-        "line": 16937,
+        "line": 16939,
         "method": "GET",
         "path": "/api/admin/models-page",
         "process_role": "all-dev-current-monolith"
@@ -1789,7 +1789,7 @@
       {
         "auth": "admin",
         "handler": "admin_openrouter_catalog_refresh_v2",
-        "line": 16743,
+        "line": 16745,
         "method": "POST",
         "path": "/api/admin/openrouter/catalog/refresh-v2",
         "process_role": "all-dev-current-monolith"
@@ -1797,7 +1797,7 @@
       {
         "auth": "admin",
         "handler": "admin_openrouter_catalog_status_v2",
-        "line": 16736,
+        "line": 16738,
         "method": "GET",
         "path": "/api/admin/openrouter/catalog/status-v2",
         "process_role": "all-dev-current-monolith"
@@ -1805,7 +1805,7 @@
       {
         "auth": "admin",
         "handler": "admin_save_openrouter_config",
-        "line": 16777,
+        "line": 16779,
         "method": "POST",
         "path": "/api/admin/openrouter/config",
         "process_role": "all-dev-current-monolith"
@@ -1813,7 +1813,7 @@
       {
         "auth": "admin",
         "handler": "admin_openrouter_refresh_exchange",
-        "line": 16769,
+        "line": 16771,
         "method": "POST",
         "path": "/api/admin/openrouter/exchange/refresh",
         "process_role": "all-dev-current-monolith"
@@ -1821,7 +1821,7 @@
       {
         "auth": "admin",
         "handler": "admin_delete_openrouter_key",
-        "line": 16819,
+        "line": 16821,
         "method": "DELETE",
         "path": "/api/admin/openrouter/key",
         "process_role": "all-dev-current-monolith"
@@ -1829,7 +1829,7 @@
       {
         "auth": "admin",
         "handler": "admin_save_openrouter_key",
-        "line": 16798,
+        "line": 16800,
         "method": "PUT",
         "path": "/api/admin/openrouter/key",
         "process_role": "all-dev-current-monolith"
@@ -1837,7 +1837,7 @@
       {
         "auth": "admin",
         "handler": "admin_openrouter_pricing",
-        "line": 16755,
+        "line": 16757,
         "method": "GET",
         "path": "/api/admin/openrouter/pricing",
         "process_role": "all-dev-current-monolith"
@@ -1845,7 +1845,7 @@
       {
         "auth": "admin",
         "handler": "admin_openrouter_status",
-        "line": 16729,
+        "line": 16731,
         "method": "GET",
         "path": "/api/admin/openrouter/status",
         "process_role": "all-dev-current-monolith"
@@ -1853,7 +1853,7 @@
       {
         "auth": "admin",
         "handler": "admin_openrouter_test_generate",
-        "line": 16837,
+        "line": 16839,
         "method": "POST",
         "path": "/api/admin/openrouter/test-generate",
         "process_role": "all-dev-current-monolith"
@@ -1861,7 +1861,7 @@
       {
         "auth": "admin",
         "handler": "admin_payments_check_v2",
-        "line": 14589,
+        "line": 14594,
         "method": "POST",
         "path": "/api/admin/payments/check-v2",
         "process_role": "all-dev-current-monolith"
@@ -1869,7 +1869,7 @@
       {
         "auth": "admin",
         "handler": "admin_payments_config_v2",
-        "line": 14579,
+        "line": 14584,
         "method": "PUT",
         "path": "/api/admin/payments/config-v2",
         "process_role": "all-dev-current-monolith"
@@ -1885,7 +1885,7 @@
       {
         "auth": "admin",
         "handler": "admin_payment_package_v2",
-        "line": 14629,
+        "line": 14634,
         "method": "PUT",
         "path": "/api/admin/payments/packages/{code}-v2",
         "process_role": "all-dev-current-monolith"
@@ -1901,7 +1901,7 @@
       {
         "auth": "admin",
         "handler": "admin_payments_status_v2",
-        "line": 14526,
+        "line": 14531,
         "method": "GET",
         "path": "/api/admin/payments/status-v2",
         "process_role": "all-dev-current-monolith"
@@ -2429,7 +2429,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_list",
-        "line": 18056,
+        "line": 18058,
         "method": "GET",
         "path": "/api/feed",
         "process_role": "all-dev-current-monolith"
@@ -2437,7 +2437,7 @@
       {
         "auth": "user",
         "handler": "feed_unfollow_author",
-        "line": 18944,
+        "line": 18946,
         "method": "DELETE",
         "path": "/api/feed/authors/{author_id}/follow",
         "process_role": "all-dev-current-monolith"
@@ -2445,7 +2445,7 @@
       {
         "auth": "user",
         "handler": "feed_follow_author",
-        "line": 18923,
+        "line": 18925,
         "method": "POST",
         "path": "/api/feed/authors/{author_id}/follow",
         "process_role": "all-dev-current-monolith"
@@ -2453,7 +2453,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_author_publications",
-        "line": 18955,
+        "line": 18957,
         "method": "GET",
         "path": "/api/feed/authors/{author_id}/publications",
         "process_role": "all-dev-current-monolith"
@@ -2461,7 +2461,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_challenges",
-        "line": 19017,
+        "line": 19019,
         "method": "GET",
         "path": "/api/feed/challenges",
         "process_role": "all-dev-current-monolith"
@@ -2469,7 +2469,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_engagement_event",
-        "line": 18759,
+        "line": 18761,
         "method": "POST",
         "path": "/api/feed/events",
         "process_role": "all-dev-current-monolith"
@@ -2477,7 +2477,7 @@
       {
         "auth": "user",
         "handler": "feed_following_mark_read",
-        "line": 19001,
+        "line": 19003,
         "method": "POST",
         "path": "/api/feed/following/read",
         "process_role": "all-dev-current-monolith"
@@ -2485,7 +2485,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_media",
-        "line": 19392,
+        "line": 19394,
         "method": "GET",
         "path": "/api/feed/media/{publication_id}",
         "process_role": "all-dev-current-monolith"
@@ -2493,7 +2493,7 @@
       {
         "auth": "user",
         "handler": "feed_publish",
-        "line": 18426,
+        "line": 18428,
         "method": "POST",
         "path": "/api/feed/publications",
         "process_role": "all-dev-current-monolith"
@@ -2501,7 +2501,7 @@
       {
         "auth": "user",
         "handler": "delete_own_feed_publication",
-        "line": 19298,
+        "line": 19300,
         "method": "DELETE",
         "path": "/api/feed/publications/{publication_id}",
         "process_role": "all-dev-current-monolith"
@@ -2509,7 +2509,7 @@
       {
         "auth": "user",
         "handler": "update_own_feed_publication",
-        "line": 18662,
+        "line": 18664,
         "method": "PATCH",
         "path": "/api/feed/publications/{publication_id}",
         "process_role": "all-dev-current-monolith"
@@ -2517,7 +2517,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_undislike",
-        "line": 18867,
+        "line": 18869,
         "method": "DELETE",
         "path": "/api/feed/publications/{publication_id}/dislike",
         "process_role": "all-dev-current-monolith"
@@ -2525,7 +2525,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_dislike",
-        "line": 18862,
+        "line": 18864,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/dislike",
         "process_role": "all-dev-current-monolith"
@@ -2533,7 +2533,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_publication_download",
-        "line": 19445,
+        "line": 19447,
         "method": "GET",
         "path": "/api/feed/publications/{publication_id}/download",
         "process_role": "all-dev-current-monolith"
@@ -2541,7 +2541,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_unhide",
-        "line": 18877,
+        "line": 18879,
         "method": "DELETE",
         "path": "/api/feed/publications/{publication_id}/hide",
         "process_role": "all-dev-current-monolith"
@@ -2549,7 +2549,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_hide",
-        "line": 18872,
+        "line": 18874,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/hide",
         "process_role": "all-dev-current-monolith"
@@ -2557,7 +2557,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_unlike",
-        "line": 18730,
+        "line": 18732,
         "method": "DELETE",
         "path": "/api/feed/publications/{publication_id}/like",
         "process_role": "all-dev-current-monolith"
@@ -2565,7 +2565,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_like",
-        "line": 18725,
+        "line": 18727,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/like",
         "process_role": "all-dev-current-monolith"
@@ -2573,7 +2573,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_recreate_mark",
-        "line": 19042,
+        "line": 19044,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/recreate",
         "process_role": "all-dev-current-monolith"
@@ -2581,7 +2581,7 @@
       {
         "auth": "user",
         "handler": "feed_remix_start",
-        "line": 19058,
+        "line": 19060,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/remix/start",
         "process_role": "all-dev-current-monolith"
@@ -2589,7 +2589,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_report",
-        "line": 18882,
+        "line": 18884,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/report",
         "process_role": "all-dev-current-monolith"
@@ -2597,7 +2597,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_unsave",
-        "line": 18740,
+        "line": 18742,
         "method": "DELETE",
         "path": "/api/feed/publications/{publication_id}/save",
         "process_role": "all-dev-current-monolith"
@@ -2605,7 +2605,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_save",
-        "line": 18735,
+        "line": 18737,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/save",
         "process_role": "all-dev-current-monolith"
@@ -2613,7 +2613,7 @@
       {
         "auth": "user",
         "handler": "feed_publication_status",
-        "line": 18630,
+        "line": 18632,
         "method": "GET",
         "path": "/api/feed/publications/{publication_id}/status",
         "process_role": "all-dev-current-monolith"
@@ -2621,7 +2621,7 @@
       {
         "auth": "user",
         "handler": "feed_publication_use_as",
-        "line": 18887,
+        "line": 18889,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/use-as",
         "process_role": "all-dev-current-monolith"
@@ -2629,7 +2629,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_publication_view",
-        "line": 18816,
+        "line": 18818,
         "method": "POST",
         "path": "/api/feed/publications/{publication_id}/view",
         "process_role": "all-dev-current-monolith"
@@ -2637,7 +2637,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_video_media",
-        "line": 19413,
+        "line": 19415,
         "method": "GET",
         "path": "/api/feed/video/{publication_id}",
         "process_role": "all-dev-current-monolith"
@@ -2725,7 +2725,7 @@
       {
         "auth": "user",
         "handler": "gallery_video_delete",
-        "line": 16379,
+        "line": 16381,
         "method": "DELETE",
         "path": "/api/gallery/videos/{video_id}",
         "process_role": "all-dev-current-monolith"
@@ -2733,7 +2733,7 @@
       {
         "auth": "user",
         "handler": "gallery_video_favorite",
-        "line": 16354,
+        "line": 16356,
         "method": "POST",
         "path": "/api/gallery/videos/{video_id}/favorite",
         "process_role": "all-dev-current-monolith"
@@ -2925,7 +2925,7 @@
       {
         "auth": "user",
         "handler": "model_access",
-        "line": 16714,
+        "line": 16716,
         "method": "GET",
         "path": "/api/model-access",
         "process_role": "all-dev-current-monolith"
@@ -3069,7 +3069,7 @@
       {
         "auth": "user",
         "handler": "video_generation_config",
-        "line": 15940,
+        "line": 15945,
         "method": "GET",
         "path": "/api/video/config",
         "process_role": "all-dev-current-monolith"
@@ -3077,7 +3077,7 @@
       {
         "auth": "user",
         "handler": "estimate_video",
-        "line": 16090,
+        "line": 16094,
         "method": "POST",
         "path": "/api/video/estimate",
         "process_role": "all-dev-current-monolith"
@@ -3085,7 +3085,7 @@
       {
         "auth": "user",
         "handler": "generate_video",
-        "line": 16024,
+        "line": 16030,
         "method": "POST",
         "path": "/api/video/generate",
         "process_role": "all-dev-current-monolith"
@@ -3093,7 +3093,7 @@
       {
         "auth": "user",
         "handler": "video_history",
-        "line": 16319,
+        "line": 16321,
         "method": "GET",
         "path": "/api/video/history",
         "process_role": "all-dev-current-monolith"
@@ -3101,7 +3101,7 @@
       {
         "auth": "user",
         "handler": "get_video_job",
-        "line": 16263,
+        "line": 16265,
         "method": "GET",
         "path": "/api/video/jobs/{job_id}",
         "process_role": "all-dev-current-monolith"
@@ -3109,7 +3109,7 @@
       {
         "auth": "user",
         "handler": "video_media",
-        "line": 16341,
+        "line": 16343,
         "method": "GET",
         "path": "/api/video/media/{job_id}",
         "process_role": "all-dev-current-monolith"
@@ -4142,7 +4142,7 @@
         "occurrences": [
           {
             "enclosing_symbol": "start_feed_video_publication_worker",
-            "line": 18229
+            "line": 18231
           }
         ],
         "owner": "backend.main",
