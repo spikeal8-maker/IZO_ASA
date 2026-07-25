@@ -1,7 +1,8 @@
 param(
     [string]$ComfyRoot = "F:\AI\ComfyUI\ComfyUI_windows_portable\ComfyUI",
     [string]$PythonPath = "F:\AI\ComfyUI\ComfyUI_windows_portable\python_embeded\python.exe",
-    [string]$GpuUuid = "GPU-35731bea-a468-e491-1627-5fa90aff0535",
+    # Dedicated RTX 4070. Keep image ComfyUI on the RTX 3090.
+    [string]$GpuUuid = "GPU-f731a5d8-6816-a862-81ec-b23ef1b907c0",
     [int]$Port = 8190,
     [double]$ReserveVramGb = 1.0,
     [string]$StateDirectory = "F:\AI\ComfyUI\LTX23_user",

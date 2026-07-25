@@ -11,6 +11,7 @@ from app.services.ltx_video import (
     build_ltx_prompt,
     estimate_local_ltx_billing,
     local_ltx_catalog,
+    recover_missing_job_state,
     resolve_local_ltx_profile,
 )
 
@@ -18,10 +19,8 @@ from app.services.ltx_video import (
 def test_local_catalog_is_explicitly_enabled_and_has_bounded_profiles():
     assert local_ltx_catalog(enabled=False) == []
     catalog = local_ltx_catalog(enabled=True)
-    assert [model["id"] for model in catalog] == [
-        "local/ltx-2.3-fast-q3",
-        "local/ltx-2.3-standard-q4",
-    ]
+    assert [model["id"] for model in catalog] == ["local/ltx-2.3-fast-q3"]
+    assert catalog[0]["supportedAspectRatios"] == ["16:9", "9:16", "1:1"]
     assert all(model["modes"] == ["text_to_video"] for model in catalog)
     assert all(model["supportedDurations"] == [2, 4] for model in catalog)
     assert all(model["generateAudio"] is False for model in catalog)
@@ -108,6 +107,33 @@ def test_comfy_client_requires_a_gpu_for_readiness(monkeypatch):
     )
     status = asyncio.run(ComfyLtxClient("http://comfy.test").readiness())
     assert status["ready"] is False
+
+
+def test_comfy_client_distinguishes_lost_history_from_pending(monkeypatch):
+    original_client = httpx.AsyncClient
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/history/lost-prompt"
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **_kwargs: original_client(transport=httpx.MockTransport(handler)),
+    )
+    state = asyncio.run(ComfyLtxClient("http://comfy.test").status("lost-prompt"))
+    assert state == {"status": "missing", "progress": 15}
+
+
+def test_lost_local_job_expires_instead_of_remaining_pending_forever():
+    recent = recover_missing_job_state(
+        {"status": "missing"}, "2999-01-01T00:00:00+00:00", grace_seconds=90
+    )
+    stale = recover_missing_job_state(
+        {"status": "missing"}, "2020-01-01T00:00:00+00:00", grace_seconds=90
+    )
+    assert recent is None
+    assert stale and stale["status"] == "failed"
 
 
 def test_comfy_client_releases_models_and_vram(monkeypatch):

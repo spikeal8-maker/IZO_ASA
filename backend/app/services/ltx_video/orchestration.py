@@ -17,6 +17,55 @@ class LocalLtxRequestError(RuntimeError):
         self.status_code = status_code
 
 
+def recover_missing_job_state(
+    state: dict[str, Any], created_at_value: Any, *, grace_seconds: int = 90
+) -> dict[str, Any] | None:
+    if str(state.get("status") or "") != "missing":
+        return state
+    try:
+        created_at = datetime.fromisoformat(str(created_at_value).replace("Z", "+00:00"))
+        age_seconds = (datetime.now(timezone.utc) - created_at).total_seconds()
+    except (TypeError, ValueError):
+        age_seconds = grace_seconds
+    if age_seconds < grace_seconds:
+        return None
+    return {
+        "status": "failed",
+        "error": (
+            "Локальная видеогенерация была потеряна после перезапуска "
+            "видеосервиса. Токены возвращены; задачу можно запустить снова."
+        ),
+    }
+
+
+async def admin_runtime_status(
+    *, client: ComfyLtxClient, enabled: bool, base_url: str, open_db: Callable[[], Any]
+) -> dict[str, Any]:
+    readiness = await client.readiness()
+    with open_db() as conn:
+        jobs = [
+            dict(row)
+            for row in conn.execute(
+                "SELECT id,status,progress,created_at FROM jobs "
+                "WHERE provider='local_ltx' AND status IN "
+                "('submitting','queued','pending','in_progress','finalizing') "
+                "ORDER BY created_at"
+            ).fetchall()
+        ]
+    return {
+        "video": {
+            **readiness,
+            "enabled": enabled,
+            "base_url": base_url,
+            "gpu": readiness.get("device"),
+            "active_jobs": jobs,
+            "profiles": ["Q3_K_M", "Q4_K_M"],
+            "aspect_ratios": ["16:9", "9:16", "1:1"],
+            "resolution": "480p",
+        }
+    }
+
+
 async def validate_and_submit_local_ltx_job(
     req: Any,
     *,
@@ -32,8 +81,10 @@ async def validate_and_submit_local_ltx_job(
         raise LocalLtxRequestError(422, "Локальный LTX пока работает без генерации звука.")
     if req.duration not in profile.durations:
         raise LocalLtxRequestError(422, "Локальный LTX поддерживает ролики длительностью 2 или 4 секунды.")
-    if req.resolution != "480p" or req.aspectRatio != "16:9":
-        raise LocalLtxRequestError(422, "Локальный LTX сейчас работает в формате 16:9, 480p.")
+    if req.resolution != "480p" or req.aspectRatio not in {"16:9", "9:16", "1:1"}:
+        raise LocalLtxRequestError(
+            422, "Локальный LTX поддерживает 480p в форматах 16:9, 9:16 и 1:1."
+        )
     if not workflow_path.is_file():
         raise LocalLtxRequestError(503, "Серверный workflow LTX 2.3 не установлен.")
     with callbacks["open_db"]() as conn:
@@ -84,6 +135,7 @@ async def submit_local_ltx_job(
         profile=profile,
         text=req.prompt,
         duration=req.duration,
+        aspect_ratio=req.aspectRatio,
         filename_prefix=f"izo_ltx/{job_id}",
     )
     now = datetime.now(timezone.utc).isoformat()

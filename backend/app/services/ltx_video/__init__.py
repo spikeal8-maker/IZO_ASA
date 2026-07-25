@@ -11,6 +11,8 @@ from .profiles import (
 from .workflow import LtxWorkflowError, build_ltx_prompt
 from .orchestration import (
     LocalLtxRequestError,
+    admin_runtime_status,
+    recover_missing_job_state,
     submit_local_ltx_job,
     validate_and_submit_local_ltx_job,
 )
@@ -30,4 +32,6 @@ __all__ = [
     "submit_local_ltx_job",
     "validate_and_submit_local_ltx_job",
     "LocalLtxRequestError",
+    "admin_runtime_status",
+    "recover_missing_job_state",
 ]
