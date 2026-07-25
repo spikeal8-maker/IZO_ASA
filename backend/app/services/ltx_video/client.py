@@ -61,7 +61,10 @@ class ComfyLtxClient:
             raise LtxComfyError(f"Cannot read the LTX job status: {exc}") from exc
         item = payload.get(prompt_id) if isinstance(payload, dict) else None
         if not isinstance(item, dict):
-            return {"status": "pending", "progress": 15}
+            # A supervisor restart clears ComfyUI's volatile history.  The
+            # application must distinguish that from a prompt that is merely
+            # waiting, otherwise the persistent job remains pending forever.
+            return {"status": "missing", "progress": 15}
         status = item.get("status") if isinstance(item.get("status"), dict) else {}
         if status.get("status_str") == "error":
             messages = status.get("messages") if isinstance(status.get("messages"), list) else []

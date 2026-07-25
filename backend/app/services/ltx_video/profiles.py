@@ -26,18 +26,20 @@ class LtxProfile:
 _PROFILES = (
     LtxProfile(
         model_id=f"{LOCAL_LTX_MODEL_PREFIX}-fast-q3",
-        name="LTX 2.3 Локально — быстро",
-        description="Локальная генерация на видеокарте. Короткие ролики без звука, очередь по одному заданию.",
+        name="LTX 2.3 — локально",
+        description="Локальная генерация видео на выделенной RTX 4070. Короткие ролики без звука, очередь по одному заданию.",
         quantization="Q3_K_M",
         width=832,
         height=480,
         steps=8,
         tokens_by_duration={2: 1, 4: 2},
     ),
+    # Kept as an administrator-selectable technical quality profile.  It is
+    # deliberately not exposed as a second user-facing model.
     LtxProfile(
         model_id=f"{LOCAL_LTX_MODEL_PREFIX}-standard-q4",
-        name="LTX 2.3 Локально — стандарт",
-        description="Локальная генерация повышенного качества. Короткие ролики без звука, очередь по одному заданию.",
+        name="LTX 2.3 — Q4",
+        description="Технический профиль повышенного качества.",
         quantization="Q4_K_M",
         width=832,
         height=480,
@@ -45,6 +47,13 @@ _PROFILES = (
         tokens_by_duration={2: 2, 4: 4},
     ),
 )
+
+
+LTX_480P_SIZES = {
+    "16:9": (832, 480),
+    "9:16": (480, 832),
+    "1:1": (640, 640),
+}
 
 
 def resolve_local_ltx_profile(model_id: str) -> LtxProfile | None:
@@ -62,8 +71,10 @@ def local_ltx_catalog(*, enabled: bool) -> list[dict[str, Any]]:
             "provider": "local_ltx",
             "modes": ["text_to_video"],
             "supportedResolutions": ["480p"],
-            "supportedAspectRatios": ["16:9"],
-            "supportedSizes": [f"{profile.width}x{profile.height}"],
+            "supportedAspectRatios": list(LTX_480P_SIZES),
+            "supportedSizes": [
+                f"{width}x{height}" for width, height in LTX_480P_SIZES.values()
+            ],
             "supportedDurations": profile.durations,
             "supportedFrameImages": [],
             "generateAudio": False,
@@ -78,16 +89,17 @@ def local_ltx_catalog(*, enabled: bool) -> list[dict[str, Any]]:
                     {
                         "duration": duration,
                         "resolution": "480p",
-                        "aspectRatio": "16:9",
+                        "aspectRatio": aspect_ratio,
                         "tokens": tokens,
                         "pricingSource": "local_profile",
                     }
                     for duration, tokens in sorted(profile.tokens_by_duration.items())
+                    for aspect_ratio in LTX_480P_SIZES
                 ],
                 "estimated": False,
             },
         }
-        for profile in _PROFILES
+        for profile in _PROFILES[:1]
     ]
 
 

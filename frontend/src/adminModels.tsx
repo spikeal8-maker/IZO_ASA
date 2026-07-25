@@ -128,6 +128,12 @@ type ConfigStatus = {
   models_api?: { ok?: boolean; error?: string; counts?: Record<string, number> }
   nodes?: { ok?: boolean; count?: number; required?: Record<string, boolean>; error?: string }
   active_jobs?: Array<{ id?: string; status?: string; mode?: string; provider?: string; progress?: number; message?: string }>
+  runtime?: { imageEnabled?: boolean; videoEnabled?: boolean }
+  video?: {
+    ready?: boolean; enabled?: boolean; base_url?: string; gpu?: string; error?: string
+    active_jobs?: Array<{ id?: string; status?: string; progress?: number; created_at?: string }>
+    profiles?: string[]; aspect_ratios?: string[]; resolution?: string
+  }
   cache?: { models_page_cached?: boolean; models_page_cached_age_seconds?: number | null; models_page_ttl_seconds?: number }
 }
 type PageData = {
@@ -909,6 +915,8 @@ const CSS = `
 export default function AdminModelsV2() {
   const [data, setData] = useState<PageData | null>(null)
   const [pageTab, setPageTab] = useState<'config' | 'api' | 'voice' | 'improve'>('api')
+  const [configSection, setConfigSection] = useState<'image' | 'video'>('image')
+  const [configRuntime, setConfigRuntime] = useState({ imageEnabled: true, videoEnabled: true })
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null)
   const [routes, setRoutes] = useState<Route[]>([])
   const [query, setQuery] = useState('')
@@ -984,8 +992,12 @@ export default function AdminModelsV2() {
   }, [])
 
   const loadTariffs = useCallback(async () => {
-    const result = await amvFetch('/admin/settings').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown; config_ui_resolution_access?: unknown } | null
+    const result = await amvFetch('/admin/settings').then((r) => r.ok ? r.json() : null).catch(() => null) as { tariffs?: unknown; config_ui_resolution_access?: unknown; config_ui_runtime?: { imageEnabled?: boolean; videoEnabled?: boolean } } | null
     if (result?.tariffs) setTariffs(applyConfigUiResolutionAccess(normalizeTariffs(result.tariffs), result.config_ui_resolution_access))
+    if (result?.config_ui_runtime) setConfigRuntime({
+      imageEnabled: result.config_ui_runtime.imageEnabled !== false,
+      videoEnabled: result.config_ui_runtime.videoEnabled !== false,
+    })
   }, [])
 
   const loadConfigStatus = useCallback(async () => {
@@ -1064,6 +1076,17 @@ export default function AdminModelsV2() {
     }
     setMsg(`${label} сохранено`)
     return result.settings ?? payload
+  }
+  const saveConfigRuntime = async (next: { imageEnabled: boolean; videoEnabled: boolean }) => {
+    setConfigRuntime(next)
+    const saved = await saveSetting('config_ui_runtime', next, 'Настройки локальных сервисов')
+    if (saved) {
+      setConfigRuntime({
+        imageEnabled: (saved as { imageEnabled?: boolean }).imageEnabled !== false,
+        videoEnabled: (saved as { videoEnabled?: boolean }).videoEnabled !== false,
+      })
+      await loadConfigStatus()
+    }
   }
   const globalLocalProfile = routes.find((route) => route.provider === 'local')?.modelProfileId || 'flux_klein_9b'
   const setGlobalLocalProfile = async (modelProfileId: string) => {
@@ -1515,11 +1538,44 @@ export default function AdminModelsV2() {
     </>}
 
     {pageTab === 'config' && <>
+    <div className="page-tabs" aria-label="Разделы Config UI" style={{ marginBottom: 12 }}>
+      <button className={configSection === 'image' ? 'active' : ''} onClick={() => setConfigSection('image')}>Изображения</button>
+      <button className={configSection === 'video' ? 'active' : ''} onClick={() => setConfigSection('video')}>Видео</button>
+    </div>
+
+    {configSection === 'video' && <section className="server-layout">
+      <article className="card">
+        <div className="card-head">
+          <div><h2 className="card-title">Локальная видеогенерация</h2><p className="card-note">Отдельный ComfyUI на RTX 4070; RTX 3090 остаётся только для изображений.</p></div>
+          <label className="resolution-plan">
+            <input type="checkbox" checked={configRuntime.videoEnabled} onChange={(e) => void saveConfigRuntime({ ...configRuntime, videoEnabled: e.target.checked })} />
+            <span>{configRuntime.videoEnabled ? 'включена' : 'отключена'}</span>
+          </label>
+        </div>
+        <div className="server-overview">
+          <div className="server-metric"><span>Видеосервис</span><strong style={{ color: statusColor(configStatus?.video?.ready) }}>{configStatus?.video?.ready ? 'Готов' : 'Недоступен'}</strong><small>{configStatus?.video?.base_url || '127.0.0.1:8190'}</small></div>
+          <div className="server-metric"><span>Видеокарта</span><strong>{configStatus?.video?.gpu || 'проверка'}</strong><small>выделенная RTX 4070</small></div>
+          <div className="server-metric"><span>Форматы</span><strong>{(configStatus?.video?.aspect_ratios || ['16:9', '9:16', '1:1']).join(' · ')}</strong><small>{configStatus?.video?.resolution || '480p'}</small></div>
+          <div className="server-metric"><span>Активные видео</span><strong>{configStatus?.video?.active_jobs?.length ?? 0}</strong><small>одна последовательная очередь</small></div>
+        </div>
+        {(configStatus?.video?.active_jobs || []).map((job) => <div className="job-row" key={job.id}><strong>{job.id}</strong><span>{job.status}</span><span>{job.progress ?? 0}%</span><small>{job.created_at}</small></div>)}
+        <div className="dependency-note">
+          <div><strong>LTX 2.3</strong><span>Одна модель. Q3/Q4 — технические профили качества этой модели, а не разные модели для пользователя.</span></div>
+          <div><strong>Память</strong><span>RTX 4070 работает в low-VRAM режиме и при необходимости переносит веса в оперативную память.</span></div>
+        </div>
+      </article>
+    </section>}
+
+    {configSection === 'image' && <>
     <section className="server-command">
       <div className="server-title">
         <h2>Config UI</h2>
         <p>Управление локальным генератором, глобальной моделью и LoRA</p>
       </div>
+      <label className="resolution-plan">
+        <input type="checkbox" checked={configRuntime.imageEnabled} onChange={(e) => void saveConfigRuntime({ ...configRuntime, imageEnabled: e.target.checked })} />
+        <span>{configRuntime.imageEnabled ? 'изображения включены' : 'изображения отключены'}</span>
+      </label>
       <span className={`state ${configStatus?.status === 'ready' ? 'ok' : 'warn'}`}>{configErr ? 'статус недоступен' : configStatus?.status === 'ready' ? 'сервер готов' : configStatus?.status || 'проверка'}</span>
       <div className="profile-switch" aria-label="Глобальная серверная модель">
         <button disabled={opsBusy} className={globalLocalProfile === 'flux_klein_9b' ? 'active' : ''} onClick={() => void setGlobalLocalProfile('flux_klein_9b')}>Klein 9B</button>
@@ -1628,6 +1684,7 @@ export default function AdminModelsV2() {
         <div><strong>DWPreprocessor</strong><span>Модуль распознавания позы. Нужен только функциям LoRA, которые управляют положением тела.</span></div>
       </div>
     </article>
+    </>}
     </>}
 
     {pageTab === 'api' && <>

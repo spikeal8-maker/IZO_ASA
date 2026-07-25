@@ -6,7 +6,7 @@ import secrets
 from pathlib import Path
 from typing import Any
 
-from .profiles import LtxProfile
+from .profiles import LTX_480P_SIZES, LtxProfile
 
 
 class LtxWorkflowError(RuntimeError):
@@ -44,6 +44,7 @@ def build_ltx_prompt(
     profile: LtxProfile,
     text: str,
     duration: int,
+    aspect_ratio: str = "16:9",
     filename_prefix: str,
 ) -> dict[str, Any]:
     try:
@@ -77,8 +78,12 @@ def build_ltx_prompt(
     if len(latent_nodes) != 1:
         raise LtxWorkflowError("LTX workflow must contain exactly one video latent node")
     latent_inputs = latent_nodes[0].setdefault("inputs", {})
-    latent_inputs["width"] = profile.width
-    latent_inputs["height"] = profile.height
+    try:
+        width, height = LTX_480P_SIZES[aspect_ratio]
+    except KeyError as exc:
+        raise LtxWorkflowError(f"Unsupported LTX aspect ratio: {aspect_ratio}") from exc
+    latent_inputs["width"] = width
+    latent_inputs["height"] = height
     length = latent_inputs.get("length")
     if isinstance(length, list) and length:
         frame_node = prompt.get(str(length[0]))

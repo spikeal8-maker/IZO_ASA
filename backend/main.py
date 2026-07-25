@@ -7354,6 +7354,8 @@ async def download_comfyui_image(image: dict[str, str], job_id: str) -> tuple[Pa
 
 
 async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> ComfyUIResult | None:
+    if _saved_setting("config_ui_runtime").get("imageEnabled") is False:
+        raise RuntimeError("Локальная генерация изображений отключена администратором.")
     await wait_for_comfyui_recovery_gate()
     if not await comfyui_available():
         if COMFYUI_REQUIRED:
@@ -14872,6 +14874,8 @@ async def compute_config_ui_status() -> dict[str, Any]:
 
     nodes_ready = bool(nodes_status.get("ok")) and bool(models_status.get("ok"))
     status = "ready" if comfy_up and config_status["ok"] and models_status["ok"] and nodes_ready else "degraded"
+    runtime_settings = _saved_setting("config_ui_runtime")
+    video_status = await ltx_video.admin_runtime_status(client=ltx_video.ComfyLtxClient(LOCAL_LTX_COMFYUI_BASE_URL, COMFYUI_TIMEOUT_SECONDS), enabled=runtime_settings.get("videoEnabled", LOCAL_LTX_ENABLED) is not False, base_url=LOCAL_LTX_COMFYUI_BASE_URL, open_db=db)
     return {
         "ok": True,
         "status": status,
@@ -14885,6 +14889,8 @@ async def compute_config_ui_status() -> dict[str, Any]:
         "models_api": models_status,
         "nodes": nodes_status,
         "active_jobs": active_jobs,
+        "runtime": {"imageEnabled": runtime_settings.get("imageEnabled", True) is not False, "videoEnabled": runtime_settings.get("videoEnabled", LOCAL_LTX_ENABLED) is not False},
+        **video_status,
         "cache": {
             "models_page_ttl_seconds": ADMIN_MODELS_PAGE_CACHE_TTL_SECONDS,
             "models_page_cached": bool(models_cache_data),
@@ -15913,8 +15919,6 @@ def _release_video_finalization(job_id: str, error: str) -> None:
             "UPDATE jobs SET status='pending',progress=85,error_message=?,settings_json=? WHERE id=?",
             (truncate_admin_text(error, 500), json.dumps(settings, ensure_ascii=False), job_id),
         )
-
-
 async def _download_video_result(
     url: str,
     job_id: str,
@@ -15932,8 +15936,6 @@ async def _download_video_result(
         error_factory=HTTPException,
     )
     return filename, total
-
-
 @app.get("/api/video/config")
 async def video_generation_config(request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
@@ -15956,7 +15958,7 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
     pricing_history = video_pricing.load_actual_pricing_samples(db, safe_json_load)
     modes: dict[str, list[dict[str, Any]]] = {}
     for mode in OPENROUTER_VIDEO_MODES:
-        modes[mode] = ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED)
+        modes[mode] = ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False)
         for model in video_pricing.allowed_models(catalog, config, mode, plan, is_admin):
             public_model = dict(model)
             public_model["publicPricing"] = _video_model_public_pricing(
@@ -15981,13 +15983,13 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
         },
         "availability": {
             mode: {
-                "enabled": len((config.get("enabled") or {}).get(mode) or []) + len(ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED)),
-                "tariff": len((((config.get("access") or {}).get(mode) or {}).get(plan)) or []) + len(ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED)),
+                "enabled": len((config.get("enabled") or {}).get(mode) or []) + len(ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False)),
+                "tariff": len((((config.get("access") or {}).get(mode) or {}).get(plan)) or []) + len(ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False)),
                 "reason": (
                     "В админке не включены модели для этого режима."
-                    if not (config.get("enabled") or {}).get(mode) and not ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED)
+                    if not (config.get("enabled") or {}).get(mode) and not ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False)
                     else f"Для тарифа {plan.title()} не назначены модели этого режима."
-                    if not is_admin and not (((config.get("access") or {}).get(mode) or {}).get(plan)) and not ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED)
+                    if not is_admin and not (((config.get("access") or {}).get(mode) or {}).get(plan)) and not ltx_video.catalog_for_mode(mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False)
                     else ""
                 ),
             }
@@ -16000,8 +16002,6 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
             "fetchedAt": exchange.get("fetchedAt"),
         },
     }
-
-
 async def _generate_local_ltx_video(
     req: VideoGenerateRequest,
     *,
@@ -16020,8 +16020,6 @@ async def _generate_local_ltx_video(
         if isinstance(exc, ltx_video.LocalLtxRequestError):
             raise HTTPException(exc.status_code, str(exc)) from exc
         raise HTTPException(502, f"Не удалось запустить LTX: {truncate_admin_text(str(exc), 300)}") from exc
-
-
 @app.post("/api/video/generate")
 async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
@@ -16031,7 +16029,7 @@ async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[st
     plan = str(_row_get(user, "plan") or "free").lower()
     is_admin = str(_row_get(user, "role") or "") == "admin"
     local = ltx_video.resolve_catalog_model(
-        req.model, req.mode, enabled=LOCAL_LTX_ENABLED
+        req.model, req.mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False
     )
     if local is not None:
         _local_model, profile = local
@@ -16088,8 +16086,6 @@ async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[st
         settings.update({"openrouterJobId": submitted["id"], "pollingUrl": submitted.get("polling_url"), "generationId": submitted.get("generation_id")})
         conn.execute("UPDATE jobs SET status='queued',progress=10,settings_json=? WHERE id=?", (json.dumps(settings, ensure_ascii=False), job_id))
     return {"id": job_id, "status": "queued", "progress": 10, "tokenCost": billing["chargedTokens"], "tokenBalance": charge["new_balance"]}
-
-
 @app.post("/api/video/estimate")
 async def estimate_video(req: VideoGenerateRequest, request: Request) -> dict[str, Any]:
     trusted = require_trusted_user(request)
@@ -16099,7 +16095,7 @@ async def estimate_video(req: VideoGenerateRequest, request: Request) -> dict[st
     plan = str(_row_get(user, "plan") or "free").lower()
     is_admin = str(_row_get(user, "role") or "") == "admin"
     local = ltx_video.resolve_catalog_model(
-        req.model, req.mode, enabled=LOCAL_LTX_ENABLED
+        req.model, req.mode, enabled=LOCAL_LTX_ENABLED and _saved_setting("config_ui_runtime").get("videoEnabled") is not False
     )
     if local is not None:
         model, profile = local
@@ -16124,8 +16120,6 @@ async def estimate_video(req: VideoGenerateRequest, request: Request) -> dict[st
     if req.aspectRatio not in (model.get("supportedAspectRatios") or []):
         raise HTTPException(422, "Модель не поддерживает выбранный формат кадра.")
     return await estimate_openrouter_video_billing(model, req)
-
-
 async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
     initial_settings = safe_json_load(row["settings_json"]) or {}
     if row["status"] == "finalizing" and video_storage.finalization_is_fresh(
@@ -16149,6 +16143,10 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
     except Exception:
         return row
     status = str(state.get("status") or "pending")
+    if is_local_ltx:
+        state = ltx_video.recover_missing_job_state(state, row["created_at"])
+        if state is None: return row
+        status = str(state.get("status") or status)
     progress = 55 if status == "in_progress" else 15
     completed_at = None
     error = None
