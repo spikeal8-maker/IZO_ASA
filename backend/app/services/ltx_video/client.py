@@ -57,9 +57,18 @@ class ComfyLtxClient:
                 )
                 response.raise_for_status()
                 payload = response.json()
+                item = payload.get(prompt_id) if isinstance(payload, dict) else None
+                if not isinstance(item, dict):
+                    # ComfyUI may briefly omit a newly submitted/running prompt
+                    # from history.  Check the live queue before treating the
+                    # prompt as lost after a supervisor restart.
+                    queue_response = await client.get(f"{self.base_url.rstrip('/')}/queue")
+                    queue_response.raise_for_status()
+                    queue_payload = queue_response.json()
+                    if _queue_contains_prompt(queue_payload, prompt_id):
+                        return {"status": "in_progress", "progress": 55}
         except (httpx.HTTPError, ValueError) as exc:
             raise LtxComfyError(f"Cannot read the LTX job status: {exc}") from exc
-        item = payload.get(prompt_id) if isinstance(payload, dict) else None
         if not isinstance(item, dict):
             # A supervisor restart clears ComfyUI's volatile history.  The
             # application must distinguish that from a prompt that is merely
@@ -108,3 +117,18 @@ def _video_output(outputs: Any) -> dict[str, str] | None:
                         "type": str(candidate.get("type") or "output"),
                     }
     return None
+
+
+def _queue_contains_prompt(payload: Any, prompt_id: str) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    for key in ("queue_running", "queue_pending"):
+        entries = payload.get(key)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if isinstance(entry, (list, tuple)) and len(entry) > 1 and str(entry[1]) == prompt_id:
+                return True
+            if isinstance(entry, dict) and str(entry.get("prompt_id") or "") == prompt_id:
+                return True
+    return False

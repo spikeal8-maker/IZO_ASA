@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+from datetime import datetime, timezone
 
 import httpx
 import pytest
@@ -113,8 +114,10 @@ def test_comfy_client_distinguishes_lost_history_from_pending(monkeypatch):
     original_client = httpx.AsyncClient
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/history/lost-prompt"
-        return httpx.Response(200, json={})
+        if request.url.path == "/history/lost-prompt":
+            return httpx.Response(200, json={})
+        assert request.url.path == "/queue"
+        return httpx.Response(200, json={"queue_running": [], "queue_pending": []})
 
     monkeypatch.setattr(
         httpx,
@@ -123,6 +126,27 @@ def test_comfy_client_distinguishes_lost_history_from_pending(monkeypatch):
     )
     state = asyncio.run(ComfyLtxClient("http://comfy.test").status("lost-prompt"))
     assert state == {"status": "missing", "progress": 15}
+
+
+def test_comfy_client_keeps_prompt_in_live_queue_in_progress(monkeypatch):
+    original_client = httpx.AsyncClient
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/history/running-prompt":
+            return httpx.Response(200, json={})
+        assert request.url.path == "/queue"
+        return httpx.Response(
+            200,
+            json={"queue_running": [[7, "running-prompt", {}, {}, []]], "queue_pending": []},
+        )
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **_kwargs: original_client(transport=httpx.MockTransport(handler)),
+    )
+    state = asyncio.run(ComfyLtxClient("http://comfy.test").status("running-prompt"))
+    assert state == {"status": "in_progress", "progress": 55}
 
 
 def test_lost_local_job_expires_instead_of_remaining_pending_forever():
@@ -134,6 +158,13 @@ def test_lost_local_job_expires_instead_of_remaining_pending_forever():
     )
     assert recent is None
     assert stale and stale["status"] == "failed"
+
+
+def test_lost_local_job_uses_video_sized_default_grace_period():
+    state = recover_missing_job_state(
+        {"status": "missing"}, datetime.now(timezone.utc).isoformat()
+    )
+    assert state is None
 
 
 def test_comfy_client_releases_models_and_vram(monkeypatch):

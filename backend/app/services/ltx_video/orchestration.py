@@ -18,7 +18,7 @@ class LocalLtxRequestError(RuntimeError):
 
 
 def recover_missing_job_state(
-    state: dict[str, Any], created_at_value: Any, *, grace_seconds: int = 90
+    state: dict[str, Any], created_at_value: Any, *, grace_seconds: int = 30 * 60
 ) -> dict[str, Any] | None:
     if str(state.get("status") or "") != "missing":
         return state
