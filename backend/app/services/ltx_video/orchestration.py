@@ -90,13 +90,38 @@ async def validate_and_submit_local_ltx_job(
     with callbacks["open_db"]() as conn:
         active = conn.execute(
             """
-            SELECT id
+            SELECT id,created_at,settings_json
             FROM jobs
             WHERE provider='local_ltx'
               AND status IN ('submitting','queued','pending','in_progress','finalizing')
             LIMIT 1
             """
         ).fetchone()
+    if active is not None:
+        settings = json.loads(active["settings_json"] or "{}")
+        prompt_id = str(settings.get("comfyPromptId") or "")
+        if prompt_id:
+            try:
+                recovered = recover_missing_job_state(
+                    await client.status(prompt_id), active["created_at"]
+                )
+            except Exception:
+                recovered = None
+            if recovered and recovered.get("status") == "failed":
+                with callbacks["open_db"]() as conn:
+                    callbacks["refund_tokens"](
+                        conn, active["id"], reason="video_lost_after_restart"
+                    )
+                    conn.execute(
+                        "UPDATE jobs SET status='failed',progress=100,error_message=?,"
+                        "completed_at=? WHERE id=?",
+                        (
+                            recovered.get("error"),
+                            datetime.now(timezone.utc).isoformat(),
+                            active["id"],
+                        ),
+                    )
+                active = None
     if active is not None:
         raise LocalLtxRequestError(
             409,

@@ -255,8 +255,12 @@ def test_local_ltx_uses_existing_video_api_and_daily_tokens(
         assert prompt["1"]["inputs"]["text"] == "camera moves slowly"
         return "comfy-ltx-1"
 
+    async def status(_self, _prompt_id):
+        return {"status": "pending", "progress": 15}
+
     monkeypatch.setattr(main.ltx_video.ComfyLtxClient, "readiness", ready)
     monkeypatch.setattr(main.ltx_video.ComfyLtxClient, "submit", submit)
+    monkeypatch.setattr(main.ltx_video.ComfyLtxClient, "status", status)
 
     config = video_api.get("/api/video/config")
     assert config.status_code == 200
