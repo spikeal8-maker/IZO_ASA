@@ -10,6 +10,7 @@ from .profiles import (
 )
 from .workflow import LtxWorkflowError, build_ltx_prompt
 from .orchestration import (
+    LOCAL_LTX_MIN_FREE_VRAM_BYTES,
     LocalLtxRequestError,
     submit_local_ltx_job,
     validate_and_submit_local_ltx_job,
@@ -17,6 +18,7 @@ from .orchestration import (
 
 __all__ = [
     "ComfyLtxClient",
+    "LOCAL_LTX_MIN_FREE_VRAM_BYTES",
     "LOCAL_LTX_MODEL_PREFIX",
     "LtxComfyError",
     "LtxProfile",

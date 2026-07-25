@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from app.services.ltx_video import (
+    LOCAL_LTX_MIN_FREE_VRAM_BYTES,
     ComfyLtxClient,
     build_ltx_prompt,
     estimate_local_ltx_billing,
@@ -108,6 +109,29 @@ def test_comfy_client_requires_a_gpu_for_readiness(monkeypatch):
     )
     status = asyncio.run(ComfyLtxClient("http://comfy.test").readiness())
     assert status["ready"] is False
+
+
+def test_comfy_client_reports_free_vram_for_preflight(monkeypatch):
+    original_client = httpx.AsyncClient
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/system_stats"
+        return httpx.Response(200, json={"devices": [{
+            "name": "cuda:0 NVIDIA GeForce RTX 3090",
+            "type": "cuda",
+            "vram_total": 24 * 1024**3,
+            "vram_free": 5 * 1024**3,
+        }]})
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **_kwargs: original_client(transport=httpx.MockTransport(handler)),
+    )
+    status = asyncio.run(ComfyLtxClient("http://comfy.test").readiness())
+    assert status["ready"] is True
+    assert status["vramFree"] == 5 * 1024**3
+    assert status["vramFree"] < LOCAL_LTX_MIN_FREE_VRAM_BYTES
 
 
 def test_comfy_client_releases_models_and_vram(monkeypatch):

@@ -296,6 +296,80 @@ def test_local_ltx_uses_existing_video_api_and_daily_tokens(
     assert user["daily_tokens_used"] == 1
 
 
+def test_local_ltx_frees_image_vram_and_requires_headroom(
+    video_api: TestClient,
+    monkeypatch,
+    tmp_path: Path,
+):
+    workflow = {
+        "0": {
+            "class_type": "UnetLoaderGGUF",
+            "inputs": {"unet_name": "ltx-2.3-22b-distilled-1.1-Q3_K_M.gguf"},
+        },
+        "1": {"class_type": "CLIPTextEncode", "inputs": {"text": "positive prompt"}},
+        "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "bad"}},
+        "3": {"class_type": "INTConstant", "inputs": {"value": 49}},
+        "4": {
+            "class_type": "EmptyLTXVLatentVideo",
+            "inputs": {"width": 832, "height": 480, "length": ["3", 0], "batch_size": 1},
+        },
+        "5": {"class_type": "LTXVScheduler", "inputs": {"steps": 8}},
+        "6": {"class_type": "RandomNoise", "inputs": {"noise_seed": 1}},
+        "7": {
+            "class_type": "VHS_VideoCombine",
+            "inputs": {"filename_prefix": "test", "format": "video/h264-mp4", "frame_rate": 24},
+        },
+    }
+    workflow_path = tmp_path / "ltx-api.json"
+    workflow_path.write_text(json.dumps(workflow), encoding="utf-8")
+    monkeypatch.setattr(main, "LOCAL_LTX_ENABLED", True)
+    monkeypatch.setattr(main, "LOCAL_LTX_WORKFLOW_API_PATH", workflow_path)
+
+    freed = []
+    vram_free = 4 * 1024**3
+
+    async def fake_free(*, base_url):
+        freed.append(base_url)
+
+    async def ready(_self):
+        return {"ready": True, "device": "test-gpu", "vramFree": vram_free}
+
+    async def submit(_self, prompt, *, client_id):
+        return "comfy-ltx-vram-1"
+
+    monkeypatch.setattr(main, "integration_free_comfyui_memory", fake_free)
+    monkeypatch.setattr(main.ltx_video.ComfyLtxClient, "readiness", ready)
+    monkeypatch.setattr(main.ltx_video.ComfyLtxClient, "submit", submit)
+
+    local_payload = payload(
+        model="local/ltx-2.3-fast-q3", duration=2, resolution="480p", aspectRatio="16:9",
+    )
+
+    starved = video_api.post("/api/video/generate", json=local_payload)
+    assert starved.status_code == 503
+    assert "видеопамяти" in starved.json()["detail"]
+    # The image service was asked to release its models even on the failed path.
+    assert freed == [main.COMFYUI_BASE_URL]
+    with main.db() as conn:
+        assert conn.execute("SELECT COUNT(*) AS c FROM jobs").fetchone()["c"] == 0
+        user = conn.execute(
+            "SELECT token_balance FROM users WHERE id='video-user'"
+        ).fetchone()
+    assert user["token_balance"] == 500
+
+    vram_free = 23 * 1024**3
+    generated = video_api.post("/api/video/generate", json=local_payload)
+    assert generated.status_code == 200
+    assert len(freed) == 2
+    with main.db() as conn:
+        row = conn.execute(
+            "SELECT provider,status FROM jobs WHERE id=?",
+            (generated.json()["id"],),
+        ).fetchone()
+    assert row["provider"] == "local_ltx"
+    assert row["status"] == "queued"
+
+
 def test_completed_video_keeps_the_quoted_token_price(video_api: TestClient, monkeypatch):
     async def submit(**_kwargs):
         return {"id": "external-fixed-price", "status": "pending", "polling_url": "/api/v1/videos/external-fixed-price"}

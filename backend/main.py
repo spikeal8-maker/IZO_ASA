@@ -16011,10 +16011,10 @@ async def _generate_local_ltx_video(
     client = ltx_video.ComfyLtxClient(LOCAL_LTX_COMFYUI_BASE_URL, COMFYUI_TIMEOUT_SECONDS)
     try:
         return await ltx_video.validate_and_submit_local_ltx_job(
-            req, user_id=user_id, profile=profile,
-            workflow_path=LOCAL_LTX_WORKFLOW_API_PATH, client=client,
-            open_db=db, reserve_storage=_video_storage_reservation,
+            req, user_id=user_id, profile=profile, workflow_path=LOCAL_LTX_WORKFLOW_API_PATH,
+            client=client, open_db=db, reserve_storage=_video_storage_reservation,
             charge_tokens=charge_generation_tokens, refund_tokens=refund_generation_tokens,
+            free_image_memory=lambda: integration_free_comfyui_memory(base_url=COMFYUI_BASE_URL),
         )
     except Exception as exc:
         if isinstance(exc, ltx_video.LocalLtxRequestError):

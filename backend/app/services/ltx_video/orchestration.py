@@ -17,6 +17,12 @@ class LocalLtxRequestError(RuntimeError):
         self.status_code = status_code
 
 
+# The LTX 2.3 GGUF stack crashes natively (access violation in torch c10) when
+# ComfyUI has to emergency-unload weights at the VAE stage, so a job may start
+# only when the card has room for the whole pipeline, not merely a GPU present.
+LOCAL_LTX_MIN_FREE_VRAM_BYTES = 20 * 1024**3
+
+
 async def validate_and_submit_local_ltx_job(
     req: Any,
     *,
@@ -51,10 +57,25 @@ async def validate_and_submit_local_ltx_job(
             409,
             "Локальный LTX уже выполняет другое видео. Дождитесь завершения текущего задания.",
         )
+    free_image_memory = callbacks.pop("free_image_memory", None)
+    if free_image_memory is not None:
+        # Best effort: the image ComfyUI keeps its models resident between
+        # jobs, and that resident VRAM is exactly what starves the video VAE.
+        try:
+            await free_image_memory()
+        except Exception:
+            pass
     readiness = await client.readiness()
     if not readiness.get("ready"):
         reason = readiness.get("error") or "GPU не готов"
         raise LocalLtxRequestError(503, f"Локальный LTX недоступен: {reason}")
+    vram_free = readiness.get("vramFree")
+    if isinstance(vram_free, (int, float)) and vram_free < LOCAL_LTX_MIN_FREE_VRAM_BYTES:
+        raise LocalLtxRequestError(
+            503,
+            "Локальному LTX сейчас не хватает свободной видеопамяти. "
+            "Дождитесь завершения текущих генераций и попробуйте снова.",
+        )
     return await submit_local_ltx_job(
         req,
         user_id=user_id,

@@ -30,6 +30,7 @@ class ComfyLtxClient:
             "ready": gpu is not None,
             "device": (gpu or {}).get("name"),
             "vramTotal": (gpu or {}).get("vram_total"),
+            "vramFree": (gpu or {}).get("vram_free"),
             "error": None if gpu is not None else "ComfyUI does not report a GPU device",
         }
 
