@@ -29,6 +29,9 @@ $arguments = @(
     "--listen", "127.0.0.1",
     "--port", "$Port",
     "--disable-auto-launch",
+    # PyTorch cudaMallocAsync crashed twice inside c10.dll on this Windows
+    # RTX 4070 runtime. Use the stable native allocator for local video.
+    "--disable-cuda-malloc",
     "--lowvram",
     "--reserve-vram", "$ReserveVramGb",
     "--user-directory", $StateDirectory,
