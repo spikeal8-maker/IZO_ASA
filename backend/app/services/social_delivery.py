@@ -291,6 +291,7 @@ def build_telegram_social_sender(
     settings_getter: Callable[[], dict[str, Any]],
     token_getter: Callable[[], str],
     public_site_url_getter: Callable[[], str],
+    telegram_image_api: Callable[..., Awaitable[dict[str, Any]]] | None = None,
 ) -> Callable[
     [SocialDelivery, PublicFeedPublication],
     Awaitable[tuple[str | None, str | None]],
@@ -335,7 +336,9 @@ def build_telegram_social_sender(
         caption = "\n\n".join(part for part in caption_parts if part)[:1024]
         method = "sendVideo" if publication.media_type == "video" else "sendPhoto"
         media_key = "video" if publication.media_type == "video" else "photo"
-        response = await telegram_api(
+        response = await telegram_image_api(
+            token=token, target_id=target, caption=caption, media_url=media_url
+        ) if publication.media_type == "image" and telegram_image_api is not None else await telegram_api(
             token=token,
             method=method,
             payload={
@@ -413,6 +416,7 @@ def build_vk_social_sender(
     settings_getter: Callable[[], dict[str, Any]],
     token_getter: Callable[[], str],
     public_site_url_getter: Callable[[], str],
+    vk_image_publisher: Callable[..., Awaitable[dict[str, Any]]] | None = None,
 ) -> Callable[
     [SocialDelivery, PublicFeedPublication],
     Awaitable[tuple[str | None, str | None]],
@@ -434,17 +438,20 @@ def build_vk_social_sender(
         if not token or not group_id:
             raise RuntimeError("VK social credentials are incomplete.")
         feed_url = f"{base_url}/feed?tab=new#work-{quote(publication.id)}"
+        media_url = f"{base_url}/api/feed/media/{quote(publication.id)}?variant=large"
         message = "\n\n".join(
             part for part in (publication.title, publication.description or "", feed_url) if part
         )
-        response = await vk_api(
+        response = await vk_image_publisher(
+            vk_api=vk_api, token=token, group_id=group_id,
+            message=message[:15000], media_url=media_url,
+        ) if publication.media_type == "image" and vk_image_publisher is not None else await vk_api(
             token=token,
             method="wall.post",
             params={
                 "owner_id": f"-{group_id}",
                 "from_group": 1,
                 "message": message[:15000],
-                "attachments": feed_url,
             },
         )
         body = response.get("response") if isinstance(response.get("response"), dict) else {}
