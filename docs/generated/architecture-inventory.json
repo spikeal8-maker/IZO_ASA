@@ -3221,7 +3221,7 @@
       {
         "auth": "public/optional/review",
         "handler": "test_max_delivery",
-        "line": 500,
+        "line": 507,
         "method": "POST",
         "path": "/social/max/test-delivery-v2",
         "process_role": "all-dev-current-monolith"
@@ -3229,7 +3229,7 @@
       {
         "auth": "public/optional/review",
         "handler": "test_telegram_delivery",
-        "line": 464,
+        "line": 471,
         "method": "POST",
         "path": "/social/telegram/test-delivery-v2",
         "process_role": "all-dev-current-monolith"
@@ -3237,7 +3237,7 @@
       {
         "auth": "public/optional/review",
         "handler": "test_vk_delivery",
-        "line": 533,
+        "line": 540,
         "method": "POST",
         "path": "/social/vk/test-delivery-v2",
         "process_role": "all-dev-current-monolith"
@@ -3245,7 +3245,7 @@
       {
         "auth": "public/optional/review",
         "handler": "check_social_credentials",
-        "line": 428,
+        "line": 435,
         "method": "POST",
         "path": "/social/{network}/check-v2",
         "process_role": "all-dev-current-monolith"
@@ -3253,7 +3253,7 @@
       {
         "auth": "public/optional/review",
         "handler": "delete_social_credentials",
-        "line": 406,
+        "line": 413,
         "method": "DELETE",
         "path": "/social/{network}/credentials-v2",
         "process_role": "all-dev-current-monolith"

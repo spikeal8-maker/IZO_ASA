@@ -132,6 +132,11 @@ def test_social_admin_credentials_are_write_only_and_deletable():
     assert status["settings"]["networks"]["telegram"]["configured"] is True
     assert "fake-telegram-token" not in json.dumps(status)
     assert client.post("/api/admin/social/telegram/check-v2").status_code == 200
+    unchanged = client.put("/api/admin/social/telegram/credentials-v2", json={
+        "token": "", "targetId": "@izo_channel",
+    })
+    assert unchanged.status_code == 200
+    assert client.get("/api/admin/social-v2").json()["settings"]["networks"]["telegram"]["verified"] is True
     delivery = client.post("/api/admin/social/telegram/test-delivery-v2")
     assert delivery.status_code == 200
     assert delivery.json()["messageId"] == 321

@@ -383,12 +383,19 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
             raise HTTPException(400, "Введите ключ доступа.")
         saved = deps.saved_setting("social_syndication")
         networks = saved.get("networks") if isinstance(saved.get("networks"), dict) else {}
+        previous_config = networks.get(network) or {}
+        credentials_changed = bool(req.token.strip())
+        credentials_changed = credentials_changed or (
+            str(previous_config.get("targetId") or "") != req.targetId.strip()
+            or str(previous_config.get("applicationKey") or "") != req.applicationKey.strip()
+            or (network == "ok" and bool(req.sessionSecret.strip()))
+        )
         networks[network] = {
-            **(networks.get(network) or {}),
+            **previous_config,
             "targetId": req.targetId.strip(),
             "applicationKey": req.applicationKey.strip(),
-            "verified": False,
-            "lastError": None,
+            "verified": bool(previous_config.get("verified") and not credentials_changed),
+            "lastError": None if credentials_changed else previous_config.get("lastError"),
         }
         saved["networks"] = networks
         deps.save_setting("social_syndication", saved)
