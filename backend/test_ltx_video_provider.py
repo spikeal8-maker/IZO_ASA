@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -187,11 +187,16 @@ def test_lost_local_job_expires_instead_of_remaining_pending_forever():
     assert stale and stale["status"] == "failed"
 
 
-def test_lost_local_job_uses_video_sized_default_grace_period():
+def test_lost_local_job_keeps_a_short_submission_race_grace_period():
     state = recover_missing_job_state(
         {"status": "missing"}, datetime.now(timezone.utc).isoformat()
     )
     assert state is None
+    expired = recover_missing_job_state(
+        {"status": "missing"},
+        (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat(),
+    )
+    assert expired and expired["status"] == "failed"
 
 
 def test_comfy_client_releases_models_and_vram(monkeypatch):
