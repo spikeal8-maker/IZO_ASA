@@ -6,13 +6,18 @@ may add instructions, but they may not weaken or contradict this file.
 
 ## 1. Scope and canonical workspace
 
-- The only canonical integration and deployment source on this computer is
-  `E:\Yandex.Disk\IZO_ASA`.
-- Do not delete files or directories from `E:\Yandex.Disk` during project
-  implementation, synchronization or deployment.
-- Do not deploy from a sibling copy, attachment, temporary worktree or resolved
-  symlink target. Inspect `git worktree list` and resolve reparse points when the
-  source is uncertain.
+- The only canonical Git integration workspace on this computer is
+  `E:\IZO_ASA_WORKSPACE`. GitHub is the code transport between computers.
+- `E:\Yandex.Disk\IZO_ASA` is a quarantined historical copy affected by live
+  `.git` synchronization conflicts. Do not use it for integration, Git
+  operations, testing or deployment, and do not delete, rename or repair it
+  without a separate owner-authorized cleanup package.
+- Yandex.Disk may contain immutable, versioned backup snapshots, but it must
+  never synchronize a live `.git` directory, an open SQLite database, WAL/SHM,
+  production media working state, runtime manifests or secrets.
+- Do not deploy from a sibling copy, attachment, temporary worktree, historical
+  Yandex copy or resolved symlink target. Inspect `git worktree list` and
+  resolve reparse points when the source is uncertain.
 - The application stack runs on this Windows computer. The VPS carries only the
   existing domain tunnel. Do not change VPS, FRP, DNS or tunnel configuration
   without an explicit owner request.
