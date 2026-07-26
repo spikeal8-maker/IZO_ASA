@@ -45,7 +45,6 @@ export default function AdminSocial() {
     setQueue(result?.queue || [])
     setWorker(result?.worker || { running: false })
     setOperational(Boolean(result?.operational))
-    if (result?.message) setMessage(result.message)
   }, [])
   useEffect(() => { queueMicrotask(() => { void load() }) }, [load])
 
