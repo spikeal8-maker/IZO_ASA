@@ -5883,6 +5883,14 @@ ADMIN_NOTIFICATION_DELIVERY_WORKER = AdminNotificationDeliveryWorker()
 send_admin_telegram_notification, send_admin_email_notification = build_admin_delivery_transports(telegram_api=telegram_api, send_transactional_email=send_transactional_email, html_escape=html_escape)
 SOCIAL_DELIVERY_WORKER = SocialDeliveryWorker()
 send_social_telegram_publication = build_telegram_social_sender(telegram_api=request_telegram_bot_api, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_telegram_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
+
+
+async def send_social_telegram_test(*, token: str, target_id: str, text: str) -> dict[str, Any]:
+    return await request_telegram_bot_api(
+        token=token,
+        method="sendMessage",
+        payload={"chat_id": target_id, "text": text},
+    )
 def yookassa_secret_key() -> str:
     return os.getenv("YOOKASSA_SECRET_KEY", "").strip() or OPENROUTER_SECRET_STORE.get(YOOKASSA_SECRET_NAME)
 
@@ -16771,6 +16779,7 @@ app.include_router(create_admin_operations_router(AdminOperationsDependencies(
     secret_set=_save_bot_secret,
     secret_delete=OPENROUTER_SECRET_STORE.delete,
     probe_social=probe_social_provider,
+    send_social_test=send_social_telegram_test,
     notification_worker_status=ADMIN_NOTIFICATION_DELIVERY_WORKER.status,
     social_worker_status=SOCIAL_DELIVERY_WORKER.status,
 )))

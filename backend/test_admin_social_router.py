@@ -96,6 +96,7 @@ def test_social_status_and_master_enable_are_fail_closed(tmp_path) -> None:
                 secret_set=lambda name, value: secrets.__setitem__(name, value),
                 secret_delete=lambda name: secrets.pop(name, None) is not None,
                 probe_social=lambda *_args, **_kwargs: None,
+                send_social_test=empty_async,
                 social_worker_status=lambda: {
                     "running": True,
                     "lastSuccessAt": None,

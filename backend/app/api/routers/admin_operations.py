@@ -71,6 +71,7 @@ class AdminOperationsDependencies:
     secret_set: Callable[[str, str], None]
     secret_delete: Callable[[str], bool]
     probe_social: Callable[..., Any]
+    send_social_test: Callable[..., Awaitable[dict[str, Any]]]
     filter_openrouter_config: Callable[
         [dict[str, Any], list[dict[str, Any]]], dict[str, Any]
     ] = lambda raw, _capabilities: raw
@@ -455,6 +456,41 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
         if status != 200:
             raise HTTPException(status, str(config["lastError"]))
         return {"ok": True, "result": result}
+
+    @router.post("/social/telegram/test-delivery-v2")
+    async def test_telegram_delivery(request: Request) -> dict[str, Any]:
+        actor = deps.require_admin(request)
+        saved = deps.saved_setting("social_syndication")
+        networks = saved.get("networks") if isinstance(saved.get("networks"), dict) else {}
+        config = networks.get("telegram") or {}
+        token = deps.secret_get("social_telegram_access_token")
+        target_id = str(config.get("targetId") or "").strip()
+        if not token or not target_id:
+            raise HTTPException(400, "Сначала сохраните ключ Telegram и канал / chat ID.")
+        if not config.get("verified"):
+            raise HTTPException(400, "Сначала выполните проверку Telegram.")
+        try:
+            result = await deps.send_social_test(
+                token=token,
+                target_id=target_id,
+                text=(
+                    "✅ Тест публикации ИЗО АСА\n\n"
+                    "Подключение Telegram проверено. Это служебное тестовое сообщение из админки."
+                ),
+            )
+        except Exception as exc:
+            raise HTTPException(502, f"Telegram не подтвердил доставку: {exc}") from exc
+        message_id = ((result.get("result") or {}).get("message_id"))
+        if message_id is None:
+            raise HTTPException(502, "Telegram не вернул идентификатор доставленного сообщения.")
+        with deps.db() as conn:
+            deps.record_audit(
+                conn, "admin_social_test_delivery",
+                actor_internal_user_id=actor.get("internal_user_id"),
+                entity_type="social_provider", entity_id="telegram",
+                after={"ok": True, "messageId": message_id}, request=request,
+            )
+        return {"ok": True, "messageId": message_id}
 
     return router
 

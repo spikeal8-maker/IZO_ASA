@@ -88,6 +88,12 @@ def test_social_admin_credentials_are_write_only_and_deletable():
         assert kwargs["token"] == "fake-telegram-token"
         return {"identity": "fake_bot", "target": {"id": kwargs["target_id"]}}
 
+    sent_messages = []
+
+    async def send_test(**kwargs):
+        sent_messages.append(kwargs)
+        return {"ok": True, "result": {"message_id": 321}}
+
     async def empty_async():
         return {}
 
@@ -112,6 +118,7 @@ def test_social_admin_credentials_are_write_only_and_deletable():
         secret_set=lambda name, value: secrets.__setitem__(name, value),
         secret_delete=lambda name: secrets.pop(name, None) is not None,
         probe_social=probe,
+        send_social_test=send_test,
     )))
     client = TestClient(app)
     saved_response = client.put("/api/admin/social/telegram/credentials-v2", json={
@@ -122,6 +129,17 @@ def test_social_admin_credentials_are_write_only_and_deletable():
     assert status["settings"]["networks"]["telegram"]["configured"] is True
     assert "fake-telegram-token" not in json.dumps(status)
     assert client.post("/api/admin/social/telegram/check-v2").status_code == 200
+    delivery = client.post("/api/admin/social/telegram/test-delivery-v2")
+    assert delivery.status_code == 200
+    assert delivery.json()["messageId"] == 321
+    assert sent_messages == [{
+        "token": "fake-telegram-token",
+        "target_id": "@izo_channel",
+        "text": (
+            "✅ Тест публикации ИЗО АСА\n\n"
+            "Подключение Telegram проверено. Это служебное тестовое сообщение из админки."
+        ),
+    }]
     assert client.delete("/api/admin/social/telegram/credentials-v2").json()["deleted"] is True
     assert "social_telegram_access_token" not in secrets
 

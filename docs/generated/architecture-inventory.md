@@ -5,7 +5,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 ## Summary
 
-- Routes: 232
+- Routes: 233
 - Registered workers: 5
 - Registered ephemeral tasks: 4
 - SQLite tables: 55
@@ -20,7 +20,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 |---|---:|
 | REVIEW: admin route without detected gate | 8 |
 | admin | 91 |
-| public/optional/review | 75 |
+| public/optional/review | 76 |
 | session | 1 |
 | user | 55 |
 | webhook: MAX secret conditional | 1 |
@@ -129,12 +129,12 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Current | Maximum | Remaining |
 |---|---:|---:|---:|
-| `backend/main.py` | 19505 | 19521 | 16 |
+| `backend/main.py` | 19514 | 19521 | 7 |
 | `backend/static/feed/index.html` | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | 2346 | 2400 | 54 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
 | `frontend/src/adminModels.tsx` | 2086 | 2100 | 14 |
-| `frontend/src/index.css` | 2356 | 2400 | 44 |
+| `frontend/src/index.css` | 2398 | 2400 | 2 |
 | `frontend/src/newStudioV3.css` | 5876 | 6000 | 124 |
 | `frontend/src/newUi.css` | 3096 | 3200 | 104 |
 | `frontend/src/newUi.tsx` | 3626 | 3628 | 2 |
@@ -143,7 +143,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Functions | Maximum | Classes | Maximum | Routes | Maximum |
 |---|---:|---:|---:|---:|---:|---:|
-| `backend/main.py` | 673 | 725 | 77 | 83 | 186 | 223 |
+| `backend/main.py` | 674 | 725 | 77 | 83 | 186 | 223 |
 
 ## Release identity baseline
 
