@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from app.services.social_delivery import (
+    build_max_social_sender,
     build_telegram_social_sender,
     claim_pending_telegram_deliveries,
     deliver_pending_telegram_batch,
@@ -267,3 +268,54 @@ def test_sender_refuses_disabled_or_non_https_configuration() -> None:
     )
 
     assert result["retried"] == 1
+
+
+def test_max_sender_uses_public_image_url_and_channel_id() -> None:
+    calls = []
+
+    async def fake_max_api(**kwargs):
+        calls.append(kwargs)
+        return {"message_id": "max-message-7"}
+
+    sender = build_max_social_sender(
+        max_api=fake_max_api,
+        settings_getter=lambda: {
+            "masterEnabled": True,
+            "autoPublish": True,
+            "networks": {
+                "max": {
+                    "enabled": True,
+                    "verified": True,
+                    "targetId": "-700000000001",
+                }
+            },
+        },
+        token_getter=lambda: "max-secret",
+        public_site_url_getter=lambda: "https://izo.example",
+    )
+    conn = database()
+    add_delivery(conn, network="max")
+    add_publication(conn)
+    delivery = conn.execute(
+        "SELECT id, publication_id, network, attempts "
+        "FROM social_delivery_outbox WHERE network='max'"
+    ).fetchone()
+    publication = conn.execute(
+        "SELECT id, media_type, title, description FROM feed_publications"
+    ).fetchone()
+    from app.services.social_delivery import PublicFeedPublication, SocialDelivery
+
+    result = asyncio.run(sender(
+        SocialDelivery(**dict(delivery)),
+        PublicFeedPublication(**dict(publication)),
+    ))
+
+    assert result == ("max:max-message-7", None)
+    assert calls[0]["token"] == "max-secret"
+    assert calls[0]["target_id"] == "-700000000001"
+    assert calls[0]["payload"]["attachments"] == [{
+        "type": "image",
+        "payload": {
+            "url": "https://izo.example/api/feed/media/publication-1?variant=large"
+        },
+    }]

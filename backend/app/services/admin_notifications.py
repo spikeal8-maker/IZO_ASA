@@ -10,7 +10,7 @@ from typing import Any, Iterable
 
 
 SEVERITIES = {"info", "warning", "critical"}
-SOCIAL_NETWORKS = {"telegram", "vk", "instagram", "ok"}
+SOCIAL_NETWORKS = {"telegram", "max", "vk", "instagram", "ok"}
 
 
 def utc_now() -> str:

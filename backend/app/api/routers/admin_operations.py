@@ -260,16 +260,21 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
             ).fetchall()
         configured = {
             name: deps.secret_exists(f"social_{name}_access_token")
-            for name in ("telegram", "vk", "instagram", "ok")
+            for name in ("telegram", "max", "vk", "instagram", "ok")
         }
-        telegram = networks.get("telegram") or {}
+        selected_networks = [
+            name for name in ("telegram", "max", "vk", "instagram", "ok")
+            if (networks.get(name) or {}).get("enabled")
+            or (networks.get(name) or {}).get("storyEnabled")
+        ]
         operational = bool(
-            saved.get("masterEnabled")
-            and saved.get("autoPublish")
-            and telegram.get("enabled")
-            and telegram.get("verified")
-            and configured["telegram"]
-            and str(telegram.get("targetId") or "").strip()
+            saved.get("masterEnabled") and saved.get("autoPublish") and selected_networks
+            and all(
+                (networks.get(name) or {}).get("verified")
+                and configured[name]
+                and str((networks.get(name) or {}).get("targetId") or "").strip()
+                for name in selected_networks
+            )
         )
         return {
             "ok": True,
@@ -279,6 +284,7 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
                 "networks": {
                     name: {
                         "enabled": bool((networks.get(name) or {}).get("enabled", False)),
+                        "storyEnabled": bool((networks.get(name) or {}).get("storyEnabled", False)),
                         "configured": configured[name],
                         "targetId": str((networks.get(name) or {}).get("targetId") or ""),
                         "applicationKey": str((networks.get(name) or {}).get("applicationKey") or ""),
@@ -286,17 +292,13 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
                         "lastCheckedAt": (networks.get(name) or {}).get("lastCheckedAt"),
                         "lastError": (networks.get(name) or {}).get("lastError"),
                     }
-                    for name in ("telegram", "vk", "instagram", "ok")
+                    for name in ("telegram", "max", "vk", "instagram", "ok")
                 },
             },
             "queue": [dict(row) for row in rows],
             "worker": deps.social_worker_status(),
             "operational": operational,
-            "message": (
-                "Telegram-автопубликация включена."
-                if operational
-                else "Автопубликация выключена или Telegram не готов."
-            ),
+            "message": "Автопубликация готова." if operational else "Автопубликация выключена или выбранные каналы не готовы.",
         }
 
     @router.put("/social-v2")
@@ -304,28 +306,33 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
         actor = deps.require_admin(request)
         source = req.settings.get("networks") if isinstance(req.settings.get("networks"), dict) else {}
         master_enabled = bool(req.settings.get("masterEnabled", False))
-        telegram_source = source.get("telegram") or {}
         previous = deps.saved_setting("social_syndication")
         previous_networks = (
             previous.get("networks")
             if isinstance(previous.get("networks"), dict)
             else {}
         )
-        telegram_previous = previous_networks.get("telegram") or {}
-        telegram_target = str(telegram_source.get("targetId") or "").strip()
-        if master_enabled and not (
-            bool(telegram_source.get("enabled"))
-            and bool(telegram_previous.get("verified"))
-            and deps.secret_exists("social_telegram_access_token")
-            and telegram_target
-            and telegram_target
-            == str(telegram_previous.get("targetId") or "").strip()
-        ):
-            raise HTTPException(
-                400,
-                "Для общего включения сначала проверьте Telegram, "
-                "укажите получателя и включите сеть.",
+        selected = [
+            name for name in ("telegram", "max", "vk", "instagram", "ok")
+            if bool((source.get(name) or {}).get("enabled"))
+            or bool((source.get(name) or {}).get("storyEnabled"))
+        ]
+        if master_enabled and not selected:
+            raise HTTPException(400, "Выберите хотя бы один формат публикации.")
+        for name in selected:
+            current = source.get(name) or {}
+            old = previous_networks.get(name) or {}
+            same_target = (
+                str(current.get("targetId") or "").strip()
+                == str(old.get("targetId") or "").strip()
             )
+            if not (
+                old.get("verified")
+                and deps.secret_exists(f"social_{name}_access_token")
+                and str(current.get("targetId") or "").strip()
+                and same_target
+            ):
+                raise HTTPException(400, f"Сначала сохраните и проверьте подключение: {name}.")
         settings = {
             "masterEnabled": master_enabled,
             "autoPublish": bool(req.settings.get("autoPublish", False)),
@@ -333,6 +340,7 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
                 name: {
                     **(previous_networks.get(name, {})),
                     "enabled": bool((source.get(name) or {}).get("enabled", False)),
+                    "storyEnabled": bool((source.get(name) or {}).get("storyEnabled", False)),
                     "targetId": str((source.get(name) or {}).get("targetId") or ""),
                     "applicationKey": str((source.get(name) or {}).get("applicationKey") or ""),
                     "verified": bool(
@@ -343,7 +351,7 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
                         == str((previous_networks.get(name) or {}).get("applicationKey") or "")
                     ),
                 }
-                for name in ("telegram", "vk", "instagram", "ok")
+                for name in ("telegram", "max", "vk", "instagram", "ok")
             },
         }
         deps.save_setting("social_syndication", settings)
@@ -358,11 +366,7 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
             "ok": True,
             "settings": settings,
             "operational": master_enabled and settings["autoPublish"],
-            "message": (
-                "Telegram-автопубликация включена."
-                if master_enabled and settings["autoPublish"]
-                else "Настройки сохранены, внешняя отправка выключена."
-            ),
+            "message": "Автопубликация включена." if master_enabled and settings["autoPublish"] else "Настройки сохранены, отправка выключена.",
         }
 
     @router.put("/social/{network}/credentials-v2")
@@ -370,7 +374,7 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
         network: str, req: SocialCredentialsRequest, request: Request
     ) -> dict[str, Any]:
         actor = deps.require_admin(request)
-        if network not in {"telegram", "vk", "instagram", "ok"}:
+        if network not in {"telegram", "max", "vk", "instagram", "ok"}:
             raise HTTPException(404, "Социальная сеть не поддерживается.")
         if req.token.strip():
             deps.secret_set(f"social_{network}_access_token", req.token.strip())
@@ -402,7 +406,7 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
     @router.delete("/social/{network}/credentials-v2")
     async def delete_social_credentials(network: str, request: Request) -> dict[str, Any]:
         actor = deps.require_admin(request)
-        if network not in {"telegram", "vk", "instagram", "ok"}:
+        if network not in {"telegram", "max", "vk", "instagram", "ok"}:
             raise HTTPException(404, "Социальная сеть не поддерживается.")
         deleted = deps.secret_delete(f"social_{network}_access_token")
         if network == "ok":
@@ -424,7 +428,7 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
     @router.post("/social/{network}/check-v2")
     async def check_social_credentials(network: str, request: Request) -> dict[str, Any]:
         actor = deps.require_admin(request)
-        if network not in {"telegram", "vk", "instagram", "ok"}:
+        if network not in {"telegram", "max", "vk", "instagram", "ok"}:
             raise HTTPException(404, "Социальная сеть не поддерживается.")
         saved = deps.saved_setting("social_syndication")
         networks = saved.get("networks") if isinstance(saved.get("networks"), dict) else {}
@@ -471,6 +475,7 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
             raise HTTPException(400, "Сначала выполните проверку Telegram.")
         try:
             result = await deps.send_social_test(
+                network="telegram",
                 token=token,
                 target_id=target_id,
                 text=(
@@ -488,6 +493,39 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
                 conn, "admin_social_test_delivery",
                 actor_internal_user_id=actor.get("internal_user_id"),
                 entity_type="social_provider", entity_id="telegram",
+                after={"ok": True, "messageId": message_id}, request=request,
+            )
+        return {"ok": True, "messageId": message_id}
+
+    @router.post("/social/max/test-delivery-v2")
+    async def test_max_delivery(request: Request) -> dict[str, Any]:
+        actor = deps.require_admin(request)
+        saved = deps.saved_setting("social_syndication")
+        networks = saved.get("networks") if isinstance(saved.get("networks"), dict) else {}
+        config = networks.get("max") or {}
+        token = deps.secret_get("social_max_access_token")
+        target_id = str(config.get("targetId") or "").strip()
+        if not token or not target_id:
+            raise HTTPException(400, "Сначала сохраните ключ MAX и channel / chat ID.")
+        if not config.get("verified"):
+            raise HTTPException(400, "Сначала выполните проверку MAX.")
+        try:
+            result = await deps.send_social_test(
+                network="max",
+                token=token,
+                target_id=target_id,
+                text="✅ Тест публикации ИЗО АСА\n\nПодключение канала MAX проверено.",
+            )
+        except Exception as exc:
+            raise HTTPException(502, f"MAX не подтвердил доставку: {exc}") from exc
+        message_id = result.get("message_id") or result.get("messageId") or result.get("id")
+        if message_id is None:
+            raise HTTPException(502, "MAX не вернул идентификатор доставленного сообщения.")
+        with deps.db() as conn:
+            deps.record_audit(
+                conn, "admin_social_test_delivery",
+                actor_internal_user_id=actor.get("internal_user_id"),
+                entity_type="social_provider", entity_id="max",
                 after={"ok": True, "messageId": message_id}, request=request,
             )
         return {"ok": True, "messageId": message_id}

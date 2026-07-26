@@ -1540,10 +1540,12 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-notification.warning { border-color: #76611d; }
 .admin-notification.critical { border-color: #8b3030; }
 .admin-notification.read { opacity: .66; }
-.admin-social-page { display: grid; gap: 14px; }
+.admin-social-page { display: grid; gap: 14px; width: min(100%, 1280px); margin: 0 auto; }
 .admin-social-health, .admin-social-status { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #3a403a; border-radius: 999px; padding: 5px 9px; color: #a6ada6; background: #161916; font-size: 11px; white-space: nowrap; }
 .admin-social-health.ready, .admin-social-status.ready { border-color: #718e13; color: var(--acid); background: #182008; }
-.admin-social-toolbar { display: grid; grid-template-columns: 1fr 1fr auto; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid #303830; border-radius: 13px; background: #101510; }
+.admin-social-toolbar { display: grid; grid-template-columns: 1.2fr 1fr auto; align-items: center; gap: 16px; padding: 12px 14px; border: 1px solid #303830; border-radius: 13px; background: #101510; }
+.admin-social-trigger { display: grid; gap: 3px; color: #eef2ee; font-size: 12px; }
+.admin-social-trigger span { color: #858d85; font-size: 11px; }
 .admin-social-security { margin: -4px 2px 0; color: #7f887f; font-size: 12px; }
 .admin-social-switch { display: flex; align-items: center; gap: 10px; min-width: 0; cursor: pointer; }
 .admin-social-switch input { position: absolute; opacity: 0; pointer-events: none; }
@@ -1556,7 +1558,8 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-social-switch b { color: #e7ebe7; font-size: 12px; }
 .admin-social-switch small { color: #7f887f; font-size: 10px; }
 .admin-social-switch.compact b { font-size: 11px; }
-.admin-social-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.admin-social-switch.disabled { cursor: not-allowed; opacity: .58; }
+.admin-social-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .admin-social-grid article { display: grid; gap: 14px; min-width: 0; padding: 15px; border: 1px solid #303830; border-radius: 14px; background: #101510; }
 .admin-social-grid article.verified { border-color: #718e13; box-shadow: inset 0 0 0 1px #718e1322; }
 .admin-social-card-head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; }
@@ -1570,8 +1573,10 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-social-fields label > span { color: #9da59d; font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .admin-social-fields input { width: 100%; min-width: 0; }
 .admin-social-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 12px; border-top: 1px solid #282e28; }
+.admin-social-modes { display: flex; align-items: center; gap: 18px; }
 .admin-social-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .admin-social-actions button { min-height: 34px; padding: 7px 10px; font-size: 11px; }
+.admin-social-actions button:not(.secondary):not(.admin-social-delete), .admin-social-toolbar > button { border-color: var(--acid); color: #071006; background: var(--acid); font-weight: 800; }
 .admin-social-actions .admin-social-delete { border-color: transparent; color: #8e958e; background: transparent; }
 .admin-social-actions .admin-social-delete:hover:not(:disabled) { color: #ff8a8a; background: #351919; }
 .admin-social-note { margin: 0; padding: 11px 13px; border: 1px solid #495149; border-radius: 11px; background: #161a16; color: #c4cbc4; }
@@ -1582,9 +1587,6 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-social-runtime > div { display: grid; gap: 4px; padding: 12px; border: 1px solid #292f29; border-radius: 11px; background: #101310; }
 .admin-social-runtime b { color: #dce1dc; font-size: 11px; }
 .admin-social-runtime span { color: #858d85; font-size: 11px; }
-@media (max-width: 1050px) {
-  .admin-social-grid { grid-template-columns: 1fr; }
-}
 @media (max-width: 720px) {
   .admin-social-toolbar, .admin-social-runtime { grid-template-columns: 1fr; }
   .admin-social-fields { grid-template-columns: 1fr; }

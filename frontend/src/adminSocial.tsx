@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Camera, CheckCircle2, Send, Share2 } from 'lucide-react'
+import { Camera, CheckCircle2, MessageCircle, Send, Share2 } from 'lucide-react'
 import { adminFetch, adminGet, adminPut } from './adminApi'
 
-type Network = 'telegram' | 'vk' | 'instagram' | 'ok'
+type Network = 'telegram' | 'max' | 'vk' | 'instagram' | 'ok'
 type NetworkSettings = {
-  enabled: boolean; configured?: boolean; targetId?: string; applicationKey?: string
+  enabled: boolean; storyEnabled?: boolean; configured?: boolean; targetId?: string; applicationKey?: string
   verified?: boolean; lastCheckedAt?: string | null; lastError?: string | null
 }
 type SocialSettings = {
@@ -17,12 +17,13 @@ type ApiPayload = { detail?: string; message?: string; result?: CheckResult; mes
 const defaults: SocialSettings = {
   masterEnabled: false, autoPublish: false,
   networks: {
-    telegram: { enabled: false }, vk: { enabled: false },
+    telegram: { enabled: false }, max: { enabled: false }, vk: { enabled: false },
     instagram: { enabled: false }, ok: { enabled: false },
   },
 }
 const providers: Array<[Network, string, ReactNode, string]> = [
   ['telegram', 'Telegram', <Send size={19} />, 'Публикация и проверка доставки'],
+  ['max', 'MAX', <MessageCircle size={19} />, 'Публикация в канал MAX'],
   ['vk', 'ВКонтакте', <Share2 size={19} />, 'Проверка доступа к группе'],
   ['instagram', 'Instagram', <Camera size={19} />, 'Проверка бизнес-аккаунта'],
   ['ok', 'Одноклассники', <Share2 size={19} />, 'Подключение API группы'],
@@ -35,7 +36,7 @@ export default function AdminSocial() {
   const [operational, setOperational] = useState(false)
   const [message, setMessage] = useState('')
   const [messageKind, setMessageKind] = useState<'success' | 'error' | 'info'>('info')
-  const [tokens, setTokens] = useState<Record<Network, string>>({ telegram: '', vk: '', instagram: '', ok: '' })
+  const [tokens, setTokens] = useState<Record<Network, string>>({ telegram: '', max: '', vk: '', instagram: '', ok: '' })
   const [okSessionSecret, setOkSessionSecret] = useState('')
   const [busy, setBusy] = useState('')
 
@@ -92,6 +93,11 @@ export default function AdminSocial() {
     setMessageKind('success')
     setMessage(`Тестовое сообщение доставлено в Telegram. message_id: ${payload.messageId}.`)
   })
+  const testMax = () => run('max:test', async () => {
+    const payload = await request('/admin/social/max/test-delivery-v2', { method: 'POST' })
+    setMessageKind('success')
+    setMessage(`Тестовое сообщение доставлено в MAX. message_id: ${payload.messageId}.`)
+  })
   const removeCredentials = (network: Network) => {
     if (!window.confirm('Удалить сохранённый доступ к этой социальной сети?')) return
     void run(`${network}:delete`, async () => {
@@ -112,8 +118,8 @@ export default function AdminSocial() {
       <span className={`admin-social-health ${operational ? 'ready' : ''}`}>{operational ? 'Доставка включена' : 'Доставка выключена'}</span>
     </div>
     <div className="admin-social-toolbar">
-      <Switch checked={settings.masterEnabled} onChange={(checked) => setSettings({ ...settings, masterEnabled: checked })} title="Внешняя публикация" note="Разрешает отправку в подключённые сети" />
-      <Switch checked={settings.autoPublish} onChange={(checked) => setSettings({ ...settings, autoPublish: checked })} title="Автопубликация" note="Добавляет новые работы из ленты в очередь" />
+      <div className="admin-social-trigger"><b>Когда публикуем?</b><span>Сразу после публикации работы в нашей ленте — только в отмеченные ниже форматы.</span></div>
+      <Switch checked={settings.masterEnabled && settings.autoPublish} onChange={(checked) => setSettings({ ...settings, masterEnabled: checked, autoPublish: checked })} title="Публиковать вместе с лентой" note="Один понятный запуск для всех выбранных сетей" />
       <button disabled={busy !== ''} onClick={() => void save()}>{busy === 'settings:save' ? 'Сохраняем…' : 'Сохранить настройки'}</button>
     </div>
     <p className="admin-social-security">Ключи хранятся локально в защищённом DPAPI-хранилище и не возвращаются в браузер.</p>
@@ -132,15 +138,26 @@ export default function AdminSocial() {
             <label><span>Ключ доступа</span><input type="password" value={tokens[id]} onChange={(e) => setTokens({ ...tokens, [id]: e.target.value })} placeholder={network.configured ? 'Оставьте пустым, чтобы не менять' : 'Вставьте ключ'} autoComplete="new-password" /></label>
             {id === 'ok' && <label><span>Session secret</span><input type="password" value={okSessionSecret} onChange={(e) => setOkSessionSecret(e.target.value)} autoComplete="new-password" /></label>}
             {id === 'ok' && <label><span>Application key</span><input value={network.applicationKey || ''} onChange={(e) => patchNetwork(id, { applicationKey: e.target.value })} /></label>}
-            <label><span>{id === 'telegram' ? 'Канал / chat ID' : id === 'vk' || id === 'ok' ? 'ID группы' : 'Instagram account ID'}</span><input value={network.targetId || ''} onChange={(e) => patchNetwork(id, { targetId: e.target.value })} placeholder={id === 'telegram' ? '@channel или -100…' : 'ID'} /></label>
+            <label><span>{id === 'telegram' || id === 'max' ? 'Канал / chat ID' : id === 'vk' || id === 'ok' ? 'ID группы' : 'Instagram account ID'}</span><input value={network.targetId || ''} onChange={(e) => patchNetwork(id, { targetId: e.target.value })} placeholder={id === 'telegram' ? '@channel или -100…' : 'ID'} /></label>
           </div>
           {network.lastError && <p className="admin-social-error">{network.lastError}</p>}
           <div className="admin-social-card-footer">
-            <Switch compact checked={network.enabled} onChange={(checked) => patchNetwork(id, { enabled: checked })} title="Использовать" note="" />
+            <div className="admin-social-modes">
+              <Switch compact checked={network.enabled} onChange={(checked) => patchNetwork(id, { enabled: checked })} title="Пост" note="" />
+              <Switch
+                compact
+                disabled
+                checked={Boolean(network.storyEnabled)}
+                onChange={(checked) => patchNetwork(id, { storyEnabled: checked })}
+                title="История"
+                note={id === 'max' || id === 'ok' ? 'Нет серверного API' : 'Нужен отдельный доступ'}
+              />
+            </div>
             <div className="admin-social-actions">
               <button disabled={busy !== '' || (!tokens[id] && !network.configured)} onClick={() => void saveCredentials(id)}>{busy === `${id}:save` ? 'Сохраняем…' : 'Сохранить'}</button>
               <button className="secondary" disabled={busy !== '' || !network.configured} onClick={() => void check(id)}>{busy === `${id}:check` ? 'Проверяем…' : 'Проверить'}</button>
               {id === 'telegram' && <button className="secondary" disabled={busy !== '' || !network.verified} onClick={() => void testTelegram()}>{busy === 'telegram:test' ? 'Отправляем…' : 'Тест'}</button>}
+              {id === 'max' && <button className="secondary" disabled={busy !== '' || !network.verified} onClick={() => void testMax()}>{busy === 'max:test' ? 'Отправляем…' : 'Тест'}</button>}
               <button className="admin-social-delete" title="Удалить доступ" disabled={busy !== '' || !network.configured} onClick={() => removeCredentials(id)}>Удалить</button>
             </div>
           </div>
@@ -149,16 +166,16 @@ export default function AdminSocial() {
     </div>
     {message && <p className={`admin-social-note ${messageKind}`}>{message}</p>}
     <div className="admin-social-runtime">
-      <div><b>Сервис доставки</b><span>Telegram: {operational ? 'включён' : 'выключен'} · worker: {worker.running ? 'работает' : 'остановлен'}</span></div>
+      <div><b>Сервис доставки</b><span>Автопубликация: {operational ? 'готова' : 'выключена'} · worker: {worker.running ? 'работает' : 'остановлен'}</span></div>
       <div><b>Очередь</b><span>{queue.length ? queue.map((row) => `${row.network}: ${row.status} — ${row.count}`).join(' · ') : 'Заданий нет'}</span></div>
       {worker.lastError && <p className="admin-social-error">{worker.lastError}</p>}
     </div>
   </div>
 }
 
-function Switch({ checked, onChange, title, note, compact = false }: { checked: boolean; onChange: (checked: boolean) => void; title: string; note: string; compact?: boolean }) {
-  return <label className={`admin-social-switch ${compact ? 'compact' : ''}`}>
-    <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+function Switch({ checked, onChange, title, note, compact = false, disabled = false }: { checked: boolean; onChange: (checked: boolean) => void; title: string; note: string; compact?: boolean; disabled?: boolean }) {
+  return <label className={`admin-social-switch ${compact ? 'compact' : ''} ${disabled ? 'disabled' : ''}`}>
+    <input type="checkbox" disabled={disabled} checked={checked} onChange={(event) => onChange(event.target.checked)} />
     <span className="admin-social-switch-track" aria-hidden="true"><span /></span>
     <span><b>{title}</b>{note && <small>{note}</small>}</span>
   </label>

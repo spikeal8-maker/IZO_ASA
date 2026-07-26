@@ -85,13 +85,16 @@ def test_social_admin_credentials_are_write_only_and_deletable():
         return json.loads(json.dumps(settings_store.get(key, {})))
 
     async def probe(network, **kwargs):
-        assert kwargs["token"] == "fake-telegram-token"
-        return {"identity": "fake_bot", "target": {"id": kwargs["target_id"]}}
+        expected = "fake-telegram-token" if network == "telegram" else "fake-max-token"
+        assert kwargs["token"] == expected
+        return {"identity": f"fake_{network}", "target": {"id": kwargs["target_id"]}}
 
     sent_messages = []
 
     async def send_test(**kwargs):
         sent_messages.append(kwargs)
+        if kwargs.get("network") == "max":
+            return {"message_id": "max-test-9"}
         return {"ok": True, "result": {"message_id": 321}}
 
     async def empty_async():
@@ -133,6 +136,7 @@ def test_social_admin_credentials_are_write_only_and_deletable():
     assert delivery.status_code == 200
     assert delivery.json()["messageId"] == 321
     assert sent_messages == [{
+        "network": "telegram",
         "token": "fake-telegram-token",
         "target_id": "@izo_channel",
         "text": (
@@ -142,6 +146,15 @@ def test_social_admin_credentials_are_write_only_and_deletable():
     }]
     assert client.delete("/api/admin/social/telegram/credentials-v2").json()["deleted"] is True
     assert "social_telegram_access_token" not in secrets
+
+    max_saved = client.put("/api/admin/social/max/credentials-v2", json={
+        "token": "fake-max-token", "targetId": "-700000000001",
+    })
+    assert max_saved.status_code == 200
+    assert client.post("/api/admin/social/max/check-v2").status_code == 200
+    max_delivery = client.post("/api/admin/social/max/test-delivery-v2")
+    assert max_delivery.status_code == 200
+    assert max_delivery.json()["messageId"] == "max-test-9"
 
     invalid = client.put("/api/admin/notifications/settings-v2", json={
         "settings": {

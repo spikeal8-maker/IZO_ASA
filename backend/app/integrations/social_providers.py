@@ -42,6 +42,24 @@ async def probe_social_provider(
                     raise SocialProviderError("Telegram-канал или chat ID недоступен боту.")
                 target = checked.get("result") or {}
             return {"identity": bot.get("username") or bot.get("id"), "target": target}
+        if network == "max":
+            response = await http.get(
+                "https://platform-api2.max.ru/me",
+                headers={"Authorization": token},
+            )
+            payload = response.json()
+            if response.status_code != 200 or payload.get("code"):
+                raise SocialProviderError("MAX отклонил ключ доступа.")
+            target = None
+            if target_id.strip():
+                checked = await http.get(
+                    f"https://platform-api2.max.ru/chats/{target_id.strip()}",
+                    headers={"Authorization": token},
+                )
+                target = checked.json()
+                if checked.status_code != 200 or target.get("code"):
+                    raise SocialProviderError("Канал или чат MAX недоступен боту.")
+            return {"identity": payload.get("username") or payload.get("user_id"), "target": target}
         if network == "vk":
             response = await http.get(
                 "https://api.vk.com/method/groups.getById",

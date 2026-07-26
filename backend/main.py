@@ -535,12 +535,12 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.services.admin_notification_delivery import AdminNotificationDeliveryWorker, build_admin_delivery_transports
-    from .app.services.social_delivery import SocialDeliveryWorker, build_telegram_social_sender
+    from .app.services.social_delivery import SocialDeliveryWorker, build_max_social_sender, build_telegram_social_sender
     from .app.services.admin_notifications import enqueue_configured_social_deliveries
     from .app.integrations.social_providers import probe_social_provider
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.admin_notification_delivery import AdminNotificationDeliveryWorker, build_admin_delivery_transports
-    from app.services.social_delivery import SocialDeliveryWorker, build_telegram_social_sender
+    from app.services.social_delivery import SocialDeliveryWorker, build_max_social_sender, build_telegram_social_sender
     from app.services.admin_notifications import enqueue_configured_social_deliveries
     from app.integrations.social_providers import probe_social_provider
 
@@ -5883,14 +5883,16 @@ ADMIN_NOTIFICATION_DELIVERY_WORKER = AdminNotificationDeliveryWorker()
 send_admin_telegram_notification, send_admin_email_notification = build_admin_delivery_transports(telegram_api=telegram_api, send_transactional_email=send_transactional_email, html_escape=html_escape)
 SOCIAL_DELIVERY_WORKER = SocialDeliveryWorker()
 send_social_telegram_publication = build_telegram_social_sender(telegram_api=request_telegram_bot_api, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_telegram_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
-
-
-async def send_social_telegram_test(*, token: str, target_id: str, text: str) -> dict[str, Any]:
-    return await request_telegram_bot_api(
-        token=token,
-        method="sendMessage",
-        payload={"chat_id": target_id, "text": text},
-    )
+async def send_social_max_api(*, token: str, target_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return await request_max_api(token=token, base_url=MAX_API_BASE_URL, verify=MAX_HTTP_VERIFY,
+                                 method="POST", path="/messages", params={"chat_id": target_id}, payload=payload)
+send_social_max_publication = build_max_social_sender(max_api=send_social_max_api, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_max_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
+async def send_social_test(*, network: str, token: str, target_id: str, text: str) -> dict[str, Any]:
+    if network == "telegram":
+        return await request_telegram_bot_api(token=token, method="sendMessage", payload={"chat_id": target_id, "text": text})
+    if network == "max":
+        return await request_max_api(token=token, base_url=MAX_API_BASE_URL, verify=MAX_HTTP_VERIFY, method="POST", path="/messages", params={"chat_id": target_id}, payload={"text": text})
+    raise RuntimeError("Неподдерживаемая тестовая доставка.")
 def yookassa_secret_key() -> str:
     return os.getenv("YOOKASSA_SECRET_KEY", "").strip() or OPENROUTER_SECRET_STORE.get(YOOKASSA_SECRET_NAME)
 
@@ -7749,7 +7751,11 @@ async def startup() -> None:
     if openrouter_secret_migration != "not_configured":
         print(f"OpenRouter secret store status={openrouter_secret_migration} source={openrouter_api_key_source()}")
     ADMIN_NOTIFICATION_DELIVERY_WORKER.start(connection_factory=db, send_telegram=send_admin_telegram_notification, send_email=send_admin_email_notification)
-    SOCIAL_DELIVERY_WORKER.start(connection_factory=db, send_telegram=send_social_telegram_publication)
+    SOCIAL_DELIVERY_WORKER.start(
+        connection_factory=db,
+        send_telegram=send_social_telegram_publication,
+        send_max=send_social_max_publication,
+    )
     enforce_db_guard_after_migrations()
     generation_recovery_report = reconcile_stale_generation_state()
     if generation_recovery_report["checked"]:
@@ -16779,7 +16785,7 @@ app.include_router(create_admin_operations_router(AdminOperationsDependencies(
     secret_set=_save_bot_secret,
     secret_delete=OPENROUTER_SECRET_STORE.delete,
     probe_social=probe_social_provider,
-    send_social_test=send_social_telegram_test,
+    send_social_test=send_social_test,
     notification_worker_status=ADMIN_NOTIFICATION_DELIVERY_WORKER.status,
     social_worker_status=SOCIAL_DELIVERY_WORKER.status,
 )))
