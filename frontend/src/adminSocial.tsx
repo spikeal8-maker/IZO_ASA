@@ -4,7 +4,7 @@ import { adminFetch, adminGet, adminPut } from './adminApi'
 
 type Network = 'telegram' | 'max' | 'vk' | 'instagram' | 'ok'
 type NetworkSettings = {
-  enabled: boolean; storyEnabled?: boolean; configured?: boolean; targetId?: string; applicationKey?: string
+  enabled: boolean; storyEnabled?: boolean; configured?: boolean; mediaConfigured?: boolean; targetId?: string; applicationKey?: string
   verified?: boolean; lastCheckedAt?: string | null; lastError?: string | null
 }
 type SocialSettings = {
@@ -38,6 +38,7 @@ export default function AdminSocial() {
   const [messageKind, setMessageKind] = useState<'success' | 'error' | 'info'>('info')
   const [tokens, setTokens] = useState<Record<Network, string>>({ telegram: '', max: '', vk: '', instagram: '', ok: '' })
   const [okSessionSecret, setOkSessionSecret] = useState('')
+  const [vkMediaToken, setVkMediaToken] = useState('')
   const [busy, setBusy] = useState('')
 
   const load = useCallback(async () => {
@@ -72,10 +73,12 @@ export default function AdminSocial() {
         token: tokens[network], targetId: settings.networks[network].targetId || '',
         applicationKey: settings.networks[network].applicationKey || '',
         sessionSecret: network === 'ok' ? okSessionSecret : '',
+        mediaToken: network === 'vk' ? vkMediaToken : '',
       }),
     })
     setTokens((current) => ({ ...current, [network]: '' }))
     if (network === 'ok') setOkSessionSecret('')
+    if (network === 'vk') setVkMediaToken('')
     setMessageKind('success'); setMessage('Доступ сохранён. Нажмите «Проверить», чтобы подтвердить аккаунт и получателя.')
     await load()
   })
@@ -141,6 +144,7 @@ export default function AdminSocial() {
           </header>
           <div className="admin-social-fields">
             <label><span>Ключ доступа</span><input type="password" value={tokens[id]} onChange={(e) => setTokens({ ...tokens, [id]: e.target.value })} placeholder={network.configured ? 'Оставьте пустым, чтобы не менять' : 'Вставьте ключ'} autoComplete="new-password" /></label>
+            {id === 'vk' && <label><span>Пользовательский VK token для фото</span><input type="password" value={vkMediaToken} onChange={(e) => setVkMediaToken(e.target.value)} placeholder={network.mediaConfigured ? 'Сохранён — оставьте пустым, чтобы не менять' : 'Вставьте пользовательский VK token'} autoComplete="new-password" /></label>}
             {id === 'ok' && <label><span>Session secret</span><input type="password" value={okSessionSecret} onChange={(e) => setOkSessionSecret(e.target.value)} autoComplete="new-password" /></label>}
             {id === 'ok' && <label><span>Application key</span><input value={network.applicationKey || ''} onChange={(e) => patchNetwork(id, { applicationKey: e.target.value })} /></label>}
             <label><span>{id === 'telegram' || id === 'max' ? 'Канал / chat ID' : id === 'vk' || id === 'ok' ? 'ID группы' : 'Instagram account ID'}</span><input value={network.targetId || ''} onChange={(e) => patchNetwork(id, { targetId: e.target.value })} placeholder={id === 'telegram' ? '@channel или -100…' : 'ID'} /></label>

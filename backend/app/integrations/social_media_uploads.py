@@ -46,12 +46,13 @@ async def publish_vk_wall_image(
     *,
     vk_api: Callable[..., Awaitable[dict[str, Any]]],
     token: str,
+    media_token: str,
     group_id: str,
     message: str,
     media_url: str,
 ) -> dict[str, Any]:
     upload_server = await vk_api(
-        token=token, method="photos.getWallUploadServer", params={"group_id": group_id}
+        token=media_token, method="photos.getWallUploadServer", params={"group_id": group_id}
     )
     upload_url = str((upload_server.get("response") or {}).get("upload_url") or "")
     if not upload_url.startswith("https://"):
@@ -66,7 +67,7 @@ async def publish_vk_wall_image(
     except (httpx.HTTPError, ValueError) as exc:
         raise RuntimeError("VK photo upload failed.") from exc
     saved = await vk_api(
-        token=token, method="photos.saveWallPhoto",
+        token=media_token, method="photos.saveWallPhoto",
         params={"group_id": group_id, "server": upload_body.get("server"),
                 "photo": upload_body.get("photo"), "hash": upload_body.get("hash")},
     )

@@ -3125,7 +3125,7 @@
       {
         "auth": "public/optional/review",
         "handler": "notifications",
-        "line": 167,
+        "line": 168,
         "method": "GET",
         "path": "/notifications-v2",
         "process_role": "all-dev-current-monolith"
@@ -3133,7 +3133,7 @@
       {
         "auth": "public/optional/review",
         "handler": "notifications_read",
-        "line": 175,
+        "line": 176,
         "method": "POST",
         "path": "/notifications/read-v2",
         "process_role": "all-dev-current-monolith"
@@ -3141,7 +3141,7 @@
       {
         "auth": "public/optional/review",
         "handler": "notification_settings",
-        "line": 191,
+        "line": 192,
         "method": "GET",
         "path": "/notifications/settings-v2",
         "process_role": "all-dev-current-monolith"
@@ -3149,7 +3149,7 @@
       {
         "auth": "public/optional/review",
         "handler": "save_notification_settings",
-        "line": 216,
+        "line": 217,
         "method": "PUT",
         "path": "/notifications/settings-v2",
         "process_role": "all-dev-current-monolith"
@@ -3157,7 +3157,7 @@
       {
         "auth": "public/optional/review",
         "handler": "openrouter_catalog_refresh",
-        "line": 114,
+        "line": 115,
         "method": "POST",
         "path": "/openrouter/catalog/refresh-v2",
         "process_role": "all-dev-current-monolith"
@@ -3165,7 +3165,7 @@
       {
         "auth": "public/optional/review",
         "handler": "openrouter_catalog_status",
-        "line": 109,
+        "line": 110,
         "method": "GET",
         "path": "/openrouter/catalog/status-v2",
         "process_role": "all-dev-current-monolith"
@@ -3173,7 +3173,7 @@
       {
         "auth": "public/optional/review",
         "handler": "save_openrouter_config",
-        "line": 145,
+        "line": 146,
         "method": "POST",
         "path": "/openrouter/config",
         "process_role": "all-dev-current-monolith"
@@ -3181,7 +3181,7 @@
       {
         "auth": "public/optional/review",
         "handler": "openrouter_exchange_refresh",
-        "line": 138,
+        "line": 139,
         "method": "POST",
         "path": "/openrouter/exchange/refresh",
         "process_role": "all-dev-current-monolith"
@@ -3189,7 +3189,7 @@
       {
         "auth": "public/optional/review",
         "handler": "openrouter_pricing",
-        "line": 125,
+        "line": 126,
         "method": "GET",
         "path": "/openrouter/pricing",
         "process_role": "all-dev-current-monolith"
@@ -3197,7 +3197,7 @@
       {
         "auth": "public/optional/review",
         "handler": "openrouter_status",
-        "line": 99,
+        "line": 100,
         "method": "GET",
         "path": "/openrouter/status",
         "process_role": "all-dev-current-monolith"
@@ -3205,7 +3205,7 @@
       {
         "auth": "public/optional/review",
         "handler": "social",
-        "line": 252,
+        "line": 253,
         "method": "GET",
         "path": "/social-v2",
         "process_role": "all-dev-current-monolith"
@@ -3213,7 +3213,7 @@
       {
         "auth": "public/optional/review",
         "handler": "save_social",
-        "line": 305,
+        "line": 307,
         "method": "PUT",
         "path": "/social-v2",
         "process_role": "all-dev-current-monolith"
@@ -3221,7 +3221,7 @@
       {
         "auth": "public/optional/review",
         "handler": "test_max_delivery",
-        "line": 507,
+        "line": 513,
         "method": "POST",
         "path": "/social/max/test-delivery-v2",
         "process_role": "all-dev-current-monolith"
@@ -3229,7 +3229,7 @@
       {
         "auth": "public/optional/review",
         "handler": "test_telegram_delivery",
-        "line": 471,
+        "line": 477,
         "method": "POST",
         "path": "/social/telegram/test-delivery-v2",
         "process_role": "all-dev-current-monolith"
@@ -3237,7 +3237,7 @@
       {
         "auth": "public/optional/review",
         "handler": "test_vk_delivery",
-        "line": 540,
+        "line": 546,
         "method": "POST",
         "path": "/social/vk/test-delivery-v2",
         "process_role": "all-dev-current-monolith"
@@ -3245,7 +3245,7 @@
       {
         "auth": "public/optional/review",
         "handler": "check_social_credentials",
-        "line": 435,
+        "line": 441,
         "method": "POST",
         "path": "/social/{network}/check-v2",
         "process_role": "all-dev-current-monolith"
@@ -3253,7 +3253,7 @@
       {
         "auth": "public/optional/review",
         "handler": "delete_social_credentials",
-        "line": 413,
+        "line": 417,
         "method": "DELETE",
         "path": "/social/{network}/credentials-v2",
         "process_role": "all-dev-current-monolith"
@@ -3261,7 +3261,7 @@
       {
         "auth": "public/optional/review",
         "handler": "save_social_credentials",
-        "line": 372,
+        "line": 374,
         "method": "PUT",
         "path": "/social/{network}/credentials-v2",
         "process_role": "all-dev-current-monolith"
@@ -4351,7 +4351,7 @@
         "occurrences": [
           {
             "enclosing_symbol": "start",
-            "line": 527
+            "line": 531
           }
         ],
         "owner": "backend.app.services.social_delivery.SocialDeliveryWorker",

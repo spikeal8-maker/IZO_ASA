@@ -5888,7 +5888,7 @@ async def send_social_max_api(*, token: str, target_id: str, payload: dict[str, 
     return await request_max_api(token=token, base_url=MAX_API_BASE_URL, verify=MAX_HTTP_VERIFY,
                                  method="POST", path="/messages", params={"chat_id": target_id}, payload=payload)
 send_social_max_publication = build_max_social_sender(max_api=send_social_max_api, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_max_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
-send_social_vk_publication = build_vk_social_sender(vk_api=request_vk_api, vk_image_publisher=publish_vk_wall_image, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_vk_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
+send_social_vk_publication = build_vk_social_sender(vk_api=request_vk_api, vk_image_publisher=publish_vk_wall_image, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_vk_access_token"), media_token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_vk_media_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
 async def send_social_test(*, network: str, token: str, target_id: str, text: str) -> dict[str, Any]:
     if network == "telegram":
         return await request_telegram_bot_api(token=token, method="sendMessage", payload={"chat_id": target_id, "text": text})

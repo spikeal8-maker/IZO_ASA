@@ -416,6 +416,7 @@ def build_vk_social_sender(
     settings_getter: Callable[[], dict[str, Any]],
     token_getter: Callable[[], str],
     public_site_url_getter: Callable[[], str],
+    media_token_getter: Callable[[], str] = lambda: "",
     vk_image_publisher: Callable[..., Awaitable[dict[str, Any]]] | None = None,
 ) -> Callable[
     [SocialDelivery, PublicFeedPublication],
@@ -433,17 +434,20 @@ def build_vk_social_sender(
         ):
             raise RuntimeError("VK social delivery is disabled.")
         token = token_getter().strip()
+        media_token = media_token_getter().strip()
         group_id = str(config.get("targetId") or "").strip().lstrip("-")
         base_url = public_site_url_getter().strip().rstrip("/")
         if not token or not group_id:
             raise RuntimeError("VK social credentials are incomplete.")
+        if publication.media_type == "image" and vk_image_publisher is not None and not media_token:
+            raise RuntimeError("VK user media token is required for image publication.")
         feed_url = f"{base_url}/feed?tab=new#work-{quote(publication.id)}"
         media_url = f"{base_url}/api/feed/media/{quote(publication.id)}?variant=large"
         message = "\n\n".join(
             part for part in (publication.title, publication.description or "", feed_url) if part
         )
         response = await vk_image_publisher(
-            vk_api=vk_api, token=token, group_id=group_id,
+            vk_api=vk_api, token=token, media_token=media_token, group_id=group_id,
             message=message[:15000], media_url=media_url,
         ) if publication.media_type == "image" and vk_image_publisher is not None else await vk_api(
             token=token,

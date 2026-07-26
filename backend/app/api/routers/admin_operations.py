@@ -45,6 +45,7 @@ def _notification_delivery_status(conn: sqlite3.Connection) -> list[dict[str, An
 
 class SocialCredentialsRequest(BaseModel):
     token: str = Field(default="", max_length=4096)
+    mediaToken: str = Field(default="", max_length=4096)
     targetId: str = Field(default="", max_length=300)
     applicationKey: str = Field(default="", max_length=500)
     sessionSecret: str = Field(default="", max_length=4096)
@@ -286,6 +287,7 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
                         "enabled": bool((networks.get(name) or {}).get("enabled", False)),
                         "storyEnabled": bool((networks.get(name) or {}).get("storyEnabled", False)),
                         "configured": configured[name],
+                        "mediaConfigured": deps.secret_exists("social_vk_media_access_token") if name == "vk" else False,
                         "targetId": str((networks.get(name) or {}).get("targetId") or ""),
                         "applicationKey": str((networks.get(name) or {}).get("applicationKey") or ""),
                         "verified": bool((networks.get(name) or {}).get("verified", False)),
@@ -377,6 +379,8 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
             raise HTTPException(404, "Социальная сеть не поддерживается.")
         if req.token.strip():
             deps.secret_set(f"social_{network}_access_token", req.token.strip())
+        if network == "vk" and req.mediaToken.strip():
+            deps.secret_set("social_vk_media_access_token", req.mediaToken.strip())
         if network == "ok" and req.sessionSecret.strip():
             deps.secret_set("social_ok_session_secret", req.sessionSecret.strip())
         if not deps.secret_exists(f"social_{network}_access_token"):
@@ -417,6 +421,8 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
         deleted = deps.secret_delete(f"social_{network}_access_token")
         if network == "ok":
             deleted = deps.secret_delete("social_ok_session_secret") or deleted
+        if network == "vk":
+            deleted = deps.secret_delete("social_vk_media_access_token") or deleted
         saved = deps.saved_setting("social_syndication")
         networks = saved.get("networks") if isinstance(saved.get("networks"), dict) else {}
         networks[network] = {**(networks.get(network) or {}), "enabled": False, "verified": False}

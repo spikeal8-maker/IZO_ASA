@@ -161,6 +161,19 @@ def test_social_admin_credentials_are_write_only_and_deletable():
     assert max_delivery.status_code == 200
     assert max_delivery.json()["messageId"] == "max-test-9"
 
+    vk_saved = client.put("/api/admin/social/vk/credentials-v2", json={
+        "token": "fake-vk-group-token", "mediaToken": "fake-vk-user-token",
+        "targetId": "240405661",
+    })
+    assert vk_saved.status_code == 200
+    vk_status = client.get("/api/admin/social-v2").json()["settings"]["networks"]["vk"]
+    assert vk_status["configured"] is True
+    assert vk_status["mediaConfigured"] is True
+    assert "fake-vk-user-token" not in json.dumps(vk_status)
+    assert client.delete("/api/admin/social/vk/credentials-v2").json()["deleted"] is True
+    assert "social_vk_access_token" not in secrets
+    assert "social_vk_media_access_token" not in secrets
+
     invalid = client.put("/api/admin/notifications/settings-v2", json={
         "settings": {
             "telegramEnabled": True,
