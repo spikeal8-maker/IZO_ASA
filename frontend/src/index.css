@@ -1540,7 +1540,7 @@ button.mini.danger { color: #ff8f8f; border-color: #5a2a2a; }
 .admin-notification.warning { border-color: #76611d; }
 .admin-notification.critical { border-color: #8b3030; }
 .admin-notification.read { opacity: .66; }
-.admin-social-page { display: grid; gap: 14px; width: min(100%, 1280px); margin: 0 auto; }
+.admin-social-page { display: grid; gap: 14px; width: min(100%, 1280px); min-height: max-content; margin: 0 auto; overflow-anchor: none; }
 .admin-social-health, .admin-social-status { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #3a403a; border-radius: 999px; padding: 5px 9px; color: #a6ada6; background: #161916; font-size: 11px; white-space: nowrap; }
 .admin-social-health.ready, .admin-social-status.ready { border-color: #718e13; color: var(--acid); background: #182008; }
 .admin-social-toolbar { display: grid; grid-template-columns: 1.2fr 1fr auto; align-items: center; gap: 16px; padding: 12px 14px; border: 1px solid #303830; border-radius: 13px; background: #101510; }
@@ -2203,7 +2203,7 @@ pre { background: #060606; color: #aaa; border: 1px solid #252525; border-radius
 .new-sub-links button:hover { border-color: rgba(155,124,255,.55); }
 .new-sub-links button.active { border-color: rgba(155,124,255,.92); background: var(--n2-purple, #6b46ff); color: #0d0714; }
 .new-sub-links button.new-sub-admin { margin-left: auto; }
-.new-sub-main { flex: 1 1 auto; height: auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 20px 30px; scrollbar-gutter: stable; }
+.new-sub-main { flex: 1 1 auto; height: auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 20px 30px; scrollbar-gutter: stable; } .new-sub-main:has(.admin-social-page) { overflow-y: scroll; overflow-anchor: none; }
 @media (max-width: 980px) {
   .new-sub-shell { height: auto; min-height: 100dvh; overflow: visible; }
   .new-sub-nav { padding: 10px 14px; gap: 10px; position: sticky; top: 0; z-index: 20; }

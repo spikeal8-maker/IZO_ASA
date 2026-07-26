@@ -319,20 +319,6 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
         ]
         if master_enabled and not selected:
             raise HTTPException(400, "Выберите хотя бы один формат публикации.")
-        for name in selected:
-            current = source.get(name) or {}
-            old = previous_networks.get(name) or {}
-            same_target = (
-                str(current.get("targetId") or "").strip()
-                == str(old.get("targetId") or "").strip()
-            )
-            if not (
-                old.get("verified")
-                and deps.secret_exists(f"social_{name}_access_token")
-                and str(current.get("targetId") or "").strip()
-                and same_target
-            ):
-                raise HTTPException(400, f"Сначала сохраните и проверьте подключение: {name}.")
         settings = {
             "masterEnabled": master_enabled,
             "autoPublish": bool(req.settings.get("autoPublish", False)),
@@ -355,6 +341,15 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
             },
         }
         deps.save_setting("social_syndication", settings)
+        operational = bool(
+            master_enabled and settings["autoPublish"] and selected
+            and all(
+                settings["networks"][name].get("verified")
+                and deps.secret_exists(f"social_{name}_access_token")
+                and str(settings["networks"][name].get("targetId") or "").strip()
+                for name in selected
+            )
+        )
         with deps.db() as conn:
             deps.record_audit(
                 conn, "admin_social_settings_update",
@@ -365,8 +360,12 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
         return {
             "ok": True,
             "settings": settings,
-            "operational": master_enabled and settings["autoPublish"],
-            "message": "Автопубликация включена." if master_enabled and settings["autoPublish"] else "Настройки сохранены, отправка выключена.",
+            "operational": operational,
+            "message": (
+                "Настройки сохранены. Проверенные каналы будут публиковать вместе с лентой."
+                if master_enabled and settings["autoPublish"]
+                else "Настройки сохранены, отправка выключена."
+            ),
         }
 
     @router.put("/social/{network}/credentials-v2")
@@ -529,6 +528,40 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
                 after={"ok": True, "messageId": message_id}, request=request,
             )
         return {"ok": True, "messageId": message_id}
+
+    @router.post("/social/vk/test-delivery-v2")
+    async def test_vk_delivery(request: Request) -> dict[str, Any]:
+        actor = deps.require_admin(request)
+        saved = deps.saved_setting("social_syndication")
+        networks = saved.get("networks") if isinstance(saved.get("networks"), dict) else {}
+        config = networks.get("vk") or {}
+        token = deps.secret_get("social_vk_access_token")
+        target_id = str(config.get("targetId") or "").strip()
+        if not token or not target_id:
+            raise HTTPException(400, "Сначала сохраните ключ VK и ID группы.")
+        if not config.get("verified"):
+            raise HTTPException(400, "Сначала выполните проверку VK.")
+        try:
+            result = await deps.send_social_test(
+                network="vk",
+                token=token,
+                target_id=target_id,
+                text="✅ Тест публикации ИЗО АСА\n\nПодключение сообщества VK проверено.",
+            )
+        except Exception as exc:
+            raise HTTPException(502, f"VK не подтвердил публикацию: {exc}") from exc
+        body = result.get("response") if isinstance(result.get("response"), dict) else {}
+        post_id = body.get("post_id")
+        if post_id is None:
+            raise HTTPException(502, "VK не вернул идентификатор публикации.")
+        with deps.db() as conn:
+            deps.record_audit(
+                conn, "admin_social_test_delivery",
+                actor_internal_user_id=actor.get("internal_user_id"),
+                entity_type="social_provider", entity_id="vk",
+                after={"ok": True, "postId": post_id}, request=request,
+            )
+        return {"ok": True, "messageId": post_id}
 
     return router
 

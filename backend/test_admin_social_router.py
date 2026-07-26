@@ -13,7 +13,7 @@ from app.api.routers.admin_operations import (
 )
 
 
-def test_social_status_and_master_enable_are_fail_closed(tmp_path) -> None:
+def test_social_status_is_fail_closed_but_draft_settings_are_saved(tmp_path) -> None:
     database_path = tmp_path / "admin-social.sqlite3"
     conn = sqlite3.connect(database_path)
     conn.executescript(
@@ -114,11 +114,13 @@ def test_social_status_and_master_enable_are_fail_closed(tmp_path) -> None:
     assert status.json()["worker"]["running"] is True
 
     enable = {**initial, "masterEnabled": True}
-    refused = client.put(
+    saved_draft = client.put(
         "/api/admin/social-v2", json={"settings": enable}
     )
-    assert refused.status_code == 400
-    assert saved_setting("social_syndication")["masterEnabled"] is False
+    assert saved_draft.status_code == 200
+    assert saved_draft.json()["settings"]["masterEnabled"] is True
+    assert saved_draft.json()["operational"] is False
+    assert saved_setting("social_syndication")["masterEnabled"] is True
 
     secrets["social_telegram_access_token"] = "not-a-real-provider-token"
     accepted = client.put(
@@ -138,7 +140,9 @@ def test_social_status_and_master_enable_are_fail_closed(tmp_path) -> None:
             },
         },
     }
-    refused_changed_target = client.put(
+    saved_changed_target = client.put(
         "/api/admin/social-v2", json={"settings": changed_target}
     )
-    assert refused_changed_target.status_code == 400
+    assert saved_changed_target.status_code == 200
+    assert saved_changed_target.json()["operational"] is False
+    assert saved_changed_target.json()["settings"]["networks"]["telegram"]["verified"] is False

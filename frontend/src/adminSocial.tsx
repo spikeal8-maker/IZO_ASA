@@ -98,6 +98,11 @@ export default function AdminSocial() {
     setMessageKind('success')
     setMessage(`Тестовое сообщение доставлено в MAX. message_id: ${payload.messageId}.`)
   })
+  const testVk = () => run('vk:test', async () => {
+    const payload = await request('/admin/social/vk/test-delivery-v2', { method: 'POST' })
+    setMessageKind('success')
+    setMessage(`Тестовая публикация создана во ВКонтакте. post_id: ${payload.messageId}.`)
+  })
   const removeCredentials = (network: Network) => {
     if (!window.confirm('Удалить сохранённый доступ к этой социальной сети?')) return
     void run(`${network}:delete`, async () => {
@@ -150,7 +155,13 @@ export default function AdminSocial() {
                 checked={Boolean(network.storyEnabled)}
                 onChange={(checked) => patchNetwork(id, { storyEnabled: checked })}
                 title="История"
-                note={id === 'max' || id === 'ok' ? 'Нет серверного API' : 'Нужен отдельный доступ'}
+                note={
+                  id === 'telegram' ? 'Нужен Business Connection ID'
+                    : id === 'vk' ? 'Нужен пользовательский токен Stories'
+                      : id === 'max' ? 'В MAX Bot API метода Stories нет'
+                        : id === 'ok' ? 'В API OK метода Stories нет'
+                          : 'Нужен Instagram Content Publishing доступ'
+                }
               />
             </div>
             <div className="admin-social-actions">
@@ -158,6 +169,7 @@ export default function AdminSocial() {
               <button className="secondary" disabled={busy !== '' || !network.configured} onClick={() => void check(id)}>{busy === `${id}:check` ? 'Проверяем…' : 'Проверить'}</button>
               {id === 'telegram' && <button className="secondary" disabled={busy !== '' || !network.verified} onClick={() => void testTelegram()}>{busy === 'telegram:test' ? 'Отправляем…' : 'Тест'}</button>}
               {id === 'max' && <button className="secondary" disabled={busy !== '' || !network.verified} onClick={() => void testMax()}>{busy === 'max:test' ? 'Отправляем…' : 'Тест'}</button>}
+              {id === 'vk' && <button className="secondary" disabled={busy !== '' || !network.verified} onClick={() => void testVk()}>{busy === 'vk:test' ? 'Публикуем…' : 'Тест'}</button>}
               <button className="admin-social-delete" title="Удалить доступ" disabled={busy !== '' || !network.configured} onClick={() => removeCredentials(id)}>Удалить</button>
             </div>
           </div>

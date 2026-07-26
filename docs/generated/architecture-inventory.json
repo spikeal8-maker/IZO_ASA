@@ -1169,14 +1169,14 @@
       },
       {
         "input": "onenode_user",
-        "line": 1604,
+        "line": 1606,
         "operation": "cookie_read",
         "source": "backend/main.py",
         "symbol": "request_user_id"
       },
       {
         "input": "x-onenode-user",
-        "line": 1604,
+        "line": 1606,
         "operation": "header_read",
         "source": "backend/main.py",
         "symbol": "request_user_id"
@@ -1377,19 +1377,19 @@
     "auth_counts": {
       "REVIEW: admin route without detected gate": 8,
       "admin": 91,
-      "public/optional/review": 77,
+      "public/optional/review": 78,
       "session": 1,
       "user": 55,
       "webhook: MAX secret conditional": 1,
       "webhook: telegram secret required": 1
     },
-    "count": 234,
+    "count": 235,
     "default_process_role": "all-dev-current-monolith",
     "items": [
       {
         "auth": "public/optional/review",
         "handler": "home_page_shell",
-        "line": 972,
+        "line": 974,
         "method": "GET",
         "path": "/",
         "process_role": "all-dev-current-monolith"
@@ -3069,7 +3069,7 @@
       {
         "auth": "public/optional/review",
         "handler": "favicon",
-        "line": 961,
+        "line": 963,
         "method": "GET",
         "path": "/favicon.svg",
         "process_role": "all-dev-current-monolith"
@@ -3077,7 +3077,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_page_shell",
-        "line": 993,
+        "line": 995,
         "method": "GET",
         "path": "/feed",
         "process_role": "all-dev-current-monolith"
@@ -3085,7 +3085,7 @@
       {
         "auth": "public/optional/review",
         "handler": "feed_page_shell_slash",
-        "line": 1004,
+        "line": 1006,
         "method": "GET",
         "path": "/feed/",
         "process_role": "all-dev-current-monolith"
@@ -3093,7 +3093,7 @@
       {
         "auth": "public/optional/review",
         "handler": "gallery_page_shell",
-        "line": 977,
+        "line": 979,
         "method": "GET",
         "path": "/gallery",
         "process_role": "all-dev-current-monolith"
@@ -3101,7 +3101,7 @@
       {
         "auth": "public/optional/review",
         "handler": "gallery_page_shell_slash",
-        "line": 988,
+        "line": 990,
         "method": "GET",
         "path": "/gallery/",
         "process_role": "all-dev-current-monolith"
@@ -3221,7 +3221,7 @@
       {
         "auth": "public/optional/review",
         "handler": "test_max_delivery",
-        "line": 501,
+        "line": 500,
         "method": "POST",
         "path": "/social/max/test-delivery-v2",
         "process_role": "all-dev-current-monolith"
@@ -3229,15 +3229,23 @@
       {
         "auth": "public/optional/review",
         "handler": "test_telegram_delivery",
-        "line": 465,
+        "line": 464,
         "method": "POST",
         "path": "/social/telegram/test-delivery-v2",
         "process_role": "all-dev-current-monolith"
       },
       {
         "auth": "public/optional/review",
+        "handler": "test_vk_delivery",
+        "line": 533,
+        "method": "POST",
+        "path": "/social/vk/test-delivery-v2",
+        "process_role": "all-dev-current-monolith"
+      },
+      {
+        "auth": "public/optional/review",
         "handler": "check_social_credentials",
-        "line": 429,
+        "line": 428,
         "method": "POST",
         "path": "/social/{network}/check-v2",
         "process_role": "all-dev-current-monolith"
@@ -3245,7 +3253,7 @@
       {
         "auth": "public/optional/review",
         "handler": "delete_social_credentials",
-        "line": 407,
+        "line": 406,
         "method": "DELETE",
         "path": "/social/{network}/credentials-v2",
         "process_role": "all-dev-current-monolith"
@@ -3253,7 +3261,7 @@
       {
         "auth": "public/optional/review",
         "handler": "save_social_credentials",
-        "line": 373,
+        "line": 372,
         "method": "PUT",
         "path": "/social/{network}/credentials-v2",
         "process_role": "all-dev-current-monolith"
@@ -4289,7 +4297,7 @@
         "occurrences": [
           {
             "enclosing_symbol": "schedule_avatar_cache",
-            "line": 4965
+            "line": 4967
           }
         ],
         "owner": "backend.main",
@@ -4307,7 +4315,7 @@
         "occurrences": [
           {
             "enclosing_symbol": "schedule_openrouter_catalog_refresh",
-            "line": 6243
+            "line": 6242
           }
         ],
         "owner": "backend.main",
@@ -4343,7 +4351,7 @@
         "occurrences": [
           {
             "enclosing_symbol": "start",
-            "line": 462
+            "line": 520
           }
         ],
         "owner": "backend.app.services.social_delivery.SocialDeliveryWorker",

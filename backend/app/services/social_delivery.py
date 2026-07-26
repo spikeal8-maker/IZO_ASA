@@ -407,6 +407,54 @@ def build_max_social_sender(
     return send
 
 
+def build_vk_social_sender(
+    *,
+    vk_api: Callable[..., Awaitable[dict[str, Any]]],
+    settings_getter: Callable[[], dict[str, Any]],
+    token_getter: Callable[[], str],
+    public_site_url_getter: Callable[[], str],
+) -> Callable[
+    [SocialDelivery, PublicFeedPublication],
+    Awaitable[tuple[str | None, str | None]],
+]:
+    async def send(
+        delivery: SocialDelivery, publication: PublicFeedPublication
+    ) -> tuple[str | None, str | None]:
+        settings = settings_getter()
+        networks = settings.get("networks") if isinstance(settings.get("networks"), dict) else {}
+        config = networks.get("vk") or {}
+        if not (
+            settings.get("masterEnabled") and settings.get("autoPublish")
+            and config.get("enabled") and config.get("verified")
+        ):
+            raise RuntimeError("VK social delivery is disabled.")
+        token = token_getter().strip()
+        group_id = str(config.get("targetId") or "").strip().lstrip("-")
+        base_url = public_site_url_getter().strip().rstrip("/")
+        if not token or not group_id:
+            raise RuntimeError("VK social credentials are incomplete.")
+        feed_url = f"{base_url}/feed?tab=new#work-{quote(publication.id)}"
+        message = "\n\n".join(
+            part for part in (publication.title, publication.description or "", feed_url) if part
+        )
+        response = await vk_api(
+            token=token,
+            method="wall.post",
+            params={
+                "owner_id": f"-{group_id}",
+                "from_group": 1,
+                "message": message[:15000],
+                "attachments": feed_url,
+            },
+        )
+        body = response.get("response") if isinstance(response.get("response"), dict) else {}
+        post_id = body.get("post_id")
+        external_url = f"https://vk.com/wall-{group_id}_{post_id}" if post_id is not None else None
+        return (f"vk:{post_id}" if post_id is not None else None), external_url
+
+    return send
+
+
 class SocialDeliveryWorker:
     """Single-process watchdog for durable Telegram syndication."""
 
@@ -429,6 +477,10 @@ class SocialDeliveryWorker:
             [SocialDelivery, PublicFeedPublication],
             Awaitable[tuple[str | None, str | None]],
         ] | None = None,
+        send_vk: Callable[
+            [SocialDelivery, PublicFeedPublication],
+            Awaitable[tuple[str | None, str | None]],
+        ] | None = None,
         interval_seconds: float = 30.0,
     ) -> bool:
         if self._task is not None and not self._task.done():
@@ -447,9 +499,15 @@ class SocialDeliveryWorker:
                             )
                             if send_max is not None else {"sent": 0}
                         )
+                        vk_result = (
+                            await deliver_pending_social_batch(
+                                conn, network="vk", sender=send_vk
+                            )
+                            if send_vk is not None else {"sent": 0}
+                        )
                     finally:
                         conn.close()
-                    if result["sent"] or max_result["sent"]:
+                    if result["sent"] or max_result["sent"] or vk_result["sent"]:
                         self.last_success_at = _utc_now().isoformat()
                     self.last_error = None
                 except asyncio.CancelledError:

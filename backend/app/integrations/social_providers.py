@@ -18,12 +18,17 @@ async def probe_social_provider(
     target_id: str,
     application_key: str = "",
     session_secret: str = "",
+    max_verify: Any = True,
     client: httpx.AsyncClient | None = None,
 ) -> dict[str, Any]:
     if not token.strip():
         raise SocialProviderError("Ключ доступа не сохранён.")
     own_client = client is None
-    http = client or httpx.AsyncClient(timeout=15, follow_redirects=True)
+    http = client or httpx.AsyncClient(
+        timeout=15,
+        follow_redirects=True,
+        verify=max_verify if network == "max" else True,
+    )
     try:
         if network == "telegram":
             response = await http.get(f"https://api.telegram.org/bot{token}/getMe")
@@ -90,8 +95,17 @@ async def probe_social_provider(
                 "Реквизиты OK сохранены, но signed API-проверка ещё не подключена."
             )
         raise SocialProviderError("Неподдерживаемая социальная сеть.")
+    except httpx.ConnectError as exc:
+        message = (
+            "MAX: не удалось установить защищённое соединение с platform-api2.max.ru."
+            if network == "max"
+            else "Не удалось подключиться к API социальной сети."
+        )
+        raise SocialProviderError(message) from exc
+    except httpx.TimeoutException as exc:
+        raise SocialProviderError("API социальной сети не ответил за 15 секунд.") from exc
     except (httpx.HTTPError, ValueError) as exc:
-        raise SocialProviderError("Сервис социальной сети не ответил.") from exc
+        raise SocialProviderError("API социальной сети вернул некорректный ответ.") from exc
     finally:
         if own_client:
             await http.aclose()
