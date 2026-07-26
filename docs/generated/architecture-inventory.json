@@ -1369,7 +1369,7 @@
       "start-public.bat"
     ],
     "schema_compatibility": {
-      "max_version": 1,
+      "max_version": 3,
       "min_version": 1
     }
   },
