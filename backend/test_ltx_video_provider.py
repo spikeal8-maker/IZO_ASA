@@ -78,6 +78,7 @@ def test_workflow_is_server_owned_and_only_patches_allowed_inputs(tmp_path):
         },
         "5": {"class_type": "LTXVScheduler", "inputs": {"steps": 99}},
         "6": {"class_type": "RandomNoise", "inputs": {"noise_seed": 1}},
+        "8": {"class_type": "LTXVConditioning", "inputs": {"frame_rate": 24.0}},
         "7": {
             "class_type": "VHS_VideoCombine",
             "inputs": {"filename_prefix": "unsafe", "format": "gif", "frame_rate": 1},
@@ -99,13 +100,14 @@ def test_workflow_is_server_owned_and_only_patches_allowed_inputs(tmp_path):
     assert prompt["0"]["inputs"]["unet_name"] == "ltx-2.3-22b-distilled-1.1-Q3_K_M.gguf"
     assert prompt["1"]["inputs"]["text"] == "новая сцена"
     assert prompt["2"]["inputs"]["text"] == "bad"
-    assert prompt["3"]["inputs"]["value"] == 49
+    assert prompt["3"]["inputs"]["value"] == 25
     assert prompt["4"]["inputs"]["width"] == 832
     assert prompt["4"]["inputs"]["height"] == 480
     assert prompt["5"]["inputs"]["steps"] == 8
     assert prompt["7"]["inputs"]["filename_prefix"] == "izo/ltx/job"
     assert prompt["7"]["inputs"]["format"] == "video/h264-mp4"
-    assert prompt["7"]["inputs"]["frame_rate"] == 24
+    assert prompt["7"]["inputs"]["frame_rate"] == 12
+    assert prompt["8"]["inputs"]["frame_rate"] == 12.0
 
     standard = resolve_local_ltx_profile("local/ltx-2.3-standard-q4")
     assert standard is not None
@@ -117,7 +119,7 @@ def test_workflow_is_server_owned_and_only_patches_allowed_inputs(tmp_path):
         filename_prefix="izo/ltx/job-q4",
     )
     assert q4_prompt["0"]["inputs"]["unet_name"] == "ltx-2.3-22b-distilled-1.1-Q4_K_M.gguf"
-    assert q4_prompt["3"]["inputs"]["value"] == 97
+    assert q4_prompt["3"]["inputs"]["value"] == 49
     assert q4_prompt["5"]["inputs"]["steps"] == 12
 
 

@@ -18,6 +18,12 @@ _UNET_BY_QUANTIZATION = {
     "Q4_K_M": "ltx-2.3-22b-distilled-1.1-Q4_K_M.gguf",
 }
 
+# Four seconds at 24 FPS creates a 97-frame latent and repeatedly crashes
+# PyTorch in c10.dll on the dedicated 12 GB RTX 4070. LTX requires
+# (frames - 1) to be divisible by 8, so 12 FPS produces 49 frames for four
+# seconds: the largest duration proven stable on the production GPU.
+LOCAL_LTX_FRAME_RATE = 12
+
 
 def _api_prompt(document: dict[str, Any]) -> dict[str, Any]:
     if document and all(
@@ -70,7 +76,7 @@ def build_ltx_prompt(
     positive = max(text_nodes, key=lambda node: len(str((node.get("inputs") or {}).get("text") or "")))
     positive.setdefault("inputs", {})["text"] = text.strip()
 
-    frame_count = duration * 24 + 1
+    frame_count = duration * LOCAL_LTX_FRAME_RATE + 1
     if (frame_count - 1) % 8:
         raise LtxWorkflowError("LTX frame count must satisfy (frames - 1) % 8 == 0")
 
@@ -98,6 +104,8 @@ def build_ltx_prompt(
         scheduler_nodes[0].setdefault("inputs", {})["steps"] = profile.steps
     for node in _nodes(prompt, "RandomNoise"):
         node.setdefault("inputs", {})["noise_seed"] = secrets.randbits(63)
+    for node in _nodes(prompt, "LTXVConditioning"):
+        node.setdefault("inputs", {})["frame_rate"] = float(LOCAL_LTX_FRAME_RATE)
 
     output_nodes = _nodes(prompt, "VHS_VideoCombine", "SaveVideo")
     if not output_nodes:
@@ -108,6 +116,6 @@ def build_ltx_prompt(
         if node.get("class_type") == "VHS_VideoCombine":
             inputs["save_output"] = True
             inputs["format"] = "video/h264-mp4"
-            inputs["frame_rate"] = 24
+            inputs["frame_rate"] = LOCAL_LTX_FRAME_RATE
 
     return prompt
