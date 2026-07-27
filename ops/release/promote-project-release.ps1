@@ -36,6 +36,35 @@ function Set-ServiceEnvironmentValue {
     $node.SetAttribute('value', $Value)
 }
 
+function Set-CaddyFrontendRoot {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CaddyText,
+        [Parameter(Mandatory = $true)]
+        [string]$FrontendRoot
+    )
+
+    $frontendRootPattern = (
+        '(?m)^\s*root\s+\*\s+' +
+        '(?:"(?<quotedPath>C:\\IZO_ASA\\releases\\[^"\r\n]+\\frontend\\[^"\r\n]+)"|' +
+        '(?<plainPath>C:\\IZO_ASA\\releases\\[^\s\r\n]+\\frontend\\[^\s\r\n]+))\s*$'
+    )
+    $frontendRootMatches = [regex]::Matches($CaddyText, $frontendRootPattern)
+    if ($frontendRootMatches.Count -ne 1) {
+        throw "Expected exactly one active frontend root in Caddyfile, found $($frontendRootMatches.Count)."
+    }
+
+    $pathGroup = if ($frontendRootMatches[0].Groups['quotedPath'].Success) {
+        $frontendRootMatches[0].Groups['quotedPath']
+    } else {
+        $frontendRootMatches[0].Groups['plainPath']
+    }
+    return $CaddyText.Remove($pathGroup.Index, $pathGroup.Length).Insert(
+        $pathGroup.Index,
+        $FrontendRoot
+    )
+}
+
 function Write-PromotionStatus {
     param(
         [bool]$Ok,
@@ -264,15 +293,7 @@ try {
     Copy-Item -LiteralPath $ltxLauncherSource -Destination $ltxLauncherRuntime -Force
 
     $caddy = Get-Content -LiteralPath $caddyFile -Raw -Encoding UTF8
-    $frontendRootMatch = [regex]::Matches(
-        $caddy,
-        '(?m)^\s*root\s+\*\s+"?(?<path>C:\\IZO_ASA\\releases\\[^\r\n"]+\\frontend\\[^\r\n"]+)"?\s*$'
-    )
-    if ($frontendRootMatch.Count -ne 1) {
-        throw "Expected exactly one active frontend root in Caddyfile, found $($frontendRootMatch.Count)."
-    }
-    $oldFrontendRoot = [string]$frontendRootMatch[0].Groups['path'].Value
-    $caddy = $caddy.Replace($oldFrontendRoot, $frontendRoot)
+    $caddy = Set-CaddyFrontendRoot -CaddyText $caddy -FrontendRoot $frontendRoot
     $caddy | Set-Content -LiteralPath $caddyFile -Encoding UTF8
 
     if (Test-Path -LiteralPath $operationsPath) {

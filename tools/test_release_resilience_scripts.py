@@ -129,6 +129,54 @@ def test_project_promoter_keeps_backend_online_during_rollback_snapshot() -> Non
     assert parse.returncode == 0, parse.stdout + parse.stderr
 
 
+def test_project_promoter_updates_quoted_and_plain_caddy_roots_fail_closed() -> None:
+    script_path = ROOT / "ops" / "release" / "promote-project-release.ps1"
+    environment = os.environ.copy()
+    environment["IZO_TEST_PROMOTER"] = str(script_path)
+    command = (
+        "$tokens=$null;$errors=$null;"
+        "$ast=[System.Management.Automation.Language.Parser]::ParseFile("
+        "$env:IZO_TEST_PROMOTER,[ref]$tokens,[ref]$errors);"
+        "$node=$ast.Find({param($item) "
+        "$item -is [System.Management.Automation.Language.FunctionDefinitionAst] "
+        "-and $item.Name -eq 'Set-CaddyFrontendRoot'},$true);"
+        "if($null -eq $node){throw 'Caddy root function missing'};"
+        ". ([scriptblock]::Create($node.Extent.Text));"
+        "$new='C:\\IZO_ASA\\releases\\bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\frontend\\dist';"
+        "$quoted=@(':5173 {','    root * "
+        '"C:\\IZO_ASA\\releases\\aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\frontend\\dist"'
+        "','}') -join [Environment]::NewLine;"
+        "$plain=@(':5173 {','    root * "
+        "C:\\IZO_ASA\\releases\\aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\frontend\\dist"
+        "','}') -join [Environment]::NewLine;"
+        "$quotedResult=Set-CaddyFrontendRoot -CaddyText $quoted -FrontendRoot $new;"
+        "$plainResult=Set-CaddyFrontendRoot -CaddyText $plain -FrontendRoot $new;"
+        "if($quotedResult -notlike ('*\"'+$new+'\"*')){throw 'quoted root was not preserved'};"
+        "if($plainResult -notlike ('*'+$new+'*')){throw 'plain root was not updated'};"
+        "$duplicate=$quoted+[Environment]::NewLine+$plain;"
+        "try {"
+        "  [void](Set-CaddyFrontendRoot -CaddyText $duplicate -FrontendRoot $new);"
+        "  throw 'duplicate root was accepted'"
+        "} catch {"
+        "  if($_.Exception.Message -eq 'duplicate root was accepted'){throw}"
+        "  if($_.Exception.Message -notlike '*found 2*'){throw}"
+        "};"
+        "exit 0"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", "-"],
+        cwd=ROOT,
+        env=environment,
+        input=command,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_break_glass_is_separate_reason_gated_and_audited() -> None:
     script_path = ROOT / "tools" / "publish-frontend-release-break-glass.ps1"
     script = script_path.read_text(encoding="utf-8")

@@ -405,9 +405,22 @@ if ($usesFullSuite) {
 }
 
 function Get-PytestProcesses {
+    $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $descendantIds = [Collections.Generic.HashSet[int]]::new()
+    $pendingParents = [Collections.Generic.Queue[int]]::new()
+    $pendingParents.Enqueue([int]$PID)
+    while ($pendingParents.Count -gt 0) {
+        $parentId = $pendingParents.Dequeue()
+        foreach ($child in @($processes | Where-Object { [int]$_.ParentProcessId -eq $parentId })) {
+            if ($descendantIds.Add([int]$child.ProcessId)) {
+                $pendingParents.Enqueue([int]$child.ProcessId)
+            }
+        }
+    }
     return @(
-        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        $processes |
             Where-Object {
+                $descendantIds.Contains([int]$_.ProcessId) -and
                 $_.Name -match "^(?i:python(?:\.exe)?|pytest(?:\.exe)?)$" -and
                 $_.CommandLine -match "(?i)(^|\s)(pytest|python(?:\.exe)?\s+-m\s+pytest)(\s|$)"
             }

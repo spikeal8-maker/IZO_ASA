@@ -182,6 +182,9 @@ def test_verify_script_has_no_process_or_file_deletion_commands() -> None:
     assert "[Console]::OutputEncoding = $utf8NoBom" in source
     assert '$_.Name -match "^(?i:python' in source
     assert "function Get-PytestProcesses" in source
+    assert "$pendingParents.Enqueue([int]$PID)" in source
+    assert "[int]$_.ParentProcessId -eq $parentId" in source
+    assert "$descendantIds.Contains([int]$_.ProcessId)" in source
     assert "$attempt -lt 50" in source
     assert "Start-Sleep -Milliseconds 100" in source
     assert '[string]$ReceiptPath = ""' in source
