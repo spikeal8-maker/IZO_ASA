@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from app.services.social_delivery import (
     build_max_social_sender,
     build_telegram_social_sender,
+    build_vk_story_sender,
     claim_pending_telegram_deliveries,
     deliver_pending_telegram_batch,
 )
@@ -372,3 +373,33 @@ def test_max_video_uses_native_uploader() -> None:
     assert calls[0]["media_url"].endswith("/api/feed/video/p?variant=full")
     assert calls[0]["feed_url"] == "https://izo.example/feed?tab=new"
     assert "https://" not in calls[0]["message"]
+
+
+def test_vk_story_sender_uses_independent_story_delivery() -> None:
+    calls = []
+
+    async def fake_story(**kwargs):
+        calls.append(kwargs)
+        return {"response": [{"owner_id": -240, "id": 17}]}
+
+    sender = build_vk_story_sender(
+        settings_getter=lambda: {
+            "masterEnabled": True, "autoPublish": True,
+            "networks": {"vk": {
+                "storyEnabled": True, "verified": True, "targetId": "240",
+            }},
+        },
+        media_token_getter=lambda: "media-secret",
+        public_site_url_getter=lambda: "https://izo.example",
+        vk_story_publisher=fake_story,
+    )
+    from app.services.social_delivery import PublicFeedPublication, SocialDelivery
+    result = asyncio.run(sender(
+        SocialDelivery("story-d", "publication-1", "vk_story", 0),
+        PublicFeedPublication("publication-1", "video", "Название", "Описание"),
+    ))
+
+    assert result == ("vk_story:-240_17", None)
+    assert calls[0]["media_type"] == "video"
+    assert calls[0]["media_url"].endswith("/api/feed/video/publication-1?variant=full")
+    assert calls[0]["feed_url"] == "https://izo.example/feed?tab=new"

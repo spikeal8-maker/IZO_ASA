@@ -10,7 +10,7 @@ from typing import Any, Iterable
 
 
 SEVERITIES = {"info", "warning", "critical"}
-SOCIAL_NETWORKS = {"telegram", "max", "vk", "instagram", "ok"}
+SOCIAL_NETWORKS = {"telegram", "max", "vk", "vk_story", "instagram", "ok"}
 
 
 def utc_now() -> str:
@@ -159,8 +159,15 @@ def enqueue_configured_social_deliveries(
     networks = settings.get("networks") if isinstance(settings.get("networks"), dict) else {}
     enabled = [
         name for name in SOCIAL_NETWORKS
-        if bool((networks.get(name) or {}).get("enabled", False))
-        and bool((networks.get(name) or {}).get("verified", False))
+        if (
+            name == "vk_story"
+            and bool((networks.get("vk") or {}).get("storyEnabled", False))
+            and bool((networks.get("vk") or {}).get("verified", False))
+        ) or (
+            name != "vk_story"
+            and bool((networks.get(name) or {}).get("enabled", False))
+            and bool((networks.get(name) or {}).get("verified", False))
+        )
     ]
     return enqueue_social_deliveries(
         conn, publication_id=publication_id, networks=enabled

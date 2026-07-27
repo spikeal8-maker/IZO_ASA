@@ -155,13 +155,13 @@ export default function AdminSocial() {
               <Switch compact checked={network.enabled} onChange={(checked) => patchNetwork(id, { enabled: checked })} title="Пост" note="" />
               <Switch
                 compact
-                disabled
+                disabled={id !== 'vk'}
                 checked={Boolean(network.storyEnabled)}
                 onChange={(checked) => patchNetwork(id, { storyEnabled: checked })}
                 title="История"
                 note={
                   id === 'telegram' ? 'Нужен Business Connection ID'
-                    : id === 'vk' ? 'Нужен пользовательский токен Stories'
+                    : id === 'vk' ? 'Дублировать каждую публикацию в историю сообщества'
                       : id === 'max' ? 'В MAX Bot API метода Stories нет'
                         : id === 'ok' ? 'В API OK метода Stories нет'
                           : 'Нужен Instagram Content Publishing доступ'

@@ -183,8 +183,8 @@ def _short_publication_caption(publication: PublicFeedPublication) -> str:
 
 
 def _vk_publication_caption(publication: PublicFeedPublication, feed_url: str) -> str:
-    description = publication.description or "Авторская работа, созданная и опубликованная в творческой ленте ИЗО АСА."
-    return "\n\n".join((publication.title, description, f"Автор: {_publication_author(publication)}", f"Смотреть новые работы: {feed_url}"))
+    description = publication.description or "Новая работа в творческой ленте ИЗО АСА."
+    return "\n\n".join((publication.title, description, f"Автор — {_publication_author(publication)}", f"Смотреть новое → {feed_url}"))
 
 
 def mark_social_delivery_sent(
@@ -503,6 +503,51 @@ def build_vk_social_sender(
     return send
 
 
+def build_vk_story_sender(
+    *,
+    settings_getter: Callable[[], dict[str, Any]],
+    media_token_getter: Callable[[], str],
+    public_site_url_getter: Callable[[], str],
+    vk_story_publisher: Callable[..., Awaitable[dict[str, Any]]],
+) -> Callable[
+    [SocialDelivery, PublicFeedPublication],
+    Awaitable[tuple[str | None, str | None]],
+]:
+    async def send(
+        delivery: SocialDelivery, publication: PublicFeedPublication
+    ) -> tuple[str | None, str | None]:
+        settings = settings_getter()
+        networks = settings.get("networks") if isinstance(settings.get("networks"), dict) else {}
+        config = networks.get("vk") or {}
+        if not (
+            settings.get("masterEnabled") and settings.get("autoPublish")
+            and config.get("storyEnabled") and config.get("verified")
+        ):
+            raise RuntimeError("VK Stories delivery is disabled.")
+        token = media_token_getter().strip()
+        group_id = str(config.get("targetId") or "").strip().lstrip("-")
+        base_url = public_site_url_getter().strip().rstrip("/")
+        if not token or not group_id:
+            raise RuntimeError("VK Stories credentials are incomplete.")
+        media_url = (
+            f"{base_url}/api/feed/video/{quote(publication.id)}?variant=full"
+            if publication.media_type == "video"
+            else f"{base_url}/api/feed/media/{quote(publication.id)}?variant=large"
+        )
+        response = await vk_story_publisher(
+            media_token=token, group_id=group_id,
+            media_type=publication.media_type, media_url=media_url,
+            feed_url=f"{base_url}/feed?tab=new",
+        )
+        body = response.get("response")
+        story = body[0] if isinstance(body, list) and body and isinstance(body[0], dict) else {}
+        story_id, owner_id = story.get("id"), story.get("owner_id")
+        external_id = f"vk_story:{owner_id}_{story_id}" if story_id is not None else None
+        return external_id, None
+
+    return send
+
+
 class SocialDeliveryWorker:
     """Single-process watchdog for durable Telegram syndication."""
 
@@ -526,6 +571,10 @@ class SocialDeliveryWorker:
             Awaitable[tuple[str | None, str | None]],
         ] | None = None,
         send_vk: Callable[
+            [SocialDelivery, PublicFeedPublication],
+            Awaitable[tuple[str | None, str | None]],
+        ] | None = None,
+        send_vk_story: Callable[
             [SocialDelivery, PublicFeedPublication],
             Awaitable[tuple[str | None, str | None]],
         ] | None = None,
@@ -553,9 +602,15 @@ class SocialDeliveryWorker:
                             )
                             if send_vk is not None else {"sent": 0}
                         )
+                        vk_story_result = (
+                            await deliver_pending_social_batch(
+                                conn, network="vk_story", sender=send_vk_story
+                            )
+                            if send_vk_story is not None else {"sent": 0}
+                        )
                     finally:
                         conn.close()
-                    if result["sent"] or max_result["sent"] or vk_result["sent"]:
+                    if result["sent"] or max_result["sent"] or vk_result["sent"] or vk_story_result["sent"]:
                         self.last_success_at = _utc_now().isoformat()
                     self.last_error = None
                 except asyncio.CancelledError:

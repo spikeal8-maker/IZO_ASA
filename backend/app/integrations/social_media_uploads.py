@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import json
 from typing import Any, Awaitable, Callable
 
 import httpx
@@ -196,4 +197,35 @@ async def publish_vk_wall_video(
         token=token, method="wall.post",
         params={"owner_id": f"-{group_id}", "from_group": 1, "message": message,
                 "attachments": f"video{owner_id}_{video_id}"},
+    )
+
+
+async def publish_vk_story(
+    *, vk_api: Callable[..., Awaitable[dict[str, Any]]], media_token: str,
+    group_id: str, media_type: str, media_url: str, feed_url: str,
+) -> dict[str, Any]:
+    method = "stories.getVideoUploadServer" if media_type == "video" else "stories.getPhotoUploadServer"
+    server = await vk_api(
+        token=media_token, method=method,
+        params={"group_id": group_id, "add_to_news": 1, "link_text": "open", "link_url": feed_url},
+    )
+    upload_url = str((server.get("response") or {}).get("upload_url") or "")
+    if not upload_url.startswith("https://"):
+        raise RuntimeError("VK did not return a Stories upload URL.")
+    media = await _media_from_url(media_url, timeout=180) if media_type == "video" else await _jpeg_from_url(media_url)
+    filename = "story.mp4" if media_type == "video" else "story.jpg"
+    content_type = "video/mp4" if media_type == "video" else "image/jpeg"
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            response = await client.post(upload_url, files={"file": (filename, media, content_type)})
+        uploaded = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise RuntimeError("VK Stories media upload failed.") from exc
+    response_body = uploaded.get("response") if isinstance(uploaded.get("response"), dict) else uploaded
+    upload_result = response_body.get("upload_result") if isinstance(response_body, dict) else None
+    if response.status_code >= 400 or not upload_result:
+        raise RuntimeError(f"VK Stories upload was rejected: {str(uploaded)[:180]}")
+    return await vk_api(
+        token=media_token, method="stories.save",
+        params={"upload_results": json.dumps([upload_result], ensure_ascii=False)},
     )

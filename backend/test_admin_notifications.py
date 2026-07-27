@@ -112,6 +112,18 @@ def test_configured_social_outbox_stays_off_until_admin_enables_autopublish():
     assert enqueue_configured_social_deliveries(conn, "pub-safe") == 2
     assert enqueue_configured_social_deliveries(conn, "pub-safe") == 0
 
+    conn.execute("DELETE FROM social_delivery_outbox")
+    conn.execute(
+        "UPDATE admin_settings SET value_json = ? WHERE key = 'social_syndication'",
+        ('{"masterEnabled":true,"autoPublish":true,"networks":{"vk":{"enabled":true,"storyEnabled":true,"verified":true}}}',),
+    )
+    assert enqueue_configured_social_deliveries(conn, "pub-story") == 2
+    assert {
+        row["network"] for row in conn.execute(
+            "SELECT network FROM social_delivery_outbox WHERE publication_id='pub-story'"
+        )
+    } == {"vk", "vk_story"}
+
 
 def test_notification_delivery_is_atomic_and_idempotent():
     conn = prepare_delivery_connection()

@@ -4351,7 +4351,7 @@
         "occurrences": [
           {
             "enclosing_symbol": "start",
-            "line": 568
+            "line": 623
           }
         ],
         "owner": "backend.app.services.social_delivery.SocialDeliveryWorker",
