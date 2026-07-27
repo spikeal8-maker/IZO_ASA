@@ -170,8 +170,12 @@ def test_9b_face_assembly_bounds_three_reference_latents_only() -> None:
     assert comfyui_workflows.edit_reference_megapixel_limit(
         profile_id="flux_klein_4b", roles=roles, role="base", face_limit=0.35
     ) is None
+    pair = ["base", "face"]
     assert comfyui_workflows.edit_reference_megapixel_limit(
-        profile_id="flux_klein_9b", roles=["base", "face"], role="face", face_limit=0.35
+        profile_id="flux_klein_9b", roles=pair, role="base", face_limit=0.35
+    ) == 0.35
+    assert comfyui_workflows.edit_reference_megapixel_limit(
+        profile_id="flux_klein_9b", roles=pair, role="face", face_limit=0.35
     ) == 0.35
 
 

@@ -87,8 +87,9 @@ def edit_reference_megapixel_limit(
 ) -> float | None:
     """Bound 9B multi-reference conditioning while preserving model quality."""
 
-    if "9b" in profile_id.lower() and "face" in roles and len(roles) >= 3:
-        return min(face_limit, 0.25) if role == "face" else 0.25
+    if "9b" in profile_id.lower() and "face" in roles and len(roles) >= 2:
+        limit = 0.25 if len(roles) >= 3 else face_limit
+        return min(face_limit, limit) if role == "face" else limit
     return face_limit if role == "face" else None
 
 
