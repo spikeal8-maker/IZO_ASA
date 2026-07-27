@@ -540,7 +540,8 @@ def build_vk_story_sender(
             feed_url=f"{base_url}/feed?tab=new",
         )
         body = response.get("response")
-        story = body[0] if isinstance(body, list) and body and isinstance(body[0], dict) else {}
+        items = body.get("items") if isinstance(body, dict) else body
+        story = items[0] if isinstance(items, list) and items and isinstance(items[0], dict) else {}
         story_id, owner_id = story.get("id"), story.get("owner_id")
         external_id = f"vk_story:{owner_id}_{story_id}" if story_id is not None else None
         return external_id, None

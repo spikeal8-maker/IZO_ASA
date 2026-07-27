@@ -266,7 +266,7 @@ try {
     $caddy = Get-Content -LiteralPath $caddyFile -Raw -Encoding UTF8
     $frontendRootMatch = [regex]::Matches(
         $caddy,
-        '(?m)^\s*root \* (?<path>C:\\IZO_ASA\\releases\\[^\r\n]+\\frontend\\[^\r\n]+)\s*$'
+        '(?m)^\s*root\s+\*\s+"?(?<path>C:\\IZO_ASA\\releases\\[^\r\n"]+\\frontend\\[^\r\n"]+)"?\s*$'
     )
     if ($frontendRootMatch.Count -ne 1) {
         throw "Expected exactly one active frontend root in Caddyfile, found $($frontendRootMatch.Count)."
