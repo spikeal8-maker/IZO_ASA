@@ -417,7 +417,8 @@ def build_max_social_sender(
             payload={"text": text[:4000], "attachments": attachments},
         )
         response_message = response.get("message") if isinstance(response.get("message"), dict) else {}
-        message_id = response.get("message_id") or response.get("messageId") or response.get("id") or response_message.get("message_id") or response_message.get("messageId") or response_message.get("id")
+        response_body = response_message.get("body") if isinstance(response_message.get("body"), dict) else {}
+        message_id = response.get("message_id") or response.get("messageId") or response.get("id") or response_message.get("message_id") or response_message.get("messageId") or response_message.get("id") or response_body.get("mid")
         return (f"max:{message_id}" if message_id is not None else None), None
 
     return send

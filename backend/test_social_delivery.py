@@ -282,7 +282,7 @@ def test_max_sender_uses_public_image_url_and_channel_id() -> None:
 
     async def fake_max_api(**kwargs):
         calls.append(kwargs)
-        return {"message": {"message_id": "max-message-7"}}
+        return {"message": {"body": {"mid": "max-message-7"}}}
 
     sender = build_max_social_sender(
         max_api=fake_max_api,

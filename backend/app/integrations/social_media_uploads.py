@@ -66,10 +66,14 @@ async def publish_vk_wall_image(
         upload_body = uploaded.json()
     except (httpx.HTTPError, ValueError) as exc:
         raise RuntimeError("VK photo upload failed.") from exc
+    photo_value = upload_body.get("photo") or upload_body.get("photos_list")
+    if not photo_value:
+        fields = ", ".join(sorted(str(key) for key in upload_body))[:160]
+        raise RuntimeError(f"VK upload response is missing photo data (fields: {fields or 'none'}).")
     saved = await vk_api(
         token=media_token, method="photos.saveWallPhoto",
         params={"group_id": group_id, "server": upload_body.get("server"),
-                "photo": upload_body.get("photo"), "hash": upload_body.get("hash")},
+                "photo": photo_value, "hash": upload_body.get("hash")},
     )
     photos = saved.get("response") if isinstance(saved.get("response"), list) else []
     photo = photos[0] if photos and isinstance(photos[0], dict) else {}

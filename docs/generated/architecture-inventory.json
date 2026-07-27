@@ -3237,7 +3237,7 @@
       {
         "auth": "public/optional/review",
         "handler": "test_vk_delivery",
-        "line": 547,
+        "line": 548,
         "method": "POST",
         "path": "/social/vk/test-delivery-v2",
         "process_role": "all-dev-current-monolith"
@@ -4351,7 +4351,7 @@
         "occurrences": [
           {
             "enclosing_symbol": "start",
-            "line": 542
+            "line": 543
           }
         ],
         "owner": "backend.app.services.social_delivery.SocialDeliveryWorker",
