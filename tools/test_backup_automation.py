@@ -93,3 +93,15 @@ def test_installer_is_safe_to_run_outside_the_yandex_window() -> None:
     assert "YandexDisk4.exe must be running before installation." not in installer
     assert ". $networkScript" in installer
     assert "-not $network.AppBypassConfigured" in installer
+
+
+def test_local_backup_writes_privileged_task_evidence_atomically() -> None:
+    local_backup = read_script("run_local_backup.ps1")
+
+    assert "local-backup-task-current.json" in local_backup
+    assert "Get-ScheduledTaskInfo -TaskName $taskName" in local_backup
+    assert "LastVerifiedBackup" in local_backup
+    assert "LatestSnapshotId" in local_backup
+    assert "ManifestSha256" in local_backup
+    assert 'Move-Item -LiteralPath $temporary -Destination $taskStatusPath -Force' in local_backup
+    assert "SKIPPED_ALREADY_RUNNING" in local_backup
