@@ -12,6 +12,7 @@ import pytest
 
 import main
 from app.integrations.openrouter import (
+    OpenRouterVideoRequestError,
     extract_openrouter_error_payload,
     extract_openrouter_generation_cost,
     fetch_openrouter_key_details,
@@ -26,6 +27,7 @@ from app.integrations.openrouter import (
     normalize_openrouter_model_capability,
     normalize_openrouter_video_config,
     openrouter_error_message,
+    openrouter_video_public_error,
     parse_openrouter_audio_input_models,
     parse_openrouter_text_models,
     parse_openrouter_video_models,
@@ -1310,6 +1312,31 @@ def test_submit_openrouter_video_uses_native_async_endpoint():
 
     assert seen == {"path": "/api/v1/videos", "body": {"model": "google/veo", "prompt": "camera moves", "duration": 4}}
     assert result["id"] == "video-job-1"
+
+
+def test_submit_openrouter_video_retains_provider_rejection_body():
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": "Content blocked by safety policy",
+                    "metadata": {"provider_name": "Seedance"},
+                }
+            },
+        )
+
+    with pytest.raises(OpenRouterVideoRequestError) as captured:
+        asyncio.run(submit_openrouter_video(
+            base_url="https://openrouter.ai/api/v1",
+            headers={"Authorization": "Bearer test"},
+            payload={"model": "bytedance/seedance-1-5-pro", "prompt": "animate"},
+            transport=httpx.MockTransport(handler),
+        ))
+
+    assert captured.value.status_code == 400
+    assert "safety policy" in captured.value.detail
+    assert "ограничений безопасности" in openrouter_video_public_error(captured.value)
 
 
 def test_poll_openrouter_video_resolves_relative_polling_url():

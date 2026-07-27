@@ -6,6 +6,24 @@
 Фактический аудит: [agent-compliance-audit-20260719.md](agent-compliance-audit-20260719.md)
 Предыдущий план: `engineering-transformation-master-plan-20260717.md` — исторический checkpoint, не текущая очередь.
 
+## Пакет `VIDEO-UX-ERROR-20260728`
+
+Статус: **CODE COMPLETE, LOCALLY VERIFIED; DEPLOYMENT AND OPERATIONAL VERIFICATION PENDING**.
+
+- отказ OpenRouter при запуске видео сохраняет закрытую техническую диагностику, возвращает
+  списанные токены и показывает пользователю безопасную причину без URL и трассировки провайдера;
+- мобильная история поддерживает перетаскивание мышью и пальцем, сохраняет пропорции вертикальных
+  и широких изображений и видео, а выбранный ролик воспроизводится в основном и встроенном плеере;
+- форматные кнопки, нижние действия, CTA, русские пояснения моделей и глобальные уведомления
+  проверяются на `1920×1080`, `1920×900`, `3840×2160` и `390×844`;
+- release acceptance: backend video/OpenRouter suites, frontend lint/build и focused Playwright,
+  Quick, один Full, затем авторизованная безопасная генерация `image_to_video` с теми же
+  параметрами, что у инцидента (`4 секунды`, `720p`, `9:16`, без звука).
+
+Локальная проверка 2026-07-28: focused backend `108 passed`; responsive Playwright green на
+четырёх viewport с mouse/touch drag и mobile error overlay; единый CI gate — `1748 passed`,
+frontend lint/build/release identity/origin isolation/studio resilience green.
+
 ## Пакет `VIDEO-LTX23-LOCAL-001`
 
 Статус: **CODE COMPLETE, OPERATIONAL VERIFICATION BLOCKED**.

@@ -40,6 +40,7 @@ from .openrouter_images import (
     resolve_openrouter_image_model,
 )
 from .openrouter import (
+    OpenRouterVideoRequestError,
     extract_openrouter_generation_cost,
     extract_openrouter_error_payload,
     fetch_openrouter_key_details,
@@ -54,6 +55,7 @@ from .openrouter import (
     normalize_openrouter_model_capability,
     normalize_openrouter_video_config,
     openrouter_error_message,
+    openrouter_video_public_error,
     parse_openrouter_audio_input_models,
     parse_openrouter_text_models,
     parse_openrouter_video_models,
@@ -120,6 +122,8 @@ __all__ = [
     "normalize_max_tls_trust_store",
     "openrouter_descriptor_values",
     "openrouter_error_message",
+    "OpenRouterVideoRequestError",
+    "openrouter_video_public_error",
     "openrouter_ratio_size",
     "parse_openrouter_audio_input_models",
     "parse_openrouter_text_models",

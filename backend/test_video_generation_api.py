@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 import main
+from app.integrations.openrouter import OpenRouterVideoRequestError
+from app.services.video_presentation import public_video_error_message
 from test_support.browser_origin import BROWSER_ORIGIN
 
 
@@ -71,6 +73,17 @@ def payload(**updates):
         "duration": 4, "resolution": "720p", "aspectRatio": "16:9", "generateAudio": False,
     }
     return {**base, **updates}
+
+
+def test_historical_openrouter_transport_error_is_not_exposed():
+    public = public_video_error_message(
+        "Client error '400 Bad Request' for url "
+        "'https://openrouter.ai/api/v1/videos'"
+    )
+
+    assert public
+    assert "openrouter.ai" not in public.lower()
+    assert "исходное изображение" in public
 
 
 def test_video_config_returns_only_enabled_catalog_models(video_api: TestClient):
@@ -245,6 +258,35 @@ def test_video_generate_persists_external_job_and_server_price(video_api: TestCl
     assert row["status"] == "queued"
     assert "external-video-1" in row["settings_json"]
     assert user["token_balance"] == response.json()["tokenBalance"]
+
+
+def test_video_generate_refunds_and_returns_public_provider_error(
+    video_api: TestClient,
+    monkeypatch,
+):
+    async def reject(**_kwargs):
+        raise OpenRouterVideoRequestError(400, "Content blocked by safety policy")
+
+    monkeypatch.setattr(main, "submit_openrouter_video", reject)
+    response = video_api.post("/api/video/generate", json=payload())
+
+    assert response.status_code == 422
+    assert "ограничений безопасности" in response.json()["detail"]
+    with main.db() as conn:
+        user = conn.execute(
+            "SELECT token_balance FROM users WHERE id='video-user'"
+        ).fetchone()
+        row = conn.execute(
+            "SELECT status,error_message,settings_json FROM jobs ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    settings = json.loads(row["settings_json"])
+    assert user["token_balance"] == 500
+    assert row["status"] == "failed"
+    assert "ограничений безопасности" in row["error_message"]
+    assert "safety policy" in settings["openrouterSubmitError"]
+    history = video_api.get("/api/video/history")
+    failed = next(item for item in history.json()["items"] if item["id"])
+    assert "openrouter.ai" not in str(failed["error"]).lower()
 
 
 def test_video_generate_persists_real_source_thumbnail_and_returns_lineage(video_api: TestClient, monkeypatch):

@@ -2,6 +2,43 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from ..integrations.openrouter import OpenRouterVideoRequestError, openrouter_video_public_error
+
+
+def video_submit_failure(error: Exception, settings: Any) -> dict[str, Any]:
+    """Build persisted private diagnostics and a product-safe public failure."""
+
+    provider_rejection = isinstance(error, OpenRouterVideoRequestError)
+    route_detail = getattr(error, "detail", None)
+    public_error = (
+        openrouter_video_public_error(error)
+        if provider_rejection
+        else str(route_detail)
+        if isinstance(route_detail, str) and route_detail.strip()
+        else "Не удалось связаться с видеосервисом. Попробуйте снова через несколько минут."
+    )
+    updated_settings = dict(settings) if isinstance(settings, dict) else {}
+    updated_settings["openrouterSubmitError"] = str(error)[:1000]
+    return {
+        "public": public_error,
+        "status": 422 if provider_rejection else int(getattr(error, "status_code", 502) or 502),
+        "settings": updated_settings,
+    }
+
+
+def public_video_error_message(value: Any) -> str | None:
+    """Do not expose provider URLs or transport diagnostics in the video UI."""
+
+    message = str(value or "").strip()
+    if not message:
+        return None
+    lowered = message.lower()
+    if "openrouter" in lowered or "/api/v1/videos" in lowered or "bad request" in lowered:
+        return "Модель отклонила исходное изображение или параметры. Выберите другой кадр либо измените настройки."
+    if any(marker in lowered for marker in ("traceback", "http://", "https://", "api key", "connection refused")):
+        return "Видеосервис не ответил. Попробуйте снова через несколько минут."
+    return message
+
 
 def publication_fields(
     publication: Any,
@@ -33,7 +70,7 @@ def job_payload(
         "status": row["status"],
         "progress": int(row["progress"] or 0),
         "prompt": row["prompt_original"] or "",
-        "error": row["error_message"],
+        "error": public_video_error_message(row["error_message"]),
         "createdAt": row["created_at"],
         "completedAt": row["completed_at"],
         "model": settings.get("model") or settings.get("openrouterModel"),

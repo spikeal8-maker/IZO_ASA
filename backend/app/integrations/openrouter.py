@@ -13,6 +13,36 @@ OPENROUTER_VIDEO_MODES = ("text_to_video", "image_to_video", "first_last_frame",
 OPENROUTER_VIDEO_TIERS = ("mini", "plus", "pro", "business")
 
 
+class OpenRouterVideoRequestError(RuntimeError):
+    """Provider rejection with a retained status code and sanitized text payload."""
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        self.status_code = int(status_code)
+        self.detail = str(detail or "").strip()
+        super().__init__(f"OpenRouter video request rejected ({self.status_code}): {self.detail or 'empty response'}")
+
+
+def openrouter_video_public_error(error: OpenRouterVideoRequestError) -> str:
+    """Convert provider diagnostics into a useful, user-safe Russian message."""
+
+    detail = error.detail.lower()
+    if any(marker in detail for marker in ("nsfw", "nudity", "sexual", "safety", "moderation", "content policy", "policy violation")):
+        return "Провайдер отклонил изображение или описание из-за ограничений безопасности. Выберите другой кадр или измените описание."
+    if any(marker in detail for marker in ("image_url", "image url", "download image", "fetch image", "invalid image", "unsupported image")):
+        return "Провайдер не смог прочитать исходное изображение. Выберите другой кадр из галереи и попробуйте снова."
+    if any(marker in detail for marker in ("aspect", "resolution", "duration", "unsupported", "invalid parameter", "invalid value")):
+        return "Модель не приняла выбранные параметры видео. Измените формат, качество или длительность."
+    if error.status_code == 400:
+        return "Модель отклонила исходное изображение или параметры. Выберите другой кадр либо измените настройки."
+    if error.status_code in {401, 403}:
+        return "Видеомодель временно недоступна для этого аккаунта."
+    if error.status_code == 402:
+        return "На стороне видеосервиса недостаточно средств для запуска генерации."
+    if error.status_code == 429:
+        return "Видеосервис перегружен. Подождите немного и попробуйте снова."
+    return "Видеосервис не ответил. Попробуйте снова через несколько минут."
+
+
 def _parameter_names(parameters: Any) -> list[str]:
     return sorted(str(key) for key in parameters.keys()) if isinstance(parameters, dict) else []
 
@@ -468,7 +498,16 @@ async def submit_openrouter_video(
         client_options["transport"] = transport
     async with httpx.AsyncClient(**client_options) as client:
         response = await client.post(f"{base_url.rstrip('/')}/videos", headers=headers, json=payload)
-    response.raise_for_status()
+    if response.is_error:
+        try:
+            raw = response.json() if response.content else {}
+        except ValueError:
+            raw = response.text
+        if isinstance(raw, dict):
+            detail = openrouter_error_message(raw)
+        else:
+            detail = str(raw or "")
+        raise OpenRouterVideoRequestError(response.status_code, detail[:1000])
     data = response.json() if response.content else {}
     if not isinstance(data, dict) or not str(data.get("id") or "").strip():
         raise RuntimeError("OpenRouter did not return a video job id.")

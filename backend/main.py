@@ -16129,8 +16129,7 @@ async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[st
         body.setdefault("frame_images", []).append({"type": "image_url", "image_url": {"url": openrouter_reference_value(req.lastFrame)}, "frame_type": "last_frame"})
     if req.references:
         body["input_references"] = [{"type": "image_url", "image_url": {"url": openrouter_reference_value(value)}} for value in req.references]
-    job_id = f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
-    now = datetime.now(timezone.utc).isoformat()
+    job_id = f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"; now = datetime.now(timezone.utc).isoformat()
     try:
         with db() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -16143,10 +16142,11 @@ async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[st
     except Exception as exc:
         with db() as conn:
             refund_generation_tokens(conn, job_id, reason="video_submit_failed")
-            conn.execute("UPDATE jobs SET status='failed',progress=100,error_message=?,completed_at=? WHERE id=?", (truncate_admin_text(str(exc), 500), datetime.now(timezone.utc).isoformat(), job_id))
-        if isinstance(exc, HTTPException):
-            raise
-        raise HTTPException(502, f"Не удалось запустить видео: {truncate_admin_text(str(exc), 300)}") from exc
+            row = conn.execute("SELECT settings_json FROM jobs WHERE id=?", (job_id,)).fetchone()
+            failure = video_presentation.video_submit_failure(exc, safe_json_load(row["settings_json"]) if row else {})
+            conn.execute("UPDATE jobs SET status='failed',progress=100,error_message=?,settings_json=?,completed_at=? WHERE id=?", (failure["public"], json.dumps(failure["settings"], ensure_ascii=False), datetime.now(timezone.utc).isoformat(), job_id))
+        if isinstance(exc, HTTPException): raise
+        raise HTTPException(failure["status"], failure["public"]) from exc
     with db() as conn:
         row = conn.execute("SELECT settings_json FROM jobs WHERE id=?", (job_id,)).fetchone()
         settings = safe_json_load(row["settings_json"]) or {}

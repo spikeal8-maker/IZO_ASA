@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, DragEvent, KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react'
+import type { ChangeEvent, DragEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 import {
-  ChevronDown, CircleHelp, Clock3, Copy, Download, Film, ImagePlus, Images,
+  AlertTriangle, CheckCircle2, ChevronDown, CircleHelp, Clock3, Copy, Download, Film, ImagePlus, Images,
   LoaderCircle, Mic2, MoreVertical, Play, RotateCcw, Settings2,
   Share2, Sparkles, Trash2, Upload, Volume2, VolumeX, WandSparkles, X,
 } from 'lucide-react'
 import { ensureSessionRefreshedV2 } from './authV2'
+import { modelOptionById } from './profileSupport'
 import { apiUrl, verifyPrivateImage } from './studio/studioApi'
 import {
   VIDEO_SOURCE_DEFAULT_PROMPT,
@@ -84,6 +85,7 @@ type GalleryImage = {
   promptOriginal?: string
   createdAt?: string
   aspectRatio?: string
+  modelProfile?: string
 }
 type VideoStudioProps = { onTokenBalanceChange?: (balance: number) => void }
 
@@ -154,10 +156,10 @@ function fileAsDataUrl(file: File): Promise<string> {
 function statusLabel(status: string) {
   if (status === 'completed') return 'Готово'
   if (['failed', 'cancelled', 'expired'].includes(status)) return 'Не завершено'
-  if (status === 'submitting') return 'Отправляем задачу'
+  if (status === 'submitting') return 'Запускаем видео'
   if (status === 'in_progress') return 'Создаём видео'
-  if (status === 'saving' || status === 'finalizing') return 'Сохраняем и загружаем видео'
-  if (status === 'queued' || status === 'pending') return 'Загружаем модель и готовим генерацию'
+  if (status === 'saving' || status === 'finalizing') return 'Сохраняем видео'
+  if (status === 'queued' || status === 'pending') return 'Подготавливаем модель'
   return 'Подготовка'
 }
 function aspectStyle(value: string | undefined) {
@@ -172,6 +174,28 @@ function errorText(detail: unknown, fallback: string) {
 function shortModelName(model: VideoModel | undefined) {
   if (!model) return 'Нет модели'
   return model.name.replace(/^.*?:\s*/, '').replace(/\s+(Preview|Standard)$/i, ' $1')
+}
+function publicVideoDescription(model: VideoModel) {
+  const key = `${model.id} ${model.name}`.toLowerCase()
+  if (key.includes('seedance')) return 'Быстро создаёт плавные ролики из текста и изображений. Хороший выбор для большинства задач.'
+  if (key.includes('happyhorse')) return 'Аккуратно оживляет персонажей и сцены, сохраняя композицию и детали исходного кадра.'
+  if (key.includes('sora')) return 'Максимальная детализация, сложное движение камеры и кинематографичные сцены.'
+  if (key.includes('veo')) return 'Универсальная модель для реалистичных сцен, движения камеры и роликов со звуком.'
+  if (key.includes('kling')) return 'Подходит для динамичного движения, людей, предметов и рекламных сцен.'
+  if (key.includes('ltx') || key.includes('local')) return 'Локальная генерация без внешнего сервиса. Подходит для быстрых экспериментов и черновиков.'
+  if (/[А-Яа-яЁё]/.test(model.description || '')) return model.description
+  return 'Создаёт видео по описанию и выбранным исходным кадрам. Доступные параметры показаны ниже.'
+}
+function publicVideoSpecs(model: VideoModel) {
+  const sound = model.generateAudio === true ? 'со звуком' : model.generateAudio === false ? 'без звука' : 'звук зависит от режима'
+  return `${model.supportedResolutions.join(', ') || 'качество авто'} · ${model.supportedDurations.map(secondsLabel).join(', ') || 'длительность авто'} · ${sound}`
+}
+function publicImageModelName(item: GalleryImage) {
+  const raw = String(item.modelProfile || '').trim()
+  if (!raw) return 'Модель изображения'
+  if (/comfyui|local[_-]?flux|klein/i.test(raw)) return 'ИЗО Base'
+  const option = modelOptionById(raw)
+  return option.provider === 'comfyui' ? 'ИЗО Base' : option.label
 }
 function publicModelRate(model: VideoModel | undefined) {
   const tokens = Number(model?.publicPricing?.fromTokens || 0)
@@ -252,6 +276,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   const [publishTags, setPublishTags] = useState('')
   const [publishBusy, setPublishBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const [autoPlayJobId, setAutoPlayJobId] = useState('')
   const [guideOpen, setGuideOpen] = useState(false)
   const [previewCleared, setPreviewCleared] = useState(false)
   const [voiceRecording, setVoiceRecording] = useState(false)
@@ -266,6 +291,10 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   const voiceRecorderRef = useRef<MediaRecorder | null>(null)
   const voiceStreamRef = useRef<MediaStream | null>(null)
   const voiceStartedAtRef = useRef(0)
+  const historyStripRef = useRef<HTMLDivElement>(null)
+  const historyPointerRef = useRef({ pointerId: -1, startX: 0, scrollLeft: 0, moved: false })
+  const historyClickSuppressedRef = useRef(false)
+  const stageVideoRef = useRef<HTMLVideoElement>(null)
 
   const visibility = useMemo(() => readStorage<Record<VideoMode, Record<string, boolean>>>(VISIBILITY_KEY, {} as Record<VideoMode, Record<string, boolean>>), [])
   const qualityModels = useMemo(() => readStorage<Record<VideoMode, Partial<Record<VideoQuality, string>>>>(QUALITY_MODELS_KEY, {} as Record<VideoMode, Partial<Record<VideoQuality, string>>>), [])
@@ -360,6 +389,18 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   }, [initialVideoSource])
 
   useEffect(() => { localStorage.setItem(DRAFT_KEY, JSON.stringify({ mode, quality, prompt, modelId, duration, resolution, aspectRatio, generateAudio })) }, [mode, quality, prompt, modelId, duration, resolution, aspectRatio, generateAudio])
+
+  useEffect(() => {
+    if (!notice) return undefined
+    const timeout = window.setTimeout(() => setNotice(''), 9000)
+    return () => window.clearTimeout(timeout)
+  }, [notice])
+
+  useEffect(() => {
+    if (!error) return undefined
+    const timeout = window.setTimeout(() => setError(''), 12000)
+    return () => window.clearTimeout(timeout)
+  }, [error])
   useEffect(() => { if (!activeJob || submitting) return; const timer = window.setInterval(() => void loadHistory(), 3000); return () => window.clearInterval(timer) }, [activeJob, loadHistory, submitting])
   const hasPreparingPublication = history.some((item) => item.publicationStatus === 'preparing')
   useEffect(() => {
@@ -766,6 +807,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
     setPrompt((current) => current.trim() ? current : VIDEO_SOURCE_DEFAULT_PROMPT)
     setSelectedHistoryImage(item)
     setSelectedJob(null)
+    setAutoPlayJobId('')
     setPreviewCleared(false)
     window.setTimeout(() => {
       if (window.matchMedia('(max-width: 820px)').matches) {
@@ -774,6 +816,56 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
         promptTextareaRef.current?.focus()
       }
     }, 0)
+  }
+
+  const selectHistoryVideo = (job: VideoJob, tile?: HTMLButtonElement) => {
+    if (historyClickSuppressedRef.current) return
+    setSelectedHistoryImage(null)
+    setSelectedJob(job)
+    setPreviewCleared(false)
+    setAutoPlayJobId(job.videoUrl ? job.id : '')
+    const tileVideo = tile?.querySelector('video')
+    if (tileVideo && job.videoUrl) {
+      tileVideo.currentTime = 0
+      void tileVideo.play().catch(() => undefined)
+    }
+  }
+
+  const startHistoryDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !historyStripRef.current) return
+    historyPointerRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      scrollLeft: historyStripRef.current.scrollLeft,
+      moved: false,
+    }
+  }
+
+  const moveHistoryDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const strip = historyStripRef.current
+    const state = historyPointerRef.current
+    if (!strip || state.pointerId !== event.pointerId) return
+    const delta = event.clientX - state.startX
+    if (Math.abs(delta) > 5 && !state.moved) {
+      state.moved = true
+      strip.setPointerCapture(event.pointerId)
+      strip.classList.add('dragging')
+    }
+    if (state.moved) {
+      event.preventDefault()
+      strip.scrollLeft = state.scrollLeft - delta
+    }
+  }
+
+  const finishHistoryDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const strip = historyStripRef.current
+    const state = historyPointerRef.current
+    if (!strip || state.pointerId !== event.pointerId) return
+    historyClickSuppressedRef.current = state.moved
+    historyPointerRef.current.pointerId = -1
+    strip.classList.remove('dragging')
+    if (strip.hasPointerCapture(event.pointerId)) strip.releasePointerCapture(event.pointerId)
+    window.setTimeout(() => { historyClickSuppressedRef.current = false }, 0)
   }
 
   const sourceCard = (target: FrameKey, value: string, title: string, note: string, index = -1) => (
@@ -822,8 +914,21 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   const shownElapsed = formatElapsed(shownJob?.createdAt, shownJob?.completedAt, clockNow)
   const viewingActiveJob = Boolean(activeJob && shownJob?.id === activeJob.id)
   const findJobModel = (job: VideoJob) => config?.modes[job.mode]?.find((item) => item.id === job.model)
+  const toastText = error || notice
+  const toastKind = error ? 'error' : 'success'
+
+  useEffect(() => {
+    if (!autoPlayJobId || shownJob?.id !== autoPlayJobId || !stageVideoRef.current) return
+    stageVideoRef.current.currentTime = 0
+    void stageVideoRef.current.play().catch(() => undefined)
+  }, [autoPlayJobId, shownJob?.id])
 
   return <main className="video-studio">
+    {toastText && <div className={`video-toast ${toastKind}`} role={toastKind === 'error' ? 'alert' : 'status'} aria-live={toastKind === 'error' ? 'assertive' : 'polite'}>
+      {toastKind === 'error' ? <AlertTriangle aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
+      <span><b>{toastKind === 'error' ? 'Нужно обратить внимание' : 'Готово'}</b><small>{toastText}</small></span>
+      <button type="button" aria-label="Закрыть уведомление" onClick={() => toastKind === 'error' ? setError('') : setNotice('')}><X /></button>
+    </div>}
     {publishJob && <div className="video-publish-overlay" role="dialog" aria-modal="true" aria-labelledby="video-publish-title" onClick={() => !publishBusy && setPublishJob(null)}><div className="video-publish-dialog" onClick={(event) => event.stopPropagation()}>
       <header><div><Sparkles /><div><span>Публичная карточка</span><h2 id="video-publish-title">Опубликовать видео в ленту</h2></div></div><button type="button" aria-label="Закрыть" disabled={publishBusy} onClick={() => setPublishJob(null)}><X /></button></header>
       {publishJob.videoUrl && <video src={publishJob.videoUrl} muted playsInline preload="metadata" />}
@@ -918,13 +1023,11 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
               </button>
             })}</div>
             <button type="button" className="video-pro" onClick={() => setProOpen((value) => !value)}><Settings2 /><span><b>Выбрать модель</b><small>{shortModelName(selectedModel)} · {publicModelRate(selectedModel)}</small></span><ChevronDown className={proOpen ? 'open' : ''} /></button>
-            {proOpen && <div className="video-model-list">{models.map((model) => <button key={model.id} type="button" className={selectedModel?.id === model.id ? 'active' : ''} onClick={() => syncModelDefaults(model)}><span><strong>{model.name}</strong><b>{publicModelRate(model)}</b></span><p>{model.description || 'Описание модели пока не опубликовано.'}</p><small>{model.supportedResolutions.join(', ')} · {model.supportedDurations.map(secondsLabel).join(', ')}</small></button>)}</div>}
+            {proOpen && <div className="video-model-list">{models.map((model) => <button key={model.id} type="button" className={selectedModel?.id === model.id ? 'active' : ''} onClick={() => syncModelDefaults(model)}><span><strong>{model.name}</strong><b>{publicModelRate(model)}</b></span><p>{publicVideoDescription(model)}</p><small>{publicVideoSpecs(model)}</small></button>)}</div>}
           </section>
-          {notice && <div className="video-notice">{notice}</div>}
-          {error && <div className="video-error">{error}</div>}
         </> : <div className="video-empty-models">{error || config?.availability?.[mode]?.reason || 'Для этого режима пока нет доступных моделей.'}</div>}
         </div>
-        {!loading && <button className="video-generate" type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{submitting ? 'Отправляем задачу' : activeJob ? 'Генерация идёт' : 'Создать видео'}</span><b>{visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток.` : models.length ? '—' : 'Нет модели'}</b></button>}
+        {!loading && <button className={`video-generate${submitting || activeJob ? ' is-generating' : ''}`} type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{submitting ? 'Запускаем видео' : activeJob ? 'Создаём видео' : 'Создать видео'}</span><b>{visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток.` : models.length ? '—' : 'Нет модели'}</b></button>}
       </aside>
 
       <section className="video-result">
@@ -951,37 +1054,38 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
             </div>
           </div>
           {shownImage && historyImageSource(shownImage) ? <img className="video-stage-image" src={apiUrl(historyImageSource(shownImage))} alt={shownImage.promptOriginal || 'Изображение из истории'} />
-            : shownJob?.status === 'completed' && shownJob.videoUrl ? <video key={shownJob.videoUrl} src={shownJob.videoUrl} controls playsInline preload="metadata" />
-            : shownJob && !['failed', 'cancelled', 'expired'].includes(shownJob.status) ? <div className="video-progress"><Film /><strong>{statusLabel(shownJob.status)}</strong><p>С момента нажатия прошло {shownElapsed || 'несколько секунд'}. Время остановится только после загрузки ролика в историю и галерею.</p><div><i style={{ width: `${Math.max(8, shownJob.progress || 10)}%` }} /></div><small>{shownJob.progress || 10}%</small></div>
+            : shownJob?.status === 'completed' && shownJob.videoUrl ? <video ref={stageVideoRef} key={shownJob.videoUrl} src={shownJob.videoUrl} controls autoPlay={autoPlayJobId === shownJob.id} muted={autoPlayJobId === shownJob.id} playsInline preload="metadata" />
+            : shownJob && !['failed', 'cancelled', 'expired'].includes(shownJob.status) ? <div className="video-progress"><Film /><strong>{statusLabel(shownJob.status)}</strong><p>{shownElapsed || 'Только что'} · Можно продолжать работать — результат появится автоматически.</p><div><i style={{ width: `${Math.max(8, shownJob.progress || 10)}%` }} /></div><small>{shownJob.progress || 10}%</small></div>
             : shownJob?.error ? <div className="video-stage-message error"><RotateCcw /><strong>Видео не создано</strong><p>{shownJob.error}</p><button type="button" onClick={() => setSelectedJob(null)}>Попробовать снова</button></div>
-            : <div className="video-stage-message"><Play /><strong>{mode === 'image_to_video' && firstFrame ? 'Исходный кадр добавлен' : modeMeta.empty}</strong><p>{mode === 'image_to_video' && firstFrame ? 'Опишите движение и выберите параметры' : 'Выберите параметры и создайте видео'}</p></div>}
+            : <div className="video-stage-message"><Play /><strong>{mode === 'image_to_video' && firstFrame ? 'Кадр готов' : 'Видео появится здесь'}</strong><p>{mode === 'image_to_video' && firstFrame ? 'Опишите движение и нажмите «Создать видео».' : modeMeta.empty}</p></div>}
         </div></div>
       </section>
 
         <div className="video-result-shelf">
           <section className="video-history" aria-label="История изображений и видео">
-            {mediaHistory.length ? <div className="video-history-list">{mediaHistory.map((entry) => {
+            {mediaHistory.length ? <div className="video-history-list" ref={historyStripRef} onPointerDown={startHistoryDrag} onPointerMove={moveHistoryDrag} onPointerUp={finishHistoryDrag} onPointerCancel={finishHistoryDrag}>{mediaHistory.map((entry) => {
               if (entry.kind === 'image') {
                 const item = entry.item
                 const source = historyImageSource(item)
-                return <button key={`image-${item.id}`} type="button" className={!previewCleared && selectedHistoryImage?.id === item.id ? 'active' : ''} onClick={() => { setSelectedHistoryImage(item); setSelectedJob(null); setPreviewCleared(false) }} style={{ aspectRatio: item.width && item.height ? `${item.width} / ${item.height}` : undefined }} title="Изображение из истории · нажмите, чтобы открыть">
-                  {source ? <img src={apiUrl(item.thumbnailUrl || source)} alt={item.promptOriginal || 'Изображение из истории'} loading="lazy" /> : <span><Images /></span>}
-                  <span className="video-history-meta"><small>Фото</small><em>Оживить</em></span>
+                return <button key={`image-${item.id}`} type="button" data-media-kind="image" className={!previewCleared && selectedHistoryImage?.id === item.id ? 'active' : ''} onClick={() => { if (historyClickSuppressedRef.current) return; setSelectedHistoryImage(item); setSelectedJob(null); setPreviewCleared(false); setAutoPlayJobId('') }} style={{ aspectRatio: item.width && item.height ? `${item.width} / ${item.height}` : undefined }} title="Изображение из истории · нажмите, чтобы открыть" aria-label="Фото из истории">
+                  {source ? <img src={apiUrl(item.thumbnailUrl || source)} alt={item.promptOriginal || 'Изображение из истории'} loading="lazy" draggable={false} /> : <span><Images /></span>}
+                  <span className="video-history-kind">Фото</span>
                 </button>
               }
               const job = entry.item
               const jobModel = findJobModel(job)
               const elapsed = formatElapsed(job.createdAt, job.completedAt)
-              return <button key={job.id} type="button" className={`${!previewCleared && selectedJob?.id === job.id ? 'active' : ''}${activeJob?.id === job.id ? ' generating' : ''}`} onClick={() => { setSelectedHistoryImage(null); setSelectedJob(job); setPreviewCleared(false) }} style={{ aspectRatio: aspectStyle(job.aspectRatio) }} title={`${shortModelName(jobModel)} · ${secondsLabel(job.duration || 0)}${elapsed ? ` · готово за ${elapsed}` : ''}`}>{job.videoUrl ? <video src={job.videoUrl} muted preload="metadata" /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<span className="video-history-meta"><small>{activeJob?.id === job.id ? `${Math.max(4, job.progress || 4)}%` : secondsLabel(job.duration || 0)}</small><em>{shortModelName(jobModel)}</em></span></button>
+              return <button key={job.id} type="button" data-media-kind="video" data-aspect-ratio={job.aspectRatio || '16:9'} className={`${!previewCleared && selectedJob?.id === job.id ? 'active' : ''}${activeJob?.id === job.id ? ' generating' : ''}`} onClick={(event) => selectHistoryVideo(job, event.currentTarget)} style={{ aspectRatio: aspectStyle(job.aspectRatio) }} title={`${shortModelName(jobModel)} · ${secondsLabel(job.duration || 0)}${elapsed ? ` · готово за ${elapsed}` : ''}`} aria-label={`Видео ${job.aspectRatio || '16:9'}`}>{job.videoUrl ? <video src={job.videoUrl} autoPlay={autoPlayJobId === job.id} loop muted playsInline preload="metadata" draggable={false} /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<span className="video-history-kind">{activeJob?.id === job.id ? `${Math.max(4, job.progress || 4)}%` : 'Видео'}</span></button>
             })}</div> : <p>Здесь появятся созданные изображения и видео.</p>}
           </section>
           <aside className="video-context">{shownImage ? <>
             <div className="video-context-prompt"><div><span>Изображение из истории</span></div><p>{shownImage.promptOriginal || 'Промпт изображения не сохранён.'}</p></div>
             <div className="video-context-details">
-              <div className="video-context-tags">{shownImage.width && shownImage.height && <span>{shownImage.width}×{shownImage.height}</span>}<span>Можно использовать как первый кадр</span></div>
+              <div className="video-context-tags"><span>{publicImageModelName(shownImage)}</span>{shownImage.width && shownImage.height && <span>{shownImage.width}×{shownImage.height}</span>}<span>Можно использовать как первый кадр</span></div>
               <div className="video-context-actions"><button className="feed" type="button" onClick={() => animateHistoryImage(shownImage)}><Sparkles /> <span>Оживить изображение</span></button></div>
             </div>
           </> : shownJob ? <>
+            {shownJob.videoUrl && <video className="video-context-player" src={shownJob.videoUrl} controls autoPlay={autoPlayJobId === shownJob.id} muted={autoPlayJobId === shownJob.id} playsInline preload="metadata" />}
             <div className="video-context-prompt"><div><span>Промпт</span><button type="button" title="Копировать промпт" aria-label="Копировать промпт" onClick={() => void navigator.clipboard.writeText(shownJob.prompt || '')}><Copy /></button></div><p>{shownJob.prompt || 'Промпт не сохранён'}</p>{Boolean(shownJob.sourceHistory?.length) && <div className="video-source-lineage" aria-label="Исходные кадры видео">{shownJob.sourceHistory?.map((source, index) => <figure key={source.id || index}>{source.thumbUrl && <img src={apiUrl(source.thumbUrl)} alt={source.roleLabel || `Исходник ${index + 1}`} loading="lazy" />}<figcaption>{source.roleLabel || `Исходник ${index + 1}`}</figcaption></figure>)}</div>}</div>
             <div className="video-context-details">
               <div className="video-context-tags"><span>{shortModelName(findJobModel(shownJob))}</span><span>{secondsLabel(shownJob.duration || 0)}</span><span>{shownJob.aspectRatio}</span><span>{shownJob.resolution}</span>{shownJob.generateAudio && <span><Volume2 /> Звук</span>}{shownElapsed && shownJob.completedAt && <span><Clock3 /> Готово за {shownElapsed}</span>}</div>

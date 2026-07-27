@@ -53,6 +53,31 @@ const history = Array.from({ length: 7 }, (_, index) => ({
   galleryVideoId: `gallery-video-layout-${index}`,
 }))
 
+const imageHistory = [
+  {
+    id: 'image-layout-portrait',
+    mediaType: 'image',
+    url: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22720%22 height=%221280%22/%3E',
+    thumbnailUrl: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22720%22 height=%221280%22/%3E',
+    width: 720,
+    height: 1280,
+    promptOriginal: 'Портретный исходный кадр',
+    modelProfile: 'comfyui',
+    createdAt: '2026-07-15T02:00:00Z',
+  },
+  {
+    id: 'image-layout-wide',
+    mediaType: 'image',
+    url: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221280%22 height=%22720%22/%3E',
+    thumbnailUrl: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221280%22 height=%22720%22/%3E',
+    width: 1280,
+    height: 720,
+    promptOriginal: 'Широкий исходный кадр',
+    modelProfile: 'openai/gpt-image-1',
+    createdAt: '2026-07-15T01:00:00Z',
+  },
+]
+
 async function mockApi(page) {
   const state = {
     publicationId: null,
@@ -148,7 +173,7 @@ async function mockApi(page) {
       }
       return route.fulfill({ json: { ...state.generatedJob, tokenBalance: 488 } })
     }
-    if (url.pathname === '/api/gallery/items') return route.fulfill({ json: { items: [] } })
+    if (url.pathname === '/api/gallery/items') return route.fulfill({ json: { items: imageHistory } })
     if (url.pathname === '/api/tariffs') return route.fulfill({ json: { tariffs: {} } })
     if (url.pathname === '/api/models') return route.fulfill({ json: { ok: true, profiles: [] } })
     return route.fulfill({ json: { ok: true, items: [] } })
@@ -291,7 +316,11 @@ async function inspect(browser, viewport) {
       overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
       resultBeforeComposer: Boolean(resultPanel && composer && resultPanel.top < composer.top),
       historyButtons: document.querySelectorAll('.video-history-list button').length,
-      historyMeta: document.querySelectorAll('.video-history-meta').length,
+      historyKinds: Array.from(document.querySelectorAll('.video-history-kind')).map((item) => item.textContent?.trim() || ''),
+      formatLabelsFit: Array.from(document.querySelectorAll('.video-format-tabs button, .video-format-more')).every((item) => item.scrollWidth <= item.clientWidth + 1),
+      portraitVideoTile: rect('.video-history-list button[data-media-kind="video"][data-aspect-ratio="9:16"]'),
+      portraitImageTile: rect('.video-history-list button[data-media-kind="image"][aria-label="Фото из истории"]'),
+      inlinePlayerVisible: Boolean(document.querySelector('.video-context-player') && getComputedStyle(document.querySelector('.video-context-player')).display !== 'none'),
       historyHeading: document.querySelector('.video-history h2') !== null,
       stageCaption: document.querySelector('.video-stage-caption') !== null,
       proOpen: document.querySelector('.video-model-list') !== null,
@@ -331,10 +360,40 @@ async function inspect(browser, viewport) {
   result.guideButtonCountBeforeOpen = guideButtonCount
   result.guideState = guideState
   result.durationMenuState = durationMenuState
+  await page.locator('.video-pro').click()
+  result.localizedModelDescription = (await page.locator('.video-model-list p').first().textContent()) || ''
+  await page.locator('.video-pro').click()
+  const historyStrip = page.locator('.video-history-list')
+  const historyBox = await historyStrip.boundingBox()
+  if (historyBox) {
+    const before = await historyStrip.evaluate((element) => element.scrollLeft)
+    await page.mouse.move(historyBox.x + historyBox.width - 12, historyBox.y + historyBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(historyBox.x + 20, historyBox.y + historyBox.height / 2, { steps: 8 })
+    await page.mouse.up()
+    const after = await historyStrip.evaluate((element) => element.scrollLeft)
+    result.historyDragMoved = after > before
+  }
+  if (viewport.width < 821) {
+    await historyStrip.scrollIntoViewIfNeeded()
+    await historyStrip.evaluate((element) => { element.scrollLeft = 0 })
+    const touchBox = await historyStrip.boundingBox()
+    if (touchBox) {
+      const cdp = await page.context().newCDPSession(page)
+      const startX = touchBox.x + touchBox.width - 14
+      const endX = touchBox.x + 20
+      const y = touchBox.y + touchBox.height / 2
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: startX, y }] })
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: endX, y }] })
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      result.historyTouchMoved = await historyStrip.evaluate((element) => element.scrollLeft > 0)
+      await cdp.detach()
+    }
+  }
   if (viewport.width >= 821) {
     await page.locator('.video-more > button').click()
     await page.locator('.video-more button', { hasText: 'Очистить предпросмотр' }).click()
-    result.clearPreviewKeepsHistory = await page.locator('.video-history-list button').count() === history.length && await page.locator('.video-stage-message').isVisible()
+    result.clearPreviewKeepsHistory = await page.locator('.video-history-list button').count() === history.length + imageHistory.length && await page.locator('.video-stage-message').isVisible()
     await page.locator('.video-history-list button').nth(3).click()
   }
   if (viewport.width === 1920 && viewport.height === 1080) {
@@ -373,7 +432,7 @@ async function verifyGenerationFeedback(browser) {
   const meReadsBefore = apiState.meReads
 
   await page.locator('.video-generate').click()
-  await page.locator('.video-progress strong', { hasText: 'Отправляем задачу' }).waitFor({ timeout: 400 })
+  await page.locator('.video-progress strong', { hasText: 'Запускаем видео' }).waitFor({ timeout: 400 })
   const optimisticCount = await page.locator('.video-history-list button.generating').count()
   await page.locator('.video-history-list button').nth(1).click()
   await page.locator('.video-active-return').waitFor()
@@ -381,7 +440,7 @@ async function verifyGenerationFeedback(browser) {
   await page.locator('.video-history-list button.generating').filter({ hasText: '10%' }).waitFor({ timeout: 3_000 })
   const oldVideoStillVisible = await page.locator('.video-stage video').isVisible()
   await page.locator('.video-active-return').click()
-  await page.locator('.video-progress strong', { hasText: 'В очереди' }).waitFor()
+  await page.locator('.video-progress strong', { hasText: 'Подготавливаем модель' }).waitFor()
 
   const result = {
     optimisticCount,
@@ -392,6 +451,34 @@ async function verifyGenerationFeedback(browser) {
     historyCount: await page.locator('.video-history-list button').count(),
     activeProgress: (await page.locator('.video-progress small').textContent()) || '',
   }
+  await page.close()
+  return result
+}
+
+async function verifyMobileErrorFeedback(browser) {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+  await mockApi(page)
+  await page.route('**/api/video/generate', (route) => route.fulfill({
+    status: 422,
+    json: { detail: 'Провайдер отклонил изображение из-за ограничений безопасности. Выберите другой кадр.' },
+  }))
+  await page.goto(`${base}/video?error_feedback=1`, { waitUntil: 'networkidle' })
+  await page.locator('.video-prompt textarea').fill('Безопасная тестовая сцена с движением камеры.')
+  await page.locator('.video-generate').click()
+  const toast = page.locator('.video-toast.error')
+  await toast.waitFor()
+  const result = await toast.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    const style = getComputedStyle(element)
+    return {
+      text: element.textContent || '',
+      position: style.position,
+      withinViewport: rect.top >= 0 && rect.bottom <= window.innerHeight && rect.left >= 0 && rect.right <= window.innerWidth,
+      role: element.getAttribute('role'),
+    }
+  })
+  await toast.locator('button').click()
+  result.dismissed = await toast.count() === 0
   await page.close()
   return result
 }
@@ -413,8 +500,13 @@ async function run() {
     assert(fullHd.shelf && fullHd.shelf.bottom <= fullHd.viewportHeight + 1, 'History shelf is outside the Full HD viewport')
     assert(fullHd.stage && fullHd.stage.height > 400, 'Full HD stage is too small')
     assert(fullHd.overlay && fullHd.stage && fullHd.overlay.top >= fullHd.stage.top, 'Stage actions are not over the video')
-    assert(fullHd.historyButtons === history.length, 'History items are missing')
-    assert(fullHd.historyMeta === history.length, 'History duration and model metadata are missing')
+    assert(fullHd.historyButtons === history.length + imageHistory.length, 'Image or video history items are missing')
+    assert(fullHd.historyKinds.length === history.length + imageHistory.length, 'Compact history media labels are missing')
+    assert(fullHd.historyKinds.every((label) => label === 'Видео' || label === 'Фото'), 'History contains verbose or technical labels')
+    assert(fullHd.localizedModelDescription.length > 20 && /[А-Яа-яЁё]/.test(fullHd.localizedModelDescription), 'Model description is not useful Russian text')
+    assert(fullHd.historyDragMoved, 'History cannot be dragged with the mouse')
+    assert(fullHd.portraitVideoTile && fullHd.portraitVideoTile.height > fullHd.portraitVideoTile.width * 1.35, 'Portrait video is still cropped into a square tile')
+    assert(fullHd.portraitImageTile && fullHd.portraitImageTile.height > fullHd.portraitImageTile.width * 1.35, 'Portrait image is still cropped into a square tile')
     assert(!fullHd.historyHeading, 'Redundant history heading is still visible')
     assert(!fullHd.stageCaption, 'Redundant preview caption is still visible')
     assert(fullHd.promptFontWeight <= 500, 'Prompt text is still too bold')
@@ -474,6 +566,9 @@ async function run() {
 
     const mobile = await inspect(browser, { width: 390, height: 844 })
     assert(!mobile.overflowX, 'Mobile has horizontal overflow')
+    assert(mobile.formatLabelsFit, 'Mobile format labels or digits overflow their buttons')
+    assert(mobile.inlinePlayerVisible, 'Selected mobile history video has no inline player')
+    assert(mobile.historyTouchMoved, 'History cannot be swiped with a finger')
     assert(mobile.resultBeforeComposer, 'Mobile result must appear before Composer')
     assert(mobile.stage && mobile.stage.width <= 390, 'Mobile stage exceeds viewport width')
     assert(mobile.stage && mobile.stage.height <= mobile.stage.width, 'Mobile landscape video stage is too tall')
@@ -490,16 +585,23 @@ async function run() {
     assert(generationFeedback.oldVideoVisible && generationFeedback.oldVideoStillVisible, 'Older video cannot be previewed while generation is running')
     assert(generationFeedback.generationBody?.resolution === '1080p' && generationFeedback.generationBody?.generateAudio === true, 'Generation request lost selected parameters')
     assert(generationFeedback.balanceRefreshed, 'Token balance is not refreshed after the server confirms the charge')
-    assert(generationFeedback.historyCount === history.length + 1, 'Server-confirmed generation is missing from history')
+    assert(generationFeedback.historyCount === history.length + imageHistory.length + 1, 'Server-confirmed generation is missing from history')
     assert(generationFeedback.activeProgress === '10%', 'Server-confirmed progress is not shown in preview')
 
-    const report = { fullHd, browserFullHd, fourK, mobile, generationFeedback }
+    const mobileErrorFeedback = await verifyMobileErrorFeedback(browser)
+    assert(mobileErrorFeedback.position === 'fixed' && mobileErrorFeedback.withinViewport, 'Mobile error notification is not globally visible')
+    assert(mobileErrorFeedback.role === 'alert', 'Generation error is not announced as an alert')
+    assert(mobileErrorFeedback.text.includes('ограничений безопасности') && !mobileErrorFeedback.text.includes('openrouter.ai'), 'Generation error exposes a raw provider message')
+    assert(mobileErrorFeedback.dismissed, 'Generation notification cannot be dismissed')
+
+    const report = { fullHd, browserFullHd, fourK, mobile, generationFeedback, mobileErrorFeedback }
     console.log(JSON.stringify(process.env.E2E_VERBOSE === '1' ? report : {
       ok: true,
       viewports: ['1920x1080', '1920x900', '3840x2160', '390x844'],
       publicationStatus: fullHd.publicationWorkflow?.publicationStatus,
       publicationHistoryReads: fullHd.publicationWorkflow?.historyReadsAfterPublish,
       generationFeedback: true,
+      mobileErrorFeedback: true,
     }, null, 2))
   } finally {
     await browser.close()
