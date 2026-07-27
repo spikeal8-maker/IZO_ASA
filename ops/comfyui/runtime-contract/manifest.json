@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-27",
+  "customNode": {
+    "name": "one-node-flux-2-klein",
+    "repository": "https://github.com/yanokusnir-ai/one-node-flux-2-klein.git",
+    "commit": "e700bb81eb768911f403bdf86bd35fe7ef0e9df4",
+    "capturedFromCommit": "0e3b9baccdf39af3fa1691069494fe91938943ff",
+    "localPatch": "patches/0001-export-web-directory.patch"
+  },
+  "assets": [
+    {"path": "one-node-flux-2-klein/config.json", "bytes": 23696, "sha256": "c52dd43d5cb3fd941e7ddcf6bf6ee4e541ced8bf435ce68c8135699ccd5049b5"},
+    {"path": "one-node-flux-2-klein/workflows/edit_workflow.json", "bytes": 4455, "sha256": "04bfd04cf5d976f8997e661e8d4fa04d78dc4c292ad698b57504900f7757ec5d"},
+    {"path": "one-node-flux-2-klein/workflows/faceswap_workflow.json", "bytes": 4533, "sha256": "31fbe025f41d5c445c79166425579844f78fc0b36e4c7bd8bea8fbf0d13905de"},
+    {"path": "one-node-flux-2-klein/workflows/i2i_workflow.json", "bytes": 2134, "sha256": "53d7d8d8501812af0f5e459b0ebf4eb6938ca00e3867028719f4e58046af0dd2"},
+    {"path": "one-node-flux-2-klein/workflows/inpaint_workflow.json", "bytes": 4695, "sha256": "830364eb7fda263f0c873db235841d13520dd6a43dcae44df899fb5738a17a5a"},
+    {"path": "one-node-flux-2-klein/workflows/outpaint_workflow.json", "bytes": 2611, "sha256": "a175478e94adf224e1b67066d26eba19eb6f30854322796c039b540d9fe98689"},
+    {"path": "one-node-flux-2-klein/workflows/pose_workflow.json", "bytes": 5424, "sha256": "f8f0c9b779780467d7c7292f30e9acb20706acd4403fb172a9e69951c988037b", "runtimeRequired": false, "note": "Application-owned pose snapshot; the live custom node does not expose this file."},
+    {"path": "one-node-flux-2-klein/workflows/remove_bg_workflow.json", "bytes": 1136, "sha256": "d309b123df59b407f287c61cb5e11db835850388f98ac24ab90ece61af8042a5"},
+    {"path": "one-node-flux-2-klein/workflows/t2i_workflow.json", "bytes": 2217, "sha256": "933914eb0c1eca455a4400ff32d01cff6819368086cc91d7e7f97e7edbd02544"}
+  ],
+  "models": [
+    {"path": "models/diffusion_models/flux-2-klein-4b-fp8.safetensors", "bytes": 4070624520, "sha256": "97ed34fe0567e436200f2faee3939b88f2b5d99f8af2a4dc16532c4245c0ccb6", "required": true},
+    {"path": "models/diffusion_models/flux-2-klein-9b-fp8.safetensors", "bytes": 9433061528, "sha256": "865ba09f5b4c3cbd3468a4bd3acb9fcb2f8740c54317482f0bcd4ed1d3655cee", "required": true},
+    {"path": "models/text_encoders/qwen_3_4b.safetensors", "bytes": 8044982048, "sha256": "6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a", "required": true},
+    {"path": "models/text_encoders/qwen_3_8b_fp8mixed.safetensors", "bytes": 8664848742, "sha256": "abad16806e0cbabc54e0325d6565847443fe396d5f0be38bb3cd3fe75a1201d6", "required": true},
+    {"path": "models/vae/flux2-vae.safetensors", "bytes": 336213556, "sha256": "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5", "required": true},
+    {"path": "models/loras/bfs_head_v1_flux-klein_4b.safetensors", "bytes": 369644384, "sha256": "77aabcd6144612dd4873080b99283dd9a27977712548bee161894f62c91ff09c", "required": true},
+    {"path": "models/loras/face_swap_flux_klein_9b_r32_800.safetensors", "bytes": 126670920, "sha256": "40ad042e09c938cc587864b896690daf4f30abda86c24812d6a074aa041c25ec", "required": false, "compatibilityOnly": true, "source": "ilkerzgi/face-swap", "license": "flux-non-commercial-license"},
+    {"path": "models/loras/bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors", "bytes": 662729912, "sha256": "70d8aaf332d710b905d5085afaa87c3ef577edffd54ffcfadeb8c47a854f9044", "required": true, "qualityProfile": true},
+    {"path": "models/loras/flux2_klein_4b_outpaint_comfy.safetensors", "bytes": 76038936, "sha256": "b8a5142b40f2e24aa1f5cfd0710323188836f49ea70b15b5f85b1e364316bc5b", "required": true},
+    {"path": "models/loras/refcontrol_v2_poses.safetensors", "bytes": 165704416, "sha256": "a22ec6a5406ccdb7a247684a40f96b52a83520efa00ebe56528cf54d0e5d473b", "required": true}
+  ]
+}

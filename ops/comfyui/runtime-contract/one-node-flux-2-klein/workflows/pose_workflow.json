@@ -1,0 +1,153 @@
+{
+  "FKP:clip": {
+    "class_type": "CLIPLoader",
+    "inputs": { "clip_name": "qwen_3_8b_fp8mixed.safetensors", "type": "flux2", "device": "default" },
+    "_meta": { "title": "Load CLIP" }
+  },
+  "FKP:vae": {
+    "class_type": "VAELoader",
+    "inputs": { "vae_name": "flux2-vae.safetensors" },
+    "_meta": { "title": "Load VAE" }
+  },
+  "FKP:unet": {
+    "class_type": "UNETLoader",
+    "inputs": { "unet_name": "flux-2-klein-9b.safetensors", "weight_dtype": "default" },
+    "_meta": { "title": "Load Diffusion Model" }
+  },
+  "FKP:lora": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": { "lora_name": "refcontrol_v2_poses.safetensors", "strength_model": 1, "model": ["FKP:unet", 0] },
+    "_meta": { "title": "RefControl Poses LoRA" }
+  },
+
+  "FKP:poseimg": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "placeholder.png" },
+    "_meta": { "title": "Pose" }
+  },
+  "FKP:dwpose": {
+    "class_type": "DWPreprocessor",
+    "inputs": {
+      "detect_hand": "enable",
+      "detect_body": "enable",
+      "detect_face": "enable",
+      "resolution": 512,
+      "bbox_detector": "yolox_l.onnx",
+      "pose_estimator": "dw-ll_ucoco_384_bs5.torchscript.pt",
+      "scale_stick_for_xinsr_cn": "disable",
+      "image": ["FKP:poseimg", 0]
+    },
+    "_meta": { "title": "DWPose Estimator" }
+  },
+  "FKP:posescale": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": { "upscale_method": "lanczos", "megapixels": 1, "resolution_steps": 1, "image": ["FKP:dwpose", 0] },
+    "_meta": { "title": "Scale Pose" }
+  },
+  "FKP:posepreview": {
+    "class_type": "PreviewImage",
+    "inputs": { "images": ["FKP:dwpose", 0] },
+    "_meta": { "title": "Preview DWPose Skeleton" }
+  },
+
+  "FKP:refimg": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "placeholder.png" },
+    "_meta": { "title": "Reference" }
+  },
+  "FKP:refscale": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": { "upscale_method": "lanczos", "megapixels": 1, "resolution_steps": 1, "image": ["FKP:refimg", 0] },
+    "_meta": { "title": "Scale Reference" }
+  },
+
+  "FKP:prompt": {
+    "class_type": "CLIPTextEncode",
+    "inputs": { "text": "apply pose from image 1 with reference from image 2", "clip": ["FKP:clip", 0] },
+    "_meta": { "title": "Positive Prompt" }
+  },
+  "FKP:zero": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": { "conditioning": ["FKP:prompt", 0] },
+    "_meta": { "title": "ConditioningZeroOut (neg)" }
+  },
+
+  "FKP:poseenc": {
+    "class_type": "VAEEncode",
+    "inputs": { "pixels": ["FKP:posescale", 0], "vae": ["FKP:vae", 0] },
+    "_meta": { "title": "VAE Encode Pose" }
+  },
+  "FKP:refenc": {
+    "class_type": "VAEEncode",
+    "inputs": { "pixels": ["FKP:refscale", 0], "vae": ["FKP:vae", 0] },
+    "_meta": { "title": "VAE Encode Reference" }
+  },
+
+  "FKP:negRefRef": {
+    "class_type": "ReferenceLatent",
+    "inputs": { "conditioning": ["FKP:zero", 0], "latent": ["FKP:refenc", 0] },
+    "_meta": { "title": "ReferenceLatent neg reference" }
+  },
+  "FKP:posRefRef": {
+    "class_type": "ReferenceLatent",
+    "inputs": { "conditioning": ["FKP:prompt", 0], "latent": ["FKP:refenc", 0] },
+    "_meta": { "title": "ReferenceLatent pos reference" }
+  },
+  "FKP:negRefPose": {
+    "class_type": "ReferenceLatent",
+    "inputs": { "conditioning": ["FKP:negRefRef", 0], "latent": ["FKP:poseenc", 0] },
+    "_meta": { "title": "ReferenceLatent neg pose" }
+  },
+  "FKP:posRefPose": {
+    "class_type": "ReferenceLatent",
+    "inputs": { "conditioning": ["FKP:posRefRef", 0], "latent": ["FKP:poseenc", 0] },
+    "_meta": { "title": "ReferenceLatent pos pose" }
+  },
+
+  "FKP:size": {
+    "class_type": "GetImageSize",
+    "inputs": { "image": ["FKP:posescale", 0] },
+    "_meta": { "title": "Get Image Size (output dims)" }
+  },
+  "FKP:latent": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": { "width": ["FKP:size", 0], "height": ["FKP:size", 1], "batch_size": 1 },
+    "_meta": { "title": "Empty Flux 2 Latent" }
+  },
+
+  "FKP:guider": {
+    "class_type": "CFGGuider",
+    "inputs": { "cfg": 1, "model": ["FKP:lora", 0], "positive": ["FKP:posRefPose", 0], "negative": ["FKP:negRefPose", 0] },
+    "_meta": { "title": "CFG Guider" }
+  },
+  "FKP:noise": {
+    "class_type": "RandomNoise",
+    "inputs": { "noise_seed": 0 },
+    "_meta": { "title": "RandomNoise" }
+  },
+  "FKP:sampler": {
+    "class_type": "KSamplerSelect",
+    "inputs": { "sampler_name": "er_sde" },
+    "_meta": { "title": "KSamplerSelect" }
+  },
+  "FKP:sched": {
+    "class_type": "Flux2Scheduler",
+    "inputs": { "steps": 4, "width": ["FKP:size", 0], "height": ["FKP:size", 1] },
+    "_meta": { "title": "Flux2Scheduler" }
+  },
+  "FKP:sample": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": { "noise": ["FKP:noise", 0], "guider": ["FKP:guider", 0], "sampler": ["FKP:sampler", 0], "sigmas": ["FKP:sched", 0], "latent_image": ["FKP:latent", 0] },
+    "_meta": { "title": "Sampler" }
+  },
+  "FKP:decode": {
+    "class_type": "VAEDecode",
+    "inputs": { "samples": ["FKP:sample", 0], "vae": ["FKP:vae", 0] },
+    "_meta": { "title": "VAE Decode" }
+  },
+  "FKP:save": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["FKP:decode", 0], "filename_prefix": "one-node-flux-2-klein/f2k" },
+    "_meta": { "title": "Save Image" }
+  }
+}
