@@ -538,14 +538,14 @@ try:
     from .app.services.social_delivery import SocialDeliveryWorker, build_max_social_sender, build_telegram_social_sender, build_vk_social_sender
     from .app.services.admin_notifications import enqueue_configured_social_deliveries
     from .app.integrations.social_providers import probe_social_provider
-    from .app.integrations.vk_client import request_vk_api; from .app.integrations.social_media_uploads import publish_vk_wall_image, send_telegram_photo_url
+    from .app.integrations.vk_client import request_vk_api; from .app.integrations.social_media_uploads import publish_max_video, publish_vk_wall_image, publish_vk_wall_video, send_telegram_photo_url, send_telegram_video_url
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.services.admin_notification_delivery import AdminNotificationDeliveryWorker, build_admin_delivery_transports
     from app.services.social_delivery import SocialDeliveryWorker, build_max_social_sender, build_telegram_social_sender, build_vk_social_sender
     from app.services.admin_notifications import enqueue_configured_social_deliveries
     from app.integrations.social_providers import probe_social_provider
     from app.integrations.vk_client import request_vk_api
-    from app.integrations.social_media_uploads import publish_vk_wall_image, send_telegram_photo_url
+    from app.integrations.social_media_uploads import publish_max_video, publish_vk_wall_image, publish_vk_wall_video, send_telegram_photo_url, send_telegram_video_url
 
 try:
     from .app.database.demo_feed import restore_demo_feed_bundle
@@ -5883,12 +5883,12 @@ def send_transactional_email(destination: str, subject: str, html: str) -> str:
 ADMIN_NOTIFICATION_DELIVERY_WORKER = AdminNotificationDeliveryWorker()
 send_admin_telegram_notification, send_admin_email_notification = build_admin_delivery_transports(telegram_api=telegram_api, send_transactional_email=send_transactional_email, html_escape=html_escape)
 SOCIAL_DELIVERY_WORKER = SocialDeliveryWorker()
-send_social_telegram_publication = build_telegram_social_sender(telegram_api=request_telegram_bot_api, telegram_image_api=send_telegram_photo_url, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_telegram_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
+send_social_telegram_publication = build_telegram_social_sender(telegram_api=request_telegram_bot_api, telegram_image_api=send_telegram_photo_url, telegram_video_api=send_telegram_video_url, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_telegram_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
 async def send_social_max_api(*, token: str, target_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return await request_max_api(token=token, base_url=MAX_API_BASE_URL, verify=MAX_HTTP_VERIFY,
                                  method="POST", path="/messages", params={"chat_id": target_id}, payload=payload)
-send_social_max_publication = build_max_social_sender(max_api=send_social_max_api, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_max_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
-send_social_vk_publication = build_vk_social_sender(vk_api=request_vk_api, vk_image_publisher=publish_vk_wall_image, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_vk_access_token"), media_token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_vk_media_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
+send_social_max_publication = build_max_social_sender(max_api=send_social_max_api, max_video_publisher=lambda **kwargs: publish_max_video(max_api=request_max_api, api_base_url=MAX_API_BASE_URL, verify=MAX_HTTP_VERIFY, **kwargs), settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_max_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
+send_social_vk_publication = build_vk_social_sender(vk_api=request_vk_api, vk_image_publisher=publish_vk_wall_image, vk_video_publisher=publish_vk_wall_video, settings_getter=lambda: _saved_setting("social_syndication"), token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_vk_access_token"), media_token_getter=lambda: OPENROUTER_SECRET_STORE.get("social_vk_media_access_token"), public_site_url_getter=lambda: os.getenv("PUBLIC_SITE_URL", ""))
 async def send_social_test(*, network: str, token: str, target_id: str, text: str) -> dict[str, Any]:
     if network == "telegram":
         return await request_telegram_bot_api(token=token, method="sendMessage", payload={"chat_id": target_id, "text": text})

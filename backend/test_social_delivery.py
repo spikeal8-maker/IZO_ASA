@@ -225,24 +225,13 @@ def test_sender_builds_https_photo_request_without_exposing_token() -> None:
     )
 
     assert result["sent"] == 1
-    assert calls == [
-        {
-            "token": "secret-token",
-            "method": "sendPhoto",
-            "payload": {
-                "chat_id": "@izo_channel",
-                "photo": (
-                    "https://izo.example/api/feed/media/publication-1"
-                    "?variant=large"
-                ),
-                    "caption": (
-                        "✨ Работа\n\nОписание\n\nАвтор: участник ИЗО АСА\n\n"
-                        "Смотреть работу и профиль автора: "
-                        "https://izo.example/feed?tab=new#work-publication-1"
-                    ),
-            },
-        }
-    ]
+    assert calls[0]["token"] == "secret-token"
+    assert calls[0]["method"] == "sendPhoto"
+    assert calls[0]["payload"]["photo"].endswith("/api/feed/media/publication-1?variant=large")
+    assert calls[0]["payload"]["caption"].startswith("Работа\n\n")
+    assert "Описание" not in calls[0]["payload"]["caption"]
+    assert "https://" not in calls[0]["payload"]["caption"]
+    assert "https://izo.example/feed?tab=new" in calls[0]["payload"]["reply_markup"]
 
 
 def test_sender_refuses_disabled_or_non_https_configuration() -> None:
@@ -320,9 +309,66 @@ def test_max_sender_uses_public_image_url_and_channel_id() -> None:
     assert result == ("max:max-message-7", None)
     assert calls[0]["token"] == "max-secret"
     assert calls[0]["target_id"] == "-700000000001"
-    assert calls[0]["payload"]["attachments"] == [{
+    assert calls[0]["payload"]["attachments"][0] == {
         "type": "image",
         "payload": {
             "url": "https://izo.example/api/feed/media/publication-1?variant=large"
         },
-    }]
+    }
+    assert calls[0]["payload"]["attachments"][1]["type"] == "inline_keyboard"
+    assert calls[0]["payload"]["text"].startswith("Работа\n\n")
+    assert "https://" not in calls[0]["payload"]["text"]
+
+
+def test_telegram_video_uses_native_uploader_and_feed_button() -> None:
+    calls = []
+
+    async def fake_api(**_kwargs):
+        raise AssertionError("generic Telegram API must not be used")
+
+    async def fake_video(**kwargs):
+        calls.append(kwargs)
+        return {"ok": True, "result": {"message_id": 91}}
+
+    sender = build_telegram_social_sender(
+        telegram_api=fake_api, telegram_video_api=fake_video,
+        settings_getter=lambda: {"masterEnabled": True, "autoPublish": True,
+            "networks": {"telegram": {"enabled": True, "verified": True, "targetId": "@izo"}}},
+        token_getter=lambda: "secret", public_site_url_getter=lambda: "https://izo.example",
+    )
+    conn = database()
+    add_delivery(conn)
+    add_publication(conn, media_type="video")
+    result = asyncio.run(deliver_pending_telegram_batch(conn, send_telegram=sender, now=NOW))
+
+    assert result["sent"] == 1
+    assert calls[0]["media_url"].endswith("/api/feed/video/publication-1?variant=full")
+    assert "https://izo.example/feed?tab=new" in calls[0]["reply_markup"]
+
+
+def test_max_video_uses_native_uploader() -> None:
+    calls = []
+
+    async def fake_max(**_kwargs):
+        raise AssertionError("generic MAX send must not be used")
+
+    async def fake_video(**kwargs):
+        calls.append(kwargs)
+        return {"message": {"body": {"mid": "video-2"}}}
+
+    sender = build_max_social_sender(
+        max_api=fake_max, max_video_publisher=fake_video,
+        settings_getter=lambda: {"masterEnabled": True, "autoPublish": True,
+            "networks": {"max": {"enabled": True, "verified": True, "targetId": "-7"}}},
+        token_getter=lambda: "secret", public_site_url_getter=lambda: "https://izo.example",
+    )
+    from app.services.social_delivery import PublicFeedPublication, SocialDelivery
+    result = asyncio.run(sender(
+        SocialDelivery("d", "p", "max", 0),
+        PublicFeedPublication("p", "video", "Название", "Полное описание"),
+    ))
+
+    assert result == ("max:video-2", None)
+    assert calls[0]["media_url"].endswith("/api/feed/video/p?variant=full")
+    assert calls[0]["feed_url"] == "https://izo.example/feed?tab=new"
+    assert "https://" not in calls[0]["message"]

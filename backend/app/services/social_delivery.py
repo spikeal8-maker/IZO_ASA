@@ -171,12 +171,20 @@ def load_public_feed_publication(
     )
 
 
-def _publication_caption(publication: PublicFeedPublication, feed_url: str) -> str:
+def _publication_author(publication: PublicFeedPublication) -> str:
     author = publication.author_display or publication.author_handle or publication.author_code or "участник ИЗО АСА"
     if publication.author_handle and publication.author_handle != author:
         author = f"{author} (@{publication.author_handle.lstrip('@')})"
+    return author
+
+
+def _short_publication_caption(publication: PublicFeedPublication) -> str:
+    return f"{publication.title}\n\nРабота автора {_publication_author(publication)}. Больше — в ленте «Новое»."
+
+
+def _vk_publication_caption(publication: PublicFeedPublication, feed_url: str) -> str:
     description = publication.description or "Авторская работа, созданная и опубликованная в творческой ленте ИЗО АСА."
-    return "\n\n".join((f"✨ {publication.title}", description, f"Автор: {author}", f"Смотреть работу и профиль автора: {feed_url}"))
+    return "\n\n".join((publication.title, description, f"Автор: {_publication_author(publication)}", f"Смотреть новые работы: {feed_url}"))
 
 
 def mark_social_delivery_sent(
@@ -311,6 +319,7 @@ def build_telegram_social_sender(
     token_getter: Callable[[], str],
     public_site_url_getter: Callable[[], str],
     telegram_image_api: Callable[..., Awaitable[dict[str, Any]]] | None = None,
+    telegram_video_api: Callable[..., Awaitable[dict[str, Any]]] | None = None,
 ) -> Callable[
     [SocialDelivery, PublicFeedPublication],
     Awaitable[tuple[str | None, str | None]],
@@ -346,19 +355,23 @@ def build_telegram_social_sender(
             else f"/api/feed/media/{quote(publication.id)}?variant=large"
         )
         media_url = f"{base_url}{media_path}"
-        feed_url = f"{base_url}/feed?tab=new#work-{quote(publication.id)}"
-        caption = _publication_caption(publication, feed_url)[:1024]
+        feed_url = f"{base_url}/feed?tab=new"
+        caption = _short_publication_caption(publication)[:1024]
+        reply_markup = json.dumps({"inline_keyboard": [[{"text": "Открыть ленту", "url": feed_url}]]}, ensure_ascii=False)
         method = "sendVideo" if publication.media_type == "video" else "sendPhoto"
         media_key = "video" if publication.media_type == "video" else "photo"
-        response = await telegram_image_api(
-            token=token, target_id=target, caption=caption, media_url=media_url
-        ) if publication.media_type == "image" and telegram_image_api is not None else await telegram_api(
+        uploader = telegram_video_api if publication.media_type == "video" else telegram_image_api
+        response = await uploader(
+            token=token, target_id=target, caption=caption, media_url=media_url,
+            reply_markup=reply_markup,
+        ) if uploader is not None else await telegram_api(
             token=token,
             method=method,
             payload={
                 "chat_id": target,
                 media_key: media_url,
                 "caption": caption,
+                "reply_markup": reply_markup,
             },
         )
         body = response.get("result")
@@ -377,6 +390,7 @@ def build_max_social_sender(
     settings_getter: Callable[[], dict[str, Any]],
     token_getter: Callable[[], str],
     public_site_url_getter: Callable[[], str],
+    max_video_publisher: Callable[..., Awaitable[dict[str, Any]]] | None = None,
 ) -> Callable[
     [SocialDelivery, PublicFeedPublication],
     Awaitable[tuple[str | None, str | None]],
@@ -405,14 +419,18 @@ def build_max_social_sender(
             else f"/api/feed/media/{quote(publication.id)}?variant=large"
         )
         media_url = f"{base_url}{media_path}"
-        feed_url = f"{base_url}/feed?tab=new#work-{quote(publication.id)}"
-        text = _publication_caption(publication, feed_url)
+        feed_url = f"{base_url}/feed?tab=new"
+        text = _short_publication_caption(publication)
         attachments = (
             [{"type": "image", "payload": {"url": media_url}}]
             if publication.media_type == "image"
-            else [{"type": "share", "payload": {"url": feed_url}}]
+            else []
         )
-        response = await max_api(
+        attachments.append({"type": "inline_keyboard", "payload": {"buttons": [[{"type": "link", "text": "Открыть ленту", "url": feed_url}]]}})
+        response = await max_video_publisher(
+            token=token, target_id=target, message=text[:4000],
+            media_url=media_url, feed_url=feed_url,
+        ) if publication.media_type == "video" and max_video_publisher is not None else await max_api(
             token=token, target_id=target,
             payload={"text": text[:4000], "attachments": attachments},
         )
@@ -432,6 +450,7 @@ def build_vk_social_sender(
     public_site_url_getter: Callable[[], str],
     media_token_getter: Callable[[], str] = lambda: "",
     vk_image_publisher: Callable[..., Awaitable[dict[str, Any]]] | None = None,
+    vk_video_publisher: Callable[..., Awaitable[dict[str, Any]]] | None = None,
 ) -> Callable[
     [SocialDelivery, PublicFeedPublication],
     Awaitable[tuple[str | None, str | None]],
@@ -453,15 +472,21 @@ def build_vk_social_sender(
         base_url = public_site_url_getter().strip().rstrip("/")
         if not token or not group_id:
             raise RuntimeError("VK social credentials are incomplete.")
-        if publication.media_type == "image" and vk_image_publisher is not None and not media_token:
-            raise RuntimeError("VK user media token is required for image publication.")
-        feed_url = f"{base_url}/feed?tab=new#work-{quote(publication.id)}"
-        media_url = f"{base_url}/api/feed/media/{quote(publication.id)}?variant=large"
-        message = _publication_caption(publication, feed_url)
-        response = await vk_image_publisher(
+        if ((publication.media_type == "image" and vk_image_publisher is not None)
+                or (publication.media_type == "video" and vk_video_publisher is not None)) and not media_token:
+            raise RuntimeError("VK user media token is required for media publication.")
+        feed_url = f"{base_url}/feed?tab=new"
+        media_url = (
+            f"{base_url}/api/feed/video/{quote(publication.id)}?variant=full"
+            if publication.media_type == "video"
+            else f"{base_url}/api/feed/media/{quote(publication.id)}?variant=large"
+        )
+        message = _vk_publication_caption(publication, feed_url)
+        publisher = vk_video_publisher if publication.media_type == "video" else vk_image_publisher
+        response = await publisher(
             vk_api=vk_api, token=token, media_token=media_token, group_id=group_id,
             message=message[:15000], media_url=media_url,
-        ) if publication.media_type == "image" and vk_image_publisher is not None else await vk_api(
+        ) if publisher is not None else await vk_api(
             token=token,
             method="wall.post",
             params={
