@@ -5905,13 +5905,15 @@ overflow: hidden;
 background: #020302;
 }
 .iv3 .iv3-history-video-preview video {
-width: auto;
-height: auto;
+width: 100% !important;
+height: 100% !important;
 max-width: 100%;
 max-height: 100%;
+min-width: 0;
+min-height: 0;
 display: block;
-object-fit: contain;
-object-position: center center;
+object-fit: contain !important;
+object-position: center center !important;
 background: #000;
 }
 .iv3 .iv3-history-video-caption {
