@@ -135,7 +135,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
 | `frontend/src/adminModels.tsx` | 2086 | 2100 | 14 |
 | `frontend/src/index.css` | 2400 | 2400 | 0 |
-| `frontend/src/newStudioV3.css` | 5964 | 6000 | 36 |
+| `frontend/src/newStudioV3.css` | 5966 | 6000 | 34 |
 | `frontend/src/newUi.css` | 3096 | 3200 | 104 |
 | `frontend/src/newUi.tsx` | 3628 | 3628 | 0 |
 

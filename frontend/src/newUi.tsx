@@ -2679,7 +2679,7 @@ export default function NewStudio(): ReactElement {
                 aria-label="Разрешение"
                 onClick={() => setFormatOpen((o) => !o)}
               >
-                <span className="iv3-format-tier">{selectedResolution.quality}</span><span className="iv3-format-res">{selectedResolution.width}×{selectedResolution.height}</span>
+                <span className="iv3-format-tier">{selectedResolution.quality === 'Full HD' ? 'FHD' : selectedResolution.quality}</span><span className="iv3-format-res">{selectedResolution.width}×{selectedResolution.height}</span>
                 <svg className="iv3-format-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="m7 9 5 5 5-5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
