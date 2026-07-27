@@ -1029,6 +1029,7 @@ class GenerateRequest(BaseModel):
     seed: int = 42
     width: int = Field(default=1024, ge=256, le=2048)
     height: int = Field(default=1024, ge=256, le=2048)
+    resolutionId: str | None = None
     steps: int = Field(default=28, ge=1, le=80)
     cfg: float = Field(default=3.5, ge=0, le=20)
     guidance: float = Field(default=3.5, ge=0, le=20)
@@ -8122,6 +8123,23 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     if plan not in PLAN_ORDER:
         plan = "mini"
     requested_resolution_id = resolution_id_for_size(req.width, req.height)
+    dynamic_local_outpaint = (
+        req.provider == "comfyui"
+        and req.mode == "outpaint"
+        and requested_resolution_id is None
+    )
+    if dynamic_local_outpaint:
+        normalized_base_ids = normalize_resolution_ids([req.resolutionId] if req.resolutionId else [])
+        requested_resolution_id = normalized_base_ids[0] if normalized_base_ids else None
+        safe_dynamic_size = (
+            req.width % 16 == 0
+            and req.height % 16 == 0
+            and 512 <= req.width <= 1792
+            and 512 <= req.height <= 1792
+            and req.width * req.height <= 2_050_000
+        )
+        if not safe_dynamic_size:
+            raise HTTPException(422, "Размер расширенного изображения выходит за безопасные пределы локальной модели.")
     if requested_resolution_id is None:
         raise HTTPException(422, "Выбран нестандартный размер изображения. Выберите доступное разрешение в интерфейсе.")
     if req.provider == "comfyui":
@@ -8168,6 +8186,8 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     # resolves the correct face lora from ComfyUI's available models.
     if req.mode == "edit":
         validate_edit_request(req)
+    if req.mode == "outpaint" and not any(comfyui_inputs.outpaint_padding(req.outpaint or {}).values()):
+        raise HTTPException(422, "Задайте ненулевое поле расширения слева, справа, сверху или снизу.")
     validate_generation_media_inputs(req, user_id)
     ensure_rate_limit(user_id)
     job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"

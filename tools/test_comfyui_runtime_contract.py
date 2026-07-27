@@ -28,3 +28,18 @@ def test_pose_snapshot_is_not_expected_inside_live_custom_node() -> None:
     pose = assets["one-node-flux-2-klein/workflows/pose_workflow.json"]
 
     assert pose["runtimeRequired"] is False
+
+
+def test_birefnet_model_and_core_fixes_are_required() -> None:
+    manifest = contract.load_manifest()
+    models = {item["path"]: item for item in manifest["models"]}
+    birefnet = models["models/background_removal/birefnet.safetensors"]
+    required_commits = {
+        item["commit"] for item in manifest["comfyUI"]["requiredCommits"]
+    }
+
+    assert birefnet["required"] is True
+    assert birefnet["qualityProfile"] is True
+    assert birefnet["sha256"] == "9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154"
+    assert "f5cf50dd53bca0aedab19c66a4204fd8f86f16f4" in required_commits
+    assert "9f1f0a2fff34fae7050bbced5b0cd3293f38dd66" in required_commits

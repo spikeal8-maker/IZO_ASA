@@ -243,10 +243,6 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
     if (outpaintFitKeyRef.current === fitKey) return
     outpaintFitKeyRef.current = fitKey
     const scale = Math.min(frameW / sourceW, frameH / sourceH)
-    const rectW = Math.round(sourceW * scale)
-    const rectH = Math.round(sourceH * scale)
-    const rectX = Math.round((frameW - rectW) / 2)
-    const rectY = Math.round((frameH - rectH) / 2)
     const finalW = frameW / Math.max(0.0001, scale)
     const finalH = frameH / Math.max(0.0001, scale)
     const extraX = Math.max(0, Math.round(finalW - sourceW))
@@ -256,12 +252,6 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
       right: Math.ceil(extraX / 2),
       top: Math.floor(extraY / 2),
       bottom: Math.ceil(extraY / 2),
-      frameW,
-      frameH,
-      sourceX: rectX,
-      sourceY: rectY,
-      sourceW: rectW,
-      sourceH: rectH,
     })
   }, [outpaintSourceSize.height, outpaintSourceSize.width, paintImage, paintMode, paintStageSize.height, paintStageSize.width, setPaintOutpaint])
 
@@ -473,15 +463,7 @@ const PaintWorkbench = forwardRef<PaintWorkbenchHandle, Props>(function PaintWor
   function updateOutpaintRect(rect: { x: number; y: number; w: number; h: number }) {
     const next = clampOutpaintRect(rect)
     const padding = outpaintPaddingFromRect(next)
-    setPaintOutpaint({
-      ...padding,
-      frameW: paintStageSize.width,
-      frameH: paintStageSize.height,
-      sourceX: next.x,
-      sourceY: next.y,
-      sourceW: next.w,
-      sourceH: next.h,
-    })
+    setPaintOutpaint(padding)
   }
 
   function scaleOutpaintRect(factor: number, center: { x: number; y: number }) {

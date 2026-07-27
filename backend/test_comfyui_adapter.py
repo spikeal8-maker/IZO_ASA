@@ -454,10 +454,11 @@ def test_patch_outpaint_workflow_uses_full_denoise_and_target_size() -> None:
 def test_patch_upload_modes_wire_expected_input_nodes() -> None:
     uploads = {"input1": "source.png", "input2": "face.png"}
 
-    i2i = {"FKI2I:img": {"inputs": {}}, "FK:171": {"inputs": {}}}
+    i2i = _edit_workflow_template()
     main.patch_mode_nodes(i2i, main.GenerateRequest(mode="image_to_image", prompt="i2i", strength=0.33), uploads, "m", "t", "v")
-    assert i2i["FKI2I:img"]["inputs"]["image"] == "source.png"
-    assert i2i["FK:171"]["inputs"]["denoise"] == 0.33
+    assert i2i["FK:91"]["inputs"]["image"] == "source.png"
+    assert i2i["FK:171"]["inputs"]["positive"] == ["FK:133", 0]
+    assert i2i["FK:171"]["inputs"]["denoise"] == 1
 
     faceswap = _edit_workflow_template()
     req = main.GenerateRequest(mode="faceswap", prompt="", seed=7, strength=0.75, loras=[main.Lora(id="face.safetensors", strength=0.75)])
@@ -525,7 +526,9 @@ def test_outpaint_uses_installed_4b_lora_without_missing_kv_model(monkeypatch) -
         "FKO:6": {"class_type": "CLIPTextEncode", "inputs": {}},
         "FKO:198": {"class_type": "LoadImage", "inputs": {}},
         "FKO:maskload": {"class_type": "LoadImage", "inputs": {}},
+        "FKO:tomask": {"class_type": "ImageToMask", "inputs": {}},
         "FKO:163": {"class_type": "KSampler", "inputs": {}},
+        "FKO:164": {"class_type": "VAEDecode", "inputs": {}},
         "FKO:203": {"class_type": "SaveImage", "inputs": {}},
     }
     req = main.GenerateRequest(mode="outpaint", prompt="extend the forest", seed=9, width=1024, height=1024)

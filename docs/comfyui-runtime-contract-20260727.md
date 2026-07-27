@@ -33,7 +33,7 @@ computers.
 | Product mode | Config UI endpoint |
 |---|---|
 | text-to-image | `/flux_klein/workflow_t2i` |
-| image-to-image | `/flux_klein/workflow_i2i` |
+| image-to-image | `/flux_klein/workflow_edit` |
 | edit, paint, try-on, texture transfer | `/flux_klein/workflow_edit` |
 | face swap | `/flux_klein/workflow_edit` |
 | inpaint | `/flux_klein/workflow_inpaint` |
@@ -43,6 +43,12 @@ computers.
 The application intentionally does not use `workflow_faceswap`: that dedicated
 graph hung with Klein 9B. Face swap patches `workflow_edit` with a model-only
 LoRA and face-first reference ordering.
+
+The application also intentionally routes image-to-image through
+`workflow_edit`. The legacy denoise graph returned a plausible image but did
+not reliably follow object-level edit instructions. The reference-latent edit
+graph was visually accepted by changing a red ceramic mug to cobalt blue while
+preserving its shape, table and composition.
 
 The quality 9B rank-128 adapter uses ComfyUI's
 `LoraLoaderBypassModelOnly`. Unlike the regular loader, bypass mode does not
@@ -93,3 +99,24 @@ target RTX 3090.
 The manifest is authoritative for filenames, sizes and SHA-256 values. A green
 asset-only check proves the Git package. A green runtime check proves file
 parity, not GPU operability or image quality.
+
+## BiRefNet background removal
+
+Background removal is not a generative Klein/LoRA operation. It uses the
+official ComfyUI `LoadBackgroundRemovalModel` and `RemoveBackground` nodes with
+the official `Comfy-Org/BiRefNet` model. The runtime contract requires:
+
+- ComfyUI base `3086026401180c9216bcb6ace442a4e3587d2c66`;
+- BiRefNet support commit
+  `f5cf50dd53bca0aedab19c66a4204fd8f86f16f4`;
+- mask-device correctness fix
+  `9f1f0a2fff34fae7050bbced5b0cd3293f38dd66`;
+- `models/background_removal/birefnet.safetensors`, exactly
+  444,473,596 bytes with SHA-256
+  `9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154`.
+
+The verifier checks that both required commits are ancestors of the installed
+ComfyUI `HEAD`, and validates the model byte size and hash. After any runtime
+change, restart ComfyUI and additionally confirm that
+`/object_info/LoadBackgroundRemovalModel` and
+`/object_info/RemoveBackground` are non-empty before browser acceptance.

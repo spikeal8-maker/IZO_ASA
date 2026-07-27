@@ -1,6 +1,19 @@
 {
   "schemaVersion": 1,
   "capturedAt": "2026-07-27",
+  "comfyUI": {
+    "baseCommit": "3086026401180c9216bcb6ace442a4e3587d2c66",
+    "requiredCommits": [
+      {
+        "commit": "f5cf50dd53bca0aedab19c66a4204fd8f86f16f4",
+        "purpose": "Official BiRefNet background-removal nodes"
+      },
+      {
+        "commit": "9f1f0a2fff34fae7050bbced5b0cd3293f38dd66",
+        "purpose": "Official BiRefNet mask-device correctness fix"
+      }
+    ]
+  },
   "customNode": {
     "name": "one-node-flux-2-klein",
     "repository": "https://github.com/yanokusnir-ai/one-node-flux-2-klein.git",
@@ -29,6 +42,15 @@
     {"path": "models/loras/face_swap_flux_klein_9b_r32_800.safetensors", "bytes": 126670920, "sha256": "40ad042e09c938cc587864b896690daf4f30abda86c24812d6a074aa041c25ec", "required": false, "compatibilityOnly": true, "source": "ilkerzgi/face-swap", "license": "flux-non-commercial-license"},
     {"path": "models/loras/bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors", "bytes": 662729912, "sha256": "70d8aaf332d710b905d5085afaa87c3ef577edffd54ffcfadeb8c47a854f9044", "required": true, "qualityProfile": true},
     {"path": "models/loras/flux2_klein_4b_outpaint_comfy.safetensors", "bytes": 76038936, "sha256": "b8a5142b40f2e24aa1f5cfd0710323188836f49ea70b15b5f85b1e364316bc5b", "required": true},
-    {"path": "models/loras/refcontrol_v2_poses.safetensors", "bytes": 165704416, "sha256": "a22ec6a5406ccdb7a247684a40f96b52a83520efa00ebe56528cf54d0e5d473b", "required": true}
+    {"path": "models/loras/refcontrol_v2_poses.safetensors", "bytes": 165704416, "sha256": "a22ec6a5406ccdb7a247684a40f96b52a83520efa00ebe56528cf54d0e5d473b", "required": true},
+    {
+      "path": "models/background_removal/birefnet.safetensors",
+      "bytes": 444473596,
+      "sha256": "9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154",
+      "required": true,
+      "source": "Comfy-Org/BiRefNet",
+      "sourceFile": "background_removal/birefnet.safetensors",
+      "qualityProfile": true
+    }
   ]
 }

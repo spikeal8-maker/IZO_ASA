@@ -8,6 +8,7 @@ import type { PreviewShape } from './studioTypes'
 export const DEFAULT_PAINT_SKETCH_PROMPT = 'Transform this sketch into a hyper-realistic cinematic scene. Interpret the lines as real-world objects with high-quality textures, cinematic lighting, natural shadows, depth, realistic materials and clean composition. Preserve the exact composition, silhouettes, poses, proportions and spatial relationships from the sketch. Scene description:'
 export const DEFAULT_PAINT_MASK_PROMPT = 'Edit only the masked area and follow the user instruction literally for that selected region. Seamlessly blend the change with the surrounding scene while preserving lighting, shadows, perspective, depth of field and photo grain. Do not change unmasked areas.'
 export const DEFAULT_PAINT_OUTPAINT_PROMPT = 'Extend the composition of this image. Replace black or empty spaces with a logical continuation of the background and foreground. Match perspective, lighting, color palette and texture so the transition is invisible. Scene description:'
+export const DEFAULT_I2I_EDIT_PROMPT = 'Edit Image 1 according to the user request. Apply the requested change clearly and literally. Preserve the subject, composition, geometry, lighting, background and every attribute that the user did not ask to change. User request:'
 
 export function loadImageShape(url: string): Promise<PreviewShape> {
   return new Promise((resolve) => {
@@ -36,6 +37,61 @@ export function comfySafeGenerationSize(size: { width: number; height: number })
 
 export function sameGenerationSize(a: { width: number; height: number }, b: { width: number; height: number }) {
   return a.width === b.width && a.height === b.height
+}
+
+export function meaningfulPaintLines(lines: PaintLine[]) {
+  return lines.some((line) => {
+    if (line.kind === 'bitmap' && line.image) return true
+    if (line.fill && line.points.length >= 4) {
+      return Math.abs((line.points[2] || 0) - (line.points[0] || 0))
+        * Math.abs((line.points[3] || 0) - (line.points[1] || 0)) >= 64
+    }
+    let length = 0
+    for (let index = 2; index < line.points.length; index += 2) {
+      length += Math.hypot(
+        (line.points[index] || 0) - (line.points[index - 2] || 0),
+        (line.points[index + 1] || 0) - (line.points[index - 1] || 0),
+      )
+    }
+    return length >= Math.max(8, line.strokeWidth)
+  })
+}
+
+export function outpaintPaddingOnly(placement: PaintOutpaintPlacement): PaintOutpaintPlacement {
+  return {
+    left: Math.max(0, Math.round(placement.left || 0)),
+    right: Math.max(0, Math.round(placement.right || 0)),
+    top: Math.max(0, Math.round(placement.top || 0)),
+    bottom: Math.max(0, Math.round(placement.bottom || 0)),
+  }
+}
+
+export async function outpaintRequestSizeFromSource(
+  inputImage: string | undefined,
+  placement: PaintOutpaintPlacement,
+  base: { width: number; height: number },
+) {
+  if (!inputImage) return base
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = apiUrl(inputImage)
+  }).catch(() => undefined)
+  if (!image) return base
+  const sourceWidth = Math.max(1, image.naturalWidth || image.width)
+  const sourceHeight = Math.max(1, image.naturalHeight || image.height)
+  const padding = outpaintPaddingOnly(placement)
+  const sourceScale = Math.min(base.width / sourceWidth, base.height / sourceHeight)
+  return {
+    width: Math.max(512, Math.round(((sourceWidth + padding.left + padding.right) * sourceScale) / 16) * 16),
+    height: Math.max(512, Math.round(((sourceHeight + padding.top + padding.bottom) * sourceScale) / 16) * 16),
+  }
+}
+
+export function composeI2IEditPrompt(userPrompt: string) {
+  const user = userPrompt.trim()
+  return user ? `${DEFAULT_I2I_EDIT_PROMPT}\n\n${user}` : DEFAULT_I2I_EDIT_PROMPT
 }
 
 export async function resizeUploadImage(file: File): Promise<string> {
