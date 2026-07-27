@@ -83,12 +83,21 @@ def build_request(mode: str, profile: str) -> main.GenerateRequest:
         common["prompt"] = "A small modern art studio, daylight, realistic interior photograph."
     elif mode == "image_to_image":
         common.update(inputImage1=first, strength=0.35)
-    elif mode == "edit":
+    elif mode in {"edit", "edit_face"}:
         common["inputImages"] = [
             main.EditImage(index=1, role="base", image=first),
-            main.EditImage(index=2, role="style", image=second),
-            main.EditImage(index=3, role="background", image=third),
+            main.EditImage(index=2, role="face" if mode == "edit_face" else "style", image=second),
         ]
+        if mode in {"edit", "edit_face"}:
+            common["inputImages"].append(
+                main.EditImage(index=3, role="background", image=third)
+            )
+        if mode == "edit_face":
+            common["mode"] = "edit"
+            common.update(width=1024, height=1024)
+            common["loras"] = [
+                main.Lora(id="bfs_head_v1_flux-klein_4b.safetensors", strength=0.75)
+            ]
     elif mode == "faceswap":
         common.update(
             inputImage1=data_url(ROOT / "frontend" / "public" / "avatars" / "avatar-050.webp"),
@@ -134,7 +143,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         required=True,
-        choices=("text_to_image", "image_to_image", "edit", "faceswap", "inpaint", "outpaint"),
+        choices=("text_to_image", "image_to_image", "edit", "edit_face", "faceswap", "inpaint", "outpaint"),
     )
     parser.add_argument("--profile", required=True, choices=("flux_klein_4b", "flux_klein_9b"))
     return parser.parse_args()

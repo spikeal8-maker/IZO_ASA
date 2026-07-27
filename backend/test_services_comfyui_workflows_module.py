@@ -143,6 +143,38 @@ def test_optional_lora_patches_existing_loader_or_inserts_model_only_loader() ->
     assert inserted["FK:169"]["inputs"]["model"] == ["FK:admin_lora", 0]
 
 
+def test_9b_face_selection_prefers_quality_bfs_lora() -> None:
+    selected, strength = comfyui_workflows.select_faceswap_lora(
+        [
+            "bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors",
+            "face_swap_flux_klein_9b_r32_800.safetensors",
+        ],
+        "",
+        0.75,
+        "flux-2-klein-9b-fp8.safetensors",
+        enabled=lambda _name: True,
+    )
+
+    assert selected == "bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors"
+    assert strength == 0.75
+
+
+def test_9b_face_assembly_bounds_three_reference_latents_only() -> None:
+    roles = ["base", "face", "background"]
+    assert comfyui_workflows.edit_reference_megapixel_limit(
+        profile_id="flux_klein_9b", roles=roles, role="base", face_limit=0.35
+    ) == 0.25
+    assert comfyui_workflows.edit_reference_megapixel_limit(
+        profile_id="flux_klein_9b", roles=roles, role="face", face_limit=0.35
+    ) == 0.25
+    assert comfyui_workflows.edit_reference_megapixel_limit(
+        profile_id="flux_klein_4b", roles=roles, role="base", face_limit=0.35
+    ) is None
+    assert comfyui_workflows.edit_reference_megapixel_limit(
+        profile_id="flux_klein_9b", roles=["base", "face"], role="face", face_limit=0.35
+    ) == 0.35
+
+
 def test_edit_reference_chain_builds_four_slots_and_rewires_sampler() -> None:
     graph = {"FK:171": {"inputs": {}}}
 

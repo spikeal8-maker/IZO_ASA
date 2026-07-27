@@ -7427,7 +7427,6 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
                     raise RuntimeError(f"LoRA {lora.id} несовместима с активной Klein {target_lora_tag.upper()} и безопасной замены нет.")
     workflow = await fetch_workflow(payload.mode)
     special_edit_graph: dict[str, Any] | None = None
-
     uploads: dict[str, str] = {}
     input1_path = local_media_path_from_url(payload.inputImage1 or "") or save_data_url(payload.inputImage1, f"{job['id']}_input1")
     input2_path = local_media_path_from_url(payload.inputImage2 or "") or save_data_url(payload.inputImage2, f"{job['id']}_input2")
@@ -7450,7 +7449,7 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
             if payload.inputImage2:
                 edit_sources.append(("", payload.inputImage2))
         edit_roles: list[str] = []
-        pose_image_name: str | None = None
+        pose_image_name: str | None = None; requested_roles = [role for role, _src in edit_sources[:4]]
         for i, (role, src) in enumerate(edit_sources[:4]):
             slot_path = local_media_path_from_url(src) or save_data_url(src, f"{job['id']}_edit{i + 1}")
             if not slot_path:
@@ -7459,7 +7458,10 @@ async def send_to_comfyui(payload: GenerateRequest, job: dict[str, Any]) -> Comf
                 slot_path,
                 f"{job['id']}_edit{i + 1}",
                 payload,
-                max_megapixels=COMFYUI_FACE_SOURCE_MEGAPIXELS if role == "face" else None,
+                max_megapixels=comfyui_workflows.edit_reference_megapixel_limit(
+                    profile_id=profile_id, roles=requested_roles, role=role,
+                    face_limit=COMFYUI_FACE_SOURCE_MEGAPIXELS,
+                ),
             )
             if slot_path:
                 try:

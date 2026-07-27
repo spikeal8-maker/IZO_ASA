@@ -68,8 +68,7 @@ def select_faceswap_lora(
         and enabled(item)
         and any(keyword in item.lower() for keyword in ("bfs", "face", "head"))
     ]
-    if target_tag == "9b":
-        matches.sort(key=lambda item: ("face_swap" not in item.lower(), item.lower()))
+    matches.sort(key=str.lower)
     match = matches[0] if matches else ""
     if not match:
         raise RuntimeError(
@@ -77,6 +76,20 @@ def select_faceswap_lora(
             "или выключена в Config UI."
         )
     return match, requested_strength
+
+
+def edit_reference_megapixel_limit(
+    *,
+    profile_id: str,
+    roles: Sequence[str],
+    role: str,
+    face_limit: float,
+) -> float | None:
+    """Bound 9B multi-reference conditioning while preserving model quality."""
+
+    if "9b" in profile_id.lower() and "face" in roles and len(roles) >= 3:
+        return min(face_limit, 0.25) if role == "face" else 0.25
+    return face_limit if role == "face" else None
 
 
 EDIT_SLOT_NODES = (

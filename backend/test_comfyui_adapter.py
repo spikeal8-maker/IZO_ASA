@@ -127,7 +127,7 @@ def test_choose_faceswap_lora_prefers_matching_9b_face_lora() -> None:
     assert selected.strength == 0.72
 
 
-def test_choose_faceswap_lora_prefers_lightweight_9b_face_swap_lora() -> None:
+def test_choose_faceswap_lora_prefers_quality_9b_bfs_lora() -> None:
     selected = main.choose_faceswap_lora(
         [
             "bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors",
@@ -137,7 +137,7 @@ def test_choose_faceswap_lora_prefers_lightweight_9b_face_swap_lora() -> None:
         "flux-2-klein-9b-fp8.safetensors",
     )
 
-    assert selected.id == "face_swap_flux_klein_9b_r32_800.safetensors"
+    assert selected.id == "bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors"
 
 
 def test_choose_faceswap_lora_rejects_admin_disabled_lora() -> None:
