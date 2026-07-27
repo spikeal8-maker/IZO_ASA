@@ -657,7 +657,7 @@ def build_social_deletion_sender(
             parts = external_id.removeprefix("vk:").split(":", 1)
             group_id = str((networks.get("vk") or {}).get("targetId") or "").lstrip("-")
             await vk_api(
-                token=secret_getter("social_vk_access_token"),
+                token=secret_getter("social_vk_media_access_token"),
                 method="wall.delete",
                 params={"owner_id": f"-{group_id}", "post_id": parts[0]},
             )
