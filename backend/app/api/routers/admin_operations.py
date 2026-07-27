@@ -530,7 +530,8 @@ def create_admin_operations_router(deps: AdminOperationsDependencies) -> APIRout
             )
         except Exception as exc:
             raise HTTPException(502, f"MAX не подтвердил доставку: {exc}") from exc
-        message_id = result.get("message_id") or result.get("messageId") or result.get("id")
+        message = result.get("message") if isinstance(result.get("message"), dict) else {}
+        message_id = result.get("message_id") or result.get("messageId") or result.get("id") or message.get("message_id") or message.get("messageId") or message.get("id")
         if message_id is None:
             raise HTTPException(502, "MAX не вернул идентификатор доставленного сообщения.")
         with deps.db() as conn:

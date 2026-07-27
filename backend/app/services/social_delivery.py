@@ -29,6 +29,9 @@ class PublicFeedPublication:
     media_type: str
     title: str
     description: str | None
+    author_display: str | None = None
+    author_handle: str | None = None
+    author_code: str | None = None
 
 
 def _utc_now() -> datetime:
@@ -139,11 +142,16 @@ def load_public_feed_publication(
 ) -> PublicFeedPublication:
     row = conn.execute(
         """
-        SELECT id, media_type, title, description
-        FROM feed_publications
-        WHERE id = ? AND status = 'published'
-          AND moderation_status = 'approved'
-          AND media_ready_at IS NOT NULL
+        SELECT f.id, f.media_type, f.title, f.description,
+               COALESCE(NULLIF(f.author_display, ''), NULLIF(u.display_name, ''),
+                        NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), '')) AS author_display,
+               COALESCE(NULLIF(f.author_handle, ''), NULLIF(u.username, '')) AS author_handle,
+               NULLIF(u.public_user_code, '') AS author_code
+        FROM feed_publications f
+        LEFT JOIN users u ON u.internal_user_id = f.internal_user_id
+        WHERE f.id = ? AND f.status = 'published'
+          AND f.moderation_status = 'approved'
+          AND f.media_ready_at IS NOT NULL
         """,
         (publication_id,),
     ).fetchone()
@@ -157,7 +165,18 @@ def load_public_feed_publication(
         media_type=media_type,
         title=str(row["title"] or "").strip(),
         description=str(row["description"]).strip() if row["description"] else None,
+        author_display=str(row["author_display"]).strip() if row["author_display"] else None,
+        author_handle=str(row["author_handle"]).strip() if row["author_handle"] else None,
+        author_code=str(row["author_code"]).strip() if row["author_code"] else None,
     )
+
+
+def _publication_caption(publication: PublicFeedPublication, feed_url: str) -> str:
+    author = publication.author_display or publication.author_handle or publication.author_code or "участник ИЗО АСА"
+    if publication.author_handle and publication.author_handle != author:
+        author = f"{author} (@{publication.author_handle.lstrip('@')})"
+    description = publication.description or "Авторская работа, созданная и опубликованная в творческой ленте ИЗО АСА."
+    return "\n\n".join((f"✨ {publication.title}", description, f"Автор: {author}", f"Смотреть работу и профиль автора: {feed_url}"))
 
 
 def mark_social_delivery_sent(
@@ -328,12 +347,7 @@ def build_telegram_social_sender(
         )
         media_url = f"{base_url}{media_path}"
         feed_url = f"{base_url}/feed?tab=new#work-{quote(publication.id)}"
-        caption_parts = [
-            publication.title,
-            publication.description or "",
-            feed_url,
-        ]
-        caption = "\n\n".join(part for part in caption_parts if part)[:1024]
+        caption = _publication_caption(publication, feed_url)[:1024]
         method = "sendVideo" if publication.media_type == "video" else "sendPhoto"
         media_key = "video" if publication.media_type == "video" else "photo"
         response = await telegram_image_api(
@@ -392,9 +406,7 @@ def build_max_social_sender(
         )
         media_url = f"{base_url}{media_path}"
         feed_url = f"{base_url}/feed?tab=new#work-{quote(publication.id)}"
-        text = "\n\n".join(
-            part for part in (publication.title, publication.description or "", feed_url) if part
-        )
+        text = _publication_caption(publication, feed_url)
         attachments = (
             [{"type": "image", "payload": {"url": media_url}}]
             if publication.media_type == "image"
@@ -404,7 +416,8 @@ def build_max_social_sender(
             token=token, target_id=target,
             payload={"text": text[:4000], "attachments": attachments},
         )
-        message_id = response.get("message_id") or response.get("messageId") or response.get("id")
+        response_message = response.get("message") if isinstance(response.get("message"), dict) else {}
+        message_id = response.get("message_id") or response.get("messageId") or response.get("id") or response_message.get("message_id") or response_message.get("messageId") or response_message.get("id")
         return (f"max:{message_id}" if message_id is not None else None), None
 
     return send
@@ -443,9 +456,7 @@ def build_vk_social_sender(
             raise RuntimeError("VK user media token is required for image publication.")
         feed_url = f"{base_url}/feed?tab=new#work-{quote(publication.id)}"
         media_url = f"{base_url}/api/feed/media/{quote(publication.id)}?variant=large"
-        message = "\n\n".join(
-            part for part in (publication.title, publication.description or "", feed_url) if part
-        )
+        message = _publication_caption(publication, feed_url)
         response = await vk_image_publisher(
             vk_api=vk_api, token=token, media_token=media_token, group_id=group_id,
             message=message[:15000], media_url=media_url,

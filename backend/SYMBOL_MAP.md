@@ -219,7 +219,7 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | POST | `/social/{network}/check-v2` | `check_social_credentials` | 441 | public/optional/review |
 | POST | `/social/telegram/test-delivery-v2` | `test_telegram_delivery` | 477 | public/optional/review |
 | POST | `/social/max/test-delivery-v2` | `test_max_delivery` | 513 | public/optional/review |
-| POST | `/social/vk/test-delivery-v2` | `test_vk_delivery` | 546 | public/optional/review |
+| POST | `/social/vk/test-delivery-v2` | `test_vk_delivery` | 547 | public/optional/review |
 | GET | `/api/admin/bots/config-v2` | `admin_bots_config_v2` | 330 | admin |
 | GET | `/api/admin/bots/status-v2` | `admin_bots_status_v2` | 346 | admin |
 | PUT | `/api/admin/bots/config-v2` | `admin_bots_save_config_v2` | 419 | admin |

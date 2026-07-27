@@ -29,8 +29,14 @@ def database() -> sqlite3.Connection:
         );
         CREATE TABLE feed_publications (
             id TEXT PRIMARY KEY, media_type TEXT NOT NULL, title TEXT NOT NULL,
-            description TEXT, status TEXT NOT NULL,
+            description TEXT, internal_user_id TEXT, author_display TEXT,
+            author_handle TEXT, status TEXT NOT NULL,
             moderation_status TEXT NOT NULL, media_ready_at TEXT
+        );
+        CREATE TABLE users (
+            internal_user_id TEXT PRIMARY KEY, display_name TEXT,
+            first_name TEXT, last_name TEXT, username TEXT,
+            public_user_code TEXT
         );
         """
     )
@@ -229,10 +235,11 @@ def test_sender_builds_https_photo_request_without_exposing_token() -> None:
                     "https://izo.example/api/feed/media/publication-1"
                     "?variant=large"
                 ),
-                "caption": (
-                    "Работа\n\nОписание\n\n"
-                    "https://izo.example/feed?tab=new#work-publication-1"
-                ),
+                    "caption": (
+                        "✨ Работа\n\nОписание\n\nАвтор: участник ИЗО АСА\n\n"
+                        "Смотреть работу и профиль автора: "
+                        "https://izo.example/feed?tab=new#work-publication-1"
+                    ),
             },
         }
     ]
@@ -275,7 +282,7 @@ def test_max_sender_uses_public_image_url_and_channel_id() -> None:
 
     async def fake_max_api(**kwargs):
         calls.append(kwargs)
-        return {"message_id": "max-message-7"}
+        return {"message": {"message_id": "max-message-7"}}
 
     sender = build_max_social_sender(
         max_api=fake_max_api,

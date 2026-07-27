@@ -94,7 +94,7 @@ def test_social_admin_credentials_are_write_only_and_deletable():
     async def send_test(**kwargs):
         sent_messages.append(kwargs)
         if kwargs.get("network") == "max":
-            return {"message_id": "max-test-9"}
+            return {"message": {"message_id": "max-test-9"}}
         return {"ok": True, "result": {"message_id": 321}}
 
     async def empty_async():
