@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from statistics import fmean
 from typing import Any, Callable, Iterable
 
@@ -16,6 +17,29 @@ STARTING_USD_PER_SECOND = {
     "2k": 0.28,
     "4k": 0.35,
 }
+
+
+def video_size(model: dict[str, Any], resolution: str, aspect_ratio: str) -> tuple[int, int] | None:
+    ratio_parts = [int(value) for value in aspect_ratio.split(":") if value.isdigit()]
+    target_ratio = ratio_parts[0] / ratio_parts[1] if len(ratio_parts) == 2 and ratio_parts[1] else None
+    sizes: list[tuple[int, int]] = []
+    for raw in model.get("supportedSizes") or []:
+        match = re.fullmatch(r"(\d+)x(\d+)", str(raw).lower())
+        if match:
+            sizes.append((int(match.group(1)), int(match.group(2))))
+    resolution_key = str(resolution or "").strip().lower()
+    short = {"1k": 1024, "2k": 1440, "4k": 2160}.get(resolution_key) or int(re.sub(r"\D", "", resolution_key) or 720)
+    if sizes:
+        def score(size: tuple[int, int]) -> tuple[float, float]:
+            resolution_error = abs(min(size) - short) / max(short, 1)
+            aspect_error = abs(size[0] / size[1] - target_ratio) if target_ratio else 0.0
+            return resolution_error, aspect_error
+        return min(sizes, key=score)
+    if target_ratio and target_ratio >= 1:
+        return max(short, round(short * target_ratio)), short
+    if target_ratio:
+        return short, max(short, round(short / target_ratio))
+    return None
 
 
 def allowed_models(

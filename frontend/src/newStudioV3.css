@@ -5884,3 +5884,64 @@ font-size: 9px;
   width: 100%;
   height: 100%;
 }
+.iv3 .iv3-history-video-preview {
+position: absolute;
+inset: 0;
+display: grid;
+place-items: center;
+overflow: hidden;
+background: #020302;
+}
+.iv3 .iv3-history-video-preview video {
+width: 100%;
+height: 100%;
+display: block;
+object-fit: contain;
+background: #000;
+}
+.iv3 .iv3-history-video-caption {
+position: absolute;
+z-index: 4;
+right: 14px;
+bottom: 14px;
+max-width: min(390px, calc(100% - 28px));
+padding: 11px 13px;
+border: 1px solid rgba(255,255,255,.11);
+border-radius: 10px;
+color: #edf3ee;
+background: rgba(7,12,8,.78);
+backdrop-filter: blur(12px);
+}
+.iv3 .iv3-history-video-caption span {
+display: block;
+font-weight: 750;
+}
+.iv3 .iv3-history-video-caption p {
+margin: 4px 0 9px;
+color: rgba(237,243,238,.72);
+font-size: 12px;
+line-height: 1.4;
+}
+.iv3 .iv3-history-video-caption button {
+min-height: 36px;
+padding: 0 11px;
+border: 1px solid rgba(199,245,0,.45);
+border-radius: 8px;
+display: inline-flex;
+align-items: center;
+gap: 7px;
+color: var(--lime);
+background: rgba(199,245,0,.06);
+cursor: pointer;
+}
+.iv3 .iv3-history-video-caption svg {
+width: 16px;
+height: 16px;
+}
+@media (max-width: 820px) {
+.iv3 .iv3-history-video-caption {
+right: 8px;
+bottom: 8px;
+max-width: calc(100% - 16px);
+}
+}

@@ -74,6 +74,7 @@
       "predicate": "isNewStudioRoute",
       "entry": "frontend/src/newUi.tsx",
       "components": [
+        "frontend/src/HistoryVideoPreview.tsx",
         "frontend/src/PaintWorkbench.tsx",
         "frontend/src/ProfilePage.tsx",
         "frontend/src/RuntimeBoundary.tsx",
@@ -229,6 +230,7 @@
       "predicate": "isLegacyRoute",
       "entry": "frontend/src/LegacyApp.tsx",
       "components": [
+        "frontend/src/HistoryVideoPreview.tsx",
         "frontend/src/LegacyApp.tsx",
         "frontend/src/PaintWorkbench.tsx",
         "frontend/src/ProfilePage.tsx",

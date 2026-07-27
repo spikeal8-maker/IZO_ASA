@@ -50,9 +50,29 @@ def find_gallery_media_owner(
     if image_row is not None:
         return image_row
     canonical, canonical_query, legacy, legacy_query = exact_media_url_params(filename)
-    return conn.execute(
+    image_source = conn.execute(
         """
         SELECT id, user_id, image_id, thumb_url FROM image_sources
+        WHERE user_id = ?
+          AND (
+            thumb_url = ? OR thumb_url LIKE ? ESCAPE '\\'
+            OR thumb_url = ? OR thumb_url LIKE ? ESCAPE '\\'
+          )
+        LIMIT 1
+        """,
+        (
+            legacy_user_id,
+            canonical,
+            canonical_query,
+            legacy,
+            legacy_query,
+        ),
+    ).fetchone()
+    if image_source is not None:
+        return image_source
+    return conn.execute(
+        """
+        SELECT id, user_id, job_id AS image_id, thumb_url FROM video_sources
         WHERE user_id = ?
           AND (
             thumb_url = ? OR thumb_url LIKE ? ESCAPE '\\'

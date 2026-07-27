@@ -681,6 +681,7 @@ try:
         SourceRowRepairRuntime,
         SourceTreeRuntime,
         SourceThumbnailRuntime,
+        VideoSourcePersistenceRuntime,
         StoragePathError,
         count_active_gallery_images as storage_count_active_gallery_images,
         select_gallery_eviction_candidates as storage_select_gallery_eviction_candidates,
@@ -698,6 +699,8 @@ try:
         repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
         persist_image_source_rows as storage_persist_image_source_rows,
         save_source_thumbnail as storage_save_source_thumbnail,
+        persist_video_sources as storage_persist_video_sources,
+        video_generation_source_inputs as storage_video_generation_source_inputs,
         generation_source_inputs as storage_generation_source_inputs,
         source_role_label as storage_source_role_label,
         find_owned_active_image as storage_find_owned_active_image,
@@ -720,6 +723,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         SourceRowRepairRuntime,
         SourceTreeRuntime,
         SourceThumbnailRuntime,
+        VideoSourcePersistenceRuntime,
         StoragePathError,
         count_active_gallery_images as storage_count_active_gallery_images,
         select_gallery_eviction_candidates as storage_select_gallery_eviction_candidates,
@@ -737,6 +741,8 @@ except ImportError:  # Direct `python backend/main.py` execution.
         repair_image_source_rows_from_job as storage_repair_image_source_rows_from_job,
         persist_image_source_rows as storage_persist_image_source_rows,
         save_source_thumbnail as storage_save_source_thumbnail,
+        persist_video_sources as storage_persist_video_sources,
+        video_generation_source_inputs as storage_video_generation_source_inputs,
         generation_source_inputs as storage_generation_source_inputs,
         source_role_label as storage_source_role_label,
         find_owned_active_image as storage_find_owned_active_image,
@@ -4526,6 +4532,17 @@ def gallery_sources_for_image(
         user_id,
         depth=depth,
         visited=visited,
+    )
+def persist_video_sources(job_id: str, user_id: str, req: VideoGenerateRequest, created_at: str) -> list[dict[str, Any]]:
+    return storage_persist_video_sources(
+        VideoSourcePersistenceRuntime(
+            connect=db, save_source_thumb=_save_source_thumb,
+            find_source_image_id=gallery_image_id_from_media_url,
+            read_image_children=lambda conn, image_id, owner_id: gallery_sources_for_image(
+                conn, image_id, owner_id, depth=2, visited=set()),
+            public_url=public_url,
+        ),
+        job_id, user_id, storage_video_generation_source_inputs(req), created_at,
     )
 
 
@@ -15716,24 +15733,6 @@ def openrouter_usage_stats() -> dict[str, Any]:
     }
 
 
-def _video_size(model: dict[str, Any], resolution: str, aspect_ratio: str) -> tuple[int, int] | None:
-    ratio_parts = [int(value) for value in aspect_ratio.split(":") if value.isdigit()]
-    target_ratio = ratio_parts[0] / ratio_parts[1] if len(ratio_parts) == 2 and ratio_parts[1] else None
-    sizes: list[tuple[int, int]] = []
-    for raw in model.get("supportedSizes") or []:
-        match = re.fullmatch(r"(\d+)x(\d+)", str(raw).lower())
-        if match:
-            sizes.append((int(match.group(1)), int(match.group(2))))
-    if sizes and target_ratio:
-        return min(sizes, key=lambda size: abs(size[0] / size[1] - target_ratio))
-    short = int(re.sub(r"\D", "", resolution) or 720)
-    if target_ratio and target_ratio >= 1:
-        return max(short, round(short * target_ratio)), short
-    if target_ratio:
-        return short, max(short, round(short / target_ratio))
-    return None
-
-
 def _openrouter_video_billing_from_exchange(
     model: dict[str, Any],
     req: VideoGenerateRequest,
@@ -15750,7 +15749,7 @@ def _openrouter_video_billing_from_exchange(
     )
     rate_usd, unit = pricing_rate.usd_rate, pricing_rate.unit
     billed_units = float(req.duration)
-    size = _video_size(model, req.resolution, req.aspectRatio)
+    size = video_pricing.video_size(model, req.resolution, req.aspectRatio)
     if unit == "video_token":
         if not size:
             raise HTTPException(422, "Модель требует точный размер кадра для расчёта стоимости.")
@@ -16139,6 +16138,7 @@ async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[st
             _video_storage_reservation(conn, locked_user, user_id)
             charge = charge_generation_tokens(conn, user_id, int(billing["chargedTokens"]), job_id, req, billing)
             conn.execute("INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,settings_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (job_id, user_id, req.mode, "openrouter", "submitting", 5, req.prompt.strip(), json.dumps({"openrouterModel": req.model, "duration": req.duration, "resolution": req.resolution, "aspectRatio": req.aspectRatio, "generateAudio": req.generateAudio, "tokenCost": billing["chargedTokens"], "openrouterBilling": billing}, ensure_ascii=False), now))
+        persist_video_sources(job_id, user_id, req, now)
         submitted = await submit_openrouter_video(base_url=OPENROUTER_BASE_URL, headers=openrouter_headers(), payload=body)
     except Exception as exc:
         with db() as conn:
@@ -16281,7 +16281,7 @@ async def _refresh_video_job(row: sqlite3.Row) -> sqlite3.Row:
                 conn.execute("BEGIN IMMEDIATE")
                 user_row = conn.execute("SELECT * FROM users WHERE id=?", (row["user_id"],)).fetchone()
                 _evict_videos_for_new_result(conn, user_row, row["user_id"], now=completed_at or datetime.now(timezone.utc).isoformat())
-                size = _video_size(
+                size = video_pricing.video_size(
                     {"supportedSizes": []},
                     str(settings.get("resolution") or "720p"),
                     str(settings.get("aspectRatio") or "16:9"),
@@ -16350,7 +16350,7 @@ def _backfill_completed_video_gallery(conn: sqlite3.Connection, user_id: str) ->
             continue
         gallery_id = str(settings.get("galleryVideoId") or f"gallery_{row['id']}")
         settings["galleryVideoId"] = gallery_id
-        size = _video_size(
+        size = video_pricing.video_size(
             {"supportedSizes": []},
             str(settings.get("resolution") or "720p"),
             str(settings.get("aspectRatio") or "16:9"),
@@ -18364,7 +18364,7 @@ async def _publish_feed_video(
             {"label": "Разрешение", "value": settings.get("resolution") or f"{video['width']}×{video['height']}"},
             {"label": "Звук", "value": "Есть" if settings.get("generateAudio") else "Без звука"},
         ],
-        "sourceHistory": feed_presentation.video_source_history(video_mode),
+        "sourceHistory": settings.get("sourceHistory") if isinstance(settings.get("sourceHistory"), list) else feed_presentation.video_source_history(video_mode),
     }
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")

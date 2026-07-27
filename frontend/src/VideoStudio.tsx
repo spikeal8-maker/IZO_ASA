@@ -70,8 +70,21 @@ type VideoJob = {
   publicationId?: string | null
   publicationStatus?: 'preparing' | 'published' | 'failed' | 'hidden' | null
   publicationError?: string | null
+  sourceHistory?: Array<{ id: string; roleLabel?: string; thumbUrl?: string; width?: number; height?: number }>
 }
-type GalleryImage = { id: string; url?: string; src?: string; viewerSrc?: string; thumbnailUrl?: string; width?: number; height?: number; promptOriginal?: string }
+type GalleryImage = {
+  id: string
+  mediaType?: 'image' | 'video'
+  url?: string
+  src?: string
+  viewerSrc?: string
+  thumbnailUrl?: string
+  width?: number
+  height?: number
+  promptOriginal?: string
+  createdAt?: string
+  aspectRatio?: string
+}
 type VideoStudioProps = { onTokenBalanceChange?: (balance: number) => void }
 
 const MODE_META: Array<{ id: VideoMode; label: string; note: string; empty: string }> = [
@@ -112,6 +125,7 @@ const EXAMPLE_PROMPTS: Record<VideoMode, string[]> = {
   ],
 }
 const PRIMARY_ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:3']
+const CORE_RESOLUTIONS = ['480p', '720p', '1080p', '4K']
 const DRAFT_KEY = 'izo-video-draft-v2'
 const VISIBILITY_KEY = 'izo:video-model-visibility'
 const QUALITY_MODELS_KEY = 'izo:video-quality-models'
@@ -209,8 +223,10 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   const [lastFrame, setLastFrame] = useState('')
   const [references, setReferences] = useState<string[]>([])
   const [history, setHistory] = useState<VideoJob[]>([])
+  const [imageHistory, setImageHistory] = useState<GalleryImage[]>([])
   const [activeJob, setActiveJob] = useState<VideoJob | null>(null)
   const [selectedJob, setSelectedJob] = useState<VideoJob | null>(null)
+  const [selectedHistoryImage, setSelectedHistoryImage] = useState<GalleryImage | null>(null)
   const [estimate, setEstimate] = useState<VideoEstimate | null>(null)
   const [estimateKey, setEstimateKey] = useState('')
   const [estimateLoading, setEstimateLoading] = useState(false)
@@ -264,6 +280,20 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   }, [mode, qualityModels, sortedModels])
   const selectedModel = models.find((item) => item.id === modelId) || qualityModel(quality) || models[0]
   const durationOptions = selectedModel?.supportedDurations || []
+  const resolutionOptions = useMemo(() => {
+    const supported = selectedModel?.supportedResolutions || []
+    const byKey = new Map(supported.map((value) => [value.toLowerCase(), value]))
+    const core = CORE_RESOLUTIONS.map((label) => ({
+      label,
+      value: byKey.get(label.toLowerCase()) || label,
+      supported: byKey.has(label.toLowerCase()),
+    }))
+    const coreKeys = new Set(CORE_RESOLUTIONS.map((value) => value.toLowerCase()))
+    return [
+      ...core,
+      ...supported.filter((value) => !coreKeys.has(value.toLowerCase())).map((value) => ({ label: value, value, supported: true })),
+    ]
+  }, [selectedModel])
   const qualityChoices = useMemo(() => Object.fromEntries(QUALITY_META.map((item) => [item.id, qualityModel(item.id)])) as Record<VideoQuality, VideoModel | undefined>, [qualityModel])
 
   const syncModelDefaults = useCallback((model: VideoModel | undefined) => {
@@ -287,7 +317,11 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   }, [])
 
   useEffect(() => {
-    Promise.all([apiFetch('/video/config'), apiFetch('/video/history?limit=40')]).then(async ([configResponse, historyResponse]) => {
+    Promise.all([
+      apiFetch('/video/config'),
+      apiFetch('/video/history?limit=40'),
+      apiFetch('/gallery/items?limit=40&filter=image'),
+    ]).then(async ([configResponse, historyResponse, imageHistoryResponse]) => {
       if (!configResponse.ok) throw new Error(await responseError(configResponse, 'Видео сейчас недоступно.'))
       const nextConfig = await configResponse.json() as VideoConfig
       setConfig(nextConfig)
@@ -305,6 +339,10 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
         const running = items.find((item) => !['completed', 'failed', 'cancelled', 'expired'].includes(item.status)) || null
         setActiveJob(running)
         setSelectedJob(items.find((item) => item.status === 'completed') || running || null)
+      }
+      if (imageHistoryResponse.ok) {
+        const data = await imageHistoryResponse.json() as { items?: GalleryImage[] }
+        setImageHistory((data.items || []).filter((item) => item.mediaType !== 'video'))
       }
     }).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false))
   }, [initialDraft.modelId, initialDraft.quality, initialMode, initialVideoSource, syncModelDefaults, visibility])
@@ -573,7 +611,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
       aspectRatio,
       generateAudio,
     }
-    setSubmitting(true); setError(''); setPreviewCleared(false)
+    setSubmitting(true); setError(''); setPreviewCleared(false); setSelectedHistoryImage(null)
     setActiveJob(optimisticJob)
     setSelectedJob(optimisticJob)
     setHistory((items) => [optimisticJob, ...items.filter((item) => item.id !== optimisticId)])
@@ -602,7 +640,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
     if (!response.ok) { setError(await responseError(response, 'Не удалось удалить видео.')); return }
     setHistory((items) => items.filter((item) => item.id !== job.id)); setSelectedJob(null); setPreviewCleared(true); setMenuOpen(false)
   }
-  const clearPreview = () => { setSelectedJob(null); setPreviewCleared(true); setMenuOpen(false) }
+  const clearPreview = () => { setSelectedJob(null); setSelectedHistoryImage(null); setPreviewCleared(true); setMenuOpen(false) }
   const copyVideoLink = async (job: VideoJob) => {
     const url = new URL(job.videoUrl || '', window.location.origin).toString()
     await navigator.clipboard.writeText(url)
@@ -719,6 +757,25 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
     }, 0)
   }
 
+  const historyImageSource = (item: GalleryImage) => item.url || item.viewerSrc || item.src || item.thumbnailUrl || ''
+  const animateHistoryImage = (item: GalleryImage) => {
+    const source = historyImageSource(item)
+    if (!source) return
+    setMode('image_to_video')
+    setFirstFrame(apiUrl(source))
+    setPrompt((current) => current.trim() ? current : VIDEO_SOURCE_DEFAULT_PROMPT)
+    setSelectedHistoryImage(item)
+    setSelectedJob(null)
+    setPreviewCleared(false)
+    window.setTimeout(() => {
+      if (window.matchMedia('(max-width: 820px)').matches) {
+        document.querySelector('.video-composer')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      } else {
+        promptTextareaRef.current?.focus()
+      }
+    }, 0)
+  }
+
   const sourceCard = (target: FrameKey, value: string, title: string, note: string, index = -1) => (
     <div key={`${target}-${index}-${title}`} className={`video-source${value ? ' filled' : ' clickable'}`} role={!value ? 'button' : undefined} tabIndex={!value ? 0 : undefined} onClick={!value ? () => openUpload(target) : undefined} onKeyDown={!value ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openUpload(target) } } : undefined} onDragOver={(event) => event.preventDefault()} onDrop={(event) => void handleDrop(target, event)}>
       {value ? <img src={value} alt={title} /> : <ImagePlus aria-hidden="true" />}
@@ -737,9 +794,14 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
     {mode === 'reference_to_video' && <div className="video-reference-inputs">{references.map((value, index) => sourceCard('reference', value, `Референс ${index + 1}`, '', index))}{references.length < 4 && sourceCard('reference', '', 'Добавить референс', 'До четырёх изображений')}</div>}
   </section> : null
 
-  const shownJob = previewCleared ? null : selectedJob || activeJob
+  const shownImage = previewCleared ? null : selectedHistoryImage
+  const shownJob = previewCleared || shownImage ? null : selectedJob || activeJob
   const modeMeta = MODE_META.find((item) => item.id === mode) || MODE_META[0]
-  const stageRatio = shownJob?.aspectRatio || aspectRatio
+  const stageRatio = shownImage?.aspectRatio || (shownImage?.width && shownImage?.height ? `${shownImage.width}:${shownImage.height}` : null) || shownJob?.aspectRatio || aspectRatio
+  const mediaHistory = useMemo(() => [
+    ...history.map((item) => ({ kind: 'video' as const, createdAt: item.createdAt, item })),
+    ...imageHistory.map((item) => ({ kind: 'image' as const, createdAt: item.createdAt || '', item })),
+  ].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))), [history, imageHistory])
   const orderedAspectRatios = useMemo(() => {
     const ratios = selectedModel?.supportedAspectRatios || []
     return [...ratios].sort((a, b) => {
@@ -842,7 +904,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
 
           <section className="video-params">
             <div className="video-setting-label"><span>Качество</span></div>
-            <div className="video-resolution-tabs">{selectedModel?.supportedResolutions.map((value) => <button key={value} type="button" className={resolution === value ? 'active' : ''} onClick={() => setResolution(value)} title={`Качество ${value} · формат ${aspectRatio}`}>{value}</button>)}</div>
+            <div className="video-resolution-tabs">{resolutionOptions.map((option) => <button key={option.label} type="button" disabled={!option.supported} className={resolution.toLowerCase() === option.value.toLowerCase() ? 'active' : ''} onClick={() => option.supported && setResolution(option.value)} title={option.supported ? `Качество ${option.label} · формат ${aspectRatio}` : `${shortModelName(selectedModel)} не поддерживает ${option.label}`}>{option.label}</button>)}</div>
             <h2>Модель</h2>
             <div className="video-quality-tabs">{QUALITY_META.map((item) => {
               const presetModel = qualityChoices[item.id]
@@ -876,8 +938,9 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
           {sourceInputs('mobile')}
         <div className="video-stage-wrap"><div className="video-stage" style={{ aspectRatio: aspectStyle(stageRatio) }}>
           <div className="video-stage-overlay">
-            {activeJob && !viewingActiveJob && <button className="video-active-return" type="button" onClick={() => { setSelectedJob(activeJob); setPreviewCleared(false) }}><LoaderCircle className="spin" /><span>{statusLabel(activeJob.status)} · {Math.max(4, activeJob.progress || 4)}%</span><b>Вернуться</b></button>}
+            {activeJob && !viewingActiveJob && <button className="video-active-return" type="button" onClick={() => { setSelectedHistoryImage(null); setSelectedJob(activeJob); setPreviewCleared(false) }}><LoaderCircle className="spin" /><span>{statusLabel(activeJob.status)} · {Math.max(4, activeJob.progress || 4)}%</span><b>Вернуться</b></button>}
             <div className="video-stage-actions">
+              {shownImage && <button type="button" onClick={() => animateHistoryImage(shownImage)}><Sparkles /> <span>Оживить изображение</span></button>}
               {shownJob?.videoUrl && <a href={shownJob.videoUrl} download title="Скачать"><Download /> <span>Скачать</span></a>}
               {shownJob?.videoUrl && <div className="video-share"><button type="button" aria-expanded={shareOpen} onClick={() => setShareOpen((value) => !value)}><Share2 /> <span>Поделиться</span></button>{shareOpen && <div className="video-share-menu">
                 <button type="button" onClick={() => openVideoPublish(shownJob)}><Sparkles /> {shownJob.published ? 'Открыть в ленте' : shownJob.publicationStatus === 'preparing' ? 'Готовим публикацию' : 'В ленту'}</button>
@@ -887,7 +950,8 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
               {shownJob && <div className="video-more"><button type="button" title="Другие действия" onClick={() => setMenuOpen((value) => !value)}><MoreVertical /></button>{menuOpen && <div><button type="button" onClick={clearPreview}><X /> Очистить предпросмотр</button>{shownJob.galleryVideoId && <button className="destructive" type="button" onClick={() => void deleteVideo(shownJob)}><Trash2 /> Удалить из галереи</button>}</div>}</div>}
             </div>
           </div>
-          {shownJob?.status === 'completed' && shownJob.videoUrl ? <video key={shownJob.videoUrl} src={shownJob.videoUrl} controls playsInline preload="metadata" />
+          {shownImage && historyImageSource(shownImage) ? <img className="video-stage-image" src={apiUrl(historyImageSource(shownImage))} alt={shownImage.promptOriginal || 'Изображение из истории'} />
+            : shownJob?.status === 'completed' && shownJob.videoUrl ? <video key={shownJob.videoUrl} src={shownJob.videoUrl} controls playsInline preload="metadata" />
             : shownJob && !['failed', 'cancelled', 'expired'].includes(shownJob.status) ? <div className="video-progress"><Film /><strong>{statusLabel(shownJob.status)}</strong><p>С момента нажатия прошло {shownElapsed || 'несколько секунд'}. Время остановится только после загрузки ролика в историю и галерею.</p><div><i style={{ width: `${Math.max(8, shownJob.progress || 10)}%` }} /></div><small>{shownJob.progress || 10}%</small></div>
             : shownJob?.error ? <div className="video-stage-message error"><RotateCcw /><strong>Видео не создано</strong><p>{shownJob.error}</p><button type="button" onClick={() => setSelectedJob(null)}>Попробовать снова</button></div>
             : <div className="video-stage-message"><Play /><strong>{mode === 'image_to_video' && firstFrame ? 'Исходный кадр добавлен' : modeMeta.empty}</strong><p>{mode === 'image_to_video' && firstFrame ? 'Опишите движение и выберите параметры' : 'Выберите параметры и создайте видео'}</p></div>}
@@ -895,11 +959,30 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
       </section>
 
         <div className="video-result-shelf">
-          <section className="video-history" aria-label="Предыдущие видео">
-            {history.length ? <div className="video-history-list">{history.map((job) => { const jobModel = findJobModel(job); const elapsed = formatElapsed(job.createdAt, job.completedAt); return <button key={job.id} type="button" className={`${!previewCleared && selectedJob?.id === job.id ? 'active' : ''}${activeJob?.id === job.id ? ' generating' : ''}`} onClick={() => { setSelectedJob(job); setPreviewCleared(false) }} style={{ aspectRatio: aspectStyle(job.aspectRatio) }} title={`${shortModelName(jobModel)} · ${secondsLabel(job.duration || 0)}${elapsed ? ` · готово за ${elapsed}` : ''}`}>{job.videoUrl ? <video src={job.videoUrl} muted preload="metadata" /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<span className="video-history-meta"><small>{activeJob?.id === job.id ? `${Math.max(4, job.progress || 4)}%` : secondsLabel(job.duration || 0)}</small><em>{shortModelName(jobModel)}</em></span></button> })}</div> : <p>Здесь появятся созданные видео.</p>}
+          <section className="video-history" aria-label="История изображений и видео">
+            {mediaHistory.length ? <div className="video-history-list">{mediaHistory.map((entry) => {
+              if (entry.kind === 'image') {
+                const item = entry.item
+                const source = historyImageSource(item)
+                return <button key={`image-${item.id}`} type="button" className={!previewCleared && selectedHistoryImage?.id === item.id ? 'active' : ''} onClick={() => { setSelectedHistoryImage(item); setSelectedJob(null); setPreviewCleared(false) }} style={{ aspectRatio: item.width && item.height ? `${item.width} / ${item.height}` : undefined }} title="Изображение из истории · нажмите, чтобы открыть">
+                  {source ? <img src={apiUrl(item.thumbnailUrl || source)} alt={item.promptOriginal || 'Изображение из истории'} loading="lazy" /> : <span><Images /></span>}
+                  <span className="video-history-meta"><small>Фото</small><em>Оживить</em></span>
+                </button>
+              }
+              const job = entry.item
+              const jobModel = findJobModel(job)
+              const elapsed = formatElapsed(job.createdAt, job.completedAt)
+              return <button key={job.id} type="button" className={`${!previewCleared && selectedJob?.id === job.id ? 'active' : ''}${activeJob?.id === job.id ? ' generating' : ''}`} onClick={() => { setSelectedHistoryImage(null); setSelectedJob(job); setPreviewCleared(false) }} style={{ aspectRatio: aspectStyle(job.aspectRatio) }} title={`${shortModelName(jobModel)} · ${secondsLabel(job.duration || 0)}${elapsed ? ` · готово за ${elapsed}` : ''}`}>{job.videoUrl ? <video src={job.videoUrl} muted preload="metadata" /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<span className="video-history-meta"><small>{activeJob?.id === job.id ? `${Math.max(4, job.progress || 4)}%` : secondsLabel(job.duration || 0)}</small><em>{shortModelName(jobModel)}</em></span></button>
+            })}</div> : <p>Здесь появятся созданные изображения и видео.</p>}
           </section>
-          <aside className="video-context">{shownJob ? <>
-            <div className="video-context-prompt"><div><span>Промпт</span><button type="button" title="Копировать промпт" aria-label="Копировать промпт" onClick={() => void navigator.clipboard.writeText(shownJob.prompt || '')}><Copy /></button></div><p>{shownJob.prompt || 'Промпт не сохранён'}</p></div>
+          <aside className="video-context">{shownImage ? <>
+            <div className="video-context-prompt"><div><span>Изображение из истории</span></div><p>{shownImage.promptOriginal || 'Промпт изображения не сохранён.'}</p></div>
+            <div className="video-context-details">
+              <div className="video-context-tags">{shownImage.width && shownImage.height && <span>{shownImage.width}×{shownImage.height}</span>}<span>Можно использовать как первый кадр</span></div>
+              <div className="video-context-actions"><button className="feed" type="button" onClick={() => animateHistoryImage(shownImage)}><Sparkles /> <span>Оживить изображение</span></button></div>
+            </div>
+          </> : shownJob ? <>
+            <div className="video-context-prompt"><div><span>Промпт</span><button type="button" title="Копировать промпт" aria-label="Копировать промпт" onClick={() => void navigator.clipboard.writeText(shownJob.prompt || '')}><Copy /></button></div><p>{shownJob.prompt || 'Промпт не сохранён'}</p>{Boolean(shownJob.sourceHistory?.length) && <div className="video-source-lineage" aria-label="Исходные кадры видео">{shownJob.sourceHistory?.map((source, index) => <figure key={source.id || index}>{source.thumbUrl && <img src={apiUrl(source.thumbUrl)} alt={source.roleLabel || `Исходник ${index + 1}`} loading="lazy" />}<figcaption>{source.roleLabel || `Исходник ${index + 1}`}</figcaption></figure>)}</div>}</div>
             <div className="video-context-details">
               <div className="video-context-tags"><span>{shortModelName(findJobModel(shownJob))}</span><span>{secondsLabel(shownJob.duration || 0)}</span><span>{shownJob.aspectRatio}</span><span>{shownJob.resolution}</span>{shownJob.generateAudio && <span><Volume2 /> Звук</span>}{shownElapsed && shownJob.completedAt && <span><Clock3 /> Готово за {shownElapsed}</span>}</div>
               <div className="video-context-actions">
@@ -907,7 +990,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
                 <button className="icon" type="button" title="Повторить с этими настройками" aria-label="Повторить с этими настройками" onClick={() => applySettings(shownJob)}><RotateCcw /></button>
               </div>
             </div>
-          </> : <p>Выберите видео, чтобы увидеть его параметры.</p>}</aside>
+          </> : <p>Выберите изображение или видео, чтобы открыть предпросмотр и параметры.</p>}</aside>
         </div>
     </section>
 

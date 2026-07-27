@@ -672,12 +672,12 @@ function updateViewer(){
 }
 function renderSources(item){
   const wrap = document.getElementById('sourceContent');
-  if(item.mediaType === 'video'){ wrap.innerHTML = item.mode === 'text_to_video' ? `<p>Видео создано из текста.</p>` : `<p>Исходные кадры хранятся в задании генерации.</p>`; return; }
   if(Array.isArray(item.sources)){
     if(item.sources.length === 0){ wrap.innerHTML = `<p>Исходников нет: изображение создано из текста.</p>`; return; }
     wrap.innerHTML = `<div class="sourceTree">${item.sources.map((source,n)=>sourceNodeTemplate(source,n,0)).join('')}</div>`;
     return;
   }
+  if(item.mediaType === 'video'){ wrap.innerHTML = item.mode === 'text_to_video' ? `<p>Видео создано из текста.</p>` : `<p>У старой генерации сохранились роли кадров, но не их снимки.</p>`; return; }
   if(item.sourceIds && item.sourceIds.length){
     wrap.innerHTML = `<div class="sourceGrid">${item.sourceIds.map((sid,n)=>{ const s=normalizeItem(itemById(sid)); return s ? `<div class="sourceItem"><img src="${escapeHtml(s.src)}" alt="Исходник ${n+1}" loading="lazy" decoding="async"><span>Исходник ${n+1}</span><small>из галереи</small></div>` : ''; }).join('')}</div>`;
     return;

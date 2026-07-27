@@ -59,6 +59,11 @@ from .gallery_repository import (
     count_active_gallery_images,
     select_gallery_eviction_candidates,
 )
+from .video_sources import (
+    VideoSourcePersistenceRuntime,
+    generation_source_inputs as video_generation_source_inputs,
+    persist_video_sources,
+)
 
 __all__ = [
     "StoragePathError",
@@ -102,6 +107,9 @@ __all__ = [
     "validate_owned_media_inputs",
     "count_active_gallery_images",
     "select_gallery_eviction_candidates",
+    "VideoSourcePersistenceRuntime",
+    "video_generation_source_inputs",
+    "persist_video_sources",
     "startup_storage_maintenance_allowed",
     "resolve_under_root",
 ]

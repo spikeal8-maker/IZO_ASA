@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 import main
 from test_support.browser_origin import BROWSER_ORIGIN
@@ -105,6 +106,34 @@ def test_video_estimate_rejects_unsupported_resolution(video_api: TestClient):
     generated = video_api.post("/api/video/generate", json=payload(resolution="1080p"))
     assert generated.status_code == 422
     assert "разрешение" in generated.json()["detail"].lower()
+
+
+def test_video_token_pricing_uses_the_requested_resolution_size():
+    model = {
+        **MODEL,
+        "supportedResolutions": ["480p", "720p", "1080p"],
+        "supportedSizes": [
+            "854x480", "480x854",
+            "1280x720", "720x1280",
+            "1920x1080", "1080x1920",
+        ],
+        "pricingSkus": {"video_tokens_without_audio": 0.00001},
+    }
+    economy = {"tokenRub": 5.0, "minMarginPercent": 40.0}
+    estimates = [
+        main._openrouter_video_billing_from_exchange(
+            model,
+            main.VideoGenerateRequest(**payload(resolution=resolution)),
+            rate=80.0,
+            economy=economy,
+            pricing_history=[],
+        )
+        for resolution in ("480p", "720p", "1080p")
+    ]
+
+    assert [item["size"] for item in estimates] == ["854x480", "1280x720", "1920x1080"]
+    assert estimates[0]["billedUnits"] < estimates[1]["billedUnits"] < estimates[2]["billedUnits"]
+    assert estimates[0]["chargedTokens"] < estimates[1]["chargedTokens"] < estimates[2]["chargedTokens"]
 
 
 def test_video_estimate_accepts_current_openrouter_cent_pricing(video_api: TestClient, monkeypatch):
@@ -216,6 +245,51 @@ def test_video_generate_persists_external_job_and_server_price(video_api: TestCl
     assert row["status"] == "queued"
     assert "external-video-1" in row["settings_json"]
     assert user["token_balance"] == response.json()["tokenBalance"]
+
+
+def test_video_generate_persists_real_source_thumbnail_and_returns_lineage(video_api: TestClient, monkeypatch):
+    source_path = main.MEDIA / "video-source.png"
+    Image.new("RGB", (96, 64), (32, 180, 90)).save(source_path)
+    source_url = "/api/media/video-source.png?u=video-user"
+    with main.db() as conn:
+        conn.execute(
+            """
+            INSERT INTO images
+                (id,user_id,job_id,url,thumbnail_url,width,height,mode,provider,
+                 prompt_original,prompt_translated,settings_json,is_favorite,created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "source-image", "video-user", None, source_url, source_url, 96, 64,
+                "text_to_image", "comfyui", "green source", None, "{}", 0,
+                "2026-07-15T00:02:00+00:00",
+            ),
+        )
+
+    async def submit(**_kwargs):
+        return {"id": "external-with-source", "status": "pending", "polling_url": "/api/v1/videos/external-with-source"}
+
+    monkeypatch.setattr(main, "submit_openrouter_video", submit)
+    generated = video_api.post(
+        "/api/video/generate",
+        json=payload(mode="image_to_video", firstFrame=source_url),
+    )
+
+    assert generated.status_code == 200
+    job_id = generated.json()["id"]
+    with main.db() as conn:
+        source = conn.execute("SELECT * FROM video_sources WHERE job_id = ?", (job_id,)).fetchone()
+        settings = json.loads(conn.execute("SELECT settings_json FROM jobs WHERE id = ?", (job_id,)).fetchone()["settings_json"])
+    assert source is not None
+    assert source["source_image_id"] == "source-image"
+    assert source["role"] == "first_frame"
+    assert settings["sourceHistory"][0]["roleLabel"] == "Исходное изображение"
+    assert settings["sourceHistory"][0]["thumbUrl"].startswith("/api/media/")
+    assert Path(main.MEDIA / settings["sourceHistory"][0]["thumbUrl"].split("/api/media/", 1)[1].split("?", 1)[0]).is_file()
+
+    history = video_api.get("/api/video/history")
+    item = next(item for item in history.json()["items"] if item["id"] == job_id)
+    assert item["sourceHistory"][0]["sourceImageId"] == "source-image"
 
 
 def test_local_ltx_uses_existing_video_api_and_daily_tokens(

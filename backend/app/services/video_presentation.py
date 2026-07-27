@@ -45,6 +45,7 @@ def job_payload(
         "galleryVideoId": settings.get("galleryVideoId"),
         "galleryDeleted": bool(settings.get("galleryDeleted")),
         "generateAudio": bool(settings.get("generateAudio")),
+        "sourceHistory": settings.get("sourceHistory") if isinstance(settings.get("sourceHistory"), list) else [],
         **publication_fields(
             publication,
             row_get=row_get,
@@ -90,6 +91,7 @@ def gallery_item(
         "prompt": row["prompt_original"] or "",
         "promptOriginal": row["prompt_original"] or "",
         "settings": settings,
+        "sources": settings.get("sourceHistory") if isinstance(settings.get("sourceHistory"), list) else [],
         "favorite": bool(row["is_favorite"]),
         **fields,
         "feedPublicationId": publication_id,

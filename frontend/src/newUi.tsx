@@ -47,6 +47,7 @@ import type { PaintDrawMode, PaintLine, PaintOutpaintPlacement, PaintSubMode, Pa
 import type { PaintWorkbenchHandle } from './PaintWorkbench'
 import { applyClientSeo } from './seo'
 import ResilientRegion from './RuntimeBoundary'
+import HistoryVideoPreview from './HistoryVideoPreview'
 import { useProfileAuthNavigation } from './useProfileAuthNavigation'
 import {
   normalizeFeedPayload,
@@ -611,6 +612,7 @@ export default function NewStudio(): ReactElement {
   }, [setTab])
   const [gallery, setGallery] = useState<N2GalleryImage[]>([])
   const [galleryItem, setGalleryItem] = useState<N2GalleryImage>()
+  const [historyVideoPreview, setHistoryVideoPreview] = useState<N2GalleryImage | null>(null)
   // Изображение, чей промпт показан в доке «Промпт изображения» (v3-студия).
   // Храним только id выбранной миниатюры; сам объект выводим при рендере,
   // с откатом на самую свежую генерацию (без setState-в-эффекте).
@@ -1229,6 +1231,7 @@ export default function NewStudio(): ReactElement {
       pendingResultShapeRef.current[mode] = nextResultShape
       setJob(created)
       setJobMode(mode)
+      setHistoryVideoPreview(null)
       setResultUrl(undefined)
       setInspectPreview(null)
       if (mode !== 'paint') {
@@ -1820,11 +1823,8 @@ export default function NewStudio(): ReactElement {
   const availableEditSlots = editSlots.slice(0, editReferenceLimit)
   const visibleEditSlots = editExtraOpen ? availableEditSlots : availableEditSlots.slice(0, 2)
   const editFilledCount = availableEditSlots.filter((slot) => slot.image).length
-  // Док «Промпт изображения»: если пользователь выбрал миниатюру — берём её из
-  // видимой истории (своя или лента), чтобы клик по ленте синхронизировал промпт.
-  // Без явного выбора показываем свою последнюю генерацию (но НЕ ленту, чтобы
-  // промпт-блок не рассинхронизировался с пустым preview у гостя).
   const dockImage = dockImageId ? historyItems.find((g) => g.id === dockImageId) : gallery[0]
+  const dockIsVideo = dockImage?.mediaType === 'video'
   const dockIsFeed = typeof dockImage?.id === 'string' && dockImage.id.startsWith('feed-')
   const visibleGalleryImage = visibleResultUrl
     ? gallery.find((item) => item.id === activeCorePreview?.galleryId || apiUrl(item.url) === apiUrl(visibleResultUrl) || apiUrl(item.thumbnailUrl) === apiUrl(visibleResultUrl))
@@ -1851,7 +1851,7 @@ export default function NewStudio(): ReactElement {
   // подложка; если ничего нет — брендовый placeholder (в CSS).
   const loadingBackdropUrl = hoverStyle
     ? hoverStyle.preview[previewGender]
-    : dockImage
+    : dockImage && dockImage.mediaType !== 'video'
       ? apiUrl(dockImage.url)
       : gallery[0]
         ? apiUrl(gallery[0].url)
@@ -1927,6 +1927,13 @@ export default function NewStudio(): ReactElement {
     setResultError(false)
     setInspectPreview(null)
     resetInspectView()
+    setDockImageId(item.id)
+    if (item.mediaType === 'video') {
+      setHistoryVideoPreview(item)
+      if (isPaintStudio) setPaintWorkbenchVisible(false)
+      return
+    }
+    setHistoryVideoPreview(null)
     const coreMode = coreModeFromTab(tab)
     if (coreMode) {
       setPreviewByMode((cur) => ({
@@ -1945,7 +1952,6 @@ export default function NewStudio(): ReactElement {
       setResultUrl(item.url)
       setResultSource(undefined)
     }
-    setDockImageId(item.id)
     if (isPaintStudio) setPaintWorkbenchVisible(false)
   }
 
@@ -2054,9 +2060,6 @@ export default function NewStudio(): ReactElement {
       window.removeEventListener('pointerup', onUp)
     }
   }, [tab])
-
-  // /feed is the backend static product page; keep no React feed surface here.
-
 
   // ————————————————————————————————————————————————————————————————
   // v3-студия: общий экран для «По тексту» и «По фото».
@@ -2870,6 +2873,8 @@ export default function NewStudio(): ReactElement {
                 </div>
               </div>
             </div>
+          ) : historyVideoPreview ? (
+            <HistoryVideoPreview id={historyVideoPreview.id} src={apiUrl(historyVideoPreview.videoUrl || historyVideoPreview.url)} prompt={historyVideoPreview.promptOriginal} onOpenVideo={() => setTab('video')} />
           ) : visibleInspectPreview ? (
             <>
               <img className="iv3-preview-backdrop" src={apiUrl(visibleInspectPreview.url)} alt="" aria-hidden="true" />
@@ -3033,7 +3038,7 @@ export default function NewStudio(): ReactElement {
         <div className="history" data-studio-region="history">
           <div className="history-head">
             <button className="history-prompt-chip" type="button" disabled={!dockImage} onClick={() => copyPrompt(dockPromptText)}>
-              Промпт изображения ›
+              {dockIsVideo ? 'Промпт видео ›' : 'Промпт изображения ›'}
             </button>
           </div>
           {historyItems.length === 0 ? (
@@ -3062,15 +3067,15 @@ export default function NewStudio(): ReactElement {
                     style={historyAspectRatio(item) ? { aspectRatio: historyAspectRatio(item) } : undefined}
                     role="button"
                     tabIndex={0}
-                    onClick={(event) => {
+                    onClick={() => {
                       if (historyDraggedRef.current) { historyDraggedRef.current = false; return }
-                      if (item.mediaType === 'video') {
-                        const video = event.currentTarget.querySelector('video')
-                        if (video?.paused) void video.play()
-                        else video?.pause()
-                        return
-                      }
                       openHistory(item)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        openHistory(item)
+                      }
                     }}
                   >
                     {item.mediaType === 'video' ? (
@@ -3118,7 +3123,7 @@ export default function NewStudio(): ReactElement {
         <aside className="image-prompt">
           <div className="prompt-copy">
             <div className="prompt-copy-head">
-              <h2>Промпт изображения</h2>
+              <h2>{dockIsVideo ? 'Промпт видео' : 'Промпт изображения'}</h2>
               <button className="prompt-action prompt-copy-button" type="button" disabled={!dockImage} onClick={() => copyPrompt(dockPromptText)}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="M8 8h10v12H8V8Z" stroke="currentColor" strokeWidth="1.7" />
@@ -3127,11 +3132,11 @@ export default function NewStudio(): ReactElement {
                 <span className="prompt-action-label">{copied ? 'Скопировано' : 'Копировать'}</span>
               </button>
             </div>
-            <div className="prompt-scroll">{dockPromptText || 'Здесь появится промпт выбранного изображения.'}</div>
+            <div className="prompt-scroll">{dockPromptText || `Здесь появится промпт выбранного ${dockIsVideo ? 'видео' : 'изображения'}.`}</div>
           </div>
           <div className="prompt-actions">
-            <details className={`prompt-menu${!dockImage ? ' is-disabled' : ''}`}>
-              <summary className="prompt-action" aria-disabled={!dockImage} onClick={(event) => { if (!dockImage) event.preventDefault() }}>
+            <details className={`prompt-menu${!dockImage || dockIsVideo ? ' is-disabled' : ''}`}>
+              <summary className="prompt-action" aria-disabled={!dockImage || dockIsVideo} onClick={(event) => { if (!dockImage || dockIsVideo) event.preventDefault() }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /><path d="m13.5 8.5 3 3" stroke="currentColor" strokeWidth="1.7" /></svg>
                 <span className="prompt-action-label">Изменить в</span>
                 <svg className="menu-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m7 9 5 5 5-5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -3142,11 +3147,11 @@ export default function NewStudio(): ReactElement {
                 <button type="button" onClick={() => setTab('paint')}>Редактор</button>
               </div>
             </details>
-            <button className="prompt-action feed" type="button" disabled={!shareTarget} onClick={() => { if (shareTarget) openPublish(shareTarget) }}>
+            <button className="prompt-action feed" type="button" disabled={!shareTarget || dockIsVideo} onClick={() => { if (shareTarget && !dockIsVideo) openPublish(shareTarget) }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5l1.6 4 4 1.6-4 1.6-1.6 4-1.6-4-4-1.6 4-1.6L12 3.5Z" fill="currentColor" /></svg>
               <span className="prompt-action-label">В ленту</span>
             </button>
-            <button className="prompt-action" type="button" disabled={!dockImage} onClick={() => { if (!dockImage) return; setPrompt(dockImage.promptOriginal); showToast('Промпт подставлен — измените и сгенерируйте') }}>
+            <button className="prompt-action" type="button" disabled={!dockImage || dockIsVideo} onClick={() => { if (!dockImage || dockIsVideo) return; setPrompt(dockImage.promptOriginal); showToast('Промпт подставлен — измените и сгенерируйте') }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 7h10v10H7V7Z" stroke="currentColor" strokeWidth="1.6" /><path d="M4 4h10M10 20h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
               <span className="prompt-action-label">Вариации</span>
             </button>

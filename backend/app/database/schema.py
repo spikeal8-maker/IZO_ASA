@@ -94,6 +94,26 @@ CREATE TABLE IF NOT EXISTS users (
             CREATE INDEX IF NOT EXISTS idx_video_file_deletions_created
                 ON video_file_deletions(created_at, id);
 
+            CREATE TABLE IF NOT EXISTS video_sources (
+                id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                source_image_id TEXT,
+                source_kind TEXT NOT NULL,
+                role TEXT,
+                slot_index INTEGER NOT NULL DEFAULT 0,
+                thumb_url TEXT NOT NULL,
+                thumb_width INTEGER NOT NULL DEFAULT 0,
+                thumb_height INTEGER NOT NULL DEFAULT 0,
+                thumb_bytes INTEGER NOT NULL DEFAULT 0,
+                children_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_video_sources_job
+                ON video_sources(job_id, slot_index);
+            CREATE INDEX IF NOT EXISTS idx_video_sources_user
+                ON video_sources(user_id, created_at);
+
             CREATE TABLE IF NOT EXISTS image_sources (
                 id TEXT PRIMARY KEY,
                 image_id TEXT NOT NULL,
