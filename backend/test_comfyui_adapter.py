@@ -486,6 +486,29 @@ def test_faceswap_inserts_lora_loader_when_live_edit_workflow_has_none() -> None
     assert workflow["FK:169"]["inputs"]["model"] == ["FK:admin_lora", 0]
 
 
+def test_quality_9b_faceswap_uses_gpu_bypass_lora_without_weight_copy() -> None:
+    workflow = _edit_workflow_template()
+    workflow.pop("FK:lora")
+    workflow["FK:165"] = {"class_type": "UNETLoader", "inputs": {"unet_name": "model.safetensors"}}
+    workflow["FK:169"] = {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": ["FK:165", 0]}}
+    req = main.GenerateRequest(
+        mode="faceswap",
+        loras=[
+            main.Lora(
+                id="bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors",
+                strength=0.75,
+            )
+        ],
+    )
+
+    main.patch_mode_nodes(workflow, req, {"input1": "base.png", "input2": "face.png"}, "m", "t", "v")
+
+    assert workflow["FK:admin_lora"]["class_type"] == "LoraLoaderBypassModelOnly"
+    assert workflow["FK:admin_lora"]["inputs"]["model"] == ["FK:165", 0]
+    assert workflow["FK:admin_lora"]["inputs"]["strength_model"] == 0.75
+    assert workflow["FK:169"]["inputs"]["model"] == ["FK:admin_lora", 0]
+
+
 def test_outpaint_uses_installed_4b_lora_without_missing_kv_model(monkeypatch) -> None:
     monkeypatch.setattr(main, "server_lora_enabled", lambda _name: True)
     models = {

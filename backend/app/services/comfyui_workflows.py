@@ -141,10 +141,17 @@ def patch_shared_flux_nodes(
 def patch_optional_lora(prompt: dict[str, Any], lora: WorkflowLora | None) -> None:
     if not lora or not lora.id or lora.id == "none":
         return
+    loader_class = (
+        "LoraLoaderBypassModelOnly"
+        if "bfs_head_v1_flux-klein_9b" in lora.id.lower()
+        else "LoraLoaderModelOnly"
+    )
     for node in prompt.values():
         inputs = node.get("inputs") if isinstance(node, dict) else None
         if not isinstance(inputs, dict) or "lora_name" not in inputs:
             continue
+        if node.get("class_type") in {"LoraLoaderModelOnly", "LoraLoaderBypassModelOnly"}:
+            node["class_type"] = loader_class
         inputs["lora_name"] = lora.id
         if "strength_model" in inputs:
             inputs["strength_model"] = lora.strength
@@ -153,7 +160,7 @@ def patch_optional_lora(prompt: dict[str, Any], lora: WorkflowLora | None) -> No
         return
     if "FK:165" in prompt and "FK:169" in prompt:
         prompt["FK:admin_lora"] = {
-            "class_type": "LoraLoaderModelOnly",
+            "class_type": loader_class,
             "inputs": {"model": ["FK:165", 0], "lora_name": lora.id, "strength_model": lora.strength},
             "_meta": {"title": "Config UI LoRA"},
         }

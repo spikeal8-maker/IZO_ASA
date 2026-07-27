@@ -125,38 +125,6 @@
     },
     "_meta": { "title": "ReferenceLatent Negative" }
   },
-  "FKI:ref2img": {
-    "class_type": "LoadImage",
-    "inputs": {
-      "image": "example.png",
-      "upload": "image"
-    },
-    "_meta": { "title": "Load Reference Image (optional)" }
-  },
-  "FKI:ref2vae": {
-    "class_type": "VAEEncode",
-    "inputs": {
-      "pixels": ["FKI:ref2img", 0],
-      "vae": ["FKI:196", 0]
-    },
-    "_meta": { "title": "VAEEncode (reference image)" }
-  },
-  "FKI:204b": {
-    "class_type": "ReferenceLatent",
-    "inputs": {
-      "conditioning": ["FKI:204", 0],
-      "latent": ["FKI:ref2vae", 0]
-    },
-    "_meta": { "title": "ReferenceLatent Positive (reference image)" }
-  },
-  "FKI:205b": {
-    "class_type": "ReferenceLatent",
-    "inputs": {
-      "conditioning": ["FKI:205", 0],
-      "latent": ["FKI:ref2vae", 0]
-    },
-    "_meta": { "title": "ReferenceLatent Negative (reference image)" }
-  },
   "FKI:210": {
     "class_type": "InpaintModelConditioning",
     "inputs": {

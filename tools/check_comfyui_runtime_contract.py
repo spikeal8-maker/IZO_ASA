@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -48,7 +49,29 @@ def verify_runtime(manifest: dict[str, object], comfyui_root: Path) -> list[str]
     errors: list[str] = []
     node_root = comfyui_root / "custom_nodes" / manifest["customNode"]["name"]
     for item in manifest["assets"]:
+        if item.get("runtimeRequired") is False:
+            continue
         errors.extend(verify_file(node_root / item["path"].split("/", 1)[1], item))
+    expected_commit = str(manifest["customNode"]["commit"])
+    try:
+        actual_commit = subprocess.run(
+            ["git", "-C", str(node_root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        errors.append(f"CUSTOM_NODE_GIT {node_root}: {exc}")
+    else:
+        if actual_commit != expected_commit:
+            errors.append(f"CUSTOM_NODE_COMMIT {node_root}: {actual_commit} != {expected_commit}")
+    init_path = node_root / "__init__.py"
+    if not init_path.is_file():
+        errors.append(f"MISSING {init_path}")
+    else:
+        init_source = init_path.read_text(encoding="utf-8")
+        if 'WEB_DIRECTORY = "./web"' not in init_source or '"WEB_DIRECTORY"' not in init_source:
+            errors.append(f"CUSTOM_NODE_PATCH {init_path}: WEB_DIRECTORY export is missing")
     for item in manifest["models"]:
         path = comfyui_root / item["path"]
         if item.get("required") or path.exists():

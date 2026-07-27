@@ -18,12 +18,14 @@ model binaries remain outside Git.
 ## Pinned custom node
 
 - repository: `https://github.com/yanokusnir-ai/one-node-flux-2-klein.git`
-- commit: `0e3b9baccdf39af3fa1691069494fe91938943ff`
+- current verified commit: `e700bb81eb768911f403bdf86bd35fe7ef0e9df4`
+- original captured commit: `0e3b9baccdf39af3fa1691069494fe91938943ff`
 - local compatibility patch:
   `ops/comfyui/runtime-contract/patches/0001-export-web-directory.patch`
 
 The patch exports `WEB_DIRECTORY` from the custom node. Apply it after checking
-out the pinned commit. Do not copy the old custom node `.git` directory between
+out the pinned current commit. The verifier checks both the Git revision and
+the local export. Do not copy the old custom node `.git` directory between
 computers.
 
 ## Runtime endpoints used by IZO_ASA
@@ -41,6 +43,12 @@ computers.
 The application intentionally does not use `workflow_faceswap`: that dedicated
 graph hung with Klein 9B. Face swap patches `workflow_edit` with a model-only
 LoRA and face-first reference ordering.
+
+The quality 9B rank-128 adapter uses ComfyUI's
+`LoraLoaderBypassModelOnly`. Unlike the regular loader, bypass mode does not
+materialize a second patched copy of the base weights. It injects the low-rank
+adapter path into the forward pass, so the 9B FP8 base remains resident and the
+adapter can be enabled without the 24 GB weight-backup spike.
 
 ## Installation handoff
 
@@ -70,11 +78,17 @@ LoRA and face-first reference ordering.
 ## Face model boundary
 
 `flux-2-klein-9b-fp8.safetensors` is the full 9B diffusion model in FP8.
-`face_swap_flux_klein_9b_r32_800.safetensors` is the small face adapter, not a
-replacement for the 9B model. The inspected machine no longer contained this
-rank-32 file, but prior acceptance identified its exact size and SHA-256. It is
-required by this contract because the legacy rank-128 face LoRA previously
-filled the RTX 3090 and stalled the workflow.
+`bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors` is the production
+quality face adapter selected by IZO_ASA. It is not a replacement for the 9B
+model and is required by this contract. The older
+`face_swap_flux_klein_9b_r32_800.safetensors` remains recorded only as an
+optional compatibility asset; the application must not silently downgrade to
+it.
+
+The historical machine report measured 31.9 seconds with rank-32, not
+rank-128. That number must not be used as acceptance evidence for the current
+quality profile. Rank-128 requires a fresh GPU/browser acceptance run on the
+target RTX 3090.
 
 The manifest is authoritative for filenames, sizes and SHA-256 values. A green
 asset-only check proves the Git package. A green runtime check proves file
