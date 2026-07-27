@@ -874,10 +874,10 @@
       "remaining": 104
     },
     {
-      "lines": 3616,
+      "lines": 3622,
       "max_lines": 3628,
       "path": "frontend/src/newUi.tsx",
-      "remaining": 12
+      "remaining": 6
     }
   ],
   "frontend": {

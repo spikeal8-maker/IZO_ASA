@@ -7,7 +7,7 @@ import type { PreviewShape } from './studioTypes'
 
 export const DEFAULT_PAINT_SKETCH_PROMPT = 'Transform this sketch into a hyper-realistic cinematic scene. Interpret the lines as real-world objects with high-quality textures, cinematic lighting, natural shadows, depth, realistic materials and clean composition. Preserve the exact composition, silhouettes, poses, proportions and spatial relationships from the sketch. Scene description:'
 export const DEFAULT_PAINT_MASK_PROMPT = 'Edit only the masked area and follow the user instruction literally for that selected region. Seamlessly blend the change with the surrounding scene while preserving lighting, shadows, perspective, depth of field and photo grain. Do not change unmasked areas.'
-export const DEFAULT_PAINT_OUTPAINT_PROMPT = 'Extend the composition of this image. Replace black or empty spaces with a logical continuation of the background and foreground. Match perspective, lighting, color palette and texture so the transition is invisible. Scene description:'
+export const DEFAULT_PAINT_OUTPAINT_PROMPT = 'Extend only the masked empty border with a logical continuation of the background and foreground. Treat the unmasked source as fixed. Do not copy, repeat, mirror, move or recreate any existing subject or object in the new area. Match perspective, lighting, color palette and texture so the transition is invisible. Scene description:'
 export const DEFAULT_I2I_EDIT_PROMPT = 'Edit Image 1 according to the user request. Apply the requested change clearly and literally. Preserve the subject, composition, geometry, lighting, background and every attribute that the user did not ask to change. User request:'
 
 export function loadImageShape(url: string): Promise<PreviewShape> {
