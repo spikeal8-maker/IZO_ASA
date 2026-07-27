@@ -1275,7 +1275,10 @@ export default function NewStudio(): ReactElement {
   }
 
   function applyLastSourceImage() {
-    const last = visibleResultUrl || gallery[0]?.url || dockImage?.url || historyItems[0]?.url
+    const lastGalleryImage = gallery.find((item) => item.mediaType === 'image')
+    const lastDockImage = dockImage?.mediaType === 'image' ? dockImage : undefined
+    const lastHistoryImage = historyItems.find((item) => item.mediaType === 'image')
+    const last = visibleResultUrl || lastGalleryImage?.url || lastDockImage?.url || lastHistoryImage?.url
     if (!last) {
       showToast('Последнего изображения пока нет')
       return
@@ -1286,7 +1289,10 @@ export default function NewStudio(): ReactElement {
   }
 
   function applyLastImageToTarget(target: UploadTarget) {
-    const last = visibleResultUrl || gallery[0]?.url || dockImage?.url || historyItems[0]?.url
+    const lastGalleryImage = gallery.find((item) => item.mediaType === 'image')
+    const lastDockImage = dockImage?.mediaType === 'image' ? dockImage : undefined
+    const lastHistoryImage = historyItems.find((item) => item.mediaType === 'image')
+    const last = visibleResultUrl || lastGalleryImage?.url || lastDockImage?.url || lastHistoryImage?.url
     if (!last) {
       showToast('Последнего изображения пока нет')
       return

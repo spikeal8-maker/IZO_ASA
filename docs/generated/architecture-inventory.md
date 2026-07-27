@@ -137,7 +137,7 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 | `frontend/src/index.css` | 2400 | 2400 | 0 |
 | `frontend/src/newStudioV3.css` | 5886 | 6000 | 114 |
 | `frontend/src/newUi.css` | 3096 | 3200 | 104 |
-| `frontend/src/newUi.tsx` | 3616 | 3628 | 12 |
+| `frontend/src/newUi.tsx` | 3622 | 3628 | 6 |
 
 ## Symbol budgets
 
