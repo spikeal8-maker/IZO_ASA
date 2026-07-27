@@ -189,7 +189,7 @@ mail `OPERATIONALLY VERIFIED`, а HTTP 200 не доказывает корре�
 | 1 | `REL-LOCK-001` | P0 | один publisher/Full verifier, no race | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
 | 2 | `SEC-DIAG-001` | P0 | public API не раскрывает operator details | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
 | 3 | `BOT-TG-001` | P0 | Telegram polling operational health доказан | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
-| 4 | `BACKUP-NET-001` | P1 | backup health зелёный с approved route | `VERIFIED` 2026-07-20 (evidence в секции пакета) |
+| 4 | `BACKUP-NET-001` | P1 | backup health зелёный с approved route | `REGRESSION_REPAIR` 2026-07-27; nightly upload must pass the next 02:00-05:00 gate |
 | 5 | `MAIL-OPS-001` | P1 | UniSender delivery подтверждён | `DEFERRED_BY_OWNER` 2026-07-20 |
 | 6 | `AUTH-LEGACY-001` | P1 | legacy auth consumers безопасно сокращаются | WIP сохранён как handoff (см. current-status); active code package отсутствует; далее `AUTH-LEGACY-001A` по плану 20260720 |
 | 7 | `OPS-001` | P1 | service supervision и reboot/crash recovery | `TODO` |
@@ -494,6 +494,51 @@ Deployment/operational evidence 2026-07-20 (рестарт разрешён вл
 наблюдения (redacted log evidence без token/URL).
 
 ## 7. P1: backup, mail и операционная устойчивость
+
+### BACKUP-NET-001R — nightly Yandex regression repair (2026-07-27)
+
+Current evidence:
+
+- the scheduled 02:00 PRIMARY outbound cycle collided with the half-hour local
+  backup and exited with code 3;
+- one controlled retry at 02:57 created and verified local snapshot
+  `20260726T235727.138048Z`, but the cloud-stage child exited with code 1;
+- the deployed `C:\IZO_ASA\runtime\stage_cloud_backup.ps1` was older than the
+  repository policy and treated a generic PowerShell route through `AdGuard VPN`
+  as a fatal result;
+- AdGuard logs prove both the Yandex.Disk application-exclusion configuration
+  and process-specific `VPN_CA_FORCE_BYPASS` events for the exact executable on
+  2026-07-23. No new event was captured as part of the failed 2026-07-27 stage,
+  so the event timestamp remains explicit and a successful new nightly cycle is
+  still required. Configuration and observed-event evidence remain separate in
+  health output;
+- local/public production remained available; no VPN, route, token, FRP, or
+  security setting was changed.
+
+Repair contract:
+
+1. `IZO_ASA Local Backup 30m` runs as SYSTEM and a verified local snapshot stays
+   younger than 45 minutes.
+2. `IZO_ASA Yandex Outbound Nightly` runs only from 02:00 to 05:00
+   Europe/Moscow in the interactive user context.
+3. Local-backup exit code 3 is contention: the outbound runner waits once for
+   the active backup and never launches a parallel copy.
+4. `IZO_ASA Yandex Daytime Guard` runs at 05:00 and at logon, removes persistent
+   autostart, and stops Yandex.Disk outside the approved window.
+5. Network health records HTTPS reachability, probe interface, configured
+   application exclusion, and process-specific observed bypass independently.
+   A configured application exclusion prevents the generic PowerShell probe
+   interface alone from becoming a false fatal error.
+6. Legacy PRIMARY-incompatible receive/rehearsal/cloud-stage tasks remain
+   disabled.
+7. The update is promoted only after PowerShell parsing, focused backup tests,
+   the full local CI verifier, and rollback-safe release promotion succeed.
+
+Acceptance gate: `PRIMARY/databaseWriter=true`; local verified backup age
+`<45m`; latest nightly cloud stage age `<30h`; outbound task last result 0;
+manifest/hash/SQLite verification green; daytime guard effective after 05:00;
+local and public HTTP green. Until a real cycle passes in the approved window,
+the offsite portion is `AWAITING_OPERATIONAL_PROOF`, not `VERIFIED`.
 
 ### BACKUP-NET-001 — зелёный offsite backup route
 
