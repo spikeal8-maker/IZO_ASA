@@ -8,8 +8,14 @@ may add instructions, but they may not weaken or contradict this file.
 
 - The only canonical integration and deployment source on this computer is
   `E:\IZO_ASA_WORKSPACE`.
-- `E:\Yandex.Disk` is an offsite synchronization target for immutable backup
-  snapshots, not a Git integration or deployment workspace.
+- `E:\Yandex.Disk\IZO_ASA` is a quarantined historical copy affected by live
+  `.git` synchronization conflicts. Do not use it for Git operations, testing,
+  deployment or recovery, and do not delete, rename or repair it without a
+  separate owner-authorized cleanup package.
+- `E:\Yandex.Disk` may be an offsite synchronization target only for immutable,
+  versioned backup snapshots. It must never synchronize a live `.git`
+  directory, open SQLite database or WAL/SHM, production media working state,
+  runtime manifests or secrets.
 - Do not delete files or directories from `E:\Yandex.Disk` during project
   implementation, synchronization or deployment.
 - Do not deploy from a sibling copy, attachment, temporary worktree or resolved
