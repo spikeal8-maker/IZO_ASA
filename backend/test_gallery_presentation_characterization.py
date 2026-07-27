@@ -79,8 +79,8 @@ def test_model_info_maps_local_models_to_exact_izo_base_payload(raw) -> None:
 
     assert main._gallery_model_info(settings, "comfyui") == {
         "shortName": "ИЗО Base",
-        "fullName": "ИЗО Base · ИЗО / FLUX.2 Klein · выпуск: 2026",
-        "providerName": "ИЗО / FLUX.2 Klein",
+        "fullName": "ИЗО Base · ИЗО · выпуск: 2026",
+        "providerName": "ИЗО",
         "release": "2026",
     }
 

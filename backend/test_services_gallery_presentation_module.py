@@ -17,6 +17,8 @@ from app.services.gallery_presentation import (
     gallery_public_token_cost,
     gallery_row_to_image,
     gallery_source_ids,
+    sanitize_snapshot_generation_params,
+    sanitize_snapshot_model_info,
 )
 
 
@@ -77,10 +79,51 @@ def test_model_info_maps_local_models_to_exact_izo_payload() -> None:
         model_display_name=lambda raw: f"display:{raw}",
     ) == {
         "shortName": "ИЗО Base",
+        "fullName": "ИЗО Base · ИЗО · выпуск: 2026",
+        "providerName": "ИЗО",
+        "release": "2026",
+    }
+
+
+def test_legacy_snapshot_local_model_details_are_sanitized_without_mutating_snapshot() -> None:
+    resolved = {
+        "shortName": "ИЗО Base",
+        "fullName": "ИЗО Base · ИЗО · выпуск: 2026",
+        "providerName": "ИЗО",
+        "release": "2026",
+    }
+    snapshot_info = {
+        "shortName": "ИЗО Base",
         "fullName": "ИЗО Base · ИЗО / FLUX.2 Klein · выпуск: 2026",
         "providerName": "ИЗО / FLUX.2 Klein",
         "release": "2026",
     }
+    snapshot_params = [
+        {"label": "Разрешение", "value": "1024×1024"},
+        {"label": "Полное наименование модели", "value": snapshot_info["fullName"]},
+    ]
+
+    assert sanitize_snapshot_model_info(snapshot_info, resolved) == resolved
+    assert sanitize_snapshot_generation_params(snapshot_params, resolved) == [
+        {"label": "Разрешение", "value": "1024×1024"},
+        {"label": "Полное наименование модели", "value": resolved["fullName"]},
+    ]
+    assert snapshot_info["providerName"] == "ИЗО / FLUX.2 Klein"
+    assert snapshot_params[1]["value"] == snapshot_info["fullName"]
+
+
+def test_external_snapshot_model_details_are_preserved() -> None:
+    resolved = {
+        "shortName": "External",
+        "fullName": "External · Maker",
+        "providerName": "Maker",
+        "release": "2026",
+    }
+    snapshot_info = {"shortName": "Stored", "providerName": "Stored Maker"}
+    snapshot_params = [{"label": "Полное наименование модели", "value": "Stored · Stored Maker"}]
+
+    assert sanitize_snapshot_model_info(snapshot_info, resolved) == snapshot_info
+    assert sanitize_snapshot_generation_params(snapshot_params, resolved) == snapshot_params
 
 
 def test_model_info_preserves_billing_catalog_release_and_raw_precedence() -> None:

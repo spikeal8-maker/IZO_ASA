@@ -169,8 +169,8 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | DELETE | `/api/admin/openrouter/key` | `admin_delete_openrouter_key` | 16823 | admin |
 | POST | `/api/admin/openrouter/test-generate` | `admin_openrouter_test_generate` | 16841 | admin |
 | GET | `/api/admin/models-page` | `admin_models_page` | 16941 | admin |
-| GET | `/api/admin/jobs` | `admin_jobs` | 17058 | admin |
-| POST | `/api/admin/limits` | `admin_limits` | 17064 | admin |
+| GET | `/api/admin/jobs` | `admin_jobs` | 17057 | admin |
+| POST | `/api/admin/limits` | `admin_limits` | 17063 | admin |
 | GET | `/api/feed` | `feed_list` | 18060 | public/optional/review |
 | POST | `/api/feed/publications` | `feed_publish` | 18432 | user |
 | GET | `/api/feed/publications/{publication_id}/status` | `feed_publication_status` | 18638 | user |
@@ -331,8 +331,8 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | `OpenRouterResult` | 1584–1593 |
 | `TelegramAuthError` | 1641–1646 |
 | `MaxAuthError` | 1696–1701 |
-| `FeedAssetInfo` | 17102–17112 |
-| `FeedVideoAssetInfo` | 17116–17128 |
+| `FeedAssetInfo` | 17101–17111 |
+| `FeedVideoAssetInfo` | 17115–17127 |
 
 ## Functions
 
@@ -943,29 +943,29 @@ Auth policy is a conservative static hint. Every `REVIEW` row must be checked in
 | `admin_delete_openrouter_key` | async function | 16823–16837 |
 | `admin_openrouter_test_generate` | async function | 16841–16909 |
 | `default_routes` | function | 16912–16937 |
-| `admin_models_page` | async function | 16941–17054 |
-| `admin_jobs` | async function | 17058–17060 |
-| `admin_limits` | async function | 17064–17067 |
-| `_feed_orientation` | function | 17131–17136 |
-| `_feed_source_label` | function | 17139–17155 |
-| `_feed_source_type` | function | 17158–17164 |
-| `_save_feed_variant` | function | 17167–17175 |
-| `create_feed_assets` | function | 17178–17205 |
-| `_feed_ffmpeg_executable` | function | 17208–17217 |
-| `_run_feed_ffmpeg` | function | 17220–17234 |
-| `create_feed_video_assets` | function | 17237–17313 |
-| `_feed_media_name` | function | 17316–17325 |
-| `_feed_author_name` | function | 17328–17340 |
-| `_feed_author_profile` | function | 17343–17381 |
-| `_feed_author_profile_payload` | function | 17384–17414 |
-| `_feed_author_profiles` | function | 17417–17481 |
-| `_feed_challenge_payload` | function | 17484–17511 |
-| `_feed_source_history_payload` | function | 17514–17521 |
-| `_feed_generation_snapshot` | function | 17524–17537 |
-| `backfill_feed_generation_snapshots` | function | 17540–17561 |
-| `_feed_aspect_ratio` | function | 17564–17570 |
-| `_feed_payload_context` | function | 17573–17641 |
-| `_feed_item_payload` | function | 17644–17804 |
+| `admin_models_page` | async function | 16941–17053 |
+| `admin_jobs` | async function | 17057–17059 |
+| `admin_limits` | async function | 17063–17066 |
+| `_feed_orientation` | function | 17130–17135 |
+| `_feed_source_label` | function | 17138–17154 |
+| `_feed_source_type` | function | 17157–17163 |
+| `_save_feed_variant` | function | 17166–17174 |
+| `create_feed_assets` | function | 17177–17204 |
+| `_feed_ffmpeg_executable` | function | 17207–17216 |
+| `_run_feed_ffmpeg` | function | 17219–17233 |
+| `create_feed_video_assets` | function | 17236–17312 |
+| `_feed_media_name` | function | 17315–17324 |
+| `_feed_author_name` | function | 17327–17339 |
+| `_feed_author_profile` | function | 17342–17380 |
+| `_feed_author_profile_payload` | function | 17383–17413 |
+| `_feed_author_profiles` | function | 17416–17480 |
+| `_feed_challenge_payload` | function | 17483–17510 |
+| `_feed_source_history_payload` | function | 17513–17520 |
+| `_feed_generation_snapshot` | function | 17523–17536 |
+| `backfill_feed_generation_snapshots` | function | 17539–17560 |
+| `_feed_aspect_ratio` | function | 17563–17569 |
+| `_feed_payload_context` | function | 17572–17640 |
+| `_feed_item_payload` | function | 17643–17804 |
 | `_feed_optional_viewer` | function | 17807–17813 |
 | `_feed_viewer_key` | function | 17834–17845 |
 | `_encode_feed_cursor` | function | 17848–17852 |

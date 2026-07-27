@@ -17010,7 +17010,6 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
             {"label": "Recraft", "provider": "openrouter", "cost": 5},
         ],
     }
-
     payload = {
         "economy": {"activeModels": active_models, "routesAssigned": f"{routes_assigned}/{len(ROUTE_DEFS)}", "expensiveRoutes": expensive, "priceConflicts": conflicts},
         "routes": routes,
@@ -17042,7 +17041,7 @@ async def admin_models_page(request: Request) -> dict[str, Any]:
             "videoCatalogError": openrouter_video_error,
             "videoCatalogSource": "openrouter:/api/v1/videos/models",
         },
-        "comfyFiles": {"modelFile": "flux-2-klein-4b-fp8.safetensors", "textEncoder": "qwen_3_4b / qwen_3_8b", "vae": "flux2-vae.safetensors", "sampler": "er_sde", "width": 1024, "height": 1024, "steps": 4, "seed": "random"} if include_local else {},
+        "comfyFiles": comfyui_workflows.active_profile_admin_files(status.get("profiles", []), get_model_settings().get("editModelProfile") or "flux_klein_9b", get_server_model_profiles().get(get_model_settings().get("editModelProfile") or "flux_klein_9b", {})) if include_local else {},
         "profiles": status.get("profiles", []),
     }
     next_data = cache_data if isinstance(cache_data, dict) else {}
@@ -17729,6 +17728,7 @@ def _feed_item_payload(
     if not source_history and media_type == "video":
         source_history = feed_presentation.video_source_history(snapshot.get("mode"))
     source_history = source_history or []
+    public_model_info, snapshot_generation_params = gallery_presentation.sanitize_snapshot_model_presentation(snapshot, _gallery_model_info(settings, _row_get(image, "provider")))
     stored_source_label = _row_get(pub, "source_label")
     if media_type == "video" and stored_source_label == "Видео":
         stored_source_label = None
@@ -17758,7 +17758,7 @@ def _feed_item_payload(
         "allow_recreate": bool(pub["allow_recreate"]),
         "style": snapshot.get("style") or settings.get("styleName") or None,
         "model": snapshot.get("model") or _user_model_name(settings.get("modelProfile") or _row_get(image, "provider")),
-        "model_info": snapshot.get("modelInfo") or _gallery_model_info(settings, _row_get(image, "provider")),
+        "model_info": public_model_info,
         "mode": snapshot.get("mode") or _row_get(image, "mode"),
         "aspect_ratio": native_aspect_ratio,
         "native_aspect_ratio": native_aspect_ratio,
@@ -17772,7 +17772,7 @@ def _feed_item_payload(
         "challenge": challenge,
         "source_history": source_history,
         "resolution": f"{width}×{height}" if width and height else None,
-        "generation_params": snapshot.get("generationParams") or _gallery_public_params(
+        "generation_params": snapshot_generation_params or _gallery_public_params(
             image_id=image_id,
             mode=_row_get(image, "mode"),
             provider=_row_get(image, "provider"),

@@ -44,6 +44,25 @@ PROFILE_MODEL_FALLBACKS = {
 }
 
 
+def active_profile_admin_files(
+    profiles: Sequence[Mapping[str, Any]],
+    profile_id: str,
+    profile_settings: Mapping[str, Any],
+) -> dict[str, Any]:
+    active_profile = next((profile for profile in profiles if profile.get("id") == profile_id), {})
+    is_9b = profile_id.endswith("9b")
+    return {
+        "modelFile": active_profile.get("modelName") or PROFILE_MODEL_FALLBACKS[profile_id],
+        "textEncoder": "qwen_3_8b" if is_9b else "qwen_3_4b",
+        "vae": "flux2-vae.safetensors",
+        "sampler": profile_settings.get("sampler", "er_sde"),
+        "width": profile_settings.get("width", 1024),
+        "height": profile_settings.get("height", 1024),
+        "steps": profile_settings.get("steps", 4),
+        "seed": profile_settings.get("seedMode", "random"),
+    }
+
+
 def fallback_model_for_profile(profile_id: str) -> str:
     """Resolve built-in profiles even when the optional DB catalog is unavailable."""
 
