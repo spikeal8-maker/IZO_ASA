@@ -95,9 +95,15 @@ async def publish_max_video(
                 upload_url, headers={"Authorization": token},
                 files={"data": ("publication.mp4", video, "video/mp4")},
             )
-        uploaded = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        raise RuntimeError("MAX video upload failed.") from exc
+        try:
+            uploaded = response.json()
+        except ValueError:
+            # MAX video hosts may acknowledge a successful multipart upload
+            # with plain text/retval. The attachment token was already issued
+            # by POST /uploads and remains authoritative.
+            uploaded = {}
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"MAX video upload failed: {type(exc).__name__}.") from exc
     if response.status_code >= 400:
         raise RuntimeError(f"MAX video upload returned HTTP {response.status_code}.")
     token_value = str(uploaded.get("token") or token_value)
