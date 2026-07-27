@@ -325,6 +325,52 @@ def test_all_generation_modes_complete_and_save_gallery_records(monkeypatch) -> 
         assert len(completed) == len(MODES)
 
 
+@pytest.mark.parametrize("mode", ["inpaint", "remove_background"])
+def test_local_editor_accepts_safe_source_aspect_size(monkeypatch, mode: str) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+    data_url = tiny_image_data_url()
+
+    with authed_client() as client:
+        response = client.post(
+            "/api/generate",
+            json={
+                "mode": mode,
+                "provider": "comfyui",
+                "prompt": f"safe dynamic editor size for {mode}",
+                "width": 864,
+                "height": 1536,
+                "resolutionId": "sq-hd",
+                "inputImage1": data_url,
+                "maskImage": data_url if mode == "inpaint" else None,
+            },
+        )
+        assert response.status_code == 200, response.text
+        final = wait_for_terminal_job(client, response.json()["id"])
+
+    assert final["status"] == "completed", final
+
+
+def test_local_editor_rejects_unsafe_source_aspect_size(monkeypatch) -> None:
+    monkeypatch.setattr(main, "send_to_comfyui", fake_send_to_comfyui)
+
+    with authed_client() as client:
+        response = client.post(
+            "/api/generate",
+            json={
+                "mode": "remove_background",
+                "provider": "comfyui",
+                "prompt": "unsafe dynamic editor size",
+                "width": 864,
+                "height": 1808,
+                "resolutionId": "sq-hd",
+                "inputImage1": tiny_image_data_url(),
+            },
+        )
+
+    assert response.status_code == 422
+    assert "безопасные пределы" in response.json()["detail"]
+
+
 def test_openrouter_generation_skips_comfyui(monkeypatch) -> None:
     model_id = "black-forest-labs/flux.2-klein-4b"
 
