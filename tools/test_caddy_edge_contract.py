@@ -88,6 +88,10 @@ def test_caddyfile_has_bounded_requests_security_cache_and_redacted_json_logs() 
     assert "X-Content-Type-Options nosniff" in source
     assert "Referrer-Policy strict-origin-when-cross-origin" in source
     assert "X-Frame-Options SAMEORIGIN" in source
+    assert 'Strict-Transport-Security "max-age=31536000"' in source
+    assert 'Content-Security-Policy "default-src \'self\'' in source
+    assert "object-src 'none'" in source
+    assert "frame-ancestors 'self'" in source
     assert "-Server" in source
     assert 'Cache-Control "public, max-age=31536000, immutable"' in source
     assert 'Cache-Control "no-store"' in source
