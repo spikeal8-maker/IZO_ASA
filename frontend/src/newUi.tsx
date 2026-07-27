@@ -1710,15 +1710,16 @@ export default function NewStudio(): ReactElement {
   const tariffResolutionIds = new Set(activeTariff.allowed_resolutions)
   const supportedResolutionIdsForModel = (model: ModelOption) => {
     const modelIds = new Set(model.supportedResolutionIds?.length ? model.supportedResolutionIds : RESOLUTION_PRESETS.map((item) => item.id))
-    return RESOLUTION_PRESETS.filter((item) => modelIds.has(item.id) && (model.provider === 'openrouter' || tariffResolutionIds.has(item.id))).map((item) => item.id)
+    return RESOLUTION_PRESETS.filter((item) => modelIds.has(item.id) && tariffResolutionIds.has(item.id)).map((item) => item.id)
   }
-  const preferredResolutionForModel = (model: ModelOption, formatId?: string) => {
+  const preferredResolutionForModel = (model: ModelOption, formatId?: string, preferredTier = selectedResolution.tier) => {
     const allowed = supportedResolutionIdsForModel(model)
     const sameFormat = allowed.filter((id) => {
       const preset = RESOLUTION_PRESETS.find((item) => item.id === id)
       return preset && (!formatId || formatPricingId(preset) === formatId)
     })
-    return sameFormat.includes(resolutionId) ? resolutionId : sameFormat[0] || allowed[0] || 'sq-sd'
+    const sameTier = sameFormat.find((id) => RESOLUTION_PRESETS.find((item) => item.id === id)?.tier === preferredTier)
+    return sameFormat.includes(resolutionId) ? resolutionId : sameTier || sameFormat[0] || allowed[0] || 'sq-sd'
   }
   const studioModelEnabled = (model: ModelOption, mode: ModelModeKey = currentModelMode) => isRasterOpenRouterModel(model) && (model.provider !== 'openrouter' || mode === 'text_to_image' || mode === 'image_to_image' || mode === 'edit')
   const accessibleStudioModelIds = new Set((currentModeAccess?.models || []).map((model) => model.id))
@@ -1786,7 +1787,7 @@ export default function NewStudio(): ReactElement {
     : EDIT_SLOT_COUNT
   const currentStudioTokenCost = tokenCostForModel(currentStudioModel)
   const currentSupportedFormatIds = supportedFormatIdsForModel(currentStudioModel)
-  const currentSupportedResolutionIds = supportedResolutionIdsForModel(currentStudioModel)
+  const currentSupportedResolutionIds = supportedResolutionIdsForModel(currentStudioModel); const currentFormatResolutions = RESOLUTION_PRESETS.filter((item) => formatPricingId(item) === currentFormatPricingId)
   const resolutionFormatAvailable = (formatId: PublicFormatId) => currentSupportedResolutionIds.some((id) => {
     const preset = RESOLUTION_PRESETS.find((item) => item.id === id)
     return preset && formatPricingId(preset) === formatId
@@ -1864,7 +1865,7 @@ export default function NewStudio(): ReactElement {
       setFormatAutoNotice(`${formatName(format)} не поддерживается выбранной моделью`)
       return
     }
-    const presetId = preferredResolutionForModel(currentStudioModel, format)
+    const presetId = preferredResolutionForModel(currentStudioModel, format, selectedResolution.tier)
     const preset = RESOLUTION_PRESETS.find((p) => p.id === presetId)
     if (preset) {
       setResolutionId(preset.id)
@@ -2678,21 +2679,21 @@ export default function NewStudio(): ReactElement {
                 aria-label="Разрешение"
                 onClick={() => setFormatOpen((o) => !o)}
               >
-                <span className="iv3-format-res">{selectedResolution.width}×{selectedResolution.height}</span>
+                <span className="iv3-format-tier">{selectedResolution.quality}</span><span className="iv3-format-res">{selectedResolution.width}×{selectedResolution.height}</span>
                 <svg className="iv3-format-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="m7 9 5 5 5-5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
               {formatOpen && (
                 <div className="iv3-format-menu" role="listbox">
-                  {RESOLUTION_PRESETS.map((p) => (
+                  {currentFormatResolutions.map((p) => (
                     <button
                       key={p.id}
                       type="button"
                       role="option"
                       aria-selected={p.id === resolutionId}
                       disabled={!currentSupportedFormatIds.includes(formatPricingId(p)) || !currentSupportedResolutionIds.includes(p.id)}
-                      className={`iv3-format-option${p.id === resolutionId ? ' active' : ''}`}
+                      className={`iv3-format-option${p.id === resolutionId ? ' active' : ''}`} title={currentSupportedResolutionIds.includes(p.id) ? `${p.quality} · ${p.width}×${p.height}` : `${p.quality} недоступно для выбранной модели или тарифа`}
                       onClick={() => { setResolutionId(p.id); setFormatAutoNotice(''); setFormatOpen(false) }}
                     >
                       <span className={`ratio-icon ${ratioIconClass(p.kind, formatPricingId(p))}`.trim()} aria-hidden="true"></span>

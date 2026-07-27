@@ -17,6 +17,8 @@ def test_legacy_resolution_ids_are_migrated() -> None:
 def test_exact_size_lookup_does_not_guess() -> None:
     assert resolution_id_for_size(1024, 1024) == "sq-hd"
     assert resolution_id_for_size(1280, 720) == "h-hd"
+    assert resolution_id_for_size(2160, 3840) == "v-4k"
+    assert resolution_id_for_size(3840, 2160) == "h-4k"
     assert resolution_id_for_size(1279, 720) is None
 
 
@@ -73,10 +75,26 @@ def test_resolution_only_provider_keeps_all_four_formats() -> None:
     ]
 
 
+def test_explicit_4k_capability_enables_4k_for_every_supported_format() -> None:
+    capability = {
+        "id": "sourceful/riverflow-v2.5-fast",
+        "parameterDescriptors": {
+            "resolution": {"values": ["1K", "2K", "4K"]},
+            "aspect_ratio": {"values": ["1:1", "9:16", "16:9", "3:2"]},
+        },
+    }
+    assert supported_resolution_ids_from_capability(capability) == [
+        "sq-hd", "sq-fhd", "sq-4k",
+        "v-hd", "v-fhd", "v-4k",
+        "h-hd", "h-fhd", "h-4k",
+        "p-hd", "p-fhd", "p-4k",
+    ]
+
+
 def test_config_ui_advertises_all_canonical_sizes() -> None:
     assert CONFIG_UI_RESOLUTION_IDS == (
-        "sq-sd", "sq-hd", "sq-fhd",
-        "v-sd", "v-hd", "v-fhd",
-        "h-sd", "h-hd", "h-fhd",
-        "p-sd", "p-hd", "p-fhd",
+        "sq-sd", "sq-hd", "sq-fhd", "sq-4k",
+        "v-sd", "v-hd", "v-fhd", "v-4k",
+        "h-sd", "h-hd", "h-fhd", "h-4k",
+        "p-sd", "p-hd", "p-fhd", "p-4k",
     )

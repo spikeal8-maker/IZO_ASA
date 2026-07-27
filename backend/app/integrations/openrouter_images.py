@@ -144,7 +144,7 @@ def build_openrouter_image_request_plan(
     aspect_ratio = openrouter_ratio_size(width, height)
     supported_resolutions = openrouter_descriptor_values(capability, "resolution")
     supported_aspects = openrouter_descriptor_values(capability, "aspect_ratio")
-    normalized_resolution = {"sd": "512", "hd": "1K", "full_hd": "2K"}.get(str(resolution_tier), "1K")
+    normalized_resolution = {"sd": "512", "hd": "1K", "full_hd": "2K", "four_k": "4K"}.get(str(resolution_tier), "1K")
     if supported_resolutions and normalized_resolution not in supported_resolutions:
         normalized_resolution = ""
     if model_id.startswith("openai/"):

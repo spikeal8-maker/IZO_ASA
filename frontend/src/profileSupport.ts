@@ -73,7 +73,7 @@ export const SERVER_MODEL_OPTION: ModelOption = {
   provider: 'comfyui',
   modelProfile: 'local_flux_klein',
   tokenHint: 1,
-  supportedResolutionIds: IMAGE_RESOLUTIONS.map((item) => item.id),
+  supportedResolutionIds: IMAGE_RESOLUTIONS.filter((item) => item.tier !== 'four_k').map((item) => item.id),
   generation: { fixedSteps: 4, allowsExactRepeat: false, supportsSeed: true, maxInputReferences: 4 },
 }
 export const modelOptions: ModelOption[] = [
@@ -237,8 +237,9 @@ export function modelPublicInfo(model: ModelOption): ModelPublicInfo {
 export const resolutionOptions = IMAGE_RESOLUTIONS.map((item) => ({ ...item, label: resolutionLabel(item) }))
 
 const sdResolutions = IMAGE_RESOLUTIONS.filter((item) => item.tier === 'sd').map((item) => item.id)
-const hdResolutions = IMAGE_RESOLUTIONS.filter((item) => item.tier !== 'full_hd').map((item) => item.id)
-const fullResolutions = resolutionOptions.map((item) => item.id)
+const hdResolutions = IMAGE_RESOLUTIONS.filter((item) => item.tier === 'sd' || item.tier === 'hd').map((item) => item.id)
+const fullResolutions = IMAGE_RESOLUTIONS.filter((item) => item.tier !== 'four_k').map((item) => item.id)
+const fourKResolutions = resolutionOptions.map((item) => item.id)
 const serverDefaults: TariffModelDefaults = { fast: 'server:local_flux_klein', standard: 'server:local_flux_klein', max: 'server:local_flux_klein' }
 
 export const DEFAULT_TARIFFS: TariffConfig = {
@@ -246,7 +247,7 @@ export const DEFAULT_TARIFFS: TariffConfig = {
   mini: { title: 'Mini', note: 'Оптимальный старт', price_rub_month: 490, daily_tokens: 50, monthly_tokens: 100, gallery_slots: 80, quality_label: 'HD', model_defaults: serverDefaults, queue_label: 'Обычная', pro_mode_enabled: false, allowed_resolutions: hdResolutions, video_enabled: true, video_slots: 1, image_model_count: 1, video_model_count: 0 },
   plus: { title: 'Plus', note: 'Больше возможностей', price_rub_month: 990, daily_tokens: 100, monthly_tokens: 250, gallery_slots: 200, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-klein-4b', max: 'openai/gpt-image-1-mini' }, queue_label: 'Ускоренная', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 5, image_model_count: 1, video_model_count: 0 },
   pro: { title: 'Pro', note: 'Видео и приоритет', price_rub_month: 1990, daily_tokens: 200, monthly_tokens: 500, gallery_slots: 500, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-klein-4b', max: 'black-forest-labs/flux.2-pro' }, queue_label: 'Приоритетная', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 10, image_model_count: 1, video_model_count: 0 },
-  business: { title: 'Бизнес', note: 'Для команды и видео', price_rub_month: 4990, daily_tokens: 500, monthly_tokens: 1200, gallery_slots: 500, quality_label: 'Full HD', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-pro', max: 'openai/gpt-image-1' }, queue_label: 'Бизнес', pro_mode_enabled: true, allowed_resolutions: fullResolutions, video_enabled: true, video_slots: 25, image_model_count: 1, video_model_count: 0 },
+  business: { title: 'Бизнес', note: 'Для команды и видео', price_rub_month: 4990, daily_tokens: 500, monthly_tokens: 1200, gallery_slots: 500, quality_label: '4K', model_defaults: { fast: 'server:local_flux_klein', standard: 'black-forest-labs/flux.2-pro', max: 'openai/gpt-image-1' }, queue_label: 'Бизнес', pro_mode_enabled: true, allowed_resolutions: fourKResolutions, video_enabled: true, video_slots: 25, image_model_count: 1, video_model_count: 0 },
 }
 
 export const AVATAR_PRESET_COUNT = 71

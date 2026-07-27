@@ -4975,6 +4975,12 @@ font-size: 10.5px;
   text-align: left;
 }
 .iv3 .iv3-format-trigger .iv3-format-res { flex: 1 1 auto; }
+.iv3 .iv3-format-trigger .iv3-format-tier {
+  flex: 0 0 auto;
+  color: var(--lime);
+  font-size: 11px;
+  font-weight: 750;
+}
 .iv3 .iv3-format-caret { margin-left: auto; opacity: .7; transition: transform .16s ease; }
 .iv3 .iv3-format-select.open .iv3-format-caret { transform: rotate(180deg); }
 .iv3 .iv3-format-menu {
@@ -5011,6 +5017,10 @@ font-size: 10.5px;
 }
 .iv3 .iv3-format-option:hover { background: var(--panel-3); }
 .iv3 .iv3-format-option.active { background: rgba(182, 207, 18, .14); }
+.iv3 .iv3-format-option:disabled {
+  cursor: not-allowed;
+  opacity: .36;
+}
 .iv3 .iv3-format-option .iv3-format-res { min-width: 82px; font-weight: 600; }
 .iv3 .iv3-format-option .iv3-format-type { margin-left: auto; opacity: .68; font-size: 12px; }
 
@@ -5889,14 +5899,19 @@ position: absolute;
 inset: 0;
 display: grid;
 place-items: center;
+min-width: 0;
+min-height: 0;
 overflow: hidden;
 background: #020302;
 }
 .iv3 .iv3-history-video-preview video {
-width: 100%;
-height: 100%;
+width: auto;
+height: auto;
+max-width: 100%;
+max-height: 100%;
 display: block;
 object-fit: contain;
+object-position: center center;
 background: #000;
 }
 .iv3 .iv3-history-video-caption {

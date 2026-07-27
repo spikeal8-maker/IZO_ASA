@@ -32,7 +32,7 @@ type CatalogItem = { provider: string; displayName: string; modelId: string; cap
 type ProfileOption = { id: string; name: string; supportsPose?: boolean }
 type ServerModelProfileSettings = { width: number; height: number; steps: number; sampler: string; seedMode: 'random' | 'fixed'; seed: number }
 const CONFIG_RESOLUTION_FORMATS: ResolutionFormat[] = ['square', 'portrait', 'wide', 'photo']
-const CONFIG_RESOLUTION_TIERS: ResolutionTier[] = ['sd', 'hd', 'full_hd']
+const CONFIG_RESOLUTION_TIERS: ResolutionTier[] = ['sd', 'hd', 'full_hd', 'four_k']
 const CONFIG_UI_RUNTIME_RESOLUTION_IDS = new Set(IMAGE_RESOLUTIONS.map((item) => item.id))
 type ConfigUiResolutionAccess = { plans?: Partial<Record<TariffKey, string[]>> }
 

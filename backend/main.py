@@ -1033,8 +1033,8 @@ class GenerateRequest(BaseModel):
     prompt: str = ""
     negativePrompt: str = ""
     seed: int = 42
-    width: int = Field(default=1024, ge=256, le=2048)
-    height: int = Field(default=1024, ge=256, le=2048)
+    width: int = Field(default=1024, ge=256, le=4096)
+    height: int = Field(default=1024, ge=256, le=4096)
     resolutionId: str | None = None
     steps: int = Field(default=28, ge=1, le=80)
     cfg: float = Field(default=3.5, ge=0, le=20)
@@ -1578,10 +1578,10 @@ PROMO_REFERRAL_REWARD_TOKENS = 50
 PLAN_ORDER = ("free", "mini", "plus", "pro", "business")
 DEFAULT_TARIFFS: dict[str, dict[str, Any]] = {
     "free": {"title": "Free", "note": "Базовый доступ", "price_rub_month": 0, "daily_tokens": 10, "monthly_tokens": 0, "gallery_slots": 20, "quality_label": "SD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": ["sq-sd", "v-sd", "h-sd", "p-sd"], "video_enabled": 0, "video_slots": 0},
-    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "monthly_tokens": 100, "gallery_slots": 80, "quality_label": "HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "full_hd"], "video_enabled": 1, "video_slots": 1},
-    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "monthly_tokens": 250, "gallery_slots": 200, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "openai/gpt-image-1-mini"}, "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 5},
-    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "monthly_tokens": 500, "gallery_slots": 500, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "black-forest-labs/flux.2-pro"}, "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 10},
-    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "monthly_tokens": 1200, "gallery_slots": 500, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-pro", "max": "openai/gpt-image-1"}, "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 25},
+    "mini": {"title": "Mini", "note": "Оптимальный старт", "price_rub_month": 490, "daily_tokens": 50, "monthly_tokens": 100, "gallery_slots": 80, "quality_label": "HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "server:local_flux_klein", "max": "server:local_flux_klein"}, "queue_label": "Обычная", "pro_mode_enabled": 0, "allowed_resolutions": [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] in {"sd", "hd"}], "video_enabled": 1, "video_slots": 1},
+    "plus": {"title": "Plus", "note": "Больше возможностей", "price_rub_month": 990, "daily_tokens": 100, "monthly_tokens": 250, "gallery_slots": 200, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "openai/gpt-image-1-mini"}, "queue_label": "Ускоренная", "pro_mode_enabled": 1, "allowed_resolutions": [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "four_k"], "video_enabled": 1, "video_slots": 5},
+    "pro": {"title": "Pro", "note": "Видео и приоритет", "price_rub_month": 1990, "daily_tokens": 200, "monthly_tokens": 500, "gallery_slots": 500, "quality_label": "Full HD", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-klein-4b", "max": "black-forest-labs/flux.2-pro"}, "queue_label": "Приоритетная", "pro_mode_enabled": 1, "allowed_resolutions": [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "four_k"], "video_enabled": 1, "video_slots": 10},
+    "business": {"title": "Бизнес", "note": "Для команды и видео", "price_rub_month": 4990, "daily_tokens": 500, "monthly_tokens": 1200, "gallery_slots": 500, "quality_label": "4K", "model_defaults": {"fast": "server:local_flux_klein", "standard": "black-forest-labs/flux.2-pro", "max": "openai/gpt-image-1"}, "queue_label": "Бизнес", "pro_mode_enabled": 1, "allowed_resolutions": list(RESOLUTION_BY_ID), "video_enabled": 1, "video_slots": 25},
 }
 VIDEO_STORAGE_TARIFF_LIMITS = {"free": 0, "mini": 1, "plus": 5, "pro": 10, "business": 25}
 VIDEO_STORAGE_TARIFF_MIGRATION_KEY = "video_storage_tariffs_v1"
@@ -8159,11 +8159,11 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
             raise HTTPException(422, "Размер изображения редактора выходит за безопасные пределы локальной модели.")
     if requested_resolution_id is None:
         raise HTTPException(422, "Выбран нестандартный размер изображения. Выберите доступное разрешение в интерфейсе.")
+    if requested_resolution_id not in get_tariff_config()[plan]["allowed_resolutions"]:
+        raise HTTPException(403, "Это разрешение недоступно на вашем тарифе.")
     if req.provider == "comfyui":
         if requested_resolution_id not in CONFIG_UI_RESOLUTION_IDS:
             raise HTTPException(422, "Это разрешение ещё не подтверждено для серверной модели.")
-        if requested_resolution_id not in get_tariff_config()[plan]["allowed_resolutions"]:
-            raise HTTPException(403, "Это разрешение недоступно на вашем тарифе.")
     if req.provider == "openrouter":
         if req.mode not in OPENROUTER_GENERATION_MODES:
             raise HTTPException(501, "OpenRouter для этой вкладки пока не подключён.")
@@ -16714,7 +16714,7 @@ def _public_model_option(model_id: str, capability: dict[str, Any] | None = None
             "provider": "comfyui",
             "modelProfile": "local_flux_klein",
             "tokenHint": 1,
-            "supportedResolutionIds": list(CONFIG_UI_RESOLUTION_IDS),
+            "supportedResolutionIds": [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "four_k"],
             "generation": {
                 "fixedSteps": LOCAL_TEXT_TO_IMAGE_STEPS,
                 "allowsExactRepeat": False,

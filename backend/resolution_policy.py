@@ -7,15 +7,19 @@ IMAGE_RESOLUTIONS: tuple[dict[str, Any], ...] = (
     {"id": "sq-sd", "format": "square", "tier": "sd", "width": 704, "height": 704},
     {"id": "sq-hd", "format": "square", "tier": "hd", "width": 1024, "height": 1024},
     {"id": "sq-fhd", "format": "square", "tier": "full_hd", "width": 1408, "height": 1408},
+    {"id": "sq-4k", "format": "square", "tier": "four_k", "width": 4096, "height": 4096},
     {"id": "v-sd", "format": "portrait", "tier": "sd", "width": 576, "height": 1024},
     {"id": "v-hd", "format": "portrait", "tier": "hd", "width": 720, "height": 1280},
     {"id": "v-fhd", "format": "portrait", "tier": "full_hd", "width": 1008, "height": 1792},
+    {"id": "v-4k", "format": "portrait", "tier": "four_k", "width": 2160, "height": 3840},
     {"id": "h-sd", "format": "wide", "tier": "sd", "width": 1024, "height": 576},
     {"id": "h-hd", "format": "wide", "tier": "hd", "width": 1280, "height": 720},
     {"id": "h-fhd", "format": "wide", "tier": "full_hd", "width": 1792, "height": 1008},
+    {"id": "h-4k", "format": "wide", "tier": "four_k", "width": 3840, "height": 2160},
     {"id": "p-sd", "format": "photo", "tier": "sd", "width": 960, "height": 640},
     {"id": "p-hd", "format": "photo", "tier": "hd", "width": 1152, "height": 768},
     {"id": "p-fhd", "format": "photo", "tier": "full_hd", "width": 1728, "height": 1152},
+    {"id": "p-4k", "format": "photo", "tier": "four_k", "width": 4096, "height": 2736},
 )
 
 RESOLUTION_BY_ID = {item["id"]: item for item in IMAGE_RESOLUTIONS}
@@ -69,6 +73,10 @@ def supported_resolution_ids_from_capability(capability: dict[str, Any] | None) 
         exact_size_map = {
             "1024x1024": "sq-hd", "1024×1024": "sq-hd",
             "1536x1024": "p-fhd", "1536×1024": "p-fhd",
+            "4096x4096": "sq-4k", "4096×4096": "sq-4k",
+            "2160x3840": "v-4k", "2160×3840": "v-4k",
+            "3840x2160": "h-4k", "3840×2160": "h-4k",
+            "4096x2736": "p-4k", "4096×2736": "p-4k",
         }
         exact = [resolution_id for size, resolution_id in exact_size_map.items() if size in sizes]
         if exact:
@@ -79,15 +87,30 @@ def supported_resolution_ids_from_capability(capability: dict[str, Any] | None) 
     # Keep these rules aligned with openrouter_image_request_plan().
     if not aspects:
         if model_id.startswith("black-forest-labs/"):
-            return [item["id"] for item in IMAGE_RESOLUTIONS]
+            return [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] != "four_k"]
         if model_id.startswith(("openai/", "recraft/")):
             return ["sq-hd", "v-fhd", "p-fhd"]
         if model_id.startswith("sourceful/"):
-            allowed_tiers = {"hd", "full_hd"} if tiers else {"hd"}
+            allowed_tiers: set[str] = set()
+            if tiers & {"512", "0.5K"}:
+                allowed_tiers.add("sd")
+            if tiers & {"1K", "1024"}:
+                allowed_tiers.add("hd")
+            if tiers & {"2K", "2048"}:
+                allowed_tiers.add("full_hd")
+            if tiers & {"4K", "4096"}:
+                allowed_tiers.add("four_k")
+            if not allowed_tiers:
+                allowed_tiers.add("hd")
             return [item["id"] for item in IMAGE_RESOLUTIONS if item["tier"] in allowed_tiers]
 
     format_aspects = {"square": "1:1", "portrait": "9:16", "wide": "16:9", "photo": "3:2"}
-    tier_values = {"sd": {"512", "0.5K"}, "hd": {"1K", "1024"}, "full_hd": {"2K", "2048"}}
+    tier_values = {
+        "sd": {"512", "0.5K"},
+        "hd": {"1K", "1024"},
+        "full_hd": {"2K", "2048"},
+        "four_k": {"4K", "4096"},
+    }
     has_aspect_control = "aspect_ratio" in supported_parameters or bool(aspects)
     has_resolution_control = "resolution" in supported_parameters or bool(tiers)
     result: list[str] = []

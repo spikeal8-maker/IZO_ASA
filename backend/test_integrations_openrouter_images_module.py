@@ -169,7 +169,7 @@ def test_provider_safe_sizes_preserve_orientation_mapping(
 
 @pytest.mark.parametrize(
     ("tier", "expected"),
-    [("sd", "512"), ("hd", "1K"), ("full_hd", "2K"), ("unknown", "1K")],
+    [("sd", "512"), ("hd", "1K"), ("full_hd", "2K"), ("four_k", "4K"), ("unknown", "1K")],
 )
 def test_sourceful_plan_preserves_resolution_tier_mapping(tier, expected):
     assert build_openrouter_image_request_plan(
