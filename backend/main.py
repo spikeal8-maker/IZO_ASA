@@ -8123,12 +8123,12 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
     if plan not in PLAN_ORDER:
         plan = "mini"
     requested_resolution_id = resolution_id_for_size(req.width, req.height)
-    dynamic_local_outpaint = (
+    dynamic_local_editor_size = (
         req.provider == "comfyui"
-        and req.mode == "outpaint"
+        and req.mode in {"outpaint", "inpaint", "remove_background"}
         and requested_resolution_id is None
     )
-    if dynamic_local_outpaint:
+    if dynamic_local_editor_size:
         normalized_base_ids = normalize_resolution_ids([req.resolutionId] if req.resolutionId else [])
         requested_resolution_id = normalized_base_ids[0] if normalized_base_ids else None
         safe_dynamic_size = (
@@ -8139,7 +8139,7 @@ async def generate(req: GenerateRequest, request: Request) -> dict[str, Any]:
             and req.width * req.height <= 2_050_000
         )
         if not safe_dynamic_size:
-            raise HTTPException(422, "Размер расширенного изображения выходит за безопасные пределы локальной модели.")
+            raise HTTPException(422, "Размер изображения редактора выходит за безопасные пределы локальной модели.")
     if requested_resolution_id is None:
         raise HTTPException(422, "Выбран нестандартный размер изображения. Выберите доступное разрешение в интерфейсе.")
     if req.provider == "comfyui":
