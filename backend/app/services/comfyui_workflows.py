@@ -26,7 +26,7 @@ class WorkflowRequest(Protocol):
 
 WORKFLOW_ENDPOINTS = {
     "text_to_image": "workflow_t2i",
-    "image_to_image": "workflow_i2i",
+    "image_to_image": "workflow_edit",
     "edit": "workflow_edit",
     "paint": "workflow_edit",
     "inpaint": "workflow_inpaint",
@@ -251,15 +251,14 @@ def patch_mode_nodes(
         default_negative_prompt=default_negative_prompt,
         model_profiles=model_profiles,
     )
-    if request.mode == "image_to_image":
-        set_input(prompt, "FKI2I:img", "image", uploads["input1"])
-        set_input(prompt, "FK:171", "denoise", request.strength)
-    elif request.mode == "remove_background":
+    if request.mode == "remove_background":
         set_input(prompt, "rmbg:load", "bg_removal_name", "birefnet.safetensors")
         set_input(prompt, "rmbg:img", "image", uploads["input1"])
         set_input(prompt, "rmbg:save", "filename_prefix", "one-node-flux-2-klein/assets/rmbg")
-    elif request.mode in {"edit", "paint", "faceswap", "try_on", "texture_transfer"}:
+    elif request.mode in {"image_to_image", "edit", "paint", "faceswap", "try_on", "texture_transfer"}:
         image_files = [uploads.get(f"input{index}") for index in range(1, 5)]
+        if request.mode == "image_to_image":
+            image_files = image_files[:1]
         if request.mode in {"edit", "faceswap"}:
             patch_optional_lora(prompt, request.loras[0] if request.loras else None)
         lora_id = request.loras[0].id.lower() if request.loras else ""
@@ -380,4 +379,40 @@ def build_outpaint_workflow(
         default_negative_prompt=default_negative_prompt,
         model_profiles=model_profiles,
     )
+    required_preservation_nodes = {"FKO:198", "FKO:tomask", "FKO:164", "FKO:203"}
+    missing_preservation_nodes = required_preservation_nodes.difference(graph)
+    if missing_preservation_nodes:
+        raise RuntimeError(
+            "Outpaint workflow cannot preserve the source region; missing nodes: "
+            + ", ".join(sorted(missing_preservation_nodes))
+        )
+    graph["FKO:preserve_mask"] = {
+        "class_type": "InvertMask",
+        "inputs": {"mask": ["FKO:tomask", 0]},
+        "_meta": {"title": "Preserve original source region"},
+    }
+    graph["FKO:preserve_feather"] = {
+        "class_type": "FeatherMask",
+        "inputs": {
+            "mask": ["FKO:preserve_mask", 0],
+            "left": 12,
+            "top": 12,
+            "right": 12,
+            "bottom": 12,
+        },
+        "_meta": {"title": "Blend outpaint seam"},
+    }
+    graph["FKO:preserve_source"] = {
+        "class_type": "ImageCompositeMasked",
+        "inputs": {
+            "destination": ["FKO:164", 0],
+            "source": ["FKO:198", 0],
+            "x": 0,
+            "y": 0,
+            "resize_source": False,
+            "mask": ["FKO:preserve_feather", 0],
+        },
+        "_meta": {"title": "Restore unchanged source pixels"},
+    }
+    graph["FKO:203"]["inputs"]["images"] = ["FKO:preserve_source", 0]
     return graph

@@ -47,6 +47,19 @@ def verify_assets(manifest: dict[str, object]) -> list[str]:
 
 def verify_runtime(manifest: dict[str, object], comfyui_root: Path) -> list[str]:
     errors: list[str] = []
+    for required in manifest.get("comfyUI", {}).get("requiredCommits", []):
+        required_commit = str(required["commit"])
+        try:
+            subprocess.run(
+                ["git", "-C", str(comfyui_root), "merge-base", "--is-ancestor", required_commit, "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            errors.append(
+                f"COMFYUI_REQUIRED_COMMIT {comfyui_root}: {required_commit} is not present in HEAD ({exc})"
+            )
     node_root = comfyui_root / "custom_nodes" / manifest["customNode"]["name"]
     for item in manifest["assets"]:
         if item.get("runtimeRequired") is False:

@@ -129,15 +129,15 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 
 | Path | Current | Maximum | Remaining |
 |---|---:|---:|---:|
-| `backend/main.py` | 19521 | 19521 | 0 |
+| `backend/main.py` | 19541 | 19541 | 0 |
 | `backend/static/feed/index.html` | 2124 | 2200 | 76 |
 | `backend/test_feed_v2.py` | 2346 | 2400 | 54 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
 | `frontend/src/adminModels.tsx` | 2086 | 2100 | 14 |
 | `frontend/src/index.css` | 2400 | 2400 | 0 |
-| `frontend/src/newStudioV3.css` | 5876 | 6000 | 124 |
+| `frontend/src/newStudioV3.css` | 5886 | 6000 | 114 |
 | `frontend/src/newUi.css` | 3096 | 3200 | 104 |
-| `frontend/src/newUi.tsx` | 3626 | 3628 | 2 |
+| `frontend/src/newUi.tsx` | 3616 | 3628 | 12 |
 
 ## Symbol budgets
 

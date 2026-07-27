@@ -303,6 +303,7 @@ def test_all_generation_modes_complete_and_save_gallery_records(monkeypatch) -> 
                 "inputImage1": data_url if mode != "text_to_image" else None,
                 "inputImage2": data_url if mode in {"faceswap", "try_on", "texture_transfer"} else None,
                 "canvas": "[]" if mode in {"paint", "inpaint"} else None,
+                "outpaint": {"right": 128} if mode == "outpaint" else None,
                 "loras": [{"id": "bfs_head_v1_flux-klein_9b_step3500_rank128.safetensors", "strength": 1.0}] if mode == "faceswap" else [],
             }
             response = client.post("/api/generate", json=body)

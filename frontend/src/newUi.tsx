@@ -93,6 +93,7 @@ import {
 import { readStudioDraft } from './studio/studioDraft'
 import {
   comfySafeGenerationSize,
+  composeI2IEditPrompt,
   composePaintPrompt,
   createOutpaintPreview,
   createPaintMask,
@@ -102,6 +103,9 @@ import {
   imageRequestSizeFromSource,
   loadHtmlImage,
   loadImageShape,
+  meaningfulPaintLines,
+  outpaintPaddingOnly,
+  outpaintRequestSizeFromSource,
   paintStageForResolution,
   resizeUploadImage,
   sameGenerationSize,
@@ -1077,12 +1081,14 @@ export default function NewStudio(): ReactElement {
       return
     }
     if (mode === 'paint') {
-      const paintBlock = paintMode === 'sketch' && paintLines.length === 0
+      const paintBlock = paintMode === 'sketch' && !paintSketchImage && !meaningfulPaintLines(paintLines)
         ? 'Нарисуйте эскиз на холсте.'
         : paintMode !== 'sketch' && !paintImage
           ? 'Загрузите изображение для этого режима.'
-          : paintMode === 'mask' && paintLines.length === 0
+          : paintMode === 'mask' && !meaningfulPaintLines(paintLines)
             ? 'Закрасьте область маской.'
+            : paintMode === 'outpaint' && !Object.values(outpaintPaddingOnly(paintOutpaint)).some((value) => Number(value) > 0)
+              ? 'Задайте поле расширения слева, справа, сверху или снизу.'
             : null
       if (paintBlock) {
         showToast(paintBlock)
@@ -1117,7 +1123,7 @@ export default function NewStudio(): ReactElement {
         : QUALITY.find((q) => q.id === quality)?.steps || 4
       const effectiveSeed = seed || randomSeed()
       const rawRequestSize = mode === 'paint' && paintMode === 'outpaint'
-          ? size
+          ? await outpaintRequestSizeFromSource(paintImage, paintOutpaint, size)
         : mode === 'paint' && paintMode !== 'sketch'
           ? await imageRequestSizeFromSource(paintImage, size)
           : size
@@ -1128,7 +1134,10 @@ export default function NewStudio(): ReactElement {
       const userText = mode === 'i2i' ? i2iPrompt : textPrompt
       // В обоих режимах пользователь видит финальный prompt в textarea:
       // text/i2i-стиль дописывается туда при выборе и может быть отредактирован.
-      const fullPrompt = userText || (mode === 'i2i' ? style?.transformPrompt || '' : '')
+      const rawFullPrompt = userText || (mode === 'i2i' ? style?.transformPrompt || '' : '')
+      const fullPrompt = mode === 'i2i' && selectedModel.provider === 'comfyui'
+        ? composeI2IEditPrompt(rawFullPrompt)
+        : rawFullPrompt
       const isEditLikeMode = mode === 'edit'
       const activeEditSlots = requestEditSlots
       const paintCanvas = mode === 'paint' && paintMode === 'sketch' ? await createPaintSketchCanvas() : undefined
@@ -1164,6 +1173,7 @@ export default function NewStudio(): ReactElement {
         seed: effectiveSeed,
         width: requestSize.width,
         height: requestSize.height,
+        resolutionId,
         steps,
         cfg: 1,
         guidance,
@@ -1181,7 +1191,7 @@ export default function NewStudio(): ReactElement {
           : undefined,
         maskImage: mode === 'paint' && paintMode === 'mask' ? paintMask : undefined,
         canvas: mode === 'paint' && paintMode === 'sketch' ? paintCanvas : undefined,
-        outpaint: mode === 'paint' && paintMode === 'outpaint' ? paintOutpaint : undefined,
+        outpaint: mode === 'paint' && paintMode === 'outpaint' ? outpaintPaddingOnly(paintOutpaint) : undefined,
         clientRequestId: newClientRequestId(),
       }
       const response = await apiFetch('/generate', {
@@ -1813,6 +1823,7 @@ export default function NewStudio(): ReactElement {
   const visibleGalleryImage = visibleResultUrl
     ? gallery.find((item) => item.id === activeCorePreview?.galleryId || apiUrl(item.url) === apiUrl(visibleResultUrl) || apiUrl(item.thumbnailUrl) === apiUrl(visibleResultUrl))
     : undefined
+  const visibleResultHasTransparency = visibleGalleryImage?.mode === 'remove_background'
   const visibleResultWidth = activeCorePreview?.width || visibleGalleryImage?.width
   const visibleResultHeight = activeCorePreview?.height || visibleGalleryImage?.height
   const visiblePreviewShape = isPaintStudio
@@ -2082,28 +2093,7 @@ export default function NewStudio(): ReactElement {
   }
 
   function updateOutpaintPadding(key: 'left' | 'right' | 'top' | 'bottom', value: number) {
-    setPaintOutpaint((cur) => {
-      const next = { ...cur, [key]: value }
-      const frameW = Math.max(1, cur.frameW || paintStageSize.width)
-      const frameH = Math.max(1, cur.frameH || paintStageSize.height)
-      const aspect = Math.max(0.05, (cur.sourceW && cur.sourceH) ? cur.sourceW / cur.sourceH : frameW / frameH)
-      const horizontalEdit = key === 'left' || key === 'right'
-      const sourceW = horizontalEdit
-        ? Math.max(48, frameW - Math.max(0, next.left) - Math.max(0, next.right))
-        : Math.max(48, Math.min(frameW * 4, Math.max(48, frameH - Math.max(0, next.top) - Math.max(0, next.bottom)) * aspect))
-      const sourceH = horizontalEdit
-        ? Math.max(48, Math.min(frameH * 4, sourceW / aspect))
-        : Math.max(48, frameH - Math.max(0, next.top) - Math.max(0, next.bottom))
-      return {
-        ...next,
-        frameW,
-        frameH,
-        sourceX: horizontalEdit ? Math.max(0, next.left) : Math.round((frameW - sourceW) / 2),
-        sourceY: horizontalEdit ? Math.round((frameH - sourceH) / 2) : Math.max(0, next.top),
-        sourceW: Math.round(sourceW),
-        sourceH: Math.round(sourceH),
-      }
-    })
+    setPaintOutpaint((cur) => ({ ...outpaintPaddingOnly(cur), [key]: Math.max(0, value) }))
   }
 
   function markVisiblePreviewError(event: ChangeEvent<HTMLImageElement>) {
@@ -2899,7 +2889,7 @@ export default function NewStudio(): ReactElement {
             </>
           ) : visibleResultUrl && !visibleResultError ? (
             <>
-              <img className="iv3-preview-backdrop" src={apiUrl(visibleResultUrl)} alt="" aria-hidden="true" />
+              {!visibleResultHasTransparency && <img className="iv3-preview-backdrop" src={apiUrl(visibleResultUrl)} alt="" aria-hidden="true" />}
               {visibleResultWidth && visibleResultHeight && (
                 <span className="iv3-result-resolution" title="Фактическое разрешение результата">
                   {visibleResultWidth}×{visibleResultHeight}
@@ -2915,7 +2905,7 @@ export default function NewStudio(): ReactElement {
                   onTouchCancel={onInspectTouchEnd}
                   onDoubleClick={resetInspectView}
                 >
-                  <img className="iv3-preview-main iv3-compare-after" src={apiUrl(visibleResultUrl)} alt="Результат генерации" onError={markVisiblePreviewError} />
+                  <img className={`iv3-preview-main iv3-compare-after${visibleResultHasTransparency ? ' transparent-grid' : ''}`} src={apiUrl(visibleResultUrl)} alt="Результат генерации" onError={markVisiblePreviewError} />
                   <div className="iv3-compare-before">
                     <img className="iv3-preview-main" src={apiUrl(visibleResultSource)} alt="Исходное изображение" />
                   </div>
@@ -2952,7 +2942,7 @@ export default function NewStudio(): ReactElement {
                   onTouchCancel={onInspectTouchEnd}
                   onDoubleClick={resetInspectView}
                 >
-                  <img className="iv3-preview-main iv3-inspect-image" src={apiUrl(visibleResultUrl)} alt="Результат генерации" style={inspectImageStyle} draggable={false} onError={markVisiblePreviewError} />
+                  <img className={`iv3-preview-main iv3-inspect-image${visibleResultHasTransparency ? ' transparent-grid' : ''}`} src={apiUrl(visibleResultUrl)} alt="Результат генерации" style={inspectImageStyle} draggable={false} onError={markVisiblePreviewError} />
                 </div>
               )}
               {(!visibleResultSource || !compareEnabled) && inspectToolsVisible && (

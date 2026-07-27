@@ -43,7 +43,7 @@ def shared_graph() -> dict:
 def test_workflow_endpoint_mapping_preserves_all_modes_and_default() -> None:
     assert comfyui_workflows.WORKFLOW_ENDPOINTS == {
         "text_to_image": "workflow_t2i",
-        "image_to_image": "workflow_i2i",
+        "image_to_image": "workflow_edit",
         "edit": "workflow_edit",
         "paint": "workflow_edit",
         "inpaint": "workflow_inpaint",
@@ -253,7 +253,7 @@ def test_edit_reference_chain_removes_unused_slots_and_requires_base() -> None:
 
 
 def test_mode_builder_patches_image_to_image_and_remove_background() -> None:
-    image_graph = {**shared_graph(), "FKI2I:img": {"inputs": {}}}
+    image_graph = shared_graph()
     comfyui_workflows.patch_mode_nodes(
         image_graph,
         workflow_request("image_to_image", strength=0.33),
@@ -264,8 +264,9 @@ def test_mode_builder_patches_image_to_image_and_remove_background() -> None:
         default_negative_prompt="neg",
         model_profiles=MODEL_PROFILES,
     )
-    assert image_graph["FKI2I:img"]["inputs"]["image"] == "source.png"
-    assert image_graph["FK:171"]["inputs"]["denoise"] == 0.33
+    assert image_graph["FK:91"]["inputs"]["image"] == "source.png"
+    assert image_graph["FK:171"]["inputs"]["positive"] == ["FK:133", 0]
+    assert image_graph["FK:171"]["inputs"]["denoise"] == 1
 
     remove_graph = {
         "rmbg:load": {"inputs": {}}, "rmbg:img": {"inputs": {}}, "rmbg:save": {"inputs": {}},
@@ -377,8 +378,8 @@ def outpaint_graph() -> dict:
     return {
         "FKO:216": {"inputs": {}}, "FKO:194": {"inputs": {}}, "FKO:195": {"inputs": {}},
         "FKO:196": {"inputs": {}}, "FKO:6": {"inputs": {}}, "FKO:198": {"inputs": {}},
-        "FKO:maskload": {"inputs": {}}, "FKO:209": {"inputs": {}},
-        "FKO:163": {"inputs": {}}, "FKO:203": {"inputs": {}},
+        "FKO:maskload": {"inputs": {}}, "FKO:tomask": {"inputs": {}}, "FKO:209": {"inputs": {}},
+        "FKO:163": {"inputs": {}}, "FKO:164": {"inputs": {}}, "FKO:203": {"inputs": {}},
     }
 
 
@@ -435,6 +436,9 @@ def test_outpaint_builder_removes_kv_cache_and_wires_lora_and_mask() -> None:
     assert graph["FKO:outpaint_lora"]["inputs"]["lora_name"] == "flux2_klein_4b_outpaint_comfy.safetensors"
     assert graph["FKO:163"]["inputs"]["model"] == ["FKO:outpaint_lora", 0]
     assert graph["FKO:maskload"]["inputs"]["image"] == "mask.png"
+    assert graph["FKO:preserve_mask"]["inputs"]["mask"] == ["FKO:tomask", 0]
+    assert graph["FKO:preserve_source"]["inputs"]["source"] == ["FKO:198", 0]
+    assert graph["FKO:203"]["inputs"]["images"] == ["FKO:preserve_source", 0]
 
 
 def test_outpaint_builder_keeps_kv_cache_for_selected_9b_profile() -> None:
