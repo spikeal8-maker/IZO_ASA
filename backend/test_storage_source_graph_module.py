@@ -244,6 +244,62 @@ def test_source_persistence_rolls_back_database_and_new_file_on_insert_error(tmp
     assert not (media / "result-1.webp").exists()
 
 
+def test_source_library_evicts_oldest_unprotected_and_retains_history(tmp_path: Path):
+    database = tmp_path / "persist-limit.sqlite3"
+    media = tmp_path / "media"
+    media.mkdir()
+    connect = _connect_factory(database)
+    _create_persistence_schema(connect)
+    with connect() as conn:
+        conn.execute(
+            "UPDATE image_sources SET is_favorite = 0, library_deleted_at = NULL WHERE id = 'old-source'"
+        )
+        conn.execute(
+            "UPDATE image_sources SET is_favorite = 1, library_deleted_at = NULL WHERE id = 'parent-source'"
+        )
+        conn.execute(
+            """
+            INSERT INTO image_sources VALUES (
+                'evict-me', 'older-result', 'owner', NULL, 'upload', 'base', 1,
+                '/api/media/evict.webp?userId=owner', 10, 10, 3, 0, NULL,
+                'available', NULL, NULL, '[]', '2026-01-02'
+            )
+            """
+        )
+    runtime = _persistence_runtime(connect, media, [])
+
+    persist_image_source_rows(
+        runtime,
+        "result",
+        "owner",
+        [{"slot": 1, "role": "base", "value": "new-upload"}],
+        "2026-01-10",
+        mode="image_to_image",
+        library_limit=2,
+    )
+
+    with connect() as conn:
+        protected = conn.execute(
+            "SELECT library_deleted_at FROM image_sources WHERE id = 'parent-source'"
+        ).fetchone()
+        evicted = conn.execute(
+            "SELECT library_deleted_at, image_id FROM image_sources WHERE id = 'evict-me'"
+        ).fetchone()
+        visible = conn.execute(
+            """
+            SELECT COUNT(*) FROM image_sources
+            WHERE user_id = 'owner'
+              AND source_kind IN ('upload', 'media')
+              AND (library_deleted_at IS NULL OR library_deleted_at = '')
+            """
+        ).fetchone()[0]
+
+    assert protected["library_deleted_at"] is None
+    assert evicted["library_deleted_at"]
+    assert evicted["image_id"] == "older-result"
+    assert visible == 2
+
+
 def test_source_deletion_removes_each_file_before_rows(tmp_path: Path):
     database = tmp_path / "delete-sources.sqlite3"
     connect = _connect_factory(database)

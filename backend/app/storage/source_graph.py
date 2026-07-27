@@ -156,6 +156,7 @@ def persist_image_source_rows(
     created_at: str,
     *,
     mode: str | None = None,
+    library_limit: int | None = None,
 ) -> list[dict[str, Any]]:
     if not source_inputs:
         return []
@@ -245,6 +246,36 @@ def persist_image_source_rows(
                     ),
                 )
                 saved.append(source_row)
+            if library_limit is not None:
+                active_count = int(
+                    conn.execute(
+                        """
+                        SELECT COUNT(*) FROM image_sources
+                        WHERE user_id = ?
+                          AND source_kind IN ('upload', 'media')
+                          AND (library_deleted_at IS NULL OR library_deleted_at = '')
+                        """,
+                        (user_id,),
+                    ).fetchone()[0]
+                )
+                overflow = max(0, active_count - max(0, int(library_limit)))
+                if overflow:
+                    candidates = conn.execute(
+                        """
+                        SELECT id FROM image_sources
+                        WHERE user_id = ?
+                          AND source_kind IN ('upload', 'media')
+                          AND is_favorite = 0
+                          AND (library_deleted_at IS NULL OR library_deleted_at = '')
+                        ORDER BY created_at ASC, id ASC
+                        LIMIT ?
+                        """,
+                        (user_id, overflow),
+                    ).fetchall()
+                    conn.executemany(
+                        "UPDATE image_sources SET library_deleted_at = ? WHERE id = ?",
+                        [(datetime.now(timezone.utc).isoformat(), row["id"]) for row in candidates],
+                    )
     except Exception:
         for path in new_paths:
             try:

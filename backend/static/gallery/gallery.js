@@ -197,11 +197,13 @@ function cardTemplate(raw, context){
   const isVideo = item.mediaType === 'video';
   const heartTitle = item.favorite ? 'Убрать сердечко' : `Поставить сердечко: оставить ${isVideo ? 'видео' : 'изображение'} и защитить от автоудаления`;
   const feedTitle = item.published ? 'Открыть публикацию в общей ленте' : publicationStatus === 'preparing' ? 'Публикация готовится' : 'Опубликовать в ленту';
-  const imgAttrs = item.width && item.height ? ` width="${Number(item.width)}" height="${Number(item.height)}"` : '';
+  const mediaWidth = Math.max(1, Number(item.width || 1));
+  const mediaHeight = Math.max(1, Number(item.height || 1));
+  const imgAttrs = item.width && item.height ? ` width="${mediaWidth}" height="${mediaHeight}"` : '';
   const media = isVideo
     ? `<video data-src="${escapeHtml(item.viewerSrc)}"${item.thumbnailUrl ? ` poster="${escapeHtml(apiUrl(item.thumbnailUrl))}"` : ''} muted playsinline preload="metadata" aria-label="${escapeHtml(promptText)}"></video><span class="videoDuration">${escapeHtml(item.duration ? `${item.duration} с` : 'Видео')}</span>`
     : `<img src="${escapeHtml(item.src)}" alt="${escapeHtml(promptText)}" loading="lazy" decoding="async"${imgAttrs}>`;
-  return `<article class="card ${isVideo ? 'videoCard' : ''}" data-id="${escapeHtml(item.id)}" data-context="${context}" data-width="${Number(item.width || 1)}" data-height="${Number(item.height || 1)}" title="${escapeHtml(promptText)}">
+  return `<article class="card ${isVideo ? 'videoCard' : ''}" data-id="${escapeHtml(item.id)}" data-context="${context}" data-width="${mediaWidth}" data-height="${mediaHeight}" style="--media-aspect:${mediaWidth}/${mediaHeight}" title="${escapeHtml(promptText)}">
     ${media}
     <div class="cardTop"><span class="pill" title="Режим генерации">${escapeHtml(item.modeText)}</span>${pubPill}</div>
     <div class="cardBottom"><time class="cardDate">${escapeHtml(item.dateText)}</time><div class="cardActions">
@@ -623,6 +625,7 @@ function updateViewer(){
   if(isVideo){
     viewerImg.hidden = true;
     viewerVideo.hidden = false;
+    viewerVideo.style.aspectRatio = `${Math.max(1, Number(item.width || 1))}/${Math.max(1, Number(item.height || 1))}`;
     if(viewerVideo.src !== new URL(item.viewerSrc, window.location.origin).href) viewerVideo.src = item.viewerSrc;
   }else{
     viewerVideo.pause(); viewerVideo.removeAttribute('src'); viewerVideo.load(); viewerVideo.hidden = true;

@@ -4474,6 +4474,8 @@ def persist_image_sources(image_id: str, user_id: str, req: GenerateRequest, cre
         media_filename_from_url=media_filename_from_url,
         delete_media_rel=_delete_media_rel,
     )
+    with db() as conn:
+        library_limit = int(gallery_quota_for_user(conn, None, user_id)["gallery_slots"])
     return storage_persist_image_source_rows(
         runtime,
         image_id,
@@ -4481,6 +4483,7 @@ def persist_image_sources(image_id: str, user_id: str, req: GenerateRequest, cre
         _generation_source_inputs(req),
         created_at,
         mode=req.mode,
+        library_limit=library_limit,
     )
 
 
