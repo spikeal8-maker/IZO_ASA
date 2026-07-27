@@ -231,7 +231,15 @@ def test_openrouter_generation_uses_main_balance_only(temp_db, monkeypatch):
     async def fake_billing(_req):
         return {"chargedTokens": 3, "modelName": "FLUX.2 Pro", "estimatedCostRub": 3.5}
 
+    async def flux_pro_capabilities(*_args, **_kwargs):
+        return [{
+            "id": "black-forest-labs/flux.2-pro",
+            "modes": ["text_to_image"],
+            "supportedResolutionIds": ["sq-hd"],
+        }]
+
     monkeypatch.setattr(main, "estimate_openrouter_billing", fake_billing)
+    monkeypatch.setattr(main, "fetch_openrouter_image_capabilities", flux_pro_capabilities)
     with TestClient(main.app) as client:
         response = client.post(
             "/api/generate",
