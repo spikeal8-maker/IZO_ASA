@@ -4,12 +4,16 @@ import asyncio
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.services.social_delivery import (
     build_max_social_sender,
     build_telegram_social_sender,
     build_vk_story_sender,
     claim_pending_telegram_deliveries,
+    deliver_pending_social_deletion_batch,
     deliver_pending_telegram_batch,
+    enqueue_social_deletions,
 )
 
 
@@ -403,3 +407,58 @@ def test_vk_story_sender_uses_independent_story_delivery() -> None:
     assert calls[0]["media_type"] == "video"
     assert calls[0]["media_url"].endswith("/api/feed/video/publication-1?variant=full")
     assert calls[0]["feed_url"] == "https://izo.example/feed?tab=new"
+
+
+def test_vk_story_sender_rejects_unconfirmed_success() -> None:
+    async def fake_story(**_kwargs):
+        return {"response": {"count": 0, "items": []}}
+
+    sender = build_vk_story_sender(
+        settings_getter=lambda: {
+            "masterEnabled": True, "autoPublish": True,
+            "networks": {"vk": {
+                "storyEnabled": True, "verified": True, "targetId": "240",
+            }},
+        },
+        media_token_getter=lambda: "media-secret",
+        public_site_url_getter=lambda: "https://izo.example",
+        vk_story_publisher=fake_story,
+    )
+    from app.services.social_delivery import PublicFeedPublication, SocialDelivery
+    with pytest.raises(RuntimeError, match="did not confirm"):
+        asyncio.run(sender(
+            SocialDelivery("story-d", "publication-1", "vk_story", 0),
+            PublicFeedPublication("publication-1", "image", "title", None),
+        ))
+
+
+def test_cascade_delete_snapshots_and_delivers_remote_ids() -> None:
+    conn = database()
+    for network, external_id in (
+        ("telegram", "telegram:7"),
+        ("max", "max:abc"),
+        ("vk", "vk:21:video-240_88"),
+        ("vk_story", "vk_story:-240_17"),
+    ):
+        conn.execute(
+            """INSERT INTO social_delivery_outbox
+               (id, publication_id, network, status, next_attempt_at,
+                external_id, created_at, sent_at)
+               VALUES (?, 'publication-1', ?, 'sent', ?, ?, ?, ?)""",
+            (network, network, NOW.isoformat(), external_id, NOW.isoformat(), NOW.isoformat()),
+        )
+    conn.commit()
+    assert enqueue_social_deletions(conn, "publication-1", now=NOW.isoformat()) == 4
+    conn.commit()
+    seen = []
+
+    async def delete(delivery, external_id):
+        seen.append((delivery.network, external_id))
+
+    result = asyncio.run(
+        deliver_pending_social_deletion_batch(conn, sender=delete, now=NOW)
+    )
+    assert result == {"claimed": 4, "sent": 4, "retried": 0, "failed": 0}
+    assert {item[0] for item in seen} == {
+        "delete_telegram", "delete_max", "delete_vk", "delete_vk_story",
+    }

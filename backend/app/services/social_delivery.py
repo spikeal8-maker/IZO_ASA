@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
@@ -244,6 +245,79 @@ def mark_social_delivery_retry(
         ),
     )
     return status
+
+
+def enqueue_social_deletions(
+    conn: sqlite3.Connection, publication_id: str, *, now: str | None = None
+) -> int:
+    """Snapshot successful remote deliveries before a publication is hidden."""
+
+    created_at = now or _utc_now().isoformat()
+    rows = conn.execute(
+        """
+        SELECT network, external_id
+        FROM social_delivery_outbox
+        WHERE publication_id=? AND status='sent' AND external_id IS NOT NULL
+          AND network IN ('telegram', 'max', 'vk', 'vk_story')
+        """,
+        (publication_id,),
+    ).fetchall()
+    queued = 0
+    for row in rows:
+        network = str(row["network"])
+        cursor = conn.execute(
+            """
+            INSERT OR IGNORE INTO social_delivery_outbox
+                (id, publication_id, network, status, attempts, next_attempt_at,
+                 external_id, created_at)
+            VALUES (?, ?, ?, 'pending', 0, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex,
+                publication_id,
+                f"delete_{network}",
+                created_at,
+                str(row["external_id"]),
+                created_at,
+            ),
+        )
+        queued += int(cursor.rowcount > 0)
+    return queued
+
+
+async def deliver_pending_social_deletion_batch(
+    conn: sqlite3.Connection,
+    *,
+    sender: Callable[[SocialDelivery, str], Awaitable[None]],
+    now: datetime | None = None,
+    limit: int = 20,
+) -> dict[str, int]:
+    result = {"claimed": 0, "sent": 0, "retried": 0, "failed": 0}
+    for network in ("delete_telegram", "delete_max", "delete_vk", "delete_vk_story"):
+        deliveries = claim_pending_social_deliveries(
+            conn, network=network, now=now, limit=limit
+        )
+        result["claimed"] += len(deliveries)
+        for delivery in deliveries:
+            row = conn.execute(
+                "SELECT external_id FROM social_delivery_outbox WHERE id=?",
+                (delivery.id,),
+            ).fetchone()
+            try:
+                if row is None or not row["external_id"]:
+                    raise RuntimeError("Remote delivery identifier is missing.")
+                await sender(delivery, str(row["external_id"]))
+                mark_social_delivery_sent(
+                    conn, delivery.id, external_id=str(row["external_id"])
+                )
+                result["sent"] += 1
+            except Exception as exc:  # noqa: BLE001 - provider boundary
+                status = mark_social_delivery_retry(
+                    conn, delivery.id, str(exc), now=now
+                )
+                result["failed" if status == "failed" else "retried"] += 1
+            conn.commit()
+    return result
 
 
 async def deliver_pending_telegram_batch(
@@ -498,7 +572,9 @@ def build_vk_social_sender(
         body = response.get("response") if isinstance(response.get("response"), dict) else {}
         post_id = body.get("post_id")
         external_url = f"https://vk.com/wall-{group_id}_{post_id}" if post_id is not None else None
-        return (f"vk:{post_id}" if post_id is not None else None), external_url
+        media_ref = str(response.get("_media_ref") or "")
+        suffix = f":{media_ref}" if media_ref else ""
+        return (f"vk:{post_id}{suffix}" if post_id is not None else None), external_url
 
     return send
 
@@ -543,10 +619,68 @@ def build_vk_story_sender(
         items = body.get("items") if isinstance(body, dict) else body
         story = items[0] if isinstance(items, list) and items and isinstance(items[0], dict) else {}
         story_id, owner_id = story.get("id"), story.get("owner_id")
-        external_id = f"vk_story:{owner_id}_{story_id}" if story_id is not None else None
+        if story_id is None or owner_id is None:
+            shape = sorted(body.keys()) if isinstance(body, dict) else type(body).__name__
+            raise RuntimeError(f"VK Stories did not confirm a story id; response shape={shape}.")
+        external_id = f"vk_story:{owner_id}_{story_id}"
         return external_id, None
 
     return send
+
+
+def build_social_deletion_sender(
+    *,
+    settings_getter: Callable[[], dict[str, Any]],
+    secret_getter: Callable[[str], str],
+    telegram_api: Callable[..., Awaitable[dict[str, Any]]],
+    max_api: Callable[..., Awaitable[dict[str, Any]]],
+    vk_api: Callable[..., Awaitable[dict[str, Any]]],
+) -> Callable[[SocialDelivery, str], Awaitable[None]]:
+    async def delete(delivery: SocialDelivery, external_id: str) -> None:
+        settings = settings_getter()
+        networks = settings.get("networks") if isinstance(settings.get("networks"), dict) else {}
+        if delivery.network == "delete_telegram":
+            config = networks.get("telegram") or {}
+            await telegram_api(
+                token=secret_getter("social_telegram_access_token"),
+                method="deleteMessage",
+                payload={"chat_id": str(config.get("targetId") or ""),
+                         "message_id": external_id.removeprefix("telegram:")},
+            )
+        elif delivery.network == "delete_max":
+            await max_api(
+                token=secret_getter("social_max_access_token"), method="DELETE",
+                path="/messages",
+                params={"message_id": external_id.removeprefix("max:")},
+            )
+        elif delivery.network == "delete_vk":
+            parts = external_id.removeprefix("vk:").split(":", 1)
+            group_id = str((networks.get("vk") or {}).get("targetId") or "").lstrip("-")
+            await vk_api(
+                token=secret_getter("social_vk_access_token"),
+                method="wall.delete",
+                params={"owner_id": f"-{group_id}", "post_id": parts[0]},
+            )
+            media_ref = parts[1] if len(parts) > 1 else ""
+            if media_ref.startswith(("photo", "video")):
+                kind = "photo" if media_ref.startswith("photo") else "video"
+                owner_id, media_id = media_ref.removeprefix(kind).rsplit("_", 1)
+                await vk_api(
+                    token=secret_getter("social_vk_media_access_token"),
+                    method=f"{kind}s.delete" if kind == "photo" else "video.delete",
+                    params={"owner_id": owner_id, f"{kind}_id": media_id},
+                )
+        elif delivery.network == "delete_vk_story":
+            owner_id, story_id = external_id.removeprefix("vk_story:").rsplit("_", 1)
+            await vk_api(
+                token=secret_getter("social_vk_media_access_token"),
+                method="stories.delete",
+                params={"owner_id": owner_id, "story_id": story_id},
+            )
+        else:
+            raise RuntimeError("Unsupported social deletion network.")
+
+    return delete
 
 
 class SocialDeliveryWorker:
@@ -579,6 +713,7 @@ class SocialDeliveryWorker:
             [SocialDelivery, PublicFeedPublication],
             Awaitable[tuple[str | None, str | None]],
         ] | None = None,
+        delete_social: Callable[[SocialDelivery, str], Awaitable[None]] | None = None,
         interval_seconds: float = 30.0,
     ) -> bool:
         if self._task is not None and not self._task.done():
@@ -609,9 +744,15 @@ class SocialDeliveryWorker:
                             )
                             if send_vk_story is not None else {"sent": 0}
                         )
+                        delete_result = (
+                            await deliver_pending_social_deletion_batch(
+                                conn, sender=delete_social
+                            )
+                            if delete_social is not None else {"sent": 0}
+                        )
                     finally:
                         conn.close()
-                    if result["sent"] or max_result["sent"] or vk_result["sent"] or vk_story_result["sent"]:
+                    if result["sent"] or max_result["sent"] or vk_result["sent"] or vk_story_result["sent"] or delete_result["sent"]:
                         self.last_success_at = _utc_now().isoformat()
                     self.last_error = None
                 except asyncio.CancelledError:

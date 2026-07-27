@@ -160,11 +160,13 @@ async def publish_vk_wall_image(
     owner_id, photo_id = photo.get("owner_id"), photo.get("id")
     if owner_id is None or photo_id is None:
         raise RuntimeError("VK did not save the uploaded wall photo.")
-    return await vk_api(
+    result = await vk_api(
         token=token, method="wall.post",
         params={"owner_id": f"-{group_id}", "from_group": 1, "message": message,
                 "attachments": f"photo{owner_id}_{photo_id}"},
     )
+    result["_media_ref"] = f"photo{owner_id}_{photo_id}"
+    return result
 
 
 async def publish_vk_wall_video(
@@ -193,11 +195,13 @@ async def publish_vk_wall_video(
         raise RuntimeError("VK video upload failed.") from exc
     if uploaded.status_code >= 400 or upload_body.get("error"):
         raise RuntimeError(f"VK video upload was rejected: {str(upload_body.get('error') or uploaded.status_code)[:180]}")
-    return await vk_api(
+    result = await vk_api(
         token=token, method="wall.post",
         params={"owner_id": f"-{group_id}", "from_group": 1, "message": message,
                 "attachments": f"video{owner_id}_{video_id}"},
     )
+    result["_media_ref"] = f"video{owner_id}_{video_id}"
+    return result
 
 
 async def publish_vk_story(
