@@ -211,7 +211,7 @@ async def publish_vk_story(
     method = "stories.getVideoUploadServer" if media_type == "video" else "stories.getPhotoUploadServer"
     server = await vk_api(
         token=media_token, method=method,
-        params={"group_id": group_id, "add_to_news": 1, "link_text": "open", "link_url": feed_url},
+        params={"group_id": group_id, "add_to_news": 1},
     )
     upload_url = str((server.get("response") or {}).get("upload_url") or "")
     if not upload_url.startswith("https://"):
@@ -229,7 +229,12 @@ async def publish_vk_story(
     upload_result = response_body.get("upload_result") if isinstance(response_body, dict) else None
     if response.status_code >= 400 or not upload_result:
         raise RuntimeError(f"VK Stories upload was rejected: {str(uploaded)[:180]}")
+    save_params = (
+        {"upload_results": upload_result}
+        if isinstance(upload_result, str)
+        else {"upload_results_json": json.dumps([upload_result], ensure_ascii=False)}
+    )
     return await vk_api(
         token=media_token, method="stories.save",
-        params={"upload_results": json.dumps([upload_result], ensure_ascii=False)},
+        params=save_params,
     )
