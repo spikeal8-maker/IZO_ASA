@@ -26,10 +26,18 @@ if (Get-Process -Name YandexDisk2 -ErrorAction SilentlyContinue) {
         }
     }
 }
-$route = Test-NetConnection disk.yandex.ru -Port 443 -InformationLevel Detailed -WarningAction SilentlyContinue
-if (-not $route.TcpTestSucceeded) { throw 'Yandex.Disk HTTPS connectivity check failed.' }
-if ($route.InterfaceAlias -match '(?i)AdGuard.*VPN') {
-    Write-Warning 'Yandex.Disk traffic is routed through AdGuard VPN. Snapshot staging continues, but health remains ATTENTION until split tunneling is configured.'
+$networkScript = Join-Path $PSScriptRoot 'yandex_network.ps1'
+if (-not (Test-Path -LiteralPath $networkScript -PathType Leaf)) {
+    throw "Yandex network verifier is unavailable: $networkScript"
+}
+. $networkScript
+$network = Get-IzoYandexNetworkState
+if (-not $network.HttpsReachable) { throw 'Yandex.Disk HTTPS connectivity check failed.' }
+if ($network.ProbeInterface -match '(?i)AdGuard.*VPN' -and -not $network.AppBypassConfigured) {
+    throw 'Yandex.Disk has no verified AdGuard application exclusion; VPN settings were not changed.'
+}
+if (-not $network.AppBypassObserved) {
+    Write-Warning 'Yandex.Disk application exclusion is configured, but process-specific bypass was not observed in recent AdGuard logs.'
 }
 if (-not (Test-Path -LiteralPath $config.cloud_root -PathType Container)) {
     throw 'Configured Yandex.Disk cloud root is unavailable.'

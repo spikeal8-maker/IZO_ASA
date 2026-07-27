@@ -36,6 +36,14 @@ function Test-FreshTimestamp {
 
 $yandexRunning = [bool](Get-Process -Name YandexDisk4 -ErrorAction SilentlyContinue)
 $legacyYandexRunning = [bool](Get-Process -Name YandexDisk2 -ErrorAction SilentlyContinue)
+$localNow = Get-Date
+$isPrimary = $role.role -eq 'PRIMARY'
+$syncWindowStart = $localNow.Date.AddHours($(if ($isPrimary) { 2 } else { 3 }))
+$syncWindowEnd = $localNow.Date.AddHours(5)
+$syncWindowActive = $localNow -ge $syncWindowStart -and $localNow -lt $syncWindowEnd
+$nightlyTaskName = if ($isPrimary) { 'IZO_ASA Yandex Outbound Nightly' } else { 'IZO_ASA Replica Receive Hourly' }
+$nightlyTask = Get-ScheduledTask -TaskName $nightlyTaskName -ErrorAction SilentlyContinue
+$nightlyTaskRunning = $null -ne $nightlyTask -and [string]$nightlyTask.State -eq 'Running'
 $legacyRootConflict = $false
 if ($legacyYandexRunning) {
     $legacyRoot = (Get-ItemProperty 'HKCU:\Software\Yandex\Yandex.Disk.2' -ErrorAction SilentlyContinue).RootFolder
@@ -52,23 +60,15 @@ if ($legacyYandexRunning) {
     }
 }
 $cloudAvailable = Test-Path -LiteralPath $config.cloud_root -PathType Container
-$route = Test-NetConnection disk.yandex.ru -Port 443 -InformationLevel Detailed -WarningAction SilentlyContinue
-$routedViaAdguardVpn = [bool]($route.InterfaceAlias -match '(?i)AdGuard.*VPN')
-# BACKUP-NET-001 (owner decision 2026-07-20): Yandex Disk is excluded inside
-# AdGuard VPN, so the split happens in-tunnel and the interface alias alone
-# cannot prove the real path. Compare the egress address Yandex sees with the
-# general VPN egress; only a proven split clears the route error (fail-closed
-# when either probe is unavailable). Raw addresses are never persisted.
-$yandexEgressSplit = $null
-if ($routedViaAdguardVpn -and $route.TcpTestSucceeded) {
-    $generalEgress = ''
-    $yandexEgress = ''
-    try { $generalEgress = [string](Invoke-RestMethod 'https://api.ipify.org?format=json' -TimeoutSec 15).ip } catch {}
-    try {
-        $page = Invoke-WebRequest 'https://yandex.ru/internet' -UseBasicParsing -TimeoutSec 20
-        if ($page.Content -match 'IPv4[^\d]*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})') { $yandexEgress = $Matches[1] }
-    } catch {}
-    if ($generalEgress -and $yandexEgress) { $yandexEgressSplit = ($generalEgress -ne $yandexEgress) }
+$network = $null
+if ($yandexRunning) {
+    $networkScript = Join-Path $PSScriptRoot 'yandex_network.ps1'
+    if (Test-Path -LiteralPath $networkScript -PathType Leaf) {
+        . $networkScript
+        $network = Get-IzoYandexNetworkState
+    } else {
+        $errors.Add('yandex_network_verifier_missing')
+    }
 }
 $syncVolumeFreeGB = $null
 $syncVolumeFreePercent = $null
@@ -81,16 +81,25 @@ if ($cloudAvailable) {
         if ($syncVolumeFreeGB -lt 50) { $errors.Add('sync_volume_free_space_below_50_gb') }
     }
 }
-if (-not $yandexRunning) { $errors.Add('yandex_disk_not_running') }
+if ($syncWindowActive -and $nightlyTaskRunning -and -not $yandexRunning) {
+    $errors.Add('yandex_disk_not_running_during_nightly_window')
+}
+if (-not $syncWindowActive -and $yandexRunning) {
+    $errors.Add('yandex_disk_running_outside_nightly_window')
+}
 if ($legacyRootConflict) { $errors.Add('yandex_sync_roots_overlap') }
-if (-not $route.TcpTestSucceeded) { $errors.Add('yandex_https_unavailable') }
-if ($routedViaAdguardVpn -and $yandexEgressSplit -ne $true) { $errors.Add('yandex_routed_through_adguard_vpn') }
+if ($null -ne $network) {
+    if (-not $network.HttpsReachable) { $errors.Add('yandex_https_unavailable') }
+    if ($network.ProbeInterface -match '(?i)AdGuard.*VPN' -and -not $network.AppBypassConfigured) {
+        $errors.Add('yandex_adguard_app_exclusion_missing')
+    }
+}
 if ((Get-Service cldflt -ErrorAction SilentlyContinue).Status -ne 'Running') { $errors.Add('cldflt_not_running') }
 if (-not $cloudAvailable) { $errors.Add('cloud_folder_unavailable') }
 
 if ($role.role -eq 'PRIMARY') {
-    Test-FreshTimestamp $health.LastLocalBackup 120 'local_backup_older_than_2_hours'
-    Test-FreshTimestamp $health.LastCloudStage 1560 'cloud_stage_older_than_26_hours'
+    Test-FreshTimestamp $health.LastLocalBackup 45 'local_backup_older_than_45_minutes'
+    Test-FreshTimestamp $health.LastCloudStage 1800 'cloud_stage_older_than_30_hours'
 } elseif ($role.role -eq 'STANDBY') {
     Test-FreshTimestamp $health.LastReplicaReceive 120 'replica_older_than_120_minutes'
 } else {
@@ -100,15 +109,34 @@ if ($role.role -eq 'PRIMARY') {
 $health['YandexDiskRunning'] = $yandexRunning
 $health['LegacyYandexDiskRunning'] = $legacyYandexRunning
 $health['YandexSyncErrors'] = @($errors)
+$health['YandexSchedule'] = if ($isPrimary) {
+    'Daily 02:00-05:00 Europe/Moscow'
+} else {
+    'Daily 03:00-05:00 Europe/Moscow'
+}
+$health['YandexSyncWindowActive'] = $syncWindowActive
+$health['YandexNightlyTaskRunning'] = $nightlyTaskRunning
 $health['CloudFolderAvailable'] = $cloudAvailable
-$health['YandexRouteInterface'] = [string]$route.InterfaceAlias
-$health['YandexHttpsReachable'] = [bool]$route.TcpTestSucceeded
-$health['YandexEgressSplitActive'] = $yandexEgressSplit
+$health['YandexRouteInterface'] = if ($null -ne $network) {
+    [string]$network.ProbeInterface
+} else {
+    'Not checked while Yandex.Disk is stopped outside the nightly window'
+}
+$health['YandexHttpsReachable'] = if ($null -ne $network) { [bool]$network.HttpsReachable } else { $null }
+$health['YandexAppBypassConfigured'] = if ($null -ne $network) { [bool]$network.AppBypassConfigured } else { $null }
+$health['YandexAppBypassConfirmed'] = if ($null -ne $network) { [bool]$network.AppBypassObserved } else { $null }
+$health['YandexBypassEvidenceTimestamp'] = if ($null -ne $network) { $network.EvidenceTimestamp } else { $null }
 $health['CloudFreeGB'] = $null
 $health['CloudFreePercent'] = $null
 $health['SyncVolumeFreeGB'] = $syncVolumeFreeGB
 $health['SyncVolumeFreePercent'] = $syncVolumeFreePercent
-$health['CloudStatus'] = if ($cloudAvailable -and $yandexRunning) { 'AVAILABLE' } else { 'UNAVAILABLE' }
+$health['CloudStatus'] = if (-not $cloudAvailable) {
+    'UNAVAILABLE'
+} elseif ($yandexRunning) {
+    'NIGHTLY_SYNC_ACTIVE'
+} else {
+    'LOCAL_CACHE_AVAILABLE_SYNC_STOPPED'
+}
 $health['OverallStatus'] = if ($errors.Count -eq 0) { 'OK' } else { 'ATTENTION' }
 $health['UpdatedAt'] = $now.ToString('o')
 $temporary = "$healthPath.tmp"

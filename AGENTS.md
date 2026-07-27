@@ -7,7 +7,9 @@ may add instructions, but they may not weaken or contradict this file.
 ## 1. Scope and canonical workspace
 
 - The only canonical integration and deployment source on this computer is
-  `E:\Yandex.Disk\IZO_ASA`.
+  `E:\IZO_ASA_WORKSPACE`.
+- `E:\Yandex.Disk` is an offsite synchronization target for immutable backup
+  snapshots, not a Git integration or deployment workspace.
 - Do not delete files or directories from `E:\Yandex.Disk` during project
   implementation, synchronization or deployment.
 - Do not deploy from a sibling copy, attachment, temporary worktree or resolved

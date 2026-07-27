@@ -63,7 +63,6 @@ if ([IO.Path]::GetFullPath($YandexRoot).StartsWith([IO.Path]::GetFullPath($RepoR
 }
 if (-not $WhatIfPreference) {
     if (-not (Test-Path -LiteralPath $YandexRoot -PathType Container)) { throw 'YandexRoot must exist and be fully synchronized before installation.' }
-    if (-not (Get-Process -Name YandexDisk4 -ErrorAction SilentlyContinue)) { throw 'YandexDisk4.exe must be running before installation.' }
     if (Get-Process -Name YandexDisk2 -ErrorAction SilentlyContinue) {
         $legacyRoot = (Get-ItemProperty 'HKCU:\Software\Yandex\Yandex.Disk.2' -ErrorAction SilentlyContinue).RootFolder
         $disk4Root = (Get-ItemProperty 'HKCU:\Software\Yandex\Yandex.Disk.4\*' -ErrorAction SilentlyContinue |
@@ -79,10 +78,15 @@ if (-not $WhatIfPreference) {
         }
     }
     if ((Get-Service cldflt -ErrorAction SilentlyContinue).Status -ne 'Running') { throw 'Windows cldflt service must be running.' }
-    $route = Test-NetConnection disk.yandex.ru -Port 443 -InformationLevel Detailed -WarningAction SilentlyContinue
-    if (-not $route.TcpTestSucceeded) { throw 'Yandex.Disk HTTPS connectivity check failed.' }
-    if ($route.InterfaceAlias -match '(?i)AdGuard.*VPN') {
-        Write-Warning 'Yandex.Disk is routed through AdGuard VPN. Automation will be installed, but health remains ATTENTION until split tunneling is configured.'
+    $networkScript = Join-Path $PSScriptRoot 'yandex_network.ps1'
+    if (-not (Test-Path -LiteralPath $networkScript -PathType Leaf)) {
+        throw "Yandex network verifier is unavailable: $networkScript"
+    }
+    . $networkScript
+    $network = Get-IzoYandexNetworkState
+    if (-not $network.HttpsReachable) { throw 'Yandex.Disk HTTPS connectivity check failed.' }
+    if ($network.ProbeInterface -match '(?i)AdGuard.*VPN' -and -not $network.AppBypassConfigured) {
+        throw 'Yandex.Disk has no verified AdGuard application exclusion; VPN settings were not changed.'
     }
 }
 
@@ -135,6 +139,9 @@ if ($PSCmdlet.ShouldProcess($configDir, 'Write role and path-only backup configu
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'stage_cloud_backup.ps1') -Destination $runtimeDir -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'receive_cloud_backup.ps1') -Destination $runtimeDir -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'check_backup_health.ps1') -Destination $runtimeDir -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'yandex_network.ps1') -Destination $runtimeDir -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'run_yandex_outbound_nightly.ps1') -Destination $runtimeDir -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'yandex_daytime_guard.ps1') -Destination $runtimeDir -Force
 }
 
 if ($WhatIfPreference) { return }
@@ -154,7 +161,9 @@ function Register-IzoScheduledTask {
         [string]$Schedule,
         [int]$Modifier = 1,
         [string]$StartTime,
-        [switch]$StartWhenAvailable
+        [switch]$StartWhenAvailable,
+        [ValidateSet('CURRENT', 'SYSTEM')]
+        [string]$Principal = 'CURRENT'
     )
     $action = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Script + '"'
     if ($ScriptArguments) {
@@ -166,6 +175,9 @@ function Register-IzoScheduledTask {
     }
     if ($StartTime) {
         $arguments += @('/ST', $StartTime)
+    }
+    if ($Principal -eq 'SYSTEM') {
+        $arguments += @('/RU', 'SYSTEM')
     }
     & schtasks.exe @arguments | Write-Host
     if ($LASTEXITCODE -ne 0) {
@@ -183,16 +195,56 @@ function Register-IzoScheduledTask {
 }
 
 $obsoleteTasks = [System.Collections.Generic.List[string]]::new()
+$disabledTasks = [System.Collections.Generic.List[string]]::new()
 if ($Role -eq 'PRIMARY') {
-    Register-IzoScheduledTask -Name 'IZO_ASA Local Backup Hourly' -Script "$runtimeDir\run_local_backup.ps1" -Schedule HOURLY -Modifier 1 -StartWhenAvailable
-    Register-IzoScheduledTask -Name 'IZO_ASA Cloud Stage Daily 01h' -Script "$runtimeDir\stage_cloud_backup.ps1" -Schedule DAILY -StartTime '01:00' -StartWhenAvailable
+    Register-IzoScheduledTask -Name 'IZO_ASA Local Backup 30m' `
+        -Script "$runtimeDir\run_local_backup.ps1" -Schedule MINUTE -Modifier 30 `
+        -StartTime '00:00' -StartWhenAvailable -Principal SYSTEM
+
+    $interactiveUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $interactivePrincipal = New-ScheduledTaskPrincipal `
+        -UserId $interactiveUser -LogonType Interactive -RunLevel Highest
+    $interactiveSettings = New-ScheduledTaskSettingsSet `
+        -StartWhenAvailable -MultipleInstances IgnoreNew `
+        -ExecutionTimeLimit (New-TimeSpan -Hours 4)
+
+    $outboundAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (
+        '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' +
+        (Join-Path $runtimeDir 'run_yandex_outbound_nightly.ps1') + '"'
+    )
+    $outboundTrigger = New-ScheduledTaskTrigger -Daily -At '02:00'
+    Register-ScheduledTask -TaskName 'IZO_ASA Yandex Outbound Nightly' `
+        -Action $outboundAction -Trigger $outboundTrigger `
+        -Principal $interactivePrincipal -Settings $interactiveSettings -Force | Out-Null
+    $expectedTasks.Add('IZO_ASA Yandex Outbound Nightly')
+
+    $guardAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument (
+        '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' +
+        (Join-Path $runtimeDir 'yandex_daytime_guard.ps1') + '"'
+    )
+    $guardTriggers = @(
+        (New-ScheduledTaskTrigger -Daily -At '05:00'),
+        (New-ScheduledTaskTrigger -AtLogOn -User $interactiveUser)
+    )
+    Register-ScheduledTask -TaskName 'IZO_ASA Yandex Daytime Guard' `
+        -Action $guardAction -Trigger $guardTriggers `
+        -Principal $interactivePrincipal -Settings $interactiveSettings -Force | Out-Null
+    $expectedTasks.Add('IZO_ASA Yandex Daytime Guard')
+
     $obsoleteTasks.Add('IZO_ASA Local Backup 15m')
+    $obsoleteTasks.Add('IZO_ASA Local Backup Hourly')
     $obsoleteTasks.Add('IZO_ASA Cloud Stage Hourly')
+    $obsoleteTasks.Add('IZO_ASA Cloud Stage Daily 01h')
+    $disabledTasks.Add('IZO_ASA Replica Receive Hourly')
+    $disabledTasks.Add('IZO_ASA Replica Rehearsal Daily')
+    $disabledTasks.Add('IZO_ASA Cloud Backup Stage')
 } else {
     Register-IzoScheduledTask -Name 'IZO_ASA Replica Receive Hourly' -Script "$runtimeDir\receive_cloud_backup.ps1" -Schedule HOURLY -Modifier 1
     Register-IzoScheduledTask -Name 'IZO_ASA Replica Rehearsal Daily' -Script "$runtimeDir\receive_cloud_backup.ps1" -ScriptArguments '-Rehearse' -Schedule DAILY -StartTime '03:30' -StartWhenAvailable
 }
-Register-IzoScheduledTask -Name 'IZO_ASA Backup Health 10m' -Script "$runtimeDir\check_backup_health.ps1" -Schedule MINUTE -Modifier 10
+Register-IzoScheduledTask -Name 'IZO_ASA Backup Health 10m' `
+    -Script "$runtimeDir\check_backup_health.ps1" -Schedule MINUTE -Modifier 10 `
+    -StartWhenAvailable -Principal SYSTEM
 
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 if ($Role -eq 'PRIMARY') {
@@ -201,12 +253,7 @@ if ($Role -eq 'PRIMARY') {
     Set-ItemProperty -Path $runKey -Name 'IZO_ASA_BackupStartup' -Value $startupBackup
 }
 
-$yandexProcess = Get-Process -Name YandexDisk4 -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($yandexProcess -and $yandexProcess.Path) {
-    $yandexExe = $yandexProcess.Path
-    Set-ItemProperty -Path 'HKCU:\Software\Yandex\Yandex.Disk.4' -Name AutoStart -Value 'true'
-    Set-ItemProperty -Path $runKey -Name 'IZO_ASA_YandexDisk4' -Value ('"' + $yandexExe + '"')
-}
+Remove-ItemProperty -Path $runKey -Name 'IZO_ASA_YandexDisk4' -ErrorAction SilentlyContinue
 
 foreach ($taskName in $expectedTasks) {
     if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) {
@@ -219,6 +266,16 @@ foreach ($taskName in $obsoleteTasks) {
         if ($LASTEXITCODE -ne 0) {
             throw "Obsolete scheduled task removal failed: $taskName"
         }
+    }
+}
+foreach ($taskName in $disabledTasks) {
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($task -and $task.State -ne 'Disabled') {
+        Disable-ScheduledTask -TaskName $taskName | Out-Null
+    }
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($task -and $task.State -ne 'Disabled') {
+        throw "Legacy STANDBY task was not disabled on PRIMARY: $taskName"
     }
 }
 $startupMode = if ($Role -eq 'PRIMARY') { 'HKCU_RUN_DELAY_5M' } else { 'NONE' }
