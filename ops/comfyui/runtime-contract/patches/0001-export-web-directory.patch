@@ -1,0 +1,10 @@
+diff --git a/__init__.py b/__init__.py
+index 0848410..ba51731 100644
+--- a/__init__.py
++++ b/__init__.py
+@@ -2,4 +2,4 @@ from .nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+
+WEB_DIRECTORY = "./web"
+
+-__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
++__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
