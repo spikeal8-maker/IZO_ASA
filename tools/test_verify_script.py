@@ -181,6 +181,9 @@ def test_verify_script_has_no_process_or_file_deletion_commands() -> None:
     assert "caddy_edge_live" in source
     assert "[Console]::OutputEncoding = $utf8NoBom" in source
     assert '$_.Name -match "^(?i:python' in source
+    assert "function Get-PytestProcesses" in source
+    assert "$attempt -lt 50" in source
+    assert "Start-Sleep -Milliseconds 100" in source
     assert '[string]$ReceiptPath = ""' in source
     assert "release_verification_receipt.py" in source
     assert "VERIFY_RECEIPT_WRITTEN" in source

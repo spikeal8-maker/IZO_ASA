@@ -404,13 +404,24 @@ if ($usesFullSuite) {
     Invoke-NativeStep -Name "frontend_studio_resilience" -FilePath $npm -ArgumentList @("run", "e2e:studio-resilience") -WorkingDirectory $frontendDirectory
 }
 
-$pytestProcesses = @(
-    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object {
-            $_.Name -match "^(?i:python(?:\.exe)?|pytest(?:\.exe)?)$" -and
-            $_.CommandLine -match "(?i)(^|\s)(pytest|python(?:\.exe)?\s+-m\s+pytest)(\s|$)"
-        }
-)
+function Get-PytestProcesses {
+    return @(
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.Name -match "^(?i:python(?:\.exe)?|pytest(?:\.exe)?)$" -and
+                $_.CommandLine -match "(?i)(^|\s)(pytest|python(?:\.exe)?\s+-m\s+pytest)(\s|$)"
+            }
+    )
+}
+
+# On Windows the pytest launcher can remain visible briefly after it has
+# printed the final result and returned control to PowerShell. Give normal
+# process teardown a small bounded grace period before declaring a leak.
+$pytestProcesses = @(Get-PytestProcesses)
+for ($attempt = 0; $attempt -lt 50 -and $pytestProcesses.Count -ne 0; $attempt++) {
+    Start-Sleep -Milliseconds 100
+    $pytestProcesses = @(Get-PytestProcesses)
+}
 if ($pytestProcesses.Count -ne 0) {
     throw "Pytest processes remain after verification: $($pytestProcesses.ProcessId -join ',')"
 }
