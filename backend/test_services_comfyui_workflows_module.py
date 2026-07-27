@@ -68,6 +68,33 @@ def test_builtin_model_profiles_have_database_independent_fallbacks() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("profile_id", "model_name", "encoder"),
+    [
+        ("flux_klein_9b", "custom-9b.safetensors", "qwen_3_8b"),
+        ("flux_klein_4b", "flux-2-klein-4b-fp8.safetensors", "qwen_3_4b"),
+    ],
+)
+def test_active_profile_admin_files_follow_selected_profile(profile_id, model_name, encoder) -> None:
+    profiles = [{"id": "flux_klein_9b", "modelName": "custom-9b.safetensors"}]
+    result = comfyui_workflows.active_profile_admin_files(
+        profiles,
+        profile_id,
+        {"width": 1408, "height": 1408, "steps": 6, "sampler": "euler", "seedMode": "fixed"},
+    )
+
+    assert result == {
+        "modelFile": model_name,
+        "textEncoder": encoder,
+        "vae": "flux2-vae.safetensors",
+        "sampler": "euler",
+        "width": 1408,
+        "height": 1408,
+        "steps": 6,
+        "seed": "fixed",
+    }
+
+
 def test_set_input_only_mutates_existing_node() -> None:
     graph = {"node": {}}
 

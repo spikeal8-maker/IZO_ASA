@@ -120,7 +120,7 @@ def gallery_model_info(
     release = release_years.get(raw) or ("2026" if raw else "")
     if not raw or raw == "comfyui" or "local_flux" in raw.lower() or "klein" in raw.lower():
         short_name = "ИЗО Base"
-        maker = "ИЗО / FLUX.2 Klein"
+        maker = "ИЗО"
         release = "2026"
     full_parts = [short_name]
     if maker:
@@ -133,6 +133,48 @@ def gallery_model_info(
         "providerName": maker,
         "release": release,
     }
+
+
+def sanitize_snapshot_model_info(
+    snapshot_model_info: Any,
+    resolved_model_info: Mapping[str, str],
+) -> dict[str, str]:
+    """Keep legacy publication snapshots from exposing local implementation details."""
+    if resolved_model_info.get("shortName") == "ИЗО Base":
+        return dict(resolved_model_info)
+    if isinstance(snapshot_model_info, Mapping):
+        return {str(key): str(value) for key, value in snapshot_model_info.items()}
+    return dict(resolved_model_info)
+
+
+def sanitize_snapshot_generation_params(
+    snapshot_params: Any,
+    resolved_model_info: Mapping[str, str],
+) -> list[dict[str, str]] | None:
+    if not isinstance(snapshot_params, list):
+        return None
+    params = [
+        dict(item)
+        for item in snapshot_params
+        if isinstance(item, Mapping)
+    ]
+    if resolved_model_info.get("shortName") != "ИЗО Base":
+        return params
+    model_full_name = str(resolved_model_info.get("fullName") or "ИЗО Base")
+    for item in params:
+        if str(item.get("label") or "") == "Полное наименование модели":
+            item["value"] = model_full_name
+    return params
+
+
+def sanitize_snapshot_model_presentation(
+    snapshot: Mapping[str, Any],
+    resolved_model_info: Mapping[str, str],
+) -> tuple[dict[str, str], list[dict[str, str]] | None]:
+    return (
+        sanitize_snapshot_model_info(snapshot.get("modelInfo"), resolved_model_info),
+        sanitize_snapshot_generation_params(snapshot.get("generationParams"), resolved_model_info),
+    )
 
 
 def gallery_public_params(
