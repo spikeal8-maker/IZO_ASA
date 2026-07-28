@@ -20,7 +20,10 @@ $yandexExe = 'C:\Users\admins\AppData\Local\Programs\Yandex\YandexDisk4\YandexDi
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $runName = 'Yandex.Disk.4'
 $lock = $null
-$log = $null
+$utf8NoBom = [Text.UTF8Encoding]::new($false)
+$logDirectory = 'C:\IZO_ASA\logs\yandex-outbound'
+New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
+$log = Join-Path $logDirectory ("yandex-outbound-{0}.log" -f $startedAt.ToString('yyyyMMdd-HHmmss'))
 
 function Write-JsonUtf8NoBom {
     param([object]$Document, [string]$Path)
@@ -33,6 +36,10 @@ function Write-RunStatus {
         [string]$Phase,
         [string]$Message,
         [string]$ErrorText = '',
+        [string]$ErrorType = '',
+        [string]$FullyQualifiedErrorId = '',
+        [string]$ScriptStackTrace = '',
+        [string]$PositionMessage = '',
         [object]$NetworkState = $null
     )
     $document = [ordered]@{
@@ -42,6 +49,10 @@ function Write-RunStatus {
         Phase = $Phase
         Message = $Message
         Error = $ErrorText
+        ErrorType = $ErrorType
+        FullyQualifiedErrorId = $FullyQualifiedErrorId
+        ScriptStackTrace = $ScriptStackTrace
+        PositionMessage = $PositionMessage
         LogPath = $log
         Schedule = 'Local every 30m; Yandex.Disk upload daily 02:00-05:00 Europe/Moscow'
         YandexDiskRunning = [bool](Get-Process -Name YandexDisk4 -ErrorAction SilentlyContinue)
@@ -53,7 +64,8 @@ function Write-RunStatus {
 function Write-Log {
     param([string]$Message)
     $line = '[{0}] {1}' -f (Get-Date).ToString('o'), $Message
-    $line | Tee-Object -LiteralPath $log -Append | Write-Host
+    [IO.File]::AppendAllText($log, $line + [Environment]::NewLine, $utf8NoBom)
+    Write-Host $line
 }
 
 function Read-BackupHealth {
@@ -123,9 +135,6 @@ try {
         }
     }
 
-    $logDirectory = Join-Path ([string]$config.log_root) 'yandex-outbound'
-    New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
-    $log = Join-Path $logDirectory ("yandex-outbound-{0}.log" -f $startedAt.ToString('yyyyMMdd-HHmmss'))
     try {
         $lock = [IO.File]::Open($lockPath, 'OpenOrCreate', 'ReadWrite', 'None')
     } catch [System.IO.IOException] {
@@ -208,10 +217,23 @@ try {
     Write-Log "YANDEX_OUTBOUND_OK snapshot=$($health.LatestSnapshotId)"
     exit 0
 } catch {
+    $errorRecord = $_
     Write-RunStatus -Status 'ERROR' -Phase 'FAILED' -Message 'Nightly PRIMARY outbound backup failed.' `
-        -ErrorText $_.Exception.Message
-    if ($log) { Write-Log "YANDEX_OUTBOUND_ERROR $($_.Exception.Message)" }
-    Write-Error $_
+        -ErrorText $errorRecord.Exception.Message `
+        -ErrorType $errorRecord.Exception.GetType().FullName `
+        -FullyQualifiedErrorId ([string]$errorRecord.FullyQualifiedErrorId) `
+        -ScriptStackTrace ([string]$errorRecord.ScriptStackTrace) `
+        -PositionMessage ([string]$errorRecord.InvocationInfo.PositionMessage)
+    if ($log) {
+        Write-Log (
+            "YANDEX_OUTBOUND_ERROR type={0} id={1} message={2} position={3}" -f
+            $errorRecord.Exception.GetType().FullName,
+            [string]$errorRecord.FullyQualifiedErrorId,
+            $errorRecord.Exception.Message,
+            ([string]$errorRecord.InvocationInfo.PositionMessage -replace '[\r\n]+', ' ')
+        )
+    }
+    Write-Error $errorRecord
     exit 1
 } finally {
     Remove-ItemProperty -Path $runKey -Name $runName -ErrorAction SilentlyContinue

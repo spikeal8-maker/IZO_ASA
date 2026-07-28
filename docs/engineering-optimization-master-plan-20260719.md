@@ -6,6 +6,30 @@
 Фактический аудит: [agent-compliance-audit-20260719.md](agent-compliance-audit-20260719.md)
 Предыдущий план: `engineering-transformation-master-plan-20260717.md` — исторический checkpoint, не текущая очередь.
 
+## Пакет `PROD-RELIABILITY-20260728`
+
+Статус: **IMPLEMENTATION IN PROGRESS; FOCUSED TESTS GREEN; NOT DEPLOYED**.
+
+- GitHub Actions переносится на выделенный self-hosted Windows runner с меткой `izo-ci`;
+  workflow допускает только доверенный репозиторий и владельца, не сохраняет Git credentials
+  и всегда очищает временные runtime-данные;
+- production updater работает fail-closed: любой CI-результат кроме `success` устанавливает
+  `BLOCKED_CI`; локальная проверка больше не заменяет внешний CI и не создаёт promotion marker;
+- production frontend build обязан получить детерминированный release identity
+  `<12-hex-sha>-<UTC commit timestamp>`; `dev`, `unknown` и пустое значение запрещены до копирования
+  кандидата и повторно проверяются после запуска;
+- ночной Yandex outbound использует совместимое с Windows PowerShell журналирование и сохраняет
+  тип ошибки, FullyQualifiedErrorId, позицию и stack trace без раскрытия секретов;
+- backend передаёт Ollama `keep_alive=-1` по умолчанию (переопределяется
+  `OLLAMA_KEEP_ALIVE`), поэтому вызванная локальная модель остаётся загруженной в VRAM;
+- обязательная приёмка: focused tests, обновлённый architecture inventory, единый
+  `verify.ps1 -Mode CI`, зелёный self-hosted GitHub check на точном SHA, затем Full/promotion
+  с rollback и проверкой PRIMARY, локальных и публичных HTTP, release marker, голоса и `/api/ps`.
+
+Операционный checkpoint 2026-07-28: опасный marker кандидата `289f2e5319...`, подготовленный
+старым billing fallback, изолирован; установленный updater повторно выдал `BLOCKED_CI`;
+focused suite — `42 passed`. До зелёного self-hosted check активный release не меняется.
+
 ## Пакет `VIDEO-UX-ERROR-20260728`
 
 Статус: **CODE COMPLETE, LOCALLY VERIFIED; DEPLOYMENT AND OPERATIONAL VERIFICATION PENDING**.

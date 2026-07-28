@@ -15,6 +15,7 @@ $promotionStatusPath = 'C:\IZO_ASA\health\promotion-current.json'
 $updateStatusPath = 'C:\IZO_ASA\health\update-current.json'
 $git = 'C:\Users\admins\AppData\Local\Programs\Git\cmd\git.exe'
 $nodeDirectory = 'C:\Users\admins\AppData\Local\Programs\nodejs'
+$node = Join-Path $nodeDirectory 'node.exe'
 
 function Get-ServiceEnvironmentNode {
     param([xml]$Document, [string]$Name)
@@ -174,6 +175,7 @@ try {
     # Newer project revisions use an immutable release manifest. Build that
     # artifact before any service is stopped, and keep legacy revisions working.
     $manifestBuilder = Join-Path $newRelease 'tools\build_release_manifest.py'
+    $releaseIdentityChecker = Join-Path $newRelease 'tools\check_frontend_release_identity.mjs'
     if (Test-Path -LiteralPath $manifestBuilder) {
         $head = ([string](& $git -C $newRelease rev-parse HEAD)).Trim()
         if ($LASTEXITCODE -ne 0 -or $head -ne $newSha) {
@@ -191,6 +193,18 @@ try {
         $runtimeFrontendRoot = Join-Path $newRelease '.runtime\releases\frontend'
         $frontendRoot = Join-Path $runtimeFrontendRoot $releaseId
         $manifestPath = Join-Path $frontendRoot 'release-manifest.json'
+
+        foreach ($releaseTool in @($node, $releaseIdentityChecker)) {
+            if (-not (Test-Path -LiteralPath $releaseTool -PathType Leaf)) {
+                throw "Required release identity tool is unavailable: $releaseTool"
+            }
+        }
+        & $node $releaseIdentityChecker `
+            --dist (Join-Path $newRelease 'frontend\dist') `
+            --expected $releaseId
+        if ($LASTEXITCODE -ne 0) {
+            throw "Candidate frontend release identity failed with exit code $LASTEXITCODE."
+        }
 
         if (-not (Test-Path -LiteralPath $manifestPath)) {
             New-Item -ItemType Directory -Force -Path $runtimeFrontendRoot | Out-Null
@@ -339,7 +353,18 @@ try {
         } catch {}
         try {
             $frontendResponse = Invoke-WebRequest 'http://127.0.0.1:5173/' -UseBasicParsing -TimeoutSec 3
-            $frontendReady = $frontendResponse.StatusCode -eq 200
+            $frontendMarker = [regex]::Match(
+                [string]$frontendResponse.Content,
+                '<meta\s+[^>]*name=["'']izo-release["''][^>]*content=["'']([^"'']+)["''][^>]*>',
+                [Text.RegularExpressions.RegexOptions]::IgnoreCase
+            )
+            $frontendReady = (
+                $frontendResponse.StatusCode -eq 200 -and
+                (
+                    -not $releaseId -or
+                    ($frontendMarker.Success -and [string]$frontendMarker.Groups[1].Value -eq $releaseId)
+                )
+            )
         } catch {}
         if ($backendReady -and $identityReady -and $frontendReady) { break }
     }

@@ -2,7 +2,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const exactAllowedHosts = ['izo.alikinas.ru'] as const
-const appRelease = process.env.FRONTEND_BUILD_LABEL || process.env.GITHUB_SHA || 'dev'
+const configuredRelease = process.env.FRONTEND_BUILD_LABEL || process.env.GITHUB_SHA || ''
+const isProductionBuild = process.argv.includes('build')
+if (isProductionBuild && (!configuredRelease || /^(dev|unknown)$/i.test(configuredRelease))) {
+  throw new Error('FRONTEND_BUILD_LABEL must identify the immutable release for production builds')
+}
+const appRelease = configuredRelease || 'dev'
 const releaseMetaPlugin = {
   name: 'izo-release-meta',
   transformIndexHtml() {

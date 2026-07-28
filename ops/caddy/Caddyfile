@@ -55,6 +55,12 @@ http://:{$IZO_CADDY_PORT} {
 	}
 
 	route {
+		@public_http {
+			host izo.alikinas.ru
+			header X-Forwarded-Port 80
+		}
+		redir @public_http https://{host}{uri} 308
+
 		header {
 			-Server
 			X-Content-Type-Options nosniff

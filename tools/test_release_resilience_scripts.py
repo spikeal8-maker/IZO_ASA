@@ -102,6 +102,10 @@ def test_project_promoter_keeps_backend_online_during_rollback_snapshot() -> Non
     assert "Copy-Item -LiteralPath $databaseRollback -Destination $database" not in script
     assert "Start-Service -Name $serviceName" in script
     assert "Global\\IZO_ASA_ProjectReleasePromotion" in script
+    assert "check_frontend_release_identity.mjs" in script
+    assert "--expected $releaseId" in script
+    assert script.index("--expected $releaseId") < script.index("Copy-Item -Path (Join-Path $newRelease 'frontend\\dist\\*')")
+    assert "$frontendMarker.Success" in script
 
     environment = os.environ.copy()
     environment["IZO_TEST_PROMOTER"] = str(script_path)

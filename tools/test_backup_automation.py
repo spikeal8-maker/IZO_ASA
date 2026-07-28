@@ -1,3 +1,5 @@
+import os
+import subprocess
 from pathlib import Path
 
 
@@ -60,6 +62,53 @@ def test_outbound_waits_for_contended_local_backup_and_does_not_retry_it() -> No
     assert outbound.count("Invoke-LoggedPowerShell -Phase 'local-backup'") == 1
     assert "PHASE_START phase=$Phase" in outbound
     assert "PHASE_END phase=$Phase exitCode=$($process.ExitCode)" in outbound
+
+
+def test_outbound_log_writer_runs_under_windows_powershell(tmp_path: Path) -> None:
+    script_path = BACKUP / "run_yandex_outbound_nightly.ps1"
+    log_path = tmp_path / "outbound.log"
+    environment = os.environ.copy()
+    environment["IZO_TEST_YANDEX_SCRIPT"] = str(script_path)
+    environment["IZO_TEST_YANDEX_LOG"] = str(log_path)
+    command = (
+        "$tokens=$null;$errors=$null;"
+        "$ast=[System.Management.Automation.Language.Parser]::ParseFile("
+        "$env:IZO_TEST_YANDEX_SCRIPT,[ref]$tokens,[ref]$errors);"
+        "$node=$ast.Find({param($item) "
+        "$item -is [System.Management.Automation.Language.FunctionDefinitionAst] "
+        "-and $item.Name -eq 'Write-Log'},$true);"
+        "if($null -eq $node){throw 'Write-Log function missing'};"
+        ". ([scriptblock]::Create($node.Extent.Text));"
+        "$log=$env:IZO_TEST_YANDEX_LOG;"
+        "$utf8NoBom=[Text.UTF8Encoding]::new($false);"
+        "Write-Log 'parameter-set-regression';"
+        "if((Get-Content -LiteralPath $log -Raw) -notmatch 'parameter-set-regression'){"
+        "throw 'log entry missing'}"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_outbound_records_actionable_powershell_error_details() -> None:
+    outbound = read_script("run_yandex_outbound_nightly.ps1")
+
+    assert "Tee-Object -LiteralPath $log -Append" not in outbound
+    assert "[IO.File]::AppendAllText" in outbound
+    assert "FullyQualifiedErrorId" in outbound
+    assert "ScriptStackTrace" in outbound
+    assert "PositionMessage" in outbound
+    assert outbound.index("$log = Join-Path $logDirectory") < outbound.index("try {")
 
 
 def test_yandex_network_gate_uses_configured_and_observed_app_bypass_evidence() -> None:
