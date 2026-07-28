@@ -44,15 +44,23 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version-file: .python-version
-
-      - name: Set up Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version-file: .node-version
+      - name: Assert pinned local toolchain
+        shell: powershell
+        run: |
+          $python = (Get-Command python.exe -ErrorAction Stop).Source
+          $node = (Get-Command node.exe -ErrorAction Stop).Source
+          $npm = (Get-Command npm.cmd -ErrorAction Stop).Source
+          $expectedPython = (Get-Content .python-version -Raw).Trim()
+          $expectedNode = (Get-Content .node-version -Raw).Trim()
+          $actualPython = (& $python -c "import sys; print('.'.join(map(str, sys.version_info[:3])))").Trim()
+          $actualNode = (& $node --version).Trim().TrimStart("v")
+          if ($actualPython -ne $expectedPython) {
+            throw "Python version mismatch: expected $expectedPython, got $actualPython"
+          }
+          if ($actualNode -ne $expectedNode) {
+            throw "Node version mismatch: expected $expectedNode, got $actualNode"
+          }
+          Write-Host "Pinned toolchain ready: python=$actualPython node=$actualNode npm=$npm"
 
       - name: Install backend dependencies
         run: python -m pip install --requirement backend/requirements.txt
