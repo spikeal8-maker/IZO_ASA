@@ -106,6 +106,18 @@ def test_project_promoter_keeps_backend_online_during_rollback_snapshot() -> Non
     assert "--expected $releaseId" in script
     assert script.index("--expected $releaseId") < script.index("Copy-Item -Path (Join-Path $newRelease 'frontend\\dist\\*')")
     assert "$frontendMarker.Success" in script
+    assert "function Wait-ServiceState" in script
+    assert "function Wait-LoopbackPortClosed" in script
+    backend_stopped = "Wait-ServiceState -Name 'IZOBackend' -ExpectedState 'Stopped'"
+    caddy_stopped = "Wait-ServiceState -Name 'IZOCaddy' -ExpectedState 'Stopped'"
+    backend_port_closed = "Wait-LoopbackPortClosed -Port 8000"
+    caddy_port_closed = "Wait-LoopbackPortClosed -Port 5173"
+    backend_start = "& $backendExe start"
+    assert script.index(backend_stop) < script.index(backend_stopped)
+    assert script.index(backend_stopped) < script.index(backend_port_closed)
+    assert script.index(caddy_stopped) < script.index(caddy_port_closed)
+    assert script.index(backend_port_closed) < script.index(backend_start)
+    assert script.index(caddy_port_closed) < script.index(backend_start)
 
     environment = os.environ.copy()
     environment["IZO_TEST_PROMOTER"] = str(script_path)

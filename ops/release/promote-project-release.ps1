@@ -90,6 +90,56 @@ function Write-PromotionStatus {
     } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $promotionStatusPath -Encoding UTF8
 }
 
+function Wait-ServiceState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Running', 'Stopped')]
+        [string]$ExpectedState,
+        [int]$TimeoutSeconds = 90
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $service = Get-Service -Name $Name -ErrorAction Stop
+        if ([string]$service.Status -eq $ExpectedState) {
+            return
+        }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    throw "Service $Name did not reach state $ExpectedState within $TimeoutSeconds seconds."
+}
+
+function Wait-LoopbackPortClosed {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Port,
+        [int]$TimeoutSeconds = 90
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $client = [Net.Sockets.TcpClient]::new()
+        $waitHandle = $null
+        $isOpen = $false
+        try {
+            $connect = $client.BeginConnect('127.0.0.1', $Port, $null, $null)
+            $waitHandle = $connect.AsyncWaitHandle
+            if ($waitHandle.WaitOne(250) -and $client.Connected) {
+                $client.EndConnect($connect)
+                $isOpen = $true
+            }
+        } catch {
+            $isOpen = $false
+        } finally {
+            if ($null -ne $waitHandle) { $waitHandle.Dispose() }
+            $client.Dispose()
+        }
+        if (-not $isOpen) { return }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    throw "Loopback port $Port remained open after its service was stopped."
+}
+
 $promotionMutex = [System.Threading.Mutex]::new(
     $false,
     'Global\IZO_ASA_ProjectReleasePromotion'
@@ -287,6 +337,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Backend stop failed with exit code $LASTEXITCODE." }
     & $caddyExe stop
     if ($LASTEXITCODE -ne 0) { throw "Caddy stop failed with exit code $LASTEXITCODE." }
+    Wait-ServiceState -Name 'IZOBackend' -ExpectedState 'Stopped'
+    Wait-ServiceState -Name 'IZOCaddy' -ExpectedState 'Stopped'
+    Wait-LoopbackPortClosed -Port 8000
+    Wait-LoopbackPortClosed -Port 5173
 
     $xml = [xml](Get-Content -LiteralPath $backendXml -Raw -Encoding UTF8)
     $xml.service.executable = "$newRelease\backend\.venv\Scripts\python.exe"
@@ -321,6 +375,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Backend start failed with exit code $LASTEXITCODE." }
     & $caddyExe start
     if ($LASTEXITCODE -ne 0) { throw "Caddy start failed with exit code $LASTEXITCODE." }
+    Wait-ServiceState -Name 'IZOBackend' -ExpectedState 'Running'
+    Wait-ServiceState -Name 'IZOCaddy' -ExpectedState 'Running'
 
     $backendReady = $false
     $identityReady = $false
@@ -397,6 +453,10 @@ try {
     try {
         & $backendExe stop 2>$null
         & $caddyExe stop 2>$null
+        Wait-ServiceState -Name 'IZOBackend' -ExpectedState 'Stopped'
+        Wait-ServiceState -Name 'IZOCaddy' -ExpectedState 'Stopped'
+        Wait-LoopbackPortClosed -Port 8000
+        Wait-LoopbackPortClosed -Port 5173
         Copy-Item -LiteralPath (Join-Path $rollback 'IZOBackend.xml') -Destination $backendXml -Force
         Copy-Item -LiteralPath (Join-Path $rollback 'Caddyfile') -Destination $caddyFile -Force
         # Migrations are additive. Keep the live database in place during an
@@ -407,6 +467,8 @@ try {
         }
         & $backendExe start
         & $caddyExe start
+        Wait-ServiceState -Name 'IZOBackend' -ExpectedState 'Running'
+        Wait-ServiceState -Name 'IZOCaddy' -ExpectedState 'Running'
         Write-PromotionStatus -Ok $false -Stage 'rolled_back' `
             -Message "Promotion failed and the previous release was restored: $failure" `
             -PreviousSha $oldSha -NewSha $newSha -RollbackPath $rollback `
