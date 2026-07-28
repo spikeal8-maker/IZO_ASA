@@ -31,6 +31,8 @@ def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -
     assert "persist-credentials: false" in source
     assert "clean: true" in source
     assert "fetch-depth: 1" in source
+    assert source.count("shell: powershell") == 3
+    assert "shell: pwsh" not in source
 
 
 def test_ci_workflow_calls_only_deterministic_verifier_mode() -> None:
