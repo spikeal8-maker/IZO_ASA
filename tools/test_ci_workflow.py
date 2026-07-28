@@ -18,8 +18,10 @@ def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -
 
     assert "runs-on: [self-hosted, windows, x64, izo-ci]" in source
     assert "timeout-minutes: 45" in source
-    assert "python-version-file: .python-version" in source
-    assert "node-version-file: .node-version" in source
+    assert "$expectedPython = (Get-Content .python-version -Raw).Trim()" in source
+    assert "$expectedNode = (Get-Content .node-version -Raw).Trim()" in source
+    assert "Python version mismatch" in source
+    assert "Node version mismatch" in source
     assert "cache:" not in source
     assert "python -m pip install --requirement backend/requirements.txt" in source
     assert "working-directory: frontend" in source
@@ -27,11 +29,11 @@ def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -
     assert "run: npx playwright install chromium" in source
     assert (ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.11.9"
     assert (ROOT / ".node-version").read_text(encoding="utf-8").strip() == "24.14.1"
-    assert len(FULL_SHA_ACTION.findall(source)) == 3
+    assert len(FULL_SHA_ACTION.findall(source)) == 1
     assert "persist-credentials: false" in source
     assert "clean: true" in source
     assert "fetch-depth: 1" in source
-    assert source.count("shell: powershell") == 3
+    assert source.count("shell: powershell") == 4
     assert "shell: pwsh" not in source
 
 
