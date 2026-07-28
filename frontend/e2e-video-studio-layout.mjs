@@ -183,13 +183,33 @@ async function mockApi(page) {
 
 async function inspect(browser, viewport) {
   const page = await browser.newPage({ viewport, isMobile: viewport.width < 761, hasTouch: viewport.width < 761 })
+  await page.addInitScript(() => {
+    window.__videoPlayLog = []
+    HTMLMediaElement.prototype.play = function () {
+      const kind = this.classList.contains('video-context-player')
+        ? 'context'
+        : this.closest('.video-stage')
+          ? 'stage'
+          : this.closest('.video-history-list')
+            ? 'history'
+            : 'other'
+      window.__videoPlayLog.push(kind)
+      return Promise.resolve()
+    }
+  })
   const apiState = await mockApi(page)
   await page.goto(`${base}/video?layout_test=${viewport.width}`, { waitUntil: 'networkidle' })
   await page.locator('.video-studio').waitFor()
   if (process.env.E2E_SCREENSHOT_DIR) {
     await page.screenshot({ path: `${process.env.E2E_SCREENSHOT_DIR}/video-initial-${viewport.width}x${viewport.height}.png`, fullPage: true })
   }
-  await page.locator('.video-history-list button').nth(3).click()
+  const historyReplayTarget = page.locator('.video-history-list button').nth(3)
+  await historyReplayTarget.click()
+  await page.waitForTimeout(50)
+  const historyPlayBeforeReplay = await page.evaluate(() => [...window.__videoPlayLog])
+  await historyReplayTarget.click()
+  await page.waitForTimeout(50)
+  const historyPlayAfterReplay = await page.evaluate(() => [...window.__videoPlayLog])
   await page.locator('.video-prompt textarea').fill('Плавное приближение камеры к городской сцене, естественное движение людей и транспорта, мягкий дневной свет.')
   await page.locator('.video-live-price strong').filter({ hasNotText: 'Считаем' }).waitFor()
   const exampleButton = page.locator('.video-prompt-actions button', { hasText: 'Пример' })
@@ -360,6 +380,10 @@ async function inspect(browser, viewport) {
   result.guideButtonCountBeforeOpen = guideButtonCount
   result.guideState = guideState
   result.durationMenuState = durationMenuState
+  result.historyReplay = {
+    before: historyPlayBeforeReplay,
+    replay: historyPlayAfterReplay.slice(historyPlayBeforeReplay.length),
+  }
   await page.locator('.video-pro').click()
   result.localizedModelDescription = (await page.locator('.video-model-list p').first().textContent()) || ''
   await page.locator('.video-pro').click()
@@ -569,6 +593,9 @@ async function run() {
     assert(!mobile.overflowX, 'Mobile has horizontal overflow')
     assert(mobile.formatLabelsFit, 'Mobile format labels or digits overflow their buttons')
     assert(mobile.inlinePlayerVisible, 'Selected mobile history video has no inline player')
+    assert(mobile.historyReplay.replay.includes('history'), 'Repeated history click does not restart the tile video')
+    assert(mobile.historyReplay.replay.includes('stage'), 'Repeated history click does not restart the main preview')
+    assert(mobile.historyReplay.replay.includes('context'), 'Repeated history click does not restart the inline preview')
     assert(mobile.historyTouchMoved, 'History cannot be swiped with a finger')
     assert(mobile.resultBeforeComposer, 'Mobile result must appear before Composer')
     assert(mobile.stage && mobile.stage.width <= 390, 'Mobile stage exceeds viewport width')
