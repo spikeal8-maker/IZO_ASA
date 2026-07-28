@@ -1321,6 +1321,27 @@
   background: #020302;
 }
 
+.video-stage-placeholder-bg,
+.video-stage-placeholder-vignette {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.video-stage-placeholder-bg {
+  object-fit: cover;
+  opacity: .34;
+  filter: saturate(.72) contrast(1.08);
+}
+
+.video-stage-placeholder-vignette {
+  background:
+    radial-gradient(circle at center, rgba(2, 3, 2, .18), rgba(2, 3, 2, .78) 78%),
+    linear-gradient(180deg, rgba(2, 3, 2, .12), rgba(2, 3, 2, .62));
+}
+
 .video-stage video,
 .video-stage-image {
   width: 100%;
@@ -1461,6 +1482,8 @@
 
 .video-stage-message,
 .video-progress {
+  position: relative;
+  z-index: 1;
   width: min(100%, 470px);
   padding: 28px;
   color: var(--secondary);

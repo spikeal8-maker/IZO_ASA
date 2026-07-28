@@ -5,6 +5,57 @@ from typing import Any, Callable
 from ..integrations.openrouter import OpenRouterVideoRequestError, openrouter_video_public_error
 
 
+def config_viewer_context(
+    request: Any,
+    *,
+    require_user: Callable[[Any], dict[str, Any]],
+    connect: Callable[[], Any],
+    quota_for_user: Callable[[Any, Any, str], dict[str, Any]],
+    storage_state_for_user: Callable[..., Any],
+    row_get: Callable[[Any, str], Any],
+) -> dict[str, Any]:
+    """Resolve private quota data or a zero-quota signed-out catalogue view."""
+
+    try:
+        trusted = require_user(request)
+    except Exception as exc:
+        if int(getattr(exc, "status_code", 0) or 0) != 401:
+            raise
+        trusted = None
+    if trusted is None:
+        return {
+            "trusted": None,
+            "authenticated": False,
+            "plan": "guest",
+            "is_admin": False,
+            "video_slots": 0,
+            "storage": {"used": 0, "limit": 0, "free": 0, "full": False, "storedBytes": 0},
+        }
+    user_id = trusted["legacy_user_id"]
+    with connect() as conn:
+        user = conn.execute("SELECT plan, role FROM users WHERE id = ?", (user_id,)).fetchone()
+        quota = quota_for_user(conn, user, user_id)
+        storage_state = storage_state_for_user(
+            conn,
+            user_id,
+            limit=int(quota["video_slots"] or 0),
+        )
+    return {
+        "trusted": trusted,
+        "authenticated": True,
+        "plan": str(row_get(user, "plan") or "free").lower(),
+        "is_admin": str(row_get(user, "role") or "") == "admin",
+        "video_slots": int(quota["video_slots"] or 0),
+        "storage": {
+            "used": storage_state.active,
+            "limit": storage_state.limit,
+            "free": storage_state.free,
+            "full": storage_state.full,
+            "storedBytes": storage_state.stored_bytes,
+        },
+    }
+
+
 def video_submit_failure(error: Exception, settings: Any) -> dict[str, Any]:
     """Build persisted private diagnostics and a product-safe public failure."""
 

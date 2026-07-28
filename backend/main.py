@@ -16005,18 +16005,11 @@ async def _download_video_result(
     return filename, total
 @app.get("/api/video/config")
 async def video_generation_config(request: Request) -> dict[str, Any]:
-    trusted = require_trusted_user(request)
-    user_id = trusted["legacy_user_id"]
-    with db() as conn:
-        user = conn.execute("SELECT plan, role FROM users WHERE id = ?", (user_id,)).fetchone()
-        quota = gallery_quota_for_user(conn, user, user_id)
-        storage_state = video_storage.storage_state(
-            conn,
-            user_id,
-            limit=int(quota["video_slots"] or 0),
-        )
-    plan = str(_row_get(user, "plan") or "free").lower()
-    is_admin = str(_row_get(user, "role") or "") == "admin"
+    viewer = video_presentation.config_viewer_context(
+        request, require_user=require_trusted_user, connect=db, quota_for_user=gallery_quota_for_user,
+        storage_state_for_user=video_storage.storage_state, row_get=_row_get,
+    )
+    trusted, plan, is_admin = viewer["trusted"], viewer["plan"], viewer["is_admin"]
     catalog = await fetch_openrouter_video_catalog()
     config = normalize_openrouter_video_config(_saved_setting("openrouter_video_models"), catalog)
     exchange = await fetch_usd_rub_rate()
@@ -16027,7 +16020,12 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
     modes: dict[str, list[dict[str, Any]]] = {}
     for mode in OPENROUTER_VIDEO_MODES:
         modes[mode] = ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)
-        for model in video_pricing.allowed_models(catalog, config, mode, plan, is_admin):
+        visible_models = (
+            video_pricing.allowed_models(catalog, config, mode, plan, is_admin)
+            if trusted is not None
+            else video_pricing.public_preview_models(catalog, config, mode)
+        )
+        for model in visible_models:
             public_model = dict(model)
             public_model["publicPricing"] = _video_model_public_pricing(
                 model,
@@ -16040,22 +16038,23 @@ async def video_generation_config(request: Request) -> dict[str, Any]:
     return {
         "modes": modes,
         "plan": plan,
-        "videoSlots": quota["video_slots"],
+        "authenticated": viewer["authenticated"],
+        "videoSlots": viewer["video_slots"],
         "feedPublicationEnabled": FEED_VIDEO_PUBLICATION_ENABLED,
-        "videoStorage": {
-            "used": storage_state.active,
-            "limit": storage_state.limit,
-            "free": storage_state.free,
-            "full": storage_state.full,
-            "storedBytes": storage_state.stored_bytes,
-        },
+        "videoStorage": viewer["storage"],
         "availability": {
             mode: {
                 "enabled": len((config.get("enabled") or {}).get(mode) or []) + len(ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)),
-                "tariff": len((((config.get("access") or {}).get(mode) or {}).get(plan)) or []) + len(ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)),
+                "tariff": (
+                    len(modes[mode])
+                    if trusted is None
+                    else len((((config.get("access") or {}).get(mode) or {}).get(plan)) or []) + len(ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile))
+                ),
                 "reason": (
                     "В админке не включены модели для этого режима."
                     if not (config.get("enabled") or {}).get(mode) and not ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)
+                    else ""
+                    if trusted is None and modes[mode]
                     else f"Для тарифа {plan.title()} не назначены модели этого режима."
                     if not is_admin and not (((config.get("access") or {}).get(mode) or {}).get(plan)) and not ltx_video.catalog_for_mode(mode, enabled=local_video_enabled, profile_model_id=local_video_profile)
                     else ""

@@ -15,6 +15,8 @@ import {
   readVideoSourceHandoff,
   resolveVerifiedVideoSource,
 } from './studio/videoSourceHandoff'
+import { normalizeVideoFeedHistory } from './studio/videoFeedHistory'
+import previewPlaceholderUrl from './assets/preview-placeholder.jpg'
 import './videoStudio.css'
 
 type VideoMode = 'text_to_video' | 'image_to_video' | 'first_last_frame' | 'reference_to_video'
@@ -72,6 +74,8 @@ type VideoJob = {
   publicationStatus?: 'preparing' | 'published' | 'failed' | 'hidden' | null
   publicationError?: string | null
   sourceHistory?: Array<{ id: string; roleLabel?: string; thumbUrl?: string; width?: number; height?: number }>
+  publicFeedItem?: boolean
+  publicModelLabel?: string
 }
 type GalleryImage = {
   id: string
@@ -87,7 +91,10 @@ type GalleryImage = {
   aspectRatio?: string
   modelProfile?: string
 }
-type VideoStudioProps = { onTokenBalanceChange?: (balance: number) => void }
+type VideoStudioProps = {
+  authStatus?: 'loading' | 'anon' | 'authed'
+  onTokenBalanceChange?: (balance: number) => void
+}
 
 const MODE_META: Array<{ id: VideoMode; label: string; note: string; empty: string }> = [
   { id: 'text_to_video', label: 'Текст → видео', note: 'Создать сцену по тексту', empty: 'Опишите сцену, движение камеры и настроение ролика' },
@@ -229,7 +236,7 @@ function formatElapsed(createdAt?: string | null, completedAt?: string | null, n
   const seconds = total % 60
   return `${minutes} мин. ${secondsLabel(seconds)}`
 }
-export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps = {}): ReactElement {
+export default function VideoStudio({ authStatus = 'loading', onTokenBalanceChange }: VideoStudioProps = {}): ReactElement {
   const initialDraft = useMemo(() => readStorage<Record<string, unknown>>(DRAFT_KEY, {}), [])
   const initialVideoSource = useMemo(() => readVideoSourceHandoff(), [])
   const initialMode = initialVideoSource ? 'image_to_video' : (initialDraft.mode as VideoMode) || 'text_to_video'
@@ -248,6 +255,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   const [references, setReferences] = useState<string[]>([])
   const [history, setHistory] = useState<VideoJob[]>([])
   const [imageHistory, setImageHistory] = useState<GalleryImage[]>([])
+  const [feedHistory, setFeedHistory] = useState<{ videos: VideoJob[]; images: GalleryImage[] }>({ videos: [], images: [] })
   const [activeJob, setActiveJob] = useState<VideoJob | null>(null)
   const [selectedJob, setSelectedJob] = useState<VideoJob | null>(null)
   const [selectedHistoryImage, setSelectedHistoryImage] = useState<GalleryImage | null>(null)
@@ -297,7 +305,12 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   const stageVideoRef = useRef<HTMLVideoElement>(null)
   const contextVideoRef = useRef<HTMLVideoElement>(null)
 
-  const visibility = useMemo(() => readStorage<Record<VideoMode, Record<string, boolean>>>(VISIBILITY_KEY, {} as Record<VideoMode, Record<string, boolean>>), [])
+  const visibility = useMemo(
+    () => authStatus === 'authed'
+      ? readStorage<Record<VideoMode, Record<string, boolean>>>(VISIBILITY_KEY, {} as Record<VideoMode, Record<string, boolean>>)
+      : {} as Record<VideoMode, Record<string, boolean>>,
+    [authStatus],
+  )
   const qualityModels = useMemo(() => readStorage<Record<VideoMode, Partial<Record<VideoQuality, string>>>>(QUALITY_MODELS_KEY, {} as Record<VideoMode, Partial<Record<VideoQuality, string>>>), [])
   const models = useMemo(() => (config?.modes[mode] || []).filter((item) => visibility[mode]?.[item.id] !== false), [config, visibility, mode])
   const sortedModels = useMemo(() => [...models].sort((a, b) => Number(a.publicPricing?.fromTokens ?? 999999) - Number(b.publicPricing?.fromTokens ?? 999999)), [models])
@@ -351,7 +364,8 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
       apiFetch('/video/config'),
       apiFetch('/video/history?limit=40'),
       apiFetch('/gallery/items?limit=40&filter=image'),
-    ]).then(async ([configResponse, historyResponse, imageHistoryResponse]) => {
+      apiFetch('/feed?type=new&limit=10'),
+    ]).then(async ([configResponse, historyResponse, imageHistoryResponse, feedResponse]) => {
       if (!configResponse.ok) throw new Error(await responseError(configResponse, 'Видео сейчас недоступно.'))
       const nextConfig = await configResponse.json() as VideoConfig
       setConfig(nextConfig)
@@ -373,6 +387,9 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
       if (imageHistoryResponse.ok) {
         const data = await imageHistoryResponse.json() as { items?: GalleryImage[] }
         setImageHistory((data.items || []).filter((item) => item.mediaType !== 'video'))
+      }
+      if (feedResponse.ok) {
+        setFeedHistory(normalizeVideoFeedHistory(await feedResponse.json()))
       }
     }).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false))
   }, [initialDraft.modelId, initialDraft.quality, initialMode, initialVideoSource, syncModelDefaults, visibility])
@@ -635,7 +652,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
     setGalleryLoading(false)
   }
 
-  const canSubmit = Boolean(prompt.trim() && selectedModel && !submitting && !activeJob && (mode === 'text_to_video' || (mode === 'image_to_video' && firstFrame) || (mode === 'first_last_frame' && firstFrame && lastFrame) || (mode === 'reference_to_video' && references.length)))
+  const canSubmit = Boolean(authStatus === 'authed' && prompt.trim() && selectedModel && !submitting && !activeJob && (mode === 'text_to_video' || (mode === 'image_to_video' && firstFrame) || (mode === 'first_last_frame' && firstFrame && lastFrame) || (mode === 'reference_to_video' && references.length)))
   const submit = async () => {
     if (!requestBody || !canSubmit) return
     const submittedAt = new Date().toISOString()
@@ -899,10 +916,17 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   const shownJob = previewCleared || shownImage ? null : selectedJob || activeJob
   const modeMeta = MODE_META.find((item) => item.id === mode) || MODE_META[0]
   const stageRatio = shownImage?.aspectRatio || (shownImage?.width && shownImage?.height ? `${shownImage.width}:${shownImage.height}` : null) || shownJob?.aspectRatio || aspectRatio
-  const mediaHistory = useMemo(() => [
+  const mediaHistory = useMemo(() => {
+    const own = [
     ...history.map((item) => ({ kind: 'video' as const, createdAt: item.createdAt, item })),
     ...imageHistory.map((item) => ({ kind: 'image' as const, createdAt: item.createdAt || '', item })),
-  ].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))), [history, imageHistory])
+    ]
+    const fallback = [
+      ...feedHistory.videos.map((item) => ({ kind: 'video' as const, createdAt: item.createdAt, item })),
+      ...feedHistory.images.map((item) => ({ kind: 'image' as const, createdAt: item.createdAt || '', item })),
+    ]
+    return (own.length ? own : fallback).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
+  }, [feedHistory, history, imageHistory])
   const orderedAspectRatios = useMemo(() => {
     const ratios = selectedModel?.supportedAspectRatios || []
     return [...ratios].sort((a, b) => {
@@ -923,6 +947,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   const shownElapsed = formatElapsed(shownJob?.createdAt, shownJob?.completedAt, clockNow)
   const viewingActiveJob = Boolean(activeJob && shownJob?.id === activeJob.id)
   const findJobModel = (job: VideoJob) => config?.modes[job.mode]?.find((item) => item.id === job.model)
+  const jobModelLabel = (job: VideoJob) => job.publicModelLabel || shortModelName(findJobModel(job))
   const toastText = error || notice
   const toastKind = error ? 'error' : 'success'
 
@@ -1039,7 +1064,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
           </section>
         </> : <div className="video-empty-models">{error || config?.availability?.[mode]?.reason || 'Для этого режима пока нет доступных моделей.'}</div>}
         </div>
-        {!loading && <button className={`video-generate${submitting || activeJob ? ' is-generating' : ''}`} type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{submitting ? 'Запускаем видео' : activeJob ? 'Создаём видео' : 'Создать видео'}</span><b>{visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток.` : models.length ? '—' : 'Нет модели'}</b></button>}
+        {!loading && <button className={`video-generate${submitting || activeJob ? ' is-generating' : ''}`} type="button" disabled={!canSubmit} title={authStatus === 'anon' ? 'Войдите, чтобы создать видео' : undefined} onClick={() => void submit()}>{submitting || activeJob ? <LoaderCircle className="spin" /> : <Sparkles />}<span>{authStatus === 'anon' ? 'Войдите, чтобы создать' : submitting ? 'Запускаем видео' : activeJob ? 'Создаём видео' : 'Создать видео'}</span><b>{authStatus === 'anon' ? 'После входа' : visibleEstimateLoading ? 'Считаем…' : visibleEstimate ? `${visibleEstimate.chargedTokens} ток.` : models.length ? '—' : 'Нет модели'}</b></button>}
       </aside>
 
       <section className="video-result">
@@ -1069,7 +1094,11 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
             : shownJob?.status === 'completed' && shownJob.videoUrl ? <video ref={stageVideoRef} key={shownJob.videoUrl} src={shownJob.videoUrl} controls autoPlay={autoPlayJobId === shownJob.id} muted={autoPlayJobId === shownJob.id} playsInline preload="metadata" />
             : shownJob && !['failed', 'cancelled', 'expired'].includes(shownJob.status) ? <div className="video-progress"><Film /><strong>{statusLabel(shownJob.status)}</strong><p>{shownElapsed || 'Только что'} · Можно продолжать работать — результат появится автоматически.</p><div><i style={{ width: `${Math.max(8, shownJob.progress || 10)}%` }} /></div><small>{shownJob.progress || 10}%</small></div>
             : shownJob?.error ? <div className="video-stage-message error"><RotateCcw /><strong>Видео не создано</strong><p>{shownJob.error}</p><button type="button" onClick={() => setSelectedJob(null)}>Попробовать снова</button></div>
-            : <div className="video-stage-message"><Play /><strong>{mode === 'image_to_video' && firstFrame ? 'Кадр готов' : 'Видео появится здесь'}</strong><p>{mode === 'image_to_video' && firstFrame ? 'Опишите движение и нажмите «Создать видео».' : modeMeta.empty}</p></div>}
+            : <>
+              <img className="video-stage-placeholder-bg" src={previewPlaceholderUrl} alt="" aria-hidden="true" />
+              <span className="video-stage-placeholder-vignette" aria-hidden="true" />
+              <div className="video-stage-message"><Play /><strong>{mode === 'image_to_video' && firstFrame ? 'Кадр готов' : 'Видео появится здесь'}</strong><p>{mode === 'image_to_video' && firstFrame ? 'Опишите движение и нажмите «Создать видео».' : modeMeta.empty}</p></div>
+            </>}
         </div></div>
       </section>
 
@@ -1085,9 +1114,8 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
                 </button>
               }
               const job = entry.item
-              const jobModel = findJobModel(job)
               const elapsed = formatElapsed(job.createdAt, job.completedAt)
-              return <button key={job.id} type="button" data-media-kind="video" data-aspect-ratio={job.aspectRatio || '16:9'} className={`${!previewCleared && selectedJob?.id === job.id ? 'active' : ''}${activeJob?.id === job.id ? ' generating' : ''}`} onClick={(event) => selectHistoryVideo(job, event.currentTarget)} style={{ aspectRatio: aspectStyle(job.aspectRatio) }} title={`${shortModelName(jobModel)} · ${secondsLabel(job.duration || 0)}${elapsed ? ` · готово за ${elapsed}` : ''}`} aria-label={`Видео ${job.aspectRatio || '16:9'}`}>{job.videoUrl ? <video src={job.videoUrl} autoPlay={autoPlayJobId === job.id} loop muted playsInline preload="metadata" draggable={false} /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<span className="video-history-kind">{activeJob?.id === job.id ? `${Math.max(4, job.progress || 4)}%` : 'Видео'}</span></button>
+              return <button key={job.id} type="button" data-media-kind="video" data-aspect-ratio={job.aspectRatio || '16:9'} className={`${!previewCleared && selectedJob?.id === job.id ? 'active' : ''}${activeJob?.id === job.id ? ' generating' : ''}`} onClick={(event) => selectHistoryVideo(job, event.currentTarget)} style={{ aspectRatio: aspectStyle(job.aspectRatio) }} title={`${jobModelLabel(job)} · ${secondsLabel(job.duration || 0)}${elapsed ? ` · готово за ${elapsed}` : ''}`} aria-label={`Видео ${job.aspectRatio || '16:9'}`}>{job.videoUrl ? <video src={job.videoUrl} autoPlay={autoPlayJobId === job.id} loop muted playsInline preload="metadata" draggable={false} /> : <span>{job.status === 'completed' ? <Play /> : <LoaderCircle className="spin" />}</span>}<span className="video-history-kind">{activeJob?.id === job.id ? `${Math.max(4, job.progress || 4)}%` : 'Видео'}</span></button>
             })}</div> : <p>Здесь появятся созданные изображения и видео.</p>}
           </section>
           <aside className="video-context">{shownImage ? <>
@@ -1100,7 +1128,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
             {shownJob.videoUrl && <video ref={contextVideoRef} className="video-context-player" src={shownJob.videoUrl} controls autoPlay={autoPlayJobId === shownJob.id} muted={autoPlayJobId === shownJob.id} playsInline preload="metadata" />}
             <div className="video-context-prompt"><div><span>Промпт</span><button type="button" title="Копировать промпт" aria-label="Копировать промпт" onClick={() => void navigator.clipboard.writeText(shownJob.prompt || '')}><Copy /></button></div><p>{shownJob.prompt || 'Промпт не сохранён'}</p>{Boolean(shownJob.sourceHistory?.length) && <div className="video-source-lineage" aria-label="Исходные кадры видео">{shownJob.sourceHistory?.map((source, index) => <figure key={source.id || index}>{source.thumbUrl && <img src={apiUrl(source.thumbUrl)} alt={source.roleLabel || `Исходник ${index + 1}`} loading="lazy" />}<figcaption>{source.roleLabel || `Исходник ${index + 1}`}</figcaption></figure>)}</div>}</div>
             <div className="video-context-details">
-              <div className="video-context-tags"><span>{shortModelName(findJobModel(shownJob))}</span><span>{secondsLabel(shownJob.duration || 0)}</span><span>{shownJob.aspectRatio}</span><span>{shownJob.resolution}</span>{shownJob.generateAudio && <span><Volume2 /> Звук</span>}{shownElapsed && shownJob.completedAt && <span><Clock3 /> Готово за {shownElapsed}</span>}</div>
+              <div className="video-context-tags"><span>{jobModelLabel(shownJob)}</span><span>{secondsLabel(shownJob.duration || 0)}</span><span>{shownJob.aspectRatio}</span><span>{shownJob.resolution}</span>{shownJob.generateAudio && <span><Volume2 /> Звук</span>}{shownElapsed && shownJob.completedAt && <span><Clock3 /> Готово за {shownElapsed}</span>}</div>
               <div className="video-context-actions">
                 <button className="feed" type="button" disabled={!shownJob.galleryVideoId || shownJob.publicationStatus === 'preparing'} onClick={() => openVideoPublish(shownJob)}><Sparkles /> <span>{shownJob.published ? 'Открыть в ленте' : shownJob.publicationStatus === 'preparing' ? 'Готовим' : 'В ленту'}</span></button>
                 <button className="icon" type="button" title="Повторить с этими настройками" aria-label="Повторить с этими настройками" onClick={() => applySettings(shownJob)}><RotateCcw /></button>

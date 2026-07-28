@@ -89,6 +89,7 @@ def test_historical_openrouter_transport_error_is_not_exposed():
 def test_video_config_returns_only_enabled_catalog_models(video_api: TestClient):
     response = video_api.get("/api/video/config")
     assert response.status_code == 200
+    assert response.json()["authenticated"] is True
     assert response.json()["modes"]["text_to_video"][0]["id"] == MODEL["id"]
     assert response.json()["modes"]["text_to_video"][0]["publicPricing"]["fromTokens"] > 0
     assert response.json()["modes"]["reference_to_video"] == []
@@ -101,6 +102,26 @@ def test_video_config_returns_only_enabled_catalog_models(video_api: TestClient)
         "full": False,
         "storedBytes": 0,
     }
+
+
+def test_video_config_exposes_safe_catalogue_preview_to_guest(video_api: TestClient):
+    del video_api.cookies["onenode_session"]
+
+    response = video_api.get("/api/video/config")
+
+    assert response.status_code == 200
+    assert response.json()["authenticated"] is False
+    assert response.json()["plan"] == "guest"
+    assert response.json()["videoSlots"] == 0
+    assert response.json()["videoStorage"] == {
+        "used": 0,
+        "limit": 0,
+        "free": 0,
+        "full": False,
+        "storedBytes": 0,
+    }
+    assert response.json()["modes"]["text_to_video"][0]["id"] == MODEL["id"]
+    assert response.json()["modes"]["text_to_video"][0]["publicPricing"]["fromTokens"] > 0
 
 
 def test_video_page_is_available_to_free_plan_and_models_define_access(video_api: TestClient):

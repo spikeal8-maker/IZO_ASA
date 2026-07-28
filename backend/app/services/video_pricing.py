@@ -59,6 +59,21 @@ def allowed_models(
     ]
 
 
+def public_preview_models(
+    catalog: list[dict[str, Any]],
+    config: dict[str, Any],
+    mode: str,
+) -> list[dict[str, Any]]:
+    """Return enabled product models for the signed-out catalogue preview."""
+
+    enabled = set((config.get("enabled") or {}).get(mode) or [])
+    return [
+        model
+        for model in catalog
+        if model.get("id") in enabled and mode in (model.get("modes") or [])
+    ]
+
+
 @dataclass(frozen=True)
 class VideoFallbackRate:
     usd_per_second: float

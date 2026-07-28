@@ -48,6 +48,21 @@ focused suite — `42 passed`. До зелёного self-hosted check акти�
 четырёх viewport с mouse/touch drag и mobile error overlay; единый CI gate — `1748 passed`,
 frontend lint/build/release identity/origin isolation/studio resilience green.
 
+## Пакет `GUEST-STUDIO-ENTRY-20260728`
+
+Статус: **CODE COMPLETE, LOCALLY VERIFIED; DEPLOYMENT PENDING**.
+
+- чистая сессия студии изображений открывается с квадратным форматом `1:1` и качеством
+  `HD 1024×1024` на компьютере и телефоне;
+- публичная конфигурация видеостудии показывает гостю только включённый каталог и безопасные
+  цены без квоты, приватной истории и внутренних настроек;
+- кнопка запуска видео для гостя остаётся неактивной и явно предлагает войти;
+- при отсутствии собственной истории нижняя полоса видео смешивает последние публичные фото
+  и ролики из вкладки ленты «Новое» с сохранением пропорций;
+- пустой видеопредпросмотр использует общий фирменный фон студии изображений;
+- acceptance: backend guest-config regression, frontend lint/build, Playwright `1440×900`
+  и `390×844`, существующая video-layout suite, Quick, затем Full и production browser check.
+
 ## Пакет `VIDEO-LTX23-LOCAL-001`
 
 Статус: **CODE COMPLETE, OPERATIONAL VERIFICATION BLOCKED**.
