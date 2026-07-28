@@ -6576,7 +6576,7 @@ async def improve_prompt_ollama(req: ImprovePromptRequest, config: dict[str, Any
         "model": str(config.get("localModel") or "gemma4:12b"),
         "stream": False,
         "think": False,
-        "keep_alive": os.getenv("OLLAMA_KEEP_ALIVE", "-1").strip() or "-1",
+        "keep_alive": int(value) if (value := os.getenv("OLLAMA_KEEP_ALIVE", "-1").strip() or "-1").lstrip("+-").isdigit() else value,
         "format": {
             "type": "object",
             "properties": {"improved_prompt": {"type": "string"}},
@@ -6678,7 +6678,7 @@ async def transcribe_audio_ollama(audio: bytes, audio_format: str, language: str
         raise RuntimeError(f"Модель {model} не имеет аудиоэнкодера.")
     wav = audio if audio_format == "wav" else await asyncio.to_thread(normalize_audio_to_wav, audio, audio_format)
     body = {
-        "model": model, "stream": False, "think": False, "keep_alive": os.getenv("OLLAMA_KEEP_ALIVE", "-1").strip() or "-1",
+        "model": model, "stream": False, "think": False, "keep_alive": int(value) if (value := os.getenv("OLLAMA_KEEP_ALIVE", "-1").strip() or "-1").lstrip("+-").isdigit() else value,
         "messages": [{
             "role": "user",
             "images": [base64.b64encode(wav).decode("ascii")],
