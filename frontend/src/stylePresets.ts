@@ -64,6 +64,26 @@ export interface StylePreset {
   preview: { female: string; male: string; alt: string }
 }
 
+const REMOVED_STYLE_IDS = new Set([
+  'i2i-transform-05', // Невесомость
+  'i2i-transform-20', // Портал
+  'i2i-transform-21', // Океан
+  'i2i-transform-22', // Лёд
+  'i2i-transform-23', // Пустыня
+  'i2i-transform-36', // Каталог
+])
+
+// Самые универсальные стили идут первыми: именно они видны без прокрутки
+// сразу после карточки «Нет» на телефоне и компьютере.
+const FEATURED_STYLE_IDS = [
+  'i2i-transform-01', // Фото
+  'i2i-transform-24', // Аниме
+  'i2i-transform-26', // Комикс
+  'i2i-transform-08', // Неон
+  'i2i-transform-02', // Премиум
+]
+const FEATURED_STYLE_RANK = new Map(FEATURED_STYLE_IDS.map((id, index) => [id, index]))
+
 export const I2I_STYLES: StylePreset[] = imageToImageTransformRows()
   .trim()
   .split(/\r?\n/)
@@ -82,6 +102,12 @@ export const I2I_STYLES: StylePreset[] = imageToImageTransformRows()
         `Не добавляй читаемый текст, логотипы и водяные знаки. ${stylePrompt}`,
       preview: presetPreview(id, name),
     }
+  })
+  .filter((style) => !REMOVED_STYLE_IDS.has(style.id))
+  .sort((left, right) => {
+    const leftRank = FEATURED_STYLE_RANK.get(left.id) ?? Number.MAX_SAFE_INTEGER
+    const rightRank = FEATURED_STYLE_RANK.get(right.id) ?? Number.MAX_SAFE_INTEGER
+    return leftRank - rightRank
   })
 
 // Короткие локализованные подписи стилей для карточек нового UI (полное имя
