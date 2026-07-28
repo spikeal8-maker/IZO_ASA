@@ -117,6 +117,29 @@ function Test-SourceSnapshotEqual {
     return $Before.Count -eq $After.Count -and $Before.Bytes -eq $After.Bytes -and $Before.Sha256 -eq $After.Sha256
 }
 
+function Get-DeterministicFrontendReleaseId {
+    param([string]$Root)
+
+    $shaOutput = @(& git.exe -C $Root rev-parse HEAD)
+    if ($LASTEXITCODE -ne 0 -or $shaOutput.Count -eq 0) {
+        throw "Unable to resolve the frontend verification commit."
+    }
+    $sha = ([string]$shaOutput[0]).Trim()
+    if ($sha -notmatch "^[0-9a-f]{40}$") {
+        throw "Frontend verification requires a full lowercase commit SHA."
+    }
+    $timestampOutput = @(& git.exe -C $Root show -s --format=%ct $sha)
+    if ($LASTEXITCODE -ne 0 -or $timestampOutput.Count -eq 0) {
+        throw "Unable to resolve the frontend verification commit timestamp."
+    }
+    [long]$commitUnix = 0
+    if (-not [long]::TryParse(([string]$timestampOutput[0]).Trim(), [ref]$commitUnix) -or $commitUnix -le 0) {
+        throw "Frontend verification commit timestamp is invalid."
+    }
+    return $sha.Substring(0, 12) + "-" +
+        [DateTimeOffset]::FromUnixTimeSeconds($commitUnix).UtcDateTime.ToString("yyyyMMddHHmmss")
+}
+
 $startedAt = Get-Date
 $resolvedRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $backendDirectory = Join-Path $resolvedRoot "backend"
@@ -397,11 +420,26 @@ try {
 }
 
 if ($usesFullSuite) {
-    Invoke-NativeStep -Name "frontend_lint" -FilePath $npm -ArgumentList @("run", "lint") -WorkingDirectory $frontendDirectory
-    Invoke-NativeStep -Name "frontend_build" -FilePath $npm -ArgumentList @("run", "build") -WorkingDirectory $frontendDirectory
-    Invoke-NativeStep -Name "frontend_release_identity" -FilePath $npm -ArgumentList @("run", "check:release") -WorkingDirectory $frontendDirectory
-    Invoke-NativeStep -Name "frontend_origin_isolation" -FilePath $npm -ArgumentList @("run", "check:origin") -WorkingDirectory $frontendDirectory
-    Invoke-NativeStep -Name "frontend_studio_resilience" -FilePath $npm -ArgumentList @("run", "e2e:studio-resilience") -WorkingDirectory $frontendDirectory
+    $previousFrontendBuildLabel = [Environment]::GetEnvironmentVariable("FRONTEND_BUILD_LABEL", "Process")
+    try {
+        $frontendBuildLabel = if ($previousFrontendBuildLabel -and $previousFrontendBuildLabel.Trim()) {
+            $previousFrontendBuildLabel.Trim()
+        } else {
+            Get-DeterministicFrontendReleaseId -Root $resolvedRoot
+        }
+        if ($frontendBuildLabel -notmatch "^[0-9a-f]{12}-[0-9]{14}$") {
+            throw "Frontend build label is not an immutable release id: $frontendBuildLabel"
+        }
+        [Environment]::SetEnvironmentVariable("FRONTEND_BUILD_LABEL", $frontendBuildLabel, "Process")
+        Write-Host "VERIFY_FRONTEND_RELEASE release=$frontendBuildLabel"
+        Invoke-NativeStep -Name "frontend_lint" -FilePath $npm -ArgumentList @("run", "lint") -WorkingDirectory $frontendDirectory
+        Invoke-NativeStep -Name "frontend_build" -FilePath $npm -ArgumentList @("run", "build") -WorkingDirectory $frontendDirectory
+        Invoke-NativeStep -Name "frontend_release_identity" -FilePath $npm -ArgumentList @("run", "check:release") -WorkingDirectory $frontendDirectory
+        Invoke-NativeStep -Name "frontend_origin_isolation" -FilePath $npm -ArgumentList @("run", "check:origin") -WorkingDirectory $frontendDirectory
+        Invoke-NativeStep -Name "frontend_studio_resilience" -FilePath $npm -ArgumentList @("run", "e2e:studio-resilience") -WorkingDirectory $frontendDirectory
+    } finally {
+        [Environment]::SetEnvironmentVariable("FRONTEND_BUILD_LABEL", $previousFrontendBuildLabel, "Process")
+    }
 }
 
 function Get-PytestProcesses {

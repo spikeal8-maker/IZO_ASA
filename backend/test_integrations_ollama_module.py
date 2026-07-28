@@ -16,6 +16,13 @@ from app.integrations.ollama import (
 )
 
 
+def test_voice_defaults_to_resident_local_ollama() -> None:
+    voice = main.DEFAULT_ASSISTANT_MODELS_CONFIG["voice"]
+
+    assert voice["route"] == "local"
+    assert voice["localModel"] == "gemma4:12b"
+
+
 def test_ollama_base_url_uses_environment_and_removes_trailing_slashes(monkeypatch):
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://ollama.internal:11434///")
     assert ollama_base_url() == "http://ollama.internal:11434"
@@ -205,7 +212,7 @@ def test_prompt_improvement_keeps_body_timeout_and_application_parser(monkeypatc
     assert body["model"] == "gemma4:12b"
     assert body["stream"] is False
     assert body["think"] is False
-    assert body["keep_alive"] == "5m"
+    assert body["keep_alive"] == "-1"
     assert body["options"] == {"temperature": 0.25, "num_predict": 500}
     assert body["format"]["required"] == ["improved_prompt"]
     assert body["messages"][0]["role"] == "system"
@@ -244,7 +251,7 @@ def test_voice_transcription_normalizes_audio_and_keeps_ollama_body(monkeypatch)
         "model": "gemma4:12b",
         "stream": False,
         "think": False,
-        "keep_alive": "5m",
+        "keep_alive": "-1",
         "messages": [{
             "role": "user",
             "images": ["bm9ybWFsaXplZC13YXY="],

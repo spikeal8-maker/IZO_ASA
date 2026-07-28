@@ -13,23 +13,28 @@ def workflow_source() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
 
 
-def test_ci_workflow_uses_pinned_windows_toolchain_and_lockfiles() -> None:
+def test_ci_workflow_uses_pinned_self_hosted_windows_toolchain_and_lockfiles() -> None:
     source = workflow_source()
 
-    assert "runs-on: windows-latest" in source
-    assert "timeout-minutes: 30" in source
-    assert "python-version-file: .python-version" in source
-    assert "node-version-file: .node-version" in source
-    assert "cache-dependency-path: backend/requirements.txt" in source
-    assert "cache-dependency-path: frontend/package-lock.json" in source
+    assert "runs-on: [self-hosted, windows, x64, izo-ci]" in source
+    assert "timeout-minutes: 45" in source
+    assert "$expectedPython = (Get-Content .python-version -Raw).Trim()" in source
+    assert "$expectedNode = (Get-Content .node-version -Raw).Trim()" in source
+    assert "Python version mismatch" in source
+    assert "Node version mismatch" in source
+    assert "cache:" not in source
     assert "python -m pip install --requirement backend/requirements.txt" in source
     assert "working-directory: frontend" in source
     assert "run: npm ci" in source
     assert "run: npx playwright install chromium" in source
     assert (ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.11.9"
     assert (ROOT / ".node-version").read_text(encoding="utf-8").strip() == "24.14.1"
-    assert len(FULL_SHA_ACTION.findall(source)) == 3
+    assert len(FULL_SHA_ACTION.findall(source)) == 1
     assert "persist-credentials: false" in source
+    assert "clean: true" in source
+    assert "fetch-depth: 1" in source
+    assert source.count("shell: powershell") == 4
+    assert "shell: pwsh" not in source
 
 
 def test_ci_workflow_calls_only_deterministic_verifier_mode() -> None:
@@ -50,7 +55,9 @@ def test_ci_workflow_is_read_only_and_has_no_secret_or_provider_access() -> None
     assert "permissions:\n  contents: read" in source
     assert "pull_request_target" not in source
     assert "secrets." not in source
-    assert "self-hosted" not in source
+    assert "IZO_CI_RUNNER_TRUSTED" in source
+    assert 'github.actor == \'spikeal8-maker\'' in source
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in source
     assert "git push" not in source
     assert "deploy" not in source.lower()
     assert '$env:BOT_UPDATES_MODE = "disabled"' in source
@@ -64,6 +71,8 @@ def test_ci_workflow_is_read_only_and_has_no_secret_or_provider_access() -> None
     assert '$env:DATABASE_URL = Join-Path $env:RUNNER_TEMP' in source
     assert '$env:MEDIA_DIR = Join-Path $env:RUNNER_TEMP' in source
     assert '$env:IZO_SECRET_DIR = Join-Path $env:RUNNER_TEMP' in source
+    assert "Remove temporary CI data" in source
+    assert "if: always()" in source
 
 
 def test_ci_triggers_are_bounded_to_main_and_manual_runs() -> None:

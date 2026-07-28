@@ -66,7 +66,9 @@ def test_caddyfile_is_loopback_only_and_preserves_route_ownership() -> None:
     assert "default_bind 127.0.0.1" in source
     assert "servers 127.0.0.1:{$IZO_CADDY_PORT}" in source
     assert "http://:{$IZO_CADDY_PORT}" in source
-    assert "https://" not in source
+    assert "https://:{$IZO_CADDY_PORT}" not in source
+    assert "header X-Forwarded-Port 80" in source
+    assert "redir @public_http https://{host}{uri} 308" in source
     assert "not host izo.alikinas.ru 127.0.0.1 localhost" in source
     assert "respond @blocked_host 421" in source
     for path in ("/api", "/media", "/feed", "/gallery", "/static"):

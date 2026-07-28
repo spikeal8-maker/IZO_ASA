@@ -217,6 +217,11 @@ def test_voice_transcription_rejects_too_short_recording(prompt_user):
 
 def test_voice_transcription_returns_provider_text(prompt_user, monkeypatch):
     captured = {}
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO admin_settings (key, value_json, updated_at) VALUES ('assistant_models', ?, '2026-07-12T00:00:00+00:00')",
+            ('{"voice":{"route":"api","minRecordingSeconds":1}}',),
+        )
 
     async def fake_transcribe(audio, audio_format, language, config=None):
         captured.update({"audio": audio, "format": audio_format, "language": language})

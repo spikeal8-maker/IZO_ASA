@@ -6370,7 +6370,7 @@ DEFAULT_ASSISTANT_MODELS_CONFIG: dict[str, Any] = {
         "qwenModel": DEFAULT_QWEN_ASR_MODEL,
         "qwenBaseUrl": DEFAULT_QWEN_ASR_BASE_URL,
         "apiModel": "google/gemini-3.1-flash-lite",
-        "route": "api",
+        "route": "local",
         "queueTimeoutSeconds": 1,
         "requestTimeoutSeconds": 45,
         "minRecordingSeconds": 1,
@@ -6400,7 +6400,7 @@ def assistant_models_config() -> dict[str, Any]:
     voice = {**DEFAULT_ASSISTANT_MODELS_CONFIG["voice"], **(stored.get("voice") if isinstance(stored.get("voice"), dict) else {})}
     if voice.get("localModel") == "qwen3-asr:1.7b":
         voice["localModel"] = "gemma4:12b"
-    voice["route"] = voice["route"] if voice.get("route") in {"local", "qwen", "api", "auto"} else "api"
+    voice["route"] = voice["route"] if voice.get("route") in {"local", "qwen", "api", "auto"} else "local"
     voice["qwenModel"] = str(voice.get("qwenModel") or DEFAULT_QWEN_ASR_MODEL).strip()
     voice["qwenBaseUrl"] = str(voice.get("qwenBaseUrl") or DEFAULT_QWEN_ASR_BASE_URL).strip().rstrip("/")
     improve = {**DEFAULT_ASSISTANT_MODELS_CONFIG["improve"], **(stored.get("improve") if isinstance(stored.get("improve"), dict) else {})}
@@ -6576,7 +6576,7 @@ async def improve_prompt_ollama(req: ImprovePromptRequest, config: dict[str, Any
         "model": str(config.get("localModel") or "gemma4:12b"),
         "stream": False,
         "think": False,
-        "keep_alive": "5m",
+        "keep_alive": os.getenv("OLLAMA_KEEP_ALIVE", "-1").strip() or "-1",
         "format": {
             "type": "object",
             "properties": {"improved_prompt": {"type": "string"}},
@@ -6596,7 +6596,7 @@ async def improve_prompt_ollama(req: ImprovePromptRequest, config: dict[str, Any
 
 async def improve_prompt_routed(req: ImprovePromptRequest, force_provider: str | None = None) -> tuple[str, dict[str, Any], str, str]:
     config = assistant_models_config()["improve"]
-    route = force_provider or str(config.get("route") or "api")
+    route = force_provider or str(config.get("route") or "local")
     if route == "local":
         improved, payload = await improve_prompt_ollama(req, config)
         return improved, payload, "local", str(config.get("localModel") or "gemma4:12b")
@@ -6678,7 +6678,7 @@ async def transcribe_audio_ollama(audio: bytes, audio_format: str, language: str
         raise RuntimeError(f"Модель {model} не имеет аудиоэнкодера.")
     wav = audio if audio_format == "wav" else await asyncio.to_thread(normalize_audio_to_wav, audio, audio_format)
     body = {
-        "model": model, "stream": False, "think": False, "keep_alive": "5m",
+        "model": model, "stream": False, "think": False, "keep_alive": os.getenv("OLLAMA_KEEP_ALIVE", "-1").strip() or "-1",
         "messages": [{
             "role": "user",
             "images": [base64.b64encode(wav).decode("ascii")],
@@ -6716,7 +6716,7 @@ async def transcribe_audio_routed(
     force_provider: str | None = None,
 ) -> tuple[str, dict[str, Any], str, str]:
     config = config or assistant_models_config()["voice"]
-    route = force_provider or str(config.get("route") or "api")
+    route = force_provider or str(config.get("route") or "local")
     providers = ["qwen", "local", "api"] if route == "auto" else [route]
     errors: list[str] = []
     for provider in providers:

@@ -488,6 +488,13 @@
       ]
     },
     {
+      "name": "OLLAMA_KEEP_ALIVE",
+      "secret": false,
+      "sources": [
+        "backend/main.py"
+      ]
+    },
+    {
       "name": "OPENROUTER_API_KEY",
       "secret": true,
       "sources": [

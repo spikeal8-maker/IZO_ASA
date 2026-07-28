@@ -12,8 +12,12 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const dist = path.resolve(argument('--dist', path.join(repoRoot, 'frontend', 'dist')))
 const expected = argument(
   '--expected',
-  process.env.FRONTEND_BUILD_LABEL || process.env.GITHUB_SHA || 'dev',
-)
+  process.env.FRONTEND_BUILD_LABEL || process.env.GITHUB_SHA || '',
+).trim()
+if (!expected) throw new Error('expected frontend release id is required')
+if (/^(dev|unknown)$/i.test(expected)) {
+  throw new Error(`unsafe frontend release id is forbidden: ${expected}`)
+}
 
 const indexHtml = await readFile(path.join(dist, 'index.html'), 'utf8')
 const escapedName = 'izo-release'.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
