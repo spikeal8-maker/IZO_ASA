@@ -448,6 +448,7 @@ async function verifyGenerationFeedback(browser) {
     oldVideoStillVisible,
     generationBody: apiState.generationBody,
     balanceRefreshed: apiState.meReads > meReadsBefore,
+    topbarBalance: (await page.locator('.top-token-summary').getAttribute('aria-label')) || '',
     historyCount: await page.locator('.video-history-list button').count(),
     activeProgress: (await page.locator('.video-progress small').textContent()) || '',
   }
@@ -585,6 +586,7 @@ async function run() {
     assert(generationFeedback.oldVideoVisible && generationFeedback.oldVideoStillVisible, 'Older video cannot be previewed while generation is running')
     assert(generationFeedback.generationBody?.resolution === '1080p' && generationFeedback.generationBody?.generateAudio === true, 'Generation request lost selected parameters')
     assert(generationFeedback.balanceRefreshed, 'Token balance is not refreshed after the server confirms the charge')
+    assert(generationFeedback.topbarBalance.includes('488'), 'Updated token balance is not rendered in the top bar')
     assert(generationFeedback.historyCount === history.length + imageHistory.length + 1, 'Server-confirmed generation is missing from history')
     assert(generationFeedback.activeProgress === '10%', 'Server-confirmed progress is not shown in preview')
 

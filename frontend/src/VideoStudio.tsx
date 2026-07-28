@@ -295,6 +295,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   const historyPointerRef = useRef({ pointerId: -1, startX: 0, scrollLeft: 0, moved: false })
   const historyClickSuppressedRef = useRef(false)
   const stageVideoRef = useRef<HTMLVideoElement>(null)
+  const contextVideoRef = useRef<HTMLVideoElement>(null)
 
   const visibility = useMemo(() => readStorage<Record<VideoMode, Record<string, boolean>>>(VISIBILITY_KEY, {} as Record<VideoMode, Record<string, boolean>>), [])
   const qualityModels = useMemo(() => readStorage<Record<VideoMode, Partial<Record<VideoQuality, string>>>>(QUALITY_MODELS_KEY, {} as Record<VideoMode, Partial<Record<VideoQuality, string>>>), [])
@@ -918,10 +919,13 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
   const toastKind = error ? 'error' : 'success'
 
   useEffect(() => {
-    if (!autoPlayJobId || shownJob?.id !== autoPlayJobId || !stageVideoRef.current) return
-    stageVideoRef.current.currentTime = 0
-    void stageVideoRef.current.play().catch(() => undefined)
-  }, [autoPlayJobId, shownJob?.id])
+    if (!autoPlayJobId || shownJob?.id !== autoPlayJobId) return
+    for (const player of [stageVideoRef.current, contextVideoRef.current]) {
+      if (!player) continue
+      player.currentTime = 0
+      void player.play().catch(() => undefined)
+    }
+  }, [autoPlayJobId, shownJob?.id, shownJob?.videoUrl])
 
   return <main className="video-studio">
     {toastText && <div className={`video-toast ${toastKind}`} role={toastKind === 'error' ? 'alert' : 'status'} aria-live={toastKind === 'error' ? 'assertive' : 'polite'}>
@@ -1085,7 +1089,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
               <div className="video-context-actions"><button className="feed" type="button" onClick={() => animateHistoryImage(shownImage)}><Sparkles /> <span>Оживить изображение</span></button></div>
             </div>
           </> : shownJob ? <>
-            {shownJob.videoUrl && <video className="video-context-player" src={shownJob.videoUrl} controls autoPlay={autoPlayJobId === shownJob.id} muted={autoPlayJobId === shownJob.id} playsInline preload="metadata" />}
+            {shownJob.videoUrl && <video ref={contextVideoRef} className="video-context-player" src={shownJob.videoUrl} controls autoPlay={autoPlayJobId === shownJob.id} muted={autoPlayJobId === shownJob.id} playsInline preload="metadata" />}
             <div className="video-context-prompt"><div><span>Промпт</span><button type="button" title="Копировать промпт" aria-label="Копировать промпт" onClick={() => void navigator.clipboard.writeText(shownJob.prompt || '')}><Copy /></button></div><p>{shownJob.prompt || 'Промпт не сохранён'}</p>{Boolean(shownJob.sourceHistory?.length) && <div className="video-source-lineage" aria-label="Исходные кадры видео">{shownJob.sourceHistory?.map((source, index) => <figure key={source.id || index}>{source.thumbUrl && <img src={apiUrl(source.thumbUrl)} alt={source.roleLabel || `Исходник ${index + 1}`} loading="lazy" />}<figcaption>{source.roleLabel || `Исходник ${index + 1}`}</figcaption></figure>)}</div>}</div>
             <div className="video-context-details">
               <div className="video-context-tags"><span>{shortModelName(findJobModel(shownJob))}</span><span>{secondsLabel(shownJob.duration || 0)}</span><span>{shownJob.aspectRatio}</span><span>{shownJob.resolution}</span>{shownJob.generateAudio && <span><Volume2 /> Звук</span>}{shownElapsed && shownJob.completedAt && <span><Clock3 /> Готово за {shownElapsed}</span>}</div>

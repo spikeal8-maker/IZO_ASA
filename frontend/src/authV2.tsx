@@ -610,6 +610,7 @@ export async function updateProfileV2Detailed(fields: Record<string, unknown>): 
 export type AuthStatusV2 = 'loading' | 'anon' | 'authed'
 let authStatus: AuthStatusV2 = 'loading'
 let authMe: MeV2 | null = null
+let authRevision = 0
 const authListeners = new Set<() => void>()
 function emitAuth(): void {
   authListeners.forEach((l) => l())
@@ -617,6 +618,7 @@ function emitAuth(): void {
 function setAuthState(status: AuthStatusV2, me: MeV2 | null): void {
   authStatus = status
   authMe = me
+  authRevision += 1
   emitAuth()
 }
 function subscribeAuth(cb: () => void): () => void {
@@ -625,13 +627,13 @@ function subscribeAuth(cb: () => void): () => void {
     authListeners.delete(cb)
   }
 }
-function getAuthStatus(): AuthStatusV2 {
-  return authStatus
+function getAuthSnapshot(): string {
+  return `${authStatus}:${authRevision}`
 }
 
 export function useAuthV2(): { status: AuthStatusV2; me: MeV2 | null } {
-  const status = useSyncExternalStore(subscribeAuth, getAuthStatus, getAuthStatus)
-  return { status, me: authMe }
+  useSyncExternalStore(subscribeAuth, getAuthSnapshot, getAuthSnapshot)
+  return { status: authStatus, me: authMe }
 }
 
 let initAuthPromise: Promise<void> | null = null
