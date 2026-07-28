@@ -821,6 +821,7 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
 
   const selectHistoryVideo = (job: VideoJob, tile?: HTMLButtonElement) => {
     if (historyClickSuppressedRef.current) return
+    const replayCurrentSelection = selectedJob?.id === job.id
     setSelectedHistoryImage(null)
     setSelectedJob(job)
     setPreviewCleared(false)
@@ -829,6 +830,13 @@ export default function VideoStudio({ onTokenBalanceChange }: VideoStudioProps =
     if (tileVideo && job.videoUrl) {
       tileVideo.currentTime = 0
       void tileVideo.play().catch(() => undefined)
+    }
+    if (replayCurrentSelection && job.videoUrl) {
+      for (const player of [stageVideoRef.current, contextVideoRef.current]) {
+        if (!player) continue
+        player.currentTime = 0
+        void player.play().catch(() => undefined)
+      }
     }
   }
 
