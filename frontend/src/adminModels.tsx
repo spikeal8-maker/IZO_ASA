@@ -108,6 +108,7 @@ type OpenRouterVideoUsage = {
   models?: Array<Record<string, unknown>>
   modes?: Array<Record<string, unknown>>
 }
+type OpenRouterAvailability = { state?: 'unknown' | 'available' | 'billing_blocked' | 'authorization_blocked' | 'service_error'; ready?: boolean | null; lastStatusCode?: number | null; lastFailureAt?: string | null; lastSuccessAt?: string | null }
 type VideoPriceProfile = {
   id: string
   label: string
@@ -148,7 +149,7 @@ type PageData = {
   comfyuiAvailable: boolean
   openrouter: {
     keyConfigured: boolean
-    status?: { ok?: boolean; configured?: boolean; source?: string; status_code?: number; error?: unknown; data?: Record<string, unknown>; credits?: Record<string, unknown> }
+    status?: { ok?: boolean; ready?: boolean | null; configured?: boolean; source?: string; status_code?: number; error?: unknown; data?: Record<string, unknown>; credits?: Record<string, unknown>; availability?: OpenRouterAvailability }
     usage?: {
       pricedImages?: number
       totalCostUsd?: number
@@ -1422,12 +1423,24 @@ export default function AdminModelsV2() {
   const orData = orStatus.data || {}
   const orCredits = orStatus.credits || {}
   const orCreditsData = orCredits.data && typeof orCredits.data === 'object' ? orCredits.data as Record<string, unknown> : {}
+  const orAvailability = orStatus.availability || {}
   const minMarginPercent = clampMargin(data.openrouter.economy?.minMarginPercent)
   const tokenRub = clampTokenRub(data.openrouter.economy?.tokenRub)
   const usdRubBase = exchangeRate(data.openrouter.exchange)
   const usdRubEffective = effectiveUsdRub(data.openrouter.exchange)
+  const generationReady = orStatus.ready
+  const generationStatusClass = generationReady === true ? 'key-ok' : generationReady === false ? 'key-bad' : 'key-warn'
+  const generationStatusText = orAvailability.state === 'billing_blocked'
+    ? 'оплата провайдера заблокировала генерацию'
+    : orAvailability.state === 'authorization_blocked'
+      ? 'доступ провайдера заблокирован'
+      : orAvailability.state === 'service_error'
+        ? 'последняя генерация завершилась сбоем'
+        : generationReady === true
+          ? 'реальная генерация подтверждена'
+          : 'ещё не подтверждено реальной генерацией'
   const orStatusClass = orStatus.ok ? 'key-ok' : orStatus.configured ? 'key-bad' : 'key-warn'
-  const orStatusText = orStatus.ok ? 'работает' : orStatus.configured ? 'ключ есть, проверка не прошла' : 'ключ не сохранён'
+  const orStatusText = orStatus.ok ? 'ключ отвечает' : orStatus.configured ? 'ключ есть, проверка не прошла' : 'ключ не сохранён'
   const orLimit = orData.limit === null || orData.limit === undefined ? 'без лимита / не задан' : moneyUsdText(orData.limit)
   const orRemaining = orData.limit_remaining === null || orData.limit_remaining === undefined ? '—' : moneyUsdText(orData.limit_remaining)
   const orUsageModels = usageModelMap(data.openrouter.usage?.models)
@@ -1459,12 +1472,7 @@ export default function AdminModelsV2() {
   const avgMpPair = typeof data.openrouter.usage?.avgCostPerMpUsd === 'number' ? moneyPair(data.openrouter.usage.avgCostPerMpUsd, usdRubEffective) : '—'
   const favoriteOverall = (data.openrouter.usage?.models || [])[0]
   const favoriteOverallName = modelLabelById(favoriteOverall?.model)
-  const creditsBalance = typeof orCredits.balance === 'number' ? orCredits.balance : null
-  const balanceText = creditsBalance !== null
-    ? moneyPair(creditsBalance, usdRubEffective)
-    : orCredits.status_code === 403
-      ? 'нужен management key'
-      : orData.limit_remaining === null || orData.limit_remaining === undefined ? 'лимит не задан' : moneyUsdText(orData.limit_remaining)
+  const calculatedCreditsBalance = typeof orCredits.calculated_balance === 'number' ? orCredits.calculated_balance : null
   const effectiveRateText = usdRubBase === null || usdRubEffective === null
     ? 'курс ЦБ не загрузился'
     : `$1 ${usdRubBase.toFixed(2)} ₽ + ${Math.round(USD_FEE_RATE * 100)}% = ${usdRubEffective.toFixed(2)} ₽`
@@ -1702,7 +1710,7 @@ export default function AdminModelsV2() {
 
     {pageTab === 'api' && <>
       <div className="or-stats">
-        <div className="or-stat"><span>Баланс OpenRouter</span><strong>{balanceText}</strong></div>
+        <div className={`or-stat ${generationStatusClass}`}><span>Доступность генерации</span><strong>{generationStatusText}</strong></div>
         <div className="or-stat"><span>Сгенерировано картинок</span><strong>{data.openrouter.usage?.pricedImages || 0}</strong></div>
         <div className="or-stat"><span>Потрачено всего</span><strong>{totalSpentPair}</strong></div>
         <div className="or-stat"><span>Списано токенов</span><strong>{spentTokensText}</strong></div>
@@ -2061,7 +2069,11 @@ export default function AdminModelsV2() {
                 <div className="key-status-row"><span>Usage месяц</span><strong>{moneyUsdText(orData.usage_monthly)}</strong></div>
                 <div className="key-status-row"><span>Лимит / остаток</span><strong>{orLimit} / {orRemaining}</strong></div>
                 <div className={`key-status-row ${orCredits.ok ? 'key-ok' : 'key-warn'}`}><span>Credits API</span><strong>{orCredits.ok ? 'management key работает' : orCredits.status_code === 403 ? 'нужен management key' : valueText(orCredits.status_code)}</strong></div>
-                <div className="key-status-row"><span>Баланс credits</span><strong>{creditsBalance !== null ? moneyPair(creditsBalance, usdRubEffective) : '—'}</strong></div>
+                <div className={`key-status-row ${generationStatusClass}`}><span>Фактическая доступность</span><strong>{generationStatusText}</strong></div>
+                <div className="key-status-row"><span>Последний код генерации</span><strong>{valueText(orAvailability.lastStatusCode)}</strong></div>
+                <div className="key-status-row"><span>Последний успешный запрос</span><strong>{valueText(orAvailability.lastSuccessAt)}</strong></div>
+                <div className="key-status-row"><span>Последний сбой</span><strong>{valueText(orAvailability.lastFailureAt)}</strong></div>
+                <div className="key-status-row key-warn"><span>Расчёт Credits API</span><strong>{calculatedCreditsBalance !== null ? moneyPair(calculatedCreditsBalance, usdRubEffective) : '—'} · не является подтверждением доступных средств</strong></div>
                 <div className="key-status-row"><span>Кредиты / usage</span><strong>{moneyUsdText(orCreditsData.total_credits)} / {moneyUsdText(orCreditsData.total_usage)}</strong></div>
                 <div className="key-status-row"><span>Курс USD</span><strong>{usdRubBase === null ? 'не загружен' : `${usdRubBase.toFixed(4)} ₽ ЦБ · ${usdRubEffective?.toFixed(4)} ₽ с комиссией`}</strong></div>
                 <div className="key-status-row"><span>Источник курса</span><strong>{valueText(data.openrouter.exchange?.source)} · {valueText(data.openrouter.exchange?.sourceDate)} · {valueText(data.openrouter.exchange?.cache)}</strong></div>

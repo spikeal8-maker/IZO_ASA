@@ -323,7 +323,7 @@ def test_main_text_model_wrapper_uses_fresh_cache_without_http(monkeypatch):
     assert asyncio.run(main.openrouter_text_models()) == expected
 
 
-def test_key_details_preserve_paths_headers_data_and_balance():
+def test_key_details_preserve_paths_headers_data_and_calculated_balance():
     seen: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -348,7 +348,7 @@ def test_key_details_preserve_paths_headers_data_and_balance():
             "ok": True,
             "status_code": 200,
             "data": {"total_credits": 10.125, "total_usage": 2.1},
-            "balance": 8.025,
+            "calculated_balance": 8.025,
         },
     }
     assert [request.url.path for request in seen] == ["/api/v1/key", "/api/v1/credits"]
@@ -427,6 +427,14 @@ def test_main_key_status_without_key_skips_integration(monkeypatch):
         "configured": False,
         "ok": False,
         "error": "OPENROUTER_API_KEY не задан",
+        "availability": {
+            "state": "unknown",
+            "ready": None,
+            "lastStatusCode": None,
+            "lastFailureAt": None,
+            "lastSuccessAt": None,
+        },
+        "ready": False,
     }
 
 
@@ -457,6 +465,14 @@ def test_main_key_status_preserves_header_calls_source_and_shape(monkeypatch):
         "status_code": 200,
         "data": {"limit": 10},
         "credits": {"ok": True},
+        "availability": {
+            "state": "unknown",
+            "ready": None,
+            "lastStatusCode": None,
+            "lastFailureAt": None,
+            "lastSuccessAt": None,
+        },
+        "ready": None,
     }
     assert captured == {
         "base_url": main.OPENROUTER_BASE_URL,
@@ -480,6 +496,14 @@ def test_main_key_status_preserves_safe_exception_wrapper(monkeypatch):
         "source": "env",
         "ok": False,
         "error": "provider unavailable",
+        "availability": {
+            "state": "unknown",
+            "ready": None,
+            "lastStatusCode": None,
+            "lastFailureAt": None,
+            "lastSuccessAt": None,
+        },
+        "ready": False,
     }
 
 
@@ -605,7 +629,7 @@ def test_prompt_improvement_without_key_skips_transport(monkeypatch):
         asyncio.run(main.improve_prompt_openrouter(main.ImprovePromptRequest(prompt="test")))
 
 
-def test_prompt_improvement_preserves_public_provider_error(monkeypatch):
+def test_prompt_improvement_hides_provider_from_public_error(monkeypatch):
     async def failed_chat(**_kwargs):
         return 429, {"error": {"message": "rate limited"}}
 
@@ -613,7 +637,7 @@ def test_prompt_improvement_preserves_public_provider_error(monkeypatch):
     monkeypatch.setattr(main, "openrouter_headers", lambda: {})
     monkeypatch.setattr(main, "request_openrouter_chat_completion", failed_chat)
 
-    with pytest.raises(RuntimeError, match="^OpenRouter временно ограничил запросы"):
+    with pytest.raises(RuntimeError, match="^Сервис временно перегружен"):
         asyncio.run(main.improve_prompt_openrouter(
             main.ImprovePromptRequest(prompt="test"),
             main.DEFAULT_ASSISTANT_MODELS_CONFIG["improve"],
@@ -712,7 +736,7 @@ def test_voice_transcription_without_key_skips_transport(monkeypatch):
         asyncio.run(main.transcribe_audio_openrouter(b"audio", "webm", "русском"))
 
 
-def test_voice_transcription_preserves_public_provider_error(monkeypatch):
+def test_voice_transcription_hides_provider_from_public_error(monkeypatch):
     async def failed_chat(**_kwargs):
         return 429, {"error": {"message": "rate limited"}}
 
@@ -720,7 +744,7 @@ def test_voice_transcription_preserves_public_provider_error(monkeypatch):
     monkeypatch.setattr(main, "openrouter_headers", lambda: {})
     monkeypatch.setattr(main, "request_openrouter_chat_completion", failed_chat)
 
-    with pytest.raises(RuntimeError, match="^OpenRouter временно ограничил запросы"):
+    with pytest.raises(RuntimeError, match="^Сервис временно перегружен"):
         asyncio.run(main.transcribe_audio_openrouter(
             b"audio",
             "webm",
@@ -1182,9 +1206,10 @@ def test_main_response_parser_compatibility_wrappers_delegate(monkeypatch):
             {"error": {"message": "invalid size requested"}},
             "Модель не приняла выбранный формат изображения. Попробуйте квадратный формат или другую модель.",
         ),
-        (401, {"error": "unauthorized"}, "OpenRouter не принял API-ключ или доступ к модели закрыт."),
-        (403, {"error": "forbidden"}, "OpenRouter не принял API-ключ или доступ к модели закрыт."),
-        (429, {"error": "rate limited"}, "OpenRouter временно ограничил запросы. Подождите немного и попробуйте снова."),
+        (401, {"error": "unauthorized"}, "Не удалось завершить генерацию из-за временного сбоя. Попробуйте ещё раз позже или обратитесь в поддержку."),
+        (403, {"error": "forbidden"}, "Не удалось завершить генерацию из-за временного сбоя. Попробуйте ещё раз позже или обратитесь в поддержку."),
+        (402, {"error": "Insufficient credits"}, "Не удалось завершить генерацию из-за временного сбоя. Попробуйте ещё раз позже или обратитесь в поддержку."),
+        (429, {"error": "rate limited"}, "Сервис временно перегружен. Подождите немного и попробуйте снова."),
     ],
 )
 def test_public_error_mapping_preserves_precedence_and_special_statuses(status, payload, expected):
@@ -1195,7 +1220,7 @@ def test_public_error_mapping_preserves_precedence_and_special_statuses(status, 
     ) == expected
 
 
-def test_public_error_mapping_preserves_provider_message_and_truncation_limit():
+def test_public_error_mapping_hides_provider_message():
     seen: list[tuple[str, int]] = []
 
     error = format_openrouter_public_error(
@@ -1204,8 +1229,8 @@ def test_public_error_mapping_preserves_provider_message_and_truncation_limit():
         truncate=lambda message, limit: seen.append((message, limit)) or "trimmed-message",
     )
 
-    assert error == "OpenRouter вернул ошибку 500: trimmed-message"
-    assert seen == [("Provider: provider failure", 220)]
+    assert error == "Не удалось завершить генерацию из-за временного сбоя. Попробуйте ещё раз позже или обратитесь в поддержку."
+    assert seen == []
 
 
 def test_image_response_metadata_preserves_safe_fields_and_cost_precedence():
@@ -1337,6 +1362,16 @@ def test_submit_openrouter_video_retains_provider_rejection_body():
     assert captured.value.status_code == 400
     assert "safety policy" in captured.value.detail
     assert "ограничений безопасности" in openrouter_video_public_error(captured.value)
+
+
+def test_video_billing_failure_is_neutral_and_points_to_support():
+    public = openrouter_video_public_error(
+        OpenRouterVideoRequestError(402, "Insufficient credits"),
+    )
+
+    assert public == "Не удалось завершить генерацию из-за временного сбоя. Попробуйте ещё раз позже или обратитесь в поддержку."
+    assert "средств" not in public.lower()
+    assert "openrouter" not in public.lower()
 
 
 def test_poll_openrouter_video_resolves_relative_polling_url():

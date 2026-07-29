@@ -48,6 +48,7 @@ import type { PaintWorkbenchHandle } from './PaintWorkbench'
 import { applyClientSeo } from './seo'
 import ResilientRegion from './RuntimeBoundary'
 import HistoryVideoPreview from './HistoryVideoPreview'
+import OfficialSocialLinks from './studio/OfficialSocialLinks'
 import { useProfileAuthNavigation } from './useProfileAuthNavigation'
 import {
   normalizeFeedPayload,
@@ -3275,16 +3276,15 @@ export default function NewStudio(): ReactElement {
                 замены лица, примерки одежды, генерации по эскизу и публикации результата в галерею или ленту.
               </p>
             </header>
-
             <nav className="n2-help-toc" aria-label="Разделы помощи">
               <a href="#help-modes">Режимы</a>
               <a href="#help-faq">FAQ</a>
               <a href="#help-policy">Правила</a>
               <a href="#help-privacy">Данные</a>
               <a href="#help-billing">Тарифы и оплата</a>
+              <a href="#help-social">Соцсети</a>
               <a href="#help-contacts">Контакты</a>
             </nav>
-
             <section className="n2-help-section" id="help-modes">
               <h3>Что умеет сервис</h3>
               <div className="n2-help-grid">
@@ -3388,7 +3388,7 @@ export default function NewStudio(): ReactElement {
                 <a href="/legal/contacts">Реквизиты и контакты</a>
               </div>
             </section>
-
+            <OfficialSocialLinks />
             <section className="n2-help-section" id="help-contacts">
               <h3>Контакты и поддержка</h3>
               <p>

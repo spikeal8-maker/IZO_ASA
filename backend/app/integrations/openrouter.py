@@ -11,6 +11,10 @@ import httpx
 
 OPENROUTER_VIDEO_MODES = ("text_to_video", "image_to_video", "first_last_frame", "reference_to_video")
 OPENROUTER_VIDEO_TIERS = ("mini", "plus", "pro", "business")
+PUBLIC_TEMPORARY_FAILURE = (
+    "Не удалось завершить генерацию из-за временного сбоя. "
+    "Попробуйте ещё раз позже или обратитесь в поддержку."
+)
 
 
 class OpenRouterVideoRequestError(RuntimeError):
@@ -35,9 +39,9 @@ def openrouter_video_public_error(error: OpenRouterVideoRequestError) -> str:
     if error.status_code == 400:
         return "Модель отклонила исходное изображение или параметры. Выберите другой кадр либо измените настройки."
     if error.status_code in {401, 403}:
-        return "Видеомодель временно недоступна для этого аккаунта."
+        return PUBLIC_TEMPORARY_FAILURE
     if error.status_code == 402:
-        return "На стороне видеосервиса недостаточно средств для запуска генерации."
+        return PUBLIC_TEMPORARY_FAILURE
     if error.status_code == 429:
         return "Видеосервис перегружен. Подождите немного и попробуйте снова."
     return "Видеосервис не ответил. Попробуйте снова через несколько минут."
@@ -213,10 +217,12 @@ def format_openrouter_public_error(
     if is_openrouter_size_error(data):
         return "Модель не приняла выбранный формат изображения. Попробуйте квадратный формат или другую модель."
     if status_code in {401, 403}:
-        return "OpenRouter не принял API-ключ или доступ к модели закрыт."
+        return PUBLIC_TEMPORARY_FAILURE
+    if status_code == 402:
+        return PUBLIC_TEMPORARY_FAILURE
     if status_code == 429:
-        return "OpenRouter временно ограничил запросы. Подождите немного и попробуйте снова."
-    return f"OpenRouter вернул ошибку {status_code}: {truncate(message, 220)}"
+        return "Сервис временно перегружен. Подождите немного и попробуйте снова."
+    return PUBLIC_TEMPORARY_FAILURE
 
 
 def normalize_openrouter_image_response_metadata(data: dict[str, Any]) -> dict[str, Any]:
@@ -576,7 +582,10 @@ async def fetch_openrouter_key_details(
         total_usage = credits_data.get("total_usage")
         credits.update({"data": credits_data})
         if isinstance(total_credits, (int, float)) and isinstance(total_usage, (int, float)):
-            credits["balance"] = round(float(total_credits) - float(total_usage), 6)
+            # The credits endpoint exposes cumulative values. Their difference
+            # is useful for reconciliation, but it is not authoritative proof
+            # that the account can currently pay for a generation.
+            credits["calculated_balance"] = round(float(total_credits) - float(total_usage), 6)
     else:
         credits["error"] = credits_payload.get("error") if isinstance(credits_payload, dict) else credits_payload
     return {

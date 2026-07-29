@@ -183,7 +183,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
 
 try:
     from .app.integrations import (
-        ComfyUIHistoryClient as IntegrationComfyUIHistoryClient,
+        ComfyUIHistoryClient as IntegrationComfyUIHistoryClient, OpenRouterVideoRequestError,
         build_max_http_verify,
         build_openrouter_image_request_metadata,
         build_openrouter_image_request_body,
@@ -241,7 +241,7 @@ try:
 
 except ImportError:  # Direct `python backend/main.py` execution.
     from app.integrations import (
-        ComfyUIHistoryClient as IntegrationComfyUIHistoryClient,
+        ComfyUIHistoryClient as IntegrationComfyUIHistoryClient, OpenRouterVideoRequestError,
         build_max_http_verify,
         build_openrouter_image_request_metadata,
         build_openrouter_image_request_body,
@@ -325,7 +325,7 @@ try:
         generation_recovery,
         generation_results,
         generation_worker,
-        generation_queue,
+        generation_queue, openrouter_availability,
         gallery_policy,
         gallery_eviction,
         gallery_query,
@@ -369,7 +369,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         generation_recovery,
         generation_results,
         generation_worker,
-        generation_queue,
+        generation_queue, openrouter_availability,
         gallery_policy,
         gallery_eviction,
         gallery_query,
@@ -6106,8 +6106,6 @@ def public_site_url(request: Request) -> str:
     if configured:
         return configured
     return "https://izo.alikinas.ru"
-
-
 OPENROUTER_GENERATION_MODES = {"text_to_image", "image_to_image", "edit"}
 OPENROUTER_VIDEO_MODES = ("text_to_video", "image_to_video", "first_last_frame", "reference_to_video")
 OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS = 6 * 60 * 60
@@ -6125,8 +6123,6 @@ _openrouter_catalog_state: dict[str, Any] = {
     "modelCount": 0,
     "videoModelCount": 0,
 }
-
-
 def invalidate_openrouter_admin_caches(*, authorization_changed: bool = False) -> None:
     models_page_cache = globals().get("_admin_models_page_cache")
     if isinstance(models_page_cache, dict):
@@ -6137,7 +6133,7 @@ def invalidate_openrouter_admin_caches(*, authorization_changed: bool = False) -
         # Keep the last successful catalog available, but make it immediately stale.
         _openrouter_capability_cache["ts"] = 0.0
         _openrouter_video_catalog_cache["ts"] = 0.0
-
+OPENROUTER_AVAILABILITY = openrouter_availability.Runtime(db, invalidate_openrouter_admin_caches)
 
 def fallback_openrouter_capabilities() -> list[dict[str, Any]]:
     price_catalog = globals().get("OPENROUTER_PRICE_CATALOG")
@@ -6168,22 +6164,18 @@ def fallback_openrouter_capabilities() -> list[dict[str, Any]]:
         }
         for model in price_catalog.values()
     ]
-
-
 def openrouter_key_status_snapshot() -> dict[str, Any]:
     cached = _openrouter_key_status_cache.get("data")
     if isinstance(cached, dict):
         return dict(cached)
     configured = bool(openrouter_api_key())
-    return {
+    return OPENROUTER_AVAILABILITY.attach({
         "configured": configured,
         "source": openrouter_api_key_source(),
         "ok": False,
         "pending": configured,
         "error": None if configured else "OPENROUTER_API_KEY не задан",
-    }
-
-
+    })
 def openrouter_catalog_snapshot() -> dict[str, Any]:
     now = time.monotonic()
     cached_models = _openrouter_capability_cache.get("models")
@@ -6203,8 +6195,6 @@ def openrouter_catalog_snapshot() -> dict[str, Any]:
             "cacheAgeSeconds": int(max(0.0, now - image_ts)) if image_ts else None,
         },
     }
-
-
 def openrouter_catalog_refresh_needed(snapshot: dict[str, Any] | None = None) -> bool:
     current = snapshot or openrouter_catalog_snapshot()
     meta = current.get("meta") if isinstance(current, dict) else {}
@@ -6215,8 +6205,6 @@ def openrouter_catalog_refresh_needed(snapshot: dict[str, Any] | None = None) ->
         or int(age) >= OPENROUTER_CAPABILITY_CACHE_TTL_SECONDS
         or bool(openrouter_key_status_snapshot().get("pending"))
     )
-
-
 async def refresh_openrouter_catalog() -> dict[str, Any]:
     _openrouter_catalog_state.update(
         {
@@ -6256,24 +6244,16 @@ async def refresh_openrouter_catalog() -> dict[str, Any]:
         models_page_cache["ts"] = {}
         models_page_cache["data"] = {}
     return openrouter_catalog_snapshot()
-
-
 def schedule_openrouter_catalog_refresh() -> bool:
     global _openrouter_catalog_refresh_task
     if _openrouter_catalog_refresh_task and not _openrouter_catalog_refresh_task.done():
         return False
     _openrouter_catalog_refresh_task = asyncio.create_task(refresh_openrouter_catalog())
     return True
-
-
 def openrouter_model_capability(model: dict[str, Any]) -> dict[str, Any]:
     return normalize_openrouter_model_capability(model)
-
-
 def openrouter_endpoint_capability(model: dict[str, Any], endpoint: dict[str, Any]) -> dict[str, Any]:
     return normalize_openrouter_endpoint_capability(model, endpoint)
-
-
 async def fetch_openrouter_image_capabilities(force: bool = False) -> list[dict[str, Any]]:
     now = time.monotonic()
     cached = _openrouter_capability_cache.get("models")
@@ -6564,7 +6544,9 @@ async def improve_prompt_openrouter(req: ImprovePromptRequest, config: dict[str,
             timeout_seconds=timeout,
         )
     if status_code >= 400:
+        OPENROUTER_AVAILABILITY.record(status_code)
         raise RuntimeError(_openrouter_public_error(status_code, data if isinstance(data, dict) else {}))
+    OPENROUTER_AVAILABILITY.record(200)
     if not isinstance(data, dict):
         raise RuntimeError("OpenRouter вернул некорректный ответ.")
     return _parse_improved_prompt(_openrouter_text_content(data)), data
@@ -6635,7 +6617,9 @@ async def transcribe_audio_openrouter(audio: bytes, audio_format: str, language:
         timeout_seconds=timeout,
     )
     if status_code >= 400:
+        OPENROUTER_AVAILABILITY.record(status_code)
         raise RuntimeError(_openrouter_public_error(status_code, payload if isinstance(payload, dict) else {}))
+    OPENROUTER_AVAILABILITY.record(200)
     if not isinstance(payload, dict):
         raise RuntimeError("OpenRouter вернул некорректный ответ транскрибации.")
     text = _openrouter_text_content(payload).strip()
@@ -6833,7 +6817,7 @@ async def fetch_openrouter_key_status(force: bool = False) -> dict[str, Any]:
     ):
         return dict(cached)
     if not key:
-        result = {"configured": False, "ok": False, "error": "OPENROUTER_API_KEY не задан"}
+        result = OPENROUTER_AVAILABILITY.attach({"configured": False, "ok": False, "error": "OPENROUTER_API_KEY не задан"})
         _openrouter_key_status_cache.update({"ts": now, "data": result, "keyMarker": key_marker})
         return result
     try:
@@ -6843,14 +6827,14 @@ async def fetch_openrouter_key_status(force: bool = False) -> dict[str, Any]:
             credits_headers=openrouter_headers(),
             timeout_seconds=15,
         )
-        result = {"configured": True, "source": source, **details}
+        result = OPENROUTER_AVAILABILITY.attach({"configured": True, "source": source, **details})
     except Exception as exc:
-        result = {
+        result = OPENROUTER_AVAILABILITY.attach({
             "configured": True,
             "source": source,
             "ok": False,
             "error": str(exc),
-        }
+        })
     _openrouter_key_status_cache.update({"ts": now, "data": result, "keyMarker": key_marker})
     return dict(result)
 
@@ -6882,6 +6866,7 @@ async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> O
         before_size_fallback=record_size_fallback,
     )
     if status_code >= 400:
+        OPENROUTER_AVAILABILITY.record(status_code)
         raise RuntimeError(_openrouter_public_error(status_code, data))
     image_payload = _openrouter_first_image(data)
     with await _openrouter_image_to_pil(image_payload) as opened:
@@ -6889,6 +6874,7 @@ async def send_to_openrouter(payload: GenerateRequest, job: dict[str, Any]) -> O
     with Image.open(image_path) as saved:
         saved_width, saved_height = saved.size
     metadata = normalize_openrouter_image_response_metadata(data)
+    OPENROUTER_AVAILABILITY.record(200)
     return OpenRouterResult(
         image_path=image_path,
         thumbnail_path=create_thumbnail(image_path),
@@ -16139,6 +16125,8 @@ async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[st
         persist_video_sources(job_id, user_id, req, now)
         submitted = await submit_openrouter_video(base_url=OPENROUTER_BASE_URL, headers=openrouter_headers(), payload=body)
     except Exception as exc:
+        if isinstance(exc, OpenRouterVideoRequestError):
+            OPENROUTER_AVAILABILITY.record(exc.status_code)
         with db() as conn:
             refund_generation_tokens(conn, job_id, reason="video_submit_failed")
             row = conn.execute("SELECT settings_json FROM jobs WHERE id=?", (job_id,)).fetchone()
@@ -16146,6 +16134,7 @@ async def generate_video(req: VideoGenerateRequest, request: Request) -> dict[st
             conn.execute("UPDATE jobs SET status='failed',progress=100,error_message=?,settings_json=?,completed_at=? WHERE id=?", (failure["public"], json.dumps(failure["settings"], ensure_ascii=False), datetime.now(timezone.utc).isoformat(), job_id))
         if isinstance(exc, HTTPException): raise
         raise HTTPException(failure["status"], failure["public"]) from exc
+    OPENROUTER_AVAILABILITY.record(200)
     with db() as conn:
         row = conn.execute("SELECT settings_json FROM jobs WHERE id=?", (job_id,)).fetchone()
         settings = safe_json_load(row["settings_json"]) or {}

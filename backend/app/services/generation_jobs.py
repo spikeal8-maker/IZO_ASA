@@ -26,7 +26,10 @@ PERSISTED_JOB_SETTINGS_KEYS = (
 
 COMPACTABLE_JOB_STATUSES = frozenset({"completed"})
 
-PUBLIC_SERVER_ERROR = "Сервер временно недоступен. Попробуйте ещё раз позже."
+PUBLIC_SERVER_ERROR = (
+    "Не удалось завершить генерацию из-за временного сбоя. "
+    "Попробуйте ещё раз позже или обратитесь в поддержку."
+)
 _PRIVATE_ERROR_DETAILS = re.compile(
     r"openai|openrouter|comfy\s*ui|coffee\s*ui|api[\s_-]*key|provider|endpoint|traceback|stack trace|"
     r"insufficient[_\s-]*(?:credits?|quota)|billing|authentication failed|connection refused|econnrefused",

@@ -9,6 +9,7 @@ from . import generation_jobs
 from . import generation_results
 from . import generation_worker
 from . import generation_queue
+from . import openrouter_availability
 from . import gallery_policy
 from . import gallery_eviction
 from . import gallery_query
@@ -55,6 +56,7 @@ __all__ = [
     "generation_results",
     "generation_worker",
     "generation_queue",
+    "openrouter_availability",
     "gallery_policy",
     "gallery_eviction",
     "gallery_query",

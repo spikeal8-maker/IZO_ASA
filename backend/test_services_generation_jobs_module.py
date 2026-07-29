@@ -102,7 +102,8 @@ def test_response_mapping_preserves_error_defaults_and_model_adapter() -> None:
 
 def test_provider_diagnostics_are_hidden_from_user_job_responses() -> None:
     assert public_generation_error_message("OpenRouter API key has insufficient credits") == (
-        "Сервер временно недоступен. Попробуйте ещё раз позже."
+        "Не удалось завершить генерацию из-за временного сбоя. "
+        "Попробуйте ещё раз позже или обратитесь в поддержку."
     )
     assert public_generation_error_message("Проверьте исходное изображение") == "Проверьте исходное изображение"
 
