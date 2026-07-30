@@ -72,7 +72,7 @@ def test_job_response_exact_image_and_fallback_contract(monkeypatch) -> None:
             settings_json="not-json",
         )
     )
-    assert failed["message"] == failed["error"] == "Сервер временно недоступен. Попробуйте ещё раз позже."
+    assert failed["message"] == failed["error"] == main.generation_jobs.PUBLIC_SERVER_ERROR
     assert failed["resultUrl"] is None and failed["thumbnailUrl"] is None
     assert failed["width"] is None and failed["height"] is None
     assert failed["tokenCost"] is None and failed["openrouterBilling"] is None
