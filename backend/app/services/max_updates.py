@@ -40,14 +40,29 @@ def sanitized_payload_prefix(payload: str | None) -> str | None:
     return payload[:16]
 
 
+def _max_human_user(candidate: Any) -> dict[str, Any] | None:
+    """Normalize a MAX user object while refusing bot identities.
+
+    A ``message_callback`` contains the original bot-authored message as well
+    as the human actor who pressed the button.  The message sender must never
+    win identity resolution in that shape: it is the bot and would collapse
+    every login onto the bot's own ``user_id``.
+    """
+    if not isinstance(candidate, dict) or candidate.get("is_bot") is True:
+        return None
+    provider_id = candidate.get("user_id") or candidate.get("id")
+    if not provider_id:
+        return None
+    user = dict(candidate)
+    user["id"] = provider_id
+    return user
+
+
 def max_user_from_message(message: dict[str, Any]) -> dict[str, Any] | None:
     sender = message.get("sender") or message.get("user") or {}
-    if isinstance(sender, dict):
-        provider_id = sender.get("user_id") or sender.get("id")
-        if provider_id:
-            user = dict(sender)
-            user["id"] = provider_id
-            return user
+    user = _max_human_user(sender)
+    if user:
+        return user
     user_id = message.get("user_id")
     if user_id:
         return {"id": user_id}
@@ -67,35 +82,30 @@ def enrich_max_user_profile(user: dict[str, Any], update: dict[str, Any] | None)
 
 
 def max_user_from_update(update: dict[str, Any], message: dict[str, Any]) -> dict[str, Any] | None:
-    user = max_user_from_message(message)
-    if not user:
-        for container_key in ("callback", "message_callback", "bot_started", "botStarted"):
-            container = update.get(container_key)
-            if not isinstance(container, dict):
-                continue
-            for user_key in ("user", "sender", "from"):
-                candidate = container.get(user_key)
-                if isinstance(candidate, dict):
-                    provider_id = candidate.get("user_id") or candidate.get("id")
-                    if provider_id:
-                        user = dict(candidate)
-                        user["id"] = provider_id
-                        break
-            if user is None:
-                provider_id = container.get("user_id") or container.get("sender_id")
-                if provider_id:
-                    user = {"id": provider_id}
-            if user is not None:
+    # Event-level users are the actors.  Resolve them before the nested
+    # message because callback.message.sender is normally the bot that sent
+    # the confirmation button, not the human who clicked it.
+    user: dict[str, Any] | None = None
+    for container_key in ("callback", "message_callback", "bot_started", "botStarted"):
+        container = update.get(container_key)
+        if not isinstance(container, dict):
+            continue
+        for user_key in ("user", "sender", "from"):
+            user = _max_human_user(container.get(user_key))
+            if user:
                 break
-    if not user:
-        top_user = update.get("user")
-        if isinstance(top_user, dict):
-            provider_id = top_user.get("user_id") or top_user.get("id")
+        if user is None:
+            provider_id = container.get("user_id") or container.get("sender_id")
             if provider_id:
-                user = dict(top_user)
-                user["id"] = provider_id
+                user = {"id": provider_id}
+        if user is not None:
+            break
+    if not user:
+        user = _max_human_user(update.get("user"))
         if not user and update.get("user_id"):
             user = {"id": update.get("user_id")}
+    if not user:
+        user = max_user_from_message(message)
     if not user:
         return None
     return enrich_max_user_profile(user, update)
