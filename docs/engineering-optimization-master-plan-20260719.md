@@ -143,6 +143,37 @@ from a transient capability-probe failure. Evidence and acceptance criteria are
 recorded in
 [auth-bot-login-reliability-20260723.md](auth-bot-login-reliability-20260723.md).
 
+## Emergency package `AUTH-MAX-IDENTITY-P0-20260801`
+
+Status: **CODE COMPLETE**. Production read-only evidence showed that 32 successful
+MAX bot logins over 30 days used one provider id and one internal account. The
+stored MAX profile had `is_bot=true`. Telegram did not exhibit the defect: its
+eight provider ids resolved to eight distinct internal accounts.
+
+Root cause: a MAX `message_callback` includes the original bot-authored message
+and the human actor who pressed its button. Identity extraction consulted
+`callback.message.sender` first, so the bot identity won before the callback
+actor could be considered.
+
+Package scope and acceptance:
+
+- resolve callback/bot-start actor fields before any nested message sender;
+- refuse `is_bot=true` profiles as login identities;
+- preserve the existing mixed account and revoke its trusted sessions only
+  after the corrected release is active and a fresh verified backup exists;
+- do not guess ownership or redistribute existing mixed media automatically;
+- focused MAX/auth tests five times, CI/Quick/Full gates, clean exact-SHA release,
+  local/public health, then one redacted real-user MAX login proving a new human
+  provider id creates a distinct internal account.
+
+Code evidence 2026-08-01: focused MAX/auth contracts passed five consecutive
+runs (`33 passed` each); repository CI passed with `1761 passed`, frontend
+lint/build/release-identity/origin-isolation/studio-resilience green. The Quick
+live gate remains blocked only by the pre-existing missing
+`.runtime/active-frontend.json` deployment-integrity manifest and was not
+bypassed or fabricated. `DEPLOYED` and provider-level verification remain
+separate release/operational gates.
+
 Availability follow-up `IMG-WATCHDOG-P0-20260723`: an image-edit prompt could
 fill VRAM, outlive an application-side history request timeout and leave
 ComfyUI running while the application queue advanced. The corrective package

@@ -56,6 +56,53 @@ def test_real_shapes_extract_user_command_recipient_and_profile() -> None:
     assert max_recipient_params(message, update) == {"chat_id": "chat-1"}
 
 
+def test_callback_actor_wins_over_bot_authored_message() -> None:
+    human = {
+        "user_id": "human-7",
+        "first_name": "Human",
+        "is_bot": False,
+    }
+    update = {
+        "update_type": "message_callback",
+        "callback": {
+            "payload": "approve:login_nonce",
+            "user": human,
+            "message": {
+                "sender": {
+                    "user_id": "shared-bot-id",
+                    "username": "the_bot",
+                    "is_bot": True,
+                },
+                "recipient": {"user_id": "human-7"},
+            },
+        },
+    }
+
+    _text, message = extract_max_command(update)
+
+    assert max_user_from_update(update, message) == {**human, "id": "human-7"}
+
+
+def test_bot_authored_message_is_not_accepted_as_login_user() -> None:
+    update = {
+        "update_type": "message_callback",
+        "callback": {
+            "payload": "approve:login_nonce",
+            "message": {
+                "sender": {
+                    "user_id": "shared-bot-id",
+                    "username": "the_bot",
+                    "is_bot": True,
+                },
+            },
+        },
+    }
+
+    _text, message = extract_max_command(update)
+
+    assert max_user_from_update(update, message) is None
+
+
 def test_recipient_and_button_mapping_preserve_priority_and_shape() -> None:
     assert max_recipient_params({"chat_id": "chat", "user_id": "user"}) == {"chat_id": "chat"}
     assert max_recipient_params({"sender": {"user_id": "user"}}) == {"user_id": "user"}
