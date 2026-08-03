@@ -11,52 +11,45 @@ try {
   for (const viewport of [{ width: 390, height: 844 }, { width: 430, height: 932 }]) {
     const context = await browser.newContext({ viewport, isMobile: true, hasTouch: true })
     const page = await context.newPage()
-    await page.goto(`${origin}/phone`, { waitUntil: 'load' })
-
-    const frameElement = page.locator('iframe[title="Мобильный интерфейс ИЗО АСА"]')
-    await frameElement.waitFor()
-    const frame = page.frame({ url: /phone-prototype\.html$/ })
-    assert(frame, `${viewport.width}: prototype iframe did not load`)
-    await frame.getByRole('button', { name: 'Видео', exact: true }).waitFor()
+    await page.goto(`${origin}/phone`, { waitUntil: 'domcontentloaded' })
+    await page.locator('.phone-v32 .app-shell').waitFor()
+    await page.locator('.phone-v32-nav').waitFor()
+    await page.waitForTimeout(500)
 
     const layout = await page.evaluate(() => ({
       width: window.innerWidth,
       documentWidth: document.documentElement.scrollWidth,
       bodyWidth: document.body.scrollWidth,
-      frame: (() => {
-        const element = document.querySelector('iframe')
-        if (!(element instanceof HTMLIFrameElement)) return null
-        const rect = element.getBoundingClientRect()
-        return { width: rect.width, height: rect.height }
-      })(),
+      hasIframe: Boolean(document.querySelector('iframe')),
+      navItems: document.querySelectorAll('.phone-v32-nav button').length,
+      visiblePrompt: Boolean(document.querySelector('.prompt-card, .prompt-section, textarea')),
     }))
-    assert(layout.documentWidth <= layout.width, `${viewport.width}: document overflows horizontally`)
-    assert(layout.bodyWidth <= layout.width, `${viewport.width}: body overflows horizontally`)
-    assert(layout.frame?.width === viewport.width, `${viewport.width}: iframe does not fill width`)
-    assert(layout.frame?.height === viewport.height, `${viewport.width}: iframe does not fill height`)
+    assert(!layout.hasIframe, `${viewport.width}: phone view must not embed the static prototype`)
+    assert(layout.navItems === 5, `${viewport.width}: functional phone navigation is incomplete`)
+    assert(layout.visiblePrompt, `${viewport.width}: generation controls are missing`)
+    assert(layout.documentWidth <= layout.width + 1, `${viewport.width}: document overflows horizontally`)
+    assert(layout.bodyWidth <= layout.width + 1, `${viewport.width}: body overflows horizontally`)
+    const apiResponses = await Promise.all(['/api/models', '/api/tariffs', '/api/model-access'].map(async (path) => {
+      const response = await page.request.get(`${origin}${path}`)
+      return { path, status: response.status() }
+    }))
+    assert(apiResponses.some((item) => item.status === 200), `${viewport.width}: real studio API did not respond ${JSON.stringify(apiResponses)}`)
 
-    await frame.getByRole('button', { name: 'Видео', exact: true }).click()
-    await frame.getByRole('button', { name: 'Сделать видео ♦ 12 кр.', exact: true }).waitFor()
-    await frame.getByRole('button', { name: 'Открыть профиль и балансы', exact: true }).click()
-    await page.waitForTimeout(350)
+    await page.locator('.phone-v32-nav button').filter({ hasText: 'Видео' }).click()
+    await page.waitForURL(/\/phone\/video$/)
+    await page.locator('.video-studio').waitFor({ timeout: 15_000 })
 
-    const panels = await frame.evaluate(() => {
-      const menu = document.querySelector('#shMenu')
-      const profile = document.querySelector('#shYou')
-      if (!(menu instanceof HTMLElement) || !(profile instanceof HTMLElement)) return null
-      return {
-        viewportHeight: document.documentElement.clientHeight,
-        menuTop: menu.getBoundingClientRect().top,
-        profileBottom: profile.getBoundingClientRect().bottom,
-        profileOpen: profile.classList.contains('on'),
-      }
-    })
-    assert(panels?.profileOpen, `${viewport.width}: profile panel did not open`)
-    assert(panels.profileBottom <= panels.viewportHeight + 1, `${viewport.width}: profile panel exceeds viewport ${JSON.stringify(panels)}`)
-    assert(panels.menuTop >= panels.viewportHeight, `${viewport.width}: hidden menu panel is visible ${JSON.stringify(panels)}`)
+    await page.locator('.phone-v32-nav button').filter({ hasText: 'Картинка' }).click()
+    await page.waitForURL(/\/phone$/)
+    await page.locator('.iv3.mode-text').waitFor()
+
+    await page.locator('.phone-v32-nav button').filter({ hasText: 'Профиль' }).click()
+    await page.waitForTimeout(250)
+    const profileOrAuth = await page.locator('.profile-page, [role="dialog"]').count()
+    assert(profileOrAuth > 0, `${viewport.width}: profile/auth flow did not open`)
     await context.close()
   }
-  console.log('Phone prototype e2e passed at 390x844 and 430x932.')
+  console.log('Functional phone view passed at 390x844 and 430x932 with live studio API responses.')
 } finally {
   await browser.close()
 }

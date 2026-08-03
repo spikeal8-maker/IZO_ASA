@@ -7,10 +7,8 @@
 // Логика стилей (По тексту): клик по стилю дописывает текст стиля в конец
 // промпта; выбор другого стиля заменяет предыдущую приписку. В По фото стиль
 // задаёт transform-prompt преобразования (как шаблоны текущей версии).
-// ============================================================================
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import type { ChangeEvent } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react'
+import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Brush, ChevronDown, Eraser, Film, Moon, PaintBucket, Palette, SlidersHorizontal, Slash, Sun, Trash2, Undo2, X } from 'lucide-react'
 import {
   AuthV2Modal,
@@ -49,6 +47,7 @@ import { applyClientSeo } from './seo'
 import ResilientRegion from './RuntimeBoundary'
 import HistoryVideoPreview from './HistoryVideoPreview'
 import OfficialSocialLinks from './studio/OfficialSocialLinks'
+import PhoneViewNavigation from './PhoneViewNavigation'
 import { useProfileAuthNavigation } from './useProfileAuthNavigation'
 import {
   normalizeFeedPayload,
@@ -58,6 +57,7 @@ import {
 import './newUi.css'
 import './paymentCheckout.css'
 import './newStudioV3.css'
+import './phoneView.css'
 import previewPlaceholderUrl from './assets/preview-placeholder.jpg'
 import {
   API,
@@ -138,8 +138,7 @@ import type {
 import { useModelPreferences, useStudioBackendData, useStudioDraftAutosave } from './studio/useStudioState'
 const PaintWorkbench = lazy(() => import('./PaintWorkbench'))
 const VideoStudio = lazy(() => import('./VideoStudio'))
-
-export default function NewStudio(): ReactElement {
+export default function NewStudio({ phoneView = false }: { phoneView?: boolean } = {}): ReactElement {
   // Route: /paint — отдельная страница режима «Редактор»; остальные режимы генератора
   // пока живут на /new. Это URL-изоляция, физический split компонента ниже в TODO.
   const initialRoute = initialViewFromPath()
@@ -160,9 +159,9 @@ export default function NewStudio(): ReactElement {
       }
       setView('tabs')
       setTabState(next)
-      navTo(next === 'paint' ? '/paint' : next === 'video' ? '/video' : '/')
+      navTo(phoneView ? (next === 'paint' ? '/phone/paint' : next === 'video' ? '/phone/video' : '/phone') : (next === 'paint' ? '/paint' : next === 'video' ? '/video' : '/'))
     },
-    [navTo],
+    [navTo, phoneView],
   )
   const selectStudioMode = useCallback(
     (next: V3Mode) => {
@@ -175,8 +174,8 @@ export default function NewStudio(): ReactElement {
   }, [])
   const goProfile = useCallback(() => {
     setView('profile')
-    navTo('/profile')
-  }, [navTo])
+    navTo(phoneView ? '/phone/profile' : '/profile')
+  }, [navTo, phoneView])
 
   useEffect(() => {
     if (view === 'tabs' && tab === 'feed') window.location.href = '/feed'
@@ -3244,7 +3243,7 @@ export default function NewStudio(): ReactElement {
   const topActive: V3Section = view === 'profile' ? 'profile' : tab === 'feed' ? 'feed' : (tab as V3Section)
 
   return (
-    <div className="n2">
+    <div className={`n2${phoneView ? ' phone-v32' : ''}`}>
       <AuthV2Modal open={authOpen} onClose={() => setAuthOpen(false)} />
       {toastText && tab === 'feed' && (
         <div className="n2-toast" role="status">
@@ -3622,6 +3621,7 @@ export default function NewStudio(): ReactElement {
             {jobActive || isSubmitting ? generatingLabel.replace('...', '…') : generateLabel}
           </button>
         )}
+        {phoneView && <PhoneViewNavigation imageActive={view === 'tabs' && tab !== 'video'} videoActive={view === 'tabs' && tab === 'video'} profileActive={view === 'profile'} onImage={() => setTab('text')} onVideo={() => setTab('video')} onFeed={() => { window.location.href = '/feed' }} onGallery={goGallery} onProfile={openProfilePage} />}
       </div>
     </div>
   )
