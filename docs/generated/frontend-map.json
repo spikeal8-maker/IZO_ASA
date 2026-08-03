@@ -5,6 +5,23 @@
   "routes": [
     {
       "paths": [
+        "/phone",
+        "/phone/"
+      ],
+      "predicate": "isPhonePrototypeRoute",
+      "entry": "frontend/src/PhonePrototypePage.tsx",
+      "components": [
+        "frontend/src/PhonePrototypePage.tsx"
+      ],
+      "hooks": [],
+      "api": [],
+      "css": [
+        "frontend/src/phonePrototypePage.css"
+      ],
+      "tests": []
+    },
+    {
+      "paths": [
         "/payment",
         "/payment/",
         "/payment/result",
@@ -76,7 +93,6 @@
       "components": [
         "frontend/src/HistoryVideoPreview.tsx",
         "frontend/src/PaintWorkbench.tsx",
-        "frontend/src/PhoneViewNavigation.tsx",
         "frontend/src/ProfilePage.tsx",
         "frontend/src/RuntimeBoundary.tsx",
         "frontend/src/TopBarV3.tsx",
@@ -158,7 +174,6 @@
         "frontend/src/newStudioV3.css",
         "frontend/src/newUi.css",
         "frontend/src/paymentCheckout.css",
-        "frontend/src/phoneView.css",
         "frontend/src/profileAccount.css",
         "frontend/src/videoStudio.css"
       ],
@@ -237,7 +252,6 @@
         "frontend/src/HistoryVideoPreview.tsx",
         "frontend/src/LegacyApp.tsx",
         "frontend/src/PaintWorkbench.tsx",
-        "frontend/src/PhoneViewNavigation.tsx",
         "frontend/src/ProfilePage.tsx",
         "frontend/src/RuntimeBoundary.tsx",
         "frontend/src/TopBarV3.tsx",
@@ -359,7 +373,6 @@
         "frontend/src/newStudioV3.css",
         "frontend/src/newUi.css",
         "frontend/src/paymentCheckout.css",
-        "frontend/src/phoneView.css",
         "frontend/src/profileAccount.css",
         "frontend/src/videoStudio.css"
       ],

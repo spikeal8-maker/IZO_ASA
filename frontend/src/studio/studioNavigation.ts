@@ -11,7 +11,6 @@ export function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   const h = typeof window !== 'undefined' ? window.location.hash : ''
   if (p === '/gallery' || p.startsWith('/gallery') || p.startsWith('/new/gallery')) return { view: 'tabs', tab: 'text' }
   if (p === '/profile' || p.startsWith('/profile') || p.startsWith('/new/profile')) return { view: 'profile', tab: 'feed' }
-  if (p === '/phone/profile' || p.startsWith('/phone/profile/')) return { view: 'profile', tab: 'text' }
   if (h === '#image-to-image') return { view: 'tabs', tab: 'i2i' }
   if (h === '#editor') return { view: 'tabs', tab: 'edit' }
   if (h === '#face' || h === '#face-to-image') return { view: 'tabs', tab: 'edit' }
@@ -20,8 +19,6 @@ export function initialViewFromPath(): { view: N2View; tab: N2Tab } {
   if (h === '#text-to-image') return { view: 'tabs', tab: 'text' }
   if (p === '/paint' || p.startsWith('/paint/') || p === '/new/paint' || p.startsWith('/new/paint/')) return { view: 'tabs', tab: 'paint' }
   if (p === '/video' || p.startsWith('/video/') || p === '/new/video' || p.startsWith('/new/video/')) return { view: 'tabs', tab: 'video' }
-  if (p === '/phone/paint' || p.startsWith('/phone/paint/')) return { view: 'tabs', tab: 'paint' }
-  if (p === '/phone/video' || p.startsWith('/phone/video/')) return { view: 'tabs', tab: 'video' }
   // /feed is owned by backend/static/feed/index.html. If the SPA is ever served
   // for that path by a stale build or broken proxy, do not revive the old React feed.
   return { view: 'tabs', tab: 'text' }
