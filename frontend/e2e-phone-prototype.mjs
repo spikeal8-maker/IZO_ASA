@@ -36,6 +36,9 @@ try {
     const generated = []
     const generatedVideos = []
     const chatRequests = []
+    const likeRequests = []
+    let feedLiked = false
+    let feedLikeCount = 7
     let transcribeRequests = 0
     const context = await browser.newContext({ viewport, isMobile: true, hasTouch: true })
     await context.addInitScript(() => {
@@ -63,7 +66,13 @@ try {
       if (path === '/api/auth/session/refresh-v2') return json({ ok: true })
       if (path === '/api/model-access') return json(modelAccess)
       if (path === '/api/video/config') return json(videoConfig)
-      if (path === '/api/feed') return json({ items: [{ id: 'feed-1', media_type: 'image', thumbnail_url: pixel, image_url: pixel, title: 'Реальная работа', author_name: 'Автор' }] })
+      if (path === '/api/feed') return json({ items: [{ id: 'feed-1', media_type: 'image', thumbnail_url: pixel, image_url: pixel, title: 'Реальная работа', author_name: 'Автор', like_count: feedLikeCount, is_liked_by_me: feedLiked }] })
+      if (path === '/api/feed/publications/feed-1/like') {
+        likeRequests.push(request.method())
+        if (request.method() === 'POST' && !feedLiked) { feedLiked = true; feedLikeCount += 1 }
+        if (request.method() === 'DELETE' && feedLiked) { feedLiked = false; feedLikeCount -= 1 }
+        return json({ publication: { id: 'feed-1', like_count: feedLikeCount, is_liked_by_me: feedLiked } })
+      }
       if (path === '/api/gallery/items') return json({ items: [{ id: 'gallery-1', mediaType: 'image', url: pixel, thumbnailUrl: pixel, promptOriginal: 'Из галереи' }] })
       if (path === '/api/tools/improve-prompt') return json({ ok: true, improvedPrompt: 'Розовый стеклянный шар на светлом деревянном столе, мягкий студийный свет' })
       if (path === '/api/tools/transcribe') { transcribeRequests += 1; return json({ ok: true, text: 'добавь мягкие отражения' }) }
@@ -88,7 +97,8 @@ try {
     const frame = page.frames().find((candidate) => candidate.url().includes('/phone-prototype.html'))
     assert(frame, `${viewport.width}: phone iframe did not load`)
     await frame.waitForFunction(() => window.__IZO_PHONE_RUNTIME__?.ready === true)
-    await frame.getByText('Реальная работа · Автор', { exact: true }).waitFor()
+    await frame.locator('[data-live-feed="feed-1"] .feed-like').waitFor()
+    assert(await frame.locator('[data-live-feed="feed-1"] .live-badge, [data-live-feed="feed-1"] .rp, [data-live-feed="feed-1"] .ov').count() === 0, 'feed still contains type, open, title or author text')
 
     const layout = await page.evaluate(() => ({
       width: innerWidth,
@@ -102,6 +112,15 @@ try {
     assert(innerLayout.phoneWidth === viewport.width, `${viewport.width}: template width changed`)
 
     if (viewportIndex === 0) {
+      const feedLike = frame.locator('[data-feed-like="feed-1"]')
+      assert(await feedLike.getAttribute('aria-label') === 'Отметить нравится, 7', 'feed like count is missing')
+      await feedLike.click()
+      await frame.waitForFunction(() => document.querySelector('[data-feed-like="feed-1"]')?.getAttribute('aria-pressed') === 'true')
+      assert(await frame.locator('[data-feed-like="feed-1"]').getAttribute('aria-label') === 'Убрать отметку нравится, 8', 'feed like was not applied')
+      await frame.locator('[data-feed-like="feed-1"]').click()
+      await frame.waitForFunction(() => document.querySelector('[data-feed-like="feed-1"]')?.getAttribute('aria-pressed') === 'false')
+      assert(likeRequests.join(',') === 'POST,DELETE', `feed like API contract changed: ${likeRequests}`)
+
       await frame.getByRole('button', { name: 'Картинка', exact: true }).click()
       assert(await frame.evaluate(() => document.querySelector('.ph')?.scrollTop || 0) === 0, 'root phone container scrolled after bottom navigation')
       const imagePrompt = frame.getByPlaceholder('Например: сова в космосе, неоновые звёзды…', { exact: true })
@@ -126,23 +145,42 @@ try {
       await frame.waitForTimeout(320)
       await frame.evaluate(() => { document.querySelector('.head')?.classList.remove('hide'); const body = document.querySelector('#body'); if (body) body.scrollTop = 0 })
 
+      await frame.getByRole('button', { name: 'Формат 1:1', exact: true }).click()
+      await frame.locator('#shPick [data-i="2"]').click()
+      await frame.waitForTimeout(320)
+      await frame.evaluate(() => { document.querySelector('.head')?.classList.remove('hide'); const body = document.querySelector('#body'); if (body) body.scrollTop = 0 })
+
       await frame.getByRole('tab', { name: 'Нарисовать', exact: true }).click()
       await frame.getByRole('toolbar', { name: 'Инструменты рисования' }).waitFor()
+      const sketchHostBox = await frame.locator('.phone-sketch-host').boundingBox()
+      const sketchToolsBox = await frame.locator('.phone-sketch-tools').boundingBox()
+      assert(sketchHostBox && Math.abs(sketchHostBox.width / sketchHostBox.height - 9 / 16) < .04, `sketch canvas does not follow selected 9:16 format: ${JSON.stringify(sketchHostBox)}`)
+      assert(sketchToolsBox && sketchToolsBox.y + sketchToolsBox.height <= sketchHostBox.y, 'sketch tools still cover the drawing canvas')
       for (const label of ['Кисть', 'Ластик', 'Цвет кисти', 'Отменить последнее действие', 'Очистить холст']) {
         assert(await frame.getByLabel(label, { exact: label !== 'Цвет кисти' }).count() === 1, `sketch tool is missing: ${label}`)
       }
       const sketchBefore = await frame.evaluate(() => window.__IZO_PHONE_RUNTIME__?.sketchData || '')
       await frame.evaluate(() => {
         const canvas = document.querySelector('.phone-sketch-canvas')
+        const rect = canvas.getBoundingClientRect()
         const fire = (type, x, y) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch', clientX: x, clientY: y, buttons: type === 'pointerup' ? 0 : 1 }))
-        fire('pointerdown', 80, 115); fire('pointermove', 160, 135); fire('pointerup', 160, 135)
+        fire('pointerdown', rect.left + rect.width * .25, rect.top + rect.height * .25); fire('pointermove', rect.left + rect.width * .65, rect.top + rect.height * .45); fire('pointerup', rect.left + rect.width * .65, rect.top + rect.height * .45)
       })
       await frame.waitForFunction((before) => Boolean(window.__IZO_PHONE_RUNTIME__?.sketchData) && window.__IZO_PHONE_RUNTIME__.sketchData !== before, sketchBefore)
       await frame.getByRole('button', { name: 'Ластик', exact: true }).click()
       assert(await frame.getByRole('button', { name: 'Ластик', exact: true }).getAttribute('aria-pressed') === 'true', 'eraser tool is not functional')
       await frame.getByRole('button', { name: 'Отменить последнее действие', exact: true }).click()
       await frame.getByRole('button', { name: 'Очистить холст', exact: true }).click()
+      const sketchBeforeFullscreen = await frame.evaluate(() => window.__IZO_PHONE_RUNTIME__?.sketchData || '')
+      await frame.locator('.phone-sketch-canvas').dblclick()
+      await frame.locator('.phone-sketch-host.phone-sketch-fullscreen').waitFor()
+      assert(await frame.locator('body.phone-sketch-open').count() === 1, 'double click did not open fullscreen drawing')
+      await frame.waitForFunction((before) => window.__IZO_PHONE_RUNTIME__?.sketchData === before, sketchBeforeFullscreen)
+      await frame.getByRole('button', { name: 'Закрыть полноэкранное рисование', exact: true }).click()
+      await frame.locator('.phone-sketch-host.phone-sketch-fullscreen').waitFor({ state: 'hidden' })
       await frame.getByRole('tab', { name: 'По описанию', exact: true }).click()
+      await frame.getByRole('button', { name: 'Формат 9:16', exact: true }).click()
+      await frame.locator('#shPick [data-i="0"]').click()
 
       const historyIcon = frame.locator('.promptbar [data-t="hist"]')
       await historyIcon.dispatchEvent('pointerdown', { pointerId: 91, pointerType: 'touch', clientX: 340, clientY: 790, buttons: 1 })
@@ -177,6 +215,11 @@ try {
       const resultBox = await frame.locator('.canvas.live-result-host').boundingBox()
       assert(resultBox && resultBox.height >= 170 && Math.abs(resultBox.width / resultBox.height - 16 / 9) < .04, `generated image preview is not wide 16:9: ${JSON.stringify(resultBox)}`)
       assert(await frame.locator('.live-image-action').count() === 3, 'generated image actions are incomplete')
+      const compactActions = await frame.evaluate(() => [...document.querySelectorAll('.live-image-action')].map((element) => { const rect = element.getBoundingClientRect(); return { width: rect.width, height: rect.height, opacity: getComputedStyle(element).opacity } }))
+      assert(compactActions.every((item) => item.width <= 32 && item.height <= 32 && Number(item.opacity) < 1), `image actions are not compact and translucent: ${JSON.stringify(compactActions)}`)
+      assert(await frame.locator('.live-preview-hint').count() === 0, 'preview instruction text still covers the image')
+      assert(await frame.evaluate(() => getComputedStyle(document.querySelector('.live-result-preview')).objectFit) === 'contain', 'generated image is not fitted into preview')
+      assert(await frame.getByRole('button', { name: 'Освободить предпросмотр', exact: true }).count() === 1, 'preview clear button is missing')
       assert(await frame.getByRole('link', { name: 'Скачать', exact: true }).getAttribute('download') === 'izo-asa-image.png', 'download action is not wired')
       assert(await frame.getByRole('button', { name: 'Поделиться', exact: true }).count() === 1, 'share action is missing')
       assert(await frame.getByRole('button', { name: 'Оживить', exact: true }).count() === 1, 'animate action is missing')
@@ -211,6 +254,9 @@ try {
       assert(await frame.getByRole('tab', { name: 'Оживить фото', exact: true }).getAttribute('aria-selected') === 'true', 'animate action did not open image-to-video')
       assert((await frame.evaluate(() => window.__IZO_PHONE_RUNTIME__?.videoSources?.length || 0)) === 1, 'animate action did not pass the image to video')
       await frame.getByRole('button', { name: 'Картинка', exact: true }).click()
+      await frame.getByRole('button', { name: 'Освободить предпросмотр', exact: true }).click()
+      await frame.locator('.phone-preview-empty').waitFor()
+      assert((await frame.evaluate(() => window.__IZO_PHONE_RUNTIME__?.imageResults?.length || 0)) === 0, 'preview clear button did not release the result')
 
       const fileChooserPromise = page.waitForEvent('filechooser')
       await frame.getByTitle('Прикрепить').click()
@@ -256,7 +302,7 @@ try {
     }
     await context.close()
   }
-  console.log('Phone Drive-template e2e passed: 16:9 branded preview, image actions, model descriptions, swipe sheets, long-press hints, sketch tools, merged editor, zoom, voice, chat and video request.')
+  console.log('Phone e2e passed: clean feed likes, fitted preview, compact actions, preview clear, format-aware fullscreen sketch, swipe sheets, zoom, voice, chat and video request.')
 } finally {
   await browser.close()
 }

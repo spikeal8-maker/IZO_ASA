@@ -74,10 +74,6 @@ body{background:#04050A;color:#fff;font-family:-apple-system,system-ui,"SF Pro D
 .card{break-inside:avoid;margin-bottom:9px;border-radius:20px;overflow:hidden;position:relative;
  box-shadow:0 0 0 1px var(--edge),0 14px 28px -20px rgba(0,0,0,.85)}
 .card img{width:100%;display:block}
-.card .ov{position:absolute;left:0;right:0;bottom:0;padding:32px 11px 11px;
- background:linear-gradient(rgba(6,7,10,0),rgba(6,7,10,.9));font:700 11px/1.3 inherit;color:#EDEFF3}
-.card .rp{position:absolute;right:8px;top:8px;border:0;border-radius:11px;padding:7px 10px;font:700 10px/1 inherit;color:#fff;
- background:rgba(6,7,10,.55);backdrop-filter:blur(14px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
 .gal{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
 .gal span{border-radius:14px;overflow:hidden;display:block;box-shadow:0 0 0 1px var(--edge)}
 .gal img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
@@ -818,7 +814,6 @@ const TABI={
 };
 function tabIcon(view,i){const arr=TABI[view]||[];return arr[i]||'';}
 
-const CAP=['Волк в молниях · Марина','Слизень · Дмитрий','Дракон · Аня','Сова · Костя','Пустыня · Тимур','Обложка · Лена','Голем · Саша','Портрет · Илья'];
 const GAL=['a13','a1','a7','a11','a15','a16','a12','a4','a6','a2','a14','a17'];
 const TABS={feed:['Популярное','Новое','Ремиксы','Челленджи','Подписки'],gal:['Всё','Картинки','Видео','Звук','Клипы'],
  img:['По описанию','Изменить','Нарисовать'],
@@ -1143,8 +1138,8 @@ function paint(){
  if(view!=='chat'){chatNavOpen=false;dock.classList.remove('chat-nav-open');navPeek.setAttribute('aria-expanded','false');}
  requestAnimationFrame(updateDockPadding);
  if(view==='chat')setTimeout(updateDockPadding,320);
- if(view==='feed')scr.innerHTML='<div class="mas">'+FEED.map((x,i)=>
-   `<div class="card"><img alt="" src="${I[x]}"><button class="rp" title="Создать похожую работу с теми же настройками">Повторить</button><span class="ov">${CAP[i]}</span></div>`).join('')+'</div>';
+ if(view==='feed')scr.innerHTML='<div class="mas">'+FEED.map(x=>
+   `<div class="card"><img alt="" src="${I[x]}"><button class="feed-like" type="button" aria-label="Лайки загружаются" disabled><span class="heart" aria-hidden="true">♡</span><span>0</span></button></div>`).join('')+'</div>';
  else if(view==='gal')scr.innerHTML='<div class="gal">'+GAL.map(x=>`<span><img alt="" src="${I[x]}"></span>`).join('')+'</div>';
  else if(view==='chat'){paintChat();chatgp.placeholder='Сообщение…';}
  else if(view==='snd'){paintSnd();gp.placeholder=idx===0?'Вставьте текст, который нужно озвучить…':idx===1?'Например: спокойная музыка для научного ролика…':idx===2?'Опишите, что сделать со звуком из видео…':'Опишите, где будет использоваться голос…';}

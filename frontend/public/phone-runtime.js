@@ -46,6 +46,8 @@
     .live-empty{min-height:220px;border-radius:22px;background:var(--s1);box-shadow:inset 0 0 0 1px var(--edge);display:grid;place-items:center;text-align:center;padding:26px;color:var(--tx2);font:650 12px/1.5 inherit}
     .live-empty b{display:block;color:var(--tx);font:760 15px/1.25 inherit;margin-bottom:5px}
     .live-badge{position:absolute;left:8px;top:8px;border-radius:9px;padding:5px 7px;background:rgba(6,7,10,.66);color:#fff;font:750 9px/1 inherit;backdrop-filter:blur(10px)}
+    .feed-like{position:absolute;right:7px;bottom:7px;min-width:42px;height:28px;border:0;border-radius:999px;padding:0 9px;background:rgba(6,7,10,.48);color:#fff;display:flex;align-items:center;justify-content:center;gap:5px;font:760 10px/1 inherit;backdrop-filter:blur(12px) saturate(130%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.13);cursor:pointer}
+    .feed-like .heart{font-size:16px;line-height:1;color:#fff}.feed-like[aria-pressed="true"] .heart{color:#ff5e91;text-shadow:0 0 12px rgba(255,64,130,.75)}.feed-like:disabled{opacity:.65}
     .live-preview{width:100%;max-height:58vh;border-radius:18px;object-fit:contain;background:#050509;display:block}
     .live-meta{display:grid;gap:5px;padding:10px 2px 2px;color:var(--tx2);font:650 12px/1.4 inherit}.live-meta b{color:var(--tx);font-size:14px}
     .live-source-grid{width:100%;height:100%;display:grid;grid-template-columns:repeat(2,1fr);gap:7px;padding:8px}
@@ -55,25 +57,27 @@
     .live-source-add{min-height:96px;border:1px dashed var(--edge2);border-radius:14px;background:var(--s2);color:var(--tx2);display:grid;place-items:center;gap:4px;padding:12px;font:700 11px/1.3 inherit;cursor:pointer}.live-source-add b{font-size:22px;color:var(--quiet)}
     .canvas{aspect-ratio:16/9!important;max-height:none!important;min-height:0;background:#050509}
     .canvas.live-result-host{height:auto;max-height:none!important;aspect-ratio:16/9!important;background:#050509}
-    .canvas .live-result-preview{width:100%;height:100%;object-fit:contain;cursor:zoom-in;touch-action:manipulation;user-select:none;-webkit-user-drag:none}
+    .live-result-media{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden}.canvas .live-result-preview{display:block;width:auto!important;height:auto!important;max-width:100%;max-height:100%;object-fit:contain;object-position:center;cursor:zoom-in;touch-action:manipulation;user-select:none;-webkit-user-drag:none}
     .phone-preview-empty{position:absolute;inset:0;display:grid;place-items:center;isolation:isolate;overflow:hidden}
     .phone-preview-empty-bg{position:absolute;inset:0;width:100%!important;height:100%!important;object-fit:cover!important;filter:saturate(.82) brightness(.58);transform:scale(1.015);z-index:-2}
     .phone-preview-empty:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(4,5,9,.12),rgba(4,5,9,.68)),radial-gradient(circle at 50% 38%,rgba(141,87,255,.08),transparent 55%);z-index:-1}
     .phone-preview-empty-copy{display:grid;place-items:center;gap:9px;max-width:84%;padding:18px;text-align:center;color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.7)}
     .phone-preview-empty-copy .spark{margin:0;font-size:23px}.phone-preview-empty-copy b{font:760 13px/1.35 inherit}.phone-preview-empty-copy span{font:620 10.5px/1.4 inherit;color:rgba(255,255,255,.74)}
     .phone-preview-empty-copy button{border:0;border-radius:13px;padding:10px 15px;background:linear-gradient(145deg,var(--act),var(--act2));color:#fff;font:740 11px/1 inherit;box-shadow:0 12px 28px -12px var(--glow);cursor:pointer}
-    .live-preview-hint{position:absolute;left:50%;bottom:52px;transform:translateX(-50%);white-space:nowrap;border-radius:999px;padding:6px 9px;background:rgba(6,7,10,.68);color:#fff;font:700 9.5px/1 inherit;pointer-events:none;backdrop-filter:blur(10px)}
-    .live-image-actions{position:absolute;left:8px;right:8px;bottom:8px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;z-index:3}
-    .live-image-action{min-width:0;height:38px;border:0;border-radius:12px;background:rgba(8,9,14,.76);color:#fff;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 8px;font:720 10px/1 inherit;backdrop-filter:blur(16px) saturate(140%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);text-decoration:none;cursor:pointer}
-    .live-image-action.primary{background:linear-gradient(145deg,rgba(184,34,198,.9),rgba(109,74,255,.9))}.live-image-action svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+    .live-image-actions{position:absolute;left:7px;bottom:7px;display:flex;gap:5px;z-index:3}
+    .live-image-action,.live-result-dismiss{width:30px;height:30px;border:0;border-radius:50%;padding:0;background:rgba(8,9,14,.42);color:rgba(255,255,255,.9);display:grid;place-items:center;backdrop-filter:blur(12px) saturate(135%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);text-decoration:none;cursor:pointer;opacity:.82}
+    .live-image-action:active,.live-result-dismiss:active{opacity:1;transform:scale(.94)}.live-image-action.primary{background:rgba(127,55,224,.48)}.live-image-action svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.live-result-dismiss{position:absolute;right:7px;top:7px;z-index:4;font:400 19px/1 inherit}
+    .phone-visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
     .live-image-viewer[hidden]{display:none!important}.live-image-viewer{position:fixed;inset:0;z-index:1000;background:#020307;display:grid;grid-template-rows:auto 1fr;touch-action:none;overscroll-behavior:contain}
     .live-image-viewer-bar{display:flex;align-items:center;gap:8px;padding:max(12px,env(safe-area-inset-top)) 12px 10px;color:#fff;background:linear-gradient(180deg,rgba(2,3,7,.96),rgba(2,3,7,.68));z-index:2}
     .live-image-viewer-bar b{font:760 13px/1 inherit}.live-image-viewer-bar span{font:650 10px/1 inherit;color:#aaa}.live-image-viewer-bar button{border:0;border-radius:11px;padding:9px 11px;background:#171922;color:#fff;font:720 11px/1 inherit;cursor:pointer}.live-image-viewer-bar [data-viewer-close]{margin-left:auto;width:36px;height:36px;padding:0;border-radius:50%;font-size:20px}
     .live-image-viewer-stage{position:relative;min-height:0;overflow:hidden;display:grid;place-items:center;touch-action:none}.live-image-viewer-stage img{width:100%;height:100%;object-fit:contain;transform-origin:center;will-change:transform;user-select:none;-webkit-user-drag:none;touch-action:none}
-    .phone-sketch-canvas{width:auto;height:100%;max-width:100%;margin:auto;touch-action:none;background:#fff;display:block}
-    .phone-sketch-tools{position:absolute;left:7px;right:7px;bottom:7px;z-index:4;display:flex;align-items:center;justify-content:center;gap:5px;padding:6px;border-radius:14px;background:rgba(7,8,12,.78);backdrop-filter:blur(16px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+    .canvas.phone-sketch-host{aspect-ratio:var(--sketch-aspect)!important;background:#fff}.phone-sketch-canvas{width:100%;height:100%;max-width:none;margin:auto;touch-action:none;background:#fff;display:block}
+    .phone-sketch-tools{position:relative;z-index:4;display:flex;align-items:center;justify-content:center;gap:5px;padding:6px;border-radius:14px;background:rgba(7,8,12,.76);backdrop-filter:blur(16px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
     .phone-sketch-tool{width:34px;height:34px;border:0;border-radius:10px;background:rgba(255,255,255,.08);color:#fff;display:grid;place-items:center;cursor:pointer;position:relative}.phone-sketch-tool[aria-pressed="true"]{background:linear-gradient(145deg,var(--act),var(--act2));box-shadow:0 8px 18px -10px var(--glow)}
     .phone-sketch-tool svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.phone-sketch-tool .sketch-dot{width:13px;height:13px;border-radius:50%;background:var(--sketch-color,#111);box-shadow:0 0 0 2px #fff}.phone-sketch-tool input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
+    .phone-sketch-fullscreen-close{display:none}.canvas.phone-sketch-host.phone-sketch-fullscreen{position:fixed;inset:0;z-index:1100;width:100vw;height:100vh;aspect-ratio:auto!important;border-radius:0;padding:54px 10px 76px;background:#090a0f;box-shadow:none}.phone-sketch-fullscreen .phone-sketch-canvas{width:min(calc(100vw - 20px),calc((100vh - 140px)*var(--sketch-ratio)));height:auto;max-width:calc(100vw - 20px);max-height:calc(100vh - 140px);aspect-ratio:var(--sketch-aspect)}
+    .phone-sketch-fullscreen .phone-sketch-fullscreen-close{display:grid;place-items:center;position:fixed;right:12px;top:max(12px,env(safe-area-inset-top));width:34px;height:34px;border:0;border-radius:50%;background:rgba(255,255,255,.1);color:#fff;font:400 22px/1 inherit;z-index:1102}.phone-sketch-open .phone-sketch-tools{position:fixed;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));z-index:1102}
     .phone-hold-tooltip{position:fixed;left:50%;top:50%;z-index:1200;max-width:min(260px,calc(100vw - 28px));transform:translate(-50%,-50%);padding:9px 12px;border-radius:11px;background:rgba(12,13,19,.96);color:#fff;font:720 11px/1.35 inherit;text-align:center;box-shadow:0 14px 34px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.15);pointer-events:none;opacity:0;transition:opacity .16s}.phone-hold-tooltip.on{opacity:1}
     .sheet.live-dragging{transition:none!important;will-change:transform}.sheet{touch-action:pan-y}
     .live-status{position:absolute;left:10px;right:10px;bottom:10px;border-radius:12px;padding:8px 10px;background:rgba(6,7,10,.72);color:#fff;font:700 10px/1.3 inherit;backdrop-filter:blur(10px)}
@@ -337,6 +341,9 @@
         id: String(item.id || `feed-${index}`), mediaType, thumb: absoluteUrl(thumb), media: absoluteUrl(media || thumb),
         title: String(item.title || item.prompt || 'Работа из ленты'),
         author: String(item.author_name || item.author?.displayName || 'Автор ИЗО АСА'),
+        likeCount: Math.max(0, Number(item.like_count || 0)),
+        liked: Boolean(item.is_liked_by_me),
+        likeBusy: false,
         feedUrl: String(item.feed_url || `/feed?tab=new#work-${item.id || ''}`),
       }
     }).filter((item) => item.thumb)
@@ -448,8 +455,29 @@
       scr.innerHTML = '<div class="live-empty"><span><b>Лента загружается</b>Здесь появятся реальные публикации ИЗО АСА.</span></div>'
       return
     }
-    scr.innerHTML = `<div class="mas">${state.feed.map((item) => `<div class="card" data-live-feed="${html(item.id)}"><img alt="" src="${html(item.thumb)}"><span class="live-badge">${item.mediaType === 'video' ? 'Видео' : 'Изображение'}</span><button class="rp" type="button">Открыть</button><span class="ov">${html(item.title)} · ${html(item.author)}</span></div>`).join('')}</div>`
+    scr.innerHTML = `<div class="mas">${state.feed.map((item) => `<div class="card" data-live-feed="${html(item.id)}"><img alt="" src="${html(item.thumb)}"><button class="feed-like" type="button" data-feed-like="${html(item.id)}" aria-pressed="${item.liked}" aria-label="${item.liked ? 'Убрать отметку нравится' : 'Отметить нравится'}, ${item.likeCount}" ${item.likeBusy ? 'disabled' : ''}><span class="heart" aria-hidden="true">${item.liked ? '♥' : '♡'}</span><span>${item.likeCount}</span></button></div>`).join('')}</div>`
     scr.querySelectorAll('[data-live-feed]').forEach((node) => node.addEventListener('click', () => openMedia(state.feed.find((item) => item.id === node.dataset.liveFeed))))
+    scr.querySelectorAll('[data-feed-like]').forEach((button) => button.addEventListener('click', (event) => {
+      event.preventDefault(); event.stopPropagation()
+      const item = state.feed.find((row) => row.id === button.dataset.feedLike)
+      if (item) void toggleFeedLike(item)
+    }))
+  }
+
+  async function toggleFeedLike(item) {
+    if (item.likeBusy) return
+    if (!state.me) { toast('Войдите в аккаунт, чтобы отметить работу'); openSheet('you'); return }
+    const previous = { liked: item.liked, likeCount: item.likeCount }
+    item.liked = !item.liked; item.likeCount = Math.max(0, item.likeCount + (item.liked ? 1 : -1)); item.likeBusy = true; renderFeed()
+    try {
+      const response = await api(`/feed/publications/${encodeURIComponent(item.id)}/like`, { method: item.liked ? 'POST' : 'DELETE' })
+      if (!response.ok) throw new Error(await responseMessage(response, 'Не удалось сохранить отметку.'))
+      const payload = await response.json().catch(() => ({})); const publication = payload.publication || payload
+      if (Number.isFinite(Number(publication.like_count))) item.likeCount = Math.max(0, Number(publication.like_count))
+      if (typeof publication.is_liked_by_me === 'boolean') item.liked = publication.is_liked_by_me
+    } catch (error) {
+      item.liked = previous.liked; item.likeCount = previous.likeCount; toast(error.message || 'Не удалось сохранить отметку.')
+    } finally { item.likeBusy = false; if (view === 'feed') renderFeed() }
   }
 
   function renderGallery() {
@@ -720,18 +748,30 @@
       const image = new Image(); image.onload = () => { reset(); ctx.drawImage(image, 0, 0, canvas.width, canvas.height); state.sketchData = canvas.toDataURL('image/png') }; image.src = value
     }
     drawData(state.sketchData)
-    let drawing = false
+    const host = canvas.closest('.phone-sketch-host')
+    let drawing = false; let drawingStart = null; let sketchLastTap = 0
+    const openFullscreen = () => { if (host?.classList.contains('phone-sketch-fullscreen')) return; host?.classList.add('phone-sketch-fullscreen'); document.body.classList.add('phone-sketch-open'); document.body.style.overflow = 'hidden' }
+    const closeFullscreen = () => { host?.classList.remove('phone-sketch-fullscreen'); document.body.classList.remove('phone-sketch-open'); document.body.style.overflow = '' }
     const point = (event) => { const rect = canvas.getBoundingClientRect(); return [(event.clientX - rect.left) * canvas.width / rect.width, (event.clientY - rect.top) * canvas.height / rect.height] }
     const remember = () => { state.sketchHistory.push(canvas.toDataURL('image/png')); if (state.sketchHistory.length > 20) state.sketchHistory.shift() }
     canvas.addEventListener('pointerdown', (event) => {
-      event.preventDefault(); remember(); drawing = true; try { canvas.setPointerCapture?.(event.pointerId) } catch { /* synthetic pointer */ }
+      event.preventDefault(); remember(); drawing = true; drawingStart = { x: event.clientX, y: event.clientY, at: Date.now(), pointerType: event.pointerType }; try { canvas.setPointerCapture?.(event.pointerId) } catch { /* synthetic pointer */ }
       ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = state.sketchTool === 'eraser' ? '#fff' : state.sketchColor
       ctx.lineWidth = Math.max(3, state.sketchSize * canvas.width / 720)
       const [x, y] = point(event); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + .01, y + .01); ctx.stroke()
     })
     canvas.addEventListener('pointermove', (event) => { if (!drawing) return; const [x, y] = point(event); ctx.lineTo(x, y); ctx.stroke() })
-    const finish = () => { if (!drawing) return; drawing = false; state.sketchData = canvas.toDataURL('image/png') }
+    const finish = (event) => {
+      if (!drawing) return
+      drawing = false; state.sketchData = canvas.toDataURL('image/png')
+      if (drawingStart?.pointerType === 'touch' && Date.now() - drawingStart.at < 280 && Math.hypot(event.clientX - drawingStart.x, event.clientY - drawingStart.y) < 10) {
+        const now = Date.now(); if (now - sketchLastTap < 330) { const recent = state.sketchHistory.pop(); const beforeTaps = state.sketchHistory.pop() || recent; if (beforeTaps) drawData(beforeTaps); openFullscreen(); sketchLastTap = 0 } else sketchLastTap = now
+      }
+      drawingStart = null
+    }
     canvas.addEventListener('pointerup', finish); canvas.addEventListener('pointercancel', finish)
+    canvas.addEventListener('dblclick', (event) => { event.preventDefault(); if (host?.classList.contains('phone-sketch-fullscreen')) return; const recent = state.sketchHistory.pop(); const beforeClicks = state.sketchHistory.pop() || recent; if (beforeClicks) drawData(beforeClicks); openFullscreen() })
+    host?.querySelector('[data-sketch-fullscreen-close]')?.addEventListener('click', (event) => { event.stopPropagation(); closeFullscreen() })
     toolbar?.querySelectorAll('[data-sketch-tool]').forEach((button) => button.addEventListener('click', () => {
       state.sketchTool = button.dataset.sketchTool
       toolbar.querySelectorAll('[data-sketch-tool]').forEach((item) => item.setAttribute('aria-pressed', String(item.dataset.sketchTool === state.sketchTool)))
@@ -782,15 +822,19 @@
     if (idx === 2 && gstate !== 'done') {
       const canvasHost = scr.querySelector('.canvas')
       if (canvasHost) {
-        canvasHost.innerHTML = `<canvas class="phone-sketch-canvas" aria-label="Холст для наброска"></canvas><div class="phone-sketch-tools" role="toolbar" aria-label="Инструменты рисования" style="--sketch-color:${html(state.sketchColor)}">
+        scr.querySelectorAll('.phone-sketch-tools').forEach((toolbar) => toolbar.remove())
+        const ratioValue = RATIOS[ratio]?.[0] || '1:1'; const [rw, rh] = ratioValue.split(':').map(Number)
+        canvasHost.classList.add('phone-sketch-host'); canvasHost.style.setProperty('--sketch-aspect', ratioValue.replace(':', '/')); canvasHost.style.setProperty('--sketch-ratio', String(rw / rh))
+        canvasHost.innerHTML = `<canvas class="phone-sketch-canvas" aria-label="Холст для наброска. Дважды нажмите, чтобы открыть на весь экран"></canvas><button type="button" class="phone-sketch-fullscreen-close" data-sketch-fullscreen-close aria-label="Закрыть полноэкранное рисование">×</button>`
+        canvasHost.insertAdjacentHTML('beforebegin', `<div class="phone-sketch-tools" role="toolbar" aria-label="Инструменты рисования" style="--sketch-color:${html(state.sketchColor)}">
           <button type="button" class="phone-sketch-tool" data-sketch-tool="brush" aria-label="Кисть" data-hint="Кисть" aria-pressed="${state.sketchTool === 'brush'}">${actionIcons.brush}</button>
           <button type="button" class="phone-sketch-tool" data-sketch-tool="eraser" aria-label="Ластик" data-hint="Ластик" aria-pressed="${state.sketchTool === 'eraser'}">${actionIcons.eraser}</button>
           <label class="phone-sketch-tool" aria-label="Цвет кисти" data-hint="Выбрать цвет кисти"><span class="sketch-dot"></span><input type="color" data-sketch-color value="${html(state.sketchColor)}"></label>
           <button type="button" class="phone-sketch-tool" data-sketch-size aria-label="Размер кисти: ${state.sketchSize}" data-hint="Размер кисти: ${state.sketchSize}"><span class="sketch-dot" style="width:${Math.max(6, Math.round(state.sketchSize / 2))}px;height:${Math.max(6, Math.round(state.sketchSize / 2))}px;background:#fff"></span></button>
           <button type="button" class="phone-sketch-tool" data-sketch-undo aria-label="Отменить последнее действие" data-hint="Отменить последнее действие">${actionIcons.undo}</button>
           <button type="button" class="phone-sketch-tool" data-sketch-clear aria-label="Очистить холст" data-hint="Очистить холст">${actionIcons.clear}</button>
-        </div>`
-        setupSketch(canvasHost.querySelector('canvas'), canvasHost.querySelector('.phone-sketch-tools'))
+        </div>`)
+        setupSketch(canvasHost.querySelector('canvas'), scr.querySelector('.phone-sketch-tools'))
       }
     }
     if (idx === 1 && state.imageRefs.length && gstate !== 'done') {
@@ -810,12 +854,15 @@
       if (resultHost) {
         const src = state.imageResults[0]
         resultHost.classList.add('live-result-host')
-        resultHost.innerHTML = `<img alt="Результат генерации" src="${html(src)}"><span class="live-preview-hint">Дважды нажмите · увеличить</span><div class="live-image-actions" aria-label="Действия с изображением">
-          <a class="live-image-action" href="${html(src)}" download="izo-asa-image.png" data-image-download>${actionIcons.download}<span>Скачать</span></a>
-          <button type="button" class="live-image-action" data-image-share>${actionIcons.share}<span>Поделиться</span></button>
-          <button type="button" class="live-image-action primary" data-image-animate>${actionIcons.animate}<span>Оживить</span></button>
+        resultHost.innerHTML = `<span class="live-result-media"><img alt="Результат генерации" src="${html(src)}"></span><button type="button" class="live-result-dismiss" data-image-dismiss aria-label="Освободить предпросмотр" data-hint="Освободить предпросмотр">×</button><div class="live-image-actions" aria-label="Действия с изображением">
+          <a class="live-image-action" href="${html(src)}" download="izo-asa-image.png" data-image-download aria-label="Скачать" data-hint="Скачать">${actionIcons.download}<span class="phone-visually-hidden">Скачать</span></a>
+          <button type="button" class="live-image-action" data-image-share aria-label="Поделиться" data-hint="Поделиться">${actionIcons.share}<span class="phone-visually-hidden">Поделиться</span></button>
+          <button type="button" class="live-image-action primary" data-image-animate aria-label="Оживить" data-hint="Оживить">${actionIcons.animate}<span class="phone-visually-hidden">Оживить</span></button>
         </div>`
         installResultPreview(resultHost.querySelector('img'))
+        resultHost.querySelector('[data-image-dismiss]')?.addEventListener('click', (event) => {
+          event.stopPropagation(); state.imageResults = []; state.imageJob = null; state.imagePhase = 'idle'; gstate = 'idle'; paintGen()
+        })
         resultHost.querySelector('[data-image-download]')?.addEventListener('click', (event) => event.stopPropagation())
         resultHost.querySelector('[data-image-share]')?.addEventListener('click', (event) => { event.stopPropagation(); void shareImage(src) })
         resultHost.querySelector('[data-image-animate]')?.addEventListener('click', (event) => { event.stopPropagation(); animateImage(src) })
