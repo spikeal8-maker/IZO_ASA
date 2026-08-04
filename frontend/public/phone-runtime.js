@@ -25,6 +25,13 @@
     videoResolution: null,
     videoAspect: null,
     videoAudio: false,
+    lastImageRequest: null,
+    chatThreads: {},
+    chatRoute: 'auto',
+    chatImages: [],
+    chatFiles: [],
+    chatBusy: false,
+    recording: null,
     lastError: '',
   }
   window.__IZO_PHONE_RUNTIME__ = state
@@ -42,6 +49,20 @@
     .live-status{position:absolute;left:10px;right:10px;bottom:10px;border-radius:12px;padding:8px 10px;background:rgba(6,7,10,.72);color:#fff;font:700 10px/1.3 inherit;backdrop-filter:blur(10px)}
     .pick.disabled{opacity:.38;pointer-events:none}.pick .live-price{margin-left:auto;color:var(--quiet);font:750 11px/1 inherit}
     .card video{width:100%;display:block}.gal span{position:relative}.gal video{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+    .live-recording{position:relative;background:#e34f61!important;color:#fff!important;box-shadow:0 0 0 1px rgba(255,95,113,.8),0 0 20px rgba(255,78,99,.48)!important}
+    .live-recording:before,.live-recording:after{content:"";position:absolute;inset:-5px;border:1px solid rgba(255,95,113,.72);border-radius:50%;animation:phoneVoicePulse 1.35s infinite;pointer-events:none}
+    .live-recording:after{animation-delay:.66s}.live-transcribing{animation:phoneVoiceGlow 1s ease-in-out infinite alternate}
+    @keyframes phoneVoicePulse{to{inset:-18px;opacity:0}}@keyframes phoneVoiceGlow{to{filter:brightness(1.35)}}
+    .live-voice-status{display:flex;align-items:center;gap:9px;margin:0 2px 8px;padding:8px 11px;border-radius:13px;background:rgba(225,63,84,.13);box-shadow:inset 0 0 0 1px rgba(255,96,115,.28);color:var(--tx);font:700 11px/1.25 inherit}
+    .live-voice-status .dot{width:8px;height:8px;border-radius:50%;background:#ff5067;box-shadow:0 0 12px rgba(255,80,103,.8);animation:phoneVoiceGlow .55s infinite alternate}
+    .live-voice-status .wave{height:18px;display:flex;gap:2px;align-items:center;flex:1}.live-voice-status .wave i{width:2px;flex:1;max-width:3px;border-radius:3px;background:#ff7184;animation:phoneWave .75s ease-in-out infinite alternate}.live-voice-status .wave i:nth-child(2n){animation-delay:.18s}.live-voice-status .wave i:nth-child(3n){animation-delay:.34s}
+    @keyframes phoneWave{from{height:4px;opacity:.45}to{height:17px;opacity:1}}
+    .live-voice-status time{font-variant-numeric:tabular-nums;color:#ff8292}.live-voice-status.transcribing{background:rgba(109,74,255,.13);box-shadow:inset 0 0 0 1px rgba(150,112,255,.28)}
+    .live-chat-empty{padding-top:34px}.live-chat-turn{display:flex;flex-direction:column;gap:8px}.live-chat-turn .ai.pending{opacity:.72}.live-chat-turn .ai.error{box-shadow:inset 0 0 0 1px rgba(255,91,107,.42);color:#ff9eaa}
+    .live-chat-attachments{display:flex;gap:6px;overflow-x:auto;padding:9px 12px 0}.live-chat-attachments:empty{display:none}.live-chat-attachment{position:relative;flex:0 0 auto;width:54px;height:54px;border-radius:12px;background:var(--s2);overflow:hidden;box-shadow:inset 0 0 0 1px var(--edge)}
+    .live-chat-attachment img{width:100%;height:100%;object-fit:cover}.live-chat-attachment.file{width:auto;max-width:140px;padding:8px 28px 8px 10px;height:auto;min-height:40px;color:var(--tx2);font:700 10px/1.25 inherit;display:flex;align-items:center}.live-chat-attachment button{position:absolute;right:3px;top:3px;width:20px;height:20px;border:0;border-radius:50%;background:rgba(5,6,10,.78);color:#fff;cursor:pointer}
+    .live-chat-user-images{display:flex;gap:5px;margin-bottom:7px}.live-chat-user-images img{width:56px;height:56px;border-radius:10px;object-fit:cover}.live-chat-actions{display:flex;gap:6px;overflow-x:auto;padding:7px 2px 0}.live-chat-actions button{flex:0 0 auto;border:0;border-radius:10px;padding:8px 10px;background:var(--s2);color:var(--tx2);font:700 10.5px/1 inherit;cursor:pointer;box-shadow:inset 0 0 0 1px var(--edge)}
+    .live-spinner{display:inline-block;width:13px;height:13px;border:2px solid var(--edge2);border-top-color:var(--act);border-radius:50%;animation:phoneSpin .8s linear infinite;vertical-align:-2px;margin-right:7px}@keyframes phoneSpin{to{transform:rotate(360deg)}}
   `
   document.head.appendChild(styleNode)
 
@@ -308,6 +329,155 @@
     })
   }
 
+  const voiceWave = () => Array.from({ length: 16 }, () => '<i></i>').join('')
+  const voiceTime = (milliseconds) => {
+    const seconds = Math.max(0, Math.floor(milliseconds / 1000))
+    return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
+  }
+
+  function renderVoiceState() {
+    document.querySelectorAll('.live-voice-status').forEach((node) => node.remove())
+    document.querySelectorAll('[data-live-mic]').forEach((button) => {
+      const active = state.recording?.button === button
+      button.classList.toggle('live-recording', Boolean(active && state.recording.phase === 'recording'))
+      button.classList.toggle('live-transcribing', Boolean(active && state.recording.phase === 'transcribing'))
+      button.setAttribute('aria-pressed', String(Boolean(active)))
+      button.setAttribute('aria-label', active && state.recording.phase === 'recording' ? 'Остановить запись голоса' : 'Сказать голосом')
+    })
+    const recording = state.recording
+    if (!recording) return
+    const host = recording.target === 'chat' ? document.getElementById('chatbar') : document.getElementById('pbar')
+    if (!host) return
+    const elapsed = Date.now() - recording.startedAt
+    const status = document.createElement('div')
+    status.className = `live-voice-status${recording.phase === 'transcribing' ? ' transcribing' : ''}`
+    status.innerHTML = recording.phase === 'transcribing'
+      ? '<span class="live-spinner"></span><span>Распознаём речь и вставляем текст…</span>'
+      : `<span class="dot"></span><span>Идёт запись · нажмите микрофон, чтобы закончить</span><span class="wave">${voiceWave()}</span><time>${voiceTime(elapsed)}</time>`
+    host.prepend(status)
+  }
+
+  function appendVoiceText(input, text, target) {
+    const spacer = input.value.trim() ? ' ' : ''
+    input.value = `${input.value.trim()}${spacer}${text.trim()}`
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    if (target === 'chat') growChatLive()
+    else if (typeof grow === 'function') grow()
+    input.focus()
+  }
+
+  async function transcribeRecording(recording) {
+    recording.phase = 'transcribing'; renderVoiceState()
+    const duration = Math.max(1, Date.now() - recording.startedAt)
+    if (duration < 850) throw new Error('Говорите не меньше одной секунды.')
+    const blob = new Blob(recording.chunks, { type: recording.mimeType || 'audio/webm' })
+    if (!blob.size) throw new Error('Запись получилась пустой. Попробуйте ещё раз.')
+    const type = String(blob.type || 'audio/webm').split(';')[0]
+    const extension = type.includes('ogg') ? 'ogg' : type.includes('mp4') ? 'm4a' : 'webm'
+    const form = new FormData(); form.append('file', blob, `voice.${extension}`)
+    const response = await api(`/tools/transcribe?duration_ms=${Math.round(duration)}&language=ru`, { method: 'POST', body: form })
+    if (!response.ok) throw new Error(await responseMessage(response, 'Не удалось распознать голос.'))
+    const result = await response.json()
+    if (!String(result.text || '').trim()) throw new Error('Речь не распознана. Попробуйте ещё раз.')
+    appendVoiceText(recording.input, String(result.text), recording.target)
+    toast('Голос распознан и добавлен в текст')
+  }
+
+  function stopRecording() {
+    const recording = state.recording
+    if (!recording || recording.stopRequested) return
+    recording.stopRequested = true
+    clearInterval(recording.timer)
+    try { recording.recorder.stop() } catch { /* recorder already stopped */ }
+  }
+
+  async function toggleVoice(target, button, input) {
+    if (state.recording) {
+      if (state.recording.button === button && state.recording.phase === 'recording') stopRecording()
+      else toast('Сначала завершите текущую запись')
+      return
+    }
+    if (!state.me) { toast('Войдите в аккаунт, чтобы использовать голосовой ввод'); openSheet('you'); return }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      toast('На этом устройстве запись голоса не поддерживается браузером')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const supported = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find((type) => !MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(type))
+      const recorder = supported ? new MediaRecorder(stream, { mimeType: supported }) : new MediaRecorder(stream)
+      const recording = { target, button, input, stream, recorder, chunks: [], mimeType: recorder.mimeType || supported || 'audio/webm', startedAt: Date.now(), phase: 'recording', stopRequested: false, timer: null }
+      recorder.addEventListener('dataavailable', (event) => { if (event.data?.size) recording.chunks.push(event.data) })
+      recorder.addEventListener('stop', async () => {
+        try { await transcribeRecording(recording) } catch (error) { toast(error.message || 'Не удалось распознать голос') }
+        finally {
+          recording.stream.getTracks().forEach((track) => track.stop())
+          if (state.recording === recording) state.recording = null
+          renderVoiceState()
+        }
+      }, { once: true })
+      recorder.addEventListener('error', () => {
+        clearInterval(recording.timer); recording.stream.getTracks().forEach((track) => track.stop()); state.recording = null; renderVoiceState(); toast('Запись голоса прервана')
+      }, { once: true })
+      state.recording = recording
+      recorder.start(250)
+      recording.timer = setInterval(() => {
+        if (state.recording === recording) renderVoiceState()
+        if (Date.now() - recording.startedAt >= 60_000) stopRecording()
+      }, 250)
+      renderVoiceState()
+    } catch (error) {
+      toast(error?.name === 'NotAllowedError' ? 'Разрешите доступ к микрофону в браузере' : 'Не удалось включить микрофон')
+    }
+  }
+
+  const improveMode = () => ['text', 'i2i', 'sketch', 'edit'][idx] || 'text'
+
+  async function improveInput(input, button, mode = improveMode()) {
+    if (!state.me) { toast('Войдите в аккаунт, чтобы улучшить описание'); openSheet('you'); return }
+    const prompt = input.value.trim()
+    if (!prompt) { toast('Сначала напишите описание'); input.focus(); return }
+    button.disabled = true; button.classList.add('live-transcribing')
+    try {
+      const response = await api('/tools/improve-prompt', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt, mode, language: 'ru' }),
+      })
+      if (!response.ok) throw new Error(await responseMessage(response, 'Не удалось улучшить описание.'))
+      const value = String((await response.json()).improvedPrompt || '').trim()
+      if (!value) throw new Error('Сервис не вернул улучшенный текст.')
+      input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); input.focus(); toast('Описание улучшено')
+    } catch (error) { toast(error.message || 'Не удалось улучшить описание') }
+    finally { button.disabled = false; button.classList.remove('live-transcribing') }
+  }
+
+  function installImagePromptTools() {
+    const buttons = Object.fromEntries(Array.from(document.querySelectorAll('#pbar .ic[data-t]')).map((button) => {
+      const clean = button.cloneNode(true); button.replaceWith(clean); return [clean.dataset.t, clean]
+    }))
+    if (buttons.mic) {
+      buttons.mic.dataset.liveMic = 'image'; buttons.mic.title = 'Сказать голосом'
+      buttons.mic.addEventListener('click', () => toggleVoice('image', buttons.mic, gp))
+    }
+    if (buttons.add) buttons.add.addEventListener('click', () => {
+      if (view !== 'img') return
+      if (idx === 2) { toast('В этом режиме рисуйте прямо на холсте'); return }
+      chooseImages(idx === 3, (values) => {
+        if (idx === 0) idx = 1
+        if (idx === 3) { state.imageRefs = values.slice(0, 4); photo = values[0] || null }
+        else { photo = values[0] || null; state.imageRefs = [] }
+        paint(); toast(idx === 3 ? `Добавлено изображений: ${values.length}` : 'Изображение прикреплено')
+      })
+    })
+    if (buttons.fix) buttons.fix.addEventListener('click', () => improveInput(gp, buttons.fix))
+    if (buttons.hist) buttons.hist.addEventListener('click', () => {
+      const previous = state.lastImageRequest
+      if (!previous) { toast('Предыдущего запроса пока нет'); return }
+      idx = previous.idx; ratio = previous.ratio; qual = previous.qual; style = previous.style
+      photo = previous.photo || null; state.imageRefs = [...(previous.imageRefs || [])]; state.sketchData = previous.sketchData || ''
+      gp.value = previous.prompt; gp.dispatchEvent(new Event('input', { bubbles: true })); paint(); toast('Предыдущий запрос и настройки восстановлены')
+    })
+  }
+
   function setupSketch(canvas) {
     const ratioValue = RATIOS[ratio]?.[0] || '1:1'
     const [rw, rh] = ratioValue.split(':').map(Number)
@@ -390,6 +560,10 @@
     if (modeKey === 'image_to_image') body.inputImage1 = photo
     if (modeKey === 'paint') body.canvas = state.sketchData
     if (modeKey === 'edit') body.inputImages = state.imageRefs.map((image, index) => ({ index: index + 1, role: index === 0 ? 'base' : 'reference', image }))
+    state.lastImageRequest = {
+      prompt, idx, ratio, qual, style, photo,
+      imageRefs: [...state.imageRefs], sketchData: state.sketchData,
+    }
     gJobTab = idx; gstate = 'busy'; state.imagePhase = 'busy'; state.imageResults = []; state.lastError = ''; paintGen()
     try {
       const response = await api('/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -533,17 +707,169 @@
     scr.innerHTML = '<div class="live-empty"><span><b>Звук пока не подключён</b>В проекте нет пользовательского API озвучки и музыки, поэтому этот экран не имитирует готовый результат.</span></div>'
     document.getElementById('run').disabled = true; document.getElementById('cost').textContent = '—'
   }
-  const demoPaintChat = paintChat
-  paintChat = function phonePaintChat() {
-    demoPaintChat()
-    scr.innerHTML = '<div class="live-empty"><span><b>Чат пока не подключён</b>Публичного API чата в проекте сейчас нет. Демонстрационные ответы отключены.</span></div>'
-    chatgp.disabled = true; chatSend.disabled = true
+
+  const chatText = (value) => html(value).replace(/\r?\n/g, '<br>')
+  const currentChat = () => state.chatThreads[chatKey()] || (state.chatThreads[chatKey()] = [])
+  const chatScrollEnd = () => requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; lastY = body.scrollTop })
+
+  function growChatLive() {
+    const input = document.getElementById('chatgp')
+    const send = document.getElementById('chatSend')
+    if (!input || !send) return
+    input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px`
+    const ready = Boolean(input.value.trim() || state.chatImages.length || state.chatFiles.length) && !state.chatBusy
+    send.classList.toggle('ready', ready); send.disabled = !ready
+    updateDockPadding()
   }
+
+  function renderChatAttachments() {
+    const bar = document.getElementById('chatbar')
+    if (!bar) return
+    bar.querySelector('.live-chat-attachments')?.remove()
+    if (!state.chatImages.length && !state.chatFiles.length) { growChatLive(); return }
+    const tray = document.createElement('div'); tray.className = 'live-chat-attachments'
+    tray.innerHTML = [
+      ...state.chatImages.map((src, index) => `<span class="live-chat-attachment"><img alt="Прикреплённое изображение" src="${html(src)}"><button type="button" data-remove-chat-image="${index}" aria-label="Убрать изображение">×</button></span>`),
+      ...state.chatFiles.map((file, index) => `<span class="live-chat-attachment file">${html(file.name)}<button type="button" data-remove-chat-file="${index}" aria-label="Убрать файл">×</button></span>`),
+    ].join('')
+    tray.querySelectorAll('[data-remove-chat-image]').forEach((button) => button.addEventListener('click', () => { state.chatImages.splice(Number(button.dataset.removeChatImage), 1); renderChatAttachments() }))
+    tray.querySelectorAll('[data-remove-chat-file]').forEach((button) => button.addEventListener('click', () => { state.chatFiles.splice(Number(button.dataset.removeChatFile), 1); renderChatAttachments() }))
+    bar.insertBefore(tray, bar.querySelector('.chatbox'))
+    growChatLive()
+  }
+
+  function chatTurnHtml(turn, index) {
+    if (turn.role === 'user') {
+      const images = (turn.images || []).map((src) => `<img alt="Вложение пользователя" src="${html(src)}">`).join('')
+      return `<div class="live-chat-turn"><div class="bub">${images ? `<span class="live-chat-user-images">${images}</span>` : ''}${chatText(turn.content)}</div></div>`
+    }
+    const status = turn.status === 'pending' ? ' pending' : turn.status === 'error' ? ' error' : ''
+    const reply = turn.status === 'pending' ? '<span class="live-spinner"></span>Готовлю ответ…' : chatText(turn.content)
+    const actions = turn.status === 'done' ? `<div class="live-chat-actions">
+      <button type="button" data-chat-action="copy" data-chat-index="${index}">Копировать</button>
+      <button type="button" data-chat-action="image" data-chat-index="${index}">В картинку</button>
+      <button type="button" data-chat-action="video" data-chat-index="${index}">В видео</button>
+    </div>` : ''
+    const meta = turn.status === 'done' && turn.provider ? `<div class="meta2"><span>ИЗО Чат</span><span>${turn.provider === 'local' ? 'локально' : 'облако'}</span></div>` : ''
+    return `<div class="live-chat-turn"><div class="ai${status}"><div class="txt">${reply}</div>${meta}${actions}</div></div>`
+  }
+
+  function renderChatLive() {
+    const turns = currentChat()
+    const intro = turns.length ? '<div class="sys">Чат помнит контекст этого диалога. Можно уточнять и продолжать мысль.</div>' : `<div class="sys live-chat-empty"><b>С чего начнём?</b>Напишите сообщение, скажите его голосом или добавьте изображение и файл.</div>
+      <div class="quick" style="padding:4px 0;justify-content:center;flex-wrap:wrap">
+        ${['Придумай идею для изображения', 'Улучши описание сцены', 'Напиши текст публикации'].map((value) => `<button type="button" data-live-chat-quick="${html(value)}">${html(value)}</button>`).join('')}
+      </div>`
+    scr.innerHTML = `<div class="thread" style="padding-top:${turns.length ? 12 : 34}px">${intro}${turns.map(chatTurnHtml).join('')}</div>`
+    scr.querySelectorAll('[data-live-chat-quick]').forEach((button) => button.addEventListener('click', () => { chatgp.value = button.dataset.liveChatQuick; chatgp.dispatchEvent(new Event('input', { bubbles: true })); chatgp.focus() }))
+    scr.querySelectorAll('[data-chat-action]').forEach((button) => button.addEventListener('click', async () => {
+      const turn = turns[Number(button.dataset.chatIndex)]; if (!turn?.content) return
+      if (button.dataset.chatAction === 'copy') {
+        try { await navigator.clipboard.writeText(turn.content); toast('Ответ скопирован') } catch { toast('Не удалось скопировать ответ') }
+        return
+      }
+      gp.value = turn.content; gp.dispatchEvent(new Event('input', { bubbles: true }))
+      go(button.dataset.chatAction === 'video' ? 'vid' : 'img', 0)
+      toast(button.dataset.chatAction === 'video' ? 'Ответ перенесён в описание видео' : 'Ответ перенесён в описание изображения')
+    }))
+    renderChatAttachments(); growChatLive()
+  }
+
+  async function sendChatLive() {
+    if (state.chatBusy) return
+    if (!state.me) { toast('Войдите в аккаунт, чтобы пользоваться чатом'); openSheet('you'); return }
+    const typed = chatgp.value.trim()
+    if (!typed && !state.chatImages.length && !state.chatFiles.length) return
+    const files = state.chatFiles.map((file) => `Файл «${file.name}»:\n${file.content}`).join('\n\n')
+    const content = `${typed || (state.chatImages.length ? 'Опиши прикреплённое изображение.' : 'Проанализируй вложенный файл.')} ${files ? `\n\n${files}` : ''}`.trim().slice(0, 4000)
+    let key = chatKey(); let turns = currentChat()
+    if (key === 'Новый чат' && turns.length === 0) {
+      const base = (typed || state.chatFiles[0]?.name || 'Изображение').replace(/\s+/g, ' ').slice(0, 24)
+      let title = base; let suffix = 2
+      while (Object.prototype.hasOwnProperty.call(state.chatThreads, title) && title !== key) title = `${base.slice(0, 19)} · ${suffix++}`
+      delete state.chatThreads[key]; TABS.chat[idx] = title; key = title; state.chatThreads[key] = turns; paintTabs()
+    }
+    const images = [...state.chatImages]
+    turns.push({ role: 'user', content, images })
+    const pending = { role: 'assistant', content: '', status: 'pending' }; turns.push(pending)
+    state.chatImages = []; state.chatFiles = []; chatgp.value = ''; state.chatBusy = true
+    renderChatLive(); chatScrollEnd()
+    const history = turns.filter((turn) => turn.role === 'user' || turn.status === 'done').slice(-20).map((turn) => ({ role: turn.role, content: turn.content }))
+    try {
+      const response = await api('/phone/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: history, route: state.chatRoute, images }) })
+      if (!response.ok) throw new Error(await responseMessage(response, 'Чат временно недоступен.'))
+      const result = await response.json(); const reply = String(result.reply || '').trim()
+      if (!reply) throw new Error('Чат не вернул ответ.')
+      Object.assign(pending, { content: reply, status: 'done', provider: result.provider || '', model: result.model || '' })
+    } catch (error) {
+      Object.assign(pending, { content: error.message || 'Чат временно недоступен. Повторите позже.', status: 'error' })
+    } finally {
+      state.chatBusy = false
+      if (view === 'chat' && chatKey() === key) { renderChatLive(); chatScrollEnd() }
+    }
+  }
+
+  function installChatControls() {
+    TABS.chat.splice(0, TABS.chat.length, 'Новый чат'); state.chatThreads = { 'Новый чат': [] }
+    const replace = (id) => { const old = document.getElementById(id); const clean = old.cloneNode(true); old.replaceWith(clean); return clean }
+    const liveSend = replace('chatSend'); const liveMic = replace('chatMic'); const liveTools = replace('chatTools')
+    const liveModel = replace('chatModelButton'); const livePlus = replace('chatPlus'); const liveMenu = replace('chatPlusMenu'); const liveNew = replace('newchat')
+    liveMic.dataset.liveMic = 'chat'; liveMic.title = 'Сказать голосом'; liveModel.querySelector('#chatModelName').textContent = 'ИЗО Чат'
+    const imageInput = document.createElement('input'); imageInput.type = 'file'; imageInput.accept = 'image/jpeg,image/png,image/webp'; imageInput.multiple = true; imageInput.hidden = true
+    const cameraInput = imageInput.cloneNode(); cameraInput.multiple = false; cameraInput.setAttribute('capture', 'environment')
+    const textInput = document.createElement('input'); textInput.type = 'file'; textInput.accept = '.txt,.md,.json,.csv,text/plain,application/json,text/csv'; textInput.multiple = true; textInput.hidden = true
+    document.body.append(imageInput, cameraInput, textInput)
+    const takeImages = async (files) => {
+      const room = 4 - state.chatImages.length
+      if (room <= 0) { toast('Можно прикрепить не больше четырёх изображений'); return }
+      try { state.chatImages.push(...await Promise.all(Array.from(files).slice(0, room).map(preparedImage))); renderChatAttachments(); chatgp.focus() }
+      catch (error) { toast(error.message || 'Не удалось прикрепить изображение') }
+    }
+    imageInput.addEventListener('change', async () => { await takeImages(imageInput.files); imageInput.value = '' })
+    cameraInput.addEventListener('change', async () => { await takeImages(cameraInput.files); cameraInput.value = '' })
+    textInput.addEventListener('change', async () => {
+      for (const file of Array.from(textInput.files).slice(0, 2)) {
+        if (file.size > 200_000) { toast(`Файл «${file.name}» больше 200 КБ`); continue }
+        state.chatFiles.push({ name: file.name, content: (await file.text()).slice(0, 1800) })
+      }
+      state.chatFiles = state.chatFiles.slice(0, 2); textInput.value = ''; renderChatAttachments(); chatgp.focus()
+    })
+    chatgp.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.stopImmediatePropagation(); sendChatLive() }
+    }, true)
+    chatgp.addEventListener('input', growChatLive); liveSend.addEventListener('click', sendChatLive)
+    liveMic.addEventListener('click', () => toggleVoice('chat', liveMic, chatgp))
+    livePlus.addEventListener('click', (event) => { event.stopPropagation(); liveMenu.hidden = !liveMenu.hidden; livePlus.setAttribute('aria-expanded', String(!liveMenu.hidden)) })
+    liveMenu.querySelectorAll('[data-chat-add]').forEach((button) => button.addEventListener('click', () => {
+      liveMenu.hidden = true; livePlus.setAttribute('aria-expanded', 'false')
+      if (button.dataset.chatAdd === 'photo') imageInput.click()
+      else if (button.dataset.chatAdd === 'camera') cameraInput.click()
+      else textInput.click()
+    }))
+    liveTools.addEventListener('click', () => realPick('Инструменты чата', [
+      { label: 'Улучшить сообщение', description: 'Сделать запрос точнее перед отправкой', icon: IC.edit },
+      { label: 'Перенести в картинку', description: 'Использовать текст как описание изображения', icon: IC.img },
+      { label: 'Перенести в видео', description: 'Использовать текст как описание ролика', icon: IC.vid },
+      { label: 'Очистить диалог', description: 'Начать этот чат заново', icon: IC.trash || IC.edit },
+    ], -1, async (_item, choice) => {
+      if (choice === 0) await improveInput(chatgp, liveTools, 'text')
+      else if (choice === 1 || choice === 2) { gp.value = chatgp.value; gp.dispatchEvent(new Event('input', { bubbles: true })); go(choice === 2 ? 'vid' : 'img', 0) }
+      else { state.chatThreads[chatKey()] = []; renderChatLive(); toast('Диалог очищен') }
+    }))
+    liveModel.addEventListener('click', () => realPick('Модель чата', [{ label: 'ИЗО Чат', description: 'Маршрут и модель выбираются сервером автоматически', icon: IC.cube }], 0, () => { state.chatRoute = 'auto' }))
+    liveNew.addEventListener('click', () => {
+      if (TABS.chat[0] !== 'Новый чат') TABS.chat.unshift('Новый чат')
+      state.chatThreads['Новый чат'] = []; idx = 0; paint(); chatgp.focus(); toast('Новый диалог готов')
+    })
+    document.addEventListener('click', (event) => { if (!event.target.closest('#chatbar')) { liveMenu.hidden = true; livePlus.setAttribute('aria-expanded', 'false') } })
+    growChatLive()
+  }
+
+  paintChat = renderChatLive
 
   const demoPaint = paint
   paint = function phonePaint() {
     demoPaint()
-    if (view !== 'chat') { chatgp.disabled = false; chatSend.disabled = false }
     if (view === 'feed') { renderFeed(); ensureFeed() }
     if (view === 'gal') renderGallery()
     if (view === 'vid') { syncVideoOptions(); estimateVideo() }
@@ -576,5 +902,7 @@
     document.dispatchEvent(new CustomEvent('izo-phone-ready', { detail: { authenticated: Boolean(state.me) } }))
   }
 
+  installImagePromptTools()
+  installChatControls()
   loadInitial()
 })()

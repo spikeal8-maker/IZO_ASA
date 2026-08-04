@@ -88,6 +88,75 @@ def test_prompt_improvement_provider_error_does_not_echo_or_replace_prompt(promp
     assert "исходный пользовательский текст" not in response.text
 
 
+def test_phone_chat_requires_trusted_session():
+    with TestClient(main.app) as client:
+        response = client.post("/api/phone/chat", json={"messages": [{"role": "user", "content": "Привет"}]})
+    assert response.status_code == 401
+
+
+def test_phone_chat_returns_real_provider_answer_without_logging_message(prompt_user, monkeypatch):
+    captured = {}
+
+    async def fake_chat(req):
+        captured["request"] = req
+        return "Готов помочь с идеей изображения.", {"usage": {"prompt_tokens": 8}}, "local", "gemma4:31b-cloud"
+
+    monkeypatch.setattr(main, "phone_chat_routed", fake_chat)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/phone/chat",
+            json={"messages": [{"role": "user", "content": "Секретная идея пользователя"}], "route": "auto"},
+            cookies={"onenode_session": prompt_user["cookie"]},
+            headers=BROWSER_ORIGIN,
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["reply"] == "Готов помочь с идеей изображения."
+    assert captured["request"].messages[-1].content == "Секретная идея пользователя"
+    with main.db() as conn:
+        event = conn.execute(
+            "SELECT properties_json FROM event_logs WHERE event_name = 'phone_chat_answered' ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+    assert event is not None
+    assert "Секретная идея пользователя" not in event["properties_json"]
+
+
+def test_phone_chat_provider_failure_is_neutral(prompt_user, monkeypatch):
+    async def failed_chat(_req):
+        raise RuntimeError("provider balance and private diagnostic")
+
+    monkeypatch.setattr(main, "phone_chat_routed", failed_chat)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/phone/chat",
+            json={"messages": [{"role": "user", "content": "Ответь"}]},
+            cookies={"onenode_session": prompt_user["cookie"]},
+            headers=BROWSER_ORIGIN,
+        )
+    assert response.status_code == 502
+    assert "provider balance" not in response.text
+    assert "Чат временно недоступен" in response.text
+
+
+def test_phone_chat_rejects_non_image_attachment(prompt_user, monkeypatch):
+    async def should_not_run(_req):
+        raise AssertionError("provider must not receive an invalid attachment")
+
+    monkeypatch.setattr(main, "phone_chat_routed", should_not_run)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/api/phone/chat",
+            json={
+                "messages": [{"role": "user", "content": "Что на картинке?"}],
+                "images": ["data:text/plain;base64,dGVzdA=="],
+            },
+            cookies={"onenode_session": prompt_user["cookie"]},
+            headers=BROWSER_ORIGIN,
+        )
+    assert response.status_code == 400
+    assert "JPEG" in response.text
+
+
 def test_prompt_parser_accepts_strict_json_and_rejects_empty_value():
     assert main._parse_improved_prompt('{"improved_prompt":"готовый промпт"}') == "готовый промпт"
     object_content = {"choices": [{"message": {"content": {"improved_prompt": "ответ объектом"}}}]}

@@ -30,7 +30,22 @@ try {
   for (const [viewportIndex, viewport] of [{ width: 390, height: 844 }, { width: 430, height: 932 }].entries()) {
     const generated = []
     const generatedVideos = []
+    const chatRequests = []
+    let transcribeRequests = 0
     const context = await browser.newContext({ viewport, isMobile: true, hasTouch: true })
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } })
+      class FakeMediaRecorder extends EventTarget {
+        static isTypeSupported() { return true }
+        constructor(_stream, options = {}) { super(); this.mimeType = options.mimeType || 'audio/webm' }
+        start() {}
+        stop() {
+          this.dispatchEvent(new BlobEvent('dataavailable', { data: new Blob(['phone voice'], { type: this.mimeType }) }))
+          this.dispatchEvent(new Event('stop'))
+        }
+      }
+      Object.defineProperty(window, 'MediaRecorder', { configurable: true, value: FakeMediaRecorder })
+    })
     const page = await context.newPage()
     await page.route('**/api/**', async (route) => {
       const request = route.request()
@@ -43,6 +58,9 @@ try {
       if (path === '/api/video/config') return json(videoConfig)
       if (path === '/api/feed') return json({ items: [{ id: 'feed-1', media_type: 'image', thumbnail_url: pixel, image_url: pixel, title: 'Реальная работа', author_name: 'Автор' }] })
       if (path === '/api/gallery/items') return json({ items: [{ id: 'gallery-1', mediaType: 'image', url: pixel, thumbnailUrl: pixel, promptOriginal: 'Из галереи' }] })
+      if (path === '/api/tools/improve-prompt') return json({ ok: true, improvedPrompt: 'Розовый стеклянный шар на светлом деревянном столе, мягкий студийный свет' })
+      if (path === '/api/tools/transcribe') { transcribeRequests += 1; return json({ ok: true, text: 'добавь мягкие отражения' }) }
+      if (path === '/api/phone/chat') { chatRequests.push(request.postDataJSON()); return json({ ok: true, reply: 'Предлагаю сделать выразительную сцену с мягким светом.', provider: 'local', model: 'gemma4:31b-cloud' }) }
       if (path === '/api/generate' && request.method() === 'POST') { generated.push(request.postDataJSON()); return json({ id: 'image-job-1', status: 'queued', progress: 4 }) }
       if (path === '/api/jobs/image-job-1') return json({ id: 'image-job-1', status: 'completed', progress: 100, resultUrl: pixel, resultImageId: 'image-1' })
       if (path === '/api/video/estimate') return json({ chargedTokens: 13 })
@@ -78,7 +96,17 @@ try {
 
     if (viewportIndex === 0) {
       await frame.getByRole('button', { name: 'Картинка', exact: true }).click()
-      await frame.getByPlaceholder('Например: сова в космосе, неоновые звёзды…', { exact: true }).fill('Розовый шар на столе')
+      const imagePrompt = frame.getByPlaceholder('Например: сова в космосе, неоновые звёзды…', { exact: true })
+      await imagePrompt.fill('Розовый шар на столе')
+      await frame.getByTitle('Улучшить описание').click()
+      await frame.waitForFunction(() => document.querySelector('#gp')?.value.includes('стеклянный шар'))
+      const imageMic = frame.locator('[data-live-mic="image"]')
+      await imageMic.click()
+      await frame.waitForFunction(() => document.querySelector('[data-live-mic="image"]')?.classList.contains('live-recording'))
+      await frame.waitForTimeout(900)
+      await imageMic.click()
+      await frame.waitForFunction(() => document.querySelector('#gp')?.value.includes('мягкие отражения'))
+      assert(transcribeRequests === 1, `voice transcription request count=${transcribeRequests}`)
       await frame.getByRole('button', { name: 'Сгенерировать 1 кр.', exact: true }).click()
       await frame.waitForFunction(() => window.__IZO_PHONE_RUNTIME__?.imageResults?.length === 1 || Boolean(window.__IZO_PHONE_RUNTIME__?.lastError), null, { timeout: 8000 })
       const imageRuntime = await frame.evaluate(() => ({ results: window.__IZO_PHONE_RUNTIME__?.imageResults?.length || 0, error: window.__IZO_PHONE_RUNTIME__?.lastError || '' }))
@@ -91,6 +119,20 @@ try {
       assert(generated[0].provider === 'comfyui' && generated[0].modelProfile === 'local_flux_klein', 'phone image model contract changed')
       assert(generated[0].resolutionId === 'sq-hd' && generated[0].width === 1024 && generated[0].height === 1024, 'phone default is not square HD')
 
+      await frame.getByRole('button', { name: 'Чат', exact: true }).click()
+      const chatPrompt = frame.getByLabel('Сообщение в чат')
+      await chatPrompt.fill('Придумай идею для новой картинки')
+      await frame.getByRole('button', { name: 'Отправить сообщение' }).click()
+      await frame.getByText('Предлагаю сделать выразительную сцену с мягким светом.', { exact: true }).waitFor()
+      assert(chatRequests.length === 1, `chat request count=${chatRequests.length}`)
+      assert(chatRequests[0].route === 'auto' && chatRequests[0].messages.at(-1)?.content === 'Придумай идею для новой картинки', 'phone chat request contract changed')
+      await frame.getByRole('button', { name: 'Добавить фото или файл' }).click()
+      assert(await frame.getByText('Добавить фото', { exact: true }).isVisible(), 'chat attachment menu did not open')
+      await frame.getByRole('button', { name: 'Инструменты чата' }).click()
+      await frame.getByText('Улучшить сообщение', { exact: true }).waitFor()
+      await frame.evaluate(() => closeSheets())
+
+      await frame.getByRole('button', { name: 'Показать нижнее меню' }).click()
       await frame.getByRole('button', { name: 'Видео', exact: true }).click()
       await frame.getByPlaceholder('Например: робот идёт по ночному городу, камера приближается…', { exact: true }).fill('Камера плавно приближается')
       await frame.getByRole('button', { name: 'Сделать видео 13 кр.', exact: true }).click()
@@ -101,7 +143,7 @@ try {
     }
     await context.close()
   }
-  console.log('Phone Drive-template e2e passed: exact mobile layout, live feed/profile, image request and video request.')
+  console.log('Phone Drive-template e2e passed: mobile layout, image tools, animated voice input, real chat contract and video request.')
 } finally {
   await browser.close()
 }
