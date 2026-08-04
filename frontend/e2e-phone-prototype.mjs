@@ -16,7 +16,11 @@ const modelAccess = {
   ok: true,
   plan: 'pro',
   modes: {
-    text_to_image: { models: [{ id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1, supportedResolutionIds: ['sq-sd', 'sq-hd', 'sq-fhd', 'h-hd', 'v-hd', 'p-hd'] }], presets: { fast: 'server:local_flux_klein' } },
+    text_to_image: { models: [
+      { id: 'server:local_flux_klein', label: 'ИЗО Base', provider: 'comfyui', modelProfile: 'local_flux_klein', tokenHint: 1, supportedResolutionIds: ['sq-sd', 'sq-hd', 'sq-fhd', 'h-hd', 'v-hd', 'p-hd'] },
+      { id: 'black-forest-labs/flux.2-flex', label: 'FLUX.2 Flex', provider: 'openrouter', modelProfile: 'black-forest-labs/flux.2-flex', tokenHint: 4 },
+      { id: 'bytedance-seed/seedream-4.5', label: 'Seedream 4.5', provider: 'openrouter', modelProfile: 'bytedance-seed/seedream-4.5', tokenHint: 1 },
+    ], presets: { fast: 'server:local_flux_klein' } },
   },
 }
 const videoModel = {
@@ -103,6 +107,49 @@ try {
       const imagePrompt = frame.getByPlaceholder('Например: сова в космосе, неоновые звёзды…', { exact: true })
       assert(await frame.getByRole('tab').count() === 3, 'image editor tabs were not merged')
       assert(await frame.getByRole('tab', { name: 'Изменить', exact: true }).count() === 1, 'unified image edit tab is missing')
+      const emptyPreview = frame.locator('.canvas .phone-preview-empty-bg')
+      await emptyPreview.waitFor()
+      assert((await emptyPreview.getAttribute('src'))?.endsWith('/phone-preview-placeholder.jpg'), 'brand preview placeholder is missing')
+      const emptyBox = await frame.locator('.canvas').boundingBox()
+      assert(emptyBox && Math.abs(emptyBox.width / emptyBox.height - 16 / 9) < .04, `empty image preview is not 16:9: ${JSON.stringify(emptyBox)}`)
+
+      await frame.getByRole('button', { name: 'Модель ИЗО Base', exact: false }).click()
+      await frame.locator('#shPick').getByText('Фирменная модель: быстрое создание, фото и сборка.', { exact: true }).waitFor()
+      await frame.locator('#shPick').getByText('Гибкая стилизация и творческие варианты.', { exact: true }).waitFor()
+      await frame.locator('#shPick').getByText('Яркие сцены, персонажи и быстрые идеи.', { exact: true }).waitFor()
+      await frame.evaluate(() => {
+        const sheet = document.querySelector('#shPick')
+        const fire = (type, clientY) => sheet.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 44, pointerType: 'touch', clientX: 190, clientY, buttons: type === 'pointerup' ? 0 : 1 }))
+        fire('pointerdown', 210); fire('pointermove', 325); fire('pointerup', 325)
+      })
+      await frame.waitForFunction(() => !document.querySelector('#shPick')?.classList.contains('on'))
+      await frame.waitForTimeout(320)
+      await frame.evaluate(() => { document.querySelector('.head')?.classList.remove('hide'); const body = document.querySelector('#body'); if (body) body.scrollTop = 0 })
+
+      await frame.getByRole('tab', { name: 'Нарисовать', exact: true }).click()
+      await frame.getByRole('toolbar', { name: 'Инструменты рисования' }).waitFor()
+      for (const label of ['Кисть', 'Ластик', 'Цвет кисти', 'Отменить последнее действие', 'Очистить холст']) {
+        assert(await frame.getByLabel(label, { exact: label !== 'Цвет кисти' }).count() === 1, `sketch tool is missing: ${label}`)
+      }
+      const sketchBefore = await frame.evaluate(() => window.__IZO_PHONE_RUNTIME__?.sketchData || '')
+      await frame.evaluate(() => {
+        const canvas = document.querySelector('.phone-sketch-canvas')
+        const fire = (type, x, y) => canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch', clientX: x, clientY: y, buttons: type === 'pointerup' ? 0 : 1 }))
+        fire('pointerdown', 80, 115); fire('pointermove', 160, 135); fire('pointerup', 160, 135)
+      })
+      await frame.waitForFunction((before) => Boolean(window.__IZO_PHONE_RUNTIME__?.sketchData) && window.__IZO_PHONE_RUNTIME__.sketchData !== before, sketchBefore)
+      await frame.getByRole('button', { name: 'Ластик', exact: true }).click()
+      assert(await frame.getByRole('button', { name: 'Ластик', exact: true }).getAttribute('aria-pressed') === 'true', 'eraser tool is not functional')
+      await frame.getByRole('button', { name: 'Отменить последнее действие', exact: true }).click()
+      await frame.getByRole('button', { name: 'Очистить холст', exact: true }).click()
+      await frame.getByRole('tab', { name: 'По описанию', exact: true }).click()
+
+      const historyIcon = frame.locator('.promptbar [data-t="hist"]')
+      await historyIcon.dispatchEvent('pointerdown', { pointerId: 91, pointerType: 'touch', clientX: 340, clientY: 790, buttons: 1 })
+      await frame.waitForTimeout(620)
+      assert(await frame.getByRole('tooltip').getByText('Повторить прошлый', { exact: true }).isVisible(), 'long-press hint did not appear for an icon button')
+      await historyIcon.dispatchEvent('pointerup', { pointerId: 91, pointerType: 'touch', clientX: 340, clientY: 790, buttons: 0 })
+
       await frame.getByText('Все шаблоны ›', { exact: true }).click()
       assert(await frame.locator('[data-template]').count() === 23, 'shared image templates are incomplete')
       assert(await frame.locator('[data-si]').count() === 0, 'template sheet opened on the wrong section')
@@ -128,7 +175,11 @@ try {
       assert(imageResultCount === 1, `image result is not rendered in the Drive template: ${imageMarkup}`)
       assert(await frame.locator('.canvas.live-result-host .live-result-preview').count() === 1, 'generated image stayed in a thumbnail instead of the preview')
       const resultBox = await frame.locator('.canvas.live-result-host').boundingBox()
-      assert(resultBox && resultBox.height >= 270, `generated image preview is too small: ${JSON.stringify(resultBox)}`)
+      assert(resultBox && resultBox.height >= 170 && Math.abs(resultBox.width / resultBox.height - 16 / 9) < .04, `generated image preview is not wide 16:9: ${JSON.stringify(resultBox)}`)
+      assert(await frame.locator('.live-image-action').count() === 3, 'generated image actions are incomplete')
+      assert(await frame.getByRole('link', { name: 'Скачать', exact: true }).getAttribute('download') === 'izo-asa-image.png', 'download action is not wired')
+      assert(await frame.getByRole('button', { name: 'Поделиться', exact: true }).count() === 1, 'share action is missing')
+      assert(await frame.getByRole('button', { name: 'Оживить', exact: true }).count() === 1, 'animate action is missing')
       assert(generated.length === 1, `image request count=${generated.length}`)
       assert(generated[0].mode === 'text_to_image', 'phone image mode is not real text_to_image')
       assert(generated[0].provider === 'comfyui' && generated[0].modelProfile === 'local_flux_klein', 'phone image model contract changed')
@@ -155,6 +206,11 @@ try {
       })
       await frame.locator('.live-image-viewer [data-viewer-close]').click()
       await frame.locator('.live-image-viewer').waitFor({ state: 'hidden' })
+
+      await frame.getByRole('button', { name: 'Оживить', exact: true }).click()
+      assert(await frame.getByRole('tab', { name: 'Оживить фото', exact: true }).getAttribute('aria-selected') === 'true', 'animate action did not open image-to-video')
+      assert((await frame.evaluate(() => window.__IZO_PHONE_RUNTIME__?.videoSources?.length || 0)) === 1, 'animate action did not pass the image to video')
+      await frame.getByRole('button', { name: 'Картинка', exact: true }).click()
 
       const fileChooserPromise = page.waitForEvent('filechooser')
       await frame.getByTitle('Прикрепить').click()
@@ -200,7 +256,7 @@ try {
     }
     await context.close()
   }
-  console.log('Phone Drive-template e2e passed: merged image editor, shared presets, preview zoom and pinch, voice input, chat and video request.')
+  console.log('Phone Drive-template e2e passed: 16:9 branded preview, image actions, model descriptions, swipe sheets, long-press hints, sketch tools, merged editor, zoom, voice, chat and video request.')
 } finally {
   await browser.close()
 }

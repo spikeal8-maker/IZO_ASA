@@ -16,6 +16,10 @@
     imageRefs: [],
     imageViewer: { open: false, scale: 1 },
     sketchData: '',
+    sketchTool: 'brush',
+    sketchColor: '#111111',
+    sketchSize: 12,
+    sketchHistory: [],
     imageJob: null,
     imagePhase: 'idle',
     videoJob: null,
@@ -49,14 +53,29 @@
     .live-source-grid img{width:100%;height:100%;min-height:96px;max-height:180px;object-fit:contain;border-radius:14px}
     .live-source-remove{position:absolute;right:6px;top:6px;width:25px;height:25px;border:0;border-radius:50%;background:rgba(6,7,10,.74);color:#fff;font:700 16px/1 inherit;cursor:pointer;backdrop-filter:blur(8px)}
     .live-source-add{min-height:96px;border:1px dashed var(--edge2);border-radius:14px;background:var(--s2);color:var(--tx2);display:grid;place-items:center;gap:4px;padding:12px;font:700 11px/1.3 inherit;cursor:pointer}.live-source-add b{font-size:22px;color:var(--quiet)}
-    .canvas.live-result-host{height:clamp(270px,50vh,520px);max-height:none!important;aspect-ratio:auto!important;background:#050509}
+    .canvas{aspect-ratio:16/9!important;max-height:none!important;min-height:0;background:#050509}
+    .canvas.live-result-host{height:auto;max-height:none!important;aspect-ratio:16/9!important;background:#050509}
     .canvas .live-result-preview{width:100%;height:100%;object-fit:contain;cursor:zoom-in;touch-action:manipulation;user-select:none;-webkit-user-drag:none}
-    .live-preview-hint{position:absolute;left:50%;bottom:9px;transform:translateX(-50%);white-space:nowrap;border-radius:999px;padding:6px 9px;background:rgba(6,7,10,.68);color:#fff;font:700 9.5px/1 inherit;pointer-events:none;backdrop-filter:blur(10px)}
+    .phone-preview-empty{position:absolute;inset:0;display:grid;place-items:center;isolation:isolate;overflow:hidden}
+    .phone-preview-empty-bg{position:absolute;inset:0;width:100%!important;height:100%!important;object-fit:cover!important;filter:saturate(.82) brightness(.58);transform:scale(1.015);z-index:-2}
+    .phone-preview-empty:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(4,5,9,.12),rgba(4,5,9,.68)),radial-gradient(circle at 50% 38%,rgba(141,87,255,.08),transparent 55%);z-index:-1}
+    .phone-preview-empty-copy{display:grid;place-items:center;gap:9px;max-width:84%;padding:18px;text-align:center;color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.7)}
+    .phone-preview-empty-copy .spark{margin:0;font-size:23px}.phone-preview-empty-copy b{font:760 13px/1.35 inherit}.phone-preview-empty-copy span{font:620 10.5px/1.4 inherit;color:rgba(255,255,255,.74)}
+    .phone-preview-empty-copy button{border:0;border-radius:13px;padding:10px 15px;background:linear-gradient(145deg,var(--act),var(--act2));color:#fff;font:740 11px/1 inherit;box-shadow:0 12px 28px -12px var(--glow);cursor:pointer}
+    .live-preview-hint{position:absolute;left:50%;bottom:52px;transform:translateX(-50%);white-space:nowrap;border-radius:999px;padding:6px 9px;background:rgba(6,7,10,.68);color:#fff;font:700 9.5px/1 inherit;pointer-events:none;backdrop-filter:blur(10px)}
+    .live-image-actions{position:absolute;left:8px;right:8px;bottom:8px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;z-index:3}
+    .live-image-action{min-width:0;height:38px;border:0;border-radius:12px;background:rgba(8,9,14,.76);color:#fff;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 8px;font:720 10px/1 inherit;backdrop-filter:blur(16px) saturate(140%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);text-decoration:none;cursor:pointer}
+    .live-image-action.primary{background:linear-gradient(145deg,rgba(184,34,198,.9),rgba(109,74,255,.9))}.live-image-action svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
     .live-image-viewer[hidden]{display:none!important}.live-image-viewer{position:fixed;inset:0;z-index:1000;background:#020307;display:grid;grid-template-rows:auto 1fr;touch-action:none;overscroll-behavior:contain}
     .live-image-viewer-bar{display:flex;align-items:center;gap:8px;padding:max(12px,env(safe-area-inset-top)) 12px 10px;color:#fff;background:linear-gradient(180deg,rgba(2,3,7,.96),rgba(2,3,7,.68));z-index:2}
     .live-image-viewer-bar b{font:760 13px/1 inherit}.live-image-viewer-bar span{font:650 10px/1 inherit;color:#aaa}.live-image-viewer-bar button{border:0;border-radius:11px;padding:9px 11px;background:#171922;color:#fff;font:720 11px/1 inherit;cursor:pointer}.live-image-viewer-bar [data-viewer-close]{margin-left:auto;width:36px;height:36px;padding:0;border-radius:50%;font-size:20px}
     .live-image-viewer-stage{position:relative;min-height:0;overflow:hidden;display:grid;place-items:center;touch-action:none}.live-image-viewer-stage img{width:100%;height:100%;object-fit:contain;transform-origin:center;will-change:transform;user-select:none;-webkit-user-drag:none;touch-action:none}
-    .phone-sketch-canvas{width:100%;height:100%;touch-action:none;background:#fff;display:block}
+    .phone-sketch-canvas{width:auto;height:100%;max-width:100%;margin:auto;touch-action:none;background:#fff;display:block}
+    .phone-sketch-tools{position:absolute;left:7px;right:7px;bottom:7px;z-index:4;display:flex;align-items:center;justify-content:center;gap:5px;padding:6px;border-radius:14px;background:rgba(7,8,12,.78);backdrop-filter:blur(16px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+    .phone-sketch-tool{width:34px;height:34px;border:0;border-radius:10px;background:rgba(255,255,255,.08);color:#fff;display:grid;place-items:center;cursor:pointer;position:relative}.phone-sketch-tool[aria-pressed="true"]{background:linear-gradient(145deg,var(--act),var(--act2));box-shadow:0 8px 18px -10px var(--glow)}
+    .phone-sketch-tool svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.phone-sketch-tool .sketch-dot{width:13px;height:13px;border-radius:50%;background:var(--sketch-color,#111);box-shadow:0 0 0 2px #fff}.phone-sketch-tool input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer}
+    .phone-hold-tooltip{position:fixed;left:50%;top:50%;z-index:1200;max-width:min(260px,calc(100vw - 28px));transform:translate(-50%,-50%);padding:9px 12px;border-radius:11px;background:rgba(12,13,19,.96);color:#fff;font:720 11px/1.35 inherit;text-align:center;box-shadow:0 14px 34px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.15);pointer-events:none;opacity:0;transition:opacity .16s}.phone-hold-tooltip.on{opacity:1}
+    .sheet.live-dragging{transition:none!important;will-change:transform}.sheet{touch-action:pan-y}
     .live-status{position:absolute;left:10px;right:10px;bottom:10px;border-radius:12px;padding:8px 10px;background:rgba(6,7,10,.72);color:#fff;font:700 10px/1.3 inherit;backdrop-filter:blur(10px)}
     .pick.disabled{opacity:.38;pointer-events:none}.pick .live-price{margin-left:auto;color:var(--quiet);font:750 11px/1 inherit}
     .card video{width:100%;display:block}.gal span{position:relative}.gal video{width:100%;aspect-ratio:1;object-fit:cover;display:block}
@@ -94,6 +113,126 @@
   }
   const html = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char])
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  const actionIcons = {
+    download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 11L12 15.5 16.5 11M5 20h14"/></svg>',
+    share: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.5M8.2 13.2l7.6 4.5"/></svg>',
+    animate: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 8.5v7l6-3.5z"/></svg>',
+    brush: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4.5l5 5L9 20H4v-5z"/><path d="M12.5 6.5l5 5"/></svg>',
+    eraser: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18l-3-3 9.5-10 5.5 5.5-7.2 7.5z"/><path d="M9.5 9.2l5.5 5.5M7 18h12"/></svg>',
+    undo: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7L4 12l5 5"/><path d="M5 12h8a6 6 0 016 6"/></svg>',
+    clear: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V4h6v3M8 10v8M12 10v8M16 10v8M7 7l1 14h8l1-14"/></svg>',
+  }
+
+  function imageModelDescription(item) {
+    const supplied = String(item?.description || '').trim()
+    if (supplied) return supplied.split(/(?<=[.!?])\s/)[0].slice(0, 118)
+    const id = `${item?.id || ''} ${item?.label || ''}`.toLowerCase()
+    if (/local_flux|izo base|server:local/.test(id)) return 'Фирменная модель: быстрое создание, фото и сборка.'
+    if (/klein/.test(id)) return 'Быстрые изображения и недорогие варианты.'
+    if (/flux.*flex|flex/.test(id)) return 'Гибкая стилизация и творческие варианты.'
+    if (/flux.*max|\bmax\b/.test(id)) return 'Максимум деталей для сложных сцен.'
+    if (/flux.*pro|\bpro\b/.test(id)) return 'Высокое качество, свет и композиция.'
+    if (/seedream/.test(id)) return 'Яркие сцены, персонажи и быстрые идеи.'
+    if (/gemini|nano banana/.test(id)) return 'Точное редактирование и следование описанию.'
+    if (/gpt.*image/.test(id)) return 'Сложные инструкции, текст и логичная сцена.'
+    if (/recraft.*vector/.test(id)) return 'Логотипы и чистая векторная графика.'
+    if (/recraft/.test(id)) return 'Дизайн, постеры и коммерческие визуалы.'
+    if (/grok/.test(id)) return 'Выразительные художественные сцены.'
+    if (/riverflow/.test(id)) return 'Серийные варианты и быстрые концепты.'
+    if (/auto/.test(id)) return 'Сам выберет подходящую модель под запрос.'
+    return 'Универсальная модель для создания и редактирования.'
+  }
+
+  function emptyPreviewHtml(title, note, action = '') {
+    return `<div class="phone-preview-empty"><img class="phone-preview-empty-bg" src="/phone-preview-placeholder.jpg" alt="" aria-hidden="true"><div class="phone-preview-empty-copy"><span class="spark">✦</span><b>${html(title)}</b>${note ? `<span>${html(note)}</span>` : ''}${action}</div></div>`
+  }
+
+  async function shareImage(src) {
+    try {
+      const url = absoluteUrl(src)
+      const response = await fetch(url, { credentials: 'include' })
+      if (!response.ok) throw new Error('download failed')
+      const blob = await response.blob()
+      const file = new File([blob], 'izo-asa-image.png', { type: blob.type || 'image/png' })
+      if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+        await navigator.share({ title: 'Изображение ИЗО АСА', text: gp.value.trim() || undefined, files: [file] })
+      } else if (navigator.share) {
+        await navigator.share({ title: 'Изображение ИЗО АСА', text: gp.value.trim() || undefined, url })
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url); toast('Ссылка на изображение скопирована')
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer')
+      }
+    } catch (error) {
+      if (error?.name !== 'AbortError') toast('Не удалось открыть меню публикации')
+    }
+  }
+
+  function animateImage(src) {
+    try {
+      const parsed = new URL(src, location.origin)
+      state.videoSources = [parsed.origin === location.origin ? `${parsed.pathname}${parsed.search}` : parsed.toString()]
+      gp.value = 'Плавно оживи изображение. Сохрани внешность, форму объектов и композицию. Добавь естественное движение камеры, света и деталей окружения.'
+      gp.dispatchEvent(new Event('input', { bubbles: true }))
+      go('vid', 1)
+      toast('Изображение перенесено в видео')
+    } catch { toast('Не удалось подготовить изображение для видео') }
+  }
+
+  const holdTooltip = document.createElement('div')
+  holdTooltip.className = 'phone-hold-tooltip'; holdTooltip.setAttribute('role', 'tooltip'); document.body.appendChild(holdTooltip)
+  const longPressBound = new WeakSet()
+  let holdTooltipTimer = 0; let holdTooltipHideTimer = 0
+  function showHoldTooltip(target, text) {
+    clearTimeout(holdTooltipHideTimer); holdTooltip.textContent = text; holdTooltip.classList.add('on')
+    const rect = target.getBoundingClientRect(); const top = rect.top > 90 ? rect.top - 46 : rect.bottom + 14
+    holdTooltip.style.left = `${Math.max(24, Math.min(innerWidth - 24, rect.left + rect.width / 2))}px`; holdTooltip.style.top = `${top}px`; holdTooltip.style.transform = 'translate(-50%,-50%)'
+    holdTooltipHideTimer = setTimeout(() => holdTooltip.classList.remove('on'), 1700)
+  }
+  function installLongPressHints(root = document) {
+    root.querySelectorAll('button[aria-label],button[title],a[aria-label],[data-hint]').forEach((target) => {
+      if (longPressBound.has(target)) return
+      const hint = target.dataset.hint || target.getAttribute('aria-label') || target.getAttribute('title')
+      if (!hint) return
+      longPressBound.add(target)
+      let startX = 0; let startY = 0; let shown = false
+      const cancel = () => { clearTimeout(holdTooltipTimer); holdTooltipTimer = 0 }
+      target.addEventListener('pointerdown', (event) => {
+        if (!['touch', 'pen'].includes(event.pointerType)) return
+        startX = event.clientX; startY = event.clientY; shown = false; cancel()
+        holdTooltipTimer = setTimeout(() => { shown = true; showHoldTooltip(target, hint) }, 560)
+      })
+      target.addEventListener('pointermove', (event) => { if (Math.hypot(event.clientX - startX, event.clientY - startY) > 12) cancel() })
+      target.addEventListener('pointerup', cancel); target.addEventListener('pointercancel', cancel)
+      target.addEventListener('click', (event) => { if (!shown) return; shown = false; event.preventDefault(); event.stopImmediatePropagation() }, true)
+    })
+  }
+
+  function installSheetSwipe(sheet) {
+    if (sheet.dataset.swipeClose === 'true') return
+    sheet.dataset.swipeClose = 'true'
+    let drag = null
+    sheet.addEventListener('pointerdown', (event) => {
+      if (event.pointerType !== 'touch' || sheet.scrollTop > 0) return
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, lastY: event.clientY, at: performance.now(), active: false }
+    })
+    sheet.addEventListener('pointermove', (event) => {
+      if (!drag || drag.id !== event.pointerId) return
+      const dx = event.clientX - drag.x; const dy = event.clientY - drag.y
+      if (!drag.active && (dy < 9 || Math.abs(dx) > dy * .85)) return
+      drag.active = true; drag.lastY = event.clientY; event.preventDefault()
+      sheet.classList.add('live-dragging'); sheet.style.transform = `translateY(${Math.max(0, dy)}px)`
+    }, { passive: false })
+    const finish = (event) => {
+      if (!drag || drag.id !== event.pointerId) return
+      const distance = Math.max(0, drag.lastY - drag.y); const speed = distance / Math.max(1, performance.now() - drag.at)
+      const shouldClose = drag.active && (distance > 72 || speed > .55)
+      sheet.classList.remove('live-dragging'); sheet.style.transform = ''; drag = null
+      if (shouldClose) closeSheets()
+    }
+    sheet.addEventListener('pointerup', finish); sheet.addEventListener('pointercancel', finish)
+  }
 
   const imageViewer = document.createElement('div')
   imageViewer.className = 'live-image-viewer'; imageViewer.hidden = true
@@ -570,32 +709,63 @@
     })
   }
 
-  function setupSketch(canvas) {
+  function setupSketch(canvas, toolbar) {
     const ratioValue = RATIOS[ratio]?.[0] || '1:1'
     const [rw, rh] = ratioValue.split(':').map(Number)
     canvas.width = Math.round(720 * rw / Math.max(rw, rh)); canvas.height = Math.round(720 * rh / Math.max(rw, rh))
-    const ctx = canvas.getContext('2d'); ctx.lineWidth = Math.max(5, canvas.width / 90); ctx.lineCap = 'round'; ctx.strokeStyle = '#111'
+    const ctx = canvas.getContext('2d'); ctx.lineCap = 'round'; ctx.lineJoin = 'round'
     const reset = () => { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height) }
-    if (state.sketchData) {
-      const image = new Image(); image.onload = () => { reset(); ctx.drawImage(image, 0, 0, canvas.width, canvas.height) }; image.src = state.sketchData
-    } else reset()
+    const drawData = (value) => {
+      if (!value) { reset(); state.sketchData = canvas.toDataURL('image/png'); return }
+      const image = new Image(); image.onload = () => { reset(); ctx.drawImage(image, 0, 0, canvas.width, canvas.height); state.sketchData = canvas.toDataURL('image/png') }; image.src = value
+    }
+    drawData(state.sketchData)
     let drawing = false
     const point = (event) => { const rect = canvas.getBoundingClientRect(); return [(event.clientX - rect.left) * canvas.width / rect.width, (event.clientY - rect.top) * canvas.height / rect.height] }
-    canvas.addEventListener('pointerdown', (event) => { drawing = true; canvas.setPointerCapture(event.pointerId); const [x, y] = point(event); ctx.beginPath(); ctx.moveTo(x, y) })
+    const remember = () => { state.sketchHistory.push(canvas.toDataURL('image/png')); if (state.sketchHistory.length > 20) state.sketchHistory.shift() }
+    canvas.addEventListener('pointerdown', (event) => {
+      event.preventDefault(); remember(); drawing = true; try { canvas.setPointerCapture?.(event.pointerId) } catch { /* synthetic pointer */ }
+      ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = state.sketchTool === 'eraser' ? '#fff' : state.sketchColor
+      ctx.lineWidth = Math.max(3, state.sketchSize * canvas.width / 720)
+      const [x, y] = point(event); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + .01, y + .01); ctx.stroke()
+    })
     canvas.addEventListener('pointermove', (event) => { if (!drawing) return; const [x, y] = point(event); ctx.lineTo(x, y); ctx.stroke() })
-    canvas.addEventListener('pointerup', () => { drawing = false; state.sketchData = canvas.toDataURL('image/png') })
+    const finish = () => { if (!drawing) return; drawing = false; state.sketchData = canvas.toDataURL('image/png') }
+    canvas.addEventListener('pointerup', finish); canvas.addEventListener('pointercancel', finish)
+    toolbar?.querySelectorAll('[data-sketch-tool]').forEach((button) => button.addEventListener('click', () => {
+      state.sketchTool = button.dataset.sketchTool
+      toolbar.querySelectorAll('[data-sketch-tool]').forEach((item) => item.setAttribute('aria-pressed', String(item.dataset.sketchTool === state.sketchTool)))
+    }))
+    toolbar?.querySelector('[data-sketch-color]')?.addEventListener('input', (event) => {
+      state.sketchColor = event.target.value; toolbar.style.setProperty('--sketch-color', state.sketchColor)
+    })
+    toolbar?.querySelector('[data-sketch-size]')?.addEventListener('click', (event) => {
+      const sizes = [6, 12, 24, 42]; state.sketchSize = sizes[(sizes.indexOf(state.sketchSize) + 1) % sizes.length]
+      event.currentTarget.querySelector('span').style.width = `${Math.max(6, Math.round(state.sketchSize / 2))}px`
+      event.currentTarget.querySelector('span').style.height = `${Math.max(6, Math.round(state.sketchSize / 2))}px`
+      event.currentTarget.setAttribute('aria-label', `Размер кисти: ${state.sketchSize}`); event.currentTarget.dataset.hint = `Размер кисти: ${state.sketchSize}`
+    })
+    toolbar?.querySelector('[data-sketch-undo]')?.addEventListener('click', () => { const previous = state.sketchHistory.pop(); if (previous) drawData(previous); else toast('Отменять больше нечего') })
+    toolbar?.querySelector('[data-sketch-clear]')?.addEventListener('click', () => { remember(); reset(); state.sketchData = canvas.toDataURL('image/png') })
   }
 
   function enhanceImage() {
     const selected = selectedImageModel()
     const modelRow = scr.querySelector('.modelrow .mt')
-    if (modelRow) modelRow.innerHTML = `<span class="k">Модель</span><span class="v">${html(selected.label || 'ИЗО Base')}</span><span class="d2">реальная модель вашего тарифа</span>`
+    if (modelRow) modelRow.innerHTML = `<span class="k">Модель</span><span class="v">${html(selected.label || 'ИЗО Base')}</span><span class="d2">${html(imageModelDescription(selected))}</span>`
     const controls = scr.querySelectorAll('.ctrl')
     if (controls[1]) controls[1].querySelector('.v').textContent = `${QUAL[qual][0]} · ${selectedResolution()[1]}×${selectedResolution()[2]}`
     if (controls[2]) { controls[2].querySelector('.v').textContent = '1'; controls[2].setAttribute('aria-disabled', 'true') }
     const cost = Number(selected.tokenHint || 1)
     document.getElementById('cost').textContent = `${cost} кр.`
 
+    const canvasHost = scr.querySelector('.canvas')
+    if (canvasHost && gstate === 'idle' && idx === 0) {
+      canvasHost.innerHTML = emptyPreviewHtml('Создайте первое изображение', 'Опишите идею — результат полностью поместится в этом окне.')
+    }
+    if (canvasHost && gstate === 'idle' && idx === 1 && !state.imageRefs.length) {
+      canvasHost.innerHTML = emptyPreviewHtml('Измените или совместите', 'Добавьте от одного до четырёх изображений.', '<button type="button" data-attach>Выбрать изображения</button>')
+    }
     const attach = scr.querySelector('[data-attach]')
     if (attach) {
       const clean = attach.cloneNode(true); attach.replaceWith(clean)
@@ -611,7 +781,17 @@
     }
     if (idx === 2 && gstate !== 'done') {
       const canvasHost = scr.querySelector('.canvas')
-      if (canvasHost) { canvasHost.innerHTML = '<canvas class="phone-sketch-canvas" aria-label="Холст для наброска"></canvas>'; setupSketch(canvasHost.querySelector('canvas')) }
+      if (canvasHost) {
+        canvasHost.innerHTML = `<canvas class="phone-sketch-canvas" aria-label="Холст для наброска"></canvas><div class="phone-sketch-tools" role="toolbar" aria-label="Инструменты рисования" style="--sketch-color:${html(state.sketchColor)}">
+          <button type="button" class="phone-sketch-tool" data-sketch-tool="brush" aria-label="Кисть" data-hint="Кисть" aria-pressed="${state.sketchTool === 'brush'}">${actionIcons.brush}</button>
+          <button type="button" class="phone-sketch-tool" data-sketch-tool="eraser" aria-label="Ластик" data-hint="Ластик" aria-pressed="${state.sketchTool === 'eraser'}">${actionIcons.eraser}</button>
+          <label class="phone-sketch-tool" aria-label="Цвет кисти" data-hint="Выбрать цвет кисти"><span class="sketch-dot"></span><input type="color" data-sketch-color value="${html(state.sketchColor)}"></label>
+          <button type="button" class="phone-sketch-tool" data-sketch-size aria-label="Размер кисти: ${state.sketchSize}" data-hint="Размер кисти: ${state.sketchSize}"><span class="sketch-dot" style="width:${Math.max(6, Math.round(state.sketchSize / 2))}px;height:${Math.max(6, Math.round(state.sketchSize / 2))}px;background:#fff"></span></button>
+          <button type="button" class="phone-sketch-tool" data-sketch-undo aria-label="Отменить последнее действие" data-hint="Отменить последнее действие">${actionIcons.undo}</button>
+          <button type="button" class="phone-sketch-tool" data-sketch-clear aria-label="Очистить холст" data-hint="Очистить холст">${actionIcons.clear}</button>
+        </div>`
+        setupSketch(canvasHost.querySelector('canvas'), canvasHost.querySelector('.phone-sketch-tools'))
+      }
     }
     if (idx === 1 && state.imageRefs.length && gstate !== 'done') {
       const canvasHost = scr.querySelector('.canvas')
@@ -630,8 +810,15 @@
       if (resultHost) {
         const src = state.imageResults[0]
         resultHost.classList.add('live-result-host')
-        resultHost.innerHTML = `<img alt="Результат генерации" src="${html(src)}"><span class="live-preview-hint">Дважды нажмите · увеличить</span>`
+        resultHost.innerHTML = `<img alt="Результат генерации" src="${html(src)}"><span class="live-preview-hint">Дважды нажмите · увеличить</span><div class="live-image-actions" aria-label="Действия с изображением">
+          <a class="live-image-action" href="${html(src)}" download="izo-asa-image.png" data-image-download>${actionIcons.download}<span>Скачать</span></a>
+          <button type="button" class="live-image-action" data-image-share>${actionIcons.share}<span>Поделиться</span></button>
+          <button type="button" class="live-image-action primary" data-image-animate>${actionIcons.animate}<span>Оживить</span></button>
+        </div>`
         installResultPreview(resultHost.querySelector('img'))
+        resultHost.querySelector('[data-image-download]')?.addEventListener('click', (event) => event.stopPropagation())
+        resultHost.querySelector('[data-image-share]')?.addEventListener('click', (event) => { event.stopPropagation(); void shareImage(src) })
+        resultHost.querySelector('[data-image-animate]')?.addEventListener('click', (event) => { event.stopPropagation(); animateImage(src) })
       }
     }
     if (gstate === 'busy' && state.imageJob) {
@@ -639,6 +826,7 @@
       const bar = document.getElementById('bar'); const label = document.getElementById('pct')
       if (bar) bar.style.width = `${progress}%`; if (label) label.textContent = `ГОТОВО НА ${Math.round(progress)}%`
     }
+    installLongPressHints(scr)
   }
 
   async function runImage() {
@@ -772,7 +960,7 @@
   openPick = function phoneOpenPick(kind) {
     if (view === 'img' && kind === 'model') {
       const models = getImageModels(); const selected = selectedImageModel()
-      return realPick('Модель', models.map((item) => ({ label: item.label || item.id, description: item.id === 'server:local_flux_klein' ? 'Базовая модель ИЗО АСА' : 'Модель API вашего тарифа', price: `${Number(item.tokenHint || 1)} кр.` })), models.findIndex((item) => item.id === selected.id), (_item, index) => { state.imageModelByMode[imageMode()] = models[index].id; model = index; if (!qualityAllowed(qual)) qual = Math.max(0, [0, 1, 2, 3].filter(qualityAllowed).pop() || 0); paintGen() })
+      return realPick('Модель', models.map((item) => ({ label: item.label || item.id, description: imageModelDescription(item), price: `${Number(item.tokenHint || 1)} кр.` })), models.findIndex((item) => item.id === selected.id), (_item, index) => { state.imageModelByMode[imageMode()] = models[index].id; model = index; if (!qualityAllowed(qual)) qual = Math.max(0, [0, 1, 2, 3].filter(qualityAllowed).pop() || 0); paintGen() })
     }
     if (view === 'img' && kind === 'qual') {
       return realPick('Качество', QUAL.map((item, index) => { const entry = resolutionTable[RATIOS[ratio][0]][item[0]]; return { label: item[0], description: `${entry[1]} × ${entry[2]}`, disabled: !qualityAllowed(index), icon: item[0] } }), qual, (_item, index) => { qual = index; paintGen() })
@@ -978,6 +1166,7 @@
     if (view === 'feed') { renderFeed(); ensureFeed() }
     if (view === 'gal') renderGallery()
     if (view === 'vid') { syncVideoOptions(); estimateVideo() }
+    installLongPressHints(app)
   }
   run = runImage
   runVid = runVideo
@@ -1007,6 +1196,10 @@
     document.dispatchEvent(new CustomEvent('izo-phone-ready', { detail: { authenticated: Boolean(state.me) } }))
   }
 
+  Object.values(SH).forEach(installSheetSwipe)
+  const hintObserver = new MutationObserver(() => installLongPressHints(app))
+  hintObserver.observe(app, { childList: true, subtree: true })
+  installLongPressHints(app)
   installImagePromptTools()
   installChatControls()
   loadInitial()
