@@ -35,6 +35,7 @@
     "e2e:video-layout": "node e2e-video-studio-layout.mjs",
     "e2e:video-handoff": "node e2e-video-image-handoff.mjs",
     "e2e:phone": "node e2e-phone-prototype.mjs",
+    "sync:phone-presets": "node scripts/sync-phone-image-presets.mjs",
     "e2e:guest-entry": "node e2e-guest-studio-entry.mjs",
     "test:video-handoff": "node videoSourceHandoff.test.ts",
     "test:style-presets": "node stylePresets.test.ts",

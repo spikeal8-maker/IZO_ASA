@@ -14,6 +14,7 @@
     videoModelByMode: {},
     imageResults: [],
     imageRefs: [],
+    imageViewer: { open: false, scale: 1 },
     sketchData: '',
     imageJob: null,
     imagePhase: 'idle',
@@ -44,7 +45,17 @@
     .live-preview{width:100%;max-height:58vh;border-radius:18px;object-fit:contain;background:#050509;display:block}
     .live-meta{display:grid;gap:5px;padding:10px 2px 2px;color:var(--tx2);font:650 12px/1.4 inherit}.live-meta b{color:var(--tx);font-size:14px}
     .live-source-grid{width:100%;height:100%;display:grid;grid-template-columns:repeat(2,1fr);gap:7px;padding:8px}
-    .live-source-grid img{width:100%;height:100%;min-height:90px;max-height:180px;object-fit:cover;border-radius:14px}
+    .live-source-grid.single{grid-template-columns:1fr}.live-source-item{position:relative;min-height:96px;border-radius:14px;overflow:hidden;background:#08090d;box-shadow:inset 0 0 0 1px var(--edge)}
+    .live-source-grid img{width:100%;height:100%;min-height:96px;max-height:180px;object-fit:contain;border-radius:14px}
+    .live-source-remove{position:absolute;right:6px;top:6px;width:25px;height:25px;border:0;border-radius:50%;background:rgba(6,7,10,.74);color:#fff;font:700 16px/1 inherit;cursor:pointer;backdrop-filter:blur(8px)}
+    .live-source-add{min-height:96px;border:1px dashed var(--edge2);border-radius:14px;background:var(--s2);color:var(--tx2);display:grid;place-items:center;gap:4px;padding:12px;font:700 11px/1.3 inherit;cursor:pointer}.live-source-add b{font-size:22px;color:var(--quiet)}
+    .canvas.live-result-host{height:clamp(270px,50vh,520px);max-height:none!important;aspect-ratio:auto!important;background:#050509}
+    .canvas .live-result-preview{width:100%;height:100%;object-fit:contain;cursor:zoom-in;touch-action:manipulation;user-select:none;-webkit-user-drag:none}
+    .live-preview-hint{position:absolute;left:50%;bottom:9px;transform:translateX(-50%);white-space:nowrap;border-radius:999px;padding:6px 9px;background:rgba(6,7,10,.68);color:#fff;font:700 9.5px/1 inherit;pointer-events:none;backdrop-filter:blur(10px)}
+    .live-image-viewer[hidden]{display:none!important}.live-image-viewer{position:fixed;inset:0;z-index:1000;background:#020307;display:grid;grid-template-rows:auto 1fr;touch-action:none;overscroll-behavior:contain}
+    .live-image-viewer-bar{display:flex;align-items:center;gap:8px;padding:max(12px,env(safe-area-inset-top)) 12px 10px;color:#fff;background:linear-gradient(180deg,rgba(2,3,7,.96),rgba(2,3,7,.68));z-index:2}
+    .live-image-viewer-bar b{font:760 13px/1 inherit}.live-image-viewer-bar span{font:650 10px/1 inherit;color:#aaa}.live-image-viewer-bar button{border:0;border-radius:11px;padding:9px 11px;background:#171922;color:#fff;font:720 11px/1 inherit;cursor:pointer}.live-image-viewer-bar [data-viewer-close]{margin-left:auto;width:36px;height:36px;padding:0;border-radius:50%;font-size:20px}
+    .live-image-viewer-stage{position:relative;min-height:0;overflow:hidden;display:grid;place-items:center;touch-action:none}.live-image-viewer-stage img{width:100%;height:100%;object-fit:contain;transform-origin:center;will-change:transform;user-select:none;-webkit-user-drag:none;touch-action:none}
     .phone-sketch-canvas{width:100%;height:100%;touch-action:none;background:#fff;display:block}
     .live-status{position:absolute;left:10px;right:10px;bottom:10px;border-radius:12px;padding:8px 10px;background:rgba(6,7,10,.72);color:#fff;font:700 10px/1.3 inherit;backdrop-filter:blur(10px)}
     .pick.disabled{opacity:.38;pointer-events:none}.pick .live-price{margin-left:auto;color:var(--quiet);font:750 11px/1 inherit}
@@ -66,7 +77,7 @@
   `
   document.head.appendChild(styleNode)
 
-  const imageMode = () => ['text_to_image', 'image_to_image', 'paint', 'edit'][idx] || 'text_to_image'
+  const imageMode = () => idx === 0 ? 'text_to_image' : idx === 1 ? (state.imageRefs.length > 1 ? 'edit' : 'image_to_image') : idx === 2 ? 'paint' : 'text_to_image'
   const videoMode = () => ['text_to_video', 'image_to_video', 'first_last_frame', 'reference_to_video'][idx] || 'text_to_video'
   const feedTypes = ['top', 'fresh', 'remix', 'challenge', 'following']
   const resolutionTable = {
@@ -83,6 +94,78 @@
   }
   const html = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char])
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  const imageViewer = document.createElement('div')
+  imageViewer.className = 'live-image-viewer'; imageViewer.hidden = true
+  imageViewer.setAttribute('role', 'dialog'); imageViewer.setAttribute('aria-modal', 'true'); imageViewer.setAttribute('aria-label', 'Полноэкранный просмотр изображения')
+  imageViewer.innerHTML = `<div class="live-image-viewer-bar"><b>Просмотр</b><span data-viewer-scale>100%</span><button type="button" data-viewer-reset>Вписать</button><button type="button" data-viewer-close aria-label="Закрыть">×</button></div><div class="live-image-viewer-stage"><img alt="Результат генерации крупным планом"></div>`
+  document.body.appendChild(imageViewer)
+  const viewerImage = imageViewer.querySelector('img')
+  const viewerStage = imageViewer.querySelector('.live-image-viewer-stage')
+  const viewerScale = imageViewer.querySelector('[data-viewer-scale]')
+  let viewerTransform = { scale: 1, x: 0, y: 0 }
+  const viewerPointers = new Map()
+  let viewerPinch = null; let viewerLastTap = 0
+
+  function applyViewerTransform() {
+    if (viewerTransform.scale <= 1) viewerTransform = { scale: 1, x: 0, y: 0 }
+    viewerImage.style.transform = `translate(${viewerTransform.x}px,${viewerTransform.y}px) scale(${viewerTransform.scale})`
+    viewerScale.textContent = `${Math.round(viewerTransform.scale * 100)}%`
+    state.imageViewer = { open: !imageViewer.hidden, scale: viewerTransform.scale }
+  }
+  function resetImageViewer() { viewerTransform = { scale: 1, x: 0, y: 0 }; applyViewerTransform() }
+  function toggleImageViewerZoom() { viewerTransform = viewerTransform.scale > 1.05 ? { scale: 1, x: 0, y: 0 } : { scale: 2.5, x: 0, y: 0 }; applyViewerTransform() }
+  function openImageViewer(src) {
+    if (!src) return
+    viewerImage.src = src; imageViewer.hidden = false; document.body.style.overflow = 'hidden'; resetImageViewer()
+    imageViewer.querySelector('[data-viewer-close]').focus({ preventScroll: true })
+  }
+  function closeImageViewer() { imageViewer.hidden = true; document.body.style.overflow = ''; viewerPointers.clear(); viewerPinch = null; resetImageViewer() }
+  imageViewer.querySelector('[data-viewer-close]').addEventListener('click', closeImageViewer)
+  imageViewer.querySelector('[data-viewer-reset]').addEventListener('click', resetImageViewer)
+  viewerStage.addEventListener('dblclick', (event) => { event.preventDefault(); toggleImageViewerZoom() })
+  viewerStage.addEventListener('pointerdown', (event) => {
+    event.preventDefault(); try { viewerStage.setPointerCapture?.(event.pointerId) } catch {}
+    viewerPointers.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY, at: Date.now() })
+    if (viewerPointers.size === 2) {
+      const [a, b] = [...viewerPointers.values()]
+      viewerPinch = { distance: Math.hypot(a.x - b.x, a.y - b.y), scale: viewerTransform.scale }
+    }
+  })
+  viewerStage.addEventListener('pointermove', (event) => {
+    const point = viewerPointers.get(event.pointerId); if (!point) return
+    const previous = { x: point.x, y: point.y }; point.x = event.clientX; point.y = event.clientY
+    if (viewerPointers.size >= 2) {
+      const [a, b] = [...viewerPointers.values()]
+      const distance = Math.hypot(a.x - b.x, a.y - b.y)
+      if (!viewerPinch) viewerPinch = { distance, scale: viewerTransform.scale }
+      viewerTransform.scale = Math.max(1, Math.min(5, viewerPinch.scale * distance / Math.max(1, viewerPinch.distance)))
+    } else if (viewerTransform.scale > 1) {
+      viewerTransform.x += point.x - previous.x; viewerTransform.y += point.y - previous.y
+    }
+    applyViewerTransform()
+  })
+  const finishViewerPointer = (event) => {
+    const point = viewerPointers.get(event.pointerId)
+    if (point && event.pointerType === 'touch' && Date.now() - point.at < 280 && Math.hypot(point.x - point.startX, point.y - point.startY) < 10) {
+      const now = Date.now(); if (now - viewerLastTap < 330) { toggleImageViewerZoom(); viewerLastTap = 0 } else viewerLastTap = now
+    }
+    viewerPointers.delete(event.pointerId); viewerPinch = null
+  }
+  viewerStage.addEventListener('pointerup', finishViewerPointer); viewerStage.addEventListener('pointercancel', finishViewerPointer)
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !imageViewer.hidden) closeImageViewer() })
+
+  function installResultPreview(image) {
+    if (!image) return
+    image.classList.add('live-result-preview'); image.setAttribute('role', 'button'); image.setAttribute('tabindex', '0'); image.setAttribute('aria-label', 'Результат генерации. Дважды нажмите, чтобы открыть на весь экран')
+    image.addEventListener('dblclick', (event) => { event.preventDefault(); openImageViewer(image.currentSrc || image.src) })
+    let lastTap = 0
+    image.addEventListener('pointerup', (event) => {
+      if (event.pointerType !== 'touch') return
+      const now = Date.now(); if (now - lastTap < 330) { openImageViewer(image.currentSrc || image.src); lastTap = 0 } else lastTap = now
+    })
+    image.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openImageViewer(image.currentSrc || image.src) } })
+  }
 
   async function api(path, init = {}, retry = true) {
     let response = await fetch(`/api${path}`, { ...init, credentials: 'include' })
@@ -307,6 +390,16 @@
     fileInput.click()
   }
 
+  function acceptImageSources(values, append = false) {
+    const current = append ? state.imageRefs : []
+    state.imageRefs = [...current, ...values].filter(Boolean).slice(0, 4)
+    photo = state.imageRefs[0] || null
+    if (idx === 0) idx = 1
+    state.imageResults = []; state.imagePhase = 'idle'; gstate = 'idle'
+    queueMicrotask(() => { if (view === 'img' && idx === 1) enhanceImage() })
+    return state.imageRefs.length
+  }
+
   function preparedImage(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
@@ -431,7 +524,7 @@
     }
   }
 
-  const improveMode = () => ['text', 'i2i', 'sketch', 'edit'][idx] || 'text'
+  const improveMode = () => imageMode() === 'text_to_image' ? 'text' : imageMode() === 'paint' ? 'sketch' : imageMode() === 'edit' ? 'edit' : 'i2i'
 
   async function improveInput(input, button, mode = improveMode()) {
     if (!state.me) { toast('Войдите в аккаунт, чтобы улучшить описание'); openSheet('you'); return }
@@ -461,11 +554,10 @@
     if (buttons.add) buttons.add.addEventListener('click', () => {
       if (view !== 'img') return
       if (idx === 2) { toast('В этом режиме рисуйте прямо на холсте'); return }
-      chooseImages(idx === 3, (values) => {
-        if (idx === 0) idx = 1
-        if (idx === 3) { state.imageRefs = values.slice(0, 4); photo = values[0] || null }
-        else { photo = values[0] || null; state.imageRefs = [] }
-        paint(); toast(idx === 3 ? `Добавлено изображений: ${values.length}` : 'Изображение прикреплено')
+      const append = idx === 1 && state.imageRefs.length > 0
+      chooseImages(true, (values) => {
+        const count = acceptImageSources(values, append)
+        paint(); toast(count > 1 ? `Добавлено изображений: ${count}` : 'Изображение прикреплено')
       })
     })
     if (buttons.fix) buttons.fix.addEventListener('click', () => improveInput(gp, buttons.fix))
@@ -509,10 +601,7 @@
       const clean = attach.cloneNode(true); attach.replaceWith(clean)
       clean.addEventListener('click', () => {
         if (idx === 2) return
-        chooseImages(idx === 3, (values) => {
-          if (idx === 3) { state.imageRefs = values.slice(0, 4); photo = values[0] || null } else { photo = values[0] || null }
-          paintGen()
-        })
+        chooseImages(true, (values) => { acceptImageSources(values, state.imageRefs.length > 0); paintGen() })
       })
     }
     const clear = scr.querySelector('[data-clear]')
@@ -524,13 +613,26 @@
       const canvasHost = scr.querySelector('.canvas')
       if (canvasHost) { canvasHost.innerHTML = '<canvas class="phone-sketch-canvas" aria-label="Холст для наброска"></canvas>'; setupSketch(canvasHost.querySelector('canvas')) }
     }
-    if (idx === 3 && state.imageRefs.length && gstate !== 'done') {
+    if (idx === 1 && state.imageRefs.length && gstate !== 'done') {
       const canvasHost = scr.querySelector('.canvas')
-      if (canvasHost) canvasHost.innerHTML = `<div class="live-source-grid">${state.imageRefs.map((src) => `<img alt="" src="${html(src)}">`).join('')}</div>`
+      if (canvasHost) {
+        canvasHost.innerHTML = `<div class="live-source-grid ${state.imageRefs.length === 1 ? 'single' : ''}">${state.imageRefs.map((src, index) => `<span class="live-source-item"><img alt="Исходное изображение ${index + 1}" src="${html(src)}"><button type="button" class="live-source-remove" data-remove-source="${index}" aria-label="Убрать исходное изображение ${index + 1}">×</button></span>`).join('')}${state.imageRefs.length < 4 ? '<button type="button" class="live-source-add" data-live-add-source><b>+</b><span>Добавить ещё</span></button>' : ''}</div>`
+        canvasHost.querySelectorAll('[data-remove-source]').forEach((button) => button.addEventListener('click', () => {
+          state.imageRefs.splice(Number(button.dataset.removeSource), 1); photo = state.imageRefs[0] || null; paintGen()
+        }))
+        canvasHost.querySelector('[data-live-add-source]')?.addEventListener('click', () => chooseImages(true, (values) => { acceptImageSources(values, true); paintGen() }))
+      }
+      const chip = document.getElementById('chip')
+      if (chip) chip.querySelector('b').textContent = state.imageRefs.length > 1 ? `${state.imageRefs.length} изображения · совместить` : '1 изображение · изменить'
     }
     if (gstate === 'done' && state.imageResults.length) {
-      const results = scr.querySelector('.four')
-      if (results) results.innerHTML = state.imageResults.map((src) => `<div class="g sel"><img alt="Результат генерации" src="${html(src)}"></div>`).join('')
+      const resultHost = scr.querySelector('.canvas')
+      if (resultHost) {
+        const src = state.imageResults[0]
+        resultHost.classList.add('live-result-host')
+        resultHost.innerHTML = `<img alt="Результат генерации" src="${html(src)}"><span class="live-preview-hint">Дважды нажмите · увеличить</span>`
+        installResultPreview(resultHost.querySelector('img'))
+      }
     }
     if (gstate === 'busy' && state.imageJob) {
       const progress = Math.max(1, Math.min(99, Number(state.imageJob.progress || 1)))
@@ -550,7 +652,9 @@
     }
     if (modeKey === 'edit' && state.imageRefs.length < 2) { toast('Для сборки добавьте минимум два изображения'); return }
     const selected = selectedImageModel(); const [resolutionId, width, height] = selectedResolution()
-    const stylePrompt = style >= 0 ? `. Стиль: ${STYLES[style]?.[1] || ''}.` : ''
+    const styleRow = style >= 0 ? STYLES[style] : null
+    const styleText = modeKey === 'text_to_image' ? styleRow?.[3] : styleRow?.[4]
+    const stylePrompt = styleText ? `. ${styleText}` : ''
     const body = {
       mode: modeKey, provider: selected.provider || 'comfyui', prompt: `${prompt}${stylePrompt}`,
       negativePrompt: '', seed: Math.floor(Math.random() * 2147483646) + 1,
@@ -870,6 +974,7 @@
   const demoPaint = paint
   paint = function phonePaint() {
     demoPaint()
+    if (view === 'img') enhanceImage()
     if (view === 'feed') { renderFeed(); ensureFeed() }
     if (view === 'gal') renderGallery()
     if (view === 'vid') { syncVideoOptions(); estimateVideo() }

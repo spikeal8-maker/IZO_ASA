@@ -2,6 +2,7 @@ import { chromium } from 'playwright'
 
 const origin = (process.env.IZO_E2E_BASE_URL || 'http://127.0.0.1:4178').replace(/\/$/, '')
 const pixel = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640"><rect width="640" height="640" fill="#6D4AFF"/><circle cx="320" cy="320" r="190" fill="#EE86FB"/></svg>')
+const uploadPixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR42mNkYPj/n4GBgYGJAQoAHgQCAf2IseUAAAAASUVORK5CYII=', 'base64')
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
@@ -47,6 +48,8 @@ try {
       Object.defineProperty(window, 'MediaRecorder', { configurable: true, value: FakeMediaRecorder })
     })
     const page = await context.newPage()
+    const pageErrors = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
     await page.route('**/api/**', async (route) => {
       const request = route.request()
       const url = new URL(request.url())
@@ -96,7 +99,16 @@ try {
 
     if (viewportIndex === 0) {
       await frame.getByRole('button', { name: 'Картинка', exact: true }).click()
+      assert(await frame.evaluate(() => document.querySelector('.ph')?.scrollTop || 0) === 0, 'root phone container scrolled after bottom navigation')
       const imagePrompt = frame.getByPlaceholder('Например: сова в космосе, неоновые звёзды…', { exact: true })
+      assert(await frame.getByRole('tab').count() === 3, 'image editor tabs were not merged')
+      assert(await frame.getByRole('tab', { name: 'Изменить', exact: true }).count() === 1, 'unified image edit tab is missing')
+      await frame.getByText('Все шаблоны ›', { exact: true }).click()
+      assert(await frame.locator('[data-template]').count() === 23, 'shared image templates are incomplete')
+      assert(await frame.locator('[data-si]').count() === 0, 'template sheet opened on the wrong section')
+      await frame.locator('[data-template="0"]').click()
+      await frame.waitForFunction(() => document.querySelector('#gp')?.value.includes('фарфоровая чашка'))
+      await frame.locator('[data-st="0"]').click()
       await imagePrompt.fill('Розовый шар на столе')
       await frame.getByTitle('Улучшить описание').click()
       await frame.waitForFunction(() => document.querySelector('#gp')?.value.includes('стеклянный шар'))
@@ -107,17 +119,62 @@ try {
       await imageMic.click()
       await frame.waitForFunction(() => document.querySelector('#gp')?.value.includes('мягкие отражения'))
       assert(transcribeRequests === 1, `voice transcription request count=${transcribeRequests}`)
-      await frame.getByRole('button', { name: 'Сгенерировать 1 кр.', exact: true }).click()
+      await frame.locator('#run').click()
       await frame.waitForFunction(() => window.__IZO_PHONE_RUNTIME__?.imageResults?.length === 1 || Boolean(window.__IZO_PHONE_RUNTIME__?.lastError), null, { timeout: 8000 })
       const imageRuntime = await frame.evaluate(() => ({ results: window.__IZO_PHONE_RUNTIME__?.imageResults?.length || 0, error: window.__IZO_PHONE_RUNTIME__?.lastError || '' }))
       assert(imageRuntime.results === 1 && !imageRuntime.error, `phone image runtime failed: ${JSON.stringify(imageRuntime)}`)
-      const imageResultCount = await frame.getByAltText('Результат генерации').count()
+      const imageResultCount = await frame.locator('.canvas img[alt="Результат генерации"]').count()
       const imageMarkup = imageResultCount === 1 ? '' : await frame.evaluate(() => document.querySelector('#scr')?.innerHTML.slice(0, 1200) || '')
       assert(imageResultCount === 1, `image result is not rendered in the Drive template: ${imageMarkup}`)
+      assert(await frame.locator('.canvas.live-result-host .live-result-preview').count() === 1, 'generated image stayed in a thumbnail instead of the preview')
+      const resultBox = await frame.locator('.canvas.live-result-host').boundingBox()
+      assert(resultBox && resultBox.height >= 270, `generated image preview is too small: ${JSON.stringify(resultBox)}`)
       assert(generated.length === 1, `image request count=${generated.length}`)
       assert(generated[0].mode === 'text_to_image', 'phone image mode is not real text_to_image')
       assert(generated[0].provider === 'comfyui' && generated[0].modelProfile === 'local_flux_klein', 'phone image model contract changed')
       assert(generated[0].resolutionId === 'sq-hd' && generated[0].width === 1024 && generated[0].height === 1024, 'phone default is not square HD')
+      assert(generated[0].prompt.includes('коммерческая фотография'), 'selected shared style was not sent to generation')
+
+      await frame.locator('.live-result-preview').dblclick()
+      await frame.locator('.live-image-viewer').waitFor({ state: 'visible' })
+      assert((await frame.evaluate(() => window.__IZO_PHONE_RUNTIME__?.imageViewer))?.open === true, 'fullscreen image viewer did not open')
+      const viewerStage = frame.locator('.live-image-viewer-stage')
+      await viewerStage.dblclick()
+      assert((await frame.evaluate(() => window.__IZO_PHONE_RUNTIME__?.imageViewer?.scale || 0)) > 2, 'double tap zoom did not enlarge the image')
+      await frame.getByRole('button', { name: 'Вписать', exact: true }).click()
+      await frame.evaluate(() => {
+        const stage = document.querySelector('.live-image-viewer-stage')
+        const fire = (type, pointerId, clientX) => stage.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId, pointerType: 'touch', clientX, clientY: 360, buttons: type === 'pointerup' ? 0 : 1 }))
+        fire('pointerdown', 1, 150); fire('pointerdown', 2, 240); fire('pointermove', 2, 330)
+      })
+      assert((await frame.evaluate(() => window.__IZO_PHONE_RUNTIME__?.imageViewer?.scale || 0)) > 1.5, 'two-finger pinch did not enlarge the image')
+      await frame.evaluate(() => {
+        const stage = document.querySelector('.live-image-viewer-stage')
+        stage.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1, pointerType: 'touch', clientX: 150, clientY: 360 }))
+        stage.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 2, pointerType: 'touch', clientX: 330, clientY: 360 }))
+      })
+      await frame.locator('.live-image-viewer [data-viewer-close]').click()
+      await frame.locator('.live-image-viewer').waitFor({ state: 'hidden' })
+
+      const fileChooserPromise = page.waitForEvent('filechooser')
+      await frame.getByTitle('Прикрепить').click()
+      const chooser = await fileChooserPromise
+      await chooser.setFiles([
+        { name: 'base.png', mimeType: 'image/png', buffer: uploadPixel },
+        { name: 'reference.png', mimeType: 'image/png', buffer: uploadPixel },
+      ])
+      await frame.waitForFunction(() => window.__IZO_PHONE_RUNTIME__?.imageRefs?.length === 2)
+      assert(await frame.getByRole('tab', { name: 'Изменить', exact: true }).getAttribute('aria-selected') === 'true', 'adding images did not switch to the unified edit tab')
+      const sourceCount = await frame.locator('.live-source-item').count()
+      assert(sourceCount === 2, `multiple source images are not visible in the unified editor: ${await frame.evaluate(() => document.querySelector('#scr')?.innerHTML.slice(0, 1200) || '')}`)
+      await frame.locator('#gp').fill('Совмести основной объект и детали референса')
+      await frame.locator('#run').click()
+      await frame.waitForTimeout(250)
+      const editStart = await frame.evaluate(() => ({ disabled: document.querySelector('#run')?.disabled, phase: window.__IZO_PHONE_RUNTIME__?.imagePhase, error: window.__IZO_PHONE_RUNTIME__?.lastError }))
+      assert(generated.length === 2, `unified edit did not start: ${JSON.stringify({ editStart, pageErrors })}`)
+      await frame.waitForFunction(() => window.__IZO_PHONE_RUNTIME__?.imageResults?.length === 1 || Boolean(window.__IZO_PHONE_RUNTIME__?.lastError), null, { timeout: 8000 })
+      assert(generated.length === 2, `unified edit request count=${generated.length}`)
+      assert(generated[1].mode === 'edit' && generated[1].inputImages?.length === 2, 'unified editor did not route multiple sources to edit mode')
 
       await frame.getByRole('button', { name: 'Чат', exact: true }).click()
       const chatPrompt = frame.getByLabel('Сообщение в чат')
@@ -143,7 +200,7 @@ try {
     }
     await context.close()
   }
-  console.log('Phone Drive-template e2e passed: mobile layout, image tools, animated voice input, real chat contract and video request.')
+  console.log('Phone Drive-template e2e passed: merged image editor, shared presets, preview zoom and pinch, voice input, chat and video request.')
 } finally {
   await browser.close()
 }
