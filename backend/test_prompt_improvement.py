@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from app.api.routers import phone_chat as phone_chat_router
 # Browser-faithful contract: cookie-auth mutations carry an allowlisted Origin
 # to pass the CSRF boundary (AUTH-LEGACY-001B). GET requests stay untouched.
 from test_support.browser_origin import BROWSER_ORIGIN
@@ -101,7 +102,10 @@ def test_phone_chat_returns_real_provider_answer_without_logging_message(prompt_
         captured["request"] = req
         return "Готов помочь с идеей изображения.", {"usage": {"prompt_tokens": 8}}, "local", "gemma4:31b-cloud"
 
-    monkeypatch.setattr(main, "phone_chat_routed", fake_chat)
+    async def routed(req, _deps):
+        return await fake_chat(req)
+
+    monkeypatch.setattr(phone_chat_router, "route_phone_chat", routed)
     with TestClient(main.app) as client:
         response = client.post(
             "/api/phone/chat",
@@ -125,7 +129,10 @@ def test_phone_chat_provider_failure_is_neutral(prompt_user, monkeypatch):
     async def failed_chat(_req):
         raise RuntimeError("provider balance and private diagnostic")
 
-    monkeypatch.setattr(main, "phone_chat_routed", failed_chat)
+    async def routed(req, _deps):
+        return await failed_chat(req)
+
+    monkeypatch.setattr(phone_chat_router, "route_phone_chat", routed)
     with TestClient(main.app) as client:
         response = client.post(
             "/api/phone/chat",
@@ -142,7 +149,10 @@ def test_phone_chat_rejects_non_image_attachment(prompt_user, monkeypatch):
     async def should_not_run(_req):
         raise AssertionError("provider must not receive an invalid attachment")
 
-    monkeypatch.setattr(main, "phone_chat_routed", should_not_run)
+    async def routed(req, _deps):
+        return await should_not_run(req)
+
+    monkeypatch.setattr(phone_chat_router, "route_phone_chat", routed)
     with TestClient(main.app) as client:
         response = client.post(
             "/api/phone/chat",

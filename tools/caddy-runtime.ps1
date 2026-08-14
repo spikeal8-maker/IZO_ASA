@@ -222,6 +222,53 @@ function Test-IzoCaddyReleaseReady {
     return $false
 }
 
+function Test-IzoCaddyServiceFallback {
+    param(
+        [pscustomobject]$Runtime,
+        [pscustomobject]$Process
+    )
+
+    if ([string]$Process.Name -ine "caddy.exe" -or [int]$Process.ParentProcessId -le 0) {
+        return $false
+    }
+    $service = Get-CimInstance Win32_Service -Filter "Name='IZOCaddy'" -ErrorAction SilentlyContinue
+    if (
+        $null -eq $service -or
+        [string]$service.State -ne "Running" -or
+        [int]$service.ProcessId -ne [int]$Process.ParentProcessId
+    ) {
+        return $false
+    }
+    $servicePath = [string]$service.PathName
+    $wrapperPath = if ($servicePath -match '^"([^"]+)"') { $Matches[1] } else { ($servicePath -split '\s+', 2)[0] }
+    if (-not $wrapperPath.Trim()) {
+        return $false
+    }
+    $serviceConfigPath = [IO.Path]::ChangeExtension([IO.Path]::GetFullPath($wrapperPath), ".xml")
+    if (-not (Test-Path -LiteralPath $serviceConfigPath -PathType Leaf)) {
+        return $false
+    }
+    try {
+        [xml]$serviceConfig = Get-Content -LiteralPath $serviceConfigPath -Raw -Encoding UTF8
+        $configuredExecutable = [IO.Path]::GetFullPath([string]$serviceConfig.service.executable)
+        $configuredArguments = [string]$serviceConfig.service.arguments
+    } catch {
+        return $false
+    }
+    if (
+        [string]$serviceConfig.service.id -ne "IZOCaddy" -or
+        -not (Test-Path -LiteralPath $configuredExecutable -PathType Leaf) -or
+        [IO.Path]::GetFileName($configuredExecutable) -ine "caddy.exe" -or
+        (Get-IzoCaddySha256 -Path $configuredExecutable) -ne $Runtime.ExecutableSha256 -or
+        $configuredArguments -notmatch '(?i)\brun\b' -or
+        $configuredArguments -notmatch '(?i)--config\s+\S+' -or
+        $configuredArguments -notmatch '(?i)--adapter\s+caddyfile'
+    ) {
+        return $false
+    }
+    return $true
+}
+
 function Get-IzoFrontendListenerState {
     param(
         [pscustomobject]$Runtime,
@@ -248,6 +295,9 @@ function Get-IzoFrontendListenerState {
         $commandLine.IndexOf($runtimePath, [StringComparison]::OrdinalIgnoreCase) -ge 0
     ) -and $commandLine.IndexOf($Runtime.ConfigPath, [StringComparison]::OrdinalIgnoreCase) -ge 0
     if ($isCaddy) {
+        return [pscustomobject]@{ Kind = "caddy"; Process = $process; Listener = $listener }
+    }
+    if (Test-IzoCaddyServiceFallback -Runtime $Runtime -Process $process) {
         return [pscustomobject]@{ Kind = "caddy"; Process = $process; Listener = $listener }
     }
     $isLegacyVite = [string]$process.Name -ieq "node.exe" -and $commandLine -match "(?i)vite.+preview" -and $commandLine.IndexOf($Runtime.Root, [StringComparison]::OrdinalIgnoreCase) -ge 0

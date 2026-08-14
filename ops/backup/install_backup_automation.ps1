@@ -85,8 +85,8 @@ if (-not $WhatIfPreference) {
     . $networkScript
     $network = Get-IzoYandexNetworkState
     if (-not $network.HttpsReachable) { throw 'Yandex.Disk HTTPS connectivity check failed.' }
-    if ($network.ProbeInterface -match '(?i)AdGuard.*VPN' -and -not $network.AppBypassConfigured) {
-        throw 'Yandex.Disk has no verified AdGuard application exclusion; VPN settings were not changed.'
+    if (-not $network.DirectRouteVerified -and -not $network.AppBypassConfigured) {
+        throw 'Yandex.Disk has neither a verified direct route nor the legacy AdGuard application bypass.'
     }
 }
 
