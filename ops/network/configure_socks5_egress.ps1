@@ -52,15 +52,37 @@ function Assert-Administrator {
 }
 
 function Assert-NoBlockingOperation {
+    function Test-OperationLockActive {
+        param([string]$Path)
+        if (-not (Test-Path -LiteralPath $Path)) { return $false }
+        try {
+            $handle = [IO.File]::Open($Path, 'Open', 'ReadWrite', 'None')
+            $handle.Dispose()
+            return $false
+        } catch {
+            return $true
+        }
+    }
+
     $blocking = @(
         'C:\IZO_ASA\runtime\update.lock',
         'C:\IZO_ASA\runtime\project-update.lock',
         'C:\IZO_ASA\runtime\promotion.lock',
         'C:\IZO_ASA\runtime\local-backup.lock',
         'C:\IZO_ASA\runtime\future-primary-outbound.lock'
-    ) | Where-Object { Test-Path -LiteralPath $_ }
+    ) | Where-Object { Test-OperationLockActive -Path $_ }
     if ($blocking.Count -gt 0) {
         throw "A protected operation is active: $($blocking -join ', ')"
+    }
+    $runningTasks = @(
+        'IZO_ASA Local Backup 30m',
+        'IZO_ASA Yandex Outbound Nightly',
+        'IZO_ASA GitHub Update Check Nightly'
+    ) | Where-Object {
+        (Get-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue).State -eq 'Running'
+    }
+    if ($runningTasks.Count -gt 0) {
+        throw "A protected scheduled task is running: $($runningTasks -join ', ')"
     }
 }
 

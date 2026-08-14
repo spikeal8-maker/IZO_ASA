@@ -23,6 +23,9 @@ def test_socks5_switch_is_loopback_only_and_rollback_protected() -> None:
     assert "AdGuardVpnSvc" in script
     assert "Copy-Item -LiteralPath $ServiceXml" in script
     assert "local-backup.lock" in script
+    assert "Test-OperationLockActive" in script
+    assert "[IO.File]::Open($Path, 'Open', 'ReadWrite', 'None')" in script
+    assert "A protected scheduled task is running" in script
     assert "Wait-Healthy -Uri $LocalHealthUri" in script
     assert "Wait-Healthy -Uri $PublicHealthUri" in script
     assert "Copy-Item -LiteralPath (Join-Path $rollback 'IZOBackend.xml')" in script
