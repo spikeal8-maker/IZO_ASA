@@ -90,8 +90,8 @@ if (-not $syncWindowActive -and $yandexRunning) {
 if ($legacyRootConflict) { $errors.Add('yandex_sync_roots_overlap') }
 if ($null -ne $network) {
     if (-not $network.HttpsReachable) { $errors.Add('yandex_https_unavailable') }
-    if ($network.ProbeInterface -match '(?i)AdGuard.*VPN' -and -not $network.AppBypassConfigured) {
-        $errors.Add('yandex_adguard_app_exclusion_missing')
+    if (-not $network.DirectRouteVerified -and -not $network.AppBypassConfigured) {
+        $errors.Add('yandex_direct_route_or_legacy_bypass_missing')
     }
 }
 if ((Get-Service cldflt -ErrorAction SilentlyContinue).Status -ne 'Running') { $errors.Add('cldflt_not_running') }
@@ -123,6 +123,8 @@ $health['YandexRouteInterface'] = if ($null -ne $network) {
     'Not checked while Yandex.Disk is stopped outside the nightly window'
 }
 $health['YandexHttpsReachable'] = if ($null -ne $network) { [bool]$network.HttpsReachable } else { $null }
+$health['YandexRoutePolicy'] = if ($null -ne $network) { [string]$network.RoutePolicy } else { $null }
+$health['YandexDirectRouteVerified'] = if ($null -ne $network) { [bool]$network.DirectRouteVerified } else { $null }
 $health['YandexAppBypassConfigured'] = if ($null -ne $network) { [bool]$network.AppBypassConfigured } else { $null }
 $health['YandexAppBypassConfirmed'] = if ($null -ne $network) { [bool]$network.AppBypassObserved } else { $null }
 $health['YandexBypassEvidenceTimestamp'] = if ($null -ne $network) { $network.EvidenceTimestamp } else { $null }

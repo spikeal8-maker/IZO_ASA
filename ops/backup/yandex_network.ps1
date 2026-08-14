@@ -57,9 +57,28 @@ function Get-IzoYandexNetworkState {
         }
     }
 
+    $routeUsesAdGuard = [string]$route.InterfaceAlias -match '(?i)AdGuard|VPN'
+    $routeAdapter = Get-NetAdapter -Name ([string]$route.InterfaceAlias) -ErrorAction SilentlyContinue
+    $directRouteVerified = (
+        [bool]$route.TcpTestSucceeded -and
+        -not $routeUsesAdGuard -and
+        $null -ne $routeAdapter -and
+        $routeAdapter.HardwareInterface -eq $true
+    )
+    $routePolicy = if ($directRouteVerified) {
+        'direct-system-route'
+    } elseif ($configured) {
+        'legacy-adguard-app-exclusion'
+    } else {
+        'unverified'
+    }
+
     [pscustomobject]@{
         HttpsReachable = [bool]$route.TcpTestSucceeded
         ProbeInterface = [string]$route.InterfaceAlias
+        RoutePolicy = $routePolicy
+        DirectRouteVerified = $directRouteVerified
+        RequiresAppBypassEvidence = $routeUsesAdGuard
         AppBypassConfigured = $configured
         AppBypassObserved = $observed
         EvidenceTimestamp = $evidenceTimestamp

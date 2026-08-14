@@ -111,17 +111,22 @@ def test_outbound_records_actionable_powershell_error_details() -> None:
     assert outbound.index("$log = Join-Path $logDirectory") < outbound.index("try {")
 
 
-def test_yandex_network_gate_uses_configured_and_observed_app_bypass_evidence() -> None:
+def test_yandex_network_gate_prefers_direct_route_and_retains_legacy_bypass_fallback() -> None:
     helper = read_script("yandex_network.ps1")
     stage = read_script("stage_cloud_backup.ps1")
     health = read_script("check_backup_health.ps1")
 
     assert "VPN_CA_FORCE_BYPASS" in helper
+    assert "DirectRouteVerified" in helper
+    assert "RequiresAppBypassEvidence" in helper
+    assert "direct-system-route" in helper
+    assert "HardwareInterface -eq $true" in helper
     assert "AppBypassConfigured" in helper
     assert "AppBypassObserved" in helper
     for script in (stage, health):
-        assert "$network.ProbeInterface -match '(?i)AdGuard.*VPN'" in script
+        assert "-not $network.DirectRouteVerified" in script
         assert "-not $network.AppBypassConfigured" in script
+    assert "$network.RequiresAppBypassEvidence -and -not $network.AppBypassObserved" in stage
     assert "process-specific bypass was not observed" in stage
 
 

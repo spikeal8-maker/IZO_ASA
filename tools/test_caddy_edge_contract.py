@@ -137,6 +137,10 @@ def test_caddy_operational_scripts_have_fail_closed_plans() -> None:
     runtime_source = (ROOT / "tools" / "caddy-runtime.ps1").read_text(encoding="utf-8")
     assert "Pinned Caddy executable failed its SHA-256 integrity check" in runtime_source
     assert "Get-IzoFrontendListenerState" in runtime_source
+    assert "Test-IzoCaddyServiceFallback" in runtime_source
+    assert "[int]$service.ProcessId -ne [int]$Process.ParentProcessId" in runtime_source
+    assert "Get-IzoCaddySha256 -Path $configuredExecutable" in runtime_source
+    assert "$configuredArguments -notmatch '(?i)--adapter\\s+caddyfile'" in runtime_source
     assert 'Kind = "unknown"' in runtime_source
 
     check_source = (ROOT / "tools" / "check-caddy-edge.ps1").read_text(encoding="utf-8")

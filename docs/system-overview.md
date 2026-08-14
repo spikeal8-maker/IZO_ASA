@@ -1834,6 +1834,23 @@ Audit фиксировал свежие local/cloud snapshots, но health `ATTE
 Yandex через AdGuard VPN. Это требует утверждённой split-route policy и повторной
 restore-проверки.
 
+## 24.6. Explicit SOCKS5 egress (2026-08-14)
+
+AdGuard VPN is no longer treated as a transparent whole-host transport. In the
+target production mode it exposes a loopback SOCKS5 listener. Only the Backend
+opts in through `ALL_PROXY`; loopback application dependencies are protected by
+`NO_PROXY=127.0.0.1,localhost,::1`. FRP and Yandex.Disk remain separate
+processes without proxy environment and must prove direct physical-interface
+routes. `ops/network/configure_socks5_egress.ps1` owns the rollback-protected
+Backend switch and `ops/network/check_socks5_architecture.ps1` owns the final
+route evidence.
+
+The phone chat remains available at `POST /api/phone/chat`, but its request
+models, provider routing, attachment validation, sanitized telemetry and HTTP
+handler now live in `backend/app/api/routers/phone_chat.py`. `backend/main.py`
+only injects the authentication, assistant configuration, OpenRouter headers,
+availability recorder and event-log boundary into that router.
+
 # 25. Архитектурная карта и её проверка
 
 ## 25.1. Три слоя карты

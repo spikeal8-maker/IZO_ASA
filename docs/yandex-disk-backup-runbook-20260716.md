@@ -4,6 +4,13 @@
 
 ## Статус
 
+Update 2026-08-14: the target network model is explicit SOCKS5 egress for the
+Backend only. Yandex.Disk does not use the proxy and must reach
+`disk.yandex.ru:443` through a non-AdGuard physical interface. The older
+per-application AdGuard exclusion remains only as a temporary compatibility
+fallback while an older release is active. `YandexRoutePolicy` records either
+`direct-system-route`, `legacy-adguard-app-exclusion`, or `unverified`.
+
 Обновление 2026-07-27: прежняя схема hourly/01:00 заменена на отдельный
 контролируемый ночной контур. Локальные проверенные снимки создаются каждые
 30 минут, а Яндекс.Диск разрешён только в окне 02:00–05:00 Europe/Moscow.

@@ -585,6 +585,30 @@ Deployment/operational evidence 2026-07-20 (рестарт разрешён вл
 
 ### BACKUP-NET-001R — nightly Yandex regression repair (2026-07-27)
 
+#### SOCKS5-EGRESS-001 — explicit provider egress (2026-08-14)
+
+The previous AdGuard application-exclusion design is being replaced because a
+WFP/Wintun exclusion is not strong proof that FRP or Yandex.Disk bypasses the
+VPN. The approved target architecture is:
+
+1. AdGuard VPN runs in SOCKS5 mode and exposes a loopback-only listener.
+2. `IZOBackend` receives `ALL_PROXY=socks5://127.0.0.1:<port>` and
+   `NO_PROXY=127.0.0.1,localhost,::1`; pinned `httpx` plus `socksio` are release
+   dependencies.
+3. `IZOFrpc` and `YandexDisk4` receive no proxy environment and use the normal
+   physical-interface route. Their old AdGuard app exclusions are no longer a
+   security boundary.
+4. The production switch validates the listener owner, performs credential-free
+   OpenRouter and Telegram HTTPS probes, backs up the WinSW XML, restarts only
+   `IZOBackend`, verifies local/public health, and restores the XML on failure.
+5. Acceptance requires one FRP process, one established FRP connection sourced
+   from a physical-interface address, a direct Yandex HTTPS probe, a live
+   AdGuard-owned SOCKS5 listener, and public `ready=true`.
+
+The legacy application-exclusion route remains a compatibility fallback for an
+older deployed release until this package is promoted. It is not the target
+state.
+
 Current evidence:
 
 - the scheduled 02:00 PRIMARY outbound cycle collided with the half-hour local
