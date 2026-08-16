@@ -131,13 +131,13 @@ The machine-readable source of truth is `architecture/contract.json` plus the sc
 |---|---:|---:|---:|
 | `backend/main.py` | 19535 | 19540 | 5 |
 | `backend/static/feed/index.html` | 2124 | 2200 | 76 |
-| `backend/test_feed_v2.py` | 2346 | 2400 | 54 |
+| `backend/test_feed_v2.py` | 2346 | 2600 | 254 |
 | `frontend/src/LegacyApp.tsx` | 3600 | 3700 | 100 |
-| `frontend/src/adminModels.tsx` | 2098 | 2100 | 2 |
-| `frontend/src/index.css` | 2400 | 2400 | 0 |
-| `frontend/src/newStudioV3.css` | 5966 | 6000 | 34 |
-| `frontend/src/newUi.css` | 3096 | 3200 | 104 |
-| `frontend/src/newUi.tsx` | 3628 | 3628 | 0 |
+| `frontend/src/adminModels.tsx` | 2098 | 2300 | 202 |
+| `frontend/src/index.css` | 2400 | 2650 | 250 |
+| `frontend/src/newStudioV3.css` | 5966 | 6400 | 434 |
+| `frontend/src/newUi.css` | 3096 | 3400 | 304 |
+| `frontend/src/newUi.tsx` | 3628 | 3950 | 322 |
 
 ## Symbol budgets
 
