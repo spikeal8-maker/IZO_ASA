@@ -38,7 +38,7 @@ import {
 import { I2I_STYLES, T2I_TEMPLATES, styleShortLabel } from './stylePresets'
 import type { StylePreset } from './stylePresets'
 import TopBarV3 from './TopBarV3'
-import StudioSectionBar, { StudioSubmodeBar } from './studio/StudioSectionBar'
+import StudioSectionBar from './studio/StudioSectionBar'
 import { isImageTab } from './studio/studioSections'
 import StudioSoundPanel from './studio/StudioSoundPanel'
 import StudioModel3dPanel from './studio/StudioModel3dPanel'
@@ -149,7 +149,7 @@ export default function NewStudio(): ReactElement {
   // пока живут на /new. Это URL-изоляция, физический split компонента ниже в TODO.
   const initialRoute = initialViewFromPath()
   const [tab, setTabState] = useState<N2Tab>(initialRoute.tab)
-  const [submodesOpen, setSubmodesOpen] = useState(true)
+  const [submodesOpen, setSubmodesOpen] = useState(false)
   const [view, setView] = useState<N2View>(initialRoute.view)
 
   // Навигация страниц нового UI с синхронизацией URL. Каноничные маршруты:
@@ -3609,7 +3609,6 @@ export default function NewStudio(): ReactElement {
             onOpenAdmin={() => { window.location.href = '/admin' }}
             onOpenProfile={openProfilePage}
           />
-          {view === 'tabs' && <StudioSubmodeBar tab={tab} onSelectTab={setTab} open={submodesOpen} />}
           {view === 'profile' ? (
             <div className="iv3-content">{profilePage}</div>
           ) : tab === 'feed' ? (

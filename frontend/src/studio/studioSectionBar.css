@@ -1,139 +1,140 @@
-/* Новая шапка студии: крупные разделы вместо россыпи режимов.
-   Раньше в баре лежали пять равнозначных кнопок — По тексту, По фото, Сборка,
-   Редактор, Видео. Первые четыре относятся к изображениям, поэтому теперь они
-   свёрнуты под один раздел «Картинки», а верхний уровень отдан типам контента.
+/* Шапка студии в палитре телефонного интерфейса (/phone).
+   Значения токенов взяты один в один из phone-prototype.html, включая светлую
+   тему — на десктопе переключателя пока нет, но разметка к нему готова.
 
-   Цвета повторяют палитру .iv3, чтобы бар не выбивался из студии. */
+   Взаимодействие: при выборе «Картинок» остальные разделы уезжают влево, а на
+   их место выезжает список режимов этого раздела с кнопкой возврата. */
 
-.sb-bar {
-  --sb-line: rgba(255, 255, 255, .105);
-  --sb-text: #f3f6ef;
-  --sb-muted: #a6aea7;
-  --sb-lime: #b6cf12;
-  --sb-lime-soft: rgba(182, 207, 18, .12);
-  --sb-hit: 44px;
+.sb-rail {
+  --act: #B822C6;
+  --act2: #6D4AFF;
+  --quiet: #EE86FB;
+  --glow: rgba(184, 34, 198, .55);
+  --s2: #171B23;
+  --s3: #232936;
+  --edge: rgba(255, 255, 255, .08);
+  --edge2: rgba(255, 255, 255, .15);
+  --tx: #fff;
+  --tx2: #A8AFBC;
+  --tx3: #767E8C;
+  --hit: 44px;
 
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+
+[data-mode="light"] .sb-rail {
+  --act: #A21CAF;
+  --act2: #6D4AFF;
+  --quiet: #8E1897;
+  --glow: rgba(162, 28, 175, .35);
+  --s2: #EEF0F6;
+  --s3: #E2E6EF;
+  --edge: rgba(18, 19, 26, .1);
+  --edge2: rgba(18, 19, 26, .18);
+  --tx: #12131A;
+  --tx2: #454B59;
+  --tx3: #5F6674;
+}
+
+/* Две дорожки лежат друг на друге и меняются местами сдвигом */
+.sb-track {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
+  transition: transform .26s cubic-bezier(.22, .61, .36, 1), opacity .2s ease;
 }
 
-.sb-bar::-webkit-scrollbar { display: none; }
+.sb-track::-webkit-scrollbar { display: none; }
 
-.sb-section {
+.sb-track-modes {
+  position: absolute;
+  inset: 0;
+}
+
+/* Состояние дорожек задаётся инлайн-стилями от React: так переключение не
+   зависит от порядка подключения таблиц стилей в этом проекте. */
+
+/* Кнопка раздела — форма как на телефоне: радиус 10, компактные поля */
+.sb-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   flex: 0 0 auto;
-  min-height: var(--sb-hit);
-  padding: 0 15px;
+  min-height: var(--hit);
+  padding: 0 14px;
   border: 1px solid transparent;
-  border-radius: 11px;
+  border-radius: 10px;
   background: transparent;
-  color: var(--sb-muted);
+  color: var(--tx2);
   font: inherit;
-  font-size: 14.5px;
-  font-weight: 640;
+  font-size: 14px;
+  font-weight: 650;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
-  transition: color .15s ease, background-color .15s ease, border-color .15s ease;
+  transition: color .16s ease, background-color .16s ease, border-color .16s ease;
 }
 
-.sb-section svg { width: 17px; height: 17px; flex: 0 0 17px; }
+.sb-btn svg { width: 17px; height: 17px; flex: 0 0 17px; }
 
-.sb-section:hover { color: var(--sb-text); background: rgba(255, 255, 255, .05); }
-.sb-section:focus-visible { outline: 2px solid var(--sb-lime); outline-offset: 2px; }
+.sb-btn:hover { color: var(--tx); background: var(--s2); }
+.sb-btn:focus-visible { outline: 2px solid var(--act2); outline-offset: 2px; }
 
-.sb-section.is-active {
-  color: var(--sb-lime);
-  background: var(--sb-lime-soft);
-  border-color: rgba(182, 207, 18, .28);
+/* Активный раздел — тот же градиент, что на телефоне */
+.sb-btn.is-active {
+  background: linear-gradient(150deg, var(--act), var(--act2));
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 6px 18px -10px var(--glow);
 }
 
-/* Значок «есть вложенные режимы» */
-.sb-caret {
-  width: 12px !important;
-  height: 12px !important;
-  flex: 0 0 12px !important;
-  opacity: .7;
-  transition: transform .18s ease;
-}
-
-.sb-section.is-open .sb-caret { transform: rotate(180deg); }
-
-/* Раздел без готового API — помечен, но кликается */
-.sb-section.is-preview::after {
+/* Раздел, у которого ещё нет генерации */
+.sb-btn.is-preview::after {
   content: "скоро";
-  margin-left: 2px;
   padding: 2px 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, .08);
-  color: var(--sb-muted);
-  font-size: 10px;
+  border: 1px solid var(--edge2);
+  color: var(--quiet);
+  font-size: 9.5px;
   font-weight: 700;
-  letter-spacing: .3px;
+  letter-spacing: .4px;
   text-transform: uppercase;
 }
 
-/* Выезжающий ряд вложенных режимов «Картинок» */
-.sb-submodes {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding: 0 2px 2px;
-  animation: sb-slide .18s ease;
+.sb-btn.is-active.is-preview::after { border-color: rgba(255, 255, 255, .45); color: #fff; }
+
+.sb-caret { width: 12px !important; height: 12px !important; flex: 0 0 12px !important; opacity: .8; }
+
+/* Возврат к списку разделов */
+.sb-back {
+  padding: 0 12px 0 10px;
+  border-color: var(--edge);
+  background: var(--s2);
+  color: var(--tx);
 }
 
-.sb-submodes::-webkit-scrollbar { display: none; }
+.sb-back:hover { background: var(--s3); }
 
-@keyframes sb-slide {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: none; }
-}
+.sb-sep { flex: 0 0 1px; width: 1px; height: 22px; background: var(--edge2); margin: 0 3px; }
 
-.sb-submode {
-  flex: 0 0 auto;
-  min-height: 38px;
-  padding: 0 13px;
-  border: 1px solid var(--sb-line);
-  border-radius: 9px;
-  background: rgba(255, 255, 255, .03);
-  color: var(--sb-muted);
-  font: inherit;
-  font-size: 13.5px;
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: color .15s ease, background-color .15s ease, border-color .15s ease;
-}
-
-.sb-submode:hover { color: var(--sb-text); background: rgba(255, 255, 255, .07); }
-.sb-submode:focus-visible { outline: 2px solid var(--sb-lime); outline-offset: 2px; }
-
-.sb-submode.is-active {
-  color: #0b0f0a;
-  background: var(--sb-lime);
-  border-color: transparent;
-}
-
-/* 3D пока только на десктопе — так решено продуктово */
 @media (max-width: 900px) {
   .sb-desktop-only { display: none; }
-  .sb-section { padding: 0 12px; font-size: 14px; }
+  .sb-btn { padding: 0 12px; }
 }
 
-/* На узких экранах у разделов остаются значки, подписи прячутся */
 @media (max-width: 560px) {
-  .sb-section { padding: 0 11px; gap: 6px; }
-  .sb-section .sb-label { display: none; }
-  .sb-section.is-active .sb-label { display: inline; }
+  .sb-btn { padding: 0 10px; gap: 6px; font-size: 13.5px; }
+  .sb-btn.is-preview::after { display: none; }
+  .sb-btn .sb-label { display: none; }
+  .sb-btn.is-active .sb-label, .sb-back .sb-label { display: inline; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-track { transition: none; }
 }

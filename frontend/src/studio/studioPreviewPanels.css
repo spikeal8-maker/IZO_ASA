@@ -4,12 +4,18 @@
    не подключён. Палитра общая с .iv3. */
 
 .pv-panel {
-  --pv-line: rgba(255, 255, 255, .105);
-  --pv-text: #f3f6ef;
-  --pv-muted: #a6aea7;
-  --pv-dim: #737c74;
-  --pv-lime: #b6cf12;
-  --pv-panel: rgba(18, 23, 21, .82);
+  --pv-line: rgba(255, 255, 255, .08);
+  --pv-line2: rgba(255, 255, 255, .15);
+  --pv-text: #fff;
+  --pv-muted: #A8AFBC;
+  --pv-dim: #767E8C;
+  --pv-act: #B822C6;
+  --pv-act2: #6D4AFF;
+  --pv-quiet: #EE86FB;
+  --pv-glow: rgba(184, 34, 198, .55);
+  --pv-panel: #171B23;
+  --pv-panel2: #232936;
+  --pv-stage: #0E1117;
 
   height: 100%;
   min-height: 0;
@@ -30,10 +36,10 @@
   display: inline-block;
   margin-bottom: 12px;
   padding: 5px 12px;
-  border: 1px solid rgba(182, 207, 18, .3);
+  border: 1px solid rgba(184, 34, 198, .38);
   border-radius: 999px;
-  background: rgba(182, 207, 18, .1);
-  color: var(--pv-lime);
+  background: rgba(184, 34, 198, .14);
+  color: var(--pv-quiet);
   font-size: 11.5px;
   font-weight: 700;
   letter-spacing: .5px;
@@ -48,7 +54,7 @@
   place-items: center;
   border: 1px solid var(--pv-line);
   border-radius: 16px;
-  background: linear-gradient(160deg, rgba(20, 26, 23, .9), rgba(10, 13, 12, .9));
+  background: linear-gradient(160deg, var(--pv-stage), #08090E);
   overflow: hidden;
 }
 
@@ -84,8 +90,8 @@
 }
 
 .pv-chip:hover { color: var(--pv-text); background: rgba(255, 255, 255, .07); }
-.pv-chip:focus-visible { outline: 2px solid var(--pv-lime); outline-offset: 2px; }
-.pv-chip.is-active { color: #0b0f0a; background: var(--pv-lime); border-color: transparent; }
+.pv-chip:focus-visible { outline: 2px solid var(--pv-act2); outline-offset: 2px; }
+.pv-chip.is-active { color: #fff; background: linear-gradient(150deg, var(--pv-act), var(--pv-act2)); border-color: transparent; }
 
 .pv-input {
   width: 100%;
@@ -102,20 +108,21 @@
   box-sizing: border-box;
 }
 
-.pv-input:focus-visible { outline: 2px solid var(--pv-lime); outline-offset: 1px; }
+.pv-input:focus-visible { outline: 2px solid var(--pv-act2); outline-offset: 1px; }
 .pv-input::placeholder { color: var(--pv-dim); }
 
 .pv-slider { display: flex; align-items: center; gap: 12px; }
-.pv-slider input { flex: 1 1 auto; accent-color: var(--pv-lime); min-height: 44px; }
-.pv-slider b { min-width: 42px; color: var(--pv-lime); font-size: 14px; font-variant-numeric: tabular-nums; }
+.pv-slider input { flex: 1 1 auto; accent-color: var(--pv-act2); min-height: 44px; }
+.pv-slider b { min-width: 42px; color: var(--pv-act2); font-size: 14px; font-variant-numeric: tabular-nums; }
 
 .pv-run {
   min-height: 46px;
   padding: 0 20px;
   border: 0;
   border-radius: 11px;
-  background: var(--pv-lime);
-  color: #0b0f0a;
+  background: linear-gradient(150deg, var(--pv-act), var(--pv-act2));
+  color: #fff;
+  box-shadow: 0 10px 26px -14px var(--pv-glow);
   font: inherit;
   font-size: 15px;
   font-weight: 700;
@@ -146,7 +153,7 @@
   width: 6px;
   min-height: 6px;
   border-radius: 999px;
-  background: linear-gradient(180deg, var(--pv-lime), #5d7a0a);
+  background: linear-gradient(180deg, var(--pv-quiet), var(--pv-act2));
   animation: pv-pulse var(--pv-speed, 1100ms) ease-in-out infinite;
 }
 
@@ -157,7 +164,7 @@
 
 /* Каркас 3D: медленное вращение, скорость и плотность управляются слайдером */
 .pv-cube { width: 150px; height: 150px; animation: pv-spin var(--pv-spin, 14s) linear infinite; transform-origin: 50% 50%; }
-.pv-cube path, .pv-cube line { fill: none; stroke: var(--pv-lime); stroke-width: 1.4; stroke-linejoin: round; opacity: .9; }
+.pv-cube path, .pv-cube line { fill: none; stroke: var(--pv-quiet); stroke-width: 1.4; stroke-linejoin: round; opacity: .9; }
 .pv-cube .pv-cube-soft { stroke: var(--pv-muted); opacity: .35; }
 
 @keyframes pv-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -169,4 +176,19 @@
 @media (max-width: 560px) {
   .pv-panel { padding: 18px 12px 32px; }
   .pv-head h2 { font-size: 19px; }
+}
+
+/* Светлая тема — токены из /phone */
+[data-mode="light"] .pv-panel {
+  --pv-line: rgba(18, 19, 26, .1);
+  --pv-line2: rgba(18, 19, 26, .18);
+  --pv-text: #12131A;
+  --pv-muted: #454B59;
+  --pv-dim: #5F6674;
+  --pv-act: #A21CAF;
+  --pv-quiet: #8E1897;
+  --pv-glow: rgba(162, 28, 175, .35);
+  --pv-panel: #EEF0F6;
+  --pv-panel2: #E2E6EF;
+  --pv-stage: #FFFFFF;
 }
