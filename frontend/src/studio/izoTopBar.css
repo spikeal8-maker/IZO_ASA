@@ -1,0 +1,136 @@
+/* Единая верхняя шапка для всех страниц приложения.
+   Самодостаточна: собственные токены и никакой зависимости от обёртки .iv3,
+   поэтому её можно ставить и на страницы без полноэкранной сетки app-shell
+   (тарифы, правовые документы, админка).
+
+   Значения цветов повторяют .iv3 из newStudioV3.css, чтобы шапка выглядела
+   одинаково рядом со студийным интерфейсом. */
+
+.izo-topbar {
+  --tb-bg: rgba(7, 9, 8, .92);
+  --tb-line: rgba(255, 255, 255, .105);
+  --tb-text: #f3f6ef;
+  --tb-muted: #a6aea7;
+  --tb-accent: #b6cf12;
+  --tb-accent-soft: rgba(182, 207, 18, .12);
+  --tb-hit: 44px;
+
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 62px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  background: var(--tb-bg);
+  border-bottom: 1px solid var(--tb-line);
+  backdrop-filter: blur(18px);
+  color: var(--tb-text);
+  font: inherit;
+}
+
+/* Бренд */
+.izo-topbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: var(--tb-hit);
+  padding: 0 4px;
+  color: var(--tb-text);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: .2px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.izo-topbar-mark {
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  background: linear-gradient(140deg, var(--tb-accent), #6f8f0c);
+  flex: 0 0 20px;
+}
+
+.izo-topbar-accent { color: var(--tb-accent); }
+
+/* Центральная зона — растягивается и прокручивается, а не ломает строку */
+.izo-topbar-middle {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+}
+
+.izo-topbar-middle::-webkit-scrollbar { display: none; }
+
+.izo-topbar-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Кнопки: минимальная площадь нажатия 44px по обеим осям */
+.izo-topbar button,
+.izo-topbar-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: var(--tb-hit);
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--tb-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease;
+}
+
+.izo-topbar button:hover,
+.izo-topbar-link:hover { color: var(--tb-text); background: rgba(255, 255, 255, .05); }
+
+.izo-topbar button:focus-visible,
+.izo-topbar-link:focus-visible { outline: 2px solid var(--tb-accent); outline-offset: 2px; }
+
+.izo-topbar button.is-active,
+.izo-topbar-link.is-active {
+  color: var(--tb-accent);
+  background: var(--tb-accent-soft);
+  border-color: rgba(182, 207, 18, .28);
+}
+
+.izo-topbar-cta {
+  color: #0b0f0a !important;
+  background: var(--tb-accent) !important;
+  border-color: transparent !important;
+}
+
+.izo-topbar-cta:hover { filter: brightness(1.06); }
+
+/* Планшет: центральная зона уезжает в прокрутку, подписи остаются */
+@media (max-width: 900px) {
+  .izo-topbar { gap: 12px; padding: 8px 12px; }
+}
+
+/* Телефон: прячем подписи второстепенных действий, кнопки остаются 44px */
+@media (max-width: 560px) {
+  .izo-topbar { gap: 8px; padding: 8px 10px; }
+  .izo-topbar button { padding: 0 11px; }
+  .izo-topbar-hide-sm { display: none; }
+}

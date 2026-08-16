@@ -1,5 +1,6 @@
 import { Check, ChevronLeft, CircleAlert, CreditCard, Mail, ShieldCheck } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import IzoTopBar from './studio/IzoTopBar'
 import { formatModelCount } from './profileSupport'
 
 const API = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || '/api'
@@ -42,8 +43,14 @@ const shortLegalRoutes: Record<string, string> = {
   '/payment': 'payment', '/refunds': 'refunds', '/contacts': 'contacts', '/cookies': 'cookies',
 }
 
-function PublicHeader() {
-  return <header className="commerce-header"><a className="commerce-brand" href="/" aria-label="ИЗО АСА — на главную"><span>ИЗО</span> АСА</a><nav><a href="/tariffs">Тарифы</a><a href="/legal/contacts">Контакты</a><a className="commerce-login" href="/profile/tariffs">Войти</a></nav></header>
+function PublicHeader({ path }: { path: string }) {
+  return <IzoTopBar
+    sections={[
+      { id: 'tariffs', label: 'Тарифы', href: '/tariffs', active: path === '/tariffs' },
+      { id: 'contacts', label: 'Контакты', href: '/legal/contacts', active: path.startsWith('/legal') },
+    ]}
+    actions={[{ id: 'login', label: 'Войти', href: '/profile/tariffs', cta: true }]}
+  />
 }
 
 function PublicFooter({ legal }: { legal: Legal }) {
@@ -173,5 +180,5 @@ export default function CommercePage() {
     return shortLegalRoutes[path] || ''
   }, [path])
   const legal = data.legal || {}
-  return <div className="commerce-page"><PublicHeader /><main>{path === '/tariffs' ? <TariffsPage data={data} loading={loading} /> : <LegalPage kind={kind} legal={legal} />}</main><PublicFooter legal={legal} /></div>
+  return <div className="commerce-page"><PublicHeader path={path} /><main>{path === '/tariffs' ? <TariffsPage data={data} loading={loading} /> : <LegalPage kind={kind} legal={legal} />}</main><PublicFooter legal={legal} /></div>
 }
