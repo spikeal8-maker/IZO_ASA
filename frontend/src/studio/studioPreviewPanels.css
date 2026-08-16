@@ -1,0 +1,172 @@
+/* Экраны разделов, у которых ещё нет серверного API (Звук, 3D).
+   Они интерактивны — настройки выбираются и визуал на них отзывается, — но
+   результат не имитируется: кнопка запуска честно сообщает, что провайдер
+   не подключён. Палитра общая с .iv3. */
+
+.pv-panel {
+  --pv-line: rgba(255, 255, 255, .105);
+  --pv-text: #f3f6ef;
+  --pv-muted: #a6aea7;
+  --pv-dim: #737c74;
+  --pv-lime: #b6cf12;
+  --pv-panel: rgba(18, 23, 21, .82);
+
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 28px 20px 40px;
+  color: var(--pv-text);
+}
+
+.pv-head { text-align: center; max-width: 560px; }
+.pv-head h2 { margin: 0 0 8px; font-size: 22px; font-weight: 700; letter-spacing: .2px; }
+.pv-head p { margin: 0; color: var(--pv-muted); font-size: 14.5px; line-height: 1.5; }
+
+.pv-badge {
+  display: inline-block;
+  margin-bottom: 12px;
+  padding: 5px 12px;
+  border: 1px solid rgba(182, 207, 18, .3);
+  border-radius: 999px;
+  background: rgba(182, 207, 18, .1);
+  color: var(--pv-lime);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+}
+
+.pv-stage {
+  width: 100%;
+  max-width: 560px;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--pv-line);
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(20, 26, 23, .9), rgba(10, 13, 12, .9));
+  overflow: hidden;
+}
+
+.pv-card {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--pv-line);
+  border-radius: 14px;
+  background: var(--pv-panel);
+}
+
+.pv-row { display: flex; flex-direction: column; gap: 8px; }
+.pv-row > span { color: var(--pv-dim); font-size: 12px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+
+.pv-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+
+.pv-chip {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--pv-line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .03);
+  color: var(--pv-muted);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color .15s ease, background-color .15s ease, border-color .15s ease;
+}
+
+.pv-chip:hover { color: var(--pv-text); background: rgba(255, 255, 255, .07); }
+.pv-chip:focus-visible { outline: 2px solid var(--pv-lime); outline-offset: 2px; }
+.pv-chip.is-active { color: #0b0f0a; background: var(--pv-lime); border-color: transparent; }
+
+.pv-input {
+  width: 100%;
+  min-height: 84px;
+  padding: 12px 14px;
+  border: 1px solid var(--pv-line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .03);
+  color: var(--pv-text);
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 1.45;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.pv-input:focus-visible { outline: 2px solid var(--pv-lime); outline-offset: 1px; }
+.pv-input::placeholder { color: var(--pv-dim); }
+
+.pv-slider { display: flex; align-items: center; gap: 12px; }
+.pv-slider input { flex: 1 1 auto; accent-color: var(--pv-lime); min-height: 44px; }
+.pv-slider b { min-width: 42px; color: var(--pv-lime); font-size: 14px; font-variant-numeric: tabular-nums; }
+
+.pv-run {
+  min-height: 46px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--pv-lime);
+  color: #0b0f0a;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pv-run:hover { filter: brightness(1.06); }
+.pv-run:focus-visible { outline: 2px solid var(--pv-text); outline-offset: 2px; }
+
+.pv-note {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--pv-line);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .03);
+  color: var(--pv-muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.pv-note b { color: var(--pv-text); }
+
+/* Живая звуковая волна: столбики дышат, скорость зависит от выбранного темпа */
+.pv-wave { display: flex; align-items: center; justify-content: center; gap: 4px; height: 96px; }
+
+.pv-wave i {
+  display: block;
+  width: 6px;
+  min-height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--pv-lime), #5d7a0a);
+  animation: pv-pulse var(--pv-speed, 1100ms) ease-in-out infinite;
+}
+
+@keyframes pv-pulse {
+  0%, 100% { height: 12%; opacity: .55; }
+  50% { height: var(--pv-peak, 70%); opacity: 1; }
+}
+
+/* Каркас 3D: медленное вращение, скорость и плотность управляются слайдером */
+.pv-cube { width: 150px; height: 150px; animation: pv-spin var(--pv-spin, 14s) linear infinite; transform-origin: 50% 50%; }
+.pv-cube path, .pv-cube line { fill: none; stroke: var(--pv-lime); stroke-width: 1.4; stroke-linejoin: round; opacity: .9; }
+.pv-cube .pv-cube-soft { stroke: var(--pv-muted); opacity: .35; }
+
+@keyframes pv-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pv-wave i, .pv-cube { animation: none; }
+}
+
+@media (max-width: 560px) {
+  .pv-panel { padding: 18px 12px 32px; }
+  .pv-head h2 { font-size: 19px; }
+}

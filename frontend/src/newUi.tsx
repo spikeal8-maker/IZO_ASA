@@ -38,6 +38,11 @@ import {
 import { I2I_STYLES, T2I_TEMPLATES, styleShortLabel } from './stylePresets'
 import type { StylePreset } from './stylePresets'
 import TopBarV3 from './TopBarV3'
+import StudioSectionBar, { StudioSubmodeBar } from './studio/StudioSectionBar'
+import { isImageTab } from './studio/studioSections'
+import StudioSoundPanel from './studio/StudioSoundPanel'
+import StudioModel3dPanel from './studio/StudioModel3dPanel'
+import StudioChatPanel from './studio/StudioChatPanel'
 import type { V3Mode, V3Section } from './TopBarV3'
 import { accountInfo } from './topbarUtils'
 import ProfilePage, { type PublicProfileLink } from './ProfilePage'
@@ -144,6 +149,7 @@ export default function NewStudio(): ReactElement {
   // пока живут на /new. Это URL-изоляция, физический split компонента ниже в TODO.
   const initialRoute = initialViewFromPath()
   const [tab, setTabState] = useState<N2Tab>(initialRoute.tab)
+  const [submodesOpen, setSubmodesOpen] = useState(true)
   const [view, setView] = useState<N2View>(initialRoute.view)
 
   // Навигация страниц нового UI с синхронизацией URL. Каноничные маршруты:
@@ -3586,6 +3592,7 @@ export default function NewStudio(): ReactElement {
       <div className={`iv3 mode-${tab}`}>
         <div className="app-shell">
           <TopBarV3
+            sectionsSlot={<StudioSectionBar tab={tab} onSelectTab={setTab} submodesOpen={submodesOpen} onToggleSubmodes={setSubmodesOpen} />}
             active={topActive}
             authed={authStatus === 'authed'}
             avatarUrl={authStatus === 'authed' ? topbarAvatarSrc : null}
@@ -3602,11 +3609,18 @@ export default function NewStudio(): ReactElement {
             onOpenAdmin={() => { window.location.href = '/admin' }}
             onOpenProfile={openProfilePage}
           />
+          {view === 'tabs' && <StudioSubmodeBar tab={tab} onSelectTab={setTab} open={submodesOpen} />}
           {view === 'profile' ? (
             <div className="iv3-content">{profilePage}</div>
           ) : tab === 'feed' ? (
             <div className="iv3-content"><div className="preview-empty">Открываем ленту...</div></div>
-          ) : tab === 'text' || tab === 'i2i' || tab === 'edit' || tab === 'paint' ? (
+          ) : tab === 'sound' ? (
+            <div className="iv3-content"><StudioSoundPanel /></div>
+          ) : tab === 'model3d' ? (
+            <div className="iv3-content"><StudioModel3dPanel /></div>
+          ) : tab === 'chat' ? (
+            <div className="iv3-content"><StudioChatPanel authed={authStatus === 'authed'} /></div>
+          ) : isImageTab(tab) ? (
             studio
           ) : tab === 'video' ? (
             <Suspense fallback={<div className="iv3-content"><div className="preview-empty">Загружаем видеостудию…</div></div>}><VideoStudio authStatus={authStatus} onTokenBalanceChange={() => { void refreshAuthStateV2() }} /></Suspense>

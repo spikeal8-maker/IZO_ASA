@@ -889,10 +889,10 @@
       "remaining": 304
     },
     {
-      "lines": 3628,
+      "lines": 3642,
       "max_lines": 3950,
       "path": "frontend/src/newUi.tsx",
-      "remaining": 322
+      "remaining": 308
     }
   ],
   "frontend": {
@@ -1055,6 +1055,12 @@
         "sources": [
           "backend/static/gallery/gallery.js",
           "frontend/src/studio/videoSourceHandoff.ts"
+        ]
+      },
+      {
+        "path": "/api/phone/chat",
+        "sources": [
+          "frontend/src/studio/StudioChatPanel.tsx"
         ]
       },
       {

@@ -6,6 +6,7 @@
 // Разметка и классы намеренно совпадают с прототипом, чтобы работал scoped CSS
 // из newStudioV3.css (обёртка .iv3). Никаких legacy-auth: только колбэки.
 
+import type { ReactNode } from 'react'
 import { Gem, LogIn, SunMedium } from 'lucide-react'
 
 export type V3Mode = 'text' | 'i2i' | 'edit' | 'paint' | 'video'
@@ -25,6 +26,7 @@ function goto(path: string) {
 
 export default function TopBarV3({
   active,
+  sectionsSlot,
   onSelectMode,
   onOpenFeed,
   onOpenGallery,
@@ -41,6 +43,8 @@ export default function TopBarV3({
   tokenBalance,
 }: {
   active: V3Section
+  /** Заменяет ряд режимов новым набором разделов (Картинки/Видео/Звук/Чат/3D). */
+  sectionsSlot?: ReactNode
   onSelectMode?: (mode: V3Mode) => void
   onOpenFeed?: () => void
   onOpenGallery?: () => void
@@ -82,20 +86,22 @@ export default function TopBarV3({
         </button>
       </div>
 
-      <nav className="mode-tabs" aria-label="Режимы генератора">
-        {MODE_TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className={`tab${active === t.id ? ' active' : ''}`}
-            aria-label={t.hint}
-            title={t.hint}
-            onClick={() => selectMode(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      {sectionsSlot ?? (
+        <nav className="mode-tabs" aria-label="Режимы генератора">
+          {MODE_TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`tab${active === t.id ? ' active' : ''}`}
+              aria-label={t.hint}
+              title={t.hint}
+              onClick={() => selectMode(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      )}
 
       <div className="top-actions">
         <button

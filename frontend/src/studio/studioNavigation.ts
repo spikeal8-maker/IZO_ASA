@@ -83,6 +83,23 @@ export function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
       description: 'Создавайте видео по тексту, изображению, начальному и конечному кадру или набору референсов.',
       canonical,
     },
+    sound: {
+      title: 'Звук — ИЗО АСА',
+      description: 'Раздел озвучки и музыки ИЗО АСА готовится: интерфейс доступен, генерация подключается.',
+      canonical,
+      robots: 'noindex, nofollow',
+    },
+    chat: {
+      title: 'Чат — ИЗО АСА',
+      description: 'Помощник ИЗО АСА помогает сформулировать идею для изображения, видео или публикации.',
+      canonical,
+    },
+    model3d: {
+      title: '3D-модели — ИЗО АСА',
+      description: 'Раздел генерации 3D-моделей ИЗО АСА готовится: интерфейс доступен, генерация подключается.',
+      canonical,
+      robots: 'noindex, nofollow',
+    },
   }
   const en: Record<N2Tab, SeoMeta> = {
     feed: {
@@ -114,6 +131,23 @@ export function studioSeoMeta(tab: N2Tab, view: N2View): SeoMeta {
       title: 'Video — IZO ASA',
       description: 'Create videos from text, images, first and last frames, or visual references.',
       canonical,
+    },
+    sound: {
+      title: 'Sound — IZO ASA',
+      description: 'The IZO ASA voice and music section is in preparation: the interface is available, generation is being connected.',
+      canonical,
+      robots: 'noindex, nofollow',
+    },
+    chat: {
+      title: 'Chat — IZO ASA',
+      description: 'The IZO ASA assistant helps you shape an idea for an image, a video or a post.',
+      canonical,
+    },
+    model3d: {
+      title: '3D models — IZO ASA',
+      description: 'The IZO ASA 3D model section is in preparation: the interface is available, generation is being connected.',
+      canonical,
+      robots: 'noindex, nofollow',
     },
   }
   return locale === 'en' ? en[tab] : ru[tab]
