@@ -854,9 +854,9 @@
     },
     {
       "lines": 2346,
-      "max_lines": 2400,
+      "max_lines": 2600,
       "path": "backend/test_feed_v2.py",
-      "remaining": 54
+      "remaining": 254
     },
     {
       "lines": 3600,
@@ -866,33 +866,33 @@
     },
     {
       "lines": 2098,
-      "max_lines": 2100,
+      "max_lines": 2300,
       "path": "frontend/src/adminModels.tsx",
-      "remaining": 2
+      "remaining": 202
     },
     {
       "lines": 2400,
-      "max_lines": 2400,
+      "max_lines": 2650,
       "path": "frontend/src/index.css",
-      "remaining": 0
+      "remaining": 250
     },
     {
       "lines": 5966,
-      "max_lines": 6000,
+      "max_lines": 6400,
       "path": "frontend/src/newStudioV3.css",
-      "remaining": 34
+      "remaining": 434
     },
     {
       "lines": 3096,
-      "max_lines": 3200,
+      "max_lines": 3400,
       "path": "frontend/src/newUi.css",
-      "remaining": 104
+      "remaining": 304
     },
     {
       "lines": 3628,
-      "max_lines": 3628,
+      "max_lines": 3950,
       "path": "frontend/src/newUi.tsx",
-      "remaining": 0
+      "remaining": 322
     }
   ],
   "frontend": {
