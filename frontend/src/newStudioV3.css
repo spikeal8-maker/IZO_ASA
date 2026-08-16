@@ -5964,3 +5964,21 @@ bottom: 8px;
 max-width: calc(100% - 16px);
 }
 }
+
+/* Контролы верхней шапки: площадь нажатия 44px вместо общих 38px.
+   Правило .iv3 .feed-button,.iv3 .tab,... (см. выше) задаёт 38px всем кнопкам
+   студии, включая плотные панели инструментов, поэтому поднимаем высоту
+   адресно и только в шапке. Бар имеет min-height 62px при padding 8px, то есть
+   44px помещается без изменения раскладки.
+
+   Только для десктопа: на узких экранах шапка переходит на сетку с жёсткими
+   рядами (grid-template-rows: 31px 28px), и там высота задаётся ими. */
+@media (min-width: 901px) {
+  .iv3 .topbar .feed-button,
+  .iv3 .topbar .tab,
+  .iv3 .topbar .top-button,
+  .iv3 .topbar .account-button,
+  .iv3 .topbar .top-token-summary {
+    min-height: 44px;
+  }
+}
