@@ -473,18 +473,6 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
       setAvatarOpen(false); setReloadKey((key) => key + 1); onChanged?.()
     } finally { setAvatarBusy(false) }
   }
-  const uploadAdminAvatar = async (file?: File) => {
-    if (!file || !u.internal_user_id) return
-    setAvatarBusy(true); setAvatarMsg('')
-    try {
-      const form = new FormData(); form.append('file', file)
-      const reason = encodeURIComponent('Корректировка аватара администратором')
-      const response = await fetch(`${API}/admin/users/${encodeURIComponent(u.internal_user_id)}/avatar-upload-v2?reason=${reason}`, { method: 'POST', credentials: 'include', body: form })
-      const payload = await response.json().catch(() => ({})) as AnyRec
-      if (!response.ok) { setAvatarMsg(S(payload.detail || `Ошибка ${response.status}`)); return }
-      setAvatarOpen(false); setReloadKey((key) => key + 1); onChanged?.()
-    } finally { setAvatarBusy(false) }
-  }
 
   return (
     <div className="crm-card-overlay" onClick={onClose}>
@@ -524,7 +512,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
           </div>
           {avatarOpen && <div className="crm-avatar-picker" role="dialog" aria-label="Выбор аватара пользователя">
             <div className="crm-avatar-picker-head"><strong>Изменить аватар</strong><button type="button" aria-label="Закрыть выбор аватара" onClick={() => setAvatarOpen(false)}>×</button></div>
-            <label className="crm-avatar-upload">Загрузить изображение<input type="file" accept="image/png,image/jpeg,image/webp" disabled={avatarBusy} onChange={(event) => void uploadAdminAvatar(event.target.files?.[0])} /></label>
+            <small>Выберите новый аватар. Изменение сохранится в профиле и журнале аудита.</small>
             <div className="crm-avatar-presets">{avatarPresets.map((preset) => <button type="button" key={preset.id} disabled={avatarBusy} className={sm.avatar_preset === preset.id ? 'active' : ''} onClick={() => void chooseAvatarPreset(preset.id)}><img src={preset.url} alt={preset.label} /></button>)}</div>
             {avatarMsg && <small className="crm-err">{avatarMsg}</small>}
           </div>}

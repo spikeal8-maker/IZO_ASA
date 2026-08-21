@@ -1,7 +1,6 @@
 """Trusted per-user admin actions tests (Phase 20C). Temp DB; no live DB."""
 from __future__ import annotations
 
-import base64
 from pathlib import Path
 
 import pytest
@@ -156,32 +155,6 @@ def test_profile_update(temp_db):
     assert row["id"] == "telegram_1"  # protected
     assert row["role"] == "user"      # protected (not in profile model)
     assert count("audit_logs", "WHERE action='admin_update_user_profile'") == 1
-
-
-def test_admin_can_upload_user_avatar(temp_db, tmp_path, monkeypatch):
-    avatar_dir = tmp_path / "avatars"
-    monkeypatch.setattr(main, "AVATAR_DIR", avatar_dir)
-    tok = admin_token()
-    make_user("iuid-1", "telegram_1")
-    png = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-    )
-    with TestClient(main.app) as c:
-        response = c.post(
-            "/api/admin/users/iuid-1/avatar-upload-v2",
-            params={"reason": "Обновление аватара из CRM"},
-            files={"file": ("avatar.png", png, "image/png")},
-            headers=bearer(tok),
-        )
-    assert response.status_code == 200
-    avatar_url = response.json()["avatar_url"]
-    assert avatar_url.startswith("/media/avatars/iuid-1-")
-    assert len(list(avatar_dir.glob("*.webp"))) == 1
-    with main.db() as conn:
-        user = conn.execute("SELECT avatar_url, avatar_preset FROM users WHERE internal_user_id='iuid-1'").fetchone()
-    assert user["avatar_url"] == avatar_url
-    assert user["avatar_preset"] is None
-    assert count("audit_logs", "WHERE action='admin_update_user_avatar'") == 1
 
 
 # 21: no hashes in any action response
