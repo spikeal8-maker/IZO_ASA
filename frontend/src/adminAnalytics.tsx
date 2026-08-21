@@ -73,6 +73,17 @@ const jsonSummary = (v: unknown): string => v && typeof v === 'object'
   : S(v)
 const shortId = (v: unknown, n = 8): string => { const s = v == null ? '' : String(v); return s ? s.slice(0, n) + (s.length > n ? '…' : '') : '—' }
 const n0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+const moneyExact = (v: unknown, currency = 'RUB'): string => `${n0(v).toLocaleString('ru-RU', { minimumFractionDigits: currency === 'USD' ? 4 : 0, maximumFractionDigits: currency === 'USD' ? 6 : 2 })} ${currency === 'RUB' ? '₽' : currency}`
+const durationLabel = (v: unknown): string => {
+  const seconds = n0(v)
+  if (!seconds) return '—'
+  if (seconds < 60) return `${Math.round(seconds)} сек.`
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes} мин. ${Math.round(seconds % 60)} сек.`
+}
+const generationStatusLabel = (v: unknown): string => ({ completed: 'Готово', failed: 'Ошибка', queued: 'В очереди', running: 'В работе', submitting: 'Запуск' }[String(v)] || S(v))
+const modeLabel = (v: unknown): string => ({ text_to_image: 'Текст → изображение', image_to_image: 'Изображение → изображение', edit: 'Редактор', paint: 'Рисование', inpaint: 'Маска', outpaint: 'Расширение', faceswap: 'Лицо', remove_background: 'Удаление фона', text_to_video: 'Текст → видео', image_to_video: 'Изображение → видео', first_last_frame: 'Начало и конец', reference_to_video: 'Видео по референсам' }[String(v)] || S(v))
+const tokenReasonLabel = (v: unknown): string => ({ generation: 'Списание за генерацию', daily_generation: 'Списание дневных токенов', generation_refund: 'Возврат за неудачную генерацию', tariff_monthly_grant: 'Начисление по тарифу', promo_code_redeemed: 'Начисление по промокоду', manual_admin_adjustment: 'Ручная корректировка' }[String(v)] || S(v))
 const deferred = 'Отложено: backend v2 пока не отдаёт эти данные.'
 type ActivityKind = 'online' | 'today' | 'week' | 'month' | 'cold'
 type UserSort = 'recent' | 'activity_asc' | 'created_desc' | 'created_asc' | 'generations_desc' | 'generations_asc' | 'tokens_desc' | 'tokens_asc' | 'balance_desc' | 'balance_asc' | 'code_asc' | 'plan_asc' | 'plan_desc' | 'name_asc' | 'name_desc' | 'source_asc' | 'source_desc' | 'contact_asc' | 'contact_desc'
@@ -148,9 +159,43 @@ interface UserDetail {
   security_summary?: AnyRec
   access_summary?: AnyRec; ip_history?: AnyRec[]; client_history?: AnyRec[]; model_usage?: AnyRec[]; history_totals?: AnyRec
   token_summary?: { spent?: number; entries?: number; balance?: number }
+  token_economics?: AnyRec; generation_economics?: AnyRec; cash_economics?: AnyRec
 }
 
 interface HistoryPage { items?: AnyRec[]; total?: number; has_more?: boolean; offset?: number; limit?: number }
+
+function FinanceEvent({ item }: { item: AnyRec }): ReactElement {
+  const kind = String(item.kind || '')
+  const status = String(item.status || '')
+  const failed = status === 'failed' || status === 'cancelled'
+  if (kind === 'payment') {
+    const title = status === 'paid' ? 'Оплата получена' : status === 'failed' ? 'Попытка оплаты не прошла' : status === 'refunded' ? 'Оплата возвращена' : 'Операция оплаты'
+    return <div className={failed ? 'failed' : status === 'paid' ? 'ok' : ''}><b>{title}</b><span>{moneyExact(item.amount, S(item.currency))} · {S(item.provider)} / {S(item.method)} · токены {item.tokens_credited ? 'зачислены' : 'не зачислены'}</span><small>{shortTime(item.paid_at || item.created_at)} · платёж {S(item.id)}</small></div>
+  }
+  if (kind === 'invoice') {
+    const title = status === 'cancelled' ? 'Счёт отменён' : status === 'paid' ? 'Счёт оплачен' : status === 'issued' ? 'Счёт выставлен' : 'Счёт создан'
+    return <div className={failed ? 'failed' : status === 'paid' ? 'ok' : ''}><b>{title}</b><span>{S(item.code)} · {moneyExact(item.amount, S(item.currency))} · {S(item.tokens)} токенов</span><small>{shortTime(item.cancelled_at || item.paid_at || item.created_at)}</small></div>
+  }
+  if (kind === 'refund') return <div className={status === 'completed' || status === 'succeeded' ? 'ok' : ''}><b>Возврат денег</b><span>{moneyExact(item.amount, S(item.currency))} · токены {item.tokens_reversed ? 'отозваны' : 'не менялись'}</span><small>{shortTime(item.completed_at || item.created_at)} · возврат {S(item.id)}</small></div>
+  const delta = n0(item.delta)
+  const daily = n0(item.daily_part)
+  const main = n0(item.main_part)
+  return <div className={delta > 0 || String(item.reason).includes('refund') ? 'ok' : ''}><b>{tokenReasonLabel(item.reason)}</b><span>{delta > 0 ? `+${delta}` : daily ? `−${daily} дневных` : `−${main || Math.abs(delta)}`} ток. {item.job_id ? `· job ${S(item.job_id)}` : ''}</span><small>{shortTime(item.created_at)}</small></div>
+}
+
+function GenerationEvent({ item }: { item: AnyRec }): ReactElement {
+  const tokens = (item.tokens || {}) as AnyRec
+  const cost = item.cost_kind === 'actual'
+    ? `Фактическая цена API: ${moneyExact(item.actual_cost_rub)} / ${moneyExact(item.actual_cost_usd, 'USD')}`
+    : item.cost_kind === 'estimated'
+      ? `Расчётная цена до запуска: ${moneyExact(item.estimated_cost_rub)} / ${moneyExact(item.estimated_cost_usd, 'USD')} — не списание`
+      : item.provider_kind === 'local' ? 'Локальная себестоимость: тариф мощности пока не настроен' : 'Цена провайдера не записана'
+  return <article className={item.status === 'failed' ? 'crm-generation-row failed' : 'crm-generation-row'}>
+    <header><div><b>{S(item.model || item.provider)}</b><small>{item.provider_kind === 'local' ? 'Локальная модель · ComfyUI' : `API · ${S(item.provider)}`} · {modeLabel(item.mode)}</small></div><span className={`crm-generation-status status-${S(item.status)}`}>{generationStatusLabel(item.status)}</span></header>
+    <div className="crm-generation-chips"><span>Токены: {S(tokens.net)}{n0(tokens.refunded) ? ` · возврат ${S(tokens.refunded)}` : ''}</span><span>{cost}</span><span>Время: {durationLabel(item.elapsed_seconds)}</span><span>Job: {S(item.id)}</span></div>
+    <details><summary>Промпт и параметры</summary><p>{S(item.prompt || 'Промпт не сохранён')}</p>{Boolean(item.settings) && <small>{Object.entries(item.settings as AnyRec).map(([k, v]) => `${k}: ${S(v)}`).join(' · ')}</small>}{item.error ? <small className="crm-err">Ошибка: {S(item.error)}</small> : null}</details>
+  </article>
+}
 
 // --- Shared trusted-action confirm (compact popover, reason-gated, audited). ---
 type ActKind = 'tokens' | 'discount' | 'role' | 'plan' | 'profile' | 'ban' | 'unban' | 'reset' | 'deactivate' | 'invoice' | 'mark_paid' | 'refund' | 'cancel_invoice' | 'bonus' | 'cancel_bonus' | 'promo' | 'referral_reward'
@@ -332,7 +377,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
-  const historySection = tab === 'activity' ? 'logins' : tab === 'logs' ? 'events' : tab === 'security' ? 'security' : tab === 'prompts' ? 'generations' : tab === 'gallery' ? 'media' : ''
+  const historySection = tab === 'activity' ? 'logins' : tab === 'logs' ? 'events' : tab === 'security' ? 'security' : tab === 'payments' ? 'finance' : tab === 'prompts' ? 'generations' : tab === 'gallery' ? 'media' : ''
   const loadHistory = useCallback(async (append = false) => {
     if (!u.internal_user_id || !historySection) return
     const offset = append ? (history?.items?.length || 0) : 0
@@ -384,6 +429,9 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const generationPeriods = (periodMetrics.generations || {}) as AnyRec
   const totalJobs = (generationPeriods.total || {}) as AnyRec
   const tokenPeriods = (periodMetrics.token_usage || {}) as AnyRec
+  const tokenEconomics = (data?.token_economics || {}) as AnyRec
+  const generationEconomics = (data?.generation_economics || {}) as AnyRec
+  const cashEconomics = (data?.cash_economics || {}) as AnyRec
   const openImage = (img: AnyRec) => {
     setSelectedImage(img)
     setDeleteReason('')
@@ -620,18 +668,34 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
             </div>}
             {tab === 'logs' && <div className="crm-acc crm-dossier-section"><h3>Все события пользователя <small>{S(history?.total)}</small></h3><div className="crm-history-list">{(history?.items || []).map((e, n) => <div key={n}><b>{S(e.event_name)}</b><span>{S(e.platform)} · {S(e.device_type)} · <code>{S(e.ip_address)}</code></span><small>{shortTime(e.created_at)}</small></div>)}</div>{history?.has_more && <button className="secondary crm-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Загрузка…' : `Показать ещё (${history.items?.length || 0} из ${history.total || 0})`}</button>}</div>}
             {tab === 'security' && <div className="crm-acc crm-dossier-section"><h3>Безопасность <small>{S(history?.total)}</small></h3><div className="crm-dossier-metrics"><span><b>{S(data?.security_summary?.failed_login_count)}</b>ошибок входа</span><span><b>{S(data?.security_summary?.session_revocation_count)}</b>отозвано сессий</span><span><b>{S(data?.security_summary?.suspicious_ip_count)}</b>подозрительных IP</span><span><b>{riskLabel(sm)}</b>уровень риска</span></div><div className="crm-history-list">{(history?.items || []).map((e, n) => <div className={String(e.severity) === 'critical' ? 'failed' : ''} key={n}><b>{S(e.event_type)}</b><span>{S(e.severity)} · <code>{S(e.ip_address)}</code></span><small>{shortTime(e.created_at)} · {jsonSummary(e.details)}</small></div>)}</div>{history?.has_more && <button className="secondary crm-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>Показать ещё</button>}</div>}
-            {tab === 'payments' && <div className="crm-acc"><strong>Финансы</strong><div className="crm-rows">
-              {(data?.invoices_recent || []).map((i, n) => <small key={`ti${n}`}>Счёт {S(i.invoice_code)} · {S(i.status)} · {money(i.total_amount, S(i.currency))} · {S(i.tokens_total)} ток. · {shortTime(i.created_at)}</small>)}
-              {(data?.payments_recent || []).map((p, n) => <small key={`tp${n}`}>Оплата {shortId(p.id)} · {S(p.provider)} · {money(p.amount, S(p.currency))} · ledger {S(p.token_ledger_id)}</small>)}
-              {(data?.refunds_recent || []).map((r, n) => <small key={`tr${n}`}>Возврат {shortId(r.id)} · {money(r.amount, S(r.currency))} · {S(r.token_reversal_policy)}</small>)}
-            </div>{!data?.invoices_recent?.length && !data?.payments_recent?.length && !data?.refunds_recent?.length && <p className="crm-card-note">Нет реальных счетов/оплат/возвратов.</p>}</div>}
+            {tab === 'payments' && <div className="crm-acc crm-finance-view">
+              <div className="crm-section-heading"><h3>Финансы и токены</h3><span>{S(history?.total)} операций</span></div>
+              <section className="crm-finance-kpis">
+                <span><small>Текущий баланс</small><b>{S(tokenEconomics.current_balance)} ток.</b></span>
+                <span><small>Начислено без возвратов</small><b>+{S(tokenEconomics.granted)} ток.</b></span>
+                <span><small>Списано с основного</small><b>−{S(tokenEconomics.main_debited)} ток.</b></span>
+                <span><small>Возвращено за ошибки</small><b>+{S(tokenEconomics.refunded)} ток.</b></span>
+                <span className="primary"><small>Фактически потрачено основных</small><b>{S(tokenEconomics.main_consumed)} ток.</b></span>
+                <span><small>Потрачено дневных</small><b>{S(tokenEconomics.daily_consumed)} ток.</b></span>
+                <span><small>Получено денег</small><b>{moneyExact(cashEconomics.paid_rub)}</b></span>
+                <span><small>Чистое поступление</small><b>{moneyExact(cashEconomics.net_received_rub)}</b></span>
+                <span className="cost"><small>Фактические расходы OpenRouter</small><b>{moneyExact(generationEconomics.actual_api_cost_rub)} / {moneyExact(generationEconomics.actual_api_cost_usd, 'USD')}</b></span>
+              </section>
+              <section className="crm-cost-note"><b>Локальная генерация</b><span>{S(generationEconomics.local_completed_jobs)} завершённых · {durationLabel(generationEconomics.local_compute_seconds)} работы. Денежная себестоимость не показывается, пока в админке не настроена цена электроэнергии и оборудования.</span></section>
+              <section className="crm-dossier-section"><h3>Полная история денег и токенов</h3><div className="crm-history-list crm-finance-history">{(history?.items || []).map((item, n) => <FinanceEvent item={item} key={`${S(item.kind)}-${S(item.id)}-${n}`} />)}</div>{!historyLoading && !history?.items?.length && <p className="crm-card-note">Финансовых операций пока нет.</p>}{history?.has_more && <button className="secondary crm-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Загрузка…' : `Показать ещё (${history.items?.length || 0} из ${history.total || 0})`}</button>}</section>
+            </div>}
             {tab === 'loyalty' && <div className="crm-acc"><strong>Промо / бонусы / рефералы</strong><div className="crm-rows">
               {(data?.promo_redemptions_recent || []).map((p, n) => <small key={`lp${n}`}>Промо {S(p.promo_code)} · {S(p.status)} · +{S(p.token_bonus)} ток. · ledger {S(p.token_ledger_id)}</small>)}
               {(data?.bonus_grants_recent || []).map((b, n) => <small key={`lb${n}`}>Бонус {shortId(b.id)} · {S(b.bonus_type)} · {S(b.status)} · +{S(b.token_amount)} ток. · ledger {S(b.token_ledger_id)}</small>)}
               {(data?.referral_relations || []).map((r, n) => <small key={`lr${n}`}>Реф. связь {S(r.referral_code)} · {S(r.status)} · parent {S(r.parent_internal_user_id)} · child {S(r.child_internal_user_id)}</small>)}
               {(data?.referral_rewards_recent || []).map((r, n) => <small key={`lw${n}`}>Реф. награда {shortId(r.id)} · {S(r.status)} · +{S(r.token_amount)} ток. · ledger {S(r.token_ledger_id)}</small>)}
             </div>{!data?.promo_redemptions_recent?.length && !data?.bonus_grants_recent?.length && !data?.referral_rewards_recent?.length && <p className="crm-card-note">Нет реальных промо/бонусов/реферальных начислений.</p>}</div>}
-            {tab === 'prompts' && <div className="crm-acc"><div className="crm-section-heading"><h3>Все генерации и промпты</h3><span>{S(history?.total)} записей</span></div><div className="crm-model-usage crm-model-usage-compact">{(data?.model_usage || []).map((m, n) => <button type="button" key={n}><b>{S(m.model)}</b><span>{S(m.total)} запусков · {S(m.failed)} ошибок</span></button>)}</div><div className="crm-generation-list">{(history?.items || []).map((g, n) => <div className={g.status === 'failed' ? 'crm-generation-row failed' : 'crm-generation-row'} key={n}><span><b>{S(g.model || g.provider)}</b><small>{shortTime(g.created_at)} · {S(g.mode)} · {S(g.status)} · job {S(g.id)}</small></span><p>{S(g.prompt)}</p>{Boolean(g.settings) && <small>{Object.entries(g.settings as AnyRec).map(([k, v]) => `${k}: ${S(v)}`).join(' · ')}</small>}{g.error ? <small className="crm-err">{S(g.error)}</small> : null}</div>)}</div>{history?.has_more && <button className="secondary crm-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Загрузка…' : `Показать ещё (${history.items?.length || 0} из ${history.total || 0})`}</button>}</div>}
+            {tab === 'prompts' && <div className="crm-acc crm-generations-view">
+              <div className="crm-section-heading"><h3>Генерации, модели и себестоимость</h3><span>{S(history?.total)} запусков</span></div>
+              <section className="crm-generation-kpis"><span><small>Всего</small><b>{S(totalJobs.total)}</b></span><span><small>Готово</small><b>{S(totalJobs.completed)}</b></span><span><small>Ошибки</small><b>{S(totalJobs.failed)}</b></span><span><small>Расход OpenRouter</small><b>{moneyExact(generationEconomics.actual_api_cost_rub)}</b></span><span><small>Локальное время</small><b>{durationLabel(generationEconomics.local_compute_seconds)}</b></span></section>
+              <div className="crm-model-usage crm-model-usage-compact">{(data?.model_usage || []).map((m, n) => <button type="button" key={n}><b>{S(m.model)}</b><span>{m.provider_kind === 'local' ? 'Локальная · ComfyUI' : `API · ${S(m.provider)}`}<br />{S(m.total)} запусков · {S(m.completed)} готово · {S(m.failed)} ошибок<br />{S(m.net_tokens)} ток. после возвратов{n0(m.actual_cost_rub) ? ` · ${moneyExact(m.actual_cost_rub)}` : ''}</span><small>{durationLabel(m.elapsed_seconds)}</small></button>)}</div>
+              <div className="crm-generation-list">{(history?.items || []).map((g, n) => <GenerationEvent item={g} key={`${S(g.job_id)}-${n}`} />)}</div>{history?.has_more && <button className="secondary crm-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Загрузка…' : `Показать ещё (${history.items?.length || 0} из ${history.total || 0})`}</button>}
+            </div>}
             {tab === 'gallery' && <div className="crm-acc"><div className="crm-section-heading"><h3>Вся медиатека пользователя</h3><span>{S(history?.total)} файлов</span></div><div className="crm-dossier-gallery">{(history?.items || []).map((media, n) => <button type="button" className="crm-dossier-media" key={n} onClick={() => media.type === 'video' ? setSelectedVideo(media) : openImage(media)}>{media.type === 'video' ? <video src={S(media.media_url)} muted preload="metadata" /> : <img src={imageUrl(media)} alt="" />}<span><b>{media.type === 'video' ? 'Видео' : 'Изображение'}</b><small>{S(media.width)}×{S(media.height)} · {shortTime(media.created_at)}</small><small>{S(media.provider)} · {S(media.mode)}</small></span></button>)}</div>{history?.has_more && <button className="secondary crm-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Загрузка…' : `Показать ещё (${history.items?.length || 0} из ${history.total || 0})`}</button>}</div>}
             {tab === 'tech' && <div className="crm-acc">
               <strong>Устройства, входы и служебные идентификаторы</strong>

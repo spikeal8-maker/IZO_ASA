@@ -254,6 +254,129 @@ def _event_details(value: Any) -> dict[str, Any]:
     return result
 
 
+def _number(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _elapsed_seconds(started_at: Any, completed_at: Any) -> float | None:
+    if not started_at or not completed_at:
+        return None
+    try:
+        started = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+        completed = datetime.fromisoformat(str(completed_at).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return round(max(0.0, (completed - started).total_seconds()), 3)
+
+
+def _generation_economics(settings: dict[str, Any], status: Any) -> dict[str, Any]:
+    billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
+    actual_usd = _number(billing.get("actualCostUsd"))
+    if actual_usd is None:
+        actual_usd = _number(settings.get("openrouterCostUsd"))
+    actual_rub = _number(billing.get("actualCostRub"))
+    estimated_usd = _number(billing.get("estimatedCostUsd"))
+    estimated_rub = _number(billing.get("estimatedCostRub"))
+    completed = str(status or "") == "completed"
+    has_actual = completed and actual_usd is not None
+    return {
+        "actual_cost_usd": round(actual_usd, 6) if has_actual else None,
+        "actual_cost_rub": round(actual_rub, 2) if has_actual and actual_rub is not None else None,
+        "estimated_cost_usd": round(estimated_usd, 6) if estimated_usd is not None else None,
+        "estimated_cost_rub": round(estimated_rub, 2) if estimated_rub is not None else None,
+        "cost_kind": "actual" if has_actual else ("estimated" if estimated_usd is not None else "unpriced"),
+    }
+
+
+def _token_job_map(conn: sqlite3.Connection, user_id: str) -> dict[str, dict[str, int]]:
+    result: dict[str, dict[str, int]] = {}
+    for row in conn.execute("SELECT delta,reason,meta_json FROM token_ledger WHERE user_id=?", (user_id,)):
+        metadata = _json_object(row["meta_json"])
+        job_id = str(metadata.get("jobId") or metadata.get("job_id") or "")
+        if not job_id:
+            continue
+        item = result.setdefault(job_id, {"main": 0, "daily": 0, "refunded": 0})
+        reason = str(row["reason"] or "")
+        if "refund" in reason:
+            item["refunded"] += int(metadata.get("token_cost") or abs(int(row["delta"] or 0)))
+        else:
+            item["daily"] += max(0, int(metadata.get("daily_part") or 0))
+            item["main"] += max(0, int(metadata.get("balance_part") or max(0, -int(row["delta"] or 0))))
+    return result
+
+
+def _finance_projection(conn: sqlite3.Connection, internal_user_id: str, user_id: str) -> dict[str, Any]:
+    grants = main_refunded = daily_refunded = main_debited = daily_debited = ledger_entries = 0
+    for row in conn.execute("SELECT delta,reason,meta_json FROM token_ledger WHERE user_id=?", (user_id,)):
+        ledger_entries += 1
+        delta = int(row["delta"] or 0)
+        reason = str(row["reason"] or "")
+        metadata = _json_object(row["meta_json"])
+        if "refund" in reason:
+            daily_refunded += max(0, int(metadata.get("daily_part") or 0))
+            main_refunded += max(0, int(metadata.get("balance_part") or max(0, delta)))
+        elif delta > 0:
+            grants += delta
+        else:
+            main_debited += max(0, int(metadata.get("balance_part") or -delta))
+            daily_debited += max(0, int(metadata.get("daily_part") or 0))
+
+    actual_usd = actual_rub = 0.0
+    actual_jobs = local_jobs = 0
+    local_seconds = 0.0
+    for row in conn.execute("SELECT provider,status,settings_json,created_at,started_at,completed_at FROM jobs WHERE user_id=?", (user_id,)):
+        economics = _generation_economics(_json_object(row["settings_json"]), row["status"])
+        if economics["cost_kind"] == "actual":
+            actual_jobs += 1
+            actual_usd += float(economics["actual_cost_usd"] or 0)
+            actual_rub += float(economics["actual_cost_rub"] or 0)
+        if str(row["provider"] or "") == "comfyui" and str(row["status"] or "") == "completed":
+            duration = _elapsed_seconds(row["started_at"] or row["created_at"], row["completed_at"])
+            if duration is not None:
+                local_jobs += 1
+                local_seconds += duration
+
+    paid = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) amount FROM payments WHERE internal_user_id=? AND status IN ('paid','partially_refunded','refunded')",
+        (internal_user_id,),
+    ).fetchone()
+    returned = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) amount FROM refunds WHERE internal_user_id=? AND status IN ('completed','succeeded')",
+        (internal_user_id,),
+    ).fetchone()
+    return {
+        "token_economics": {
+            "current_balance": _scalar(conn, "SELECT token_balance FROM users WHERE id=?", (user_id,)),
+            "granted": grants,
+            "main_debited": main_debited,
+            "refunded": main_refunded + daily_refunded,
+            "main_refunded": main_refunded,
+            "daily_refunded": daily_refunded,
+            "main_consumed": max(0, main_debited - main_refunded),
+            "daily_consumed": max(0, daily_debited - daily_refunded),
+            "total_consumed": max(0, main_debited - main_refunded) + max(0, daily_debited - daily_refunded),
+            "ledger_entries": ledger_entries,
+        },
+        "generation_economics": {
+            "actual_api_cost_usd": round(actual_usd, 6),
+            "actual_api_cost_rub": round(actual_rub, 2),
+            "actual_api_jobs": actual_jobs,
+            "local_completed_jobs": local_jobs,
+            "local_compute_seconds": round(local_seconds, 3),
+            "local_cost_configured": False,
+            "local_cost_rub": None,
+        },
+        "cash_economics": {
+            "paid_rub": int(paid["amount"] or 0),
+            "refunded_rub": int(returned["amount"] or 0),
+            "net_received_rub": int(paid["amount"] or 0) - int(returned["amount"] or 0),
+        },
+    }
+
+
 def user_dossier_enrichment(
     conn: sqlite3.Connection,
     internal_user_id: str,
@@ -304,16 +427,35 @@ def user_dossier_enrichment(
     client_history = sorted(clients.values(), key=lambda item: item.get("last_seen_at") or "", reverse=True)
     for item in client_history:
         item["sources"] = sorted(item["sources"])
+    job_tokens = _token_job_map(conn, user_id)
     models: dict[tuple[str, str], dict[str, Any]] = {}
-    for row in conn.execute("SELECT provider,status,settings_json,created_at FROM jobs WHERE user_id=?", (user_id,)):
+    for row in conn.execute("SELECT id,provider,status,settings_json,created_at,started_at,completed_at FROM jobs WHERE user_id=?", (user_id,)):
         settings = _json_object(row["settings_json"])
         provider = str(row["provider"] or "—")
         model = str(settings.get("modelProfile") or settings.get("openrouterModel") or settings.get("model") or provider)
-        item = models.setdefault((provider, model), {"provider": provider, "model": model, "total": 0, "completed": 0, "failed": 0, "last_used_at": None})
+        item = models.setdefault((provider, model), {"provider": provider, "model": model, "total": 0, "completed": 0, "failed": 0, "last_used_at": None, "main_tokens": 0, "daily_tokens": 0, "refunded_tokens": 0, "actual_cost_usd": 0.0, "actual_cost_rub": 0.0, "actual_cost_jobs": 0, "elapsed_seconds": 0.0})
         item["total"] += 1
         if row["status"] == "completed": item["completed"] += 1
         if row["status"] == "failed": item["failed"] += 1
         item["last_used_at"] = max(filter(None, (item["last_used_at"], row["created_at"])), default=None)
+        tokens = job_tokens.get(str(row["id"]), {})
+        item["main_tokens"] += int(tokens.get("main", 0))
+        item["daily_tokens"] += int(tokens.get("daily", 0))
+        item["refunded_tokens"] += int(tokens.get("refunded", 0))
+        economics = _generation_economics(settings, row["status"])
+        if economics["cost_kind"] == "actual":
+            item["actual_cost_jobs"] += 1
+            item["actual_cost_usd"] += float(economics["actual_cost_usd"] or 0)
+            item["actual_cost_rub"] += float(economics["actual_cost_rub"] or 0)
+        elapsed = _elapsed_seconds(row["started_at"] or row["created_at"], row["completed_at"])
+        if elapsed is not None:
+            item["elapsed_seconds"] += elapsed
+    for item in models.values():
+        item["actual_cost_usd"] = round(float(item["actual_cost_usd"]), 6)
+        item["actual_cost_rub"] = round(float(item["actual_cost_rub"]), 2)
+        item["elapsed_seconds"] = round(float(item["elapsed_seconds"]), 3)
+        item["net_tokens"] = max(0, int(item["main_tokens"]) + int(item["daily_tokens"]) - int(item["refunded_tokens"]))
+        item["provider_kind"] = "local" if item["provider"] == "comfyui" else "api"
     total_queries = {
         "events": ("SELECT COUNT(*) FROM event_logs WHERE internal_user_id=?", internal_user_id),
         "security_events": ("SELECT COUNT(*) FROM security_events WHERE internal_user_id=?", internal_user_id),
@@ -330,11 +472,12 @@ def user_dossier_enrichment(
         "client_history": client_history,
         "model_usage": sorted(models.values(), key=lambda item: (-int(item["total"]), str(item["model"]))),
         "history_totals": history_totals,
+        **_finance_projection(conn, internal_user_id, user_id),
     }
 
 
 def user_history_page(conn: sqlite3.Connection, internal_user_id: str, section: str, limit: int, offset: int) -> dict[str, Any]:
-    allowed = {"logins", "sessions", "events", "security", "audits", "generations", "media"}
+    allowed = {"logins", "sessions", "events", "security", "audits", "generations", "media", "finance"}
     if section not in allowed:
         raise ValueError("unknown_section")
     user = conn.execute("SELECT id FROM users WHERE internal_user_id=?", (internal_user_id,)).fetchone()
@@ -364,10 +507,26 @@ def user_history_page(conn: sqlite3.Connection, internal_user_id: str, section: 
     elif section == "generations":
         total = _scalar(conn, "SELECT COUNT(*) FROM jobs WHERE user_id=?", (user_id,))
         rows = conn.execute("SELECT id,mode,provider,status,prompt_original,error_message,settings_json,created_at,started_at,completed_at FROM jobs WHERE user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?", (user_id, limit, offset)).fetchall()
+        job_tokens = _token_job_map(conn, user_id)
         items = []
         for r in rows:
             settings = _json_object(r["settings_json"])
-            items.append({"id": _short(r["id"]), "mode": r["mode"], "provider": r["provider"], "status": r["status"], "model": settings.get("modelProfile") or settings.get("openrouterModel") or settings.get("model") or r["provider"], "prompt": _text(r["prompt_original"], 3000), "error": _text(r["error_message"], 600), "created_at": r["created_at"], "started_at": r["started_at"], "completed_at": r["completed_at"], "settings": {key: settings[key] for key in ("aspectRatio", "resolution", "quality", "duration", "steps", "seed") if settings.get(key) is not None}})
+            tokens = job_tokens.get(str(r["id"]), {"main": 0, "daily": 0, "refunded": 0})
+            items.append({"id": _short(r["id"]), "job_id": r["id"], "mode": r["mode"], "provider": r["provider"], "provider_kind": "local" if r["provider"] == "comfyui" else "api", "status": r["status"], "model": settings.get("modelProfile") or settings.get("openrouterModel") or settings.get("model") or r["provider"], "prompt": _text(r["prompt_original"], 3000), "error": _text(r["error_message"], 600), "created_at": r["created_at"], "started_at": r["started_at"], "completed_at": r["completed_at"], "elapsed_seconds": _elapsed_seconds(r["started_at"] or r["created_at"], r["completed_at"]), "tokens": {**tokens, "net": max(0, int(tokens["main"]) + int(tokens["daily"]) - int(tokens["refunded"]))}, **_generation_economics(settings, r["status"]), "settings": {key: settings[key] for key in ("aspectRatio", "resolution", "quality", "duration", "steps", "seed") if settings.get(key) is not None}})
+    elif section == "finance":
+        items = []
+        for r in conn.execute("SELECT id,invoice_code,status,currency,total_amount,tokens_total,reason,created_at,issued_at,paid_at,cancelled_at,refunded_at FROM invoices WHERE internal_user_id=?", (internal_user_id,)):
+            items.append({"kind": "invoice", "id": _short(r["id"]), "code": r["invoice_code"], "status": r["status"], "currency": r["currency"], "amount": int(r["total_amount"] or 0), "tokens": int(r["tokens_total"] or 0), "reason": _text(r["reason"], 240), "created_at": r["created_at"], "issued_at": r["issued_at"], "paid_at": r["paid_at"], "cancelled_at": r["cancelled_at"], "refunded_at": r["refunded_at"]})
+        for r in conn.execute("SELECT id,invoice_id,status,amount,currency,method,provider,paid_at,reason,token_ledger_id,created_at FROM payments WHERE internal_user_id=?", (internal_user_id,)):
+            items.append({"kind": "payment", "id": _short(r["id"]), "invoice_id": _short(r["invoice_id"]), "status": r["status"], "amount": int(r["amount"] or 0), "currency": r["currency"], "method": r["method"], "provider": r["provider"], "paid_at": r["paid_at"], "reason": _text(r["reason"], 240), "tokens_credited": bool(r["token_ledger_id"]), "token_ledger_id": _short(r["token_ledger_id"]), "created_at": r["created_at"]})
+        for r in conn.execute("SELECT id,payment_id,invoice_id,status,amount,currency,reason,token_reversal_ledger_id,created_at,completed_at FROM refunds WHERE internal_user_id=?", (internal_user_id,)):
+            items.append({"kind": "refund", "id": _short(r["id"]), "payment_id": _short(r["payment_id"]), "invoice_id": _short(r["invoice_id"]), "status": r["status"], "amount": int(r["amount"] or 0), "currency": r["currency"], "reason": _text(r["reason"], 240), "tokens_reversed": bool(r["token_reversal_ledger_id"]), "created_at": r["created_at"], "completed_at": r["completed_at"]})
+        for r in conn.execute("SELECT id,delta,reason,meta_json,created_at FROM token_ledger WHERE user_id=?", (user_id,)):
+            metadata = _json_object(r["meta_json"])
+            items.append({"kind": "token", "id": _short(r["id"]), "status": "completed", "delta": int(r["delta"] or 0), "reason": r["reason"], "job_id": _short(metadata.get("jobId") or metadata.get("job_id")), "daily_part": int(metadata.get("daily_part") or 0), "main_part": int(metadata.get("balance_part") or 0), "token_cost": int(metadata.get("token_cost") or 0), "created_at": r["created_at"]})
+        items.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+        total = len(items)
+        items = items[offset:offset + limit]
     else:
         image_total = _scalar(conn, "SELECT COUNT(*) FROM images WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='')", (user_id,))
         video_total = _scalar(conn, "SELECT COUNT(*) FROM videos WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='')", (user_id,))
