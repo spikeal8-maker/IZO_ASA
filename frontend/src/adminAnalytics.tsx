@@ -85,7 +85,18 @@ const durationLabel = (v: unknown): string => {
 const generationStatusLabel = (v: unknown): string => ({ completed: 'Готово', failed: 'Ошибка', queued: 'В очереди', running: 'В работе', submitting: 'Запуск' }[String(v)] || S(v))
 const modeLabel = (v: unknown): string => ({ text_to_image: 'Текст → изображение', image_to_image: 'Изображение → изображение', edit: 'Редактор', paint: 'Рисование', inpaint: 'Маска', outpaint: 'Расширение', faceswap: 'Лицо', remove_background: 'Удаление фона', text_to_video: 'Текст → видео', image_to_video: 'Изображение → видео', first_last_frame: 'Начало и конец', reference_to_video: 'Видео по референсам' }[String(v)] || S(v))
 const tokenReasonLabel = (v: unknown): string => ({ generation: 'Списание за генерацию', daily_generation: 'Списание дневных токенов', generation_refund: 'Возврат за неудачную генерацию', tariff_monthly_grant: 'Начисление по тарифу', promo_code_redeemed: 'Начисление по промокоду', manual_admin_adjustment: 'Ручная корректировка' }[String(v)] || S(v))
-const eventLabel = (v: unknown): string => ({ me_opened: 'Открыт профиль', login_succeeded: 'Успешный вход', password_login_succeeded: 'Вход по паролю', password_register_succeeded: 'Регистрация', profile_updated: 'Профиль изменён', avatar_uploaded: 'Аватар изменён', generation_created: 'Запущена генерация', generation_completed: 'Генерация завершена', generation_failed: 'Ошибка генерации', session_revoked: 'Сессия завершена' }[String(v)] || S(v).replaceAll('_', ' '))
+const eventLabel = (v: unknown): string => ({
+  me_opened: 'Открыт профиль', app_opened: 'Открыто приложение',
+  login_started: 'Начат вход', login_succeeded: 'Успешный вход',
+  password_login_succeeded: 'Вход по паролю', password_login_failed: 'Ошибка входа по паролю',
+  password_register_succeeded: 'Регистрация', profile_updated: 'Профиль изменён',
+  avatar_uploaded: 'Аватар изменён', prompt_improved: 'Промпт улучшен',
+  voice_transcribed: 'Голос преобразован в текст', frontend_runtime_error: 'Ошибка интерфейса',
+  generation_started: 'Запущена генерация', generation_created: 'Создана генерация',
+  generation_completed: 'Генерация завершена', generation_failed: 'Ошибка генерации',
+  admin_tokens_adjusted: 'Администратор изменил токены', crm_bonus_granted: 'Начислен CRM-бонус',
+  promo_code_redeemed: 'Активирован промокод', session_revoked: 'Сессия завершена',
+}[String(v)] || S(v).replaceAll('_', ' '))
 const deferred = 'Отложено: backend v2 пока не отдаёт эти данные.'
 type ActivityKind = 'online' | 'today' | 'week' | 'month' | 'cold'
 type UserSort = 'recent' | 'activity_asc' | 'created_desc' | 'created_asc' | 'generations_desc' | 'generations_asc' | 'tokens_desc' | 'tokens_asc' | 'balance_desc' | 'balance_asc' | 'code_asc' | 'plan_asc' | 'plan_desc' | 'name_asc' | 'name_desc' | 'source_asc' | 'source_desc' | 'contact_asc' | 'contact_desc'
