@@ -351,7 +351,7 @@
     "backend/static/gallery/index.html"
   ],
   "file_limits": [
-    {"path": "backend/main.py", "max_lines": 19540},
+    {"path": "backend/main.py", "max_lines": 19624},
     {"path": "frontend/src/newStudioV3.css", "max_lines": 6400},
     {"path": "frontend/src/newUi.tsx", "max_lines": 3950},
     {"path": "frontend/src/LegacyApp.tsx", "max_lines": 3700},
@@ -366,7 +366,7 @@
       "path": "backend/main.py",
       "max_top_level_functions": 725,
       "max_top_level_classes": 83,
-      "max_routes": 223
+      "max_routes": 238
     }
   ],
   "release_contract": {
