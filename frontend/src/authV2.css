@@ -5,6 +5,17 @@
   backdrop-filter: blur(8px);
 }
 
+.max-mini-app .auth-modal-overlay {
+  inset: 0 0 auto;
+  width: 100%;
+  height: var(--app-viewport-height);
+  min-height: var(--app-viewport-height);
+  padding-top: max(12px, env(safe-area-inset-top));
+  padding-right: max(12px, env(safe-area-inset-right));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  padding-left: max(12px, env(safe-area-inset-left));
+}
+
 .auth-modal {
   width: min(440px, calc(100vw - 32px));
   max-height: min(92dvh, 760px);
@@ -17,6 +28,10 @@
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.42);
   color: #f3f7f3;
   font-family: "Onest Variable", Onest, Inter, system-ui, sans-serif;
+}
+
+.max-mini-app .auth-modal {
+  max-height: min(calc(var(--app-viewport-height) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px), 760px);
 }
 
 .auth-modal-heading {
@@ -311,6 +326,14 @@
     border-bottom: 0;
     border-left: 0;
     border-radius: 8px 8px 0 0;
+  }
+
+  .max-mini-app .auth-modal-overlay {
+    padding: max(8px, env(safe-area-inset-top)) 0 env(safe-area-inset-bottom);
+  }
+
+  .max-mini-app .auth-modal {
+    max-height: calc(var(--app-viewport-height) - max(8px, env(safe-area-inset-top)) - env(safe-area-inset-bottom));
   }
 
   .auth-modal-heading {

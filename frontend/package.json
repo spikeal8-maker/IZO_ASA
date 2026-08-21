@@ -22,6 +22,7 @@
     "e2e:presets": "node e2e-presets-login.mjs",
     "e2e:visual": "node e2e-visual-reference.mjs",
     "e2e:layout": "node e2e-responsive-layout.mjs",
+    "e2e:max-bridge": "node e2e-max-bridge-layout.mjs",
     "e2e:full-ui": "node e2e-full-ui-transcript.mjs",
     "e2e:stage1": "node e2e-stage1.mjs",
     "e2e:stage3": "node e2e-stage3.mjs",

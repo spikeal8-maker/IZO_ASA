@@ -100,7 +100,7 @@ $securityHeaders = @{
     "X-Frame-Options" = "SAMEORIGIN"
     "X-Permitted-Cross-Domain-Policies" = "none"
     "Strict-Transport-Security" = "max-age=31536000"
-    "Content-Security-Policy" = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data: https:; worker-src 'self' blob:"
+    "Content-Security-Policy" = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss:; script-src 'self' 'unsafe-inline' https://st.max.ru; style-src 'self' 'unsafe-inline'; font-src 'self' data: https:; worker-src 'self' blob:"
 }
 foreach ($entry in $securityHeaders.GetEnumerator()) {
     if ([string]$rootResponse.Response.Headers[$entry.Key] -ne $entry.Value) {

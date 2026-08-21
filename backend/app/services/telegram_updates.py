@@ -84,11 +84,15 @@ async def handle_telegram_update_with_runtime(
                 "sendMessage",
                 {
                     "chat_id": chat_id,
-                    "text": "Готово. Вернитесь в браузер." if approved else "Ссылка входа устарела. Попробуйте снова.",
+                    "text": (
+                        "Вход подтверждён. Вернитесь в ИЗО АСА — окно входа закроется автоматически."
+                        if approved
+                        else "Запрос входа устарел или уже использован. Вернитесь в ИЗО АСА и начните вход через Telegram заново."
+                    ),
                 },
             )
         return {"updateId": update_id, "chatId": chat_id, "botLogin": "approved" if approved else "rejected"}
-    if isinstance(text, str) and text.startswith("/"):
+    if isinstance(text, str) and text.strip():
         answer = runtime.command_response(text)
         if send_replies and chat_id is not None:
             await runtime.api_call("sendMessage", telegram_answer_payload(chat_id, answer))

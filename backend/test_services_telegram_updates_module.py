@@ -143,7 +143,7 @@ def test_approve_update_preserves_dependency_and_api_call_order() -> None:
         (
             "api",
             "sendMessage",
-            {"chat_id": 777, "text": "Готово. Вернитесь в браузер."},
+            {"chat_id": 777, "text": "Вход подтверждён. Вернитесь в ИЗО АСА — окно входа закроется автоматически."},
         ),
     ]
 
@@ -179,7 +179,7 @@ def test_rejected_approve_keeps_replies_and_does_not_schedule_avatar() -> None:
     assert avatars == []
     assert calls == [
         ("answerCallbackQuery", {"callback_query_id": "cb-2", "text": "Ссылка устарела"}),
-        ("sendMessage", {"chat_id": 8, "text": "Ссылка входа устарела. Попробуйте снова."}),
+        ("sendMessage", {"chat_id": 8, "text": "Запрос входа устарел или уже использован. Вернитесь в ИЗО АСА и начните вход через Telegram заново."}),
     ]
 
 
@@ -236,7 +236,7 @@ def test_send_message_error_still_propagates() -> None:
         ))
 
 
-def test_batch_filters_unhandled_updates_and_preserves_order() -> None:
+def test_batch_answers_plain_messages_and_preserves_order() -> None:
     async def api_call(method: str, payload: dict | None = None) -> dict:
         raise AssertionError(f"unexpected API call: {method} {payload}")
 
@@ -256,6 +256,8 @@ def test_batch_filters_unhandled_updates_and_preserves_order() -> None:
     ))
 
     assert result == [
+        {"updateId": 1, "chatId": 1, "answer": {"text": "answer:plain", "buttons": []}},
         {"updateId": 2, "chatId": 2, "answer": {"text": "answer:/help", "buttons": []}},
+        {"updateId": 3, "chatId": 3, "answer": {"text": "answer:plain", "buttons": []}},
         {"updateId": 4, "chatId": 4, "answer": {"text": "answer:/app", "buttons": []}},
     ]

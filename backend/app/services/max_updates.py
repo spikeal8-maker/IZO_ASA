@@ -69,6 +69,12 @@ def max_user_from_message(message: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def max_message_is_bot_authored(update: dict[str, Any], message: dict[str, Any]) -> bool:
+    """Detect provider-marked bot messages even when a top-level id is present."""
+    candidates = [message.get("sender"), message.get("user"), update.get("user")]
+    return any(isinstance(candidate, dict) and candidate.get("is_bot") is True for candidate in candidates)
+
+
 def enrich_max_user_profile(user: dict[str, Any], update: dict[str, Any] | None) -> dict[str, Any]:
     if not user.get("photo_url"):
         avatar = user.get("full_avatar_url") or user.get("avatar_url")
@@ -201,7 +207,18 @@ async def handle_max_update_with_runtime(
             runtime.schedule_avatar(str(user.get("id") or ""))
         params = max_recipient_params(message, update)
         if send_replies and params:
-            await runtime.api_call("POST", "/messages", {"text": "Готово. Вернитесь в браузер." if approved else "Ссылка входа устарела. Попробуйте снова."}, params)
+            await runtime.api_call(
+                "POST",
+                "/messages",
+                {
+                    "text": (
+                        "Вход подтверждён. Вернитесь в ИЗО АСА — окно входа закроется автоматически."
+                        if approved
+                        else "Запрос входа устарел или уже использован. Вернитесь в ИЗО АСА и начните вход через MAX заново."
+                    )
+                },
+                params,
+            )
         return {"update": update, "recipient": params, "botLogin": "approved" if approved else "rejected"}
     login_payload = max_login_payload_from_update(update, text)
     if login_payload:
@@ -213,7 +230,7 @@ async def handle_max_update_with_runtime(
             await runtime.api_call("POST", "/messages", max_message_payload(answer), params)
             runtime.log("MAX confirmation button sent")
         return {"update": update, "recipient": params, "answer": answer}
-    if isinstance(text, str) and text.startswith("/"):
+    if isinstance(text, str) and text.strip() and user_present and not max_message_is_bot_authored(update, message):
         answer = runtime.command_response(text)
         params = max_recipient_params(message, update)
         if send_replies and params:

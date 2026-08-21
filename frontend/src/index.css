@@ -1,5 +1,6 @@
 * { box-sizing: border-box; }
 :root {
+  --app-viewport-height: 100dvh;
   --bg: #070707;
   --panel: #0d0d0d;
   --field: #202020;
@@ -57,6 +58,8 @@ button { cursor: pointer; border: 0; }
 
 .app-shell { height: 100vh; background: radial-gradient(circle at 20% 0%, #101010 0, var(--bg) 34%); position: relative; overflow: hidden; }
 .workspace { height: 100vh; padding: 20px 30px; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; }
+.max-mini-app .app-shell,
+.max-mini-app .workspace { height: var(--app-viewport-height); }
 .admin-route-shell .workspace { padding: 20px; }
 .admin-route-shell .workspace > section:not(.bottom-strip) { padding-top: 0; }
 .admin-workspace { max-width: 1920px; margin: 0 auto; }

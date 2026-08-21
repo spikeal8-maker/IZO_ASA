@@ -83,23 +83,43 @@ export default function AdminBots() {
   const [busy, setBusy] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [loaded, setLoaded] = useState(false)
 
   const load = useCallback(async () => {
     setBusy('load')
     setError('')
-    const [configPayload, statusPayload] = await Promise.all([
-      adminGet<AdminRecord>('/admin/bots/config-v2'),
-      adminGet<AdminRecord>('/admin/bots/status-v2'),
-    ])
-    if (configPayload?.config) setConfig(configPayload.config as unknown as BotConfig)
-    if (statusPayload) setStatus(statusPayload)
-    if (!configPayload || !statusPayload) setError('Не удалось получить состояние ботов.')
-    setBusy('')
+    try {
+      const [configPayload, statusPayload] = await Promise.all([
+        adminGet<AdminRecord>('/admin/bots/config-v2'),
+        adminGet<AdminRecord>('/admin/bots/status-v2'),
+      ])
+      if (configPayload?.config) setConfig(configPayload.config as unknown as BotConfig)
+      if (statusPayload) setStatus(statusPayload)
+      if (!configPayload || !statusPayload) setError('Не удалось получить состояние ботов.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Не удалось получить состояние ботов.')
+    } finally {
+      setLoaded(true)
+      setBusy('')
+    }
   }, [])
 
   useEffect(() => {
     queueMicrotask(() => { void load() })
   }, [load])
+
+  if (!loaded) {
+    return <div className="admin-section admin-bots-page"><p>Получаем рабочее состояние Telegram и MAX…</p></div>
+  }
+
+  if (!status) {
+    return (
+      <div className="admin-section admin-bots-page">
+        <div className="admin-bot-warning"><ShieldAlert /><div><strong>Состояние ботов не получено</strong><p>{error || 'Повторите проверку.'}</p></div></div>
+        <button className="secondary" disabled={busy === 'load'} onClick={() => { void load() }}><RefreshCw /> Повторить</button>
+      </div>
+    )
+  }
 
   const providerStatus = (provider: Provider) => (status?.[provider] || {}) as AdminRecord
   const publicStatus = (status?.public || {}) as AdminRecord
@@ -188,14 +208,20 @@ export default function AdminBots() {
 
   const summary = (['telegram', 'max'] as Provider[]).map((provider) => {
     const item = providerStatus(provider)
-    const probe = (item.probe || {}) as AdminRecord
+    const pollingHealth = (item.pollingHealth || {}) as AdminRecord
+    const liveAt = provider === 'telegram'
+      ? pollingHealth.lastSuccessAt
+      : item.lastWebhookAt || item.lastPollAt
+    const operational = provider === 'telegram'
+      ? Boolean(item.pollingActive && pollingHealth.lastSuccessAt && !pollingHealth.alertActive)
+      : Boolean(item.subscriptionStatus === 'ok' && !item.lastWebhookError)
     return {
       provider,
       title: provider === 'telegram' ? 'Telegram' : 'MAX',
-      ok: Boolean(probe.ok),
+      ok: operational,
       configured: Boolean(item.tokenConfigured),
       mode: String(item.mode || 'disabled'),
-      lastCheck: ((item.lastCheck || {}) as AdminRecord).checkedAt,
+      lastActivity: liveAt || ((item.lastCheck || {}) as AdminRecord).checkedAt,
     }
   })
 
@@ -209,12 +235,26 @@ export default function AdminBots() {
       ? [probe.name, probe.username ? `@${String(probe.username).replace(/^@/, '')}` : '', probe.bot_id].filter(Boolean).join(' · ')
       : [probe.name, probe.nickname, probe.bot_id].filter(Boolean).join(' · ')
     const lastCheck = (item.lastCheck || {}) as AdminRecord
+    const pollingHealth = (item.pollingHealth || {}) as AdminRecord
+    const webhookProbe = (probe.webhook || {}) as AdminRecord
+    const webhookOperational = isTelegram
+      ? Boolean(webhookProbe.configured)
+      : item.subscriptionStatus === 'ok'
+    const transportHealthy = isTelegram
+      ? Boolean(item.pollingActive && pollingHealth.lastSuccessAt && !pollingHealth.alertActive)
+      : Boolean(webhookOperational && !item.lastWebhookError)
+    const transportLabel = transportHealthy
+      ? (isTelegram ? 'работает' : 'подключён')
+      : item.tokenConfigured ? 'требует внимания' : 'не настроен'
+    const transportError = isTelegram
+      ? pollingHealth.lastErrorClass
+      : item.lastWebhookError || item.lastPollError
     return (
       <article className="admin-bot-card">
         <header>
           <div className="admin-bot-title"><Bot /><div><h4>{title}</h4><p>{statusLabel(probe.status)}</p></div></div>
-          <span className={`admin-bot-state ${probe.ok ? 'ok' : item.tokenConfigured ? 'warn' : 'off'}`}>
-            {probe.ok ? 'готов' : item.tokenConfigured ? 'нужна проверка' : 'не настроен'}
+          <span className={`admin-bot-state ${transportHealthy ? 'ok' : item.tokenConfigured ? 'warn' : 'off'}`}>
+            {transportLabel}
           </span>
         </header>
 
@@ -223,10 +263,19 @@ export default function AdminBots() {
           <span><small>Источник</small><b>{item.tokenSource === 'dpapi' ? 'защищённое хранилище' : item.tokenSource === 'environment' ? 'переменная службы' : '—'}</b></span>
           <span><small>Режим</small><b>{String(item.mode || 'disabled')}</b></span>
           <span><small>Polling</small><b>{item.pollingActive ? 'активен' : 'выключен'}</b></span>
-          <span><small>Webhook</small><b>{item.webhookReady ? 'готов' : 'не готов'}</b></span>
+          <span><small>Webhook</small><b>{webhookOperational ? 'зарегистрирован' : item.webhookReady ? 'готов к регистрации' : 'не готов'}</b></span>
           <span><small>Последняя проверка</small><b>{fmtDate(lastCheck.checkedAt)}</b></span>
           <span><small>Бот</small><b>{identity || '—'}</b></span>
-          <span><small>Последняя ошибка</small><b>{String(lastCheck.error || probe.error_type || 'нет')}</b></span>
+          <span><small>Последняя ошибка</small><b>{String(transportError || lastCheck.error || probe.error_type || 'нет')}</b></span>
+          {isTelegram ? <>
+            <span><small>Последний успешный polling</small><b>{fmtDate(pollingHealth.lastSuccessAt)}</b></span>
+            <span><small>Циклы polling</small><b>{String(pollingHealth.totalSuccesses || 0)} успешно · {String(pollingHealth.totalFailures || 0)} ошибок</b></span>
+            <span><small>Ошибки подряд</small><b>{String(pollingHealth.consecutiveFailures || 0)}{pollingHealth.alertActive ? ' · тревога' : ''}</b></span>
+          </> : <>
+            <span><small>Подписка MAX</small><b>{String(item.subscriptionStatus || 'не проверена')}</b></span>
+            <span><small>Последнее входящее событие</small><b>{item.lastWebhookAt ? fmtDate(item.lastWebhookAt) : 'после запуска ещё не зафиксировано'}</b></span>
+            <span><small>Последний polling MAX</small><b>{fmtDate(item.lastPollAt)}</b></span>
+          </>}
         </div>
 
         <section className="admin-bot-secret">
@@ -295,7 +344,7 @@ export default function AdminBots() {
       <div className="admin-bot-warning"><ShieldAlert /><div><strong>Защита от двойного сервера</strong><p>{conflictWarning}</p></div></div>
 
       <div className="admin-bot-summary">
-        {summary.map((item) => <span key={item.provider} className={item.ok ? 'ok' : item.configured ? 'warn' : 'off'}>{item.ok ? <CheckCircle2 /> : <CircleAlert />}<b>{item.title}</b><small>{item.mode} · {fmtDate(item.lastCheck)}</small></span>)}
+        {summary.map((item) => <span key={item.provider} className={item.ok ? 'ok' : item.configured ? 'warn' : 'off'}>{item.ok ? <CheckCircle2 /> : <CircleAlert />}<b>{item.title}</b><small>{item.mode} · активность {fmtDate(item.lastActivity)}</small></span>)}
         <span className={publicStatus.ok ? 'ok' : 'warn'}>{publicStatus.ok ? <CheckCircle2 /> : <CircleAlert />}<b>Публичный HTTPS</b><small>{String(publicStatus.url || 'не настроен')} · {String(publicStatus.source || 'источник не определён')}</small></span>
       </div>
 

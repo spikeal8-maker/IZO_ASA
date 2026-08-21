@@ -4921,32 +4921,15 @@ mini_app_url = mini_app_public_url
 
 
 def bot_command_response(platform: Literal["telegram", "max"], command: str) -> dict[str, Any]:
-    app_url = mini_app_url(platform)
-    normalized = command.split()[0].lower() if command else "/start"
-    login_payload = bot_login_payload_from_text(command)
-    if login_payload:
-        text = "Подтвердите вход в ИЗО АСА — ИИ генератор. Если это были не вы, просто закройте сообщение."
-        buttons = [{"text": "Подтвердить вход", "callback_data": f"approve:{login_payload}"}]
-    elif normalized == "/start":
-        text = "Добро пожаловать в ИЗО АСА — ИИ генератор. Здесь можно открыть генератор, галерею и настройки."
-        buttons = [{"text": "Открыть приложение", "url": app_url}]
-    elif normalized == "/app":
-        text = "Открыть генератор ИЗО АСА — ИИ генератор"
-        buttons = [{"text": "Открыть генератор", "url": app_url}]
-    elif normalized == "/help":
-        text = "Выберите режим, загрузите изображение или напишите prompt, затем нажмите «Сгенерировать»."
-        buttons = [{"text": "Открыть генератор", "url": app_url}]
-    elif normalized == "/gallery":
-        latest = list(images.values())[:5]
-        text = "Последние изображения: " + (", ".join(item["id"] for item in latest) if latest else "пока пусто")
-        buttons = [{"text": "Открыть галерею", "url": f"{app_url}#gallery"}]
-    elif normalized == "/settings":
-        text = "Настройки приложения"
-        buttons = [{"text": "Открыть настройки", "url": f"{app_url}#settings"}]
-    else:
-        text = "Команда не распознана. Используйте /app, /help, /gallery или /settings."
-        buttons = [{"text": "Открыть генератор", "url": app_url}]
-    return {"ok": True, "platform": platform, "command": normalized, "text": text, "buttons": buttons}
+    from app.services.bot_copy import build_bot_response
+
+    return build_bot_response(
+        platform,
+        command,
+        app_url=mini_app_url(platform),
+        login_payload=bot_login_payload_from_text(command),
+        latest_image_ids=(item["id"] for item in list(images.values())[:5]),
+    )
 
 
 async def telegram_api(method: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:

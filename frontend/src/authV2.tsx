@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import { Lock, X } from 'lucide-react'
+import { isMaxMiniApp, maxInitData, maxWebAppBridge } from './maxBridge'
 import { normalizeAuthSessions } from './runtimeContracts'
 import './authV2.css'
 
@@ -34,14 +35,12 @@ export function getAnonymousId(): string | null {
 
 type WindowGlobals = Window & {
   Telegram?: { WebApp?: { initData?: string } }
-  MAX?: { WebApp?: { webAppData?: string; initData?: string } }
-  maxWebApp?: { webAppData?: string; initData?: string }
 }
 
 function detectPlatform(): string {
   const w = window as WindowGlobals
   if (w.Telegram?.WebApp?.initData) return 'telegram_mini_app'
-  if (w.MAX?.WebApp || w.maxWebApp) return 'max_mini_app'
+  if (isMaxMiniApp()) return 'max_mini_app'
   return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'web_mobile' : 'web_desktop'
 }
 
@@ -49,8 +48,7 @@ export function telegramAvailable(): boolean {
   return !!(window as WindowGlobals).Telegram?.WebApp?.initData
 }
 export function maxAvailable(): boolean {
-  const w = window as WindowGlobals
-  return !!(w.MAX?.WebApp?.webAppData || w.MAX?.WebApp?.initData || w.maxWebApp?.webAppData)
+  return isMaxMiniApp()
 }
 
 export function maxBotStartCommand(deepLink: string): string {
@@ -99,13 +97,12 @@ export function telegramDiagnostics(): { hasTelegram: boolean; hasWebApp: boolea
 }
 
 export function maxDiagnostics(): { hasMax: boolean; hasWebApp: boolean; hasWebAppData: boolean; hasInitData: boolean } {
-  const w = window as WindowGlobals
-  const webApp = w.MAX?.WebApp || w.maxWebApp
+  const webApp = maxWebAppBridge()
   return {
-    hasMax: !!w.MAX,
+    hasMax: !!webApp,
     hasWebApp: !!webApp,
-    hasWebAppData: !!(w.MAX?.WebApp?.webAppData || w.maxWebApp?.webAppData),
-    hasInitData: !!w.MAX?.WebApp?.initData,
+    hasWebAppData: !!webApp?.webAppData,
+    hasInitData: !!webApp?.initData,
   }
 }
 
@@ -186,8 +183,7 @@ export async function loginTelegramV2(): Promise<boolean> {
 }
 
 export async function loginMaxV2(): Promise<boolean> {
-  const w = window as WindowGlobals
-  const webAppData = w.MAX?.WebApp?.webAppData || w.MAX?.WebApp?.initData || w.maxWebApp?.webAppData
+  const webAppData = maxInitData()
   if (!webAppData) return false // never send a raw MAX userId as identity
   const res = await authFetch('/auth/max-v2', {
     method: 'POST',
@@ -955,20 +951,20 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
           <>
             <p className="auth-modal-sub">
               {botProvider === 'max'
-                ? 'Подтвердите вход в MAX-боте. В MAX Web сообщение может появиться не сразу; после подтверждения это окно закроется автоматически.'
-                : 'Подтвердите вход в Telegram-боте. После подтверждения это окно закроется автоматически.'}
+                ? 'Подтвердите запрос в MAX-боте. Возвращаться вручную не нужно: после подтверждения вход завершится автоматически.'
+                : 'Подтвердите запрос в Telegram-боте. После подтверждения вход завершится автоматически.'}
             </p>
             <a className="generate small-action" href={botDeepLink} target="_blank" rel="noreferrer">
               {botProvider === 'max' ? 'Открыть MAX-бота' : 'Открыть Telegram-бота'}
             </a>
             {botProvider === 'max' && maxWebCommand && (
               <div className="auth-max-web-fallback">
-                <strong>Если в MAX Web нет сообщения</strong>
-                <p>Скопируйте команду, вставьте её в чат с ботом и отправьте.</p>
-                <span className="auth-max-command-label">Команда для MAX Web</span>
+                <strong>Если MAX Web не передал запрос боту</strong>
+                <p>Скопируйте команду ниже, отправьте её в чат с ботом и подтвердите вход.</p>
+                <span className="auth-max-command-label">Резервная команда</span>
                 <div className="auth-max-command">
                   <input
-                    aria-label="Команда для MAX Web"
+                    aria-label="Резервная команда для MAX Web"
                     readOnly
                     value={maxWebCommand}
                     onFocus={(event) => event.currentTarget.select()}
@@ -978,7 +974,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
                   </button>
                 </div>
                 {botCopyState === 'copied' && (
-                  <p className="auth-max-copy-status" role="status">Вставьте команду в чат MAX и отправьте её.</p>
+                  <p className="auth-max-copy-status" role="status">Команда скопирована. Отправьте её в чат MAX.</p>
                 )}
                 {botCopyState === 'failed' && (
                   <p className="auth-max-copy-status auth-max-copy-error" role="status">
@@ -1029,7 +1025,7 @@ export function AuthV2Modal({ open, onClose }: { open: boolean; onClose: () => v
             )}
             {showMaxBotLogin && (
               <button className="secondary" onClick={() => onBotLogin('max')} disabled={busy || !authCaps.max_bot_login_available}>
-                Войти через MAX
+                Войти через MAX-бота
               </button>
             )}
             {tgAvail && <button className="secondary" onClick={onTelegram}>Войти через Telegram</button>}

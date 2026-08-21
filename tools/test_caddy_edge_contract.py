@@ -92,6 +92,9 @@ def test_caddyfile_has_bounded_requests_security_cache_and_redacted_json_logs() 
     assert "X-Frame-Options SAMEORIGIN" in source
     assert 'Strict-Transport-Security "max-age=31536000"' in source
     assert 'Content-Security-Policy "default-src \'self\'' in source
+    assert "script-src 'self' 'unsafe-inline' https://st.max.ru" in source
+    script_sources = source.split("script-src ", 1)[1].split(";", 1)[0].split()
+    assert script_sources == ["'self'", "'unsafe-inline'", "https://st.max.ru"]
     assert "object-src 'none'" in source
     assert "frame-ancestors 'self'" in source
     assert "-Server" in source

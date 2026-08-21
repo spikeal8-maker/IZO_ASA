@@ -1092,6 +1092,25 @@ Acceptance: generated symbol map, targeted backend tests, frontend lint/build,
 один clean Full receipt, desktop/mobile browser evidence на точном production
 SHA и public health после переключения.
 
+## 12.2. MAX-CHANNEL-001 — основной клиентский канал и WebView
+
+Пакет 2026-08-21 устраняет две подтверждённые причины ненадёжности MAX:
+официальный `window.WebApp` не подключался, а высота MAX WebView не участвовала
+в раскладке. Реализация и границы отката зафиксированы в
+[max-channel-reliability-20260821.md](max-channel-reliability-20260821.md).
+
+- официальный Bridge разрешён CSP только с `https://st.max.ru`;
+- подписанные данные по-прежнему проверяются backend без fallback на raw user id;
+- viewport MAX и safe-area управляют высотой студии и модального окна;
+- обычные вопросы получают детерминированную помощь в MAX и Telegram;
+- MAX bot-authored events не получают ответ, исключая webhook echo loop;
+- status UI показывает живые timestamps/counters транспорта, а не только token probe;
+- существующий доменный preset Max в AdGuard сохранён без изменений; исключение
+  всего backend-процесса запрещено как слишком широкое.
+
+Acceptance: focused backend tests, auth repeat 5x, frontend lint/build,
+MAX-Bridge mobile Playwright, Caddy contract, generated maps, затем clean Full.
+
 ## 13. Матрица обязательных проверок
 
 | Изменение | Targeted | Повтор 5x | Quick | Full | Live/provider |

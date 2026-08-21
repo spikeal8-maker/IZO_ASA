@@ -3,6 +3,7 @@ import type { ErrorInfo, ReactElement, ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { installMaxBridgeLayout } from './maxBridge'
 import { installGlobalRuntimeTelemetry, reportRuntimeError } from './runtimeTelemetry'
 
 const STALE_CHUNK_RELOAD_KEY = 'izo_stale_chunk_reload_at'
@@ -64,6 +65,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
 }
 
 installGlobalRuntimeTelemetry()
+installMaxBridgeLayout()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

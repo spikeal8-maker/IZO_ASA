@@ -185,7 +185,7 @@ def test_bot_started_login_preserves_button_send_and_diagnostic() -> None:
     assert all("nonce" not in line for line in logs)
 
 
-def test_command_and_batch_filtering_preserve_order_without_replies() -> None:
+def test_commands_and_plain_human_messages_preserve_order_without_replies() -> None:
     async def api_call(method, path, payload, params):
         raise AssertionError(f"unexpected API call: {method} {path} {payload} {params}")
 
@@ -197,5 +197,22 @@ def test_command_and_batch_filtering_preserve_order_without_replies() -> None:
     ]
     result = asyncio.run(handle_max_updates_with_runtime(updates, False, runtime))
 
-    assert [item["answer"]["text"] for item in result] == ["answer:/help", "answer:/settings"]
-    assert [item["recipient"] for item in result] == [{"user_id": "2"}, {"user_id": "3"}]
+    assert [item["answer"]["text"] for item in result] == ["answer:plain", "answer:/help", "answer:/settings"]
+    assert [item["recipient"] for item in result] == [{"user_id": "1"}, {"user_id": "2"}, {"user_id": "3"}]
+
+
+def test_bot_authored_plain_message_is_ignored_to_prevent_reply_loop() -> None:
+    async def api_call(method, path, payload, params):
+        raise AssertionError(f"unexpected API call: {method} {path} {payload} {params}")
+
+    runtime = make_runtime(api_call=api_call)
+    result = asyncio.run(handle_max_update_with_runtime(
+        {
+            "user_id": "bot-1",
+            "message_created": {"message": {"body": {"text": "bot echo"}, "sender": {"user_id": "bot-1", "is_bot": True}}},
+        },
+        True,
+        runtime,
+    ))
+
+    assert result is None

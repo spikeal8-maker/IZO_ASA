@@ -665,7 +665,7 @@ def test_telegram_poll_once_sends_command_reply(monkeypatch) -> None:
     assert calls[0]["method"] == "getUpdates"
     assert calls[1]["method"] == "sendMessage"
     assert calls[1]["payload"]["chat_id"] == 777
-    assert calls[1]["payload"]["reply_markup"]["inline_keyboard"][0][0]["text"] == "Открыть генератор"
+    assert calls[1]["payload"]["reply_markup"]["inline_keyboard"][0][0]["text"] == "Открыть студию"
 
 
 def test_max_poll_once_sends_command_reply(monkeypatch) -> None:
@@ -691,7 +691,8 @@ def test_max_poll_once_sends_command_reply(monkeypatch) -> None:
     assert calls[1]["method"] == "POST"
     assert calls[1]["path"] == "/messages"
     assert calls[1]["params"] == {"user_id": "u1"}
-    assert calls[1]["payload"]["text"] == "Настройки приложения"
+    assert "профиль" in calls[1]["payload"]["text"]
+    assert "лимиты" in calls[1]["payload"]["text"]
 
 
 def test_telegram_polling_persists_offset_and_uses_allowed_updates(monkeypatch) -> None:
