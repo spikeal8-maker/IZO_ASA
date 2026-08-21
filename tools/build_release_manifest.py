@@ -99,8 +99,11 @@ def build_manifest(
 
 
 def _run(root: Path, *arguments: str) -> str:
+    command = list(arguments)
+    if command and command[0] == "git":
+        command[1:1] = ["-c", f"safe.directory={root}"]
     result = subprocess.run(
-        list(arguments),
+        command,
         cwd=root,
         text=True,
         capture_output=True,
