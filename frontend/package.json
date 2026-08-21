@@ -10,6 +10,7 @@
     "admin:dev": "vite",
     "admin:preview": "tsc -b && vite build && vite preview",
     "admin:visual-check": "node visual-admin-parity.mjs",
+    "e2e:admin-dashboard": "node e2e-admin-dashboard-layout.mjs",
     "lint": "eslint .",
     "smoke:auth-v2": "node smoke-auth-v2.mjs",
     "smoke:editor-contract": "node smoke-editor-contract.mjs",

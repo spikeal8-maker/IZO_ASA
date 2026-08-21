@@ -147,6 +147,34 @@ def test_dashboard_counts(temp_db):
     assert set(d["periods"]["today"]["tokens"]) == {"total", "daily", "main", "refunds"}
 
 
+def test_admin_summary_splits_generation_timeline_by_product_kind(temp_db):
+    tok = make_admin()
+    now = main.datetime.now(main.timezone.utc).isoformat()
+    with main.db() as conn:
+        conn.executemany(
+            "INSERT INTO jobs (id,user_id,mode,provider,status,progress,settings_json,created_at,completed_at) "
+            "VALUES (?,?,?,?,?,100,'{}',?,?)",
+            [
+                ("dash-local", "telegram_admin", "text_to_image", "comfyui", "completed", now, now),
+                ("dash-paid", "telegram_admin", "text_to_image", "openrouter", "completed", now, now),
+                ("dash-video", "telegram_admin", "text_to_video", "openrouter", "completed", now, now),
+            ],
+        )
+
+    with TestClient(main.app) as c:
+        response = c.get("/api/admin/summary", headers=bearer(tok))
+
+    assert response.status_code == 200
+    timeline = response.json()["timeline"]
+    assert timeline["generations"][-1]["value"] == 3
+    assert timeline["local_images"][-1]["value"] == 1
+    assert timeline["paid_images"][-1]["value"] == 1
+    assert timeline["videos"][-1]["value"] == 1
+    assert sum(point["value"] for point in timeline["local_images_24h"]) == 1
+    assert sum(point["value"] for point in timeline["paid_images_24h"]) == 1
+    assert sum(point["value"] for point in timeline["videos_24h"]) == 1
+
+
 # 13, 14
 def test_users_analytics_no_hashes_and_clean_ids(temp_db):
     tok = make_admin()
