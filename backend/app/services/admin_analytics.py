@@ -225,6 +225,9 @@ def _json_object(value: Any) -> dict[str, Any]:
 
 def _device(metadata_json: str | None) -> dict[str, str | None]:
     metadata = _json_object(metadata_json)
+    nested = metadata.get("device")
+    if isinstance(nested, dict):
+        metadata = {**metadata, **nested}
     return {
         "browser": metadata.get("browser") or metadata.get("browser_name"),
         "os": metadata.get("os") or metadata.get("os_name"),
@@ -494,8 +497,27 @@ def user_history_page(conn: sqlite3.Connection, internal_user_id: str, section: 
         items = [{"id": _short(r["id"]), "provider": r["provider"], "platform": r["platform"], "ip_address": r["ip_address"], "created_at": r["created_at"], "last_seen_at": r["last_seen_at"], "expires_at": r["expires_at"], "revoked_at": r["revoked_at"], "revoke_reason": _text(r["revoke_reason"], 240), "device": _device(r["metadata_json"])} for r in rows]
     elif section == "events":
         total = _scalar(conn, "SELECT COUNT(*) FROM event_logs WHERE internal_user_id=?", (internal_user_id,))
-        rows = conn.execute("SELECT id,event_name,platform,device_type,ip_address,created_at FROM event_logs WHERE internal_user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?", (internal_user_id, limit, offset)).fetchall()
-        items = [{key: (_short(r[key]) if key == "id" else r[key]) for key in r.keys()} for r in rows]
+        rows = conn.execute(
+            "SELECT e.id,e.event_name,e.platform,e.device_type,e.ip_address,e.properties_json,e.created_at,"
+            "s.metadata_json session_metadata_json FROM event_logs e "
+            "LEFT JOIN auth_sessions s ON s.id=e.session_id "
+            "WHERE e.internal_user_id=? ORDER BY e.created_at DESC LIMIT ? OFFSET ?",
+            (internal_user_id, limit, offset),
+        ).fetchall()
+        items = []
+        for r in rows:
+            device = _device(r["session_metadata_json"])
+            items.append({
+                "id": _short(r["id"]),
+                "event_name": r["event_name"],
+                "platform": r["platform"],
+                "device_type": r["device_type"] or device.get("device_type"),
+                "browser": device.get("browser"),
+                "os": device.get("os"),
+                "ip_address": r["ip_address"],
+                "details": _event_details(r["properties_json"]),
+                "created_at": r["created_at"],
+            })
     elif section == "security":
         total = _scalar(conn, "SELECT COUNT(*) FROM security_events WHERE internal_user_id=?", (internal_user_id,))
         rows = conn.execute("SELECT id,severity,event_type,ip_address,details_json,created_at FROM security_events WHERE internal_user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?", (internal_user_id, limit, offset)).fetchall()
