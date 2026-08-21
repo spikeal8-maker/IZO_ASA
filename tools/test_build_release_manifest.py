@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from tools.build_release_manifest import (
     frontend_asset_inventory,
     normalize_runtime_version,
 )
+from tools import build_release_manifest as manifest_builder
 
 
 def _release(tmp_path: Path) -> Path:
@@ -47,6 +49,29 @@ def test_asset_hash_changes_when_frontend_content_changes(tmp_path: Path) -> Non
     _, after = frontend_asset_inventory(release)
 
     assert after != before
+
+
+def test_release_git_commands_trust_the_exact_candidate_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["cwd"] = kwargs["cwd"]
+        return subprocess.CompletedProcess(command, 0, stdout="clean\n", stderr="")
+
+    monkeypatch.setattr(manifest_builder.subprocess, "run", fake_run)
+
+    assert manifest_builder._run(tmp_path, "git", "status", "--porcelain") == "clean"
+    assert captured["command"] == [
+        "git",
+        "-c",
+        f"safe.directory={tmp_path}",
+        "status",
+        "--porcelain",
+    ]
+    assert captured["cwd"] == tmp_path
 
 
 def test_manifest_has_exact_required_release_fields(tmp_path: Path) -> None:
