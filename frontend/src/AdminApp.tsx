@@ -226,6 +226,15 @@ function AdminAccessPage({ status, onOpenAuth }: { status: 'loading' | 'denied';
 
 function AdminDashboard({ summary }: { summary: AnyRec | null }) {
   const timeline = (summary?.timeline || {}) as AnyRec
+  const live = (summary?.dashboard || {}) as AnyRec
+  const periods = (live.periods || {}) as AnyRec
+  const today = (periods.today || {}) as AnyRec
+  const yesterday = (periods.yesterday || {}) as AnyRec
+  const todayUsers = (today.users || {}) as AnyRec
+  const todayJobs = (today.generations || {}) as AnyRec
+  const todayTokens = (today.tokens || {}) as AnyRec
+  const yesterdayJobs = (yesterday.generations || {}) as AnyRec
+  const totals = (live.totals || {}) as AnyRec
   const [range, setRange] = useState<DashboardRange>(24)
   const isHourlyRange = HOURLY_DASHBOARD_RANGES.has(range)
   const sliceSeries = (key: string): SeriesPoint[] => {
@@ -247,13 +256,16 @@ function AdminDashboard({ summary }: { summary: AnyRec | null }) {
   return (
     <div className="admin-section admin-dashboard-v2">
       <div className="admin-grid admin-grid-compact">
-        {kpi('Пользователи', summary?.users, 'аккаунтов в базе')}
-        {kpi('Сегодня', summary?.activeToday, 'активных пользователей')}
-        {kpi('Генерации', summary?.generationsToday, 'создано сегодня')}
-        {kpi('Сессии', summary?.activeSessions, 'активны сейчас')}
+        {kpi('Пользователи', totals.users ?? summary?.users, `${String(todayUsers.active ?? 0)} активны сегодня`)}
+        {kpi('Генерации сегодня', todayJobs.total ?? summary?.generationsToday, `${String(todayJobs.completed ?? 0)} готовы · ${String(todayJobs.failed ?? 0)} ошибок`)}
+        {kpi('Изображения / видео', `${String(todayJobs.images ?? 0)} / ${String(todayJobs.videos ?? 0)}`, `вчера всего ${String(yesterdayJobs.total ?? 0)}`)}
+        {kpi('Токены сегодня', todayTokens.total ?? 0, `${String(todayTokens.daily ?? 0)} дневных · ${String(todayTokens.main ?? 0)} основных`)}
+        {kpi('Сессии', live.sessions_active ?? summary?.activeSessions, 'активны сейчас')}
         {kpi('Ошибки входа', summary?.errors24h, 'за 24 часа')}
-        {kpi('Ошибки генерации', summary?.errors, 'failed jobs')}
+        {kpi('Медиа в галереях', `${String(totals.images ?? 0)} / ${String(totals.videos ?? 0)}`, 'изображения / видео')}
+        {kpi('Ошибки генерации', totals.failed_generations ?? summary?.errors, 'за всё время')}
       </div>
+      <p className="admin-dashboard-period-note">Сегодня считается по Москве. График «сутки» показывает скользящие последние 24 часа, поэтому его сумма может отличаться от показателя «сегодня».</p>
       <div className="admin-dashboard-toolbar">
         <strong>Графики по времени</strong>
         {[
@@ -522,7 +534,10 @@ export default function AdminApp() {
   }, [])
   useEffect(() => {
     if (!isAdmin) return
-    void adminGet<AnyRec>('/admin/summary').then(setSummary)
+    void Promise.all([
+      adminGet<AnyRec>('/admin/summary'),
+      adminGet<AnyRec>('/admin/dashboard-v2'),
+    ]).then(([legacy, live]) => setSummary({ ...(legacy || {}), dashboard: live?.dashboard || null }))
   }, [isAdmin])
   useEffect(() => {
     if (!isAdmin || tab !== 'logs') return
@@ -547,6 +562,10 @@ export default function AdminApp() {
   }
 
   const queue = Array.isArray(summary?.queue) ? summary.queue : []
+  const dashboard = (summary?.dashboard || {}) as AnyRec
+  const dashboardToday = (((dashboard.periods || {}) as AnyRec).today || {}) as AnyRec
+  const dashboardTodayUsers = (dashboardToday.users || {}) as AnyRec
+  const dashboardTodayJobs = (dashboardToday.generations || {}) as AnyRec
   const errors = Number(summary?.errors ?? 0)
   const health = errors === 0 ? 'Стабильно' : `Ошибки генерации: ${errors}`
   return (
@@ -561,9 +580,9 @@ export default function AdminApp() {
             <small><Shield size={13} /> trusted admin · {me?.profile?.public_user_code || me?.internal_user_id?.slice(0, 8) || 'admin'}</small>
           </div>
           <div className="admin-kpi-strip">
-            <span><b>{String(summary?.users ?? '—')}</b> пользователей</span>
-            <span><b>{String(summary?.activeToday ?? '—')}</b> сегодня</span>
-            <span><b>{String(summary?.generationsToday ?? '—')}</b> генераций</span>
+            <span><b>{String(((dashboard.totals || {}) as AnyRec).users ?? summary?.users ?? '—')}</b> пользователей</span>
+            <span><b>{String(dashboardTodayUsers.active ?? summary?.activeToday ?? '—')}</b> активны сегодня</span>
+            <span><b>{String(dashboardTodayJobs.total ?? summary?.generationsToday ?? '—')}</b> генераций сегодня</span>
             <span><b>{String(summary?.errors24h ?? '—')}</b> ошибок входа 24ч</span>
             <span><b>{String(queue.length)}</b> в очереди</span>
           </div>

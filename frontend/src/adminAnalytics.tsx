@@ -35,7 +35,7 @@ async function adminPost(path: string, body: Record<string, unknown>): Promise<{
 
 const PROVIDER_BADGE: Record<string, string> = { web_email: 'Web', telegram: 'TG', max: 'MAX' }
 
-interface Dash { dashboard?: Record<string, number | Record<string, number>> }
+interface Dash { dashboard?: AnyRec }
 export interface CrmUserRow {
   internal_user_id?: string // for the card fetch + technical section only (never a primary label)
   public_user_code?: string; display_name?: string; primary_provider?: string; providers?: string[]
@@ -47,6 +47,9 @@ export interface CrmUserRow {
   device_count?: number; active_sessions_count?: number
   generations_count?: number; tokens_spent?: number; token_balance?: number; status?: string; role?: string
   daily_tokens_used?: number; daily_tokens_limit?: number
+  daily_tokens_remaining?: number; main_token_balance?: number
+  last_login_at?: string | null; last_generation_at?: string | null
+  period_metrics?: AnyRec
   first_seen_at?: string | null; gallery_count?: number; marketing_source?: string | null; risk_level?: string | null
   gallery_access?: boolean; gallery_enabled?: boolean
   account_group?: 'customer' | 'admin' | 'demo'
@@ -116,10 +119,6 @@ function quotaLabel(u: CrmUserRow & AnyRec): string {
   return `${used}/${total}`
 }
 
-function tokenLine(u: CrmUserRow): string {
-  return `${n0(u.generations_count)} / ${n0(u.daily_tokens_used)} / ${n0(u.token_balance)} / ${n0(u.daily_tokens_limit)}`
-}
-
 function genderAgeLabel(u: CrmUserRow & AnyRec): string {
   const gender = u.gender === 'male' ? 'муж.' : u.gender === 'female' ? 'жен.' : 'пол —'
   const age = u.age ? `${u.age} лет` : 'возраст —'
@@ -138,7 +137,7 @@ interface UserDetail {
   summary?: CrmUserRow & AnyRec
   identities?: AnyRec[]; sessions?: AnyRec[]; devices?: AnyRec[]
   recent_events?: AnyRec[]; recent_security_events?: AnyRec[]; admin_actions?: AnyRec[]
-  recent_generations?: AnyRec[]; recent_gallery?: AnyRec[]; token_ledger_recent?: AnyRec[]
+  recent_generations?: AnyRec[]; recent_gallery?: AnyRec[]; recent_videos?: AnyRec[]; token_ledger_recent?: AnyRec[]
   billing_summary?: AnyRec; invoices_recent?: AnyRec[]; payments_recent?: AnyRec[]; refunds_recent?: AnyRec[]
   loyalty_summary?: AnyRec; promo_redemptions_recent?: AnyRec[]; bonus_grants_recent?: AnyRec[]
   referral_link?: AnyRec; referral_relations?: AnyRec[]; referral_rewards_recent?: AnyRec[]
@@ -295,6 +294,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const [act, setAct] = useState<{ kind: ActKind; preset?: string; context?: AnyRec } | null>(null)
   const [tab, setTab] = useState<'logs' | 'payments' | 'loyalty' | 'prompts' | 'gallery' | 'tech'>('logs')
   const [selectedImage, setSelectedImage] = useState<AnyRec | null>(null)
+  const [selectedVideo, setSelectedVideo] = useState<AnyRec | null>(null)
   const [deleteReason, setDeleteReason] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteMsg, setDeleteMsg] = useState('')
@@ -347,7 +347,12 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const cancellableBonus = (data?.bonus_grants_recent || []).find((b) => String(b.status) === 'granted' && n0(b.token_amount) > 0)
   const recentGenerations = data?.recent_generations || []
   const recentGallery = data?.recent_gallery || []
-  const imageUrl = (img: AnyRec) => String(img.image_url || img.thumbnail_url || img.result_image_url || '')
+  const recentVideos = data?.recent_videos || []
+  const imageUrl = (img: AnyRec) => String(img.admin_media_url || img.image_url || img.thumbnail_url || img.admin_result_image_url || img.result_image_url || '')
+  const fullImageUrl = (img: AnyRec) => String(img.admin_full_url || img.admin_media_url || img.image_url || img.result_image_url || '')
+  const periodMetrics = (sm.period_metrics || {}) as AnyRec
+  const generationPeriods = (periodMetrics.generations || {}) as AnyRec
+  const tokenPeriods = (periodMetrics.token_usage || {}) as AnyRec
   const openImage = (img: AnyRec) => {
     setSelectedImage(img)
     setDeleteReason('')
@@ -385,9 +390,9 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 </div>
                 <div className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</div>
                 <div className="crm-card-kpis">
-                  <span>Баланс <b>{S(sm.token_balance)}</b></span><span>Списано <b>{S(sm.tokens_spent)}</b></span>
-                  <span>Генераций <b>{S(sm.generations_count)}</b></span><span>Галерея <b>{quotaLabel(sm)}</b></span>
-                  <span>Последняя активность <b>{shortTime(sm.last_seen_at)}</b></span><span>Создан <b>{shortTime(sm.first_seen_at)}</b></span><span>Риск <b>{riskLabel(sm)}</b></span>
+                  <span>Основной баланс <b>{S(sm.main_token_balance ?? sm.token_balance)}</b></span><span>Дневные <b>{S(sm.daily_tokens_used)} / {S(sm.daily_tokens_limit)}</b></span>
+                  <span>Сегодня <b>{S((generationPeriods.today as AnyRec)?.total)}</b></span><span>Всего <b>{S(sm.generations_count)}</b></span>
+                  <span>Последний вход <b>{shortTime(sm.last_login_at)}</b></span><span>Последняя генерация <b>{shortTime(sm.last_generation_at)}</b></span><span>Риск <b>{riskLabel(sm)}</b></span>
                 </div>
                 <div className="crm-activity-legend">
                   <span className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}
@@ -433,11 +438,11 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 <h4>Контент</h4>
                 <div>
                   <button type="button" className="crm-panel-link" onClick={() => setTab('prompts')}>Промпты</button>
-                  <button type="button" className="crm-panel-link" onClick={() => setTab('gallery')}>Галерея</button>
+                  <button type="button" className="crm-panel-link" onClick={() => setTab('gallery')}>Медиа</button>
                 </div>
               </div>
               <dl className="crm-preview-list crm-content-stats">
-                {row('Генерации', sm.generations_count)}{row('Промпты', recentGenerations.length)}{row('Галерея', quotaLabel(sm))}{row('Последний контент', shortTime(recentGenerations[0]?.created_at || recentGallery[0]?.created_at))}
+                {row('Сегодня / вчера', `${S((generationPeriods.today as AnyRec)?.total)} / ${S((generationPeriods.yesterday as AnyRec)?.total)}`)}{row('Изображения / видео всего', `${S((generationPeriods.total as AnyRec)?.images)} / ${S((generationPeriods.total as AnyRec)?.videos)}`)}{row('Галерея фото', quotaLabel(sm))}{row('Видео', `${recentVideos.length} последних`) }
               </dl>
               <div className="crm-content-grid">
                 <div className="crm-prompt-feed" aria-label="Последние генерации и промпты">
@@ -456,21 +461,28 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                   ))}
                   {!recentGenerations.length && <p className="crm-card-note">Пока нет сохранённых генераций с промптом.</p>}
                 </div>
-                <div className="crm-gallery-preview" aria-label="Последние изображения пользователя">
+                <div className="crm-gallery-preview" aria-label="Последние медиа пользователя">
                   {recentGallery.slice(0, 6).map((img, n) => (
                     <button type="button" className="crm-gallery-thumb" key={n} onClick={() => openImage(img)} title={S(img.prompt)}>
                       {imageUrl(img) ? <img src={imageUrl(img)} alt="" /> : <span className="crm-gallery-empty">Нет превью</span>}
                       <small>{S(img.mode)} · {shortTime(img.created_at)}</small>
                     </button>
                   ))}
-                  {!recentGallery.length && <p className="crm-card-note">В галерее нет доступных миниатюр.</p>}
+                  {recentVideos.slice(0, 4).map((video, n) => (
+                    <button type="button" className="crm-gallery-thumb crm-video-thumb" key={`video-${n}`} onClick={() => setSelectedVideo(video)} title={S(video.prompt)}>
+                      <video src={S(video.media_url)} muted preload="metadata" />
+                      <small>Видео · {shortTime(video.created_at)}</small>
+                    </button>
+                  ))}
+                  {!recentGallery.length && !recentVideos.length && <p className="crm-card-note">У пользователя пока нет доступных медиа.</p>}
                 </div>
               </div>
             </div>
             <div className="crm-panel">
               <h4>Финансы и токены</h4>
               <dl className="crm-preview-list">
-                {row('Баланс токенов', data?.token_summary?.balance ?? sm.token_balance)}{row('Потрачено токенов', data?.token_summary?.spent ?? sm.tokens_spent)}
+                {row('Основной баланс', data?.token_summary?.balance ?? sm.token_balance)}{row('Дневной лимит', `${S(sm.daily_tokens_used)} / ${S(sm.daily_tokens_limit)} · осталось ${S(sm.daily_tokens_remaining)}`)}
+                {row('Сегодня: дневные / основные', `${S((tokenPeriods.today as AnyRec)?.daily)} / ${S((tokenPeriods.today as AnyRec)?.main)}`)}{row('Всего списано с основного', data?.token_summary?.spent ?? sm.tokens_spent)}
                 {row('Операций ledger', data?.token_summary?.entries ?? 0)}
                 {row('Счетов', data?.billing_summary?.invoice_count ?? 0)}{row('Неоплачено', data?.billing_summary?.unpaid_count ?? 0)}
                 {row('Оплачено', money(data?.billing_summary?.total_paid))}{row('Возвраты', money(data?.billing_summary?.total_refunded))}
@@ -530,7 +542,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <button className={tab === 'payments' ? 'active' : ''} onClick={() => setTab('payments')}>Платежи</button>
               <button className={tab === 'loyalty' ? 'active' : ''} onClick={() => setTab('loyalty')}>Лояльность</button>
               <button className={tab === 'prompts' ? 'active' : ''} onClick={() => setTab('prompts')}>Промпты</button>
-              <button className={tab === 'gallery' ? 'active' : ''} onClick={() => setTab('gallery')}>Галерея</button>
+              <button className={tab === 'gallery' ? 'active' : ''} onClick={() => setTab('gallery')}>Медиа</button>
               <button className={tab === 'tech' ? 'active' : ''} onClick={() => setTab('tech')}>Устройства и входы</button>
             </div>
             {tab === 'logs' && <div className="crm-acc">
@@ -552,8 +564,8 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               {(data?.referral_relations || []).map((r, n) => <small key={`lr${n}`}>Реф. связь {S(r.referral_code)} · {S(r.status)} · parent {S(r.parent_internal_user_id)} · child {S(r.child_internal_user_id)}</small>)}
               {(data?.referral_rewards_recent || []).map((r, n) => <small key={`lw${n}`}>Реф. награда {shortId(r.id)} · {S(r.status)} · +{S(r.token_amount)} ток. · ledger {S(r.token_ledger_id)}</small>)}
             </div>{!data?.promo_redemptions_recent?.length && !data?.bonus_grants_recent?.length && !data?.referral_rewards_recent?.length && <p className="crm-card-note">Нет реальных промо/бонусов/реферальных начислений.</p>}</div>}
-            {tab === 'prompts' && <div className="crm-acc"><strong>Генерации и промпты</strong><div className="crm-generation-list">{(data?.recent_generations || []).slice(0, 20).map((g, n) => <div className={g.status === 'failed' ? 'crm-generation-row failed' : 'crm-generation-row'} key={n}><span><b>{S(g.model || g.provider)}</b><small>{shortTime(g.created_at)} · {S(g.mode)} · {S(g.status)} · {S(g.token_cost)} ток.</small></span><p>{S(g.prompt)}</p>{g.error ? <small className="crm-err">{S(g.error)}</small> : null}</div>)}</div>{!data?.recent_generations?.length && <p className="crm-card-note">—</p>}</div>}
-            {tab === 'gallery' && <div className="crm-acc"><strong>Галерея</strong><div className="crm-gallery-strip">{(data?.recent_gallery || []).slice(0, 8).map((img, n) => <button type="button" className="crm-gallery-strip-item" key={n} onClick={() => openImage(img)}><img src={imageUrl(img)} alt="" /><small>{S(img.mode)} · {shortTime(img.created_at)}</small></button>)}</div>{!data?.recent_gallery?.length && <p className="crm-card-note">—</p>}</div>}
+            {tab === 'prompts' && <div className="crm-acc"><strong>Генерации и промпты</strong><div className="crm-generation-list">{(data?.recent_generations || []).slice(0, 30).map((g, n) => <div className={g.status === 'failed' ? 'crm-generation-row failed' : 'crm-generation-row'} key={n}><span><b>{S(g.model || g.provider)}</b><small>{shortTime(g.created_at)} · {S(g.mode)} · {S(g.status)} · {S(g.token_cost)} ток. · {g.duration_seconds ? `${Math.round(Number(g.duration_seconds))} сек.` : 'время —'}</small></span><p>{S(g.prompt)}</p>{g.error ? <small className="crm-err">{S(g.error)}</small> : null}</div>)}</div>{!data?.recent_generations?.length && <p className="crm-card-note">—</p>}</div>}
+            {tab === 'gallery' && <div className="crm-acc"><strong>Изображения и видео</strong><div className="crm-gallery-strip">{recentGallery.slice(0, 12).map((img, n) => <button type="button" className="crm-gallery-strip-item" key={n} onClick={() => openImage(img)}><img src={imageUrl(img)} alt="" /><small>Фото · {shortTime(img.created_at)}</small></button>)}{recentVideos.slice(0, 12).map((video, n) => <button type="button" className="crm-gallery-strip-item crm-video-thumb" key={`video-strip-${n}`} onClick={() => setSelectedVideo(video)}><video src={S(video.media_url)} muted preload="metadata" /><small>Видео · {shortTime(video.created_at)}</small></button>)}</div>{!recentGallery.length && !recentVideos.length && <p className="crm-card-note">—</p>}</div>}
             {tab === 'tech' && <div className="crm-acc">
               <strong>Устройства, входы и служебные идентификаторы</strong>
               <p className="legacy-admin-warn">Служебные данные доступны только администратору.</p>
@@ -581,7 +593,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 <button className="auth-modal-close" aria-label="Закрыть" onClick={() => setSelectedImage(null)}>×</button>
               </div>
               <div className="crm-image-body">
-                <div className="crm-image-frame">{imageUrl(selectedImage) ? <img src={imageUrl(selectedImage)} alt="" /> : <span>Нет превью</span>}</div>
+                <div className="crm-image-frame">{fullImageUrl(selectedImage) ? <img src={fullImageUrl(selectedImage)} alt="" /> : <span>Нет превью</span>}</div>
                 <aside className="crm-image-side">
                   <dl className="crm-preview-list">
                     {row('Режим', selectedImage.mode)}{row('Провайдер', selectedImage.provider)}{row('Создано', shortTime(selectedImage.created_at))}
@@ -598,6 +610,26 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                     <button className="secondary danger crm-supported-action" disabled={!adminReady || deleteBusy || !deleteReason.trim()} onClick={() => void deleteGalleryImage()}>{deleteBusy ? 'Удаляю…' : 'Удалить изображение'}</button>
                     {deleteMsg && <p className="crm-err">{deleteMsg}</p>}
                   </div>
+                </aside>
+              </div>
+            </div>
+          </div>
+        )}
+        {selectedVideo && (
+          <div className="crm-image-modal" onClick={() => setSelectedVideo(null)}>
+            <div className="crm-image-dialog crm-video-dialog" role="dialog" aria-label="Видео пользователя" onClick={(e) => e.stopPropagation()}>
+              <div className="crm-image-head">
+                <strong>Видео пользователя</strong>
+                <button className="auth-modal-close" aria-label="Закрыть" onClick={() => setSelectedVideo(null)}>×</button>
+              </div>
+              <div className="crm-image-body">
+                <div className="crm-image-frame"><video src={S(selectedVideo.media_url)} controls autoPlay playsInline /></div>
+                <aside className="crm-image-side">
+                  <dl className="crm-preview-list">
+                    {row('Режим', selectedVideo.mode)}{row('Модель', selectedVideo.model || selectedVideo.provider)}{row('Создано', shortTime(selectedVideo.created_at))}
+                    {row('Размер', `${S(selectedVideo.width)} × ${S(selectedVideo.height)}`)}{row('Длительность', `${S(selectedVideo.duration_seconds)} сек.`)}{row('Файл', `${Math.round(n0(selectedVideo.stored_bytes) / 1048576)} МБ`)}
+                  </dl>
+                  <div className="crm-image-prompt"><strong>Промпт</strong><p>{S(selectedVideo.prompt || 'Промпт не сохранён')}</p></div>
                 </aside>
               </div>
             </div>
@@ -719,6 +751,10 @@ export function AdminAnalyticsV2(): ReactElement {
   }, [load])
 
   const byProvider = (dash?.users_by_provider as Record<string, number>) || {}
+  const dashPeriods = (dash?.periods || {}) as AnyRec
+  const dashToday = (dashPeriods.today || {}) as AnyRec
+  const dashTodayJobs = (dashToday.generations || {}) as AnyRec
+  const dashTodayTokens = (dashToday.tokens || {}) as AnyRec
   const sortHead = (label: string, asc: UserSort, desc: UserSort): ReactElement => {
     const active = sort === asc || sort === desc
     const next = sort === asc ? desc : asc
@@ -740,7 +776,8 @@ export function AdminAnalyticsV2(): ReactElement {
       <div className="crm-summary-grid">
         <div className="crm-summary"><span>Аудитория</span><strong>{S(dash?.total_users)}</strong><small>{S(dash?.active_7d)} активны за 7 дней</small></div>
         <div className="crm-summary"><span>Сейчас</span><strong>{S(dash?.active_today)}</strong><small>{S(dash?.sessions_active)} активных сессий</small></div>
-        <div className="crm-summary"><span>Использование</span><strong>{S(dash?.generations_total)}</strong><small>{S(dash?.tokens_spent_total)} токенов списано</small></div>
+        <div className="crm-summary"><span>Генерации сегодня</span><strong>{S(dashTodayJobs.total ?? dash?.generations_today)}</strong><small>{S(dashTodayJobs.images)} изображений · {S(dashTodayJobs.videos)} видео</small></div>
+        <div className="crm-summary"><span>Токены сегодня</span><strong>{S(dashTodayTokens.total)}</strong><small>{S(dashTodayTokens.daily)} дневных · {S(dashTodayTokens.main)} основных</small></div>
         <div className="crm-summary crm-summary-sources"><span>Источники</span><strong>Web {byProvider.web_email ?? 0}</strong><small>TG {byProvider.telegram ?? 0} · MAX {byProvider.max ?? 0}</small></div>
         <div className={n0(dash?.failed_logins_24h) ? 'crm-summary risk' : 'crm-summary'}><span>Контроль</span><strong>{S(dash?.failed_logins_24h)}</strong><small>ошибок входа за 24 часа</small></div>
       </div>
@@ -767,6 +804,11 @@ export function AdminAnalyticsV2(): ReactElement {
           {section.items.map((u) => {
             const sourceList = u.providers?.length ? u.providers : u.primary_provider ? [u.primary_provider] : []
             const active = activityKind(u)
+            const metrics = (u.period_metrics || {}) as AnyRec
+            const generationMetrics = (metrics.generations || {}) as AnyRec
+            const todayMetrics = (generationMetrics.today || {}) as AnyRec
+            const yesterdayMetrics = (generationMetrics.yesterday || {}) as AnyRec
+            const totalMetrics = (generationMetrics.total || {}) as AnyRec
             const openCard = () => setCard(u)
             const stop = (e: ReactMouseEvent) => e.stopPropagation()
             const rowKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -775,11 +817,11 @@ export function AdminAnalyticsV2(): ReactElement {
             return (
               <div key={u.public_user_code || u.internal_user_id_short} className={`analytics-row crm-row activity-${active}`} role="button" tabIndex={0} aria-label={`Открыть карточку ${u.display_name || u.username || u.public_user_code}`} onClick={openCard} onKeyDown={rowKey}>
                 <span className="crm-client-cell"><AvatarMark u={u as CrmUserRow & AnyRec} className={`crm-avatar crm-row-avatar activity-${active}`} /><span><span className="crm-client-line"><strong>{u.display_name || u.username || u.public_user_code}</strong><em className="crm-chip">{u.account_group === 'demo' ? 'demo' : u.role === 'admin' ? 'admin' : 'client'}</em></span><span className="crm-client-line"><small>{u.public_user_code}</small><em className="crm-chip plan">{u.plan || 'mini'}</em></span></span></span>
-                <span><small><i className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}</small><small>{shortTime(u.last_seen_at)}</small><small>{u.active_sessions_count ?? 0} сесс. · {u.last_platform || '—'}</small></span>
+                <span><small><i className={`crm-dot activity-${active}`} />{ACTIVITY_LABEL[active]}</small><small>вход: {shortTime(u.last_login_at)}</small><small>генерация: {shortTime(u.last_generation_at)}</small></span>
                 <span>{sourceList.map((p) => <Badge key={p} p={p} />)}<small>{u.last_ip || 'IP —'}</small></span>
                 <span className="crm-contact-cell"><small>{u.email || '—'}</small><small>{u.username ? `@${u.username}` : 'username —'}</small><small>{u.phone || genderAgeLabel(u as CrmUserRow & AnyRec)}</small></span>
-                <span><strong>{u.plan || 'mini'}</strong><small>галерея {quotaLabel(u as CrmUserRow & AnyRec)}</small><small>свободно {n0(u.gallery_free)}</small></span>
-                <span><strong>{tokenLine(u)}</strong><small>всего / сегодня / баланс / день</small><small>списано {n0(u.tokens_spent)}</small></span>
+                <span><strong>{u.plan || 'mini'}</strong><small>дневные {n0(u.daily_tokens_used)} / {n0(u.daily_tokens_limit)}</small><small>основной баланс {n0(u.main_token_balance ?? u.token_balance)}</small></span>
+                <span><strong>сегодня {n0(todayMetrics.total)} · вчера {n0(yesterdayMetrics.total)}</strong><small>всего {n0(totalMetrics.total ?? u.generations_count)} · ошибок {n0(totalMetrics.failed)}</small><small>изображения {n0(totalMetrics.images)} · видео {n0(totalMetrics.videos)}</small></span>
                 <span><small>{deviceLabel(u)}</small><small>{u.device_count ?? 0} устр.</small></span>
                 <span className="crm-row-actions">
                   <button className="mini" onClick={(e) => { stop(e); setCard(u) }}>Карточка</button>

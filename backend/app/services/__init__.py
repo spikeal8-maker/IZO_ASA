@@ -18,6 +18,7 @@ from . import gallery_items
 from . import video_pricing
 from . import video_presentation
 from . import video_download
+from . import admin_analytics
 from . import ltx_video
 from . import feed_presentation
 from . import feed_sources
@@ -65,6 +66,7 @@ __all__ = [
     "video_pricing",
     "video_presentation",
     "video_download",
+    "admin_analytics",
     "ltx_video",
     "feed_presentation",
     "feed_sources",
