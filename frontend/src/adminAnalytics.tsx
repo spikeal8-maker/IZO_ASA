@@ -778,7 +778,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 <div className="crm-image-frame"><video src={S(selectedVideo.media_url)} controls autoPlay playsInline /></div>
                 <aside className="crm-image-side">
                   <dl className="crm-preview-list">
-                    {row('Режим', selectedVideo.mode)}{row('Модель', selectedVideo.model || selectedVideo.provider)}{row('Создано', shortTime(selectedVideo.created_at))}
+                    {row('Режим', modeLabel(selectedVideo.mode))}{row('Модель', selectedVideo.model || selectedVideo.provider)}{row('Создано', shortTime(selectedVideo.created_at))}
                     {row('Размер', `${S(selectedVideo.width)} × ${S(selectedVideo.height)}`)}{row('Длительность', `${S(selectedVideo.duration_seconds)} сек.`)}{row('Файл', `${Math.round(n0(selectedVideo.stored_bytes) / 1048576)} МБ`)}
                   </dl>
                   <div className="crm-image-prompt"><strong>Промпт</strong><p>{S(selectedVideo.prompt || 'Промпт не сохранён')}</p></div>

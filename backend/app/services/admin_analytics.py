@@ -553,8 +553,17 @@ def user_history_page(conn: sqlite3.Connection, internal_user_id: str, section: 
         image_total = _scalar(conn, "SELECT COUNT(*) FROM images WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='')", (user_id,))
         video_total = _scalar(conn, "SELECT COUNT(*) FROM videos WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='')", (user_id,))
         total = image_total + video_total
-        rows = conn.execute("SELECT media_type,id,job_id,mode,provider,prompt_original,width,height,duration_seconds,is_favorite,created_at FROM (SELECT 'image' media_type,id,job_id,mode,provider,prompt_original,width,height,NULL duration_seconds,is_favorite,created_at FROM images WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='') UNION ALL SELECT 'video',id,job_id,mode,provider,prompt_original,width,height,duration_seconds,is_favorite,created_at FROM videos WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='')) ORDER BY created_at DESC LIMIT ? OFFSET ?", (user_id, user_id, limit, offset)).fetchall()
-        items = [{"type": r["media_type"], "id": _short(r["id"]), "admin_media_id": r["id"], "job_id": _short(r["job_id"]), "media_url": f"/api/admin/media/{r['media_type']}/{r['id']}" + ("?variant=thumb" if r["media_type"] == "image" else ""), "full_url": f"/api/admin/media/{r['media_type']}/{r['id']}" + ("?variant=full" if r["media_type"] == "image" else ""), "mode": r["mode"], "provider": r["provider"], "prompt": _text(r["prompt_original"], 1200), "width": r["width"], "height": r["height"], "duration_seconds": r["duration_seconds"], "favorite": bool(r["is_favorite"]), "created_at": r["created_at"]} for r in rows]
+        rows = conn.execute(
+            "SELECT media_type,id,job_id,mode,provider,prompt_original,width,height,duration_seconds,settings_json,stored_bytes,is_favorite,created_at FROM ("
+            "SELECT 'image' media_type,id,job_id,mode,provider,prompt_original,width,height,NULL duration_seconds,settings_json,stored_bytes,is_favorite,created_at FROM images WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='') "
+            "UNION ALL SELECT 'video',id,job_id,mode,provider,prompt_original,width,height,duration_seconds,settings_json,stored_bytes,is_favorite,created_at FROM videos WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='')) "
+            "ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (user_id, user_id, limit, offset),
+        ).fetchall()
+        items = []
+        for r in rows:
+            settings = _json_object(r["settings_json"])
+            items.append({"type": r["media_type"], "id": _short(r["id"]), "admin_media_id": r["id"], "job_id": _short(r["job_id"]), "media_url": f"/api/admin/media/{r['media_type']}/{r['id']}" + ("?variant=thumb" if r["media_type"] == "image" else ""), "full_url": f"/api/admin/media/{r['media_type']}/{r['id']}" + ("?variant=full" if r["media_type"] == "image" else ""), "mode": r["mode"], "provider": r["provider"], "model": settings.get("modelProfile") or settings.get("openrouterModel") or settings.get("model") or r["provider"], "prompt": _text(r["prompt_original"], 1200), "width": r["width"], "height": r["height"], "duration_seconds": r["duration_seconds"], "stored_bytes": int(r["stored_bytes"] or 0), "favorite": bool(r["is_favorite"]), "created_at": r["created_at"]})
     return {"ok": True, "section": section, "items": items, "total": total, "limit": limit, "offset": offset, "has_more": offset + len(items) < total}
 
 

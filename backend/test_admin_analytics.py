@@ -228,6 +228,10 @@ def test_user_dossier_access_models_and_paginated_history(temp_db):
                 "INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,prompt_translated,settings_json,created_at,completed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 ("job-dossier", uid, "text_to_image", "openrouter", "completed", 100, "real dossier prompt", "", json.dumps({"openrouterModel": "test/image-model", "openrouterCostUsd": 0.125, "openrouterBilling": {"actualCostUsd": 0.125, "actualCostRub": 12.5}}), "2026-08-20T11:00:00+00:00", "2026-08-20T11:00:05+00:00"),
             )
+            conn.execute(
+                "INSERT INTO images (id,user_id,job_id,url,thumbnail_url,width,height,mode,provider,prompt_original,settings_json,stored_bytes,is_favorite,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                ("image-dossier", uid, "job-dossier", "/api/media/image.webp", "/api/media/image-thumb.webp", 1024, 1024, "text_to_image", "openrouter", "real dossier prompt", json.dumps({"openrouterModel": "test/image-model"}), 2345678, 0, "2026-08-20T11:00:05+00:00"),
+            )
             conn.execute("INSERT INTO token_ledger (id,user_id,delta,reason,meta_json,created_at) VALUES (?,?,?,?,?,?)", ("charge-dossier", uid, -3, "generation", json.dumps({"jobId": "job-dossier", "token_cost": 3, "daily_part": 0, "balance_part": 3}), "2026-08-20T11:00:00+00:00"))
             conn.execute("INSERT INTO token_ledger (id,user_id,delta,reason,meta_json,created_at) VALUES (?,?,?,?,?,?)", ("refund-dossier", uid, 1, "generation_refund", json.dumps({"jobId": "job-dossier", "token_cost": 1, "balance_part": 1}), "2026-08-20T11:01:00+00:00"))
             conn.execute("INSERT INTO invoices (id,invoice_code,internal_user_id,user_id,status,currency,total_amount,tokens_total,reason,created_at,updated_at,cancelled_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", ("invoice-dossier", "INV-DOSSIER", iuid, uid, "cancelled", "RUB", 1990, 0, "user_checkout", "2026-08-20T12:00:00+00:00", "2026-08-20T12:01:00+00:00", "2026-08-20T12:01:00+00:00"))
@@ -235,6 +239,7 @@ def test_user_dossier_access_models_and_paginated_history(temp_db):
         detail = c.get(f"/api/admin/users/{iuid}/analytics-v2", headers=bearer(tok))
         logins = c.get(f"/api/admin/users/{iuid}/history-v2?section=logins&limit=1", headers=bearer(tok))
         generations = c.get(f"/api/admin/users/{iuid}/history-v2?section=generations", headers=bearer(tok))
+        media = c.get(f"/api/admin/users/{iuid}/history-v2?section=media", headers=bearer(tok))
         finance = c.get(f"/api/admin/users/{iuid}/history-v2?section=finance", headers=bearer(tok))
 
     assert detail.status_code == 200
@@ -248,6 +253,9 @@ def test_user_dossier_access_models_and_paginated_history(temp_db):
     assert generations.json()["items"][0]["prompt"] == "real dossier prompt"
     generation = generations.json()["items"][0]
     assert generation["tokens"] == {"main": 3, "daily": 0, "refunded": 1, "net": 2}
+    assert media.status_code == 200
+    assert media.json()["items"][0]["model"] == "test/image-model"
+    assert media.json()["items"][0]["stored_bytes"] == 2345678
     assert generation["actual_cost_usd"] == pytest.approx(0.125)
     assert generation["actual_cost_rub"] == pytest.approx(12.5)
     assert body["token_economics"]["main_consumed"] == 2
