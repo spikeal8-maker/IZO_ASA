@@ -19,9 +19,12 @@ page.on('response', (response) => { if (response.status() >= 400) failedResponse
 
 try {
   await page.goto(`${baseURL}/admin`, { waitUntil: 'networkidle' })
-  await page.getByText('Генерации сегодня', { exact: true }).waitFor()
-  await page.getByText('Изображения / видео', { exact: true }).waitFor()
-  await page.getByText('Токены сегодня', { exact: true }).waitFor()
+  await page.locator('.admin-generation-chart').waitFor()
+  if (await page.locator('.admin-kpi-strip span').count() !== 7) throw new Error('Dashboard operational strip is incomplete')
+  if (await page.locator('.admin-generation-chart .series').count() !== 4) throw new Error('Dashboard generation series are incomplete')
+  for (const label of ['Всего', 'Базовая модель', 'Платные изображения', 'Видео']) {
+    await page.locator('.admin-generation-legend').getByText(label, { exact: true }).waitFor()
+  }
   await page.screenshot({ path: `${outDir}/dashboard.png`, fullPage: true })
 
   await page.getByRole('button', { name: 'CRM' }).click()

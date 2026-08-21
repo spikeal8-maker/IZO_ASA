@@ -1092,6 +1092,20 @@ Acceptance: generated symbol map, targeted backend tests, frontend lint/build,
 один clean Full receipt, desktop/mobile browser evidence на точном production
 SHA и public health после переключения.
 
+## 12.2. ADMIN-DASH-001 — единый операционный дашборд
+
+Пакет 2026-08-21 убирает дубли верхней панели и собирает операторский обзор в
+две компактные строки: реальные показатели и навигацию. Шесть разрозненных
+графиков заменяются одним графиком генераций с четырьмя сериями: всего,
+локальные изображения, платные API-изображения и видео. Категории вычисляются
+сервером одним ограниченным чтением журнала jobs; рабочая база не изменяется.
+
+Acceptance: семь показателей без повторной KPI-сетки, одна строка вкладок, один
+график с четырьмя сериями и периодами 1 час–90 дней, отсутствие горизонтального
+overflow страницы на desktop/mobile, targeted API test, lint/build, Playwright,
+Quick и один clean Full receipt перед выпуском, затем browser evidence на
+точном production SHA. Сетевой маршрут, FRP и AdGuard VPN вне scope.
+
 ## 13. Матрица обязательных проверок
 
 | Изменение | Targeted | Повтор 5x | Quick | Full | Live/provider |

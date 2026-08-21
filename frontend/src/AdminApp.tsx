@@ -1,5 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
-import { Lock, Shield, WandSparkles } from 'lucide-react'
+import { lazy, Suspense, useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { Lock, WandSparkles } from 'lucide-react'
 import {
   AuthV2Modal,
   initAuthV2,
@@ -119,81 +119,66 @@ function shortChartDate(value: string): string {
   return Number.isNaN(parsed.getTime()) ? value.slice(5) : parsed.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
 }
 
-function AdminLineChart({
-  title,
-  note,
-  series,
-  range,
-  color = '#dfff22',
-}: {
-  title: string
-  note: string
-  series: SeriesPoint[]
-  range: DashboardRange
-  color?: string
-}) {
-  const rows = series.length ? series : [{ date: '', value: 0 }]
-  const max = Math.max(1, ...rows.map((p) => Number(p.value) || 0))
-  const width = 460
-  const height = 176
-  const padLeft = 40
-  const padRight = 14
-  const padTop = 18
-  const padBottom = 30
+type DashboardChartSeries = {
+  key: string
+  label: string
+  color: string
+  values: SeriesPoint[]
+}
+
+function AdminGenerationChart({ series, range }: { series: DashboardChartSeries[]; range: DashboardRange }) {
+  const primary = series[0]?.values.length ? series[0].values : [{ date: '', value: 0 }]
+  const dates = primary.map((point) => point.date)
+  const normalized = series.map((item) => {
+    const byDate = new Map(item.values.map((point) => [point.date, Number(point.value) || 0]))
+    return { ...item, values: dates.map((date) => ({ date, value: byDate.get(date) || 0 })) }
+  })
+  const max = Math.max(1, ...normalized.flatMap((item) => item.values.map((point) => point.value)))
+  const width = 1120
+  const height = 300
+  const padLeft = 46
+  const padRight = 18
+  const padTop = 22
+  const padBottom = 34
   const plotWidth = width - padLeft - padRight
   const plotHeight = height - padTop - padBottom
-  const points = rows.map((p, index) => {
-    const x = padLeft + (rows.length <= 1 ? 0 : (index / (rows.length - 1)) * plotWidth)
-    const y = padTop + plotHeight - ((Number(p.value) || 0) / max) * plotHeight
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  }).join(' ')
-  const total = rows.reduce((sum, p) => sum + (Number(p.value) || 0), 0)
-  const last = rows.at(-1)?.value ?? 0
-  const average = rows.length ? Math.round(total / rows.length) : 0
-  const peak = rows.reduce((best, point) => (Number(point.value) > Number(best.value) ? point : best), rows[0] || { date: '', value: 0 })
-  const tickStep = rows.length <= 12 ? 3 : rows.length <= 24 ? 6 : range === 7 ? 2 : range === 30 ? 10 : 30
-  const dateTicks = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % tickStep === 0)
+  const pointX = (index: number) => padLeft + (dates.length <= 1 ? 0 : (index / (dates.length - 1)) * plotWidth)
+  const pointY = (value: number) => padTop + plotHeight - (value / max) * plotHeight
+  const tickStep = dates.length <= 12 ? 3 : dates.length <= 24 ? 6 : range === 7 ? 2 : range === 30 ? 10 : 30
+  const dateTicks = dates.map((date, index) => ({ date, index })).filter(({ index }) => index === 0 || index === dates.length - 1 || index % tickStep === 0)
   const valueTicks = Array.from(new Set([max, Math.round(max * 0.75), Math.round(max * 0.5), Math.round(max * 0.25), 0])).sort((a, b) => b - a)
-  const verticalTicks = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % tickStep === 0)
-  const valueLabels = rows.filter((point, index) => Number(point.value || 0) > 0 && (index === rows.length - 1 || Number(point.value) === Number(peak.value)))
-  const rangeLabel = rows[0]?.date ? `${shortChartDate(rows[0].date)} - ${shortChartDate(rows.at(-1)?.date || rows[0].date)}` : `${range} ${HOURLY_DASHBOARD_RANGES.has(range) ? 'ч' : 'дней'}`
+  const rangeLabel = dates[0] ? `${shortChartDate(dates[0])} — ${shortChartDate(dates.at(-1) || dates[0])}` : `${range} ${HOURLY_DASHBOARD_RANGES.has(range) ? 'ч' : 'дней'}`
   return (
-    <article className="admin-line-chart">
+    <article className="admin-generation-chart">
       <header>
-        <h3>{title}</h3>
-        <p className="admin-line-meta">Сумма {total.toLocaleString('ru-RU')} · пик {Number(peak.value || 0).toLocaleString('ru-RU')} {shortChartDate(peak.date)} · среднее {average.toLocaleString('ru-RU')} · сейчас {Number(last || 0).toLocaleString('ru-RU')}</p>
+        <div>
+          <h3>Генерации</h3>
+          <p>Все типы генераций в одном графике · {rangeLabel}</p>
+        </div>
+        <div className="admin-generation-legend">
+          {normalized.map((item) => (
+            <span key={item.key} style={{ '--chart-color': item.color } as CSSProperties}>
+              <i />{item.label}<b>{item.values.reduce((sum, point) => sum + point.value, 0).toLocaleString('ru-RU')}</b>
+            </span>
+          ))}
+        </div>
       </header>
-      <svg viewBox={`0 0 ${width} ${height}`} aria-label={title}>
-        {valueTicks.map((value) => {
-          const y = padTop + plotHeight - (value / max) * plotHeight
-          return <g key={`y-${value}-${y}`}><line className="grid horizontal" x1={padLeft} x2={width - padRight} y1={y} y2={y} /><text className="axis value" x={8} y={y + 5}>{value.toLocaleString('ru-RU')}</text></g>
-        })}
-        {verticalTicks.map((point, index) => {
-          const rowIndex = rows.indexOf(point)
-          const x = padLeft + (rows.length <= 1 ? 0 : (rowIndex / (rows.length - 1)) * plotWidth)
-          return <line className="grid vertical" key={`v-${point.date}-${index}`} x1={x} x2={x} y1={padTop} y2={padTop + plotHeight} />
-        })}
-        {dateTicks.map((point, index) => {
-          const rowIndex = rows.indexOf(point)
-          const x = padLeft + (rows.length <= 1 ? 0 : (rowIndex / (rows.length - 1)) * plotWidth)
-          return <text className="axis date" key={`${point.date}-${index}`} x={x} y={height - 10}>{shortChartDate(point.date)}</text>
-        })}
-        <polyline points={points} style={{ stroke: color }} />
-        {rows.map((point, index) => {
-          const rowIndex = rows.indexOf(point)
-          const x = padLeft + (rows.length <= 1 ? 0 : (rowIndex / (rows.length - 1)) * plotWidth)
-          const y = padTop + plotHeight - ((Number(point.value) || 0) / max) * plotHeight
-          return <circle key={`${point.date}-${index}`} cx={x} cy={y} r={Number(point.value || 0) > 0 ? 4 : 2.2} style={{ fill: color }}><title>{shortChartDate(point.date)}: {Number(point.value || 0).toLocaleString('ru-RU')}</title></circle>
-        })}
-        {valueLabels.map((point, index) => {
-          const rowIndex = rows.indexOf(point)
-          const x = padLeft + (rows.length <= 1 ? 0 : (rowIndex / (rows.length - 1)) * plotWidth)
-          const y = padTop + plotHeight - ((Number(point.value) || 0) / max) * plotHeight
-          const labelY = Math.max(14, y - 9)
-          return <text className="axis point-value" key={`label-${point.date}-${index}`} x={x} y={labelY}>{Number(point.value || 0).toLocaleString('ru-RU')}</text>
-        })}
-      </svg>
-      <footer><small>{note}</small><b>{rangeLabel}</b></footer>
+      <div className="admin-generation-plot" tabIndex={0} aria-label="Прокручиваемый график генераций">
+        <svg viewBox={`0 0 ${width} ${height}`} aria-label="Генерации по типам">
+          {valueTicks.map((value) => {
+            const y = pointY(value)
+            return <g key={`y-${value}-${y}`}><line className="grid horizontal" x1={padLeft} x2={width - padRight} y1={y} y2={y} /><text className="axis value" x={8} y={y + 5}>{value.toLocaleString('ru-RU')}</text></g>
+          })}
+          {dateTicks.map(({ date, index }) => <g key={`${date}-${index}`}><line className="grid vertical" x1={pointX(index)} x2={pointX(index)} y1={padTop} y2={padTop + plotHeight} /><text className="axis date" x={pointX(index)} y={height - 10}>{shortChartDate(date)}</text></g>)}
+          {normalized.map((item) => {
+            const points = item.values.map((point, index) => `${pointX(index).toFixed(1)},${pointY(point.value).toFixed(1)}`).join(' ')
+            return <g key={item.key} className={`series series-${item.key}`}>
+              <polyline points={points} style={{ stroke: item.color }} />
+              {item.values.map((point, index) => <circle key={`${item.key}-${point.date}-${index}`} cx={pointX(index)} cy={pointY(point.value)} r={point.value > 0 ? 3.5 : 1.8} style={{ fill: item.color }}><title>{item.label} · {shortChartDate(point.date)}: {point.value.toLocaleString('ru-RU')}</title></circle>)}
+            </g>
+          })}
+        </svg>
+      </div>
     </article>
   )
 }
@@ -226,15 +211,6 @@ function AdminAccessPage({ status, onOpenAuth }: { status: 'loading' | 'denied';
 
 function AdminDashboard({ summary }: { summary: AnyRec | null }) {
   const timeline = (summary?.timeline || {}) as AnyRec
-  const live = (summary?.dashboard || {}) as AnyRec
-  const periods = (live.periods || {}) as AnyRec
-  const today = (periods.today || {}) as AnyRec
-  const yesterday = (periods.yesterday || {}) as AnyRec
-  const todayUsers = (today.users || {}) as AnyRec
-  const todayJobs = (today.generations || {}) as AnyRec
-  const todayTokens = (today.tokens || {}) as AnyRec
-  const yesterdayJobs = (yesterday.generations || {}) as AnyRec
-  const totals = (live.totals || {}) as AnyRec
   const [range, setRange] = useState<DashboardRange>(24)
   const isHourlyRange = HOURLY_DASHBOARD_RANGES.has(range)
   const sliceSeries = (key: string): SeriesPoint[] => {
@@ -242,32 +218,16 @@ function AdminDashboard({ summary }: { summary: AnyRec | null }) {
     const source = asSeries(timeline[sourceKey])
     return isHourlyRange ? source : source.slice(-range)
   }
-  const charts = [
-    { title: 'Активность пользователей', note: 'last_seen по времени', key: 'active_users', color: '#dfff22' },
-    { title: 'Новые пользователи', note: 'созданные аккаунты', key: 'registrations', color: '#72ff69' },
-    { title: 'Успешные входы', note: 'login/register события', key: 'logins', color: '#64b5ff' },
-    { title: 'Ошибки входа', note: 'неудачные auth попытки', key: 'login_errors', color: '#ffd45c' },
-    { title: 'Генерации', note: 'старты генераций', key: 'generations', color: '#dfff22' },
-    { title: 'Ошибки генерации', note: 'failed jobs', key: 'generation_errors', color: '#ff6b6b' },
-  ].map((chart) => ({ ...chart, series: sliceSeries(chart.key) }))
-  const kpi = (title: string, value: unknown, note: string) => (
-    <div><strong>{title}</strong><span>{String(value ?? '—')}</span><small>{note}</small></div>
-  )
+  const generationSeries: DashboardChartSeries[] = [
+    { key: 'total', label: 'Всего', color: '#ecff2f', values: sliceSeries('generations') },
+    { key: 'local', label: 'Базовая модель', color: '#72ff69', values: sliceSeries('local_images') },
+    { key: 'paid', label: 'Платные изображения', color: '#b889ff', values: sliceSeries('paid_images') },
+    { key: 'video', label: 'Видео', color: '#45d9ec', values: sliceSeries('videos') },
+  ]
   return (
     <div className="admin-section admin-dashboard-v2">
-      <div className="admin-grid admin-grid-compact">
-        {kpi('Пользователи', totals.users ?? summary?.users, `${String(todayUsers.active ?? 0)} активны сегодня`)}
-        {kpi('Генерации сегодня', todayJobs.total ?? summary?.generationsToday, `${String(todayJobs.completed ?? 0)} готовы · ${String(todayJobs.failed ?? 0)} ошибок`)}
-        {kpi('Изображения / видео', `${String(todayJobs.images ?? 0)} / ${String(todayJobs.videos ?? 0)}`, `вчера всего ${String(yesterdayJobs.total ?? 0)}`)}
-        {kpi('Токены сегодня', todayTokens.total ?? 0, `${String(todayTokens.daily ?? 0)} дневных · ${String(todayTokens.main ?? 0)} основных`)}
-        {kpi('Сессии', live.sessions_active ?? summary?.activeSessions, 'активны сейчас')}
-        {kpi('Ошибки входа', summary?.errors24h, 'за 24 часа')}
-        {kpi('Медиа в галереях', `${String(totals.images ?? 0)} / ${String(totals.videos ?? 0)}`, 'изображения / видео')}
-        {kpi('Ошибки генерации', totals.failed_generations ?? summary?.errors, 'за всё время')}
-      </div>
-      <p className="admin-dashboard-period-note">Сегодня считается по Москве. График «сутки» показывает скользящие последние 24 часа, поэтому его сумма может отличаться от показателя «сегодня».</p>
       <div className="admin-dashboard-toolbar">
-        <strong>Графики по времени</strong>
+        <strong>Период графика</strong>
         {[
           [1, '1 час'],
           [6, '6 часов'],
@@ -278,13 +238,8 @@ function AdminDashboard({ summary }: { summary: AnyRec | null }) {
           [90, '90 дней'],
         ].map(([value, label]) => <button key={value} className={range === value ? 'active' : ''} onClick={() => setRange(value as DashboardRange)}>{label}</button>)}
       </div>
-      <div className="admin-chart-grid">
-        {charts.map((chart) => <AdminLineChart key={chart.key} title={chart.title} note={chart.note} series={chart.series} range={range} color={chart.color} />)}
-      </div>
-      <div className="admin-note">
-        <strong>Статус страницы</strong>
-        <p>Это отдельная админская оболочка. Она не рендерит старый генератор и использует только trusted cookie auth.</p>
-      </div>
+      <AdminGenerationChart series={generationSeries} range={range} />
+      <p className="admin-dashboard-period-note">Показатель «сегодня» в верхней строке считается по Москве. Периоды 1–24 часа на графике являются скользящими.</p>
     </div>
   )
 }
@@ -566,29 +521,24 @@ export default function AdminApp() {
   const dashboardToday = (((dashboard.periods || {}) as AnyRec).today || {}) as AnyRec
   const dashboardTodayUsers = (dashboardToday.users || {}) as AnyRec
   const dashboardTodayJobs = (dashboardToday.generations || {}) as AnyRec
-  const errors = Number(summary?.errors ?? 0)
-  const health = errors === 0 ? 'Стабильно' : `Ошибки генерации: ${errors}`
   return (
     <div className="app-shell admin-route-shell">
       {isDiagMode() && <DiagPanel />}
       <AuthV2Modal open={authOpen} onClose={() => setAuthOpen(false)} />
       <main className="workspace admin-workspace">
         <section className="admin-page">
-          <div className="admin-topline">
-            <button className="secondary" onClick={() => { window.location.href = '/' }}><WandSparkles size={16} />К генерации</button>
-            <span className={errors === 0 ? 'admin-live-ok' : 'admin-live-warn'}>{health}</span>
-            <small><Shield size={13} /> trusted admin · {me?.profile?.public_user_code || me?.internal_user_id?.slice(0, 8) || 'admin'}</small>
-          </div>
-          <div className="admin-kpi-strip">
+          <div className="admin-kpi-strip admin-kpi-strip-primary" aria-label="Оперативные показатели">
             <span><b>{String(((dashboard.totals || {}) as AnyRec).users ?? summary?.users ?? '—')}</b> пользователей</span>
             <span><b>{String(dashboardTodayUsers.active ?? summary?.activeToday ?? '—')}</b> активны сегодня</span>
+            <span><b>{String(dashboard.sessions_active ?? summary?.activeSessions ?? '—')}</b> активных сессий</span>
             <span><b>{String(dashboardTodayJobs.total ?? summary?.generationsToday ?? '—')}</b> генераций сегодня</span>
+            <span><b>{String(dashboardTodayJobs.failed ?? '—')}</b> ошибок генерации сегодня</span>
             <span><b>{String(summary?.errors24h ?? '—')}</b> ошибок входа 24ч</span>
             <span><b>{String(queue.length)}</b> в очереди</span>
           </div>
-          <div className="admin-tabbar">
+          <nav className="admin-tabbar" aria-label="Разделы админки">
             {ADMIN_ROUTES.map((route) => <button key={route.tab} className={tab === route.tab ? 'active' : ''} onClick={() => navigateAdmin(route.path)}>{route.label}</button>)}
-          </div>
+          </nav>
           {tab === 'dashboard' && <AdminDashboard summary={summary} />}
           {tab === 'crm' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем CRM...</div>}><AdminAnalyticsV2 /></Suspense></div>}
           {tab === 'models' && <div className="admin-section"><Suspense fallback={<div className="preview-empty">Загружаем модели...</div>}><AdminModelsV2 /></Suspense></div>}

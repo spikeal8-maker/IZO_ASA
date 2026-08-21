@@ -14207,8 +14207,7 @@ async def admin_summary(request: Request) -> dict[str, Any]:
         login_errors_rolling = _dashboard_rolling_series(conn, "auth_login_attempts", "created_at", "success = 0")
         generations_rolling = _dashboard_rolling_series(conn, "jobs", "created_at")
         generation_errors_rolling = _dashboard_rolling_series(conn, "jobs", "created_at", "status = 'failed'")
-        timeline = {
-            "days": 90,
+        timeline = {"days": 90, **admin_analytics.dashboard_generation_timeline(conn),
             "active_users": _daily_counts(conn, "users", "last_seen_at", 90, "internal_user_id IS NOT NULL"),
             "registrations": _daily_counts(conn, "users", "created_at", 90, "internal_user_id IS NOT NULL"),
             "logins": _daily_counts(conn, "event_logs", "created_at", 90, "event_name IN ('login_succeeded','password_login_succeeded','password_register_succeeded')"),

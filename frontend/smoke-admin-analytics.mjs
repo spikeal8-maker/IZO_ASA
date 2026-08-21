@@ -34,6 +34,19 @@ for (const endpoint of ['/admin/summary', '/admin/settings', '/admin/promos', '/
 }
 ok(adminMail.includes('/admin/mail/status-v2'), 'admin mail module missing /admin/mail/status-v2')
 
+// The shared admin shell must have one operational strip, one real tab row and
+// one combined generation chart instead of duplicated dashboard cards/charts.
+ok(adminApp.includes('aria-label="Оперативные показатели"'), 'admin shell missing the consolidated operational strip')
+ok(adminApp.includes('активных сессий'), 'operational strip missing active sessions')
+ok(adminApp.includes('ошибок генерации сегодня'), 'operational strip missing generation errors')
+ok(adminApp.includes('aria-label="Разделы админки"'), 'admin navigation must be exposed as a tab row')
+ok(!adminApp.includes('className="admin-topline"'), 'legacy admin top line must be removed')
+ok(!adminApp.includes('admin-grid admin-grid-compact'), 'duplicated dashboard KPI grid must be removed')
+ok(adminApp.includes('AdminGenerationChart'), 'dashboard must render the combined generation chart')
+for (const label of ['Всего', 'Базовая модель', 'Платные изображения', 'Видео']) {
+  ok(adminApp.includes(`label: '${label}'`), `combined generation chart missing ${label}`)
+}
+
 // New UI must expose Admin instead of Help for admins.
 ok(topbar.includes("'admin'"), 'TopBarV3 must support admin section')
 ok(topbar.includes('isAdmin') && topbar.includes('onOpenAdmin'), 'TopBarV3 must accept admin props')
