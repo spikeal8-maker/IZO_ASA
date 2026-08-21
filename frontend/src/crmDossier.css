@@ -107,6 +107,8 @@
 .crm-generation-detail { display: grid; gap: 7px; padding: 9px 11px 11px; border-top: 1px solid #213640; }
 .crm-generation-detail p { margin: 0; color: #d0dbe0; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
 .crm-generation-detail > small { color: #8297a1; }
+.crm-video-dialog .crm-preview-list { grid-template-columns: 88px minmax(0, 1fr); }
+.crm-video-dialog .crm-preview-list dd { overflow-wrap: normal; word-break: normal; }
 .crm-generation-status { flex: 0 0 auto; padding: 5px 8px; border: 1px solid #4b616b; border-radius: 999px; color: #bdcbd1; font-size: 11px; }
 .crm-generation-status.status-completed { border-color: #759b0b; color: var(--acid); }
 .crm-generation-status.status-failed { border-color: #8f3b45; color: #ff8792; }
