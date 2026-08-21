@@ -213,6 +213,38 @@ def test_user_detail_analytics_safe(temp_db):
         assert forbidden not in text
 
 
+def test_user_dossier_access_models_and_paginated_history(temp_db):
+    tok = make_admin()
+    with TestClient(main.app) as c:
+        register(c, "dossier@example.com")
+        with main.db() as conn:
+            identity = conn.execute("SELECT internal_user_id, legacy_user_id FROM auth_identities WHERE provider_user_id='dossier@example.com'").fetchone()
+            iuid, uid = identity["internal_user_id"], identity["legacy_user_id"]
+            conn.execute(
+                "INSERT INTO auth_login_attempts (id,internal_user_id,provider,identifier,success,failure_reason,ip_address,platform,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                ("login-dossier-failed", iuid, "web_email", "dossier@example.com", 0, "bad_password", "10.20.30.40", "web", "2026-08-20T10:00:00+00:00"),
+            )
+            conn.execute(
+                "INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,prompt_translated,settings_json,created_at,completed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                ("job-dossier", uid, "text_to_image", "openrouter", "completed", 100, "real dossier prompt", "", json.dumps({"openrouterModel": "test/image-model"}), "2026-08-20T11:00:00+00:00", "2026-08-20T11:00:05+00:00"),
+            )
+        detail = c.get(f"/api/admin/users/{iuid}/analytics-v2", headers=bearer(tok))
+        logins = c.get(f"/api/admin/users/{iuid}/history-v2?section=logins&limit=1", headers=bearer(tok))
+        generations = c.get(f"/api/admin/users/{iuid}/history-v2?section=generations", headers=bearer(tok))
+
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["access_summary"]["failed_logins"] >= 1
+    assert any(ip["ip_address"] == "10.20.30.40" for ip in body["ip_history"])
+    assert any(row["model"] == "test/image-model" and row["total"] == 1 for row in body["model_usage"])
+    assert body["history_totals"]["generations"] >= 1
+    assert logins.status_code == 200 and len(logins.json()["items"]) == 1
+    assert generations.status_code == 200
+    assert generations.json()["items"][0]["prompt"] == "real dossier prompt"
+    for forbidden in ("session_token_hash", "refresh_token_hash", "user_agent_hash", "raw_profile_json"):
+        assert forbidden not in detail.text + logins.text + generations.text
+
+
 def test_user_detail_analytics_p0_real_data_and_no_secret_leaks(temp_db):
     tok = make_admin()
     long_prompt = "cinematic neon city " * 30
