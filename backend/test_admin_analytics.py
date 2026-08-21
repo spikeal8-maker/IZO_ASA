@@ -142,6 +142,9 @@ def test_dashboard_counts(temp_db):
     assert d["logins_today"] >= 2  # two register-succeeded logins
     assert "web_email" in d["users_by_provider"]
     assert d["sessions_active"] >= 1
+    assert d["timezone"] == "Europe/Moscow"
+    assert set(d["periods"]) == {"today", "yesterday", "last_24h"}
+    assert set(d["periods"]["today"]["tokens"]) == {"total", "daily", "main", "refunds"}
 
 
 # 13, 14
@@ -274,6 +277,37 @@ def test_user_detail_analytics_p0_real_data_and_no_secret_leaks(temp_db):
     text = r.text
     for forbidden in ("session_token_hash", "refresh_token_hash", "password_hash", "raw_profile_json", "secret_session_hash", "secret_refresh_hash", "initData", "WebAppData"):
         assert forbidden not in text
+
+
+def test_admin_media_preview_supports_images_and_video(temp_db, tmp_path, monkeypatch):
+    token = make_admin()
+    media = tmp_path / "media"
+    media.mkdir()
+    (media / "admin-preview.webp").write_bytes(b"RIFFtestWEBP")
+    (media / "admin-preview.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42test")
+    monkeypatch.setattr(main, "MEDIA", media)
+    with main.db() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id,user_id,mode,provider,status,progress,prompt_original,settings_json,created_at,completed_at) "
+            "VALUES ('admin-video-job','telegram_admin','text_to_video','openrouter','completed',100,'test video',?, '2026-08-21T01:00:00+00:00','2026-08-21T01:01:00+00:00')",
+            (json.dumps({"localFile": "admin-preview.mp4", "openrouterModel": "test/video"}),),
+        )
+        conn.execute(
+            "INSERT INTO images (id,user_id,job_id,url,thumbnail_url,width,height,mode,provider,prompt_original,settings_json,is_favorite,created_at) "
+            "VALUES ('admin-image','telegram_admin',NULL,'/api/media/admin-preview.webp','/api/media/admin-preview.webp',1,1,'text_to_image','test','test image','{}',0,'2026-08-21T01:00:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO videos (id,user_id,job_id,url,width,height,duration_seconds,aspect_ratio,mode,provider,prompt_original,settings_json,stored_bytes,is_favorite,created_at) "
+            "VALUES ('admin-video','telegram_admin','admin-video-job','/api/video/media/admin-video-job',640,480,4,'4:3','text_to_video','openrouter','test video','{}',18,0,'2026-08-21T01:01:00+00:00')"
+        )
+    with TestClient(main.app) as client:
+        image = client.get("/api/admin/media/image/admin-image?variant=thumb", headers=bearer(token))
+        video = client.get("/api/admin/media/video/admin-video", headers=bearer(token))
+        detail = client.get("/api/admin/users/iuid-admin/analytics-v2", headers=bearer(token)).json()
+    assert image.status_code == 200
+    assert video.status_code == 200
+    assert detail["recent_videos"][0]["model"] == "test/video"
+    assert detail["recent_videos"][0]["media_url"] == "/api/admin/media/video/admin-video"
 
 
 # 6, 7: provider profile fields captured (telegram/max upsert already store them)

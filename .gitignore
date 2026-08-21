@@ -47,6 +47,7 @@ frontend/full-ui-transcript.txt
 frontend/visual-out/
 frontend/real-generation-results/
 frontend/tmp/
+.qa-*/
 
 # OS and editor
 .DS_Store

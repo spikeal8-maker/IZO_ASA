@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs'
 const app = readFileSync(new URL('./src/App.tsx', import.meta.url), 'utf8')
 const adminApp = readFileSync(new URL('./src/AdminApp.tsx', import.meta.url), 'utf8')
 const adminAnalytics = readFileSync(new URL('./src/adminAnalytics.tsx', import.meta.url), 'utf8')
+const adminApi = readFileSync(new URL('./src/adminApi.ts', import.meta.url), 'utf8')
+const adminMail = readFileSync(new URL('./src/adminMail.tsx', import.meta.url), 'utf8')
 const topbar = readFileSync(new URL('./src/TopBarV3.tsx', import.meta.url), 'utf8')
 const newUi = readFileSync(new URL('./src/newUi.tsx', import.meta.url), 'utf8')
 const legacy = readFileSync(new URL('./src/LegacyApp.tsx', import.meta.url), 'utf8')
@@ -23,12 +25,14 @@ ok(adminApp.includes("me?.account?.role === 'admin'"), 'AdminApp must check trus
 ok(adminApp.includes('AdminAccessPage') && adminApp.includes('403'), 'AdminApp must render denied state')
 ok(!adminApp.includes("from './LegacyApp'"), 'AdminApp must not import LegacyApp')
 ok(!stripComments(adminApp).includes('X-OneNode-User'), 'AdminApp must not use legacy identity header')
-ok(adminApp.includes("credentials: 'include'"), 'AdminApp adminFetch must use cookie credentials')
+ok(adminApp.includes("from './adminApi'"), 'AdminApp must use the shared admin API client')
+ok(adminApi.includes("credentials: 'include'"), 'shared admin API client must use cookie credentials')
 ok(adminApp.includes("import('./adminAnalytics')"), 'AdminApp must mount CRM users module directly')
 ok(adminApp.includes("import('./adminModels')"), 'AdminApp must mount models module directly')
-for (const endpoint of ['/admin/summary', '/admin/settings', '/admin/promos', '/admin/logs-v2', '/admin/mail/status-v2']) {
+for (const endpoint of ['/admin/summary', '/admin/settings', '/admin/promos', '/admin/logs-v2']) {
   ok(adminApp.includes(endpoint), `AdminApp missing ${endpoint}`)
 }
+ok(adminMail.includes('/admin/mail/status-v2'), 'admin mail module missing /admin/mail/status-v2')
 
 // New UI must expose Admin instead of Help for admins.
 ok(topbar.includes("'admin'"), 'TopBarV3 must support admin section')

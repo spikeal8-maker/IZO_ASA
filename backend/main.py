@@ -336,6 +336,7 @@ try:
         video_pricing,
         video_presentation,
         video_download,
+        admin_analytics,
         feed_presentation,
         feed_sources,
         feed_downloads,
@@ -380,6 +381,7 @@ except ImportError:  # Direct `python backend/main.py` execution.
         video_pricing,
         video_presentation,
         video_download,
+        admin_analytics,
         feed_presentation,
         feed_sources,
         feed_downloads,
@@ -12927,6 +12929,12 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
     identity_phone = next((str(i["provider_phone"]).strip() for i in identities if i["provider_phone"]), None)
     is_demo = legacy == "demo_user" or str(_row_get(urow, "username") or "").lower() == "demo"
     account_group = "demo" if is_demo else ("admin" if _row_get(urow, "role") == "admin" else "customer")
+    period = admin_analytics.user_period_projection(conn, legacy)
+    current_daily_used = int(_row_get(urow, "daily_tokens_used") or 0)
+    if str(_row_get(urow, "last_daily_reset") or "") != now_iso[:10]:
+        current_daily_used = 0
+    identity_last_login = max((str(i["last_login_at"]) for i in identities if i["last_login_at"]), default="") or None
+    effective_last_login = identity_last_login or _row_get(urow, "last_login_at")
     return {
         "internal_user_id": iuid,  # used by the admin drawer fetch + technical section only
         "internal_user_id_short": (iuid[:8] + "…") if iuid else None,
@@ -12946,7 +12954,8 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "account_group": account_group,
         "first_seen_at": _row_get(urow, "created_at"),
         "last_seen_at": _row_get(urow, "last_seen_at"),
-        "last_login_at": _row_get(urow, "last_login_at"),
+        "last_login_at": effective_last_login,
+        "last_generation_at": period["last_generation_at"],
         "last_platform": _row_get(last_session, "platform"),
         "last_ip": _row_get(last_session, "ip_address"),
         "last_device": device if isinstance(device, dict) else {},
@@ -12959,8 +12968,11 @@ def admin_user_analytics_row(conn: sqlite3.Connection, urow: sqlite3.Row, now_is
         "generations_count": int(_row_get(urow, "generation_count") or 0),
         "tokens_spent": int(_row_get(urow, "tokens_used") or 0),
         "token_balance": int(_row_get(urow, "token_balance") or 0),
-        "daily_tokens_used": int(_row_get(urow, "daily_tokens_used") or 0),
+        "daily_tokens_used": current_daily_used,
         "daily_tokens_limit": gallery_quota["daily_tokens"],
+        "daily_tokens_remaining": max(0, int(gallery_quota["daily_tokens"]) - current_daily_used),
+        "main_token_balance": int(_row_get(urow, "token_balance") or 0),
+        "period_metrics": period,
         "plan": _row_get(urow, "plan") or "mini",
         "gallery_enabled": bool(_row_get(urow, "gallery_enabled")),
         "gallery_access": bool(user_gallery_allowed(conn, iuid, legacy)),
@@ -13130,34 +13142,31 @@ def _complete_provider_payment(
 @app.get("/api/admin/dashboard-v2")
 async def admin_dashboard_v2(request: Request) -> dict[str, Any]:
     require_trusted_admin(request)
-    now_iso = datetime.now(timezone.utc).isoformat()
-    today = _today_start_iso()
     with db() as conn:
-        def scalar(q, p=()):
-            return conn.execute(q, p).fetchone()["c"]
-        users_where = "internal_user_id IS NOT NULL"
-        total_users = scalar(f"SELECT COUNT(*) AS c FROM users WHERE {users_where}")
-        providers = {r["provider"]: r["c"] for r in conn.execute(
-            "SELECT provider, COUNT(DISTINCT internal_user_id) AS c FROM auth_identities GROUP BY provider")}
+        def scalar(query: str, params: tuple[Any, ...] = ()) -> int:
+            return int(conn.execute(query, params).fetchone()[0] or 0)
+
+        projection = admin_analytics.dashboard_projection(conn)
         platforms = {(r["platform"] or "unknown"): r["c"] for r in conn.execute(
             "SELECT platform, COUNT(DISTINCT internal_user_id) AS c FROM auth_sessions GROUP BY platform")}
-        login_events = "('login_succeeded','password_login_succeeded','password_register_succeeded')"
+        today = projection["periods"]["today"]
         data = {
-            "total_users": total_users,
-            "active_today": scalar(f"SELECT COUNT(*) AS c FROM users WHERE {users_where} AND last_seen_at >= ?", (today,)),
-            "active_7d": scalar(f"SELECT COUNT(*) AS c FROM users WHERE {users_where} AND last_seen_at >= ?", (_iso_days_ago(7),)),
-            "active_30d": scalar(f"SELECT COUNT(*) AS c FROM users WHERE {users_where} AND last_seen_at >= ?", (_iso_days_ago(30),)),
-            "new_today": scalar(f"SELECT COUNT(*) AS c FROM users WHERE {users_where} AND created_at >= ?", (today,)),
-            "new_7d": scalar(f"SELECT COUNT(*) AS c FROM users WHERE {users_where} AND created_at >= ?", (_iso_days_ago(7),)),
-            "logins_today": scalar(f"SELECT COUNT(*) AS c FROM event_logs WHERE event_name IN {login_events} AND created_at >= ?", (today,)),
-            "generations_today": scalar("SELECT COUNT(*) AS c FROM jobs WHERE created_at >= ?", (today,)),
-            "generations_total": scalar("SELECT COUNT(*) AS c FROM jobs"),
-            "tokens_spent_total": int(conn.execute("SELECT COALESCE(SUM(-delta),0) AS c FROM token_ledger WHERE delta < 0").fetchone()["c"]),
-            "users_by_provider": providers,
+            "total_users": projection["totals"]["users"],
+            "active_today": today["users"]["active"],
+            "active_7d": scalar("SELECT COUNT(*) FROM users WHERE internal_user_id IS NOT NULL AND last_seen_at >= ?", (_iso_days_ago(7),)),
+            "active_30d": scalar("SELECT COUNT(*) FROM users WHERE internal_user_id IS NOT NULL AND last_seen_at >= ?", (_iso_days_ago(30),)),
+            "new_today": today["users"]["new"],
+            "new_7d": scalar("SELECT COUNT(*) FROM users WHERE internal_user_id IS NOT NULL AND created_at >= ?", (_iso_days_ago(7),)),
+            "logins_today": today["users"]["logins"],
+            "generations_today": today["generations"]["total"],
+            "generations_total": projection["totals"]["generations"],
+            "tokens_spent_total": projection["totals"]["main_tokens_spent"],
+            "users_by_provider": projection["users_by_provider"],
             "users_by_platform": platforms,
-            "sessions_active": scalar("SELECT COUNT(*) AS c FROM auth_sessions WHERE revoked_at IS NULL AND expires_at > ?", (now_iso,)),
-            "failed_logins_24h": scalar("SELECT COUNT(*) AS c FROM auth_login_attempts WHERE success = 0 AND created_at >= ?", (_iso_days_ago(1),)),
-            "banned_users": scalar("SELECT COUNT(*) AS c FROM users WHERE banned = 1"),
+            "sessions_active": projection["sessions_active"],
+            "failed_logins_24h": scalar("SELECT COUNT(*) FROM auth_login_attempts WHERE success = 0 AND created_at >= ?", (_iso_days_ago(1),)),
+            "banned_users": scalar("SELECT COUNT(*) FROM users WHERE banned = 1"),
+            **projection,
         }
     return {"ok": True, "dashboard": data}
 
@@ -13365,13 +13374,21 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
             (urow["id"],),
         ).fetchall()
         jobs_rows = conn.execute(
-            "SELECT id, mode, provider, status, prompt_original, result_image_id, error_message, settings_json, created_at, completed_at "
+            "SELECT id, mode, provider, status, prompt_original, result_image_id, error_message, settings_json, created_at, started_at, completed_at "
             "FROM jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT 30",
             (urow["id"],),
         ).fetchall()
         image_rows = conn.execute(
             "SELECT id, job_id, url, thumbnail_url, mode, provider, prompt_original, is_favorite, created_at "
             "FROM images WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY created_at DESC LIMIT 30",
+            (urow["id"],),
+        ).fetchall()
+        video_rows = conn.execute(
+            "SELECT v.id, v.job_id, v.url, v.width, v.height, v.duration_seconds, v.aspect_ratio, v.mode, v.provider, "
+            "v.prompt_original, v.settings_json, j.settings_json AS job_settings_json, v.stored_bytes, v.is_favorite, v.created_at "
+            "FROM videos v LEFT JOIN jobs j ON j.id=v.job_id "
+            "WHERE v.user_id = ? AND (v.deleted_at IS NULL OR v.deleted_at = '') "
+            "ORDER BY v.created_at DESC LIMIT 30",
             (urow["id"],),
         ).fetchall()
         audits = conn.execute(
@@ -13440,14 +13457,28 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
             "id": short_public_id(r["id"]),
             "mode": r["mode"],
             "provider": r["provider"],
-            "model": (safe_json_load(r["settings_json"]) or {}).get("modelProfile") if isinstance(safe_json_load(r["settings_json"]) or {}, dict) else None,
+            "model": (
+                ((safe_json_load(r["settings_json"]) or {}).get("modelProfile")
+                 or (safe_json_load(r["settings_json"]) or {}).get("openrouterModel")
+                 or (safe_json_load(r["settings_json"]) or {}).get("model"))
+                if isinstance(safe_json_load(r["settings_json"]) or {}, dict) else None
+            ),
             "status": r["status"],
-            "prompt": truncate_admin_text(r["prompt_original"], 180),
+            "prompt": truncate_admin_text(r["prompt_original"], 1200),
             "token_cost": spent_by_job.get(r["id"]),
             "created_at": r["created_at"],
+            "started_at": r["started_at"],
             "completed_at": r["completed_at"],
+            "duration_seconds": (
+                max(0, (_parse_iso_utc(r["completed_at"]) - _parse_iso_utc(r["started_at"])).total_seconds())
+                if _parse_iso_utc(r["completed_at"]) and _parse_iso_utc(r["started_at"]) else None
+            ),
             "result_image_id": short_public_id(r["result_image_id"]),
             "result_image_url": safe_app_url(_row_get(image_by_job.get(r["id"]), "url")),
+            "admin_result_image_url": (
+                f"/api/admin/media/image/{_row_get(image_by_job.get(r['id']), 'id')}?variant=full"
+                if _row_get(image_by_job.get(r["id"]), "id") else None
+            ),
             "error": safe_error_message(r["error_message"]),
         } for r in jobs_rows],
         "recent_gallery": [{
@@ -13455,13 +13486,37 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
             "admin_delete_id": r["id"],
             "image_url": safe_app_url(r["url"]),
             "thumbnail_url": safe_app_url(r["thumbnail_url"]),
+            "admin_media_url": f"/api/admin/media/image/{r['id']}?variant=thumb",
+            "admin_full_url": f"/api/admin/media/image/{r['id']}?variant=full",
             "job_id": short_public_id(r["job_id"]),
             "mode": r["mode"],
             "provider": r["provider"],
             "prompt": truncate_admin_text(r["prompt_original"], 140),
             "created_at": r["created_at"],
             "favorite": bool(r["is_favorite"]),
-        } for r in image_rows if safe_app_url(r["thumbnail_url"])],
+        } for r in image_rows if safe_app_url(r["thumbnail_url"]) or safe_app_url(r["url"])],
+        "recent_videos": [{
+            "id": short_public_id(r["id"]),
+            "admin_video_id": r["id"],
+            "job_id": short_public_id(r["job_id"]),
+            "media_url": f"/api/admin/media/video/{r['id']}",
+            "width": r["width"], "height": r["height"],
+            "duration_seconds": r["duration_seconds"], "aspect_ratio": r["aspect_ratio"],
+            "mode": r["mode"], "provider": r["provider"],
+            "model": (
+                ((safe_json_load(r["settings_json"]) or {}).get("openrouterModel")
+                 or (safe_json_load(r["settings_json"]) or {}).get("model")
+                 or (safe_json_load(r["settings_json"]) or {}).get("modelProfile")
+                 or (safe_json_load(r["job_settings_json"]) or {}).get("openrouterModel")
+                 or (safe_json_load(r["job_settings_json"]) or {}).get("model")
+                 or (safe_json_load(r["job_settings_json"]) or {}).get("modelProfile"))
+                if isinstance(safe_json_load(r["settings_json"]) or {}, dict)
+                and isinstance(safe_json_load(r["job_settings_json"]) or {}, dict) else None
+            ),
+            "prompt": truncate_admin_text(r["prompt_original"], 1200),
+            "stored_bytes": int(r["stored_bytes"] or 0),
+            "favorite": bool(r["is_favorite"]), "created_at": r["created_at"],
+        } for r in video_rows],
         "token_ledger_recent": [{
             "id": short_public_id(r["id"]),
             "delta": int(r["delta"]),
@@ -13485,6 +13540,40 @@ async def admin_user_detail_analytics_v2(internal_user_id: str, request: Request
         },
         "admin_actions": [{"action": r["action"], "actor": (r["actor_internal_user_id"] or "")[:8], "reason": truncate_admin_text((safe_json_load(r["after_json"]) or {}).get("reason"), 80), "created_at": r["created_at"]} for r in audits],
     }
+
+
+@app.get("/api/admin/media/image/{image_id}")
+async def admin_user_image_media(image_id: str, request: Request, variant: str = "thumb") -> FileResponse:
+    require_trusted_admin(request)
+    with db() as conn:
+        row = conn.execute(
+            "SELECT url, thumbnail_url FROM images WHERE id=? AND (deleted_at IS NULL OR deleted_at='')",
+            (image_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Изображение не найдено.")
+    selected_url = row["url"] if variant == "full" else (row["thumbnail_url"] or row["url"])
+    path = local_media_path_from_url(selected_url)
+    if path is None or not path.exists():
+        raise HTTPException(404, "Файл изображения не найден.")
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=3600"})
+
+
+@app.get("/api/admin/media/video/{video_id}")
+async def admin_user_video_media(video_id: str, request: Request) -> FileResponse:
+    require_trusted_admin(request)
+    with db() as conn:
+        row = conn.execute(
+            "SELECT j.settings_json FROM videos v JOIN jobs j ON j.id=v.job_id "
+            "WHERE v.id=? AND (v.deleted_at IS NULL OR v.deleted_at='')",
+            (video_id,),
+        ).fetchone()
+    settings = safe_json_load(row["settings_json"]) if row else {}
+    filename = str((settings or {}).get("localFile") or "")
+    path = storage_resolve_under_root(MEDIA, filename) if filename else None
+    if path is None or not path.exists():
+        raise HTTPException(404, "Видеофайл не найден.")
+    return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @app.post("/api/admin/users/{internal_user_id}/gallery/{image_id}/delete-v2")
