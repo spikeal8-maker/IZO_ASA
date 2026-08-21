@@ -227,15 +227,26 @@ try {
     $manifestBuilder = Join-Path $newRelease 'tools\build_release_manifest.py'
     $releaseIdentityChecker = Join-Path $newRelease 'tools\check_frontend_release_identity.mjs'
     if (Test-Path -LiteralPath $manifestBuilder) {
-        $head = ([string](& $git -C $newRelease rev-parse HEAD)).Trim()
-        if ($LASTEXITCODE -ne 0 -or $head -ne $newSha) {
+        $safeGitArguments = @('-c', "safe.directory=$newRelease", '-C', $newRelease)
+        $headOutput = @(& $git @safeGitArguments rev-parse HEAD 2>&1)
+        $headExitCode = $LASTEXITCODE
+        $head = if ($headOutput.Count -gt 0) { ([string]$headOutput[0]).Trim() } else { '' }
+        if ($headExitCode -ne 0 -or $head -ne $newSha) {
             throw 'Candidate checkout does not match the requested commit.'
         }
-        if (@(& $git -C $newRelease status --porcelain).Count -gt 0) {
+        $statusOutput = @(& $git @safeGitArguments status --porcelain 2>&1)
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to inspect the candidate checkout state.'
+        }
+        if ($statusOutput.Count -gt 0) {
             throw 'Candidate checkout is dirty before immutable artifact creation.'
         }
-        $commitUnix = [long](([string](& $git -C $newRelease show -s --format=%ct $newSha)).Trim())
-        if ($LASTEXITCODE -ne 0 -or $commitUnix -le 0) {
+        $commitOutput = @(& $git @safeGitArguments show -s --format=%ct $newSha 2>&1)
+        $commitExitCode = $LASTEXITCODE
+        $commitUnix = [long]0
+        if ($commitExitCode -ne 0 -or $commitOutput.Count -eq 0 -or
+            -not [long]::TryParse(([string]$commitOutput[0]).Trim(), [ref]$commitUnix) -or
+            $commitUnix -le 0) {
             throw 'Unable to resolve the candidate commit timestamp.'
         }
         $releaseId = $newSha.Substring(0, 12) + '-' +
