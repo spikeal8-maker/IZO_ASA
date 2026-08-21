@@ -145,9 +145,14 @@ def test_caddy_operational_scripts_have_fail_closed_plans() -> None:
 
     check_source = (ROOT / "tools" / "check-caddy-edge.ps1").read_text(encoding="utf-8")
     assert "Add-Type -AssemblyName System.Net.Http" in check_source
+    assert 'active.PSObject.Properties.Name -contains "access_log"' in check_source
+    assert "$activeAccessLog" in check_source
     assert check_source.index("Add-Type -AssemblyName System.Net.Http") < check_source.index(
         "New-Object System.Net.Http.HttpClientHandler"
     )
+
+    publisher = (ROOT / "tools" / "publish-frontend-release.ps1").read_text(encoding="utf-8")
+    assert 'access_log = (Join-Path $root "logs\\caddy-access.jsonl")' in publisher
 
 
 def test_release_and_launcher_normal_paths_use_caddy_not_vite_preview() -> None:

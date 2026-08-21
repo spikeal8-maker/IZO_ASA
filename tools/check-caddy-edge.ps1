@@ -18,6 +18,7 @@ $root = (Resolve-Path -LiteralPath $RepoRoot).Path
 $runtime = Get-IzoCaddyRuntime -RepoRoot $root
 $activeManifestPath = Join-Path $root ".runtime\active-frontend.json"
 $active = $null
+$activeAccessLog = ""
 if (-not $ReleasePath.Trim()) {
     if (-not (Test-Path -LiteralPath $activeManifestPath -PathType Leaf)) {
         throw "Active frontend manifest is required when ReleasePath is omitted."
@@ -25,6 +26,9 @@ if (-not $ReleasePath.Trim()) {
     $active = Get-Content -LiteralPath $activeManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $ReleasePath = [string]$active.release_path
     $ReleaseId = [string]$active.active_release
+    if ($active.PSObject.Properties.Name -contains "access_log") {
+        $activeAccessLog = [string]$active.access_log
+    }
 }
 if (-not $ReleaseId.Trim()) {
     $ReleaseId = "config-validation"
@@ -156,13 +160,14 @@ try {
 }
 
 Start-Sleep -Milliseconds 200
-if (-not (Test-Path -LiteralPath $environment.AccessLog -PathType Leaf)) { throw "Caddy access log was not created." }
-$recentLog = (Get-Content -LiteralPath $environment.AccessLog -Tail 40 -ErrorAction Stop) -join "`n"
+$accessLog = if ($activeAccessLog.Trim()) { [IO.Path]::GetFullPath($activeAccessLog) } else { $environment.AccessLog }
+if (-not (Test-Path -LiteralPath $accessLog -PathType Leaf)) { throw "Caddy access log was not created." }
+$recentLog = (Get-Content -LiteralPath $accessLog -Tail 40 -ErrorAction Stop) -join "`n"
 if (-not $recentLog.Trim()) { throw "Caddy access log is empty." }
 foreach ($sentinel in @("edge-secret-sentinel", "edge-cookie-sentinel", "edge-query-sentinel", "edge-user-id")) {
     if ($recentLog.Contains($sentinel)) { throw "Caddy access log leaked redaction sentinel: $sentinel" }
 }
-$lastJsonLine = @(Get-Content -LiteralPath $environment.AccessLog -Tail 40 | Where-Object { $_.Trim() })[-1]
+$lastJsonLine = @(Get-Content -LiteralPath $accessLog -Tail 40 | Where-Object { $_.Trim() })[-1]
 try { $null = $lastJsonLine | ConvertFrom-Json } catch { throw "Caddy access log is not structured JSON." }
 
 if ($PublicBaseUrl.Trim()) {
