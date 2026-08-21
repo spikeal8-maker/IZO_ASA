@@ -172,7 +172,7 @@ $newRelease = if ([string]$marker.CandidatePath) {
     "C:\IZO_ASA\releases\$newSha"
 }
 $expectedRelease = [IO.Path]::GetFullPath("C:\IZO_ASA\releases\$newSha")
-if (-not $newRelease.Equals($expectedRelease, [StringComparison]::OrdinalIgnoreCase)) {
+if (-not [string]::Equals($newRelease, $expectedRelease, [StringComparison]::OrdinalIgnoreCase)) {
     throw 'Promotion candidate path does not match the requested commit.'
 }
 
