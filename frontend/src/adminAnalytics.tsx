@@ -382,6 +382,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const fullImageUrl = (img: AnyRec) => String(img.admin_full_url || img.full_url || img.admin_media_url || img.media_url || img.image_url || img.result_image_url || '')
   const periodMetrics = (sm.period_metrics || {}) as AnyRec
   const generationPeriods = (periodMetrics.generations || {}) as AnyRec
+  const totalJobs = (generationPeriods.total || {}) as AnyRec
   const tokenPeriods = (periodMetrics.token_usage || {}) as AnyRec
   const openImage = (img: AnyRec) => {
     setSelectedImage(img)
@@ -421,7 +422,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                 <div className="crm-preview-badges">{((sm.providers as string[]) || u.providers || []).map((p) => <Badge key={p} p={p} />)}</div>
                 <div className="crm-card-kpis">
                   <span>Основной баланс <b>{S(sm.main_token_balance ?? sm.token_balance)}</b></span><span>Дневные <b>{S(sm.daily_tokens_used)} / {S(sm.daily_tokens_limit)}</b></span>
-                  <span>Сегодня <b>{S((generationPeriods.today as AnyRec)?.total)}</b></span><span>Всего <b>{S(sm.generations_count)}</b></span>
+                  <span>Сегодня <b>{S((generationPeriods.today as AnyRec)?.total)}</b></span><span>Запусков <b>{S(totalJobs.total)}</b></span><span>Готово / ошибок <b>{S(totalJobs.completed)} / {S(totalJobs.failed)}</b></span>
                   <span>Последний вход <b>{shortTime(sm.last_login_at)}</b></span><span>Последняя генерация <b>{shortTime(sm.last_generation_at)}</b></span><span>Риск <b>{riskLabel(sm)}</b></span>
                 </div>
                 <div className="crm-activity-legend">
@@ -595,7 +596,9 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
                   <span><b>{S(data?.access_summary?.failed_logins)}</b>ошибок входа</span>
                   <span><b>{S(data?.access_summary?.unique_ips)}</b>IP-адресов</span>
                   <span><b>{S(data?.access_summary?.devices)}</b>устройств</span>
-                  <span><b>{S(sm.generations_count)}</b>генераций</span>
+                  <span><b>{S(totalJobs.total)}</b>всего запусков</span>
+                  <span><b>{S(totalJobs.completed)}</b>готово</span>
+                  <span><b>{S(totalJobs.failed)}</b>с ошибкой</span>
                   <span><b>{S(data?.history_totals?.images)} / {S(data?.history_totals?.videos)}</b>фото / видео</span>
                 </div>
               </section>
