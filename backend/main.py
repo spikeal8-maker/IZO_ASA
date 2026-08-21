@@ -11644,6 +11644,50 @@ async def admin_profile_v2(internal_user_id: str, req: AdminProfileV2Request, re
     }
 
 
+@app.post("/api/admin/users/{internal_user_id}/avatar-upload-v2")
+async def admin_user_avatar_upload_v2(
+    internal_user_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    reason: str = "Корректировка аватара администратором",
+) -> dict[str, Any]:
+    admin = require_trusted_admin(request)
+    audit_reason = reason.strip()[:240]
+    if not audit_reason:
+        raise HTTPException(400, "Укажите причину.")
+    content_type = (file.content_type or "").lower()
+    if content_type not in AVATAR_ALLOWED_CONTENT_TYPES:
+        raise HTTPException(400, "Avatar must be PNG, JPEG or WEBP.")
+    data = await file.read(AVATAR_MAX_BYTES + 1)
+    if len(data) > AVATAR_MAX_BYTES:
+        raise HTTPException(413, "Avatar file is too large.")
+    avatar_bytes = compress_avatar_image(data, content_type)
+    with db() as conn:
+        target = _admin_load_target(conn, internal_user_id)
+        previous_url = _row_get(target, "avatar_url")
+        previous_preset = _row_get(target, "avatar_preset")
+        filename = f"{internal_user_id}-{uuid.uuid4().hex[:12]}.webp"
+        AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+        dest = AVATAR_DIR / filename
+        dest.write_bytes(avatar_bytes)
+        avatar_url = f"/media/avatars/{filename}"
+        conn.execute(
+            "UPDATE users SET avatar_url = ?, avatar_preset = NULL WHERE internal_user_id = ?",
+            (avatar_url, internal_user_id),
+        )
+        record_audit_log(
+            conn,
+            "admin_update_user_avatar",
+            actor_internal_user_id=admin["internal_user_id"],
+            target_internal_user_id=internal_user_id,
+            entity_id=target["id"],
+            before={"avatar_url": previous_url, "avatar_preset": previous_preset},
+            after={"avatar_url": avatar_url, "avatar_preset": None, "reason": audit_reason},
+            request=request,
+        )
+    return {"ok": True, "internal_user_id": internal_user_id, "avatar_url": avatar_url}
+
+
 @app.get("/api/admin/users/{internal_user_id}/billing-v2")
 async def admin_user_billing_v2(internal_user_id: str, request: Request) -> dict[str, Any]:
     require_trusted_admin(request)

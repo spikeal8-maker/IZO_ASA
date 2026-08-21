@@ -299,9 +299,11 @@ def test_user_detail_analytics_p0_real_data_and_no_secret_leaks(temp_db):
             )
             conn.execute("INSERT INTO auth_login_attempts (id,internal_user_id,provider,identifier,success,failure_reason,ip_address,user_agent_hash,platform,created_at) VALUES ('la1',?,'web_email','p0@example.com',0,'bad','1.2.3.4','ua','web','2026-06-27')", (iuid,))
             conn.execute("INSERT INTO security_events (id,internal_user_id,session_id,severity,event_type,ip_address,user_agent_hash,details_json,created_at) VALUES ('sec1',?,NULL,'warning','admin_password_reset','1.2.3.4','ua','{}','2026-06-27')", (iuid,))
+            conn.execute("INSERT INTO event_logs (id,internal_user_id,legacy_user_id,session_id,event_name,platform,ip_address,properties_json,created_at) VALUES ('evt1',?,?,?,'profile_updated','web','1.2.3.4',?,'2026-06-27')", (iuid, user_id, 'sess1', json.dumps({"provider": "web_email", "secret": "blocked"}, ensure_ascii=False)))
             conn.execute("INSERT INTO audit_logs (id,actor_internal_user_id,target_internal_user_id,action,entity_type,entity_id,before_json,after_json,ip_address,user_agent_hash,created_at) VALUES ('aud1','admin',?,'admin_change_role','user',?,NULL,?,'1.2.3.4','ua','2026-06-27')", (iuid, user_id, json.dumps({"reason": "test role"}, ensure_ascii=False)))
             conn.execute("INSERT INTO audit_logs (id,actor_internal_user_id,target_internal_user_id,action,entity_type,entity_id,before_json,after_json,ip_address,user_agent_hash,created_at) VALUES ('aud2','admin',?,'admin_block_user','user',?,NULL,?,'1.2.3.4','ua','2026-06-27')", (iuid, user_id, json.dumps({"reason": "test ban"}, ensure_ascii=False)))
         r = c.get(f"/api/admin/users/{iuid}/analytics-v2", headers=bearer(tok))
+        events = c.get(f"/api/admin/users/{iuid}/history-v2?section=events", headers=bearer(tok))
     assert r.status_code == 200
     b = r.json()
     assert b["recent_generations"][0]["id"].endswith("…")
@@ -315,6 +317,12 @@ def test_user_detail_analytics_p0_real_data_and_no_secret_leaks(temp_db):
     assert any(s["device"]["browser"] == "Chrome" for s in b["sessions"])
     assert all(s["device"]["mac_status"] == "MAC: недоступен" for s in b["sessions"])
     assert b["devices"][0]["installation_id"].endswith("…")
+    assert any(item["browser"] == "Chrome" and item["os"] == "Windows" for item in b["client_history"])
+    assert events.status_code == 200
+    linked_event = next(item for item in events.json()["items"] if item["event_name"] == "profile_updated")
+    assert linked_event["browser"] == "Chrome"
+    assert linked_event["device_type"] == "desktop"
+    assert linked_event["details"] == {"provider": "web_email"}
     assert b["security_summary"]["failed_login_count"] == 1
     assert b["security_summary"]["password_reset_count"] == 1
     assert b["security_summary"]["ban_count"] == 1
