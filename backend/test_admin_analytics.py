@@ -253,6 +253,8 @@ def test_user_dossier_access_models_and_paginated_history(temp_db):
     assert generations.json()["items"][0]["prompt"] == "real dossier prompt"
     generation = generations.json()["items"][0]
     assert generation["tokens"] == {"main": 3, "daily": 0, "refunded": 1, "net": 2}
+    assert generation["preview_type"] == "image"
+    assert generation["preview_url"] == "/api/admin/media/image/image-dossier?variant=thumb"
     assert media.status_code == 200
     assert media.json()["items"][0]["model"] == "test/image-model"
     assert media.json()["items"][0]["stored_bytes"] == 2345678
@@ -260,6 +262,9 @@ def test_user_dossier_access_models_and_paginated_history(temp_db):
     assert generation["actual_cost_rub"] == pytest.approx(12.5)
     assert body["token_economics"]["main_consumed"] == 2
     assert body["generation_economics"]["actual_api_cost_rub"] == pytest.approx(12.5)
+    assert len(body["activity_series"]["days"]) == 14
+    assert body["activity_series"]["totals"]["api_images"] >= 1
+    assert body["cash_economics"]["margin_before_local_cost_rub"] == pytest.approx(-12.5)
     assert finance.status_code == 200
     payment = next(item for item in finance.json()["items"] if item["kind"] == "payment")
     assert payment["status"] == "failed" and payment["tokens_credited"] is False
@@ -362,14 +367,31 @@ def test_admin_media_preview_supports_images_and_video(temp_db, tmp_path, monkey
             "INSERT INTO videos (id,user_id,job_id,url,width,height,duration_seconds,aspect_ratio,mode,provider,prompt_original,settings_json,stored_bytes,is_favorite,created_at) "
             "VALUES ('admin-video','telegram_admin','admin-video-job','/api/video/media/admin-video-job',640,480,4,'4:3','text_to_video','openrouter','test video','{}',18,0,'2026-08-21T01:01:00+00:00')"
         )
+        conn.execute(
+            "INSERT INTO image_sources (id,image_id,user_id,source_kind,role,slot_index,thumb_url,thumb_width,thumb_height,thumb_bytes,children_json,created_at) "
+            "VALUES ('admin-source','admin-image','telegram_admin','upload','base',1,'/api/media/admin-preview.webp',1,1,15,'[]','2026-08-21T00:59:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO feed_publications (id,image_id,internal_user_id,title,status,created_at) "
+            "VALUES ('admin-publication','admin-image','iuid-admin','Публичная работа','published','2026-08-21T01:02:00+00:00')"
+        )
     with TestClient(main.app) as client:
         image = client.get("/api/admin/media/image/admin-image?variant=thumb", headers=bearer(token))
         video = client.get("/api/admin/media/video/admin-video", headers=bearer(token))
+        source = client.get("/api/admin/media/image/admin-source?variant=thumb", headers=bearer(token))
         detail = client.get("/api/admin/users/iuid-admin/analytics-v2", headers=bearer(token)).json()
+        media = client.get("/api/admin/users/iuid-admin/history-v2?section=media", headers=bearer(token)).json()
     assert image.status_code == 200
     assert video.status_code == 200
+    assert source.status_code == 200
     assert detail["recent_videos"][0]["model"] == "test/video"
     assert detail["recent_videos"][0]["media_url"] == "/api/admin/media/video/admin-video"
+    assert media["total"] == 3
+    source_item = next(item for item in media["items"] if item["type"] == "source")
+    image_item = next(item for item in media["items"] if item["type"] == "image")
+    assert source_item["media_url"] == "/api/admin/media/image/admin-source?variant=thumb"
+    assert source_item["source_role"] == "base"
+    assert image_item["publication"]["status"] == "published"
 
 
 # 6, 7: provider profile fields captured (telegram/max upsert already store them)

@@ -95,8 +95,11 @@ const eventLabel = (v: unknown): string => ({
   generation_started: 'Запущена генерация', generation_created: 'Создана генерация',
   generation_completed: 'Генерация завершена', generation_failed: 'Ошибка генерации',
   admin_tokens_adjusted: 'Администратор изменил токены', crm_bonus_granted: 'Начислен CRM-бонус',
-  promo_code_redeemed: 'Активирован промокод', session_revoked: 'Сессия завершена',
+  promo_code_redeemed: 'Активирован промокод', session_revoked: 'Пользовательская сессия завершена',
+  session_expired: 'Истёк срок пользовательской сессии',
 }[String(v)] || S(v).replaceAll('_', ' '))
+const publicationStatusLabel = (v: unknown): string => ({ published: 'В ленте', pending_review: 'На модерации', hidden: 'Скрыто', rejected: 'Отклонено' }[String(v)] || S(v))
+const sourceRoleLabel = (v: unknown, slot: unknown): string => ({ base: 'Основа', face: 'Лицо', reference: `Референс ${S(slot)}`, first_frame: 'Первый кадр', last_frame: 'Последний кадр', mask: 'Маска' }[String(v)] || `Исходник ${S(slot)}`)
 const deferred = 'Отложено: backend v2 пока не отдаёт эти данные.'
 type ActivityKind = 'online' | 'today' | 'week' | 'month' | 'cold'
 type UserSort = 'recent' | 'activity_asc' | 'created_desc' | 'created_asc' | 'generations_desc' | 'generations_asc' | 'tokens_desc' | 'tokens_asc' | 'balance_desc' | 'balance_asc' | 'code_asc' | 'plan_asc' | 'plan_desc' | 'name_asc' | 'name_desc' | 'source_asc' | 'source_desc' | 'contact_asc' | 'contact_desc'
@@ -172,7 +175,7 @@ interface UserDetail {
   security_summary?: AnyRec
   access_summary?: AnyRec; ip_history?: AnyRec[]; client_history?: AnyRec[]; model_usage?: AnyRec[]; history_totals?: AnyRec
   token_summary?: { spent?: number; entries?: number; balance?: number }
-  token_economics?: AnyRec; generation_economics?: AnyRec; cash_economics?: AnyRec
+  token_economics?: AnyRec; generation_economics?: AnyRec; cash_economics?: AnyRec; activity_series?: AnyRec
 }
 
 interface HistoryPage { items?: AnyRec[]; total?: number; has_more?: boolean; offset?: number; limit?: number }
@@ -204,9 +207,55 @@ function GenerationEvent({ item }: { item: AnyRec }): ReactElement {
       ? `Расчётная цена до запуска: ${moneyExact(item.estimated_cost_rub)} / ${moneyExact(item.estimated_cost_usd, 'USD')} — не списание`
       : item.provider_kind === 'local' ? 'Локальная себестоимость: тариф мощности пока не настроен' : 'Цена провайдера не записана'
   return <details className={item.status === 'failed' ? 'crm-generation-row failed' : 'crm-generation-row'}>
-    <summary><b>{S(item.model || item.provider)}</b><span>{modeLabel(item.mode)}</span><span className={`crm-generation-status status-${S(item.status)}`}>{generationStatusLabel(item.status)}</span><span>{S(tokens.net)} ток.</span><span>{durationLabel(item.elapsed_seconds)}</span><small>{shortTime(item.created_at)}</small></summary>
+    <summary>
+      <span className="crm-generation-preview">{item.preview_type === 'video' ? <video src={S(item.preview_url)} muted preload="metadata" /> : item.preview_url ? <img src={S(item.preview_url)} alt="" /> : <span>∅</span>}</span>
+      <span className="crm-generation-name"><b>{S(item.model || item.provider)}</b><small>{modeLabel(item.mode)}</small></span>
+      <span className="crm-generation-prompt" title={S(item.prompt)}>{S(item.prompt || item.error || 'Промпт не сохранён')}</span>
+      <span className={`crm-generation-status status-${S(item.status)}`}>{generationStatusLabel(item.status)}</span>
+      <span>{S(tokens.net)} ток.</span><span>{durationLabel(item.elapsed_seconds)}</span><small>{shortTime(item.created_at)}</small>
+    </summary>
     <div className="crm-generation-detail"><div className="crm-generation-chips"><span>{item.provider_kind === 'local' ? 'Локальная модель · ComfyUI' : `API · ${S(item.provider)}`}</span><span>{cost}</span><span>Job: {S(item.id)}</span>{n0(tokens.refunded) ? <span>Возврат: {S(tokens.refunded)} ток.</span> : null}</div><p>{S(item.prompt || 'Промпт не сохранён')}</p>{Boolean(item.settings) && <small>{Object.entries(item.settings as AnyRec).map(([k, v]) => `${k}: ${S(v)}`).join(' · ')}</small>}{item.error ? <small className="crm-err">Ошибка: {S(item.error)}</small> : null}</div>
   </details>
+}
+
+function UserActivityChart({ series }: { series: AnyRec }): ReactElement {
+  const days = Array.isArray(series.days) ? series.days as AnyRec[] : []
+  if (!days.length) return <p className="crm-card-note">Для графика пока недостаточно данных.</p>
+  const width = 920
+  const height = 210
+  const top = 20
+  const bottom = 168
+  const step = width / days.length
+  const maxGeneration = Math.max(1, ...days.map((day) => n0(day.local_images) + n0(day.api_images) + n0(day.videos)))
+  const maxLogins = Math.max(1, ...days.map((day) => n0(day.logins)))
+  const barWidth = Math.max(5, Math.min(14, step / 5))
+  const barHeight = (value: unknown) => (n0(value) / maxGeneration) * (bottom - top)
+  const loginPoints = days.map((day, index) => {
+    const x = index * step + step / 2
+    const y = bottom - (n0(day.logins) / maxLogins) * (bottom - top)
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+  return <div className="crm-profile-chart">
+    <div className="crm-chart-legend"><span className="local">Базовая модель</span><span className="api">Платные модели</span><span className="video">Видео</span><span className="login">Входы</span></div>
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Входы и генерации пользователя за 14 дней">
+      <line x1="0" y1={bottom} x2={width} y2={bottom} className="axis" />
+      {days.map((day, index) => {
+        const center = index * step + step / 2
+        const localHeight = barHeight(day.local_images)
+        const apiHeight = barHeight(day.api_images)
+        const videoHeight = barHeight(day.videos)
+        return <g key={S(day.date)}>
+          <title>{`${S(day.date)}: базовая ${S(day.local_images)}, платные ${S(day.api_images)}, видео ${S(day.videos)}, входы ${S(day.logins)}`}</title>
+          <rect className="local" x={center - barWidth * 1.7} y={bottom - localHeight} width={barWidth} height={localHeight} rx="2" />
+          <rect className="api" x={center - barWidth / 2} y={bottom - apiHeight} width={barWidth} height={apiHeight} rx="2" />
+          <rect className="video" x={center + barWidth * .7} y={bottom - videoHeight} width={barWidth} height={videoHeight} rx="2" />
+          {(index % 2 === 0 || index === days.length - 1) && <text x={center} y="193" textAnchor="middle">{String(day.date || '').slice(5)}</text>}
+        </g>
+      })}
+      <polyline className="login-line" points={loginPoints} />
+      {days.map((day, index) => <circle key={`login-${S(day.date)}`} className="login-dot" cx={index * step + step / 2} cy={bottom - (n0(day.logins) / maxLogins) * (bottom - top)} r="3" />)}
+    </svg>
+  </div>
 }
 
 // --- Shared trusted-action confirm (compact popover, reason-gated, audited). ---
@@ -457,6 +506,7 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
   const tokenEconomics = (data?.token_economics || {}) as AnyRec
   const generationEconomics = (data?.generation_economics || {}) as AnyRec
   const cashEconomics = (data?.cash_economics || {}) as AnyRec
+  const activitySeries = (data?.activity_series || {}) as AnyRec
   const openImage = (img: AnyRec) => {
     setSelectedImage(img)
     setDeleteReason('')
@@ -510,11 +560,11 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               </div>
             </div>
             <div className="crm-header-kpis" aria-label="Краткая сводка пользователя">
+              <span><small>Принёс денег</small><b>{moneyExact(cashEconomics.net_received_rub)}</b></span>
               <span><small>Баланс</small><b>{S(sm.main_token_balance ?? sm.token_balance)} ток.</b></span>
               <span><small>Последний вход</small><b>{shortTime(sm.last_login_at)}</b></span>
               <span><small>Последняя генерация</small><b>{shortTime(sm.last_generation_at)}</b></span>
               <span><small>Запуски</small><b>{S(totalJobs.total)} · {S(totalJobs.completed)}/{S(totalJobs.failed)}</b></span>
-              <span><small>Устройства</small><b>{Math.max(n0(data?.access_summary?.devices), data?.client_history?.length || 0)}</b></span>
             </div>
             <div className="crm-card-top-actions">
               <button className="secondary" onClick={() => setTab('actions')}>Управление</button>
@@ -664,29 +714,32 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <button className={tab === 'actions' ? 'active' : ''} onClick={() => setTab('actions')}>Управление</button>
             </nav>
             {tab === 'overview' && <div className="crm-acc crm-dossier-overview">
+              <section className="crm-overview-kpis crm-span-2" aria-label="Дашборд пользователя">
+                <span className="revenue"><small>Принёс платформе</small><b>{moneyExact(cashEconomics.net_received_rub)}</b></span>
+                <span className="cost"><small>Расход OpenRouter</small><b>{moneyExact(generationEconomics.actual_api_cost_rub)}</b></span>
+                <span><small>Маржа до локальных расходов</small><b>{moneyExact(cashEconomics.margin_before_local_cost_rub)}</b></span>
+                <span><small>Генерации</small><b>{S(totalJobs.total)}</b><em>{S(totalJobs.completed)} готово · {S(totalJobs.failed)} ошибок</em></span>
+                <span><small>Изображения / видео</small><b>{S(totalJobs.images)} / {S(totalJobs.videos)}</b></span>
+                <span><small>Потрачено токенов</small><b>{S(tokenEconomics.total_consumed)}</b><em>{S(tokenEconomics.main_consumed)} основных · {S(tokenEconomics.daily_consumed)} дневных</em></span>
+                <span><small>Входы / устройства</small><b>{S(data?.access_summary?.successful_logins)} / {Math.max(n0(data?.access_summary?.devices), data?.client_history?.length || 0)}</b></span>
+              </section>
+              <section className="crm-dossier-section crm-span-2 crm-chart-section">
+                <div className="crm-section-heading"><h3>Активность за 14 дней</h3><span>Москва · входы и генерации</span></div>
+                <UserActivityChart series={activitySeries} />
+              </section>
               <section className="crm-dossier-section">
                 <h3>Профиль</h3>
-                <dl className="crm-preview-list">
+                <dl className="crm-preview-list crm-profile-compact">
                   {row('Имя', parsedName(sm, ids))}{row('Email', sm.email)}{row('Username', sm.username)}{row('Телефон', sm.phone)}
                   {row('Создан', shortTime(sm.first_seen_at))}{row('Последний вход', shortTime(sm.last_login_at))}{row('Последняя активность', shortTime(sm.last_seen_at))}{row('Последняя генерация', shortTime(sm.last_generation_at))}
                   {row('Гео', `${S(sm.city)} / ${S(sm.country)}`)}{row('Язык / часовой пояс', `${S(sm.language_code)} / ${S(sm.timezone)}`)}{row('Тариф', sm.plan)}{row('Статус', sm.status)}
                 </dl>
               </section>
               <section className="crm-dossier-section">
-                <h3>Сводка аккаунта</h3>
-                <div className="crm-dossier-metrics">
-                  <span><b>{S(data?.access_summary?.successful_logins)}</b>успешных входов</span>
-                  <span><b>{S(data?.access_summary?.failed_logins)}</b>ошибок входа</span>
-                  <span><b>{S(data?.access_summary?.unique_ips)}</b>IP-адресов</span>
-                  <span><b>{Math.max(n0(data?.access_summary?.devices), data?.client_history?.length || 0)}</b>устройств</span>
-                  <span><b>{S(totalJobs.total)}</b>всего запусков</span>
-                  <span><b>{S(totalJobs.completed)} / {S(totalJobs.failed)}</b>готово / ошибок</span>
-                </div>
-              </section>
-              <section className="crm-dossier-section crm-span-2">
                 <h3>Подключённые аккаунты и API</h3>
                 {(ids || []).map((i, n) => <div className="crm-subrow" key={n}><span><Badge p={String(i.provider)} /> {S(i.provider_email || i.provider_username || i.phone)}</span><small>Связан {shortTime(i.linked_at)} · последний вход {shortTime(i.last_login_at)} · {i.verified_at ? 'подтверждён' : 'не подтверждён'}</small></div>)}
                 {!ids?.length && <p className="crm-card-note">Подключённых внешних аккаунтов нет.</p>}
+                <div className="crm-account-facts"><span><b>{S(data?.access_summary?.unique_ips)}</b> IP</span><span><b>{S(data?.access_summary?.sessions)}</b> сессий</span><span><b>{S(data?.access_summary?.failed_logins)}</b> ошибок входа</span></div>
               </section>
             </div>}
             {tab === 'activity' && <div className="crm-acc crm-activity-view">
@@ -694,24 +747,26 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <div className="crm-subtabs" role="tablist" aria-label="Журнал активности"><button className={activityView === 'logins' ? 'active' : ''} onClick={() => setActivityView('logins')}>Входы и устройства</button><button className={activityView === 'events' ? 'active' : ''} onClick={() => setActivityView('events')}>События</button><button className={activityView === 'security' ? 'active' : ''} onClick={() => setActivityView('security')}>Безопасность</button></div>
               {historyError && <p className="crm-err crm-history-error">{historyError}</p>}
               {activityView === 'logins' && <div className="crm-activity-columns"><section className="crm-dossier-section"><h3>IP и входы</h3><div className="crm-ip-table"><div className="head"><span>IP</span><span>Первый</span><span>Последний</span><span>Набл.</span><span>Успех / ошибка</span></div>{(data?.ip_history || []).map((ip, n) => <div key={n}><code>{S(ip.ip_address)}</code><span>{shortTime(ip.first_seen_at)}</span><span>{shortTime(ip.last_seen_at)}</span><b>{S(ip.seen_count)}</b><span>{S(ip.successful_logins)} / {S(ip.failed_logins)}</span></div>)}</div></section><section className="crm-dossier-section"><h3>Браузеры и устройства</h3>{(data?.client_history || []).map((c, n) => <div className="crm-device-row" key={n}><b>{S(c.browser)} · {S(c.os)}</b><span>{S(c.device_type)} · {S(c.platform)}</span><small>{S(c.seen_count)} сессий · {shortTime(c.last_seen_at)}</small></div>)}</section><section className="crm-dossier-section crm-span-2"><h3>Попытки входа <small>{historyLoading ? 'загрузка…' : S(history?.total)}</small></h3><div className="crm-history-list">{(history?.items || []).map((x, n) => <details className={x.success === true ? 'crm-event-row ok' : 'crm-event-row failed'} key={n}><summary><b>{x.success === true ? 'Успешный вход' : 'Ошибка входа'}</b><span>{S(x.provider)} · {S(x.platform)} · <code>{S(x.ip_address)}</code></span><small>{shortTime(x.created_at)}</small></summary>{x.failure_reason ? <p>{S(x.failure_reason)}</p> : null}</details>)}</div></section></div>}
-              {activityView === 'events' && <section className="crm-dossier-section"><h3>События пользователя <small>{historyLoading ? 'загрузка…' : S(history?.total)}</small></h3><div className="crm-history-list">{(history?.items || []).map((e, n) => <details className="crm-event-row" key={n}><summary><b>{eventLabel(e.event_name)}</b><span>{S(e.platform)} · {S(e.browser)} · {S(e.os)} · {S(e.device_type)}</span><small>{shortTime(e.created_at)} · <code>{S(e.ip_address)}</code></small></summary><p>{jsonSummary(e.details) || 'Дополнительных данных нет.'}</p></details>)}</div></section>}
-              {activityView === 'security' && <section className="crm-dossier-section"><h3>События безопасности <small>{historyLoading ? 'загрузка…' : S(history?.total)}</small></h3><div className="crm-history-list">{(history?.items || []).map((e, n) => <details className={String(e.severity) === 'critical' ? 'crm-event-row failed' : 'crm-event-row'} key={n}><summary><b>{eventLabel(e.event_type)}</b><span>{S(e.severity)} · <code>{S(e.ip_address)}</code></span><small>{shortTime(e.created_at)}</small></summary><p>{jsonSummary(e.details) || 'Дополнительных данных нет.'}</p></details>)}</div></section>}
+              {activityView === 'events' && <section className="crm-dossier-section"><h3>События пользователя <small>{historyLoading ? 'загрузка…' : S(history?.total)}</small></h3><div className="crm-history-list crm-event-list">{(history?.items || []).map((e, n) => <details className="crm-event-row" key={n}><summary><b>{eventLabel(e.event_name)}</b><span>{S(e.platform)} · {S(e.browser)} · {S(e.os)} · {S(e.device_type)}</span><small>{shortTime(e.created_at)} · <code>{S(e.ip_address)}</code></small></summary>{jsonSummary(e.details) !== '—' && <p>{jsonSummary(e.details)}</p>}</details>)}</div>{!historyLoading && !history?.items?.length && <p className="crm-card-note">За выбранный период событий нет.</p>}</section>}
+              {activityView === 'security' && <section className="crm-dossier-section"><div className="crm-section-heading"><h3>Безопасность <small>{historyLoading ? 'загрузка…' : S(history?.total)}</small></h3><span>Только события аккаунта пользователя</span></div><p className="crm-security-note">«Истёк срок пользовательской сессии» — обычное завершение срока входа пользователя, а не ошибка вашей админ-сессии.</p><div className="crm-history-list crm-event-list">{(history?.items || []).map((e, n) => <details className={String(e.severity) === 'critical' ? 'crm-event-row failed' : 'crm-event-row'} key={n}><summary><b>{eventLabel(e.event_type)}</b><span>{S(e.severity)} · <code>{S(e.ip_address)}</code></span><small>{shortTime(e.created_at)}</small></summary>{jsonSummary(e.details) !== '—' && <p>{jsonSummary(e.details)}</p>}</details>)}</div>{!historyLoading && !history?.items?.length && <p className="crm-card-note">Подозрительных событий не зафиксировано.</p>}</section>}
               {history?.has_more && <button className="secondary crm-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Загрузка…' : `Показать ещё (${history.items?.length || 0} из ${history.total || 0})`}</button>}
             </div>}
             {tab === 'payments' && <div className="crm-acc crm-finance-view">
               <div className="crm-section-heading"><h3>Финансы и токены</h3><span>{historyLoading ? 'загрузка…' : `${S(history?.total)} операций`}</span></div>
               {historyError && <p className="crm-err crm-history-error">{historyError}</p>}
               <section className="crm-finance-kpis">
-                <span><small>Текущий баланс</small><b>{S(tokenEconomics.current_balance)} ток.</b></span>
-                <span><small>Возвращено за ошибки</small><b>+{S(tokenEconomics.refunded)} ток.</b></span>
-                <span className="primary"><small>Потрачено токенов</small><b>{S(tokenEconomics.total_consumed)} ток.</b></span>
-                <span><small>Получено денег</small><b>{moneyExact(cashEconomics.paid_rub)}</b></span>
-                <span><small>Чистое поступление</small><b>{moneyExact(cashEconomics.net_received_rub)}</b></span>
-                <span className="cost"><small>Расходы OpenRouter</small><b>{moneyExact(generationEconomics.actual_api_cost_rub)} / {moneyExact(generationEconomics.actual_api_cost_usd, 'USD')}</b></span>
+                <span><small>Основной баланс сейчас</small><b>{S(tokenEconomics.current_balance)} ток.</b></span>
+                <span className="primary"><small>Потрачено основных</small><b>{S(tokenEconomics.main_consumed)} ток.</b></span>
+                <span><small>Использовано дневных</small><b>{S(tokenEconomics.daily_consumed)} ток.</b></span>
+                <span><small>Возвраты за ошибки</small><b>+{S(tokenEconomics.refunded)} ток.</b><em>{S(tokenEconomics.refund_entries)} операций</em></span>
+                <span className="revenue"><small>Оплачено пользователем</small><b>{moneyExact(cashEconomics.paid_rub)}</b></span>
+                <span><small>Чисто после возвратов</small><b>{moneyExact(cashEconomics.net_received_rub)}</b></span>
+                <span className="cost"><small>Фактический OpenRouter</small><b>{moneyExact(generationEconomics.actual_api_cost_rub)}</b><em>{moneyExact(generationEconomics.actual_api_cost_usd, 'USD')}</em></span>
+                <span><small>Маржа до локальных расходов</small><b>{moneyExact(cashEconomics.margin_before_local_cost_rub)}</b></span>
               </section>
-              <details className="crm-summary-details"><summary>Детализация токенов</summary><div><span>Начислено: +{S(tokenEconomics.granted)}</span><span>Списано основных: −{S(tokenEconomics.main_debited)}</span><span>Чисто основных: {S(tokenEconomics.main_consumed)}</span><span>Дневных: {S(tokenEconomics.daily_consumed)}</span></div></details>
+              <details className="crm-summary-details"><summary>Как посчитаны токены и деньги</summary><div><span>Начислено основных: +{S(tokenEconomics.granted)}</span><span>Списано основных до возвратов: −{S(tokenEconomics.main_debited)}</span><span>Возвращено основных: +{S(tokenEconomics.main_refunded)}</span><span>Возвращено дневных: +{S(tokenEconomics.daily_refunded)}</span><span>Денежные возвраты: {moneyExact(cashEconomics.refunded_rub)}</span></div></details>
               <section className="crm-cost-note"><b>Локальная генерация</b><span>{S(generationEconomics.local_completed_jobs)} завершённых · {durationLabel(generationEconomics.local_compute_seconds)} работы. Денежная себестоимость не показывается, пока в админке не настроена цена электроэнергии и оборудования.</span></section>
-              <section className="crm-dossier-section"><h3>Счета и платежи</h3><div className="crm-history-list crm-finance-history">{(data?.payments_recent || []).map((item, n) => <FinanceEvent item={{ ...item, kind: 'payment' }} key={`payment-${S(item.id)}-${n}`} />)}{(data?.invoices_recent || []).map((item, n) => <FinanceEvent item={{ ...item, kind: 'invoice', code: item.invoice_code, amount: item.total_amount, tokens: item.tokens_total }} key={`invoice-${S(item.id)}-${n}`} />)}{(data?.refunds_recent || []).map((item, n) => <FinanceEvent item={{ ...item, kind: 'refund' }} key={`refund-${S(item.id)}-${n}`} />)}</div>{!data?.payments_recent?.length && !data?.invoices_recent?.length && !data?.refunds_recent?.length && <p className="crm-card-note">Счетов, оплат и возвратов пока нет.</p>}</section>
+              <section className="crm-dossier-section crm-finance-section"><h3>Счета и платежи</h3><div className="crm-history-list crm-finance-history">{(data?.payments_recent || []).map((item, n) => <FinanceEvent item={{ ...item, kind: 'payment' }} key={`payment-${S(item.id)}-${n}`} />)}{(data?.invoices_recent || []).map((item, n) => <FinanceEvent item={{ ...item, kind: 'invoice', code: item.invoice_code, amount: item.total_amount, tokens: item.tokens_total }} key={`invoice-${S(item.id)}-${n}`} />)}{(data?.refunds_recent || []).map((item, n) => <FinanceEvent item={{ ...item, kind: 'refund' }} key={`refund-${S(item.id)}-${n}`} />)}</div>{!data?.payments_recent?.length && !data?.invoices_recent?.length && !data?.refunds_recent?.length && <p className="crm-card-note">Счетов, оплат и возвратов пока нет.</p>}</section>
               <section className="crm-dossier-section"><h3>Полная история денег и токенов</h3><div className="crm-history-list crm-finance-history">{(history?.items || []).map((item, n) => <FinanceEvent item={item} key={`${S(item.kind)}-${S(item.id)}-${n}`} />)}</div>{!historyLoading && !history?.items?.length && <p className="crm-card-note">Финансовых операций пока нет.</p>}{history?.has_more && <button className="secondary crm-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Загрузка…' : `Показать ещё (${history.items?.length || 0} из ${history.total || 0})`}</button>}</section>
               <details className="crm-summary-details"><summary>Промокоды, бонусы и рефералы</summary><div className="crm-rows">{(data?.promo_redemptions_recent || []).map((p, n) => <small key={`lp${n}`}>Промо {S(p.promo_code)} · {S(p.status)} · +{S(p.token_bonus)} ток.</small>)}{(data?.bonus_grants_recent || []).map((b, n) => <small key={`lb${n}`}>Бонус {shortId(b.id)} · {S(b.bonus_type)} · +{S(b.token_amount)} ток.</small>)}{(data?.referral_rewards_recent || []).map((r, n) => <small key={`lw${n}`}>Реферальная награда · {S(r.status)} · +{S(r.token_amount)} ток.</small>)}{!data?.promo_redemptions_recent?.length && !data?.bonus_grants_recent?.length && !data?.referral_rewards_recent?.length && <small>Начислений нет.</small>}</div></details>
             </div>}
@@ -722,17 +777,35 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
               <details className="crm-model-summary"><summary>Использованные модели: {S(data?.model_usage?.length || 0)}</summary><div className="crm-model-table">{(data?.model_usage || []).map((m, n) => <div key={n}><b>{S(m.model)}</b><span>{m.provider_kind === 'local' ? 'Локальная' : `API · ${S(m.provider)}`}</span><span>{S(m.total)} запусков · {S(m.completed)}/{S(m.failed)}</span><span>{S(m.net_tokens)} ток.{n0(m.actual_cost_rub) ? ` · ${moneyExact(m.actual_cost_rub)}` : ''}</span><small>{durationLabel(m.elapsed_seconds)}</small></div>)}</div></details>
               <div className="crm-generation-list">{(history?.items || []).map((g, n) => <GenerationEvent item={g} key={`${S(g.job_id)}-${n}`} />)}</div>{history?.has_more && <button className="secondary crm-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Загрузка…' : `Показать ещё (${history.items?.length || 0} из ${history.total || 0})`}</button>}
             </div>}
-            {tab === 'gallery' && <div className="crm-acc"><div className="crm-section-heading"><h3>Медиатека</h3><span>{historyLoading ? 'загрузка…' : `${S(history?.total)} файлов`}</span></div>{historyError && <p className="crm-err crm-history-error">{historyError}</p>}<div className="crm-dossier-gallery">{(history?.items || []).map((media, n) => <button type="button" className="crm-dossier-media" key={n} onClick={() => media.type === 'video' ? setSelectedVideo(media) : openImage(media)}>{media.type === 'video' ? <video src={S(media.media_url)} muted preload="metadata" /> : <img src={imageUrl(media)} alt="" />}<span><b>{media.type === 'video' ? 'Видео' : 'Изображение'}</b><small>{S(media.width)}×{S(media.height)} · {shortTime(media.created_at)}</small><small>{S(media.model || media.provider)} · {modeLabel(media.mode)}</small></span></button>)}</div>{!historyLoading && !historyError && !history?.items?.length && <p className="crm-card-note">У пользователя нет доступных изображений и видео.</p>}{history?.has_more && <button className="secondary crm-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Загрузка…' : `Показать ещё (${history.items?.length || 0} из ${history.total || 0})`}</button>}</div>}
+            {tab === 'gallery' && <div className="crm-acc crm-media-view">
+              <div className="crm-section-heading"><h3>Медиатека</h3><span>{historyLoading ? 'загрузка…' : `${S(history?.total)} материалов`}</span></div>
+              <div className="crm-media-legend"><span>Результаты генераций</span><span>Загруженные исходники</span><span>Публикации в ленте отмечены на карточке</span></div>
+              {historyError && <p className="crm-err crm-history-error">{historyError}</p>}
+              <div className="crm-dossier-gallery">{(history?.items || []).map((media, n) => {
+                const publication = (media.publication || {}) as AnyRec
+                const isSource = media.type === 'source'
+                return <button type="button" className={`crm-dossier-media ${isSource ? 'source' : ''}`} key={n} onClick={() => media.type === 'video' ? setSelectedVideo(media) : openImage(media)}>
+                  {media.type === 'video' ? <video src={S(media.media_url)} muted preload="metadata" /> : <img src={imageUrl(media)} alt="" />}
+                  <span>
+                    <b>{isSource ? sourceRoleLabel(media.source_role, media.slot_index) : media.type === 'video' ? 'Видео' : 'Изображение'}{publication.status ? <em>{publicationStatusLabel(publication.status)}</em> : null}</b>
+                    <small>{S(media.width)}×{S(media.height)} · {shortTime(media.created_at)}</small>
+                    <small>{isSource ? `Загруженный исходник · ${S(media.source_kind)}` : `${S(media.model || media.provider)} · ${modeLabel(media.mode)}`}</small>
+                    {publication.title ? <small className="feed-title">Лента: {S(publication.title)}</small> : null}
+                  </span>
+                </button>
+              })}</div>
+              {!historyLoading && !historyError && !history?.items?.length && <p className="crm-card-note">У пользователя нет доступных результатов, исходников и публикаций.</p>}
+              {history?.has_more && <button className="secondary crm-load-more" disabled={historyLoading} onClick={() => void loadHistory(true)}>{historyLoading ? 'Загрузка…' : `Показать ещё (${history.items?.length || 0} из ${history.total || 0})`}</button>}
+            </div>}
           </div>
 
           <aside className={`crm-card-actions ${tab === 'actions' ? 'is-open' : ''}`}>
-            <h4>Админ-действия</h4>
-            <p className="crm-card-note">{adminReady ? 'Каждое поддержанное действие требует причину и пишется в audit log.' : 'Войдите как админ: мутационные действия заблокированы.'}</p>
-            <div className="crm-action-group"><strong>Токены</strong><div className="crm-quick"><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'tokens', preset: '50' })}>+50</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'tokens', preset: '-50' })}>-50</button>{actionButton('tokens', 'Другое')}</div></div>
-            <div className="crm-action-group"><strong>Биллинг</strong>{actionButton('plan', 'Изменить тариф')}<button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'invoice', preset: '0' })}>Выставить счёт</button><button className="secondary crm-supported-action" disabled={!adminReady || !unpaidInvoice} onClick={() => adminReady && unpaidInvoice && setAct({ kind: 'mark_paid', preset: S(unpaidInvoice.total_amount), context: unpaidInvoice })}>Отметить оплату</button><button className="secondary danger crm-supported-action" disabled={!adminReady || !refundablePayment} onClick={() => adminReady && refundablePayment && setAct({ kind: 'refund', preset: S(refundablePayment.amount), context: refundablePayment })}>Возврат</button><button className="secondary danger crm-supported-action" disabled={!adminReady || !unpaidInvoice} onClick={() => adminReady && unpaidInvoice && setAct({ kind: 'cancel_invoice', context: unpaidInvoice })}>Отменить счёт</button></div>
-            <div className="crm-action-group"><strong>Маркетинг</strong><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'discount', preset: S(data?.billing_summary?.personal_discount_percent || 0) })}>Скидка на оплату</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'bonus', preset: '100' })}>Бонус / компенсация</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'promo' })}>Применить промокод</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'referral_reward', preset: '100' })}>Реферальная корректировка</button><button className="secondary danger crm-supported-action" disabled={!adminReady || !cancellableBonus} onClick={() => adminReady && cancellableBonus && setAct({ kind: 'cancel_bonus', context: cancellableBonus })}>Отменить бонус</button></div>
-            <div className="crm-action-group"><strong>Доступ</strong>{actionButton(isBanned ? 'unban' : 'ban', isBanned ? 'Разбанить' : 'Бан/Разбан', undefined, !isBanned)}{actionButton('reset', 'Сбросить пароль', undefined, true)}</div>
-            <div className="crm-action-group"><strong>Аккаунт</strong>{actionButton('profile', 'Редактировать профиль')}{actionButton('role', isAdmin ? 'Снять админа' : 'Сделать админом')}<button className="secondary danger crm-supported-action" disabled={!adminReady || isAdmin || isBanned} onClick={() => adminReady && setAct({ kind: 'deactivate' })}>Деактивировать</button>{disabledAction('Анонимизировать')}</div>
+            <div className="crm-management-head"><h4>Управление пользователем</h4><p>{adminReady ? 'Причина обязательна; каждое изменение записывается в аудит.' : 'Войдите как администратор, чтобы менять аккаунт.'}</p></div>
+            <div className="crm-action-group compact"><strong>Токены</strong><small>Основной баланс: {S(tokenEconomics.current_balance)} ток.</small><div className="crm-quick"><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'tokens', preset: '50' })}>+50</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'tokens', preset: '-50' })}>−50</button>{actionButton('tokens', 'Своя сумма')}</div></div>
+            <div className="crm-action-group"><strong>Тариф и оплаты</strong><small>{S(sm.plan)} · оплачено {moneyExact(cashEconomics.paid_rub)}</small><div className="crm-action-grid">{actionButton('plan', 'Изменить тариф')}<button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'invoice', preset: '0' })}>Выставить счёт</button><button className="secondary crm-supported-action" disabled={!adminReady || !unpaidInvoice} onClick={() => adminReady && unpaidInvoice && setAct({ kind: 'mark_paid', preset: S(unpaidInvoice.total_amount), context: unpaidInvoice })}>Отметить оплату</button><button className="secondary danger crm-supported-action" disabled={!adminReady || !refundablePayment} onClick={() => adminReady && refundablePayment && setAct({ kind: 'refund', preset: S(refundablePayment.amount), context: refundablePayment })}>Возврат</button><button className="secondary danger crm-supported-action" disabled={!adminReady || !unpaidInvoice} onClick={() => adminReady && unpaidInvoice && setAct({ kind: 'cancel_invoice', context: unpaidInvoice })}>Отменить счёт</button></div></div>
+            <div className="crm-action-group"><strong>Скидки и бонусы</strong><small>Скидка: {S(data?.billing_summary?.personal_discount_percent || 0)}%</small><div className="crm-action-grid"><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'discount', preset: S(data?.billing_summary?.personal_discount_percent || 0) })}>Скидка</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'bonus', preset: '100' })}>Бонус</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'promo' })}>Промокод</button><button className="secondary crm-supported-action" disabled={!adminReady} title={adminReady ? undefined : 'Войдите как админ'} onClick={() => adminReady && setAct({ kind: 'referral_reward', preset: '100' })}>Реферал</button><button className="secondary danger crm-supported-action" disabled={!adminReady || !cancellableBonus} onClick={() => adminReady && cancellableBonus && setAct({ kind: 'cancel_bonus', context: cancellableBonus })}>Отменить бонус</button></div></div>
+            <div className="crm-action-group"><strong>Доступ и безопасность</strong><small>{isBanned ? 'Аккаунт заблокирован' : 'Аккаунт активен'}</small><div className="crm-action-grid">{actionButton(isBanned ? 'unban' : 'ban', isBanned ? 'Разбанить' : 'Заблокировать', undefined, !isBanned)}{actionButton('reset', 'Новый пароль', undefined, true)}</div></div>
+            <div className="crm-action-group"><strong>Профиль и роль</strong><small>{S(sm.role)} · {S(sm.status)}</small><div className="crm-action-grid">{actionButton('profile', 'Изменить профиль')}{actionButton('role', isAdmin ? 'Снять админа' : 'Сделать админом')}<button className="secondary danger crm-supported-action" disabled={!adminReady || isAdmin || isBanned} onClick={() => adminReady && setAct({ kind: 'deactivate' })}>Деактивировать</button>{disabledAction('Анонимизировать')}</div></div>
           </aside>
         </div>
 
@@ -741,27 +814,27 @@ function UserCard({ u, onClose, onChanged }: { u: CrmUserRow; onClose: () => voi
           <div className="crm-image-modal" onClick={() => setSelectedImage(null)}>
             <div className="crm-image-dialog" role="dialog" aria-label="Изображение пользователя" onClick={(e) => e.stopPropagation()}>
               <div className="crm-image-head">
-                <strong>Изображение пользователя</strong>
+                <strong>{selectedImage.type === 'source' ? 'Загруженный исходник' : 'Изображение пользователя'}</strong>
                 <button className="auth-modal-close" aria-label="Закрыть" onClick={() => setSelectedImage(null)}>×</button>
               </div>
               <div className="crm-image-body">
                 <div className="crm-image-frame">{fullImageUrl(selectedImage) ? <img src={fullImageUrl(selectedImage)} alt="" /> : <span>Нет превью</span>}</div>
                 <aside className="crm-image-side">
                   <dl className="crm-preview-list">
-                    {row('Режим', selectedImage.mode)}{row('Провайдер', selectedImage.provider)}{row('Создано', shortTime(selectedImage.created_at))}
+                    {row('Режим', selectedImage.type === 'source' ? sourceRoleLabel(selectedImage.source_role, selectedImage.slot_index) : modeLabel(selectedImage.mode))}{row('Модель', selectedImage.model || selectedImage.provider)}{row('Создано', shortTime(selectedImage.created_at))}
                     {row('Image', selectedImage.id)}{row('Job', selectedImage.job_id)}{row('Избранное', selectedImage.favorite ? 'да' : 'нет')}
                   </dl>
                   <div className="crm-image-prompt">
                     <strong>Промпт</strong>
                     <p>{S(selectedImage.prompt || 'Промпт не сохранён')}</p>
                   </div>
-                  <div className="crm-image-danger">
+                  {selectedImage.type !== 'source' && <div className="crm-image-danger">
                     <strong>Удаление из галереи</strong>
                     <p className="crm-card-note">Картинка будет скрыта у пользователя, действие попадёт в audit log.</p>
                     <input value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} placeholder="Причина удаления" />
                     <button className="secondary danger crm-supported-action" disabled={!adminReady || deleteBusy || !deleteReason.trim()} onClick={() => void deleteGalleryImage()}>{deleteBusy ? 'Удаляю…' : 'Удалить изображение'}</button>
                     {deleteMsg && <p className="crm-err">{deleteMsg}</p>}
-                  </div>
+                  </div>}
                 </aside>
               </div>
             </div>

@@ -275,6 +275,132 @@ def _elapsed_seconds(started_at: Any, completed_at: Any) -> float | None:
     return round(max(0.0, (completed - started).total_seconds()), 3)
 
 
+def _local_day(value: Any) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(MOSCOW).date().isoformat()
+
+
+def _user_activity_series(
+    conn: sqlite3.Connection,
+    internal_user_id: str,
+    user_id: str,
+    *,
+    now: datetime | None = None,
+    days: int = 14,
+) -> dict[str, Any]:
+    """Return a compact Moscow-time activity/economics series for the CRM chart."""
+    current = (now or datetime.now(timezone.utc)).astimezone(MOSCOW)
+    day_count = max(7, min(31, int(days)))
+    first_day = current.date() - timedelta(days=day_count - 1)
+    keys = [(first_day + timedelta(days=index)).isoformat() for index in range(day_count)]
+    points: dict[str, dict[str, Any]] = {
+        key: {
+            "date": key,
+            "logins": 0,
+            "local_images": 0,
+            "api_images": 0,
+            "videos": 0,
+            "main_tokens": 0,
+            "daily_tokens": 0,
+            "refunded_tokens": 0,
+            "api_cost_rub": 0.0,
+            "revenue_rub": 0,
+            "refund_rub": 0,
+            "net_revenue_rub": 0,
+        }
+        for key in keys
+    }
+
+    start_local = datetime.combine(first_day, datetime.min.time(), tzinfo=MOSCOW)
+    start_iso = start_local.astimezone(timezone.utc).isoformat()
+    for row in conn.execute(
+        "SELECT created_at FROM auth_login_attempts WHERE internal_user_id=? AND success=1 AND created_at>=?",
+        (internal_user_id, start_iso),
+    ):
+        key = _local_day(row["created_at"])
+        if key in points:
+            points[key]["logins"] += 1
+
+    for row in conn.execute(
+        "SELECT mode,provider,status,settings_json,created_at FROM jobs WHERE user_id=? AND created_at>=?",
+        (user_id, start_iso),
+    ):
+        key = _local_day(row["created_at"])
+        if key not in points:
+            continue
+        mode = str(row["mode"] or "")
+        if mode in VIDEO_JOB_MODES:
+            points[key]["videos"] += 1
+        elif str(row["provider"] or "") == "comfyui":
+            points[key]["local_images"] += 1
+        else:
+            points[key]["api_images"] += 1
+        economics = _generation_economics(_json_object(row["settings_json"]), row["status"])
+        if economics["cost_kind"] == "actual":
+            points[key]["api_cost_rub"] += float(economics["actual_cost_rub"] or 0)
+
+    for row in conn.execute(
+        "SELECT delta,reason,meta_json,created_at FROM token_ledger WHERE user_id=? AND created_at>=?",
+        (user_id, start_iso),
+    ):
+        key = _local_day(row["created_at"])
+        if key not in points:
+            continue
+        metadata = _json_object(row["meta_json"])
+        delta = int(row["delta"] or 0)
+        reason = str(row["reason"] or "")
+        if "refund" in reason:
+            points[key]["refunded_tokens"] += int(
+                metadata.get("token_cost")
+                or int(metadata.get("daily_part") or 0) + int(metadata.get("balance_part") or max(0, delta))
+            )
+        else:
+            points[key]["daily_tokens"] += max(0, int(metadata.get("daily_part") or 0))
+            points[key]["main_tokens"] += max(0, int(metadata.get("balance_part") or max(0, -delta)))
+
+    for row in conn.execute(
+        "SELECT amount,paid_at,created_at FROM payments WHERE internal_user_id=? "
+        "AND status IN ('paid','partially_refunded','refunded') AND COALESCE(paid_at,created_at)>=?",
+        (internal_user_id, start_iso),
+    ):
+        key = _local_day(row["paid_at"] or row["created_at"])
+        if key in points:
+            points[key]["revenue_rub"] += int(row["amount"] or 0)
+    for row in conn.execute(
+        "SELECT amount,completed_at,created_at FROM refunds WHERE internal_user_id=? "
+        "AND status IN ('completed','succeeded') AND COALESCE(completed_at,created_at)>=?",
+        (internal_user_id, start_iso),
+    ):
+        key = _local_day(row["completed_at"] or row["created_at"])
+        if key in points:
+            points[key]["refund_rub"] += int(row["amount"] or 0)
+
+    for point in points.values():
+        point["api_cost_rub"] = round(float(point["api_cost_rub"]), 2)
+        point["net_revenue_rub"] = int(point["revenue_rub"]) - int(point["refund_rub"])
+    values = list(points.values())
+    return {
+        "timezone": "Europe/Moscow",
+        "days": values,
+        "totals": {
+            name: round(sum(float(point[name]) for point in values), 2)
+            if name == "api_cost_rub" else sum(int(point[name]) for point in values)
+            for name in (
+                "logins", "local_images", "api_images", "videos", "main_tokens",
+                "daily_tokens", "refunded_tokens", "api_cost_rub", "revenue_rub",
+                "refund_rub", "net_revenue_rub",
+            )
+        },
+    }
+
+
 def _generation_economics(settings: dict[str, Any], status: Any) -> dict[str, Any]:
     billing = settings.get("openrouterBilling") if isinstance(settings.get("openrouterBilling"), dict) else {}
     actual_usd = _number(billing.get("actualCostUsd"))
@@ -312,13 +438,14 @@ def _token_job_map(conn: sqlite3.Connection, user_id: str) -> dict[str, dict[str
 
 
 def _finance_projection(conn: sqlite3.Connection, internal_user_id: str, user_id: str) -> dict[str, Any]:
-    grants = main_refunded = daily_refunded = main_debited = daily_debited = ledger_entries = 0
+    grants = main_refunded = daily_refunded = main_debited = daily_debited = ledger_entries = refund_entries = 0
     for row in conn.execute("SELECT delta,reason,meta_json FROM token_ledger WHERE user_id=?", (user_id,)):
         ledger_entries += 1
         delta = int(row["delta"] or 0)
         reason = str(row["reason"] or "")
         metadata = _json_object(row["meta_json"])
         if "refund" in reason:
+            refund_entries += 1
             daily_refunded += max(0, int(metadata.get("daily_part") or 0))
             main_refunded += max(0, int(metadata.get("balance_part") or max(0, delta)))
         elif delta > 0:
@@ -362,6 +489,7 @@ def _finance_projection(conn: sqlite3.Connection, internal_user_id: str, user_id
             "daily_consumed": max(0, daily_debited - daily_refunded),
             "total_consumed": max(0, main_debited - main_refunded) + max(0, daily_debited - daily_refunded),
             "ledger_entries": ledger_entries,
+            "refund_entries": refund_entries,
         },
         "generation_economics": {
             "actual_api_cost_usd": round(actual_usd, 6),
@@ -376,6 +504,10 @@ def _finance_projection(conn: sqlite3.Connection, internal_user_id: str, user_id
             "paid_rub": int(paid["amount"] or 0),
             "refunded_rub": int(returned["amount"] or 0),
             "net_received_rub": int(paid["amount"] or 0) - int(returned["amount"] or 0),
+            "margin_before_local_cost_rub": round(
+                int(paid["amount"] or 0) - int(returned["amount"] or 0) - actual_rub,
+                2,
+            ),
         },
     }
 
@@ -475,6 +607,7 @@ def user_dossier_enrichment(
         "client_history": client_history,
         "model_usage": sorted(models.values(), key=lambda item: (-int(item["total"]), str(item["model"]))),
         "history_totals": history_totals,
+        "activity_series": _user_activity_series(conn, internal_user_id, user_id),
         **_finance_projection(conn, internal_user_id, user_id),
     }
 
@@ -530,11 +663,28 @@ def user_history_page(conn: sqlite3.Connection, internal_user_id: str, section: 
         total = _scalar(conn, "SELECT COUNT(*) FROM jobs WHERE user_id=?", (user_id,))
         rows = conn.execute("SELECT id,mode,provider,status,prompt_original,error_message,settings_json,created_at,started_at,completed_at FROM jobs WHERE user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?", (user_id, limit, offset)).fetchall()
         job_tokens = _token_job_map(conn, user_id)
+        image_by_job: dict[str, sqlite3.Row] = {}
+        for media_row in conn.execute(
+            "SELECT id,job_id,width,height FROM images WHERE user_id=? AND job_id IS NOT NULL "
+            "AND (deleted_at IS NULL OR deleted_at='') ORDER BY created_at DESC",
+            (user_id,),
+        ):
+            image_by_job.setdefault(str(media_row["job_id"]), media_row)
+        video_by_job: dict[str, sqlite3.Row] = {}
+        for media_row in conn.execute(
+            "SELECT id,job_id,width,height,duration_seconds FROM videos WHERE user_id=? "
+            "AND (deleted_at IS NULL OR deleted_at='') ORDER BY created_at DESC",
+            (user_id,),
+        ):
+            video_by_job.setdefault(str(media_row["job_id"]), media_row)
         items = []
         for r in rows:
             settings = _json_object(r["settings_json"])
             tokens = job_tokens.get(str(r["id"]), {"main": 0, "daily": 0, "refunded": 0})
-            items.append({"id": _short(r["id"]), "job_id": r["id"], "mode": r["mode"], "provider": r["provider"], "provider_kind": "local" if r["provider"] == "comfyui" else "api", "status": r["status"], "model": settings.get("modelProfile") or settings.get("openrouterModel") or settings.get("model") or r["provider"], "prompt": _text(r["prompt_original"], 3000), "error": _text(r["error_message"], 600), "created_at": r["created_at"], "started_at": r["started_at"], "completed_at": r["completed_at"], "elapsed_seconds": _elapsed_seconds(r["started_at"] or r["created_at"], r["completed_at"]), "tokens": {**tokens, "net": max(0, int(tokens["main"]) + int(tokens["daily"]) - int(tokens["refunded"]))}, **_generation_economics(settings, r["status"]), "settings": {key: settings[key] for key in ("aspectRatio", "resolution", "quality", "duration", "steps", "seed") if settings.get(key) is not None}})
+            preview = video_by_job.get(str(r["id"])) or image_by_job.get(str(r["id"]))
+            preview_type = "video" if str(r["id"]) in video_by_job else ("image" if preview else None)
+            preview_id = preview["id"] if preview else None
+            items.append({"id": _short(r["id"]), "job_id": r["id"], "mode": r["mode"], "provider": r["provider"], "provider_kind": "local" if r["provider"] == "comfyui" else "api", "status": r["status"], "model": settings.get("modelProfile") or settings.get("openrouterModel") or settings.get("model") or r["provider"], "prompt": _text(r["prompt_original"], 3000), "error": _text(r["error_message"], 600), "created_at": r["created_at"], "started_at": r["started_at"], "completed_at": r["completed_at"], "elapsed_seconds": _elapsed_seconds(r["started_at"] or r["created_at"], r["completed_at"]), "tokens": {**tokens, "net": max(0, int(tokens["main"]) + int(tokens["daily"]) - int(tokens["refunded"]))}, "preview_type": preview_type, "preview_url": f"/api/admin/media/{preview_type}/{preview_id}" + ("?variant=thumb" if preview_type == "image" else "") if preview_type and preview_id else None, "preview_width": preview["width"] if preview else None, "preview_height": preview["height"] if preview else None, **_generation_economics(settings, r["status"]), "settings": {key: settings[key] for key in ("aspectRatio", "resolution", "quality", "duration", "steps", "seed") if settings.get(key) is not None}})
     elif section == "finance":
         items = []
         for r in conn.execute("SELECT id,invoice_code,status,currency,total_amount,tokens_total,reason,created_at,issued_at,paid_at,cancelled_at,refunded_at FROM invoices WHERE internal_user_id=?", (internal_user_id,)):
@@ -552,18 +702,39 @@ def user_history_page(conn: sqlite3.Connection, internal_user_id: str, section: 
     else:
         image_total = _scalar(conn, "SELECT COUNT(*) FROM images WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='')", (user_id,))
         video_total = _scalar(conn, "SELECT COUNT(*) FROM videos WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='')", (user_id,))
-        total = image_total + video_total
+        source_total = _scalar(conn, "SELECT COUNT(*) FROM image_sources WHERE user_id=? AND (library_deleted_at IS NULL OR library_deleted_at='')", (user_id,)) + _scalar(conn, "SELECT COUNT(*) FROM video_sources WHERE user_id=?", (user_id,))
+        total = image_total + video_total + source_total
         rows = conn.execute(
-            "SELECT media_type,id,job_id,mode,provider,prompt_original,width,height,duration_seconds,settings_json,stored_bytes,is_favorite,created_at FROM ("
-            "SELECT 'image' media_type,id,job_id,mode,provider,prompt_original,width,height,NULL duration_seconds,settings_json,stored_bytes,is_favorite,created_at FROM images WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='') "
-            "UNION ALL SELECT 'video',id,job_id,mode,provider,prompt_original,width,height,duration_seconds,settings_json,stored_bytes,is_favorite,created_at FROM videos WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='')) "
+            "SELECT media_type,id,job_id,mode,provider,prompt_original,width,height,duration_seconds,settings_json,stored_bytes,is_favorite,created_at,source_kind,source_role,slot_index,parent_id FROM ("
+            "SELECT 'image' media_type,id,job_id,mode,provider,prompt_original,width,height,NULL duration_seconds,settings_json,stored_bytes,is_favorite,created_at,NULL source_kind,NULL source_role,NULL slot_index,NULL parent_id FROM images WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='') "
+            "UNION ALL SELECT 'video',id,job_id,mode,provider,prompt_original,width,height,duration_seconds,settings_json,stored_bytes,is_favorite,created_at,NULL,NULL,NULL,NULL FROM videos WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='') "
+            "UNION ALL SELECT 'source',s.id,i.job_id,'source_input',s.source_kind,NULL,s.thumb_width,s.thumb_height,NULL,'{}',s.thumb_bytes,s.is_favorite,s.created_at,s.source_kind,s.role,s.slot_index,s.image_id FROM image_sources s LEFT JOIN images i ON i.id=s.image_id WHERE s.user_id=? AND (s.library_deleted_at IS NULL OR s.library_deleted_at='') "
+            "UNION ALL SELECT 'source',s.id,s.job_id,'source_input',s.source_kind,NULL,s.thumb_width,s.thumb_height,NULL,'{}',s.thumb_bytes,0,s.created_at,s.source_kind,s.role,s.slot_index,s.job_id FROM video_sources s WHERE s.user_id=?) "
             "ORDER BY created_at DESC LIMIT ? OFFSET ?",
-            (user_id, user_id, limit, offset),
+            (user_id, user_id, user_id, user_id, limit, offset),
         ).fetchall()
+        publications: dict[tuple[str, str], dict[str, Any]] = {}
+        for publication in conn.execute(
+            "SELECT id,media_type,image_id,video_id,title,status,created_at FROM feed_publications "
+            "WHERE internal_user_id=? ORDER BY created_at DESC",
+            (internal_user_id,),
+        ):
+            media_id = publication["video_id"] if publication["media_type"] == "video" else publication["image_id"]
+            if media_id:
+                publications[(str(publication["media_type"]), str(media_id))] = {
+                    "id": _short(publication["id"]),
+                    "title": _text(publication["title"], 240),
+                    "status": publication["status"],
+                    "created_at": publication["created_at"],
+                }
         items = []
         for r in rows:
             settings = _json_object(r["settings_json"])
-            items.append({"type": r["media_type"], "id": _short(r["id"]), "admin_media_id": r["id"], "job_id": _short(r["job_id"]), "media_url": f"/api/admin/media/{r['media_type']}/{r['id']}" + ("?variant=thumb" if r["media_type"] == "image" else ""), "full_url": f"/api/admin/media/{r['media_type']}/{r['id']}" + ("?variant=full" if r["media_type"] == "image" else ""), "mode": r["mode"], "provider": r["provider"], "model": settings.get("modelProfile") or settings.get("openrouterModel") or settings.get("model") or r["provider"], "prompt": _text(r["prompt_original"], 1200), "width": r["width"], "height": r["height"], "duration_seconds": r["duration_seconds"], "stored_bytes": int(r["stored_bytes"] or 0), "favorite": bool(r["is_favorite"]), "created_at": r["created_at"]})
+            media_type = str(r["media_type"])
+            media_route_type = "image" if media_type == "source" else media_type
+            url = f"/api/admin/media/{media_route_type}/{r['id']}" + ("?variant=thumb" if media_route_type == "image" else "")
+            full_url = f"/api/admin/media/{media_route_type}/{r['id']}" + ("?variant=full" if media_type == "image" else "?variant=thumb" if media_type == "source" else "")
+            items.append({"type": media_type, "id": _short(r["id"]), "admin_media_id": r["id"], "job_id": _short(r["job_id"]), "media_url": url, "full_url": full_url, "mode": r["mode"], "provider": r["provider"], "model": settings.get("modelProfile") or settings.get("openrouterModel") or settings.get("model") or r["provider"], "prompt": _text(r["prompt_original"], 1200), "width": r["width"], "height": r["height"], "duration_seconds": r["duration_seconds"], "stored_bytes": int(r["stored_bytes"] or 0), "favorite": bool(r["is_favorite"]), "source_kind": r["source_kind"], "source_role": r["source_role"], "slot_index": r["slot_index"], "parent_id": _short(r["parent_id"]), "publication": publications.get((media_type, str(r["id"]))), "created_at": r["created_at"]})
     return {"ok": True, "section": section, "items": items, "total": total, "limit": limit, "offset": offset, "has_more": offset + len(items) < total}
 
 

@@ -13547,8 +13547,8 @@ async def admin_user_image_media(image_id: str, request: Request, variant: str =
     require_trusted_admin(request)
     with db() as conn:
         row = conn.execute(
-            "SELECT url, thumbnail_url FROM images WHERE id=? AND (deleted_at IS NULL OR deleted_at='')",
-            (image_id,),
+            "SELECT url,thumbnail_url FROM images WHERE id=? AND (deleted_at IS NULL OR deleted_at='') UNION ALL SELECT thumb_url,thumb_url FROM image_sources WHERE id=? AND (library_deleted_at IS NULL OR library_deleted_at='') UNION ALL SELECT thumb_url,thumb_url FROM video_sources WHERE id=? LIMIT 1",
+            (image_id, image_id, image_id),
         ).fetchone()
     if row is None:
         raise HTTPException(404, "Изображение не найдено.")
