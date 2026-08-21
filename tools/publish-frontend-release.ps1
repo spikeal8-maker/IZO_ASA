@@ -332,6 +332,7 @@ $manifest = [ordered]@{
     previous_release = $previous
     release_path = $releasePath
     release_manifest = $releaseManifestPath
+    access_log = (Join-Path $root "logs\caddy-access.jsonl")
     git_sha = $fullSha
     verification_kind = $verificationKind
     verification_mode = $verificationMode
